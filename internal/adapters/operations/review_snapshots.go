@@ -280,13 +280,12 @@ func itemContentPair(bundleFS afero.Fs, bundle *bundles.Bundle, tRef trust.Ref) 
 		// rendered tree-listing text `ctxloom review` itself displays
 		// (renderSkillSurface), so a later diff shows exactly which file(s)
 		// changed — the per-file-diff contract skills are stored as a tree
-		// to get. The EFFECTIVE manifest is used so an unsynced skill
-		// snapshots its real tree rather than an empty listing.
-		skillDir, dirErr := bundle.SkillPreimageDir(skill)
+		// to get.
+		skillDir, dirErr := bundle.FSDir()
 		if dirErr != nil {
 			return "", "", false
 		}
-		manifest, merr := skill.EffectiveManifest(bundleFS, skillDir, tRef.Name)
+		manifest, merr := skill.PackageManifest(bundleFS, skillDir, tRef.Name)
 		if merr != nil {
 			return "", "", false
 		}

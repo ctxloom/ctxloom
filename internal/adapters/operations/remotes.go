@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/spf13/afero"
@@ -646,17 +645,13 @@ func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, r
 	return items, warnings
 }
 
-// browseEntry builds a BrowseItemEntry from a directory entry, stripping the
-// ".yaml" suffix from files and prefixing req.Path onto the pull path. The
+// browseEntry builds a BrowseItemEntry from a directory entry, prefixing
+// req.Path onto the pull path. The
 // PullRef is the canonical "<url>@<kind>s/<path>" ref — canonical is the sole
 // stored identity (short "<alias>/<path>" forms are still accepted as install
 // input and resolved to canonical at the boundary).
 func browseEntry(e remote.DirEntry, itemType remote.ItemType, repoURL string, req BrowseRemoteRequest) BrowseItemEntry {
 	name := e.Name
-	if !e.IsDir && strings.HasSuffix(name, ".yaml") {
-		name = strings.TrimSuffix(name, ".yaml")
-	}
-
 	pullPath := name
 	if req.Path != "" {
 		pullPath = req.Path + "/" + name
@@ -671,51 +666,70 @@ func browseEntry(e remote.DirEntry, itemType remote.ItemType, repoURL string, re
 	}
 }
 
-// browseDir lists directory contents, optionally recursively. warnings
+// browseDir lists the directories under dir — bundles are trees, so a file
+// there is nothing to pull — optionally recursively. A recursive listing
+// reports each directory holding a bundle.yaml as one entry and does not
+// descend into it: everything beneath is that bundle's items. warnings
 // collects human-readable messages for subdirectories that failed to list
-// mid-recursion: a subtree failure no longer vanishes silently —
-// the caller folds these into BrowseRemoteResult.Warnings exactly like a
-// top-level failure. A subtree's own genuinely-missing-directory case
-// (errs.ErrRemoteContentNotFound) is not itself an error here since ListDir
-// only reaches this recursive call for entries the parent listing already
-// reported as present; any error surfacing from it is unexpected.
+// mid-recursion, so a subtree failure does not vanish silently — the caller
+// folds these into BrowseRemoteResult.Warnings exactly like a top-level
+// failure.
 func browseDir(ctx context.Context, fetcher remote.Fetcher, owner, repo, dir, ref string, recursive bool) ([]remote.DirEntry, []string, error) {
 	entries, err := fetcher.ListDir(ctx, owner, repo, dir, ref)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if !recursive {
-		return entries, nil, nil
-	}
-
 	var results []remote.DirEntry
 	var warnings []string
 	for _, entry := range entries {
-		if entry.IsDir {
-			// dir is a logical, forward-slash repo path consumed by go-git
-			// ListDir — build with path.Join, not filepath.Join (which would
-			// emit backslashes on Windows and break tree navigation).
-			fullPath := path.Join(dir, entry.Name)
-			subEntries, subWarnings, err := browseDir(ctx, fetcher, owner, repo, fullPath, ref, true)
-			if err != nil {
-				warning := fmt.Sprintf("failed to browse %s: %v", fullPath, err)
-				clidiag.Warn("ctxloom", "%s", warning)
-				warnings = append(warnings, warning)
-				continue
-			}
-			warnings = append(warnings, subWarnings...)
-			// Prefix subentries with directory name
-			for _, sub := range subEntries {
-				sub.Name = entry.Name + "/" + sub.Name
-				results = append(results, sub)
-			}
-		} else if strings.HasSuffix(entry.Name, ".yaml") {
+		if !entry.IsDir {
+			continue
+		}
+		if !recursive {
 			results = append(results, entry)
+			continue
+		}
+		// dir is a logical, forward-slash repo path consumed by go-git
+		// ListDir — build with path.Join, not filepath.Join (which would
+		// emit backslashes on Windows and break tree navigation).
+		fullPath := path.Join(dir, entry.Name)
+		children, err := fetcher.ListDir(ctx, owner, repo, fullPath, ref)
+		if err != nil {
+			warning := fmt.Sprintf("failed to browse %s: %v", fullPath, err)
+			clidiag.Warn("ctxloom", "%s", warning)
+			warnings = append(warnings, warning)
+			continue
+		}
+		if holdsBundleManifest(children) {
+			results = append(results, entry)
+			continue
+		}
+		subEntries, subWarnings, err := browseDir(ctx, fetcher, owner, repo, fullPath, ref, true)
+		if err != nil {
+			warning := fmt.Sprintf("failed to browse %s: %v", fullPath, err)
+			clidiag.Warn("ctxloom", "%s", warning)
+			warnings = append(warnings, warning)
+			continue
+		}
+		warnings = append(warnings, subWarnings...)
+		for _, sub := range subEntries {
+			sub.Name = entry.Name + "/" + sub.Name
+			results = append(results, sub)
 		}
 	}
 
 	return results, warnings, nil
+}
+
+// holdsBundleManifest reports whether a directory's entries make it a bundle.
+func holdsBundleManifest(entries []remote.DirEntry) bool {
+	for _, e := range entries {
+		if !e.IsDir && e.Name == bundles.DirectoryFormManifest {
+			return true
+		}
+	}
+	return false
 }
 
 // EnsureRemoteClonesResult reports the outcome of cloning every configured
@@ -1031,29 +1045,17 @@ func searchDirectoryContent(ctx context.Context, fetcher remote.Fetcher, rem *re
 	return results, nil
 }
 
-// searchDirEntries matches one already-listed format root's entries.
-//
-// A DIRECTORY entry is a directory-form (tree) bundle, named for the
-// directory itself rather than a ".yaml" leaf — browseEntry (BrowseRemote's
-// sibling listing, which this mirrors) already treats a directory entry as
-// a bundle by that same rule; searchDirEntries used to skip every directory
-// outright, which meant `search --remote` could never find a bundle
-// published as a tree at all, only the single-file form.
+// searchDirEntries matches one already-listed format root's entries. Each
+// DIRECTORY entry is a bundle tree, named for the directory itself; a file is
+// not a bundle.
 func searchDirEntries(ctx context.Context, fetcher remote.Fetcher, rem *remote.Remote, owner, repo, branch string, itemType remote.ItemType, query remote.SearchQuery, dirPath string, entries []remote.DirEntry) []remote.SearchResult {
 	var results []remote.SearchResult
 	for _, entry := range entries {
-		if !entry.IsDir && !strings.HasSuffix(entry.Name, ".yaml") {
+		if !entry.IsDir {
 			continue
 		}
-
-		var name, filePath string
-		if entry.IsDir {
-			name = entry.Name
-			filePath = path.Join(dirPath, entry.Name, bundles.DirectoryFormManifest)
-		} else {
-			name = strings.TrimSuffix(entry.Name, ".yaml")
-			filePath = path.Join(dirPath, entry.Name)
-		}
+		name := entry.Name
+		filePath := path.Join(dirPath, entry.Name, bundles.DirectoryFormManifest)
 
 		// Build the manifest entry from the file's own metadata so tag: and
 		// description searches work without a manifest.yaml. Reads come from

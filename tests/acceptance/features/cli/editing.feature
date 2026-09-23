@@ -27,7 +27,7 @@ Feature: Editing content
     When I run "ctxloom fragment edit demo#fragments/testing"
     Then the command fails
     And the output contains "content saved RAW"
-    And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "EDITED-BY-TEST"
+    And the file ".ctxloom/content/bundles/v2/demo/fragments/testing.md" contains "EDITED-BY-TEST"
     Given a session owner is standing on the profile "dev"
     When the agent reads resource "ctxloom://fragments/testing"
     Then the resource contains "EDITED-BY-TEST"
@@ -41,5 +41,5 @@ Feature: Editing content
     When I run "ctxloom command edit demo#commands/review"
     Then the command fails
     And the output contains "content saved RAW"
-    And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "EDITED-BY-TEST"
+    And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "EDITED-BY-TEST"
 

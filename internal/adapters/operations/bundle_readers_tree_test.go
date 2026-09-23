@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
@@ -16,7 +18,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
@@ -74,7 +75,7 @@ func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, conte
 			},
 		},
 	}
-	require.NoError(t, convert.Convert(ctx, store, content.BundleID(filepath.Base(dir)), src, convert.Options{}))
+	bundletree.WriteBundle(t, fsys, filepath.Dir(dir), filepath.Base(dir), src)
 	testsupport.WriteFile(t, fsys,
 		filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: 1.0.0\ndescription: atelier\n"), 0o644)
 

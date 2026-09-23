@@ -603,25 +603,6 @@ func (r *Reference) BuildFilePath(itemType ItemType) string {
 	return RepoItemPath(itemType, r.Path)
 }
 
-// LocalPath returns the local path where the item would be installed.
-// baseDir is the .ctxloom directory path. Only bundles are installed at the top
-// level (top-level profile distribution was retired): .ctxloom/cache/bundles/.
-// This is the CACHE install root for REMOTE-pulled artifacts — project-authored
-// bundles live in the committed content tree (paths.LocalBundlesPath).
-func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
-	// remoteName ("github.com/owner/repo") and r.Path ("lang/go/testing") are
-	// logical, forward-slash segments. baseDir is an on-disk OS path, so build
-	// with filepath.Join — it cleans the embedded forward slashes to the OS
-	// separator, keeping the install path Windows-safe (was fmt.Sprintf("%s/…"),
-	// which left forward slashes on Windows).
-	remoteName := r.LocalRemoteName()
-	file := r.Path + ".yaml"
-	// Built from paths.CacheBundlesPath rather than re-assembling cache/ +
-	// bundles/ from their parts, so a layout change in internal/core/paths cannot
-	// silently miss this call site.
-	return filepath.Join(paths.CacheBundlesPath(baseDir), remoteName, file)
-}
-
 // WorktreeDirSuffix marks a cache entry as the git WORKTREE for a pinned
 // bundle rather than the bundle directory itself.
 //
@@ -643,8 +624,14 @@ const WorktreeDirSuffix = ".worktree"
 // Git owns what is inside it. There is no second, hand-copied materialization
 // to keep in step with the pin, which is what made a moved pin and an
 // unmaterialized tree describable as separate states at all.
+//
+// It sits at <cache>/bundles/<remote>/<path>.worktree. remoteName and r.Path
+// are logical, forward-slash segments while baseDir is an on-disk OS path, so
+// it is built with filepath.Join, which cleans the embedded slashes to the OS
+// separator; and it is built from paths.CacheBundlesPath rather than from the
+// cache/ and bundles/ parts, so a layout change cannot miss it.
 func (r *Reference) LocalWorktreePath(baseDir string) string {
-	return strings.TrimSuffix(r.LocalPath(baseDir, ItemTypeBundle), ".yaml") + WorktreeDirSuffix
+	return filepath.Join(paths.CacheBundlesPath(baseDir), r.LocalRemoteName(), r.Path) + WorktreeDirSuffix
 }
 
 // TreeRepoPath is the repository-relative directory this bundle's tree occupies

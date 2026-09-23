@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/cucumber/godog"
 )
 
@@ -99,7 +100,7 @@ func registerContextApproachSteps(ctx *godog.ScenarioContext) {
 			// Byte-identical to P0's fixture — same bundle, same profile, same
 			// binding — except for the one `surfaces:` block. That is what makes
 			// a P1 red attributable to the mechanism.
-			if err := w.env.WriteFile(bundleFilePath("bundle-"+matrixAgent), matrixBundleYAML(s.nonce)); err != nil {
+			if err := testenv.WriteBundleTree(w.env.ProjectDir, "bundle-"+matrixAgent, matrixBundleYAML(s.nonce)); err != nil {
 				return err
 			}
 			if err := w.env.WriteFile(".ctxloom/profiles/"+matrixAgent+"-profile.yaml",

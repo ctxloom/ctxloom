@@ -49,12 +49,11 @@ func readBackTree(t *testing.T, fsys afero.Fs, appPath, name string) bundles.Bun
 
 // TestCreateBundle_Tree_AuthorsAShapeTheReaderAccepts is the settling test for
 // the authoring half. Before it, no ctxloom verb could produce this.
-func TestCreateBundle_Tree_AuthorsAShapeTheReaderAccepts(t *testing.T) {
+func TestCreateBundle_AuthorsAShapeTheReaderAccepts(t *testing.T) {
 	fsys, cfg, appPath := treeAuthoringFixture(t)
 	res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
 		Name:        "vault",
 		Description: "the vault bundle",
-		Tree:        true,
 		FS:          fsys,
 		Fragments: map[string]BundleFragmentInput{
 			"house-style": {Content: "FRAG-BODY-MARKER", NoDistill: true},
@@ -62,14 +61,10 @@ func TestCreateBundle_Tree_AuthorsAShapeTheReaderAccepts(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// It landed in the v2 layout, as a tree, not as a document.
+	// It landed in the v2 layout, as a tree.
 	wantDir := filepath.Join(paths.LocalBundlesPathFor(appPath, paths.LayoutV2), "vault")
 	assert.Equal(t, filepath.Join(wantDir, bundles.DirectoryFormManifest), res.Path)
-
-	// It is TREE form: the envelope declares nothing inline.
-	isTree, err := bundles.IsTreeFormBundle(context.Background(), fsys, res.Path)
-	require.NoError(t, err)
-	assert.True(t, isTree, "an authored tree must keep its items in files, not inline in the envelope")
+	assertEnvelopeDeclaresNoItems(t, fsys, res.Path)
 
 	// The EFFECT: the reader serves the item's BYTES. A tree that was written
 	// but does not load would satisfy every assertion above this one.
@@ -80,33 +75,44 @@ func TestCreateBundle_Tree_AuthorsAShapeTheReaderAccepts(t *testing.T) {
 	assert.Equal(t, "the vault bundle", read.Bundle.Description)
 }
 
-// TestCreateBundle_Tree_RefusesToCreateNothing. convert.Convert is deliberately
-// a no-op for a bundle that plans to zero items, so without a guard the create
-// returns success having written no bytes — this project's characteristic bug.
-func TestCreateBundle_Tree_RefusesToCreateNothing(t *testing.T) {
+// TestCreateBundle_WithNoItems_ScaffoldsAnEnvelopeOnlyTree: a bundle created
+// empty is the author's scaffold — its envelope alone — and it loads.
+func TestCreateBundle_WithNoItems_ScaffoldsAnEnvelopeOnlyTree(t *testing.T) {
 	fsys, cfg, appPath := treeAuthoringFixture(t)
-	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
-		Name: "hollow",
-		Tree: true,
-		FS:   fsys,
+	res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+		Name:        "hollow",
+		Description: "nothing yet",
+		FS:          fsys,
 	})
-	require.Error(t, err, "a tree with no items must be refused, not reported as created")
+	require.NoError(t, err)
+	assertEnvelopeDeclaresNoItems(t, fsys, res.Path)
 
-	// And nothing was left behind for a later read to trip over.
-	dir := filepath.Join(paths.LocalBundlesPathFor(appPath, paths.LayoutV2), "hollow")
-	exists, statErr := afero.Exists(fsys, dir)
-	require.NoError(t, statErr)
-	assert.False(t, exists, "a refused create must leave no directory behind")
+	read := readBackTree(t, fsys, appPath, "hollow")
+	assert.Equal(t, "nothing yet", read.Bundle.Description)
+	assert.Empty(t, read.Bundle.Fragments)
+}
+
+// assertEnvelopeDeclaresNoItems: a tree keeps its items in files, never
+// inline in its envelope.
+func assertEnvelopeDeclaresNoItems(t *testing.T, fsys afero.Fs, envelope string) {
+	t.Helper()
+	_, env, err := bundles.EnvelopeAt(fsys, envelope)
+	require.NoError(t, err)
+	assert.Empty(t, env.Fragments)
+	assert.Empty(t, env.Commands)
+	assert.Empty(t, env.MCP)
+	assert.Empty(t, env.Skills)
+	assert.Empty(t, env.Profiles)
+	assert.False(t, env.Hooks.HasAny())
 }
 
 // TestCreateBundle_Tree_RefusesAnExistingBundle: create is "write only if
 // absent", and what an overwrite destroys is authored content nobody has a copy
 // of.
-func TestCreateBundle_Tree_RefusesAnExistingBundle(t *testing.T) {
+func TestCreateBundle_RefusesAnExistingBundle(t *testing.T) {
 	fsys, cfg, appPath := treeAuthoringFixture(t)
 	req := CreateBundleRequest{
 		Name: "vault",
-		Tree: true,
 		FS:   fsys,
 		Fragments: map[string]BundleFragmentInput{
 			"house-style": {Content: "ORIGINAL-MARKER", NoDistill: true},
@@ -124,21 +130,6 @@ func TestCreateBundle_Tree_RefusesAnExistingBundle(t *testing.T) {
 	assert.Equal(t, "ORIGINAL-MARKER", read.Bundle.Fragments["house-style"].Content)
 }
 
-// TestCreateBundle_WithoutTree_IsUnchanged. The overwhelming majority of
-// bundles are still authored as documents, and this commit must not move them.
-func TestCreateBundle_WithoutTree_IsUnchanged(t *testing.T) {
-	fsys, cfg, appPath := treeAuthoringFixture(t)
-	res, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
-		Name: "classic",
-		FS:   fsys,
-		Fragments: map[string]BundleFragmentInput{
-			"house-style": {Content: "DOC-BODY-MARKER", NoDistill: true},
-		},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(authoredV1(appPath), "classic.yaml"), res.Path)
-}
-
 // TestCreateSkill_InATree_WritesNoInlineSkillsKey is the second half of the
 // authoring defect. CreateSkill registered every skill in bundle.yaml's
 // `skills:` map — the retired inline shape bundles.readEnvelope REFUSES — so
@@ -148,7 +139,6 @@ func TestCreateSkill_InATree_WritesNoInlineSkillsKey(t *testing.T) {
 	fsys, cfg, appPath := treeAuthoringFixture(t)
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
 		Name: "vault",
-		Tree: true,
 		FS:   fsys,
 		Fragments: map[string]BundleFragmentInput{
 			"house-style": {Content: "FRAG-BODY-MARKER", NoDistill: true},
@@ -162,11 +152,8 @@ func TestCreateSkill_InATree_WritesNoInlineSkillsKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "created", res.Status)
 
-	// The envelope still declares nothing inline, so the bundle is still a tree.
-	envelope := filepath.Join(paths.LocalBundlesPathFor(appPath, paths.LayoutV2), "vault", bundles.DirectoryFormManifest)
-	isTree, err := bundles.IsTreeFormBundle(context.Background(), fsys, envelope)
-	require.NoError(t, err)
-	assert.True(t, isTree, "adding a skill must not turn a tree into the retired inline shape")
+	// The envelope still declares nothing inline.
+	assertEnvelopeDeclaresNoItems(t, fsys, filepath.Join(paths.LocalBundlesPathFor(appPath, paths.LayoutV2), "vault", bundles.DirectoryFormManifest))
 
 	// The EFFECT: the bundle still LOADS, and the skill is enumerated from the
 	// tree without any envelope registration. Asserting only that `skills:` is

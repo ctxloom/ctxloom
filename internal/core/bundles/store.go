@@ -6,9 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
-
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // Store is the read+write port (ADR 0026): a backing store bundles persist
@@ -87,8 +84,9 @@ func (s *fsStore) Load(name string) (*Bundle, error) {
 	return s.Loader.Catalog().Scoped(ProvenanceProject).Load(name)
 }
 
-// Save writes the bundle back to its Path (which the caller sets — to the
-// resolved path on load, or the target path on create), creating parent dirs.
+// Save writes the bundle back to the tree whose envelope is at its Path (which
+// the caller sets — to the resolved path on load, or the target path on
+// create), creating the tree when it does not exist yet.
 //
 // Every bundle mutation lands here — `bundle edit`, `fragment add`, `bundle
 // distill`, all of it. A tree's signature is its SHA256SUMS manifest and the
@@ -100,31 +98,11 @@ func (s *fsStore) Save(b *Bundle) error {
 	if b.Path == "" {
 		return fmt.Errorf("bundle has no path set")
 	}
-	// A bundle READ as a tree is written back item by item (saveTree):
-	// marshalling it as one document would declare its items inline and
-	// orphan its item files. See Bundle.readAsTree for why the form comes
-	// from the read and not from the bytes on disk now.
-	if b.readAsTree {
-		if err := s.saveTree(context.Background(), b); err != nil {
-			return err
-		}
-		s.republish()
-		return nil
+	if filepath.Base(b.Path) != DirectoryFormManifest {
+		return fmt.Errorf("bundle path %s is not a tree envelope: a bundle is <name>/%s plus its item files", b.Path, DirectoryFormManifest)
 	}
-	data, err := yaml.Marshal(b)
-	if err != nil {
-		return fmt.Errorf("marshal bundle: %w", err)
-	}
-	if err := s.fs.MkdirAll(filepath.Dir(b.Path), 0o755); err != nil {
-		return fmt.Errorf("create bundle dir: %w", err)
-	}
-	// No AllowEmpty: yaml.Marshal of a *Bundle never produces zero bytes (a
-	// struct marshals to at least "{}\n"), so the default empty-over-existing
-	// refusal is pure upside here — it turns a hypothetical marshal
-	// regression into a loud write failure instead of a silently truncated
-	// bundle file.
-	if err := iox.WriteFileAtomicFs(s.fs, b.Path, data, 0o644); err != nil {
-		return fmt.Errorf("write bundle: %w", err)
+	if err := s.saveTree(context.Background(), b); err != nil {
+		return err
 	}
 	s.republish()
 	return nil

@@ -28,15 +28,13 @@ var (
 const signKeyFlagHelp = "explicit signing key: a SHA256:... ssh-agent fingerprint, a path to a public key, or a ssh-agent key's comment/name (case-insensitive substring)"
 
 // signCmdLong documents `ctxloom bundle sign`.
-const signCmdLong = `Sign a local directory-form bundle as a tree, so anyone who trusts your key
-can verify the bundle came from you.
+const signCmdLong = `Sign a local bundle tree, so anyone who trusts your key can verify the
+bundle came from you.
 
 Signing writes a SHA256SUMS manifest at the bundle root covering every file in
 the tree, headed by the bundle's name and version, and files your signature
 over that manifest in the bundle's .sigs/ directory. Consumers without ctxloom
-can check the files with 'sha256sum -c SHA256SUMS'. A single-file bundle cannot
-be signed; move it to the directory form first. Re-signing removes a retired
-<bundle>.yaml.sig sibling, which every reader now refuses.
+can check the files with 'sha256sum -c SHA256SUMS'.
 
 ref is a bundle ref or an item ref, in the grammar 'ctxloom bundle trust'
 uses: a plain local bundle name, or the canonical 'ctxloom+local:<name>' URI.
@@ -115,12 +113,8 @@ type signCmdTarget struct {
 	SigPath     string `json:"sig_path"`
 	SignedBy    string `json:"signed_by"`
 	Fingerprint string `json:"fingerprint"`
-	// Tree and ManifestPath report that a DIRECTORY-form bundle was signed as a
-	// TREE — every file covered by a SHA256SUMS manifest — rather than as one
-	// file's bytes. Reported rather than left implicit because the two attest
-	// different things: an author who cannot tell which happened cannot tell
-	// whether their fragments and skills are covered at all.
-	Tree         bool   `json:"tree,omitempty"`
+	// ManifestPath is the SHA256SUMS the signature covers: every file in the
+	// tree, not bundle.yaml alone.
 	ManifestPath string `json:"manifest_path,omitempty"`
 }
 
@@ -169,7 +163,6 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 			SigPath:      res.SigPath,
 			SignedBy:     discovered.Source,
 			Fingerprint:  discovered.Fingerprint,
-			Tree:         res.Tree,
 			ManifestPath: res.ManifestPath,
 		})
 	}
@@ -254,15 +247,9 @@ func printSignResult(w io.Writer, t signCmdTarget) {
 	if t.ItemNote != "" {
 		fmt.Fprintf(w, "Signing bundle %s (contains %s) — signatures cover whole bundles.\n", t.Bundle, t.ItemNote)
 	}
-	if t.Tree {
-		// Name the MANIFEST, not bundle.yaml. A directory-form bundle's content
-		// lives in files beside its manifest, and saying "bundle.yaml -> .sig"
-		// here is what let an author believe a sibling signature covered a tree
-		// it never touched.
-		fmt.Fprintf(w, "  %s (whole tree)  ->  %s\n", t.ManifestPath, t.SigPath)
-	} else {
-		fmt.Fprintf(w, "  %s  ->  %s\n", t.BundlePath, t.SigPath)
-	}
+	// Name the MANIFEST, not bundle.yaml: a bundle's content lives in files
+	// beside its envelope, and the signature covers all of them.
+	fmt.Fprintf(w, "  %s (whole tree)  ->  %s\n", t.ManifestPath, t.SigPath)
 	fmt.Fprintf(w, "  signed by %s (%s)\n", t.SignedBy, t.Fingerprint)
 }
 

@@ -6,6 +6,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -40,8 +42,7 @@ func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *te
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(
-		"version: \"1.0\"\nhooks:\n  pre_tool:\n    - command: from-bundle\n      type: command\n"), 0o644))
+	bundletree.WriteOS(t, bundlesDir, "kit", "version: \"1.0\"\nhooks:\n  pre_tool:\n    - command: from-bundle\n      type: command\n")
 	profilesDir := paths.ProfilesPath(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(

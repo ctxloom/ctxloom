@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path"
 	"sort"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -29,8 +28,8 @@ type CorpusBundle struct {
 	Remote string
 	// URL is the repository the bundle was read from.
 	URL string
-	// Path is the repo-relative path of the bundle YAML, e.g.
-	// ".ctxloom/content/bundles/go.yaml".
+	// Path is the repo-relative path of the bundle's envelope, e.g.
+	// ".ctxloom/content/bundles/v2/go/bundle.yaml".
 	Path string
 }
 
@@ -192,8 +191,8 @@ func checkOneRemote(ctx context.Context, rem CorpusRemote, open FetcherOpener, p
 }
 
 // listCorpusBundles walks the repo's published bundles directory and returns
-// the path of every bundle in it, recursing through the format roots so
-// single-file and directory-form bundles are both found.
+// the envelope path of every bundle tree in it, recursing through the format
+// roots.
 //
 // The walk STOPS at a directory holding a bundle manifest, because that
 // directory IS one bundle and everything beneath it is that bundle's payload.
@@ -222,15 +221,11 @@ func listCorpusBundles(ctx context.Context, fetcher remote.Fetcher, owner, repo 
 			return nil
 		}
 		for _, e := range entries {
-			full := path.Join(dir, e.Name)
-			if e.IsDir {
-				if werr := walk(full); werr != nil {
-					return werr
-				}
+			if !e.IsDir {
 				continue
 			}
-			if strings.HasSuffix(e.Name, ".yaml") {
-				found = append(found, full)
+			if werr := walk(path.Join(dir, e.Name)); werr != nil {
+				return werr
 			}
 		}
 		return nil
@@ -241,8 +236,8 @@ func listCorpusBundles(ctx context.Context, fetcher remote.Fetcher, owner, repo 
 	return found, nil
 }
 
-// bundleManifestIn reports the manifest path when entries hold a directory-form
-// bundle manifest — the boundary a corpus walk stops descending at.
+// bundleManifestIn reports the manifest path when entries hold a bundle
+// manifest — the boundary a corpus walk stops descending at.
 //
 // The manifest name comes from bundles.DirectoryFormManifest, the same constant
 // the local reader decides this by, so a corpus walk and a load agree on what a

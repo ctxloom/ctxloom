@@ -44,8 +44,8 @@ a pull request instead.
 If no remote is specified, uses the default remote.
 
 SIGNATURES: a signature belongs to the bundle, not to the publish.
-'ctxloom bundle sign' writes a detached <name>.yaml.sig sibling, and push
-CARRIES it — so the key that signs never has to be on the machine that
+'ctxloom bundle sign' writes the tree's SHA256SUMS and a .sigs/ entry over it,
+and push CARRIES them — so the key that signs never has to be on the machine that
 publishes, and CI can ship signed content it cannot itself forge. A
 signature that no longer covers the bundle (edited after signing) stops
 the push rather than shipping a pair every consumer reads as tampering.
@@ -75,15 +75,14 @@ var bundleExportOutput string
 
 var bundleExportCmd = &cobra.Command{
 	Use:   "export <name> [dest-dir]",
-	Short: "Export a bundle to a file or directory",
-	Long: `Export a local bundle from .ctxloom/content/bundles to a file or directory.
+	Short: "Export a bundle to a directory",
+	Long: `Export a local bundle from .ctxloom/content/bundles to a directory.
 
 Useful for publishing bundles to a shared repository like ctxloom-default.
-The bundle is copied as-is, preserving all content including distilled versions.
-A directory-form bundle is exported WHOLE — its items, SHA256SUMS and .sigs/
-travel with the manifest — and lands as a directory under its own name.
+The bundle's tree is copied WHOLE — its items, distilled versions, SHA256SUMS
+and .sigs/ — and lands as a directory under its own name.
 
-Use -o to name the destination path directly.
+Use -o to name the destination tree's path directly.
 
 Examples:
   ctxloom bundle export go-tools ../ctxloom-default/ctxloom/bundles
@@ -125,18 +124,16 @@ var bundleImportForce bool
 
 var bundleImportCmd = &cobra.Command{
 	Use:   "import <path>",
-	Short: "Import a bundle from a local file or directory",
-	Long: `Import a bundle from a local YAML file, or a directory-form bundle from its
-directory, into .ctxloom/content/bundles.
+	Short: "Import a bundle from a local directory",
+	Long: `Import a bundle tree — named by its directory or its bundle.yaml — into
+.ctxloom/content/bundles.
 
-The bundle is copied into the local .ctxloom/content/bundles directory. A
-directory-form bundle is copied WHOLE and keeps its own name. Use --force to
-overwrite an existing bundle.
+The tree is copied WHOLE and keeps its own name. Use --force to overwrite an
+existing bundle.
 
 Examples:
-  ctxloom bundle import ../ctxloom-default/ctxloom/bundles/go-tools.yaml
-  ctxloom bundle import ../ctxloom-default/ctxloom/bundles/unattended
-  ctxloom bundle import ./my-bundle.yaml --force`,
+  ctxloom bundle import ../ctxloom-default/.ctxloom/content/bundles/v2/unattended
+  ctxloom bundle import ./my-bundle --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleImport,
 }
@@ -173,5 +170,5 @@ func registerBundleImportFlags(cmd *cobra.Command) {
 
 // registerBundleExportFlags defines `bundle export`'s flags.
 func registerBundleExportFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Destination path (a file, or a directory for a directory-form bundle)")
+	cmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Destination path of the exported tree")
 }

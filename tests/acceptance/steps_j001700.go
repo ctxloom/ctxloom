@@ -18,7 +18,7 @@
 // bundle instead of first-party content), Bob (teammate, j000700State.bobDir — a
 // genuinely separate clone, NOT a new persona model per the task brief),
 // Trent (the company/trusted publisher, reusing J001500's signing primitives:
-// testenv.TestSigner/SeedSignedRemote/AdvanceRemote), Alice (developer,
+// testenv.TestSigner/SeedSignedTreeRemote/AdvanceRemote), Alice (developer,
 // scenario 2 only, whose project scaffold scenario 2 needs but whose
 // persona plays no other role in it).
 package acceptance
@@ -95,9 +95,7 @@ func j001700Of(w *World) *j001700State {
 // j001500TreeEnvelope/j001500TreeItems exactly (same shape, new marker)
 // rather than reusing J001500's constant, since J001700's content is
 // thematically distinct (an incident runbook, not secure-coding guidance)
-// even though the underlying mechanism is identical. A tree because `deps
-// pull` refuses a single-file bundle outright now (nothing materializes a
-// document — remote.Puller.installPulledItem).
+// even though the underlying mechanism is identical.
 const j001700TreeEnvelope = "version: \"1.0.0\"\n"
 
 func j001700TreeItems(marker string) map[string]string {
@@ -132,12 +130,12 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		}
 
 		// Trent's company publishes a SIGNED bundle — reuses J001500's signing
-		// primitives directly (TestSigner/SeedSignedRemote), not reinvented.
+		// primitives directly (TestSigner/SeedSignedTreeRemote), not reinvented.
 		signer, err := testenv.GenerateTestSigner()
 		if err != nil {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
-		root := remoteSingleFilePublishPath(bundleName)
+		root := treeBundlePath(bundleName)
 		url, err := w.env.SeedSignedTreeRemote(root, bundleName, j001700TreeEnvelope, j001700TreeItems(j001700Marker), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)
@@ -227,7 +225,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Trent retracts the bundle$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001700 := j001700Of(w)
-		root := remoteSingleFilePublishPath(j001700BundleName)
+		root := treeBundlePath(j001700BundleName)
 		envelope := "version: 1.1.0\nwithdrawn: " + j001700RetractReason + "\n"
 		return w.env.AdvanceSignedTreeRemote(j001700.companyBare, root, j001700BundleName, envelope, j001700TreeItems(j001700Marker), j001700.companySigner)
 	})

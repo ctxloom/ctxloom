@@ -19,9 +19,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-// This file is the operations core for `ctxloom skill`: author (create),
-// curate the per-file manifest (sync), inspect (list/show), and interchange
-// (export/import) an Agent Skill package. It plays the same frontend-agnostic
+// This file is the operations core for `ctxloom skill`: author (create,
+// remove), inspect (list/show), and interchange (export/import) an Agent Skill
+// package. It plays the same frontend-agnostic
 // role for skills that items.go plays for fragments/commands, but a skill is a
 // DIRECTORY TREE, not a single text blob, so it gets its own focused
 // request/result shapes rather than joining the ItemKind machinery (mirrors
@@ -198,8 +198,8 @@ type CreateSkillResult struct {
 // one identity, so the emitted package lands where its frontmatter says) and
 // the heading; description is a TODO the author must replace before the
 // skill is useful (a placeholder description does not block create, but IS a
-// signal for `sync`/review to flag — left to the human, never silently filled
-// in with something untrue).
+// signal for review to flag — left to the human, never silently filled in with
+// something untrue).
 //
 // The frontmatter is built via yaml.Marshal (not a hand-rolled fmt template):
 // a placeholder or author-supplied description containing a colon+space (a
@@ -224,25 +224,23 @@ func skillTemplate(name, description string) string {
 }
 
 // CreateSkill scaffolds a new Agent Skill package directory (SKILL.md with
-// valid frontmatter) inside an EXISTING bundle's content tree, and registers
-// it in bundle.yaml's `skills:` map. The bundle must already be directory-form
-// (bundle.yaml + skills/<name>/) — skills are unsupported in a single-file
-// bundle (loud validation error, never a silent skip; mirrors the loader's own
-// detectLegacySkillsKey/dir-form gate). The scaffold is validated with
-// ParseSkillPackage before anything is registered — a template that wouldn't
-// itself pass validation is never left on disk claiming success.
-func CreateSkill(ctx context.Context, cfg *config.Config, req CreateSkillRequest) (*CreateSkillResult, error) {
+// valid frontmatter) at skills/<name>/ inside an EXISTING bundle's tree. The
+// directory IS the skill: a tree's items are found by walking it, so nothing
+// is registered in bundle.yaml. The scaffold is validated with
+// ParseSkillPackage before returning — a template that wouldn't itself pass
+// validation is never left on disk claiming success.
+//
+// A signed tree's SHA256SUMS no longer covers the new package, so the bundle
+// reads as an invalid signature until it is signed again. That is the
+// manifest working: new content in a signed tree is a real change, and
+// re-signing is the remedy the reader names.
+func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) (*CreateSkillResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	store := bundleStore(cfg, req.Store)
-	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
+	bundle, err := loadBundleForUpdate(bundleStore(cfg, req.Store), cfg, req.Bundle)
 	if err != nil {
 		return nil, err
-	}
-	if filepath.Base(bundle.Path) != "bundle.yaml" {
-		return nil, fmt.Errorf("bundle %q: skills require a directory-form bundle (bundle.yaml + skills/<name>/), not a single-file bundle (%s) — re-init as a directory bundle first",
-			req.Bundle, filepath.Base(bundle.Path))
 	}
 	if _, exists := bundle.Skills[req.Name]; exists {
 		return nil, fmt.Errorf("skill %q: %w", req.Name, ErrItemExists)
@@ -255,21 +253,12 @@ func CreateSkill(ctx context.Context, cfg *config.Config, req CreateSkillRequest
 	if err != nil {
 		return nil, err
 	}
-	entry := bundles.BundleSkill{}
-	dir, err := bundles.ResolveSkillDir(bundleDir, req.Name, entry)
+	dir, err := bundles.ResolveSkillDir(bundleDir, req.Name, bundles.BundleSkill{})
 	if err != nil {
 		return nil, err
 	}
 
 	fs := getFS(req.FS)
-	// Decided BEFORE the scaffold is written. Afterwards the tree holds this
-	// very skill's files, so a metadata-only directory bundle — one with an
-	// empty envelope and no items yet — would look like a tree that had always
-	// been one, and would silently stop getting its envelope registration.
-	tree, err := bundles.IsTreeFormBundle(ctx, fs, bundle.Path)
-	if err != nil {
-		return nil, err
-	}
 	if exists, _ := afero.DirExists(fs, dir); exists {
 		return nil, fmt.Errorf("skill %q: %w (directory %s already exists)", req.Name, ErrItemExists, dir)
 	}
@@ -293,28 +282,6 @@ func CreateSkill(ctx context.Context, cfg *config.Config, req CreateSkillRequest
 		_ = fs.RemoveAll(dir)
 		return nil, fmt.Errorf("scaffolded skill %q failed validation: %w", req.Name, err)
 	}
-
-	if !tree {
-		if bundle.Skills == nil {
-			bundle.Skills = make(map[string]bundles.BundleSkill)
-		}
-		bundle.Skills[req.Name] = entry
-		if err := store.Save(bundle); err != nil {
-			_ = fs.RemoveAll(dir)
-			return nil, fmt.Errorf("failed to save bundle: %w", err)
-		}
-	}
-	// A TREE bundle gets NO envelope registration, and that is the fix rather
-	// than an omission. Its items are enumerated by walking the tree, so the
-	// package just written is already found; writing bundle.Skills would put an
-	// inline `skills:` key into the envelope, which bundles.readEnvelope refuses
-	// outright — the scaffold would succeed and the whole bundle would stop
-	// loading. That is exactly what this verb used to do.
-	//
-	// The tree's SHA256SUMS no longer covers it, so the bundle reads as an
-	// invalid signature until it is signed again. That is the manifest working:
-	// new content in a signed tree is a real change, and re-signing is the
-	// remedy the reader names.
 
 	return &CreateSkillResult{Status: "created", Bundle: req.Bundle, Name: req.Name, Dir: dir}, nil
 }
@@ -340,24 +307,14 @@ type RemoveSkillResult struct {
 	Dir    string `json:"dir"`
 }
 
-// RemoveSkill deletes a skill package: its bundle.yaml `skills:`
-// registration AND its on-disk directory tree — CreateSkill's write surface
-// in reverse. A skill package could be created and never removed until this;
-// an unknown name is ErrItemNotFound, never a silent no-op.
-//
-// The registration is dropped and SAVED first, the directory tree removed
-// second: if the directory removal then fails (a permissions problem, a
-// concurrent process holding a file open), the store already reflects the
-// truth — no listing surface can find a directory that is about to vanish —
-// and the error names the orphaned path for a human to clear by hand, rather
-// than leaving bundle.yaml pointing at a directory whose removal already
-// half-succeeded.
+// RemoveSkill deletes a skill package: its directory, which in a tree IS the
+// skill — CreateSkill's write surface in reverse. An unknown name is
+// ErrItemNotFound, never a silent no-op.
 func RemoveSkill(_ context.Context, cfg *config.Config, req RemoveSkillRequest) (*RemoveSkillResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	store := bundleStore(cfg, req.Store)
-	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
+	bundle, err := loadBundleForUpdate(bundleStore(cfg, req.Store), cfg, req.Bundle)
 	if err != nil {
 		return nil, err
 	}
@@ -378,169 +335,11 @@ func RemoveSkill(_ context.Context, cfg *config.Config, req RemoveSkillRequest) 
 		return nil, fmt.Errorf("skill %q: %w", req.Name, err)
 	}
 
-	delete(bundle.Skills, req.Name)
-	if err := store.Save(bundle); err != nil {
-		return nil, fmt.Errorf("failed to save bundle: %w", err)
-	}
-
-	fs := getFS(req.FS)
-	if err := fs.RemoveAll(dir); err != nil {
-		return nil, fmt.Errorf("skill %q: bundle.yaml no longer lists it, but removing %s failed: %w — remove it by hand", req.Name, dir, err)
+	if err := getFS(req.FS).RemoveAll(dir); err != nil {
+		return nil, fmt.Errorf("skill %q: removing %s: %w", req.Name, dir, err)
 	}
 
 	return &RemoveSkillResult{Status: "removed", Bundle: req.Bundle, Name: req.Name, Dir: dir}, nil
-}
-
-// SyncSkillRequest is the input for SyncSkill.
-type SyncSkillRequest struct {
-	Bundle string `json:"bundle"`
-	Name   string `json:"name"` // empty = sync every skill in the bundle
-
-	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
-	// defaults to the filesystem.
-	Store bundles.Store `json:"-"`
-	// FS, when non-nil, is the afero filesystem the skill tree is read from;
-	// nil defaults to the OS filesystem.
-	FS afero.Fs `json:"-"`
-}
-
-// SyncedSkill reports one skill's recomputed manifest.
-type SyncedSkill struct {
-	Name      string `json:"name"`
-	FileCount int    `json:"file_count"`
-	// Changed reports whether the recomputed manifest hash differs from what
-	// bundle.yaml had recorded before this sync (a fresh `files:` map, or any
-	// content/mode edit since the last sync).
-	Changed bool `json:"changed"`
-}
-
-// SyncSkillResult reports every skill synced.
-type SyncSkillResult struct {
-	Status string        `json:"status"`
-	Bundle string        `json:"bundle"`
-	Synced []SyncedSkill `json:"synced"`
-}
-
-// SyncSkill recomputes the per-file manifest (sha256 + mode) for a skill's
-// source tree via bundles.ParseSkillPackage — the SAME parse the loader uses
-// to verify a tree against a previously-signed manifest — and writes it into
-// bundle.yaml's `skills.<name>.files` map. This is what activates the
-// install-time tamper check (VerifyExtractedManifest /
-// PublisherSkillSignatureVerifier): before a sync ever runs, `files:` is
-// empty and skillContent trusts a fresh parse unconditionally (a noted
-// gap); after sync, any drift between bundle.yaml's recorded manifest and the
-// on-disk tree is a loud withhold, not a silent pass-through. req.Name empty
-// syncs every skill the bundle ships.
-func SyncSkill(_ context.Context, cfg *config.Config, req SyncSkillRequest) (*SyncSkillResult, error) {
-	store := bundleStore(cfg, req.Store)
-	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
-	if err != nil {
-		return nil, err
-	}
-	targets, err := skillSyncTargets(bundle, req.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	fs := getFS(req.FS)
-	// Bundle.Path is overloaded; FSDir refuses the values that are not
-	// filesystem paths rather than yielding "." and resolving this skill
-	// against the process working directory.
-	bundleDir, err := bundle.FSDir()
-	if err != nil {
-		return nil, err
-	}
-	synced := make([]SyncedSkill, 0, len(targets))
-	for _, name := range targets {
-		entry := bundle.Skills[name]
-		pkg, changed, err := skillManifestDrift(fs, bundleDir, name, entry)
-		if err != nil {
-			return nil, err
-		}
-
-		files := make(map[string]bundles.SkillFileMeta, len(pkg.Manifest))
-		for _, m := range pkg.Manifest {
-			files[m.Path] = bundles.SkillFileMeta{SHA256: m.SHA256, Mode: m.Mode}
-		}
-		entry.Files = files
-		bundle.Skills[name] = entry
-
-		synced = append(synced, SyncedSkill{Name: name, FileCount: len(files), Changed: changed})
-	}
-
-	if err := store.Save(bundle); err != nil {
-		return nil, fmt.Errorf("failed to save bundle: %w", err)
-	}
-	return &SyncSkillResult{Status: "synced", Bundle: req.Bundle, Synced: synced}, nil
-}
-
-// skillManifestDrift resolves a skill's on-disk source tree and reports
-// whether its freshly parsed manifest differs from what bundle.yaml has
-// recorded for it (entry.Files) — the single comparison both SyncSkill
-// (deciding SyncedSkill.Changed) and StaleSkillManifests (deciding whether
-// `bundle sign` may proceed) rely on, so the two can never disagree about
-// what counts as stale.
-func skillManifestDrift(fs afero.Fs, bundleDir, name string, entry bundles.BundleSkill) (*bundles.SkillPackage, bool, error) {
-	dir, err := bundles.ResolveSkillDir(bundleDir, name, entry)
-	if err != nil {
-		return nil, false, fmt.Errorf("skill %q: %w", name, err)
-	}
-	pkg, err := bundles.ParseSkillPackage(fs, dir, 0)
-	if err != nil {
-		return nil, false, fmt.Errorf("skill %q: %w", name, err)
-	}
-	return pkg, entry.ToManifest().Hash() != pkg.Manifest.Hash(), nil
-}
-
-// StaleSkillManifests reports every skill in bundle whose on-disk source
-// tree no longer matches the per-file manifest bundle.yaml has recorded for
-// it (skills.<name>.files) — the drift `ctxloom skill sync <bundle>` exists
-// to close. `ctxloom bundle sign` calls this before writing anything: signing
-// over a stale manifest would produce a valid signature attesting to a
-// content hash the tree does not have, and a bundle materialized from that
-// signed state is withheld as "sha256 mismatch" even though signing itself
-// reported success. Returns every stale skill name (sorted via
-// bundle.SkillNames()), not just the first, so a caller can name the fix for
-// all of them in one refusal.
-func StaleSkillManifests(fs afero.Fs, bundle *bundles.Bundle) ([]string, error) {
-	names := bundle.SkillNames()
-	if len(names) == 0 {
-		return nil, nil
-	}
-	bundleDir, err := bundle.FSDir()
-	if err != nil {
-		return nil, err
-	}
-	var stale []string
-	for _, name := range names {
-		entry := bundle.Skills[name]
-		_, drifted, err := skillManifestDrift(fs, bundleDir, name, entry)
-		if err != nil {
-			return nil, err
-		}
-		if drifted {
-			stale = append(stale, name)
-		}
-	}
-	return stale, nil
-}
-
-// skillSyncTargets resolves which skill names SyncSkill should recompute:
-// name (if it exists), or every skill the bundle ships when name is empty. An
-// explicit name absent from the bundle is ErrItemNotFound (loud, never a
-// silent no-op sync of zero skills).
-func skillSyncTargets(bundle *bundles.Bundle, name string) ([]string, error) {
-	if name != "" {
-		if _, ok := bundle.Skills[name]; !ok {
-			return nil, fmt.Errorf("skill %q: %w", name, ErrItemNotFound)
-		}
-		return []string{name}, nil
-	}
-	names := bundle.SkillNames()
-	if len(names) == 0 {
-		return nil, fmt.Errorf("bundle %q has no skills to sync", bundle.Name)
-	}
-	return names, nil
 }
 
 // ExportSkillRequest is the input for ExportSkill.
@@ -676,7 +475,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 
 // ImportSkillRequest is the input for ImportSkill.
 type ImportSkillRequest struct {
-	Bundle      string `json:"bundle"`       // target bundle to land the tree in (must already exist, directory-form)
+	Bundle      string `json:"bundle"`       // target bundle to land the package in (must already exist)
 	ArchivePath string `json:"archive_path"` // .zip or .tar.gz to read
 
 	// SigPath, when set, is a detached signature covering the archive's
@@ -728,10 +527,9 @@ type ImportSkillResult struct {
 // ImportSkill imports a `.zip`/`.tar.gz` Agent Skill archive into a bundle via
 // the hardened extractor (bundles.ImportSkillArchive — zip-slip/symlink/
 // entry-count/decompression-bomb rejections all apply, unconditionally,
-// before this function ever sees a byte), lands a reviewable tree, and
-// registers/updates the bundle.yaml `skills:` entry with the freshly-computed
-// manifest (so a subsequent `ctxloom skill sync` is a no-op until the tree
-// changes again). If SigPath is given, the signature is verified against the
+// before this function ever sees a byte) and lands a reviewable package at
+// skills/<name>/ — which, in a tree, is the whole of registering it. If
+// SigPath is given, the signature is verified against the
 // STAGED tree's recomputed manifest via bundles.PublisherSkillSignatureVerifier,
 // before the tree replaces anything. An absent or untrusted signature never
 // blocks the import: "do not auto-trust remote content" means neither branch
@@ -743,14 +541,9 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 	if req.ArchivePath == "" {
 		return nil, fmt.Errorf("archive path is required")
 	}
-	store := bundleStore(cfg, req.Store)
-	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
+	bundle, err := loadBundleForUpdate(bundleStore(cfg, req.Store), cfg, req.Bundle)
 	if err != nil {
 		return nil, err
-	}
-	if filepath.Base(bundle.Path) != "bundle.yaml" {
-		return nil, fmt.Errorf("bundle %q: skills require a directory-form bundle (bundle.yaml + skills/<name>/), not a single-file bundle (%s) — re-init as a directory bundle first",
-			req.Bundle, filepath.Base(bundle.Path))
 	}
 
 	fs := getFS(req.FS)
@@ -817,34 +610,10 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 		return nil, fmt.Errorf("import %s: %w", req.ArchivePath, err)
 	}
 
-	name := pkg.Name
-	rel, relErr := filepath.Rel(bundleDir, landedDir)
-	if relErr != nil {
-		rel = filepath.ToSlash(filepath.Join("skills", name))
-	}
-
-	if bundle.Skills == nil {
-		bundle.Skills = make(map[string]bundles.BundleSkill)
-	}
-	// Preserve any existing Tags/Notes/LLM enablement on a re-import over the
-	// same name; only Path and the recomputed Files change.
-	entry := bundle.Skills[name]
-	entry.Path = filepath.ToSlash(rel)
-	files := make(map[string]bundles.SkillFileMeta, len(pkg.Manifest))
-	for _, m := range pkg.Manifest {
-		files[m.Path] = bundles.SkillFileMeta{SHA256: m.SHA256, Mode: m.Mode}
-	}
-	entry.Files = files
-	bundle.Skills[name] = entry
-
-	if err := store.Save(bundle); err != nil {
-		return nil, fmt.Errorf("failed to save bundle: %w", err)
-	}
-
 	return &ImportSkillResult{
 		Status:         "imported",
 		Bundle:         req.Bundle,
-		Name:           name,
+		Name:           pkg.Name,
 		Dir:            landedDir,
 		FileCount:      len(pkg.Manifest),
 		SignatureState: sigState,

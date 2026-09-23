@@ -13,9 +13,10 @@ Create a new bundle
 
 ### Synopsis
 
-Create a new bundle file in .ctxloom/content/bundles.
+Create a new bundle in .ctxloom/content/bundles.
 
-Creates a skeleton bundle YAML file that you can edit to add content.
+Scaffolds a bundle tree — bundle.yaml plus one file per item — with an example
+fragment and prompt that you can edit.
 
 ```
 ctxloom bundle create <name> [flags]
@@ -25,7 +26,6 @@ ctxloom bundle create <name> [flags]
 
 ```
   -d, --description string   Bundle description
-      --tree                 author as a tree (bundle.yaml plus one file per item) in the v2 layout, instead of a single-file document
 ```
 
 ### Options inherited from parent commands

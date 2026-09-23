@@ -3,8 +3,9 @@ package cli
 import (
 	"bytes"
 	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ func seedLocalHookBundle(t *testing.T, appDir, bundle string, hook bundles.Bundl
 		"    - matcher: " + hook.Matcher + "\n" +
 		"      command: " + hook.Command + "\n" +
 		"      type: " + hook.Type + "\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, bundle+".yaml"), []byte(yaml), 0o644))
+	bundletree.WriteOS(t, dir, bundle, yaml)
 }
 
 // hookRefFor addresses a local hook exactly as the loader's own read stamps it.

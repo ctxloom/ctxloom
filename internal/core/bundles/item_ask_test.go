@@ -2,7 +2,6 @@ package bundles
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -24,9 +23,8 @@ import (
 func TestReadCommand_PromptsAliasReachesTheSameItem(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "kit")
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(
-		"version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n"), 0o644))
+	writeTree(t, fsys, paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "kit",
+		"version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n")
 
 	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
 
@@ -55,9 +53,8 @@ func TestReadCommand_PromptsAliasReachesTheSameItem(t *testing.T) {
 func TestReadFragment_CommandSelectorIsRefusedByKindNotByHash(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "kit")
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(
-		"version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n"), 0o644))
+	writeTree(t, fsys, paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "kit",
+		"version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n")
 
 	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
 

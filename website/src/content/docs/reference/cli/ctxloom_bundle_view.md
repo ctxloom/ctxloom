@@ -15,11 +15,12 @@ View bundle content
 
 View bundle content, optionally drilling into specific items.
 
-Without a path, displays the full bundle YAML.
+Without a path, displays every file of the bundle tree, each under a
+"==> path <==" header.
 With a path after #, displays just that item's content.
 
 Path formats:
-  bundle-name                     Full bundle YAML
+  bundle-name                     Every file of the bundle tree
   bundle-name#fragments/name      Fragment content
   bundle-name#commands/name       Command content (prompts/ is accepted too)
   bundle-name#mcp/name            MCP server config

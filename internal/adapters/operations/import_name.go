@@ -17,10 +17,8 @@ import (
 // happened because the name was unusable" is a failure, not a success.
 //
 // The accepted extensions differ by kind and are passed in rather than assumed,
-// because they genuinely differ: bundles.Loader.Find only ever stats
-// "<name>.yaml" or "<name>/bundle.yaml", while the profile scan accepts ".yaml"
-// and ".yml" alike. Guessing one answer for both would either reject loadable
-// profiles or admit unloadable bundles.
+// because a kind's loader decides them: the profile scan accepts ".yaml" and
+// ".yml" alike.
 func requireLoadableName(sourcePath, kind string, accepted ...string) error {
 	ext := strings.ToLower(filepath.Ext(sourcePath))
 	for _, ok := range accepted {

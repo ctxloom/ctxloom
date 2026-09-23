@@ -15,9 +15,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/spf13/afero"
 
 	"github.com/cucumber/godog"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -147,10 +147,7 @@ func fixtureCommandBody(name string) string {
 
 // fixtureDemoTreeFiles builds the remote-relative file map for the "demo"
 // bundle every "a git remote ... serving a ctxloom bundle" family of steps
-// seeds or advances — a TRUE TREE (envelope with no inline item keys, each
-// item in its own file), because `deps pull` refuses a single-file bundle
-// outright now and internal/core/bundles/tree_read.go's readEnvelope refuses an
-// envelope that still declares items inline.
+// seeds or advances.
 //
 // fragName/fragContent parameterize the ONE fragment every caller varies
 // ("changes fragment" picks both; the others hold fragName at "demo-frag").
@@ -163,7 +160,7 @@ func fixtureCommandBody(name string) string {
 // split steps_j001400_bundle_distribution.go's j001400AuthoredTree documents
 // (trust.KindPrompt, a residue of the skill->command rename).
 func fixtureDemoTreeFiles(version, description, fragName, fragContent string, includeCommand bool) map[string]string {
-	root := remoteSingleFilePublishPath("demo")
+	root := treeBundlePath("demo")
 	files := map[string]string{
 		root + "/" + bundles.DirectoryFormManifest: fmt.Sprintf("version: %q\ndescription: %q\n", version, description),
 		root + "/fragments/" + fragName + ".md":    fmt.Sprintf("---\ntags: [demo]\n---\n\n%s\n", fragContent),
@@ -174,36 +171,41 @@ func fixtureDemoTreeFiles(version, description, fragName, fragContent string, in
 	return files
 }
 
-// seedItemContent replaces one item's `content:` inside a single-file bundle
-// YAML. The fixture still CREATES the item through the real CLI path, so
-// creation stays exercised end to end; this only overwrites the placeholder
-// body, because no CLI or MCP surface can set an item's content at creation
-// time (operations.AddItem's Content field has exactly one caller, and it
-// hard-codes the placeholder).
+// seedItemContent replaces one item's content inside an authored bundle tree.
+// The fixture still CREATES the item through the real CLI path, so creation
+// stays exercised end to end; this only overwrites the placeholder body,
+// because no CLI or MCP surface can set an item's content at creation time
+// (operations.AddItem's Content field has exactly one caller, and it
+// hard-codes the placeholder). The rewrite goes through the production
+// reader and store, so the item file lands exactly where `fragment create`
+// put it.
 func seedItemContent(w *World, bundle, section, name, content string) error {
-	rel := singleFileBundlePath(bundle)
-	body, err := w.env.ReadFile(rel)
+	b, err := readAuthoredBundle(w, bundle)
 	if err != nil {
-		return fmt.Errorf("seed %s %q: read bundle %q: %w", section, name, bundle, err)
+		return fmt.Errorf("seed %s %q: %w", section, name, err)
 	}
-	var doc map[string]any
-	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
-		return fmt.Errorf("seed %s %q: parse bundle %q: %w", section, name, bundle, err)
+	switch section {
+	case "fragments":
+		item, ok := b.Fragments[name]
+		if !ok {
+			return fmt.Errorf("seed %s %q: bundle %q has no such entry", section, name, bundle)
+		}
+		item.Content = content
+		b.Fragments[name] = item
+	case "commands":
+		item, ok := b.Commands[name]
+		if !ok {
+			return fmt.Errorf("seed %s %q: bundle %q has no such entry", section, name, bundle)
+		}
+		item.Content = content
+		b.Commands[name] = item
+	default:
+		return fmt.Errorf("seed %s %q: this fixture seeds only fragments and commands", section, name)
 	}
-	sec, _ := doc[section].(map[string]any)
-	if sec == nil {
-		return fmt.Errorf("seed %s %q: bundle %q has no %q section", section, name, bundle, section)
+	if err := bundles.NewFSStore(afero.NewOsFs(), nil).Save(b); err != nil {
+		return fmt.Errorf("seed %s %q: save bundle %q: %w", section, name, bundle, err)
 	}
-	item, _ := sec[name].(map[string]any)
-	if item == nil {
-		return fmt.Errorf("seed %s %q: bundle %q has no such entry", section, name, bundle)
-	}
-	item["content"] = content
-	out, err := yaml.Marshal(doc)
-	if err != nil {
-		return fmt.Errorf("seed %s %q: marshal bundle %q: %w", section, name, bundle, err)
-	}
-	return w.env.WriteFile(rel, string(out))
+	return nil
 }
 
 func registerFixtureSteps(ctx *godog.ScenarioContext) {
@@ -402,13 +404,8 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	// A git remote serving a ctxloom layout over file://, registered with the
 	// generic git forge. Exercises the real clone/fetch path hermetically.
 	//
-	// Published as a TREE, not the single document this used to be: `deps
-	// pull` refuses a document outright now (nothing materializes one — see
-	// remote.Puller.installPulledItem), so a real remote layout has to be a
-	// directory at remoteSingleFilePublishPath("demo") holding bundle.yaml,
-	// not a blob AT that path. fixtureDemoTreeFiles below is this fixture's
-	// one answer to that tree's contents, reused by every step in this block
-	// that seeds or advances the same "demo" bundle.
+	// fixtureDemoTreeFiles is this fixture's one answer to the "demo" tree's
+	// contents, reused by every step in this block that seeds or advances it.
 	ctx.Step(`^a git remote "([^"]*)" serving a ctxloom bundle$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		url, err := w.env.SeedRemote(fixtureDemoTreeFiles("1.0.0", "Demo bundle", "demo-frag", "Demo fragment content.", true))
@@ -440,7 +437,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		// DIRECTORY (the tree root) in one call — so every file this fixture's
 		// tree ever holds is named individually. Once all of them are gone, git
 		// drops the now-empty directory from the tree on its own.
-		root := remoteSingleFilePublishPath(bundle)
+		root := treeBundlePath(bundle)
 		return w.env.UnpublishFromRemote(bare,
 			root+"/"+bundles.DirectoryFormManifest,
 			root+"/fragments/demo-frag.md",

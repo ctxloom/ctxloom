@@ -54,7 +54,7 @@ func ContentItemPath(_ ItemType, name string) string {
 }
 
 // RepoItemPrefix is the repo-relative directory an item PUBLISHES into and a
-// fetch READS from, in the single-file document layout.
+// fetch READS from.
 //
 // Publish and fetch must name the same file or a bundle is written where no
 // consumer looks, so both sides resolve it here rather than each composing a
@@ -121,9 +121,8 @@ func RepoItemName(_ ItemType, rel string) string {
 // BundleTreeRoots names every repository root at which a bundle's DIRECTORY
 // form may live, in the order a probe should try them.
 //
-// A bundles root's `v` segment is the FORMAT VERSION: the single-file document
-// form is format v1, the tree form is format v2, and each format migration adds
-// the next root, migrates, then deletes the old one. An overlap is therefore
+// A bundles root's `v` segment is the FORMAT VERSION: each format migration
+// adds the next root, migrates, then deletes the old one. An overlap is therefore
 // normal and its length varies per migration, so more than one root can hold a
 // real tree at the same time and resolution must consider all of them.
 //
@@ -135,14 +134,14 @@ func RepoItemName(_ ItemType, rel string) string {
 // layout accessors, not discovered by walking, so a bundle of a given name has
 // exactly one possible location per format and no other.
 //
-// filePath is the bundle's single-file path in either of the two prefix
-// families a reference is built in — repo-relative or content-root-relative
-// (see Reference.BuildFilePath) — and the candidates are composed in the same
-// family the path arrived in. A path under neither yields the extension-trimmed
-// path alone, which is all that can honestly be said about a location this
-// layout does not describe.
+// filePath is the bundle's path in either of the two prefix families a
+// reference is built in — repo-relative or content-root-relative (see
+// Reference.BuildFilePath) — and the candidates are composed in the same
+// family the path arrived in. A path under neither yields the path alone,
+// which is all that can honestly be said about a location this layout does
+// not describe.
 func BundleTreeRoots(filePath string) []string {
-	trimmed := strings.TrimSuffix(filePath, ".yaml")
+	trimmed := filePath
 	for _, fam := range []struct {
 		root      string
 		prefixFor func(paths.BundleLayout) string

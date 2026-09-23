@@ -1,10 +1,9 @@
 package bundles
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -36,7 +35,7 @@ commands:
   yankee: {content: y}
   charlie: {content: c}
 `
-	require.NoError(t, os.WriteFile(filepath.Join(seedBundleRoot(t, tmpDir, paths.LayoutV2), "order.yaml"), []byte(bundleYAML), 0o644))
+	writeTree(t, afero.NewOsFs(), seedBundleRoot(t, tmpDir, paths.LayoutV2), "order", bundleYAML)
 	cat := NewLoader(NewProjectReader(nil, []string{tmpDir})).Catalog()
 	want := []string{"alpha", "bravo", "charlie", "echo", "kilo", "mike", "yankee", "zulu"}
 

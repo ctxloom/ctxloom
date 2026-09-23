@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // MCP separates the phases explicitly: resources/list returns DESCRIPTORS,
@@ -36,7 +37,7 @@ fragments:
     tags: ["core"]
     content: unconditional guidance
 `
-	testsupport.WriteFileString(t, fs, authoredV1(testBaseDir)+"/premised.yaml", doc, 0o644)
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "premised", doc)
 	return bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 }
 

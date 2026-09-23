@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // ---------------------------------------------------------------------------
@@ -113,7 +113,6 @@ func (emptyDistiller) Distill(context.Context, DistillRequest) (DistillResult, e
 // good distillation must not be overwritten with "".
 func TestDistillBundleFile_EmptyDistillationIsNotSuccess(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "bundle.yaml")
 	bundleYAML := `version: 1.0.0
 fragments:
   rules:
@@ -122,7 +121,7 @@ fragments:
     distilled_by: "old-model"
     content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
 `
-	require.NoError(t, os.WriteFile(path, []byte(bundleYAML), 0o644))
+	path := bundletree.WriteOS(t, dir, "rules-bundle", bundleYAML)
 
 	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
 		Path:      path,
@@ -135,9 +134,8 @@ fragments:
 	assert.Equal(t, DistillReasonFailed, item.Reason)
 	assert.Empty(t, item.ModelID, "a failed distillation must not report a model id")
 
-	b, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Contains(t, string(b), "previously good distilled text",
+	after := readBackBundle(t, path)
+	assert.Equal(t, "previously good distilled text", after.Fragments["rules"].Distilled,
 		"a failed distillation must not destroy the previous good one")
 }
 
@@ -257,10 +255,10 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
-			require.NoError(t, fs.MkdirAll("/incoming", 0755))
-			require.NoError(t, afero.WriteFile(fs, "/incoming/hollow.yaml", []byte(body), 0644))
+			require.NoError(t, fs.MkdirAll("/incoming/hollow", 0755))
+			require.NoError(t, afero.WriteFile(fs, "/incoming/hollow/bundle.yaml", []byte(body), 0644))
 
-			_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/incoming/hollow.yaml", FS: fs})
+			_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/incoming/hollow", FS: fs})
 			require.Error(t, err, "a bundle with no items must not import as a success")
 			assert.Contains(t, err.Error(), "no items")
 		})
@@ -272,9 +270,9 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 // Every importer here writes the SOURCE basename into the target directory
 // verbatim, and every loader filters that directory by extension. So the
 // question "could the loader ever find what I just wrote?" has to be asked by
-// each of them, and the accepted set is not the same: bundles.Loader.Find
-// stats only "<name>.yaml" (a .yml bundle is as unloadable as a .txt one),
-// while the profile scan takes .yaml and .yml alike.
+// each of them, and the accepted set is not the same: a bundle is a tree, so
+// no single file of any name is one, while the profile scan takes .yaml and
+// .yml alike.
 //
 // Blind spot, stated: this covers the two importers that exist today. It is a
 // table, not a reflective sweep over every writer — a third importer added
@@ -299,7 +297,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 		loadable []string
 		unusable []string
 	}{
-		{"bundle", bundleBody, importBundle, []string{"seed.yaml"}, []string{"seed.txt", "seed", "seed.yml", "seed.yaml.bak", "seed.json"}},
+		{"bundle", bundleBody, importBundle, nil, []string{"seed.yaml", "seed.txt", "seed", "seed.yml", "seed.yaml.bak", "seed.json"}},
 		{"profile", profileBody, importProfile, []string{"p.yaml", "p.yml"}, []string{"p.txt", "p", "p.yaml.bak", "p.json"}},
 	}
 
@@ -337,59 +335,22 @@ func TestImportBundle_DoesNotDestroyOnRejection(t *testing.T) {
 	appDir := filepath.Join("/proj", ".ctxloom")
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	bdir := authoredV1(appDir)
-	require.NoError(t, fs.MkdirAll(bdir, 0755))
-	good := []byte("version: 1.0.0\nfragments:\n  keep:\n    content: precious\n")
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml"), good, 0644))
-	require.NoError(t, fs.MkdirAll("/incoming", 0755))
-	require.NoError(t, afero.WriteFile(fs, "/incoming/seed.yaml", []byte("# hollow\n"), 0644))
+	envelope := bundletree.Write(t, fs, bdir, "seed", "version: 1.0.0\nfragments:\n  keep:\n    content: precious\n")
+	require.NoError(t, fs.MkdirAll("/incoming/seed", 0755))
+	require.NoError(t, afero.WriteFile(fs, "/incoming/seed/bundle.yaml", []byte("# hollow\n"), 0644))
 
-	_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/incoming/seed.yaml", Force: true, FS: fs})
+	_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/incoming/seed", Force: true, FS: fs})
 	require.Error(t, err)
 
-	after, readErr := afero.ReadFile(fs, filepath.Join(bdir, "seed.yaml"))
+	after, readErr := bundles.ReadTreeAt(context.Background(), fs, envelope)
 	require.NoError(t, readErr)
-	assert.Equal(t, string(good), string(after), "a rejected import must not have destroyed the existing bundle")
+	assert.Equal(t, "precious", after.Fragments["keep"].Content, "a rejected import must not have destroyed the existing bundle")
 }
 
 // ---------------------------------------------------------------------------
 // A degenerate remote URL escapes the bundle cache root, and the
 // escaped path is handed straight to fs.Remove.
 // ---------------------------------------------------------------------------
-
-// TestLocalItemPath_StaysInsideTheCacheRoot is the containment gate on the one
-// path in this package that reaches fs.Remove. Whatever the remote URL in the
-// lockfile, the computed install path must land under
-// <appDir>/cache/bundles — never outside it.
-//
-// The assertion is CONTAINMENT, not emptiness: with remote.containRemoteName
-// neutralising traversal at the root cause, a degenerate ref now resolves to a
-// harmless in-cache path rather than being discarded, and cleanup keeps
-// working. What must never happen is a path outside the root.
-func TestLocalItemPath_StaysInsideTheCacheRoot(t *testing.T) {
-	appDir := filepath.Join("/proj", ".ctxloom")
-	root := filepath.Join(appDir, paths.CacheDir, paths.BundlesDir)
-	escaping := []string{
-		"https://x/../..@bundles/victim",
-		"https://x/../../..@bundles/victim",
-		"https://host/a/../../../..@bundles/victim",
-	}
-	for _, ref := range escaping {
-		got := localItemPath(appDir, remote.ItemTypeBundle, ref)
-		if got == "" {
-			continue // discarded outright is also safe
-		}
-		rel, err := filepath.Rel(root, got)
-		require.NoError(t, err, "ref %q", ref)
-		assert.False(t, rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)),
-			"ref %q yielded removable path %q outside the cache root", ref, got)
-	}
-
-	// Control: an ordinary canonical ref still resolves, or cleanup silently
-	// stops working.
-	ok := localItemPath(appDir, remote.ItemTypeBundle, "https://github.com/owner/repo@bundles/thing")
-	assert.NotEmpty(t, ok, "an ordinary ref must still resolve")
-	assert.Contains(t, ok, filepath.Join(paths.CacheDir, paths.BundlesDir))
-}
 
 // TestRemoveLocalItems_DoesNotRemoveOutsideCache is the end-to-end proof on a
 // REAL filesystem: the file outside the cache root survives
@@ -405,17 +366,15 @@ func TestRemoveLocalItems_DoesNotRemoveOutsideCache(t *testing.T) {
 	ref := "https://x/..@bundles/victim"
 	lf := refLockfile(map[string]remote.LockEntry{ref: {SHA: "abc"}})
 	res, err := RemoveLocalItems(RemoveLocalItemsRequest{
-		AppDir:      appDir,
 		Items:       []RemovedItem{{Type: remote.ItemTypeBundle, Ref: ref}},
 		Lockfile:    lf,
 		LockManager: remote.NewLockfileManager(appDir, remote.WithLockfileFS(fs)),
-		FS:          fs,
 	})
 	require.NoError(t, err)
 	exists, statErr := afero.Exists(fs, victim)
 	require.NoError(t, statErr)
 	assert.True(t, exists, "cleanup must not delete a file outside the bundle cache root")
-	assert.NotContains(t, res.Removed, victim, "a file outside the cache root may never be reported removed")
+	assert.Equal(t, []string{ref}, res.Pruned, "cleanup prunes the lockfile entry and nothing else")
 }
 
 func ptr[T any](v T) *T { return &v }

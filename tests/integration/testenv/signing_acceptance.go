@@ -24,7 +24,7 @@ import (
 )
 
 // TestSigner is a generated ed25519 identity for the J000200 trust scenarios: a
-// signer that can sign bundle bytes (SeedSignedRemote) and be trusted
+// signer that can sign bundle bytes (SeedSignedTreeRemote) and be trusted
 // (TrustSigner), without any real ssh-agent or on-disk private key — the same
 // approach internal/adapters/operations/sign_test.go's testSigner uses at the unit
 // level, lifted here for the acceptance harness.
@@ -73,67 +73,12 @@ func (s *TestSigner) AuthorizedKey(comment string) string {
 // identity.
 func (s *TestSigner) Fingerprint() string { return ssh.FingerprintSHA256(s.Public) }
 
-// SeedSignedRemote is SeedRemote plus a detached publisher signature: every
-// path in signPaths (bundle YAML files already present in files, such as one
-// SingleFileBundlePath composes) gets a "<path>.sig" sibling
-// carrying an armored PROTOCOL.sshsig blob over its EXACT bytes, produced by
-// signer under the publish namespace — the same detached-sibling contract
-// verifyBundlePublisher reads (internal/adapters/remote.SignatureSuffix). A caller that
-// wants unsigned content simply uses SeedRemote directly; this helper exists
-// for the signed/trusted J000200 scenarios.
-func (e *TestEnvironment) SeedSignedRemote(files map[string]string, signPaths []string, signer *TestSigner) (string, error) {
-	seeded := make(map[string]string, len(files)+len(signPaths))
-	for k, v := range files {
-		seeded[k] = v
-	}
-	for _, path := range signPaths {
-		content, ok := files[path]
-		if !ok {
-			return "", fmt.Errorf("SeedSignedRemote: %q is not among the seeded files", path)
-		}
-		sig, err := signing.Sign([]byte(content), signer.Signer, signing.NamespacePublish)
-		if err != nil {
-			return "", fmt.Errorf("sign %q: %w", path, err)
-		}
-		seeded[path+".sig"] = string(sig)
-	}
-	return e.SeedRemote(seeded)
-}
-
-// AdvanceSignedRemote is AdvanceRemote plus a REFRESHED detached publisher
-// signature: every path in signPaths gets its "<path>.sig" sibling
-// regenerated over the new bytes in files, signed by signer under the publish
-// namespace. Use this for a legitimate new signed version (e.g. a publisher
-// adding content to an already-signed bundle). For an illegitimate change —
-// content mutated WITHOUT a matching re-sign, the J001500 tamper scenario — call
-// AdvanceRemote directly instead and leave the old ".sig" sibling in place, so
-// it no longer verifies over the new bytes (signing.ErrSignatureTampered).
-func (e *TestEnvironment) AdvanceSignedRemote(bareDir string, files map[string]string, signPaths []string, signer *TestSigner) error {
-	seeded := make(map[string]string, len(files)+len(signPaths))
-	for k, v := range files {
-		seeded[k] = v
-	}
-	for _, path := range signPaths {
-		content, ok := files[path]
-		if !ok {
-			return fmt.Errorf("AdvanceSignedRemote: %q is not among the advanced files", path)
-		}
-		sig, err := signing.Sign([]byte(content), signer.Signer, signing.NamespacePublish)
-		if err != nil {
-			return fmt.Errorf("sign %q: %w", path, err)
-		}
-		seeded[path+".sig"] = string(sig)
-	}
-	return e.AdvanceRemote(bareDir, seeded)
-}
-
-// SeedSignedTreeRemote signs a directory-form bundle as the given signer would
+// SeedSignedTreeRemote signs a bundle as the given signer would
 // and publishes the resulting TREE — envelope, item files, and the
 // SHA256SUMS/.sigs attestation attest.SignBundle produces — into a seeded git
 // remote. root is the remote-relative directory the tree lands in (e.g.
-// remoteSingleFilePublishPath(name) in the acceptance package); envelope is
-// the bundle.yaml body (no inline item keys — see
-// internal/core/bundles/tree_read.go's readEnvelope); items maps each item's path
+// treeBundlePath(name) in the acceptance package); envelope is the
+// bundle.yaml body; items maps each item's path
 // relative to the tree root (e.g. "fragments/marker.md") to its content.
 //
 // It goes through the PRODUCT's own signing path — content.NewTreeStore plus

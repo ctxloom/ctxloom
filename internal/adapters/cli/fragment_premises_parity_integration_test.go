@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +37,7 @@ fragments:
     premise: You are about to remove a worktree.
     content: GAMMA-BODY
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "premised.yaml"), []byte(doc), 0o644))
+	bundletree.WriteOS(t, bundleDir, "premised", doc)
 	return workDir
 }
 

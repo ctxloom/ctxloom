@@ -13,15 +13,13 @@ Sign a local bundle for publication
 
 ### Synopsis
 
-Sign a local directory-form bundle as a tree, so anyone who trusts your key
-can verify the bundle came from you.
+Sign a local bundle tree, so anyone who trusts your key can verify the
+bundle came from you.
 
 Signing writes a SHA256SUMS manifest at the bundle root covering every file in
 the tree, headed by the bundle's name and version, and files your signature
 over that manifest in the bundle's .sigs/ directory. Consumers without ctxloom
-can check the files with 'sha256sum -c SHA256SUMS'. A single-file bundle cannot
-be signed; move it to the directory form first. Re-signing removes a retired
-<bundle>.yaml.sig sibling, which every reader now refuses.
+can check the files with 'sha256sum -c SHA256SUMS'.
 
 ref is a bundle ref or an item ref, in the grammar 'ctxloom bundle trust'
 uses: a plain local bundle name, or the canonical 'ctxloom+local:<name>' URI.

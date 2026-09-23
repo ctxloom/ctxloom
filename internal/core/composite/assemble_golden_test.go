@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,8 +43,8 @@ import (
 var goldenPath = filepath.Join(packageDirAtStart, "testdata", "assemble.golden")
 
 // goldenAppDir seeds a temp project with the corpus and returns its app dir.
-// The corpus: the project's own bundle (a document-in-tree with real
-// fragments), adapters/content's tree fixtures under a bundle.yaml envelope
+// The corpus: the project's own bundle (a tree with real fragments),
+// adapters/content's tree fixtures under a bundle.yaml envelope
 // (a command with per-engine exports, a skill package, hooks, MCP servers,
 // a bundle-shipped profile), and two directory profiles — an uncurated one
 // and a curated one — selecting across them.
@@ -63,7 +65,7 @@ func goldenAppDir(t *testing.T) string {
 	// The skill sidecar declares its script executable; git does not carry
 	// the bit for this fixture, so the copy restores it.
 	require.NoError(t, fs.Chmod(filepath.Join(bundlesRoot, "code-quality", "skills", "code-reviewer", "scripts", "run.sh"), 0o755))
-	testsupport.SeedTree(t, fs, bundlesRoot, map[string]string{"premised.yaml": premisedBundle})
+	bundletree.Write(t, fs, bundlesRoot, "premised", premisedBundle)
 	testsupport.SeedTree(t, fs, paths.ProfilesPath(appDir), map[string]string{
 		"golden-auto.yaml":    goldenAutoProfile,
 		"golden-curated.yaml": goldenCuratedProfile,

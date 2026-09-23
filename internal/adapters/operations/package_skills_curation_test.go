@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -41,10 +43,9 @@ func skillCurationFixture(t *testing.T, appDir string) {
 			[]byte("---\nname: "+name+"\ndescription: The "+name+" skill.\n---\n\nBody.\n"), 0o644))
 	}
 
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte(
-		"version: 1.0.0\nskills:\n"+
-			"  shown: {}\n"+
-			"  hidden:\n    llm:\n      claude-code:\n        enabled: false\n"), 0o644))
+	bundletree.WriteOS(t, filepath.Dir(bundleDir), filepath.Base(bundleDir), "version: 1.0.0\nskills:\n"+
+		"  shown: {}\n"+
+		"  hidden:\n    llm:\n      claude-code:\n        enabled: false\n")
 }
 
 // writeSkillProfile writes a directory profile YAML referencing skill-bundle,

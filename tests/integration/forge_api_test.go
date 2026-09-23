@@ -29,18 +29,18 @@ func newGitHubFetcher(t *testing.T, stub *testenv.ForgeStub) *remote.GitHubFetch
 
 func TestForgeAPI_GitHub_NotFoundMapsToSentinel(t *testing.T) {
 	stub := testenv.NewForgeStub(t)
-	stub.AddFile(testenv.SingleFileBundlePath("present"), []byte("version: 1.0.0\n"))
+	stub.AddFile(testenv.TreeBundleManifestPath("present"), []byte("version: 1.0.0\n"))
 	f := newGitHubFetcher(t, stub)
 	ctx := context.Background()
 
 	t.Run("FetchFile happy path round-trips content", func(t *testing.T) {
-		data, err := f.FetchFile(ctx, "owner", "repo", testenv.SingleFileBundlePath("present"), "main")
+		data, err := f.FetchFile(ctx, "owner", "repo", testenv.TreeBundleManifestPath("present"), "main")
 		require.NoError(t, err)
 		assert.Equal(t, "version: 1.0.0\n", string(data))
 	})
 
 	t.Run("FetchFile 404 -> ErrRemoteContentNotFound", func(t *testing.T) {
-		_, err := f.FetchFile(ctx, "owner", "repo", testenv.SingleFileBundlePath("missing"), "main")
+		_, err := f.FetchFile(ctx, "owner", "repo", testenv.TreeBundleManifestPath("missing"), "main")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
 	})
@@ -58,13 +58,13 @@ func TestForgeAPI_GitHub_NotFoundMapsToSentinel(t *testing.T) {
 	})
 
 	t.Run("ListDir lists registered directory entries", func(t *testing.T) {
-		entries, err := f.ListDir(ctx, "owner", "repo", testenv.BundlesRoot(), "main")
+		entries, err := f.ListDir(ctx, "owner", "repo", testenv.TreeBundlePath("present"), "main")
 		require.NoError(t, err)
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name)
 		}
-		assert.Contains(t, names, "present.yaml")
+		assert.Contains(t, names, "bundle.yaml")
 	})
 }
 
@@ -77,7 +77,7 @@ func TestForgeAPI_Unauthorized(t *testing.T) {
 		stub := testenv.NewForgeStub(t)
 		stub.Unauthorized = true
 		f := newGitHubFetcher(t, stub)
-		_, err := f.FetchFile(ctx, "owner", "repo", testenv.SingleFileBundlePath("x"), "main")
+		_, err := f.FetchFile(ctx, "owner", "repo", testenv.TreeBundleManifestPath("x"), "main")
 		require.Error(t, err)
 		// A 401 is not a 404 — it must NOT be mistaken for missing content.
 		assert.NotErrorIs(t, err, errs.ErrRemoteContentNotFound)

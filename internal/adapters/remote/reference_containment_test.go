@@ -8,10 +8,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
-// TestLocalPath_AlwaysContainedInCacheRoot is the CLASS gate for the
-// LocalPath traversal escape.
+// TestLocalWorktreePath_AlwaysContainedInCacheRoot is the CLASS gate for the
+// install-path traversal escape.
 //
-// Reference.LocalPath is the one function that turns an attacker-influenceable
+// Reference.LocalWorktreePath is the one function that turns an attacker-influenceable
 // string (a remote URL out of a lockfile) into an on-disk path, and callers
 // hand that path to fs.Remove / MkdirAll / WriteFile. The item-path half is
 // already guarded by validateItemPath; the escape was exclusively via the URL,
@@ -23,10 +23,10 @@ import (
 // keeps holding if the URL→name mapping is rewritten: whatever the URL, the
 // computed install path must stay under <baseDir>/cache/bundles.
 //
-// Blind spot, stated: this covers the path LocalPath COMPUTES. It does not
-// prove callers use LocalPath rather than assembling their own path, and it
+// Blind spot, stated: this covers the path LocalWorktreePath COMPUTES. It
+// does not prove callers use it rather than assembling their own path, and it
 // says nothing about symlinks already on disk under the cache root.
-func TestLocalPath_AlwaysContainedInCacheRoot(t *testing.T) {
+func TestLocalWorktreePath_AlwaysContainedInCacheRoot(t *testing.T) {
 	base := filepath.Join("/proj", ".ctxloom")
 	root := filepath.Join(base, paths.CacheDir, paths.BundlesDir)
 
@@ -52,14 +52,14 @@ func TestLocalPath_AlwaysContainedInCacheRoot(t *testing.T) {
 	for _, u := range urls {
 		t.Run(u, func(t *testing.T) {
 			r := &Reference{URL: u, Path: "victim"}
-			got := r.LocalPath(base, ItemTypeBundle)
+			got := r.LocalWorktreePath(base)
 
 			rel, err := filepath.Rel(root, got)
 			if err != nil {
-				t.Fatalf("LocalPath(%q) = %q: not relatable to the cache root %q: %v", u, got, root, err)
+				t.Fatalf("LocalWorktreePath(%q) = %q: not relatable to the cache root %q: %v", u, got, root, err)
 			}
 			if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				t.Fatalf("LocalPath(%q) = %q escapes the bundle cache root %q (rel %q)", u, got, root, rel)
+				t.Fatalf("LocalWorktreePath(%q) = %q escapes the bundle cache root %q (rel %q)", u, got, root, rel)
 			}
 		})
 	}

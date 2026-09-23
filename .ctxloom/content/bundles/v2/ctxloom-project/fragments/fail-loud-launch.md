@@ -1,5 +1,5 @@
 ---
-description: You are writing a check that can find something wrong; writing code that accepts a configuration value, a file, or any input from outside the program; deciding what an unknown, malformed, or missing value should resolve to; or choosing between refusing and carrying on with less. For anyone deciding how loudly a failure should surface, and where the set of acceptable values is declared.
+description: You are writing a check that can find something wrong; writing code that accepts a configuration value, a file, or any input from outside the program; deciding what an unknown, malformed, or missing value should resolve to; or choosing between refusing and carrying on with less. For anyone deciding how loudly a failure should surface, and where the set of acceptable values is declared. This one also governs ordinary resolution code, not only launch-time findings.
 tags:
   - ctxloom
   - workflow

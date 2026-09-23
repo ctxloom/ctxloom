@@ -6,7 +6,7 @@
 // wants to change what reaches Alice's assistant, not read it).
 //
 // Reuses J000200's signing test helpers (tests/integration/testenv/signing_acceptance.go:
-// TestSigner, SeedSignedRemote, TrustSigner, AdvanceSignedRemote) and J000200's
+// TestSigner, SeedSignedTreeRemote, TrustSigner, AdvanceSignedTreeRemote) and J000200's
 // scaffolding helpers (steps_j000200_common.go: ensureProjectWithEngine, runOK) rather
 // than rebuilding trust infrastructure that already exists. World carries exactly
 // one new field (j001500 *j001500State) to hold this journey's fixture state.
@@ -51,7 +51,7 @@ type j001500State struct {
 	signer     *testenv.TestSigner
 	principal  string
 	url        string // file://<bare> — the seeded remote's clone URL
-	bare       string // bare repo path (no file:// prefix), for AdvanceRemote/AdvanceSignedRemote
+	bare       string // bare repo path (no file:// prefix), for AdvanceRemote/AdvanceSignedTreeRemote
 	bundleName string
 	referenced bool // remote added + profile modified (addRemoteBundleBase wiring done)
 
@@ -72,11 +72,8 @@ func j001500Of(w *World) *j001500State {
 	return w.j001500
 }
 
-// j001500TreeEnvelope is every j001500 fixture's tree envelope — no inline
-// item keys, because `deps pull` refuses a single-file bundle outright now
-// (nothing materializes a document — remote.Puller.installPulledItem) and a
-// remote tree bundle is read through internal/core/bundles/tree_read.go's
-// readEnvelope, which refuses one that still declares items inline.
+// j001500TreeEnvelope is every j001500 fixture's tree envelope; the items are
+// files beside it.
 const j001500TreeEnvelope = "version: \"1.0.0\"\n"
 
 // j001500TreeItems builds the item-file map for a j001500 bundle: one
@@ -209,7 +206,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
 		j001500.signer = signer
-		root := remoteSingleFilePublishPath(bundleName)
+		root := treeBundlePath(bundleName)
 		url, err := w.env.SeedSignedTreeRemote(root, bundleName, j001500TreeEnvelope, j001500TreeItems(j001500CompanyMarker, false), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)
@@ -264,7 +261,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Mallory alters the company's secure-coding bundle after it was signed$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		root := remoteSingleFilePublishPath(j001500.bundleName)
+		root := treeBundlePath(j001500.bundleName)
 		// AdvanceRemote (not AdvanceSignedTreeRemote): the fragment file's
 		// bytes change but the OLD SHA256SUMS/.sigs — signed over the
 		// ORIGINAL content — survive untouched, so they no longer cover these
@@ -353,7 +350,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the company's bundle ships an MCP server and a hook$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		root := remoteSingleFilePublishPath(j001500.bundleName)
+		root := treeBundlePath(j001500.bundleName)
 		if err := w.env.AdvanceSignedTreeRemote(j001500.bare, root, j001500.bundleName, j001500TreeEnvelope, j001500TreeItems(j001500CompanyMarker, true), j001500.signer); err != nil {
 			return fmt.Errorf("advance remote with mcp+hook: %w", err)
 		}
@@ -411,7 +408,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Trent retracts that version of the bundle$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		root := remoteSingleFilePublishPath(j001500.bundleName)
+		root := treeBundlePath(j001500.bundleName)
 		envelope := "version: 1.1.0\nwithdrawn: found to be incorrect guidance; do not use\n"
 		return w.env.AdvanceSignedTreeRemote(j001500.bare, root, j001500.bundleName, envelope, j001500TreeItems(j001500CompanyMarker, false), j001500.signer)
 	})
@@ -454,7 +451,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			{"extra-a", j001500ExtraMarkerA},
 			{"extra-b", j001500ExtraMarkerB},
 		} {
-			root := remoteSingleFilePublishPath(extra.name)
+			root := treeBundlePath(extra.name)
 			url, err := w.env.SeedSignedTreeRemote(root, extra.name, j001500TreeEnvelope, j001500TreeItems(extra.marker, false), j001500.signer)
 			if err != nil {
 				return fmt.Errorf("seed signed extra bundle %q: %w", extra.name, err)
@@ -530,7 +527,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		// One unsigned, untrusted pending item so `review --project` has
 		// something to act on: an empty pending set short-circuits ("Nothing is
 		// pending review.") before ever resolving a signer.
-		root := remoteSingleFilePublishPath("bystander")
+		root := treeBundlePath("bystander")
 		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: j001500TreeEnvelope}
 		for rel, body := range j001500TreeItems(j001500ForgeryMarker, false) {
 			files[root+"/"+rel] = body

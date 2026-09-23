@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// BundleLayout names one of the two on-disk shapes a bundle is stored in.
+// BundleLayout names the on-disk FORMAT root a bundle is stored under.
 //
 // # Why a versioned accessor rather than a second pair of constants
 //
@@ -57,11 +57,9 @@ var ErrUnknownBundleLayout = errors.New("not a known bundle layout")
 
 // The directory name each FORMAT occupies beneath a bundles root.
 //
-// The `v` here is the FORMAT VERSION, not a file shape: v1 holds single-file
-// documents AND directories that still carry inline item keys, v2 holds only
-// TRUE TREES (no inline item keys, items as files), and the next format
-// migration adds the next root. A directory is therefore not by itself v2 —
-// treeFormEnvelope's rule, not the entry's type, decides.
+// The `v` here is the FORMAT VERSION, not a file shape: v2 holds TREES (no
+// inline item keys, items as files), and the next format migration adds the
+// next root.
 const (
 	layoutV2Segment = "v2"
 )
@@ -97,7 +95,8 @@ func (l BundleLayout) Segment() (string, error) {
 // answer and threading an error through them buys nothing: a BundleLayout is a
 // closed enum minted in this package, so an unrecognised one is a programming
 // error and not a runtime condition. The alternative — defaulting an unknown
-// layout to v1 — is the silent wrong answer this whole type exists to prevent.
+// layout to some real one — is the silent wrong answer this whole type exists
+// to prevent.
 func (l BundleLayout) mustSegment() string {
 	seg, err := l.Segment()
 	if err != nil {
@@ -106,20 +105,13 @@ func (l BundleLayout) mustSegment() string {
 	return seg
 }
 
-// ItemFileName is the LEAF a bundle occupies beneath its layout's prefix.
+// ItemFileName is the LEAF a bundle occupies beneath its layout's prefix: the
+// tree's directory name.
 //
-// SHAPE IS A PROPERTY OF THE LAYOUT, and this is the only place that says so.
-// v1 is the single-file document form, so its leaf carries .yaml; v2 holds only
-// true trees, so its leaf is the directory name itself.
-//
-// It exists because the prefix and the leaf were previously decided in
-// DIFFERENT places — the prefix from the layout, the leaf from a `tree bool`
-// threaded through callers — and two sources of one fact can disagree. They
-// did: pointing the prefix at v2 while the read path still appended ".yaml"
-// asked for bundles/v2/<name>.yaml, which cannot exist under a layout that
-// holds only directories, and every remote bundle silently failed to load.
-// Deriving the leaf here makes "a v2 file" and "a v1 tree" unrepresentable
-// rather than merely unlikely.
+// The prefix and the leaf are decided HERE together because they were once
+// decided in DIFFERENT places — the prefix from the layout, the leaf from a
+// `tree bool` threaded through callers — and two sources of one fact
+// disagreed: every remote bundle silently failed to load.
 //
 // It panics on an unknown layout, exactly as mustSegment does: an item path
 // built from no layout is a programming error, not a runtime condition.

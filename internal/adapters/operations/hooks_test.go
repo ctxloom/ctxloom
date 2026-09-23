@@ -36,6 +36,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -713,7 +715,7 @@ fragments:
       ## Go Patterns
       - Use interfaces
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "dev", bundleContent)
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
@@ -803,7 +805,7 @@ fragments:
       ## Security Rules
       - Always validate input
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "dev", bundleContent)
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
@@ -867,7 +869,7 @@ fragments:
     content: |
       Hello {{project_name}}.
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "test", bundleContent)
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
@@ -922,7 +924,7 @@ fragments:
     content: |
       Hello {{missing_hook_var}}.
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "test", bundleContent)
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
@@ -974,7 +976,7 @@ fragments:
     content: |
       Hello {{hook_attribution_check_variable}}.
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "test", bundleContent)
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
@@ -1027,7 +1029,7 @@ fragments:
       ## My Fragment Content
       This is test content
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "test", bundleContent)
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
@@ -1073,7 +1075,7 @@ fragments:
     content: |
       ## Fallback Content
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "test", bundleContent)
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
@@ -1127,7 +1129,7 @@ fragments:
     content: |
       ## Existing Content
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "test", bundleContent)
 
 	mockConfigLoader := func() (*config.Config, error) {
 		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{

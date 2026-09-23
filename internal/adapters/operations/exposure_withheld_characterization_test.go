@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -448,7 +450,7 @@ fragments:
     content: |
       BLOCKED-MARKER
 `
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleYAML), 0o644))
+	bundletree.Write(t, fs, bundlesDir, "dev", bundleYAML)
 	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	return cfg, appDir

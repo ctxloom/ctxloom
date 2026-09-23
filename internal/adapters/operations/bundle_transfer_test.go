@@ -5,10 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -21,8 +24,7 @@ func memBundleFS(t *testing.T) (afero.Fs, *config.Config) {
 	appDir := filepath.Join("/proj", ".ctxloom")
 	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml"),
-		[]byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
+	bundletree.Write(t, fs, bdir, "seed", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
 	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
@@ -31,10 +33,10 @@ func TestExportBundle_ToDestDir(t *testing.T) {
 
 	res, err := ExportBundle(context.Background(), cfg, ExportBundleRequest{Name: "seed", DestDir: "/out", FS: fs})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/out", "seed.yaml"), res.Dest)
+	assert.Equal(t, filepath.Join("/out", "seed"), res.Dest)
 
-	exists, _ := afero.Exists(fs, res.Dest)
-	assert.True(t, exists, "exported file should exist in the injected FS")
+	exists, _ := afero.Exists(fs, filepath.Join(res.Dest, bundles.DirectoryFormManifest))
+	assert.True(t, exists, "the exported tree should exist in the injected FS")
 }
 
 func TestExportBundle_RequiresDestination(t *testing.T) {
@@ -48,9 +50,8 @@ func TestExportBundle_RequiresDestination(t *testing.T) {
 func TestImportBundle_RoundTrip(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
-	src := "/incoming/incoming.yaml"
-	require.NoError(t, fs.MkdirAll("/incoming", 0755))
-	require.NoError(t, afero.WriteFile(fs, src, []byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
+	src := "/incoming/incoming"
+	bundletree.Write(t, fs, "/incoming", "incoming", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
 
 	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: src, FS: fs})
 	require.NoError(t, err)
@@ -69,9 +70,9 @@ func TestImportBundle_RoundTrip(t *testing.T) {
 }
 
 // What lands is the SOURCE's bytes, not a re-emission of the parsed envelope.
-// A publisher signature covers the document's exact bytes (spec §3.1), so an
-// import that round-tripped through the parser would drop comments and reorder
-// keys and arrive unverifiable — while still reporting "imported".
+// A publisher signature covers the files' exact bytes, so an import that
+// round-tripped through the parser would drop comments and reorder keys and
+// arrive unverifiable — while still reporting "imported".
 //
 // The fixture leads with a comment and a trailing key precisely because those
 // are what a re-emission destroys; asserting on a body the parser would
@@ -79,14 +80,14 @@ func TestImportBundle_RoundTrip(t *testing.T) {
 func TestImportBundle_WritesTheSourceBytesVerbatim(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
-	src := "/incoming/verbatim.yaml"
-	body := "# a comment no re-emission keeps\nversion: 1.0.0\nfragments:\n  a:\n    content: hi\ndescription: last\n"
-	testsupport.WriteFileString(t, fs, src, body, 0644)
+	src := "/incoming/verbatim"
+	body := "# a comment no re-emission keeps\nversion: 1.0.0\ndescription: last\n"
+	testsupport.WriteFileString(t, fs, filepath.Join(src, bundles.DirectoryFormManifest), body, 0644)
 
 	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: src, FS: fs})
 	require.NoError(t, err)
 
-	got, err := afero.ReadFile(fs, res.Dest)
+	got, err := afero.ReadFile(fs, filepath.Join(res.Dest, bundles.DirectoryFormManifest))
 	require.NoError(t, err)
 	require.NotEmpty(t, got, "comparing two empty reads is trivially identical")
 	assert.Equal(t, body, string(got))
@@ -95,8 +96,8 @@ func TestImportBundle_WritesTheSourceBytesVerbatim(t *testing.T) {
 func TestImportBundle_InvalidFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
-	src := "/bad.yaml"
-	require.NoError(t, afero.WriteFile(fs, src, []byte("\tnot: [valid"), 0644))
+	src := "/bad"
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(src, bundles.DirectoryFormManifest), []byte("\tnot: [valid"), 0644))
 
 	_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: src, FS: fs})
 	require.Error(t, err)
@@ -112,12 +113,12 @@ func TestImportBundle_WritesToCommittedContentTree(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	require.NoError(t, afero.WriteFile(fs, "/in/imported.yaml", []byte("version: 1.0.0\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, "/in/imported/bundle.yaml", []byte("version: 1.0.0\n"), 0644))
 
-	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/in/imported.yaml", FS: fs})
+	res, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/in/imported", FS: fs})
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(authoredV1(appDir), "imported.yaml"), res.Dest)
-	inCache, _ := afero.Exists(fs, filepath.Join(paths.CacheBundlesPath(appDir), "imported.yaml"))
+	assert.Equal(t, filepath.Join(authoredV1(appDir), "imported"), res.Dest)
+	inCache, _ := afero.Exists(fs, filepath.Join(paths.CacheBundlesPath(appDir), "imported"))
 	assert.False(t, inCache, "imported bundle must not land in the gitignored cache")
 }

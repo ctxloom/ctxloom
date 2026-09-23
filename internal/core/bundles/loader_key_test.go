@@ -13,7 +13,7 @@ import (
 // TestLoaderReadKey_ResolvesTheExactKey proves ReadKey is Read's load-path
 // counterpart for a caller already holding a trust.BundleKey.
 func TestLoaderReadKey_ResolvesTheExactKey(t *testing.T) {
-	loader := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
+	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 
 	want, err := trust.LocalRef("kit")
 	require.NoError(t, err)
@@ -26,7 +26,7 @@ func TestLoaderReadKey_ResolvesTheExactKey(t *testing.T) {
 // TestLoaderReadKey_UnknownKeyMisses proves a key nothing was resolved under
 // misses cleanly rather than matching some other bundle.
 func TestLoaderReadKey_UnknownKeyMisses(t *testing.T) {
-	loader := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
+	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 
 	ghost, err := trust.LocalRef("no-such-bundle")
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestLoaderReadKey_UnknownKeyMisses(t *testing.T) {
 // TestLoaderLoadKey_ResolvesTheBundle proves LoadKey returns the parsed
 // bundle for an exact key.
 func TestLoaderLoadKey_ResolvesTheBundle(t *testing.T) {
-	loader := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
+	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 
 	want, err := trust.LocalRef("kit")
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestLoaderLoadKey_ResolvesTheBundle(t *testing.T) {
 // no error, which callers would otherwise mistake for "no bundle, but no
 // problem" (this project's characteristic silent-no-op shape).
 func TestLoaderLoadKey_UnknownKeyErrorsNotFound(t *testing.T) {
-	loader := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
+	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 
 	ghost, err := trust.LocalRef("no-such-bundle")
 	require.NoError(t, err)

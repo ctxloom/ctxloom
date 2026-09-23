@@ -11,17 +11,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-var (
-	bundleCreateDesc string
-	bundleCreateTree bool
-)
+var bundleCreateDesc string
 
 var bundleCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a new bundle",
-	Long: `Create a new bundle file in .ctxloom/content/bundles.
+	Long: `Create a new bundle in .ctxloom/content/bundles.
 
-Creates a skeleton bundle YAML file that you can edit to add content.`,
+Scaffolds a bundle tree — bundle.yaml plus one file per item — with an example
+fragment and prompt that you can edit.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleCreate,
 }
@@ -52,7 +50,6 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 		Commands: map[string]operations.BundleCommandInput{
 			"example": {Description: "Example prompt", Tags: []string{"example"}, Content: "Example prompt content. Describe what this prompt does.", NoDistill: true},
 		},
-		Tree: bundleCreateTree,
 	})
 	if err != nil {
 		return err
@@ -61,7 +58,7 @@ func runBundleCreate(cmd *cobra.Command, args []string) error {
 	return emit(cmd, res, func() error {
 		w := iox.NewErrWriter(cmd.OutOrStdout())
 		w.Printf("Created bundle: %s\n", res.Path)
-		w.Println("Edit the file to add your fragments and prompts.")
+		w.Println("Edit its item files to add your fragments and prompts.")
 		return w.Err()
 	})
 }
@@ -92,16 +89,13 @@ Examples:
   ctxloom bundle edit my-bundle --add-tag golang --add-tag testing
   ctxloom bundle edit my-bundle --add-mcp tree-sitter
 
-SKILLS are not edited here. A skill is a directory PACKAGE with its own
-per-file manifest, not a single entry in a map, so it has its own verbs:
+SKILLS are not edited here. A skill is a directory PACKAGE (skills/<name>/),
+not a single entry in a map, so it has its own verbs:
 
-  ctxloom skill create <bundle> <name>   scaffold it and register it in bundle.yaml
-  ctxloom skill sync <bundle>            refresh the manifest after editing SKILL.md
+  ctxloom skill create <bundle> <name>   scaffold its directory
 
-Run 'ctxloom skill --help' for the rest. Note the ordering: create, edit
-SKILL.md, sync, THEN sign — 'ctxloom bundle sign' refreshes the tree digest but
-not a skill's per-file manifest, so signing without syncing first leaves the
-bundle signed and withheld at materialize.`,
+Run 'ctxloom skill --help' for the rest. Sign after editing a skill's files:
+the bundle's SHA256SUMS covers them.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleEdit,
 }
@@ -283,7 +277,6 @@ func bundleRemoveDetail(b *bundles.Bundle) []string {
 // registerBundleCreateFlags defines `bundle create`'s flags.
 func registerBundleCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
-	cmd.Flags().BoolVar(&bundleCreateTree, "tree", false, "author as a tree (bundle.yaml plus one file per item) in the v2 layout, instead of a single-file document")
 }
 
 // registerBundleRemoveFlags defines `bundle remove`'s flags. There is no

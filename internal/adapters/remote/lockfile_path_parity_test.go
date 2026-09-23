@@ -21,24 +21,20 @@ func TestLockfileManagerPath_MatchesPathsLockPath(t *testing.T) {
 	assert.Equal(t, paths.LockPath(paths.AppDirName), NewLockfileManager("").Path())
 }
 
-// Reference.LocalPath must root at paths.CacheBundlesPath rather than
+// Reference.LocalWorktreePath must root at paths.CacheBundlesPath rather than
 // re-assemble the cache bundles root from paths.CacheDir + paths.BundlesDir,
 // so a layout change in internal/core/paths cannot silently miss it. Pins the two
 // to one answer.
 //
 // It deliberately does NOT route through a layout-specific prefix
-// (CacheBundlesPathFor): the cache install side distinguishes a document from
-// a tree by EXTENSION (LocalTreePath is LocalPath minus ".yaml"), not by a
-// repo-format segment — that segment names where a PUBLISHER commits, and the
-// two axes were bound together once and reverted (see "Revert 'point fetch
-// and the cache at v2' — it starves every session of context"), because
-// rooting the cache in the repo layout orphaned every already-installed
-// bundle from the previous format root.
-func TestReferenceLocalPath_RootedAtCacheBundlesPath(t *testing.T) {
+// (CacheBundlesPathFor): the repo-format segment names where a PUBLISHER
+// commits, and rooting the cache in the repo layout was tried and reverted
+// ("Revert 'point fetch and the cache at v2' — it starves every session of
+// context") because it orphaned every already-installed bundle from the
+// previous format root.
+func TestReferenceLocalWorktreePath_RootedAtCacheBundlesPath(t *testing.T) {
 	r := &Reference{URL: "https://github.com/acme/repo", Path: "lang/go"}
-	got := r.LocalPath("/proj/.ctxloom", ItemTypeBundle)
-	assert.True(t, len(got) > 0)
 	assert.Equal(t,
-		paths.CacheBundlesPath("/proj/.ctxloom")+"/"+r.LocalRemoteName()+"/lang/go.yaml",
-		got)
+		paths.CacheBundlesPath("/proj/.ctxloom")+"/"+r.LocalRemoteName()+"/lang/go"+WorktreeDirSuffix,
+		r.LocalWorktreePath("/proj/.ctxloom"))
 }

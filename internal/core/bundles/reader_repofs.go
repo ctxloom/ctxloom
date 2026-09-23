@@ -57,17 +57,9 @@ type repoFSReader struct {
 // asked for local-context content would be a trust bypass with a struct literal
 // for a weapon.
 //
-// It reads ONE bundle form, because there is only one: a tree whose root holds
-// bundle.yaml alongside item directories, verified through its signed manifest
-// (attest.VerifyBundle, which checks the tree against the manifest in both
-// directions). Anything else is REFUSED rather than read as a document.
-//
-// The single-document form it used to fall back to is gone. It could not be
-// published (PushBundle refuses it) and nothing served one, so the fallback
-// only widened what could be interpreted: a document has no manifest, so the
-// verification this reader exists to perform had nothing to cover. Deleting it
-// loses no verification — a document's detached `.sig` was checked before any
-// parse — it removes the last shape that could arrive without one.
+// A bundle is a tree whose root holds bundle.yaml alongside item directories,
+// verified through its signed manifest (attest.VerifyBundle, which checks the
+// tree against the manifest in both directions).
 func NewRepoFSReader(tree TreeFS, ref string, opts ...ReaderOption) Reader {
 	return &repoFSReader{tree: tree, ref: ref, cfg: newReaderConfig(opts)}
 }
@@ -86,13 +78,7 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 		return nil, err
 	}
 	if !treeForm {
-		// A bundle is a TREE. The document form can no longer be published
-		// (PushBundle refuses it), nothing serves one, and reading one was the
-		// last path on which remote bytes were interpreted without a manifest
-		// to verify them against. Refusing names the shape so a repository left
-		// behind by the migration is diagnosable rather than silently empty.
-		return nil, fmt.Errorf("bundles: refusing to read %q: the pinned tree holds no %q directory, "+
-			"so it is not a tree-form bundle — the single-document form is no longer readable, and it must be republished as a tree",
+		return nil, fmt.Errorf("bundles: %q is not a bundle: the pinned tree holds no %q directory",
 			r.ref, r.leaf())
 	}
 	read, err := r.readTreeForm(ctx)
@@ -198,13 +184,6 @@ func (r *repoFSReader) syntheticPath() string {
 // installed; what changed is that integrity is checked where the bytes are
 // actually read from.
 func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
-	// The pull walk and the installed reader refuse the same things: a tree
-	// still carrying the retired sibling signature is refused here exactly
-	// as the local reader refuses it (refuseSiblingSignature).
-	if _, err := r.tree.ReadFile(path.Join(path.Base(strings.TrimSuffix(r.ref, "/")), DirectoryFormManifest+".sig")); err == nil {
-		return BundleRead{}, fmt.Errorf("%w: %q carries %s — the publisher re-signs it (`ctxloom bundle sign`) so its %s entry is the signature",
-			ErrSiblingSignatureRetired, r.ref, DirectoryFormManifest+".sig", content.SigDirName)
-	}
 	tree, err := r.openTreeBundle()
 	if err != nil {
 		return BundleRead{}, err

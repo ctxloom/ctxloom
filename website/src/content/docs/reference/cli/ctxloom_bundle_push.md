@@ -21,8 +21,8 @@ a pull request instead.
 If no remote is specified, uses the default remote.
 
 SIGNATURES: a signature belongs to the bundle, not to the publish.
-'ctxloom bundle sign' writes a detached <name>.yaml.sig sibling, and push
-CARRIES it — so the key that signs never has to be on the machine that
+'ctxloom bundle sign' writes the tree's SHA256SUMS and a .sigs/ entry over it,
+and push CARRIES them — so the key that signs never has to be on the machine that
 publishes, and CI can ship signed content it cannot itself forge. A
 signature that no longer covers the bundle (edited after signing) stops
 the push rather than shipping a pair every consumer reads as tampering.

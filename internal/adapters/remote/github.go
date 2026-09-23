@@ -510,51 +510,9 @@ func NewGitHubPublisherWithClient(client GitHubClient) *GitHubPublisher {
 	return &GitHubPublisher{client: client}
 }
 
-// CreateOrUpdateFile creates or updates a file in a repository.
-//
-// Empty content is refused. This is the last gate before the network write, and
-// a 0-byte commit here replaces whatever the remote already held — a published
-// bundle or its detached signature — with nothing, while reporting a commit SHA
-// that says it worked.
-func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, path, branch, message string, content []byte) (string, error) {
-	if len(content) == 0 {
-		return "", fmt.Errorf("refusing to publish empty content to %s/%s/%s: a 0-byte write would replace the remote file with nothing", owner, repo, path)
-	}
-
-	// GetFileSHA separates "the file is not there" (a 404, reported as an
-	// empty SHA and a nil error) from "I could not find out" (any other
-	// failure, reported as an error). Only the first is a fact about the
-	// remote. Dropping the error collapses them, and the empty SHA that
-	// results is what shapes the request: with no SHA the contents API is
-	// asked to CREATE the path, so a transient read failure over an existing
-	// file emits a create for something meant to be updated.
-	existingSHA, err := p.GetFileSHA(ctx, owner, repo, path, branch)
-	if err != nil {
-		return "", fmt.Errorf("cannot tell whether %s/%s/%s already exists, so the write is refused rather than sent as a create: %w",
-			owner, repo, path, err)
-	}
-
-	opts := &github.RepositoryContentFileOptions{
-		Message: github.String(message),
-		Content: content,
-		Branch:  github.String(branch),
-	}
-
-	if existingSHA != "" {
-		opts.SHA = github.String(existingSHA)
-	}
-
-	result, _, err := p.client.Repositories().CreateFile(ctx, owner, repo, path, opts)
-	if err != nil {
-		return "", fmt.Errorf("failed to create/update file: %w", err)
-	}
-
-	return result.GetSHA(), nil
-}
-
 // CreateOrUpdateFiles creates or updates every file in files (keyed by
 // repo-relative path) as ONE commit on branch, via the Git Data API rather
-// than the Contents API CreateOrUpdateFile uses: a blob per file, one tree
+// than the Contents API: a blob per file, one tree
 // built from those blobs on top of branch's current tree, one commit, and
 // one ref update. That is what makes it ONE commit for N files instead of N —
 // the Contents API's CreateFile has no multi-file form at all.
@@ -562,9 +520,7 @@ func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 // Blobs are base64-encoded explicitly rather than handed to the tree's
 // inline Content field: GitHub's create-tree endpoint requires inline
 // content to be valid UTF-8 and silently mangles anything that is not,
-// where a blob's Content+Encoding pair carries arbitrary bytes exactly —
-// the same byte-exactness CreateOrUpdateFile gets from the Contents API's
-// own base64 encoding of its []byte Content field.
+// where a blob's Content+Encoding pair carries arbitrary bytes exactly.
 func (p *GitHubPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
 	if len(files) == 0 {
 		return "", fmt.Errorf("refusing to publish an empty file set to %s/%s on %s: nothing would be written", owner, repo, branch)

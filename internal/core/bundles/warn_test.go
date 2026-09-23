@@ -85,10 +85,8 @@ func TestLoader_ReporterReceivesTheCatalogDiagnostics(t *testing.T) {
 
 		fsys := afero.NewMemMapFs()
 		dir := "/bundles"
-		require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "alpha.yaml"),
-			[]byte("version: \"1.0\"\nfragments:\n  u031f14shared:\n    content: a\n"), 0o644))
-		require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "beta.yaml"),
-			[]byte("version: \"1.0\"\nfragments:\n  u031f14shared:\n    content: b\n"), 0o644))
+		writeTree(t, fsys, bundlesRootIn(dir, ""), "alpha", "version: \"1.0\"\nfragments:\n  u031f14shared:\n    content: a\n")
+		writeTree(t, fsys, bundlesRootIn(dir, ""), "beta", "version: \"1.0\"\nfragments:\n  u031f14shared:\n    content: b\n")
 
 		var warnings findingLines
 		l := NewLoader(NewProjectReader(fsys, []string{dir})).WithReporter(&warnings)

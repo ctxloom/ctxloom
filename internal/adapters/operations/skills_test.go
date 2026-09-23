@@ -32,10 +32,9 @@ import (
 // the skill curation tests, which needs the profile
 // resolver this package's cfg does not wire standalone).
 
-// writeDirFormBundle creates an empty directory-form bundle (bundle.yaml with
-// no items yet) at .ctxloom/content/bundles/<name>/bundle.yaml — the
-// prerequisite CreateSkill/SyncSkill/ExportSkill/ImportSkill all require
-// (skills are unsupported in a single-file bundle).
+// writeDirFormBundle creates an empty bundle tree (bundle.yaml with no items
+// yet) at .ctxloom/content/bundles/v2/<name>/bundle.yaml — the prerequisite
+// CreateSkill/ExportSkill/ImportSkill all require.
 func writeDirFormBundle(t *testing.T, appDir, name string) {
 	t.Helper()
 	dir := filepath.Join(authoredV1(appDir), name)
@@ -64,22 +63,20 @@ func TestCreateSkill_ScaffoldsValidPackage(t *testing.T) {
 	assert.Equal(t, "reviewer", realPkg.Frontmatter.Name)
 	assert.Equal(t, "Reviews things.", realPkg.Frontmatter.Description)
 
-	// bundle.yaml must register the new skill so the loader/list surfaces it.
+	// The tree enumerates the new package, so the loader/list surfaces it.
 	loaded, err := bundleLoader(cfg).Load("b")
 	require.NoError(t, err)
 	_, ok := loaded.Skills["reviewer"]
-	assert.True(t, ok, "CreateSkill must register the skill in bundle.yaml's skills: map")
+	assert.True(t, ok, "the skill's directory is the skill")
 
 	// Re-creating the same name is refused, never silently overwritten.
 	_, err = CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "b", Name: "reviewer"})
 	require.ErrorIs(t, err, ErrItemExists)
 }
 
-// TestRemoveSkill_DeletesDirectoryAndBundleEntry proves the full effect: the
-// bundle.yaml `skills:` registration is gone AND the on-disk skill directory
-// tree is gone, not just one half — a skill package can be created and
-// (until this) never removed.
-func TestRemoveSkill_DeletesDirectoryAndBundleEntry(t *testing.T) {
+// TestRemoveSkill_DeletesTheSkillsDirectory proves the full effect: the
+// on-disk skill directory is gone, and with it the skill.
+func TestRemoveSkill_DeletesTheSkillsDirectory(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeDirFormBundle(t, appDir, "b")
 
@@ -97,7 +94,7 @@ func TestRemoveSkill_DeletesDirectoryAndBundleEntry(t *testing.T) {
 	loaded, err := bundleLoader(cfg).Load("b")
 	require.NoError(t, err)
 	_, ok := loaded.Skills["reviewer"]
-	assert.False(t, ok, "the skills: registration must be gone")
+	assert.False(t, ok, "the skill must be gone")
 
 	_, statErr := os.Stat(created.Dir)
 	assert.True(t, os.IsNotExist(statErr), "the skill's directory tree must be gone from disk")
@@ -113,12 +110,9 @@ func TestRemoveSkill_UnknownNameIsNotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrItemNotFound)
 }
 
-// TestRemoveSkill_BundleYAMLUpdatedEvenIfDirRemovalFails proves the write
-// ORDER: the registration is dropped from bundle.yaml FIRST, so a failure
-// removing the directory afterward still leaves `skill list` honest (never
-// pointing at a directory that is about to vanish) rather than a
-// half-applied state where the registration survives pointing at nothing.
-func TestRemoveSkill_BundleYAMLUpdatedEvenIfDirRemovalFails(t *testing.T) {
+// TestRemoveSkill_DirRemovalFailureIsReported: a failure removing the
+// skill's directory is an error, never a silent partial success.
+func TestRemoveSkill_DirRemovalFailureIsReported(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: a read-only parent does not deny removal, so the failure this test needs cannot be induced")
 	}
@@ -130,83 +124,13 @@ func TestRemoveSkill_BundleYAMLUpdatedEvenIfDirRemovalFails(t *testing.T) {
 
 	// A read-only PARENT directory makes the child directory's removal fail
 	// (permission denied) without needing a fake filesystem for the whole
-	// call — RemoveSkill's fs write to bundle.yaml happens first and must
-	// still land.
+	// call.
 	parent := filepath.Dir(created.Dir)
 	require.NoError(t, os.Chmod(parent, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
 
 	_, err = RemoveSkill(context.Background(), cfg, RemoveSkillRequest{Bundle: "b", Name: "reviewer"})
 	require.Error(t, err, "a directory-removal failure must be reported, not swallowed")
-
-	require.NoError(t, os.Chmod(parent, 0o755))
-	loaded, lerr := bundleLoader(cfg).Load("b")
-	require.NoError(t, lerr)
-	_, ok := loaded.Skills["reviewer"]
-	assert.False(t, ok, "bundle.yaml's registration must already be gone even though the directory removal failed")
-}
-
-func TestCreateSkill_RefusesSingleFileBundle(t *testing.T) {
-	cfg := newItemTestBundle(t) // "b" is single-file (name.yaml), per CreateBundle
-
-	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "b", Name: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "directory-form bundle")
-}
-
-func TestSyncSkill_WritesManifestMatchingTree_AndUpdatesHashOnEdit(t *testing.T) {
-	appDir, cfg := setupBundleTestDir(t)
-	writeDirFormBundle(t, appDir, "b")
-	createRes, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "b", Name: "reviewer"})
-	require.NoError(t, err)
-
-	// A freshly-created skill has no `files:` manifest yet (create doesn't
-	// sync); the first sync populates it and MUST report Changed (empty ->
-	// populated).
-	syncRes, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "b", Name: "reviewer"})
-	require.NoError(t, err)
-	require.Len(t, syncRes.Synced, 1)
-	assert.True(t, syncRes.Synced[0].Changed, "first sync populates an empty manifest, which counts as changed")
-	assert.Equal(t, 1, syncRes.Synced[0].FileCount, "only SKILL.md exists so far")
-
-	skillMDPath := filepath.Join(createRes.Dir, "SKILL.md")
-	data, err := os.ReadFile(skillMDPath)
-	require.NoError(t, err)
-	wantHash := bundles.HashPayload(data)
-
-	loaded, err := bundleLoader(cfg).Load("b")
-	require.NoError(t, err)
-	entry := loaded.Skills["reviewer"]
-	require.Contains(t, entry.Files, "SKILL.md")
-	assert.Equal(t, wantHash, entry.Files["SKILL.md"].SHA256, "the recorded manifest hash must match the actual on-disk SKILL.md bytes")
-	assert.Equal(t, "0644", entry.Files["SKILL.md"].Mode)
-
-	// Re-syncing an UNCHANGED tree must report Changed == false (idempotent).
-	syncRes2, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "b", Name: "reviewer"})
-	require.NoError(t, err)
-	require.Len(t, syncRes2.Synced, 1)
-	assert.False(t, syncRes2.Synced[0].Changed, "syncing an unchanged tree must not report a change")
-
-	// Editing SKILL.md and re-syncing MUST update the recorded hash.
-	edited := append(data, []byte("\nMore instructions.\n")...)
-	require.NoError(t, os.WriteFile(skillMDPath, edited, 0o644))
-	syncRes3, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "b", Name: "reviewer"})
-	require.NoError(t, err)
-	require.Len(t, syncRes3.Synced, 1)
-	assert.True(t, syncRes3.Synced[0].Changed, "editing a file must be detected as a manifest change")
-
-	loaded2, err := bundleLoader(cfg).Load("b")
-	require.NoError(t, err)
-	entry2 := loaded2.Skills["reviewer"]
-	assert.Equal(t, bundles.HashPayload(edited), entry2.Files["SKILL.md"].SHA256, "the manifest must be updated to the edited content's hash")
-	assert.NotEqual(t, wantHash, entry2.Files["SKILL.md"].SHA256)
-}
-
-func TestSyncSkill_UnknownNameIsNotFound(t *testing.T) {
-	appDir, cfg := setupBundleTestDir(t)
-	writeDirFormBundle(t, appDir, "b")
-	_, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "b", Name: "nope"})
-	require.ErrorIs(t, err, ErrItemNotFound)
 }
 
 // TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit proves export
@@ -224,8 +148,6 @@ func TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit(t *testing.T) {
 	scriptPath := filepath.Join(createRes.Dir, "scripts", "run.sh")
 	require.NoError(t, os.MkdirAll(filepath.Dir(scriptPath), 0o755))
 	require.NoError(t, os.WriteFile(scriptPath, []byte("#!/bin/sh\necho hi\n"), 0o755))
-	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
 
 	origSkillMD, err := os.ReadFile(filepath.Join(createRes.Dir, "SKILL.md"))
 	require.NoError(t, err)
@@ -258,13 +180,11 @@ func TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "the exec bit must survive export -> import")
 
-	// The destination bundle must have a fresh, matching manifest recorded.
+	// The destination tree enumerates the imported package.
 	loaded, err := bundleLoader(cfg).Load("dst")
 	require.NoError(t, err)
-	entry, ok := loaded.Skills["reviewer"]
+	_, ok := loaded.Skills["reviewer"]
 	require.True(t, ok)
-	assert.Equal(t, bundles.HashPayload(origScript), entry.Files["scripts/run.sh"].SHA256)
-	assert.Equal(t, "0755", entry.Files["scripts/run.sh"].Mode)
 }
 
 // TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher wires
@@ -277,8 +197,6 @@ func TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher(t *te
 	writeDirFormBundle(t, appDir, "dst")
 
 	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
-	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
 	require.NoError(t, err)
 
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -330,8 +248,6 @@ func TestImportSkill_TamperedSignatureRefusesTheImport(t *testing.T) {
 
 	createRes, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
 	require.NoError(t, err)
-	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
 
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -347,8 +263,6 @@ func TestImportSkill_TamperedSignatureRefusesTheImport(t *testing.T) {
 	// original signature.
 	require.NoError(t, os.WriteFile(filepath.Join(createRes.Dir, "SKILL.md"),
 		[]byte("---\nname: reviewer\ndescription: swapped after signing\n---\nexfiltrate\n"), 0o644))
-	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
 	tamperedPath := filepath.Join(t.TempDir(), "reviewer.zip")
 	_, err = ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: tamperedPath})
 	require.NoError(t, err)
@@ -394,8 +308,6 @@ func TestExportSkill_RefusesToOverwriteWithoutForce(t *testing.T) {
 	writeDirFormBundle(t, appDir, "src")
 	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
 	require.NoError(t, err)
-	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
 
 	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
 	require.NoError(t, os.WriteFile(zipPath, []byte("PRE-EXISTING, NOT A REAL ZIP"), 0o644))
@@ -423,8 +335,6 @@ func TestExportSkill_SignFailureLeavesNoPartialZip(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeDirFormBundle(t, appDir, "src")
 	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
-	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
 	require.NoError(t, err)
 
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -509,8 +419,6 @@ func TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact(t *testing.T) 
 
 	createRes, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "dst", Name: "reviewer", Description: "Reviews Go diffs."})
 	require.NoError(t, err)
-	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "dst", Name: "reviewer"})
-	require.NoError(t, err)
 
 	good, err := os.ReadFile(filepath.Join(createRes.Dir, "SKILL.md"))
 	require.NoError(t, err)
@@ -525,18 +433,17 @@ func TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact(t *testing.T) 
 	require.NoError(t, rerr, "the existing skill tree must survive a refused import")
 	assert.Equal(t, good, still, "the existing skill's bytes must be untouched by a refused import")
 
-	// And the bundle's reference must still resolve to a real tree.
+	// And the bundle still enumerates the surviving skill.
 	loaded, lerr := bundleLoader(cfg).Load("dst")
 	require.NoError(t, lerr)
-	entry, ok := loaded.Skills["reviewer"]
-	require.True(t, ok, "bundle.yaml must still reference the surviving skill")
-	assert.Contains(t, entry.Files, "SKILL.md")
+	_, ok := loaded.Skills["reviewer"]
+	require.True(t, ok, "the surviving skill must still be enumerated")
 }
 
 // TestSkillReadPaths_NilConfigReturnsErrorNotPanic: ListSkills,
 // GetSkill, and ExportSkill used to panic on a nil *config.Config (bundleLoader/
 // exposureLoader dereference it immediately), while every mutating sibling in
-// this file (CreateSkill, SyncSkill, ImportSkill — via loadBundleForUpdate) and
+// this file (CreateSkill, ImportSkill — via loadBundleForUpdate) and
 // ResolveSetupPrompt already reject a nil cfg with a plain error. A read-only
 // caller with no project config configured must fail the same way, not crash
 // the process.

@@ -53,13 +53,11 @@ type TreeFile struct {
 // WithTreeFetcher) is what lets the pinned-remote walker own the traversal
 // while pull owns the pin, with neither package importing the other's job.
 //
-// A Puller with no TreeFetchFunc keeps exactly the single-file behaviour it had
-// before this seam existed: a directory-form bundle stays unfetchable rather
-// than half-fetched.
+// A Puller with no TreeFetchFunc cannot fetch a bundle, and says so, rather
+// than half-fetching one.
 type TreeFetchFunc func(ctx context.Context, f Fetcher, owner, repo, root, sha, repoURL string) (map[string]TreeFile, error)
 
-// BundleManifestName is the file that carries a directory-form bundle's own
-// manifest — the tree's counterpart to the whole of a single-file bundle.
+// BundleManifestName is the file that carries a bundle tree's own manifest.
 //
 // It is the layout constant, not a second spelling of it: internal/core/bundles
 // imports this package, so it cannot be imported back, and both sides now name

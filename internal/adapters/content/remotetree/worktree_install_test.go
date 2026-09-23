@@ -38,9 +38,8 @@ const declaringSidecar = "executable:\n  - scripts/declared.sh\n"
 // divergence this step exists for, in both directions.
 //
 // ctxloom publishes every file 0644, so a checkout reproduces 0644 even for a
-// skill's scripts — and bundles.VerifyExtractedManifest refuses a package whose
-// on-disk exec bit disagrees with the declaration. The declaration reaching disk
-// is what makes the two agree.
+// skill's scripts — and a skill is delivered at the mode found on disk. The
+// declaration reaching disk is what makes the two agree.
 func TestApplyDeclaredModes_TheDeclarationWinsOverTheCommittedMode(t *testing.T) {
 	dir := installedTree(t, map[string]struct {
 		body string

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
@@ -45,18 +46,9 @@ func stageLocalTree(t *testing.T, envelope string, put func(w content.Writer)) a
 	return fsys
 }
 
-// localDoc / localV2 are where a fixture must write for readOneLocal to find
-// it: the FORMAT ROOT beneath the /bundles root these tests hand the reader.
-// The bare root is only its parent and is searched by nobody. Both names
-// resolve to the SAME (only) format root now — an inline-key directory and a
-// single-file document are shapes, not layouts, and treeFormEnvelope decides
-// between them by CONTENT (whether the envelope still declares items inline),
-// never by which of these two helpers wrote the fixture. The two names stay
-// separate here only to keep each test's intent legible at the call site.
-func localDoc(rel string) string {
-	return filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), rel)
-}
-
+// localV2 is where a fixture must write for readOneLocal to find it: the
+// FORMAT ROOT beneath the /bundles root these tests hand the reader. The bare
+// root is only its parent and is searched by nobody.
 func localV2(rel string) string {
 	return filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), rel)
 }
@@ -133,79 +125,46 @@ func TestLocalTreeForm_CommandsAndSkillsResolve(t *testing.T) {
 	require.True(t, ok, "a tree-form skill must resolve without the retired inline shape")
 }
 
-// TestLocalTreeForm_InlineDirectoryFormStillReadsAsADocument pins the half of
-// the contract that is about NOT changing: the retired inline shape is still
-// live in this repo's authored bundles and must keep loading exactly as it did.
-// It is also the guard against "fix tree form by making everything tree form".
-func TestLocalTreeForm_InlineDirectoryFormStillReadsAsADocument(t *testing.T) {
+// TestLocalTreeForm_AStrayDocumentIsNotABundle: a bundle is a tree. A .yaml
+// file beside the trees is just a file — it names no bundle, and nothing
+// reports it as a bundle that failed to read.
+func TestLocalTreeForm_AStrayDocumentIsNotABundle(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, localDoc("vault/bundle.yaml"), []byte(
-		"name: vault\nversion: 1.2.3\nfragments:\n  inline-frag:\n    content: INLINE-BODY-MARKER\n"), 0o644))
-	b := readOneLocal(t, fsys)
+	testsupport.WriteFileString(t, fsys, localV2("vault.yaml"),
+		"name: vault\nversion: 1.2.3\nfragments:\n  solo-frag:\n    content: SOLO-BODY-MARKER\n", 0o644)
 
-	require.Len(t, b.Fragments, 1)
-	require.Equal(t, "INLINE-BODY-MARKER", b.Fragments["inline-frag"].Content)
+	r := NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger()))
+	reads, err := r.Read(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, reads)
+	failures, ok := r.(interface{ ReadFailures() map[string]error })
+	require.True(t, ok)
+	assert.Empty(t, failures.ReadFailures(), "a file that is not a bundle is not a bundle that failed")
 }
 
-// TestLocalTreeForm_SingleFileDocumentStillReads pins the other unchanged form.
-func TestLocalTreeForm_SingleFileDocumentStillReads(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, localDoc("vault.yaml"), []byte(
-		"name: vault\nversion: 1.2.3\nfragments:\n  solo-frag:\n    content: SOLO-BODY-MARKER\n"), 0o644))
-	b := readOneLocal(t, fsys)
-
-	require.Len(t, b.Fragments, 1)
-	require.Equal(t, "SOLO-BODY-MARKER", b.Fragments["solo-frag"].Content)
-}
-
-// TestLocalTreeForm_SingleFileDocumentBesideItemDirsStillReads pins the
-// manifest-name guard, which the plain single-file case does NOT reach.
-//
-// Found by mutation, and the fixture is this specific for a reason — two
-// EARLIER mutation attempts survived, and each one narrowed it:
-//
-//   - A document at <dir>/vault.yaml roots a tree at <dir>'s PARENT with id
-//     "<dir>". A search directory does not normally hold fragments/ of its own,
-//     so the enumeration is empty and the empty-tree fall-through rescues the
-//     read by accident. Hence the stray item directory below.
-//   - A document that declares items inline returns at the inlineKeys guard
-//     before the manifest name is ever consulted. Hence a document that
-//     declares NOTHING — the only shape for which this guard is the sole
-//     defence.
-//
-// Without the guard this bundle is read as a tree whose envelope
-// (<dir>/bundle.yaml) does not exist, the read fails, and a valid single-file
-// bundle disappears from the listing entirely.
-func TestLocalTreeForm_EmptySingleFileDocumentBesideItemDirsStillReads(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, localDoc("vault.yaml"), []byte(treeEnvelope), 0o644))
-	// A stray item-kind directory in the SEARCH dir, not in any bundle: enough
-	// to make that directory enumerate as a tree if the guard stops holding.
-	require.NoError(t, afero.WriteFile(fsys, localDoc("fragments/stray.md"), []byte("STRAY"), 0o644))
-
-	// The bundle must still be THERE, and it must be the document's own bytes:
-	// the version is carried by no other file in this fixture.
-	b := readOneLocal(t, fsys)
-	require.Equal(t, "1.2.3", b.Version)
-	require.Equal(t, "the vault bundle", b.Description)
-}
-
-// TestLocalTreeForm_HalfMigratedBundleReadsItsInlineItems pins the boundary
-// against readEnvelope's refusal, which this change must not have relaxed.
-//
-// A bundle.yaml carrying inline items BESIDE item files is not routed to
-// ReadTree at all — it is the old document form and reads as one. The refusal
-// still governs every tree that DOES reach ReadTree; what this asserts is that
-// the local reader never hands it a half-migrated envelope to refuse, so
-// migrating one bundle cannot break its neighbour.
-func TestLocalTreeForm_HalfMigratedBundleReadsItsInlineItems(t *testing.T) {
-	fsys := stageLocalTree(t,
-		"name: vault\nversion: 1.2.3\nfragments:\n  inline-frag:\n    content: INLINE-BODY-MARKER\n",
-		func(w content.Writer) { putFragment(w, "house-style", "FRAG-BODY-MARKER") })
-	b := readOneLocal(t, fsys)
-
-	require.Len(t, b.Fragments, 1, "the inline item is the only answer; the file is not merged in")
-	require.Equal(t, "INLINE-BODY-MARKER", b.Fragments["inline-frag"].Content)
+// TestLocalTreeForm_AnEnvelopeDeclaringItemsIsRefused: a tree's items are its
+// files, so an envelope that declares items inline has two answers for them
+// (or, with no files beside it, claims items the tree does not hold). Either
+// way the bundle is refused, and the reader says why.
+func TestLocalTreeForm_AnEnvelopeDeclaringItemsIsRefused(t *testing.T) {
+	inline := "name: vault\nversion: 1.2.3\nfragments:\n  inline-frag:\n    content: INLINE-BODY-MARKER\n"
+	alone := afero.NewMemMapFs()
+	testsupport.WriteFileString(t, alone, localV2("vault/bundle.yaml"), inline, 0o644)
+	for name, fsys := range map[string]afero.Fs{
+		"beside item files": stageLocalTree(t, inline, func(w content.Writer) { putFragment(w, "house-style", "FRAG-BODY-MARKER") }),
+		"alone":             alone,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger()))
+			reads, err := r.Read(context.Background())
+			require.NoError(t, err)
+			assert.Empty(t, reads)
+			failures, ok := r.(interface{ ReadFailures() map[string]error })
+			require.True(t, ok)
+			require.Contains(t, failures.ReadFailures(), "vault")
+			assert.Contains(t, failures.ReadFailures()["vault"].Error(), "inline")
+		})
+	}
 }
 
 // TestLocalTreeForm_UnreadableTreeIsReportedNotSilentlyEmptied pins the

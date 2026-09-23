@@ -14,7 +14,7 @@ import (
 // a canonical trust.BundleRef ask is resolved EXACTLY via LookupKey, and
 // nothing about a name search is involved.
 func TestCatalogResolveAsk_CanonicalURIResolvesExactly(t *testing.T) {
-	loader := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
+	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 	cat := loader.Catalog()
 
 	want, err := trust.LocalRef("kit")
@@ -30,7 +30,7 @@ func TestCatalogResolveAsk_CanonicalURIResolvesExactly(t *testing.T) {
 // catalog: a well-formed canonical ref naming a bundle this catalog cannot
 // see is refused, not returned as-is.
 func TestCatalogResolveAsk_CanonicalURINotInCatalogRefusesNotFound(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
 	ghost, err := trust.LocalRef("no-such-bundle")
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestCatalogResolveAsk_CanonicalURINotInCatalogRefusesNotFound(t *testing.T)
 // falls through to arm 3's name search — even though "builtin:isolation" is
 // syntactically a perfectly good candidate bare name to search for.
 func TestCatalogResolveAsk_RetiredSchemeMarkerRefusedNotDowngraded(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
 	for _, ask := range []string{
 		"builtin:isolation",
@@ -65,7 +65,7 @@ func TestCatalogResolveAsk_RetiredSchemeMarkerRefusedNotDowngraded(t *testing.T)
 // TestCatalogResolveAsk_BareNameResolvesUniquely proves arm 3's ordinary
 // case: a bare name matching exactly one read resolves to that read's source.
 func TestCatalogResolveAsk_BareNameResolvesUniquely(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
 	got, err := cat.ResolveAsk("kit")
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestCatalogResolveAsk_BareNameResolvesUniquely(t *testing.T) {
 // TestCatalogResolveAsk_BareNameNotFoundRefuses proves arm 3's zero-match
 // case.
 func TestCatalogResolveAsk_BareNameNotFoundRefuses(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
 	_, err := cat.ResolveAsk("no-such-bundle")
 	require.Error(t, err)
@@ -120,7 +120,7 @@ func TestCatalogResolveAsk_AmbiguousBareNameRefuses(t *testing.T) {
 // for the SAME identity — LookupKey is the drop-in for a caller that already
 // extracted the key rather than holding the structured ref.
 func TestCatalogLookupKey_MatchesLookupRef(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
 	want, err := trust.LocalRef("kit")
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestCatalogLookupKey_MatchesLookupRef(t *testing.T) {
 // (a label a bundle's declared name or a reader's composition order can move
 // independently of its source identity).
 func TestBundleRead_KeyMatchesSourceRefBundleIdentity(t *testing.T) {
-	read := readOne(t, projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
+	read := readOne(t, projectReaderOver(t, "kit", "version: 1.0.0\n"))
 	assert.Equal(t, read.SourceRef().BundleIdentity(), read.Key())
 	assert.NotEmpty(t, read.Key())
 }
@@ -146,7 +146,7 @@ func TestBundleRead_KeyMatchesSourceRefBundleIdentity(t *testing.T) {
 // TestCatalog_Lookup_CanonicalURIResolvesExactly proves Lookup's first arm: a
 // canonical reference resolves by key alone, with no name search behind it.
 func TestCatalog_Lookup_CanonicalURIResolvesExactly(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
 	local, err := trust.LocalRef("kit")
 	require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestCatalog_Lookup_CanonicalURIResolvesExactly(t *testing.T) {
 // such, never re-read as a bare name that happens to look similar. "You typed
 // a retired spelling" and "no such bundle" are different faults.
 func TestCatalog_Lookup_RetiredSpellingRefusedNotDowngraded(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "isolation.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "isolation", "version: 1.0.0\n")).Catalog()
 
 	_, err := cat.Lookup("builtin:isolation")
 	require.Error(t, err)
@@ -183,7 +183,7 @@ func TestCatalog_Lookup_RetiredSpellingRefusedNotDowngraded(t *testing.T) {
 // TestCatalog_Lookup_UnknownBareNameIsNotFound proves the zero-match arm stays
 // distinguishable from both refusals above.
 func TestCatalog_Lookup_UnknownBareNameIsNotFound(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 
 	_, err := cat.Lookup("no-such-bundle")
 	require.Error(t, err)

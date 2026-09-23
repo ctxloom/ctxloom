@@ -77,7 +77,7 @@ type sessionOwner struct {
 // waits until it is standing. It must run BEFORE the first agent tool call:
 // the agent session is dialed once per scenario, to the owner's endpoint.
 func (w *World) standSessionOwner(bin string, extraEnv ...string) error {
-	if err := w.env.WriteFile(bundleFilePath(sessionOwnerFragment), fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  %s:\n    content: %q\n", sessionOwnerFragment, "the session owner's own context")); err != nil {
+	if err := testenv.WriteBundleTree(w.env.ProjectDir, sessionOwnerFragment, fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  %s:\n    content: %q\n", sessionOwnerFragment, "the session owner's own context")); err != nil {
 		return fmt.Errorf("session owner: author its fragment: %w", err)
 	}
 	return w.standSessionOwnerSelecting(bin, []string{"-f", sessionOwnerFragment}, extraEnv...)

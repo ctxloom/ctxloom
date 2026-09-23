@@ -28,6 +28,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // hookCell builds a stage-(a)-only cell whose run succeeded, so each test below
@@ -411,8 +413,11 @@ func TestHookProbeCarriageScan_FindsTheDeliveredHookAndSaysNothingWhenAbsent(t *
 // confidently at the wrong subsystem, which is worse than one that says nothing.
 func TestHookProbeCarriageScan_ExcludesTheFixturesOwnDeclaration(t *testing.T) {
 	root := t.TempDir()
-	bundle := writeCarriageFile(t, filepath.Join(root, filepath.FromSlash(bundleFilePath("bundle-hookprobe"))),
-		"hooks:\n  session_start:\n    - command: \""+carriageNeedle+" swift-amber-falcon\"\n")
+	if err := testenv.WriteBundleTree(root, "bundle-hookprobe",
+		"hooks:\n  session_start:\n    - command: \""+carriageNeedle+" swift-amber-falcon\"\n"); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(root, filepath.FromSlash(treeBundlePath("bundle-hookprobe")))
 
 	got := hookProbeCarriageScan(hookProbeCarriage{
 		Needle:   carriageNeedle,
@@ -861,9 +866,9 @@ func TestHookProbeContainerCarriageScript_MatchesLiterallyAndExpandsHomeInside(t
 // The host scan already had Authored for exactly this; the container scan
 // reintroduced the bug by not having it.
 func TestHookProbeContainerScan_ExcludesTheFixturesOwnDeclarationAndGit(t *testing.T) {
-	authored := "/proj/" + bundleFilePath("bundle-hookprobe")
+	authored := "/proj/" + treeBundlePath("bundle-hookprobe")
 	run := func(string, map[string]string, ...string) ([]byte, error) {
-		return []byte(authored + "\n"), nil
+		return []byte(authored + "/hooks/session_start/hook-1.yaml\n"), nil
 	}
 	if got := hookProbeContainerScan(run, "c", "needle", []string{"/proj"}, []string{authored}); got != "" {
 		t.Fatalf("the fixture's own declaration must never read as delivery evidence, got: %q", got)
@@ -871,13 +876,13 @@ func TestHookProbeContainerScan_ExcludesTheFixturesOwnDeclarationAndGit(t *testi
 
 	// A real delivery alongside it still counts.
 	run2 := func(string, map[string]string, ...string) ([]byte, error) {
-		return []byte(authored + "\n/home/agent/.ctxloom/sessions/h/ephemeral/.claude/settings.json\n"), nil
+		return []byte(authored + "/hooks/session_start/hook-1.yaml\n/home/agent/.ctxloom/sessions/h/ephemeral/.claude/settings.json\n"), nil
 	}
 	got := hookProbeContainerScan(run2, "c", "needle", []string{"/proj"}, []string{authored})
 	if !strings.Contains(got, "settings.json") {
 		t.Fatalf("a genuine delivery must survive the exclusion: %q", got)
 	}
-	if strings.Contains(got, "bundle-hookprobe.yaml") {
+	if strings.Contains(got, "bundle-hookprobe/") {
 		t.Fatalf("the authored file leaked into the evidence: %q", got)
 	}
 

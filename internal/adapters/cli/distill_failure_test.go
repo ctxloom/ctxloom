@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,8 +84,7 @@ func bufferedCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 // used to be tallied as "skipped" and the command exited 0.
 func TestBundleDistill_FailedItemIsNotSuccess(t *testing.T) {
 	root := distillBlockedProject(t)
-	target := filepath.Join(root, "target.yaml")
-	require.NoError(t, os.WriteFile(target, []byte("name: target\ndescription: a bundle\nfragments:\n  f:\n    content: some prose worth compressing, at length, repeatedly.\n"), 0o644))
+	target := filepath.Dir(bundletree.WriteOS(t, root, "target", "name: target\ndescription: a bundle\nfragments:\n  f:\n    content: some prose worth compressing, at length, repeatedly.\n"))
 
 	cmd, out, _ := bufferedCmd()
 	err := runBundleDistill(cmd, []string{target})

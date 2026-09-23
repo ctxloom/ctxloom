@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,7 +116,7 @@ commands:
     content: |
       Generate a commit message for the staged changes
 `
-	_ = afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0644)
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "dev-tools", bundleContent)
 
 	// Create another bundle with more prompts
 	anotherBundle := `version: "1.0"
@@ -124,7 +126,7 @@ commands:
     content: |
       Explain what this code does
 `
-	_ = afero.WriteFile(fs, authoredV1(testBaseDir)+"/learning.yaml", []byte(anotherBundle), 0644)
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "learning", anotherBundle)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader

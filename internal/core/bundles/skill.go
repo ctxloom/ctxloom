@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -49,12 +48,9 @@ type SkillFrontmatter struct {
 // SkillManifestEntry is one file's identity within a skill package: its path
 // relative to the package directory, content hash, and POSIX permission mode.
 //
-// Only the mode's EXEC BIT is semantically part of a skill's content, and it
-// is the only part VerifyExtractedManifest compares — see skillModeExecutable.
-// It is load-bearing for scripts/ entries: it must survive
-// tree -> archive -> extract -> materialize. The remaining bits are recorded
-// verbatim for diagnostics only; they are set by whatever umask, filesystem,
-// or platform the file last passed through and mean nothing about the package.
+// Only the mode's EXEC BIT is semantically part of a skill's content, so Mode
+// is exactly "0755" or "0644" (skillManifestMode). It is load-bearing for
+// scripts/ entries: it must survive tree -> archive -> extract -> materialize.
 type SkillManifestEntry struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
@@ -145,7 +141,7 @@ func splitFrontmatter(raw []byte) (frontmatter []byte, body string, err error) {
 // own directory, e.g. "<bundle-dir>/skills/<name>") on fsys: it reads
 // SKILL.md's frontmatter, then enumerates every file in the tree (SKILL.md
 // included) into a deterministic, sha256+mode-stamped manifest. This is the
-// one parse both authoring (skill create/sync) and the loader (resolving a
+// one parse both authoring (skill create/import) and the loader (resolving a
 // bundle's skill from its source tree) go through.
 //
 // The package's Name is the DIRECTORY's basename, not the frontmatter's: the
@@ -193,48 +189,20 @@ func ParseSkillPackage(fsys afero.Fs, dir string, maxBytes int64) (*SkillPackage
 	}, nil
 }
 
-// SkillManifestEntryFor renders one skill package file's manifest entry from its
-// bytes and POSIX permission mode.
+// skillManifestMode is the manifest mode of a file with permission perm:
+// "0755" when anybody may execute it, "0644" otherwise.
 //
-// It exists because a skill manifest is now built from TWO places — a directory
-// walk (buildSkillManifest, below) and a tree read that has bytes but no
-// filesystem (internal/adapters/content/convert.Read) — and the two must agree on the
-// parts VerifyExtractedManifest compares. The hash must agree EXACTLY, carrying
-// its "sha256:" prefix; a second site spelling that from memory produces a
-// package that extracts, verifies, fails, and is withheld with an integrity
-// error that looks like tampering. The mode is four-digit octal and need only
-// agree on its EXEC BIT, because that is all the comparison reads — the walk
-// sees a real filesystem's umask-shaped bits, the tree read sees a declaration,
-// and requiring those to be the same string made ordinary 0664 checkouts
-// undeliverable.
-func SkillManifestEntryFor(relPath string, data []byte, perm os.FileMode) SkillManifestEntry {
-	return SkillManifestEntry{
-		Path:   filepath.ToSlash(relPath),
-		SHA256: hashContent(data),
-		Mode:   fmt.Sprintf("%04o", perm.Perm()),
+// The manifest is inside the skill's trust PREIMAGE, so it may carry only what
+// the package means. A tree declares executability as a boolean (see
+// content.DeclaredExecutable) and git records the exec bit and nothing else,
+// so every other bit is umask, filesystem and platform noise: a clone under
+// umask 002 lands at 0664 with no different meaning than 0644, and hashing
+// that difference would give one package two trust hashes.
+func skillManifestMode(perm os.FileMode) string {
+	if perm.Perm()&0o111 != 0 {
+		return "0755"
 	}
-}
-
-// skillModeExecutable reports whether a manifest mode string — the four-digit
-// octal SkillManifestEntryFor writes — carries an execute bit for anybody.
-//
-// It is the ONLY thing a skill's two mode values are ever compared on. A full
-// mode compare is not a property a skill package can hold: `chmod 0644`
-// followed by `git add` stages nothing, because git records the exec bit and
-// nothing else, so a tree can never be made to agree with a 0644 declaration
-// for the next person who clones it. Every other bit is umask, filesystem, and
-// platform noise — a fresh clone under umask 002 lands at 0664 and carries no
-// different meaning than 0644.
-//
-// A mode that does not parse is an ERROR, never "not executable": these strings
-// are a signature preimage's neighbours, and a silently-false answer for a
-// garbage declaration would make a package that declares nonsense verify.
-func skillModeExecutable(mode string) (bool, error) {
-	perm, err := strconv.ParseUint(mode, 8, 32)
-	if err != nil {
-		return false, fmt.Errorf("mode %q is not the four-digit octal a skill manifest records: %w", mode, err)
-	}
-	return os.FileMode(perm).Perm()&0o111 != 0, nil
+	return "0644"
 }
 
 // buildSkillManifest walks dir on fsys, hashing every regular file into a
@@ -270,7 +238,7 @@ func buildSkillManifest(fsys afero.Fs, dir, name string, maxBytes int64) (SkillM
 			return fmt.Errorf("skill directory %q: reading %s: %w", name, rel, readErr)
 		}
 
-		manifest = append(manifest, SkillManifestEntryFor(rel, data, info.Mode()))
+		manifest = append(manifest, SkillManifestEntry{Path: rel, SHA256: hashContent(data), Mode: skillManifestMode(info.Mode())})
 		return nil
 	})
 	if err != nil {

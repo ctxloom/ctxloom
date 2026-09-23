@@ -54,16 +54,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # ============================================================================
   # WHAT WAS @wip HERE, AND WHAT UNTAGGED EACH PART
   #
-  # THE PRIMARY BLOCKER IS FIXED. It was: a directory-form bundle could not be
-  # fetched from a remote at all — fetchAtLockedSHA resolved a ref to ONE file
-  # path and called FetchFile on it, there was no tree fetch anywhere in
-  # internal/adapters/remote, and a remote bundle WAS "<name>.yaml" by construction —
-  # while internal/core/bundles/loader.go:389 refuses skills in a single-file
-  # bundle. Jointly unsatisfiable, which is what taskloom task
-  # `engaged-chivalry` recorded as impossible.
-  #
-  # `deps pull` now probes the directory form when the single file is absent,
-  # walks the tree at the pinned SHA through internal/adapters/content/remotetree, and
+  # `deps pull` walks the tree at the pinned SHA through internal/adapters/content/remotetree, and
   # installs it under the consumer's cache with the publisher's exec bit
   # intact. Every scenario asserting the PUBLICATION SIDE — the payload landing
   # in the consumer's tree, per-kind metadata placement, MCP structure, and the
@@ -71,7 +62,6 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #
   # THE TREE READ PATH IS ALSO FIXED. It was the second blocker: the bytes
   # arrived but nothing read a bundle's ITEMS back out of a tree.
-  # internal/adapters/content/convert now goes both ways (convert.Read), and
   # config.loadRemoteBundleSeed reads a tree-shaped lockfile entry from its
   # installed tree, verifying it through internal/adapters/content/attest — the manifest
   # signature plus a two-directional contents check — instead of dead-ending at

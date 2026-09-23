@@ -16,7 +16,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // =============================================================================
@@ -29,24 +28,20 @@ import (
 // per-item trust choke. Tests assert actual resolved payload — name,
 // description, file bytes, and mode — never just "no error".
 
-// writeSkillBundle builds a directory-form bundle at
-// <bundlesDir>/<bundleName>/bundle.yaml with one skill entry (llmEnabled
-// controls its claude-code enablement), plus the skill's SKILL.md/scripts/
-// assets tree via writeSkillFixture. Returns the fixture's exact file bytes.
+// writeSkillBundle builds the tree <bundlesDir>/v2/<bundleName>/ holding one
+// skill (llmEnabled controls its claude-code enablement), with the skill's
+// SKILL.md/scripts/assets package via writeSkillFixture. Returns the fixture's
+// exact file bytes.
 func writeSkillBundle(t *testing.T, fsys afero.Fs, bundlesDir, bundleName, skillName string, llmEnabled bool) map[string][]byte {
 	t.Helper()
-	// The envelope declares its skills INLINE, so this is a format-v1 bundle in
-	// a directory wrapper — not a tree. The reader searches a bundles root's
-	// FORMAT ROOTS, never the root itself, so writing to bundlesDir directly
-	// would put the fixture where nothing looks.
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), bundleName)
+	root := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
+	files := writeSkillFixture(t, fsys, filepath.Join(root, bundleName, "skills", skillName), skillName)
 	enabledYAML := "true"
 	if !llmEnabled {
 		enabledYAML = "false"
 	}
-	bundleYAML := "version: \"1.0\"\nskills:\n  " + skillName + ":\n    llm:\n      claude-code:\n        enabled: " + enabledYAML + "\n"
-	testsupport.WriteFileString(t, fsys, bundleDir+"/bundle.yaml", bundleYAML, 0644)
-	return writeSkillFixture(t, fsys, bundleDir+"/skills/"+skillName, skillName)
+	writeTree(t, fsys, root, bundleName, "version: \"1.0\"\nskills:\n  "+skillName+":\n    exports:\n      claude-code:\n        enabled: "+enabledYAML+"\n")
+	return files
 }
 
 // TestSkillsFromBundleRef_ResolvesFrontmatterAndFiles proves the loader
@@ -113,34 +108,6 @@ func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 	assert.JSONEq(t, `{"enabled":false}`, string(got[0].Exports["claude-code"]), "the bundle-authored block is carried through")
-}
-
-// TestSkillsFromBundleRef_TamperedManifestWithheld proves a skill whose
-// bundle.yaml-authored manifest (the `files:` map, what `ctxloom skill sync`/
-// sign records) no longer matches the on-disk tree is withheld LOUDLY (nil,
-// not a partial/tampered LoadedSkill) — the manifest-drift/tamper guard
-// (VerifyExtractedManifest) applies to the tree-sourced path too, not just
-// archive extraction.
-func TestSkillsFromBundleRef_TamperedManifestWithheld(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "skill-bundle")
-	writeSkillFixture(t, fsys, bundleDir+"/skills/humanize", "humanize")
-
-	// Author a bundle.yaml whose recorded manifest hash for SKILL.md does NOT
-	// match what's actually on disk — simulating a script edited after signing.
-	bundleYAML := `
-version: "1.0"
-skills:
-  humanize:
-    files:
-      SKILL.md: {sha256: "sha256:0000000000000000000000000000000000000000000000000000000000000000", mode: "0644"}
-`
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(bundleYAML), 0644))
-
-	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
-	assert.Empty(t, got, "a skill whose on-disk tree doesn't match its authored manifest must be withheld, not partially exposed")
 }
 
 // TestSkillsFromBundleRef_UnknownBundleReturnsNil proves a bundle ref that
@@ -211,22 +178,11 @@ func TestListAllSkills_NoBundlesReturnsEmpty(t *testing.T) {
 func TestListAllSkills_WithheldSkillOmittedNotErrored(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "bundle-a")
-	bundleYAML := `
-version: "1.0"
-skills:
-  aaa-blocked:
-    llm:
-      claude-code:
-        enabled: true
-  zzz-trusted:
-    llm:
-      claude-code:
-        enabled: true
-`
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(bundleYAML), 0644))
+	root := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
+	bundleDir := filepath.Join(root, "bundle-a")
 	writeSkillFixture(t, fsys, bundleDir+"/skills/aaa-blocked", "aaa-blocked")
 	writeSkillFixture(t, fsys, bundleDir+"/skills/zzz-trusted", "zzz-trusted")
+	writeTree(t, fsys, root, "bundle-a", "version: \"1.0\"\n")
 
 	pipe := gatedPipe(NewLoader(NewProjectReader(fsys, []string{bundlesDir})),
 		blockingGate(nil, "bundle-a#skills/aaa-blocked"), false)
@@ -368,45 +324,8 @@ func TestSearchSkill_AllWithheldReturnsErrSkillWithheld(t *testing.T) {
 // Refutation pins
 // =============================================================================
 
-// TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded is the
-// structural half of refuting the claim that a malformed manifest mode
-// silently defaults to 0644 and downgrades a 0755 script.
-//
-// It cannot: an authored mode never reaches that ParseUint at all. The
-// materialize loop walks pkg.Manifest — the manifest ParseSkillPackage builds
-// FRESH from the tree, whose modes this package formats itself with "%04o" —
-// and an authored manifest that disagrees with the tree (a malformed mode
-// cannot equal a formatted one) is rejected one step earlier by
-// VerifyExtractedManifest. The skill is withheld, loudly. That is the
-// behaviour worth pinning: withheld, never quietly materialized at 0644.
-func TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "skill-bundle")
-	writeSkillFixture(t, fsys, bundleDir+"/skills/humanize", "humanize")
-
-	// An authored manifest whose scripts/run.sh mode is not octal at all.
-	pkg, err := ParseSkillPackage(fsys, bundleDir+"/skills/humanize", 0)
-	require.NoError(t, err)
-	yaml := "version: \"1.0\"\nskills:\n  humanize:\n    files:\n"
-	for _, m := range pkg.Manifest {
-		mode := m.Mode
-		if m.Path == "scripts/run.sh" {
-			mode = "rwxr-xr-x"
-		}
-		yaml += "      \"" + m.Path + "\":\n        sha256: " + m.SHA256 + "\n        mode: \"" + mode + "\"\n"
-	}
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(yaml), 0644))
-
-	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	assert.Empty(t, ungated(loader, false).SkillsFromBundleRef("skill-bundle"),
-		"a manifest whose modes do not match the tree must withhold the skill, not materialize it at a default mode")
-}
-
-// TestSkillContent_ExecBitSurvivesLoad is the other half: the mode the loader
-// hands the materializer comes from the real tree, so a 0755 script stays 0755.
-// If anyone "fixes" this by feeding the AUTHORED manifest into the
-// materialize loop, this is what notices.
+// TestSkillContent_ExecBitSurvivesLoad: the mode the loader hands the
+// materializer comes from the real tree, so a 0755 script stays 0755.
 func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
@@ -426,21 +345,20 @@ func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 
 // TestSkillContent_ManifestResolutionFailureWarns refutes the claim that
 // the preimage path was the one withhold in skillContent with no
-// clidiag.Warn. The silent path it named — a json.Marshal failure on
-// BundleSkill.ContentPayload — no longer exists in that shape: the preimage is
-// now resolved through EffectiveManifest, which CAN fail for real (an
-// unresolvable or unparseable tree) and warns when it does.
+// clidiag.Warn. The preimage is derived by parsing the package, which CAN
+// fail for real (an unparseable SKILL.md) and warns when it does.
 //
 // This drives the reachable failure and asserts the warning payload, so
 // deleting the warn puts the row's own complaint back and this test goes red.
 func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "skill-bundle")
-	// A skill entry with NO authored manifest and NO source tree: the preimage
-	// must be derived from a tree that is not there.
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml",
-		[]byte("version: \"1.0\"\nskills:\n  ghost: {}\n"), 0644))
+	root := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
+	// A package whose SKILL.md has no frontmatter: the preimage must be
+	// derived from a package that does not parse.
+	require.NoError(t, afero.WriteFile(fsys, filepath.Join(root, "skill-bundle", "skills", "ghost", "SKILL.md"),
+		[]byte("no frontmatter here\n"), 0644))
+	writeTree(t, fsys, root, "skill-bundle", "version: \"1.0\"\n")
 
 	var sink bytes.Buffer
 	restore := clidiag.SetSink(&sink)
@@ -470,8 +388,7 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
 	for _, n := range []string{"a", "b", "c"} {
-		require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(bundlesDir, n+".yaml"),
-			[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: "+n+"\n"), 0644))
+		writeTree(t, fsys, bundlesRootIn(bundlesDir, ""), n, "version: \"1.0\"\nfragments:\n  f:\n    content: "+n+"\n")
 	}
 	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
 
@@ -498,32 +415,18 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 }
 
 // TestSkillContent_UmaskCheckoutIsDeliveredNotWithheld is the release-blocking
-// case at the level `ctxloom skill list` actually exercises: a bundle whose
-// authored manifest declares 0644/0755 (what an author writes, and what a
-// signature covers) sitting on a tree that a fresh clone under umask 002 left
-// at 0664/0775.
+// case at the level `ctxloom skill list` actually exercises: a skill tree that
+// a fresh clone under umask 002 left at 0664/0775.
 //
-// Before the exec-bit-only compare this skill was WITHHELD with a
-// declaration-disagreement warning, and there was nothing the author could do
-// about it: `chmod 0644` + `git add` stages nothing, so the repository can
-// never carry a tree that agrees with a 0644 declaration. The skill must
-// simply be delivered — and delivered with its exec bit intact, which is the
-// part of the mode that does mean something.
+// There is nothing the author could do about those modes: `chmod 0644` +
+// `git add` stages nothing, so the repository can never carry a tree at
+// 0644. The skill must simply be delivered — and delivered with its exec bit
+// intact, which is the part of the mode that does mean something.
 func TestSkillContent_UmaskCheckoutIsDeliveredNotWithheld(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "skill-bundle")
-	skillDir := bundleDir + "/skills/humanize"
-	writeSkillFixture(t, fsys, skillDir, "humanize")
-
-	// The DECLARATION, captured off the tree before any umask touches it.
-	pkg, err := ParseSkillPackage(fsys, skillDir, 0)
-	require.NoError(t, err)
-	yaml := "version: \"1.0\"\nskills:\n  humanize:\n    llm:\n      claude-code:\n        enabled: true\n    files:\n"
-	for _, m := range pkg.Manifest {
-		yaml += "      \"" + m.Path + "\":\n        sha256: " + m.SHA256 + "\n        mode: \"" + m.Mode + "\"\n"
-	}
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(yaml), 0644))
+	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
+	skillDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "skill-bundle", "skills", "humanize")
 
 	// The TREE, as a clone under umask 002 leaves it.
 	for rel, mode := range map[string]os.FileMode{
@@ -531,8 +434,6 @@ func TestSkillContent_UmaskCheckoutIsDeliveredNotWithheld(t *testing.T) {
 	} {
 		require.NoError(t, fsys.Chmod(skillDir+"/"+rel, mode))
 	}
-	require.Contains(t, yaml, "mode: \"0644\"",
-		"the fixture must actually declare the plain mode the tree no longer carries, or this proves nothing")
 
 	var sink bytes.Buffer
 	restore := clidiag.SetSink(&sink)

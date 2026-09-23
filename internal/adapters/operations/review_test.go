@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -55,10 +56,9 @@ func reviewBundle() *bundles.Bundle {
 			PreTool: []bundles.BundleHook{{Type: "command", Command: "echo hi", Matcher: "Bash"}},
 		},
 		Skills: map[string]bundles.BundleSkill{
-			"humanize": {Files: map[string]bundles.SkillFileMeta{
-				"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
-				"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
-			}},
+			// Its package is defaultSeedSkillPackage: SKILL.md and one
+			// executable script.
+			"humanize": {},
 		},
 	}
 }
@@ -354,12 +354,9 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		require.NoError(t, err)
 
 		edited := reviewBundle()
-		humanize := edited.Skills["humanize"]
-		humanize.Files = map[string]bundles.SkillFileMeta{
-			"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"}, // unchanged
-			"scripts/run.sh": {SHA256: "sha256:script2-tampered", Mode: "0644"},
-		}
-		edited.Skills["humanize"] = humanize
+		pkg := defaultSeedSkillPackage("humanize") // SKILL.md unchanged
+		pkg["scripts/run.sh"] = bundletree.File{Body: "#!/bin/sh\necho tampered\n"}
+		withSeedSkillPackage(t, edited, "humanize", pkg)
 
 		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
 		require.NoError(t, err)

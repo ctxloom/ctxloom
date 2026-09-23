@@ -17,9 +17,9 @@ import (
 // ReadRemoteRef reads the WHOLE bundle a canonical remote ref names at a pinned
 // commit: every item file, not just the manifest.
 //
-// It is the ONE remote read path, and it is always verified. A bundle is a
-// TREE — the document form is refused rather than read — so there is no shape
-// that reaches a session without attest.VerifyBundle having covered its bytes.
+// It is the ONE remote read path, and it is always verified: a bundle is a
+// tree, so nothing reaches a session without attest.VerifyBundle having
+// covered its bytes.
 //
 // # The loss it exists to remove
 //
@@ -55,11 +55,7 @@ import (
 // standing: they are a publisher's claim, and interpreting a tree's item files
 // before establishing that the publisher signed them would newly expose
 // unverified remote content to assembly.
-// ErrDocumentFormUnreadable is the refusal of a remote ref that resolves to
-// a single document rather than a tree: the document form has no signature
-// shape and is not readable; the publisher republishes it as a tree.
-var ErrDocumentFormUnreadable = errors.New("bundles: the document form is not readable")
-
+//
 // It also returns what verification established — the release the publisher
 // signed and who they are — so a caller about to move a pin has the version its
 // floor is measured in, and the publisher it records, without a second read.
@@ -68,21 +64,6 @@ func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remo
 	if err != nil {
 		return nil, remote.Verified{}, err
 	}
-	if !c.IsTree() {
-		// The document form is no longer readable, and refusing it here is what
-		// makes "verify before interpret" literally true rather than true with
-		// an exception. A document has no manifest and no item files, so there
-		// is nothing for attest.VerifyBundle to cover; reading one would be the
-		// single remaining remote path that interpreted publisher bytes without
-		// establishing who signed them.
-		//
-		// Nothing can produce this shape any more — PushBundle refuses to
-		// publish it — so a ref that still resolves to one is a repository left
-		// behind by the tree migration, and the remedy is to republish.
-		return nil, remote.Verified{}, fmt.Errorf("%w: %s at %s resolves to a single %d-byte document — republish it as a tree",
-			ErrDocumentFormUnreadable, ref.String(), sha, len(c.Data))
-	}
-
 	// The bundle id is the tree root's last segment, the same rule openTreeAt
 	// applies locally — a bundle id is one path segment, so a nested name is
 	// absorbed by the root rather than smuggled into the id. The two must agree

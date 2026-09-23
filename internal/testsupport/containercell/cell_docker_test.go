@@ -33,6 +33,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
@@ -161,18 +164,18 @@ func assertDelivered(t *testing.T, path string, wantMode os.FileMode, what strin
 func writeCellFixture(t *testing.T, root string) string {
 	t.Helper()
 	project := filepath.Join(root, "project")
-	bundle := filepath.Join(project, ".ctxloom", "content", "bundles", "cell")
+	bundlesRoot := paths.LocalBundlesPathFor(filepath.Join(project, ".ctxloom"), paths.LayoutV2)
+	bundle := filepath.Join(bundlesRoot, "cell")
 	mustMkdirAll(t, filepath.Join(root, "home"))
 	mustMkdirAll(t, filepath.Join(project, ".ctxloom", "profiles"))
-	mustMkdirAll(t, filepath.Join(bundle, "skills", "reviewer", "scripts"))
 
 	var b strings.Builder
 	b.WriteString("version: 1.0.0\ndescription: container cell fixture\nfragments:\n  cell-marker:\n    tags: [cell]\n    content: |\n")
 	for _, line := range strings.Split(strings.TrimRight(fragmentBody, "\n"), "\n") {
 		fmt.Fprintf(&b, "      %s\n", line)
 	}
-	b.WriteString("skills:\n  reviewer: {}\n")
-	mustWrite(t, filepath.Join(bundle, "bundle.yaml"), b.String(), 0o644)
+	bundletree.WriteOS(t, bundlesRoot, "cell", b.String())
+	mustMkdirAll(t, filepath.Join(bundle, "skills", "reviewer", "scripts"))
 
 	mustWrite(t, filepath.Join(bundle, "skills", "reviewer", "SKILL.md"),
 		"---\nname: reviewer\ndescription: container cell fixture skill\n---\n"+skillBody+"\n", 0o644)

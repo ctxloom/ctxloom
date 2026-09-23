@@ -179,19 +179,16 @@ func TestListLocalBundleNames_EmptyWhenNoLocalDir(t *testing.T) {
 	assert.Empty(t, names)
 }
 
-// SignBundleFile read the bundle file and handed the bytes to
-// signing.Sign with no length check, so a truncated or zero-byte bundle got a
-// .sig and a "Signed ..." line at exit 0 — a valid publish signature covering
-// nothing. bundles.ParseBundle yaml.Unmarshals empty input without error, so the
-// truncated file survives loadBundleForUpdate and reaches the signer.
+// A truncated, zero-byte envelope must not be signed: a signature over it
+// would be a valid publish signature covering nothing.
 func TestSignBundleFile_RefusesAZeroByteBundle(t *testing.T) {
 	_, cfg := setupBundleTestDir(t)
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "truncated"})
 	require.NoError(t, err)
 
 	fs := afero.NewOsFs()
-	path := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/truncated.yaml"
-	require.NoError(t, afero.WriteFile(fs, path, nil, 0o644))
+	dir := filepath.Join(paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2), "truncated")
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, bundles.DirectoryFormManifest), nil, 0o644))
 
 	_, err = SignBundleFile(cfg, SignBundleRequest{
 		Target: SignTarget{BundleName: "truncated"},
@@ -201,7 +198,7 @@ func TestSignBundleFile_RefusesAZeroByteBundle(t *testing.T) {
 	require.Error(t, err, "signing zero bytes must not report success")
 	assert.Contains(t, err.Error(), "empty")
 
-	_, statErr := fs.Stat(path + ".sig")
+	_, statErr := fs.Stat(filepath.Join(dir, content.SigDirName))
 	assert.Error(t, statErr, "a refused sign must not leave a signature behind")
 }
 
@@ -256,13 +253,16 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 	dir := cfg.GetBundleDirs()[0]
 	fs := afero.NewOsFs()
 
-	// File-form bundle.
-	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "alpha"})
+	// A bundle created by the real verb.
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "alpha",
+		Fragments: map[string]BundleFragmentInput{"f": {Content: "F", NoDistill: true}}})
 	require.NoError(t, err)
-	// Directory-form bundles — the shape that can carry skills. Their
-	// envelopes declare no inline items, so they are format v2 and go in the
-	// v2 root; the bundles root itself holds no bundles.
+	// Hand-staged trees in the v2 root; the bundles root itself holds no
+	// bundles, and a stray .yaml beside them is not one.
 	v2 := paths.BundlesLayoutRoot(dir, paths.LayoutV2)
+	require.NoError(t, fs.MkdirAll(v2, 0o755))
+	require.NoError(t, fs.MkdirAll(v2, 0o755))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(v2, "stray.yaml"), []byte("version: 0.1.0\n"), 0o644))
 	require.NoError(t, fs.MkdirAll(filepath.Join(v2, "gamma"), 0o755))
 	require.NoError(t, fs.MkdirAll(filepath.Join(v2, "nested", "delta"), 0o755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(v2, "gamma", "bundle.yaml"),
@@ -287,10 +287,10 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 		"sign --all must sign exactly the bundles the loader can load from the authored dirs")
 	assert.Contains(t, names, "gamma", "a directory-form bundle must be signable via --all")
 
-	// `sign --all` HANDS these names to SignBundleFile. Every directory-form
-	// bundle among them is signed through its manifest entry; a single-file
-	// bundle is refused by sentinel, never silently skipped — the refusal is
-	// what tells the author to move it to the tree form.
+	assert.NotContains(t, names, "stray", "a stray .yaml is not a bundle")
+
+	// `sign --all` HANDS these names to SignBundleFile, and every one of them
+	// is signed through its manifest entry.
 	signer := testSigner(t)
 	for _, name := range names {
 		res, serr := SignBundleFile(cfg, SignBundleRequest{
@@ -298,10 +298,6 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 			Signer: signer,
 			FS:     fs,
 		})
-		if name == "alpha" {
-			require.ErrorIs(t, serr, ErrSingleFileBundleUnsignable, "a single-file bundle is refused, by name")
-			continue
-		}
 		require.NoError(t, serr, "sign --all must be able to sign %q", name)
 		ok, _ := afero.DirExists(fs, res.SigPath)
 		assert.True(t, ok, "no signature landed for %q at %s", name, res.SigPath)
@@ -395,14 +391,8 @@ func TestSignBundleFile_DirectoryFormAttestationCoversContentNotJustTheManifest(
 
 // --- directory-form bundles: refusing to sign over a stale skill manifest ---
 
-// signSkillBundle stages a directory-form bundle carrying one or more skills
-// whose bundle.yaml `files:` manifest is freshly SYNCED with the on-disk
-// tree — the baseline every staleness test below edits away from. Built via
-// CreateSkill + SyncSkill (the real `ctxloom skill create`/`ctxloom skill
-// sync` operations), not a hand-assembled bundle.yaml, so the fixture is
-// exactly what those commands actually produce. Returns the bundle's root
-// directory, for checking that no signature artifact lands anywhere under it
-// when signing is refused.
+// signSkillBundle stages a tree carrying skill packages, built via
+// CreateSkill (the real `ctxloom skill create`), not a hand-assembled tree.
 func signSkillBundle(t *testing.T, bundleName string, skillNames ...string) (cfg *config.Config, bundleDir string) {
 	t.Helper()
 	appDir, cfg := setupBundleTestDir(t)
@@ -413,25 +403,12 @@ func signSkillBundle(t *testing.T, bundleName string, skillNames ...string) (cfg
 		})
 		require.NoError(t, err)
 	}
-	_, err := SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: bundleName})
-	require.NoError(t, err)
 	return cfg, filepath.Join(authoredV1(appDir), bundleName)
 }
 
-// editSkillWithoutSyncing edits a skill's SKILL.md on disk WITHOUT re-running
-// `ctxloom skill sync` — the exact drift `bundle sign` must catch: bundle.yaml
-// still records the pre-edit manifest, the tree no longer matches it.
-func editSkillWithoutSyncing(t *testing.T, bundleDir, skillName string) {
-	t.Helper()
-	skillMD := filepath.Join(bundleDir, "skills", skillName, "SKILL.md")
-	data, err := os.ReadFile(skillMD)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(skillMD, append(data, []byte("\nEdited without syncing.\n")...), 0o644))
-}
-
-// A skill manifest that MATCHES the tree must still sign — the staleness
-// check must not become a blanket refusal for every bundle carrying a skill.
-func TestSignBundleFile_MatchingSkillManifestStillSigns(t *testing.T) {
+// A bundle carrying skill packages signs: its SHA256SUMS covers skills/<name>/
+// like every other file in the tree.
+func TestSignBundleFile_BundleWithSkillsSigns(t *testing.T) {
 	cfg, _ := signSkillBundle(t, "atelier-skills", "reviewer")
 	signer := testSigner(t)
 
@@ -439,94 +416,25 @@ func TestSignBundleFile_MatchingSkillManifestStillSigns(t *testing.T) {
 		Target: SignTarget{BundleName: "atelier-skills"},
 		Signer: signer,
 	})
-	require.NoError(t, err, "a bundle whose skill manifest matches the tree must still sign")
+	require.NoError(t, err, "a bundle carrying skills must sign")
 
 	ok, existsErr := afero.Exists(afero.NewOsFs(), res.SigPath)
 	require.NoError(t, existsErr)
-	assert.True(t, ok, "signing a matching manifest must write the sibling signature at %s", res.SigPath)
-}
-
-// THE RULING. A stale skill manifest (bundle.yaml's skills.<name>.files no
-// longer matching the source tree) must refuse to sign — nonzero error,
-// nothing written — naming the skill and the remedy (`ctxloom skill sync`).
-// `--degraded` is deliberately not exercised here: this refusal has no
-// degraded arm (see StaleSkillManifests/errStaleSkillManifests) because
-// signing itself is the harm.
-func TestSignBundleFile_StaleSkillManifestRefusesToSign(t *testing.T) {
-	cfg, bundleDir := signSkillBundle(t, "atelier-skills", "reviewer")
-	editSkillWithoutSyncing(t, bundleDir, "reviewer")
-	signer := testSigner(t)
-
-	_, err := SignBundleFile(cfg, SignBundleRequest{
-		Target: SignTarget{BundleName: "atelier-skills"},
-		Signer: signer,
-	})
-	require.Error(t, err, "signing over a stale skill manifest must be refused")
-	assert.Contains(t, err.Error(), "reviewer", "the refusal must name the stale skill")
-	assert.Contains(t, err.Error(), "ctxloom skill sync", "the refusal must name the remedy")
-
-	sibling := filepath.Join(bundleDir, "bundle.yaml.sig")
-	ok, existsErr := afero.Exists(afero.NewOsFs(), sibling)
-	require.NoError(t, existsErr)
-	assert.False(t, ok, "a refused sign must not write the detached bundle.yaml.sig sibling")
-
-	sigsDir := filepath.Join(bundleDir, content.SigDirName)
-	dirOK, dirErr := afero.DirExists(afero.NewOsFs(), sigsDir)
-	require.NoError(t, dirErr)
-	assert.False(t, dirOK, "a refused sign must not create the tree's .sigs/ store")
-}
-
-// SEVERAL stale skills must all be named in one refusal, not just the first —
-// a bundle carrying multiple skills should not need one sign attempt per
-// skill to discover the whole stale set.
-func TestSignBundleFile_ReportsEveryStaleSkillNotJustTheFirst(t *testing.T) {
-	cfg, bundleDir := signSkillBundle(t, "atelier-skills", "reviewer", "editor", "curator")
-	editSkillWithoutSyncing(t, bundleDir, "reviewer")
-	editSkillWithoutSyncing(t, bundleDir, "curator")
-	signer := testSigner(t)
-
-	_, err := SignBundleFile(cfg, SignBundleRequest{
-		Target: SignTarget{BundleName: "atelier-skills"},
-		Signer: signer,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reviewer", "the untouched-then-edited skill must be named")
-	assert.Contains(t, err.Error(), "curator", "the second edited skill must be named too")
-	assert.NotContains(t, err.Error(), "editor", "the skill that stayed in sync must not be named as stale")
-}
-
-// TestSignBundleFile_SingleFileBundleIsRefused: a bundle's ONE signature is
-// the SHA256SUMS manifest and its .sigs/ entry, which only a directory-form
-// bundle carries. A single-file bundle is refused, by sentinel, and nothing
-// is written beside it.
-func TestSignBundleFile_SingleFileBundleIsRefused(t *testing.T) {
-	_, cfg := setupBundleTestDir(t)
-	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
+	assert.True(t, ok, "signing must write the tree's signature at %s", res.SigPath)
+	sums, err := os.ReadFile(res.ManifestPath)
 	require.NoError(t, err)
-
-	_, err = SignBundleFile(cfg, SignBundleRequest{
-		Target: SignTarget{BundleName: "my-tools"},
-		Signer: testSigner(t),
-	})
-
-	require.ErrorIs(t, err, ErrSingleFileBundleUnsignable)
-	path := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/my-tools.yaml"
-	_, statErr := os.Stat(path + ".sig")
-	assert.Error(t, statErr, "a refused sign must not leave a sibling behind")
+	assert.Contains(t, string(sums), "skills/reviewer/SKILL.md", "the manifest covers the skill package")
 }
 
-// TestSignBundleFile_TreeSignsThroughItsManifestAndClearsTheSibling: a
-// directory-form bundle is signed through attest.SignBundle — the manifest
-// and its .sigs/ entry — and a retired sibling bundle.yaml.sig beside it is
-// removed on the way, so the reader that refuses a sibling
-// (bundles.ErrSiblingSignatureRetired) reads the re-signed bundle as VALID.
-func TestSignBundleFile_TreeSignsThroughItsManifestAndClearsTheSibling(t *testing.T) {
+// TestSignBundleFile_TreeSignsThroughItsManifest: a bundle is signed through
+// attest.SignBundle — the manifest and its .sigs/ entry — and the reader reads
+// the signed bundle as VALID.
+func TestSignBundleFile_TreeSignsThroughItsManifest(t *testing.T) {
 	_, cfg := setupBundleTestDir(t)
 	dir := filepath.Join(paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2), "kit")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: 1.0.0\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "keeper.md"), []byte("KEEPER\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest+".sig"), []byte("retired sibling\n"), 0o644))
 	signer := testSigner(t)
 
 	res, err := SignBundleFile(cfg, SignBundleRequest{
@@ -535,10 +443,7 @@ func TestSignBundleFile_TreeSignsThroughItsManifestAndClearsTheSibling(t *testin
 	})
 
 	require.NoError(t, err)
-	assert.True(t, res.Tree)
 	assert.Equal(t, filepath.Join(dir, content.SigDirName), res.SigPath)
-	_, statErr := os.Stat(filepath.Join(dir, bundles.DirectoryFormManifest+".sig"))
-	assert.Error(t, statErr, "the retired sibling is removed by re-signing")
 	entries, err := os.ReadDir(filepath.Join(dir, content.SigDirName))
 	require.NoError(t, err)
 	assert.Len(t, entries, 1, "one manifest entry is the signature")

@@ -7,6 +7,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -217,7 +219,7 @@ commands:
     content: |
       Refactor this code
 `
-	_ = afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0644)
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "dev-tools", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader
@@ -390,7 +392,7 @@ func TestSearchContent_SearchSkills(t *testing.T) {
 	bundleDir := authoredV1(testBaseDir) + "/skill-bundle"
 	require.NoError(t, fsys.MkdirAll(bundleDir+"/skills/humanize", 0755))
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml",
-		[]byte("version: 1.0.0\nskills:\n  humanize:\n"), 0644))
+		[]byte("version: 1.0.0\n"), 0644))
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/skills/humanize/SKILL.md",
 		[]byte("---\nname: humanize\ndescription: Rewrites text to sound less like an AI wrote it.\n---\n\n# humanize\n\nBody.\n"), 0644))
 

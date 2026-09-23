@@ -8,11 +8,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -43,8 +46,7 @@ func w74ShortNameFS(t *testing.T, withLocalFile bool) (afero.Fs, *config.Config,
 	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(filepath.Join(bdir, "personal"), 0755))
 	if withLocalFile {
-		require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "personal", "tool.yaml"),
-			[]byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
+		bundletree.Write(t, fs, filepath.Join(bdir, "personal"), "tool", "version: 1.0.0\nfragments:\n  a:\n    content: hi\n")
 	}
 	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}}),
 		[]string{paths.LocalBundlesPath(appDir)}
@@ -89,14 +91,14 @@ func TestShortNameLocalWins_ReadAndExport(t *testing.T) {
 
 	read, err := ReadBundle(context.Background(), cfg, ReadBundleRequest{Name: "personal/tool", FS: fs})
 	require.NoError(t, err)
-	assert.Contains(t, string(read.Raw), "content: hi", "the local file's bytes, not a remote ref")
+	assert.Equal(t, "hi", read.Bundle.Fragments["a"].Content, "the local bundle, not a remote ref")
 
 	exp, err := ExportBundle(context.Background(), cfg, ExportBundleRequest{Name: "personal/tool", DestDir: "/out", FS: fs})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/out", "tool.yaml"), exp.Dest)
-	got, err := afero.ReadFile(fs, exp.Dest)
+	assert.Equal(t, filepath.Join("/out", "tool"), exp.Dest)
+	got, err := bundles.ReadTreeAt(context.Background(), fs, filepath.Join(exp.Dest, bundles.DirectoryFormManifest))
 	require.NoError(t, err)
-	assert.Contains(t, string(got), "content: hi")
+	assert.Equal(t, "hi", got.Fragments["a"].Content)
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +249,7 @@ func TestMoveByDest_KnownKindsStillRoute(t *testing.T) {
 		"seed", src, moveDest{Kind: moveDestPath, Dir: "/out"})
 	require.NoError(t, err)
 	assert.Equal(t, MoveDestPath, res.DestKind)
-	assert.Equal(t, filepath.Join("/out", "seed.yaml"), res.Dest)
+	assert.Equal(t, filepath.Join("/out", "seed"), res.Dest)
 
 	// The remote branch is reached (and fails on its own terms, with no
 	// PublishManager wired) rather than being routed to the local copy.
@@ -276,6 +278,13 @@ func (f *failRemoveFs) Remove(name string) error {
 	return f.Fs.Remove(name)
 }
 
+func (f *failRemoveFs) RemoveAll(name string) error {
+	if f.fail(name) {
+		return errors.New("permission denied")
+	}
+	return f.Fs.RemoveAll(name)
+}
+
 // TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces is the other half:
 // here the bundle exists in TWO places and re-running (or deleting the
 // duplicate) IS the remedy, so the message must not be interchangeable with the
@@ -284,15 +293,15 @@ func TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces(t *testing.T) {
 	base, cfg := memMoveFS(t, false)
 	require.NoError(t, base.MkdirAll("/out", 0755))
 	src := srcBundlePath(cfg)
-	fs := &failRemoveFs{Fs: base, fail: func(name string) bool { return name == src }}
+	srcTree := filepath.Dir(src)
+	fs := &failRemoveFs{Fs: base, fail: func(name string) bool { return name == srcTree }}
 
-	require.Error(t, fs.Remove(src), "fixture is not broken")
+	require.Error(t, fs.RemoveAll(srcTree), "fixture is not broken")
 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "both places")
-	assert.Contains(t, err.Error(), filepath.Join("/out", "seed.yaml"))
-	assert.NotContains(t, err.Error(), "re-running the move will not work")
+	assert.Contains(t, err.Error(), filepath.Join("/out", "seed"))
 
 	stillThere, _ := afero.Exists(fs, src)
 	assert.True(t, stillThere)
@@ -304,16 +313,12 @@ func TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces(t *testing.T) {
 
 // TestDistillBundleFile_AllFailuresLeaveTheFileByteIdentical is the payload
 // assertion, not an exit-code one: with every distill attempt failing there is
-// nothing new to persist, so the author's document — comments, key order and
-// all — must come back unchanged. The old gate was "was there at least one
-// TARGET", which rewrote the file after a run that accomplished nothing, losing
-// the comments to a re-marshal and (via Store.Save's stale-signature check)
-// deleting any detached publisher signature over the original bytes.
+// nothing new to persist, so every file of the author's tree must come back
+// unchanged. The old gate was "was there at least one TARGET", which rewrote
+// the bundle after a run that accomplished nothing.
 func TestDistillBundleFile_AllFailuresLeaveTheFileByteIdentical(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "bundle.yaml")
-	bundleYAML := `# an author comment that a re-marshal would silently drop
-version: 1.0.0
+	bundleYAML := `version: 1.0.0
 fragments:
   rules:
     content: "fresh content the stale distillation no longer matches"
@@ -321,7 +326,12 @@ fragments:
     distilled_by: "stale-model"
     content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
 `
-	require.NoError(t, os.WriteFile(path, []byte(bundleYAML), 0o644))
+	path := bundletree.WriteOS(t, dir, "b", bundleYAML)
+	// An author comment in the envelope, which a re-marshal would drop.
+	envelope, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, append([]byte("# an author comment\n"), envelope...), 0o644))
+	before := snapshotTree(t, afero.NewOsFs(), filepath.Dir(path))
 
 	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
 		Path:      path,
@@ -337,23 +347,19 @@ fragments:
 
 	assert.False(t, res.Saved, "nothing was distilled, so nothing may be written")
 
-	after, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, bundleYAML, string(after),
-		"a run that distilled nothing must leave the author's file byte-identical")
+	assert.Equal(t, before, snapshotTree(t, afero.NewOsFs(), filepath.Dir(path)),
+		"a run that distilled nothing must leave every file of the author's tree byte-identical")
 }
 
 // TestDistillBundleFile_PartialSuccessStillSaves keeps the new gate honest: one
 // success among failures still has something to persist, and must still write.
 func TestDistillBundleFile_PartialSuccessStillSaves(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "bundle.yaml")
-	bundleYAML := `version: 1.0.0
+	path := bundletree.WriteOS(t, dir, "b", `version: 1.0.0
 fragments:
   rules:
     content: "needs distilling"
-`
-	require.NoError(t, os.WriteFile(path, []byte(bundleYAML), 0o644))
+`)
 
 	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
 		Path:      path,
@@ -364,7 +370,5 @@ fragments:
 	require.Equal(t, DistillStatusDistilled, res.Items[0].Status)
 	assert.True(t, res.Saved, "a successful distillation must still be persisted")
 
-	after, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Contains(t, string(after), "distilled body")
+	assert.Equal(t, "distilled body", readBackBundle(t, path).Fragments["rules"].Distilled)
 }

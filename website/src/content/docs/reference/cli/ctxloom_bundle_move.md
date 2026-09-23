@@ -15,10 +15,10 @@ Move an authored bundle to a remote or another project, carrying its signature
 
 Move an authored bundle out of .ctxloom/content/bundles, signature and all.
 
-The bundle's bytes are carried VERBATIM — never re-parsed, re-serialized, or
-re-signed. A detached publisher signature (<name>.yaml.sig, made by
-'ctxloom bundle sign') therefore stays valid at the destination, because the bytes it
-covers do not change. If a signature exists but cannot be carried, the move
+The bundle's tree is carried VERBATIM — never re-parsed, re-serialized, or
+re-signed. Its signature (the SHA256SUMS manifest and .sigs/ entries made by
+'ctxloom bundle sign') therefore stays valid at the destination, because the
+bytes it covers do not change. If a signature exists but cannot be carried, the move
 FAILS: it never lands the bundle unsigned behind your back.
 
 --to resolves one of two ways, and never guesses:

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -13,22 +12,20 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // seedReaders presents authored bundle VALUES as the pinned content a reader
@@ -67,16 +64,11 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 		if b == nil {
 			continue
 		}
-		data, err := yaml.Marshal(b)
-		require.NoError(t, err)
-
 		if !remote.IsSelfContainedRef(ref) && !strings.Contains(ref, "@") {
-			// A bare name is a bundle in this project's own tree.
-			// The reader is handed the bundles ROOT below and expands the
-			// format roots itself, so the document goes in the v1 root — the
-			// bare root is searched by nobody.
-			testsupport.WriteFile(t, projectFS,
-				filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), ref+".yaml"), data, 0o644)
+			// A bare name is a bundle in this project's own tree. The reader
+			// is handed the bundles ROOT below and expands the format roots
+			// itself — the bare root is searched by nobody.
+			bundletree.WriteBundle(t, projectFS, paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), ref, b, seedSkillOptions(b)...)
 			local = true
 			continue
 		}
@@ -87,7 +79,16 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 			s, root := seedSignerAs(t, principal)
 			signer, opts = s, append(opts, bundles.WithTrustRoot(root))
 		}
-		out = append(out, bundles.NewRepoFSReader(seedTree(t, ref, b, signer), ref, opts...))
+		fsys, root, id := stageSeedTree(t, ref, b, signer)
+		if len(b.Skills) > 0 {
+			// A skill is read from its package directory, so a seed carrying
+			// one is read as an INSTALLED tree: bundle.Path, and FSDir, name
+			// the directory on disk.
+			opts = append(opts, bundles.WithInstalledDir(filepath.Join(root, string(id))))
+		}
+		tfs, err := content.NewAferoTreeFS(fsys, root)
+		require.NoError(t, err)
+		out = append(out, bundles.NewRepoFSReader(tfs, ref, opts...))
 	}
 	if local {
 		out = append(out, bundles.NewProjectReader(projectFS, []string{"/bundles"}))
@@ -188,10 +189,8 @@ func seedRepoURL(_ *testing.T, ref string) string {
 // seedTree stages b as the TREE a repofs reader now requires, and serves it
 // through the same TreeFS seam a pinned remote does.
 //
-// It converts through the PRODUCTION converter (content/convert.Convert) rather
-// than hand-placing item files, so a seeded fixture is byte-for-byte the shape
-// a publisher would publish — which is the whole reason the old document seeds
-// stopped being valid: they tested a form nothing can produce or read.
+// It writes through the production store save and content writer
+// (bundletree), so a seeded fixture is the shape a publisher would publish.
 //
 // signer, when non-nil, signs the finished tree's manifest.
 func seedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signer) bundles.TreeFS {
@@ -203,13 +202,14 @@ func seedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signer) bu
 }
 
 // stageSeedTree writes the tree and hands back the filesystem it lives on, so a
-// caller that must disturb the bytes AFTER signing can reach them.
+// caller that must disturb the bytes AFTER signing can reach them. It is the
+// OS filesystem: a seeded skill is read from its package directory through the
+// loader's filesystem, which is the OS one for pinned content.
 func stageSeedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signer) (afero.Fs, string, content.BundleID) {
 	t.Helper()
-	const root = "/pinned"
+	root := t.TempDir()
 	id := content.BundleID(path.Base(strings.TrimSuffix(ref, "/")))
-	fsys := afero.NewMemMapFs()
-	require.NoError(t, fsys.MkdirAll(root, 0o755))
+	fsys := afero.NewOsFs()
 	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
 	require.NoError(t, err)
 
@@ -223,8 +223,7 @@ func stageSeedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signe
 	if staged.Version == "" {
 		staged.Version = "1.0.0"
 	}
-	require.NoError(t, convert.Convert(context.Background(), st, id, &staged,
-		convert.Options{SkillFiles: seedSkillFiles(&staged)}))
+	bundletree.WriteBundle(t, fsys, root, string(id), &staged, seedSkillOptions(b)...)
 	if signer != nil {
 		tree, err := st.Open(context.Background(), id)
 		require.NoError(t, err)
@@ -262,10 +261,10 @@ func signedTreeFiles(t *testing.T, id string, b *bundles.Bundle, signer ssh.Sign
 }
 
 // seedHostileTree stages b as a tree and then writes extra files into it
-// DIRECTLY, bypassing the converter.
+// DIRECTLY, bypassing the writer.
 //
-// That bypass is the point, not a shortcut. content/convert and content.Writer
-// refuse to write a malformed package — a path with a newline in it, a skill
+// That bypass is the point, not a shortcut. content.Writer refuses to write a
+// malformed package — a path with a newline in it, a skill
 // with no SKILL.md — which is exactly right for a publisher using ctxloom, and
 // exactly wrong for a fixture about a publisher who does NOT. A hostile tree is
 // bytes in a repository, not the output of our own writer, so it has to be
@@ -283,66 +282,44 @@ func seedHostileTree(t *testing.T, ref string, b *bundles.Bundle, extra map[stri
 	return tfs
 }
 
-// seedSkillFiles supplies a seeded skill's package files to the converter.
-//
-// A seed declares its skill as a MANIFEST — per-file sha256 and mode, which is
-// what a read bundle carries — and never as bytes, because the document form it
-// was written for kept skill packages outside the document entirely. A tree
-// holds the files themselves, so the bytes have to come from somewhere, and
-// here they are synthesised per declared path.
-//
-// The synthetic content does not weaken anything these fixtures assert. Convert
-// REGENERATES the per-file manifest from the bytes it writes (Files is a
-// generated field), so the tree is internally consistent and its digests are
-// real; what the seed's sha256 strings were was never checked by anything, and
-// could not be — they were fixture literals, not hashes of any content that
-// existed. What survives, and is what the review tests actually turn on, is the
-// package's SHAPE: the same file paths, with the same declared modes.
-func seedSkillFiles(b *bundles.Bundle) func(string) ([]content.SkillFile, error) {
-	return func(name string) ([]content.SkillFile, error) {
-		skill, ok := b.Skills[name]
-		if !ok {
-			return nil, fmt.Errorf("seedSkillFiles: bundle declares no skill %q", name)
-		}
-		paths := make([]string, 0, len(skill.Files))
-		for p := range skill.Files {
-			paths = append(paths, p)
-		}
-		if len(paths) == 0 {
-			// A skill declaring no files is a fixture asking for an UNREADABLE
-			// skill, and a tree expresses that as a package with no SKILL.md
-			// rather than as no package at all — Convert refuses to write an
-			// empty one, correctly, since an empty skill delivers nothing.
-			// A package whose only file is not SKILL.md reproduces exactly the
-			// state under test: it exists, and nothing can read a manifest out
-			// of it.
-			return []content.SkillFile{{
-				Path:  "notes.txt",
-				Mode:  content.ModeRegular,
-				Bytes: []byte("seeded " + name + " with no SKILL.md\n"),
-			}}, nil
-		}
-		sort.Strings(paths) // deterministic: a package's digest must not depend on map order
-		files := make([]content.SkillFile, 0, len(paths))
-		for _, p := range paths {
-			mode := content.ModeRegular
-			if skill.Files[p].Mode == "0755" {
-				mode = content.ModeExecutable
-			}
-			// The declared SHA256 is folded into the BYTES, which is what makes
-			// a fixture's "this file changed" land as a real change. A seed
-			// signals an edit by writing a different digest string; a tree
-			// regenerates digests from content, so unless the content moves
-			// too, an edited fixture would render identically and a per-file
-			// diff test would silently assert nothing.
-			files = append(files, content.SkillFile{
-				Path:  p,
-				Mode:  mode,
-				Bytes: []byte("seeded " + name + " " + p + " " + skill.Files[p].SHA256 + "\n"),
-			})
-		}
-		return files, nil
+// seedSkillPackages holds the package a test states for a seeded bundle's
+// skill, keyed by the bundle value. A skill is a directory of files, and a
+// bundle value no longer carries them, so a test that cares what the package
+// holds states it here (withSeedSkillPackage); every other seeded skill gets
+// defaultSeedSkillPackage.
+var seedSkillPackages = map[*bundles.Bundle]map[string]map[string]bundletree.File{}
+
+// withSeedSkillPackage states the package b's skill carries when b is seeded.
+func withSeedSkillPackage(t *testing.T, b *bundles.Bundle, skill string, files map[string]bundletree.File) {
+	t.Helper()
+	if seedSkillPackages[b] == nil {
+		seedSkillPackages[b] = map[string]map[string]bundletree.File{}
+		t.Cleanup(func() { delete(seedSkillPackages, b) })
 	}
+	seedSkillPackages[b][skill] = files
+}
+
+// defaultSeedSkillPackage is a minimal readable package: SKILL.md and one
+// executable script.
+func defaultSeedSkillPackage(name string) map[string]bundletree.File {
+	return map[string]bundletree.File{
+		"SKILL.md":       {Body: "---\nname: " + name + "\ndescription: seeded " + name + "\n---\n\nseeded skill\n"},
+		"scripts/run.sh": {Body: "#!/bin/sh\necho " + name + "\n", Executable: true},
+	}
+}
+
+// seedSkillOptions writes every skill b declares with its stated or default
+// package.
+func seedSkillOptions(b *bundles.Bundle) []bundletree.Option {
+	var out []bundletree.Option
+	for name := range b.Skills {
+		files, ok := seedSkillPackages[b][name]
+		if !ok {
+			files = defaultSeedSkillPackage(name)
+		}
+		out = append(out, bundletree.WithSkill(name, files))
+	}
+	return out
 }
 
 // seedTampered presents b as pinned content that was SIGNED AND THEN ALTERED —

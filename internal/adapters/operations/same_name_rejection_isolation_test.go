@@ -3,13 +3,13 @@ package operations
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -44,7 +44,8 @@ const (
 // items of one declared name, from two sources, live in one session at once.
 func sameNameLoader(t *testing.T, projectBody string) *bundles.Loader {
 	t.Helper()
-	data, err := yaml.Marshal(&bundles.Bundle{
+	fs := afero.NewMemMapFs()
+	bundletree.WriteBundle(t, fs, paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), sharedBundleName, &bundles.Bundle{
 		Name: sharedBundleName,
 		Fragments: map[string]bundles.BundleFragment{
 			sharedFragmentName: {
@@ -54,9 +55,6 @@ func sameNameLoader(t *testing.T, projectBody string) *bundles.Loader {
 			},
 		},
 	})
-	require.NoError(t, err)
-	fs := afero.NewMemMapFs()
-	testsupport.WriteFile(t, fs, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), sharedBundleName+".yaml"), data, 0o644)
 	probe := func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{{
 			Bin: sharedBundleName,

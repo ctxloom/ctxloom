@@ -2,13 +2,13 @@ package operations
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -274,8 +274,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "skilled.yaml"),
 		[]byte("name: skilled\nbundles:\n  - skill-bundle\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "skill-bundle", "bundle.yaml"),
-		[]byte("version: 1.0.0\nskills:\n  humanize:\n"), 0644))
+	bundletree.WriteOS(t, bundlesDir, "skill-bundle", "version: 1.0.0\nskills:\n  humanize:\n")
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: humanize\ndescription: Removes AI writing tells.\n---\n\nInstructions body.\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"),
@@ -312,32 +311,20 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 // vehicle those rows retarget onto. Without a mock
 // skills surface there was no hermetic way to run them at all.
 //
-// The manifest here is AUTHORED (bundle.yaml's `files:`), not derived: 0755 on
-// scripts/run.sh is a declaration inside the bundle's own signed metadata, and
-// that declaration is what the delivered file's mode must equal. The tree on
-// disk is written to agree with it because the LOADER refuses a package whose
-// declaration and tree disagree (bundles.VerifyExtractedManifest) — a refusal,
-// not a re-derivation.
+// 0755 on scripts/run.sh is DECLARED in the tree's skill sidecar, and the
+// delivered file's mode must equal it.
 func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	bundlesDir := authoredV1(appDir)
-	skillDir := filepath.Join(bundlesDir, "skill-bundle", "skills", "reviewer")
-	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755))
-
-	skillMD := []byte("---\nname: reviewer\ndescription: Reviews things.\n---\n\nREVIEWER-BODY-51ab\n")
-	script := []byte("#!/bin/sh\necho REVIEWER-SCRIPT-51ab\n")
-
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "skilled.yaml"),
 		[]byte("name: skilled\nbundles:\n  - skill-bundle\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), skillMD, 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"), script, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "skill-bundle", "bundle.yaml"),
-		[]byte("version: 1.0.0\nskills:\n  reviewer:\n    files:\n"+
-			"      SKILL.md:\n        sha256: "+sha256Of(skillMD)+"\n        mode: \"0644\"\n"+
-			"      scripts/run.sh:\n        sha256: "+sha256Of(script)+"\n        mode: \"0755\"\n"), 0644))
+	bundletree.WriteOS(t, bundlesDir, "skill-bundle", "version: 1.0.0\n", bundletree.WithSkill("reviewer", map[string]bundletree.File{
+		"SKILL.md":       {Body: "---\nname: reviewer\ndescription: Reviews things.\n---\n\nREVIEWER-BODY-51ab\n"},
+		"scripts/run.sh": {Body: "#!/bin/sh\necho REVIEWER-SCRIPT-51ab\n", Executable: true},
+	}))
 
 	// A skills-only bundle assembles no context text on its own; ctxloom's
 	// own loadout supplies the always-on guidance a real materialize carries.
@@ -369,13 +356,6 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(),
 		"scripts/run.sh is DECLARED 0755 in the bundle manifest; a delivered script without its exec bit cannot run")
-}
-
-// sha256Of renders a fixture file's content hash in the form a bundle.yaml
-// skill manifest records it.
-func sha256Of(b []byte) string {
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // TestMaterializeProfile_Validation covers the guard rails.
@@ -466,10 +446,9 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 	// TREE format carries it as `description:` and maps it across in
 	// tree_read's `Premise: v.Description`. This is an authored v1 bundle, so
 	// `description:` here would be read as a description and withhold nothing.
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "premise-bundle", "bundle.yaml"),
-		[]byte("version: 1.0.0\nfragments:\n"+
-			"  always-applies:\n    content: \"UNCONDITIONAL-MARKER\"\n"+
-			"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \"PREMISED-MARKER\"\n"), 0644))
+	bundletree.WriteOS(t, bundlesDir, "premise-bundle", "version: 1.0.0\nfragments:\n"+
+		"  always-applies:\n    content: \"UNCONDITIONAL-MARKER\"\n"+
+		"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \"PREMISED-MARKER\"\n")
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised.yaml"),
 		[]byte("name: premised\nbundles:\n  - premise-bundle\n"), 0644))
 
@@ -524,9 +503,8 @@ func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *t
 	require.NoError(t, os.MkdirAll(filepath.Join(bundlesDir, "premise-bundle-2"), 0755))
 
 	// `premise:` is the flat v1 key; the v2 tree format uses `description:`.
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "premise-bundle-2", "bundle.yaml"),
-		[]byte("version: 1.0.0\nfragments:\n"+
-			"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \"PREMISED-MARKER-DUMPED\"\n"), 0644))
+	bundletree.WriteOS(t, bundlesDir, "premise-bundle-2", "version: 1.0.0\nfragments:\n"+
+		"  only-sometimes:\n    premise: \"You are about to cut a release.\"\n    content: \"PREMISED-MARKER-DUMPED\"\n")
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised2.yaml"),
 		[]byte("name: premised2\nbundles:\n  - premise-bundle-2\n"), 0644))
 

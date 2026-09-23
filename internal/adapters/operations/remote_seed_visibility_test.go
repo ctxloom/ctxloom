@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -50,9 +50,8 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	require.NoError(t, err)
 
 	require.NoError(t, os.MkdirAll(authoredV2(filepath.Join(repoDir, paths.AppDirName)), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(authoredV2(filepath.Join(repoDir, paths.AppDirName)), "tools.yaml"),
-		[]byte(bundleBody), 0o644))
-	_, err = wt.Add(repoV2("tools.yaml"))
+	bundletree.WriteOS(t, authoredV2(filepath.Join(repoDir, paths.AppDirName)), "tools", bundleBody)
+	_, err = wt.Add(repoV2("tools"))
 	require.NoError(t, err)
 	commit, err := wt.Commit("seed", &git.CommitOptions{
 		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
@@ -90,9 +89,7 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 
 	src, err := bundles.ParseBundle([]byte(bundleBody))
 	require.NoError(t, err)
-	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(installDir), content.Provenance{RepoURL: repoURL})
-	require.NoError(t, err)
-	require.NoError(t, convert.Convert(context.Background(), store, content.BundleID("tools"), src, convert.Options{}))
+	bundletree.WriteBundle(t, afero.NewOsFs(), filepath.Dir(installDir), "tools", src)
 	require.NoError(t, os.WriteFile(filepath.Join(installDir, "bundle.yaml"),
 		[]byte("version: 1.0.0\ndescription: remote tools bundle\n"), 0o644))
 

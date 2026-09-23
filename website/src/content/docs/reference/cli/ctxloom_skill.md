@@ -17,16 +17,14 @@ Manage Agent Skills — model-invoked SKILL.md packages (instructions plus
 optional scripts/assets) that an engine loads via progressive disclosure,
 distinct from a user-invoked slash "command" (ctxloom command).
 
-Skills live inside directory-form bundles — .ctxloom/content/bundles/<bundle>/
-(bundle.yaml + skills/<name>/) — and are referenced using the syntax:
-bundle#skills/name
+Skills live inside bundles — .ctxloom/content/bundles/v2/<bundle>/skills/<name>/
+— and are referenced using the syntax: bundle#skills/name
 
 Examples:
   ctxloom skill list                                   # List all skills
-  ctxloom skill show core#skills/code-reviewer          # Show frontmatter + manifest
+  ctxloom skill show core#skills/code-reviewer          # Show frontmatter + files
   ctxloom skill create my-bundle code-reviewer          # Scaffold a new skill package
   ctxloom skill remove my-bundle#skills/code-reviewer --yes  # Remove a skill package
-  ctxloom skill sync my-bundle#skills/code-reviewer      # Recompute + write the manifest
   ctxloom skill export my-bundle#skills/code-reviewer    # Pack to an Anthropic-shaped .zip
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle
 
@@ -53,5 +51,4 @@ ctxloom skill [flags]
 * [ctxloom skill list](/reference/cli/ctxloom_skill_list/)	 - List all Agent Skill packages
 * [ctxloom skill remove](/reference/cli/ctxloom_skill_remove/)	 - Remove an Agent Skill package
 * [ctxloom skill show](/reference/cli/ctxloom_skill_show/)	 - Show a skill's frontmatter and file manifest
-* [ctxloom skill sync](/reference/cli/ctxloom_skill_sync/)	 - Recompute and write a skill's per-file manifest
 

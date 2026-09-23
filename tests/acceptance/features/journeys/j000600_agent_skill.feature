@@ -22,7 +22,6 @@ Feature: A skill you author once, and your assistant simply has
     And Alice starts a ctxloom-doctor skill in "ops" described as "DOCTOR-SKILL-MARKER-7d4e21"
     And Alice authors the ctxloom-doctor skill's full body in "ops#skills/ctxloom-doctor"
     And Alice adds an executable scripts/run.sh carrying the marker "DOCTOR-SCRIPT-MARKER-9c2f" to the skill "ops#skills/ctxloom-doctor"
-    And Alice records the skill's file manifest so tampering would be caught
     And a profile "clinic" with bundle "ops"
     And profile "clinic" curates skill "ops#skills/ctxloom-doctor"
 

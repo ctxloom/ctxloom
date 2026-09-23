@@ -293,7 +293,7 @@ func TestDraftPremise_AcceptOnATreeBundleStaysATree(t *testing.T) {
 	t.Cleanup(resetApp)
 	cfg := setupEditProject(t)
 	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
-		Name: "demo", Tree: true,
+		Name: "demo",
 		Fragments: map[string]operations.BundleFragmentInput{
 			"x": {Content: "Never remove a worktree you did not create.", NoDistill: true},
 		},
@@ -309,7 +309,7 @@ func TestDraftPremise_AcceptOnATreeBundleStaysATree(t *testing.T) {
 
 	assert.Equal(t, "You are about to delete a worktree.", fragmentX(t, cfg).Premise)
 	envelope := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV2), "demo", bundles.DirectoryFormManifest)
-	isTree, err := bundles.IsTreeFormBundle(context.Background(), afero.NewOsFs(), envelope)
+	_, env, err := bundles.EnvelopeAt(afero.NewOsFs(), envelope)
 	require.NoError(t, err)
-	assert.True(t, isTree, "accepting a premise must not turn the tree into a document")
+	assert.Empty(t, env.Fragments, "accepting a premise must not declare the fragment inline in the envelope")
 }

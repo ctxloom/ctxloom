@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
@@ -11,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/spf13/afero"
 )
 
 // DistillBundleFileRequest is the input for DistillBundleFile.
@@ -71,24 +71,22 @@ type DistillBundleFileResult struct {
 	Invalidated []string `json:"invalidated,omitempty"`
 }
 
-// DistillBundleFile distills every distillable item in a bundle file and saves
-// it — the file-oriented author tool behind `bundle distill` (it operates on a
-// path, not a name in config). It skips no_distill items and, unless Force,
+// DistillBundleFile distills every distillable item in a bundle tree — named by
+// its directory or its bundle.yaml — and saves it: the path-oriented author
+// tool behind `bundle distill` (it operates on a path, not a name in config). It skips no_distill items and, unless Force,
 // unchanged ones; with DryRun it reports what would be distilled and writes
 // nothing. Distillation runs through the injected Distiller; a nil Distiller
 // turns every distillable item into a "no_distiller" skip rather than a silent
 // no-op. Frontends own glob expansion, progress rendering, and the run summary.
 func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*DistillBundleFileResult, error) {
-	data, err := os.ReadFile(req.Path)
+	envelope, err := bundleEnvelopePath(afero.NewOsFs(), req.Path)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := bundles.ReadTreeAt(ctx, afero.NewOsFs(), envelope)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", req.Path, err)
 	}
-	bundle, err := bundles.ParseBundle(data)
-	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", req.Path, err)
-	}
-	bundle.Path = req.Path
-	bundle.Name = bundles.ExtractBundleName(req.Path)
 
 	res := &DistillBundleFileResult{Path: req.Path}
 	var fragTargets, promptTargets []string
@@ -133,7 +131,7 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 	if anyDistilled(res.Items) {
 		store := req.Store
 		if store == nil {
-			store = bundles.NewFSStore(nil, nil)
+			store = bundles.NewFSStore(afero.NewOsFs(), nil)
 		}
 		if err := store.Save(bundle); err != nil {
 			return nil, fmt.Errorf("save %s: %w", req.Path, err)

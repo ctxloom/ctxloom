@@ -63,12 +63,14 @@ func TestGitForgeVCS_ListItems_ReducesLayoutQualifiedNames(t *testing.T) {
 	root := RepoItemRoot(ItemTypeBundle)
 	mf := NewMockFetcher().
 		WithDir(root, []DirEntry{
-			{Name: "security.yaml", IsDir: false},
+			{Name: "security", IsDir: true},
 			{Name: seg, IsDir: true},
 		}).
+		WithDir(path.Join(root, "security"), []DirEntry{{Name: "bundle.yaml"}}).
 		WithDir(path.Join(root, seg), []DirEntry{
-			{Name: "atelier.yaml", IsDir: false},
-		})
+			{Name: "atelier", IsDir: true},
+		}).
+		WithDir(path.Join(root, seg, "atelier"), []DirEntry{{Name: "bundle.yaml"}})
 
 	vcs := &gitForgeVCS{fetcher: mf, owner: "owner", repo: "repo"}
 	items, err := vcs.ListItems(context.Background(), ItemTypeBundle)
@@ -94,8 +96,8 @@ func TestFSVCS_ListItems_ReducesLayoutQualifiedNames(t *testing.T) {
 	root := "/proj/.ctxloom/content"
 	bundles := path.Join(root, ContentItemRoot(ItemTypeBundle))
 	testsupport.SeedTree(t, fs, bundles, map[string]string{
-		"foo.yaml":                     "x",
-		path.Join(seg, "atelier.yaml"): "x",
+		"foo/bundle.yaml":                        "x",
+		path.Join(seg, "atelier", "bundle.yaml"): "x",
 	})
 
 	vcs := &fsVCS{fs: fs, root: root}
@@ -119,7 +121,7 @@ func TestGitCloneFetcher_ListDeletedItems_ReducesLayoutQualifiedNames(t *testing
 	require.NoError(t, err)
 
 	root := RepoItemRoot(ItemTypeBundle)
-	stored := path.Join(root, seg, "atelier.yaml")
+	stored := path.Join(root, seg, "atelier", "bundle.yaml")
 
 	dir := newTestRepo(t)
 	writeCommit(t, dir, "publish atelier under the layout", map[string]string{stored: "x"}, nil)
@@ -148,8 +150,8 @@ func TestGitCloneFetcher_ListDeletedItems_ALayoutMoveIsNotADeletion(t *testing.T
 	require.NoError(t, err)
 
 	root := RepoItemRoot(ItemTypeBundle)
-	before := path.Join(root, "atelier.yaml")
-	after := path.Join(root, seg, "atelier.yaml")
+	before := path.Join(root, "atelier", "bundle.yaml")
+	after := path.Join(root, seg, "atelier", "bundle.yaml")
 
 	dir := newTestRepo(t)
 	writeCommit(t, dir, "publish atelier at the bare root", map[string]string{before: "x"}, nil)

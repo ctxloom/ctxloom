@@ -476,9 +476,7 @@ func seededLoader(t *testing.T) (*bundles.Loader, string) {
 			"postgres": {Command: "pg-mcp", Args: []string{"--port", "5432"}},
 		},
 		Skills: map[string]bundles.BundleSkill{
-			"reviewer": {Files: map[string]bundles.SkillFileMeta{
-				"SKILL.md": {SHA256: "sha256:abc123", Mode: "0644"},
-			}},
+			"reviewer": {},
 		},
 	}
 	loader := seedLoader(t, map[string]*bundles.Bundle{seedKey: b})
@@ -508,7 +506,9 @@ func seededSkillPayload(t *testing.T, loader *bundles.Loader) []byte {
 	read := readOf(t, loader, seededBundleKey)
 	skill, ok := read.Bundle.Skills["reviewer"]
 	require.True(t, ok, "the seeded bundle must carry the skill under review")
-	payload, err := skill.ContentPayload(nil, "", "reviewer")
+	bundleDir, err := read.Bundle.FSDir()
+	require.NoError(t, err)
+	payload, err := skill.ContentPayload(loader.FS(), bundleDir, "reviewer")
 	require.NoError(t, err)
 	return payload
 }

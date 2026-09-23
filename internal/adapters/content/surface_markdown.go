@@ -181,8 +181,8 @@ type ItemMeta struct {
 	// Description is the item's applicability condition, addressed to the
 	// acting agent: the test that decides whether it is selected at all. An
 	// EMPTY description means ALWAYS LOADED, so losing one does not withhold an
-	// item — it makes it unconditional. Fragments author this as `premise` in
-	// the single-file format.
+	// item — it makes it unconditional. A bundle value carries it as a
+	// fragment's `premise` (bundles.BundleFragment.Premise).
 	Description string
 	// Notes is human-facing and never sent to a model.
 	//

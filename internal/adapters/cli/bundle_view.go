@@ -16,7 +16,7 @@ import (
 )
 
 // bundleViewResult is emit()'s result for `bundle view`: Content is exactly
-// the bytes --format text has always printed (the full bundle YAML, or one
+// the bytes --format text prints (every file of the bundle tree, or one
 // item's raw/distilled body) — json/yaml/toml/markdown wrap the same bytes
 // with the bundle/path/distilled context those formats can express but a
 // bare stdout dump could not.
@@ -32,11 +32,12 @@ var bundleViewCmd = &cobra.Command{
 	Short: "View bundle content",
 	Long: `View bundle content, optionally drilling into specific items.
 
-Without a path, displays the full bundle YAML.
+Without a path, displays every file of the bundle tree, each under a
+"==> path <==" header.
 With a path after #, displays just that item's content.
 
 Path formats:
-  bundle-name                     Full bundle YAML
+  bundle-name                     Every file of the bundle tree
   bundle-name#fragments/name      Fragment content
   bundle-name#commands/name       Command content (prompts/ is accepted too)
   bundle-name#mcp/name            MCP server config
@@ -74,7 +75,7 @@ func runBundleView(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If no path, the content is the full bundle YAML; otherwise render just
+	// If no path, the content is the whole stored tree; otherwise render just
 	// that item through the existing writer-based renderer, buffered so the
 	// exact same bytes back both the --format text write and the structured
 	// result's Content field.

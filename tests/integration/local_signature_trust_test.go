@@ -173,17 +173,3 @@ func TestLocalBundle_CorruptSignature_Delivers(t *testing.T) {
 	assert.Contains(t, delivered, localSigFragmentBody,
 		"local content with a structurally invalid signature must still be delivered")
 }
-
-func TestLocalBundle_RetiredSiblingSignature_IsRefusedUntilReSigned(t *testing.T) {
-	env, mockLM := setupLocalSigEnv(t, nil)
-	// The retired sibling: no reader parses it, and a bundle carrying one is
-	// refused rather than read as unsigned, naming re-sign as the remedy.
-	require.NoError(t, env.WriteFile(testenv.TreeBundleItemPath(localSigTree, "bundle.yaml.sig"), "armored-signature-bytes\n"))
-
-	_ = env.Run("run", "-f", "signed-local", "--one-shot", "delivery probe")
-	if recorded, err := mockLM.GetRecordedInput(); err == nil {
-		assert.NotContains(t, recorded, localSigFragmentBody, "a refused bundle delivers nothing")
-	}
-	assert.Contains(t, env.LastOutput(), "re-sign", "the refusal names the remedy")
-	assert.Contains(t, env.LastOutput(), "ctxloom bundle sign "+localSigTree)
-}

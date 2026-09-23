@@ -9,18 +9,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // projectReaderOver writes one bundle document at dir/rel and returns a reader
 // over dir, so a test can assert what a REAL read establishes rather than what a
 // hand-built struct claims.
-func projectReaderOver(t *testing.T, rel, doc string) Reader {
+func projectReaderOver(t *testing.T, name, doc string) Reader {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
 	const dir = "/proj/content/bundles"
-	testsupport.WriteFileString(t, fsys, paths.BundlesLayoutRoot(dir, paths.LayoutV2)+"/"+rel, doc, 0o644)
+	writeTree(t, fsys, paths.BundlesLayoutRoot(dir, paths.LayoutV2), name, doc)
 	return NewProjectReader(fsys, []string{dir})
 }
 
@@ -52,7 +50,7 @@ func TestParseBundle_DeclaredNameIsAccepted(t *testing.T) {
 // resolution identity — and the test asserts both, because collapsing the two
 // is the mistake this arrangement exists to prevent.
 func TestProjectReader_DeclaredNameWinsOverPath(t *testing.T) {
-	read := readOne(t, projectReaderOver(t, "onpath.yaml", "version: 1.0.0\nname: declared\n"))
+	read := readOne(t, projectReaderOver(t, "onpath", "version: 1.0.0\nname: declared\n"))
 
 	assert.Equal(t, "declared", read.Bundle.Name, "a declared name must win over the path-derived one")
 	assert.Equal(t, "onpath", read.DisplayName(), "the resolution ref stays path-derived; only Name is declared")
@@ -62,7 +60,7 @@ func TestProjectReader_DeclaredNameWinsOverPath(t *testing.T) {
 // rule, and the one that keeps 69 existing bundle files working: a bundle that
 // declares nothing still resolves under the name its path implies.
 func TestProjectReader_UndeclaredNameFallsBackToPath(t *testing.T) {
-	read := readOne(t, projectReaderOver(t, "onpath.yaml", "version: 1.0.0\n"))
+	read := readOne(t, projectReaderOver(t, "onpath", "version: 1.0.0\n"))
 
 	assert.Equal(t, "onpath", read.Bundle.Name, "a bundle declaring no name falls back to its path-derived name")
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -90,7 +92,7 @@ func projectWith(t *testing.T, profiles map[string]string, bundlesYAML map[strin
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, name+".yaml"), []byte(body), 0o644))
 	}
 	for name, body := range bundlesYAML {
-		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, name+".yaml"), []byte(body), 0o644))
+		bundletree.WriteOS(t, bundlesDir, name, body)
 	}
 	return config.NewFixture(config.Fixture{
 		DefaultAgent: "default",

@@ -47,7 +47,7 @@ func TestBundleStore_SaveIsVisibleToTheNextRead(t *testing.T) {
 		Name:        "late-arrival",
 		Version:     "1.0.0",
 		Description: "written after the loader was already resolved",
-		Path:        filepath.Join(authoredV1(appDir), "late-arrival.yaml"),
+		Path:        filepath.Join(authoredV1(appDir), "late-arrival", bundles.DirectoryFormManifest),
 	}))
 
 	_, existsAfter := cfg.BundleLoader().Read("late-arrival")
@@ -88,7 +88,7 @@ func TestBundleStore_FirstBundleInAFreshProjectIsVisible(t *testing.T) {
 	require.NoError(t, store.Save(&bundles.Bundle{
 		Name:    "first-ever",
 		Version: "1.0.0",
-		Path:    filepath.Join(authoredV1(appDir), "first-ever.yaml"),
+		Path:    filepath.Join(authoredV1(appDir), "first-ever", bundles.DirectoryFormManifest),
 	}))
 
 	_, existsAfter := cfg.BundleLoader().Read("first-ever")
@@ -118,7 +118,7 @@ func TestMoveBundle_SourceDisappearsFromTheSharedLoader(t *testing.T) {
 	require.NoError(t, store.Save(&bundles.Bundle{
 		Name:    "movable",
 		Version: "1.0.0",
-		Path:    filepath.Join(bundlesDir, "movable.yaml"),
+		Path:    filepath.Join(bundlesDir, "movable", bundles.DirectoryFormManifest),
 	}))
 
 	// Resolve BEFORE the move, so a stale view is possible at all.

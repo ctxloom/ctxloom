@@ -7,7 +7,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
   loads on its own by progressive disclosure.
 
   This is the comprehensive per-noun spec for `ctxloom skill` — authoring a
-  package, recording its manifest, listing and showing it, curating which
+  package, listing and showing it, curating which
   skills a profile exports, and round-tripping one through sign/export/import.
   The narrative version is journeys/j000600_agent_skill.feature, which asserts what
   a PERSON gets: one authored skill arriving whole in every engine's own skill
@@ -23,17 +23,18 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
 
   Rule: Authoring a package records what is actually on disk
 
-    `skill create` scaffolds a package and `skill sync` records the per-file
-    manifest — sha256 and POSIX mode — into bundle.yaml. Listing and showing a
-    skill must reflect that real tree rather than a name someone declared.
+    `skill create` scaffolds a package directory, and the directory IS the
+    skill: nothing records its files anywhere else. Listing and showing a
+    skill must reflect that real tree — every file, its sha256 and its POSIX
+    mode — rather than a name someone declared.
 
 
-    Scenario: Alice authors a skill package and its manifest, listing, and show all reflect the real tree
+    Scenario: Alice authors a skill package and its listing and show reflect the real tree
       Given Alice's project has a directory-form bundle "vault"
       When I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
       And Alice adds an executable scripts/run.sh carrying the marker "SCRIPT-MARKER-reviewer-2b7e40" to the skill "vault#skills/reviewer"
-      And I run "ctxloom skill sync vault#skills/reviewer"
-      Then the bundle manifest for "vault#skills/reviewer" records real hashes and modes for "SKILL.md" and "scripts/run.sh"
+      When I run "ctxloom skill show vault#skills/reviewer --format json"
+      Then the skill show output lists "SKILL.md" and an executable "scripts/run.sh"
       When I run "ctxloom skill list"
       Then the skill list output includes "reviewer" from bundle "vault"
       When I run "ctxloom skill show vault#skills/reviewer"
@@ -52,7 +53,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     `remove` leaf in this CLI shares.
 
 
-    Scenario Outline: Removing a skill drops both its bundle.yaml registration and its on-disk directory
+    Scenario Outline: Removing a skill drops its on-disk directory
       Given Alice's project has a directory-form bundle "vault"
       And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
       When I run "ctxloom skill remove vault#skills/reviewer <flags>"
@@ -89,9 +90,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     Scenario: Profile skill curation exports only the curated skill, not the bundle's other one
       Given Alice's project has a directory-form bundle "vault"
       And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
-      And I run "ctxloom skill sync vault#skills/reviewer"
       And I run "ctxloom skill create vault planner -d SKILL-MARKER-planner-1a2b3c"
-      And I run "ctxloom skill sync vault#skills/planner"
       And a profile "studio" with bundle "vault"
       And profile "studio" curates skill "vault#skills/reviewer"
       When I run "ctxloom profile materialize studio --target out-curated --backend claude-code"
@@ -110,7 +109,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       Given Alice's project has a directory-form bundle "vault"
       And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
       And Alice adds an executable scripts/run.sh carrying the marker "SCRIPT-MARKER-reviewer-2b7e40" to the skill "vault#skills/reviewer"
-      And I run "ctxloom skill sync vault#skills/reviewer"
       And a directory-form bundle "landed" exists
       When I run "ctxloom skill export vault#skills/reviewer -o reviewer.zip"
       And <signer>'s key signs the skill "vault#skills/reviewer" over its current manifest, into "reviewer.zip.sig"
@@ -132,7 +130,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       Given Alice's project has a directory-form bundle "vault"
       And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
       And Alice adds an executable scripts/run.sh carrying the marker "SCRIPT-MARKER-reviewer-2b7e40" to the skill "vault#skills/reviewer"
-      And I run "ctxloom skill sync vault#skills/reviewer"
       And Trent's key signs the skill "vault#skills/reviewer" over its current manifest, into "reviewer-tampered.zip.sig"
       And Trent is a trusted publisher for this project
       And the skill "vault#skills/reviewer"'s SKILL.md is modified after signing
@@ -164,7 +161,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       And Alice starts a ctxloom-doctor skill in "ops" described as "DOCTOR-SKILL-MARKER-7d4e21"
       And Alice authors the ctxloom-doctor skill's full body in "ops#skills/ctxloom-doctor"
       And Alice adds an executable scripts/run.sh carrying the marker "DOCTOR-SCRIPT-MARKER-9c2f" to the skill "ops#skills/ctxloom-doctor"
-      And Alice records the skill's file manifest so tampering would be caught
       And a profile "clinic" with bundle "ops"
       And profile "clinic" curates skill "ops#skills/ctxloom-doctor"
 

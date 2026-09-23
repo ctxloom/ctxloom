@@ -583,7 +583,7 @@ func computeItemPayloadPair(cat bundles.Catalog, tRef trust.Ref, key trust.Bundl
 		// the overloaded Path resolves a companion/seeded bundle to "." — the
 		// process working directory — so the bytes hashed into the grant would
 		// be whatever happened to sit there.
-		skillDir, dirErr := bundle.SkillPreimageDir(skill)
+		skillDir, dirErr := bundle.FSDir()
 		if dirErr != nil {
 			return nil, nil, "", fmt.Errorf("skill %q: %w", tRef.Name, dirErr)
 		}

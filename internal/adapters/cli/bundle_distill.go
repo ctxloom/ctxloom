@@ -30,22 +30,21 @@ var bundleDistillLLM string
 
 var bundleDistillCmd = &cobra.Command{
 	Use:   "distill <file-pattern>...",
-	Short: "Distill bundle files to create token-efficient versions",
-	Long: `Distill bundle files to create minimal-token versions that preserve meaning.
+	Short: "Distill bundles to create token-efficient versions",
+	Long: `Distill bundles to create minimal-token versions that preserve meaning.
 
 This command processes each fragment and prompt in the bundle through an LLM
 to create a compressed version. The distilled content, content hash, and
-model info are written back to the bundle file.
+model info are written back into the bundle's item files.
 
-Supports glob patterns to process multiple files at once.
+A bundle is named by its directory or its bundle.yaml. Supports glob patterns
+to process multiple bundles at once.
 
 Examples:
-  ctxloom bundle distill ./my-bundle.yaml                    # Single file
-  ctxloom bundle distill .ctxloom/content/bundles/*.yaml           # All bundles in directory
-  ctxloom bundle distill .ctxloom/content/bundles/**/*.yaml        # Recursive
-  ctxloom bundle distill bundle1.yaml bundle2.yaml           # Multiple files
-  ctxloom bundle distill ./my-bundle.yaml --force            # Re-distill all items
-  ctxloom bundle distill ./my-bundle.yaml --dry-run          # Preview what would be distilled`,
+  ctxloom bundle distill ./my-bundle                                   # One bundle
+  ctxloom bundle distill .ctxloom/content/bundles/v2/*/bundle.yaml    # Every bundle
+  ctxloom bundle distill ./my-bundle --force                           # Re-distill all items
+  ctxloom bundle distill ./my-bundle --dry-run                         # Preview what would be distilled`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runBundleDistill,
 }

@@ -16,7 +16,7 @@ func TestFSStore_RoundTrip(t *testing.T) {
 	store := NewFSStore(nil, []string{dir})
 
 	b := &Bundle{
-		Path:    bundlesRootIn(dir, "rt.yaml"),
+		Path:    bundlesRootIn(dir, "rt/"+DirectoryFormManifest),
 		Version: "1.0",
 		Fragments: map[string]BundleFragment{"a": {
 			ItemBody: ItemBody{
@@ -54,14 +54,13 @@ func TestFSStore_RoundTrip(t *testing.T) {
 // stated here rather than discovered.
 //
 // What it pins: fsStore.Delete removes only the file Find resolved. For a
-// directory-form bundle that file is `<dir>/bundle.yaml`, so afterwards the
+// tree that file is `<dir>/bundle.yaml`, so afterwards the
 // bundle no longer resolves — Find looks for exactly that file — while every
 // fragment, command and skill it shipped is still on disk, reachable by nothing.
 func TestFSStore_Delete_DirectoryFormBundleLeavesItsSubtreesOnDisk(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	dir := "/bundles"
-	require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "kit/bundle.yaml"),
-		[]byte("version: \"1.0\"\n"), 0o644))
+	writeTree(t, fsys, bundlesRootIn(dir, ""), "kit", "version: \"1.0\"\n")
 	require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "kit/fragments/notes.md"), []byte("authored\n"), 0o644))
 	require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "kit/skills/humanize/SKILL.md"),
 		[]byte("---\nname: humanize\ndescription: d\n---\nbody\n"), 0o644))

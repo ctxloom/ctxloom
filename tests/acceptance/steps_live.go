@@ -8,7 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/cucumber/godog"
+	"github.com/spf13/afero"
 )
 
 // The live-engine registry itself (liveAgent, liveAgents, liveAgentOrder,
@@ -59,9 +62,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a bundle "([^"]*)" with a long fragment "([^"]*)"$`,
 		func(c context.Context, bundle, fragment string) error {
 			w := worldFrom(c)
-			body := liveBundleYAML(fragment)
-			rel := filepath.FromSlash(bundleFilePath(bundle))
-			return w.env.WriteFile(rel, body)
+			return testenv.WriteBundleTree(w.env.ProjectDir, bundle, liveBundleYAML(fragment))
 		})
 
 	// A fragment with exact, caller-chosen content — the payload-delivery
@@ -73,8 +74,8 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 			w := worldFrom(c)
 			body := fmt.Sprintf("version: 1.0.0\ndescription: live payload fixture\nfragments:\n  %s:\n    tags: [live]\n    content: |\n      %s\n",
 				fragment, content)
-			rel := filepath.Join(".ctxloom", "cache", "bundles", bundle+".yaml")
-			return w.env.WriteFile(rel, body)
+			_, err := bundletree.WriteDoc(afero.NewOsFs(), filepath.Join(w.env.ProjectDir, ".ctxloom", "cache", "bundles"), bundle, body)
+			return err
 		})
 
 	ctx.Step(`^the distilled fragment "([^"]*)" in bundle "([^"]*)" is a real compression$`,
@@ -135,15 +136,21 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 	// asserted on the fragment above.
 	ctx.Step(`^the bundle "([^"]*)" records a distillation$`, func(c context.Context, bundle string) error {
 		w := worldFrom(c)
-		rel := filepath.FromSlash(bundleFilePath(bundle))
-		body, err := w.env.ReadFile(rel)
+		b, err := readAuthoredBundle(w, bundle)
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(body, "distilled:") {
-			return fmt.Errorf("bundle %q records no distillation; manifest:\n%s", bundle, body)
+		for _, f := range b.Fragments {
+			if f.Distilled != "" {
+				return nil
+			}
 		}
-		return nil
+		for _, cmd := range b.Commands {
+			if cmd.Distilled != "" {
+				return nil
+			}
+		}
+		return fmt.Errorf("bundle %q records no distillation on any fragment or command", bundle)
 	})
 }
 

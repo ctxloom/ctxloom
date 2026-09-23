@@ -32,7 +32,6 @@ var WriteDisciplineAllowed = map[string]string{
 	"internal/adapters/isolation/traceprobe.go#traceProbeFromEnv":               "C10 isolation sweep: writes into the probe's own trace dir, reaped by RemoveAll per the adjacent comment — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority).",
 	"internal/ltk/tools/extract-defaults/main.go#main":                          "pre-ratchet baseline, standalone codegen tool under internal/ltk — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/engines/mock/runtime/runtime.go#Runtime.emitReport":               "pre-ratchet baseline, mock engine test double — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/operations/bundles.go#reserveNewBundlePath":              "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/operations/delegate.go#copyUntrackedFile":                "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/operations/review_snapshots.go#moveTrustObjects":         "C10 operations sweep: fs.Rename(src, dst) here is a whole-DIRECTORY rename attempt (EXDEV-fallback pattern; falls back to copyTrustObjects, now migrated, + RemoveAll on cross-device failure) — not a single-file content write, outside iox's WriteFileAtomicFs API. Exempt, not a violation to migrate.",
 	"internal/adapters/operations/task_triggers_cache.go#saveTriggerCache":      "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",

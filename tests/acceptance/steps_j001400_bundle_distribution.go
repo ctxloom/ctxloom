@@ -4,14 +4,10 @@
 // carrying EVERY surface kind, and a consumer receiving each kind's payload
 // intact — across the two isolation axes.
 //
-// The publication AND consumption halves are GREEN. A directory-form bundle
-// used to be unfetchable — fetchAtLockedSHA resolved a ref to ONE file and
-// called FetchFile on it — while skills REQUIRE the directory form
-// (internal/core/bundles/loader.go:389). `deps pull` now probes the directory
-// form, walks the tree at the pinned SHA through internal/adapters/content/remotetree,
-// and installs it under the consumer's cache with the publisher's exec bit
-// intact; config.loadRemoteBundleSeed then reads the installed tree back into a
-// bundle through convert.Read, verified by internal/adapters/content/attest.
+// The publication AND consumption halves are GREEN. `deps pull` walks the tree
+// at the pinned SHA through internal/adapters/content/remotetree and installs it
+// under the consumer's cache with the publisher's exec bit intact; the
+// installed tree is read back and verified by internal/adapters/content/attest.
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
 // `profile materialize --backend mock`, over the mock backend's own context and
@@ -403,7 +399,7 @@ func j001400SignTree(work string, st *j001400State) error {
 	if st.signer == nil {
 		return fmt.Errorf("there is no publishing key for Trent, so the tree cannot be signed")
 	}
-	root := filepath.Join(work, filepath.FromSlash(treeBundlesRoot()))
+	root := filepath.Join(work, filepath.FromSlash(testenv.BundlesRoot()))
 	store, err := content.NewTreeStore(afero.NewOsFs(), root, content.Provenance{RepoURL: "https://example.test/trent/company"})
 	if err != nil {
 		return fmt.Errorf("open the authored tree at %s: %w", root, err)
@@ -553,7 +549,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		// create a profile" rather than "the published tree never arrived".
 		// ensureProjectWithEngine may already have seeded this bundle; creating
 		// it again is a hard error, so create only when absent.
-		if !w.env.FileExists(singleFileBundlePath("seed")) {
+		if !w.env.FileExists(treeBundleManifestPath("seed")) {
 			if err := runOK(w, "bundle", "create", "seed", "-d", "J001400 consumer seed bundle"); err != nil {
 				return err
 			}

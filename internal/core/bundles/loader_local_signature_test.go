@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // A bundle in the project's own content tree is trusted BY VIRTUE OF BEING
@@ -174,26 +173,4 @@ func TestLoader_LoadFile_StaleLocalSignature_WarnsOncePerBundle(t *testing.T) {
 
 	assert.Contains(t, first, content.ManifestPath)
 	assert.Empty(t, second, "the same stale tree must not be reported twice in one process")
-}
-
-// TestLoader_LoadFile_SiblingSignature_IsRefused: the retired sibling
-// signature is not read past. A single-file bundle carrying one is refused —
-// re-signing is the upgrade path, and a single-file bundle takes the tree
-// form to be signed.
-func TestLoader_LoadFile_SiblingSignature_IsRefused(t *testing.T) {
-	mem := afero.NewMemMapFs()
-	v2 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
-	require.NoError(t, mem.MkdirAll(v2, 0o755))
-	path := filepath.Join(v2, "old-tools.yaml")
-	testsupport.WriteFile(t, mem, path, []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n"), 0o644)
-	testsupport.WriteFile(t, mem, path+".sig", []byte("armored-signature-bytes"), 0o644)
-
-	mark := strictness.Checkpoint()
-	reads, err := NewProjectReader(mem, []string{"/bundles"}, WithReaderReporter(ledger())).Read(context.Background())
-
-	require.NoError(t, err)
-	assert.Empty(t, reads, "a bundle with a retired sibling signature is refused, not read as unsigned")
-	found := strictness.Since(mark)
-	require.NotEmpty(t, found)
-	assert.Contains(t, found[0].Message, ErrSiblingSignatureRetired.Error())
 }

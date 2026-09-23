@@ -29,27 +29,31 @@ func (f denyStatFs) Stat(name string) (os.FileInfo, error) {
 }
 
 func TestGitForgeVCS_ListItems_NestedTreeWalk(t *testing.T) {
-	// A repo tree with a top-level bundle, a nested path, and a non-yaml file
-	// that must be skipped. Directories are descended recursively.
+	// A repo tree with a top-level bundle, a nested path, and files that must
+	// be skipped — a bundle is a directory holding bundle.yaml, and a stray
+	// .yaml is not one. Directories are descended recursively.
 	mf := NewMockFetcher().
 		WithDir(".ctxloom/content/bundles", []DirEntry{
-			{Name: "security.yaml", IsDir: false},
+			{Name: "security", IsDir: true},
 			{Name: "README.md", IsDir: false},
+			{Name: "stray.yaml", IsDir: false},
 			{Name: "lang", IsDir: true},
 		}).
+		WithDir(".ctxloom/content/bundles/security", []DirEntry{{Name: "bundle.yaml"}}).
 		WithDir(".ctxloom/content/bundles/lang", []DirEntry{
 			{Name: "go", IsDir: true},
 		}).
 		WithDir(".ctxloom/content/bundles/lang/go", []DirEntry{
-			{Name: "testing.yaml", IsDir: false},
-		})
+			{Name: "testing", IsDir: true},
+		}).
+		WithDir(".ctxloom/content/bundles/lang/go/testing", []DirEntry{{Name: "bundle.yaml"}})
 
 	vcs := &gitForgeVCS{fetcher: mf, owner: "owner", repo: "repo"}
 	items, err := vcs.ListItems(context.Background(), ItemTypeBundle)
 	require.NoError(t, err)
 
-	// Paths are relative to .ctxloom/content/bundles/, suffix stripped, sorted;
-	// the non-yaml README is skipped.
+	// Paths are relative to .ctxloom/content/bundles/, sorted; files are
+	// skipped.
 	assert.Equal(t, []string{"lang/go/testing", "security"}, items)
 }
 
@@ -67,8 +71,8 @@ func TestGitForgeVCS_ListItems_MissingKindDirIsEmpty(t *testing.T) {
 func TestFSVCS_ListItems_WorkingSet(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	root := "/proj/.ctxloom/content"
-	testsupport.WriteFileString(t, fs, root+"/bundles/foo.yaml", "x", 0o644)
-	testsupport.WriteFileString(t, fs, root+"/bundles/team/standards.yaml", "x", 0o644)
+	testsupport.WriteFileString(t, fs, root+"/bundles/foo/bundle.yaml", "x", 0o644)
+	testsupport.WriteFileString(t, fs, root+"/bundles/team/standards/bundle.yaml", "x", 0o644)
 	testsupport.WriteFileString(t, fs, root+"/bundles/notes.txt", "x", 0o644)
 
 	vcs := &fsVCS{fs: fs, root: root}
@@ -88,7 +92,7 @@ func TestFSVCS_ListItems_WorkingSet(t *testing.T) {
 func TestFSVCS_ListItems_UnreadableDirIsAnError(t *testing.T) {
 	base := afero.NewMemMapFs()
 	root := "/proj/.ctxloom/content"
-	testsupport.WriteFileString(t, base, root+"/bundles/foo.yaml", "x", 0o644)
+	testsupport.WriteFileString(t, base, root+"/bundles/foo/bundle.yaml", "x", 0o644)
 
 	fs := denyStatFs{Fs: base, deny: map[string]error{root + "/bundles": os.ErrPermission}}
 	vcs := &fsVCS{fs: fs, root: root}
@@ -106,9 +110,9 @@ func TestFSVCS_ListItems_MissingDirIsEmpty(t *testing.T) {
 }
 
 func TestRemoteRefFetcher_ListItems_CanonicalRefs(t *testing.T) {
-	mf := NewMockFetcher().WithDir(".ctxloom/content/bundles", []DirEntry{
-		{Name: "security.yaml", IsDir: false},
-	})
+	mf := NewMockFetcher().
+		WithDir(".ctxloom/content/bundles", []DirEntry{{Name: "security", IsDir: true}}).
+		WithDir(".ctxloom/content/bundles/security", []DirEntry{{Name: "bundle.yaml"}})
 	url := "https://github.com/alice/ctxloom"
 	f := NewRemoteRefFetcher(
 		func(loc string) (VCS, error) {
@@ -137,7 +141,9 @@ func TestRemoteRefFetcher_ListItems_NotMaterializedWarns(t *testing.T) {
 	// lists; the absent one surfaces ErrRemoteNotMaterialized with a next step.
 	present := "https://github.com/alice/ctxloom"
 	absent := "https://github.com/bob/ctxloom"
-	mf := NewMockFetcher().WithDir(".ctxloom/content/bundles", []DirEntry{{Name: "a.yaml"}})
+	mf := NewMockFetcher().
+		WithDir(".ctxloom/content/bundles", []DirEntry{{Name: "a", IsDir: true}}).
+		WithDir(".ctxloom/content/bundles/a", []DirEntry{{Name: "bundle.yaml"}})
 
 	f := NewRemoteRefFetcher(
 		func(loc string) (VCS, error) {
@@ -162,7 +168,7 @@ func TestRemoteRefFetcher_ListItems_NotMaterializedWarns(t *testing.T) {
 func TestLocalRefFetcher_ListItems_LocalRefs(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	root := "/proj/.ctxloom/content"
-	testsupport.WriteFileString(t, fs, root+"/bundles/foo.yaml", "x", 0o644)
+	testsupport.WriteFileString(t, fs, root+"/bundles/foo/bundle.yaml", "x", 0o644)
 
 	f := NewLocalRefFetcher(FSVCSFactory(fs), root)
 	refs, err := f.ListItems(context.Background(), ItemTypeBundle)
@@ -195,10 +201,12 @@ func TestResolver_ListDeleted_RemoteScheme(t *testing.T) {
 func TestResolver_List_FansOutAcrossSchemes(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	localRoot := "/proj/.ctxloom/content"
-	testsupport.WriteFileString(t, fs, localRoot+"/bundles/localbun.yaml", "x", 0o644)
+	testsupport.WriteFileString(t, fs, localRoot+"/bundles/localbun/bundle.yaml", "x", 0o644)
 
 	url := "https://github.com/alice/ctxloom"
-	mf := NewMockFetcher().WithDir(".ctxloom/content/bundles", []DirEntry{{Name: "remotebun.yaml"}})
+	mf := NewMockFetcher().
+		WithDir(".ctxloom/content/bundles", []DirEntry{{Name: "remotebun", IsDir: true}}).
+		WithDir(".ctxloom/content/bundles/remotebun", []DirEntry{{Name: "bundle.yaml"}})
 
 	resolver := NewResolver(
 		NewRemoteRefFetcher(

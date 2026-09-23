@@ -87,32 +87,19 @@ Feature: A signature somebody can check
     Then the command succeeds
     And every signature in the published bundle tree verifies against the key the repo declares
 
-  # DIRECTORY-form bundles (<name>/bundle.yaml) are signed twice over, and only
-  # one half was ever refreshed: `bundle sign` signs the TREE (SHA256SUMS ->
-  # .sigs/) and left the detached bundle.yaml.sig sibling exactly as it found it
-  # — absent on a first signing, STALE on a re-signing. Anything reading the
-  # sibling (bundles' own localFSReader, .github/verify-signatures.sh, a
-  # publishing repo's CI) then reports "incorrect signature" on a bundle its
-  # author just signed and was told was signed.
-  #
-  # Reproduced on ctxloom-personal's `unattended` bundle; the workaround was to
-  # run ssh-keygen -Y sign by hand. Asserted against the bundle.yaml bytes read
-  # fresh off disk AFTER the edit, so a signature left over from the first
-  # signing cannot satisfy it.
-  Scenario: Re-signing a directory bundle refreshes the signature beside its manifest
-    Given Trent's project publishes the directory bundle "unattended" carrying the fragment "policy"
+  # A re-signing must cover the bundle as it is NOW. Asserted against the
+  # files read fresh off disk AFTER the edit, so a signature left over from
+  # the first signing cannot satisfy it — and through the consumer's own
+  # verifier, so a file the new manifest fails to claim reads as the
+  # content-added bundle every consumer would see.
+  Scenario: Re-signing a revised bundle refreshes its signature
+    Given Trent's project publishes a bundle "unattended" carrying the fragment "policy"
     And Trent has signed the bundle "unattended"
-    And Trent revises the directory bundle "unattended"
+    And Trent revises the bundle "unattended"
     When I run "ctxloom bundle sign unattended"
     Then the command succeeds
-    And the signature beside the directory bundle "unattended" verifies against its bundle.yaml on disk
-    # And the sibling must not have cost the bundle its OTHER attestation. The
-    # sibling sits at the bundle root, where the manifest covers everything but
-    # SHA256SUMS and .sigs/ — so writing it after the manifest is built leaves a
-    # file the manifest never claims, and every consumer reads the freshly
-    # signed bundle as content-added. Asserted through the consumer's own
-    # verifier, which is the only thing that can tell.
-    And the directory bundle "unattended" still verifies as a whole tree, with nothing unclaimed
+    And the signature on the bundle "unattended" verifies against its files on disk
+    And the bundle "unattended" still verifies as a whole tree, with nothing unclaimed
 
   # The other half of the same failure: --all with nothing to sign must FAIL,
   # not report success over an empty set.

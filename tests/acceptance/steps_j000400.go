@@ -24,6 +24,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
@@ -106,7 +107,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		if err := w.env.WriteFile(".ctxloom/config.yaml", fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)); err != nil {
 			return err
 		}
-		if err := w.env.WriteFile(bundleFilePath("team"), j000400TeamBundleYAML()); err != nil {
+		if err := testenv.WriteBundleTree(w.env.ProjectDir, "team", j000400TeamBundleYAML()); err != nil {
 			return err
 		}
 		return runOK(w, "profile", "create", "team", "-b", "team", "-d", "J000400 shared team profile")
@@ -324,7 +325,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Carol's team profile carries a fragment with a sentinel marker$`, func(c context.Context) error {
 		w := worldFrom(c)
 		body := fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  marker:\n    content: %q\n", j000400LiveSentinel)
-		if err := w.env.WriteFile(bundleFilePath("team"), body); err != nil {
+		if err := testenv.WriteBundleTree(w.env.ProjectDir, "team", body); err != nil {
 			return err
 		}
 		return runOK(w, "profile", "create", "team", "-b", "team", "-d", "J000400 shared team profile")

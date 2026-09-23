@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-
-	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // ErrBundleNotInLockfile is returned when a caller asks for a bundle that
@@ -64,11 +62,10 @@ type BundleReader struct {
 	factory  FetcherFactory
 	auth     AuthConfig
 	lock     *Lockfile
-	// treeFetch is the pinned-remote tree walker a DIRECTORY-form bundle needs,
-	// wired in from above exactly as Puller.treeFetch is and for the same
-	// layering reason (see TreeFetchFunc). Nil means this reader serves
-	// single-file bundles only — the behaviour every BundleReader had before
-	// this seam existed.
+	// treeFetch is the pinned-remote tree walker a bundle needs, wired in from
+	// above exactly as Puller.treeFetch is and for the same layering reason
+	// (see TreeFetchFunc). Nil means this reader refuses every bundle with
+	// ErrTreeBundleUnreadable.
 	treeFetch TreeFetchFunc
 }
 
@@ -76,9 +73,8 @@ type BundleReader struct {
 type BundleReaderOption func(*BundleReader)
 
 // WithReaderTreeFetcher supplies the pinned-remote tree walker that lets this
-// reader serve DIRECTORY-form bundles: their manifest bytes and its detached
-// signature, read out of the tree at the SAME pinned SHA the single-file path
-// reads its file at.
+// reader serve a bundle's manifest bytes, read out of the tree at the pinned
+// SHA.
 //
 // It is deliberately the same TreeFetchFunc the Puller takes, wired at the same
 // kind of composition point, because the implementation lives in
@@ -149,7 +145,7 @@ func (r *BundleReader) LockEntryFor(bundleName string) (LockEntry, bool) {
 // bundleName matches lockfile keys ("remoteName/path"). Returns
 // ErrBundleNotInLockfile if no entry exists.
 func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) ([]byte, error) {
-	return r.fetchAtLockedSHA(ctx, bundleName, "")
+	return r.fetchAtLockedSHA(ctx, bundleName)
 }
 
 // readableEntry returns bundleName's lockfile entry once it has established
@@ -177,12 +173,9 @@ func (r *BundleReader) readableEntry(bundleName string) (LockEntry, error) {
 	if entry.SHA == "" {
 		return LockEntry{}, fmt.Errorf("bundle %q has no SHA pinned in the lockfile — refusing to read (a pinned reader must never resolve an empty ref to the latest commit)", bundleName)
 	}
-	// A DIRECTORY-form bundle has no "<name>.yaml" to read, and never did.
-	// Falling through would send this reader after a file the publisher never
-	// wrote and report "remote content not found" — pointing the user at a pull
-	// that already succeeded, and at a file that does not exist upstream. Say
-	// what is actually true instead: the bytes are there, and this reader was
-	// built without the surface that reads them.
+	// Say what is actually true: the bytes are there, and this reader was built
+	// without the surface that reads them — not "remote content not found",
+	// which points the user at a pull that already succeeded.
 	if r.treeFetch == nil {
 		return LockEntry{}, fmt.Errorf("%w: bundle %q was published in directory form and its tree is installed at the pinned SHA %s, "+
 			"but this reader was constructed without a tree fetcher (see WithReaderTreeFetcher), so its content cannot be read here (do NOT re-pull; the pull worked)",
@@ -191,12 +184,9 @@ func (r *BundleReader) readableEntry(bundleName string) (LockEntry, error) {
 	return entry, nil
 }
 
-// fetchAtLockedSHA resolves bundleName to its repo/path/SHA and fetches
-// <path><suffix> at that SHA. The suffix is the ONLY difference between reading
-// a bundle and reading its detached signature, which is exactly the property
-// that makes the sibling-.sig carrier free: same fetcher, same tree, same
-// commit.
-func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix string) ([]byte, error) {
+// fetchAtLockedSHA resolves bundleName to its repo/path/SHA and fetches its
+// manifest at that SHA.
+func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName string) ([]byte, error) {
 	entry, err := r.readableEntry(bundleName)
 	if err != nil {
 		return nil, err
@@ -231,74 +221,46 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 		return nil, fmt.Errorf("parse repo URL %s: %w", repoURL, perr)
 	}
 
-	return r.readFromTree(ctx, fetcher, owner, repo, repoURL, bundleName, ref.BuildFilePath(ref.ItemType), entry.SHA, suffix)
+	return r.readFromTree(ctx, fetcher, owner, repo, repoURL, bundleName, ref.BuildFilePath(ref.ItemType), entry.SHA)
 }
 
-// readFromTree serves a DIRECTORY-form bundle's manifest — or the manifest's
-// detached signature — out of the tree at the pinned SHA.
-//
-// The tree's "bundle.yaml" is the counterpart of a single-file bundle's whole
-// document: it is what internal/core/bundles reads a bundle's name, version and item
-// lists out of, in both forms. So the suffix parameter keeps meaning exactly
-// what it means on the single-file path — the sibling ".sig" of the document
-// just read — which is why the two forms need no second signature convention
-// and no second cache key.
+// readFromTree serves a bundle's manifest out of the tree at the pinned SHA.
 //
 // The candidate roots come from ProbeBundleTreeRoots, the same probe the PULL
-// takes, so a reader can never look somewhere the installer did not write —
-// including during a format migration, when the tree the installer found under
-// one format root has moved to the next.
+// takes, so a reader can never look somewhere the installer did not write.
 //
 // # It returns the MANIFEST ONLY, and that is deliberate — do not "fix" it
 //
 // This looks like the truncation that made remote profile inheritance lose
 // every item file (see bundles.ReadRemoteRef), and it is the same shape, but it
-// is not the same defect: all three of this method's consumers genuinely want
-// manifest bytes, none of them parses them expecting items, and one of them
-// depends on getting exactly these bytes and no others.
+// is not the same defect: its consumers genuinely want manifest bytes, and
+// none of them parses them expecting items.
 //
 //   - operations.isInstalled discards the bytes entirely and reads only whether
 //     the read succeeded.
-//   - the upgrade verification path feeds them to signing.VerifyPublisher
-//     against the detached sibling ".sig", which covers bundle.yaml AND NOTHING
-//     ELSE. Widening this to the whole tree would hand that check a payload its
-//     signature was never computed over, and the signature would stop verifying
-//     for every correctly published bundle.
 //   - config's treeBundleReaders path refuses every entry it is handed by
 //     design, resolving instead off the INSTALLED tree through readTreeForm ->
 //     bundles.ReadTree, which reads item files properly.
 //
 // A caller that wants the BUNDLE rather than its manifest must not come here at
 // all; bundles.ReadRemoteRef is that path.
-func (r *BundleReader) readFromTree(ctx context.Context, fetcher Fetcher, owner, repo, repoURL, bundleName, filePath, sha, suffix string) ([]byte, error) {
+func (r *BundleReader) readFromTree(ctx context.Context, fetcher Fetcher, owner, repo, repoURL, bundleName, filePath, sha string) ([]byte, error) {
 	tree, root, err := ProbeBundleTreeRoots(filePath, func(root string) (map[string]TreeFile, error) {
 		return r.treeFetch(ctx, fetcher, owner, repo, root, sha, repoURL)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fetch tree %s@%s: %w", root, sha, err)
 	}
-	if suffix == "" {
-		manifest, ok := TreeManifest(tree)
-		if !ok {
-			// A tree with no manifest is not a bundle, and saying so here —
-			// naming the root — is the difference between a diagnosable
-			// publisher mistake and a bundle that resolves to nothing. This is
-			// NOT ErrTreeBundleUnreadable: nothing about the reader is missing.
-			return nil, fmt.Errorf("bundle %q: the tree at %s@%s has no %s, so it is not a bundle",
-				bundleName, root, sha, BundleManifestName)
-		}
-		return manifest, nil
-	}
-	rel := BundleManifestName + suffix
-	f, ok := tree[rel]
+	manifest, ok := TreeManifest(tree)
 	if !ok {
-		// An absent signature is how "this bundle is unsigned" is signalled, and
-		// it must wrap ErrRemoteContentNotFound in BOTH forms — a caller that
-		// treats the two differently would report a tree bundle as broken where
-		// it reports a single-file one as unsigned.
-		return nil, fmt.Errorf("no signature at %s in tree %s@%s: %w", rel, root, sha, errs.ErrRemoteContentNotFound)
+		// A tree with no manifest is not a bundle, and saying so here —
+		// naming the root — is the difference between a diagnosable
+		// publisher mistake and a bundle that resolves to nothing. This is
+		// NOT ErrTreeBundleUnreadable: nothing about the reader is missing.
+		return nil, fmt.Errorf("bundle %q: the tree at %s@%s has no %s, so it is not a bundle",
+			bundleName, root, sha, BundleManifestName)
 	}
-	return f.Data, nil
+	return manifest, nil
 }
 
 // LoadAllBytes reads every bundle src knows about, returning a name → bytes

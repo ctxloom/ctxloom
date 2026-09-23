@@ -98,7 +98,7 @@ func TestCatalogReads_HoldNoCandidateAndNoNilBundle(t *testing.T) {
 // direction: a set built from readers that know nothing about candidates
 // reports none, rather than manufacturing rows out of its reads.
 func TestCatalogCandidates_EmptyWhenEveryReaderHasNothingToSay(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 	require.Equal(t, 1, cat.Len(), "guard: the set must hold a read, or empty-in-empty-out proves nothing")
 	assert.Empty(t, cat.Candidates())
 }

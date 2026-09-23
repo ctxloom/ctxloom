@@ -135,15 +135,8 @@ func j001900Of(w *World) *j001900State {
 	return w.j001900
 }
 
-// j001900EnvelopeYAML renders the runbook's TREE envelope at a given version —
-// no inline item keys: the deploy process lives in a file beside it
-// (j001900FragmentBody), because a remote bundle is read through ReadTree
-// (internal/core/bundles/tree_read.go's readEnvelope), which REFUSES an envelope
-// that still declares items inline. An inline-declaring bundle.yaml signs
-// cleanly (operations.signBundleTree does not care) and PULLS cleanly (nothing
-// probes the envelope's content before installing the tree), but every
-// materialize afterwards fails — so this has to be a true tree from the start,
-// not something discovered by running the scenario.
+// j001900EnvelopeYAML renders the runbook's envelope at a given version; the
+// deploy process lives in a file beside it (j001900FragmentBody).
 //
 // The VERSION is a parameter because it is what makes a republish an actual
 // PIN ADVANCE. Measured while writing this journey: editing a bundle's content
@@ -186,7 +179,7 @@ func j001900Setup(w *World) error {
 	if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot())), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(testenv.BundlesRoot())), 0o755); err != nil {
 		return fmt.Errorf("create authored bundles dir: %w", err)
 	}
 
@@ -244,16 +237,8 @@ func j001900LockedName() string { return "team/" + j001900Bundle }
 
 // j001900PublishFromDisk publishes the WHOLE authored tree — the envelope, the
 // fragment file, and whatever attestation `bundle sign` produced (the tree's
-// SHA256SUMS/.sigs, and its bundle.yaml.sig sibling) — into the team remote,
+// SHA256SUMS/.sigs) — into the team remote,
 // then hands the authoring copy off out of the project.
-//
-// It publishes a TREE, not a document: `deps pull` refuses a single-file
-// bundle outright now (nothing materializes a document — see
-// remote.Puller.installPulledItem), so a real remote layout has to be a
-// directory at remoteSingleFilePublishPath(name) holding bundle.yaml, not a
-// blob AT that path. remoteSingleFilePublishPath and treeBundlePath are the
-// SAME expression by value (bundle_paths.go's doc), so the two names below
-// are one root.
 //
 // The hand-off is load-bearing, for the reason steps_j001600_signing.go's
 // j001600SeedFromDisk documents: one hermetic project plays both the publishing
@@ -264,7 +249,7 @@ func j001900LockedName() string { return "team/" + j001900Bundle }
 func j001900PublishFromDisk(w *World) error {
 	st := j001900Of(w)
 	localDir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(j001900Bundle)))
-	remoteRoot := remoteSingleFilePublishPath(j001900Bundle)
+	remoteRoot := treeBundlePath(j001900Bundle)
 
 	files := map[string]string{}
 	walkErr := filepath.WalkDir(localDir, func(p string, d os.DirEntry, err error) error {

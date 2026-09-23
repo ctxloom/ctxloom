@@ -2,7 +2,6 @@ package bundles
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -308,54 +307,33 @@ func (r *localFSReader) ReadFailures() map[string]error {
 // below it. The classification is shared with every other bundles-root walk;
 // see paths.BundleWalkStep for why the two answers travel together.
 func (r *localFSReader) bundleAt(dir, path string, info os.FileInfo) (manifest string, step paths.BundleWalkStep) {
+	if !info.IsDir() {
+		return "", paths.BundleWalkStep{}
+	}
 	rel, err := filepath.Rel(dir, path)
 	if err != nil {
 		return "", paths.BundleWalkStep{}
 	}
-	hasManifest := false
-	if info.IsDir() {
-		if _, serr := r.fsys.Stat(paths.BundleManifestPath(path)); serr == nil {
-			hasManifest = true
-		}
-	}
-	step = paths.ClassifyBundleWalkEntry(rel, info.IsDir(), hasManifest)
+	manifest = paths.BundleManifestPath(path)
+	_, serr := r.fsys.Stat(manifest)
+	step = paths.ClassifyBundleWalkEntry(rel, true, serr == nil)
 	if !step.IsBundle {
 		return "", step
 	}
-	if step.IsTree {
-		return paths.BundleManifestPath(path), step
-	}
-	return path, step
+	return manifest, step
 }
 
-// readBundle parses one bundle document and establishes its signature facts.
+// readBundle reads the tree whose envelope is at path and establishes its
+// signature facts.
 func (r *localFSReader) readBundle(ctx context.Context, path, name string) (BundleRead, error) {
-	data, err := afero.ReadFile(r.fsys, path)
+	tree, bundle, err := r.readLocalTree(ctx, path)
 	if err != nil {
-		return BundleRead{}, fmt.Errorf("failed to read bundle: %w", err)
-	}
-	bundle, err := ParseBundle(data)
-	if err != nil {
-		return BundleRead{}, fmt.Errorf("failed to parse bundle %s: %w", path, err)
-	}
-	// A TREE-form bundle keeps its items in files beside this envelope, so the
-	// parse above yielded only the bundle-level metadata. Replacing the value
-	// here — rather than branching around everything below — is what keeps ONE
-	// answer for identity, provenance and signature facts regardless of which
-	// form the bundle was authored in. Non-tree forms return nil and fall
-	// through unchanged; see readLocalTreeForm for how the three are told apart.
-	tree, treeBundle, terr := r.readLocalTreeForm(ctx, path, bundle)
-	if terr != nil {
-		return BundleRead{}, terr
-	}
-	if treeBundle != nil {
-		bundle = treeBundle
-		bundle.readAsTree = true
+		return BundleRead{}, err
 	}
 	bundle.Path = path
 	// A DECLARED name wins. The path-derived leaf name ("go" for
 	// lang/go/bundle.yaml) is only the FALLBACK for a bundle that declares no
-	// identity of its own, so it may never overwrite what the document said.
+	// identity of its own, so it may never overwrite what the envelope said.
 	// The read's ref stays the path-relative name a listing resolves by
 	// ("lang/go"): it differs from the leaf name for nested bundles and both
 	// have callers, so neither may quietly become the other.
@@ -363,23 +341,7 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 		bundle.Name = ExtractBundleName(path)
 	}
 
-	// Skills are a PACKAGE (a directory tree: SKILL.md plus siblings), which a
-	// single-file bundle has no filesystem room to hold alongside it. Fail loud
-	// rather than let a skill entry resolve against a directory that does not
-	// exist.
-	if len(bundle.Skills) > 0 && filepath.Base(path) != DirectoryFormManifest {
-		return BundleRead{}, fmt.Errorf("bundle %s: skills require a directory-form bundle (bundle.yaml + skills/<name>/), not a single-file bundle (%s)",
-			bundle.Name, filepath.Base(path))
-	}
-
-	// ONE signature shape: a tree's SHA256SUMS manifest and its .sigs/ entry
-	// (treeSignatureFacts). A single-file or inline-item bundle has no tree
-	// to carry one and reads as unsigned; a retired sibling signature beside
-	// either refuses the read rather than being read past.
-	if err := refuseSiblingSignature(r.fsys, path, name); err != nil {
-		return BundleRead{}, err
-	}
-	facts := r.directorySignatureFacts(ctx, path, tree)
+	facts := r.treeSignatureFacts(ctx, tree)
 	facts.stamp(bundle)
 	// The RESOLUTION ref is the bare path-relative name: source class is never
 	// part of identity (ProvenanceClass's own doc). A collision between two

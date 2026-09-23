@@ -15,11 +15,9 @@ import (
 )
 
 // TestEngineHost_ResumeCapabilityRidesTheSessionID pins the JOINT reporting
-// of the resume gate's two halves. The gate (oneShotReady, children.go)
-// tears an engine down only when `Resumable && HarnessSessionID != ""`, so
-// a resume capability with no session key to resume BY is not a capability
-// — and journaling it alone would leave a run record claiming resumability
-// it cannot deliver. With one engine process per turn, a key the driver
+// of the resume capability and the session key: a resume capability with no
+// session key to resume BY is not a capability, and reporting it alone would
+// leave a run record claiming resumability it cannot deliver. With one engine process per turn, a key the driver
 // reports IS what the next turn's process resumes with: resumable is true
 // exactly when a key is known, and nothing is journaled without one.
 func TestEngineHost_ResumeCapabilityRidesTheSessionID(t *testing.T) {

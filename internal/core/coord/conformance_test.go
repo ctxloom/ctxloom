@@ -347,7 +347,7 @@ func endChildAtItsFirstBoundary(t *testing.T, c *Coordinator, sp *fakeSpawner, o
 	t.Helper()
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
-		return e != nil && len(e.RecordedTexts()) == 1 && harnessSessionID(c, out.Harp) != ""
+		return e != nil && len(e.RecordedTexts()) == 1 && nativeSession(c, out.Harp) != ""
 	}, conformanceWait, 10*time.Millisecond, "the first turn never reached the engine with a native key on record")
 	c.terminateRun(out.RunID, CauseRunnerExit, "engine exited")
 	require.Equal(t, StateEnded, rosterState(c, out.Harp))

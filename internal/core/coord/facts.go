@@ -24,9 +24,6 @@ const (
 	// agent_stop, launch failure, restart adoption). The harp stays
 	// resumable: a resume enqueues a NEW run for the same harp.
 	factRunEnded = "run.ended"
-	// factRunHarness binds the run to its harness-native session id (the
-	// resume handle RunExited may carry).
-	factRunHarness = "run.harness"
 	// factRunContainer binds a container-runtime run to its resolved
 	// container name (RunnerHandle.Name) once StartRunner returns — the
 	// name cannot be known at enqueue, only after spawn. Never posted for a
@@ -45,7 +42,7 @@ const (
 	// reap the in-memory run/state maps grow unbounded over a long session.
 	// A durable fact (not a bare in-memory eviction) so a replay/reconciliation
 	// reaches the SAME bounded projection the live coordinator held. NEVER
-	// lists a harp's current run (the resume key lives there).
+	// lists a harp's current run (a resume is claimed against it).
 	factRunReaped = "run.reaped"
 	// factSessionCred registers a session-owner (depth-0) credential: the
 	// parent harness's identity. Only the SHA-256 of the token is recorded.
@@ -154,12 +151,6 @@ type runEnded struct {
 	RunID  string `json:"run_id"`
 	Cause  string `json:"cause"`
 	Detail string `json:"detail,omitempty"`
-}
-
-// runHarness is factRunHarness's payload.
-type runHarness struct {
-	RunID            string `json:"run_id"`
-	HarnessSessionID string `json:"harness_session_id"`
 }
 
 // runContainer is factRunContainer's payload.

@@ -207,8 +207,8 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 // recordContainerName journals a container-runtime run's resolved container
 // name (fragile-volatile: the roster's only handle on a live agent when tmux
 // is unavailable — `docker logs -f`/`docker attach`). No-op for "" (a
-// host-runtime starter's OwnedRunStarter return), mirroring
-// recordHarnessSession's idempotent-on-same-value shape.
+// host-runtime starter's OwnedRunStarter return); idempotent on the same
+// value.
 func (c *Coordinator) recordContainerName(runID, name string) {
 	if name == "" {
 		return

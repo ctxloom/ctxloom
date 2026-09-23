@@ -54,6 +54,7 @@ var bindSessionAllowedCallers = map[string]string{
 	"internal/adapters/cli/session_bind.go":    "the SessionStart hook target; calls operations.BindSession, which calls Manager.BindSession",
 	"internal/adapters/operations/sessions.go": "the BindSession façade itself, wrapping Manager.BindSession",
 	"internal/adapters/memory/compactor.go":    "the compactor's forward-bind backstop; only binds an UNBOUND entry (entry.SessionID == \"\"), so it never reaches the displacement branch",
+	"internal/adapters/spawn/spawner.go":       "coord.Spawner.BindNativeSession, the coordinator's wire-learned native key; calls operations.BindSession with no transcript path, which Manager.BindSession never lets displace a bound entry",
 	// Manager's and MemStore's OWN definitions are function DECLARATIONS,
 	// not CallExpr — findBindSessionCallers below only matches calls, so
 	// Manager.BindSession and MemStore.BindSession never need an entry here.

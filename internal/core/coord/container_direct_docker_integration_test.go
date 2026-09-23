@@ -156,7 +156,9 @@ type preparedContainerCell struct {
 func (s *directBusSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string) {}
 
-func (s *directBusSpawner) MarkSessionEnded(string) {}
+func (s *directBusSpawner) MarkSessionEnded(string)          {}
+func (s *directBusSpawner) BindNativeSession(string, string) {}
+func (s *directBusSpawner) NativeSession(string) string      { return "" }
 
 func (s *directBusSpawner) containerNames() []string {
 	s.mu.Lock()

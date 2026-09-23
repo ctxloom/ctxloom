@@ -73,11 +73,11 @@ const (
 
 // SpawnStart is what StartEngine resolves the child's launch from beyond
 // the plan: the child's minted identity and, on a resume, the native key
-// the journal holds.
+// the harp's session entry holds.
 type SpawnStart struct {
 	Identity sessions.Identity
-	// ResumeKey is the journaled native session id of the run being resumed;
-	// empty on a fresh spawn. A resume reuses the harp's endpoint.
+	// ResumeKey is the native session key of the harp being resumed
+	// (Spawner.NativeSession); empty on a fresh spawn. A resume reuses the harp's endpoint.
 	ResumeKey string
 	// Resumed says this is a resume even when no native key survived, so
 	// the launch re-resolves the same harp.
@@ -135,6 +135,14 @@ type Spawner interface {
 	// operations.RecordSessionEngineVersion), exactly like MarkSessionEnded
 	// below.
 	RecordEngineVersion(ctx context.Context, harp, backend string)
+	// BindNativeSession binds the engine's native session key onto harp's
+	// session entry (sessions.Entry, the key's one record) with the store's
+	// own rule: an unbound entry takes it, a bound one keeps its key. It
+	// reports nothing, like MarkSessionEnded.
+	BindNativeSession(harp, key string)
+	// NativeSession is the native session key harp's session entry holds —
+	// what a resume continues — "" while unbound or unreadable.
+	NativeSession(harp string) string
 	// ResolveLaunch RESOLVES the child's launch (the one resolver: the cell
 	// prepared, the permission floored, the endpoint minted or reused —
 	// re-minted when start.Rebind). On success plan.Launch is set. It starts

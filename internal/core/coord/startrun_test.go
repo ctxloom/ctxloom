@@ -30,7 +30,7 @@ func startRunSpawner(mk func() *scriptedChat) *fakeSpawner {
 // TestStartRun_EchoRoundTrip pins the spawn half of acceptance C1: agent_run
 // on a migrated agent spawns the engine over StartRun (briefing + composed
 // context as the first turn, model + permission through the HarnessSpec),
-// the engine's native session id lands in the run journal (the resume
+// the engine's native session id lands on the session entry (the resume
 // handle), and the roster reaches idle at the turn boundary.
 func TestStartRun_EchoRoundTrip(t *testing.T) {
 	resetStrictness(t)
@@ -54,16 +54,12 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	sc := sp.chat(0)
 	assert.Equal(t, []string{""}, sc.RecordedKeys(), "a fresh spawn resumes nothing")
 
-	// The native session id was journaled (via the harness_session event).
-	require.Eventually(t, func() bool {
-		sid := ""
-		c.runs.View(func() {
-			if r := c.runsF.run(out.RunID); r != nil {
-				sid = r.HarnessSessionID
-			}
-		})
-		return sid == "native-sess-42"
-	}, conformanceWait, 10*time.Millisecond, "the engine's native session id must reach the run journal")
+	// The native session id reached the session entry. "worker" runs in a
+	// container (RuntimeRootless): the key it reports over the wire is the
+	// only way it reaches the entry, since the child's own bind hook runs
+	// inside the container.
+	require.Eventually(t, func() bool { return sp.NativeSession(out.Harp) == "native-sess-42" },
+		conformanceWait, 10*time.Millisecond, "the engine's native session id must reach the session entry")
 
 	// Turn boundary → idle on the roster (turn_idle folded).
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
@@ -262,41 +258,31 @@ func TestStartRun_KillMidRunSynthesizesLossAndQueueAdvances(t *testing.T) {
 	assert.True(t, found, "the parent's mailbox gets the synthesized exit notice")
 }
 
-// TestStartRun_ResumeUsesJournaledHarnessSessionID pins acceptance C1's
-// resume: after a child's run ends, a parent send resumes the harp as a
-// FRESH run whose StartRun carries the JOURNALED harness-native session id —
+// TestStartRun_ResumeReadsTheSessionEntry pins acceptance C1's resume: after
+// a child's run ends, a parent send resumes the harp as a FRESH run whose
+// StartRun carries the native session key the harp's session ENTRY holds —
 // the engine continues its own recorded session (no transcript re-priming).
-func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
+// The entry is rebound after the run ends, so a resume that read any other
+// copy of the key (the ended run's) is caught.
+func TestStartRun_ResumeReadsTheSessionEntry(t *testing.T) {
 	resetStrictness(t)
 	sp := startRunSpawner(nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
-	// awaitChildUp deterministically waits for THIS
-	// attempt's StartRun round-trip (the engine is up) — replacing what used
-	// to be the FIRST poll in this chain. The harness_session_id itself still
-	// arrives async (the engine's own ev.Session, emitted once its Chat()
-	// goroutine actually starts, strictly AFTER the StartRun response this
-	// awaits) — a truly async fold update, so this is left as
-	// Eventually, now resolving in µs-ms instead of racing the full 5s bound.
 	spawnCtx, spawnCancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer spawnCancel()
 	require.NoError(t, c.awaitChildUp(spawnCtx, out.Harp))
-	// Wait for the session id to journal BEFORE killing (the acceptance's
-	// premise: the resume handle must already be durable).
-	require.Eventually(t, func() bool {
-		sid := ""
-		c.runs.View(func() {
-			if r := c.runsF.run(out.RunID); r != nil {
-				sid = r.HarnessSessionID
-			}
-		})
-		return sid == "native-sess-42"
-	}, conformanceWait, 10*time.Millisecond)
+	// The key arrives async (the engine's own ev.Session, emitted after the
+	// StartRun response awaitChildUp waited on); the resume's premise is that
+	// it is already on the entry.
+	require.Eventually(t, func() bool { return sp.NativeSession(out.Harp) == "native-sess-42" },
+		conformanceWait, 10*time.Millisecond)
 
 	sp.killEngine(0)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
+	sp.rebindNativeSession(out.Harp, "rotated-sess-7")
 
 	// A later send resumes the harp as a fresh run... deterministically:
 	// awaitChildUp replaces the wall-clock poll this used to be, blocking on
@@ -311,7 +297,7 @@ func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
 	defer awaitCancel()
 	require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp), "the send to an ended harp must respawn it")
 	require.Equal(t, 2, sp.chatCount(), "the respawned attempt must have reached StartEngine")
-	// ...whose StartRun carried the journaled resume handle.
+	// ...whose StartRun carried the entry's resume handle.
 	require.Eventually(t, func() bool {
 		sc := sp.chat(1)
 		if sc == nil {
@@ -320,7 +306,7 @@ func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
 		return len(sc.RecordedKeys()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 	sc := sp.chat(1)
-	assert.Equal(t, "native-sess-42", sc.RecordedKeys()[0], "resume must ride the journaled harness_session_id")
+	assert.Equal(t, "rotated-sess-7", sc.RecordedKeys()[0], "resume must ride the key the session entry holds")
 
 	// And the queued message arrives as the resumed engine's next turn.
 	require.Eventually(t, func() bool {

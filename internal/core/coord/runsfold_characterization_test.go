@@ -65,10 +65,8 @@ func TestRunsFold_Apply_EveryArm(t *testing.T) {
 	f.apply(factAt(factRunState, at(3), runState{RunID: "nope", State: StateIdle}))
 	assert.Nil(t, f.run("nope"))
 
-	// factRunHarness / factRunResumable bind the resume pair.
-	f.apply(factAt(factRunHarness, at(4), runHarness{RunID: "r1", HarnessSessionID: "sess-9"}))
+	// factRunResumable binds the run's live resume capability.
 	f.apply(factAt(factRunResumable, at(4), runResumable{RunID: "r1", Resumable: true}))
-	assert.Equal(t, "sess-9", f.run("r1").HarnessSessionID)
 	assert.True(t, f.run("r1").Resumable)
 
 	// factRunEnded is terminal AND revokes the credential.

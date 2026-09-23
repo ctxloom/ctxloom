@@ -88,7 +88,7 @@ func TestRunnerLifetime_TurnFrameDrivesAParkedRunner(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	res, err := c.Turn(ctx, out.RunID, engine.Turn{Prompt: "framed turn", Resume: harnessSessionID(c, out.Harp)})
+	res, err := c.Turn(ctx, out.RunID, engine.Turn{Prompt: "framed turn", Resume: nativeSession(c, out.Harp)})
 	require.NoError(t, err)
 	assert.Equal(t, "native-sess-42", res.NativeKey)
 	assert.Contains(t, res.Answer, "framed turn", "the frame's answer is the turn's final text")

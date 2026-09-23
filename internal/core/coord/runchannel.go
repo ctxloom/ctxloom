@@ -24,8 +24,9 @@ const (
 	CustomRecvUnparked = "ctxloom/recv_unparked"
 	// CustomHarnessSession reports the harness-NATIVE session id the moment
 	// the engine host learns it (the ACP Session event) — the coordinator
-	// journals it (run.harness fact) as the resume handle, so a child killed
-	// mid-run can respawn with Launch.Resume.NativeKey. Value:
+	// binds it onto the harp's session entry (bindNativeSession) as the
+	// resume handle, so a child killed mid-run can respawn with
+	// Launch.Resume.NativeKey. Value:
 	// {"session_id": "..."}.
 	CustomHarnessSession = "ctxloom/harness_session"
 	// CustomTurnStarted / CustomTurnIdle are the engine host's turn-state
@@ -290,14 +291,14 @@ func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 			// The harness-native session id is the run's ONLY resume handle: a
 			// child killed mid-run respawns through Launch.Resume.NativeKey,
 			// and a one-shot runner will not park its engine without one.
-			// recordHarnessSession drops an empty id, so losing it here would
+			// bindNativeSession drops an empty id, so losing it here would
 			// leave no trace at all — the run simply stops being resumable and
 			// nothing says why.
 			c.rep.Warnf("coordinator: %s from %s carried no session_id; run %s has no resume handle, so it cannot be resumed by native session key",
 				CustomHarnessSession, ch.role, ch.id.RunID)
 			return
 		}
-		c.recordHarnessSession(ch.id.RunID, sid)
+		c.bindNativeSession(ch.id.Harp, sid)
 		// The engine's live loadSession capability (the one-shot gate's
 		// live half) rides the SAME custom event as the session id.
 		if v, ok := ev.Value["resumable"].(bool); ok {

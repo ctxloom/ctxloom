@@ -44,14 +44,15 @@ anything can write, while bytes can be *verified*. First match wins. The default
 Before step 1 runs, the approvals stores must be readable. A store that was never created is
 fine — that is a fresh project. A store that *exists* and cannot be read is a **fault, not an
 empty set**: it might be hiding a rejection. On that fault every item is denied, including
-local and builtin content, and a fatal trust-store finding is raised. Fix or remove the store,
+local and companion content, and a fatal trust-store finding is raised. Fix or remove the store,
 then re-review.
 
 1. **rejected** — a rejection covers this ref, or covers exactly these bytes → **deny**
 2. **retracted** — the *publisher* withdrew this bundle (or this exact version of it) via
    their remote manifest, recorded locally at sync time → **deny**
 3. **local** — authored in this project, any kind including executables → **allow**
-4. **builtin** — shipped inside the binary → **allow**
+4. **companion** — the loadout an installed companion binary reports about itself; you
+   already consented to run that binary, which is where the decision lives → **allow**
 5. **trusted signer** — a key you trust for the `publish` namespace signed exactly these
    bytes, verified at load, before any YAML parse → **allow**
 6. **approved** — a countersignature from a key you trust for the `approve` namespace

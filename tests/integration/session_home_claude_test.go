@@ -24,7 +24,9 @@ import (
 // host with nothing seedable is refused by name; `engine_home: host` is the
 // unsafe selection and is rendered as such. No live claude: a fake `claude`
 // on PATH captures the launch (its env and argv) and answers the stream-json
-// protocol with one reply.
+// protocol with one reply. Each agent declares `permissions: plan`: these
+// runs are headless, and a headless prompting posture is refused before
+// launch, which would mask the refusal and the home these tests are about.
 
 // fakeClaudeScript answers `--version`, records its environment and argv,
 // drains stdin, and speaks enough stream-json for one turn.
@@ -96,7 +98,7 @@ func capturedEnv(t *testing.T, capturePath string) map[string]string {
 func TestRun_ClaudeDefaultBindingRunsInTheSessionHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	writeHostClaudeCredential(t, env)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 
 	projectBefore := treeSnapshot(t, env.ProjectDir, projectExcluded...)
@@ -144,7 +146,7 @@ func TestRun_ClaudeDefaultBindingRunsInTheSessionHome(t *testing.T) {
 // written to the project; the fake claude never runs.
 func TestRun_ClaudeWithNothingSeedableIsRefused(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 	projectBefore := treeSnapshot(t, env.ProjectDir, projectExcluded...)
 
@@ -166,7 +168,7 @@ func TestRun_ClaudeWithNothingSeedableIsRefused(t *testing.T) {
 // selection.
 func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "unicorn-prompt")

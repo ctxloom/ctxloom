@@ -115,7 +115,7 @@ func critiquePayload(name, body string, draft *PremiseDraft, siblings []PremiseI
 	}
 	rows := make([]sibling, 0, len(siblings))
 	for _, s := range siblings {
-		rows = append(rows, sibling{Name: s.Name, Premise: s.Premise})
+		rows = append(rows, sibling(s))
 	}
 	sibDoc, err := yaml.Marshal(rows)
 	if err != nil {

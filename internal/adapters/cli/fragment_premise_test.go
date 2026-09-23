@@ -113,7 +113,7 @@ func TestDraftPremise_OffTerminalProposesAndWritesNothing(t *testing.T) {
 	require.NoError(t, runFragmentDraftPremise(cmd, []string{"demo#fragments/x"}))
 
 	var got premiseProposal
-	require.NoError(t, json.Unmarshal([]byte(out.String()), &got), out.String())
+	require.NoError(t, json.Unmarshal(out.Bytes(), &got), out.String())
 	assert.Equal(t, "demo#fragments/x", got.Ref)
 	assert.Equal(t, premiseDecisionProposed, got.Decision)
 	assert.Nil(t, got.Written)

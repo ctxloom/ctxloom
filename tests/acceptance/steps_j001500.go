@@ -59,6 +59,9 @@ type j001500State struct {
 
 	reviewPTYOutput string // scenario 7: captured `ctxloom review --project` pty output
 	reviewPTYExit   int
+
+	tamperPullOutput string // scenario 2: the refused `deps pull`'s output
+	tamperPullExit   int
 }
 
 // j001500Of returns (lazily creating) this scenario's J001500 fixture state.
@@ -286,6 +289,31 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The tamper scenario's sync. Unlike "Alice syncs her project" the pull is
+	// EXPECTED to fail: a pull verifies what it fetched before pinning it, so a
+	// tree whose files no longer match their signed SHA256SUMS is refused at
+	// the pull, never installed. The materialize still runs so the delivered
+	// context can be read for the altered marker.
+	ctx.Step(`^Alice tries to sync her project$`, func(c context.Context) error {
+		w := worldFrom(c)
+		st := j001500Of(w)
+		if err := j001500WireReference(w); err != nil {
+			return err
+		}
+		_ = w.env.Run("deps", "pull")
+		st.tamperPullOutput, st.tamperPullExit = w.env.LastOutput(), w.env.LastExitCode()
+		_ = w.env.Run("profile", "materialize", "default", "--target", "out")
+		return nil
+	})
+
+	ctx.Step(`^the sync refuses to install the altered bundle$`, func(c context.Context) error {
+		st := j001500Of(worldFrom(c))
+		if st.tamperPullExit == 0 {
+			return fmt.Errorf("`deps pull` of a tree altered after signing succeeded; output:\n%s", st.tamperPullOutput)
+		}
+		return nil
+	})
+
 	ctx.Step(`^her assistant does not receive the altered guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
 		body, err := j001500ReadMaterialized(w)
@@ -300,10 +328,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice is warned that the content's signature does not verify$`, func(c context.Context) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
-		// "Alice syncs her project" (the preceding When) is the step that
-		// actually ran the materialize whose output this checks, so it — not
-		// this Then — got the automatic CLIOutput attribution.
+		out := j001500Of(w).tamperPullOutput
 		w.docStepMaterialized = strings.TrimSpace(out)
 		// The warning has to say the ATTESTATION is the problem, and it has to
 		// name the item — "something was withheld" is not a diagnosis. For a
@@ -311,15 +336,14 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		// (internal/core/bundles/reader_repofs.go's verifyTree, wrapping
 		// attest.VerifyBundle's Contents mismatch), not bundles.Reason.Explain's
 		// per-item ReasonTampered rendering: a tree-form tamper is caught at
-		// BUNDLE LOAD, before any item is individually classified, so the
-		// whole bundle fails to load rather than one item being withheld —
-		// a genuine architectural difference from the single-document form,
-		// not a wording preference.
+		// the PULL, before any item is individually classified, so the whole
+		// bundle is withheld rather than one item — a genuine architectural
+		// difference from the single-document form, not a wording preference.
 		if !strings.Contains(out, "does not match what was signed") {
-			return fmt.Errorf("materialize output does not warn that the tree's content does not match what was signed; output:\n%s", out)
+			return fmt.Errorf("`deps pull` output does not warn that the tree's content does not match what was signed; output:\n%s", out)
 		}
 		if !strings.Contains(out, "fragments/guidance.md") {
-			return fmt.Errorf("materialize output does not name the altered file; output:\n%s", out)
+			return fmt.Errorf("`deps pull` output does not name the altered file; output:\n%s", out)
 		}
 		return nil
 	})

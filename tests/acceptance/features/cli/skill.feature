@@ -125,6 +125,9 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
         | Mallory | unverified |
 
 
+    # A signature that does not cover the archive is an attack signal, not an
+    # absence: the import is refused before anything lands, where an unsigned
+    # or untrusted archive would still land for review.
     Scenario: A skill package tampered with after signing fails verification even though it was legitimately signed
       Given Alice's project has a directory-form bundle "vault"
       And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
@@ -136,7 +139,9 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       And a directory-form bundle "landed-tampered" exists
       When I run "ctxloom skill export vault#skills/reviewer -o reviewer-tampered.zip"
       And I run "ctxloom skill import reviewer-tampered.zip --bundle landed-tampered --sig reviewer-tampered.zip.sig --format json"
-      Then the import reports the signature as unverified
+      Then the command fails
+      And the output contains "does not match the archive's contents"
+      And the file ".ctxloom/content/bundles/v2/landed-tampered/skills/reviewer" does not exist
 
   Rule: A curated skill lands in every engine's own skill folder
 

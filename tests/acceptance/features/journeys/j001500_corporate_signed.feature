@@ -25,12 +25,14 @@ Feature: Content my company has validated
     Then her assistant receives the company's secure-coding guidance, because the company key signed it
 
   # LOCKED — TAMPER: a trusted key signed the original, but the bytes were changed.
-  # Distinct from J000200's benign held-for-review — this is a LOUD refusal (verified:
-  # config.go ErrSignatureTampered, "signature that does not verify; withholding it").
+  # Distinct from J000200's benign held-for-review — this is a LOUD refusal, and
+  # it happens at the pull: a pull verifies what it fetched before pinning it, so
+  # the altered tree is never installed at all.
   Scenario: Content Mallory altered after it was signed is refused, loudly
     Given Mallory alters the company's secure-coding bundle after it was signed
-    When Alice syncs her project
-    Then her assistant does not receive the altered guidance
+    When Alice tries to sync her project
+    Then the sync refuses to install the altered bundle
+    And her assistant does not receive the altered guidance
     And Alice is warned that the content's signature does not verify
 
   # LOCKED — EXECUTABLES admitted: a trusted publisher's MCP servers and hooks

@@ -60,7 +60,7 @@ Feature: companion — which binaries on your machine ctxloom may execute
       Given an initialized ctxloom project
       And a discovered companion "ctxloom-companion-acme" is on PATH, unsigned
       When I run "ctxloom doctor"
-      Then the output contains "no signature beside it"
+      Then the output contains "no signed release statement beside it"
       And the companion "ctxloom-companion-acme" was never executed
       When the companion "ctxloom-companion-acme" is signed by a publisher this project trusts
       And I run "ctxloom doctor"
@@ -84,7 +84,7 @@ Feature: companion — which binaries on your machine ctxloom may execute
       And a discovered companion "ctxloom-companion-acme" is on PATH, unsigned
       And the companion "ctxloom-companion-acme" is edited after it was signed
       When I run "ctxloom doctor"
-      Then the output contains "does not cover these bytes"
+      Then the output contains "its bytes are not the ones"
       And the companion "ctxloom-companion-acme" was never executed
 
   Rule: The verdict is inspectable one binary at a time

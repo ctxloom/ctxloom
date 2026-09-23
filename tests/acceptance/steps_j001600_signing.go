@@ -835,8 +835,10 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	})
 
 	// Edited IN PLACE, not through `ctxloom bundle modify`: this is the
-	// publisher's real motion (open the YAML, change the guidance, re-sign), and
-	// it is what leaves a signature covering bytes that are no longer there.
+	// publisher's real motion (open the YAML, change the guidance, bump the
+	// version, re-sign), and it is what leaves a signature covering bytes that
+	// are no longer there. The bump is part of the motion: one version names
+	// one content, so `bundle sign` refuses the old version over new files.
 	ctx.Step(`^Trent revises the directory bundle "([^"]*)"$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		rel := inlineDirBundleManifestPath(name)
@@ -844,6 +846,11 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
+		const signed, revised = "version: \"1.0.0\"\n", "version: \"1.0.1\"\n"
+		if !strings.Contains(body, signed) {
+			return fmt.Errorf("%s does not carry the signed %q to bump:\n%s", rel, signed, body)
+		}
+		body = strings.Replace(body, signed, revised, 1)
 		return w.env.WriteFile(rel, body+"  revised:\n    content: \"revised after the first signature\"\n")
 	})
 

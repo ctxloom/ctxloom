@@ -60,9 +60,10 @@ func registerCompanionConsentSteps(ctx *godog.ScenarioContext) {
 		return signCompanionWithUntrustedKey(w, companionPath(w, bin))
 	})
 
-	// Signed, then EDITED. The signature is intact and its signer is trusted;
-	// it simply no longer covers these bytes. Never degraded to "unsigned" — a
-	// broken signature is a signal, not an absence.
+	// Signed, then EDITED. The signature over the release statement is intact
+	// and its signer is trusted; the hash that statement carries simply no
+	// longer matches these bytes. Never degraded to "unsigned" — a broken
+	// signature is a signal, not an absence.
 	ctx.Step(`^the companion "([^"]*)" is edited after it was signed$`, func(c context.Context, bin string) error {
 		w := worldFrom(c)
 		path := companionPath(w, bin)

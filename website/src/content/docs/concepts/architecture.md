@@ -247,7 +247,8 @@ flowchart TD
 ├── distrusted_signers   # Embedded keys this project distrusts
 ├── content/             # The project's own authored, published content
 │   └── bundles/v2/      # Authored bundles (ctxloom:local refs resolve here;
-│       └── <name>/      # what `bundle create` writes and `sign --all` signs)
+│       └── <name>.yaml  # what `bundle create` writes and `sign --all` signs;
+│                        # a bundle may also be a <name>/ directory)
 ├── profiles/            # Profile definitions
 │   └── default.yaml
 ├── approvals/           # Committable countersignatures (review decisions)

@@ -1934,10 +1934,6 @@ init:
 dry-run PROMPT:
     ./ctxloom run -f test-fragment -f additional-context -n "{{PROMPT}}"
 
-# Run with Gemini plugin
-gemini *ARGS:
-    ./ctxloom -P gemini {{ARGS}}
-
 # Run with Claude plugin (default)
 claude *ARGS:
     ./ctxloom -P claude-code {{ARGS}}

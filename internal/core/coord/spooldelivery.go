@@ -427,7 +427,8 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	if !c.spoolDeliverTo(to) {
 		return "", fmt.Errorf("%w: %q (from %q, kind %q)", ErrNoSpoolReader, to, from, kind)
 	}
-	// The body bound, here because every mail write funnels through here: the
+	// The message bound (body and structured companion together), here
+	// because every mail write funnels through here: the
 	// Send verb, the bare agent_send, a child's spool out/ (routeSpoolOut ->
 	// peerSend), and the coordinator's own notices alike. The overflow is filed
 	// under the RECIPIENT, whose own artifacts it may always read.

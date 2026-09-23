@@ -340,8 +340,9 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 //
 // The answer is bounded like mail (boundBody) — it never becomes mail, so
 // queueMailPayloadID's bound does not reach it. The overflow is filed under
-// the ANSWERING child, which its parent may read. A body past the ceiling is
-// refused with the ask left outstanding.
+// the ANSWERING child, which its parent may read. The structured companion
+// counts toward the bound and overflows with the body. A message past the
+// ceiling is refused with the ask left outstanding.
 func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, structured json.RawMessage) (disposition string, matched bool, err error) {
 	c.mu.Lock()
 	pa := c.asks[inReplyTo]

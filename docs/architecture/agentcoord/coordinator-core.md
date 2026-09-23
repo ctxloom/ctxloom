@@ -156,10 +156,10 @@ Every verb's request is validated in ONE place — `Validate` on its request
 type (`coord.Verbs`, `verbs.go`): a transport (the RunChannel handlers, the
 stdio surface in `mcp/mcp_tools_agents.go`) only decodes and calls the verb.
 `SendRequest.Validate` holds the recipient, body and kind refusals;
-`queueMailPayloadID` refuses an empty message and bounds the body
-(`boundBody`) at the chokepoint every sender shares — a body past
-`MaxInlineBodyBytes` is delivered as its head plus a marker naming an
-artifact that holds the whole of it.
+`queueMailPayloadID` refuses an empty message and bounds it (`boundBody`)
+at the chokepoint every sender shares — a message whose body and structured
+companion together pass `MaxInlineBodyBytes` is delivered as its body's head
+plus a marker naming a create-once artifact that holds the whole of it.
 
 The delivery-by-state classification (`deliveryDisposition`) renders the ONE
 state `deliverMailID` observed at the write in two vocabularies: `peerSend`

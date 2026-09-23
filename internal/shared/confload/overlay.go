@@ -70,7 +70,8 @@ func (s OverrideSource) String() string {
 // ScopeViolationError is what ApplyOverrides returns (joined alongside any
 // other override error) when Product.ScopeAllows answers false for a
 // resolved override path. It is a distinct type — not a bare fmt.Errorf —
-// so a caller with its own per-kind diagnostics (ctxloom's decodeMergedLayers
+// so a caller with its own per-kind diagnostics (internal/adapters/configload's
+// (*Sources).decodeMergedLayers
 // classifies this as WarnKindLayerScope, distinctly from an ambiguous
 // override's plainer error) can tell the two apart via errors.As instead of
 // string-matching the message.
@@ -294,7 +295,7 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	// is not "the flag names a new binding for reviewer", it is "the flag
 	// tweaks one field of the existing one". MergeFunc's atomic behavior
 	// belongs solely to Product.MergeLayers' other caller (the FILE-layer
-	// merge in Load / a caller like ctxloom's own decodeMergedLayers), never
+	// merge in Load / internal/adapters/configload's decodeMergedLayers), never
 	// here.
 	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false, SourceEnv)
 	if envErr != nil {

@@ -93,8 +93,9 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 		Auth: engine.Provide(engine.ContainerAuth{
 			// ANTHROPIC_AUTH_TOKEN is a trigger too: a gateway host
 			// authenticates with AUTH_TOKEN+BASE_URL and carries no API key.
-			EnvTriggers: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
+			EnvTriggers: []string{OAuthTokenEnv, "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
 			EnvPassthrough: []string{
+				OAuthTokenEnv,
 				"ANTHROPIC_API_KEY",
 				"ANTHROPIC_AUTH_TOKEN",
 				"ANTHROPIC_BASE_URL",

@@ -77,7 +77,9 @@ func TestContainer_AuthPrefersEnvAndMountsTheRealCredentialReadWrite(t *testing.
 
 	auth, ok := c.Auth.Get()
 	require.True(t, ok)
-	assert.Equal(t, []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}, auth.EnvTriggers)
+	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}, auth.EnvTriggers,
+		"the setup-token var authenticates a container on its own, so it is a trigger")
+	assert.Contains(t, auth.EnvPassthrough, "CLAUDE_CODE_OAUTH_TOKEN", "a trigger that does not cross leaves the container logged out")
 	assert.Contains(t, auth.EnvPassthrough, "ANTHROPIC_BASE_URL")
 	require.Len(t, auth.CredentialFiles, 1)
 	assert.False(t, auth.CredentialFiles[0].ReadOnly, "claude's token refresh must write back into the one real file")

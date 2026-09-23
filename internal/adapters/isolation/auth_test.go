@@ -22,6 +22,22 @@ func TestPresentEnvKeys_OnlyKnownSetVars(t *testing.T) {
 	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, out, "only set, known auth var NAMES cross (no value; empty + unknown dropped)")
 }
 
+// The setup-token var alone authenticates a claude container: it selects env
+// passthrough and crosses by NAME, so the value stays in the launcher's env
+// and out of the world-readable run argv.
+func TestResolveDeclaredAuth_SetupTokenAloneCrossesByName(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-secret")
+	plan, ok := resolveDeclaredAuth(claudeAuth(t), "/root")
+	require.True(t, ok, "a stored or exported setup-token authenticates the container")
+	assert.Equal(t, authEnv, plan.mode)
+	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN"}, plan.envPassthrough)
+	for _, e := range plan.envPassthrough {
+		assert.NotContains(t, e, "=", "a value must never be carried in the passthrough")
+	}
+}
+
 // TestHostCredentialSeed_RefusesSymlinkedDestination is the SECURITY pin that
 // outlived the copy path it was written against.
 //

@@ -76,6 +76,10 @@ const (
 	// settings/commands/skills and credentials resolve from an isolated
 	// location instead of the shared one.
 	ConfigDirEnv = "CLAUDE_CONFIG_DIR"
+	// OAuthTokenEnv carries the long-lived token `claude setup-token` mints.
+	// claude reads it ahead of any credentials file and never refreshes it or
+	// writes it to disk.
+	OAuthTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 	// CredentialsFileName is the OAuth/API credential file claude reads and
 	// refreshes inside its config home (ConfigDirName, or a
 	// CLAUDE_CONFIG_DIR-relocated equivalent) — seeded per-agent from the

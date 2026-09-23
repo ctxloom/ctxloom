@@ -19,6 +19,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
@@ -1254,4 +1255,35 @@ func withCompanionProbe(t *testing.T, cfg *config.Config, probe bundles.Companio
 	owner, err := config.Open(context.Background(), probeSources{cfg: cfg, probe: probe})
 	require.NoError(t, err)
 	return owner.Current().Config
+}
+
+// --- DOCTOR-CHECK-ORPHAN-CONTAINERS-z2 ------------------------------------
+
+// TestDoctorCheckOrphanContainers_ReapsOnEveryRuntimePresent: doctor is the
+// one place the orphan-container reaper runs. It asks every runtime present,
+// says nothing is wrong when none of them held an orphan, and warns — naming
+// the runtime — when one did, because a runner that outlived its owner was
+// wedged past its own owner-loss exit.
+func TestDoctorCheckOrphanContainers_ReapsOnEveryRuntimePresent(t *testing.T) {
+	none := doctorCheckOrphanContainers(context.Background(), nil, nil)
+	assert.Equal(t, DoctorInfo, none.Status, none.Detail)
+
+	var asked []string
+	reap := func(reaped map[string]int) func(context.Context, isolation.Runtime) isolation.ContainerReapResult {
+		return func(_ context.Context, rt isolation.Runtime) isolation.ContainerReapResult {
+			asked = append(asked, rt.Name())
+			return isolation.ContainerReapResult{Reaped: reaped[rt.Name()]}
+		}
+	}
+	both := []isolation.Runtime{isolation.Docker{}, isolation.Podman{}}
+
+	clean := doctorCheckOrphanContainers(context.Background(), both, reap(nil))
+	assert.Equal(t, DoctorOK, clean.Status, clean.Detail)
+	assert.Equal(t, []string{"docker", "podman"}, asked, "every runtime present is swept")
+
+	asked = nil
+	found := doctorCheckOrphanContainers(context.Background(), both, reap(map[string]int{"podman": 2}))
+	assert.Equal(t, DoctorWarn, found.Status)
+	assert.Contains(t, found.Detail, "2 podman")
+	assert.NotContains(t, found.Detail, "docker", "a runtime that held no orphan is not named as having one")
 }

@@ -785,15 +785,6 @@ func (st *runState) runStartupTasks() {
 	if !runDryRun {
 		operations.SweepOrphanedWorktrees(st.ctx, os.Stderr)
 	}
-
-	// Startup reaper, container half: sweep any still-RUNNING per-agent
-	// runner container left behind by a crashed/killed prior run — teardown
-	// is a deferred isolation.RunnerHandle.Kill inside teardownAll, and a
-	// defer does not survive SIGKILL/OOM/a closed terminal, so nothing else
-	// ever reaps these. Best-effort, silent unless it found something.
-	if !runDryRun {
-		operations.SweepOrphanedContainers(st.ctx, os.Stderr)
-	}
 }
 
 // gateStartup is the strict startup gate: config load, sync, and assembly have

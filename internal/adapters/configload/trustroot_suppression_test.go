@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // newSuppressionTestSigner returns an ephemeral in-memory ed25519 ssh.Signer
@@ -146,7 +147,7 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 	// distrusted_signers file, to isolate the trust-root-side read from the
 	// CLI/operations write path (that round trip is proven separately in
 	// internal/adapters/operations).
-	require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(appDir), []byte("ben+ctxloom@abbitt.me\n"), 0o600))
+	testsupport.WriteFile(t, fs, paths.DistrustedSignersPath(appDir), []byte("ben+ctxloom@abbitt.me\n"), 0o600)
 
 	after := cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now)
 	assert.False(t, after.Trusted, "a locally suppressed embedded principal's key must no longer be trusted by the trust root")
@@ -231,7 +232,7 @@ func TestTrustRoot_UnreadableRevocationListDoesNotResurrectTrust(t *testing.T) {
 		require.NoError(t, base.MkdirAll(appDir, 0o755))
 		path := paths.DistrustedSignersPath(appDir)
 		if revoked {
-			require.NoError(t, afero.WriteFile(base, path, []byte("ben+ctxloom@abbitt.me\n"), 0o600))
+			testsupport.WriteFile(t, base, path, []byte("ben+ctxloom@abbitt.me\n"), 0o600)
 		}
 		fs := base
 		if !readable {

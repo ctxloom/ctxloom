@@ -76,12 +76,18 @@ Isolation is split into two independent axes, chosen at different times:
 | **Session workspace** | `none` \| `worktree` | At invocation (`run --workspace`, or an `agent_run` spawn's `workspace` field) or the project `workspace:` default | *Which copy of the repo the session mutates* |
 
 A binding also declares which **engine home** its engine runs against (the
-directory holding the engine's credentials, memory, plugins and personal MCP
+directory holding the engine's login, memory, plugins and personal MCP
 registrations): `engine_home: session`, a per-session home ctxloom controls, or
 `engine_home: host`, the engine's real home. Leaving it unset means `session`.
+A session home holds no credential. claude there authenticates from one
+long-lived token: run `claude setup-token`, then `ctxloom auth set-token` and
+paste what it printed. Without a token or an API key the run is refused.
 Selecting `host` is the unsafe choice, because it hands the engine your own
-credentials and registrations and lets it write them back, and the launch says
-so.
+login and registrations and lets it write them back, and the launch says so.
+On the host it runs against your real `~/.claude` in place, with claude's own
+lock, and copies nothing. In a container it means the container's own fresh
+`$HOME`, which authenticates from the token like any other container run;
+your `~/.claude` is never mounted.
 
 The runtime axis is a property of the agent — a containerized developer stays containerized wherever it's used. The workspace axis is a property of the *session*: the same agent might work in the shared checkout for a quick question but in an isolated git worktree for a parallel fan-out where members would otherwise trample each other's edits.
 
@@ -98,8 +104,8 @@ Agents with `runtime: container-rootless` or `runtime: container-rootful` run th
 It is **not a security sandbox**, and you should not run untrusted content in it on that assumption. Specifically:
 
 - **The network is not restricted.** ctxloom passes no network isolation flag; a containerized agent has the same egress your host does and can reach anything on it.
-- **Your engine credentials cross the boundary.** The container gets either the engine's scoped env passthrough (`ANTHROPIC_*` for claude when `ANTHROPIC_API_KEY` is set) or a copy of the engine's credential files mounted into the fresh `$HOME`. Most are **read-only**, but self-renewing OAuth tokens (Claude subscription) are mounted **read-write** so their `refresh_token` can rotate. The boundary does not stop the agent reading a credential or spending it — and for the read-write tokens, it does not stop it rewriting them either.
-- **Not every engine can run containerized.** The container gets the engine's credentials because ctxloom knows *which* credentials that engine needs — a mapping each engine declares for itself. An engine with no such mapping has none, so `ctxloom agent create`/`agent edit` **refuses** to write `runtime: container-rootless` or `runtime: container-rootful` for it and names the engines that do work, rather than accepting a binding whose every launch would then abort.
+- **Your engine credential crosses the boundary.** The container gets the engine's auth vars by name: for claude, `CLAUDE_CODE_OAUTH_TOKEN` (the token `ctxloom auth set-token` stored) or `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`. No credential file is mounted into it. The boundary does not stop the agent reading that token or spending it.
+- **Not every engine can run containerized.** The container gets the engine's credential because ctxloom knows *which* vars that engine authenticates from — a list each engine declares for itself. An engine with no such mapping has none, so `ctxloom agent create`/`agent edit` **refuses** to write `runtime: container-rootless` or `runtime: container-rootful` for it and names the engines that do work, rather than accepting a binding whose every launch would then abort.
 - **Some host state outside the project is mounted read-write.** The session's transcript store and persist dir under `~/.ctxloom/sessions/<harp>/`, and this project's task log `~/.ctxloom/tasks/<project-id>.jsonl` with its `.lock` sidecar — writable so in-container hooks, transcripts, and `taskloom` reach the one host store the session shares. The mount is those two **files**, not the `~/.ctxloom/tasks` directory: a run keyed to one project never sees another project's task log.
 
 Use it to keep a long unattended run from wrecking your home directory. Do not use it as the thing standing between a prompt-injected agent and your API key or the internet.

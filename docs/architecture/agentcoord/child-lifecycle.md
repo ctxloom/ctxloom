@@ -35,7 +35,7 @@ flowchart TD
   OTI --> IDLE["idle + slot yield<br/>(the turn's engine process ended; the runner stays)"]
   IDLE -.->|"idleSince ≥ IdleTimeout"| REAPER["reapIdleRuns<br/>lifetime.go"] -->|CauseIdleReaped| TERM
   MAILIN[("spool mail / Coordinator.Turn frame")] -->|"to the SAME runner"| ENG
-  HELLO[["RunnerHello active_run_ids<br/>runnersession.go"]] -->|"a run this process did not start"| READOPT["readopt → Spawner.Adopt<br/>lifetime.go"] --> RT
+  HELLO[["RunnerHello active_run_ids<br/>runnersession.go"]] -->|"a run this process did not start"| READOPT["readopt<br/>lifetime.go"] --> RT
 
   FC["failChild"] -->|CauseLaunchFailed| TERM["terminateRun<br/>EXACTLY ONCE"]
   RS["runnersession.go"] -->|"CauseRunnerExit / CauseRunnerLoss"| TERM
@@ -86,7 +86,7 @@ credentials live in the folds, and `childRt` is rebuilt from them.
 | `HandleEvent` | `runchannel.go` | the RunChannel receive path: `captureRunFailure` on a FAILED `RunCompleted`, `onTurnStarted` / `onTurnIdle` on turn transitions |
 | `ReportTurnResult` | `adapters/runner/spoolturnresult.go` | the runner half of the automatic turn report: writes the turn's FINAL-channel output into the run's `out/` spool as kind `result`, correlated to the message that started the turn; a no-op for the session owner's own run |
 | `onTurnIdle` | `children.go` | honours a pending `exitRequested` at the boundary (`drainAtBoundary`); otherwise stamps `idleSince` for the reaper, marks the run idle and yields its slot. The turn's ENGINE process ended at this boundary on the runner (`EngineHost.runTurn`); the runner itself stays, its endpoint bound |
-| `Turn` / `reapIdleRuns` / `readopt` | `lifetime.go` | the one-shot turn injection to a LIVE runner (`Coordinator.Turn`, `operations.RunHost`); the idle reaper (`Options.IdleTimeout`, `CauseIdleReaped`); re-adoption of a runner that outlived the previous coordinator, with its cell ownership re-acquired through `Spawner.Adopt` |
+| `Turn` / `reapIdleRuns` / `readopt` | `lifetime.go` | the one-shot turn injection to a LIVE runner (`Coordinator.Turn`, `operations.RunHost`); the idle reaper (`Options.IdleTimeout`, `CauseIdleReaped`); re-adoption of a runner that outlived the previous coordinator |
 | `terminateRun` | `children.go` | the exactly-once terminal: claim the fact, drain the RunChannel tail (`CauseRunnerExit` only), sever the runner stream, slot release, close, cancel the launch context, credential sever, parent notice (skipped for a `TopLevel()` run and for `CauseIdleReaped`), session-ended stamp, relaunch check, reap |
 | `failChild` | `children.go` | warn, count the failure, terminate with `CauseLaunchFailed`, mark attached |
 | `resumeChild` | `children.go` | backoff, re-check the stop flag and drain, **claim** (the harp's current run is ended, is the run this attempt was armed for, and is not `TopLevel()` — a top-level run is not a child of itself and is never resumed here), resolve, enqueue as a **fresh run**, acquire a slot, `runChildViaStartRun` with the journaled resume key |

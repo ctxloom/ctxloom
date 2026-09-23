@@ -8,7 +8,7 @@ every drop of an explicitly-requested boundary is *refused* — a
 `strictness.FailAlways(ClassIsolation, …)` finding that aborts in **both** modes,
 never a weaker cell. `--degraded` does not reach these: it means "deliver less",
 not "drop the sandbox". It also owns the agent container image lifecycle and the
-host-side half of credential delivery.
+stored engine token.
 
 It deliberately does **not** import `internal/engines` or `internal/adapters/operations`: it reads engine facts by name through `isolation.Facts`, installed by the composition root.
 Backend names cross as bare string keys (documented connascence of name), and
@@ -60,7 +60,7 @@ flowchart TD
 | Axes | Policy | `Name()` | Ownership demanded | Isolates | Does **not** isolate |
 |---|---|---|---|---|---|
 | `{none, host}` | `None` | `"none"` | — | nothing — the fault-tolerant floor | everything |
-| `{worktree, host}` | `Worktree` | `"worktree"` | — | cwd (detached git worktree at `HEAD`) + **one host lever per backend**: the scoped config-home env var its descriptor's `Home` declaration names | engine *global* state where the engine ignores the var; the git common dir; credentials (they are **copied in**, not withheld) |
+| `{worktree, host}` | `Worktree` | `"worktree"` | — | cwd (detached git worktree at `HEAD`) + **one host lever per backend**: the scoped config-home env var its descriptor's `Home` declaration names | engine *global* state where the engine ignores the var; the git common dir; the auth token (it rides the env) |
 | `{none, container-rootless}` | `Container{hostBase}` | `"container"` | rootless only | process, fs view, fresh `$HOME`; project mounted at its **identical absolute path** | the project dir (mounted RW) and the whole `.git` common dir (mounted RW) |
 | `{none, container-rootful}` | `Container{hostBase}` | `"container"` | rootful only | same as the rootless row | same as the rootless row |
 | `{worktree, container-rootless}` | `Container{worktreeBase}` | `"container-worktree"` | rootless only | as above + a per-agent checkout as cwd | the git common dir is still whole-dir RW |
@@ -227,101 +227,55 @@ definitive `*sharedFSMismatch` from a transient probe failure.
 
 ## Credential delivery
 
-`containerAuth{mode, envPassthrough, mounts}` is resolved per backend.
-`containerAuthMode` is `authNone` (**zero value — least privilege**), `authEnv`,
-`authCredentialMount`. `resolveEnvOrMountAuth` is trigger-then-mount-then-degrade,
-the shape a vendor-authenticated backend's resolver takes. `presentEnvKeys` filters an allowlist
-down to *set* variables only — **names only cross the boundary**.
+Every ctxloom-launched claude, on the host or in a container, top-level or
+delegated, authenticates from ONE long-lived token that `claude setup-token`
+mints, carried in `CLAUDE_CODE_OAUTH_TOKEN`. claude reads that variable ahead
+of any credentials file, never refreshes it and never writes it to disk.
+Nothing is copied into a session home, mounted into a container, replicated
+or refreshed by ctxloom.
 
-| Engine | Env trigger | Mount | Site |
-|---|---|---|---|
-| claude | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | bind-mounts the **real** `~/.claude/.credentials.json` **RW** — no copy — so claude's single-use token refresh lands in the one real file (see [Single-use refresh tokens](#single-use-refresh-tokens-why-the-three-axes-differ) below) | claude's descriptor `Container.Auth`, resolved by `resolveDeclaredAuth` / `credentialFileMounts`. `~/.claude.json` is deliberately never mounted |
-| mock | none needed | none | a `Vendorless` declaration — the one plan that never fails to resolve: mock authenticates against no vendor |
-| **unmapped/empty backend** | — | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
+Why: an OAuth refresh token is single-use and rotating. Native claude sessions
+stay in step only because they share one credentials file AND one lock beside
+the config dir. A per-session copy has its own config dir and its own lock,
+and a bind mount of the single file pins the inode claude replaces by
+temp-and-rename, so copies went stale and a refresh from one could revoke the
+rest. A token nobody refreshes has no second holder to fall out of step with.
+The reasoning is recorded once, at `isolation.ExportStoredTokens`.
 
-Controlled-home provisioning is `hostCredentialSeed` + `isolation.Select`,
-reached through `isolation.CopyAmbient` by `operations.ResolveInTreeAgentHome`
-(below) to populate a per-session instance home on whichever cell the run
-landed. It does **not** copy: the engine declares, on its descriptor, which
-deliveries it accepts (`ProvisioningPolicy`), `Select` constructs the first one
-this host and this run can actually honour, and a platform that can honour none
-of them **refuses**, naming every mechanism tried and why each was rejected.
-The destination is created at instance time and thrown away at session end.
+**Intake.** `ctxloom auth set-token` reads the token from stdin (a hidden
+prompt on a terminal), never argv, and stores it owner-only through
+`iox.WriteFileAtomic` at `paths.HomeEngineTokenPath` (`~/.ctxloom/auth/<engine>.token`).
+`ctxloom auth status` reports whether one is stored, its mode, and which one
+runs get, never the value.
 
-### Single-use refresh tokens: why the three axes differ
+**Injection.** `cli.run` calls `isolation.ExportStoredTokens` once, before any
+command: for each engine declaring `engine.TokenAuth`, it sets the engine's
+`TokenVar` from the stored file when the process env leaves it unset. A token
+the user exported wins. Every launch path inherits this process's env, so the
+host runner gets it in its env and a container gets it by name.
 
-The credential ctxloom hands an isolated claude run is not inert. A claude
-subscription login stores an OAuth **refresh token**, and that token is
-**single-use and rotating**: the moment any holder refreshes, the provider
-mints a replacement and invalidates the token that was just spent. So a *copy*
-of `.credentials.json` is a latent trap — if the copy ever refreshes, it
-rotates the live token out from under **every** other holder, **including your
-host login**, silently logging you out of your own machine. This is the fact
-the three claude-credential axes are built around, and it is why they do not
-all handle the credential the same way.
+**Refusal.** A relocated home (`engine_home: session`) that none of the
+engine's auth vars authenticates is refused by `isolation.PrepareInstanceHome`
+(a `strictness.ClassIsolation` finding, FailAlways) naming the mint command,
+`ctxloom auth set-token`, the API-key vars and `engine_home: host`.
 
-- **A controlled home** (`engine_home: session`, on any cell) is **PROVISIONED
-  with the host's own material**, not given a copy of it. claude declares
-  `Accept: [Mounted, Replicated]` — shared by **identity** (one inode) where a
-  mount is available, else shared by **replication** (two files kept in step
-  under a cross-process lock). Either way there is **one rotating token**: a
-  refresh the engine performs inside the instance is a refresh the host has
-  too, so the run **keeps refreshing** and never needs a re-launch at expiry.
+`containerAuth{mode, envPassthrough}` is resolved per backend.
+`containerAuthMode` is `authNone` (**zero value — least privilege**) or
+`authEnv`. `resolveDeclaredAuth` is trigger-then-refuse: any declared trigger
+set selects passthrough, else the run is refused. `presentEnvKeys` filters an
+allowlist down to *set* variables only — **names only cross the boundary**.
 
-  This REPLACED a stripped copy, and the replacement is the point. The copy had
-  its refresh token removed so it could not rotate the host's single-use token,
-  which meant it authenticated until its access token expired and then that
-  instance was **stuck with no way back** — not a weaker sharing mode, a
-  different product with a fuse on it. A stripped copy is now declined by
-  claude's descriptor **at every position**, including as a last resort:
-  accepting it there would convert a loud launch refusal into a run that dies
-  hours later, far from its cause.
+| Engine | Env trigger | Site |
+|---|---|---|
+| claude | `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | claude's descriptor `Container.Auth`, resolved by `resolveDeclaredAuth`. No credential file is mounted |
+| mock | none needed | a `Vendorless` declaration — the one plan that never fails to resolve: mock authenticates against no vendor |
+| **unmapped/empty backend** | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
 
-  Replication is accepted **below** a mount rather than beside it. Two files
-  kept in step leave a **rotation window** in which one instance can present a
-  token another already spent, and the server rejects it; a mount has no such
-  window. It is still the right second answer, because the alternative where
-  mounting is impossible is material that cannot renew at all — and
-  `DeliveryReplicated` is what keeps the difference visible to whoever debugs
-  an auth failure later. A containerized run with
-  `engine_home: session` is the RULED exception: the real host
-  `~/.claude/.credentials.json` is bind-mounted read-write OVER the seeded
-  copy at `<mounted home>/.credentials.json` (`MountEngineHome`), so the
-  container keeps refreshing in place exactly as an unrelocated container
-  does — the real long-lived credential is inside the container, an accepted
-  trade, scoped to that one file (never `~/.claude.json`).
-
-- **A container's own fresh `$HOME`** (the home a container run keeps when it
-  has no controlled home) does the **opposite**: it bind-mounts the
-  **real** `~/.claude/.credentials.json` **read-write**, with **no copy**
-  (`claudeCredentialMountsAt`). The container's refresh lands in the one real
-  file — the single source of truth the host also holds — so host and container
-  share the same rotating token and nothing ever desyncs. A container therefore
-  **keeps refresh** (no re-launch at expiry), the reverse of the two host axes'
-  trade. A container is already a separate execution context where sharing the
-  real credential is the natural idiom, and rotation safety is worth more there
-  than file-level credential isolation. The **`ctxloom-never-writes-real-home`**
-  invariant still holds: ctxloom only *declares* the bind mount;
-  claude-the-binary writes the credential through it, exactly as it does on a
-  non-containerized run. ctxloom itself never opens the real credential for
-  writing.
-
-All three axes are now coherent, and they converged from opposite directions.
-The container axis went to a real-home mount as soon as live experiment
-established the single-use-rotation model. The two host axes went to
-access-token-only stripping in that same change — which made the policy run
-**backwards**: the more isolated runtime got the less isolated credential,
-while the host run got one that provably could not renew. That was the
-evidence the stripping was a local patch for the copy path rather than a
-coherent posture, and the copy path has since been deleted outright.
-
-The invariant is now the same everywhere: **no copy of the credential exists
-at all**. What the engine holds is the host's own material, reached by
-identity or kept in step, so the only thing that ever refreshes is the one
-real token. **`ctxloom-never-writes-real-home`** still holds throughout:
-ctxloom declares the mount or runs the replication; the bytes that reach the
-real file are the **engine's own refresh**, exactly as on a run with no
-instance home at all.
+**`engine_home: host`.** On the host it runs claude against the real
+`~/.claude` in place, with claude's own lock, and copies nothing. In a
+container it means the container's own fresh `$HOME`, which authenticates
+from the forwarded token like any other container run; the real `~/.claude`
+is never mounted.
 
 ## Engine config homes
 
@@ -334,28 +288,19 @@ and ctxloom never writes it.** Engines natively keep per-project durable facts
 there, path-keyed (claude's per-project keys). That stays the single durable
 location.
 
-What an opted-in agent run gets instead is a **per-session INSTANCE**,
+What an agent run gets instead is a **per-session INSTANCE**,
 `~/.ctxloom/sessions/<harp>/home/<engine-leaf>`, created at session start
-and disposable. Three content classes live in it: ctxloom-generated content
-(context, prompts, skills, config fragments) regenerated at each launch;
-engine-specific scaffolding synthesized by the engine package; and **ambient**
-content whose origin is your real host home (credentials today), **provisioned**
-at instance time.
+and disposable. Two content classes live in it: ctxloom-generated content
+(context, prompts, skills, config fragments) regenerated at each launch, and
+engine-specific scaffolding the engine package writes (claude's
+`.claude.json`, carrying the account identity and onboarding answers by name).
 
-Credentials are **not copied**. The instance receives them by a mechanism the
-engine DECLARES it accepts — mounted (one inode, shared with the host file) or
-replicated (kept in step with it) — and the credential it holds is **whole**, so
-it can refresh. If no declared mechanism can be honoured on this machine, the run
-REFUSES and names each one it tried and why (see [Single-use refresh
-tokens](#single-use-refresh-tokens-why-the-three-axes-differ)).
+No credential is placed in it. The run authenticates from its env (see
+[Credential delivery](#credential-delivery)).
 
 One accepted cost remains, and it is deliberate: trust/onboarding answers given
 inside an instance die with it (re-prompted next session unless the engine's own
 answer already lives in the real home).
-
-The **container** axis is the deliberate exception: it mounts
-the real credential read-write and so *does* refresh in place, because a mount —
-unlike a copy — shares the host's one rotating token rather than forking it.
 
 An engine's **cwd-keyed** surfaces are a different thing entirely and are never
 relocated: `CLAUDE.md` and `.claude/` live at the project root, where the
@@ -363,7 +308,7 @@ engine natively looks.
 
 | Engine | Var | `engine_home: session`, host cells (none / worktree) | `engine_home: session`, container | undeclared / `host` / no binding, host cells | undeclared / `host` / no binding, container |
 |---|---|---|---|---|---|
-| claude-code | `CLAUDE_CONFIG_DIR` | `~/.ctxloom/sessions/<harp>/home/claude` | the same host directory, bind-mounted at `/ctxloom/home/claude` (the fixed instance root + the declared leaf), which is what the engine is told; the real `~/.claude/.credentials.json` is bind-mounted RW over the seeded copy inside it | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
+| claude-code | `CLAUDE_CONFIG_DIR` | `~/.ctxloom/sessions/<harp>/home/claude` | the same host directory, bind-mounted at `/ctxloom/home/claude` (the fixed instance root + the declared leaf), which is what the engine is told | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
 
 An engine whose only relocation lever is a shared var (`XDG_CONFIG_HOME` /
 `XDG_DATA_HOME`) cannot be given an instance this way: relocating those moves
@@ -374,8 +319,8 @@ The instance root resolves through one helper, `paths.HarpSessionEngineHomes` �
 session's own `home/` member under `~/.ctxloom/sessions/<harp>/` — and each
 engine appends its OWN leaf (its `HomeVar.Subdir`). The leaves are distinct by
 construction, so one session root hosts every engine that session runs. The
-location is deliberate: an instance holds copied credentials, and under the
-ctxloom home it sits outside every project tree, where no `.gitignore` has to
+location is deliberate: under the ctxloom home an instance sits outside every
+project tree, where no `.gitignore` has to
 keep it out of a commit — see [the `.ctxloom` layout page](../../layout.md).
 
 **Instances are per SESSION, not per project.** Two concurrent sessions in one
@@ -394,14 +339,13 @@ host|session`:
 ```yaml
 agents:
   coder:
-    engine_home: session   # a per-session instance under ~/.ctxloom/sessions/<harp>/home/
-    # or: host             # the engine's real host home (also the default)
+    engine_home: session   # a per-session instance under ~/.ctxloom/sessions/<harp>/home/ (also the default)
+    # or: host             # the engine's real host home, the unsafe selection
 ```
 
-**Empty (undeclared) DEFAULTS TO `host`.** The controlled home is strictly
-opt-in — naming an agent, on its own, is *not* enough to relocate its config
-home. A binding that wants its runs kept off the human's real engine home has to
-say `engine_home: session` explicitly.
+**Empty (undeclared) DEFAULTS TO `session`.** Only a binding that names
+`engine_home: host` keeps the real engine home, and the plan and the launch
+banner name that selection unsafe.
 
 **A declared value WINS on every invocation path that binding resolves
 through** — a bare `ctxloom run` under `default_agent`, `run --agent`, a
@@ -422,9 +366,8 @@ path itself; a container cell mounts the same host directory at
 (`Container.WithInstanceHome` overrides it) plus the leaf the engine DECLARES
 (`agent.HomeVar.Subdir`, never re-derived from the host path) — and tells the
 engine that target (`isolation.ContainerInstanceHome` supplies the root,
-`isolation.MountEngineHome` records the mount, and, for an engine whose
-credential lives in its home, the real host credential file bind-mounted
-read-write over the seeded copy so the container keeps refreshing in place). A worktree's own env (`isolation.EnvWorkspace`) carries the
+`isolation.MountEngineHome` records the mount; no credential file is mounted
+with it). A worktree's own env (`isolation.EnvWorkspace`) carries the
 scratch dir and git identity it provisioned and never a config-home var — a
 second carrier there is how a run's home once came to depend on which
 workspace it happened to pick.
@@ -433,19 +376,8 @@ A delegated child, a fan-out member, a `run --agent` — these ARE ctxloom's
 processes, and pointing one at the human's real engine home hands it their
 memory, plugins, personal MCP registrations, global agents and steering, and
 lets it write session state and settings edits back into them. That is the
-pollution `engine_home: session` lets a binding opt out of — but nothing takes
-it on by default; a project asks for it by name, on the binding that wants it.
-
-**Why the instance is opt-in rather than automatic.** Relocating an engine's
-home without asking is defensible only while the relocation target is DURABLE —
-a project-scoped directory that survives across sessions takes nothing of yours
-away. A per-session instance is **disposable**, which changes the arithmetic:
-your own interactive `ctxloom run` — no agent binding at all — handed a
-throwaway home every session would lose its token refreshes, its accumulated
-workspace-trust answers and its session state each time. So no binding, an
-undeclared binding, and an explicit `host` all keep the real home, and only
-`engine_home: session` earns an instance. One rule, every engine, decided in
-one place.
+pollution the session home keeps every run out of unless its binding names
+`engine_home: host`.
 
 **What `host` costs, stated plainly.** ctxloom never writes the real home, so
 any surface an engine reads *only* from its home — hooks, MCP servers, prompts,
@@ -460,9 +392,8 @@ The resolution is either present or **absent with a stated reason**
 (`AgentHomeResolution.Absent`) — an empty root with no reason is not a shape
 it can take. It is absent when:
 
-1. **the effective `engine_home` is not `session`** — the rule above (this
-   covers no binding, an undeclared binding, and an explicit `host`); the
-   documented default, recorded but not warned about;
+1. **the effective `engine_home` is `host`** — the binding's explicit
+   selection, recorded but not warned about;
 2. **the run carries no session name**, or **the engine declares no
    relocatable home** (`mock`), or **the instance cannot be created** — each
    warned out loud, because a binding that asked for a home and got none
@@ -471,21 +402,14 @@ it can take. It is absent when:
 A user's own `--env` still wins at the launch path's merge: the resolution
 fills gaps; it never overrides.
 
-Credentials follow the home (claude's `.credentials.json` is copied from
-`~/.claude`, never moved, never written back). That is a property of the
-engine, not a rule: an engine whose credential lives somewhere its home var does
-not relocate stays authenticated in a fresh home with no copy at all, and
-relocating the wider directory that does hold it would drag unrelated state
-along. `HonoursVarForCreds` on the seed spec is where that distinction is
-recorded per engine.
-
-When claude's credentials cannot be seeded (no `ANTHROPIC_API_KEY`, no host
-`~/.claude/.credentials.json`), ctxloom records a `ClassIsolation` finding and
-contributes **nothing** — the run aborts at the choke gate in both modes.
-Handing the engine a controlled home it cannot authenticate against would trade a
-working run for a mysterious 401; falling back to the host's own home (which
-`--degraded` used to do) would instead hand the agent the user's real
-credentials, so neither is offered.
+No credential follows the home. When nothing in the env authenticates claude
+(no stored or exported `CLAUDE_CODE_OAUTH_TOKEN`, no API-key var),
+`isolation.PrepareInstanceHome` reports it and ctxloom records a
+`ClassIsolation` finding and contributes **nothing** — the run aborts at the
+choke gate in both modes. Handing the engine a controlled home it cannot
+authenticate in would trade a working run for a mysterious 401; falling back
+to the host's own home would hand the agent the user's real login, so neither
+is offered.
 
 ## Per-engine container specs
 

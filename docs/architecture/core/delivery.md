@@ -64,28 +64,14 @@ unsafe selection, named beside the project routes in the plan and the
 banner (`cli.unsafeLabels`) — leaves `SurfaceSelection.keepOrReroot` to
 select the project file there.
 
-Who holds the credential is decided by the launch's depth
-(`launch.Resolve`: `sessions.Identity.Depth`). The ORCHESTRATOR — the root
-session, the coordinator's own engine — holds it WHOLE in its session home,
-two-way with the host file through `isolation.replicationProvisioner`, and
-is the only ctxloom-side refresher. Every AGENT (a delegated child, on the
-host or in a container) names its orchestrator (`launch.Source.Orchestrator`,
-stamped from `coord.ownerHarp` on `SpawnStart`) and holds a read-only
-PROJECTION of the orchestrator's copy — never of the host file — with the
-engine's declared bytes withheld (`engine.SeedFile.Project`; claude withholds
-`claudeAiOauth.refreshToken`, its own session-seeding precedent),
-re-projected whenever the orchestrator's copy changes; an agent write
-reaches nothing (a projected `Material` is read-only by construction). A
-container agent mounts that projected file read-only from its session home
-(`isolation.MountEngineHome`, `projectedCredentialMounts`); the real host
-file is never a mount source once the home relocates. On macOS the store is
-the Keychain: the orchestrator's item is two-way with the default item, an
-agent's item projects the orchestrator's (`isolation.keychainService`), and
-items are deleted by the creating run's teardown and by the reaper for every
-reaped harp (`operations.sessionTriage`), listed by doctor when neither
-reached them (`operations.doctorCheckKeychainOrphans`). A host with nothing
-seedable is refused (`strictness.ClassIsolation`, FailAlways) naming the
-engine's env tokens and the unsafe `engine_home: host`.
+No credential is delivered. Every claude launch, at any depth and on any
+cell, authenticates from `CLAUDE_CODE_OAUTH_TOKEN`, which
+`isolation.ExportStoredTokens` fills from the token `ctxloom auth set-token`
+stored; the session home holds none, and a container gets the var by name.
+A session home no auth var authenticates is refused
+(`isolation.PrepareInstanceHome`, `strictness.ClassIsolation`, FailAlways)
+naming `ctxloom auth set-token`, the engine's API-key vars and the unsafe
+`engine_home: host`. See [isolation](../engines/isolation.md#credential-delivery).
 
 ## Who delivers, and under which writer
 

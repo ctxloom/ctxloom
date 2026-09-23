@@ -42,13 +42,25 @@ ctxloom fragment edit my-bundle#fragments/coding-standards
 ctxloom command edit my-bundle#commands/review
 ```
 
+## Engine Authentication
+
+Every claude that ctxloom launches, on the host or in a container, top-level or delegated, authenticates from its environment. Nothing is copied into a session home or mounted into a container.
+
+| Variable | Description |
+|----------|-------------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | The long-lived token `claude setup-token` prints. Store it once with `ctxloom auth set-token` (read from stdin, never argv): ctxloom keeps it owner-only at `~/.ctxloom/auth/claude-code.token` and exports it to every run whose environment leaves this variable unset. If you export it yourself, yours wins and the stored one is not used. `ctxloom auth status` shows which one runs get, never the value |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` | Any one of these authenticates a run instead of the token |
+
+A run in a session home (`engine_home: session`, the default) with none of these set is refused, naming the fixes: store a token, set one of the variables, or select `engine_home: host`, which runs claude against your real `~/.claude` in place.
+
 ## Containerized Agents
 
 Agents with `runtime: container-rootless` or `runtime: container-rootful` pass a scoped set of host variables through to the engine inside the image:
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | Selects token-based Claude auth and is passed through. When neither this nor `ANTHROPIC_AUTH_TOKEN` is set, subscription auth via the mounted OAuth credentials is used instead |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Selects setup-token auth and is passed through by name; the stored token counts (see Engine Authentication). When none of this, `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set, the container run is refused |
+| `ANTHROPIC_API_KEY` | Selects API-key auth and is passed through |
 | `ANTHROPIC_AUTH_TOKEN` | Also selects token-based auth on its own, for a gateway that authenticates with `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` and no API key. Passed through |
 | `ANTHROPIC_BASE_URL` | Forwarded when present, if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set |
 | `ANTHROPIC_MODEL` | Forwarded when present, if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set. Selects the model for a containerized claude run |

@@ -179,7 +179,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 		return "", fmt.Errorf("confpatch: resolve the applied transforms against %s: %w", target, err)
 	}
 
-	inverse, err := inverseOps(binding, format, target, after, before)
+	inverse, err := InverseOps(binding, format, target, after, before)
 	if err != nil {
 		return "", err
 	}
@@ -270,8 +270,10 @@ func (s *Store) pruneSuperseded(target, keep string) error {
 	return errors.Join(errs...)
 }
 
-// inverseOps is the resolved op list that turns after back into before — the
-// §9.7 audit statement. hew.Invert owns the derivation, including the
+// InverseOps is the resolved op list that turns after back into before — the
+// §9.7 audit statement. Exported because cli's config-write path writes the
+// same record into the same store, and a second derivation is how one of them
+// ended up on different diff options. hew.Invert owns the derivation, including the
 // direction: Diff(before, after) and Diff(after, before) are both well-formed
 // and only one undoes anything, so hew decides it once rather than every
 // consumer deciding it again.
@@ -279,7 +281,7 @@ func (s *Store) pruneSuperseded(target, keep string) error {
 // Resolved against the AFTER image because that is the document an undo would
 // be applied to: the pointers have to name positions in the file as it stands
 // now, not as it stood before the write.
-func inverseOps(b hew.Binding, format hew.FormatID, target string, after, before []byte) ([]hew.ResolvedOp, error) {
+func InverseOps(b hew.Binding, format hew.FormatID, target string, after, before []byte) ([]hew.ResolvedOp, error) {
 	tl, err := hew.Invert(format, before, after, InversionOptions(target))
 	if err != nil {
 		return nil, fmt.Errorf("confpatch: derive the inverse of the application to %s: %w", target, err)

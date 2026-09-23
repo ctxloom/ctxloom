@@ -718,6 +718,50 @@ func TestApplicationRecord_InverseRestoresTheOriginalBytes(t *testing.T) {
 		"applying the inverse must restore the document the write started from")
 }
 
+// TestApplicationRecord_NeverCopiesANeighboursValue: the record lands under
+// the user's home, so any value it carries is a second copy the user never
+// asked for. Writing one key must not copy a SIBLING's value — here a bearer
+// token — into it. Neighbours may be named by key to locate a change; their
+// values are no part of that. It guards hew's side of the bargain as much as
+// ours: hew emits neighbour context as value-free hints, which Resolve drops,
+// so no diff radius this code passes can put a neighbour's value in the record.
+func TestApplicationRecord_NeverCopiesANeighboursValue(t *testing.T) {
+	const secret = "abc123-neighbour-secret"
+	for _, tc := range []struct{ name, original, patch string }{
+		{
+			name:     "sibling server beside an added one",
+			original: `{"mcpServers":{"remote-thing":{"url":"https://example.invalid","headers":{"Authorization":"Bearer ` + secret + `"}}}}`,
+			patch:    `{"mcpServers":{"ctxloom":{"command":"ctxloom"}}}`,
+		},
+		{
+			name:     "sibling key beside a replaced leaf",
+			original: `{"mcpServers":{"ctxloom":{"command":"old","headers":{"Authorization":"Bearer ` + secret + `"}}}}`,
+			patch:    `{"mcpServers":{"ctxloom":{"command":"ctxloom"}}}`,
+		},
+		{
+			name:     "top-level sibling beside a replaced scalar",
+			original: `{"theme":"dark","api_key":"` + secret + `"}`,
+			patch:    `{"theme":"light"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			path := "/home/user/project/.mcp.json"
+			require.NoError(t, afero.WriteFile(fs, path, []byte(tc.original), 0o644))
+
+			cmd, _ := configWriteTestCmd(tc.patch)
+			result, err := runConfigWrite(fs, cmd, path, "")
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Record)
+
+			recordBytes, err := afero.ReadFile(fs, result.Record)
+			require.NoError(t, err)
+			assert.NotContains(t, string(recordBytes), secret,
+				"a neighbour's value must never be copied into ctxloom's record store")
+		})
+	}
+}
+
 // hew's Document takes the target as a diagnostics LABEL (it does no I/O with
 // it). Passing the real path is only worth anything if it actually reaches the
 // message, and ctxloom's own wrap names the file too — so asserting "the error

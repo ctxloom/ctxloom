@@ -311,7 +311,13 @@ download_and_install() {
 # com.apple.quarantine and com.apple.provenance xattrs. The quarantine flag
 # triggers the "are you sure?" dialog, while provenance can cause the kernel
 # to outright kill the process ("zsh: killed") before it even starts.
-# Removing quarantine + re-signing ad-hoc clears both issues.
+# Removing both xattrs clears that; xattrs are metadata, not file bytes.
+#
+# NEVER re-sign or otherwise rewrite the binary here. The detached SSH
+# signature install_signed placed beside it covers the EXACT installed bytes,
+# and `codesign --force` rewrites the Mach-O, after which ctxloom refuses the
+# binary as tampered. Re-signing is also unnecessary: the Go linker already
+# ad-hoc signs darwin/arm64 binaries, which is all Apple Silicon requires.
 clear_macos_quarantine() {
     local os="$1" target="$2" use_sudo="$3"
     if [[ "${os}" != "darwin" ]]; then
@@ -320,9 +326,6 @@ clear_macos_quarantine() {
     if command_exists xattr; then
         ${use_sudo} xattr -d com.apple.quarantine "${target}" 2>/dev/null || true
         ${use_sudo} xattr -d com.apple.provenance "${target}" 2>/dev/null || true
-    fi
-    if command_exists codesign; then
-        ${use_sudo} codesign --force --sign - "${target}" 2>/dev/null || true
     fi
 }
 
@@ -599,9 +602,9 @@ warn_trust_steps() {
         return
     fi
     echo ""
-    log_warn "These are unsigned binaries. This script removed macOS quarantine and"
-    log_warn "ad-hoc signed them, but if anything is still blocked (Gatekeeper dialog"
-    log_warn "or a bare 'zsh: killed'), the manual steps are documented here:"
+    log_warn "These binaries are not notarized. This script removed macOS quarantine,"
+    log_warn "but if anything is still blocked (Gatekeeper dialog or a bare"
+    log_warn "'zsh: killed'), the manual steps are documented here:"
     log_warn "  ${TRUST_DOC_URL}"
     log_warn "Tip: rerun with --brew to install via Homebrew and skip this entirely."
 }

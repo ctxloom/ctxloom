@@ -13,14 +13,17 @@ The archives do carry a detached SSH signature beside each binary
 (`<binary>.sig`). That one is ctxloom's, not the operating system's: ctxloom
 runs a companion only when its `.sig` verifies against a publisher key you
 trust (see `ctxloom companion --help`), so keep the `.sig` next to the binary
-when you install by hand.
+when you install by hand. The signature covers the binary's exact bytes:
+**never re-sign a companion** (`codesign --force` or anything else that rewrites
+the file), or ctxloom refuses it as tampered. Removing extended attributes is
+safe; they are metadata, not file contents.
 
 ## TL;DR by install method
 
 | Method | Trust steps |
 |---|---|
-| **Homebrew** (`brew install ctxloom/tap/...`) | The casks clear quarantine only. They do **not** remove `com.apple.provenance` or ad-hoc sign, so on Sequoia+ you may still need the `codesign` step below |
-| **`install.sh`** (macOS/Linux) | Usually none — it clears quarantine *and* provenance and ad-hoc signs on macOS |
+| **Homebrew** (`brew install ctxloom/tap/...`) | The casks clear quarantine only. They do **not** remove `com.apple.provenance`, so on Sequoia+ you may still need the `xattr` step below |
+| **`install.sh`** (macOS/Linux) | Usually none — it clears quarantine *and* provenance on macOS |
 | **`install.ps1`** (Windows) | It clears nothing; it only prints the `Unblock-File` command. Run that yourself if SmartScreen interposes |
 | **Manual download** | macOS and Windows both flag the file; manual steps below |
 | **`go install` / build from source** | None — binaries you build locally are never quarantined |
@@ -29,7 +32,7 @@ On macOS, `install.sh` is the path with the least ceremony, not Homebrew: it is
 the only installer that handles `com.apple.provenance`, which is the attribute
 behind the silent kill described below. Homebrew is still a fine way to install
 `ctxloom` itself if you prefer it (and `install.sh --brew` will delegate to it),
-with two caveats: you may have to ad-hoc sign afterwards, and the `taskloom` and
+with two caveats: you may have to clear `com.apple.provenance` afterwards, and the `taskloom` and
 `ltk` casks are **not published for prerelease tags** (a tag with a suffix such
 as `-rc.1`), so a companion's cask can be missing from the tap.
 `install.sh --brew` warns and skips a companion whose cask install fails.
@@ -45,18 +48,18 @@ Consequences for an unsigned binary:
 - **Provenance** can cause the kernel to kill the process outright — the
   symptom is a bare `zsh: killed ctxloom` with no dialog at all.
 
-`install.sh` handles both when it can: it removes the two attributes and ad-hoc
-signs the binary (`codesign --force --sign -`), skipping whichever step's tool
-is missing. The Homebrew casks do **less** — every cask's post-install hook runs
-exactly one command, `xattr -dr com.apple.quarantine`. No cask touches
-`com.apple.provenance` and no cask signs anything, so a brew-installed binary
-can still be killed outright on Sequoia+. If a binary is blocked or killed — or
-you downloaded an archive manually — run:
+`install.sh` removes both attributes when `xattr` is available. It does not
+re-sign anything: Apple Silicon requires only an ad-hoc signature, which the
+linker already embeds, and re-signing would rewrite the bytes the companion's
+`.sig` covers. The Homebrew casks do **less** — every cask's post-install hook
+runs exactly one command, `xattr -dr com.apple.quarantine`. No cask touches
+`com.apple.provenance`, so a brew-installed binary can still be killed outright
+on Sequoia+. If a binary is blocked or killed — or you downloaded an archive
+manually — run:
 
 ```bash
 xattr -d com.apple.quarantine /usr/local/bin/ctxloom
 xattr -d com.apple.provenance /usr/local/bin/ctxloom
-codesign --force --sign - /usr/local/bin/ctxloom
 ```
 
 (Repeat for `taskloom` and `ltk` if you installed them.) The GUI alternative:

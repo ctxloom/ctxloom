@@ -6,8 +6,22 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/spf13/cobra"
 )
+
+// pinAdmittedCompanions is the isolation layer's companion pin
+// (isolation.SetCompanionPin): the admitted companions, verified against this
+// process's trust root, copied where a host launch puts them first on the
+// engine's PATH. Resolved per launch, so a companion updated mid-session is
+// re-admitted rather than served from a stale decision.
+func pinAdmittedCompanions() (string, error) {
+	store, err := paths.HomeCompanionPinDir()
+	if err != nil {
+		return "", err
+	}
+	return companions.PinAdmittedCompanions(store, loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot())
+}
 
 // The exec-consent CLI: the scriptable half of the trust-on-first-use decision
 // `ctxloom` makes interactively the first time it meets a companion binary.

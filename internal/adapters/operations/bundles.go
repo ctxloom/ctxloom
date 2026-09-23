@@ -105,8 +105,13 @@ type CreateBundleRequest struct {
 // in UpdateBundleRequest (see L3/L4 tests). BundleFragment has no Description
 // field; use Notes for human-readable annotations not sent to the AI and
 // Installation for setup instructions surfaced on install.
+//
+// A set REPLACES every field, Premise included: a caller editing an existing
+// fragment must carry its current Premise (see SetItemContent), or the edit
+// makes a conditional fragment unconditional — "" means always load.
 type BundleFragmentInput struct {
 	Content      string   `json:"content"`
+	Premise      string   `json:"premise,omitempty"`
 	Tags         []string `json:"tags,omitempty"`
 	Notes        string   `json:"notes,omitempty"`
 	Installation string   `json:"installation,omitempty"`
@@ -525,6 +530,7 @@ func applyFragmentEdits(bundle *bundles.Bundle, set map[string]BundleFragmentInp
 		merged.Notes = in.Notes
 		merged.Installation = in.Installation
 		merged.NoDistill = in.NoDistill
+		merged.Premise = in.Premise
 		if !hadExisting || existing.Content != in.Content {
 			merged.Content = in.Content
 			merged.Distilled = ""
@@ -1224,6 +1230,7 @@ func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
 				Content:      frag.Content,
 				NoDistill:    frag.NoDistill,
 			},
+			Premise: frag.Premise,
 		}
 	})
 }

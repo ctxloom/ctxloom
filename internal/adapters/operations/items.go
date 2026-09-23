@@ -54,10 +54,16 @@ type GetItemRequest struct {
 // persistent no_distill flag — a frontend deciding whether a per-invocation
 // distill-skip (e.g. `edit --no-distill`) is redundant with the item's own
 // standing setting needs this without a second bundle load.
+//
+// Premise is the fragment's applicability condition ("" = always load; a
+// command never has one) and Notes its human-only annotations: the read half
+// of SetFragmentPremise.
 type GetItemResult struct {
 	Content   string `json:"content"`
 	Distilled string `json:"distilled,omitempty"`
 	NoDistill bool   `json:"no_distill,omitempty"`
+	Premise   string `json:"premise,omitempty"`
+	Notes     string `json:"notes,omitempty"`
 }
 
 // GetItemContent returns a bundle item's content (and distilled form). It is the
@@ -87,7 +93,7 @@ func GetItemContent(_ context.Context, cfg *config.Config, req GetItemRequest) (
 		return nil, fmt.Errorf("%s %q: %w\n\nAvailable %ss: %s",
 			req.Kind, req.Name, ErrItemNotFound, req.Kind, strings.Join(itemNames(bundle, req.Kind), ", "))
 	}
-	return &GetItemResult{Content: item.content, Distilled: item.distilled, NoDistill: item.noDistill}, nil
+	return &GetItemResult{Content: item.content, Distilled: item.distilled, NoDistill: item.noDistill, Premise: item.premise, Notes: item.notes}, nil
 }
 
 // AddItemRequest is the input for AddItem.
@@ -258,6 +264,7 @@ func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentR
 		// them (applyFragmentEdits replaces tags/notes/installation from input).
 		_, distillTargets = applyFragmentEdits(bundle, map[string]BundleFragmentInput{req.Name: {
 			Content:      req.Content,
+			Premise:      existing.Premise,
 			Tags:         existing.Tags,
 			Notes:        existing.Notes,
 			Installation: existing.Installation,
@@ -294,6 +301,59 @@ func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentR
 		// without erroring on this item.
 		Distilled: req.Distiller != nil && len(distillTargets) > 0 && !failed.Has(req.Name),
 	}, nil
+}
+
+// SetFragmentPremiseRequest is the input for SetFragmentPremise. Premise ""
+// makes the fragment always load (see bundles.BundleFragment.Premise). Both
+// Premise and Notes are written exactly as given: a caller changing only one
+// passes the other's current value (GetItemContent).
+type SetFragmentPremiseRequest struct {
+	Bundle  string `json:"bundle"`
+	Name    string `json:"name"`
+	Premise string `json:"premise"`
+	Notes   string `json:"notes"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
+}
+
+// SetFragmentPremiseResult reports a fragment whose premise was written.
+type SetFragmentPremiseResult struct {
+	Status string `json:"status"`
+	Bundle string `json:"bundle"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+}
+
+// SetFragmentPremise writes a fragment's premise and notes, the write half of
+// premise authoring. It re-applies the existing content through the same
+// field-preserving merge as every other edit, so the body, its distilled form
+// and the other fields are untouched and nothing is re-distilled. The premise
+// is inside the item's trust preimage, so a changed premise stales the item's
+// approvals; this never signs — ratification is the author's `bundle sign`.
+func SetFragmentPremise(_ context.Context, cfg *config.Config, req SetFragmentPremiseRequest) (*SetFragmentPremiseResult, error) {
+	store := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	existing, ok := bundle.Fragments[req.Name]
+	if !ok {
+		return nil, fmt.Errorf("%s %q: %w", ItemKindFragment, req.Name, ErrItemNotFound)
+	}
+	applyFragmentEdits(bundle, map[string]BundleFragmentInput{req.Name: {
+		Content:      existing.Content,
+		Premise:      req.Premise,
+		Tags:         existing.Tags,
+		Notes:        req.Notes,
+		Installation: existing.Installation,
+		NoDistill:    existing.NoDistill,
+	}}, nil, nil)
+	if err := store.Save(bundle); err != nil {
+		return nil, fmt.Errorf("failed to save bundle: %w", err)
+	}
+	return &SetFragmentPremiseResult{Status: "updated", Bundle: req.Bundle, Name: req.Name, Path: bundle.Path}, nil
 }
 
 // DistillItemRequest is the input for DistillItem.
@@ -458,6 +518,8 @@ type itemFields struct {
 	distilledBy  string
 	noDistill    bool
 	needsDistill bool
+	premise      string
+	notes        string
 }
 
 // itemNames lists the names of every item of kind in b, for the "you asked for a
@@ -487,6 +549,8 @@ func lookupItem(b *bundles.Bundle, kind ItemKind, name string) (itemFields, bool
 				distilledBy:  f.DistilledBy,
 				noDistill:    f.NoDistill,
 				needsDistill: f.NeedsDistill(),
+				premise:      f.Premise,
+				notes:        f.Notes,
 			}, true
 		}
 	case ItemKindCommand:
@@ -497,6 +561,7 @@ func lookupItem(b *bundles.Bundle, kind ItemKind, name string) (itemFields, bool
 				distilledBy:  p.DistilledBy,
 				noDistill:    p.NoDistill,
 				needsDistill: p.NeedsDistill(),
+				notes:        p.Notes,
 			}, true
 		}
 	}

@@ -88,6 +88,7 @@ func operationsSchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(SearchRemotesResult{})},
 		{Type: reflect.TypeOf(SearchResult{})},
 		{Type: reflect.TypeOf(SetBundleMCPResult{})},
+		{Type: reflect.TypeOf(SetFragmentPremiseResult{})},
 		{Type: reflect.TypeOf(SetDefaultLLMResult{})},
 		{Type: reflect.TypeOf(SetItemContentResult{})},
 		{Type: reflect.TypeOf(SetProfileContentResult{})},

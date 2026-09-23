@@ -81,8 +81,15 @@ func (m *mockFetcher) FetchFile(ctx context.Context, owner, repo, path, ref stri
 	return nil, &fileNotFoundError{path: path}
 }
 
+// ListDir lists the direct file children of path in the files map.
 func (m *mockFetcher) ListDir(ctx context.Context, owner, repo, path, ref string) ([]DirEntry, error) {
-	return nil, nil
+	var out []DirEntry
+	for f := range m.files {
+		if rest, ok := strings.CutPrefix(f, path+"/"); ok && !strings.Contains(rest, "/") {
+			out = append(out, DirEntry{Name: rest})
+		}
+	}
+	return out, nil
 }
 
 func (m *mockFetcher) ResolveRef(ctx context.Context, owner, repo, ref string) (string, error) {
@@ -303,19 +310,15 @@ func TestPuller_Pull_RetractedVersion_Force(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	// No single file at the bundle's own path: FetchFile 404s there and
-	// fetchItemBytes falls back to the wired TreeFetchFunc. The retraction
-	// manifest is a real single file at its own, unrelated path and stays on
-	// the flat Files map.
+	// fetchItemBytes falls back to the wired TreeFetchFunc. The retraction is
+	// the signed SHA256SUMS at the default branch's tip, fetched on its own.
 	mf := NewMockFetcher()
-	mf.Files[".ctxloom/content/manifest.yaml"] = []byte(`retracted:
-  - type: bundle
-    name: security
-    reason: compromised release
-`)
+	mf.Files[".ctxloom/content/bundles/v2/security/SHA256SUMS"] = []byte("withdrawn")
 	mf.Refs["main"] = "abc123"
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 		WithTreeVerifier(stubTreeVerifier()),
+		WithManifestVerifier(verifierFor(map[string]Verified{"withdrawn": signedTip("security", "2.0.0", "compromised release")})),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
 		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{

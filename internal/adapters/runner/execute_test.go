@@ -481,9 +481,8 @@ func TestExecute_TheLaunchsEngineEnvRidesTheExec(t *testing.T) {
 func TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.T) {
 	env := newDeliveryEnv(t)
 	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity:     env.mint(t, 1, "run-ctr"),
-		Orchestrator: "root-harp",
-		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+		Identity: env.mint(t, 1, "run-ctr"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 

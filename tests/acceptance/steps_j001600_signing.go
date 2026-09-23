@@ -374,12 +374,6 @@ func j001600Setup(w *World) error {
 	return nil
 }
 
-// j001600PublishedFragmentPath is one fragment's path inside the flagship
-// (j001600PublishedName) bundle's own tree.
-func j001600PublishedFragmentPath(fragment string) string {
-	return treeBundleItemPath(j001600PublishedName, "fragments/"+fragment+".md")
-}
-
 // j001600FragmentFileBody renders one fragment FILE, read by the same tree
 // reader as steps_j001400_bundle_distribution.go's j001400AuthoredTree.
 //

@@ -130,7 +130,7 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
-		Runtime:    "container",
+		Runtime:    launch.RuntimeRootless,
 		Permission: perm.String(),
 		// The production resolver's allowlist (viaStartRunBackends) does NOT
 		// list "mock"; this spawner resolves it directly, so the test drives
@@ -150,6 +150,12 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	env := sessions.HookEnv(start.Identity)
 	if s.mode == progressSpawnDark {
 		l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
+		// What the coordinator settled for this start rides the launch, as the
+		// production resolver stamps it: the run id (Start encodes it into the
+		// reach-back; a runner handed none refuses to host) and the first turn
+		// (StartRun refuses a launch that carries none).
+		l.Identity = start.Identity
+		l.Prompt = start.Prompt
 		l.Axes.Runtime = launch.RuntimeRootless
 		l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 		l.Cell.Env = env
@@ -171,6 +177,12 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
 	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	// What the coordinator settled for this start rides the launch, as the
+	// production resolver stamps it: the run id (Start encodes it into the
+	// reach-back; a runner handed none refuses to host) and the first turn
+	// (StartRun refuses a launch that carries none).
+	l.Identity = start.Identity
+	l.Prompt = start.Prompt
 	l.Cell.Env = env
 	// As Resolve carries a container launch: the container axis (the runner
 	// dials the container-reachable listener) and a session endpoint for the
@@ -399,7 +411,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	out, err := c.AgentRun(ctx, coord.OwnerIdentity(), progressAgentName, prompt, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
-	require.Equal(t, "container", string(out.Runtime))
+	require.Equal(t, launch.RuntimeRootless, out.Runtime)
 	return out.Harp, startedAt, sp
 }
 

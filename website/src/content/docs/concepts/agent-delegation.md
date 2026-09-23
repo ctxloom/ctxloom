@@ -109,8 +109,8 @@ actually land in its own worktree rather than the parent's live checkout), and *
 publish/fetch tamper-refusal**. All three are real, verifiable claims — they just need a
 different harness than the one this page's evidence comes from, and asserting them without that
 evidence would repeat a mistake this project has already been caught making once. See [Isolation
-axes](/concepts/agents/#the-two-isolation-axes) for the workspace question specifically, and [the
-isolation matrix](/security/isolation/) for what's actually been measured about an engine's
+axes](/concepts/agents/#the-two-isolation-axes) for the workspace question specifically, and [Choosing an
+isolation boundary](/security/environment-isolation/) for an engine's
 *global* state (credentials, caches) crossing a boundary a delegated child doesn't control
 either.
 

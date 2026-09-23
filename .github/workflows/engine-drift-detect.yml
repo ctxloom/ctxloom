@@ -3,11 +3,11 @@ name: Engine Drift Detect
 # P0 (detect + alert) of the self-healing engine-format pipeline: polls each
 # LLM-engine CLI's release feed and compares it against the tested-version
 # lock in .github/engine-versions.env. A mismatch means a version ctxloom's
-# importer (internal/adapters/transcript/importer/{codex,claude})
+# vendor readers (internal/adapters/transcript/vendorreader)
 # has never been validated against has shipped, so it opens/labels a
 # tracking issue for a human. That is ALL this workflow does: no engine CLI
 # is installed, no transcript is captured, no parser is touched, and no
-# engine credential (ANTHROPIC_API_KEY / CODEX_API_KEY)
+# engine credential (ANTHROPIC_API_KEY)
 # is used or needed — those belong to later phases
 # (capture+oracle, then self-heal) per the plan. This workflow only ever
 # reads the engines' PUBLIC release feeds and writes a GitHub issue.

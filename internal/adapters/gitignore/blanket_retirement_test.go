@@ -48,7 +48,6 @@ var nonBlanketLines = []string{
 	".ctxloom/*.lock",
 	".ctxloom/content/drafts/",
 	".ctxloomer/",
-	".ctxloom-opencode-managed",
 	"internal/**/.ctxloom/",
 	"!.ctxloom/",
 	"!.ctxloom/plans/",
@@ -170,8 +169,6 @@ func TestEnsure_MigratesRealWorldBlanketFile(t *testing.T) {
 		".ctxloom/project-id",
 		"*.ctxloom.bak",
 		".agents/",
-		".codex/config.toml",
-		".codex/auth.json",
 		"",
 	}, "\n")
 	require.NoError(t, os.WriteFile(path, []byte(original), 0644))

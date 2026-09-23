@@ -307,8 +307,8 @@ Only needed if you opt into `runtime: container-rootless` or `runtime: container
 default `runtime: host` needs no container runtime at all. Container-isolated agents need
 **docker or podman** installed, on `PATH`, with the daemon reachable (`docker info` / `podman
 info` succeeding). Run `ctxloom container check` to diagnose whether the current host can launch
-one — see [`ctxloom container`](/reference/cli/ctxloom_container/) and [The engine you don't
-control](/security/isolation/#containers-dont-ask).
+one — see [`ctxloom container`](/reference/cli/ctxloom_container/) and [Containers close the loop, by not
+asking](/security/environment-isolation/#containers-close-the-loop-by-not-asking).
 
 ## Shell Completion
 

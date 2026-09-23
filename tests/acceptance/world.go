@@ -69,7 +69,7 @@ type World struct {
 	evalTriggers *evalTriggersState // evaluate_triggers: the seeded deferred task's harp (steps_evaluate_triggers.go)
 	j002400      *j002400State      // J002400: the container runtime-axis journey's fixture state (steps_j002400_container.go)
 	j002600      *j002600State      // J002600: the worktree-task-store redirect journey's fixture state (steps_j002600_worktree_task_store.go)
-	j002300      *j002300State      // J002300: cross-engine delegation — distinct context + real two-way bus (steps_j002300_cross_engine_delegation.go)
+	j002300      *j002300State      // J002300: delegation — distinct context + real two-way bus (steps_j002300_cross_engine_delegation.go)
 	j001400      *j001400State      // J001400: publishing a whole bundle tree and receiving every surface kind (steps_j001400_bundle_distribution.go)
 	j001600      *j001600State      // J001600: the publisher-signing journey's fixture state (steps_j001600_signing.go)
 	j001900      *j001900State      // J001900: the diagnosis-walk journey's fixture state (steps_j001900_diagnosis.go)

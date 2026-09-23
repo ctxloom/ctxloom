@@ -7,14 +7,13 @@
 // execute is a trust anchor nobody checks.
 //
 // WHAT P6 MEASURES, AND WHY IT NEEDED ITS OWN RUNG. j002300 already proves that
-// a delegated child can get a word back to its coordinator on every engine
-// ctxloom 0.7 drives: its per-engine floor asserts a marker that exists only in
-// the child's own composed context arrives in the coordinator's mailbox. That
-// is the CHILD→PARENT direction. The other direction — the coordinator reaching
-// INTO a live session mid-flight and the child acting on what it was handed —
-// was proven for claude-code alone, by the J002300-LIVE-ECHO-TOKEN step of the
-// cross-engine scenario. codex and opencode had it claimed and unproven
-// (capability inventory row 13).
+// a delegated child can get a word back to its coordinator on a real engine:
+// its per-engine floor asserts a marker that exists only in the child's own
+// composed context arrives in the coordinator's mailbox. That is the
+// CHILD→PARENT direction. The other direction — the coordinator reaching INTO a
+// live session mid-flight and the child acting on what it was handed — is
+// proven hermetically by j002300's agent_send scenario against the mock, and on
+// a real engine only here.
 //
 // THE CHANNEL IS THE BUS MESSAGE BODY AND NOTHING ELSE (channelBusMessage). The
 // value the child must produce is a harp minted per cell at fixture time and

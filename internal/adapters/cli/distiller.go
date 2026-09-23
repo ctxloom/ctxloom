@@ -12,10 +12,11 @@ import (
 )
 
 // errDistillFailed fails a command whose requested distillation did not run
-// or was rejected. The content is still saved — raw — so the command's other
-// work stands; what must not stand is an exit status of success over content
-// nobody distilled.
-var errDistillFailed = errors.New("distillation failed: content saved RAW (undistilled)")
+// or was rejected. The command's other work stands (an edit's content is
+// saved raw; a distill leaves any previous distillation in place); what must
+// not stand is an exit status of success over content nobody distilled. What
+// was kept differs per command, so the call site says it, not this sentinel.
+var errDistillFailed = errors.New("distillation failed")
 
 // newLLMDistiller builds the distiller for one config label and the distill
 // prompt. It is the single construction point shared by every CLI frontend

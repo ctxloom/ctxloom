@@ -5,13 +5,12 @@ Feature: Distilling authored content — does the compression happen, is it kept
   beside it for assembly to use. Three leaves do it — `fragment distill`,
   `command distill`, and `bundle distill` (every distillable item at once).
 
-  Nothing here can be judged by exit code. Distillation is deliberately
-  NON-FATAL at every failure it knows about: a distiller that cannot be built,
-  a backend that dies, an empty answer, and an implausibly short answer all
-  warn and carry on, and the command exits 0 in every one of those cases. That
-  is a defensible design — one bad item should not fail an author's whole
-  bundle — but it means "the command succeeded" carries almost no information,
-  and every scenario below reads the stored PAYLOAD instead.
+  A failed distillation — a backend that dies, an empty answer, an
+  implausibly short answer — FAILS the command: it warns why, keeps whatever
+  was stored before, and exits non-zero, so an exit status of success never
+  sits over content nobody distilled. The exit status alone still cannot tell
+  a refused answer that kept the good one from a failure that stamped
+  something wrong, so every scenario below reads the stored PAYLOAD as well.
 
   These scenarios are the hermetic counterpart to distill_live.feature, which
   runs the same three leaves against real vendor engines and asserts what only
@@ -79,7 +78,7 @@ Feature: Distilling authored content — does the compression happen, is it kept
     And the distilled fragment "rules" in bundle "lore" is the distiller's answer
     Given the mock LLM responds "tiny"
     When I run "ctxloom fragment distill lore#fragments/rules -f"
-    Then the command succeeds
+    Then the command fails
     # State before message, deliberately: godog stops a scenario at its first
     # failing step, so putting the warning check first would let it mask the
     # assertion that actually matters — a guard that warned and overwrote
@@ -89,14 +88,14 @@ Feature: Distilling authored content — does the compression happen, is it kept
 
   # The backend-failure path, which is the one an author actually hits (a
   # missing engine binary, an expired credential). Two claims, and the second
-  # is the one that matters: the command still exits 0, AND the item is left
+  # is the one that matters: the command fails, AND the item is left
   # RAW rather than stamped with a failed or partial result. A run that
-  # exited 0 and wrote something anyway would be indistinguishable from success
-  # to every downstream reader.
+  # wrote something anyway would be indistinguishable from success to every
+  # downstream reader, whatever its exit status said.
   Scenario: When the distiller cannot run, the item is left raw rather than stamped
     Given the distillation backend cannot start
     When I run "ctxloom fragment distill lore#fragments/rules -f"
-    Then the command succeeds
+    Then the command fails
     And the fragment "rules" in bundle "lore" has no distilled rendering
     # The failure names the engine's exit either way the race lands: the turn
     # frame answers with the engine's own error ("the engine process exited 1"),

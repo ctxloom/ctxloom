@@ -163,7 +163,7 @@ func discoveryLaunch(t *testing.T, cfg *config.Config) launch.Launch {
 
 	var got launch.Launch
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(_ context.Context, _ *config.Config, _ string, l launch.Launch) error { got = l; return nil }
+	launchEngineWithPromptFn = func(_ context.Context, _ launch.Deps, _ string, l launch.Launch) error { got = l; return nil }
 	t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
 
 	cmd := &cobra.Command{}
@@ -344,7 +344,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, *config.Config, string, launch.Launch) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Deps, string, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}
@@ -370,7 +370,7 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, *config.Config, string, launch.Launch) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Deps, string, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}
@@ -426,7 +426,7 @@ func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *tes
 		stubPingHosts(t, stub)
 
 		origLaunch := launchEngineWithPromptFn
-		launchEngineWithPromptFn = func(context.Context, *config.Config, string, launch.Launch) error {
+		launchEngineWithPromptFn = func(context.Context, launch.Deps, string, launch.Launch) error {
 			return assert.AnError
 		}
 		t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
@@ -477,7 +477,7 @@ func TestLaunchDiscovery_NonInteractive_SkipsPingAndLaunch(t *testing.T) {
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, *config.Config, string, launch.Launch) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Deps, string, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}

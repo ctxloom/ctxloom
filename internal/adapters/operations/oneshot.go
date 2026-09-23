@@ -99,7 +99,10 @@ func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed se
 	// exactly one turn and must open with it, while this session takes each
 	// of its turns as a frame — the launch's identity already says it is a
 	// one-shot session (seed.OneShot).
-	outcome, err := host.StartOwnedRun(ctx, host.Owner(), coord.OwnerRun{Launch: l}, start, "")
+	rebind := func(ctx context.Context, l launch.Launch) (launch.Launch, error) {
+		return launch.RebindEndpoint(ctx, deps, l)
+	}
+	outcome, err := host.StartOwnedRun(ctx, host.Owner(), coord.OwnerRun{Launch: l, Rebind: rebind}, start, "")
 	if err != nil {
 		o.End()
 		return nil, fmt.Errorf("one-shot %s: start run: %w", l.Identity.Harp, err)

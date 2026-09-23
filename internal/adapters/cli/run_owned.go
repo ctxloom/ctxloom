@@ -37,13 +37,23 @@ type ownedRunSession struct {
 }
 
 // ownedRunLaunch is startOwnedRun's request: the owner's resolved launch,
-// the composed MCP names the enqueue journal records, and the credential
-// the coordinator registered this session's owner under (it identifies the
-// owner). A keyed literal makes each value say what it is.
+// the composed MCP names the enqueue journal records, the credential the
+// coordinator registered this session's owner under (it identifies the
+// owner), and the rebind that answers a runner which cannot bind the launch's
+// endpoint (coord.OwnerRun.Rebind). A keyed literal makes each value say what
+// it is.
 type ownedRunLaunch struct {
 	Launch     launch.Launch
 	MCPServers []agent.ChatMCPServer
 	OwnerToken string
+	Rebind     func(ctx context.Context, l launch.Launch) (launch.Launch, error)
+}
+
+// endpointRebinder is the OwnerRun.Rebind for a launch resolved against deps.
+func endpointRebinder(deps launch.Deps) func(context.Context, launch.Launch) (launch.Launch, error) {
+	return func(ctx context.Context, l launch.Launch) (launch.Launch, error) {
+		return launch.RebindEndpoint(ctx, deps, l)
+	}
 }
 
 // processStarter is the owner run's starter for a launch whose runner is a
@@ -89,6 +99,7 @@ func startOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunc
 		Launch:     spec.Launch,
 		MCPServers: spec.MCPServers,
 		OneShot:    spec.Launch.Mode == engine.Structured,
+		Rebind:     spec.Rebind,
 	}, start, spec.Launch.Prompt)
 	if err != nil {
 		cancel()

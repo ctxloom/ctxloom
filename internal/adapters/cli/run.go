@@ -373,6 +373,9 @@ type runState struct {
 	// below it is a projection the transport and drive arms read; nothing
 	// is re-derived from flags or config once it exists.
 	launch launch.Launch
+	// rebind re-mints launch's endpoint against the deps it was resolved
+	// with (coord.OwnerRun.Rebind).
+	rebind func(context.Context, launch.Launch) (launch.Launch, error)
 	// opened is the launch's package as this process reads it (the local
 	// launcher's half of the carrier codec) and the managed payload the
 	// plugin arm hands its writers.
@@ -593,6 +596,7 @@ func (st *runState) resolveLaunch() error {
 		return err
 	}
 	st.bindLaunch(l, opened)
+	st.rebind = endpointRebinder(deps)
 	return nil
 }
 
@@ -1208,6 +1212,7 @@ func (st *runState) startTransport() error {
 		Launch:     st.launch,
 		MCPServers: st.managed.ChatMCPServers(),
 		OwnerToken: st.ownerToken,
+		Rebind:     st.rebind,
 	}, starter)
 	st.ownedRun = sess
 	// Everything recorded since the startup gate — above all a coordinator

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -70,7 +69,7 @@ func TestLaunchDiscovery_LaunchesTheInterviewInItsOwnSessionHome(t *testing.T) {
 
 	var captured launch.Launch
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(_ context.Context, _ *config.Config, _ string, l launch.Launch) error {
+	launchEngineWithPromptFn = func(_ context.Context, _ launch.Deps, _ string, l launch.Launch) error {
 		captured = l
 		return nil
 	}

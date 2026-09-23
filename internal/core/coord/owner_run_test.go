@@ -3,6 +3,8 @@ package coord
 import (
 	"context"
 	"errors"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // errStopBeforeDial is a test-only sentinel a starter returns to abort
@@ -33,12 +37,19 @@ func ownerRunStarter(ctx context.Context, sc *scriptedChat, backend string) (Own
 // TestStartOwnedRun_SurfacesContainerNameOnRoster to prove a non-empty name
 // the starter reports reaches the roster projection unchanged.
 func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, containerName string) (OwnedRunStarter, *bool) {
+	return ownerRunStarterWith(ctx, sc, backend, containerName, nil)
+}
+
+// ownerRunStarterWith is the owner starter with the runner tail's bind seam
+// exposed: refuse (nil: never) says whether the next launch the runner
+// executes is refused with delivery.ErrEndpointUnavailable.
+func ownerRunStarterWith(ctx context.Context, sc *scriptedChat, backend, containerName string, refuse func() bool) (OwnedRunStarter, *bool) {
 	started := new(bool)
 	starter := func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
 		*started = true
 		sctx, cancel := context.WithCancel(ctx)
 		host := runnerHooks.NewEngineHost(sctx, nil, backend, spawnEnv[EnvRunID])
-		runnerHooks.BindTestRunner(host, sc, nil)
+		runnerHooks.BindTestRunner(host, sc, refuse)
 		home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
 			Reporter: termSink(),
 			URL:      spawnEnv[EnvCoordURL],
@@ -233,4 +244,103 @@ func TestStartOwnedRun_OwnerHarpRoleNoCollision(t *testing.T) {
 			assert.NotEqual(t, "result", m.Kind, "no self-bridged result may land in the owner's mailbox")
 		}
 	}
+}
+
+// refusingBinds is a runner bind seam that refuses the first n launches.
+func refusingBinds(n int) func() bool {
+	var mu sync.Mutex
+	return func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if n > 0 {
+			n--
+			return true
+		}
+		return false
+	}
+}
+
+// ownerRebindRecorder is an OwnerRun.Rebind that moves the endpoint to a new
+// address and records each launch it was handed.
+type ownerRebindRecorder struct {
+	mu   sync.Mutex
+	seen []launch.Launch
+}
+
+func (r *ownerRebindRecorder) rebind(_ context.Context, l launch.Launch) (launch.Launch, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, l)
+	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:1/rebound-" + strconv.Itoa(len(r.seen)), Credential: "rebound"}
+	return l, nil
+}
+
+func (r *ownerRebindRecorder) calls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.seen)
+}
+
+// startOwnerRunRefusing starts an owner run whose runner refuses the first
+// refusals binds, with rebind as the run's OwnerRun.Rebind.
+func startOwnerRunRefusing(t *testing.T, refusals int, rebind func(context.Context, launch.Launch) (launch.Launch, error)) (*Coordinator, *RunOutcome, error) {
+	t.Helper()
+	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	const ownerHarp = "owner-harp"
+	token, err := c.RegisterSessionOwner(ownerHarp)
+	require.NoError(t, err)
+	owner, ok := c.Identify(token)
+	require.True(t, ok)
+	starter, _ := ownerRunStarterWith(ctx, &scriptedChat{}, "claude-code", "", refusingBinds(refusals))
+	spec := ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false)
+	spec.Rebind = rebind
+	out, err := c.StartOwnedRun(ctx, owner, spec, starter, "hello owner run")
+	return c, out, err
+}
+
+// TestStartOwnedRun_EndpointUnavailable_RebindsOnceOnTheSameRunner: the
+// owner's minted address is only reserved until the mint returns, so another
+// process can take the port before the runner binds it. The run answers that
+// ONE refusal the way a delegated child does: re-mint through OwnerRun.Rebind
+// and re-issue StartRun to the SAME runner, and the run comes up.
+func TestStartOwnedRun_EndpointUnavailable_RebindsOnceOnTheSameRunner(t *testing.T) {
+	rec := &ownerRebindRecorder{}
+	c, out, err := startOwnerRunRefusing(t, 1, rec.rebind)
+	require.NoError(t, err, "one refused bind is answered by a rebind, not surfaced")
+	assert.Equal(t, 1, rec.calls(), "exactly one rebind")
+	assert.Equal(t, "hello owner run", rec.seen[0].Prompt, "the rebind is handed the launch as issued, prompt included")
+	assert.NotEqual(t, StateEnded, rosterState(c, out.Harp), "the run is live after the rebind")
+}
+
+// TestStartOwnedRun_EndpointUnavailableTwice_FailsTheRun: the rebind is
+// answered ONCE — a runner that cannot bind a freshly minted address has a
+// problem no second mint fixes.
+func TestStartOwnedRun_EndpointUnavailableTwice_FailsTheRun(t *testing.T) {
+	rec := &ownerRebindRecorder{}
+	_, _, err := startOwnerRunRefusing(t, 2, rec.rebind)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "StartRun refused")
+	assert.Equal(t, 1, rec.calls(), "exactly one rebind is attempted")
+}
+
+// TestStartOwnedRun_EndpointUnavailable_NoRebindFailsTheRun: without a
+// Rebind there is no answer to the refusal, and the run fails with it rather
+// than hanging on an arm that does not exist.
+func TestStartOwnedRun_EndpointUnavailable_NoRebindFailsTheRun(t *testing.T) {
+	_, _, err := startOwnerRunRefusing(t, 1, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "StartRun refused")
+}
+
+// TestStartOwnedRun_RebindFailureFailsTheRun: a re-mint that itself fails
+// ends the run with that cause — issueStartRun left the run standing for the
+// rebind, so the arm must fail it.
+func TestStartOwnedRun_RebindFailureFailsTheRun(t *testing.T) {
+	boom := errors.New("mint refused")
+	c, _, err := startOwnerRunRefusing(t, 1, func(context.Context, launch.Launch) (launch.Launch, error) { return launch.Launch{}, boom })
+	require.ErrorIs(t, err, boom)
+	require.Eventually(t, func() bool { return rosterState(c, "owner-harp") == StateEnded }, conformanceWait, 10*time.Millisecond,
+		"a failed rebind must end the run, not leave it executing with no engine")
 }

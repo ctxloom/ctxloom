@@ -150,6 +150,34 @@ func TestResolve_MCPEndpoint_PerSession_StableAcrossResume(t *testing.T) {
 	require.NotEqual(t, first.MCP.URL, rebound.MCP.URL, "an explicit rebind mints a fresh address")
 }
 
+// TestRebindEndpoint_MintsAndRecordsANewAddressOnly: a held launch whose
+// runner could not bind its address gets a fresh one, bound on the session
+// record (so a later resume finds what the runner serves), and nothing else
+// about the launch moves.
+func TestRebindEndpoint_MintsAndRecordsANewAddressOnly(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
+	env.Deps.Endpoints = &launchtest.StableMinter{}
+	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+	require.NoError(t, err)
+
+	rebound, err := launch.RebindEndpoint(context.Background(), env.Deps, first)
+	require.NoError(t, err)
+	require.NotEqual(t, first.MCP.URL, rebound.MCP.URL, "a rebind mints a fresh address")
+	require.NotEqual(t, first.MCP.Credential, rebound.MCP.Credential, "and a fresh credential")
+
+	entry, err := env.Deps.Sessions.Find(env.Identity.Harp)
+	require.NoError(t, err)
+	require.Equal(t, rebound.MCP, entry.MCP, "the session record names the rebound endpoint, not the lost one")
+
+	// Launch holds func values (the cell's handles), which no deep equality
+	// compares; the fields a rebind could plausibly disturb are checked.
+	require.Equal(t, first.Identity, rebound.Identity, "the rebind keeps the session")
+	require.Equal(t, first.Engine, rebound.Engine)
+	require.Equal(t, first.Prompt, rebound.Prompt)
+	require.Equal(t, first.Plan, rebound.Plan)
+	require.Equal(t, first.Cell.Workspace, rebound.Cell.Workspace)
+}
+
 // TestLaunch_Session_IsTheOnlyProjection: Session() carries what the engine
 // is fed and nothing the runner keeps.
 func TestLaunch_Session_IsTheOnlyProjection(t *testing.T) {

@@ -30,10 +30,17 @@ import (
 // this reuse. OneShot marks a --print single-turn run: the run tears down
 // after the host collects the final answer, which changes only the host's
 // wait mode.
+//
+// Rebind re-mints the launch's session endpoint (launch.RebindEndpoint over
+// the caller's deps) when the runner reports it cannot bind the minted
+// address: the mint only reserves a port until it returns, so another process
+// can take it before the runner binds. The run answers that refusal ONCE, as
+// a delegated child's does; a nil Rebind has no answer and the run fails.
 type OwnerRun struct {
 	Launch     launch.Launch
 	MCPServers []agent.ChatMCPServer
 	OneShot    bool
+	Rebind     func(ctx context.Context, l launch.Launch) (launch.Launch, error)
 }
 
 // OwnedRunStarter launches the runner process for an owner-owned run with the
@@ -170,9 +177,22 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// (owner_run_cleanup_test.go): rt.close fires and the run leaves the
 	// live roster without any cleanup call at this call site.
 	l.Prompt = prompt
-	// No rebind arm: the owner's endpoint was minted by this same process
-	// moments ago, and its runner is the first incarnation to bind it.
-	if err := c.issueStartRun(ctx, rt, hashToken(token), l, prompt, l.Label.Model, "", false); err != nil {
+	err = c.issueStartRun(ctx, rt, hashToken(token), l, prompt, l.Label.Model, "", spec.Rebind != nil)
+	if errors.Is(err, errEndpointUnavailable) {
+		// THE REBIND (see OwnerRun.Rebind): the runner is up but could not
+		// bind the minted address. Re-mint and re-issue StartRun to the SAME
+		// runner, once — issueStartRun did not fail the run for this refusal,
+		// so a failed re-mint must.
+		rebound, rerr := spec.Rebind(ctx, l)
+		if rerr != nil {
+			rerr = fmt.Errorf("owner run: rebind the session endpoint: %w", rerr)
+			c.failChild(rt, rerr)
+			return nil, rerr
+		}
+		c.audit("endpoint_rebind", rt.harp, map[string]string{"run_id": rt.runID})
+		err = c.issueStartRun(ctx, rt, hashToken(token), rebound, prompt, rebound.Label.Model, "", false)
+	}
+	if err != nil {
 		return nil, err
 	}
 

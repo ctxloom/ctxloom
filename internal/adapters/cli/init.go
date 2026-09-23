@@ -748,7 +748,7 @@ func probeFailure(engine, what string, err error) error {
 // driveOwnedInteractive) over a runState this launch fills. Errors are
 // returned to the caller, which reports them through strictness and refuses
 // by default rather than swallowing them.
-func launchEngineWithPrompt(ctx context.Context, cfg *config.Config, workDir string, l launch.Launch) error {
+func launchEngineWithPrompt(ctx context.Context, deps launch.Deps, workDir string, l launch.Launch) error {
 	cell, ok := operations.TransportOf(l.Cell)
 	if !ok {
 		return errors.New("the discovery launch's cell carries no transport handle")
@@ -759,7 +759,7 @@ func launchEngineWithPrompt(ctx context.Context, cfg *config.Config, workDir str
 	}
 	st := &runState{
 		ctx:          ctx,
-		cfg:          cfg,
+		cfg:          deps.Snapshot.Config,
 		workDir:      workDir,
 		launch:       l,
 		activeHarp:   l.Identity.Harp,
@@ -771,7 +771,7 @@ func launchEngineWithPrompt(ctx context.Context, cfg *config.Config, workDir str
 		sessionCoord: c,
 	}
 	st.launch.Env = stampTerminalEnv(st.launch.Env)
-	sess, err := startOwnedRun(ctx, c, ownedRunLaunch{Launch: st.launch}, st.ptyStarter())
+	sess, err := startOwnedRun(ctx, c, ownedRunLaunch{Launch: st.launch, Rebind: endpointRebinder(deps)}, st.ptyStarter())
 	if err != nil {
 		if st.pty != nil {
 			st.pty.Kill()
@@ -855,7 +855,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 		}
 	}()
 
-	if launchErr := launchEngineWithPromptFn(cmd.Context(), cfg, workDir, l); launchErr != nil {
+	if launchErr := launchEngineWithPromptFn(cmd.Context(), deps, workDir, l); launchErr != nil {
 		return reportSetupLaunchFailure(launchErr)
 	}
 

@@ -37,10 +37,13 @@ const (
 
 // CoordinatorOnlyTools returns the set of tools a LEAF delegated agent must
 // NOT receive (the trust-boundary gate, internal/adapters/mcp/mcp_runner.go's
-// registration loop): every tool here either spawns, observes, controls or
-// stops OTHER children, or retrieves another agent's artifacts —
-// capabilities that make sense only for a coordinator. A leaf keeps
-// agent_send/agent_recv/agent_report (parent reporting only). The top-level
+// registration loop): every tool here spawns, observes, controls or stops
+// OTHER children — capabilities that make sense only for a coordinator. A
+// leaf keeps agent_send/agent_recv/agent_report (parent reporting), and
+// agent_fetch_artifact: a message body past the coordinator's inline cap
+// reaches it as a head plus a marker naming an artifact filed under its OWN
+// harp, which it could not otherwise open. The coordinator's
+// authorizeArtifactDownload still confines a leaf to its own artifacts. The top-level
 // human session is never gated by this (see llm_serve.go's leaf
 // computation); only a delegated child's runner consults it.
 //
@@ -50,15 +53,14 @@ const (
 // children to control, which is the stall this gate exists to prevent.
 func CoordinatorOnlyTools() map[string]bool {
 	return map[string]bool{
-		ToolAgentRun:           true,
-		ToolRoster:             true,
-		ToolAgentStop:          true,
-		ToolAgentFetchArtifact: true,
-		ToolAgentSteer:         true,
-		ToolAgentAsk:           true,
-		ToolAgentSummarize:     true,
-		ToolAgentPause:         true,
-		ToolAgentResume:        true,
+		ToolAgentRun:       true,
+		ToolRoster:         true,
+		ToolAgentStop:      true,
+		ToolAgentSteer:     true,
+		ToolAgentAsk:       true,
+		ToolAgentSummarize: true,
+		ToolAgentPause:     true,
+		ToolAgentResume:    true,
 	}
 }
 

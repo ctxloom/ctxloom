@@ -37,11 +37,23 @@ Mirrors apt: 'deps check' reports what is out of date, 'deps upgrade' advances
 your pins to the newest commit. 'deps pull' installs exactly what is already
 pinned and never advances one.
 
+A pin is also NOT moved below the version its publisher signed at the last pin
+— a rollback to an older signed release — nor from signed to unsigned content.
+Name a ref with --allow-downgrade to accept that for it; the lower version then
+becomes its floor.
+
 Examples:
   ctxloom deps upgrade                   # Advance pins to the latest available
+  ctxloom deps upgrade --allow-downgrade <ref>   # Accept a lower signed version for <ref>
 
 ```
 ctxloom deps upgrade [flags]
+```
+
+### Options
+
+```
+      --allow-downgrade stringArray   Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref
 ```
 
 ### Options inherited from parent commands

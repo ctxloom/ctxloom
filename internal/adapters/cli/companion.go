@@ -30,11 +30,15 @@ context it contributes. Because any program on your PATH can claim one of those
 names — including a transitive dependency in ./node_modules/.bin — a companion
 runs only when its bytes carry a SIGNATURE from a publisher you trust.
 
-That is the whole gate. A companion is executed when a detached '<binary>.sig'
-beside it verifies, in the companion namespace, against a key in your
-allowed_signers. Anything else is skipped with a warning: no signature, a
-signature that does not cover those bytes, or a signer you have not authorized
-to say "this may run here".
+That is the whole gate. Beside each companion sit '<binary>.release' — its
+publisher's statement of the binary's name, version and sha256 — and
+'<binary>.sig', a signature over that statement. A companion is executed when
+the signature verifies, in the companion namespace, against a key in your
+allowed_signers, the statement names the file under the name it is installed
+as, and its hash matches the bytes. Anything else is skipped with a warning: no
+signed statement, a signature or hash that does not cover those bytes, a binary
+installed under a name its publisher did not give it, or a signer you have not
+authorized to say "this may run here".
 
 There is no command to approve or refuse one, and none is needed. To stop
 ctxloom running a companion, take away what admits it: delete its '.sig', or

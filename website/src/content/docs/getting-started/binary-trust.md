@@ -9,11 +9,12 @@ signed with an Apple Developer ID or a Windows code-signing certificate. Your
 operating system will treat them accordingly, and depending on how you
 install, you may have extra steps before the binary runs.
 
-The archives do carry a detached SSH signature beside each binary
-(`<binary>.sig`). That one is ctxloom's, not the operating system's: ctxloom
-runs a companion only when its `.sig` verifies against a publisher key you
-trust (see `ctxloom companion --help`), so keep the `.sig` next to the binary
-when you install by hand.
+The archives do carry a release statement and a detached SSH signature over it
+beside each binary (`<binary>.release`, `<binary>.sig`). Those are ctxloom's,
+not the operating system's: ctxloom runs a companion only when its `.sig`
+verifies against a publisher key you trust and its `.release` names and hashes
+the binary it sits beside (see `ctxloom companion --help`), so keep both next to
+the binary, under the name it shipped with, when you install by hand.
 
 ## TL;DR by install method
 

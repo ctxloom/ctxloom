@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
 // This file is Terminals, the registry that maps a hosted process's lifecycle
@@ -71,15 +74,37 @@ type Runner interface {
 	Run(ctx context.Context, args ...string) (string, error)
 }
 
-// ExecRunner shells out to the real tmux binary on tmuxSocketName. A missing
-// tmux binary surfaces as an ordinary *exec.Error from cmd.Run and is
-// PROPAGATED, never swallowed: this package has no fallback for "no tmux" and
-// must not invent one, because the only alternatives available to it are a
-// silent decline and a fabricated success. Turning that error into a
-// remedy-carrying message for whoever asked is the caller's job.
+// ErrTmuxUnavailable is NewExecRunner's refusal: this host has no tmux this
+// process can find. This package has no fallback for "no tmux" and must not
+// invent one, because the only alternatives available to it are a silent
+// decline and a fabricated success. Deciding whether the refusal is fatal, and
+// turning it into a remedy-carrying message, is the caller's job.
+var ErrTmuxUnavailable = errors.New("tmux is not available on this host")
+
+// lookupTmux resolves the tmux binary through the user's login-shell PATH (see
+// shellenv.Resolve for why the process PATH alone is not enough). Overridable
+// so tests can make tmux absent on a host where it is installed.
+var lookupTmux = func() (string, error) { return shellenv.Resolve("tmux") }
+
+// NewExecRunner resolves tmux NOW and returns a runner pinned to that binary,
+// or ErrTmuxUnavailable wrapping the lookup's failure. Probing here puts the
+// discovery where the component is built instead of at the first tmux call
+// inside a run, and pinning the resolved path keeps the probe honest: a probe
+// that found tmux on the login-shell PATH while the runner exec'd a bare
+// "tmux" against the process PATH would pass and then fail anyway.
+func NewExecRunner() (ExecRunner, error) {
+	bin, err := lookupTmux()
+	if err != nil {
+		return ExecRunner{}, fmt.Errorf("%w: %w", ErrTmuxUnavailable, err)
+	}
+	return ExecRunner{bin: bin}, nil
+}
+
+// ExecRunner shells out to the real tmux binary on tmuxSocketName. Build it
+// with NewExecRunner. A failing exec is PROPAGATED, never swallowed.
 type ExecRunner struct {
-	// bin overrides the tmux binary path; empty means "tmux" (resolved via
-	// PATH). Test-only seam.
+	// bin is the tmux binary NewExecRunner resolved; empty means "tmux"
+	// against the process PATH, which only the real-tmux tests rely on.
 	bin string
 	// socket overrides the server socket name; empty means tmuxSocketName.
 	// Test-only seam, and load-bearing for the real-tmux tests in

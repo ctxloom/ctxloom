@@ -2,317 +2,164 @@
 title: "Session Memory"
 ---
 
-You hit a context limit, or you just want a clean slate mid-task. Normally that means `/clear` and then rebuilding your bearings by hand: scrolling back through the old conversation, copy-pasting chunks of it into the fresh one, guessing which decisions and code and half-finished threads still matter, fighting the token limit as you paste. You grab too much or miss the one detail that mattered, and the formatting doesn't survive the trip. It's salvage work, not the work you meant to be doing.
+You hit a context limit, or you want a clean slate mid-task. Normally that means `/clear` and then rebuilding your bearings by hand: scrolling back through the old conversation, pasting chunks of it into the fresh one, guessing which decisions and half-finished threads still matter. You grab too much or miss the one detail that mattered.
 
-With ctxloom, that ritual is two commands:
+With ctxloom, you clear and then ask:
 
 ```
 /clear
-/recover
+What were we working on before the clear?
 ```
 
-`/clear` empties the window but doesn't end the session — the same session keeps growing underneath it. `/recover` re-reads that session's still-growing transcript from disk and hands back a fresh distillation of it. Your bearings come back on their own — no scrolling through the old transcript, no guessing what to save.
+`/clear` empties the window but doesn't end the session; the same session keeps growing underneath it. The agent answers by calling ctxloom's `recover_session` MCP tool, which reads that session's transcript from disk and hands back a fresh distillation of it.
 
-## Why ctxloom captures its own transcript
+This works in any session started with `ctxloom run`, because every such session carries ctxloom's MCP server. A Claude Code you launch yourself has no ctxloom MCP server and no session record, so there is nothing to recover.
 
-Earlier versions of ctxloom didn't record a conversation at all — they went looking for it afterward, in each engine's own private, undocumented session file (a Claude Code JSONL under `~/.claude/projects/...`, for instance), and re-derived the pieces ctxloom needed: which file belongs to which project, how to decode that engine's particular record shape. That worked until it didn't: a wrong filename, an unhandled record shape, or a store format ctxloom's reader didn't know about, and recovery silently came back with nothing — no error, no warning, just an empty distillation for a session that plainly wasn't empty. `/recover` above only works if there's actually something to recover.
+## Where the transcript comes from
 
-ctxloom no longer goes looking. For every engine driven through ctxloom's structured chat path, the conversation already flows through ctxloom's own process as it happens — every message, tool call, and tool result crosses ctxloom on its way between you and the model. ctxloom now captures that stream itself into one canonical, engine-agnostic transcript per session, instead of trying to reconstruct it later from a file it doesn't control. There is one format, one reader, and no per-engine guessing. See [docs/transcript-schema.md](https://github.com/ctxloom/ctxloom/blob/main/docs/transcript-schema.md) for the on-disk schema, if you want the detail.
+ctxloom keeps one canonical, engine-agnostic transcript per session, at `~/.ctxloom/sessions/<harp>/persist/transcript.jsonl`. See [docs/transcript-schema.md](https://github.com/ctxloom/ctxloom/blob/main/docs/transcript-schema.md) for the schema. How it gets filled depends on how the engine was driven:
 
-Two capture regimes cover ctxloom's structured usage:
+- An interactive `ctxloom run` drives Claude Code's own terminal UI. ctxloom imports Claude Code's JSONL transcript into the canonical one when the session exits, and `recover_session` runs the same import mid-session. The reader is version-scoped: `ctxloom doctor` reports which reader your installed Claude Code version selects, and a transcript in a format no reader covers is refused rather than guessed at.
+- A structured session, such as a child launched with `agent_run`, streams through ctxloom's own process, and every message, tool call and tool result is recorded as it happens.
+- `ctxloom run --one-shot` records only the prompt you sent and the reply that came back.
 
-- **Structured / chat sessions** (the default for `ctxloom run`) get full-fidelity capture: every user turn, assistant message, reasoning step, tool call, and tool result, in order.
-- **Oneshot runs** (`ctxloom run --one-shot`) don't stream turn-by-turn, so capture is lower-fidelity: just the prompt you sent and the reply that came back. No tool-by-tool detail, but never nothing — a oneshot run that used to leave no memory behind now leaves at least the shape of what happened.
-
-The one gap this release doesn't close: if you drive an engine's own interactive terminal UI directly rather than through ctxloom's structured chat, the conversation never crosses ctxloom's process, so there's nothing for ctxloom to capture — the old per-engine file scrapers that used to (unreliably) cover this case have been removed, not replaced. That path has no ctxloom memory for now; it's tracked for a future release. Everything else below assumes the structured or oneshot path, which is how `ctxloom run` operates by default.
+`ctxloom session transcript` lists, watches and purges these transcripts.
 
 ## Why this runs out of band
 
-Your harness's own compaction (`/compact` or its auto-compact equivalent) is the right tool for live context pressure, and ctxloom doesn't compete with it — use it when your current session is getting full.
+Your harness's own compaction (`/compact` or its auto-compact equivalent) is the right tool for live context pressure, and ctxloom doesn't compete with it.
 
-Session memory solves a different problem: a summary that outlives the session. In-context compaction asks the agent to summarize itself at the exact moment it has the least room to think. A context-starved agent writes a starved summary, and whatever it drops on the way out is gone for good — there's no going back for it after `/clear`.
+Session memory solves a different problem: a summary that outlives the session. In-context compaction asks the agent to summarize itself at the moment it has the least room to think, and whatever it drops on the way out is gone after `/clear`.
 
-ctxloom distills out of band instead. It reads the complete transcript from disk, in a fresh process, with a full budget, using a separate fast model (default: Haiku). The summary gets written where it actually has room to be good, and it's saved to disk, so it's still there after `/clear` — or after the process restarts, or a day later.
+ctxloom distills out of band instead. It reads the transcript from disk, in a separate process, using the `fast` LLM from your config (Haiku, as `ctxloom init` scaffolds it). The summary is saved to disk, so it's still there after `/clear`, after the process restarts, or a day later.
 
-Distillation is **on-demand**. Nothing distills a session automatically when it
-ends — a session stays title-less until something explicitly asks for its essence.
+Distillation is **on-demand**. Nothing distills a session automatically when it ends; a session stays title-less until something asks for its essence. These ask for one:
 
-It is triggered for you in two places:
+- `recover_session`, `load_session`, `get_previous_session`, `compact_session` and `list_sessions` with `distill_missing`, over MCP.
+- `ctxloom run --session <harp> --distill`, which distills the named session first if it has no essence yet.
+- `ctxloom session list --distill`, which distills every listed session whose essence is missing or stale.
+- `ctxloom session distill <harp>`, which gives a session an essence ahead of need, or replaces a stale one.
 
-- On resume: `ctxloom run --session <harp> --distill` distills the previous session
-  first, so its essence is ready to inject into the new run.
-- On recovery: `/recover` (or asking "what were we working on?") distills on demand,
-  which is what makes the `/clear` → `/recover` sequence above work even for a session
-  that has not exited yet. `load_session`, `get_previous_session`, `compact_session`
-  and `list_sessions(distill_missing)` all reach the same lazy path.
+For durable, cross-session work items (distinct from the agent's ephemeral to-dos), see [Sessions and Tasks](/concepts/sessions-and-tasks/).
 
-Distilling by hand — `ctxloom session distill <harp>` — is how you give a session an
-essence ahead of needing one, or force a fresh essence over a stale one.
+## Recovering after `/clear`
 
-## Overview
-
-Session memory lets you:
-
-1. Clear the context window when you hit limits
-2. Recover context wiped from the current session by `/clear`
-3. Browse session history to find and load specific sessions
-
-For durable, cross-session work items (distinct from the agent's ephemeral
-to-dos), see [Sessions and Tasks](/concepts/sessions-and-tasks/).
-
-## Usage
-
-Session memory is always enabled - no configuration required.
-
-### The `/recover` Command
-
-When you hit context limits and need to clear:
-
-```
-/clear
-/recover
-```
-
-The `/recover` command:
-
-1. Reads the *current* session for this project from disk — the one `/clear` just wiped, which is still live and still growing (read-time — no process tracking)
-2. Distills the raw JSONL transcript using a separate LLM (default: Haiku)
-3. Returns the essence so you can continue working
-
-Behind the command, `recover_session` does the work. It resolves the active
-session by identity — the harp bound to this session at start — and falls
-back to the most-recently-touched transcript only if that binding is missing
-or its transcript is gone. `get_previous_session` is a different tool, for a
-different job: it looks up the session *before* this one, for inspecting
-older work, not for undoing a `/clear`.
-
-### Alternative Recovery
-
-You can also recover naturally:
+Ask in plain language:
 
 ```
 What were we working on before the clear?
 ```
 
-The AI will use `recover_session` to find and distill the current session.
-Don't reach for `get_previous_session` here — after `/clear`, "previous
-session" language is misleading: the session `/clear` wiped is still the
-current one, and `get_previous_session` would return the session before it
-instead.
+`recover_session` resolves the active session by identity (the harp bound to this session at start) and falls back to the most-recently-touched transcript only if that binding is missing or its transcript is gone. Recovery is read-time: no live process or PID tracking is involved, so it works even after the engine process has restarted.
 
-### Browsing Session History
+Don't reach for `get_previous_session` here. After `/clear`, "previous session" is misleading: the session `/clear` wiped is still the current one, and `get_previous_session` returns the session before it.
 
-To see recent sessions with short summaries, read the `ctxloom://sessions/recent`
-resource — or just ask:
+## Picking up an earlier session
+
+Every `ctxloom run` prints a short banner before the engine starts, and when this project has an earlier session it names it:
 
 ```
-Show me recent sessions
+previous session: quiet-loyal-otter — bring it back in-session with the "resume" skill
 ```
 
-Then load a specific one to continue it:
+To bring it back, either ask inside the new session:
 
 ```
-Load the distilled session from this morning
+Load session quiet-loyal-otter
 ```
 
-## How It Works
-
-### Session Tracking
-
-ctxloom records each session on disk under the project, in a harp-named session
-directory. Recovery is **read-time**: when you ask to recover, ctxloom reads the
-current session — the one bound to this session's harp — straight from disk.
-That binding is identity, not a timestamp guess; a most-recently-touched
-transcript is used only when the harp has no binding or its transcript is
-missing. No live process or PID tracking is involved, so recovery works even
-after the AI process has fully restarted across `/clear` — and without
-manually specifying session IDs.
-
-### Distillation
-
-Distillation happens **outside your session**, in a separate process, using a
-separate LLM call. The distilling model reads the full raw transcript from disk,
-not whatever fits in your live context window, so it never has to work from a
-degraded view of the conversation.
-
-The process:
-
-1. Read transcript: ctxloom reads the raw JSONL session log from disk
-2. Chunk: large sessions are split (default: 8000 tokens per chunk)
-3. Distill: a fast model (default: Haiku) extracts key information — decisions made and why, context established, progress achieved, next steps planned
-4. Store: the result is saved as that session's essence
-
-Distillation compresses aggressively while keeping what a later session needs
-to pick up the work.
-
-### Storage
-
-The canonical distilled essence for a session lives under your home directory,
-keyed by its harp name:
-
-```
-~/.ctxloom/sessions/
-├── index.yaml               # Session index (harp name → session metadata)
-└── <harp-name>/
-    └── essence.md           # Distilled essence for that session
-```
-
-`ctxloom session show <harp>` prints this file. Every distill also mirrors
-the identical bytes to a project-rooted `.ctxloom/sessions/<session-id>.md`
-layout, keyed by backend session ID rather than harp name — that mirror is
-the read path `load_session` and `get_previous_session` use when looking a
-session up by ID instead of harp name, not a legacy fallback.
-
-### Cross-Agent Workflows
-
-Distilled memory is portable across agents — it's stored as plain markdown. Raw session history is now captured in the same engine-agnostic format regardless of which backend produced it (see "Why ctxloom captures its own transcript" above) — for any session driven through ctxloom's structured chat or a oneshot run.
+which calls `load_session` (it accepts a harp name or a backend session ID, and the harp wins), or start a new run from it:
 
 ```bash
-# Morning: Write code with your primary model
-ctxloom run --llm big "implement the auth module"
-# When done, just exit. Distill it when you want it: ctxloom session distill <harp>
-
-# Afternoon: Review with a different model (another llm label)
-ctxloom run --llm quick
-"Load the distilled session from this morning"
-# The new session loads the markdown summary, continues the work
+ctxloom run --session quiet-loyal-otter            # fold its full transcript into this run
+ctxloom run --session quiet-loyal-otter --distill  # fold in its distilled essence instead
 ```
 
-Use cases:
-- Development then review: write with one model, review with another
-- Fast then thorough: draft with Haiku, refine with Opus
-- Specialist models: use different models for different task types
+To find a session, ask the agent to list recent sessions (it calls `list_sessions`), or run `ctxloom session list`.
 
-The distilled markdown captures decisions, progress, and next steps - everything the next agent needs to continue the work.
+## Distillation
 
-:::note
-Browsing another backend's raw session history (not just distilled summaries) from within a different backend's session isn't a dedicated, documented flow yet, even though the underlying capture format is now shared across backends. If you need it, [open an issue](https://github.com/ctxloom/ctxloom/issues).
-:::
+The distilling model reads the transcript from disk, not whatever fits in your live context window. It makes one call over the whole transcript. A transcript larger than the distillation budget is reduced first, compressing the oldest content hardest and keeping the most recent intact, because the tail is what the next session needs to pick up the work. The result is saved as that session's essence.
 
-## MCP Tools
+## Storage
 
-Session memory provides these MCP tools:
+Each session is a directory under your home, keyed by its harp name:
+
+```
+~/.ctxloom/sessions/<harp>/
+├── session.yaml               # the session record: project, engine, bound session ids
+├── essence.md                 # the distilled essence, once something asks for one
+└── persist/transcript.jsonl   # the canonical transcript
+```
+
+`ctxloom session show <harp>` prints the essence.
+
+## Cross-model workflows
+
+The essence is plain markdown, so a session run on one model can be picked up on another:
+
+```bash
+# Morning: write code with the default model
+ctxloom run --llm claude-code "implement the auth module"
+# When done, exit. Distill it when you want it: ctxloom session distill <harp>
+
+# Afternoon: review with another configured label
+ctxloom run --llm claude-fast --session <harp> --distill "review what was done"
+```
+
+`--llm` takes a label from `llm.configs` in your config; `claude-code` and `claude-fast` are the ones `ctxloom init` scaffolds.
+
+## MCP tools
 
 | Tool | Description |
 |------|-------------|
-| `compact_session` | Force-distil a session's transcript on disk; frees no context in the live conversation and rarely needs to be called directly since distillation already runs on exit, resume, and recovery |
-| `load_session` | Distill and load a session by backend session ID or harp name (harp wins) |
 | `recover_session` | Recover the current session's context after `/clear` (identity-first: the active harp's bound session, falling back to the most-recently-touched transcript only if that binding is missing) |
-| `get_previous_session` | Get the session *before* this one for this project, for inspecting earlier work — not the post-`/clear` path, since `/clear` doesn't change which session is current |
+| `load_session` | Distill and load a session by backend session ID or harp name (harp wins) |
+| `get_previous_session` | Get the session *before* this one for this project, for inspecting earlier work. Not the post-`/clear` path, since `/clear` doesn't change which session is current |
+| `list_sessions` | List recent sessions; `distill_missing` distills the ones without an essence first |
+| `compact_session` | Distill a session's transcript on disk for a later session to pick up. It frees no context in the live conversation |
 
-Browsing recent sessions is a **resource**, not a tool — read
-`ctxloom://sessions/recent`.
+See the [MCP tools reference](/reference/mcp-tools/) for every parameter.
 
-### Example: Forcing a Distill Before Ending
+## Configuration
 
-Most sessions never need this — exit, resume, and recovery already trigger it.
-Use it when you want the essence ready before you close a session:
-
-```
-Distill this session now, I'm about to end it
-```
-
-### Example: Load Specific Session
-
-```
-Load session swift-amber-falcon
-```
-
-`load_session` accepts either a backend session ID (UUID) or a harp name; harp
-names are listed in the `ctxloom://sessions/recent` resource.
-
-### Example: Inspect an Earlier Session
-
-```
-Use get_previous_session to see what we worked on before this session
-```
-
-This is for looking back at a session that already ended — not for recovering
-from a `/clear`, which `recover_session` (or just `/recover`) already handles
-automatically.
-
-### Example: Browse History
-
-Recent sessions are exposed as the `ctxloom://sessions/recent` resource:
-
-```
-Show me recent sessions
-```
-
-## Advanced Configuration
-
-The compaction/distillation model is the `fast` role in `llm.defaults`; the
-chunk size lives under `config`:
+The distillation model is the `fast` role in `llm.defaults`:
 
 ```yaml
 llm:
   defaults:
-    fast: claude-fast      # config label used for compaction/distillation
+    fast: claude-fast      # config label used for distillation
 ```
 
-## CLI Commands
+## CLI commands
 
-### Manual Compaction
+Sessions are harp-named (e.g. `swift-amber-falcon`) and recorded automatically once launched with `ctxloom run`. The `ctxloom session` family reads and manages them:
 
 ```bash
-ctxloom memory compact
+ctxloom session list                      # Sessions for the current project
+ctxloom session list --all                # Sessions for every project
+ctxloom session show <harp>               # Print a session's distilled essence
+ctxloom session distill <harp>            # Distill a session now
+ctxloom session edit <harp> --name <new>  # Rename a session
+ctxloom session remove <harp> --yes       # Remove record, transcript and essence
+ctxloom session purge <harp> --yes        # Empty a session, keep it listed
 ```
 
-There's no notion of a "current session" from a bare CLI invocation — with no
-`--session`, this compacts the most-recently-touched transcript. Pass
-`--session <id>` to target a specific one.
-
-### List Sessions
-
-```bash
-ctxloom memory list
-```
-
-Shows all sessions with their compaction status.
-
-### Managing the Session Index
-
-Sessions are harp-named (e.g. `swift-amber-falcon`) and recorded in the index
-at `~/.ctxloom/sessions/index.yaml` automatically once launched with
-`ctxloom run`. The `ctxloom session` family reads and manages that index:
-
-```bash
-ctxloom session list                    # Sessions for the current project
-ctxloom session list --all              # Sessions for every project
-ctxloom session show <harp>             # Print a session's distilled essence
-ctxloom session edit <harp> --name <new>  # Rename an index entry
-ctxloom session remove <harp> --yes     # Remove entry, transcript and essence
-ctxloom session purge <harp> --yes      # Empty a session, keep it listed
-ctxloom session distill <harp>          # Force-distill a session
-```
-
-`session distill` is how a session gets an essence at all — distill first, then load
-with `load_session` or `ctxloom run --session <harp>`.
-
-## Best Practices
-
-1. Just `/clear` when needed. Don't overthink it — ctxloom tracks your session automatically.
-2. Use `/recover` after clearing. Distillation happens on-demand; there's nothing to pre-save.
-3. Browse older sessions by reading `ctxloom://sessions/recent` (or asking "show me recent sessions") when you need context from days ago.
-4. Review recovered content and check that the important details were captured.
+`remove` and `purge` only report what they would do until you pass `--yes`, and both refuse a session that was never distilled, because that would destroy the only record of it.
 
 ## Troubleshooting
 
-### Recovery Shows "No Sessions Found"
+### Recovery finds no session
 
-If recovery can't find a session to distill:
-- Ensure you started the session with `ctxloom run` (not raw `claude`), so the session was recorded
-- Browse `ctxloom://sessions/recent` (or ask "show me recent sessions") to find and load a specific one
+- Make sure the session was started with `ctxloom run` (not raw `claude`), so it was recorded and has ctxloom's MCP server.
+- Run `ctxloom session list` to confirm the session exists, then load it by harp name.
 
-### Compaction Fails
+### Distillation fails
 
-If compaction fails:
-- Check that the LLM is configured correctly
-- Ensure you have API access for the compaction model
+- Check that the `fast` LLM label resolves: `ctxloom llm list`.
+- Make sure that engine is installed and authenticated.
 
-### Distilled Session Missing
+### A session has no essence
 
-If a session you expect to load has no distilled content:
-- Check `~/.ctxloom/sessions/<harp>/essence.md` for that session's distilled essence
-- Run `ctxloom session list` to confirm the session is in the index
-- Distill it with `ctxloom session distill <harp>` — sessions have no essence until asked
+- Check `~/.ctxloom/sessions/<harp>/essence.md`.
+- Distill it with `ctxloom session distill <harp>`. Sessions have no essence until something asks for one.

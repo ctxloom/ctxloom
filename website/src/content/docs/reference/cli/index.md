@@ -8,16 +8,11 @@ Complete reference for all ctxloom commands.
 
 The per-command pages in this section are **generated** from the command definitions in `internal/adapters/cli` (`just gen-docs`) — the same text as `ctxloom <command> --help` and `man ctxloom`, so they always match the binary. This page keeps the narrative that doesn't fit a `--help` screen.
 
-Every command accepts the global `--format text|json` flag; `json` emits machine-readable output for scripting and frontends.
+Every command accepts the global `--format` flag (`text`, `json`, `yaml`, `toml` or `markdown`); the structured formats emit machine-readable output for scripting and frontends.
 
-## Command groups
+## Commands
 
-- **Workflow** — [`init`](/reference/cli/ctxloom_init/), [`run`](/reference/cli/ctxloom_run/)
-- **Content** — [`fragment`](/reference/cli/ctxloom_fragment/), [`command`](/reference/cli/ctxloom_command/), [`profile`](/reference/cli/ctxloom_profile/), [`search`](/reference/cli/ctxloom_search/)
-- **Agents** — [`agent`](/reference/cli/ctxloom_agent/), [`container`](/reference/cli/ctxloom_container/)
-- **Remotes, dependencies & trust** — [`remote`](/reference/cli/ctxloom_remote/), [`deps`](/reference/cli/ctxloom_deps/), [`bundle`](/reference/cli/ctxloom_bundle/), [`signer`](/reference/cli/ctxloom_signer/), [`companion`](/reference/cli/ctxloom_companion/)
-- **Infrastructure** — [`manage`](/reference/cli/ctxloom_manage/), [`mcp`](/reference/cli/ctxloom_mcp/)
-- **Sessions & utilities** — [`session`](/reference/cli/ctxloom_session/), [`memory`](/reference/cli/ctxloom_memory/), [`llm`](/reference/cli/ctxloom_llm/), [`harp`](/reference/cli/ctxloom_harp/), [`version`](/reference/cli/ctxloom_version/), [`completion`](/reference/cli/ctxloom_completion/)
+The [`ctxloom`](/reference/cli/ctxloom/) page lists every top-level command, generated from the binary, with a link to each.
 
 ## Workflow guidance
 
@@ -47,9 +42,9 @@ remote/bundle@v1.0.0      # Versioned bundle
 https://github.com/o/r@bundles/b#profiles/n   # Bundle-shipped profile (canonical)
 ```
 
-`profile create` and `profile modify` accept **bare convenience refs** for `-b`/`--bundle` (e.g. `-b code-review-base#fragments/conduct`). Bare refs are expanded against the configured default remote into canonical URLs. Full URLs (`https://github.com/owner/repo@bundles/name`) and `ctxloom:local@...` refs pass through unchanged.
+`profile create -b` and `profile modify --add-bundle`/`--remove-bundle` accept the **per-remote short form** `<remote>/<bundle>[#<type>/<item>]` (e.g. `-b ctxloom-default/testing`). It is expanded to that remote's canonical URL before the profile is stored, so a stored profile never carries a machine-local alias. A bare name with no `<remote>/` prefix is a local bundle and is stored as written. Full URLs (`https://github.com/owner/repo@bundles/name`) and `ctxloom:local@...` refs pass through unchanged.
 
-`--parent` refs are deliberately **not** alias-expanded — a bare name always means a local profile (subdirectory paths like `personal/go-developer` work); remote parents use the bundle-qualified canonical URL.
+Parent refs (`--parent`, `--add-parent`) expand the same way when they name a bundle-shipped profile (`<remote>/<bundle>#profiles/<name>`). A parent with no `#profiles/` selector is always a local profile name, so subdirectory paths like `personal/go-developer` work.
 
 **Consuming remote content is reference-only** — you don't "install" remote items. Author a local profile that references remote content, then pull:
 

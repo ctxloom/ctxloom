@@ -350,6 +350,7 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	}
 	if treeBundle != nil {
 		bundle = treeBundle
+		bundle.readAsTree = true
 	}
 	bundle.Path = path
 	// A DECLARED name wins. The path-derived leaf name ("go" for

@@ -17,14 +17,19 @@ import (
 // accepts, edits or rejects it; nothing here writes a fragment. The premise
 // SELECTION half (the index an agent chooses from) lives in premise.go.
 
-// premiseAuthorPromptName is the prompt file's stem, shared by the embedded
-// lookup and the on-disk PromptDir override so the two can never name
-// different files.
-const premiseAuthorPromptName = "premise-author"
+// The prompt files' stems, shared by the embedded lookup and the on-disk
+// PromptDir override so the two can never name different files.
+const (
+	premiseAuthorPromptName   = "premise-author"
+	premiseCritiquePromptName = "premise-critique"
+)
 
-// premiseAuthorPromptEmbedded is resolved at init: a missing embedded prompt
-// is a build-time bug (the file is compiled in), not a runtime condition.
-var premiseAuthorPromptEmbedded = resources.MustGetPromptText(premiseAuthorPromptName)
+// premisePromptsEmbedded is resolved at init: a missing embedded prompt is a
+// build-time bug (the file is compiled in), not a runtime condition.
+var premisePromptsEmbedded = map[string]string{
+	premiseAuthorPromptName:   resources.MustGetPromptText(premiseAuthorPromptName),
+	premiseCritiquePromptName: resources.MustGetPromptText(premiseCritiquePromptName),
+}
 
 // PremiseAuthorConfig configures how a draft call reaches an LLM. The zero
 // value works: the default plugin drafts with its default model.
@@ -33,8 +38,9 @@ type PremiseAuthorConfig struct {
 	// launch. It is the stochastic boundary: a test supplies a canned runner
 	// and both sides of the call stay deterministic.
 	Run memory.Runner
-	// PromptDir loads the authoring prompt from a directory on disk
-	// (<dir>/premise-author.md) instead of the binary's embedded copy, so a
+	// PromptDir loads each pass's prompt from a directory on disk
+	// (<dir>/premise-author.md, <dir>/premise-critique.md) instead of the
+	// binary's embedded copy, so a
 	// prompt-evaluation harness can A/B variants without a rebuild. Empty uses
 	// the embedded prompt. A named prompt missing from the directory is a hard
 	// failure, never a silent fall back to the embedded text: the whole value
@@ -47,22 +53,26 @@ type PremiseAuthorConfig struct {
 type PremiseDraft struct {
 	// Fragment is the fragment the draft is for — the name DraftPremise was
 	// called with, echoed so a batch of drafts stays attributable.
-	Fragment string
+	Fragment string `json:"fragment"`
 	// Premise is the proposed premise text. Empty means the model judged the
 	// fragment unconditional — it should ALWAYS load — which is exactly what
 	// an empty premise means on the fragment itself (BundleFragment.Premise:
 	// absence asserts unconditional applicability).
-	Premise string
+	Premise string `json:"premise"`
 	// Moments are the concrete moments the premise claims to fire on, stated
 	// as the acting agent would state them.
-	Moments []string
+	Moments []string `json:"moments,omitempty"`
 	// NotFor are adjacent moments the premise deliberately does NOT fire on —
 	// the drafted boundary, made inspectable.
-	NotFor []string
+	NotFor []string `json:"not_for,omitempty"`
 	// SplitHint is non-empty when the body spans UNRELATED moments — a
 	// fragment doing two jobs — and names the moments that diverge and the
 	// split proposed. Empty means the body reads as one coherent idea.
-	SplitHint string
+	SplitHint string `json:"split_hint,omitempty"`
+	// Notes is the proposed rationale and origin for the fragment's human-only
+	// notes (bundles.ItemBody.Notes): why the fragment exists, not a
+	// changelog. Optional; empty when the model offered none.
+	Notes string `json:"notes,omitempty"`
 }
 
 // DraftPremise proposes a premise for one fragment body, plus a split verdict,
@@ -78,7 +88,7 @@ func DraftPremise(ctx context.Context, cfg PremiseAuthorConfig, name, body strin
 		// be a confident premise for content that does not exist.
 		return nil, fmt.Errorf("draft premise for %q: fragment body is empty; there is nothing to draft a premise from", name)
 	}
-	prompt, err := premiseAuthorPrompt(cfg.PromptDir)
+	prompt, err := premisePrompt(cfg.PromptDir, premiseAuthorPromptName)
 	if err != nil {
 		return nil, err
 	}
@@ -94,19 +104,19 @@ func DraftPremise(ctx context.Context, cfg PremiseAuthorConfig, name, body strin
 	return draft, nil
 }
 
-// premiseAuthorPrompt returns the authoring prompt: the PromptDir override
-// when configured, the embedded copy otherwise. A PromptDir read failure is
+// premisePrompt returns the named pass's prompt: the PromptDir override when
+// configured, the embedded copy otherwise. A PromptDir read failure is
 // returned, never swallowed: falling back to the embedded prompt would
 // attribute the run to a prompt that never produced it.
-func premiseAuthorPrompt(dir string) (string, error) {
+func premisePrompt(dir, name string) (string, error) {
 	if dir != "" {
-		loaded, err := resources.PromptTextFromDir(dir, premiseAuthorPromptName)
+		loaded, err := resources.PromptTextFromDir(dir, name)
 		if err != nil {
-			return "", fmt.Errorf("load prompt %q from %s: %w", premiseAuthorPromptName, dir, err)
+			return "", fmt.Errorf("load prompt %q from %s: %w", name, dir, err)
 		}
 		return loaded, nil
 	}
-	return premiseAuthorPromptEmbedded, nil
+	return premisePromptsEmbedded[name], nil
 }
 
 // premiseNone is the sentinel the prompt instructs the model to emit for a
@@ -120,9 +130,10 @@ const premiseNone = "NONE"
 // rejected, but only because the field is checkable at all.
 type premiseDraftDoc struct {
 	Premise *string  `yaml:"premise"`
-	Moments []string `yaml:"moments"`
-	NotFor  []string `yaml:"not_for"`
-	Split   string   `yaml:"split"`
+	Moments []string `yaml:"moments,omitempty"`
+	NotFor  []string `yaml:"not_for,omitempty"`
+	Split   string   `yaml:"split,omitempty"`
+	Notes   string   `yaml:"notes,omitempty"`
 }
 
 // parsePremiseDraft parses the model's output into a PremiseDraft for the
@@ -154,6 +165,7 @@ func parsePremiseDraft(name, out string) (*PremiseDraft, error) {
 		Moments:   trimNonEmpty(parsed.Moments),
 		NotFor:    trimNonEmpty(parsed.NotFor),
 		SplitHint: strings.TrimSpace(parsed.Split),
+		Notes:     strings.TrimSpace(parsed.Notes),
 	}, nil
 }
 

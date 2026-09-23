@@ -45,6 +45,7 @@ ctxloom fragment [flags]
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom fragment create](/reference/cli/ctxloom_fragment_create/)	 - Create a new fragment
 * [ctxloom fragment distill](/reference/cli/ctxloom_fragment_distill/)	 - Distill a fragment
+* [ctxloom fragment draft-premise](/reference/cli/ctxloom_fragment_draft-premise/)	 - Draft a premise for a fragment, critique it, and accept, edit or reject it
 * [ctxloom fragment edit](/reference/cli/ctxloom_fragment_edit/)	 - Edit a fragment
 * [ctxloom fragment list](/reference/cli/ctxloom_fragment_list/)	 - List all fragments
 * [ctxloom fragment premises](/reference/cli/ctxloom_fragment_premises/)	 - List conditionally-loaded fragments and the premise each applies under

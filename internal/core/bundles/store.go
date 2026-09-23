@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -98,6 +99,17 @@ func (s *fsStore) Load(name string) (*Bundle, error) {
 func (s *fsStore) Save(b *Bundle) error {
 	if b.Path == "" {
 		return fmt.Errorf("bundle has no path set")
+	}
+	// A bundle READ as a tree is written back item by item (saveTree):
+	// marshalling it as one document would declare its items inline and
+	// orphan its item files. See Bundle.readAsTree for why the form comes
+	// from the read and not from the bytes on disk now.
+	if b.readAsTree {
+		if err := s.saveTree(context.Background(), b); err != nil {
+			return err
+		}
+		s.republish()
+		return nil
 	}
 	data, err := yaml.Marshal(b)
 	if err != nil {

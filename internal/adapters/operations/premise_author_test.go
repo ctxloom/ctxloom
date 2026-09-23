@@ -150,3 +150,15 @@ func TestDraftPremise_PromptDirOverridesAndHardFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, captured2.Prompt, "the hard failure must happen before any LLM call")
 }
+
+func TestDraftPremise_NotesAreOptionalAndParsed(t *testing.T) {
+	run, _ := draftRunner(draftYAML + "notes: |\n  Exists because string-matched errors broke twice.\n")
+	draft, err := DraftPremise(context.Background(), PremiseAuthorConfig{Run: run}, "error-constants", "body")
+	require.NoError(t, err)
+	assert.Equal(t, "Exists because string-matched errors broke twice.", draft.Notes)
+
+	run, _ = draftRunner(draftYAML)
+	draft, err = DraftPremise(context.Background(), PremiseAuthorConfig{Run: run}, "error-constants", "body")
+	require.NoError(t, err)
+	assert.Empty(t, draft.Notes, "notes are optional: a draft without them still parses")
+}

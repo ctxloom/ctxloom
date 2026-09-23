@@ -11,7 +11,6 @@
 # One case per engine, matching the plan's web-verified per-engine
 # version-detect table (self-healing-engine-pipeline plan, Stage 1 / the
 # Grounding table):
-#   codex        -> npm view @openai/codex version
 #   claude-code  -> npm view @anthropic-ai/claude-code version
 set -euo pipefail
 

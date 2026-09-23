@@ -399,7 +399,7 @@ test-dirty:
     export HOME="$(mktemp -d)"
     export CTXLOOM_PROJECT_ID=poison-project CTXLOOM_SESSION_HARP=poison-harp
     export CTXLOOM_RESUMED_FROM=poison CTXLOOM_RESUMED_PARTS=poison CTXLOOM_DEBUG_HTTP=1
-    export GITHUB_TOKEN=poison-token GH_TOKEN=poison-token CODEX_HOME=/poison/codex
+    export GITHUB_TOKEN=poison-token GH_TOKEN=poison-token
     export CTXLOOM_ROOT=/poison/root
     "$GO" test ./internal/... ./cmd/...
 
@@ -778,7 +778,7 @@ build-cover: dev-image
 # WHY THIS EXISTS, and what it is NOT for. completeness_test.go answers
 # "was this leaf REACHED?" from testenv.RecordedInvocations() — the argv the
 # suite actually started, resolved to a leaf by cobra's own root.Find(). That
-# gate is correct and stays: it keeps flag-level credit (`--engine antigravity`
+# gate is correct and stays: it keeps flag-level credit (`--engine <name>`
 # is a separate row), works in both lanes, and cannot be fooled by a mention.
 #
 # What it cannot answer is "how MUCH of that leaf ran". A leaf invoked once
@@ -954,7 +954,7 @@ container-build-acceptance: dev-image
 # Each engine's real credential DIRECTORY is bind-mounted READ-WRITE at the path
 # the container HOME resolves it from, so the engine reads and WRITES the real
 # file and a provider-side token rotation lands on the host. The copy this
-# replaces was strictly one-way: codex refreshed inside the copy, the provider
+# replaces was strictly one-way: an engine refreshed inside the copy, the provider
 # consumed the old refresh token SERVER-SIDE, the rotated value died with the
 # container, and the host was left with a token that returned
 # `401 refresh_token_reused` until a manual re-login.
@@ -976,7 +976,7 @@ container-build-acceptance: dev-image
 # as root there would leave root-owned files in your real credential
 # directories.
 #
-# Set {ANTHROPIC,GEMINI,GOOGLE,OPENAI,CODEX}_API_KEY to use the unattended
+# Set ANTHROPIC_API_KEY to use the unattended
 # API-key path instead: that path mounts nothing, copies nothing, and rotates
 # nothing. ctxloom is built at runtime from the read-only workspace mount; all
 # other writes go to the container HOME / tmp. Each agent's @live rows self-skip
@@ -1001,8 +1001,6 @@ test-acceptance-live-container: container-build-acceptance
         fi
     }
     map_cred "$HOME/.claude" /home/ctxloom/.claude claude
-    map_cred "$HOME/.gemini" /home/ctxloom/.gemini antigravity
-    map_cred "$HOME/.codex" /home/ctxloom/.codex codex
     # claude is the one engine CTXLOOM_LIVE_REQUIRE names below, so it is the
     # one whose absence must fail the run rather than quietly shrink coverage.
     if [ ! -d "$HOME/.claude" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
@@ -1041,7 +1039,7 @@ test-acceptance-live-container: container-build-acceptance
     # touching a subscription credential at all. Absent keys fall back to the
     # mapped cred dirs above.
     keys=()
-    for k in ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENAI_API_KEY CODEX_API_KEY; do
+    for k in ANTHROPIC_API_KEY; do
         if [ -n "${!k:-}" ]; then keys+=(-e "$k"); fi
     done
 

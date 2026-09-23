@@ -94,27 +94,6 @@ coverage.raw.*.out
 # `just gen-schemas` (build dep + CI step), like generated protobuf.
 resources/schema/gen/
 
-# Codex runtime state. ctxloom points CODEX_HOME at <project>/.codex to keep
-# prompts cell-local (internal/codex/surfaces.go), but codex uses ONE home for
-# both its config surface AND all of its runtime state — so it also writes its
-# session store, conversation memories, logs, goals, temp files, AND ITS OWN
-# bundled system skills (.codex/skills/.system/*) here. config.toml is now
-# EXCLUDED from the tracked exceptions below (white-dawn §2.2B): codex itself
-# appends a machine-specific `[projects."<abs-path>"] trust_level` entry into
-# it on first run, so a file codex mutates every run should not be tracked —
-# matches internal/adapters/gitignore/gitignore.go's TransientArtifactPatterns, which
-# already ignores .codex/config.toml for every OTHER project's generated
-# .gitignore; this repo's own hand-authored block had drifted from that
-# policy (it used to un-ignore config.toml) and a `[projects...]` entry for
-# this very repo had already leaked into git history before this fix — see
-# the task's final report. skills/ stays fully ignored too (unlike prompts/,
-# it is NOT ctxloom-exclusive — codex ships its own .system/ skills there, so
-# there is no clean "ctxloom-owned" subset to un-ignore). Only the
-# ctxloom-generated prompts (never codex-mutated) stay tracked; everything
-# else is engine state that must never be committed.
-.codex/*
-!.codex/prompts/
-
 # Agent surface materialized by ctxloom; regenerated, never authored here.
 .agents/
 
@@ -123,15 +102,6 @@ resources/schema/gen/
 # so they cannot be stale by construction. The docs CI workflow generates
 # them fresh before `npm run build`; see .github/workflows/docs.yml.
 website/src/content/docs/journeys/
-
-# opencode engine surface (generated when the opencode backend materializes; do not track)
-.opencode/
-opencode.json
-AGENTS.md
-.ctxloom-opencode-managed
-
-# codex engine surface materialized by ctxloom; regenerated, never authored here.
-.codex/config.toml
 
 # Serena's per-project state. Only the LOCAL and rebuildable parts are ignored;
 # .serena/project.yml and .serena/memories/ are VERSIONED deliberately.
@@ -152,9 +122,6 @@ AGENTS.md
 # the repo record. FINDINGS.md and docs/behaviour-changes-*.md are the committed
 # artifacts; this is the scratch ledger behind them.
 DECISIONS.md
-
-# codex credentials — a real secret, nothing to do with ctxloom state.
-.codex/auth.json
 
 # Coverage-instrumented ctxloom (just build-cover). Same name as the shipped
 # binary on purpose — see cmd/ctxloom/justfile — so it needs its own directory.

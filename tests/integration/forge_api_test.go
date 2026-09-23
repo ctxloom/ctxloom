@@ -58,13 +58,13 @@ func TestForgeAPI_GitHub_NotFoundMapsToSentinel(t *testing.T) {
 	})
 
 	t.Run("ListDir lists registered directory entries", func(t *testing.T) {
-		entries, err := f.ListDir(ctx, "owner", "repo", testenv.BundlesRoot(), "main")
+		entries, err := f.ListDir(ctx, "owner", "repo", testenv.TreeBundlePath("present"), "main")
 		require.NoError(t, err)
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name)
 		}
-		assert.Contains(t, names, "present.yaml")
+		assert.Contains(t, names, "bundle.yaml")
 	})
 }
 

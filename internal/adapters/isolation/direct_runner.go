@@ -168,16 +168,7 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 	var handle *RunnerHandle
 	kill := func() {
 		killOnce.Do(func() {
-			// "Already gone" is ambiguous while the CLI lives: the create it
-			// sent may not have reached the daemon yet, and killing the CLI
-			// now would orphan the container that create then makes. So wait
-			// for the launch to resolve — the container running, or the CLI
-			// exiting — and remove again. Bounded by AwaitContainerRunning's
-			// backstop, so a wedged daemon still cannot hang teardown.
-			if removeContainer(context.Background(), rt, spec.Name) {
-				_ = AwaitContainerRunning(rt, handle)
-				removeContainer(context.Background(), rt, spec.Name)
-			}
+			removeLaunched(rt, handle)
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}
@@ -197,6 +188,20 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 	}
 	handle = &RunnerHandle{Name: spec.Name, Kill: kill, Wait: wait, StderrTail: ring.Tail}
 	return handle, nil
+}
+
+// removeLaunched force-removes h's container before the caller kills the `run`
+// CLI that launched it. "Already gone" is ambiguous while that CLI lives: the
+// create it sent may not have reached the daemon yet, and killing the CLI now
+// would orphan the container that create then makes. So it waits for the
+// launch to resolve — the container running, or the CLI exiting (h.Wait) — and
+// removes again. Bounded by AwaitContainerRunning's backstop, so a wedged
+// daemon still cannot hang teardown.
+func removeLaunched(rt Runtime, h *RunnerHandle) {
+	if removeContainer(context.Background(), rt, h.Name) {
+		_ = AwaitContainerRunning(rt, h)
+		removeContainer(context.Background(), rt, h.Name)
+	}
 }
 
 // reapRunProcess Waits a started *exec.Cmd exactly once, in the background,

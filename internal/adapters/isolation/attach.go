@@ -7,10 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"sort"
-	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
@@ -99,10 +97,11 @@ func interactiveRunArgs(args []string) []string {
 // a container that raced ahead of us (no --rm, or a daemon detached from the
 // client), and a wedged daemon must not hang teardown forever, so the remove
 // runs under containerRemoveTimeout regardless of the caller's own ctx. A
-// remove that reports the container already gone (the benign --rm race) is
-// teardown SUCCESS, not a leak (removeReportsGone) — only a genuine failure
-// to confirm removal is surfaced, loudly, since the live container would
-// otherwise hold this session's workspace mounts invisibly.
+// remove that reports the container already gone is not final while the `run`
+// CLI lives — its create may not have landed yet — so Close waits that out
+// before killing the CLI (removeLaunched, as RunnerHandle.Kill does). Only a
+// genuine failure to confirm removal is surfaced, loudly, since the live
+// container would otherwise hold this session's workspace mounts invisibly.
 //
 // spawnEnv is the value-carrying env channel. Each key crosses as
 // a bare-name `-e NAME` on the run argv while its VALUE is stamped onto the
@@ -196,15 +195,7 @@ func RunAttached(ctx context.Context, rt Runtime, spec RunSpec, spawnEnv map[str
 				exitedOnItsOwn = true
 			case <-time.After(grace):
 			}
-			if name != "" && rt.Binary() != "" {
-				cctx, cancel := context.WithTimeout(context.Background(), containerRemoveTimeout)
-				if _, rerr := probeExec(cctx, rt.Binary(), rt.RemoveArgs(name)); rerr != nil && !removeReportsGone(rerr) {
-					clidiag.Warn("ctxloom",
-						"container %q may still be running after teardown (%v) — the %s daemon did not confirm removal; it holds this session's workspace, remove it manually with `%s %s`",
-						name, rerr, rt.Name(), rt.Binary(), strings.Join(rt.RemoveArgs(name), " "))
-				}
-				cancel()
-			}
+			removeLaunched(rt, &RunnerHandle{Name: name, Wait: func() error { <-processDone; return waitErr }, StderrTail: ring.Tail})
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}

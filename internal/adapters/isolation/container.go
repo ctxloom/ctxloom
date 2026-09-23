@@ -290,7 +290,6 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		baseCleanup:  baseCleanup,
 		runtime:      c.runtime,
 		instanceHome: c.instanceHome,
-		engineSpec:   c.engineSpec,
 	}, nil
 }
 
@@ -1027,10 +1026,6 @@ type containerWorkspace struct {
 	// mounted under (Container.instanceHome) — what ContainerInstanceHome
 	// hands the resolver.
 	instanceHome string
-	// engineSpec is the engine's container spec (Container.engineSpec),
-	// consulted after Mount for the credential a relocated engine home needs
-	// mounted over its seeded copy (MountEngineHome).
-	engineSpec engineContainerSpec
 }
 
 // Dir returns the identical-path cwd (the container mounts it there so cwd + .git

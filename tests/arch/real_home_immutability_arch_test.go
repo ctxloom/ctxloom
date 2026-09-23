@@ -6,8 +6,8 @@
 // Everything else in the model is a consequence of it. The durable truth of a
 // user's engine configuration — claude's
 // credentials and per-project keys — lives in the engine's own dotdir under
-// the user's home, and those are the user's. ctxloom reads
-// them (one-way copy-in at instance time) and points engines at throwaway
+// the user's home, and those are the user's. ctxloom reads only what an
+// engine's instance config carries across and points engines at throwaway
 // per-session instances instead. A single write-back would make an instance's
 // disposability a lie and could destroy configuration no clone and no rebuild
 // can restore.
@@ -62,11 +62,8 @@ func realHomeFixture(t *testing.T) string {
 		}
 	}
 
-	// claude: the credential the copy-in reads, plus the personal top-level
-	// config that must never be copied OR modified. The credential carries the
-	// full live shape (accessToken + the single-use rotating refreshToken half)
-	// so the copy-in's refresh-token STRIP is exercised and the real home's
-	// refresh token can be shown untouched below.
+	// claude: the user's native login, which must never be copied, plus the
+	// personal top-level config that must never be copied OR modified.
 	write(filepath.Join(".claude", ".credentials.json"),
 		`{"claudeAiOauth":{"accessToken":"host-token","refreshToken":"host-refresh","expiresAt":1,"refreshTokenExpiresAt":2,"subscriptionType":"max"}}`, 0o600)
 	write(".claude.json", `{"mcpServers":{"personal":{"command":"secret"}}}`, 0o600)

@@ -440,7 +440,7 @@ func init() {
 
 // composeEngines composes the shipped engines once per process and installs
 // the same registry as the cells adapter's facts accessor: isolation
-// resolves engines by NAME (CopyAmbient is handed an engine name) and
+// resolves engines by NAME (PrepareInstanceHome is handed an engine name) and
 // cannot import the engine packages, so the root that built the registry
 // hands it over here. Idempotent, like Compose.
 func composeEngines() error {

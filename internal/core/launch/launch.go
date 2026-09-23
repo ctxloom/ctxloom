@@ -16,8 +16,8 @@ import (
 )
 
 // HostFacts are the originator's host-side facts, decoded ONCE at the
-// composition root and passed down: the real home (credential seeding), the
-// ctxloom home, and the ctxloom binary. A container never receives a host
+// composition root and passed down: the real home, the ctxloom home, and the
+// ctxloom binary. A container never receives a host
 // path as if universal.
 type HostFacts struct {
 	Home        string

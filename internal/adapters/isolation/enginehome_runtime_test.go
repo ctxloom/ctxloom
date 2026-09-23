@@ -78,7 +78,7 @@ func TestMountEngineHome_HostWorkspaceRefuses(t *testing.T) {
 // else: no credential file is ever bound into it, from the host's own
 // ~/.claude or from anywhere else. It authenticates from its env.
 func TestMountEngineHome_MountsTheHomeAndNoCredential(t *testing.T) {
-	cw := &containerWorkspace{instanceHome: "/ctxloom/home", runtime: fakeRuntime{}, engineSpec: engineContainerSpecFor("claude-code"), authMode: authEnv}
+	cw := &containerWorkspace{instanceHome: "/ctxloom/home", runtime: fakeRuntime{}, authMode: authEnv}
 	sessionHome := t.TempDir()
 	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: sessionHome, TargetDir: "/ctxloom/home/claude"}))
 

@@ -431,7 +431,7 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	// Send verb, the bare agent_send, a child's spool out/ (routeSpoolOut ->
 	// peerSend), and the coordinator's own notices alike. The overflow is filed
 	// under the RECIPIENT, whose own artifacts it may always read.
-	body, err := c.boundBody(to, body)
+	body, structured, err := c.boundBody(to, body, structured)
 	if err != nil {
 		return "", err
 	}

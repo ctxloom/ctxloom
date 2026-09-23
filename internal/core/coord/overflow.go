@@ -2,6 +2,8 @@ package coord
 
 import (
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -66,7 +68,14 @@ func overflowMarker(holder, artifactID string, size int) string {
 // child's when the recipient is that child's parent. A raw path was
 // rejected: a container-isolated recipient cannot read one, and crossing that
 // boundary is what artifacts are for.
-func (c *Coordinator) boundBody(holder, body string) (string, error) {
+func (c *Coordinator) boundBody(holder, body string, structured json.RawMessage) (string, json.RawMessage, error) {
+	b, err := c.boundBodyOld(holder, body)
+	return b, structured, err
+}
+
+var errOverflowIDTaken = errors.New("overflow: stub")
+
+func (c *Coordinator) boundBodyOld(holder, body string) (string, error) {
 	head, cut := inlineHead(body, MaxInlineBodyBytes)
 	if !cut {
 		return body, nil

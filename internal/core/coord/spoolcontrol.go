@@ -349,7 +349,7 @@ func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, s
 	if pa == nil || pa.targetHarp != caller.Harp {
 		return "", false, nil
 	}
-	if body, err = c.boundBody(caller.Harp, body); err != nil {
+	if body, structured, err = c.boundBody(caller.Harp, body, structured); err != nil {
 		return "", true, err
 	}
 	c.mu.Lock()

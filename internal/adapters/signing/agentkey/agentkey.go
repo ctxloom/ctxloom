@@ -201,13 +201,15 @@ func (e *AmbiguousKeyError) Error() string {
 	return b.String()
 }
 
-// AmbiguousKeyNameError reports that an explicit --key/sign.key NAME (a
-// case-insensitive substring match against ssh-agent key comments — the
-// last resort of resolveExplicit's fallback chain) matched more than one
-// agent identity. Like AmbiguousKeyError, this is a hard error by design:
-// Discover never guesses between candidates.
+// AmbiguousKeyNameError reports that a key NAME (a case-insensitive
+// substring match against ssh-agent key comments — the last resort of
+// resolveKeyValue's fallback chain) matched more than one agent identity. Like
+// AmbiguousKeyError, this is a hard error by design: Discover never guesses
+// between candidates.
 type AmbiguousKeyNameError struct {
-	// Name is the --key/sign.key value that was matched against comments.
+	// Source names where Name came from: "--key" or "git config user.signingkey".
+	Source string
+	// Name is the value that was matched against comments.
 	Name string
 	// Candidates are every agent identity whose comment matched Name.
 	Candidates []Candidate
@@ -220,7 +222,7 @@ func (e *AmbiguousKeyNameError) CandidateLines() []string { return candidateLine
 
 func (e *AmbiguousKeyNameError) Error() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "ctxloom: --key %s matches %d keys in ssh-agent.\n\n", displayKeyValue(e.Name), len(e.Candidates))
+	fmt.Fprintf(&b, "ctxloom: %s %s matches %d keys in ssh-agent.\n\n", e.Source, displayKeyValue(e.Name), len(e.Candidates))
 	for _, line := range e.CandidateLines() {
 		b.WriteString(line + "\n")
 	}
@@ -478,7 +480,7 @@ func retain(d *Discovered, ag agent.Agent) *Discovered {
 // a config default), Discover only knows "was one supplied or not".
 func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discovered, error) {
 	if explicitKey != "" {
-		return d.resolveExplicit(ctx, explicitKey)
+		return d.resolveKeyValue(explicitKey, sourceExplicit, []string{"--key/sign.key " + displayKeyValue(explicitKey)})
 	}
 
 	gitKey, ok, err := d.gitConfig()(ctx, d.Dir, "user.signingkey")
@@ -486,7 +488,7 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 		return nil, fmt.Errorf("reading git config user.signingkey: %w", err)
 	}
 	if ok && gitKey != "" {
-		return d.resolveGitSigningKey(gitKey)
+		return d.resolveKeyValue(gitKey, sourceGit, []string{sourceGit + " " + displayKeyValue(gitKey)})
 	}
 
 	return d.resolveSoleAgentIdentity([]string{"git config user.signingkey", "ssh-agent identities"})
@@ -505,17 +507,26 @@ func noKeyFrom(looked []string, cause error) *NoKeyError {
 	return &NoKeyError{Looked: looked, Detail: cause.Error(), Err: cause}
 }
 
-// resolveExplicit resolves --key/sign.key in fallback order: (a) a SHA256
-// fingerprint, (b) a key line/literal/path to a public key, (c) — only when
-// (b) fails to produce a key at all — a case-insensitive substring match
-// against a live ssh-agent identity's COMMENT (the name ctxloom itself
-// prints in the ambiguous-key listing, e.g. "ben@abbitt.me"). (a) and (b)
-// must keep priority over (c): a value that legitimately parses as a
-// fingerprint or resolves as a file must never be reinterpreted as a name
-// just because it happens to also resemble one.
-func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (result *Discovered, err error) {
-	looked := []string{"--key/sign.key " + displayKeyValue(explicitKey)}
+// The two places a key value can come from, as Discovered.Source and error
+// messages name them.
+const (
+	sourceExplicit = "--key"
+	sourceGit      = "git config user.signingkey"
+)
 
+// resolveKeyValue resolves a key value — --key/sign.key, or `git config
+// user.signingkey`, which accept the same forms — in fallback order: (a) a
+// SHA256 fingerprint, (b) a key line/literal/path to a public key (including
+// git's "key::<literal>" prefix), (c) — only when (b) fails to produce a key
+// at all — a case-insensitive substring match against a live ssh-agent
+// identity's COMMENT (the name ctxloom itself prints in the ambiguous-key
+// listing, e.g. "ben@abbitt.me"). (a) and (b) must keep priority over (c): a
+// value that legitimately parses as a fingerprint or resolves as a file must
+// never be reinterpreted as a name just because it happens to also resemble
+// one.
+//
+// The agent dial and RPCs have no cancellation seam, so no context is taken.
+func (d *Discoverer) resolveKeyValue(explicitKey, source string, looked []string) (result *Discovered, err error) {
 	ag, err := d.dialAgent()
 	if err != nil {
 		return nil, noKeyFrom(looked, err)
@@ -523,7 +534,7 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (r
 	defer releaseUnlessRetained(ag, &result)
 
 	if strings.HasPrefix(explicitKey, "SHA256:") {
-		d2, ferr := findByFingerprint(ag, explicitKey, "--key")
+		d2, ferr := findByFingerprint(ag, explicitKey, source)
 		if ferr != nil {
 			return nil, noKeyFrom(looked, ferr)
 		}
@@ -532,14 +543,14 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (r
 
 	pub, pubErr := d.resolvePublicKey(explicitKey)
 	if pubErr == nil {
-		d2, ferr := findByPublicKey(ag, pub, "--key")
+		d2, ferr := findByPublicKey(ag, pub, source)
 		if ferr != nil {
 			return nil, noKeyFrom(looked, ferr)
 		}
 		return retain(d2, ag), nil
 	}
 
-	discovered, nameErr := d.resolveByComment(ag, explicitKey)
+	discovered, nameErr := d.resolveByComment(ag, explicitKey, source)
 	if nameErr == nil {
 		return retain(discovered, ag), nil
 	}
@@ -559,12 +570,12 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (r
 	return nil, noKeyFrom(looked, fmt.Errorf("not a recognized fingerprint or public key (%v); and %w", pubErr, nameErr))
 }
 
-// resolveByComment is the last resort of resolveExplicit's fallback chain:
+// resolveByComment is the last resort of resolveKeyValue's fallback chain:
 // match explicitKey as a case-insensitive substring against each ssh-agent
 // identity's comment. A key with an empty comment is never matched — an
 // unconditional substring check against "" would otherwise match every key,
 // which defeats the whole point of naming one.
-func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Discovered, error) {
+func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey, source string) (*Discovered, error) {
 	needle := strings.ToLower(strings.TrimSpace(explicitKey))
 	if needle == "" {
 		return nil, fmt.Errorf("no key name given")
@@ -594,55 +605,20 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 		return &Discovered{
 			Signer:      s,
 			Fingerprint: candidates[matched[0]].Fingerprint,
-			Source:      "--key",
+			Source:      source,
 		}, nil
 	default:
 		matches := make([]Candidate, 0, len(matched))
 		for _, i := range matched {
 			matches = append(matches, candidates[i])
 		}
-		return nil, &AmbiguousKeyNameError{Name: explicitKey, Candidates: matches}
+		return nil, &AmbiguousKeyNameError{Source: source, Name: explicitKey, Candidates: matches}
 	}
-}
-
-// resolveGitSigningKey resolves `git config user.signingkey`'s value (a
-// literal "ssh-<type> AAAA..." string, a "key::<literal>" prefix per git
-// 2.34+, or a path to a public key file) to a live ssh-agent identity.
-// This used to take an unused context.Context — the actual
-// blocking I/O (agent dial + RPC) has no cancellation seam at all, so the
-// parameter carried no information and could mislead a caller into thinking
-// ctx cancellation was honored here. Dropped rather than left lying; wiring
-// real cancellation into DialAgent is a separate, larger change.
-func (d *Discoverer) resolveGitSigningKey(value string) (result *Discovered, err error) {
-	gitLooked := []string{"git config user.signingkey"}
-
-	pub, err := d.resolvePublicKey(value)
-	if err != nil {
-		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", displayKeyValue(value), err))
-	}
-
-	ag, err := d.dialAgent()
-	if err != nil {
-		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", ssh.FingerprintSHA256(pub), err))
-	}
-	defer releaseUnlessRetained(ag, &result)
-
-	d2, err := findByPublicKey(ag, pub, "git config user.signingkey")
-	if err != nil {
-		// findByPublicKey fails BOTH when the key is genuinely
-		// absent from the agent AND when ag.Signers() itself errored (agent
-		// locked, wedged socket, RPC failure) — those are different facts,
-		// and the second one is not fixed by "ssh-add it": the key IS loaded,
-		// the agent just could not be asked. Surface findByPublicKey's own
-		// message (and chain its cause via Err) instead of guessing.
-		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", ssh.FingerprintSHA256(pub), err))
-	}
-	return retain(d2, ag), nil
 }
 
 // resolveSoleAgentIdentity implements step 3 of the chain: use the agent's
 // only identity when there is exactly one, error (ambiguous or empty)
-// otherwise. ctx was accepted but never used; dropped (see resolveGitSigningKey).
+// otherwise.
 func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (result *Discovered, err error) {
 	ag, err := d.dialAgent()
 	if err != nil {

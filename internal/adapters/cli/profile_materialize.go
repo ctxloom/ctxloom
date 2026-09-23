@@ -67,7 +67,7 @@ func runProfileMaterialize(cmd *cobra.Command, args []string) error {
 	// aborts the command (exit 3) unless --degraded downgrades them — mirroring
 	// how `ctxloom run`/`mcp`/`acp` gate their own startup findings.
 	gates := newPhaseGates(os.Stderr, App().Strictness)
-	res, err := operations.MaterializeProfile(cmd.Context(), cfg, operations.MaterializeProfileRequest{
+	res, err := operations.MaterializeProfile(cmd.Context(), App().Engines(), cfg, operations.MaterializeProfileRequest{
 		Profiles: args,
 		Target:   materializeTarget,
 		Backend:  materializeBackend,
@@ -123,7 +123,7 @@ type profileMaterializeDiffJSON struct {
 func runProfileMaterializeDiff(cmd *cobra.Command, cfg *config.Config, args []string) error {
 	asm, err := operations.AssembleContext(cmd.Context(), cfg, operations.AssembleContextRequest{
 		Profiles: args,
-		Consumer: operations.MaterializedFor(materializeBackend),
+		Consumer: operations.MaterializedFor(App().Engines(), materializeBackend),
 	})
 	if err != nil {
 		return fmt.Errorf("assemble context for %v: %w", args, err)

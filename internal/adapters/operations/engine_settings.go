@@ -1,16 +1,16 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // engineSettingsWriter constructs the named engine's settings writer
 // (agent.Hosted), nil for an unregistered name.
-func engineSettingsWriter(name string, o agent.SettingsOptions) agent.SettingsWriter {
-	h, ok := engines.Hosted(name)
+func engineSettingsWriter(reg engine.Registry, name string, o agent.SettingsOptions) agent.SettingsWriter {
+	h, ok := agent.HostedIn(reg, name)
 	if !ok {
 		return nil
 	}
@@ -25,15 +25,15 @@ func engineSettingsWriter(name string, o agent.SettingsOptions) agent.SettingsWr
 // typo'd backend name was indistinguishable from a real, wired-nothing read —
 // a caller could not tell "you asked about something that doesn't exist" from
 // "this backend genuinely has nothing installed".
-func engineSettingsStatus(backendName, projectDir string, opts ...agent.SettingsOption) (agent.SettingsStatus, error) {
-	if _, ok := engines.Hosted(backendName); !ok {
+func engineSettingsStatus(reg engine.Registry, backendName, projectDir string, opts ...agent.SettingsOption) (agent.SettingsStatus, error) {
+	if _, ok := agent.HostedIn(reg, backendName); !ok {
 		return agent.SettingsStatus{}, fmt.Errorf("unknown backend %q", backendName)
 	}
 	options := &agent.SettingsOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}
-	writer := engineSettingsWriter(backendName, *options)
+	writer := engineSettingsWriter(reg, backendName, *options)
 	if writer == nil {
 		return agent.SettingsStatus{}, nil
 	}

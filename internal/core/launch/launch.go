@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 
@@ -42,17 +44,36 @@ type Deps struct {
 	Cells     Cells
 	Endpoints EndpointMinter
 	Sessions  sessions.Store
-	// ClaimCheck is rooted at THIS launch's session dir by the caller (the
-	// store is per session by construction), so it is set after the identity
-	// is minted; Inline and InlineMax are process-wide.
-	Inline     composite.Transport
-	ClaimCheck composite.Transport
-	InlineMax  int
-	Host       HostFacts
+	// ClaimCheck is rooted at THIS launch's session dir (the store is per
+	// session by construction), so it is set after the identity is minted —
+	// ForSession, over SessionClaims; Inline and InlineMax are process-wide.
+	Inline        composite.Transport
+	ClaimCheck    composite.Transport
+	SessionClaims SessionClaims
+	InlineMax     int
+	Host          HostFacts
 	// Reporter receives the diagnostics opening a launch raises (the delivery
 	// preference the engine cannot honour, the packages a writer skips); the
 	// composition chooses the sink. Nil discards.
 	Reporter report.Sink
+}
+
+// SessionClaims constructs the claim-check transport rooted at one session's
+// directory under sessionsRoot. It is a constructor, not a store, because
+// the store exists only once the harp is minted; the composition root
+// supplies the adapter-backed one.
+type SessionClaims func(sessionsRoot, harp string) composite.Transport
+
+// ForSession roots the claim check at the minted session harp, under the
+// ctxloom home's sessions directory. A Deps composed without SessionClaims
+// is a composition error with no store to fall back on, so it panics rather
+// than launching with claims that land nowhere.
+func (d Deps) ForSession(harp string) Deps {
+	if d.SessionClaims == nil {
+		panic("launch: Deps.ForSession: no SessionClaims composed; the composition root must supply the session claim store")
+	}
+	d.ClaimCheck = d.SessionClaims(filepath.Join(d.Host.CtxloomHome, paths.SessionsDir), harp)
+	return d
 }
 
 // Assembler is the package-assembly port: the profile set and the explicit

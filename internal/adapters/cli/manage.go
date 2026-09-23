@@ -106,7 +106,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	if !engineRequested {
 		// The flag's default is a registry fact: the engine shipped by
 		// default, resolved here rather than spelled at declaration.
-		manageInstallEngine = operations.DefaultEngineName()
+		manageInstallEngine = operations.DefaultEngineName(App().Engines())
 	}
 	if err := checkEngineKnown(engineRequested, manageInstallEngine); err != nil {
 		return err
@@ -139,7 +139,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 
 	initialized := false
 	if !ctxloomDirExists(appDir) {
-		if _, err := operations.InitializeProject(cmd.Context(), operations.InitializeProjectRequest{
+		if _, err := operations.InitializeProject(cmd.Context(), App().Engines(), operations.InitializeProjectRequest{
 			AppDir: appDir,
 			Engine: manageInstallEngine,
 		}); err != nil {
@@ -209,10 +209,10 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 // only ask whether .ctxloom exists — this check applies identically whether
 // or not .ctxloom exists yet, and runs first for that reason.
 func checkEngineKnown(engineRequested bool, engine string) error {
-	if !engineRequested || operations.EngineExists(engine) {
+	if !engineRequested || operations.EngineExists(App().Engines(), engine) {
 		return nil
 	}
-	return fmt.Errorf("--engine %q: unknown engine; ctxloom knows: %s", engine, strings.Join(operations.EngineNames(), ", "))
+	return fmt.Errorf("--engine %q: unknown engine; ctxloom knows: %s", engine, strings.Join(operations.EngineNames(App().Engines()), ", "))
 }
 
 // checkInstallEngineApplies rejects a `manage install --engine <x>` whose
@@ -421,7 +421,7 @@ func removeHooksAndReport(cmd *cobra.Command, backend string, render func(operat
 	if err != nil {
 		return err
 	}
-	result, err := operations.RemoveHooks(cmd.Context(), cfg, operations.RemoveHooksRequest{Backend: backend})
+	result, err := operations.RemoveHooks(cmd.Context(), App().Engines(), cfg, operations.RemoveHooksRequest{Backend: backend})
 	if err != nil {
 		return err
 	}
@@ -464,14 +464,14 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	result, err := operations.HarnessStatus(cmd.Context(), cfg, operations.HarnessStatusRequest{})
+	result, err := operations.HarnessStatus(cmd.Context(), App().Engines(), cfg, operations.HarnessStatusRequest{})
 	if err != nil {
 		return err
 	}
 	// Computed ONCE and stored on the result, so the json and text paths report
 	// the same losses. Rendering it only inside the text closure is how the
 	// machine-readable form came to omit it entirely.
-	result.CapabilityLoss = operations.CapabilityLossByAgent(cmd.Context(), cfg)
+	result.CapabilityLoss = operations.CapabilityLossByAgent(cmd.Context(), App().Engines(), cfg)
 	return emit(cmd, result, func() error {
 		printHarnessStatus(cmd.OutOrStdout(), result, result.CapabilityLoss)
 		return nil
@@ -559,7 +559,7 @@ func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	workDir := projectroot.WorkDir()
-	result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
+	result, err := operations.ApplyHooks(cmd.Context(), App().Engines(), operations.ApplyHooksRequest{
 		Cfg:               cfg,
 		Backend:           manageHooksBackend,
 		RegenerateContext: true,

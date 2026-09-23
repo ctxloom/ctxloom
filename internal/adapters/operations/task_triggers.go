@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"fmt"
 	"strings"
@@ -167,7 +168,7 @@ type EvaluateTriggersResult struct {
 // trigger parked one cycle longer than necessary — so confirming and moving
 // the task is left entirely to the caller (the check-triggers command, or
 // whatever calls the evaluate_triggers MCP tool).
-func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTriggersRequest) (*EvaluateTriggersResult, error) {
+func EvaluateTriggers(ctx context.Context, reg engine.Registry, cfg *config.Config, req EvaluateTriggersRequest) (*EvaluateTriggersResult, error) {
 	listRes, err := tasksops.ListTasks(req.TaskContext, tasksops.ListOptions{IncludeDone: true})
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
@@ -246,7 +247,7 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 		// escalation round are turns on it.
 		run := req.Run
 		if run == nil {
-			triage, err := StartInternalOneShot(ctx, req.Hosts, cfg, req.TaskContext.Strictness, label, "", req.RepoDir, "", 0)
+			triage, err := StartInternalOneShot(ctx, reg, req.Hosts, cfg, req.TaskContext.Strictness, label, "", req.RepoDir, "", 0)
 			if err != nil {
 				return nil, fmt.Errorf("start triage: %w", err)
 			}

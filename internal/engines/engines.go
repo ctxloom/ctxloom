@@ -98,49 +98,19 @@ func Use(reg engine.Registry) (restore func()) {
 	}
 }
 
-// NamesWhere lists, sorted, the composed engines keep accepts — a view over
-// the engine VALUES (what they implement), where Registry.Names is a view
-// over their Definitions.
+// NamesWhere lists, sorted, the composed engines keep accepts
+// (engine.Registry.NamesWhere over the process registry).
 func NamesWhere(keep func(name string, e engine.Engine) bool) []string {
 	var out []string
-	for _, n := range Registry().Names(nil) {
-		if e, ok := Registry().Lookup(n); ok && keep(string(n), e) {
-			out = append(out, string(n))
-		}
+	for _, n := range Registry().NamesWhere(func(n engine.Name, e engine.Engine) bool { return keep(string(n), e) }) {
+		out = append(out, string(n))
 	}
 	return out
 }
 
-// Hosted resolves name to its kind's instance-half contract (agent.Hosted)
-// by EXACT match on the registered name. No alias, case or prefix
-// resolution: an engine has one spelling, and any other reaches the caller
-// unresolved so it is refused rather than rounded to a real engine. Every
-// shipped kind is Hosted (TestBuild_EveryShippedEngineIsHosted).
-func Hosted(name string) (agent.Hosted, bool) {
-	e, ok := Registry().Lookup(engine.Name(name))
-	if !ok {
-		return nil, false
-	}
-	h, ok := e.(agent.Hosted)
-	return h, ok
-}
+// Hosted is agent.HostedIn over the process registry. Every shipped kind is
+// Hosted (TestBuild_EveryShippedEngineIsHosted).
+func Hosted(name string) (agent.Hosted, bool) { return agent.HostedIn(Registry(), name) }
 
-// EngineCLIs is the named engine's L1 process-surface declarations, read
-// off the composed engine VALUE (agent.EngineCLIProvider) — the SAME
-// declaration the driver reads, so the standalone mock engine impersonating
-// it cannot drift out of step. False when the name is unregistered OR the
-// engine declares no CLI surfaces: "has no declaration" is reported rather
-// than fabricated, so a caller asking for a personality the mock cannot
-// impersonate gets a loud miss instead of an empty run.
-func EngineCLIs(name string) ([]agent.EngineCLI, bool) {
-	e, ok := Registry().Lookup(engine.Name(name))
-	if !ok {
-		return nil, false
-	}
-	p, ok := e.(agent.EngineCLIProvider)
-	if !ok {
-		return nil, false
-	}
-	clis := p.EngineCLIs()
-	return clis, len(clis) > 0
-}
+// EngineCLIs is agent.EngineCLIsIn over the process registry.
+func EngineCLIs(name string) ([]agent.EngineCLI, bool) { return agent.EngineCLIsIn(Registry(), name) }

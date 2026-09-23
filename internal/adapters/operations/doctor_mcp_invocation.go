@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // doctorMCPInvocationSurfaces are the engine-native MCP registries a ctxloom
@@ -24,11 +24,11 @@ import (
 // A user-global surface (ScopeHome — ~/.claude.json) is deliberately absent:
 // this check reports what THIS project materialized, and a fix it names
 // ('ctxloom init' in this project) would not reach a home-scoped entry anyway.
-func doctorMCPInvocationSurfaces() []string {
+func doctorMCPInvocationSurfaces(reg engine.Registry) []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, name := range EngineNames() {
-		clis, ok := engines.EngineCLIs(name)
+	for _, name := range EngineNames(reg) {
+		clis, ok := agent.EngineCLIsIn(reg, name)
 		if !ok {
 			continue
 		}
@@ -63,7 +63,7 @@ func doctorMCPInvocationSurfaces() []string {
 // that can tell a rendered endpoint from a hanging launch.
 //
 // Pure file inspection: it reads what the engines read and launches nothing.
-func doctorCheckMCPInvocation(projectDir string) DoctorCheck {
+func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorCheck {
 	const marker = "DOCTOR-CHECK-MCP-INVOCATION-g7"
 	if projectDir == "" {
 		return DoctorCheck{Marker: marker, Status: DoctorInfo,
@@ -73,7 +73,7 @@ func doctorCheckMCPInvocation(projectDir string) DoctorCheck {
 	// One list of (what to report it as, where to read it): the
 	// project-relative surfaces resolved against this project root.
 	type mcpSurface struct{ label, path string }
-	rels := doctorMCPInvocationSurfaces()
+	rels := doctorMCPInvocationSurfaces(reg)
 	surfaces := make([]mcpSurface, 0, len(rels))
 	for _, rel := range rels {
 		surfaces = append(surfaces, mcpSurface{label: rel, path: filepath.Join(projectDir, rel)})

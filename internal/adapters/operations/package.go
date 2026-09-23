@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -260,8 +259,8 @@ func managedStatuslineEnabled(cfg *config.Config) bool {
 // its own blocks (Engine.Exports over EngineItems), the hooks, the servers,
 // the deny list and the statusline. An engine nobody registered, or a block
 // its schema refuses, is an error naming it.
-func ManagedConfigOf(pkg composite.Package, engineName string) (*agent.ManagedConfig, error) {
-	exports, err := ExportsFor(pkg, engineName)
+func ManagedConfigOf(reg engine.Registry, pkg composite.Package, engineName string) (*agent.ManagedConfig, error) {
+	exports, err := ExportsFor(reg, pkg, engineName)
 	if err != nil {
 		return nil, err
 	}
@@ -276,8 +275,8 @@ func ManagedSurfacesOf(pkg composite.Package) agent.ManagedSurfaces {
 
 // ExportsFor is what the named engine says about the package: its own
 // Exports over the engine-facing projection of the package.
-func ExportsFor(pkg composite.Package, engineName string) (engine.Exports, error) {
-	eng, ok := engines.Registry().Lookup(engine.Name(engineName))
+func ExportsFor(reg engine.Registry, pkg composite.Package, engineName string) (engine.Exports, error) {
+	eng, ok := reg.Lookup(engine.Name(engineName))
 	if !ok {
 		return engine.Exports{}, fmt.Errorf("unknown backend %q", engineName)
 	}

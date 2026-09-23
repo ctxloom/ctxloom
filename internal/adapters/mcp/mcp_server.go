@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -39,6 +40,9 @@ type ctxServer struct {
 	// (a distill, a triage) runs on: the session's own, on the coordinator's
 	// relay (HostApp). Nil refuses the one-shot (operations.ErrNoRunHost).
 	hosts operations.RunHosts
+	// engines is the registry every by-name engine resolution a handler makes
+	// reads: the hosting App's, handed through HostApp.
+	engines engine.Registry
 }
 
 // hostsFor yields the one-shot host port for s; a nil port is the refusal

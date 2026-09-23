@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -38,11 +37,11 @@ type RemoveHooksResult struct {
 // RemoveHooks strips ctxloom-managed hooks, statusline, MCP servers, and
 // generated command files from the requested backends. Fault tolerant: a
 // single backend's failure is recorded and the rest still run.
-func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) (*RemoveHooksResult, error) {
+func RemoveHooks(ctx context.Context, reg engine.Registry, _ *config.Config, req RemoveHooksRequest) (*RemoveHooksResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
 
-	names, err := manageBackendNames(req.Backend)
+	names, err := manageBackendNames(reg, req.Backend)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +51,7 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 		if ctx.Err() != nil {
 			return &RemoveHooksResult{Status: "partial", Backends: removed, Errors: errs}, ctx.Err()
 		}
-		if err := removeBackendHarness(ctx, name, workDir, fs); err != nil {
+		if err := removeBackendHarness(ctx, reg, name, workDir, fs); err != nil {
 			clidiag.Warn("ctxloom", "%s", err)
 			errs = append(errs, err.Error())
 			continue
@@ -70,8 +69,8 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 // removeBackendHarness delivers the EMPTY plan against the project target:
 // the project writer's record says what ctxloom put there and only that is
 // removed — the user's own hooks, servers, commands and context stay.
-func removeBackendHarness(ctx context.Context, name, workDir string, fs afero.Fs) error {
-	kind, ok := engines.Registry().Lookup(engine.Name(name))
+func removeBackendHarness(ctx context.Context, reg engine.Registry, name, workDir string, fs afero.Fs) error {
+	kind, ok := reg.Lookup(engine.Name(name))
 	if !ok {
 		return fmt.Errorf("failed to remove %s: no engine kind is composed for it", name)
 	}
@@ -156,7 +155,7 @@ type SurfaceCurrency struct {
 
 // HarnessStatus reports which ctxloom-managed artifacts are wired into each
 // settings-supporting backend.
-func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
+func HarnessStatus(ctx context.Context, reg engine.Registry, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
 	opts := []agent.SettingsOption{agent.WithSettingsFS(fs), agent.WithSettingsReporter(cfg.Reporter())}
@@ -168,8 +167,8 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 		Backends:         []BackendWiring{},
 		RootFallback:     projectroot.RootFromFallback(),
 	}
-	for _, name := range EngineNames() {
-		status, err := engineSettingsStatus(name, workDir, opts...)
+	for _, name := range EngineNames(reg) {
+		status, err := engineSettingsStatus(reg, name, workDir, opts...)
 		if err != nil {
 			// Warn-and-continue like the sibling RemoveHooks: one backend's
 			// unreadable settings.json must not abort the whole read-only status
@@ -187,7 +186,7 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 		})
 	}
 
-	surfaces, surfaceErrs := surfaceCurrencies(ctx, cfg, fs, workDir)
+	surfaces, surfaceErrs := surfaceCurrencies(ctx, reg, cfg, fs, workDir)
 	result.Surfaces = surfaces
 	for _, e := range surfaceErrs {
 		clidiag.Warn("ctxloom", "%s", e)
@@ -203,16 +202,16 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 // context the current configuration composes. A file the record does not
 // own is not reported: the hook-delivered default materializes nothing,
 // and an absent file is no finding then.
-func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
+func surfaceCurrencies(ctx context.Context, reg engine.Registry, cfg *config.Config, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
 	records, err := OwnershipRecordsOn(fs)
 	if err != nil {
 		return nil, []string{err.Error()}
 	}
-	for _, name := range EngineNames() {
-		if IsTestOnlyEngine(name) {
+	for _, name := range EngineNames(reg) {
+		if IsTestOnlyEngine(reg, name) {
 			continue
 		}
-		kind, ok := engines.Registry().Lookup(engine.Name(name))
+		kind, ok := reg.Lookup(engine.Name(name))
 		if !ok {
 			continue
 		}
@@ -220,7 +219,7 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 		if !ok {
 			continue
 		}
-		intended, err := intendedContextFile(ctx, cfg, name)
+		intended, err := intendedContextFile(ctx, reg, cfg, name)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
 			return surfaces, errs
@@ -264,10 +263,10 @@ func contextFileOf(kind engine.Engine) (string, bool) {
 
 // intendedContextFile composes the context the current configuration
 // would deliver to backend's file, from the default agent's profile set.
-func intendedContextFile(ctx context.Context, cfg *config.Config, backend string) (string, error) {
+func intendedContextFile(ctx context.Context, reg engine.Registry, cfg *config.Config, backend string) (string, error) {
 	materialized, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profiles: cfg.DefaultAgentProfiles(),
-		Consumer: MaterializedFor(backend),
+		Consumer: MaterializedFor(reg, backend),
 	})
 	if err != nil {
 		return "", err
@@ -356,6 +355,6 @@ func manageWorkDir(workDir string) string {
 //
 // Exhaustiveness is a property of REMOVAL, not a value anyone types — there is
 // no "all".
-func manageBackendNames(backend string) ([]string, error) {
-	return backendNames(backend, EngineNames())
+func manageBackendNames(reg engine.Registry, backend string) ([]string, error) {
+	return backendNames(reg, backend, EngineNames(reg))
 }

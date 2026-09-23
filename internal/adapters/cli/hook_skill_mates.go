@@ -92,7 +92,7 @@ func skillMatesOutput(cmd *cobra.Command) (claude.PostToolUseOutput, error) {
 	// The transcript is read through the ACTIVE engine's own adapter, as
 	// next-step does: this verb is claude-code's today, but the reader is
 	// selected by the session's recorded engine, never assumed.
-	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), harp, payload.TranscriptPath)
+	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), App().Engines(), harp, payload.TranscriptPath)
 	if err != nil {
 		return claude.PostToolUseOutput{}, err
 	}
@@ -111,7 +111,7 @@ func skillMatesOutput(cmd *cobra.Command) (claude.PostToolUseOutput, error) {
 	if err != nil {
 		return claude.PostToolUseOutput{}, fmt.Errorf("assemble the delivered set: %w", err)
 	}
-	exports, err := operations.ExportsFor(pkg, claude.EngineName)
+	exports, err := operations.ExportsFor(App().Engines(), pkg, claude.EngineName)
 	if err != nil {
 		return claude.PostToolUseOutput{}, err
 	}

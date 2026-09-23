@@ -8,7 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // ResolveAgentSurfaces parses an agent binding's declared delivery preference
@@ -24,11 +23,11 @@ import (
 // system-prompt is claude-only; an agent bound to any other engine and naming
 // it has made a mistake worth hearing about, and silently giving it that
 // engine's own delivery instead would teach it the request had worked.
-func ResolveAgentSurfaces(engine string, declared map[string]string) (map[agent.SurfaceKind]string, error) {
+func ResolveAgentSurfaces(reg engine.Registry, engine string, declared map[string]string) (map[agent.SurfaceKind]string, error) {
 	if len(declared) == 0 {
 		return nil, nil
 	}
-	decl, serr := engineDeclaration(engine)
+	decl, serr := engineDeclaration(reg, engine)
 	if serr != nil {
 		return nil, fmt.Errorf("surfaces: %w", serr)
 	}
@@ -59,11 +58,11 @@ func ResolveAgentSurfaces(engine string, declared map[string]string) (map[agent.
 // label, as written) against the named engine's declared approaches: the
 // kind must be one the engine carries and the root one its approach for
 // that kind OFFERS. It returns the selection as delivery.Route reads it.
-func ResolveAgentRoots(engineName string, declared map[string]string) (map[present.Kind]present.RootKind, error) {
+func ResolveAgentRoots(reg engine.Registry, engineName string, declared map[string]string) (map[present.Kind]present.RootKind, error) {
 	if len(declared) == 0 {
 		return nil, nil
 	}
-	kind, ok := engines.Registry().Lookup(engine.Name(engineName))
+	kind, ok := reg.Lookup(engine.Name(engineName))
 	if !ok {
 		return nil, fmt.Errorf("roots: no engine kind %q is composed", engineName)
 	}
@@ -93,8 +92,8 @@ func ResolveAgentRoots(engineName string, declared map[string]string) (map[prese
 // engineDeclaration is the named engine's named-form table (agent.Hosted),
 // distinguishing "unknown engine" (an error) from "an engine with no
 // surfaces" (an empty Declaration that renders as "no surface information").
-func engineDeclaration(name string) (agent.Declaration, error) {
-	h, ok := engines.Hosted(name)
+func engineDeclaration(reg engine.Registry, name string) (agent.Declaration, error) {
+	h, ok := agent.HostedIn(reg, name)
 	if !ok {
 		return nil, fmt.Errorf("unknown engine %q", name)
 	}

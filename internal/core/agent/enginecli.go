@@ -558,6 +558,24 @@ type EngineCLIProvider interface {
 	EngineCLIs() []EngineCLI
 }
 
+// EngineCLIsIn is the named engine's L1 process-surface declarations, read
+// off reg's engine VALUE — the SAME declaration the driver reads, so the
+// standalone mock engine impersonating it cannot drift out of step. False
+// when the name is unregistered OR the engine declares no CLI surfaces: "has
+// no declaration" is reported rather than fabricated.
+func EngineCLIsIn(reg engine.Registry, name string) ([]EngineCLI, bool) {
+	e, ok := reg.Lookup(engine.Name(name))
+	if !ok {
+		return nil, false
+	}
+	p, ok := e.(EngineCLIProvider)
+	if !ok {
+		return nil, false
+	}
+	clis := p.EngineCLIs()
+	return clis, len(clis) > 0
+}
+
 // EngineCLIFor selects the named surface from a declaration list.
 func EngineCLIFor(clis []EngineCLI, surface CLISurface) (EngineCLI, bool) {
 	i := slices.IndexFunc(clis, func(c EngineCLI) bool { return c.Surface == surface })

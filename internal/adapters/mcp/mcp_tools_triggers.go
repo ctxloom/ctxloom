@@ -51,7 +51,7 @@ func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolR
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
 	tc := evaluateTriggersTaskContext(s, cwd)
-	res, err := operations.EvaluateTriggers(ctx, s.cfg, operations.EvaluateTriggersRequest{
+	res, err := operations.EvaluateTriggers(ctx, s.engines, s.cfg, operations.EvaluateTriggersRequest{
 		TaskContext: tc,
 		Hosts:       s.hostsFor(),
 		RepoDir:     cwd,

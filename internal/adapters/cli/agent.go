@@ -134,7 +134,7 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 	// behavior is visible. Resolution is fault-tolerant for show: a failure
 	// (e.g. a missing constituent profile) still prints the definition with a
 	// warning rather than failing the command.
-	resolved, rerr := operations.ResolveAgent(cmd.Context(), cfg, name, "")
+	resolved, rerr := operations.ResolveAgent(cmd.Context(), App().Engines(), cfg, name, "")
 	payload := agentShowJSON{Definition: def, Resolved: resolved}
 	if rerr != nil {
 		payload.ResolutionError = rerr.Error()
@@ -145,7 +145,7 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 		// binding names what the NEW engine cannot carry that the resolved
 		// profiles' hooks configuration actually uses, instead of `agent show`
 		// reporting only the swap succeeded (trusting-ambiguity).
-		payload.CapabilityLoss = operations.CapabilityLoss(cfg, resolved.Backend, resolved.Profiles)
+		payload.CapabilityLoss = operations.CapabilityLoss(App().Engines(), cfg, resolved.Backend, resolved.Profiles)
 	}
 	return emit(cmd, payload, func() error {
 		return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr, payload.CapabilityLoss)

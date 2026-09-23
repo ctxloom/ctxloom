@@ -72,7 +72,7 @@ func captureNextStep(cmd *cobra.Command) error {
 	// hook is installed on every hooking backend, so assuming one engine's
 	// format here is how the capture fires every turn on the others and
 	// stores nothing.
-	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), harp, payload.TranscriptPath)
+	adapter, src, err := operations.ResolveTurnTranscript(cmd.Context(), App().Engines(), harp, payload.TranscriptPath)
 	if err != nil {
 		return err
 	}

@@ -57,7 +57,7 @@ type authSetTokenResult struct {
 func runAuthSetToken(cmd *cobra.Command, _ []string) error {
 	name := authSetTokenEngine
 	if name == "" {
-		name = operations.DefaultEngineName()
+		name = operations.DefaultEngineName(App().Engines())
 	}
 	a, ok := isolation.TokenAuthFor(name)
 	if !ok {

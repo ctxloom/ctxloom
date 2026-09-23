@@ -21,7 +21,7 @@ import (
 // by default (engine.DistributionDefault), read off the registry so the menu
 // cannot name an engine that is not there.
 func primaryEngines() []string {
-	return operations.EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution == engine.DistributionDefault })
+	return operations.EngineNamesWhere(App().Engines(), func(d engine.Definition) bool { return d.Distribution == engine.DistributionDefault })
 }
 
 // getAvailableEngines returns engines filtered by what's actually installed.
@@ -31,7 +31,7 @@ func primaryEngines() []string {
 // Derived from the registry so the help cannot name an engine that no longer
 // exists.
 func userEngineNames() string {
-	return strings.Join(operations.EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly }), ", ")
+	return strings.Join(operations.EngineNamesWhere(App().Engines(), func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly }), ", ")
 }
 
 func getAvailableEngines() (primary, secondary []string) {
@@ -42,17 +42,17 @@ func getAvailableEngines() (primary, secondary []string) {
 
 	// Check which primary engines are available
 	for _, name := range primaryEngines() {
-		if operations.EngineAvailable(name) {
+		if operations.EngineAvailable(App().Engines(), name) {
 			primary = append(primary, name)
 		}
 	}
 
 	// Get secondary engines (all others except mock)
-	for _, name := range operations.EngineNames() {
+	for _, name := range operations.EngineNames(App().Engines()) {
 		if isTestOnlyBackend(name) || primarySet[name] {
 			continue
 		}
-		if operations.EngineAvailable(name) {
+		if operations.EngineAvailable(App().Engines(), name) {
 			secondary = append(secondary, name)
 		}
 	}
@@ -194,7 +194,7 @@ func pickDefaultEngine(selected string, primary []string) string {
 	if len(primary) > 0 {
 		return primary[0]
 	}
-	return operations.DefaultEngineName()
+	return operations.DefaultEngineName(App().Engines())
 }
 
 // noEnginesInstalled reports whether neither a primary nor a secondary engine

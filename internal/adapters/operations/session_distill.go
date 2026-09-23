@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"errors"
 	"fmt"
@@ -82,7 +83,7 @@ type DistillOptions struct {
 // mcp's compactEntryFn is CompactEntry behind a package var so a caller's
 // wiring can be observed in a test; that test seam stays in mcp and is not
 // duplicated here.
-func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+func CompactEntry(ctx context.Context, reg engine.Registry, entry *sessions.Entry, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
 	model := CompactionModelFor(cfg, opts.Model)
 	backendName := entry.Backend
 	if backendName == "" {
@@ -90,7 +91,7 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	}
 
 	sessionID := entry.SessionID
-	preloaded, err := distillPreload(entry, backendName)
+	preloaded, err := distillPreload(reg, entry, backendName)
 	if err != nil {
 		return nil, err
 	}
@@ -103,13 +104,13 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	// The distiller is a real session on the FAST role's label: one harp for
 	// every turn this compaction makes, started on the first turn and ended
 	// when the compaction is done.
-	distiller := NewLazyOneShot(opts.Hosts, cfg, opts.Strictness, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
+	distiller := NewLazyOneShot(reg, opts.Hosts, cfg, opts.Strictness, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
 	defer distiller.End()
 	// The compactor no longer builds its own source: resolve it here (unless a
 	// transcript was preloaded by path, which short-circuits it) and inject.
 	var source memory.Source
 	if preloaded == nil {
-		src, serr := distillSource(backendName, entry.ProjectDir)
+		src, serr := distillSource(reg, backendName, entry.ProjectDir)
 		if serr != nil {
 			return nil, fmt.Errorf("resolve transcript source for backend %q: %w", backendName, serr)
 		}
@@ -145,7 +146,7 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 // when the compactor resolves the transcript itself (a bound id, or ctxloom's
 // canonical capture by HarpName), a session loaded from the engine's recorded
 // transcript path otherwise, and an error when there is nothing to read.
-func distillPreload(entry *sessions.Entry, backendName string) (*agent.Session, error) {
+func distillPreload(reg engine.Registry, entry *sessions.Entry, backendName string) (*agent.Session, error) {
 	if entry.SessionID != "" {
 		return nil, nil
 	}
@@ -157,7 +158,7 @@ func distillPreload(entry *sessions.Entry, backendName string) (*agent.Session, 
 		// it refused sessions whose canonical capture was sitting on disk.
 		return nil, nil
 	case entry.TranscriptPath != "":
-		hist, herr := HistoryForBackend(backendName)
+		hist, herr := HistoryForBackend(reg, backendName)
 		if herr != nil {
 			return nil, fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
 		}
@@ -186,8 +187,8 @@ func distillPreload(entry *sessions.Entry, backendName string) (*agent.Session, 
 // canonical capture alone. As a transcript.Source interface value it is nil
 // exactly when there is no leg — never a typed nil the fallback would
 // dereference.
-func legacyTranscriptSource(backend, workDir string) (transcript.Source, error) {
-	hist, err := HistoryForBackend(backend)
+func legacyTranscriptSource(reg engine.Registry, backend, workDir string) (transcript.Source, error) {
+	hist, err := HistoryForBackend(reg, backend)
 	if err != nil {
 		if errors.Is(err, errNoSessionHistory) {
 			return nil, nil
@@ -201,12 +202,12 @@ func legacyTranscriptSource(backend, workDir string) (transcript.Source, error) 
 // distill, for callers that build a memory.CompactionConfig directly (the MCP
 // memory tools). It is distillSource behind an exported name so those callers
 // need not know how a canonical source is assembled.
-func DistillSource(backend, workDir string) (memory.Source, error) {
-	return distillSource(backend, workDir)
+func DistillSource(reg engine.Registry, backend, workDir string) (memory.Source, error) {
+	return distillSource(reg, backend, workDir)
 }
 
-func distillSource(backend, workDir string) (memory.Source, error) {
-	legacy, err := legacyTranscriptSource(backend, workDir)
+func distillSource(reg engine.Registry, backend, workDir string) (memory.Source, error) {
+	legacy, err := legacyTranscriptSource(reg, backend, workDir)
 	if err != nil {
 		return nil, err
 	}
@@ -233,14 +234,14 @@ func distillSource(backend, workDir string) (memory.Source, error) {
 // A retired-scraper backend (claude-code — its scraper was deleted, not
 // demoted) never gets a legacy leg at all: there is no History() left to
 // ask. Every other backend keeps its legacy leg unchanged.
-func ResolveSessionSource(cfg *config.Config, backendName, workDir string) (transcript.Source, string, error) {
+func ResolveSessionSource(reg engine.Registry, cfg *config.Config, backendName, workDir string) (transcript.Source, string, error) {
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
 	}
-	if !EngineExists(backendName) {
+	if !EngineExists(reg, backendName) {
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
-	legacy, err := legacyTranscriptSource(backendName, workDir)
+	legacy, err := legacyTranscriptSource(reg, backendName, workDir)
 	if err != nil {
 		return nil, backendName, err
 	}

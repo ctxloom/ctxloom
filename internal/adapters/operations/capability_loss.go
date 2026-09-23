@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"fmt"
 	"sort"
@@ -28,7 +29,7 @@ import (
 //
 // nil cfg or an empty backend name report no loss — there is nothing to
 // resolve a hooks configuration against.
-func CapabilityLoss(cfg *config.Config, backend string, profileNames []string) []agent.SurfaceLoss {
+func CapabilityLoss(reg engine.Registry, cfg *config.Config, backend string, profileNames []string) []agent.SurfaceLoss {
 	if cfg == nil || backend == "" {
 		return nil
 	}
@@ -36,7 +37,7 @@ func CapabilityLoss(cfg *config.Config, backend string, profileNames []string) [
 		return nil
 	}
 	hooks := managedhooks.Assemble(report.To(cfg.Reporter()), cfg, "", "", profileNames).WireDeclared()
-	return uncarriedSurfaces(backend, agent.SurfaceInputs{Hooks: hooks})
+	return uncarriedSurfaces(reg, backend, agent.SurfaceInputs{Hooks: hooks})
 }
 
 // CapabilityLossByAgent is the roster-wide read of CapabilityLoss: for every
@@ -57,7 +58,7 @@ func CapabilityLoss(cfg *config.Config, backend string, profileNames []string) [
 // binding to name a loss against, and the resolution failure is already its
 // own finding (DOCTOR-CHECK-AGENTS-b2). Saying it twice in two vocabularies
 // would make neither line believable.
-func CapabilityLossByAgent(ctx context.Context, cfg *config.Config) []AgentSurfaceLoss {
+func CapabilityLossByAgent(ctx context.Context, reg engine.Registry, cfg *config.Config) []AgentSurfaceLoss {
 	if cfg == nil {
 		return nil
 	}
@@ -69,11 +70,11 @@ func CapabilityLossByAgent(ctx context.Context, cfg *config.Config) []AgentSurfa
 	sort.Strings(names)
 	var out []AgentSurfaceLoss
 	for _, name := range names {
-		resolved, err := ResolveAgent(ctx, cfg, name, "")
+		resolved, err := ResolveAgent(ctx, reg, cfg, name, "")
 		if err != nil {
 			continue
 		}
-		losses := CapabilityLoss(cfg, resolved.Backend, resolved.Profiles)
+		losses := CapabilityLoss(reg, cfg, resolved.Backend, resolved.Profiles)
 		if len(losses) == 0 {
 			continue
 		}

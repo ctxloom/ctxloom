@@ -15,7 +15,7 @@ import (
 // it is test-only where it is registered, so a newly registered double is
 // hidden everywhere at once rather than wherever someone remembers to skip
 // its name.
-func isTestOnlyBackend(name string) bool { return operations.IsTestOnlyEngine(name) }
+func isTestOnlyBackend(name string) bool { return operations.IsTestOnlyEngine(App().Engines(), name) }
 
 // decodeBackendConfigForType returns the decoded config of a labeled entry
 // whose type matches backendType. Used where only a backend type is known
@@ -34,13 +34,13 @@ func decodeBackendConfigForType(cfg *config.Config, backendType string) agent.Ba
 	// must fall through to a same-type sibling that can decode rather than
 	// degrading the whole resolution to unconfigured defaults.
 	if primary := cfg.PrimaryLabel(); matchesType(primary) {
-		if bc := operations.DecodeBackendConfig(cfg, primary); bc != nil {
+		if bc := operations.DecodeBackendConfig(App().Engines(), cfg, primary); bc != nil {
 			return bc
 		}
 	}
 	for _, label := range cfg.GetLLMLabels() {
 		if matchesType(label) {
-			if bc := operations.DecodeBackendConfig(cfg, label); bc != nil {
+			if bc := operations.DecodeBackendConfig(App().Engines(), cfg, label); bc != nil {
 				return bc
 			}
 		}

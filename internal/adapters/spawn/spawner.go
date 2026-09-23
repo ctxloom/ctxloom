@@ -219,7 +219,7 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 	if label == "" {
 		label = cfg.PrimaryLabel()
 	}
-	backend, _ := operations.ResolveBackend(cfg, label)
+	backend, _ := operations.ResolveBackend(s.app.Engines(), cfg, label)
 	rtStr := binding.Runtime
 	if rtStr == "" {
 		rtStr = cfg.GetRuntime()
@@ -275,7 +275,7 @@ func (s *spawner) AssignSession(projectDir, backend string) (string, error) {
 }
 
 func (s *spawner) RecordEngineVersion(ctx context.Context, harp, backend string) {
-	operations.RecordSessionEngineVersion(ctx, harp, backend)
+	s.app.RecordSessionEngineVersion(ctx, harp, backend)
 }
 
 // startEngine is operations.StartEngine's production entry point, indirected
@@ -289,7 +289,7 @@ var startEngine = operations.StartEngine
 // the parent fans, and the shared checkout is never the silent default for a
 // child.
 func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
-	deps, err := operations.LaunchDepsFor(plan.Snapshot, s.app.Strictness)
+	deps, err := operations.LaunchDepsFor(s.app.Engines(), plan.Snapshot, s.app.Strictness)
 	if err != nil {
 		return coord.Resolved{}, err
 	}
@@ -347,7 +347,7 @@ func (r cellRuntime) Start(ctx context.Context, l launch.Launch, env map[string]
 }
 
 func (s *spawner) ResumeHistory(ctx context.Context, harp string) string {
-	entries, err := operations.RecordedSessionEntries(ctx, harp)
+	entries, err := operations.RecordedSessionEntries(ctx, s.app.Engines(), harp)
 	if err != nil {
 		s.rep.Warnf("agent resume %s: no recorded history to prime (%v); resuming with the agent context only", harp, err)
 		return ""

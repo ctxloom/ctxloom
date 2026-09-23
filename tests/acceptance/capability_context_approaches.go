@@ -63,6 +63,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // approachFamily is P1's name in a skip line, a failure message and the evidence
@@ -146,7 +147,7 @@ func approachConfigYAML(a liveAgent, llmKey, runtime, approach string) string {
 //     defect this function turns into a red — hermetically, in
 //     capability_context_approaches_test.go, with no engine installed.
 func approachPinAcceptedByEngine(engine, approach string) error {
-	if _, err := operations.ResolveAgentSurfaces(engine, map[string]string{approachSurfaceKind: approach}); err != nil {
+	if _, err := operations.ResolveAgentSurfaces(engines.Registry(), engine, map[string]string{approachSurfaceKind: approach}); err != nil {
 		return fmt.Errorf("%s: %s does not declare the %s approach for its %s surface, so this cell can never pin it: %w — a cell for an approach the engine's ApproachTable does not carry is gated-out BY ABSENCE (no Examples row), never a red",
 			approachFamily, engine, approach, approachSurfaceKind, err)
 	}

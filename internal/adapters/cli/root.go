@@ -19,6 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
@@ -67,6 +69,12 @@ type Composition struct {
 	// it is handed: the root composes the production launch seam
 	// (adapters/spawn) from that App unless the options carry one.
 	NewCoordinator func(*operations.App, coord.Options) (*coord.Coordinator, error)
+	// Engines is the shipped engine registry the App resolves every engine
+	// by name against.
+	Engines engine.Registry
+	// SessionClaims constructs the per-session claim store a launch roots
+	// at its minted harp.
+	SessionClaims launch.SessionClaims
 }
 
 // theComposition is the root's Composition for this process; theApp is the
@@ -120,7 +128,12 @@ func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, mode 
 	if err != nil {
 		clidiag.Warn("ctxloom", "config overrides: %v", err)
 	}
-	theApp = operations.NewApp(src, noCompanions, selfLoadout, mode, theComposition.OpenConfig, theComposition.Reporter)
+	theApp = operations.NewApp(src, noCompanions, selfLoadout, mode, operations.Handed{
+		Open:          theComposition.OpenConfig,
+		Reporter:      theComposition.Reporter,
+		Engines:       theComposition.Engines,
+		SessionClaims: theComposition.SessionClaims,
+	})
 }
 
 // strictnessMode is the posture this invocation runs under. Degraded comes

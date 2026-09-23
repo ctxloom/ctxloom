@@ -44,6 +44,19 @@ func (r Registry) Names(keep func(Definition) bool) []Name {
 	return out
 }
 
+// NamesWhere lists, sorted, the registered names whose engine VALUE keep
+// accepts — a view over what the values implement, where Names is a view
+// over their Definitions.
+func (r Registry) NamesWhere(keep func(Name, Engine) bool) []Name {
+	var out []Name
+	for _, n := range r.Names(nil) {
+		if keep(n, r.m[n]) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // Default is the engine a process offers when nothing named one: the ONE
 // engine shipped with DistributionDefault. Zero or several is a composition
 // error, refused by name — a default is never guessed.

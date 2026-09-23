@@ -4,15 +4,17 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/pflag"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -34,8 +36,13 @@ type App struct {
 	// App composes reports through it.
 	Reporter report.Sink
 
-	src    config.Sources
-	open   ConfigOpener
+	src     config.Sources
+	open    ConfigOpener
+	engines engine.Registry
+	claims  launch.SessionClaims
+
+	proberOnce sync.Once
+	prober     *engineversion.Prober
 	once   sync.Once
 	mu     sync.Mutex
 	opened bool
@@ -80,21 +87,33 @@ func ComposeSources(c Compose) (config.Sources, error) {
 	return configload.New(c.Flags, c.Environ, opts...)
 }
 
-// NewApp holds src as the process's sources; the owner opens on the first
-// Owner/Snapshot/Config call, so a command that never reads configuration
-// never reads the files either.
 // ConfigOpener opens the process's one config owner. The composition root
 // (cmd/*) supplies it, so config.Open is called only there — the
 // one-mint-one-owner rule.
 type ConfigOpener func(ctx context.Context, src config.Sources, opts ...config.Option) (*config.Owner, error)
 
-func NewApp(src config.Sources, noCompanions bool, selfLoadout func() string, mode strictness.Mode, open ConfigOpener, rep report.Sink) *App {
-	return &App{NoCompanions: noCompanions, SelfLoadout: selfLoadout, Strictness: mode, Reporter: rep, src: src, open: open}
+// Handed is what the composition root (cmd/*) hands the App: the config
+// opener, the one Reporter, the shipped engine registry every by-name
+// resolution reads, and the per-session claim-store constructor launches
+// root at their minted session.
+type Handed struct {
+	Open          ConfigOpener
+	Reporter      report.Sink
+	Engines       engine.Registry
+	SessionClaims launch.SessionClaims
 }
 
-// OpenedApp wraps an owner a test already opened.
-func OpenedApp(owner *config.Owner) *App {
-	a := &App{owner: owner, opened: true}
+// NewApp holds src as the process's sources; the owner opens on the first
+// Owner/Snapshot/Config call, so a command that never reads configuration
+// never reads the files either.
+func NewApp(src config.Sources, noCompanions bool, selfLoadout func() string, mode strictness.Mode, h Handed) *App {
+	return &App{NoCompanions: noCompanions, SelfLoadout: selfLoadout, Strictness: mode, Reporter: h.Reporter, src: src, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
+}
+
+// OpenedApp wraps an owner a test already opened, with what a composition
+// root would have handed it.
+func OpenedApp(owner *config.Owner, h Handed) *App {
+	a := &App{owner: owner, opened: true, Reporter: h.Reporter, open: h.Open, engines: h.Engines, claims: h.SessionClaims}
 	a.once.Do(func() {})
 	return a
 }
@@ -104,6 +123,10 @@ func OpenedApp(owner *config.Owner) *App {
 func (a *App) Prober() companions.Prober {
 	return companions.Prober{Disabled: a.NoCompanions, Self: a.SelfLoadout}
 }
+
+// Engines is the engine registry the composition root handed this App: the
+// one every by-name engine resolution in operations reads.
+func (a *App) Engines() engine.Registry { return a.engines }
 
 // Opened reports whether the owner has been opened: a composition may be
 // replaced (init pinning its target directory) only before that.
@@ -121,7 +144,7 @@ func (a *App) Owner(ctx context.Context) (*config.Owner, error) {
 		a.mu.Lock()
 		a.opened = true
 		a.mu.Unlock()
-		a.owner, a.err = a.open(ctx, a.src, config.WithEngines(engines.Registry()), config.WithReporter(a.Reporter))
+		a.owner, a.err = a.open(ctx, a.src, config.WithEngines(a.engines), config.WithReporter(a.Reporter))
 	})
 	return a.owner, a.err
 }

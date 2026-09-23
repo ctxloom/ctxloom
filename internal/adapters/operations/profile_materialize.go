@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -95,7 +94,7 @@ type PremiseWithhold struct {
 // native surfaces will be written, canonicalizing the requested name. "" means
 // the default; anything unregistered is an error, as is a missing config,
 // target or profile set.
-func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest) (string, error) {
+func resolveMaterializeTarget(reg engine.Registry, cfg *config.Config, req MaterializeProfileRequest) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("config is required")
 	}
@@ -106,16 +105,16 @@ func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest)
 		return "", fmt.Errorf("at least one profile is required")
 	}
 	if req.Backend == "" {
-		return registeredBackend(DefaultMaterializeBackend)
+		return registeredBackend(reg, DefaultMaterializeBackend)
 	}
-	return registeredBackend(req.Backend)
+	return registeredBackend(reg, req.Backend)
 }
 
 // registeredBackend refuses a name no engine is registered under exactly.
 // The registered name is what every registry lookup keys on and what
 // results report.
-func registeredBackend(name string) (string, error) {
-	if !EngineExists(name) {
+func registeredBackend(reg engine.Registry, name string) (string, error) {
+	if !EngineExists(reg, name) {
 		return "", fmt.Errorf("unknown backend %q", name)
 	}
 	return name, nil
@@ -137,11 +136,11 @@ func registeredBackend(name string) (string, error) {
 // downgrades every finding to a loud warning and keeps the partial target
 // ("partial success is success"). Bad arguments and a failed context assembly
 // (the core payload) stay hard errors regardless of mode.
-func MaterializeProfile(ctx context.Context, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error) {
+func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error) {
 	if _, err := cfg.RequireTrust(); err != nil {
 		return nil, fmt.Errorf("materialize: %w", err)
 	}
-	backend, err := resolveMaterializeTarget(cfg, req)
+	backend, err := resolveMaterializeTarget(reg, cfg, req)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +177,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// decides for every composition that must match this file.
 	pkg, err := AssemblePackage(ctx, cfg, PackageRequest{
 		Profiles: req.Profiles,
-		Consumer: MaterializedFor(backend),
+		Consumer: MaterializedFor(reg, backend),
 		WorkDir:  req.Target,
 	})
 	if err != nil {
@@ -227,7 +226,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// not carried, never routed elsewhere. The context is the engine's
 	// native file — a materialized tree must be readable with ctxloom out
 	// of the loop, so no injection hook is written.
-	kind, ok := engines.Registry().Lookup(engine.Name(backend))
+	kind, ok := reg.Lookup(engine.Name(backend))
 	if !ok {
 		return nil, fmt.Errorf("materialize: no engine kind is composed for %s", backend)
 	}

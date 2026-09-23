@@ -106,7 +106,7 @@ func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string
 		},
 		Watch: func(ctx context.Context, harp string) (*tui.Feed, error) {
 			wctx, cancel := context.WithCancel(ctx)
-			feed, err := operations.WatchSessionFeed(wctx, operations.SessionFeedRequest{Harp: harp})
+			feed, err := operations.WatchSessionFeed(wctx, App().Engines(), operations.SessionFeedRequest{Harp: harp})
 			if err != nil {
 				cancel()
 				return nil, err

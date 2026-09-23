@@ -29,7 +29,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -90,8 +89,8 @@ type vendorReaderEntry struct {
 // so there is no path-derivation logic to duplicate here, and no chance of
 // resurrecting the deleted reader's claude cwd→slug bug (ADR 0035 names it,
 // and this sidestep).
-func vendorReaderFor(engineName string) (vendorReaderEntry, bool) {
-	kind, ok := engines.Registry().Lookup(engine.Name(engineName))
+func vendorReaderFor(reg engine.Registry, engineName string) (vendorReaderEntry, bool) {
+	kind, ok := reg.Lookup(engine.Name(engineName))
 	if !ok {
 		return vendorReaderEntry{}, false
 	}
@@ -113,9 +112,9 @@ func vendorReaderFor(engineName string) (vendorReaderEntry, bool) {
 // a vendor reader, sorted. Derived from the registry on every call, so a
 // newly registered engine that declares readers appears here without an
 // edit; an engine whose Transcripts() is empty does not.
-func VendorReaderEngineNames() []string {
-	return EngineNamesWhere(func(d engine.Definition) bool {
-		_, ok := vendorReaderFor(string(d.Name))
+func VendorReaderEngineNames(reg engine.Registry) []string {
+	return EngineNamesWhere(reg, func(d engine.Definition) bool {
+		_, ok := vendorReaderFor(reg, string(d.Name))
 		return ok
 	})
 }
@@ -135,12 +134,12 @@ func VendorReaderEngineNames() []string {
 // The slice is copied: it is built from the reader packages' VersionedAdapters
 // package vars, which are FACTS those packages state about themselves, and a
 // caller must not be able to rewrite them through a read.
-func VendorReaderAdaptersFor(engine string) ([]vendorreader.VersionedAdapter, bool) {
-	reg, ok := vendorReaderFor(engine)
+func VendorReaderAdaptersFor(reg engine.Registry, engine string) ([]vendorreader.VersionedAdapter, bool) {
+	vr, ok := vendorReaderFor(reg, engine)
 	if !ok {
 		return nil, false
 	}
-	return slices.Clone(reg.adapters), true
+	return slices.Clone(vr.adapters), true
 }
 
 // locateBoundTranscript is the locate func shared by every registered
@@ -233,8 +232,8 @@ func vendorSourceClock(src string) func() time.Time {
 // hasCanonicalTranscript's presence-only guard would treat a partial file as a
 // complete one forever, silently masking the original failure on every later
 // call for this harp instead of allowing a genuine retry.
-func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted bool, err error) {
-	return convertVendorTranscript(ctx, e, false)
+func ConvertVendorTranscript(ctx context.Context, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
+	return convertVendorTranscript(ctx, reg, e, false)
 }
 
 // RefreshVendorTranscript re-converts e's vendor-native transcript even when a
@@ -252,8 +251,8 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 // (vendorreader.VendorAdapter). That is why this is a separate verb rather than
 // the default: callers that know their session is finished should not pay it,
 // and a sweep across an index must not.
-func RefreshVendorTranscript(ctx context.Context, e sessions.Entry) (converted bool, err error) {
-	return convertVendorTranscript(ctx, e, true)
+func RefreshVendorTranscript(ctx context.Context, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
+	return convertVendorTranscript(ctx, reg, e, true)
 }
 
 // convertVendorTranscript is the shared body of ConvertVendorTranscript and
@@ -273,15 +272,15 @@ func RefreshVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 // everything said before the clear the moment the canonical transcript was
 // (re)built: the vendor file naming that conversation was still on disk, but
 // nothing pointed at it anymore.
-func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool) (converted bool, err error) {
-	reg, ok := vendorReaderFor(e.Backend)
+func convertVendorTranscript(ctx context.Context, reg engine.Registry, e sessions.Entry, refresh bool) (converted bool, err error) {
+	vr, ok := vendorReaderFor(reg, e.Backend)
 	if !ok || e.HarpName == "" {
 		return false, nil
 	}
 	if !refresh && hasCanonicalTranscript(e.HarpName) {
 		return false, nil
 	}
-	liveSrc, liveOK := reg.locate(ctx, e)
+	liveSrc, liveOK := vr.locate(ctx, e)
 	if !liveOK && len(e.Rotations) == 0 {
 		return false, nil
 	}
@@ -298,7 +297,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// adapter chosen, a malformed line degrades to partial rather than
 	// refusing (vendorreader.VendorAdapter's contract). The two must not be
 	// collapsed — see vendorreader/version.go's header.
-	adapter, aerr := vendorreader.SelectAdapter(e.Backend, e.EngineVersion, e.HarpName, reg.adapters)
+	adapter, aerr := vendorreader.SelectAdapter(e.Backend, e.EngineVersion, e.HarpName, vr.adapters)
 	if aerr != nil {
 		return false, aerr
 	}

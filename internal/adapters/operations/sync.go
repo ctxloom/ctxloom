@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
@@ -118,6 +119,7 @@ type SyncDependenciesResult struct {
 // SyncDependencies syncs remote bundles and profiles referenced in config.
 // This is the main entry point for auto-fetch on startup.
 func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest) (*SyncDependenciesResult, error) {
+	reg := app.Engines()
 	if app == nil {
 		return nil, fmt.Errorf("sync: app is required")
 	}
@@ -207,7 +209,7 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 				"run 'ctxloom deps pull' again to continue converging", maxSyncPasses)
 	}
 
-	runSyncPostSteps(ctx, cfg, req, result, fs)
+	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
 
 	if result.Errors > 0 {
 		result.Status = "completed_with_errors"
@@ -354,7 +356,7 @@ var (
 	syncLockStep func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error)
 	// syncHooksStep applies from the generation runSyncPostSteps holds — the
 	// one reloaded after the last pull.
-	syncHooksStep func(context.Context, ApplyHooksRequest) (*ApplyHooksResult, error)
+	syncHooksStep func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error)
 )
 
 // Bound in init (not at declaration) to avoid an initialization cycle: the real
@@ -367,7 +369,7 @@ func init() {
 // runSyncPostSteps runs the optional lockfile + hooks regeneration after a sync.
 // Each step warns and continues on failure — partial success is success and a
 // post-step failure must not fail the sync the user just completed (CLAUDE.md).
-func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
+func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Config, req SyncDependenciesRequest, result *SyncDependenciesResult, fs afero.Fs) {
 	if req.Lock && result.Installed+result.Updated > 0 {
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
@@ -384,7 +386,7 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// settings apply — per-backend partial failures are already instrumented
 	// inside ApplyHooks); degraded mode warns and continues.
 	if req.ApplyHooks && result.Total > 0 {
-		if _, err := syncHooksStep(ctx, ApplyHooksRequest{
+		if _, err := syncHooksStep(ctx, reg, ApplyHooksRequest{
 			Cfg:               cfg,
 			RegenerateContext: true,
 		}); err != nil {

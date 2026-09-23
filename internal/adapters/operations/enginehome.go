@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"fmt"
 	"os"
 	"path"
@@ -142,7 +143,7 @@ const inTreeAgentHomeFixIt = "store the engine's long-lived token with `ctxloom 
 // it cannot authenticate against would trade a working run for a mysterious
 // 401, and falling back to the real home would hand it what only the
 // binding may select.
-func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
+func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeResolution {
 	if in.HomeMode == agents.HomeModeHost {
 		return absent("engine_home is %q: the binding selected the home its runtime gives the engine", in.HomeMode)
 	}
@@ -150,7 +151,7 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the runtime's own config home instead", in.Backend)
 		return absent("this run carries no session name and a config-home instance is per-session")
 	}
-	spec, ok := inTreeAgentHomeFor(in.Backend, in.Harp)
+	spec, ok := inTreeAgentHomeFor(reg, in.Backend, in.Harp)
 	if !ok {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: engine_home is %q but %s declares no relocatable config home; using the runtime's own config home instead", in.Backend, agents.HomeModeSession, in.Backend)
 		return absent("%s declares no relocatable config home", in.Backend)
@@ -202,9 +203,9 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 // for a container — records the mount that makes the engine-side path true.
 // The returned resolution's Env is what the caller merges under its run env;
 // the caller owns that merge, so a user's own `--env` still wins.
-func BindAgentHome(ws isolation.Workspace, in InTreeAgentHome) AgentHomeResolution {
+func BindAgentHome(reg engine.Registry, ws isolation.Workspace, in InTreeAgentHome) AgentHomeResolution {
 	in.ContainerHome = isolation.ContainerInstanceHome(ws)
-	res := ResolveInTreeAgentHome(in)
+	res := ResolveInTreeAgentHome(reg, in)
 	if res.Mount == nil {
 		return res
 	}

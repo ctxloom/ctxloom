@@ -123,7 +123,7 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 func completeLLMNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	cfg, err := GetConfig()
 	if err != nil {
-		return filterPrefix(operations.EngineNames(), toComplete), cobra.ShellCompDirectiveNoFileComp
+		return filterPrefix(operations.EngineNames(App().Engines()), toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
 	labels := cfg.GetLLMLabels()
 	return filterPrefix(labels, toComplete), cobra.ShellCompDirectiveNoFileComp

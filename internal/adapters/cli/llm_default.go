@@ -56,7 +56,7 @@ func runLLMDefault(cmd *cobra.Command, app *operations.App, cfg *config.Config, 
 
 	name := args[0]
 	if !isKnownLLM(cfg, name) {
-		available := operations.AvailableLLMNames(cfg)
+		available := operations.AvailableLLMNames(App().Engines(), cfg)
 		return fmt.Errorf("unknown LLM %q; available: %s", name, strings.Join(available, ", "))
 	}
 
@@ -82,7 +82,7 @@ func runLLMDefault(cmd *cobra.Command, app *operations.App, cfg *config.Config, 
 // a command that rejects a name its own error lists as available is the drift
 // that costs.
 func isKnownLLM(cfg *config.Config, name string) bool {
-	return slices.Contains(operations.AvailableLLMNames(cfg), name)
+	return slices.Contains(operations.AvailableLLMNames(App().Engines(), cfg), name)
 }
 
 func init() {

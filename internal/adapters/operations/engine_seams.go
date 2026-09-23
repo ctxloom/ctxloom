@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -22,8 +22,8 @@ import (
 //
 // force downgrades a real collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
-func checkHookTargetScopeOf(name, workDir string, force bool) error {
-	h, ok := engines.Hosted(name)
+func checkHookTargetScopeOf(reg engine.Registry, name, workDir string, force bool) error {
+	h, ok := agent.HostedIn(reg, name)
 	if !ok {
 		return nil
 	}
@@ -95,8 +95,8 @@ type InTreeAgentHomeSpec struct {
 // pointing at it, prepared by isolation.PrepareInstanceHome.
 // An engine whose Home relocates nothing (mock: the zero HomeSpec) has no
 // in-tree home, and that absence is its own declaration.
-func inTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
-	kind, exists := engines.Registry().Lookup(engine.Name(name))
+func inTreeAgentHomeFor(reg engine.Registry, name, harp string) (InTreeAgentHomeSpec, bool) {
+	kind, exists := reg.Lookup(engine.Name(name))
 	if !exists {
 		return InTreeAgentHomeSpec{}, false
 	}

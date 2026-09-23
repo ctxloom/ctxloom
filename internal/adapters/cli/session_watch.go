@@ -89,7 +89,7 @@ func runSessionWatch(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals...)
 	defer stop()
 
-	feed, err := operations.WatchSessionFeed(ctx, operations.SessionFeedRequest{Harp: harpName, Source: source})
+	feed, err := operations.WatchSessionFeed(ctx, App().Engines(), operations.SessionFeedRequest{Harp: harpName, Source: source})
 	if err != nil {
 		return err
 	}

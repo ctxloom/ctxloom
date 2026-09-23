@@ -187,9 +187,9 @@ type LazyOneShot struct {
 }
 
 // NewLazyOneShot defers StartInternalOneShot to the first turn.
-func NewLazyOneShot(hosts RunHosts, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
+func NewLazyOneShot(reg engine.Registry, hosts RunHosts, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
 	return &LazyOneShot{start: func(ctx context.Context) (*OneShot, error) {
-		return StartInternalOneShot(ctx, hosts, cfg, mode, label, model, workDir, projectID, verbosity)
+		return StartInternalOneShot(ctx, reg, hosts, cfg, mode, label, model, workDir, projectID, verbosity)
 	}}
 }
 
@@ -235,14 +235,14 @@ func InternalSource(label, model, workDir string) launch.Source {
 // generation cfg belongs to, run on the coordinator hosts yields: the compactor's distiller, the
 // trigger evaluator's triage, the setup probe. projectID is the identity the
 // session serves (empty when the caller resolved none).
-func StartInternalOneShot(ctx context.Context, hosts RunHosts, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
+func StartInternalOneShot(ctx context.Context, reg engine.Registry, hosts RunHosts, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
 	// A Config built outside the Owner carries no Trust: refuse here, at the
 	// entry point, rather than let the assembler withhold every executable
 	// with the "no authorizer" defect reason.
 	if _, err := cfg.RequireTrust(); err != nil {
 		return nil, fmt.Errorf("internal one-shot: %w", err)
 	}
-	deps, err := LaunchDepsFor(&config.Snapshot{Config: cfg}, mode)
+	deps, err := LaunchDepsFor(reg, &config.Snapshot{Config: cfg}, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -343,16 +343,16 @@ func isolationGateErr(mode strictness.Mode, found []strictness.Finding) error {
 // not the run proceeding. Falling back to a working default under --degraded is
 // precisely what the standing promise in cli/version_gate.go protects. An empty
 // label is exempt: nothing was named, so there is nothing to refuse.
-func ResolveBackend(cfg *config.Config, label string) (backend, model string) {
+func ResolveBackend(reg engine.Registry, cfg *config.Config, label string) (backend, model string) {
 	backend, model = cfg.ResolveLLM(label)
 	_, configured := cfg.GetLLMEntry(label)
-	if !configured && EngineExists(label) {
+	if !configured && EngineExists(reg, label) {
 		return label, ""
 	}
 	if !configured && label != "" {
 		strictness.Fail(strictness.ClassConfig,
 			fmt.Sprintf("add an `llm:` entry for %q in .ctxloom/config.yaml, or name one of the configured labels (%s) or a known engine (%s)",
-				label, knownLLMLabels(cfg), strings.Join(EngineNames(), ", ")),
+				label, knownLLMLabels(cfg), strings.Join(EngineNames(reg), ", ")),
 			"llm label %q names neither a configured `llm:` entry nor a known engine; this run would silently use the built-in default backend %q instead of the engine you named",
 			label, backend)
 	}

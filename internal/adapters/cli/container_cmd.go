@@ -87,7 +87,7 @@ func runContainerBuild(cmd *cobra.Command, args []string) error {
 	cfg, cerr := GetConfig()
 	if len(args) == 1 {
 		backend = args[0]
-		if names := operations.EngineNames(); !slices.Contains(names, backend) {
+		if names := operations.EngineNames(App().Engines()); !slices.Contains(names, backend) {
 			sort.Strings(names)
 			return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
 		}
@@ -95,7 +95,7 @@ func runContainerBuild(cmd *cobra.Command, args []string) error {
 		if cerr != nil {
 			return fmt.Errorf("no backend given and the config is unavailable to resolve the default: %w", cerr)
 		}
-		backend, _ = operations.ResolveBackend(cfg, "")
+		backend, _ = operations.ResolveBackend(App().Engines(), cfg, "")
 	}
 
 	if cerr != nil {
@@ -367,12 +367,12 @@ func runContainerCheck(cmd *cobra.Command, args []string) error {
 	var backend string
 	if len(args) == 1 {
 		backend = args[0]
-		if names := operations.EngineNames(); !slices.Contains(names, backend) {
+		if names := operations.EngineNames(App().Engines()); !slices.Contains(names, backend) {
 			sort.Strings(names)
 			return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
 		}
 	} else if cerr == nil {
-		backend, _ = operations.ResolveBackend(cfg, "")
+		backend, _ = operations.ResolveBackend(App().Engines(), cfg, "")
 	}
 	img := isolation.ImageConfig{}
 	if cerr == nil {

@@ -93,7 +93,7 @@ func writeLLM(cmd *cobra.Command, label string, mustExist bool) error {
 // built-in; edit accepts it — that is how a built-in becomes explicit).
 func checkLLMExistence(cfg *config.Config, label string, mustExist bool) error {
 	exists := false
-	for _, n := range operations.AvailableLLMNames(cfg) {
+	for _, n := range operations.AvailableLLMNames(App().Engines(), cfg) {
 		if n == label {
 			exists = true
 			break
@@ -136,7 +136,7 @@ func renderLLMWritten(out io.Writer, entry *operations.LLMEntry, edited bool) er
 	}
 	typ := entry.Type
 	if typ == "" {
-		typ = operations.DefaultEngineName()
+		typ = operations.DefaultEngineName(App().Engines())
 	}
 	w.Printf("%s llm %q (type: %s", verb, entry.Label, typ)
 	if entry.Model != "" {
@@ -165,7 +165,7 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&llmSetModel, "model", "", "model string")
 	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission posture: default|acceptEdits|plan|bypass")
 	_ = cmd.RegisterFlagCompletionFunc("type", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return operations.EngineNames(), cobra.ShellCompDirectiveNoFileComp
+		return operations.EngineNames(App().Engines()), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 }
@@ -181,7 +181,7 @@ func applyEngineNamedHelp() {
 	// The scaffolding flags' HELP names the engine shipped by default — a
 	// registry fact; the value itself is resolved where each command runs.
 	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine"), authSetTokenCmd.Flags().Lookup("engine")} {
-		f.DefValue = operations.DefaultEngineName()
+		f.DefValue = operations.DefaultEngineName(App().Engines())
 	}
 	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of
 .ctxloom/config.yaml. Refuses a label that already names a config entry OR a

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"errors"
 	"fmt"
@@ -17,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -95,7 +95,7 @@ type SessionFeedRequest struct {
 // CHILDREN held by a live orchestrator are tappable (the orchestrator never
 // drives its own serving session's engine), so most sessions — including
 // every coordinator — resolve to the store tail.
-func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed, error) {
+func WatchSessionFeed(ctx context.Context, reg engine.Registry, req SessionFeedRequest) (*SessionFeed, error) {
 	entry, err := GetSession(req.Harp)
 	if err != nil {
 		return nil, err
@@ -116,7 +116,7 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 		source = FeedSourceAuto
 	}
 	if source != FeedSourceStore {
-		feed, lerr := watchLiveFeed(ctx, entry, backend)
+		feed, lerr := watchLiveFeed(ctx, reg, entry, backend)
 		if lerr == nil {
 			return feed, nil
 		}
@@ -130,14 +130,14 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 		// visible signal; the fallback itself is still the right behavior.
 		clidiag.Warn("ctxloom", "watch %s: live tap unavailable, using store tail: %v", req.Harp, lerr)
 	}
-	return watchStoreFeed(ctx, entry, backend)
+	return watchStoreFeed(ctx, reg, entry, backend)
 }
 
 // watchLiveFeed dials each candidate coordinator (internal/adapters/coordgrpc/pb/
 // discover, most-recently-active first) over ConsumerService and subscribes
 // on the first one that holds the harp live. A candidate the harp isn't
 // live on, or that's unreachable, just moves to the next.
-func watchLiveFeed(ctx context.Context, entry *sessions.Entry, backend string) (*SessionFeed, error) {
+func watchLiveFeed(ctx context.Context, reg engine.Registry, entry *sessions.Entry, backend string) (*SessionFeed, error) {
 	endpoints, skipped := discover.List()
 	// Skipped candidates (unreadable/undecodable endpoint.json, or
 	// discovery itself failing) used to be indistinguishable from "no
@@ -154,7 +154,7 @@ func watchLiveFeed(ctx context.Context, entry *sessions.Entry, backend string) (
 	}
 	var lastErr error
 	for _, ep := range endpoints {
-		feed, err := watchConsumerFeed(ctx, ep, entry, backend)
+		feed, err := watchConsumerFeed(ctx, reg, ep, entry, backend)
 		if err == nil {
 			return feed, nil
 		}
@@ -208,7 +208,7 @@ func dialConsumer(ep discover.Endpoint) (agentcoordpb.ConsumerServiceClient, *gr
 // roster is small; a client-side scan is simplest), and opens WatchRuns
 // filtered to that run. Returns an error (never partially wires up a feed)
 // when this candidate does not hold the harp, so the caller moves on.
-func watchConsumerFeed(ctx context.Context, ep discover.Endpoint, entry *sessions.Entry, backend string) (*SessionFeed, error) {
+func watchConsumerFeed(ctx context.Context, reg engine.Registry, ep discover.Endpoint, entry *sessions.Entry, backend string) (*SessionFeed, error) {
 	client, conn, err := dialConsumer(ep)
 	if err != nil {
 		return nil, fmt.Errorf("watch: %w", err)
@@ -245,7 +245,7 @@ func watchConsumerFeed(ctx context.Context, ep discover.Endpoint, entry *session
 		return nil, fmt.Errorf("watch: read snapshot frame at %s: %w", ep.URL, err)
 	}
 
-	events, errs := adaptConsumerFeed(ctx, entry, backend, conn, stream)
+	events, errs := adaptConsumerFeed(ctx, reg, entry, backend, conn, stream)
 	return &SessionFeed{Source: "live", Events: events, Errs: errs}, nil
 }
 
@@ -302,7 +302,7 @@ const customEventTurnIdle = "ctxloom/turn_idle"
 // the per-run seq), and every loss becomes one standalone Gap event ahead
 // of the next entry — the shape the renderers (CLI session_watch.go, tui
 // feed.go) read.
-func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend string, conn *grpc.ClientConn, stream grpc.ServerStreamingClient[agentcoordpb.WatchEvent]) (<-chan SessionFeedEvent, <-chan error) {
+func adaptConsumerFeed(ctx context.Context, reg engine.Registry, entry *sessions.Entry, backend string, conn *grpc.ClientConn, stream grpc.ServerStreamingClient[agentcoordpb.WatchEvent]) (<-chan SessionFeedEvent, <-chan error) {
 	events := make(chan SessionFeedEvent)
 	errs := make(chan error, 1)
 	go func() {
@@ -318,7 +318,7 @@ func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend strin
 			}
 		}
 		sent := 0
-		for _, e := range feedScrollback(ctx, entry, backend) {
+		for _, e := range feedScrollback(ctx, reg, entry, backend) {
 			if !emit(entryFeedEvent(e)) {
 				return
 			}
@@ -447,7 +447,7 @@ var historyForBackend = HistoryForBackend
 // feedScrollback reads the harp's recorded transcript once, for the live
 // feed's scrollback prefix. Best-effort by design: a failed read degrades the
 // view to live-only with a warning, never kills the feed.
-func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) []agent.SessionEntry {
+func feedScrollback(ctx context.Context, reg engine.Registry, entry *sessions.Entry, backend string) []agent.SessionEntry {
 	var (
 		sess *agent.Session
 		err  error
@@ -459,12 +459,12 @@ func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) 
 		sess, err = transcript.ParseTranscriptFile(entry.CanonicalTranscriptPath, entry.HarpName)
 	case entry.SessionID != "":
 		var hist agent.SessionHistory
-		if hist, err = historyForBackend(backend); err == nil {
+		if hist, err = historyForBackend(reg, backend); err == nil {
 			sess, err = transcript.NewEngineReader(hist, entry.ProjectDir).GetSession(ctx, entry.SessionID)
 		}
 	case entry.TranscriptPath != "":
 		var hist agent.SessionHistory
-		if hist, err = historyForBackend(backend); err == nil {
+		if hist, err = historyForBackend(reg, backend); err == nil {
 			sess, err = hist.GetSessionByPath(entry.TranscriptPath)
 		}
 	default:
@@ -493,7 +493,7 @@ func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) 
 // transcript discovered in the harp's own persist/ store, where the bind hook
 // never fired — is tailed by path (WatchHistoryByPath), since the engine's
 // project-scoped store lookup cannot see a file in ctxloom's session dir.
-func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) (*SessionFeed, error) {
+func watchStoreFeed(ctx context.Context, reg engine.Registry, entry *sessions.Entry, backend string) (*SessionFeed, error) {
 	var (
 		watchEvents <-chan *transcript.WatchEvent
 		errs        <-chan error
@@ -504,7 +504,7 @@ func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) 
 		// regardless of which engine or container ran the session.
 		watchEvents, errs = transcript.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
 	case entry.SessionID != "":
-		hist, err := HistoryForBackend(backend)
+		hist, err := HistoryForBackend(reg, backend)
 		if err != nil {
 			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
 		}
@@ -513,7 +513,7 @@ func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) 
 			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
 		}
 	case entry.TranscriptPath != "":
-		hist, err := HistoryForBackend(backend)
+		hist, err := HistoryForBackend(reg, backend)
 		if err != nil {
 			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
 		}
@@ -538,8 +538,8 @@ func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) 
 
 // HistoryForBackend returns the named backend's in-process transcript reader,
 // used for host-located (by-location) transcript reads.
-func HistoryForBackend(name string) (agent.SessionHistory, error) {
-	h, ok := engines.Hosted(name)
+func HistoryForBackend(reg engine.Registry, name string) (agent.SessionHistory, error) {
+	h, ok := agent.HostedIn(reg, name)
 	if !ok {
 		return nil, fmt.Errorf("unknown backend %q", name)
 	}

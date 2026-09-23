@@ -152,15 +152,15 @@ func runLLMList(cmd *cobra.Command, args []string) error {
 func availableLLMsWithDefault() ([]string, string, func(string) bool, func(string) operations.RuntimeOffer) {
 	cfg, err := GetConfig()
 	if err != nil {
-		names := operations.EngineNames()
+		names := operations.EngineNames(App().Engines())
 		sort.Strings(names)
 		return names, "", noneAuthored, nil
 	}
 	// Reuse the same name set and default identity `llm default` reports:
 	// built-ins unioned with configured labels, and the primary *label*
 	// (not the backend type) marked as default, so the two commands agree.
-	return operations.AvailableLLMNames(cfg), cfg.PrimaryLabel(), cfg.IsLLMUserAuthored,
-		func(label string) operations.RuntimeOffer { return operations.AgentRuntimeOffer(cfg, label) }
+	return operations.AvailableLLMNames(App().Engines(), cfg), cfg.PrimaryLabel(), cfg.IsLLMUserAuthored,
+		func(label string) operations.RuntimeOffer { return operations.AgentRuntimeOffer(App().Engines(), cfg, label) }
 }
 
 func init() {

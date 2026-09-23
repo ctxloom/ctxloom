@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -71,7 +70,7 @@ type ApplyHooksResult struct {
 // install`, the MCP server's startup apply, the sync and trust refreshes);
 // `manage install` and `init` write no engine file and never call it — a
 // `ctxloom run` session delivers the same surfaces into its own home.
-func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, error) {
+func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest) (*ApplyHooksResult, error) {
 	// Bracket the WHOLE call, config load included, so a TRUST-CLASS finding
 	// recorded anywhere under it becomes an error here rather than a warning
 	// nobody's exit code reflects. See trustStoreFindingsError: this is the
@@ -109,7 +108,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// `backend` (not every backend unconditionally) so an apply aimed at one
 	// backend is never blocked on another backend's collision it is not
 	// asking about.
-	if err := checkHookTargetScope(freshCfg, workDir, backend, req.Force); err != nil {
+	if err := checkHookTargetScope(reg, freshCfg, workDir, backend, req.Force); err != nil {
 		return nil, err
 	}
 
@@ -153,12 +152,12 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		return nil, err
 	}
 
-	backendNames, err := hookBackendNames(freshCfg, backend)
+	backendNames, err := hookBackendNames(reg, freshCfg, backend)
 	if err != nil {
 		return nil, err
 	}
 
-	applied, retracted, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
+	applied, retracted, applyErrors, err := applyHooksToBackends(ctx, reg, hookApplyParams{
 		dryRun:       req.DryRun,
 		backendNames: backendNames,
 		freshCfg:     freshCfg,
@@ -270,13 +269,13 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 //
 // Found live: `manage hooks install` run from $HOME silently went global,
 // injecting context into every project and duplicating the /clear banner.
-func checkHookTargetScope(cfg *config.Config, workDir, backend string, force bool) error {
+func checkHookTargetScope(reg engine.Registry, cfg *config.Config, workDir, backend string, force bool) error {
 	// Deliberately UNVALIDATED: the scope guard also covers engines registered
 	// through the guard's own table rather than the descriptor registry, and
 	// rejecting those here would skip the very check they need. ApplyHooks
 	// validates the name on its own path.
-	for _, name := range hookBackendNamesUnchecked(cfg, backend) {
-		if err := checkHookTargetScopeOf(name, workDir, force); err != nil {
+	for _, name := range hookBackendNamesUnchecked(reg, cfg, backend) {
+		if err := checkHookTargetScopeOf(reg, name, workDir, force); err != nil {
 			return err
 		}
 	}
@@ -388,17 +387,17 @@ func trustStoreFindingsError(mark strictness.Mark) error {
 // reads an unregistered backend as a permitted no-op, so a typo would report
 // success having applied nothing. manageBackendNames guards the removal door
 // the same way.
-func hookBackendNames(cfg *config.Config, backend string) ([]string, error) {
-	return backendNames(backend, ConfiguredEngines(cfg))
+func hookBackendNames(reg engine.Registry, cfg *config.Config, backend string) ([]string, error) {
+	return backendNames(reg, backend, ConfiguredEngines(reg, cfg))
 }
 
 // backendNames resolves a backend filter: the empty filter is the caller's
 // default set; a name is ONE backend, refused when unregistered.
-func backendNames(backend string, defaults []string) ([]string, error) {
+func backendNames(reg engine.Registry, backend string, defaults []string) ([]string, error) {
 	if backend == "" {
 		return defaults, nil
 	}
-	return namedBackend(backend)
+	return namedBackend(reg, backend)
 }
 
 // namedBackend resolves ONE named backend, refusing an unregistered name.
@@ -407,18 +406,18 @@ func backendNames(backend string, defaults []string) ([]string, error) {
 // the project's configured engines, removal's is exhaustive) — the refusal is
 // the same fact and must read the same either side, or one door gets a guard
 // the other does not.
-func namedBackend(backend string) ([]string, error) {
-	if !EngineExists(backend) {
-		return nil, fmt.Errorf("unknown backend %q (supported: %s)", backend, strings.Join(EngineNames(), ", "))
+func namedBackend(reg engine.Registry, backend string) ([]string, error) {
+	if !EngineExists(reg, backend) {
+		return nil, fmt.Errorf("unknown backend %q (supported: %s)", backend, strings.Join(EngineNames(reg), ", "))
 	}
 	return []string{backend}, nil
 }
 
 // hookBackendNamesUnchecked is hookBackendNames without the registration
 // guard, for the scope check (see checkHookTargetScope).
-func hookBackendNamesUnchecked(cfg *config.Config, backend string) []string {
+func hookBackendNamesUnchecked(reg engine.Registry, cfg *config.Config, backend string) []string {
 	if backend == "" {
-		return ConfiguredEngines(cfg)
+		return ConfiguredEngines(reg, cfg)
 	}
 	return []string{backend}
 }
@@ -430,13 +429,13 @@ func hookBackendNamesUnchecked(cfg *config.Config, backend string) []string {
 // A project that configures none gets an empty list, and an apply over nothing
 // writes nothing — the correct outcome, not a reason to fall back to the whole
 // registry.
-func ConfiguredEngines(cfg *config.Config) []string {
+func ConfiguredEngines(reg engine.Registry, cfg *config.Config) []string {
 	if cfg == nil {
 		return nil
 	}
 	seen := map[string]bool{}
 	add := func(label string) {
-		if backend, _ := ResolveBackend(cfg, label); backend != "" {
+		if backend, _ := ResolveBackend(reg, cfg, label); backend != "" {
 			seen[backend] = true
 		}
 	}
@@ -453,7 +452,7 @@ func ConfiguredEngines(cfg *config.Config) []string {
 	// default — so it is what an unqualified apply targets. Returning nothing
 	// here would silently write nothing for the simplest possible project.
 	if len(seen) == 0 {
-		if def := DefaultEngineName(); def != "" {
+		if def := DefaultEngineName(reg); def != "" {
 			seen[def] = true
 		}
 	}
@@ -485,13 +484,13 @@ type hookApplyParams struct {
 // partial is no longer success in strict mode: each per-backend failure is a
 // fatal-class finding the startup choke owner aborts on. Degraded mode keeps
 // the warn-and-continue. Context cancellation aborts the whole loop.
-func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, retracted, applyErrors []string, err error) {
+func applyHooksToBackends(ctx context.Context, reg engine.Registry, p hookApplyParams) (applied, retracted, applyErrors []string, err error) {
 	applied = []string{}
 	for _, backendName := range p.backendNames {
 		if ctx.Err() != nil {
 			return applied, retracted, applyErrors, ctx.Err()
 		}
-		took, e := applyHooksToBackend(ctx, backendName, p)
+		took, e := applyHooksToBackend(ctx, reg, backendName, p)
 		if e != nil {
 			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)", "%s", e)
 			applyErrors = append(applyErrors, e.Error())
@@ -520,8 +519,8 @@ func contextRidesTheHook(root engine.Base, exports engine.Exports) bool {
 // session-start hook through the injection hook the package now carries
 // (contextHash names the cache the hook reads), and any other engine as its
 // native file at the project root. A dry run stops before the write.
-func applyHooksToBackend(ctx context.Context, backendName string, p hookApplyParams) (retracted []string, err error) {
-	kind, ok := engines.Registry().Lookup(engine.Name(backendName))
+func applyHooksToBackend(ctx context.Context, reg engine.Registry, backendName string, p hookApplyParams) (retracted []string, err error) {
+	kind, ok := reg.Lookup(engine.Name(backendName))
 	if !ok {
 		return nil, fmt.Errorf("failed to apply %s: no engine kind is composed for it", backendName)
 	}

@@ -3,8 +3,8 @@
 **Read this before upgrading from 0.6.x.** ctxloom breaks rather than shims;
 breaking *silently* is what it does not do — hence this page.
 
-Twenty-five changes in this release are marked breaking. One of them fails
-**silently** if you do nothing, so it is first.
+One change in this release fails **silently** if you do nothing, so it is
+first.
 
 ---
 
@@ -151,7 +151,69 @@ reader for. That line names the version detected on your machine, the reader it
 selects, and every range ctxloom carries — which is also the bug report that
 gets a reader written for a version that has none.
 
-## 8. Everything else marked breaking
+## 8. ctxloom no longer launches claude with every permission skipped
+
+0.6 passed `--dangerously-skip-permissions` to claude on every `ctxloom run`.
+0.7 launches it at a declared permission posture instead.
+
+**Interactive sessions** default to `acceptEdits`: file edits are approved
+automatically and claude asks before anything else. Set `permissions:` on an
+agent, or pass `--permissions default|acceptEdits|plan|bypass`, to choose
+another. `bypass` is only ever used when you declare it.
+
+**Headless runs** (`ctxloom run --one-shot`, and delegated agent runs) have no
+one to answer a prompt, so a posture that would prompt is refused rather than
+widened. The refusal names the remedy:
+
+    launch: the declared permission posture cannot be honoured: a headless
+    run has no human to answer an engine prompt and "acceptEdits" would block
+    on one; declare permissions: plan|bypass on agent "default"
+
+With `--degraded` the run is launched at `plan` (read-only) instead, and says
+so. `ctxloom init` now asks which posture the default agent's headless runs
+may use: `plan` (the recommended answer), `bypass`, or none. An existing
+config gets no answer written for it, so give the agent one with
+`ctxloom agent edit default --permissions plan` (or `bypass`) if you run it
+headless.
+
+## 9. Signed content uses the signed release format
+
+A bundle's signature is now a `SHA256SUMS` manifest over every file in the
+bundle tree, headed by the bundle's `name` and `version`, with the publisher's
+signature filed under the bundle's `.sigs/` directory. The older detached
+`<bundle>.yaml.sig` sibling is retired: every reader refuses a bundle that
+still carries one and names the remedy, `ctxloom bundle sign <bundle>`, which
+writes the new signature and removes the sibling. Only directory-form bundles
+can be signed.
+
+**If you publish bundles**, re-sign them with this release and publish again.
+`bundle sign` now refuses to re-sign a version whose files changed since it
+was last signed. Bump `version:` in the bundle, or pass `--force` if you mean
+to replace that version's signature.
+
+**If you consume bundles**, run `ctxloom deps upgrade` once the publisher has
+re-signed. Until then, content whose signature does not verify is not pinned:
+`deps upgrade` reports `REFUSED to advance`, keeps the last verified pin, and
+`ctxloom doctor` repeats the warning. Nothing is offered for review, because a
+signature that does not cover its bytes is a tamper signal.
+
+**Pins no longer move backwards.** `deps pull` and `deps upgrade` refuse
+content signed at a lower version than the one this project last pinned. If
+going back is what you want, name the bundle:
+`ctxloom deps upgrade --allow-downgrade <ref>`.
+
+## 10. Companion binaries need a signed release statement
+
+A companion binary is admitted only with a `<binary>.release` statement beside
+it (the binary's name, version and SHA-256) and a `<binary>.sig` signing that
+statement. Admission checks the name against the file it found and the hash
+against its bytes, so a signed binary renamed or edited after signing is
+refused. A companion with no statement is skipped with the reason "no signed
+release statement beside it". The release archives and `install.sh` /
+`install.ps1` ship both files for `taskloom` and `ltk`; a companion you build
+yourself must ship them too.
+
+## 11. Everything else marked breaking
 
 Grouped by what you would have to change.
 
@@ -190,10 +252,23 @@ Grouped by what you would have to change.
 - The pending-lockfile review ceremony and blind mode are gone.
 
 **Backends**
-- The `gemini` backend is removed, with no replacement. A config entry still
-  typed `gemini` is warned about as an unknown backend type and ignored.
+- The `gemini` and `codex` backends are removed, with no replacement.
+  `claude-code` is the only engine. A config entry still typed `gemini` or
+  `codex` draws a config-schema warning when the config loads and
+  `unknown LLM backend type "<type>"` where it would be used; the entry cannot
+  run.
 - `taskloom` and `ltk` ship as bundled companions.
 
-**ACP**
-- `fs/read_text_file` and `fs/write_text_file` are confined to the session
-  workspace.
+## If you ran a 0.7 development build
+
+Some things appeared after 0.6.4 and are gone again in 0.7.0. They were never
+in a tagged release, so this only matters if you ran a build from `main`.
+
+- ACP is removed: the `ctxloom acp` commands and the ACP agent transport no
+  longer exist.
+- The `kiro`, `opencode` and `antigravity` backends are removed. A config
+  entry typed one of them fails the same way as `gemini` above. The config
+  schema no longer has `codex` or `opencode` branches.
+- The `thinking` key under a backend config is removed. It was accepted and
+  had no effect; a config still setting it now draws an unknown-key warning.
+

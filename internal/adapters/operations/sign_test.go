@@ -179,7 +179,6 @@ func TestListLocalBundleNames_EmptyWhenNoLocalDir(t *testing.T) {
 	assert.Empty(t, names)
 }
 
-// --- SignItem (the Signable seam) ------------------------------------------
 
 // SignBundleFile read the bundle file and handed the bytes to
 // signing.Sign with no length check, so a truncated or zero-byte bundle got a

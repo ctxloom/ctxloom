@@ -165,15 +165,24 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 	}
 	reaped := reapRunProcess(cmd)
 	var killOnce sync.Once
+	var handle *RunnerHandle
 	kill := func() {
 		killOnce.Do(func() {
-			removeContainer(context.Background(), rt, spec.Name)
+			// "Already gone" is ambiguous while the CLI lives: the create it
+			// sent may not have reached the daemon yet, and killing the CLI
+			// now would orphan the container that create then makes. So wait
+			// for the launch to resolve — the container running, or the CLI
+			// exiting — and remove again. Bounded by AwaitContainerRunning's
+			// backstop, so a wedged daemon still cannot hang teardown.
+			if removeContainer(context.Background(), rt, spec.Name) {
+				_ = AwaitContainerRunning(rt, handle)
+				removeContainer(context.Background(), rt, spec.Name)
+			}
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}
 		})
-		// Deliberately does NOT block on the reap: teardown must stay
-		// bounded even against a wedged daemon, and the reaper goroutine
+		// Deliberately does NOT block on the reap: the reaper goroutine
 		// finishes on its own (cmd.WaitDelay bounds it).
 	}
 	wait := func() error {
@@ -186,7 +195,8 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 		}
 		return nil
 	}
-	return &RunnerHandle{Name: spec.Name, Kill: kill, Wait: wait, StderrTail: ring.Tail}, nil
+	handle = &RunnerHandle{Name: spec.Name, Kill: kill, Wait: wait, StderrTail: ring.Tail}
+	return handle, nil
 }
 
 // reapRunProcess Waits a started *exec.Cmd exactly once, in the background,
@@ -227,16 +237,26 @@ func reapRunProcess(cmd *exec.Cmd) func() error {
 // the remove-with-timeout + removeReportsGone logic the RunnerHandle.Kill of
 // a container runner and Container.Remove both use. A missing name/binary
 // (a host-style runner) is a no-op. A racing --rm reporting already-gone is
-// teardown success, not a leak.
-func removeContainer(ctx context.Context, rt Runtime, name string) {
+// not a leak and draws no warning; it is REPORTED (true) because it is only
+// final once nothing can still create the name — see startDirectRunner's kill.
+func removeContainer(ctx context.Context, rt Runtime, name string) (reportedGone bool) {
 	if name == "" || rt == nil || rt.Binary() == "" {
-		return
+		return false
 	}
 	cctx, cancel := context.WithTimeout(ctx, containerRemoveTimeout)
 	defer cancel()
-	if _, err := probeExec(cctx, rt.Binary(), rt.RemoveArgs(name)); err != nil && !removeReportsGone(err) {
-		clidiag.Warn("ctxloom",
-			"container %q may still be running after teardown (%v) — the %s daemon did not confirm removal; it holds this run's workspace, remove it manually with `%s %s`",
-			name, err, rt.Name(), rt.Binary(), strings.Join(rt.RemoveArgs(name), " "))
+	out, err := probeExec(cctx, rt.Binary(), rt.RemoveArgs(name))
+	// A remove that removed something echoes its name/ID on stdout; current
+	// docker's `rm -f` of an absent name exits 0 with EMPTY stdout (its "No
+	// such container" goes to stderr only). Empty success is gone.
+	if err == nil {
+		return strings.TrimSpace(out) == ""
 	}
+	if removeReportsGone(err) {
+		return true
+	}
+	clidiag.Warn("ctxloom",
+		"container %q may still be running after teardown (%v) — the %s daemon did not confirm removal; it holds this run's workspace, remove it manually with `%s %s`",
+		name, err, rt.Name(), rt.Binary(), strings.Join(rt.RemoveArgs(name), " "))
+	return false
 }

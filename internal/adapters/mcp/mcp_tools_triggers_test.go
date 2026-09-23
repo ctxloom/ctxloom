@@ -26,7 +26,7 @@ func TestEvaluateTriggersHandler_NoDeferredTasks(t *testing.T) {
 	_, err := tasksops.AddTask(tc, "just working", "", "")
 	require.NoError(t, err)
 
-	s := &ctxServer{cfg: &config.Config{}, self: coord.Identity{Project: t.TempDir()}}
+	s := &ctxServer{cfg: &config.Config{}, self: coord.Identity{ProjectDir: t.TempDir()}}
 	_, out, err := s.handleEvaluateTriggers(context.Background(), nil, evaluateTriggersInput{})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -49,7 +49,7 @@ func TestEvaluateTriggersHandler_RefreshFlagPlumbsThrough(t *testing.T) {
 	// No Deferred tasks: the handler still runs end-to-end regardless of the
 	// refresh flag's value, so this exercises the plumbing (a wired field
 	// with no effect on this input) without needing an LLM seam here.
-	s := &ctxServer{cfg: &config.Config{}, self: coord.Identity{Project: t.TempDir()}}
+	s := &ctxServer{cfg: &config.Config{}, self: coord.Identity{ProjectDir: t.TempDir()}}
 	_, out, err := s.handleEvaluateTriggers(context.Background(), nil, evaluateTriggersInput{Refresh: true})
 	require.NoError(t, err)
 	require.NotNil(t, out)

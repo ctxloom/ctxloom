@@ -308,7 +308,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	gate := make(chan struct{})
 	chat := &liveTapChat{turnGate: gate}
 	sp := &liveTapSpawner{projectDir: projectDir, chat: chat}
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "livetap-proj", Spawner: sp, OwnerHarp: "coordinator-harp"})
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "livetap-proj", Spawner: sp, OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c), "Serve must write endpoint.json where discover.List() looks")
 	t.Cleanup(c.Close)

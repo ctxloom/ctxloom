@@ -51,6 +51,7 @@ func newTestCoordinatorWithHost(t *testing.T, sp Spawner, host HostApp) *Coordin
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
+		ProjectID:  testProjectID,
 		StateDir:   t.TempDir(),
 		Spawner:    sp,
 		Host:       host,
@@ -69,11 +70,11 @@ func newTestCoordinatorWithHost(t *testing.T, sp Spawner, host HostApp) *Coordin
 // the body the service answered.
 func TestHost_DispatchesToTheComposedHostAppUnderTheCallersIdentity(t *testing.T) {
 	app := &recordingHostApp{fn: func(_ context.Context, caller Identity, req HostRequest) (HostResult, error) {
-		return HostResult{Body: json.RawMessage(`{"tool":"` + req.Tool + `","project":"` + caller.Project + `"}`)}, nil
+		return HostResult{Body: json.RawMessage(`{"tool":"` + req.Tool + `","project":"` + caller.ProjectDir + `"}`)}, nil
 	}}
 	c := newTestCoordinatorWithHost(t, newFakeSpawner(nil, nil), app)
 
-	caller := Identity{Harp: "child-harp-1", RunID: "run-1", Depth: 1, Project: c.projectDir}
+	caller := Identity{Harp: "child-harp-1", RunID: "run-1", Depth: 1, Project: c.projectID, ProjectDir: c.projectDir}
 	res, err := c.Host(context.Background(), caller, HostRequest{Tool: "list_sessions", Args: json.RawMessage(`{"limit":1}`)})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"tool":"list_sessions","project":"`+c.projectDir+`"}`, string(res.Body))
@@ -114,7 +115,8 @@ func TestHost_ARelayedFrameReachesTheHostAppUnderTheChildsIdentity(t *testing.T)
 
 	got := app.last(t)
 	assert.Equal(t, out.Harp, got.caller.Harp, "the caller is the child that relayed, by its credential")
-	assert.Equal(t, c.projectDir, got.caller.Project, "a relayed tool answers under the caller's project")
+	assert.Equal(t, c.projectDir, got.caller.ProjectDir, "a relayed tool answers for the caller's project directory")
+	assert.Equal(t, testProjectID, got.caller.Project, "under the caller's project id, never the directory")
 	assert.Equal(t, "list_sessions", got.req.Tool)
 	assert.JSONEq(t, `{"limit":2}`, string(got.req.Args))
 }

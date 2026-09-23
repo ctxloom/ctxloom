@@ -30,8 +30,16 @@ type Identity struct {
 	// holds no config to read the cap from, withholds the coordinator-only
 	// tools by the same rule the coordinator refuses agent_run by.
 	Leaf bool `json:"leaf,omitempty"`
-	// Project is the project id the coordinator serves (worktree-redirected).
+	// Project is the resolved project id the coordinator serves — a single
+	// clean path segment (tasks/paths.ValidateProjectID), exported to the
+	// engine as EnvProjectID. Never a directory. Empty when the id did not
+	// resolve.
 	Project string `json:"project,omitempty"`
+	// ProjectDir is the project directory the coordinator serves: what a
+	// host-relayed handler answers for. Coordinator-side only — stamped when
+	// the coordinator identifies a caller, never on the wire (a runner has
+	// its own cwd).
+	ProjectDir string `json:"-"`
 	// Consumer marks a read-only watch credential: it authenticates the
 	// consumer plane ONLY — the coordinator's auth interceptor rejects it on
 	// every coordination method, so a leaked viewer credential cannot mutate

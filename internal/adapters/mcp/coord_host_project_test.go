@@ -37,7 +37,7 @@ func TestHostApp_ListSessionsResolvesTheCallersProjectNotTheHostsCwd(t *testing.
 
 	app := NewHostApp(&config.Config{})
 
-	caller := coord.Identity{Harp: callerEntry.HarpName, Project: callerProject}
+	caller := coord.Identity{Harp: callerEntry.HarpName, ProjectDir: callerProject}
 	res, err := app.Serve(context.Background(), caller, coord.HostRequest{Tool: "list_sessions"})
 	require.NoError(t, err)
 

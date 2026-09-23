@@ -81,12 +81,9 @@ func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolR
 // s.self.Harp) — never from process env: env is process-wide, so
 // on any path where one process serves more than one caller, reading it here
 // would attribute the call to whichever caller's env happened to be set last,
-// not the actual caller. ProjectID is left as a live env read: unlike
-// SessionHarp, ctxServer carries no per-call project-id equivalent to
-// substitute (s.self.Project is a directory, not the minted project-id), and
+// not the actual caller. ProjectID is left as a live env read:
 // operations/tasks' own documented design (TaskResult's doc comment) is that
-// a pinned CTXLOOM_PROJECT_ID deliberately wins over a live resolution — this
-// fix does not touch that intentional choice.
+// a pinned CTXLOOM_PROJECT_ID deliberately wins over a live resolution.
 func evaluateTriggersTaskContext(s *ctxServer, cwd string) tasksops.TaskContext {
 	return tasksops.TaskContext{
 		WorkDir:     cwd,

@@ -58,9 +58,13 @@ const (
 type Options struct {
 	// ProjectDir is the project working directory the coordinator serves.
 	ProjectDir string
-	// ProjectKey is the stable project identity keying the durable state
-	// dir ("" falls back to a path-derived key).
-	ProjectKey string
+	// ProjectID is the project's resolved id (the project registry's, the
+	// one CTXLOOM_PROJECT_ID carries). It is the Project of every identity
+	// this coordinator mints and keys the durable state dir. "" means it did
+	// not resolve: identities carry no project id, and the state dir falls
+	// back to a path-derived key — which is a directory NAME, not a project
+	// id, and never stands in for one.
+	ProjectID string
 	// StateDir overrides the state dir entirely (tests).
 	StateDir string
 	// Spawner is the launch seam: adapters/spawn in production, composed at
@@ -148,6 +152,7 @@ type Coordinator struct {
 	// through it.
 	rep        report.Reporter
 	projectDir string
+	projectID  string
 	stateDir   string
 	now        func() time.Time
 
@@ -436,6 +441,7 @@ func New(opts Options) (*Coordinator, error) {
 		tracked:            TrackedGroup{rep: rep},
 		streams:            TrackedGroup{rep: rep},
 		projectDir:         opts.ProjectDir,
+		projectID:          opts.ProjectID,
 		stateDir:           claim.dir,
 		now:                t.now,
 		releaseOwner:       claim.release,
@@ -583,7 +589,7 @@ func acquireStateDir(opts Options) (stateDirClaim, error) {
 	if opts.StateDir != "" {
 		return stateDirClaim{dir: opts.StateDir}, nil
 	}
-	key := opts.ProjectKey
+	key := opts.ProjectID
 	if key == "" {
 		key = pathDerivedProjectKey(opts.ProjectDir)
 	}
@@ -895,7 +901,7 @@ func (c *Coordinator) RegisterSessionOwner(harp string) (token string, err error
 		return "", err
 	}
 	if err := c.runs.Exec(func() ([]Fact, error) {
-		return []Fact{factAt(factSessionCred, c.now(), sessionCred{Harp: harp, Project: c.projectDir, CredHash: credHash})}, nil
+		return []Fact{factAt(factSessionCred, c.now(), sessionCred{Harp: harp, CredHash: credHash})}, nil
 	}); err != nil {
 		return "", err
 	}
@@ -922,7 +928,7 @@ func (c *Coordinator) RevokeSessionOwner(token string) {
 // consumer.go); a match short-circuits before the run-registry lookup.
 func (c *Coordinator) Identify(token string) (Identity, bool) {
 	if c.consumerCreds.verify(token) {
-		return Identity{Project: c.projectDir, Consumer: true}, true
+		return c.inProject(Identity{Consumer: true}), true
 	}
 	var (
 		id Identity
@@ -931,10 +937,17 @@ func (c *Coordinator) Identify(token string) (Identity, bool) {
 	c.runs.View(func() {
 		id, ok = verifyToken(token, c.runsF.creds)
 	})
-	if ok && id.Project == "" {
-		id.Project = c.projectDir
-	}
-	return id, ok
+	return c.inProject(id), ok
+}
+
+// inProject stamps id with the ONE project this coordinator serves: its
+// resolved id (exported to engines as CTXLOOM_PROJECT_ID) and its directory
+// (what a host-relayed handler answers for). Stamped here rather than
+// journaled with each credential, so no identity can carry another value.
+func (c *Coordinator) inProject(id Identity) Identity {
+	id.Project = c.projectID
+	id.ProjectDir = c.projectDir
+	return id
 }
 
 // Owner is the identity of the session this coordinator drains for

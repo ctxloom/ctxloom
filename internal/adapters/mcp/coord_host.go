@@ -45,7 +45,7 @@ func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 	host := NewHostApp(cfg)
 	c, err := build(coord.Options{
 		ProjectDir: projectDir,
-		ProjectKey: key,
+		ProjectID:  key,
 		// The host-relayed tools (Verbs.Host) terminate in THIS process, on a
 		// per-caller-identity ctxServer.
 		Host: host,

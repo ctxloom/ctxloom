@@ -59,10 +59,10 @@ var errNoCallerProject = errors.New("mcp: the caller's identity names no project
 // source. Every handler that needs the project reads it here; none consults
 // the environment.
 func (s *ctxServer) projectDir() (string, error) {
-	if s.self.Project == "" {
+	if s.self.ProjectDir == "" {
 		return "", errNoCallerProject
 	}
-	return s.self.Project, nil
+	return s.self.ProjectDir, nil
 }
 
 // strictness is the posture a relayed handler reports under: the relay runs

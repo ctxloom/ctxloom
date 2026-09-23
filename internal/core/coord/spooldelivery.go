@@ -753,7 +753,7 @@ func spoolAddressee(e spool.Entry) string {
 // spoolRoles); every other harp's is its current run record.
 func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 	if c.ownerSpool(role) {
-		return Identity{Harp: role, Depth: 0, Project: c.projectDir}, true
+		return c.inProject(Identity{Harp: role, Depth: 0}), true
 	}
 	var id Identity
 	ok := false
@@ -762,7 +762,7 @@ func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 		if r == nil {
 			return
 		}
-		id = Identity{Harp: role, RunID: r.RunID, Depth: r.Depth, OneShot: r.OneShot, Project: c.projectDir}
+		id = c.inProject(Identity{Harp: role, RunID: r.RunID, Depth: r.Depth, OneShot: r.OneShot})
 		ok = true
 	})
 	return id, ok

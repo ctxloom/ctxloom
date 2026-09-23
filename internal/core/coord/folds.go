@@ -102,8 +102,6 @@ type runsFold struct {
 	// session cred revoked) removes the entry — persisting only the hash is
 	// the whole store.
 	creds map[string]Identity
-	// project is stamped from session credentials for identity mapping.
-	project string
 }
 
 func newRunsFold() *runsFold {
@@ -173,7 +171,7 @@ func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
 	}
 	f.byHarp[p.Harp] = p.RunID
 	if p.CredHash != "" {
-		f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, OneShot: p.OneShot, Project: f.project}
+		f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, OneShot: p.OneShot}
 	}
 }
 
@@ -233,13 +231,10 @@ func (f *runsFold) applyReaped(p runReaped, _ time.Time) {
 }
 
 func (f *runsFold) applySessionCred(p sessionCred, _ time.Time) {
-	if p.Project != "" {
-		f.project = p.Project
-	}
 	// The session-owner credential is never a resolved `driving: oneshot`
 	// agent — it is the human's own top-level session — so OneShot stays
 	// the zero value (false), explicit here for parity with Depth: 0.
-	f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, OneShot: false, Project: p.Project}
+	f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, OneShot: false}
 }
 
 func (f *runsFold) applySessionCredRevoked(p sessionCred, _ time.Time) {

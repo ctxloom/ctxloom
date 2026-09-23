@@ -771,7 +771,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // caller's CANCELLABLE launch context (launchgate.go), not baseCtx:
 // agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {
-	start.Identity = Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot, Project: c.projectDir}
+	start.Identity = c.inProject(Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot})
 	start.Identity.Leaf = start.Identity.IsLeaf(c.depthCap)
 	start.Orchestrator = c.ownerHarp
 	start.Prompt = prompt
@@ -1487,7 +1487,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	if !rec.TopLevel() && cause != CauseIdleReaped {
 		kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)
 		if cause == CauseLaunchFailed {
-			kind, body = "error", fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
+			kind, body = KindError, fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
 		} else if detail != "" {
 			body += ": " + detail
 		}
@@ -1701,7 +1701,7 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 			}
 		})
 	}
-	caller := Identity{Harp: rec.ParentHarp, RunID: parentRunID, Project: c.projectDir}
+	caller := c.inProject(Identity{Harp: rec.ParentHarp, RunID: parentRunID})
 	// Last check before this attempt becomes a REAL run: a stop that landed
 	// while Resolve was in flight (config read, agent resolution — slow
 	// enough to matter in production) must not be overtaken here.

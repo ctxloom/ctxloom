@@ -831,7 +831,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	fmt.Println()
 
 	// The discovery launch consults the PROJECT DEFAULT posture and nothing
-	// else — not the label, not a binding, not the host stopgap. A setup
+	// else — not the label, not a binding, not the engine's host default. A setup
 	// session is not the place to inherit a host-wide bypass, nor a posture
 	// attached to some engine label the human has not yet chosen; but a
 	// human who wrote `permissions:` into THIS directory's config has

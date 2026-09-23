@@ -139,12 +139,10 @@ func DefaultPolicy() Policy {
 		// attached to a binding a project must also name, so a home value would
 		// gap-fill EVERY project on the machine that declared nothing. The whole
 		// point of a project permission default is PER-PROJECT consent: "in this
-		// directory, and nowhere else, an agent may start at this posture". A
-		// home-wide permissive default already exists as the claude-code host
-		// stopgap (agent.ResolveDefault's claudeCodeDefault), and letting
-		// ~/.ctxloom/config.yaml carry this key would create a second one that
-		// silently re-grants every clone on the box the posture a human granted
-		// exactly one project. Env is refused for the ordinary ScopeShared
+		// directory, and nowhere else, an agent may start at this posture".
+		// Letting ~/.ctxloom/config.yaml carry this key would create a
+		// home-wide permissive default that silently re-grants every clone on
+		// the box the posture a human granted exactly one project. Env is refused for the ordinary ScopeShared
 		// reason, which bites harder here than anywhere: env is the one channel
 		// every spawned child inherits, so an agent that can run `bash` would be
 		// setting its own successors' posture.

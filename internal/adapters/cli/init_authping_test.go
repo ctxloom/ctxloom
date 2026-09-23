@@ -180,7 +180,7 @@ func discoveryLaunch(t *testing.T, cfg *config.Config) launch.Launch {
 
 // TestDiscoveryLaunch_StatesDefaultPermissionExplicitly pins the discovery
 // launch's one-rung posture: this project's declared default, else the
-// pinned default — never the host stopgap, never a label's.
+// pinned default — never the engine's host default, never a label's.
 func TestDiscoveryLaunch_StatesDefaultPermissionExplicitly(t *testing.T) {
 	t.Run("undeclared project default keeps the pinned default", func(t *testing.T) {
 		l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}}))

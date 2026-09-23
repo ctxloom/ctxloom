@@ -101,9 +101,9 @@ var p4Postures = []p4Posture{p4Control, p4Plan}
 // already watched work end to end.
 //
 // A posture with no mapping PANICS rather than returning a zero value. An empty
-// `permissions:` line would resolve to the built-in default — bypass on
-// claude-code, prompt elsewhere — so a typo would silently turn the plan cell
-// into a second control and green it forever.
+// `permissions:` line would resolve to the engine's host default instead of
+// the posture under test, so a typo would silently make the plan cell measure
+// something else.
 func p4PermissionValue(p p4Posture) string {
 	switch p {
 	case p4Plan:

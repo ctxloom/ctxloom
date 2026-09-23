@@ -24,17 +24,47 @@ type rmRaceRuntime struct {
 
 func (r rmRaceRuntime) Binary() string { return r.bin }
 
+// rmRaceRuntimes are the runtimes the forced-order tests run under, each gated
+// on its own presence: a race proven closed on one daemon says nothing about
+// another's rm/create semantics.
+var rmRaceRuntimes = []struct {
+	name      string
+	available func() bool
+}{
+	{"docker", Docker{}.Available},
+	{"podman", Podman{}.Available},
+}
+
+// rmRaceImage is fully qualified so no runtime's short-name policy decides it.
+const rmRaceImage = "docker.io/library/alpine:latest"
+
+// forEachRmRaceRuntime runs body once per runtime, as a subtest named for it,
+// against that runtime seen through the forcing wrapper, with a cleanup that
+// removes the container name whatever the outcome.
+func forEachRmRaceRuntime(t *testing.T, what, prefix string, body func(t *testing.T, rt Runtime, name string)) {
+	for _, r := range rmRaceRuntimes {
+		t.Run(r.name, func(t *testing.T) {
+			dockergate.RequireNamedRuntime(t, r.name, r.available(), what)
+			real := ProbeRuntime(r.name)
+			require.Equal(t, r.name, real.Name(), "the probe substituted another runtime")
+			name := containerName(prefix)
+			t.Cleanup(func() { _ = exec.Command(real.Binary(), "rm", "-f", name).Run() })
+			body(t, rmRaceRuntime{Runtime: real, bin: dockergate.RemoveBeforeCreateWrapper(t, real.Binary(), name)}, name)
+		})
+	}
+}
+
 // containersNamed lists every container, in any state, whose name is exactly
 // name — the leak this test is about is often a CREATED container that never
-// started, which `docker ps` without -a does not show.
-func containersNamed(t *testing.T, name string) []string {
+// started, which `ps` without -a does not show.
+func containersNamed(t *testing.T, bin, name string) []string {
 	t.Helper()
-	out, err := exec.Command("docker", "ps", "-a", "--filter", "name=^/"+name+"$",
+	out, err := exec.Command(bin, "ps", "-a", "--filter", "name="+name,
 		"--format", "{{.Names}} {{.Status}}").Output()
 	require.NoError(t, err)
 	var lines []string
 	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if l != "" {
+		if f := strings.Fields(l); len(f) > 0 && strings.TrimPrefix(f[0], "/") == name {
 			lines = append(lines, l)
 		}
 	}
@@ -48,22 +78,16 @@ func containersNamed(t *testing.T, name string) []string {
 // attached CLI, the container is orphaned: --rm never fires for a container
 // that was never started, and one that was started outlives its CLI.
 func TestStartDirectRunner_KillBeforeCreateLeavesNoContainer(t *testing.T) {
-	dockergate.RequireRuntime(t, (Docker{}).Available(), "the kill-before-create race test")
+	forEachRmRaceRuntime(t, "the kill-before-create race test", "rmrace", func(t *testing.T, rt Runtime, name string) {
+		h, err := startDirectRunner(rt, RunSpec{Image: rmRaceImage, Name: name, Command: []string{"sleep", "300"}}, nil)
+		require.NoError(t, err)
 
-	name := containerName("rmrace")
-	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+		h.Kill()
+		_ = h.Wait()
 
-	rt := rmRaceRuntime{Runtime: ProbeRuntime("docker"), bin: dockergate.RemoveBeforeCreateWrapper(t, "docker", name)}
-	spec := RunSpec{Image: "alpine:latest", Name: name, Command: []string{"sleep", "300"}}
-
-	h, err := startDirectRunner(rt, spec, nil)
-	require.NoError(t, err)
-
-	h.Kill()
-	_ = h.Wait()
-
-	require.Empty(t, containersNamed(t, name),
-		"Kill must not orphan a container whose create landed after its remove said \"No such container\"")
+		require.Empty(t, containersNamed(t, rt.Binary(), name),
+			"Kill must not orphan a container whose create landed after its remove said \"No such container\"")
+	})
 }
 
 // TestRunAttached_CloseBeforeCreateLeavesNoContainer: the attached-stdio
@@ -73,21 +97,15 @@ func TestStartDirectRunner_KillBeforeCreateLeavesNoContainer(t *testing.T) {
 // Close trusts it and kills the CLI, the create lands behind it and the
 // container is orphaned.
 func TestRunAttached_CloseBeforeCreateLeavesNoContainer(t *testing.T) {
-	dockergate.RequireRuntime(t, (Docker{}).Available(), "the close-before-create race test")
+	forEachRmRaceRuntime(t, "the close-before-create race test", "rmrace-attached", func(t *testing.T, rt Runtime, name string) {
+		ac, err := RunAttached(context.Background(), rt, RunSpec{Image: rmRaceImage, Name: name, Command: []string{"sleep", "300"}}, nil)
+		require.NoError(t, err)
+		// The grace only waits for an exit the held launch cannot produce; keep
+		// it short so the remove is what reaches the daemon first.
+		ac.ShutdownGrace = time.Millisecond
+		_ = ac.Close()
 
-	name := containerName("rmrace-attached")
-	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
-
-	rt := rmRaceRuntime{Runtime: ProbeRuntime("docker"), bin: dockergate.RemoveBeforeCreateWrapper(t, "docker", name)}
-	spec := RunSpec{Image: "alpine:latest", Name: name, Command: []string{"sleep", "300"}}
-
-	ac, err := RunAttached(context.Background(), rt, spec, nil)
-	require.NoError(t, err)
-	// The grace only waits for an exit the held launch cannot produce; keep it
-	// short so the remove is what reaches the daemon first.
-	ac.ShutdownGrace = time.Millisecond
-	_ = ac.Close()
-
-	require.Empty(t, containersNamed(t, name),
-		"Close must not orphan a container whose create landed after its remove said \"No such container\"")
+		require.Empty(t, containersNamed(t, rt.Binary(), name),
+			"Close must not orphan a container whose create landed after its remove said \"No such container\"")
+	})
 }

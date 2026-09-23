@@ -54,11 +54,12 @@
 //     every cert-authority entry unconditionally; the same key listed a
 //     second time on a plain (non-CA) line is unaffected and still grants
 //     trust through that line.
-//   - namespaces= absent means unrestricted, namespaces="" present-but-empty
-//     means trusted for nothing. Both are OpenSSH's own documented/verified
-//     semantics, not shortcuts this package takes, and the distinction is
-//     represented in Entry.Namespaces as nil (absent) vs. a non-nil,
-//     possibly zero-length slice (present).
+//   - namespaces= absent is REFUSED, a deliberate divergence from OpenSSH,
+//     which reads it as "every namespace". A line without it would grant
+//     companion execution and approval along with publishing, so Parse reports
+//     it as a ParseError naming the principal and it contributes no entry.
+//     namespaces="" (present but empty) parses and matches nothing, as in
+//     OpenSSH.
 //   - valid-after/valid-before ARE enforced, against a caller-supplied
 //     `now`, never the system clock. An sshsig signature carries no trusted
 //     timestamp (PROTOCOL.sshsig has no timestamp field), so "now" can only

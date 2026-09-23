@@ -13,6 +13,11 @@ import (
 // testdata/*.pub and the package-level interop tests in
 // allowedsigners_interop_test.go for the exact commands run).
 const (
+	// testNS scopes a fixture line to one namespace. A line without
+	// namespaces= is refused (errNoNamespaces), so every line a test expects
+	// to parse carries it.
+	testNS = `namespaces="publish.v1.ctxloom.dev" `
+
 	testEd25519Key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com"
 
 	// sk-ssh-ed25519@openssh.com blob. This host has no FIDO2 hardware
@@ -34,7 +39,7 @@ const (
 // --- usage-demonstrating ---
 
 func TestParse_SimplePrincipalKeyTypeAndBlob(t *testing.T) {
-	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me " + testEd25519Key + "\n"))
+	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me " + testNS + testEd25519Key + "\n"))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
 	require.Len(t, store.Entries(), 1)
@@ -42,7 +47,7 @@ func TestParse_SimplePrincipalKeyTypeAndBlob(t *testing.T) {
 	e := store.Entries()[0]
 	assert.Equal(t, []string{"ben@abbitt.me"}, e.Principals)
 	assert.Equal(t, "ssh-ed25519", e.KeyType)
-	assert.Nil(t, e.Namespaces, "no namespaces= option present")
+	assert.Equal(t, []string{"publish.v1.ctxloom.dev"}, e.Namespaces)
 	assert.False(t, e.CertAuthority)
 	assert.Equal(t, 1, e.Line)
 }
@@ -68,7 +73,7 @@ func TestParse_MultipleNamespacesCommaSeparatedInsideQuotes(t *testing.T) {
 }
 
 func TestParse_CommentsAndBlankLinesIgnored(t *testing.T) {
-	src := "# a leading comment\n\nben@abbitt.me " + testEd25519Key + "\n\n# trailing comment\n"
+	src := "# a leading comment\n\nben@abbitt.me " + testNS + testEd25519Key + "\n\n# trailing comment\n"
 	store, perrs, err := Parse(strings.NewReader(src))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -76,7 +81,7 @@ func TestParse_CommentsAndBlankLinesIgnored(t *testing.T) {
 }
 
 func TestParse_MultiplePrincipalsCommaSeparated(t *testing.T) {
-	line := "alice@example.com,bob@example.com " + testEd25519Key + "\n"
+	line := "alice@example.com,bob@example.com " + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(line))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -98,7 +103,7 @@ func TestParse_ValidAfterAndValidBefore(t *testing.T) {
 }
 
 func TestParse_CertAuthorityOption(t *testing.T) {
-	line := "ca@example.com cert-authority " + testEd25519Key + "\n"
+	line := "ca@example.com cert-authority," + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(line))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -107,8 +112,8 @@ func TestParse_CertAuthorityOption(t *testing.T) {
 }
 
 func TestParse_HardwareKeyTypes(t *testing.T) {
-	src := "sk1@example.com " + testSKEd25519Key + "\n" +
-		"sk2@example.com " + testSKECDSAKey + "\n"
+	src := "sk1@example.com " + testNS + testSKEd25519Key + "\n" +
+		"sk2@example.com " + testNS + testSKECDSAKey + "\n"
 	store, perrs, err := Parse(strings.NewReader(src))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -118,7 +123,7 @@ func TestParse_HardwareKeyTypes(t *testing.T) {
 }
 
 func TestParse_TrailingCommentField(t *testing.T) {
-	line := "ben@abbitt.me " + testEd25519Key + " some free text comment\n"
+	line := "ben@abbitt.me " + testNS + testEd25519Key + " some free text comment\n"
 	store, perrs, err := Parse(strings.NewReader(line))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -141,7 +146,7 @@ func TestParse_CaseInsensitiveOptionKeyword(t *testing.T) {
 
 func TestParse_LeadingWhitespaceIndentedLineTolerated(t *testing.T) {
 	// Verified against real ssh-keygen.
-	line := "   ben@abbitt.me " + testEd25519Key + "\n"
+	line := "   ben@abbitt.me " + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(line))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -150,7 +155,7 @@ func TestParse_LeadingWhitespaceIndentedLineTolerated(t *testing.T) {
 
 func TestParse_IndentedCommentStillTreatedAsComment(t *testing.T) {
 	// Verified against real ssh-keygen.
-	src := "   # indented comment\nben@abbitt.me " + testEd25519Key + "\n"
+	src := "   # indented comment\nben@abbitt.me " + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(src))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -159,7 +164,7 @@ func TestParse_IndentedCommentStillTreatedAsComment(t *testing.T) {
 
 func TestParse_CRLFLineEndingsTolerated(t *testing.T) {
 	// Verified against real ssh-keygen.
-	src := "ben@abbitt.me " + testEd25519Key + "\r\n"
+	src := "ben@abbitt.me " + testNS + testEd25519Key + "\r\n"
 	store, perrs, err := Parse(strings.NewReader(src))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -197,7 +202,7 @@ func TestParse_LeadingByteOrderMarkIsMalformed(t *testing.T) {
 // in front of a comment or a blank first line contaminates no principal, so it
 // must not be reported. Only a BOM that would be absorbed into an entry is one.
 func TestParse_ByteOrderMarkBeforeACommentIsHarmless(t *testing.T) {
-	src := "\ufeff# my trust root\nben@abbitt.me " + testEd25519Key + "\n"
+	src := "\ufeff# my trust root\nben@abbitt.me " + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(src))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -222,7 +227,7 @@ func TestParse_ByteOrderMarkBeforeACommentIsHarmless(t *testing.T) {
 // the file is therefore a divergence from ssh-keygen, not a stricter reading
 // of it.
 func TestParse_OverlongLineIsSkippedNotFatal(t *testing.T) {
-	src := "junk" + strings.Repeat("x", 2<<20) + "\nben@abbitt.me " + testEd25519Key + "\n"
+	src := "junk" + strings.Repeat("x", 2<<20) + "\nben@abbitt.me " + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(src))
 	require.NoError(t, err, "an over-long line is a CONTENT error, not an I/O error")
 	require.NotNil(t, store)
@@ -316,13 +321,29 @@ func TestParse_GarbageLineIsSkippedNotFatal(t *testing.T) {
 	// Verified against real ssh-keygen: it tolerates a garbage line and
 	// keeps using the rest of the file. We match this.
 	src := "this is not a valid allowed signers line at all\n" +
-		"ben@abbitt.me " + testEd25519Key + "\n"
+		"ben@abbitt.me " + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(src))
 	require.NoError(t, err, "Parse itself never fails for malformed content")
 	require.Len(t, perrs, 1)
 	assert.Equal(t, 1, perrs[0].Line)
 	require.Len(t, store.Entries(), 1)
 	assert.Equal(t, []string{"ben@abbitt.me"}, store.Entries()[0].Principals)
+}
+
+// TestParse_NoNamespacesOptionIsRefusedNamingThePrincipal: a line without
+// namespaces= would, under OpenSSH's semantics, grant every namespace. It is
+// refused as a ParseError — so it grants nothing, and every surface that
+// already reports dropped lines (the trust-root loader, `signer list`) tells
+// the user which principal's line to fix.
+func TestParse_NoNamespacesOptionIsRefusedNamingThePrincipal(t *testing.T) {
+	src := "# comment\nunscoped@example.com " + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	assert.Empty(t, store.Entries(), "a line without namespaces= must contribute no entry")
+	require.Len(t, perrs, 1)
+	assert.Equal(t, 2, perrs[0].Line)
+	assert.ErrorIs(t, perrs[0], errNoNamespaces)
+	assert.Contains(t, perrs[0].Err.Error(), "unscoped@example.com", "the cause must name the principal whose line to fix")
 }
 
 func TestParse_UnquotedNamespacesValueIsMalformed(t *testing.T) {
@@ -393,13 +414,13 @@ func TestParse_NoKeyFieldIsMalformed(t *testing.T) {
 func TestParse_UnrecognizedKeyTypeIsMalformed(t *testing.T) {
 	_, blob, _ := strings.Cut(testEd25519Key, " ")
 
-	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me not-a-real-keytype " + blob + "\n"))
+	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me " + testNS + "not-a-real-keytype " + blob + "\n"))
 	require.NoError(t, err)
 	require.Len(t, perrs, 1)
 	assert.ErrorIs(t, perrs[0].Err, errNoKey)
 	assert.Empty(t, store.Entries())
 
-	ctrl, ctrlErrs, err := Parse(strings.NewReader("ben@abbitt.me ssh-ed25519 " + blob + "\n"))
+	ctrl, ctrlErrs, err := Parse(strings.NewReader("ben@abbitt.me " + testNS + "ssh-ed25519 " + blob + "\n"))
 	require.NoError(t, err)
 	require.Empty(t, ctrlErrs, "the same blob under its own token must parse")
 	require.Len(t, ctrl.Entries(), 1, "control: only the TOKEN differs between the two lines")
@@ -412,13 +433,13 @@ func TestParse_UnrecognizedKeyTypeIsMalformed(t *testing.T) {
 func TestParse_MislabelledKeyTypeIsMalformed(t *testing.T) {
 	_, blob, _ := strings.Cut(testEd25519Key, " ")
 
-	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me ssh-rsa " + blob + "\n"))
+	store, perrs, err := Parse(strings.NewReader("ben@abbitt.me " + testNS + "ssh-rsa " + blob + "\n"))
 	require.NoError(t, err)
 	require.Len(t, perrs, 1)
 	assert.ErrorIs(t, perrs[0].Err, errNoKey)
 	assert.Empty(t, store.Entries(), "an ed25519 blob under an ssh-rsa token grants no trust as either")
 
-	ctrl, ctrlErrs, err := Parse(strings.NewReader("ben@abbitt.me ssh-ed25519 " + blob + "\n"))
+	ctrl, ctrlErrs, err := Parse(strings.NewReader("ben@abbitt.me " + testNS + "ssh-ed25519 " + blob + "\n"))
 	require.NoError(t, err)
 	require.Empty(t, ctrlErrs)
 	require.Len(t, ctrl.Entries(), 1, "control: only the TOKEN differs between the two lines")
@@ -553,7 +574,7 @@ func TestParse_QuotedPrincipalsField_EndToEnd_OriginalBugIsDead(t *testing.T) {
 // match-principals -I "alice smith@x.com"` against a file containing this
 // exact quoted field matches it.
 func TestParse_QuotedPrincipalWithInternalWhitespace(t *testing.T) {
-	line := `"alice smith@x.com" ` + testEd25519Key + "\n"
+	line := `"alice smith@x.com" ` + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(line))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -613,7 +634,7 @@ func TestParse_QuoteInsideUnquotedFieldIsMalformed(t *testing.T) {
 // "revocable by signer remove" is exactly this: the string a human typed
 // appears, byte-for-byte, in Principals. That is what this test asserts.
 func TestParse_QuotedPrincipalIsRevocableBySignerRemove(t *testing.T) {
-	line := `"alice@x.com,bob@x.com" ` + testEd25519Key + "\n"
+	line := `"alice@x.com,bob@x.com" ` + testNS + testEd25519Key + "\n"
 	store, perrs, err := Parse(strings.NewReader(line))
 	require.NoError(t, err)
 	assert.Empty(t, perrs)
@@ -646,13 +667,13 @@ func TestParse_QuotedPrincipalIsRevocableBySignerRemove(t *testing.T) {
 // unusable lines, would still look right in a file with no gaps in it.
 func TestParse_LineNumbersIndexTheSourceStream(t *testing.T) {
 	lines := []string{
-		"# a comment",                            // 1
-		"",                                       // 2
-		"first@example.com " + testEd25519Key,    // 3
-		"   ",                                    // 4
-		"this line is garbage",                   // 5
-		"# another comment",                      // 6
-		"second@example.com " + testSKEd25519Key, // 7
+		"# a comment", // 1
+		"",            // 2
+		"first@example.com " + testNS + testEd25519Key, // 3
+		"   ",                  // 4
+		"this line is garbage", // 5
+		"# another comment",    // 6
+		"second@example.com " + testNS + testSKEd25519Key, // 7
 	}
 	store, perrs, err := Parse(strings.NewReader(strings.Join(lines, "\n")))
 	require.NoError(t, err)

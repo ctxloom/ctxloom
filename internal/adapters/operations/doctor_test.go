@@ -21,7 +21,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
@@ -713,6 +715,31 @@ func TestDoctorTrustStoreDetail_UnreadableEntriesWarnAndAreNotCountedActive(t *t
 		"an unreadable row grants no trust and must not inflate the count")
 	assert.Contains(t, detail, "/p/.ctxloom/allowed_signers", "the gap must name the file")
 	assert.Contains(t, detail, "grant NO trust")
+}
+
+// TestDoctorTrustStoreDetail_ListsProjectStoreExecuteAndApproveGrants: the
+// project store is committed, so anyone who can land a commit can add a line
+// to it. Doctor names every principal it grants companion execution or
+// approval, so such a grant is visible rather than inferred. Publish grants
+// and grants from other stores are not listed.
+func TestDoctorTrustStoreDetail_ListsProjectStoreExecuteAndApproveGrants(t *testing.T) {
+	const path = "/p/.ctxloom/allowed_signers"
+	grant := func(principal, source string, ns ...string) SignerListing {
+		return SignerListing{Source: source, Path: path, Entry: allowedsigners.Entry{Principals: []string{principal}, Namespaces: ns}}
+	}
+	detail, ok := doctorTrustStoreDetail([]SignerListing{
+		grant("ci@example.com", signerSourceProject, signing.NamespaceCompanion),
+		grant("lead@example.com", signerSourceProject, signing.NamespaceApprove, signing.NamespaceReject),
+		grant("publisher@example.com", signerSourceProject, signing.NamespacePublish),
+		grant("me@example.com", "user", signing.NamespaceCompanion),
+	}, nil)
+
+	assert.True(t, ok, "listing a grant is information, not a fault")
+	assert.Contains(t, detail, signing.NamespaceCompanion+" (execute companions) to ci@example.com")
+	assert.Contains(t, detail, signing.NamespaceApprove+" to lead@example.com")
+	assert.Contains(t, detail, path)
+	assert.NotContains(t, detail, "publisher@example.com", "a publish-only grant is not listed")
+	assert.NotContains(t, detail, "me@example.com", "the user store is not committed to the repo")
 }
 
 func TestDoctorTrustStoreDetail_HealthyStore(t *testing.T) {

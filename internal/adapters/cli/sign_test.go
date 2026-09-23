@@ -83,6 +83,7 @@ func TestRunSign_WritesVerifiableSigForBareLocalBundle(t *testing.T) {
 
 	root := allowedsigners.NewStore(allowedsigners.Entry{
 		Principals: []string{"me@example.com"},
+		Namespaces: []string{"publish.v1.ctxloom.dev"},
 		KeyType:    signer.PublicKey().Type(),
 		PublicKey:  signer.PublicKey(),
 	})

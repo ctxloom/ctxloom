@@ -59,6 +59,9 @@ func validEntry(e Entry) error {
 			return err
 		}
 	}
+	if len(e.Namespaces) == 0 {
+		return fmt.Errorf("allowed_signers entry for %s needs at least one namespace: without one it is trusted for nothing", strings.Join(e.Principals, ","))
+	}
 	for _, ns := range e.Namespaces {
 		if err := validNamespace(ns); err != nil {
 			return err
@@ -79,9 +82,7 @@ func formatOptions(e Entry) string {
 	if e.CertAuthority {
 		opts = append(opts, "cert-authority")
 	}
-	if e.Namespaces != nil {
-		opts = append(opts, "namespaces="+quoteOptionValue(strings.Join(e.Namespaces, ",")))
-	}
+	opts = append(opts, "namespaces="+quoteOptionValue(strings.Join(e.Namespaces, ",")))
 	if e.ValidAfter != nil {
 		opts = append(opts, "valid-after="+quoteOptionValue(formatTimestamp(*e.ValidAfter)))
 	}

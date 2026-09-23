@@ -28,15 +28,14 @@ type Entry struct {
 	// oversight — see the package doc.
 	CertAuthority bool `json:"cert_authority"`
 
-	// Namespaces is the entry's namespaces pattern-list.
+	// Namespaces is the entry's namespaces pattern-list. An entry with none
+	// (nil, or namespaces="" giving an empty slice) matches no namespace.
 	//
-	//   - nil means the namespaces= option was absent from the entry.
-	//     OpenSSH defines this as "accepted for all namespaces" — verified
-	//     against real ssh-keygen, not a shortcut this package takes.
-	//   - a non-nil slice means the option was present. An empty quoted
-	//     value (namespaces="") is syntactically legal and produces a
-	//     non-nil empty slice, which matches no namespace at all (also
-	//     verified against real ssh-keygen).
+	// OpenSSH reads an ABSENT namespaces= as "every namespace". ctxloom does
+	// not: that would let one careless line in a committed project store
+	// grant companion execution and approval. Parse refuses such a line
+	// (errNoNamespaces), and an Entry built without Namespaces grants
+	// nothing — see MatchesNamespace.
 	Namespaces []string `json:"namespaces"`
 
 	// ValidAfter / ValidBefore implement the valid-after= / valid-before=
@@ -139,12 +138,9 @@ func (e Entry) MatchesAnyPrincipal(principals map[string]bool) bool {
 }
 
 // MatchesNamespace reports whether ns is accepted by this entry's
-// Namespaces option. See the Namespaces field doc for the nil-vs-empty
-// distinction.
+// Namespaces option. An entry with no namespaces accepts none (fail closed;
+// see the Namespaces field doc for why this diverges from OpenSSH).
 func (e Entry) MatchesNamespace(ns string) bool {
-	if e.Namespaces == nil {
-		return true
-	}
 	return matchPatternList(e.Namespaces, ns)
 }
 

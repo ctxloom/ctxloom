@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -713,12 +714,11 @@ type ImportSkillResult struct {
 	// SignatureState is one of "unsigned" (no SigPath given), "verified"
 	// (SigPath given, cryptographically covers the extracted tree's
 	// manifest, by a key this machine trusts to publish), or "unverified:
-	// <reason>" (a signature was given but does not verify — either
-	// tampered, or by a key not trusted here). NONE of these three outcomes
-	// changes whether the tree lands: the import always lands a
-	// structurally-valid tree (HardenedExtract/ParseSkillPackage already
-	// gate that) as pending-review, exactly like any other freshly-pulled
-	// remote content — this field is reporting only. A verified signature is
+	// <reason>" (a signature was given but is by a key not trusted here).
+	// None of these three changes whether the tree lands: it lands as
+	// pending-review, exactly like any other freshly-pulled remote content.
+	// A TAMPERED signature never reaches this field — ImportSkill refuses the
+	// import instead (see there). A verified signature is
 	// NOT auto-trust; the ordinary `ctxloom review`/`trust` flow still
 	// governs whether the skill is ever actually exposed (skillContent's
 	// trust gate, loader_skills.go).
@@ -732,13 +732,13 @@ type ImportSkillResult struct {
 // registers/updates the bundle.yaml `skills:` entry with the freshly-computed
 // manifest (so a subsequent `ctxloom skill sync` is a no-op until the tree
 // changes again). If SigPath is given, the signature is verified against the
-// tree's own recomputed manifest via bundles.PublisherSkillSignatureVerifier
-// — wired to a live command for the first time — but a failed
-// or absent verification never blocks the import: "do not auto-trust remote
-// content" means neither branch auto-accepts trust, not that an untrusted
-// import is destroyed. Only a structurally invalid archive/tree (extractor
-// rejection, or a post-extraction SKILL.md/frontmatter that fails
-// ParseSkillPackage) is refused and cleaned up.
+// STAGED tree's recomputed manifest via bundles.PublisherSkillSignatureVerifier,
+// before the tree replaces anything. An absent or untrusted signature never
+// blocks the import: "do not auto-trust remote content" means neither branch
+// auto-accepts trust, not that an untrusted import is destroyed. A tampered
+// signature (signing.ErrSignatureTampered: a trusted key's signature that
+// does not cover these bytes) is an attack signal, not an unsigned archive, and
+// is refused like a structurally invalid archive/tree: nothing lands.
 func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) (*ImportSkillResult, error) {
 	if req.ArchivePath == "" {
 		return nil, fmt.Errorf("archive path is required")
@@ -786,6 +786,7 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 	// name, so "import this over the skill I already have" was the ordinary
 	// case, not an exotic one.
 	var pkg *bundles.SkillPackage
+	sigState := "unsigned"
 	landedDir, err := bundles.ImportSkillArchive(fs, archiveBytes, skillsParent, bundles.ExtractOptions{},
 		func(vfs afero.Fs, staged string) error {
 			p, perr := bundles.ParseSkillPackage(vfs, staged, 0)
@@ -793,24 +794,27 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 				return fmt.Errorf("imported skill failed validation: %w", perr)
 			}
 			pkg = p
+			if req.SigPath == "" {
+				return nil
+			}
+			root := req.Root
+			if root == nil {
+				root = cfg.TrustRoot()
+			}
+			verifier := bundles.PublisherSkillSignatureVerifier{ArmoredSignature: sigBytes, Root: root}
+			verr := verifier.VerifyManifestSignature(p.Manifest)
+			switch {
+			case errors.Is(verr, signing.ErrSignatureTampered):
+				return fmt.Errorf("refusing import: signature %s does not match the archive's contents, which means the archive or its signature was modified: %w", req.SigPath, verr)
+			case verr != nil:
+				sigState = fmt.Sprintf("unverified: %v", verr)
+			default:
+				sigState = "verified"
+			}
 			return nil
 		})
 	if err != nil {
 		return nil, fmt.Errorf("import %s: %w", req.ArchivePath, err)
-	}
-
-	sigState := "unsigned"
-	if req.SigPath != "" {
-		root := req.Root
-		if root == nil {
-			root = cfg.TrustRoot()
-		}
-		verifier := bundles.PublisherSkillSignatureVerifier{ArmoredSignature: sigBytes, Root: root}
-		if verr := verifier.VerifyManifestSignature(pkg.Manifest); verr != nil {
-			sigState = fmt.Sprintf("unverified: %v", verr)
-		} else {
-			sigState = "verified"
-		}
 	}
 
 	name := pkg.Name

@@ -22,13 +22,14 @@ func TestEntry_MatchesNamespace_RestrictedToListedNamespaces(t *testing.T) {
 	assert.False(t, e.MatchesNamespace("approve.v1.ctxloom.dev"))
 }
 
-func TestEntry_MatchesNamespace_AbsentOptionAcceptsAll(t *testing.T) {
-	// Verified against real ssh-keygen: an entry with no namespaces=
-	// option verifies successfully under any namespace.
+func TestEntry_MatchesNamespace_AbsentOptionGrantsNothing(t *testing.T) {
+	// A deliberate divergence from OpenSSH, where an absent namespaces=
+	// accepts every namespace: that would let one careless line grant
+	// companion (execute) and approve rights. Here it fails closed.
 	e := Entry{Namespaces: nil}
-	assert.True(t, e.MatchesNamespace("publish.v1.ctxloom.dev"))
-	assert.True(t, e.MatchesNamespace("approve.v1.ctxloom.dev"))
-	assert.True(t, e.MatchesNamespace("anything-at-all"))
+	assert.False(t, e.MatchesNamespace("publish.v1.ctxloom.dev"))
+	assert.False(t, e.MatchesNamespace("companion.v1.ctxloom.dev"))
+	assert.False(t, e.MatchesNamespace("anything-at-all"))
 }
 
 func TestEntry_ValidAt_WithinBounds(t *testing.T) {

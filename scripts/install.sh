@@ -179,24 +179,25 @@ fetch_file() {
 }
 
 # verify_checksum <archive-path> <archive-name> <checksums-file>
-# Verifies the archive against the release's checksums.txt. Returns non-zero
-# (with a logged error) on mismatch; missing tooling degrades to a warning —
-# integrity check, not a substitute for reading this script.
+# Verifies the archive against the release's checksums.txt. FAILS CLOSED:
+# returns non-zero (with a logged error) on a mismatch, on a missing entry,
+# and when no sha256 tool exists — an archive nobody verified is not installed.
 verify_checksum() {
     local archive_path="$1" archive_name="$2" checksums="$3"
     local expected actual
-    expected=$(grep "  ${archive_name}\$" "${checksums}" | awk '{print $1}' | head -1)
+    expected=$(awk -v name="${archive_name}" '$2 == name { print $1; exit }' "${checksums}")
     if [[ -z "${expected}" ]]; then
-        log_warn "No checksum entry for ${archive_name}; skipping verification"
-        return 0
+        log_error "checksums.txt has no entry for ${archive_name}; refusing to install an unverified archive"
+        return 1
     fi
     if command_exists sha256sum; then
         actual=$(sha256sum "${archive_path}" | awk '{print $1}')
     elif command_exists shasum; then
         actual=$(shasum -a 256 "${archive_path}" | awk '{print $1}')
     else
-        log_warn "sha256sum/shasum not found; skipping checksum verification"
-        return 0
+        log_error "Neither sha256sum nor shasum is installed; cannot verify ${archive_name}"
+        log_error "  install one (coreutils or perl) and rerun"
+        return 1
     fi
     if [[ "${expected}" != "${actual}" ]]; then
         log_error "Checksum mismatch for ${archive_name}"
@@ -274,12 +275,12 @@ download_and_install() {
     log_success "Downloaded"
 
     # Verify against the release's checksums.txt (trust, but verify)
-    if fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
-        verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt" || exit 1
-        log_success "Checksum verified"
-    else
-        log_warn "Could not fetch checksums.txt; skipping verification"
+    if ! fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
+        log_error "Could not fetch checksums.txt for v${version}; refusing to install an unverified archive"
+        exit 1
     fi
+    verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt" || exit 1
+    log_success "Checksum verified"
 
     log_info "Extracting..."
 
@@ -311,7 +312,13 @@ download_and_install() {
 # com.apple.quarantine and com.apple.provenance xattrs. The quarantine flag
 # triggers the "are you sure?" dialog, while provenance can cause the kernel
 # to outright kill the process ("zsh: killed") before it even starts.
-# Removing quarantine + re-signing ad-hoc clears both issues.
+# Removing both xattrs clears that; xattrs are metadata, not file bytes.
+#
+# NEVER re-sign or otherwise rewrite the binary here. The detached SSH
+# signature install_signed placed beside it covers the EXACT installed bytes,
+# and `codesign --force` rewrites the Mach-O, after which ctxloom refuses the
+# binary as tampered. Re-signing is also unnecessary: the Go linker already
+# ad-hoc signs darwin/arm64 binaries, which is all Apple Silicon requires.
 clear_macos_quarantine() {
     local os="$1" target="$2" use_sudo="$3"
     if [[ "${os}" != "darwin" ]]; then
@@ -320,9 +327,6 @@ clear_macos_quarantine() {
     if command_exists xattr; then
         ${use_sudo} xattr -d com.apple.quarantine "${target}" 2>/dev/null || true
         ${use_sudo} xattr -d com.apple.provenance "${target}" 2>/dev/null || true
-    fi
-    if command_exists codesign; then
-        ${use_sudo} codesign --force --sign - "${target}" 2>/dev/null || true
     fi
 }
 
@@ -353,13 +357,13 @@ install_companion() {
         rm_temp; return 0
     fi
 
-    if fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
-        if ! verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt"; then
-            log_warn "${binary}: checksum mismatch; NOT installing"
-            rm_temp; return 0
-        fi
-    else
-        log_warn "${binary}: could not fetch checksums.txt; skipping verification"
+    if ! fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
+        log_warn "${binary}: could not fetch checksums.txt; NOT installing an unverified archive"
+        rm_temp; return 0
+    fi
+    if ! verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt"; then
+        log_warn "${binary}: checksum verification failed; NOT installing"
+        rm_temp; return 0
     fi
 
     if ! tar -xzf "${temp_dir}/${archive_name}" -C "${temp_dir}"; then
@@ -599,9 +603,9 @@ warn_trust_steps() {
         return
     fi
     echo ""
-    log_warn "These are unsigned binaries. This script removed macOS quarantine and"
-    log_warn "ad-hoc signed them, but if anything is still blocked (Gatekeeper dialog"
-    log_warn "or a bare 'zsh: killed'), the manual steps are documented here:"
+    log_warn "These binaries are not notarized. This script removed macOS quarantine,"
+    log_warn "but if anything is still blocked (Gatekeeper dialog or a bare"
+    log_warn "'zsh: killed'), the manual steps are documented here:"
     log_warn "  ${TRUST_DOC_URL}"
     log_warn "Tip: rerun with --brew to install via Homebrew and skip this entirely."
 }

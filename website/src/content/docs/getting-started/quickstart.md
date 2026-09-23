@@ -42,8 +42,9 @@ pull.
 `ctxloom-default`'s bundles are signed by ctxloom's publishing key, which the
 binary trusts, so after a fresh `init` nothing is pending. Content pulled from
 any other remote is **withheld from the agent until you accept it**. Until then
-a run that asks for it fails with `no fragments loaded: requested fragments not
-found`, so review after every pull from a new remote:
+`run -f` naming it fails with `no fragments loaded: requested fragments not
+found`, and a profile that draws on it runs without it, warning `awaiting review
+— run 'ctxloom review'`. Review after every pull from a new remote:
 
 ```bash
 # See what is waiting, without reviewing (non-interactive)

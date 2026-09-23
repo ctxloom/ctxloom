@@ -324,7 +324,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 
 	var res UpgradeResult
 	stderr := captureStderr(t, func() {
-		res, err = UpgradeDependencies(ctx, cfg)
+		res, err = UpgradeDependencies(ctx, cfg, nil)
 		require.NoError(t, err)
 	})
 	assert.GreaterOrEqual(t, res.Advanced, 1, "repo A advanced")

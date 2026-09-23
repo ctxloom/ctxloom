@@ -43,9 +43,8 @@ func TestCopyAmbient_TheOrchestratorsSeedIsWholeAndTwoWay(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 	instFile := filepath.Join(instance, "claude", ".credentials.json")
 	placed, err := os.ReadFile(instFile)
 	require.NoError(t, err)
@@ -67,9 +66,8 @@ func TestCopyAmbient_AnAgentsSeedIsAProjectionOfTheOrchestrators(t *testing.T) {
 	orch := seededOrchestrator(t, `{"claudeAiOauth":{"accessToken":"orch-acc","refreshToken":"orch-ref","expiresAt":1}}`)
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 	_, oauth := seededOAuth(t, instance)
 	assert.Equal(t, "orch-acc", oauth["accessToken"], "the agent projects the ORCHESTRATOR's credential, not the host's")
 	assert.NotContains(t, oauth, "refreshToken")
@@ -97,9 +95,8 @@ func TestCopyAmbient_AnAgentsWriteReachesNeitherTheOrchestratorNorTheHost(t *tes
 	orch := seededOrchestrator(t, orchBytes)
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 	instFile := filepath.Join(instance, "claude", ".credentials.json")
 	placed, _ := seededOAuth(t, instance)
 
@@ -121,9 +118,8 @@ func TestCopyAmbient_AnAgentWithNoOrchestratorCredentialIsNoSource(t *testing.T)
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 	assert.True(t, report.NoSource, "the host file is never an agent's source")
 	assert.Contains(t, report.NoSourceReason, orchestratorHarp)
 	assert.NoFileExists(t, filepath.Join(instance, "claude", ".credentials.json"))
@@ -139,9 +135,8 @@ func TestCopyAmbient_AnAgentStillGetsItsInstanceConfig(t *testing.T) {
 	seededOrchestrator(t, hostOAuthCredential)
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 	data, err := os.ReadFile(filepath.Join(instance, "claude", ".claude.json"))
 	require.NoError(t, err)
 	var cfg map[string]any

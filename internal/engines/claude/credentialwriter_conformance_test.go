@@ -11,10 +11,9 @@ package claude
 // and on `node` being on PATH, neither of which the default `go test ./...`
 // may assume. It is deliberately absent from that package (a different
 // third-party surface, a different failure shape) and deliberately not
-// wired into any just recipe (see the task this file closes: taskloom row
-// negligent-blasphemy) — it is not part of the build chain, but is required
-// reading before shipping anything that depends on the assumption it
-// asserts. Run it explicitly:
+// wired into any just recipe — it is not part of the build chain, but is
+// required reading before shipping anything that depends on the assumption
+// it asserts. Run it explicitly:
 //
 //	go test -trimpath -tags conformance -run TestClaudeCredentialWriter ./internal/engines/claude/...
 
@@ -31,8 +30,11 @@ import (
 )
 
 // TestClaudeCredentialWriter_FallsBackThroughEBUSY is the conformance probe
-// for the ONE fact about claude's shipped binary the mount-based credential
-// design depends on: claude's credential writer, when a rename used to land
+// for the ONE fact about claude's shipped binary that any bind MOUNT of
+// claude's credential would depend on. ctxloom mounts no credential today
+// (the run authenticates from CLAUDE_CODE_OAUTH_TOKEN); this probe, with
+// credentiallink_hazard_unix_test.go, is what a proposal to mount one must
+// re-run first. The fact: claude's credential writer, when a rename used to land
 // a write fails, checks the failure's errno against a small allow-set and —
 // if it is a member — falls back to opening the TARGET path directly
 // (O_NOFOLLOW) and writing through it in place, rather than propagating the
@@ -108,12 +110,12 @@ func TestClaudeCredentialWriter_FallsBackThroughEBUSY(t *testing.T) {
 	if err != nil {
 		t.Fatalf(
 			"could not locate claude's rename-fallback errno set in %s: %v\n"+
-				"This is the assumption the mount-based credential design depends on "+
-				"(taskloom row negligent-blasphemy): a Set literal containing both "+
+				"This is the assumption any bind mount of claude's credential would "+
+				"depend on: a Set literal containing both "+
 				"EXDEV and EBUSY, consumed by a function that falls back to an "+
 				"in-place write. Either claude changed how this is encoded (adjust "+
-				"the extraction) or claude REMOVED the fallback (the mount design's "+
-				"load-bearing assumption no longer holds and needs re-litigating).",
+				"the extraction) or claude REMOVED the fallback (a credential mount "+
+				"would then never see claude's writes).",
 			claudeBin, err,
 		)
 	}
@@ -132,8 +134,8 @@ func TestClaudeCredentialWriter_FallsBackThroughEBUSY(t *testing.T) {
 		if runErr != nil {
 			t.Fatalf(
 				"claude's rename-fallback dependency no longer holds against %s "+
-					"(taskloom row negligent-blasphemy — the mount-based credential "+
-					"design has no signal without this probe): node exited with %v\n%s",
+					"(a bind mount of claude's credential would depend on it): "+
+					"node exited with %v\n%s",
 				claudeBin, runErr, out,
 			)
 		}

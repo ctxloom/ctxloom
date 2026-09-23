@@ -42,17 +42,6 @@ const RecvWaitMax = 10 * time.Minute
 // is malformed at the verb, before any state is read or written.
 var ErrInvalidRequest = errors.New("invalid request")
 
-// MaxSendBodyBytes bounds one message body at the Send verb. At any fan-out
-// width an uncapped body floods the recipient's context, and the
-// coordinator's is the one hardest to recover. Above the bound the send is
-// REFUSED and told so by name; carrying the overflow as a published artifact
-// the recipient fetches is moneyless-referee's design and lands on this
-// site.
-const MaxSendBodyBytes = 64 << 10
-
-// ErrBodyTooLarge refuses a Send whose body exceeds MaxSendBodyBytes.
-var ErrBodyTooLarge = fmt.Errorf("%w: body exceeds MaxSendBodyBytes (%d bytes)", ErrInvalidRequest, MaxSendBodyBytes)
-
 // SpawnRequest is agent_run: launch Agent as the caller's child with Prompt
 // as its first turn. Workspace and DirtyTree are the per-call axis
 // overrides; empty defers to the project's configured default.
@@ -120,20 +109,17 @@ type SendRequest struct {
 	InReplyTo  string          `json:"in_reply_to,omitempty"`
 }
 
-// Validate is the ONLY validation site for a send, the body cap included: a
-// recipient is required, the body must be non-empty (a structured companion
-// alone is payload too) and under MaxSendBodyBytes, and the kind must be one
-// a sender may set — unless the send answers an ask (InReplyTo), whose kind
-// the reply's authority supplies.
+// Validate is the ONLY validation site for a send: a recipient is required,
+// the body must be non-empty (a structured companion alone is payload too),
+// and the kind must be one a sender may set — unless the send answers an ask
+// (InReplyTo), whose kind the reply's authority supplies. The body's LENGTH is
+// not a request error: boundBody bounds it where every route converges.
 func (r SendRequest) Validate() error {
 	if err := requireNonEmpty("agent_send", "to", r.To); err != nil {
 		return err
 	}
 	if strings.TrimSpace(r.Body) == "" && len(r.Structured) == 0 {
 		return fmt.Errorf("%w: agent_send: body is required (a structured companion alone is payload too)", ErrInvalidRequest)
-	}
-	if len(r.Body) > MaxSendBodyBytes {
-		return fmt.Errorf("%w (got %d)", ErrBodyTooLarge, len(r.Body))
 	}
 	if r.InReplyTo == "" {
 		if err := SenderMailKind(r.Kind); err != nil {

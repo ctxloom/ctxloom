@@ -168,8 +168,8 @@ func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *runne
 			return fmt.Errorf("runner MCP: generated tool %q is not classified in mcpschema.Routes — classify it or drop its binding", spec.Name)
 		}
 		// Trust-boundary gate: a LEAF session must not receive the
-		// coordinator-only tools (agent_run/roster/agent_stop/
-		// agent_fetch_artifact) — a leaf holding an agent_recv inbox plus a
+		// coordinator-only tools (mcpschema.CoordinatorOnlyTools) — a leaf
+		// holding an agent_recv inbox plus a
 		// roster infers it has children and stalls waiting for notifications
 		// that never arrive. Still marked registered (deliberately withheld),
 		// or the caller's exhaustiveness check fails runner startup;

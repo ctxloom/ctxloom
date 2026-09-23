@@ -10,21 +10,20 @@ import (
 )
 
 // Trust-boundary gate (alive-prior / civic-kiwi): a LEAF delegated agent must
-// not be handed the coordinator-only MCP tools (agent_run, roster,
-// agent_stop, agent_fetch_artifact). Handing a leaf an agent_recv inbox plus
+// not be handed the coordinator-only MCP tools (mcpschema.CoordinatorOnlyTools).
+// Handing a leaf an agent_recv inbox plus
 // a roster lets it infer it has children and stall waiting for
 // notifications that never arrive — the root cause of the observed bug.
 //
 // These two tests are the gate's behaviour proof: a leaf runner's advertised
 // tool set differs from a coordinator-capable runner's ONLY in withholding
-// exactly the four coordinator-only tools; agent_send/agent_recv/agent_report
+// exactly the coordinator-only tools; agent_send/agent_recv/agent_report
 // (parent reporting) and every cell-local/host-relay/artifact-fetch tool are
 // unaffected either way.
 
 // TestRunnerServer_LeafWithholdsCoordinatorOnlyTools proves the gate fires:
 // a leaf runner (newRunnerMCPServer(..., leaf=true)) registers agent_send,
-// agent_recv, agent_report but NOT agent_run, roster, agent_stop, or
-// agent_fetch_artifact.
+// agent_recv, agent_report but none of mcpschema.CoordinatorOnlyTools.
 func TestRunnerServer_LeafWithholdsCoordinatorOnlyTools(t *testing.T) {
 	server, err := newTestServer("leaf-harp", testHome(t), true, "")
 	require.NoError(t, err)
@@ -39,6 +38,17 @@ func TestRunnerServer_LeafWithholdsCoordinatorOnlyTools(t *testing.T) {
 		_, ok := tools[name]
 		assert.True(t, ok, "leaf runner must still register parent-reporting tool %q", name)
 	}
+}
+
+// TestRunnerServer_LeafCanOpenAnOverflowedMessage: a message body past the
+// coordinator's inline cap reaches a leaf as a head plus a marker naming an
+// artifact filed under the leaf's OWN harp. Without agent_fetch_artifact the
+// leaf is told to keep reading and handed no way to.
+func TestRunnerServer_LeafCanOpenAnOverflowedMessage(t *testing.T) {
+	server, err := newTestServer("leaf-harp", testHome(t), true, "")
+	require.NoError(t, err)
+	_, ok := listServerTools(t, server)[mcpschema.ToolAgentFetchArtifact]
+	assert.True(t, ok, "a leaf must be able to fetch the overflow of a message it received")
 }
 
 // TestRunnerServer_CoordinatorCapableRegistersEverything proves the gate is

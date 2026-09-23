@@ -36,8 +36,7 @@ func TestVerbs_EveryRequestValidatesItselfOnce(t *testing.T) {
 		{"send needs a recipient", SendRequest{Kind: KindMessage, Body: "hello"}, "to is required"},
 		{"send needs a body", SendRequest{To: "child-1", Kind: KindMessage}, "body is required"},
 		{"send refuses a reserved kind", SendRequest{To: "child-1", Kind: KindExited, Body: "x"}, "reserved"},
-		{"send refuses a body over the cap", SendRequest{To: "child-1", Kind: KindMessage, Body: strings.Repeat("x", MaxSendBodyBytes+1)}, "MaxSendBodyBytes"},
-		{"send at the cap passes", SendRequest{To: "child-1", Kind: KindMessage, Body: strings.Repeat("x", MaxSendBodyBytes)}, ""},
+		{"send past the inline cap is not a request error", SendRequest{To: "child-1", Kind: KindMessage, Body: strings.Repeat("x", MaxInlineBodyBytes+1)}, ""},
 		{"stop one child", StopRequest{Harp: "child-1"}, ""},
 		{"stop all needs a reason", StopRequest{}, "reason is required"},
 		{"stop all with a reason", StopRequest{Reason: "done"}, ""},
@@ -63,13 +62,4 @@ func TestVerbs_EveryRequestValidatesItselfOnce(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.refused)
 		})
 	}
-}
-
-// TestVerbs_SendRefusesTheBodyCapByName: the cap is refused at the verb, by
-// its name, with nothing written — the recipient's spool holds no file for a
-// send that was refused.
-func TestVerbs_SendRefusesTheBodyCapByName(t *testing.T) {
-	err := SendRequest{To: "child-1", Kind: KindMessage, Body: strings.Repeat("x", MaxSendBodyBytes+1)}.Validate()
-	require.ErrorIs(t, err, ErrBodyTooLarge)
-	assert.Contains(t, err.Error(), "MaxSendBodyBytes")
 }

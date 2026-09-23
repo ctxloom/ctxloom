@@ -24,7 +24,7 @@ Ask one of your delegated children a question and WAIT for its answer. The quest
 
 ### agent_fetch_artifact
 
-Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it.
+Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it. A message whose inline text ends at a "keep reading for more detail" marker names the agent_id and artifact_id that hold its full text; fetch those to read the rest.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -51,7 +51,7 @@ Receive pending mailbox messages for this session, waiting (parked at this sessi
 
 ### agent_report
 
-File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report.
+File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -82,7 +82,7 @@ Launch a configured ctxloom agent as a delegated child session. Async spawn: ret
 
 ### agent_send
 
-Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: "parent"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored.
+Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: "parent"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|

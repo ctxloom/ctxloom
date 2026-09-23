@@ -3,6 +3,7 @@ package coord
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -318,10 +319,11 @@ func (c *Coordinator) notifyParentOfFinalReport(harp string, s Summary) {
 
 // recordArtifact journals one artifact manifest, assigning the monotonic
 // revision inside the journal's serialized window (the producer sends 0; an
-// unchanged sha256 is not a new revision).
-func (c *Coordinator) recordArtifact(harp string, a ArtifactProduced) {
+// unchanged sha256 is not a new revision). A failure means the manifest is
+// LOST, so any bytes already stored for it are unreachable through the log.
+func (c *Coordinator) recordArtifact(harp string, a ArtifactProduced) error {
 	sha := hex.EncodeToString(a.SHA256)
-	if err := c.runs.Exec(func() ([]Fact, error) {
+	return c.runs.Exec(func() ([]Fact, error) {
 		rev := a.Revision
 		if rev == 0 {
 			next, changed := c.reportsF.nextRevision(harp, a.ArtifactID, sha)
@@ -330,22 +332,42 @@ func (c *Coordinator) recordArtifact(harp string, a ArtifactProduced) {
 			}
 			rev = next
 		}
-		return []Fact{factAt(factArtifact, c.now(), artifactFact{
-			Harp:       harp,
-			ArtifactID: a.ArtifactID,
-			Revision:   rev,
-			Kind:       string(a.Kind),
-			Name:       a.Name,
-			MediaType:  a.MediaType,
-			SizeBytes:  a.SizeBytes,
-			SHA256:     sha,
-			Path:       a.Labels["path"],
-			UploadID:   a.UploadID,
-		})}, nil
-	}); err != nil {
-		c.rep.Warnf("coordinator: journal artifact manifest for %s: %v — the manifest is LOST, "+
-			"so any bytes already uploaded for it are unreachable through the log", harp, err)
-	}
+		return []Fact{c.artifactFactOf(harp, a, sha, rev)}, nil
+	})
+}
+
+// recordArtifactOnce journals a's manifest only if (harp, artifact_id) holds
+// none: the SAME content already there is a no-op, DIFFERENT content is
+// refused (errOverflowIDTaken) and the existing manifest stands. Decided
+// inside the journal's serialized window, so two racing writers cannot both
+// see the id free.
+func (c *Coordinator) recordArtifactOnce(harp string, a ArtifactProduced) error {
+	sha := hex.EncodeToString(a.SHA256)
+	return c.runs.Exec(func() ([]Fact, error) {
+		if cur, ok := c.reportsF.artifacts[harp][a.ArtifactID]; ok {
+			if cur.SHA256 == sha {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("%w: %q under %q holds sha256 %s, not %s", errOverflowIDTaken, a.ArtifactID, harp, cur.SHA256, sha)
+		}
+		return []Fact{c.artifactFactOf(harp, a, sha, 1)}, nil
+	})
+}
+
+// artifactFactOf is one manifest fact for a at revision rev.
+func (c *Coordinator) artifactFactOf(harp string, a ArtifactProduced, sha string, rev uint32) Fact {
+	return factAt(factArtifact, c.now(), artifactFact{
+		Harp:       harp,
+		ArtifactID: a.ArtifactID,
+		Revision:   rev,
+		Kind:       string(a.Kind),
+		Name:       a.Name,
+		MediaType:  a.MediaType,
+		SizeBytes:  a.SizeBytes,
+		SHA256:     sha,
+		Path:       a.Labels["path"],
+		UploadID:   a.UploadID,
+	})
 }
 
 // Artifacts lists the harp's artifact manifests (latest revisions) — the

@@ -1,6 +1,6 @@
 {
   "name": "agent_report",
-  "description": "File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report.",
+  "description": "File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {

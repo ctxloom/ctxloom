@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -48,9 +50,8 @@ func scrubProjectRoot(t *testing.T) string {
 
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "tools.yaml"),
-		[]byte("version: \"1.0\"\n"+
-			"mcp:\n  alpha:\n    command: alpha-cmd\n  beta:\n    command: beta-cmd\n"), 0o644))
+	bundletree.WriteOS(t, bundlesDir, "tools", "version: \"1.0\"\n"+
+		"mcp:\n  alpha:\n    command: alpha-cmd\n  beta:\n    command: beta-cmd\n")
 	return root
 }
 

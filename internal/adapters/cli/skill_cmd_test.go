@@ -68,36 +68,6 @@ func TestPrintSkillList_NonEmptyRendersEntries(t *testing.T) {
 	assert.Contains(t, out, "code-reviewer")
 }
 
-// `skill sync <bundle>#skills/` names a skill and then names nothing. Widening
-// that to a whole-bundle sync rewrites the files: manifest of every skill the
-// bundle ships — manifests the user never named, and whose rewrite is exactly
-// what re-arms (or silently re-baselines) the install-time tamper check. The
-// separator is an explicit narrowing request, so an empty name after it is a
-// typo to refuse, never a broader default to assume.
-func TestSkillSyncTarget(t *testing.T) {
-	t.Run("bare bundle name selects every skill", func(t *testing.T) {
-		b, n, err := skillSyncTarget("my-bundle")
-		require.NoError(t, err)
-		assert.Equal(t, "my-bundle", b)
-		assert.Empty(t, n, "a bare bundle name is the documented whole-bundle sync")
-	})
-
-	t.Run("qualified ref selects exactly one skill", func(t *testing.T) {
-		b, n, err := skillSyncTarget("my-bundle#skills/code-reviewer")
-		require.NoError(t, err)
-		assert.Equal(t, "my-bundle", b)
-		assert.Equal(t, "code-reviewer", n)
-	})
-
-	for _, arg := range []string{"my-bundle#skills/", "my-bundle#skills/   "} {
-		t.Run("empty name after the separator is refused: "+arg, func(t *testing.T) {
-			_, _, err := skillSyncTarget(arg)
-			require.Error(t, err, "an empty name after #skills/ must not widen to a whole-bundle sync")
-			assert.Contains(t, err.Error(), "#skills/")
-		})
-	}
-}
-
 // Every command RunE must hand the operations layer the context COBRA owns —
 // cmd.Context() — never a fresh context.Background(). Root wires the
 // signal-cancelled context into that one value, so a RunE that substitutes its
@@ -128,24 +98,7 @@ func TestSkillCommands_UseCobraContextNotBackground(t *testing.T) {
 		"skill subcommands must pass cmd.Context() to the operations layer, not a detached root context")
 }
 
-// TestSkillSyncTarget_RefusesAnotherKindsSelector pins the guard the collapse
-// onto bundles.ParseItemAsk adds: a selector naming a kind other than skills
-// used to fall through to the bare-bundle form, because the old splitter cut
-// on the literal "#skills/" and nothing else. That widened one mistyped ref
-// into a rewrite of every skill manifest in the bundle — the exact
-// re-baselining of the install-time tamper check the narrowing rule exists to
-// prevent.
-func TestSkillSyncTarget_RefusesAnotherKindsSelector(t *testing.T) {
-	for _, arg := range []string{"my-bundle#fragments/x", "my-bundle#mcp/pg", "my-bundle#commands/review"} {
-		b, n, err := skillSyncTarget(arg)
-		require.Error(t, err, "%q selects something other than a skill and must not widen to a whole-bundle sync", arg)
-		assert.Empty(t, b, arg)
-		assert.Empty(t, n, arg)
-	}
-}
-
-// dirFormBundle creates an empty directory-form bundle — the shape skills
-// require (a single-file bundle cannot hold a skill package).
+// dirFormBundle creates an empty bundle tree, ready to hold skill packages.
 func dirFormBundle(t *testing.T, appDir, name string) {
 	t.Helper()
 	dir := filepath.Join(authoredV1(appDir), name)
@@ -175,8 +128,8 @@ func TestRunSkillImport_AdvisesAReviewCommandTheCLIAccepts(t *testing.T) {
 		Bundle: "src", Name: "reviewer", Description: "Reviews Go diffs.",
 	})
 	require.NoError(t, err)
-	_, err = operations.SyncSkill(context.Background(), cfg, operations.SyncSkillRequest{Bundle: "src", Name: "reviewer"})
-	require.NoError(t, err)
+	// The package was written to disk; the next generation is what sees it.
+	cfg = reloaded(t)
 
 	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
 	_, err = operations.ExportSkill(context.Background(), cfg, operations.ExportSkillRequest{

@@ -175,7 +175,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 		return []string{"coverage-target", "--add-tag", "smoke"}
 	}},
 	"bundle export": {extraArgs: func(f string) []string {
-		dest := filepath.Join(os.TempDir(), "clifmt-coverage-export-"+f+".yaml")
+		dest := filepath.Join(os.TempDir(), "clifmt-coverage-export-"+f)
 		return []string{"coverage-target", "-o", dest}
 	}},
 	"bundle import": {extraArgs: func(f string) []string {
@@ -417,16 +417,15 @@ func noExtraArgs(string) []string { return nil }
 var coverageTargetBundlePath string
 
 // coverageImportSourcePath writes (once per format, since bundle import
-// names its destination from the source YAML's own bundle name and reuses
-// it with --force) a small standalone bundle YAML importable independent of
-// the "coverage-target" fixture, and returns its path.
+// names its destination from the source tree's directory and reuses it with
+// --force) a small standalone bundle tree importable independent of the
+// "coverage-target" fixture, and returns its directory.
 func coverageImportSourcePath(format string) string {
-	dir := os.TempDir()
-	path := filepath.Join(dir, "clifmt-coverage-import-"+format+".yaml")
-	name := "coverage-import-" + format
-	body := fmt.Sprintf("version: \"1.0.0\"\ndescription: %s\nfragments:\n  ex:\n    content: hi\n    no_distill: true\n", name)
-	_ = os.WriteFile(path, []byte(body), 0o644)
-	return path
+	dir := filepath.Join(os.TempDir(), "clifmt-coverage-import-"+format)
+	body := fmt.Sprintf("version: \"1.0.0\"\ndescription: coverage-import-%s\n", format)
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "bundle.yaml"), []byte(body), 0o644)
+	return dir
 }
 
 // TestFormatCoverage_AllRootCmdDescendants is the table-driven test the

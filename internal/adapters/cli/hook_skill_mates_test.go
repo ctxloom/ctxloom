@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,14 +42,15 @@ func linkedSkillsProject(t *testing.T) string {
 	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(appDir), "ops.yaml"),
 		[]byte("name: ops\nbundles:\n  - nightly\n"), 0o644))
 
-	bundleDir := filepath.Join(paths.LocalBundlesPathFor(appDir, paths.LayoutV2), "nightly")
-	require.NoError(t, os.WriteFile(mkdirp(t, bundleDir, "bundle.yaml"),
-		[]byte("version: \"1.0\"\nskills:\n  admit:\n    tags: [ctxloom:link_id=nightly]\n  unattended:\n    tags: [ctxloom:link_id=nightly]\n"+
-			"  withheld:\n    tags: [ctxloom:link_id=nightly]\n    llm:\n      claude-code:\n        enabled: false\n  free: {}\n"), 0o644))
+	bundlesRoot := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
+	bundleDir := filepath.Join(bundlesRoot, "nightly")
 	for _, name := range []string{"admit", "unattended", "withheld", "free"} {
 		require.NoError(t, os.WriteFile(mkdirp(t, bundleDir, "skills", name, "SKILL.md"),
 			[]byte("---\nname: "+name+"\ndescription: "+name+".\n---\n\nBody.\n"), 0o644))
 	}
+	// The skills' tags and exports live in their tree sidecars.
+	bundletree.WriteOS(t, bundlesRoot, "nightly", "version: \"1.0\"\nskills:\n  admit:\n    tags: [ctxloom:link_id=nightly]\n  unattended:\n    tags: [ctxloom:link_id=nightly]\n"+
+		"  withheld:\n    tags: [ctxloom:link_id=nightly]\n    exports:\n      claude-code:\n        enabled: false\n  free: {}\n")
 	return root
 }
 

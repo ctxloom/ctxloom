@@ -35,6 +35,9 @@ type fakeSpawner struct {
 	identities []Identity
 	// sessionsEnded records each MarkSessionEnded call's harp, in call order.
 	sessionsEnded []string
+	// native stands in for each harp's sessions.Entry native session key:
+	// what BindNativeSession writes and NativeSession reads.
+	native map[string]string
 	// launchErr, when set, fails every legacy Launch with it — a child that
 	// is admitted (it holds an execution slot) and then dies at standup,
 	// which is the shape that separates "queued behind the cap" from
@@ -508,6 +511,38 @@ func (s *fakeSpawner) MarkSessionEnded(harp string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessionsEnded = append(s.sessionsEnded, harp)
+}
+
+// BindNativeSession mirrors sessions.Store.BindSession with no transcript
+// path: it binds an unbound entry and never displaces a bound one.
+func (s *fakeSpawner) BindNativeSession(harp, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.native == nil {
+		s.native = map[string]string{}
+	}
+	if key != "" && s.native[harp] == "" {
+		s.native[harp] = key
+	}
+}
+
+// NativeSession is the key harp's entry holds, "" while unbound.
+func (s *fakeSpawner) NativeSession(harp string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.native[harp]
+}
+
+// rebindNativeSession displaces harp's bound key the way a SessionStart hook
+// carrying a transcript path does — the entry moving without the
+// coordinator having learned the new key over the wire.
+func (s *fakeSpawner) rebindNativeSession(harp, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.native == nil {
+		s.native = map[string]string{}
+	}
+	s.native[harp] = key
 }
 
 // endedSessions is MarkSessionEnded's recording, in call order.

@@ -15,7 +15,7 @@ Guide for contributing to ctxloom development.
 | Command | Description |
 |---------|-------------|
 | `just build` | Validate, generate proto, build binary (in the devcontainer) |
-| `just validate` | Validate fragment YAML against JSON schema |
+| `just validate` | Validate config YAML against its JSON schema, and the version stamp the build will bake in |
 | `just dev build-static` | Build static binaries (stripped, no CGO) in the devcontainer |
 | `just proto` | Generate protobuf code (`buf generate`, in the devcontainer) |
 
@@ -44,34 +44,36 @@ The CLI reference is generated: the cobra command definitions in `internal/adapt
 
 ## Development Guidelines
 
-### Fault Tolerance
+### Startup faults fail loudly
 
-ctxloom should be **fault tolerant** above all else. Even through most misconfigurations, the user should still end up in their defined LLM at the end of startup.
+A startup fault is **fatal by default**. Report it through package `strictness`
+(`strictness.Fail`, `FailOnce`, `Record`) with a failure class and a fix-it
+command. The warning still streams to stderr as it happens, and the startup
+owner (`ctxloom run`) collects every fatal finding and aborts before launch,
+listing each one with its fix, never just the first.
 
-#### Core Principles
-
-1. **Never block startup** - Configuration errors, missing files, network failures should produce warnings but never prevent the LLM from starting.
-
-2. **Degrade gracefully** - If a feature fails to initialize, disable that feature and continue.
-
-3. **Log, don't crash** - All errors should be logged to stderr with clear "ctxloom: warning:" prefixes.
-
-4. **Sensible defaults** - When configuration is missing or invalid, fall back to reasonable defaults.
-
-5. **Partial success is success** - If 9 out of 10 bundles sync successfully, report the failure but continue.
-
-### Error Handling Pattern
+`--degraded` (or `CTXLOOM_DEGRADED=1`) is the escape hatch: findings are still
+warned and recorded, but nothing aborts. Some findings refuse even then; a
+missing engine credential for an isolated session home is one. There is no
+config key for the mode, because a broken config cannot excuse itself.
 
 ```go
-// Good: warn and continue
-result, err := operations.SyncOnStartup(ctx, cfg)
-if err != nil {
-    fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", err)
-    // Continue - don't return error
+// Good: record the fault with its class and fix; strict mode aborts pre-launch
+if syncErr != nil {
+    strictness.Fail(strictness.ClassSync,
+        "check the remote/network, or pass --degraded to launch anyway",
+        "sync failed: %v", syncErr)
 }
 
-// Bad: fail on error
-if err != nil {
-    return fmt.Errorf("sync failed: %w", err)
+// Bad: a bare stderr line that strict mode never sees
+if syncErr != nil {
+    fmt.Fprintf(os.Stderr, "ctxloom: warning: sync failed: %v\n", syncErr)
 }
 ```
+
+### Partial failure exits non-zero
+
+A command that collects per-item errors while still doing everything it could
+returns `clidiag.WarnErrors(prog, errs)`: one warning per item and a non-zero
+exit. Printing the warnings and returning `nil` reports a real failure as
+success.

@@ -434,3 +434,43 @@ func TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance(t *testing.T) {
 	assert.Contains(t, got, "COMPANION-INIT-GUIDANCE-MARKER",
 		"the companion's setup_guidance must reach the launched prompt's bytes")
 }
+
+// headlessPermissionsQuestion is the interview's headless-posture question as
+// the human approved it, verbatim (2026-09-23).
+const headlessPermissionsQuestion = "Your default agent sometimes runs HEADLESS — a one-shot (`ctxloom run --one-shot`)\n" +
+	"or a delegated run — where no human is present to answer a permission prompt.\n" +
+	"Interactive sessions are unaffected: they auto-approve file edits (acceptEdits)\n" +
+	"and ask you before anything else. Which posture may the default agent's\n" +
+	"headless runs use?\n" +
+	"\n" +
+	"  1) plan — read-only: it can look and answer, but cannot change anything (Recommended)\n" +
+	"  2) bypass — it may do anything, including edits and commands, without asking\n" +
+	"  3) none — declare nothing now; headless runs of this agent are refused until\n" +
+	"     you set `permissions:` on it (ctxloom agent edit default --permissions <plan|bypass>)\n" +
+	"\n" +
+	"> (1-3, Enter for recommended):"
+
+// TestPromptHeadlessPermissions_EachOptionAndDefault pins the answer mapping:
+// Enter and 1 are plan, 2 is bypass, 3 declares nothing, and a bad entry
+// re-asks. The question is shown exactly as approved.
+func TestPromptHeadlessPermissions_EachOptionAndDefault(t *testing.T) {
+	for _, tt := range []struct {
+		name, input, want string
+	}{
+		{"blank_enter_picks_recommended_plan", "\n", "plan"},
+		{"1_is_plan", "1\n", "plan"},
+		{"2_is_bypass", "2\n", "bypass"},
+		{"3_is_none", "3\n", ""},
+		{"invalid_then_valid_retries", "0\nnope\n2\n", "bypass"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newInitPromptsFrom(strings.NewReader(tt.input))
+			var got string
+			var err error
+			out := captureStdout(t, func() { got, err = p.promptHeadlessPermissions() })
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			assert.Contains(t, out, headlessPermissionsQuestion)
+		})
+	}
+}

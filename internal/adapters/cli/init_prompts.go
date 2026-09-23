@@ -224,6 +224,12 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 	}
 }
 
+// promptHeadlessPermissions asks which posture the default agent's
+// headless runs may use.
+func (p *initPrompts) promptHeadlessPermissions() (string, error) {
+	return "", nil
+}
+
 // promptForEngineAndRepos runs the interactive engine selection, optional
 // personal-repo, and dirty-tree-handler prompts. errNoEngines propagates (the
 // prompt already explained it); other prompt failures warn and fall back

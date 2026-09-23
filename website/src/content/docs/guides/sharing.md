@@ -189,6 +189,11 @@ this bundle's publisher key.
 
 ### 4. Sign Your Bundles
 
+ctxloom signs with SSH keys only. A signature is an SSH signature in the
+sshsig format that `ssh-keygen -Y sign` writes, and consumers verify it against
+an OpenSSH `allowed_signers` file. It is not GPG/PGP: a GPG key, a keyserver or
+a `git verify-commit`-style GPG flow plays no part.
+
 Signing is what spares your consumers that review step: content signed by a
 key they trust is exempt from it, so it reaches their agent as soon as they
 pull it. Everything else is born pending regardless of how it was published.

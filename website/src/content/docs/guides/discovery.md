@@ -126,7 +126,8 @@ from a remote is born pending and withheld from the agent until a human
 reviews it, unless you already trust the publisher's signing key. `ctxloom
 review` walks the pending items and shows each one's content: `[t]rust`,
 `[r]eject`, `[s]kip`, or `[T]`/`[R]` to answer for everything left in a bundle.
-Trusting countersigns the exact bytes you saw with your own SSH key, so any
+Trusting countersigns the exact bytes you saw with your own SSH key (an
+sshsig signature, never GPG/PGP), so any
 later change to that content — including a version upgrade — drops it back to
 pending until you review it again. `ctxloom bundle trust <ref>` and `ctxloom
 bundle reject <ref>` are the same two decisions as scriptable one-liners, for

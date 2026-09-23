@@ -26,6 +26,10 @@ ctxloom's configuration lives in YAML files under the `.ctxloom/` directory.
 └── sessions/                # This machine's distilled session records
 ```
 
+Every signature and approval here is an SSH signature (the sshsig format
+`ssh-keygen -Y sign` writes), checked against an OpenSSH `allowed_signers`
+file. ctxloom does not use GPG/PGP keys, keyservers or any other signing scheme.
+
 Agent bindings live under the `agents:` key of `config.yaml` and nowhere else;
 ctxloom does not read a `.ctxloom/agents/` directory. Each session's own state
 (its engine home, transcript and artifacts) lives outside the project, under
@@ -80,7 +84,7 @@ config:
   essence_max_chars: 10000    # character budget for a distilled session essence
   sign:                       # publisher-signing defaults for `bundle push`
     default: false             # sign every push unless --no-sign (default false)
-    key: ""                    # explicit key path or SHA256:... fingerprint (default: auto-discover; home config only)
+    key: ""                    # SSH key path or SHA256:... fingerprint (default: auto-discover; home config only)
 
 # Editor (fallback: VISUAL env → EDITOR env → nano). Home config only.
 editor:
@@ -130,8 +134,9 @@ sync:
 
 # MCP servers are NOT configured here. They ship in bundles: a bundle's
 # `mcp:` block declares a server, and composing that bundle registers it.
-# ctxloom's own server ships in the builtin `ctxloom` bundle, so it is on by
-# default. Withhold one with a profile's `exclude_mcp: [<name>]`.
+# ctxloom's own server is declared by its companion loadout and served by the
+# running session, so it is on by default. Withhold one with a profile's
+# `exclude_mcp: [<name>]`.
 ```
 
 ## LLMs

@@ -139,7 +139,7 @@ polling. It is hidden from `--help` and there is little reason to run it by hand
 
 ## Reference
 
-- **[Tags](/taskloom/tags/)** — flat tags, `tag_query`'s postfix boolean grammar, scalar
+- **[Tags](/taskloom/tags/)** — the `(namespace:)key(=value)` tag shape, `tag_query`'s postfix boolean grammar, scalar
   targets, and priority ranking.
 - **[CLI reference](/taskloom/reference/cli/)** — every command, generated from the binary.
 - **[MCP tools reference](/taskloom/reference/mcp-tools/)** — every tool and resource `taskloom

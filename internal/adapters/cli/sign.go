@@ -17,8 +17,9 @@ import (
 // override that wins over both git config user.signingkey and ssh-agent
 // auto-detection (spec §7A.4).
 var (
-	signKeyFlag string
-	signAllFlag bool
+	signKeyFlag   string
+	signAllFlag   bool
+	signForceFlag bool
 )
 
 // signKeyFlagHelp documents every form --key/sign.key accepts, in the order
@@ -149,6 +150,7 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 			Target:       target,
 			Signer:       discovered.Signer,
 			SignerSource: discovered.Source,
+			Force:        signForceFlag,
 		})
 		if err != nil {
 			return err
@@ -261,5 +263,6 @@ func init() {
 	// bundleCmd.AddCommand(bundleSignCmd) itself lives in bundle.go, which
 	// assembles the whole bundle subtree.
 	bundleSignCmd.Flags().BoolVar(&signAllFlag, "all", false, "sign every local bundle this project publishes")
+	bundleSignCmd.Flags().BoolVar(&signForceFlag, "force", false, "re-sign a version whose last signature covered different files (bump the version instead unless you mean it)")
 	bundleSignCmd.Flags().StringVar(&signKeyFlag, "key", "", signKeyFlagHelp)
 }

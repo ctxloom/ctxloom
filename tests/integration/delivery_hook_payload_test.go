@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,7 +59,7 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	bundlesDir := testenv.LocalBundlesDir(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hookdemo.yaml"), []byte(hookBundleYAML), 0o644))
+	bundletree.WriteOS(t, bundlesDir, "hookdemo", hookBundleYAML)
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "base.yaml"),
 		[]byte("name: base\nbundles:\n  - hookdemo#fragments/sentinel\n"), 0o644))
 

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -125,10 +127,9 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(""+
+	bundletree.WriteOS(t, bundlesDir, "kit", ""+
 		"version: \"1.0\"\n"+
-		"profiles:\n  dev:\n    hooks:\n      unified:\n        pre_tool:\n          - command: bundle-shipped-hook\n            type: command\n"),
-		0o644))
+		"profiles:\n  dev:\n    hooks:\n      unified:\n        pre_tool:\n          - command: bundle-shipped-hook\n            type: command\n")
 
 	profileRef := remote.LocalBundleRef("kit") + refuri.ProfileSelector + "dev"
 	cfg := gatedFixture(config.Fixture{
@@ -167,10 +168,9 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "kit.yaml"), []byte(""+
+	bundletree.WriteOS(t, bundlesDir, "kit", ""+
 		"version: \"1.0\"\n"+
-		"profiles:\n  dev:\n    hooks:\n      unified:\n        pre_tool:\n          - command: bundle-shipped-hook\n            type: command\n"),
-		0o644))
+		"profiles:\n  dev:\n    hooks:\n      unified:\n        pre_tool:\n          - command: bundle-shipped-hook\n            type: command\n")
 
 	profileRef := remote.LocalBundleRef("kit") + refuri.ProfileSelector + "dev"
 	cfg := gatedFixture(config.Fixture{

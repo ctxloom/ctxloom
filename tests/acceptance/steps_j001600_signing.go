@@ -6,8 +6,8 @@
 // beating trust) beautifully, but against fixtures signed IN GO by
 // testenv.TestSigner, sometimes with the trust root written straight to disk by
 // TrustSigner. Before this file, `ctxloom bundle sign` had never produced a
-// byte in an acceptance run: if key discovery regressed, if the `.sig` sibling
-// were written empty, or if `--all` silently signed nothing, every existing
+// byte in an acceptance run: if key discovery regressed, if the tree's .sigs/
+// entry were written empty, or if `--all` silently signed nothing, every existing
 // trust scenario would still have passed.
 //
 // SEAM WITH J001500:
@@ -144,17 +144,18 @@ func j001600Of(w *World) *j001600State {
 // its content.
 type j001600Fragment struct{ name, content string }
 
-// j001600BundleYAML renders an authored bundle manifest carrying frags in the
-// given ORDER — ordered rather than map-ranged because these exact bytes are
-// what gets signed, and a signature over nondeterministically-ordered YAML
-// would make every re-render a spurious "the bundle changed after signing".
-func j001600BundleYAML(frags ...j001600Fragment) string {
-	var b strings.Builder
-	b.WriteString("version: \"1.0.0\"\nfragments:\n")
-	for _, f := range frags {
-		fmt.Fprintf(&b, "  %s:\n    content: %q\n", f.name, f.content)
+// j001600WriteBundleTree writes an authored bundle as a tree: an envelope
+// carrying only the version, and each fragment in its own file.
+func j001600WriteBundleTree(w *World, name, version string, frags ...j001600Fragment) error {
+	if err := w.env.WriteFile(treeBundleManifestPath(name), fmt.Sprintf("version: %q\n", version)); err != nil {
+		return err
 	}
-	return b.String()
+	for _, f := range frags {
+		if err := w.env.WriteFile(treeBundleItemPath(name, "fragments/"+f.name+".md"), j001600FragmentFileBody(f.content)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // j001600VerifyDetachedSignature reads the bundle's tree FRESH OFF DISK and
@@ -164,7 +165,7 @@ func j001600BundleYAML(frags ...j001600Fragment) string {
 // signed", it is the regression this pins: ctxloom reported a signature and
 // wrote none.
 func j001600VerifyDetachedSignature(w *World, bundleName string) error {
-	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(inlineDirBundlePath(bundleName)))
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(bundleName)))
 	return j001600VerifyTreeAt(w, dir, bundleName, j001600Of(w).signer.Public)
 }
 
@@ -215,24 +216,11 @@ func j001600DeclarePublisher(w *World, principal string, key *testenv.TestSigner
 	return w.env.WriteFile(j001600DeclaredSignersPath, line+"\n")
 }
 
-// j001600VerifyDirectorySignature is j001600VerifyDetachedSignature for a
-// directory bundle spelled by its manifest path: the same one signature.
-func j001600VerifyDirectorySignature(w *World, name string) error {
-	return j001600VerifyDetachedSignature(w, name)
-}
-
 // j001600VerifyTreeAttestation runs the CONSUMER's verifier over a directory
 // bundle: attest.VerifyBundle, the same call config.loadTreeBundle makes for
 // every pulled tree, against a trust root holding Trent's key.
-//
-// It is what makes the sibling signature's WRITE ORDER assertable. The sibling
-// lives at the bundle root, which content.ManifestCovers includes, so a sibling
-// written after the manifest was built is a file the manifest never claims —
-// VerifyContents reports it Unclaimed and the bundle reads as content-added.
-// The sibling's own signature verifies perfectly in that world, so nothing but
-// this assertion can tell the two orderings apart.
 func j001600VerifyTreeAttestation(w *World, name string) error {
-	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(inlineDirBundlePath(name)))
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(name)))
 	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(dir), content.Provenance{IsLocal: true})
 	if err != nil {
 		return fmt.Errorf("open the bundle tree at %s: %w", dir, err)
@@ -312,11 +300,8 @@ func j001600ListBundles(w *World) ([]string, error) {
 }
 
 // j001600ListSignatures returns the names of the bundles (see j001600ListBundles)
-// carrying a detached bundle.yaml.sig sibling — the document-level signature
-// signBundleTree always refreshes alongside a tree's own SHA256SUMS/.sigs
-// attestation (internal/adapters/operations/sign.go's signBundleTree doc: "the sibling
-// is written FIRST"). Exactly one per signed bundle, which is what keeps this
-// COUNT comparable against j001600ListBundles's.
+// whose tree carries a non-empty .sigs/ — one per signed bundle, which is what
+// keeps this COUNT comparable against j001600ListBundles's.
 func j001600ListSignatures(w *World) ([]string, error) {
 	names, err := j001600ListBundles(w)
 	if err != nil {
@@ -324,7 +309,7 @@ func j001600ListSignatures(w *World) ([]string, error) {
 	}
 	var out []string
 	for _, name := range names {
-		sigs := filepath.Join(w.env.ProjectDir, filepath.FromSlash(inlineDirBundlePath(name)), content.SigDirName)
+		sigs := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(name)), content.SigDirName)
 		if entries, readErr := os.ReadDir(sigs); readErr == nil && len(entries) > 0 {
 			out = append(out, name)
 		}
@@ -350,7 +335,7 @@ func j001600Setup(w *World) error {
 	// The authored bundle tree exists but is empty: GetBundleDirs stats it, and
 	// "the directory is missing" and "the directory holds nothing" are
 	// different diagnostics from `sign --all`.
-	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(singleFileBundlesRoot())), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(w.env.ProjectDir, filepath.FromSlash(testenv.BundlesRoot())), 0o755); err != nil {
 		return fmt.Errorf("create authored bundles dir: %w", err)
 	}
 
@@ -408,20 +393,9 @@ func j001600FragmentFileBody(content string) string {
 	return content + "\n"
 }
 
-// j001600WritePublishedBundle writes Trent's flagship bundle as a TRUE TREE:
-// an envelope with no inline item keys, and each of its two fragments
-// (tdd, curl-pipe-sh) in its own file — so the accept scenario and the reject
-// scenario can act on DIFFERENT items of the same signed bundle.
-//
-// This is a TREE and not the document j001600BundleYAML renders (the shape
-// every OTHER bundle in this file still uses, which is fine: those are never
-// published — see j001600SeedFromDisk's callers) because this one is. A
-// remote bundle is read through internal/core/bundles/tree_read.go's readEnvelope,
-// which REFUSES an envelope that still declares items inline — and `deps
-// pull` refuses a single-file bundle outright before that (nothing
-// materializes a document; remote.Puller.installPulledItem). Both refusals
-// fire only once bytes actually leave this project, which is exactly what
-// j001600SeedFromDisk does with the tree this writes.
+// j001600WritePublishedBundle writes Trent's flagship bundle with its two
+// fragments (tdd, curl-pipe-sh) in separate files, so the accept scenario and
+// the reject scenario can act on DIFFERENT items of the same signed bundle.
 //
 // version is a parameter for the same reason j001900's identical helper takes
 // one: an UNCONSTRAINED reference (no version suffix on "company/secure-coding")
@@ -432,27 +406,16 @@ func j001600FragmentFileBody(content string) string {
 // upgrade` never advances onto — the revise scenario needs a real bump to
 // reach the attestation boundary at all, exactly as j001900's does.
 func j001600WritePublishedBundle(w *World, version, tddContent string) error {
-	if err := w.env.WriteFile(bundleFilePath(j001600PublishedName), fmt.Sprintf("version: %q\n", version)); err != nil {
-		return err
-	}
-	if err := w.env.WriteFile(j001600PublishedFragmentPath("tdd"), j001600FragmentFileBody(tddContent)); err != nil {
-		return err
-	}
-	return w.env.WriteFile(j001600PublishedFragmentPath("curl-pipe-sh"), j001600FragmentFileBody(j001600CurlMarker))
+	return j001600WriteBundleTree(w, j001600PublishedName, version,
+		j001600Fragment{name: "tdd", content: tddContent},
+		j001600Fragment{name: "curl-pipe-sh", content: j001600CurlMarker})
 }
 
 // j001600SeedFromDisk publishes the WHOLE authored tree at name — the
 // envelope, its fragment files, and whatever `ctxloom bundle sign` produced
-// (bundle.yaml.sig, SHA256SUMS, .sigs/) — into a seeded git remote. This is
+// (SHA256SUMS, .sigs/) — into a seeded git remote. This is
 // what makes the consumption scenarios test the real thing: the signature a
 // consumer verifies was produced by the CLI, not by signing.Sign in Go.
-//
-// It publishes a TREE, not a document: `deps pull` refuses a single-file
-// bundle outright now (nothing materializes a document —
-// remote.Puller.installPulledItem), so a real remote layout has to be a
-// directory at remoteSingleFilePublishPath(name) holding bundle.yaml, not a
-// blob AT that path (remoteSingleFilePublishPath and treeBundlePath are the
-// SAME expression by value — bundle_paths.go's doc).
 //
 // It then HANDS THE BUNDLE OFF: the authoring tree is archived outside the
 // project (with the SAME relative layout it published under) and removed from
@@ -468,7 +431,7 @@ func j001600WritePublishedBundle(w *World, version, tddContent string) error {
 func j001600SeedFromDisk(w *World, name string) error {
 	st := j001600Of(w)
 	localDir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(name)))
-	remoteRoot := remoteSingleFilePublishPath(name)
+	remoteRoot := treeBundlePath(name)
 
 	files := map[string]string{}
 	walkErr := filepath.WalkDir(localDir, func(p string, d os.DirEntry, err error) error {
@@ -799,7 +762,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Trent's project publishes a bundle "([^"]*)" carrying the fragment "([^"]*)"$`, func(c context.Context, name, frag string) error {
 		w := worldFrom(c)
-		return w.env.WriteFile(bundleFilePath(name), j001600BundleYAML(j001600Fragment{name: frag, content: j001600TDDMarker}))
+		return j001600WriteBundleTree(w, name, "1.0.0", j001600Fragment{name: frag, content: j001600TDDMarker})
 	})
 
 	ctx.Step(`^Trent's project publishes the "([^"]*)" bundle his team depends on$`, func(c context.Context, name string) error {
@@ -814,8 +777,8 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		for i := 0; i < n; i++ {
 			name := fmt.Sprintf("standard-%d", i)
-			body := j001600BundleYAML(j001600Fragment{name: "guidance", content: fmt.Sprintf("%s-%d", j001600TDDMarker, i)})
-			if err := w.env.WriteFile(bundleFilePath(name), body); err != nil {
+			frag := j001600Fragment{name: "guidance", content: fmt.Sprintf("%s-%d", j001600TDDMarker, i)}
+			if err := j001600WriteBundleTree(w, name, "1.0.0", frag); err != nil {
 				return err
 			}
 		}
@@ -826,22 +789,14 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return runOK(worldFrom(c), "bundle", "sign", name)
 	})
 
-	// A DIRECTORY-form bundle: <name>/bundle.yaml, the shape that can also ship
-	// skills, and the one whose detached signature `bundle sign` never
-	// refreshed.
-	ctx.Step(`^Trent's project publishes the directory bundle "([^"]*)" carrying the fragment "([^"]*)"$`, func(c context.Context, name, frag string) error {
-		w := worldFrom(c)
-		return w.env.WriteFile(inlineDirBundleManifestPath(name), j001600BundleYAML(j001600Fragment{name: frag, content: j001600TDDMarker}))
-	})
-
 	// Edited IN PLACE, not through `ctxloom bundle modify`: this is the
 	// publisher's real motion (open the YAML, change the guidance, bump the
 	// version, re-sign), and it is what leaves a signature covering bytes that
 	// are no longer there. The bump is part of the motion: one version names
 	// one content, so `bundle sign` refuses the old version over new files.
-	ctx.Step(`^Trent revises the directory bundle "([^"]*)"$`, func(c context.Context, name string) error {
+	ctx.Step(`^Trent revises the bundle "([^"]*)"$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		rel := inlineDirBundleManifestPath(name)
+		rel := treeBundleManifestPath(name)
 		body, err := w.env.ReadFile(rel)
 		if err != nil {
 			return err
@@ -850,8 +805,10 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(body, signed) {
 			return fmt.Errorf("%s does not carry the signed %q to bump:\n%s", rel, signed, body)
 		}
-		body = strings.Replace(body, signed, revised, 1)
-		return w.env.WriteFile(rel, body+"  revised:\n    content: \"revised after the first signature\"\n")
+		if err := w.env.WriteFile(rel, strings.Replace(body, signed, revised, 1)); err != nil {
+			return err
+		}
+		return w.env.WriteFile(treeBundleItemPath(name, "fragments/revised.md"), j001600FragmentFileBody("revised after the first signature"))
 	})
 
 	// --- Who the repo authorises to publish it -------------------------------
@@ -912,7 +869,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("no published bundles at all — refusing to report a verification that checked nothing")
 		}
 		for _, name := range bundles {
-			dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(inlineDirBundlePath(name)))
+			dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundlePath(name)))
 			if verr := j001600VerifyTreeAt(w, dir, name, st.declared.Public); verr != nil {
 				return fmt.Errorf("%s does not verify under %s, the key %s declares for %s — this is exactly what a "+
 					"consumer sees before it withholds the bundle: %w",
@@ -922,11 +879,11 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the signature beside the directory bundle "([^"]*)" verifies against its bundle\.yaml on disk$`, func(c context.Context, name string) error {
-		return j001600VerifyDirectorySignature(worldFrom(c), name)
+	ctx.Step(`^the signature on the bundle "([^"]*)" verifies against its files on disk$`, func(c context.Context, name string) error {
+		return j001600VerifyDetachedSignature(worldFrom(c), name)
 	})
 
-	ctx.Step(`^the directory bundle "([^"]*)" still verifies as a whole tree, with nothing unclaimed$`, func(c context.Context, name string) error {
+	ctx.Step(`^the bundle "([^"]*)" still verifies as a whole tree, with nothing unclaimed$`, func(c context.Context, name string) error {
 		return j001600VerifyTreeAttestation(worldFrom(c), name)
 	})
 
@@ -1485,10 +1442,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the relocated "([^"]*)" is byte-identical to what was signed, and its signature still verifies$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		st := j001600Of(w)
-		// bundleFilePath (the fixture's own writer) is tree form
-		// ("<name>/bundle.yaml", per bundle_paths.go), so a whole-tree move
-		// lands the manifest at "<sharedDir>/<name>/bundle.yaml" — not a flat
-		// "<name>.yaml" sibling, which nothing here ever wrote.
+		// A whole-tree move lands the manifest at "<sharedDir>/<name>/bundle.yaml".
 		destBundle := filepath.Join(st.sharedDir, name, bundles.DirectoryFormManifest)
 		body, err := os.ReadFile(destBundle)
 		if err != nil {
@@ -1506,15 +1460,15 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the source bundle "([^"]*)" and its signature are gone$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		if w.env.FileExists(inlineDirBundlePath(name)) {
-			return fmt.Errorf("%s still exists after the move", inlineDirBundlePath(name))
+		if w.env.FileExists(treeBundlePath(name)) {
+			return fmt.Errorf("%s still exists after the move", treeBundlePath(name))
 		}
 		return nil
 	})
 
 	ctx.Step(`^the source bundle "([^"]*)" and its signature are untouched$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		for _, rel := range []string{bundleFilePath(name), path.Join(inlineDirBundlePath(name), content.SigDirName)} {
+		for _, rel := range []string{bundleFilePath(name), path.Join(treeBundlePath(name), content.SigDirName)} {
 			if !w.env.FileExists(rel) {
 				return fmt.Errorf("%s was removed by a move that failed — a failed move must never eat the source (move reported:\n%s)", rel, w.env.LastOutput())
 			}

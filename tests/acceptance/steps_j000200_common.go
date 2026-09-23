@@ -104,7 +104,7 @@ func seedSource(w *World, name, kind, item, marker, content string, sign, trustA
 	src.marker = marker
 	src.itemKind = kind
 	src.itemName = item
-	root := remoteSingleFilePublishPath(src.bundleName)
+	root := treeBundlePath(src.bundleName)
 	envelope := "version: \"1.0.0\"\n"
 	itemPath, err := j000200ItemTreePath(kind, item)
 	if err != nil {

@@ -403,7 +403,7 @@ func j001400SignTree(work string, st *j001400State) error {
 	if st.signer == nil {
 		return fmt.Errorf("there is no publishing key for Trent, so the tree cannot be signed")
 	}
-	root := filepath.Join(work, filepath.FromSlash(treeBundlesRoot()))
+	root := filepath.Join(work, filepath.FromSlash(testenv.BundlesRoot()))
 	store, err := content.NewTreeStore(afero.NewOsFs(), root, content.Provenance{RepoURL: "https://example.test/trent/company"})
 	if err != nil {
 		return fmt.Errorf("open the authored tree at %s: %w", root, err)
@@ -553,7 +553,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		// create a profile" rather than "the published tree never arrived".
 		// ensureProjectWithEngine may already have seeded this bundle; creating
 		// it again is a hard error, so create only when absent.
-		if !w.env.FileExists(singleFileBundlePath("seed")) {
+		if !w.env.FileExists(treeBundleManifestPath("seed")) {
 			if err := runOK(w, "bundle", "create", "seed", "-d", "J001400 consumer seed bundle"); err != nil {
 				return err
 			}

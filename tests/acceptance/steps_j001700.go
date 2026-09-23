@@ -137,7 +137,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
-		root := remoteSingleFilePublishPath(bundleName)
+		root := treeBundlePath(bundleName)
 		url, err := w.env.SeedSignedTreeRemote(root, bundleName, j001700TreeEnvelope, j001700TreeItems(j001700Marker), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)
@@ -227,7 +227,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Trent retracts the bundle$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001700 := j001700Of(w)
-		root := remoteSingleFilePublishPath(j001700BundleName)
+		root := treeBundlePath(j001700BundleName)
 		envelope := "version: 1.1.0\nwithdrawn: " + j001700RetractReason + "\n"
 		return w.env.AdvanceSignedTreeRemote(j001700.companyBare, root, j001700BundleName, envelope, j001700TreeItems(j001700Marker), j001700.companySigner)
 	})

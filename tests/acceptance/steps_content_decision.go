@@ -78,14 +78,10 @@ func tcLocalRef(bundle, fragment string) (string, error) {
 // lookup below is over the same bytes the CLI signed rather than over
 // something this test re-derived its own way.
 func tcFragmentPayload(w *World, bundle, fragment string) ([]byte, error) {
-	rel := singleFileBundlePath(bundle)
-	body, err := w.env.ReadFile(rel)
+	rel := treeBundleManifestPath(bundle)
+	parsed, err := bundles.ReadTreeAt(context.Background(), afero.NewOsFs(), filepath.Join(w.env.ProjectDir, filepath.FromSlash(rel)))
 	if err != nil {
 		return nil, fmt.Errorf("read authored bundle %s: %w", rel, err)
-	}
-	parsed, err := bundles.ParseBundle([]byte(body))
-	if err != nil {
-		return nil, fmt.Errorf("parse authored bundle %s: %w", rel, err)
 	}
 	frag, ok := parsed.Fragments[fragment]
 	if !ok {

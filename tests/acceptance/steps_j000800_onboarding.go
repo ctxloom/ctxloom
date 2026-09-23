@@ -259,7 +259,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate upstream signer: %w", err)
 		}
 		j000800.upstreamSigner = signer
-		root := remoteSingleFilePublishPath(j000800UpstreamBundle)
+		root := treeBundlePath(j000800UpstreamBundle)
 		url, err := w.env.SeedSignedTreeRemote(root, j000800UpstreamBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800PinnedMarker), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed upstream remote: %w", err)
@@ -308,7 +308,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^an upstream has since published a newer version$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j000800 := w.j000800()
-		root := remoteSingleFilePublishPath(j000800UpstreamBundle)
+		root := treeBundlePath(j000800UpstreamBundle)
 		return w.env.AdvanceSignedTreeRemote(j000800.upstreamBare, root, j000800UpstreamBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800NewerMarker), j000800.upstreamSigner)
 	})
 
@@ -367,7 +367,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("generate company signer: %w", err)
 		}
 		j000800.companySigner = signer
-		root := remoteSingleFilePublishPath(j000800CompanyBundle)
+		root := treeBundlePath(j000800CompanyBundle)
 		url, err := w.env.SeedSignedTreeRemote(root, j000800CompanyBundle, j000800GuidanceEnvelope, j000800GuidanceTreeItems(j000800CompanyMarker), signer)
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)

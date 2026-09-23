@@ -231,7 +231,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		root := remoteSingleFilePublishPath(ts.bundleName)
+		root := treeBundlePath(ts.bundleName)
 		// Deliberately UNSIGNED: every item is born pending (denied by
 		// default), so approving one is the only thing that can expose it —
 		// the meaningful state for the APPROVE outline (see file doc).
@@ -252,7 +252,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		root := remoteSingleFilePublishPath(ts.bundleName)
+		root := treeBundlePath(ts.bundleName)
 		signer, err := testenv.GenerateTestSigner()
 		if err != nil {
 			return fmt.Errorf("generate trust-surface signer: %w", err)
@@ -331,7 +331,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("trust-surface: rename-and-resign requires the signed fixture (no signer recorded)")
 		}
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		root := remoteSingleFilePublishPath(ts.bundleName)
+		root := treeBundlePath(ts.bundleName)
 		if err := w.env.AdvanceSignedTreeRemote(bareDir, root, ts.bundleName, tsTreeEnvelope, tsFullTreeItems("context2", tsFragmentMarker, ""), ts.signer); err != nil {
 			return fmt.Errorf("advance signed trust-surface remote (rename fragment): %w", err)
 		}
@@ -346,7 +346,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		ts := tsOf(w)
-		root := remoteSingleFilePublishPath(ts.bundleName)
+		root := treeBundlePath(ts.bundleName)
 		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: tsTreeEnvelope}
 		for rel, body := range tsDualFormTreeItems() {
 			files[root+"/"+rel] = body
@@ -400,7 +400,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		ts := tsOf(w)
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		root := remoteSingleFilePublishPath(ts.bundleName)
+		root := treeBundlePath(ts.bundleName)
 		files := map[string]string{}
 		for rel, body := range tsFullTreeItems("context", tsFragmentMarker, tsFragmentDistilledAddedMarker) {
 			files[root+"/"+rel] = body
@@ -448,7 +448,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		// A retraction is a new SIGNED release withdrawing the bundle; the
 		// retraction check reads only the signed tip manifest.
 		envelope := "version: 1.1.0\nwithdrawn: trust-surface GAP-E retraction demo\n"
-		if err := w.env.AdvanceSignedTreeRemote(bareDir, remoteSingleFilePublishPath(ts.bundleName), ts.bundleName, envelope,
+		if err := w.env.AdvanceSignedTreeRemote(bareDir, treeBundlePath(ts.bundleName), ts.bundleName, envelope,
 			tsFullTreeItems("context", tsFragmentMarker, ""), ts.signer); err != nil {
 			return fmt.Errorf("publish the trust-surface bundle's signed retracting release: %w", err)
 		}

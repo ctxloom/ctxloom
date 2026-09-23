@@ -530,3 +530,16 @@ func TestSpoolControl_PauseRefusesAnotherRunsId(t *testing.T) {
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "still running")
 }
+
+// TestControlBudgets_AsksWaitThirtyMinutesMechanicalVerbsFailFast pins the Q7
+// ruling: a question or summarize waits for a cooperative answer, which can
+// take as long as the child's current turn, so its deadline-free budget is 30
+// minutes; steer, pause and resume are mechanical effects on an attached
+// target and keep the 60s default so a wedged runner fails fast. The wire
+// budget must outlast the ask's, or a transport would replace the
+// coordinator's ErrAskTimeout verdict with a bare deadline.
+func TestControlBudgets_AsksWaitThirtyMinutesMechanicalVerbsFailFast(t *testing.T) {
+	assert.Equal(t, 30*time.Minute, controlAskBudget, "question/summarize budget")
+	assert.Equal(t, 60*time.Second, DefaultRequestTimeout, "pause/resume keep the default request budget")
+	assert.Greater(t, AskWireBudget, controlAskBudget, "the wire must outlast the ask it carries")
+}

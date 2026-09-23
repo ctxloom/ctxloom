@@ -19,7 +19,7 @@ ctxloom remote discover --stars 10
 
 ## How Discovery Works
 
-ctxloom searches for repositories named `ctxloom` or starting with `ctxloom-` on GitHub. It validates that discovered repositories have the proper `ctxloom/` structure before showing them.
+ctxloom searches GitHub for repositories named `ctxloom` or starting with `ctxloom-`, sorted by stars. Results are not checked for content. When you add one as a remote, ctxloom checks it for a `.ctxloom/content/` directory; if that is missing, the remote is still added, with a warning.
 
 ### Search Sources
 
@@ -229,12 +229,12 @@ Content that changes under an upgraded pin re-gates to pending, even if
 you'd already reviewed the old bytes — run `ctxloom review` again afterward
 to see what changed and decide.
 
-`ctxloom deps check [ref]` is a different, narrower command: it refreshes
-the local clone and checks for available updates without applying them
-(`--apply` applies; `--force` skips confirmation). Its optional argument is a
-full item/bundle reference, not a remote name — a bare `golang-bundles` is
-rejected; use a canonical URL, e.g. `ctxloom deps check
-'https://github.com/alice/ctxloom-golang@bundles/testing#fragments/table-driven'`,
+`ctxloom deps check [ref]` is a different, narrower command: it reports which
+lockfile entries have a newer commit that satisfies their constraint, and
+changes nothing. `ctxloom deps upgrade` is what advances them. Its optional
+argument is a canonical bundle reference, not a remote name. A bare
+`golang-bundles` is rejected; use a repository URL plus its bundle path, e.g.
+`ctxloom deps check 'https://github.com/alice/ctxloom-golang@bundles/testing'`,
 or omit the argument to check everything in the lockfile.
 
 ## Creating Discoverable Repositories

@@ -418,6 +418,11 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells:        p4Cells(),
 	},
+	// P5 stays planned deliberately (ruled 2026-09-22): approvals are wanted
+	// back as a capability. It cannot be built yet — decision 21's per-turn
+	// drive removed mid-turn approval, launch.floorPermission floors a
+	// headless run so it never prompts, and nothing emits
+	// agent.ChatEvent.Permission. A cell wires when an engine emits one.
 	{
 		Name:         probeP5,
 		Title:        "approval surface: an engine permission request must SURFACE as a PermissionRequest, and the gated effect must appear only after the allow",

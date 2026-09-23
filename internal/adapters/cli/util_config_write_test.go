@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // configWriteTestCmd builds a bare command wired the way the real
@@ -747,7 +749,7 @@ func TestApplicationRecord_NeverCopiesANeighboursValue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			path := "/home/user/project/.mcp.json"
-			require.NoError(t, afero.WriteFile(fs, path, []byte(tc.original), 0o644))
+			testsupport.WriteFile(t, fs, path, []byte(tc.original), 0o644)
 
 			cmd, _ := configWriteTestCmd(tc.patch)
 			result, err := runConfigWrite(fs, cmd, path, "")

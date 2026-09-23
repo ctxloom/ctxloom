@@ -226,18 +226,18 @@ func TestRetiredParentUpgrade_Idempotent(t *testing.T) {
 func TestFindBundleProfileKey(t *testing.T) {
 	seed := testBundleProfileSeed()
 
-	key, ok := FindBundleProfileKey(seed, defaultURL, "developer")
+	key, ok := findBundleProfileKey(seed, defaultURL, "developer")
 	assert.True(t, ok)
 	assert.Equal(t, defaultURL+"@bundles/ai-developer#profiles/developer", key)
 
-	_, ok = FindBundleProfileKey(seed, defaultURL, "missing")
+	_, ok = findBundleProfileKey(seed, defaultURL, "missing")
 	assert.False(t, ok, "unknown profile name must not match")
 
-	_, ok = FindBundleProfileKey(seed, personalURL, "developer")
+	_, ok = findBundleProfileKey(seed, personalURL, "developer")
 	assert.False(t, ok, "a different repo's profile must not match")
 
 	seed[defaultURL+"@bundles/other-kit#profiles/developer"] = &Profile{}
-	_, ok = FindBundleProfileKey(seed, defaultURL, "developer")
+	_, ok = findBundleProfileKey(seed, defaultURL, "developer")
 	assert.False(t, ok, "ambiguity must not match")
 }
 
@@ -467,4 +467,33 @@ func TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections(t *testing.T) {
 			assert.Equal(t, tt.wantItem, item)
 		})
 	}
+}
+
+// TestRewriteRetiredParents verifies bundle-shipped profiles whose parents
+// were authored in the retired top-level "@profiles/" grammar are rewritten
+// in-memory to their bundle-shipped successor at seed time — seeded profiles
+// never pass through the loader's document upgrade pipeline, so the seed
+// post-pass owns this rewrite. Unmatched and ambiguous parents stay verbatim
+// (findBundleProfileKey is the discovery rule).
+func TestRewriteRetiredParents(t *testing.T) {
+	const repo = "https://github.com/ctxloom/ctxloom-default"
+	loaded := map[string]*Profile{
+		repo + "@bundles/ai-developer#profiles/developer": {},
+		repo + "@bundles/kit#profiles/dev": {
+			Parents: []string{
+				repo + "@profiles/developer",    // retired, one successor → rewritten
+				repo + "@profiles/go-developer", // retired, no successor → verbatim
+				"local-parent",                  // local name → untouched
+			},
+		},
+	}
+
+	RewriteRetiredParents(loaded)
+
+	got := loaded[repo+"@bundles/kit#profiles/dev"].Parents
+	assert.Equal(t, []string{
+		repo + "@bundles/ai-developer#profiles/developer",
+		repo + "@profiles/go-developer",
+		"local-parent",
+	}, got)
 }

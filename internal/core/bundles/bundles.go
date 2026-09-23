@@ -54,7 +54,7 @@ type Bundle struct {
 	// ungated, COMPOUND item — it composes leaves (fragments/commands/mcp/hooks/
 	// llm/parents/variables) into a runnable context unit — so a bundle that
 	// ships fragments can also ship the profiles that compose them, as one unit.
-	// Addressed by "<bundle>#profiles/<name>" (remote.ProfileSelector) and seeded
+	// Addressed by "<bundle>#profiles/<name>" (refuri.ProfileSelector) and seeded
 	// into the shared profile loader so a bundle profile resolves/runs exactly
 	// like a top-level or local profile (config bundle-profile seed). The profile
 	// DEFINITION is never trust-gated (no trust.ItemKind for profiles, never

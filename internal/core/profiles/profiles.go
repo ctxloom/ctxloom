@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
@@ -420,7 +421,7 @@ func (l *Loader) aliasSeededKey(name string) (string, bool) {
 	if url == "" {
 		return "", false
 	}
-	candidate := url + "@" + remote.ItemTypeBundle.DirName() + "/" + rest + name[strings.Index(name, remote.ProfileSelector):]
+	candidate := url + "@" + remote.ItemTypeBundle.DirName() + "/" + rest + name[strings.Index(name, refuri.ProfileSelector):]
 	return remote.CanonicalProfileKey(candidate)
 }
 
@@ -589,7 +590,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	// exist only via the lockfile-built seed map. Say so — the bare "not
 	// found" otherwise reads as "the profile doesn't exist upstream". ('#' is
 	// reserved in local profile names, so the selector is unambiguous.)
-	if strings.Contains(name, remote.ProfileSelector) || remote.IsCanonicalRef(name) {
+	if strings.Contains(name, refuri.ProfileSelector) || remote.IsCanonicalRef(name) {
 		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom deps pull')", errs.ErrProfileNotFound, name)
 	}
 
@@ -648,7 +649,7 @@ func (l *Loader) Exists(name string) bool {
 	if _, ok := l.lookupSeeded(name); ok {
 		return true
 	}
-	if strings.Contains(name, remote.ProfileSelector) || remote.IsCanonicalRef(name) {
+	if strings.Contains(name, refuri.ProfileSelector) || remote.IsCanonicalRef(name) {
 		return false
 	}
 	if err := validateProfileName(name); err != nil {

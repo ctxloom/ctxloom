@@ -143,7 +143,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (Part 1.0: slice 5); slice 5 landed without the move, which is still open",
 
 			// core/config
-			"internal/core/config -> internal/adapters/remote":                 "not a trust port: the bundle-profile seed canonicalizes a read's display name through remote's reference grammar (CanonicalBundleRef over ParseReference, not toolbox); ruled 2026-09-22 (plan Part 3.3) to leave core",
 			"internal/core/config -> internal/shared/admission":                "slice 5: admission is decided by composite.Trust",
 			"internal/core/config -> internal/adapters/signing/allowedsigners": "core assembles the trust root itself (Config.TrustRoot) instead of holding the one Sources.TrustPorts builds; ruled 2026-09-22 (plan Part 3.3) to be assembled by configload",
 

@@ -113,7 +113,7 @@ flowchart TD
 | `promptSelectorUpgrade.Apply` | `upgrade.go:53` | Rewrites `#prompts/` → `#commands/` in `bundles` and `bundle_items`. |
 | `retiredParentUpgrade.Apply` / `.rewrite` | `upgrade.go:97,106` | Maps a retired parent ref onto its seeded successor; an empty seed set is a guarded no-op. |
 | `bundleRefCanonicalizeUpgrade.Apply` / `.canonicalize` / `renormalizeStoredRef` | `upgrade.go:177,233,211` | Canonicalizes `bundles`; only *re-normalizes* `parents`. An unparseable result keeps the authored form. |
-| `FindBundleProfileKey` | `upgrade.go:125` | Unique `<bundle>#profiles/<n>` key from one repo; ambiguity returns false. Caller: `config/config.go:889`. |
+| `RewriteRetiredParents` | `upgrade.go` | Rewrites seeded profiles' retired `@profiles/` parents to the one bundle profile the repo ships under that name (`findBundleProfileKey`); unmatched or ambiguous stay verbatim. |
 | `Loader.PendingUpgrades` / `.CommitUpgrade` | `profiles.go:392,400` | The ledger accessor and the consented write. Caller: `cli/run.go:1736`. |
 
 ## Invariants

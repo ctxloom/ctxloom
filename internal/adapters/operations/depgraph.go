@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // PinnedRef is one resolved dependency in a flattened closure: a manifest
@@ -378,7 +379,7 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	if !hok {
 		return
 	}
-	guard := rec.LockKey() + remote.ProfileSelector + profName + "@" + hash
+	guard := rec.LockKey() + refuri.ProfileSelector + profName + "@" + hash
 	if _, seen := w.visited[guard]; seen {
 		return
 	}

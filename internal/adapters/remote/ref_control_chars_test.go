@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // A ctxloom reference cannot carry a control character (see isRefControlChar).
@@ -162,13 +163,13 @@ func TestRefIngestPointsStripControlChars(t *testing.T) {
 	t.Run("BundleProfileRef", func(t *testing.T) {
 		got, err := BundleProfileRef("dev"+nl, "x"+nl)
 		require.NoError(t, err)
-		assert.Equal(t, LocalBundleRef("dev")+ProfileSelector+"x", got)
+		assert.Equal(t, LocalBundleRef("dev")+refuri.ProfileSelector+"x", got)
 	})
 
 	t.Run("CanonicalProfileKey", func(t *testing.T) {
 		got, ok := CanonicalProfileKey("dev" + nl + "#profiles/x")
 		require.True(t, ok)
-		assert.Equal(t, LocalBundleRef("dev")+ProfileSelector+"x", got)
+		assert.Equal(t, LocalBundleRef("dev")+refuri.ProfileSelector+"x", got)
 	})
 
 	t.Run("SplitBundleProfileRef", func(t *testing.T) {

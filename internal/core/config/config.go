@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"maps"
 	"os"
 	"path/filepath"
@@ -11,16 +10,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Re-export path constants for backwards compatibility
@@ -988,24 +990,20 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 		if bundle.ProfileCount() == 0 {
 			continue
 		}
-		// The read's display name is the bundle's full handle (the canonical
-		// ref for pinned remote content, the relative path for a local
-		// bundle); bundle.Name is only the file's base, so canonicalize from
-		// the display name.
-		bundleRef, err := remote.CanonicalBundleRef(read.DisplayName())
-		if err != nil {
-			// This bundle's profiles are dropped, and the drop is announced:
-			// a seed key built on an unparsed source would be a key nothing
-			// ever looks up, so the profiles would go missing either way —
-			// silently in the first case, diagnosably in this one.
-			c.rep.Warnf("bundle %q ships %d profile(s) that cannot be seeded: %v",
-				read.DisplayName(), bundle.ProfileCount(), err)
+		src := read.SourceRef()
+		bundleRef, ok := seedBundleRef(read, src)
+		if !ok {
+			// A seed key built on a source nobody can address would be a key
+			// no lookup reaches, so the profiles would go missing either way;
+			// announcing the drop is what makes it diagnosable.
+			c.rep.Warnf("bundle %q ships %d profile(s) that cannot be seeded: its source has no canonical identity",
+				read.DisplayName(), bundle.ProfileCount())
 			continue
 		}
-		sourceURL := bundleProfileSourceURL(bundleRef)
+		sourceURL := bundleProfileSourceURL(src)
 		for _, profName := range bundle.ProfileNames() {
 			p := cloneBundleProfile(bundle.Profiles[profName])
-			key := bundleRef + remote.ProfileSelector + profName
+			key := bundleRef + refuri.ProfileSelector + profName
 			// Resolve the profile's short same-repo leaf refs (bundles/fragments/
 			// prompts/bundle_items) against the bundle's own source, exactly as a
 			// seeded top-level remote profile does; a canonical "<bundle>#profiles/
@@ -1031,28 +1029,8 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(loaded) == 0 {
 		return nil
 	}
-	rewriteRetiredSeedParents(loaded)
+	profiles.RewriteRetiredParents(loaded)
 	return loaded
-}
-
-// rewriteRetiredSeedParents rewrites seeded bundle-profile parents authored in
-// the retired top-level "@profiles/" grammar to their bundle-shipped successor.
-// Seeded profiles arrive already parsed and never pass through the loader's
-// document upgrade pipeline, so this applies the same discovery-based rewrite
-// against the full seed: to the one seeded bundle profile the repo ships under
-// that name, verbatim when unmatched or ambiguous (profiles/upgrade.go owns the
-// rule). In-memory only — a seeded profile is read-only and migrates at its
-// source.
-func rewriteRetiredSeedParents(loaded map[string]*profiles.Profile) {
-	for _, p := range loaded {
-		for i, parent := range p.Parents {
-			if url, name, ok := remote.SplitRetiredProfileRef(parent); ok {
-				if successor, found := profiles.FindBundleProfileKey(loaded, url, name); found {
-					p.Parents[i] = successor
-				}
-			}
-		}
-	}
 }
 
 // cloneBundleProfile returns a copy of a bundle profile safe to mutate
@@ -1071,14 +1049,38 @@ func cloneBundleProfile(bp bundles.BundleProfile) bundles.BundleProfile {
 	return p
 }
 
-// bundleProfileSourceURL returns the source a bundle profile's short same-repo
-// refs resolve against: the bundle's repo URL for a remote bundle, or the
-// ctxloom:local token for a project-local bundle.
-func bundleProfileSourceURL(bundleRef string) string {
-	if ref, err := remote.ParseReference(bundleRef); err == nil && ref.URL != "" {
-		return ref.URL
+// seedBundleRef is the identity a bundle's profiles are seeded under: the
+// read's Key(), which the reader minted from where the bytes came from and on
+// which the bundle's item trust refs are built too, so a profile and its
+// leaves cannot key two ways. A project bundle whose name the URI grammar
+// refuses has no typed source; it seeds under its bare name, the identity a
+// profile ref naming it verbatim resolves to. Any other read without a typed
+// source is not seeded (ok false): nothing canonical addresses it.
+func seedBundleRef(read bundles.BundleRead, src trust.BundleRef) (string, bool) {
+	if src.Class != "" {
+		return string(read.Key()), true
 	}
-	return remote.LocalSource
+	name := refuri.NormalizeRef(read.DisplayName())
+	if name == "" || refuri.IsSelfContainedRef(name) {
+		return "", false
+	}
+	return name, true
+}
+
+// bundleProfileSourceURL returns the source a bundle profile's short same-repo
+// refs resolve against: the repository URL for a git or file bundle, the
+// companion token for a loadout, or the ctxloom:local token for project
+// content and for a read with no typed source.
+func bundleProfileSourceURL(src trust.BundleRef) string {
+	switch src.Class {
+	case trust.ClassGit:
+		return "https://" + src.Host + src.RepoPath
+	case trust.ClassFile:
+		return "file://" + src.RepoPath
+	case trust.ClassCompanion:
+		return refuri.CompanionSource
+	}
+	return refuri.LocalSource
 }
 
 // FS returns the injected filesystem, or nil for the OS default. It lets callers

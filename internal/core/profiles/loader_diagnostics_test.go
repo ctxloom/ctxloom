@@ -2,10 +2,11 @@ package profiles
 
 import (
 	"errors"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"

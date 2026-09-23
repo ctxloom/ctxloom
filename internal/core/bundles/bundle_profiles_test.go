@@ -96,7 +96,7 @@ profiles:
 	}
 }
 
-// ProfileSelectorForTest mirrors remote.ProfileSelector without importing remote
+// ProfileSelectorForTest mirrors refuri.ProfileSelector without importing remote
 // into this test (the bundles package already depends on remote, but the test
 // only needs the literal to assert no profile ref reached the gate).
 const ProfileSelectorForTest = "#profiles/"

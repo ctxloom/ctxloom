@@ -115,6 +115,38 @@ func TestContainerize_UnresolvedRoot_ContributesNoMount(t *testing.T) {
 	}
 }
 
+// TestEngineSide_AWriterBesideTheEngineWritesWhereTheEngineReads: a process
+// that shares the engine's filesystem (the runner inside a container cell)
+// must open every root at its Engine side. A relocated root — the engine
+// home mounted at a fixed container path — is where the two sides differ,
+// and a HostPath still naming the host side there writes into a directory
+// nothing mounts.
+func TestEngineSide_AWriterBesideTheEngineWritesWhereTheEngineReads(t *testing.T) {
+	advised := Containerize{EngineHome: "/ctxloom/home/claude"}.Apply(Paths{
+		ProjectRoot: Root{Host: "/host/project"},
+		EngineHome:  Root{Host: "/host/sessions/h/home/claude"},
+	})
+	inside := advised.EngineSide()
+
+	want := Paths{
+		ProjectRoot: Root{Host: "/host/project", Engine: "/host/project"},
+		EngineHome:  Root{Host: "/ctxloom/home/claude", Engine: "/ctxloom/home/claude"},
+	}
+	if got := inside.Paths(); got != want {
+		t.Fatalf("EngineSide roots:\n got %+v\nwant %+v", got, want)
+	}
+	p := New(inside).UnderEngineHome("settings.json").Build()
+	if p.HostPath != "/ctxloom/home/claude/settings.json" || p.HostPath != p.EnginePath {
+		t.Fatalf("a presentation composed engine-side must write where the engine reads: %+v", p)
+	}
+	if got, want := len(inside.Mounts()), len(advised.Mounts()); got != want {
+		t.Fatalf("EngineSide must keep the run's mount record: got %d mounts, want %d", got, want)
+	}
+	if advised.Paths().EngineHome.Host != "/host/sessions/h/home/claude" {
+		t.Fatalf("EngineSide must not write back into the Mapped it read: %+v", advised.Paths().EngineHome)
+	}
+}
+
 // --- rooting and announcing --------------------------------------------
 
 // TestConventionalComposition_NeedsNoAnnouncement: a well-known-path surface

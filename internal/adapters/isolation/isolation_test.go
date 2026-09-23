@@ -179,7 +179,7 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		// gate's scan window (not merely that some finding exists somewhere).
 		mark := strictness.Checkpoint()
 
-		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
+		policy, ws := prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws, "the run always gets a workspace — the degrade never blocks the LLM")
 		assert.IsType(t, None{}, policy, "the boundary is lost, so the workspace falls back to the host")
 
@@ -218,7 +218,7 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		// fatal — a container→non-container transition, not the benign
 		// worktree→none workspace-axis degrade.
 		chain := []Policy{failingPolicy{name: "container-worktree"}, passingPolicy{name: (Worktree{}).Name()}, None{}}
-		policy, ws := prepareChain(context.Background(), chain, "/project", "agent-a")
+		policy, ws := prepareChain(context.Background(), chain, RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.Equal(t, "worktree", policy.Name(), "the requested worktree survives the lost container boundary")
 
@@ -237,7 +237,7 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 	// surviving strictness.Actionable.
 	t.Run("degraded: the finding survives Actionable, so the run still refuses", func(t *testing.T) {
 		resetStrictness(t)
-		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
+		policy, ws := prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.IsType(t, None{}, policy, "the chain still resolves a workspace; the GATE is what refuses")
 
@@ -252,7 +252,7 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		resetStrictness(t)
 
 		workspaceChain := []Policy{failingPolicy{name: (Worktree{}).Name()}, None{}}
-		policy, _ := prepareChain(context.Background(), workspaceChain, "/project", "agent-a")
+		policy, _ := prepareChain(context.Background(), workspaceChain, RuntimeHost, "/project", "agent-a")
 		assert.IsType(t, None{}, policy)
 		assert.Empty(t, strictness.All(),
 			"a lost worktree degrades gracefully — only a lost CONTAINER boundary is fatal")
@@ -455,7 +455,7 @@ func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
 	// all-failing chain still yields a workspace rather than a nil one.
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	policy, ws := prepareChain(cancelled, []Policy{failingPolicy{name: "worktree"}}, "/proj", "agent-a")
+	policy, ws := prepareChain(cancelled, []Policy{failingPolicy{name: "worktree"}}, RuntimeHost, "/proj", "agent-a")
 	assert.Equal(t, None{}.Name(), policy.Name())
 	require.NotNil(t, ws)
 	assert.Equal(t, "/proj", ws.Dir())

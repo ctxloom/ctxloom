@@ -652,7 +652,7 @@ func IsContainerPolicyName(name string) bool {
 // (ClassIsolation) the choke owner aborts on unless --degraded (a
 // workspace-axis degrade stays a silent fallback).
 func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState) (Policy, Workspace) {
-	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), projectDir, agentID)
+	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), axes.Runtime, projectDir, agentID)
 }
 
 // withSessionState stamps the run's session identity onto every policy in the
@@ -708,7 +708,7 @@ func prepareWorkspace(ctx context.Context, p Policy, projectDir, agentID string)
 // that succeeds with its workspace, warning at each degrade. The chain always ends
 // in None (which never fails), so a member always gets a workspace; the trailing
 // fallback is defensive against an empty/all-failing chain.
-func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID string) (Policy, Workspace) {
+func prepareChain(ctx context.Context, chain []Policy, requested RuntimeAxis, projectDir, agentID string) (Policy, Workspace) {
 	for i, p := range chain {
 		ws, err := p.PrepareWorkspace(ctx, projectDir, agentID)
 		if err == nil {

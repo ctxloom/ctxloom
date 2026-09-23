@@ -179,7 +179,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// worktree prepares → chain stops there.
 	failing := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, &git.Fake{CommonDirValue: common})
 	working := NewWorktree(&git.Fake{CommonDirValue: common})
-	pol, ws := prepareChain(ctx, []Policy{failing, working, None{}}, "/proj", "m")
+	pol, ws := prepareChain(ctx, []Policy{failing, working, None{}}, RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws)
 	// Safety net registered BEFORE the assertions below can fail/panic and skip
 	// the manual, non-deferred ws.Cleanup() call at the end of this block (see
@@ -196,7 +196,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 			NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, nonRepo),
 			NewWorktree(nonRepo),
 			None{},
-		}, "/proj", "m")
+		}, RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws2)
 	requireCleanWorkspace(t, ws2)
 	assert.Equal(t, "none", pol2.Name(), "worktree→none on a non-git repo")

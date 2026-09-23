@@ -39,6 +39,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	mockrt "github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/stretchr/testify/require"
@@ -130,7 +131,7 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	args := append([]string{"run", "--rm", "-i",
 		"-v", workspace + ":/work", "-w", "/work",
 		"-e", "CTXLOOM_MOCK_REPORT_FILE=/work/report.json",
-		img, "/usr/local/bin/mockengine", "--claude",
+		img, "/usr/local/bin/mockengine", "--" + claude.EngineName,
 	}, claudeContainerVendorArgv()...)
 	cmd := exec.Command("docker", args...)
 	cmd.Stdin = strings.NewReader(containerPrompt)
@@ -155,7 +156,7 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 		t.Fatalf("report did not parse: %v\n%s", err, rb)
 	}
 
-	if rep.Engine != "claude-code" || rep.Surface != "oneshot" {
+	if rep.Engine != claude.EngineName || rep.Surface != "oneshot" {
 		t.Fatalf("report identity = %s/%s, want claude-code/oneshot", rep.Engine, rep.Surface)
 	}
 
@@ -218,7 +219,7 @@ func recordFor(t *testing.T, rep mockrt.Report, kind, scope string) mockrt.Probe
 // (agent.Hosted).
 func claudeDeclaration(t *testing.T) agent.Declaration {
 	t.Helper()
-	h, ok := engines.Hosted("claude-code")
+	h, ok := engines.Hosted(claude.EngineName)
 	require.True(t, ok)
 	return h.Declaration()
 }

@@ -126,7 +126,12 @@ func TestControlRun_ChildSteersItsOwnGrandchild(t *testing.T) {
 	}
 	assert.Contains(t, delivered, "kind="+KindSteer)
 	assert.Contains(t, delivered, child.Harp, "the provenance header names the CHILD as the steer's author, not the human")
-	assert.Zero(t, countChatText(sp, 0, "rebase before you continue"), "the instruction must reach the target alone")
+	// "Alone" means the child is never DELIVERED the steer. Its text may still
+	// reach the child legitimately: the grandchild's echoed turn result, which
+	// quotes the steer, is relayed to its parent — with the header rewritten
+	// inert, so the steer's own frame is the thing to look for, not its words.
+	steerFrame := runnerHooks.FrameCoordinatorDelivery(child.Harp, KindSteer, "rebase before you continue")
+	assert.Zero(t, countChatText(sp, 0, steerFrame), "the instruction must reach the target alone")
 
 	// And the instruction is the durable file the handle names.
 	consumed := awaitSpoolCount(t, grandchild, spool.DirInConsumed, 1, "after the grandchild took the steer")

@@ -70,7 +70,7 @@ func TestPaneInjector_UnmeasuredTargetIsRefusedWithNothingWritten(t *testing.T) 
 				Args: []string{"-c",
 					`printf '\033[?2004h'; stty raw -echo; printf READY-8b04; exec cat -v`},
 				Engine: tc.engine, Surface: tc.surface,
-			}))
+			}, nil))
 			t.Cleanup(func() { _ = h.Stop(context.Background(), tc.harp) })
 
 			var rec recorder
@@ -147,7 +147,7 @@ func TestPaneInjector_PasteArrivesBracketed(t *testing.T) {
 		// The stand-in enables bracketed paste for real (the printf above),
 		// which is the property that puts claude on the allowlist.
 		Engine: "claude-code", Surface: agent.CLISurfaceInteractive,
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "kappa") })
 
 	var rec recorder
@@ -191,7 +191,7 @@ func TestPaneInjector_PasteLeavesNoBufferBehind(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "lambda", PaneSpec{
 		Command: "sh", Args: []string{"-c", "exec cat"}, Engine: "claude-code", Surface: agent.CLISurfaceInteractive,
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "lambda") })
 
 	require.NoError(t, h.Injector().Inject(ctx, "lambda", "SECRET-4c60", false))
@@ -263,7 +263,7 @@ func TestPaneInjector_StagesExactlyTheTextForLoadBuffer(t *testing.T) {
 	require.NoError(t, h.Start(ctx, "h1", PaneSpec{
 		Command: "sh",
 		Engine:  "claude-code", Surface: agent.CLISurfaceInteractive,
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "h1") })
 
 	require.NoError(t, h.Injector().Inject(ctx, "h1", text, false))
@@ -286,7 +286,7 @@ func TestPaneInjector_StagingFileIsRemovedAfterThePaste(t *testing.T) {
 	require.NoError(t, h.Start(ctx, "h1", PaneSpec{
 		Command: "sh",
 		Engine:  "claude-code", Surface: agent.CLISurfaceInteractive,
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "h1") })
 
 	require.NoError(t, h.Injector().Inject(ctx, "h1", "secret text", false))
@@ -322,7 +322,7 @@ func TestPaneInjector_AdmitsOnlyTheEngineNameTheLauncherSends(t *testing.T) {
 	require.NoError(t, h.Start(ctx, "canon", PaneSpec{
 		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"},
 		Engine: "claude-code", Surface: agent.CLISurfaceInteractive,
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "canon") })
 
 	var r recorder
@@ -344,7 +344,7 @@ func TestPaneInjector_AdmitsOnlyTheEngineNameTheLauncherSends(t *testing.T) {
 	require.NoError(t, h.Start(ctx, "short", PaneSpec{
 		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"},
 		Engine: "claude", Surface: agent.CLISurfaceInteractive,
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "short") })
 	err = h.Injector().Inject(ctx, "short", "short-2c77", true)
 	require.ErrorIs(t, err, ErrPasteUnmeasured, "a retired short spelling is not the measured engine")

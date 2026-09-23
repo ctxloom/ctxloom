@@ -239,4 +239,4 @@ or omit the argument to check everything in the lockfile.
 
 ## Creating Discoverable Repositories
 
-Want your bundles to be discoverable? See the [Sharing Bundles](./sharing.md) guide for how to structure and publish your own ctxloom repository.
+Want your bundles to be discoverable? See the [Sharing Bundles](/guides/sharing/) guide for how to structure and publish your own ctxloom repository.

@@ -115,6 +115,7 @@ func runInteractiveInPane(ctx context.Context, spec agent.LaunchSpec, stdin io.R
 	// A tmux window inherits the SERVER's environment, and that server is
 	// long-lived and shared across runs -- so an inherited env would be some
 	// earlier run's, not this one's.
+	v := &paneViewer{out: stdout, done: make(chan struct{})}
 	if err := host.Start(ctx, spec.Harp, tmuxhost.PaneSpec{
 		Command: resolveBinaryPath(spec.BinaryPath),
 		Args:    spec.Args,
@@ -122,19 +123,12 @@ func runInteractiveInPane(ctx context.Context, spec agent.LaunchSpec, stdin io.R
 		Env:     envMap(spec.Env),
 		Engine:  spec.Engine,
 		Surface: spec.Surface,
-	}); err != nil {
+	}, v); err != nil {
 		return 1, fmt.Errorf("pane launch: %w", err)
 	}
 	// WithoutCancel: the pane must be torn down even when ctx is already
 	// cancelled, which is exactly the case where the launch is unwinding.
 	defer func() { _ = host.Stop(context.WithoutCancel(ctx), spec.Harp) }()
-
-	v := &paneViewer{out: stdout, done: make(chan struct{})}
-	detach, err := host.Attach(spec.Harp, v)
-	if err != nil {
-		return 1, fmt.Errorf("pane launch: attach: %w", err)
-	}
-	defer detach()
 
 	pumpCtx, stopPumps := context.WithCancel(ctx)
 	defer stopPumps()

@@ -83,6 +83,14 @@ type RunRecord struct {
 	Orchestrator string
 }
 
+// TopLevel reports whether the run is a session's OWN run rather than a
+// delegated child: a plugin-hosted session journals no parent, and an
+// owner-owned run (StartOwnedRun) journals its OWN harp as its parent. Either
+// way no delegating parent is waiting on it and no agent binding stands behind
+// its harp, so nothing that treats a run as a CHILD applies — it is not
+// reported to a parent, ended by its own FINAL, or resumed as an agent.
+func (r RunRecord) TopLevel() bool { return r.ParentHarp == "" || r.ParentHarp == r.Harp }
+
 // runsFold is the RUN REGISTRY fold: every run attempt by run_id, the
 // harp→current-run index, and the active credential set (cred hash →
 // identity) that backs constant-time verification. It owns the runs journal.

@@ -125,7 +125,13 @@ type pane struct {
 // Starting a harp that already has a live pane is refused rather than
 // silently replacing it: the second pane would orphan the first, whose
 // viewers would then watch a window nothing writes to any more.
-func (h *PaneHost) Start(ctx context.Context, harp string, spec PaneSpec) error {
+//
+// viewer (nil for none) is the starter's own viewer, registered BEFORE the
+// tail that feeds viewers exists. It cannot be an Attach after Start: the
+// command is already running by then, and one that writes and exits quickly
+// has its bytes broadcast to nobody, or its pane closed, before that Attach.
+// It stays attached for the pane's life; Stop is what ends it.
+func (h *PaneHost) Start(ctx context.Context, harp string, spec PaneSpec, viewer PaneClient) error {
 	if harp == "" {
 		return errors.New("pane host: a pane must name the run it belongs to")
 	}
@@ -150,6 +156,10 @@ func (h *PaneHost) Start(ctx context.Context, harp string, spec PaneSpec) error 
 	}
 
 	p := &pane{harp: harp, term: term, host: h, engine: spec.Engine, surface: spec.Surface, clients: map[uint64]PaneClient{}}
+	if viewer != nil {
+		p.nextID++
+		p.clients[p.nextID] = viewer
+	}
 	h.mu.Lock()
 	// Re-check under the lock: two concurrent Starts both pass the check
 	// above. Losing the race must not leak the window this one just made.

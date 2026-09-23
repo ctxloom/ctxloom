@@ -77,7 +77,7 @@ func TestPaneHost_AttachFansOutToConcurrentViewers(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "alpha", PaneSpec{
 		Command: "sh", Args: []string{"-c", "echo FANOUT-MARKER-7c1d; sleep 30"},
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "alpha") })
 
 	var a, b recorder
@@ -110,7 +110,7 @@ func TestPaneHost_DetachDoesNotKillThePane(t *testing.T) {
 	// detach rather than as bytes captured before it.
 	require.NoError(t, h.Start(ctx, "beta", PaneSpec{
 		Command: "sh", Args: []string{"-c", "i=0; while :; do echo TICK-$i; i=$((i+1)); sleep 0.2; done"},
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "beta") })
 
 	var leaving, staying recorder
@@ -156,7 +156,7 @@ func TestPaneHost_InputReachesTheHostedProcess(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "gamma", PaneSpec{
 		Command: "sh", Args: []string{"-c", "read x; echo GOT-[$x]; sleep 30"},
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "gamma") })
 
 	var r recorder
@@ -190,7 +190,7 @@ func TestPaneHost_InputSendsLiteralBytesNotKeyNames(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "eta", PaneSpec{
 		Command: "sh", Args: []string{"-c", "read x; echo GOT-[$x]; sleep 30"},
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "eta") })
 
 	var r recorder
@@ -224,7 +224,7 @@ func TestPaneHost_InjectPastesAndSubmits(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "delta", PaneSpec{
 		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"}, Engine: "claude-code", Surface: agent.CLISurfaceInteractive,
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "delta") })
 
 	var r recorder
@@ -252,7 +252,7 @@ func TestPaneHost_InjectWithoutSubmitDoesNotActuate(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "epsilon", PaneSpec{
 		Command: "sh", Args: []string{"-c", "read x; echo PASTED-[$x]; sleep 30"}, Engine: "claude-code", Surface: agent.CLISurfaceInteractive,
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "epsilon") })
 
 	var r recorder
@@ -285,7 +285,7 @@ func TestPaneHost_ClosedCarriesTheTrueExitCode(t *testing.T) {
 
 	require.NoError(t, h.Start(ctx, "zeta", PaneSpec{
 		Command: "sh", Args: []string{"-c", "echo BYE-3e9f; exit 7"},
-	}))
+	}, nil))
 	t.Cleanup(func() { _ = h.Stop(context.Background(), "zeta") })
 
 	var r recorder
@@ -357,4 +357,26 @@ func TestPaneExitCode_RealExitCodePassesThrough(t *testing.T) {
 		c := code
 		assert.Equal(t, int32(code), paneExitCode(&ExitStatus{ExitCode: &c}))
 	}
+}
+
+// TestPaneHost_StartViewerSeesEveryByteOfAFastCommand forces the race an
+// interactive launch lost: a command that writes and exits before its
+// launcher looks. The tail starts reading at Start, so a viewer registered by
+// an Attach afterwards found the bytes already broadcast to nobody, or the
+// pane already closed. The sleep makes "the launcher was slow" deterministic;
+// the starter's viewer must not depend on it.
+func TestPaneHost_StartViewerSeesEveryByteOfAFastCommand(t *testing.T) {
+	h := newPaneHostForTest(t)
+	ctx := context.Background()
+
+	var v recorder
+	require.NoError(t, h.Start(ctx, "theta", PaneSpec{
+		Command: "sh", Args: []string{"-c", "echo FAST-MARKER-2b9e"},
+	}, &v))
+	t.Cleanup(func() { _ = h.Stop(context.Background(), "theta") })
+	time.Sleep(20 * h.pollEvery)
+
+	waitFor(t, "the starter's viewer must receive what the command wrote before anyone looked",
+		func() bool { return strings.Contains(v.text(), "FAST-MARKER-2b9e") })
+	waitFor(t, "and must be told the command exited cleanly", func() bool { c, code := v.isClosed(); return c && code == 0 })
 }

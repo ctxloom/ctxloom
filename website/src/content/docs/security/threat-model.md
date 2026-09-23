@@ -71,7 +71,7 @@ is deliberately signed with the ref omitted — so a renamed or moved identical 
 rejected wherever it reappears.
 
 **A corrupted approvals store.** If a store exists but cannot be read, ctxloom does not read
-it as "nothing rejected". It **denies every item** — including local and companion content —
+it as "nothing rejected". It **denies every item**, local and companion content included,
 and raises a fatal trust-store finding. An unreadable store might be hiding a rejection, and
 silently reopening a gate a human closed is the one failure mode that is not allowed to be
 quiet. (A store that has never been created is fine; that is just a fresh project.)

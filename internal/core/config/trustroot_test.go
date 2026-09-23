@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // newTestKey returns an ephemeral ed25519 public key and its authorized_keys
@@ -373,7 +374,7 @@ func TestTrustRoot_MalformedLine_WarnsOncePerFileAndLine(t *testing.T) {
 	t.Cleanup(clidiag.ResetWarnOnce)
 	const appDir = ".ctxloom-warn-once"
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(appDir), []byte("this-line-is-garbage-with-no-key\n"), 0o644))
+	testsupport.WriteFileString(t, fs, paths.AllowedSignersPath(appDir), "this-line-is-garbage-with-no-key\n", 0o644)
 	cfg := &Config{appPaths: []string{appDir}, fs: fs, rep: ledgerReporter()}
 
 	var buf bytes.Buffer

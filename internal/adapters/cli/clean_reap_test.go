@@ -30,10 +30,9 @@ func crSeedSession(t *testing.T, harp string, age time.Duration) string {
 	return dir
 }
 
-// TestClean_IncludePersist_RemovesTheTranscript is the gate: --include-persist
-// takes the transcripts with the rest of persist/ — there is no
-// transcript-sparing arm — and the report names persist/ among the members
-// it took.
+// TestClean_IncludePersist_RemovesTheTranscript is the gate: from a distilled
+// session --include-persist takes the transcripts with the rest of persist/,
+// and the report names persist/ among the members it took.
 func TestClean_IncludePersist_RemovesTheTranscript(t *testing.T) {
 	cotProject(t)
 	dir := crSeedSession(t, "aged-quiet-heron", 90*24*time.Hour)

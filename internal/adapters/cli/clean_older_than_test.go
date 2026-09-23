@@ -64,9 +64,10 @@ const (
 	cotPlan    = "# a plan someone cites\n"
 )
 
-// cotSeedSession plants a harp directory in the session layout — an
-// ephemeral/ file and a persist/ plan — whose owner is provably gone, aged
-// by the given amount.
+// cotSeedSession plants a DISTILLED harp directory in the session layout —
+// an ephemeral/ file, a persist/ plan and an essence — whose owner is
+// provably gone, aged by the given amount. Distilled, because only a
+// distilled session's persist/ is --include-persist's to take.
 func cotSeedSession(t *testing.T, harp string, age time.Duration) string {
 	t.Helper()
 	dir, err := paths.HarpDir(harp)
@@ -75,6 +76,7 @@ func cotSeedSession(t *testing.T, harp string, age time.Duration) string {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.PersistDirName), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.EphemeralDirName, "scratch.txt"), []byte(cotScratch), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.PersistDirName, "design"+paths.PlanFileExt), []byte(cotPlan), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.EssenceFileName), []byte("---\nsummary: seeded\n---\n"), 0o644))
 
 	require.NoError(t, sessionlock.Hold(harp))
 	sessionlock.Release(harp)

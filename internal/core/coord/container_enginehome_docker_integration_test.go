@@ -143,7 +143,7 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 	prepared, ok := l.Cell.Handle.(operations.PreparedCell)
 	require.True(t, ok, "the production cell carries its prepared workspace: %T", l.Cell.Handle)
 
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "enginehome-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: entry.HarpName})
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "enginehome-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: entry.HarpName})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)

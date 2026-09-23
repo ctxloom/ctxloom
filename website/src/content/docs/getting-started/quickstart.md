@@ -12,7 +12,7 @@ Here's what that buys you, then how to get it running in a few minutes.
 |------------|-------------|
 | **Context Assembly** | Combine fragments into profiles, deliver to Claude Code through the engine's own context channel |
 | **Slash Commands** | Commands become `/commands` in Claude Code automatically |
-| **Session Memory** | Persist context across `/clear`, recover seamlessly |
+| **Session Memory** | Recover context after `/clear`, or pick up an earlier session |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | Distill fragments and commands with a cheap, fast LLM |
 
@@ -28,18 +28,22 @@ ctxloom init --home
 
 `init` scaffolds a local default profile (`.ctxloom/profiles/default.yaml`,
 inheriting the ctxloom-default baseline) and wires the trusted `ctxloom-default`
-remote. Run interactively, it walks you through one merged interview: pick an AI
+remote, then runs `ctxloom deps pull` to install what that profile depends on.
+Run interactively, it walks you through one merged interview: pick an AI
 engine, optionally add a personal remote, then launch your AI for an
 agent-assisted setup. Useful flags: `--engine` to pre-select the engine,
 `--remote` to add a personal repo as a trusted remote (repeatable), `--forge` to
 bind those remotes to a specific forge, `--non-interactive` to skip all prompts,
-and `--skip-launch` to skip the auto-launch.
+`--skip-launch` to skip the auto-launch, and `--no-pull` to skip the dependency
+pull.
 
 ## Review What the Remote Shipped
 
-Content pulled from a remote is **withheld from the agent until you accept it**.
-Until then `ctxloom run` will refuse to start with `no fragments loaded:
-requested fragments not found`, so do this before anything else:
+`ctxloom-default`'s bundles are signed by ctxloom's publishing key, which the
+binary trusts, so after a fresh `init` nothing is pending. Content pulled from
+any other remote is **withheld from the agent until you accept it**. Until then
+a run that asks for it fails with `no fragments loaded: requested fragments not
+found`, so review after every pull from a new remote:
 
 ```bash
 # See what is waiting, without reviewing (non-interactive)
@@ -73,26 +77,21 @@ Fragments are grouped by their **canonical bundle ref**, which for a remote
 bundle is its repo URL plus its path in that repo:
 
 ```
-Fragments (7):
-
-  https://github.com/ctxloom/ctxloom-default@bundles/go-ai-practices:
-    - go-rules [golang, go, ai, best-practices, coding]
+  https://github.com/ctxloom/ctxloom-default@bundles/git:
+    - git [default, git, workflow, version-control]
 
   https://github.com/ctxloom/ctxloom-default@bundles/testing:
-    - gherkin [testing, bdd, gherkin, acceptance]
-    - mutation-testing [testing, mutation, quality]
-    - tdd [testing, tdd, workflow]
-    - test-coverage [testing, coverage, quality]
-    - test-organization [testing, organization, patterns]
+    - mutation-testing [default, testing, mutation, quality]
+    - tdd [default, testing, tdd, workflow]
 
-  ctxloom:local@bundles/my-tools:
+  my-tools:
     - house-style [prose, conventions]
 ```
 
 A **bare** bundle name in `--bundle` only matches a **local** bundle - one you
-authored under `.ctxloom/content/bundles/`. Remote bundles must be named by their
-canonical ref, as above; `--bundle testing` would match nothing and print
-`Fragments (0):`.
+authored under `.ctxloom/content/bundles/v2/`. Remote bundles must be named by their
+canonical ref, as above; `--bundle testing` fails with `no bundle named "testing"`
+and lists the bundle refs it does know.
 
 ### View Fragment Content
 
@@ -119,9 +118,9 @@ Commands group by canonical bundle ref too:
 ```
 Commands (2):
 
-  ctxloom:local@bundles/my-tools:
-    - code-review [review]
-    - refactor [refactoring]
+  my-tools:
+    - code-review
+    - refactor
 ```
 
 ### View Command Content
@@ -139,10 +138,10 @@ bundle's worth of context, use a tag (`-t`) or a profile (`-p`).
 
 ```bash
 # Include a fragment by bare name (searched across every installed bundle)
-ctxloom run -f go-rules "Help me with this code"
+ctxloom run -f tdd "Help me with this code"
 
 # Combine multiple fragments
-ctxloom run -f go-rules -f tdd -f code-quality \
+ctxloom run -f tdd -f git \
   "implement user authentication with tests"
 
 # Name a fragment exactly, when the same bare name lives in several bundles
@@ -152,11 +151,11 @@ ctxloom run -f 'https://github.com/ctxloom/ctxloom-default@bundles/testing#fragm
 # Pull in every fragment carrying a tag - this is how you get a whole bundle
 ctxloom run -t testing "implement user authentication with tests"
 
-# Use a profile (pre-configured bundle/fragment set)
-ctxloom run -p backend-developer "review this PR"
+# Use a profile (pre-configured bundle/fragment set); init scaffolds "default"
+ctxloom run -p default "review this PR"
 
 # Preview what context would be sent, without launching the AI
-ctxloom run -f go-rules --dry-run
+ctxloom run -f tdd --dry-run
 ```
 
 `--dry-run` prints the assembled context, the fragments loaded and the token
@@ -169,7 +168,7 @@ returns before it is ever consulted.)
 Commands in bundles become slash commands in Claude Code:
 
 ```yaml
-# .ctxloom/content/bundles/my-tools.yaml
+# .ctxloom/content/bundles/v2/my-tools.yaml
 commands:
   code-review:
     description: "Review code for issues"

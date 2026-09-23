@@ -11,7 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // EnvWorkspace is NOT the engine's config-home carrier, and this pins it: a
@@ -29,10 +28,10 @@ func TestWorktreeWorkspace_EnvCarriesNoEngineHomeVar(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(func() { strictness.Reset() })
 	t.Setenv("HOME", t.TempDir())
-	// The composition root, so the engine's declaration is the shipped one.
-	// Idempotent: a second registration of the same descriptors is a no-op.
-	enginefixture.MustComposeShipped()
-
+	// The shipped declaration, read from the composed registry only. NOT
+	// enginefixture.MustComposeShipped: that also installs the registry as
+	// this package's facts accessor, for good, replacing TestMain's fixture
+	// facts under every test that runs after this one.
 	kind, ok := engines.Registry().Lookup("claude-code")
 	require.True(t, ok)
 	require.True(t, kind.Home().Relocates(), "claude-code declares a relocatable home; without one there is nothing to assert against")

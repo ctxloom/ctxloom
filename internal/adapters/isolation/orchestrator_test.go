@@ -43,7 +43,7 @@ func TestCopyAmbient_TheOrchestratorsSeedIsWholeAndTwoWay(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 
 	instance := t.TempDir()
-	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	instFile := filepath.Join(instance, "claude", ".credentials.json")
 	placed, err := os.ReadFile(instFile)
@@ -66,7 +66,7 @@ func TestCopyAmbient_AnAgentsSeedIsAProjectionOfTheOrchestrators(t *testing.T) {
 	orch := seededOrchestrator(t, `{"claudeAiOauth":{"accessToken":"orch-acc","refreshToken":"orch-ref","expiresAt":1}}`)
 
 	instance := t.TempDir()
-	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
 	_, oauth := seededOAuth(t, instance)
 	assert.Equal(t, "orch-acc", oauth["accessToken"], "the agent projects the ORCHESTRATOR's credential, not the host's")
@@ -95,7 +95,7 @@ func TestCopyAmbient_AnAgentsWriteReachesNeitherTheOrchestratorNorTheHost(t *tes
 	orch := seededOrchestrator(t, orchBytes)
 
 	instance := t.TempDir()
-	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
 	instFile := filepath.Join(instance, "claude", ".credentials.json")
 	placed, _ := seededOAuth(t, instance)
@@ -135,7 +135,7 @@ func TestCopyAmbient_AnAgentStillGetsItsInstanceConfig(t *testing.T) {
 	seededOrchestrator(t, hostOAuthCredential)
 
 	instance := t.TempDir()
-	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
 	data, err := os.ReadFile(filepath.Join(instance, "claude", ".claude.json"))
 	require.NoError(t, err)

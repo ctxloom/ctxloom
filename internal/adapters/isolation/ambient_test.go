@@ -268,7 +268,7 @@ func TestCopyAmbient_InstanceCredentialCarriesNoRefreshToken(t *testing.T) {
 	orch := seededOrchestrator(t, hostOAuthCredential)
 
 	instance := t.TempDir()
-	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
 
 	_, oauth := seededOAuth(t, instance)
@@ -307,7 +307,7 @@ func TestCopyAmbient_SeedsClaudesConfigBesideTheCredential(t *testing.T) {
 		[]byte(`{"hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"user@example.com"},"mcpServers":{"x":{"command":"secret"}}}`), 0o600))
 
 	instance := t.TempDir()
-	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 
 	cfgPath := filepath.Join(instance, "claude", ".claude.json")

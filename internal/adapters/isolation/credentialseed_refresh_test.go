@@ -65,7 +65,7 @@ func TestCopyAmbient_ResumeReplacesAStaleInstanceCredential(t *testing.T) {
 	// wider mode must not keep that mode once live bytes are placed in it.
 	require.NoError(t, os.WriteFile(stale, []byte(`{"token":"revoked"}`), 0o644))
 
-	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 
 	got, err := os.ReadFile(stale)

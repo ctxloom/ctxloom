@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -179,6 +180,13 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // part of this scaffold at all — see InitializeProject, which writes it to
 // paths.DirtyTreeCommitAckPath instead.
 func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {
+	if headlessPermissions != "" {
+		m, ok := enginepkg.ParsePermissionMode(headlessPermissions)
+		if !ok || !m.SafeHeadless() {
+			return nil, fmt.Errorf("headless posture %q: the default agent's headless runs need %s or %s", headlessPermissions, enginepkg.PermissionPlan, enginepkg.PermissionBypass)
+		}
+		headlessPermissions = m.String()
+	}
 	scaffoldData, err := readResource(resources.GetInitConfig, "init scaffold")
 	if err != nil {
 		return nil, err
@@ -216,10 +224,11 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 	f.DefaultAgent = SeedProfileName
 	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
-			LLM:      primaryLabel,
-			Runtime:  "host",
-			HomeMode: string(agents.HomeModeSession),
-			Profiles: []string{SeedProfileName},
+			LLM:         primaryLabel,
+			Runtime:     "host",
+			HomeMode:    string(agents.HomeModeSession),
+			Profiles:    []string{SeedProfileName},
+			Permissions: headlessPermissions,
 		},
 	}
 	return config.NewFixture(f).Marshal()

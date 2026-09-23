@@ -355,7 +355,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 		return "", err
 	}
 
-	if err := writeInitialConfig(appDir, engine, dirtyTreeHandler, dirtyTreeCommitAck); err != nil {
+	if err := writeInitialConfig(appDir, engine, dirtyTreeHandler, "", dirtyTreeCommitAck); err != nil {
 		return "", err
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
@@ -431,12 +431,13 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 // cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) and the
 // discovery launch read that generation; nothing in this process observes
 // the pre-scaffold state again.
-func writeInitialConfig(appDir, engine, dirtyTreeHandler string, dirtyTreeCommitAck bool) error {
+func writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions string, dirtyTreeCommitAck bool) error {
 	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
-		AppDir:             appDir,
-		Engine:             engine,
-		DirtyTreeHandler:   dirtyTreeHandler,
-		DirtyTreeCommitAck: dirtyTreeCommitAck,
+		AppDir:              appDir,
+		Engine:              engine,
+		DirtyTreeHandler:    dirtyTreeHandler,
+		DirtyTreeCommitAck:  dirtyTreeCommitAck,
+		HeadlessPermissions: headlessPermissions,
 	})
 	if err != nil {
 		return err

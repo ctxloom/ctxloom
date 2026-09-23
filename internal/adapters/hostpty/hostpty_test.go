@@ -5,7 +5,9 @@ package hostpty
 import (
 	"context"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,4 +132,26 @@ func TestStart_ExitedFiresBeforeTheMasterCloses(t *testing.T) {
 	code, err := s.Wait()
 	require.NoError(t, err)
 	require.Equal(t, 0, code)
+}
+
+// TestEnd_LeavesTheChildsLastBytesReadable forces the order an interactive
+// run's teardown takes: the runner has written its last bytes to the slave,
+// and the coordinator ends it (the run reported its exit) BEFORE the drive has
+// read them. End is that coordinator-side handle, so it must end the child and
+// leave the master to the reader; closing the master there discarded the
+// runner's final output.
+func TestEnd_LeavesTheChildsLastBytesReadable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	written := filepath.Join(t.TempDir(), "written")
+	s, err := Start(ctx, exec.Command("sh", "-c", "printf LAST-BYTES-9f3a; : > "+written+"; exec sleep 30"))
+	require.NoError(t, err)
+	defer s.Kill()
+	require.Eventually(t, func() bool { _, err := os.Stat(written); return err == nil }, 5*time.Second, 5*time.Millisecond)
+
+	s.End()
+	<-s.Exited()
+	out, _ := io.ReadAll(s.Master()) // ends with EIO once the child is gone
+	require.Contains(t, string(out), "LAST-BYTES-9f3a")
 }

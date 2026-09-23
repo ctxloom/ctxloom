@@ -151,11 +151,18 @@ func (s *Session) Wait() (int, error) {
 	return s.code, s.waitErr
 }
 
-// Kill force-ends the child and releases the pty. Safe after Wait.
-func (s *Session) Kill() {
+// End force-ends the child and leaves the master open: the handle for a
+// party that ends the run while another still reads its output. The child's
+// last bytes stay readable to EIO, and Wait or Kill releases the master.
+func (s *Session) End() {
 	if s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
 	s.stopCtx()
+}
+
+// Kill force-ends the child and releases the pty. Safe after Wait.
+func (s *Session) Kill() {
+	s.End()
 	s.closeOnce.Do(func() { _ = s.master.Close() })
 }

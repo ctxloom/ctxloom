@@ -45,13 +45,19 @@ func Start(ctx context.Context, cmd *exec.Cmd, name string, remove func()) (*Ses
 // Name is the container's name — the roster's handle on it.
 func (s *Session) Name() string { return s.name }
 
-// Kill removes the container by name, then ends the CLI and releases the
-// pty. Idempotent; safe after Wait.
-func (s *Session) Kill() {
+// End removes the container by name, then ends the CLI, leaving the master
+// to its reader (hostpty.Session.End). Idempotent.
+func (s *Session) End() {
 	s.once.Do(func() {
 		if s.remove != nil {
 			s.remove()
 		}
 	})
+	s.Session.End()
+}
+
+// Kill is End, then releases the pty. Idempotent; safe after Wait.
+func (s *Session) Kill() {
+	s.End()
 	s.Session.Kill()
 }

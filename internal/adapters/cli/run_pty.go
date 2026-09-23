@@ -21,6 +21,9 @@ type runnerTTY interface {
 	Resize(rows, cols uint16) error
 	Exited() <-chan struct{}
 	Wait() (int, error)
+	// End ends the runner and leaves the master to the drive; Kill also
+	// releases it.
+	End()
 	Kill()
 }
 
@@ -61,8 +64,11 @@ func stampTerminalEnv(env map[string]string) map[string]string {
 // terminal layer wraps one master wherever the runner runs and keystrokes,
 // the engine's bytes and resizes cross the pty the kernel (and, for a
 // container, the daemon's tty) carries. The reach-back trio rides the
-// runner's process env. The session is recorded on the state for the drive;
-// its Kill (the container removed by name first) is the run's teardown.
+// runner's process env. The session is recorded on the state for the drive.
+// The coordinator is handed End (the container removed by name first), not
+// Kill: it ends the run when the runner reports its exit, which is BEFORE the
+// drive has necessarily read the runner's last bytes, and closing the master
+// there discards them. The drive's own teardown releases the master.
 func (st *runState) ptyStarter() coord.OwnedRunStarter {
 	return func(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
 		cmd, name, err := st.policy.InteractiveRunner(ctx, st.backendName, st.ws, spawnEnv)
@@ -77,7 +83,7 @@ func (st *runState) ptyStarter() coord.OwnedRunStarter {
 				return nil, "", fmt.Errorf("start the runner on a pty: %w", err)
 			}
 			st.pty = s
-			return s.Kill, "", nil
+			return s.End, "", nil
 		}
 		container, ok := st.policy.(interface{ Remove(string) })
 		if !ok {
@@ -88,7 +94,7 @@ func (st *runState) ptyStarter() coord.OwnedRunStarter {
 			return nil, "", fmt.Errorf("attach the container runner on a pty: %w", err)
 		}
 		st.pty = s
-		return s.Kill, name, nil
+		return s.End, name, nil
 	}
 }
 

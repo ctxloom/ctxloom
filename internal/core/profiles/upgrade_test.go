@@ -1,12 +1,14 @@
 package profiles
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -496,4 +498,33 @@ func TestRewriteRetiredParents(t *testing.T) {
 		repo + "@profiles/go-developer",
 		"local-parent",
 	}, got)
+}
+
+// The config seed keys a bundle's profiles on the bundle's CANONICAL identity
+// ("ctxloom+git://host/repo//bundles/<b>#profiles/<n>"), so the retired-parent
+// rewrite must find its successor under that shape, for every spelling a
+// retired parent can name the repository in.
+func TestRewriteRetiredParents_MatchesProductionSeedKeys(t *testing.T) {
+	cases := []struct {
+		name, bundle, profile, retired string
+	}{
+		{"https", defaultURL + "@bundles/ai-developer", "developer", defaultURL + "@profiles/developer"},
+		{"scp", defaultURL + "@bundles/ai-developer", "developer", "git@github.com:ctxloom/ctxloom-default@profiles/developer"},
+		{"file", "file:///srv/content@bundles/kit", "dev", "file:///srv/content@profiles/dev"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			successor, err := remote.BundleProfileRef(tc.bundle, tc.profile)
+			require.NoError(t, err)
+			require.True(t, strings.HasPrefix(successor, "ctxloom+"), "the fixture must be production-shaped: %s", successor)
+			seeded := map[string]*Profile{
+				successor:                        {},
+				"ctxloom+local:kid#profiles/kid": {Parents: []string{tc.retired}},
+			}
+
+			RewriteRetiredParents(seeded)
+
+			assert.Equal(t, successor, seeded["ctxloom+local:kid#profiles/kid"].Parents[0])
+		})
+	}
 }

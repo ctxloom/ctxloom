@@ -64,7 +64,7 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 	if err != nil || !ref.IsCanonical() {
 		return "", false
 	}
-	_, err = bundles.ReadRemoteRef(ctx, factory, auth, ref, p.Hash, remotetree.PullTreeFetcher, cfg.TrustRoot())
+	_, _, err = bundles.ReadRemoteRef(ctx, factory, auth, ref, p.Hash, remotetree.PullTreeFetcher, cfg.TrustRoot())
 	switch {
 	case err == nil:
 		return "", false

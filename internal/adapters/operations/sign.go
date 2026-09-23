@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
@@ -262,7 +264,11 @@ func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) 
 	if err != nil {
 		return nil, fmt.Errorf("sign %s: open the bundle tree at %s: %w", req.Target.BundleName, dir, err)
 	}
-	if err := attest.SignBundle(ctx, store, tree, req.Signer); err != nil {
+	rel, err := bundleRelease(string(tree.ID()), bundle)
+	if err != nil {
+		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
+	}
+	if err := attest.SignBundle(ctx, store, tree, rel, req.Signer); err != nil {
 		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
 	}
 	return &SignBundleResult{
@@ -273,6 +279,31 @@ func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) 
 		ManifestPath: filepath.Join(dir, content.ManifestPath),
 		ItemNote:     req.Target.ItemNote,
 	}, nil
+}
+
+// ErrUnsignableVersion refuses to sign a bundle whose bundle.yaml version is
+// not strict semver. The signed version is what every consumer's rollback
+// floor is measured in, so a version two consumers could read differently —
+// "v1.2", "1.2" — is not one a signature may carry.
+var ErrUnsignableVersion = errors.New("sign: bundle.yaml version must be strict semver (MAJOR.MINOR.PATCH)")
+
+// bundleRelease is the release a signature over the bundle named name asserts,
+// read from its authored bundle.yaml: the version, and the retractions and
+// withdrawal the author wrote there.
+func bundleRelease(name string, b *bundles.Bundle) (release.Release, error) {
+	v, err := semver.StrictNewVersion(b.Version)
+	if err != nil {
+		return release.Release{}, fmt.Errorf("%w: %s has version %q", ErrUnsignableVersion, name, b.Version)
+	}
+	rel := release.Release{Name: name, Version: v, Withdrawn: b.Withdrawn}
+	for _, r := range b.Retracts {
+		rv, err := semver.StrictNewVersion(r.Version)
+		if err != nil {
+			return release.Release{}, fmt.Errorf("%w: %s retracts version %q", ErrUnsignableVersion, name, r.Version)
+		}
+		rel.Retracts = append(rel.Retracts, release.Retraction{Version: rv, Reason: r.Reason})
+	}
+	return rel, nil
 }
 
 // ListLocalBundleNames returns every bundle name found in the project's

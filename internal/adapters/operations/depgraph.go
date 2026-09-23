@@ -388,7 +388,7 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	// beside its bundle.yaml, so the manifest alone can never carry the profile
 	// looked up below — the lookup failed structurally for every tree-form
 	// parent, which is every published bundle.
-	b, ferr := bundles.ReadRemoteRef(w.ctx, w.factory, w.auth, rec, hash, w.treeFetch, w.trustRoot)
+	b, _, ferr := bundles.ReadRemoteRef(w.ctx, w.factory, w.auth, rec, hash, w.treeFetch, w.trustRoot)
 	if ferr != nil {
 		// Fault tolerant: a parent we can't read just isn't expanded — but the
 		// closure is now INCOMPLETE, so warn and record it; a silent skip here

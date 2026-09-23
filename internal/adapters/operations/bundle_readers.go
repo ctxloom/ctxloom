@@ -329,7 +329,8 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		// and skills are FILES beside its bundle.yaml, so reading the manifest
 		// alone resolved every @<commit>-pinned tree bundle to a bundle with
 		// zero items — the real product bundle, silently empty.
-		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, cfg.TrustRoot())
+		b, _, err := bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, cfg.TrustRoot())
+		return b, err
 	}
 }
 

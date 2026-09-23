@@ -44,11 +44,11 @@ ctxloom bundle [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom bundle create](/reference/cli/ctxloom_bundle_create/)	 - Create a new bundle
-* [ctxloom bundle distill](/reference/cli/ctxloom_bundle_distill/)	 - Distill bundle files to create token-efficient versions
+* [ctxloom bundle distill](/reference/cli/ctxloom_bundle_distill/)	 - Distill bundles to create token-efficient versions
 * [ctxloom bundle edit](/reference/cli/ctxloom_bundle_edit/)	 - Edit a bundle
-* [ctxloom bundle export](/reference/cli/ctxloom_bundle_export/)	 - Export a bundle to a file or directory
+* [ctxloom bundle export](/reference/cli/ctxloom_bundle_export/)	 - Export a bundle to a directory
 * [ctxloom bundle forget](/reference/cli/ctxloom_bundle_forget/)	 - Clear an item's recorded decision (approval or rejection), back to pending
-* [ctxloom bundle import](/reference/cli/ctxloom_bundle_import/)	 - Import a bundle from a local file or directory
+* [ctxloom bundle import](/reference/cli/ctxloom_bundle_import/)	 - Import a bundle from a local directory
 * [ctxloom bundle list](/reference/cli/ctxloom_bundle_list/)	 - List installed bundles
 * [ctxloom bundle move](/reference/cli/ctxloom_bundle_move/)	 - Move an authored bundle to a remote or another project, carrying its signature
 * [ctxloom bundle push](/reference/cli/ctxloom_bundle_push/)	 - Publish a bundle to a remote repository

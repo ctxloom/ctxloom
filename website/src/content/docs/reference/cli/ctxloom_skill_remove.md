@@ -13,8 +13,7 @@ Remove an Agent Skill package
 
 ### Synopsis
 
-Remove a skill package: its bundle.yaml registration and its on-disk
-directory tree (skills/<name>/).
+Remove a skill package: its directory (skills/<name>/).
 
 Bare invocation reports what would be removed and removes nothing (exit 0).
 Pass --yes to apply it.

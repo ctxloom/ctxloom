@@ -13,13 +13,12 @@ Scaffold a new Agent Skill package
 
 ### Synopsis
 
-Scaffold a new Agent Skill package (skills/<name>/SKILL.md) in an existing,
-directory-form bundle, and register it in bundle.yaml.
+Scaffold a new Agent Skill package (skills/<name>/SKILL.md) in an existing
+bundle. The directory is the skill: nothing else is registered.
 
 The scaffolded SKILL.md has valid frontmatter (name matching the directory,
 a placeholder description) that passes validation immediately — edit
-SKILL.md to describe the skill, add any scripts/assets, then run
-'ctxloom skill sync' before signing.
+SKILL.md to describe the skill and add any scripts/assets.
 
 Examples:
   ctxloom skill create my-bundle code-reviewer

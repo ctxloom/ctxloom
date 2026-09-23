@@ -399,6 +399,7 @@ func overlayContainerfile(baseImage, validate string) []byte {
 	b.WriteString(overlayUserGate + "\n")
 	b.WriteString("COPY ctxloom /usr/local/bin/ctxloom\n")
 	b.WriteString("COPY companions/ /usr/local/bin/\n")
+	b.WriteString(companionPathLeads + "\n")
 	b.WriteString("COPY ctxloom-entrypoint /usr/local/bin/ctxloom-entrypoint\n")
 	b.WriteString("RUN chmod 0755 /usr/local/bin/ctxloom-entrypoint\n")
 	b.WriteString("ENTRYPOINT [\"/usr/local/bin/ctxloom-entrypoint\"]\n")
@@ -503,6 +504,7 @@ func composeAgentContainerfile(engine string) []byte {
 	b.WriteString("LABEL ctxloom.engine=\"" + engine + "\"\n")
 	b.WriteString("COPY ctxloom /usr/local/bin/ctxloom\n")
 	b.WriteString("COPY companions/ /usr/local/bin/\n")
+	b.WriteString(companionPathLeads + "\n")
 	b.WriteString("RUN /usr/local/bin/ctxloom version\n")
 	b.WriteString(companionGate + "\n")
 	return []byte(b.String())
@@ -546,6 +548,13 @@ const overlayUserGate = `RUN id ctxloom >/dev/null 2>&1 \
 // skipped — the image still builds, just without it.
 var companionBinaries = []string{"taskloom", "ltk", "reprise"}
 
+// companionPathLeads puts the staged companions' directory first on the
+// image's PATH. The engine resolves a companion's bare name (its loadout's
+// hooks and MCP servers) through that PATH; the base image's default order is
+// the base's choice — a devcontainer or user Containerfile can put anything
+// ahead of /usr/local/bin — so the image states it rather than inheriting it.
+const companionPathLeads = `ENV PATH="/usr/local/bin:${PATH}"`
+
 // companionGate is the in-image ABI gate for whichever companions shipped: each
 // present binary must RUN on this base (`--version`); one that cannot (e.g. a
 // host binary dynamically linked against a newer glibc than the base ships) is
@@ -561,16 +570,20 @@ func companionGateFor(names []string) string {
 	return `RUN set -e; for b in ` + strings.Join(names, " ") + `; do \
         if command -v "$b" >/dev/null && ! "$b" --version; then \
             echo "warning: companion $b cannot run on this base (ABI mismatch); dropping it from the image" >&2; \
-            rm -f "/usr/local/bin/$b"; \
+            rm -f "/usr/local/bin/$b" "/usr/local/bin/$b.sig"; \
         fi; \
     done`
 }
 
-// stageCompanions populates <contextDir>/companions with every companion binary
-// found on the host PATH. The directory always exists — the agent stages'
-// `COPY companions/` requires it even when empty — and a missing companion
-// warns and is skipped (CLAUDE.md fault tolerance: the image builds without
-// it); a copy failure of a FOUND binary errors, since shipping a silently
+// stageCompanions populates <contextDir>/companions with every ADMITTED
+// companion — the bytes companions.admitCompanion verified, with their
+// signature beside them (companionLookPath resolves only the admitted copy).
+// A companion that is absent, or present but not admitted, is refused and
+// warned about, and the image builds without it (CLAUDE.md fault tolerance);
+// baking whatever binary of that name the host PATH resolved first would ship
+// unverified code as the in-container pre-tool hook. The directory always
+// exists — the agent stages' `COPY companions/` requires it even when empty —
+// and a copy failure of an admitted binary errors, since shipping a silently
 // truncated tool would be worse than no image.
 func stageCompanions(contextDir string) error {
 	dir := filepath.Join(contextDir, "companions")
@@ -580,15 +593,27 @@ func stageCompanions(contextDir string) error {
 	for _, name := range companionBinaries {
 		src, err := companionLookPath(name)
 		if err != nil {
-			clidiag.Warn("ctxloom", "companion %s not on PATH; the agent image builds without it", name)
+			clidiag.Warn("ctxloom", "companion %s is not admitted (absent, or not signed by a publisher you trust); "+
+				"the agent image builds without it", name)
 			continue
 		}
 		if err := copyExecutable(src, filepath.Join(dir, name)); err != nil {
 			return fmt.Errorf("companions build context: stage %s: %w", name, err)
 		}
+		sig, err := os.ReadFile(src + companionSigSuffix) //nolint:gosec // beside an admitted companion
+		if err != nil {
+			return fmt.Errorf("companions build context: stage %s signature: %w", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+companionSigSuffix), sig, 0o644); err != nil { //nolint:gosec // a public signature
+			return fmt.Errorf("companions build context: stage %s signature: %w", name, err)
+		}
 	}
 	return nil
 }
+
+// companionSigSuffix is a companion's detached-signature extension, the one
+// companions admission reads beside the binary.
+const companionSigSuffix = ".sig"
 
 // binaryVersion is the running binary's version stamp, injected by the CLI at
 // startup (isolation cannot import internal/adapters/cli — the dependency runs the other

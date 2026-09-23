@@ -1,7 +1,10 @@
 package companions
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
@@ -207,23 +210,26 @@ func admitCompanion(bin string, root trust.TrustRoot) CompanionAdmission {
 	//
 	// UNSIGNED IS REFUSED, and it is not degradable: executing code nothing can
 	// attest to IS the harm.
+	//
+	// WHAT IS SIGNED is the binary's release statement (companion_release.go):
+	// its name, version and hash. Signing the bytes alone vouched for "some
+	// program by this publisher", so a trusted publisher's taskloom, installed
+	// under ltk's name, was admitted and run as ltk. The statement's name is
+	// checked against the file actually resolved, and its hash against the
+	// bytes actually there.
 	sig, sigErr := os.ReadFile(resolved + companionSigSuffix)
-	if sigErr != nil {
+	statement, relErr := os.ReadFile(resolved + companionReleaseSuffix)
+	if sigErr != nil || relErr != nil {
 		clidiag.WarnOnce("ctxloom",
-			"companion %q at %s: no signature beside it, skipping — a companion must be signed by a publisher you "+
-				"trust (sign it where it is built: `just sign-binary %s`)", bin, resolved, resolved)
+			"companion %q at %s: no signed release statement beside it (%s and %s), skipping — a companion must be signed by a publisher you "+
+				"trust (sign it where it is built: `just sign-binary %s`)", bin, resolved, companionReleaseSuffix, companionSigSuffix, resolved)
 		return newCompanionAdmission(key, false, CompanionAdmissionUnsigned)
 	}
-	payload, readErr := os.ReadFile(resolved)
-	if readErr != nil {
-		clidiag.Warn("ctxloom", "companion %q: cannot read %s to verify it, withholding: %v", bin, resolved, readErr)
-		return newCompanionAdmission(key, false, CompanionAdmissionUnreadable)
-	}
-	principal, verifyErr := signing.VerifyInNamespace(payload, sig, root, signing.NamespaceCompanion, time.Now())
+	principal, verifyErr := signing.VerifyInNamespace(statement, sig, root, signing.NamespaceCompanion, time.Now())
 	switch {
 	case verifyErr != nil:
 		clidiag.WarnOnce("ctxloom",
-			"companion %q at %s: its signature does not cover these bytes, refusing to execute it: %v",
+			"companion %q at %s: its signature does not cover its release statement, refusing to execute it: %v",
 			bin, resolved, verifyErr)
 		return newCompanionAdmission(key, false, CompanionAdmissionTampered)
 	case principal == "":
@@ -236,9 +242,31 @@ func admitCompanion(bin string, root trust.TrustRoot) CompanionAdmission {
 			bin, resolved, signing.NamespaceCompanion)
 		return newCompanionAdmission(key, false, CompanionAdmissionUntrusted)
 	}
+	rel, perr := parseCompanionRelease(statement)
+	if perr != nil {
+		clidiag.WarnOnce("ctxloom", "companion %q at %s: %s's signed release statement cannot be read, refusing to execute it: %v",
+			bin, resolved, principal, perr)
+		return newCompanionAdmission(key, false, CompanionAdmissionTampered)
+	}
+	if installed := filepath.Base(resolved); rel.name != installed {
+		clidiag.WarnOnce("ctxloom", "companion %q at %s: %s signed it as %q but it is installed as %q, refusing to execute it under a name its publisher did not give it",
+			bin, resolved, principal, rel.name, installed)
+		return newCompanionAdmission(key, false, CompanionAdmissionTampered)
+	}
+	payload, readErr := os.ReadFile(resolved)
+	if readErr != nil {
+		clidiag.Warn("ctxloom", "companion %q: cannot read %s to verify it, withholding: %v", bin, resolved, readErr)
+		return newCompanionAdmission(key, false, CompanionAdmissionUnreadable)
+	}
+	if sum := sha256.Sum256(payload); hex.EncodeToString(sum[:]) != rel.sha256 {
+		clidiag.WarnOnce("ctxloom", "companion %q at %s: its bytes are not the ones %s signed as %s %s, refusing to execute it",
+			bin, resolved, principal, rel.name, rel.version)
+		return newCompanionAdmission(key, false, CompanionAdmissionTampered)
+	}
 	return newCompanionAdmission(key, true, CompanionAdmissionSigned)
 }
 
 // companionSigSuffix is the detached signature's extension — the one
-// `ssh-keygen -Y sign` writes and the justfiles produce.
+// `ssh-keygen -Y sign` writes and the justfiles produce. It signs the release
+// statement (companionReleaseSuffix), not the binary.
 const companionSigSuffix = ".sig"

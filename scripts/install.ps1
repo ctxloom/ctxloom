@@ -217,6 +217,17 @@ function Install-SignedBinary {
     $sigSource = Join-Path $SourceDir "$Name.sig"
     $sigDest = "$binaryDest.sig"
 
+    # The signature covers "<name>.release" (the binary's name, version and
+    # hash), so the statement travels with it.
+    $releaseSource = Join-Path $SourceDir "$Name.release"
+    $releaseDest = "$binaryDest.release"
+    if (Test-Path $releaseDest) {
+        Remove-Item $releaseDest -Force
+    }
+    if (Test-Path $releaseSource) {
+        Move-Item $releaseSource $releaseDest -Force
+    }
+
     if (Test-Path $sigDest) {
         Remove-Item $sigDest -Force
     }

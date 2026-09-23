@@ -220,11 +220,15 @@ func signCompanionWithUntrustedKey(w *World, path string) error {
 	if err != nil {
 		return fmt.Errorf("wrap the untrusted key: %w", err)
 	}
-	payload, err := os.ReadFile(path) //nolint:gosec // a fixture path this suite wrote
+	binary, err := os.ReadFile(path) //nolint:gosec // a fixture path this suite wrote
 	if err != nil {
 		return fmt.Errorf("read %q to sign it: %w", path, err)
 	}
-	sig, err := signing.Sign(payload, signer, signing.NamespaceCompanion)
+	statement := testsupport.CompanionReleaseStatement(filepath.Base(path), "1.0.0", binary)
+	if err := os.WriteFile(path+".release", statement, 0o600); err != nil {
+		return fmt.Errorf("write the release statement for %q: %w", path, err)
+	}
+	sig, err := signing.Sign(statement, signer, signing.NamespaceCompanion)
 	if err != nil {
 		return fmt.Errorf("sign %q: %w", path, err)
 	}

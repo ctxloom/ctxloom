@@ -227,6 +227,14 @@ verify_checksum() {
 install_signed() {
     local src_dir="$1" name="$2" sudo_cmd="$3"
 
+    # The signature covers "<name>.release" (the binary's name, version and
+    # hash), so the statement travels with it.
+    if [[ -f "${src_dir}/${name}.release" ]]; then
+        ${sudo_cmd} mv "${src_dir}/${name}.release" "${INSTALL_DIR}/${name}.release" || return 1
+    else
+        ${sudo_cmd} rm -f "${INSTALL_DIR}/${name}.release"
+    fi
+
     if [[ -f "${src_dir}/${name}.sig" ]]; then
         ${sudo_cmd} mv "${src_dir}/${name}.sig" "${INSTALL_DIR}/${name}.sig" || return 1
     else

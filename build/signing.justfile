@@ -74,14 +74,39 @@ COMPANION_SIGNERS := justfile_directory() / ".ctxloom/allowed_signers"
 # built bytes, so the artifact verifies as tampered wherever it is finally
 # checked. Removing first makes the write unconditional, which is what
 # "building is signing" has to mean on the second build as well as the first.
-sign-binary FILE KEY=SIGN_PUBKEY:
-    rm -f {{ FILE }}.sig
-    ssh-keygen -Y sign -n {{ COMPANION_NAMESPACE }} -f {{ KEY }} {{ FILE }}
+#
+# WHAT IS SIGNED is `<file>.release`, the binary's release statement — its
+# name, its version and the sha256 of its bytes — and not the bytes alone. A
+# signature over bytes alone vouches for "some program by this publisher", so a
+# signed taskloom installed under ltk's name would be admitted and run as ltk.
+# NAME is the file name the binary will be INSTALLED under (admission compares
+# it with the file it resolves); it defaults to FILE's own, and only a caller
+# that signs a staging copy (`install`) has to say. VERSION defaults to the
+# checkout's VERSION file; a release passes its own.
+sign-binary FILE KEY=SIGN_PUBKEY NAME="" VERSION="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    file="{{ FILE }}"
+    name="{{ NAME }}"
+    [[ -n "$name" ]] || name="$(basename "$file")"
+    version="{{ VERSION }}"
+    [[ -n "$version" ]] || version="$(cat "{{ justfile_directory() }}/VERSION")"
+    if command -v sha256sum >/dev/null 2>&1; then
+        hash="$(sha256sum "$file" | cut -d' ' -f1)"
+    else
+        hash="$(shasum -a 256 "$file" | cut -d' ' -f1)"
+    fi
+    printf '# ctxloom-companion/1\n# name: %s\n# version: %s\n%s  %s\n' "$name" "$version" "$hash" "$name" > "$file.release"
+    rm -f "$file.sig" "$file.release.sig"
+    ssh-keygen -Y sign -n {{ COMPANION_NAMESPACE }} -f {{ KEY }} "$file.release"
+    mv -f "$file.release.sig" "$file.sig"
 
-# Verify a binary's detached signature against this project's trust root.
+# Verify a binary against this project's trust root: the signature covers its
+# release statement, and the statement's hash covers its bytes.
 verify-binary FILE SIGNER=SIGN_KEY:
     ssh-keygen -Y verify -f {{ COMPANION_SIGNERS }} -I {{ SIGNER }} \
-        -n {{ COMPANION_NAMESPACE }} -s {{ FILE }}.sig < {{ FILE }}
+        -n {{ COMPANION_NAMESPACE }} -s {{ FILE }}.sig < {{ FILE }}.release
+    test "$(tail -n1 {{ FILE }}.release | cut -d' ' -f1)" = "$(sha256sum {{ FILE }} | cut -d' ' -f1)"
 
 # --- release artifacts -----------------------------------------------------
 #
@@ -101,14 +126,15 @@ verify-binary FILE SIGNER=SIGN_KEY:
 release-compress-binary FILE:
     upx --best --lzma {{ FILE }}
 
-# Sign a release binary and stage its detached signature under a target-keyed
-# path the matching archive can read.
+# Sign a release binary and stage its release statement and detached signature
+# under a target-keyed path the matching archive can read.
 #
 # The staging copy is what lets an archive carry ITS OWN signature. goreleaser
 # lays built binaries out under per-target directories whose names carry
 # suffixes it owns and may change (…_amd64_v1, …_arm64_v8.0); an archive
 # reaching into that layout would bind this config to goreleaser's internals.
 # Reading from a directory we name instead keeps the coupling ours.
-release-sign-binary FILE OS ARCH NAME: (sign-binary FILE)
+release-sign-binary FILE OS ARCH NAME VERSION: (sign-binary FILE SIGN_PUBKEY "" VERSION)
     mkdir -p dist/sigs/{{ OS }}_{{ ARCH }}
     cp {{ FILE }}.sig dist/sigs/{{ OS }}_{{ ARCH }}/{{ NAME }}.sig
+    cp {{ FILE }}.release dist/sigs/{{ OS }}_{{ ARCH }}/{{ NAME }}.release

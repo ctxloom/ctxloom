@@ -1804,7 +1804,8 @@ install: build-all-bins
     install_signed() {
         local src="$1" name="$2" dest=~/go/bin/"$2"
         cp "$src" "$dest.new"
-        just sign-binary "$dest.new"
+        just sign-binary "$dest.new" "{{ SIGN_PUBKEY }}" "$name"
+        mv -f "$dest.new.release" "$dest.release"
         mv -f "$dest.new.sig" "$dest.sig"
         mv -f "$dest.new" "$dest"
     }

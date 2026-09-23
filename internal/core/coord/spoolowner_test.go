@@ -126,14 +126,21 @@ func TestSpoolOwner_ParkedRecvIsWokenByTheDoorbell(t *testing.T) {
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
-	// Drain what the child's first turn already reported, so the receive
-	// below has nothing to return and genuinely parks.
-	for {
-		if _, err := c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond); err != nil {
-			require.ErrorIs(t, err, ErrRecvTimeout)
-			break
+	// Drain the first turn's RESULT, so the receive below has nothing to
+	// return and genuinely parks. Drained BY NAME, not until a short receive
+	// comes back empty: the result travels the child's out/ spool and
+	// doorbell independently of the roster reaching idle, so under load it
+	// lands after an empty receive and then satisfies the "parked" receive
+	// without it ever parking — the arrival under test is not what it gets.
+	require.Eventually(t, func() bool {
+		msgs, _ := c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
+		for _, m := range msgs {
+			if m.From == out.Harp && m.Kind == KindResult {
+				return true
+			}
 		}
-	}
+		return false
+	}, conformanceWait, time.Millisecond, "the child's first-turn result never reached the owner")
 
 	type recvOut struct {
 		msgs []Message

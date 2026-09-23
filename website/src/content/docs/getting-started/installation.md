@@ -175,7 +175,9 @@ For development or to get the latest unreleased features. Also the most secure o
 ### Prerequisites
 
 - Go 1.26+
-- [buf](https://buf.build/docs/installation) for protobuf code generation
+- [buf](https://buf.build/docs/installation) for protobuf code generation, plus the
+  `protoc-gen-go` and `protoc-gen-go-grpc` plugins on `PATH`: `buf.gen.yaml` runs them
+  as local plugins, so `buf generate` fails without them
 - [just](https://github.com/casey/just) command runner (optional)
 - C compiler — only needed for the tree-sitter build below (`-tags treesitter`
   with `CGO_ENABLED=1`); the plain build is CGO-free and doesn't need one
@@ -275,10 +277,10 @@ ctxloom holds no model API client of its own (this is a licensing requirement, n
 | `claude-code` | `claude` | [claude.ai/code](https://claude.ai/code) |
 
 If the backend you launch (the configured default, or `--llm <label>`) has no binary on `PATH`,
-`ctxloom run` fails immediately with an error naming which backends **are** currently usable —
-it never silently substitutes a different engine. Install (and authenticate) the CLI for the
-backend you configured, or point `llm.defaults.primary` at one you already have. See
-[Configuration → LLMs](/guides/configuration/#llms) for the config shape.
+`ctxloom run` exits non-zero with `exec: "claude": executable file not found in $PATH`. It never
+substitutes a different engine. `ctxloom doctor --deps` reports a missing client before you launch.
+Install (and authenticate) the CLI for the backend you configured, or point `llm.defaults.primary`
+at one you already have. See [Configuration → LLMs](/guides/configuration/#llms) for the config shape.
 
 ### Signing and publishing (needs SSH)
 

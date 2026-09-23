@@ -16,7 +16,7 @@ ctxloom bundle create my-standards
 ctxloom bundle create my-standards -d "My coding standards"
 ```
 
-This creates `.ctxloom/content/bundles/my-standards.yaml` with an example
+This creates `.ctxloom/content/bundles/v2/my-standards.yaml` with an example
 fragment and command. That directory is committed — it's your project's own
 authored content, the tree `ctxloom bundle sign --all` signs, and what a publishing
 repo ships:
@@ -35,12 +35,15 @@ fragments:
         no_distill: true
 commands:
     example:
-        description: Example command
         tags:
             - example
-        content: Example command content. Describe what this command does.
+        content: Example prompt content. Describe what this prompt does.
         no_distill: true
+        description: Example prompt
 ```
+
+Pass `--tree` to author it as a directory instead (`bundle.yaml` plus one file per
+item). Only a tree can be published, so use `--tree` for a bundle you mean to share.
 
 ## Edit Your Bundle
 
@@ -49,7 +52,7 @@ adding or removing items (`--add-fragment`, `--remove-prompt`, `--add-tag`,
 `--add-mcp`, and so on). Run it with no flags and it just prints "No changes
 made" and the help text.
 
-To fill in real content, open `.ctxloom/content/bundles/my-standards.yaml`
+To fill in real content, open `.ctxloom/content/bundles/v2/my-standards.yaml`
 directly in your own editor. (For touching a single existing item in place,
 `ctxloom fragment edit my-standards#fragments/<name>` and
 `ctxloom command edit my-standards#commands/<name>` do use `$EDITOR`.)
@@ -165,9 +168,11 @@ hooks:                              # Agent lifecycle hooks
 
 | Field | Description |
 |-------|-------------|
-| `command` | **Required.** Command to execute |
+| `command` | Command to execute (a local server). Set this or `url` |
 | `args` | Command arguments |
 | `env` | Environment variables |
+| `url` | Endpoint of a network-hosted server; its scheme is the transport |
+| `headers` | HTTP headers sent when dialing `url` |
 
 ## Managing Bundle Content
 
@@ -217,51 +222,42 @@ name won't match anything and `run` will error. To pull in every fragment a
 bundle provides at once, reference the bundle from a profile's `bundles:`
 list and run with `-p <profile>` instead (see [Profiles](/concepts/profiles)).
 
-## Repository Structure for Sharing
+## Sharing a Bundle
 
-To share bundles via GitHub/GitLab, create a repository with this structure:
+A publishing repository lays its bundles out the same way a project does, under
+`.ctxloom/content/bundles/v2/`, so you don't arrange files by hand. Create the
+repository, register it as a remote, and push the bundle to it:
 
-```
-my-ctxloom-repo/
-├── ctxloom/
-│   └── bundles/
-│       ├── go-development.yaml
-│       └── testing-patterns.yaml
-└── README.md
+```bash
+ctxloom remote create standards you/ctxloom-standards
+ctxloom bundle push my-standards standards
 ```
 
-The `ctxloom/` directory is **required** for ctxloom to recognize the repository. Profiles ship inside bundles (a bundle's `profiles:` key) and are addressed `<bundle>#profiles/<name>` — remote repos have no top-level profiles directory.
+`bundle push` refuses a single-file bundle, because bundles are distributed as
+trees; create a shareable one with `ctxloom bundle create my-standards --tree`.
+It commits straight to the default branch; `--pr` opens a pull
+request instead. `--sign` signs the bundle first, so consumers who trust your
+key skip review. See [Sharing](/guides/sharing) for the full publishing guide.
 
 ### Naming for Discovery
 
-Name your repository `ctxloom` or `ctxloom-*` to be discoverable:
+Name your repository `ctxloom` or `ctxloom-*` so `ctxloom remote discover` can find it:
 
 - `ctxloom` - General content
 - `ctxloom-golang` - Go-specific bundles
 - `ctxloom-security` - Security-focused content
 
-### Publish to GitHub
+### Using a Shared Bundle
 
-```bash
-# Create repo structure
-mkdir -p ctxloom/bundles
-
-# Copy your bundles
-cp .ctxloom/content/bundles/my-standards.yaml ctxloom/bundles/
-
-# Push to GitHub
-git init
-git add .
-git commit -m "Initial ctxloom bundles"
-git remote add origin https://github.com/you/ctxloom-standards.git
-git push -u origin main
-```
-
-Others can then use your bundles:
+Registering a remote installs nothing. A consumer references the bundle from a
+profile, pulls it, and accepts it:
 
 ```bash
 ctxloom remote create standards you/ctxloom-standards
-ctxloom run -f coding-style "help me"
+ctxloom profile create standards -b standards/my-standards
+ctxloom deps pull
+ctxloom review
+ctxloom run -p standards "help me"
 ```
 
 ## Distillation

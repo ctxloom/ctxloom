@@ -9,6 +9,12 @@ signed with an Apple Developer ID or a Windows code-signing certificate. Your
 operating system will treat them accordingly, and depending on how you
 install, you may have extra steps before the binary runs.
 
+The archives do carry a detached SSH signature beside each binary
+(`<binary>.sig`). That one is ctxloom's, not the operating system's: ctxloom
+runs a companion only when its `.sig` verifies against a publisher key you
+trust (see `ctxloom companion --help`), so keep the `.sig` next to the binary
+when you install by hand.
+
 ## TL;DR by install method
 
 | Method | Trust steps |
@@ -24,9 +30,9 @@ the only installer that handles `com.apple.provenance`, which is the attribute
 behind the silent kill described below. Homebrew is still a fine way to install
 `ctxloom` itself if you prefer it (and `install.sh --brew` will delegate to it),
 with two caveats: you may have to ad-hoc sign afterwards, and the `taskloom` and
-`ltk` casks are **not published for prerelease tags** — every pre-1.0 release is
-one, so `brew install ctxloom/tap/taskloom` and `.../ltk` will currently fail.
-`install.sh --brew` warns and skips when they do.
+`ltk` casks are **not published for prerelease tags** (a tag with a suffix such
+as `-rc.1`), so a companion's cask can be missing from the tap.
+`install.sh --brew` warns and skips a companion whose cask install fails.
 
 ## macOS (Gatekeeper)
 
@@ -122,8 +128,9 @@ sigstore/cosign attestation) is on the roadmap; until then the trust model is
 open source, public CI from tagged commits, and published checksums — with the
 steps above as the cost.
 
-Reproducible builds are **not** part of that model today. The `taskloom` and
-`ltk` builds are built with `-trimpath` and a pinned `mod_timestamp`; the four
-`ctxloom` build variants have neither, so you cannot currently rebuild the
-flagship binary from a tag and expect to reproduce the released artifact
-bit-for-bit. Making the `ctxloom` builds reproducible is on the same roadmap.
+Reproducible builds are **not** part of that model today. Every release build
+uses `-trimpath`, but only the `taskloom`, `ltk` and `harp` builds pin
+`mod_timestamp`; the `ctxloom` build variants don't, so you cannot currently
+rebuild the flagship binary from a tag and expect to reproduce the released
+artifact bit-for-bit. Making the `ctxloom` builds reproducible is on the same
+roadmap.

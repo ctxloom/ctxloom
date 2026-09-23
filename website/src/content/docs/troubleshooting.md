@@ -96,63 +96,33 @@ ctxloom completion bash > $(brew --prefix)/etc/bash_completion.d/ctxloom
 
 ## Context Not Injected
 
-### Hooks Not Applied
+### Launched Outside ctxloom
 
 **Problem:** Context doesn't appear in Claude Code sessions
 
-**Check hooks configuration:**
+ctxloom delivers context, hooks and its MCP server only to sessions it
+launches. `ctxloom run` writes them into that session's own home; nothing is
+written into the project. A `claude` started directly in the project gets none
+of them.
+
+**Fix:** start the session with `ctxloom run`. For a Claude Code you launch
+yourself, write a profile's context, hooks and commands into a directory:
 ```bash
-cat .claude/settings.json | jq '.hooks'
+ctxloom profile materialize default --target .
 ```
 
-**Expected output:** the command is the shell-quoted absolute path to the
-`ctxloom` binary (not the bare word), carries a 60s timeout, and is
-accompanied by a sibling `ctxloom hook session-bind` entry:
-```json
-{
-  "SessionStart": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "'/path/to/ctxloom' hook inject-context --project '/path/to/project' <hash>",
-          "timeout": 60
-        },
-        {
-          "type": "command",
-          "command": "ctxloom hook session-bind"
-        }
-      ]
-    }
-  ]
-}
-```
-If the assembled context is large, `inject-context` is split into several
-ordered hooks instead of one, each with `--part k --of N`:
-```json
-"command": "'/path/to/ctxloom' hook inject-context --project '/path/to/project' --part 1 --of 3 <hash>"
-```
-Don't diff a real settings.json against a single-hook example — a chunked or
-multi-entry `SessionStart` array is normal, not a sign of a broken install.
+### Nothing Selected
 
-**Fix:**
+**Problem:** `ctxloom run` starts, but the context is missing what you expected
+
+**Check what a run would deliver:**
 ```bash
-ctxloom manage hooks install
+ctxloom run --dry-run -p myprofile
 ```
-
-### Context File Missing
-
-**Problem:** Hook runs but no context appears
-
-**Check context file:**
-```bash
-ls -la .ctxloom/cache/context/
-```
-
-**Regenerate:**
-```bash
-ctxloom manage hooks install
-```
+`fragments` lists what is included and `delivery` lists where each surface goes.
+Content from an unreviewed remote is withheld with an `awaiting review — run
+'ctxloom review'` warning; accept it with `ctxloom review`. `ctxloom doctor`
+checks the rest of the setup.
 
 ### Wrong Directory
 
@@ -288,11 +258,11 @@ ctxloom fragment list
 ctxloom fragment list --bundle mybundle
 ```
 
-**Check fragment reference format:**
+**Check fragment reference format:** `fragment show` needs the bundle, while
+`run -f` also accepts a bare fragment name and searches every installed bundle:
 ```bash
-# Correct formats:
 ctxloom fragment show mybundle#fragments/fragname
-ctxloom fragment show fragname  # searches all bundles
+ctxloom run -f fragname --dry-run
 ```
 
 ### YAML Parse Error
@@ -302,7 +272,7 @@ ctxloom fragment show fragname  # searches all bundles
 **Validate YAML syntax:**
 ```bash
 # Use a YAML linter
-yamllint .ctxloom/content/bundles/mybundle.yaml
+yamllint .ctxloom/content/bundles/v2/mybundle.yaml
 
 # Or try loading the bundle
 ctxloom fragment list --bundle mybundle
@@ -322,7 +292,7 @@ ctxloom fragment list --bundle mybundle
 1. **Distill verbose fragments:**
 ```bash
 ctxloom fragment distill mybundle#fragments/verbose-fragment   # one fragment
-ctxloom bundle distill .ctxloom/content/bundles/mybundle.yaml  # whole bundle
+ctxloom bundle distill .ctxloom/content/bundles/v2/mybundle.yaml  # whole bundle
 ```
 
 2. **Use fewer fragments:**
@@ -344,51 +314,32 @@ ctxloom run --dry-run --format json | jq -r .context | wc -c
 
 ## MCP Server Issues
 
-### Server Won't Start
-
-**Problem:** `ctxloom mcp serve` fails
-
-**Check for port conflicts:**
-```bash
-# MCP uses stdio, but check for other issues
-ctxloom mcp serve 2>&1 | head -20
-```
-
-`CTXLOOM_VERBOSE=1` does not add logging to `mcp serve` — it only affects
-config/sync diagnostics and delegated-child launches, so it won't help here.
+ctxloom's MCP server has no command of its own to launch: the running
+`ctxloom run` session serves it, and the session's engine is pointed at it.
 
 ### Tools Not Appearing
 
-**Problem:** MCP tools don't show up in Claude Code
+**Problem:** ctxloom's MCP tools don't show up in Claude Code
 
-**Check MCP configuration:**
+**Check you are in a `ctxloom run` session.** A Claude Code launched any other
+way, including from a materialized profile, has no ctxloom MCP server.
+
+**Check the server is registered:**
 ```bash
-cat .mcp.json | jq '.mcpServers'
+ctxloom mcp server list   # ctxloom is listed as "Served by: the running session's endpoint"
 ```
-
-**Ensure ctxloom is registered:**
-```bash
-ctxloom mcp server list        # ctxloom's own server must be listed
-ctxloom manage hooks install
-```
-If it is missing, a profile's `exclude_mcp` is withholding it, or the builtin
-bundle's item has been rejected (`ctxloom review`).
-
-**Restart Claude Code** after configuration changes.
+If it is missing, a profile's `exclude_mcp` is withholding it, or it has been
+rejected (`ctxloom review`, or clear the rejection with `ctxloom bundle forget`).
 
 ### Tool Execution Fails
 
 **Problem:** MCP tool returns error
 
-`CTXLOOM_VERBOSE=1 ctxloom mcp serve` produces the same output as without it —
-it doesn't instrument the MCP server. Isolate the failure by testing the
-underlying CLI command instead:
-
-**Test tool directly:**
+Isolate the failure by running the underlying CLI command instead:
 ```bash
-# Test the underlying CLI command
 ctxloom fragment list
 ctxloom profile list
+ctxloom session list
 ```
 
 ## Performance Issues
@@ -443,27 +394,6 @@ yamllint .ctxloom/config.yaml
 ctxloom config show
 ```
 
-### Startup Aborts with "authored bundle(s)" Fatal Finding
-
-**Problem:** `ctxloom` refuses to start, printing something like:
-
-```
-ctxloom: aborting startup: 1 fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:
-  - [migration] .ctxloom/cache/bundles holds 1 authored bundle(s) (my-standards.yaml) but authored bundles now live in .ctxloom/content/bundles — the cache is gitignored and is no longer read, so these are invisible to `bundle list`, `run`, and `sign --all`
-    fix: move them into the committed content tree: mkdir -p .ctxloom/content/bundles && git mv .ctxloom/cache/bundles/* .ctxloom/content/bundles/ (or plain mv outside git)
-```
-
-**What it means:** authored bundles used to live under `.ctxloom/cache/bundles/`. That directory is now cache — gitignored and read only for remote-pull artifacts — so a bundle you wrote by hand and left there is invisible to `bundle list`, `run`, and `sign --all`, and it never gets committed. ctxloom detects this instead of silently losing the file, and refuses to start until you move it.
-
-**Fix:** move the stranded bundle(s) into the committed content tree:
-```bash
-mkdir -p .ctxloom/content/bundles
-git mv .ctxloom/cache/bundles/* .ctxloom/content/bundles/
-```
-(drop `git` from the `mv` if the old files were never tracked). Rerun `ctxloom` once they're moved; the finding disappears because `.ctxloom/cache/bundles/` no longer holds anything ctxloom can't account for.
-
-To launch once without fixing it — e.g. to inspect the directory first — pass `--degraded` or set `CTXLOOM_DEGRADED=1`, but the stranded bundles stay invisible to `bundle list`, `run`, and `sign --all` until you move them.
-
 ### `{{VAR}}` Not Substituting
 
 **Problem:** A fragment's `{{SOMEVAR}}` renders empty or literally.
@@ -489,9 +419,9 @@ config/sync diagnostics and delegated-child (agent) launch stderr:
 ```bash
 CTXLOOM_VERBOSE=1 ctxloom <command>
 ```
-For most other commands it changes nothing. For GitHub API calls (`remote
-pull`, `remote browse`, etc.), use `CTXLOOM_DEBUG_HTTP=1` instead — it logs
-every request method and URL to stderr.
+For most other commands it changes nothing. For GitHub API calls (`deps
+pull`, `remote show`, `remote discover`, etc.), use `CTXLOOM_DEBUG_HTTP=1`
+instead — it logs every request method and URL to stderr.
 
 ### Check Version
 

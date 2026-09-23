@@ -391,47 +391,18 @@ func ContainerInstanceHome(ws Workspace) string {
 	return ""
 }
 
-// MountEngineHome records the bind mounts a resolved engine home needs inside
+// MountEngineHome records the bind mount a resolved engine home needs inside
 // a container workspace, so the launch that follows binds Root.Host at
-// Root.Engine. It is an error on a workspace that executes on the host: such
-// a workspace has no ContainerInstanceHome and the resolver never yields a
-// mount for it, so reaching here with one means the two disagree.
-//
-// THE SESSION HOME IS THE ONLY CREDENTIAL SOURCE for a relocated container
-// run (ruled 2026-09-21): the directory mount hands the engine its home
-// read-write, and the real host credential file is NEVER a mount source
-// once the home relocates — the auth resolver's real-file mounts are
-// dropped here. What the home holds depends on who the run is: the
-// ORCHESTRATOR's home holds the whole credential (two-way with the host
-// through the replicator), so its engine refreshes in place and the
-// directory mount alone is right; an AGENT's home holds a read-only
-// projection, and the seeded file is bind-mounted READ-ONLY over itself
-// (projected) so the agent's engine can neither write it back nor refresh.
-// Auth that rides the environment needs no file and gets none; an engine
-// with no relocatable credential has nothing to overlay.
-//
-// An agent whose home holds no seeded copy must not turn a launch into a
-// logged-out engine silently: the home still mounts, and the gap is said
-// out loud.
-func MountEngineHome(ws Workspace, m present.Mount, projected bool) error {
+// Root.Engine, read-write. It is an error on a workspace that executes on the
+// host: such a workspace has no ContainerInstanceHome and the resolver never
+// yields a mount for it, so reaching here with one means the two disagree.
+// The home holds no credential; the engine authenticates from its env.
+func MountEngineHome(ws Workspace, m present.Mount) error {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return fmt.Errorf("engine home mount %s -> %s: workspace %T executes on the host and cannot mount", m.HostDir, m.TargetDir, ws)
 	}
 	cw.extraMounts = append(cw.extraMounts, cw.runtime.Expose(m.HostDir, m.TargetDir, false))
-	if cw.authMode != authCredentialMount {
-		return nil
-	}
-	// The relocated home is the credential's only source from here on.
-	cw.authMounts = nil
-	if !projected || cw.engineSpec.projectedCredentialMounts == nil {
-		return nil
-	}
-	mounts, missing := cw.engineSpec.projectedCredentialMounts(m.HostDir, m.TargetDir)
-	for _, name := range missing {
-		clidiag.Warn("ctxloom", "container engine home %s: no seeded %s to pin read-only; this agent authenticates from nothing", m.TargetDir, name)
-	}
-	cw.extraMounts = append(cw.extraMounts, mounts...)
 	return nil
 }
 

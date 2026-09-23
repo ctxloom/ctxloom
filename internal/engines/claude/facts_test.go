@@ -18,23 +18,14 @@ func claudeKind(t *testing.T) engine.Engine {
 }
 
 // The home declaration is built from the engine's own constants, so the
-// directory the seed lands in IS the directory CLAUDE_CONFIG_DIR names.
+// directory the session home lands in IS the directory CLAUDE_CONFIG_DIR
+// names.
 func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 	home := claudeKind(t).Home()
 	require.NoError(t, home.Validate())
 	require.Len(t, home.Vars, 1)
 	assert.Equal(t, ConfigDirEnv, home.Vars[0].Name)
 	assert.Equal(t, HomeLeaf, home.Vars[0].Subdir)
-
-	seed, ok := home.Credentials.Get()
-	require.True(t, ok, "claude relocates credentials with its home var")
-	assert.Equal(t, HomeLeaf, seed.Subdir)
-	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}, seed.EnvTriggers)
-	assert.Equal(t, "claude login", seed.LoginHint)
-	require.Len(t, seed.Files, 1, "only .credentials.json crosses — never .claude.json (the user's whole config)")
-	assert.Equal(t, filepath.ToSlash(filepath.Join(ConfigDirName, CredentialsFileName)), seed.Files[0].HostRelHome)
-	assert.Equal(t, CredentialsFileName, seed.Files[0].DestName)
-	assert.True(t, seed.Files[0].Required)
 	assert.NotNil(t, home.InstanceConfig, "claude generates its own instance config into a provisioned home")
 }
 
@@ -50,35 +41,9 @@ func TestHome_DeclaresTokenAuth(t *testing.T) {
 	}, a)
 }
 
-// The seed is a PROJECTION (the refresh half withheld), and a projection can
-// only be delivered by a mechanism that copies: replication re-projects the
-// host file on every change; a mount shares by identity and would hand the
-// instance the very field the seed withholds. So replication is the one
-// accepted delivery, and the projection is declared on the file itself.
-func TestHome_AcceptsReplicationOnly_BecauseTheSeedIsAProjection(t *testing.T) {
-	seed, ok := claudeKind(t).Home().Credentials.Get()
-	require.True(t, ok)
-	assert.Equal(t, []engine.MaterialDelivery{engine.MaterialDeliveryReplicated}, seed.Accept)
-	require.NotNil(t, seed.Files[0].Project, "the credential file declares its projection")
-	got, err := seed.Files[0].Project([]byte(`{"claudeAiOauth":{"accessToken":"a","refreshToken":"r","refreshTokenExpiresAt":1,"expiresAt":2,"scopes":["s"]},"other":true}`))
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"claudeAiOauth":{"accessToken":"a","expiresAt":2,"scopes":["s"]},"other":true}`, string(got))
-}
-
-// An API-key credential carries no OAuth object: the projection has nothing
-// to withhold and passes the object through. Anything that is not a JSON
-// object is refused rather than seeded uninspected.
-func TestProjectCredential_NoOAuthObjectPassesThrough_NonObjectRefused(t *testing.T) {
-	got, err := projectCredential([]byte(`{"apiKey":"k"}`))
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"apiKey":"k"}`, string(got))
-	_, err = projectCredential([]byte(`not json`))
-	assert.Error(t, err)
-	_, err = projectCredential([]byte(`{"claudeAiOauth":"a string"}`))
-	assert.Error(t, err)
-}
-
-func TestContainer_AuthPrefersEnvAndMountsTheRealCredentialReadWrite(t *testing.T) {
+// A container authenticates from the env alone: no credential file is ever
+// mounted into it, and the refusal names how to mint and store a token.
+func TestContainer_AuthIsEnvOnly(t *testing.T) {
 	c, err := claudeKind(t).Container()
 	require.NoError(t, err)
 	require.NoError(t, c.Validate())
@@ -93,10 +58,8 @@ func TestContainer_AuthPrefersEnvAndMountsTheRealCredentialReadWrite(t *testing.
 		"the setup-token var authenticates a container on its own, so it is a trigger")
 	assert.Contains(t, auth.EnvPassthrough, "CLAUDE_CODE_OAUTH_TOKEN", "a trigger that does not cross leaves the container logged out")
 	assert.Contains(t, auth.EnvPassthrough, "ANTHROPIC_BASE_URL")
-	require.Len(t, auth.CredentialFiles, 1)
-	assert.False(t, auth.CredentialFiles[0].ReadOnly, "claude's token refresh must write back into the one real file")
-	assert.Equal(t, auth.CredentialFiles[0].HostRelHome, auth.CredentialFiles[0].ContainerRelHome)
-	assert.NotEmpty(t, auth.Hint)
+	assert.Contains(t, auth.Hint, "claude setup-token")
+	assert.Contains(t, auth.Hint, "ctxloom auth set-token")
 }
 
 // Hooks decodes claude's native payload: the unified event for the native
@@ -112,17 +75,4 @@ func TestHooks_DecodesTheNativePayload(t *testing.T) {
 	assert.Equal(t, "session_start", ev.Event, "the registration's event names it when the payload carries none")
 	_, err = codec.Decode("Stop", []byte(`not json`))
 	require.Error(t, err)
-}
-
-// On macOS the store is the Keychain: the seed declares the default item's
-// service and the same projection the file arm applies.
-func TestHome_DeclaresTheMacOSKeychainStore(t *testing.T) {
-	seed, ok := claudeKind(t).Home().Credentials.Get()
-	require.True(t, ok)
-	require.NotNil(t, seed.Keychain)
-	assert.Equal(t, "Claude Code-credentials", seed.Keychain.Service)
-	require.NotNil(t, seed.Keychain.Project)
-	got, err := seed.Keychain.Project([]byte(`{"claudeAiOauth":{"accessToken":"a","refreshToken":"r"}}`))
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"claudeAiOauth":{"accessToken":"a"}}`, string(got))
 }

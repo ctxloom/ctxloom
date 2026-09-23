@@ -1,9 +1,6 @@
 package isolation
 
 import (
-	"os"
-	"path"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestEngineContainerSpecFor_Claude pins the claude-code spec: the generic agent
@@ -32,8 +28,9 @@ func TestEngineContainerSpecFor_Claude(t *testing.T) {
 	// func value is not directly comparable.
 	assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "the degrade hint names claude's trigger var")
 	require.NotNil(t, p.resolveAuth, "the claude spec wires an auth resolver")
+	clearClaudeAuthEnv(t)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	auth, ok := p.resolveAuth("/root", t.TempDir())
+	auth, ok := p.resolveAuth()
 	require.True(t, ok, "with ANTHROPIC_API_KEY set the wired resolver authenticates")
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the wired resolver is the claude (ANTHROPIC_*) resolver")
@@ -43,8 +40,8 @@ func TestEngineContainerSpecFor_Claude(t *testing.T) {
 // backend name keeps the generic image, NO local build (run if the image is
 // present, degrade if not) — and fails CLOSED on credentials. Before the fix
 // the default wired claude's resolver, so any unrecognized engine got the
-// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through and ~/.claude
-// credentials mounted into a foreign engine's container. resolveAuth always
+// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through into a foreign
+// engine's container. resolveAuth always
 // returns ok=false, and the hint names the missing declaration rather than
 // Anthropic's env vars. Its overlay set is ctxloom's own cache dir alone: no
 // engine declared anything, so nothing engine-shaped is shadowed.
@@ -57,7 +54,7 @@ func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 		require.NotNil(t, p.resolveAuth, "backend %q must still wire a resolver, just one that fails closed", name)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 		t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-test")
-		_, ok := p.resolveAuth("/root", t.TempDir())
+		_, ok := p.resolveAuth()
 		assert.False(t, ok, "backend %q must NOT authenticate as claude — no declaration is registered for it", name)
 		assert.NotContains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q must not inherit claude's degrade hint", name)
 	}
@@ -99,7 +96,6 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 	assert.Equal(t, "cat --version", p.validate)
 	assert.Equal(t, []string{".mock", ctxloomCacheOverlayDir}, p.overlayDirs)
 	assert.Empty(t, p.transcriptStoreRel)
-	assert.Nil(t, p.projectedCredentialMounts, "no credential files, nothing to pin on a relocated home")
 
 	// The hint is read only when resolveAuth answers !ok, which a vendorless
 	// resolver never does, so the ONE string the field can carry here is a
@@ -112,13 +108,10 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 		"the sentinel carries the declaration's own reason, so a reader of the message can see which engine claimed it")
 
 	require.NotNil(t, p.resolveAuth)
-	for _, home := range []string{"/root", ""} {
-		auth, ok := p.resolveAuth(home, t.TempDir())
-		require.True(t, ok, "a vendorless engine's auth resolves unconditionally")
-		assert.Equal(t, authNone, auth.mode)
-		assert.Empty(t, auth.envPassthrough)
-		assert.Empty(t, auth.mounts)
-	}
+	auth, ok := p.resolveAuth()
+	require.True(t, ok, "a vendorless engine's auth resolves unconditionally")
+	assert.Equal(t, authNone, auth.mode)
+	assert.Empty(t, auth.envPassthrough)
 }
 
 // TestEngineContainerSpecFor_DeclaredAbsentFailsClosed: an engine that is
@@ -228,91 +221,4 @@ func TestContainerAuthEngines_MatchesTheTable(t *testing.T) {
 	}
 	assert.Equal(t, noContainerAuthHint, engineContainerSpecFor("acp").authHint,
 		"the generic acp backend reaches the fail-closed default arm — the case config validation exists to catch before launch")
-}
-
-// renamingCredentialFixtureHostRel is the one host file both halves of
-// registerRenamingCredentialFixture's declaration name — the shared join key
-// (engine.SeedFile.HostRelHome / engine.CredentialFile.HostRelHome) a real
-// engine also shares between its two independent declarations.
-const renamingCredentialFixtureHostRel = "fixture/creds.json"
-
-// renamingCredentialFixtureDestName is the leaf the fixture's credential seed
-// declares (engine.SeedFile.DestName) — DELIBERATELY not
-// path.Base(renamingCredentialFixtureHostRel) ("creds.json"), because every
-// SHIPPED engine's two declarations happen to agree on that leaf and so
-// cannot exercise this divergence at all.
-const renamingCredentialFixtureDestName = "renamed-creds.json"
-
-// registerRenamingCredentialFixture registers an engine whose credential
-// SEED (engine.CredentialSeed.Files) and whose container AUTH
-// (engine.ContainerAuth.CredentialFiles) declare the SAME host file via the
-// shared HostRelHome, but where the seed renames it on copy: DestName
-// differs from ContainerRelHome's own leaf. This is the case
-// projectedCredentialMounts must resolve by reading the declared DestName —
-// path.Base(ContainerRelHome) alone gives the WRONG answer here.
-func registerRenamingCredentialFixture(t *testing.T, name string) {
-	t.Helper()
-	stageEngineFacts(t, name, func(f *EngineFacts) {
-		f.Home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture-home"}}, Credentials: engine.Provide(engine.CredentialSeed{
-			Subdir:    "fixture-home",
-			LoginHint: name + " login",
-			Files: []engine.SeedFile{
-				{HostRelHome: renamingCredentialFixtureHostRel, DestName: renamingCredentialFixtureDestName, Required: true},
-			},
-			Accept: []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
-		})}
-		f.Container = engine.Provide(engine.ContainerSpec{
-			Install:         []byte("RUN command -v cat\n"),
-			ValidateCommand: "cat --version",
-			Auth: engine.Provide(engine.ContainerAuth{
-				EnvTriggers: []string{"CTXLOOM_TEST_NEVER_SET_" + name},
-				CredentialFiles: []engine.CredentialFile{
-					{HostRelHome: renamingCredentialFixtureHostRel, ContainerRelHome: renamingCredentialFixtureHostRel},
-				},
-				Hint: name + " has no credential to authenticate with",
-			}),
-		})
-		f.Distribution = engine.DistributionTestOnly
-	})
-}
-
-// TestProjectedCredentialMounts_PinsTheSeededCopyAtItsDeclaredName: with an
-// engine whose seed RENAMES the file on copy, the read-only pin must land at
-// the DECLARED DestName under the agent's session home, not at a re-derived
-// path.Base(ContainerRelHome) — and its source is the seeded copy in the
-// session home, never the host file. Every shipped engine's two
-// declarations happen to agree on that leaf (claude's do), so only a
-// fixture that deliberately disagrees can tell "read the declaration" apart
-// from "re-derive it".
-func TestProjectedCredentialMounts_PinsTheSeededCopyAtItsDeclaredName(t *testing.T) {
-	home := testsupport.Isolate(t)
-	const name = "renaming-credential-fixture"
-	registerRenamingCredentialFixture(t, name)
-
-	hostFile := filepath.Join(home, filepath.FromSlash(renamingCredentialFixtureHostRel))
-	require.NoError(t, os.MkdirAll(filepath.Dir(hostFile), 0o755))
-	require.NoError(t, os.WriteFile(hostFile, []byte("secret"), 0o600))
-	sessionHome := t.TempDir()
-	seeded := filepath.Join(sessionHome, renamingCredentialFixtureDestName)
-	require.NoError(t, os.WriteFile(seeded, []byte("projected"), 0o600))
-
-	spec := engineContainerSpecFor(name)
-	require.NotNil(t, spec.projectedCredentialMounts,
-		"guard: the fixture must wire a projected-mount func, or the assertions below are vacuous")
-
-	const engineHome = "/relocated/fixture-home"
-	mounts, missing := spec.projectedCredentialMounts(sessionHome, engineHome)
-	require.Empty(t, missing)
-	require.Len(t, mounts, 1)
-
-	derivedLeaf := path.Base(renamingCredentialFixtureHostRel)
-	require.NotEqual(t, renamingCredentialFixtureDestName, derivedLeaf,
-		"guard: the fixture's declared DestName must actually differ from Base(ContainerRelHome), or this test cannot observe the bug at all")
-
-	assert.Equal(t, Mount{Host: seeded, Container: path.Join(engineHome, renamingCredentialFixtureDestName), ReadOnly: true}, mounts[0],
-		"the pin lands at the seeded copy's ACTUAL name, sourced from the session home, read-only")
-	assert.NotEqual(t, hostFile, mounts[0].Host, "the real host file is never an agent's mount source")
-
-	_, missing = spec.projectedCredentialMounts(t.TempDir(), engineHome)
-	assert.Equal(t, []string{renamingCredentialFixtureDestName}, missing, "a required file the seed did not place is reported, not mounted")
 }

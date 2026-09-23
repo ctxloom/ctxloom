@@ -2,9 +2,6 @@ package isolation
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // The engine-home root every case here presents: a session instance's leaf
@@ -59,7 +55,7 @@ func TestMountEngineHome_ContainerCarriesTheMountIntoItsRunnerSpec(t *testing.T)
 	cw := &containerWorkspace{instanceHome: "/ctxloom/home", runtime: fakeRuntime{}}
 	m := present.Mount{HostDir: hostEngineHome, TargetDir: "/home/ctxloom/.ctxloom/home/claude"}
 
-	require.NoError(t, MountEngineHome(cw, m, false))
+	require.NoError(t, MountEngineHome(cw, m))
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	spec := c.buildRunnerSpec("claude-code", "name", cw, nil)
@@ -73,122 +69,25 @@ func TestMountEngineHome_ContainerCarriesTheMountIntoItsRunnerSpec(t *testing.T)
 func TestMountEngineHome_HostWorkspaceRefuses(t *testing.T) {
 	noneWS, err := None{}.PrepareWorkspace(context.Background(), "/proj", "m")
 	require.NoError(t, err)
-	err = MountEngineHome(noneWS, present.Mount{HostDir: hostEngineHome, TargetDir: "/elsewhere"}, false)
+	err = MountEngineHome(noneWS, present.Mount{HostDir: hostEngineHome, TargetDir: "/elsewhere"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot mount")
 }
 
-// relocatedEngineHome is where a container cell tells the engine its
-// home is: hostEngineHome mounted under the fixed root, at the declared leaf.
-const relocatedEngineHome = "/ctxloom/home/claude"
-
-// claudeContainerWorkspace is a container workspace whose auth resolved to the
-// credential mount, for claude, exactly as prepareContainerScratch leaves it —
-// the only state MountEngineHome reads to decide the credential overlay.
-func claudeContainerWorkspace(mode containerAuthMode) *containerWorkspace {
-	return &containerWorkspace{
-		instanceHome: "/ctxloom/home",
-		runtime:      fakeRuntime{},
-		engineSpec:   engineContainerSpecFor("claude-code"),
-		authMode:     mode,
-	}
-}
-
-// RULED 2026-09-21: an AGENT's container gets the PROJECTED copy — the file
-// the seed placed in its session home — bind-mounted READ-ONLY over the
-// instance's copy at <engine home>/.credentials.json, and the real host
-// credential is NEVER a mount source for it: the auth resolver's real-file
-// mounts are dropped once the home relocates. The directory mount gives the
-// engine its home read-write (it writes its state there); the file mount
-// inside it pins the credential read-only, so the agent cannot write it
-// back and cannot refresh.
-func TestMountEngineHome_AnAgentContainerMountsTheProjectedCopyReadOnly(t *testing.T) {
-	home := withFakeHome(t)
-	writeCreds(t, home, true)
-	cw := claudeContainerWorkspace(authCredentialMount)
-	cw.authMounts = []Mount{{Host: filepath.Join(home, ".claude", ".credentials.json"), Container: "/root/.claude/.credentials.json"}}
+// A relocated claude container gets its session home mounted and nothing
+// else: no credential file is ever bound into it, from the host's own
+// ~/.claude or from anywhere else. It authenticates from its env.
+func TestMountEngineHome_MountsTheHomeAndNoCredential(t *testing.T) {
+	cw := &containerWorkspace{instanceHome: "/ctxloom/home", runtime: fakeRuntime{}, engineSpec: engineContainerSpecFor("claude-code"), authMode: authEnv}
 	sessionHome := t.TempDir()
-	seeded := filepath.Join(sessionHome, ".credentials.json")
-	require.NoError(t, os.WriteFile(seeded, []byte(`{"claudeAiOauth":{"accessToken":"projected"}}`), 0o600))
-
-	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: sessionHome, TargetDir: relocatedEngineHome}, true))
+	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: sessionHome, TargetDir: "/ctxloom/home/claude"}))
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	spec := c.buildRunnerSpec("claude-code", "name", cw, nil)
 	extra := spec.Mounts[1:] // after the project mount
-	require.Len(t, extra, 2, "the home directory, then the projected credential file over it")
-	assert.Equal(t, Mount{Host: sessionHome, Container: relocatedEngineHome, ReadOnly: false}, extra[0])
-	assert.Equal(t, Mount{Host: seeded, Container: relocatedEngineHome + "/.credentials.json", ReadOnly: true},
-		extra[1], "the PROJECTED copy under the agent's session, read-only")
-	assert.Empty(t, cw.authMounts, "the real host file is never a mount source for an agent")
-	for _, m := range append(cw.authMounts, extra...) {
-		assert.NotContains(t, m.Host, filepath.Join(home, ".claude"), "the real host credential never crosses into an agent's container")
-		assert.NotContains(t, m.Host, ".claude.json", "the user's own top-level config never crosses")
+	require.Len(t, extra, 1, "the home directory alone")
+	assert.Equal(t, Mount{Host: sessionHome, Container: "/ctxloom/home/claude", ReadOnly: false}, extra[0])
+	for _, m := range spec.Mounts {
+		assert.NotContains(t, m.Container, ".credentials.json", "no credential file is mounted into a container")
 	}
-}
-
-// The ORCHESTRATOR's container is the single refresher: its home directory
-// mounts read-write with no read-only overlay (the whole credential in it is
-// two-way with the host through the replicator), and the real host file is
-// still never a mount source — the session home is.
-func TestMountEngineHome_TheOrchestratorContainerMountsItsWholeHomeReadWrite(t *testing.T) {
-	home := withFakeHome(t)
-	writeCreds(t, home, true)
-	cw := claudeContainerWorkspace(authCredentialMount)
-	cw.authMounts = []Mount{{Host: filepath.Join(home, ".claude", ".credentials.json"), Container: "/root/.claude/.credentials.json"}}
-	sessionHome := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(sessionHome, ".credentials.json"), []byte(`{"whole":true}`), 0o600))
-
-	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: sessionHome, TargetDir: relocatedEngineHome}, false))
-
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	spec := c.buildRunnerSpec("claude-code", "name", cw, nil)
-	extra := spec.Mounts[1:] // after the project mount
-	require.Len(t, extra, 1, "the home directory alone, read-write: the orchestrator's engine refreshes in place")
-	assert.Equal(t, Mount{Host: sessionHome, Container: relocatedEngineHome, ReadOnly: false}, extra[0])
-	assert.Empty(t, cw.authMounts, "the real host file is never a mount source once the home relocates")
-}
-
-// Auth that rides the environment (an API key) needs no credential file at
-// all: nothing was seeded, nothing is overlaid, and the home mount stands
-// alone — the same precedence resolveEnvOrMountAuth already applies.
-func TestMountEngineHome_EnvAuthMountsNoCredential(t *testing.T) {
-	home := withFakeHome(t)
-	writeCreds(t, home, true)
-	cw := claudeContainerWorkspace(authEnv)
-
-	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: hostEngineHome, TargetDir: relocatedEngineHome}, true))
-
-	require.Len(t, cw.extraMounts, 1)
-	assert.Equal(t, relocatedEngineHome, cw.extraMounts[0].Container)
-}
-
-// An agent whose session home holds no seeded copy (nothing was seedable and
-// the run was let through anyway) gets the home mount alone, and the gap is
-// said out loud rather than discovered as a logged-out engine.
-func TestMountEngineHome_AbsentSeededCopyMountsTheHomeAloneAndSaysSo(t *testing.T) {
-	withFakeHome(t)
-	var sink strings.Builder
-	t.Cleanup(clidiag.SetSink(&sink))
-	cw := claudeContainerWorkspace(authCredentialMount)
-
-	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: t.TempDir(), TargetDir: relocatedEngineHome}, true))
-
-	require.Len(t, cw.extraMounts, 1, "the home mount stands; there is no seeded copy to overlay")
-	assert.Equal(t, relocatedEngineHome, cw.extraMounts[0].Container)
-	assert.Contains(t, sink.String(), ".credentials.json", "the notice names the file it could not mount")
-}
-
-// An engine with no relocatable credential (mock authenticates against no
-// vendor) gets the home mount and nothing else, silently: there is no
-// credential whose absence could be a degradation.
-func TestMountEngineHome_EngineWithoutACredentialMountsOnlyTheHome(t *testing.T) {
-	var sink strings.Builder
-	t.Cleanup(clidiag.SetSink(&sink))
-	cw := &containerWorkspace{instanceHome: "/ctxloom/home", runtime: fakeRuntime{}, engineSpec: engineContainerSpecFor("mock"), authMode: authCredentialMount}
-
-	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: "/proj/.ctxloom/state/h/home/mock", TargetDir: "/home/ctxloom/.ctxloom/home/mock"}, true))
-
-	require.Len(t, cw.extraMounts, 1)
-	assert.Empty(t, sink.String())
 }

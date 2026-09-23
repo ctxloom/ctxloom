@@ -8,8 +8,8 @@ import (
 )
 
 // EngineFacts are the facts about one engine the cells adapter reads to
-// prepare a cell: how its home relocates and what credential material seeds
-// it (Engine.Home), how a container of it is built and authenticated
+// prepare a cell: how its home relocates and how a run there authenticates
+// (Engine.Home), how a container of it is built and authenticated
 // (Engine.Container), and whether it ships by default. They are the ENGINE'S
 // OWN declarations, read off the engine value through ONE port.
 type EngineFacts struct {
@@ -35,7 +35,7 @@ func FactsOf(eng engine.Engine) EngineFacts {
 
 // Facts is the one accessor the cells adapter reads engine facts through:
 // the facts for a named engine, and the names it can answer for. Isolation
-// resolves engines by NAME (CopyAmbient is handed an engine name) and never
+// resolves engines by NAME (PrepareInstanceHome is handed an engine name) and never
 // imports an engine package; the composition root installs the accessor
 // once (UseFacts).
 type Facts interface {
@@ -88,28 +88,6 @@ func factNames() []string {
 	return names
 }
 
-// credentialSeedDeclared is the engine's credential seed: what its declared
-// home says seeds it. A home that relocates nothing (the zero HomeSpec)
-// seeds nothing, and says so.
-func credentialSeedDeclared(name string) (engine.Declared[engine.CredentialSeed], bool) {
-	f, ok := factsFor(name)
-	if !ok {
-		return engine.Declared[engine.CredentialSeed]{}, false
-	}
-	if !f.Home.Relocates() {
-		return engine.Absent[engine.CredentialSeed](name + " relocates no engine home: there is nothing to seed"), true
-	}
-	return f.Home.Credentials, true
-}
-
-func credentialSeedFor(name string) (engine.CredentialSeed, bool) {
-	d, ok := credentialSeedDeclared(name)
-	if !ok {
-		return engine.CredentialSeed{}, false
-	}
-	return d.Get()
-}
-
 // engineContainerRegistration is one engine's container story with the
 // shipping policy that decides whether it composes into the default image.
 type engineContainerRegistration struct {
@@ -134,16 +112,6 @@ func registeredEngineContainers() map[string]engineContainerRegistration {
 		}
 	}
 	return out
-}
-
-// instanceConfigWriterFor is the engine's own writer of its top-level config
-// into a provisioned home; nil when it declares none.
-func instanceConfigWriterFor(name string) engine.InstanceConfigWriter {
-	f, ok := factsFor(name)
-	if !ok {
-		return nil
-	}
-	return f.Home.InstanceConfig
 }
 
 // RegistryFacts is the Facts accessor over a composed engine.Registry: the

@@ -80,19 +80,9 @@ const (
 	// claude reads it ahead of any credentials file and never refreshes it or
 	// writes it to disk.
 	OAuthTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
-	// CredentialsFileName is the OAuth/API credential file claude reads and
-	// refreshes inside its config home (ConfigDirName, or a
-	// CLAUDE_CONFIG_DIR-relocated equivalent) — seeded per-agent from the
-	// descriptor's credential-seed declaration.
-	CredentialsFileName = ".credentials.json"
 	// TranscriptsDirName is the subdirectory of ConfigDirName claude stores
 	// its native per-project session transcripts under (~/.claude/projects).
 	TranscriptsDirName = "projects"
-	// KeychainService is the macOS Keychain generic-password service claude
-	// keeps its credential under for the DEFAULT config dir; a relocated
-	// config dir's item is this name suffixed with "-" and the first eight
-	// hex digits of the sha256 of the dir (2.1.278).
-	KeychainService = "Claude Code-credentials"
 )
 
 // relSettings, relCommands, relSkills, relAgents are the ConfigDirName-relative

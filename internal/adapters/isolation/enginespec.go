@@ -1,7 +1,6 @@
 package isolation
 
 import (
-	"path"
 	"path/filepath"
 	"sort"
 
@@ -34,17 +33,10 @@ import (
 //     overlay escape hatch (overlayContainerfile) — composition uses
 //     engineInstall's OWN embedded validate step instead.
 //   - resolveAuth: how the in-container engine authenticates (scoped env
-//     passthrough and/or credential mounts into the fresh HOME), built from
-//     the engine's declared engine.ContainerAuth by resolveDeclaredAuth. Takes
-//     the run's host-side scratch dir too, a seam-signature remnant no
-//     resolver writes under today.
+//     passthrough, by name), built from the engine's declared
+//     engine.ContainerAuth by resolveDeclaredAuth.
 //   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
 //     the engine's trigger var/credential source without leaking values.
-//   - projectedCredentialMounts: the read-only pin an AGENT's relocated
-//     home (MountEngineHome, projected) puts over each credential file the
-//     seed placed there, so the agent's engine can neither write it back nor
-//     refresh. nil for an engine that authenticates against no vendor or
-//     declares no credential files.
 //   - overlayDirs: the project-relative managed-config DIRECTORIES ctxloom's
 //     writers target under the run's cwd for this engine, shadowed by scratch
 //     overlay mounts on the live-project mount so the HOST project stays clean
@@ -69,19 +61,13 @@ import (
 // fail-closed default below is reached only by a name nobody composed or an
 // engine that SAID it has no container story, never by a forgotten row.
 type engineContainerSpec struct {
-	image         string
-	engineInstall []byte
-	validate      string
-	resolveAuth   func(containerHome, scratchDir string) (containerAuth, bool)
-	authHint      string
-	// projectedCredentialMounts takes an AGENT's session home on the host
-	// and the ENGINE-side path of the relocated home, and returns the
-	// read-only file mount(s) that pin the seeded projection over itself,
-	// with the required files the seed did not place. nil for an engine
-	// with no credential file to pin.
-	projectedCredentialMounts func(sessionHome, engineHome string) (mounts []Mount, missing []string)
-	overlayDirs               []string
-	transcriptStoreRel        string
+	image              string
+	engineInstall      []byte
+	validate           string
+	resolveAuth        func() (containerAuth, bool)
+	authHint           string
+	overlayDirs        []string
+	transcriptStoreRel string
 }
 
 // ctxloomCacheOverlayDir is ctxloom's own project-relative cache directory
@@ -137,13 +123,12 @@ func ComposableEngines() []string {
 func engineContainerSpecFor(backend string) engineContainerSpec {
 	if r, ok := engineContainerDeclared(backend); ok {
 		if c, ok := r.container.Get(); ok {
-			return specFromDeclaration(backend, c)
+			return specFromDeclaration(c)
 		}
 	}
 	// This used to be a claude-oriented default that failed OPEN on
 	// credentials, so any unrecognized engine got the user's ANTHROPIC_*
-	// vars passed through and ~/.claude credentials mounted into a FOREIGN
-	// engine's container. Every engine must earn its own auth by declaring
+	// vars passed through into a FOREIGN engine's container. Every engine must earn its own auth by declaring
 	// it; the default must not hand out anyone's credentials to an engine
 	// nobody vetted. It fails closed (noContainerAuth) so an unmapped engine
 	// degrades honestly instead of silently authenticating as another.
@@ -158,11 +143,8 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 // specFromDeclaration is the one place an engine's declared container story
 // becomes this package's working spec. Everything engine-specific is read
 // off the declaration; the only facts added are ctxloom's own (the image tag
-// namespace and the cache overlay dir). engine is the REGISTERED backend
-// name, threaded through so projectedCredentialMounts can read the SAME
-// engine's credential-seed declaration (credentialSeedFor) rather than
-// re-deriving a leaf name credentialSeed.Files already states.
-func specFromDeclaration(name string, c engine.ContainerSpec) engineContainerSpec {
+// namespace and the cache overlay dir).
+func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 	spec := engineContainerSpec{
 		image:              defaultContainerImage,
 		engineInstall:      c.Install,
@@ -176,49 +158,12 @@ func specFromDeclaration(name string, c engine.ContainerSpec) engineContainerSpe
 		spec.authHint = noContainerAuthHint
 		return spec
 	}
-	spec.resolveAuth = func(containerHome, _ string) (containerAuth, bool) {
-		return resolveDeclaredAuth(a, containerHome)
-	}
+	spec.resolveAuth = func() (containerAuth, bool) { return resolveDeclaredAuth(a) }
 	spec.authHint = a.Hint
 	if a.Vendorless != "" {
 		spec.authHint = "unreachable: a vendorless name's auth never fails to resolve (" + a.Vendorless + ")"
 	}
-	if len(a.CredentialFiles) > 0 {
-		spec.projectedCredentialMounts = func(sessionHome, engineHome string) ([]Mount, []string) {
-			mounts, missing, _ := projectedCredentialMounts(name, sessionHome, engineHome)
-			return mounts, missing
-		}
-	}
 	return spec
-}
-
-// projectedCredentialMounts pins, READ-ONLY, each file the engine's seed
-// placed in an AGENT's session home (engine.SeedFile.DestName under the
-// engine's leaf) over itself at the relocated engine home. The session home
-// is the only source: the real host credential is never mounted into an
-// agent's container. A required file the seed did not place is reported by
-// leaf for the caller to say out loud; an optional one is simply not
-// pinned. ok=false when the engine declares no seed.
-func projectedCredentialMounts(name, sessionHome, engineHome string) ([]Mount, []string, bool) {
-	seed, ok := credentialSeedFor(name)
-	if !ok {
-		return nil, nil, false
-	}
-	wanted := make([]Mount, 0, len(seed.Files))
-	required := map[string]bool{}
-	for _, f := range seed.Files {
-		host := filepath.Join(sessionHome, f.DestName)
-		wanted = append(wanted, Mount{Host: host, Container: path.Join(engineHome, f.DestName), ReadOnly: true})
-		required[host] = f.Required
-	}
-	mounts, absent := bindFiles(wanted)
-	var missing []string
-	for _, host := range absent {
-		if required[host] {
-			missing = append(missing, filepath.Base(host))
-		}
-	}
-	return mounts, missing, true
 }
 
 // noContainerAuthHint is the fail-closed default's degrade diagnostic.

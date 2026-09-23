@@ -16,8 +16,10 @@ an MCP server (`taskloom mcp`) for your agents — both reading and writing the 
 Tasks are keyed by **harp IDs** (`swift-amber-falcon`) rather than numbers, so an ID stays
 stable and unambiguous when a model echoes it back in a later call.
 
-The store is an append-only JSONL log at `~/.ctxloom/tasks/<project-id>.jsonl`. Current state
-is the fold of its events, so nothing is destructive: a task's history survives every status
+The store is an append-only JSONL log. By default it is private to you, at
+`~/.ctxloom/tasks/<project-id>.jsonl`. Set `homing: repo` in `.taskloom/config.yaml` (or pass
+`--homing repo`) and the log lives in the project tree at `.taskloom/tasks.jsonl` instead, so it
+is committed and travels with clones. Current state is the fold of its events, so nothing is destructive: a task's history survives every status
 change, and `Archived` drops a task from view without erasing it.
 
 ## The status model
@@ -86,6 +88,10 @@ working directory is not always the answer. Every mutating command prints the st
 to on stderr for this reason, and `taskloom list` names the project above the table. When a
 task seems to vanish, read that line first.
 
+A repo-homed store (`homing: repo`) skips all of this. The repository the working directory
+sits in *is* the store's identity, so there is no project id to resolve and no pin to win:
+`--project` and `CTXLOOM_PROJECT_ID` are ignored, with a warning.
+
 Directory resolution has two more outcomes worth knowing. If a project tree has *moved*,
 taskloom re-points the registry and keeps the same id, so the history follows the code. If
 the tree looks *copied* (the original is still sitting there with its marker intact) taskloom
@@ -124,20 +130,20 @@ Three commands sit alongside the task store.
 of open tasks; given a harp id it launches that one directly. The chosen task is marked
 `In Progress`, and taskloom shells out to `ctxloom run` with the task text as the prompt,
 continuing the session that originally filed the task so the agent picks up the context that
-produced it. `--no-start` leaves the task at `To Do` instead. This is taskloom's only command
+produced it. `--no-start` resets the task to `To Do` instead. This is taskloom's only command
 that depends on ctxloom — it needs `ctxloom` on `PATH`, and everything else works standalone.
 
 `taskloom watch` streams task-store changes as JSONL, one line per change, running until
-interrupted. It exists for GUIs: the VS Code client subscribes and re-queries on each event
-instead of polling. It is hidden from `--help` and there is little reason to run it by hand.
+interrupted. It exists for GUIs: a client subscribes and re-queries on each event instead of
+polling. It is hidden from `--help` and there is little reason to run it by hand.
 
 ## Reference
 
 - **[Tags](/taskloom/tags/)** — flat tags, `tag_query`'s postfix boolean grammar, scalar
   targets, and priority ranking.
 - **[CLI reference](/taskloom/reference/cli/)** — every command, generated from the binary.
-- **[MCP tools reference](/taskloom/reference/mcp-tools/)** — `task_list`, `task_add`,
-  `task_set_status`, `task_edit`, generated from the tool registrations.
+- **[MCP tools reference](/taskloom/reference/mcp-tools/)** — every tool and resource `taskloom
+  mcp` serves, generated from the registrations.
 
 ## Install
 

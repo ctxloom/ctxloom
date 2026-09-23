@@ -226,7 +226,7 @@ const (
 	SessionSidecarFileName = "session.yaml"
 
 	// SessionKeepMarkerFileName is the hand-placed exemption from the aged
-	// session sweep (operations.ReclaimAgedSessions): a plain file of this
+	// session sweep (operations.SweepSessions): a plain file of this
 	// name at the top level of ~/.ctxloom/sessions/<harp>/ takes the whole
 	// session out of every scope of that sweep. Its contents are ignored;
 	// its presence is the decision. Named as a word rather than a dotfile

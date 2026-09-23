@@ -11,28 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// ReclaimAgedSessions is sessions.Reap over the home layout with this
-// adapter's triage handed in: the scratch git worktrees a session's
-// ephemeral store may hold are classified before anything is removed, and a
-// session whose worktrees are not all provably safe to remove is SPARED and
-// reported. Reaping is triage, not deletion — a checkout holding UNCOMMITTED
-// WORK exists nowhere else, and that work outranks the disk the reap would
-// free.
-//
-// What is taken, from which sessions, and by which clock is the reaper's
-// contract (sessions.Reap, sessions.ReapPolicy, sessions.ActivityTime); this
-// function adds only the git question the core cannot answer.
-func ReclaimAgedSessions(ctx context.Context, g git.Git, p sessions.ReapPolicy) (sessions.Report, error) {
-	if g == nil {
-		g = git.NewExec()
-	}
-	l, err := sessions.HomeLayout()
-	if err != nil {
-		return sessions.Report{}, fmt.Errorf("resolve sessions dir: %w", err)
-	}
-	return sessions.Reap(ctx, l, sessionLocks{}, p, sessionTriage(g, isolation.ReapKeychainItems))
-}
-
 // sessionTriage is the reaper's triage for this adapter: the worktree
 // question (worktreeTriage), and — on apply, for a session it did not spare
 // — the deletion of the session's macOS Keychain credential items

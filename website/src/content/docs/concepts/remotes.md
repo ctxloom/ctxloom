@@ -157,13 +157,13 @@ policy, not a manifest edit: the held commit still satisfies the constraint, so
 nothing diverges.
 
 ```bash
-ctxloom deps hold <name>     # freeze at the locked SHA (alias: pin)
-ctxloom deps unhold <name>   # release the hold (alias: unpin)
+ctxloom deps hold <name>     # freeze at the locked SHA
+ctxloom deps unhold <name>   # release the hold
 ```
 
 Holding a *profile* freezes its whole subtree: the held profile is read at its old
 commit, so the bundles it pulls in stay frozen too. The hold lives on the lockfile
-entry, which is typically gitignored, so it does not travel across `git clone`.
+entry, and `lock.yaml` is committed, so a hold travels with the repository.
 
 ## Discovering Remotes
 
@@ -177,13 +177,19 @@ This searches GitHub for repositories with ctxloom content.
 
 ## Creating Your Own Remote
 
-Any Git repository with a `ctxloom/` content root can be a remote:
+Any Git repository with a `.ctxloom/content/` root can be a remote. Each
+published bundle is a directory under `bundles/v2/`:
 
 ```
 my-ctxloom-repo/
-├── ctxloom/
-│   └── bundles/
-│       └── my-bundle.yaml
+├── .ctxloom/
+│   └── content/
+│       └── bundles/
+│           └── v2/
+│               └── my-bundle/
+│                   ├── bundle.yaml
+│                   ├── SHA256SUMS
+│                   └── .sigs/
 └── README.md
 ```
 

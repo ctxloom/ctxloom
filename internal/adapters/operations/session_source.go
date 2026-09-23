@@ -115,9 +115,9 @@ func EssenceCurrent(src ResolvedSource, cached []byte) (current, known bool) {
 // the long-lived MCP host relay fielding concurrent tool calls for the same
 // session, and stay there (withDistillBudget, singleflightDistill) rather
 // than becoming a concern every one-shot CLI caller has to reason about too.
-func DistillEntry(ctx context.Context, reg engine.Registry, src ResolvedSource, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+func DistillEntry(ctx context.Context, f LaunchFacts, src ResolvedSource, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
 	if src.Entry == nil {
 		return nil, fmt.Errorf("nothing to distill: session not found in the index")
 	}
-	return CompactEntry(ctx, reg, src.Entry, cfg, opts)
+	return CompactEntry(ctx, f, src.Entry, cfg, opts)
 }

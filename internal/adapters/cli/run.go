@@ -587,11 +587,11 @@ func (st *runState) resolveLaunch() error {
 	}
 	// The startup findings are composed HERE, after the cell was prepared:
 	// a degraded-to-host finding is the case they exist for.
-	l, err = launch.WithLead(st.ctx, operations.ForSession(deps, l.Identity.Harp), l, st.startupFindings()...)
+	l, err = launch.WithLead(st.ctx, deps.ForSession(l.Identity.Harp), l, st.startupFindings()...)
 	if err != nil {
 		return err
 	}
-	opened, err := operations.OpenLaunch(st.ctx, operations.ForSession(deps, l.Identity.Harp), l)
+	opened, err := operations.OpenLaunch(st.ctx, deps.ForSession(l.Identity.Harp), l)
 	if err != nil {
 		return err
 	}

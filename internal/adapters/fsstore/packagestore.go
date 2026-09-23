@@ -37,6 +37,13 @@ type PackageStore struct {
 	Harp string
 }
 
+// SessionClaims is the claim-check transport over the package store rooted
+// at one session: the per-session constructor a composition root hands the
+// launch path (it has launch.SessionClaims' shape).
+func SessionClaims(sessionsRoot, harp string) composite.Transport {
+	return composite.ClaimCheck{Store: PackageStore{Root: sessionsRoot, Harp: harp}}
+}
+
 // Put writes the bytes at <Root>/<Harp>/persist/package/<hex digest> and
 // returns that path relative to Root — a store-relative name, never a host
 // path. A file already present under the digest is the same bytes by

@@ -9,7 +9,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -39,9 +38,7 @@ func compose(sink report.Sink) cli.Composition {
 		Engines: engines.Registry(),
 		// The claim store is rooted per session, so the root hands a
 		// constructor: the session dir's package store, once the harp exists.
-		SessionClaims: func(sessionsRoot, harp string) composite.Transport {
-			return composite.ClaimCheck{Store: fsstore.PackageStore{Root: sessionsRoot, Harp: harp}}
-		},
+		SessionClaims: fsstore.SessionClaims,
 		OpenConfig: func(ctx context.Context, src config.Sources, opts ...config.Option) (*config.Owner, error) {
 			owner, err := (*config.Owner)(nil), errSecondOwner
 			owners.Do(func() {

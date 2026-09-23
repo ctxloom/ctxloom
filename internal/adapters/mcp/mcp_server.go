@@ -9,8 +9,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // ctxServer holds shared state used by every host-relayed tool handler. The
@@ -40,9 +38,10 @@ type ctxServer struct {
 	// (a distill, a triage) runs on: the session's own, on the coordinator's
 	// relay (HostApp). Nil refuses the one-shot (operations.ErrNoRunHost).
 	hosts operations.RunHosts
-	// engines is the registry every by-name engine resolution a handler makes
-	// reads: the hosting App's, handed through HostApp.
-	engines engine.Registry
+	// facts is what every launch and by-name engine resolution a handler
+	// makes reads: the hosting App's registry and claim store, under the
+	// strict posture, handed through HostApp.
+	facts operations.LaunchFacts
 }
 
 // hostsFor yields the one-shot host port for s; a nil port is the refusal
@@ -68,8 +67,3 @@ func (s *ctxServer) projectDir() (string, error) {
 	}
 	return s.self.ProjectDir, nil
 }
-
-// strictness is the posture a relayed handler reports under: the relay runs
-// in the coordinator's process with no composition of its own to read one
-// from, so it is strict.
-func (s *ctxServer) strictness() strictness.Mode { return strictness.Mode{Prog: "ctxloom"} }

@@ -45,8 +45,6 @@ func CompactionModelFor(cfg *config.Config, override string) string {
 type DistillOptions struct {
 	// Hosts yields the coordinator the distilling one-shot runs on.
 	Hosts RunHosts
-	// Strictness is the posture the distilling one-shot launches under.
-	Strictness strictness.Mode
 	// Model overrides the compaction model for THIS call; "" uses
 	// cfg.GetCompactionModel(). It exists so a caller-supplied model override
 	// reaches the canonical/harp distill path too, not just the backend one.
@@ -84,7 +82,8 @@ type DistillOptions struct {
 // mcp's compactEntryFn is CompactEntry behind a package var so a caller's
 // wiring can be observed in a test; that test seam stays in mcp and is not
 // duplicated here.
-func CompactEntry(ctx context.Context, reg engine.Registry, entry *sessions.Entry, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+	reg := f.Engines
 	model := CompactionModelFor(cfg, opts.Model)
 	backendName := entry.Backend
 	if backendName == "" {
@@ -105,7 +104,7 @@ func CompactEntry(ctx context.Context, reg engine.Registry, entry *sessions.Entr
 	// The distiller is a real session on the FAST role's label: one harp for
 	// every turn this compaction makes, started on the first turn and ended
 	// when the compaction is done.
-	distiller := NewLazyOneShot(reg, opts.Hosts, cfg, opts.Strictness, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
+	distiller := NewLazyOneShot(f, opts.Hosts, cfg, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
 	defer distiller.End()
 	// The compactor no longer builds its own source: resolve it here (unless a
 	// transcript was preloaded by path, which short-circuits it) and inject.

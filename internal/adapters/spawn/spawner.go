@@ -289,7 +289,7 @@ var startEngine = operations.StartEngine
 // the parent fans, and the shared checkout is never the silent default for a
 // child.
 func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
-	deps, err := operations.LaunchDepsFor(s.app.Engines(), plan.Snapshot, s.app.Strictness)
+	deps, err := operations.LaunchDepsFor(s.app.LaunchFacts(), plan.Snapshot)
 	if err != nil {
 		return coord.Resolved{}, err
 	}
@@ -309,7 +309,7 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 	if start.Resumed || start.Rebind {
 		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}, RebindEndpoint: start.Rebind}
 	}
-	l, err := launch.Resolve(ctx, operations.ForSession(deps, start.Identity.Harp), src)
+	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), src)
 	if err != nil {
 		return coord.Resolved{}, err
 	}

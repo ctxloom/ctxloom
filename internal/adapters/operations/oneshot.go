@@ -187,9 +187,9 @@ type LazyOneShot struct {
 }
 
 // NewLazyOneShot defers StartInternalOneShot to the first turn.
-func NewLazyOneShot(reg engine.Registry, hosts RunHosts, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
+func NewLazyOneShot(f LaunchFacts, hosts RunHosts, cfg *config.Config, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
 	return &LazyOneShot{start: func(ctx context.Context) (*OneShot, error) {
-		return StartInternalOneShot(ctx, reg, hosts, cfg, mode, label, model, workDir, projectID, verbosity)
+		return StartInternalOneShot(ctx, f, hosts, cfg, label, model, workDir, projectID, verbosity)
 	}}
 }
 
@@ -235,14 +235,14 @@ func InternalSource(label, model, workDir string) launch.Source {
 // generation cfg belongs to, run on the coordinator hosts yields: the compactor's distiller, the
 // trigger evaluator's triage, the setup probe. projectID is the identity the
 // session serves (empty when the caller resolved none).
-func StartInternalOneShot(ctx context.Context, reg engine.Registry, hosts RunHosts, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
+func StartInternalOneShot(ctx context.Context, f LaunchFacts, hosts RunHosts, cfg *config.Config, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
 	// A Config built outside the Owner carries no Trust: refuse here, at the
 	// entry point, rather than let the assembler withhold every executable
 	// with the "no authorizer" defect reason.
 	if _, err := cfg.RequireTrust(); err != nil {
 		return nil, fmt.Errorf("internal one-shot: %w", err)
 	}
-	deps, err := LaunchDepsFor(reg, &config.Snapshot{Config: cfg}, mode)
+	deps, err := LaunchDepsFor(f, &config.Snapshot{Config: cfg})
 	if err != nil {
 		return nil, err
 	}

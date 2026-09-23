@@ -379,7 +379,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	if src.Entry == nil {
 		src.Entry = entry
 	}
-	result, err := operations.DistillEntry(cmd.Context(), App().Engines(), src, cfg, operations.DistillOptions{
+	result, err := operations.DistillEntry(cmd.Context(), App().LaunchFacts(), src, cfg, operations.DistillOptions{
 		Hosts:     internalRunHosts(),
 		Progress:  progress,
 		PromptDir: sessionDistillPromptDir,

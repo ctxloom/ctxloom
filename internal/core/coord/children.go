@@ -715,8 +715,8 @@ func (c *Coordinator) spawnReachURL(harp string, runtimeAxis launch.RuntimeAxis)
 // first turn; the runner drives every later turn from its own spool.
 func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	if err := c.acquireRunSlot(rt); err != nil {
-		// A terminal that landed while this spawn was parked on the cap has
-		// already ended the run: do NOT go on to launch an engine for it.
+		// A terminal that landed before or while this spawn was parked on the
+		// cap has already ended the run: do NOT go on to launch an engine for it.
 		if !errors.Is(err, errSlotClaimCancelled) {
 			c.failChild(rt, err)
 		}
@@ -1277,14 +1277,30 @@ var errSlotClaimCancelled = errors.New("execution slot claim cancelled by the ru
 // default cap of four such races deadlock the coordinator with no diagnostic.
 // The window is widest exactly when the cap binds, which is when it matters.
 //
+// The terminal can also land BEFORE the claim: the caller's goroutine is
+// dispatched asynchronously, and a terminal that runs first (a drain ending a
+// queued child, an agent_stop) finds slotFree and releases nothing — so a claim
+// made afterwards would park on the cap and, once a peer frees a slot, launch
+// an engine for a run that has already ended. terminateRun unpublishes rt from
+// c.attach under c.mu before it releases, so checking publication in the SAME
+// c.mu window as the claim closes that gap: either the terminal saw the claim
+// (and cancels it), or the claim sees the terminal.
+//
 // Returns nil when the caller may proceed (the claim landed a real slot, or
 // rt already held/was claiming one and the occupancy is accounted for);
 // the acquire's own error when the acquisition itself failed (baseCtx died,
 // nothing was landed, nothing to give back); and errSlotClaimCancelled when
-// the run terminated mid-wait — the landed slot has already been released
-// here and the caller must simply return.
+// the run terminated before or during the wait — any landed slot has already
+// been released here and the caller must simply return.
 func (c *Coordinator) acquireRunSlot(rt *childRt) error {
-	if !c.claimSlotIntent(rt) {
+	c.mu.Lock()
+	if c.attach[rt.runID] != rt {
+		c.mu.Unlock()
+		return errSlotClaimCancelled
+	}
+	claimed := c.claimSlotIntentLocked(rt)
+	c.mu.Unlock()
+	if !claimed {
 		return nil
 	}
 	if err := c.slots.Acquire(c.baseCtx, 1); err != nil {
@@ -1338,6 +1354,11 @@ func (c *Coordinator) releaseSlot(rt *childRt) {
 func (c *Coordinator) claimSlotIntent(rt *childRt) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.claimSlotIntentLocked(rt)
+}
+
+// claimSlotIntentLocked is claimSlotIntent for a caller already holding c.mu.
+func (c *Coordinator) claimSlotIntentLocked(rt *childRt) bool {
 	if rt.slot != slotFree {
 		return false
 	}

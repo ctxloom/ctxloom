@@ -100,7 +100,16 @@ func TestRunChild_TerminateWhileParkedOnCap_DoesNotStrandTheSlot(t *testing.T) {
 	assert.Equal(t, slotFree, final, "the terminated run's childRt must not be left reading slotHeld")
 }
 
-// acquireRunSlot's three outcomes, forced directly. runChild's full-path test
+// publishRt registers rt as a live run, as enqueueRun does before any
+// acquireRunSlot caller runs; terminateRun is what unpublishes it.
+func publishRt(c *Coordinator, rt *childRt) *childRt {
+	c.mu.Lock()
+	c.attach[rt.runID] = rt
+	c.mu.Unlock()
+	return rt
+}
+
+// acquireRunSlot's outcomes, forced directly. runChild's full-path test
 // above covers one caller end to end; this pins the primitive all three
 // (runChild, resumeChild, wakeChild) now share, including the cancelled arm's
 // contract that the landed slot is released HERE and not by the caller.
@@ -108,7 +117,7 @@ func TestAcquireRunSlot_Outcomes(t *testing.T) {
 	t.Run("landed", func(t *testing.T) {
 		sp := newFakeSpawner(nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
-		rt := &childRt{harp: "child-a", runID: "run-a"}
+		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a"})
 
 		require.NoError(t, c.acquireRunSlot(rt))
 
@@ -122,7 +131,7 @@ func TestAcquireRunSlot_Outcomes(t *testing.T) {
 	t.Run("cancelled by the run terminal mid-wait", func(t *testing.T) {
 		sp := newFakeSpawner(nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
-		rt := &childRt{harp: "child-a", runID: "run-a"}
+		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a"})
 
 		// A peer holds the only slot, so the acquire below genuinely parks.
 		require.True(t, c.slots.TryAcquire(1))
@@ -153,7 +162,7 @@ func TestAcquireRunSlot_Outcomes(t *testing.T) {
 	t.Run("acquire fails", func(t *testing.T) {
 		sp := newFakeSpawner(nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 1)
-		rt := &childRt{harp: "child-a", runID: "run-a"}
+		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a"})
 		require.True(t, c.slots.TryAcquire(1))
 
 		done := make(chan error, 1)
@@ -177,10 +186,45 @@ func TestAcquireRunSlot_Outcomes(t *testing.T) {
 		assert.Equal(t, slotFree, state, "a failed acquisition must leave no claim behind")
 	})
 
+	// The terminal lands BEFORE the spawn goroutine reaches its claim — the
+	// ordering a drain produces when it ends a queued child whose runChild
+	// has not yet been scheduled. releaseSlot then finds slotFree and cancels
+	// nothing, so a claim made afterwards would park on the cap, land the slot
+	// a peer frees, and launch an engine for a run that has already ended.
+	// Forced here by running the terminal's two effects first, in its order.
+	t.Run("run already terminated before the claim", func(t *testing.T) {
+		sp := newFakeSpawner(nil, nil)
+		c := newTestCoordinatorCap(t, sp, nil, 1)
+		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a"})
+		require.True(t, c.slots.TryAcquire(1), "a peer holds the only slot, so a claim would park")
+
+		c.mu.Lock()
+		delete(c.attach, rt.runID) // terminateRun unpublishes the run...
+		c.mu.Unlock()
+		c.releaseSlot(rt) // ...then releases, finding nothing claimed
+
+		done := make(chan error, 1)
+		go func() { done <- c.acquireRunSlot(rt) }()
+		select {
+		case err := <-done:
+			require.ErrorIs(t, err, errSlotClaimCancelled,
+				"an ended run must be refused at the claim, not parked on the cap to launch later")
+		case <-time.After(conformanceWait):
+			t.Fatal("acquireRunSlot parked on the cap for a run that had already ended")
+		}
+
+		c.mu.Lock()
+		state := rt.slot
+		c.mu.Unlock()
+		assert.Equal(t, slotFree, state, "no claim may be left on an ended run")
+		c.slots.Release(1)
+		assert.True(t, slotsIdleWith(c.slots, 1), "nothing may be taken from the pool for an ended run")
+	})
+
 	t.Run("already accounted for", func(t *testing.T) {
 		sp := newFakeSpawner(nil, nil)
 		c := newTestCoordinatorCap(t, sp, nil, 2)
-		rt := &childRt{harp: "child-a", runID: "run-a", slot: slotHeld}
+		rt := publishRt(c, &childRt{harp: "child-a", runID: "run-a", slot: slotHeld})
 
 		require.NoError(t, c.acquireRunSlot(rt), "an rt that already holds a slot proceeds without taking a second")
 

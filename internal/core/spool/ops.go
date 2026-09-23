@@ -210,6 +210,17 @@ type Entry struct {
 	Message *Message
 }
 
+// Identity is the one id every reader agrees a swept message answers to: the
+// producer's OriginID when it carried one, else the filename stem. It is the
+// dedupe key, so a producer's re-send — a NEW file carrying the SAME origin —
+// is recognised as the message it repeats.
+func (e Entry) Identity() string {
+	if e.Message != nil && e.Message.OriginID != "" {
+		return e.Message.OriginID
+	}
+	return e.Name.Stem()
+}
+
 // Problem is one directory entry a sweep could NOT turn into a message: a
 // filename outside the grammar, a file that would not parse, a file that
 // would not read.

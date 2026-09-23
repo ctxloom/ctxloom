@@ -186,21 +186,11 @@ func (c *Coordinator) findSpoolMessage(harp string, dir spool.Dir, messageID str
 		return spool.Ref{}, false
 	}
 	for _, e := range res.Entries {
-		if spoolMessageID(e) == messageID {
+		if e.Identity() == messageID {
 			return e.Ref, true
 		}
 	}
 	return spool.Ref{}, false
-}
-
-// spoolMessageID is the identity one swept entry answers to — the same rule
-// mailFromSpool applies, kept in one place so a lookup and a delivery can
-// never disagree about what a message is called.
-func spoolMessageID(e spool.Entry) string {
-	if e.Message != nil && e.Message.OriginID != "" {
-		return e.Message.OriginID
-	}
-	return e.Name.Stem()
 }
 
 // ---- correlated asks (question / summarize) -----------------------------

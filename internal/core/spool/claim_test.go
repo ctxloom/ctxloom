@@ -249,3 +249,72 @@ func TestClaimedDirName_IsLocalNotWire(t *testing.T) {
 	assert.Equal(t, "claimed", filepath.Base(path))
 	assert.Equal(t, "in", filepath.Base(filepath.Dir(path)))
 }
+
+// seedOrigin writes one in/ message carrying a producer's origin id — how a
+// coordinator re-sending the SAME mailbox message arrives: a new file, a new
+// filename, the same identity.
+func seedOrigin(t *testing.T, m PathMapper, origin, body string) Ref {
+	t.Helper()
+	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	require.NoError(t, err)
+	ref, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, OriginID: origin, Body: body})
+	require.NoError(t, err)
+	return ref
+}
+
+// TestClaim_ADuplicateOfWhatWasAlreadyConsumedGoesStraightToConsumed is
+// at-least-once meeting a reader with no memory: the hook is a new process
+// every turn, so the only record of "already delivered" is in/consumed/.
+func TestClaim_ADuplicateOfWhatWasAlreadyConsumedGoesStraightToConsumed(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	seedOrigin(t, m, "mail-1", "first copy\n")
+	res, err := Claim(m, testHarp)
+	require.NoError(t, err)
+	require.Len(t, res.Entries, 1)
+	require.NoError(t, Ack(m, testHarp, res.Entries[0].Ref.Name))
+
+	dup := seedOrigin(t, m, "mail-1", "second copy\n")
+	res, err = Claim(m, testHarp)
+	require.NoError(t, err)
+	assert.Empty(t, res.Entries, "a message whose identity is already consumed is not delivered again")
+	assert.Empty(t, filesIn(t, m, ClaimedDirName))
+	assert.Contains(t, filesIn(t, m, DirInConsumed), dup.Name, "the duplicate is kept in the audit trail, not deleted")
+}
+
+// Two copies arriving together, or one arriving while its twin is claimed and
+// unacknowledged, are one delivery.
+func TestClaim_DuplicatesInFlightAreDeliveredOnce(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	seedOrigin(t, m, "mail-2", "a\n")
+	seedOrigin(t, m, "mail-2", "b\n")
+	res, err := Claim(m, testHarp)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a\n"}, bodiesOf(res.Entries), "the earlier copy wins")
+
+	seedOrigin(t, m, "mail-2", "c\n")
+	res, err = Claim(m, testHarp)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a\n"}, bodiesOf(res.Entries), "a copy of a claimed-but-unacknowledged message is not a second delivery")
+	assert.Len(t, filesIn(t, m, DirInConsumed), 2)
+}
+
+// Without an origin id, a message's identity is its filename stem, so two
+// distinct runner-written messages never collapse into one.
+func TestClaim_MessagesWithoutAnOriginAreDistinct(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	seedIn(t, m, "x\n")
+	seedIn(t, m, "x\n")
+	res, err := Claim(m, testHarp)
+	require.NoError(t, err)
+	assert.Len(t, res.Entries, 2)
+}
+
+func TestEntryIdentity_IsTheOriginElseTheFilenameStem(t *testing.T) {
+	n := Name{Nanos: 1, Seq: 2, Writer: "coord"}
+	assert.Equal(t, "m-1", Entry{Name: n, Message: &Message{OriginID: "m-1"}}.Identity())
+	assert.Equal(t, n.Stem(), Entry{Name: n, Message: &Message{}}.Identity())
+	assert.Equal(t, n.Stem(), Entry{Name: n}.Identity())
+}

@@ -299,11 +299,10 @@ func DeliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
 
 // MailFromSpool recovers the mailbox Message one spool file carries.
 //
-// The message ID is origin_id when the producer had one (the coordinator mints
-// a mailbox id before it writes, so correlation registered by relayApproval
-// against that id still resolves) and the FILENAME STEM otherwise — which is
-// the spool's own identity and the one every reader can agree on. It is the
-// dedupe key on both sides, so getting it from anywhere else would break
+// The message ID is spool.Entry.Identity — the coordinator mints a mailbox id
+// before it writes, so correlation registered by relayApproval against that id
+// still resolves. It is the dedupe key on both sides (the owner's Claim
+// dedupes on it too), so getting it from anywhere else would break
 // at-least-once into at-least-twice.
 func MailFromSpool(e spool.Entry, from string) (Message, error) {
 	if e.Message == nil {
@@ -317,12 +316,8 @@ func MailFromSpool(e spool.Entry, from string) (Message, error) {
 	if err != nil {
 		return Message{}, fmt.Errorf("coord: %s: %w", e.Ref, err)
 	}
-	id := e.Message.OriginID
-	if id == "" {
-		id = strings.TrimSuffix(e.Ref.Name, spool.MessageFileExt)
-	}
 	return Message{
-		ID:         id,
+		ID:         e.Identity(),
 		From:       from,
 		To:         e.Message.To,
 		Kind:       kind,

@@ -348,7 +348,6 @@ func (r cellRuntime) Start(ctx context.Context, l launch.Launch, env map[string]
 	return coord.RunnerHandle{Kill: proc.Kill, Wait: proc.Wait, StderrTail: proc.StderrTail}, nil
 }
 
-
 func (s *spawner) ResumeHistory(ctx context.Context, harp string) string {
 	entries, err := operations.RecordedSessionEntries(ctx, harp)
 	if err != nil {

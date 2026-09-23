@@ -64,9 +64,9 @@ func TestEnd_TheContainersLastBytesSurviveTheRelay(t *testing.T) {
 		TTY:     true,
 	}
 	pol := isolation.NewContainerFor(rt, "mock")
-	s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, func() { pol.Remove(name) })
+	s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, func(runExited <-chan struct{}) { pol.Remove(name, runExited) })
 	require.NoError(t, err)
-	t.Cleanup(func() { s.Kill(); pol.Remove(name) })
+	t.Cleanup(func() { s.Kill(); _ = exec.Command(rt.Binary(), "rm", "-f", name).Run() })
 
 	require.Eventually(t, func() bool { _, err := os.Stat(written); return err == nil }, 60*time.Second, 5*time.Millisecond,
 		"the container never reported its exit")

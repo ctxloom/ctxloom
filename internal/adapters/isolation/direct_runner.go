@@ -69,9 +69,14 @@ func (c Container) InteractiveRunner(_ context.Context, backendName string, ws W
 	return cmd, name, nil
 }
 
-// Remove force-removes the named container under the bounded teardown
-// timeout — the interactive runner's teardown by name.
-func (c Container) Remove(name string) { removeContainer(context.Background(), c.runtime, name) }
+// Remove force-removes the named container — the interactive runner's
+// teardown by name. runExited closes when the `run` CLI that launches it has
+// exited: until then an "already gone" answer may precede the CLI's create,
+// so Remove waits that out and removes again (removeLaunched), blocking at
+// most AwaitContainerRunning's backstop.
+func (c Container) Remove(name string, runExited <-chan struct{}) {
+	removeLaunched(c.runtime, &RunnerHandle{Name: name, Wait: func() error { <-runExited; return nil }})
+}
 
 // buildRunnerSpec assembles the RunSpec for one container runner. Env = the
 // fixed container base env (IS_SANDBOX) + the workspace's scoped auth/TERM/

@@ -28,7 +28,7 @@ type wrappedRuntime struct {
 
 func (r wrappedRuntime) Binary() string { return r.bin }
 
-// startRaced starts an interactive container run on a pty the way the
+// forEachRaced starts an interactive container run on a pty the way the
 // originator does (attach.Start with Container.Remove as its teardown by name),
 // through the forcing wrapper, once per runtime present.
 func forEachRaced(t *testing.T, what string, body func(t *testing.T, s *attach.Session, bin, name string)) {
@@ -47,7 +47,7 @@ func forEachRaced(t *testing.T, what string, body func(t *testing.T, s *attach.S
 			rt := wrappedRuntime{Runtime: real, bin: dockergate.RemoveBeforeCreateWrapper(t, real.Binary(), name)}
 			spec := isolation.RunSpec{Image: "docker.io/library/alpine:latest", Name: name, Command: []string{"sleep", "300"}, TTY: true}
 			pol := isolation.NewContainerFor(rt, "mock")
-			s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, func() { pol.Remove(name) })
+			s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, func(runExited <-chan struct{}) { pol.Remove(name, runExited) })
 			require.NoError(t, err)
 			t.Cleanup(s.Kill)
 			body(t, s, real.Binary(), name)

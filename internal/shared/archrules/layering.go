@@ -127,11 +127,11 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/textblocks",
 		},
 		Allowed: map[string]string{
-			// core/profiles — Part 1.0 lists remote; the other three were MEASURED,
+			// core/profiles — Part 1.0 lists remote; the others were MEASURED,
 			// not listed.
 			"internal/core/profiles -> internal/adapters/remote": "slice 5: the pull-walk reader moves to adapters/remote",
 			"internal/core/profiles -> internal/shared/upgrade":  "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (Part 1.0: slice 5); slice 5 landed without the move, which is still open",
-			"internal/core/profiles -> resources":                "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
+			"internal/core/profiles -> resources":                "top-level resources/ is DATA a reader adapter supplies, not toolbox, and the core ring does not import it — ruled 2026-09-22 (Part 3.3); cutting this edge is task row decent-porthole",
 
 			// core/bundles
 			"internal/core/bundles -> internal/adapters/content":            "slice 5: readers become adapters behind bundles.Reader",

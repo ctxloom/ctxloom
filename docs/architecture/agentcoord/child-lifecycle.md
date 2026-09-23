@@ -179,6 +179,3 @@ incarnation through the resume arm, reusing the bound endpoint.
   (`children.go`) has no production callers, and `launchArmed`, `markAttached`,
   `childRt.attached` and `waitAnyClosed` exist to serve it; `armLaunch` is called in
   production only to hand `resumeChild` the channel it closes.
-- **`CauseOrphaned` is declared but never recorded.** `facts.go` documents it as the
-  cause for runs adopted from disk after a coordinator relaunch; a run that never
-  re-Hellos ends `CauseRunnerLoss` instead.

@@ -58,24 +58,26 @@ unless `--llm`/`-l` overrides; a misconfigured value warns and falls back to the
 primary role rather than blocking startup. Set it with `--llm` on
 `profile create`/`profile modify`.
 
-This field is what makes a profile a self-contained agent for a delegated
-fan-out: each child spawned via `agent_run` runs on its own `llm:`.
+An agent that names no `llm:` of its own runs on its composed profiles' `llm:`
+(then the project default), so a profile can carry the engine choice for every
+agent, delegated children included, that composes it.
 
 Profiles are also what [agents](/concepts/agents/) bind engines to: an agent is
-a named, local-only engine↔profile binding (`ctxloom agent set`), consumed by
+a named, local-only engine↔profile binding (`ctxloom agent create`), consumed by
 `run --agent` and `agent_run`.
 
 ## Content Reference Syntax
 
 These `bundle#kind/name` forms address one item and work everywhere ctxloom
 takes an item reference on the command line — `ctxloom command show`,
-`ctxloom fragment edit`, `ctxloom trust`, and so on:
+`ctxloom fragment edit`, `ctxloom bundle trust` (which never takes a profile), and so on:
 
 | Format | Description |
 |--------|-------------|
 | `bundle-name` | Entire bundle (all content) |
 | `bundle#fragments/name` | Specific fragment |
 | `bundle#commands/name` | Specific command |
+| `bundle#skills/name` | Specific skill |
 | `bundle#profiles/name` | Profile shipped by the bundle |
 | `bundle#mcp` | All MCP servers from bundle |
 | `bundle#mcp/name` | Specific MCP server |
@@ -229,7 +231,7 @@ Commands are deliberately not excludable. Exclusion exists for content that is
 MCP servers run and consume resources, so an unwanted one has a real cost. A
 command is only a slash command: it does nothing until you invoke it, so an
 unwanted command just sits unused in the menu. Bundle authors can still scope
-where a command surfaces per backend with the command's `llm.<backend>.enabled`
+where a command surfaces per engine with the command's `exports.<engine>.enabled`
 flag.
 
 ### Managing Exclusions
@@ -297,7 +299,7 @@ it to a `default` agent (carrying the engine you selected), and points
 default_agent: default
 agents:
   default:
-    engine: claude-code
+    llm: claude-code
     runtime: host
     profiles:
       - default
@@ -310,7 +312,7 @@ or a bundle-qualified profile ref. To repoint the default later, use
 ```bash
 ctxloom agent default            # show the current default agent
 ctxloom agent default dev        # make the 'dev' agent the default
-ctxloom agent create dev --profiles developer,base --engine claude-code
+ctxloom agent create dev --profiles developer,base --llm claude-code
 ```
 
 ## Variables
@@ -335,24 +337,8 @@ content: |
 
 See [Templating](/guides/templating) for full variable documentation.
 
-## Inline Profiles
+## Profiles are files
 
-Profiles can be defined directly in config.yaml under `profiles.definitions`:
-
-```yaml
-# .ctxloom/config.yaml
-profiles:
-  definitions:
-    quick-review:
-      description: "Quick code review"
-      bundles:
-        - code-review
-      variables:
-        REVIEW_DEPTH: "surface"
-```
-
-Use like any other profile:
-
-```bash
-ctxloom run -p quick-review "review this PR"
-```
+Every local profile is a file under `.ctxloom/profiles/`. `config.yaml` has no
+`profiles:` block: a config that still carries one is reported with the move to
+make (each definition to `.ctxloom/profiles/<name>.yaml`, its body unchanged).

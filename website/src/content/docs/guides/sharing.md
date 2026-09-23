@@ -10,63 +10,90 @@ A ctxloom repository follows this structure:
 
 ```
 my-ctxloom-repo/
-├── ctxloom/
-│   └── bundles/
-│       ├── my-bundle.yaml
-│       ├── my-bundle.yaml.sig
-│       └── another-bundle.yaml
+├── .ctxloom/
+│   └── content/
+│       └── bundles/
+│           └── v2/
+│               ├── my-bundle/
+│               │   ├── bundle.yaml       # the envelope: version, description, tags
+│               │   ├── fragments/
+│               │   │   └── testing.md
+│               │   ├── prompts/          # commands
+│               │   │   └── code-review.md
+│               │   ├── profiles/
+│               │   │   └── go-developer.yaml
+│               │   ├── SHA256SUMS        # written when the bundle is signed
+│               │   └── .sigs/
+│               └── another-bundle/
 └── README.md
 ```
 
-The `ctxloom/` directory is required for ctxloom to recognize the repository as a valid remote. Remote repositories distribute bundles only; profiles ship inside a bundle's `profiles:` map (see below).
+A bundle is distributed as a directory tree, one file per item, and a remote
+repository lays its bundles out exactly as a consuming project stores its own:
+under `.ctxloom/content/bundles/v2/`. When you add a repository as a remote,
+ctxloom checks for `.ctxloom/content/` and warns if it is missing. Remote
+repositories distribute bundles only; profiles ship inside a bundle's
+`profiles/` directory (see below).
 
-`my-bundle.yaml.sig` is a detached publisher signature, a sibling ctxloom writes next to a signed bundle (see Sign Your Bundles below). It's the only thing that spares your consumers ctxloom's review step — everything else pulled from this repo is born pending and withheld from the agent until a human reviews it.
+`SHA256SUMS` and `.sigs/` are the publisher signature ctxloom writes when a
+bundle is signed (see Sign Your Bundles below). A signature from a key your
+consumer trusts is the only thing that spares them ctxloom's review step.
+Everything else pulled from this repo is born pending and withheld from the
+agent until a human reviews it.
 
 ## Creating a Bundle
 
 ### Bundle File Structure
 
+The envelope, `bundle.yaml`, carries the bundle's own fields and no items:
+
 ```yaml
-# ctxloom/bundles/go-development.yaml
-version: "1.0"
+# .ctxloom/content/bundles/v2/go-development/bundle.yaml
+version: 1.0.0
 description: Go development context and best practices
 author: your-name
 tags:
   - golang
   - development
-
-fragments:
-  testing:
-    tags:
-      - testing
-    content: |
-      # Go Testing Best Practices
-
-      - Use table-driven tests
-      - Use testify/assert for assertions
-      - Name tests descriptively: TestFunction_Scenario_Expected
-
-  error-handling:
-    tags:
-      - errors
-    content: |
-      # Go Error Handling
-
-      - Always check errors immediately
-      - Wrap errors with context: fmt.Errorf("operation: %w", err)
-      - Use sentinel errors sparingly
-
-commands:
-  code-review:
-    description: Review Go code for best practices
-    tags:
-      - review
-    content: |
-      Review this Go code for:
-      - Error handling completeness
-      - Test coverage
-      - Idiomatic patterns
 ```
+
+Each fragment is a Markdown file under `fragments/`. Its YAML front matter
+holds the item's fields and the body is its content.
+
+`.ctxloom/content/bundles/v2/go-development/fragments/testing.md`:
+
+```markdown
+---
+tags:
+  - testing
+---
+# Go Testing Best Practices
+
+- Use table-driven tests
+- Use testify/assert for assertions
+- Name tests descriptively: TestFunction_Scenario_Expected
+```
+
+Commands have the same shape, under `prompts/`.
+
+`.ctxloom/content/bundles/v2/go-development/prompts/code-review.md`:
+
+```markdown
+---
+description: Review Go code for best practices
+tags:
+  - review
+---
+Review this Go code for:
+- Error handling completeness
+- Test coverage
+- Idiomatic patterns
+```
+
+MCP servers (`mcp/`), hooks (`hooks/<event>/`) and profiles (`profiles/`) are
+YAML files; skills (`skills/`) are directories. `ctxloom bundle create` makes a
+single-file bundle, which works locally but cannot be published: `bundle push`
+refuses it and asks for a directory with a `bundle.yaml`.
 
 ### Bundle Fields
 
@@ -76,38 +103,36 @@ commands:
 | `description` | No | Human-readable description |
 | `author` | No | Author name or organization |
 | `tags` | No | Bundle-level tags (inherited by all items) |
-| `fragments` | No | Map of fragment definitions |
-| `commands` | No | Map of command definitions |
-| `profiles` | No | Map of profiles shipped with the bundle |
-| `hooks` | No | Hooks shipped with the bundle |
-| `mcp` | No | Map of MCP server configurations |
+| `fragments/` | No | One Markdown file per fragment |
+| `prompts/` | No | One Markdown file per command |
+| `profiles/` | No | One YAML file per profile shipped with the bundle |
+| `hooks/` | No | Hooks shipped with the bundle, one YAML file per hook |
+| `mcp/` | No | One YAML file per MCP server |
 
 ### Fragment Fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `content` | No | The fragment content (markdown); ctxloom does not require it, but a fragment with no content has nothing to give the agent |
+| `content` | No | The fragment content: the file's Markdown body. ctxloom does not require it, but a fragment with no content has nothing to give the agent |
 | `tags` | No | Additional tags (merged with bundle tags) |
 | `notes` | No | Human-readable notes (not sent to AI) |
 | `no_distill` | No | Prevent automatic distillation |
 
-Commands take the same fields plus `description` and an optional `llm:` block with per-backend slash-command export settings.
+Fields other than `content` go in the file's front matter. Commands take the same fields plus `description` and an optional `llm:` block with per-backend slash-command export settings.
 
 ## Sharing a Profile
 
-Profiles ship inside a bundle's `profiles:` map — there is no top-level profiles directory in a remote repository. Add the profile to the bundle that carries the content it composes:
+Profiles ship inside a bundle's `profiles/` directory; a remote repository has no top-level profiles directory. Add the profile to the bundle that carries the content it composes:
 
 ```yaml
-# ctxloom/bundles/go-development.yaml (continued)
-profiles:
-  go-developer:
-    description: Complete Go development environment
-    bundles:
-      - go-development
-      - testing-patterns
-    tags:
-      - golang
-      - best-practices
+# .ctxloom/content/bundles/v2/go-development/profiles/go-developer.yaml
+description: Complete Go development environment
+bundles:
+  - go-development
+  - testing-patterns
+tags:
+  - golang
+  - best-practices
 ```
 
 Consumers inherit a bundle-shipped profile by its bundle-qualified canonical URL (parents accept a local profile name or this full form):
@@ -128,12 +153,12 @@ cd my-ctxloom-bundles
 git init
 
 # Create structure
-mkdir -p ctxloom/bundles
+mkdir -p .ctxloom/content/bundles/v2
 ```
 
 ### 2. Add Your Content
 
-Create your bundle YAML files in `ctxloom/bundles/`.
+Create one directory per bundle in `.ctxloom/content/bundles/v2/`.
 
 ### 3. Add README
 
@@ -173,8 +198,8 @@ consumer makes for themselves (`ctxloom signer trust`).
 
 The easiest way to sign is at publish time: `ctxloom bundle push my-bundle
 mybundles --sign` (see Validation below) signs the exact bytes it publishes
-and writes the `.sig` sibling for you — use this if you aren't committing to
-this repository by hand.
+and writes the signature for you. Use this if you aren't committing to this
+repository by hand.
 
 If you're pushing this repository with plain git instead (the next step),
 sign first, inside a real ctxloom project (see Validation), then commit both
@@ -184,10 +209,11 @@ files yourself:
 ctxloom bundle sign my-bundle
 ```
 
-This writes a detached `my-bundle.yaml.sig` next to the bundle in your
-project. Copy both `my-bundle.yaml` and `my-bundle.yaml.sig` into this repo's
-`ctxloom/bundles/` before the commit below — `ctxloom bundle export` copies
-only the bundle YAML, not its `.sig`, so copy the signature yourself.
+This writes a `SHA256SUMS` manifest and a detached signature under `.sigs/`
+inside the bundle's directory in your project. Copy the whole bundle directory
+into this repo's `.ctxloom/content/bundles/v2/` before the commit below;
+`ctxloom bundle export my-bundle <dest-dir>` copies it whole, `SHA256SUMS` and
+`.sigs/` included.
 
 ### 5. Push to GitHub
 
@@ -297,21 +323,20 @@ For larger organizations:
 
 ```
 org-ctxloom/
-├── ctxloom/
-│   └── bundles/
-│       ├── frontend/
-│       │   ├── react.yaml
-│       │   └── typescript.yaml
-│       ├── backend/
-│       │   ├── go.yaml
-│       │   └── python.yaml
-│       └── shared/
-│           ├── security.yaml
-│           └── testing.yaml
+├── .ctxloom/
+│   └── content/
+│       └── bundles/
+│           └── v2/
+│               ├── frontend-react/
+│               ├── frontend-typescript/
+│               ├── backend-go/
+│               ├── backend-python/
+│               ├── shared-security/
+│               └── shared-testing/
 └── README.md
 ```
 
-Team profiles (frontend-dev, backend-dev, fullstack-dev) go in the `profiles:` map of the bundle they belong with.
+Each bundle is one directory directly under `v2/`. Team profiles (frontend-dev, backend-dev, fullstack-dev) go in the `profiles/` directory of the bundle they belong with.
 
 ### Access Control
 
@@ -323,19 +348,15 @@ Team profiles (frontend-dev, backend-dev, fullstack-dev) go in the `profiles:` m
 
 `ctxloom fragment show` and `ctxloom run --dry-run` resolve against your
 project's configured bundles (`.ctxloom/content/bundles/`, plus pinned
-remotes) — not an arbitrary `ctxloom/bundles/` tree in the current directory.
-That tree is the distribution layout a consumer's remote fetch reads;
-ctxloom never reads it locally. Author and validate inside a real ctxloom
-project (`ctxloom init`, if the directory you're publishing from doesn't
-already have one) rather than the bare repository from Publishing to GitHub
-above. Write the bundle at `.ctxloom/content/bundles/my-bundle.yaml` — that
-directory is committed, which is what makes the rest of this flow work: it's
-what `ctxloom bundle sign` signs, and it's the tree `ctxloom bundle push` reads from
-— then:
+remotes). Author and validate inside a real ctxloom project (`ctxloom init`,
+if the directory you're publishing from doesn't already have one). Write the
+bundle at `.ctxloom/content/bundles/v2/my-bundle/`. That directory is
+committed, it is what `ctxloom bundle sign` signs, and it is the tree
+`ctxloom bundle push` reads from. Then:
 
 ```bash
-# Check YAML syntax
-yamllint .ctxloom/content/bundles/my-bundle.yaml
+# Check YAML syntax of the envelope
+yamllint .ctxloom/content/bundles/v2/my-bundle/bundle.yaml
 
 # Test loading
 ctxloom fragment show my-bundle#fragments/testing
@@ -346,8 +367,8 @@ ctxloom run --dry-run -f my-bundle#fragments/testing
 
 Publish with `ctxloom bundle push my-bundle mybundles` (add `--sign` to sign
 it as part of the same push, or `--pr` to open a pull request instead of
-pushing directly) — the supported publish path, writing straight to
-`ctxloom/bundles/` in the target repo.
+pushing directly). That is the supported publish path, and it writes the
+bundle to `.ctxloom/content/bundles/v2/` in the target repo.
 
 ## Example Repositories
 

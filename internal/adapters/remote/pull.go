@@ -38,6 +38,12 @@ type PullOptions struct {
 	// concrete SHA. A non-nil pointer to "" preserves a constraint-less entry.
 	RequestedVersion *string
 
+	// AllowDowngrade accepts, for THIS pull's ref only, content signed at a
+	// version below the lockfile's recorded floor (or no longer signed at all).
+	// Callers set it only for refs the operator named: it is never blanket.
+	// The lower version becomes the new floor.
+	AllowDowngrade bool
+
 	// Stdout and Stdin for output and input (for testing).
 	Stdout io.Writer
 	Stdin  io.Reader
@@ -107,6 +113,10 @@ type Puller struct {
 	// above (see TreeInstallFunc). Nil means this Puller cannot materialize a
 	// bundle at all.
 	treeInstall TreeInstallFunc
+	// treeVerify verifies a fetched tree before it is pinned (see
+	// TreeVerifyFunc). Nil means this Puller cannot establish what it would be
+	// pinning, and it refuses to install rather than pin unverified content.
+	treeVerify TreeVerifyFunc
 }
 
 // PullerOption is a functional option for configuring a Puller.
@@ -128,6 +138,14 @@ func WithTreeFetcher(tf TreeFetchFunc) PullerOption {
 func WithTreeInstaller(ti TreeInstallFunc) PullerOption {
 	return func(p *Puller) {
 		p.treeInstall = ti
+	}
+}
+
+// WithTreeVerifier supplies the verifier a fetched tree must pass before it is
+// pinned (see TreeVerifyFunc). Without it a Puller refuses to install a tree.
+func WithTreeVerifier(tv TreeVerifyFunc) PullerOption {
+	return func(p *Puller) {
+		p.treeVerify = tv
 	}
 }
 
@@ -569,8 +587,18 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		requestedVersion = *opts.RequestedVersion
 	}
 	installSHA := item.sha
+	var signed Verified
 	if frozen, ok := p.heldPin(opts.ItemType, item.localName, requestedVersion); ok {
+		// A held pin installs its OWN commit, which was admitted when it was
+		// pinned; the freshly fetched tree is not what lands, so it is not what
+		// is judged.
 		installSHA = frozen.SHA
+	} else {
+		v, err := p.admitTree(ctx, opts, item)
+		if err != nil {
+			return nil, err
+		}
+		signed = v
 	}
 
 	localPath, werr := p.installTree(ctx, ref, opts, item, installSHA)
@@ -593,7 +621,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// creating a new one. It is the real signal for "updated" vs "installed"
 	// (PullResult.Overwritten used to be hard-coded false, making
 	// operations/sync.go's "updated" status unreachable).
-	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, installSHA, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, item.tree != nil)
+	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, installSHA, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, signed)
 	if err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
 	}
@@ -606,6 +634,41 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		Retracted:       item.retracted,
 		RetractedReason: item.retractedReason,
 	}, nil
+}
+
+// admitTree verifies the fetched tree and holds it to the entry's version
+// floor, BEFORE anything is checked out or written.
+//
+// Verification used to belong only to readers, so a pull pinned whatever the
+// ref resolved to and the check came later, at a read that could at most
+// withhold. That let whoever controls a repository move a ref back to an older
+// tree its publisher really did sign — every signature verifies — and the pin
+// followed it. The floor is what refuses that: a trusted publisher's signed
+// version, recorded at the last pin, below which this ref does not move unless
+// the operator names it (PullOptions.AllowDowngrade).
+//
+// An unreadable lockfile refuses too: it may hold the floor, and a floor that
+// cannot be read is not one that can be honoured.
+func (p *Puller) admitTree(ctx context.Context, opts PullOptions, item *fetchedItem) (Verified, error) {
+	if p.treeVerify == nil {
+		return Verified{}, fmt.Errorf("refusing to install %q: this puller has no tree verifier wired in, so it cannot establish what it would be pinning", item.localName)
+	}
+	v, err := p.treeVerify(ctx, item.tree, item.treeRoot, item.sha, item.rem.URL)
+	if err != nil {
+		return Verified{}, fmt.Errorf("refusing to install %s at %s: %w", item.localName, item.sha, err)
+	}
+	lock, err := p.lockfileManager.Load()
+	if err != nil {
+		return Verified{}, fmt.Errorf("refusing to install %s: the lockfile that records its version floor cannot be read: %w", item.localName, err)
+	}
+	prior, ok := lock.GetEntry(opts.ItemType, item.localName)
+	if !ok {
+		return v, nil
+	}
+	if err := AdmitSignedVersion(opts.Stdout, item.localName, prior, v, opts.AllowDowngrade); err != nil {
+		return Verified{}, fmt.Errorf("refusing to install %s at %s: %w", item.localName, item.sha, err)
+	}
+	return v, nil
 }
 
 // installTree materializes the pinned directory-form bundle as a git worktree
@@ -700,7 +763,7 @@ func (p *Puller) heldPin(itemType ItemType, localName, requestedVersion string) 
 // hadExisting reports whether localName already had a lockfile entry before
 // this write — the caller (installPulledItem) surfaces it as
 // PullResult.Overwritten.
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time, tree bool) (hadExisting bool, err error) {
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time, signed Verified) (hadExisting bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileManager
 	lockfile, err := target.Load()
@@ -721,6 +784,7 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 		RetractedReason:     retractedReason,
 		RetractionCheckedAt: retractionCheckedAt,
 	}
+	entry.SignedVersion, entry.Publisher = signed.LockFields()
 
 	// A hold ("do not upgrade this") is a deliberate decision; a content re-pull
 	// must never silently clear it. Always carry the flag forward, and on a
@@ -734,6 +798,8 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 			entry.Version = frozen.Version
 			entry.RequestedVersion = frozen.RequestedVersion
 			entry.Kind = frozen.Kind
+			entry.SignedVersion = frozen.SignedVersion
+			entry.Publisher = frozen.Publisher
 		}
 	}
 

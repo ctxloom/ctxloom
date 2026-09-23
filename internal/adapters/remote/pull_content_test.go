@@ -30,7 +30,7 @@ func TestInstallPulledItem_OverwrittenReflectsExistingEntry(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(baseDir, 0755))
 	lm := NewLockfileManager(baseDir, WithLockfileFS(fs))
-	p := &Puller{lockfileManager: lm, now: func() time.Time { return time.Now().UTC() }, treeInstall: stubTreeInstaller()}
+	p := &Puller{lockfileManager: lm, now: func() time.Time { return time.Now().UTC() }, treeInstall: stubTreeInstaller(), treeVerify: stubTreeVerifier()}
 	opts := PullOptions{ItemType: ItemTypeBundle, Stdout: &bytes.Buffer{}}
 
 	// Tree-shaped: item.tree == nil is what installPulledItem now refuses

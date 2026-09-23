@@ -134,6 +134,7 @@ func TestNewPuller_WithOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(ff),
 	)
@@ -166,6 +167,7 @@ func TestPuller_Pull(t *testing.T) {
 	lm := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
@@ -227,6 +229,7 @@ func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
 	lm := NewLockfileManager("/test", WithLockfileFS(roFS))
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()),
 		WithLockfileManager(lm),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 	)
@@ -256,6 +259,7 @@ func TestPuller_Pull_RejectsEmptyContent(t *testing.T) {
 
 	lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(lm),
 	)
@@ -280,7 +284,8 @@ func TestPuller_Pull_InvalidReference(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
 
-	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()), WithTreeInstaller(stubTreeInstaller()))
+	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()), WithTreeInstaller(stubTreeInstaller()), WithTreeVerifier(stubTreeVerifier()))
 
 	_, err := puller.Pull(context.Background(), "invalid", PullOptions{})
 
@@ -310,6 +315,7 @@ func TestPuller_Pull_RetractedVersion_Force(t *testing.T) {
 	mf.Refs["main"] = "abc123"
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
 		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
@@ -344,6 +350,7 @@ func TestPuller_Pull_NoStdoutStdin(t *testing.T) {
 	mf.Refs["main"] = "abc123"
 
 	puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()),
 		WithFetcherFactory(mockFetcherFactory(mf)),
 		WithLockfileManager(NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))),
 		WithTreeFetcher(treeAt(map[string]map[string]TreeFile{
@@ -392,12 +399,13 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()),
 			WithLockfileManager(lm),
 		)
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		hadExisting, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion, false, "", time.Time{}, false)
+		hadExisting, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion, false, "", time.Time{}, Verified{})
 
 		require.NoError(t, err)
 		assert.False(t, hadExisting, "a brand new entry is not an overwrite")
@@ -423,15 +431,16 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()),
 			WithLockfileManager(lm),
 		)
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion, false, "", time.Time{}, false)
+		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion, false, "", time.Time{}, Verified{})
 		require.NoError(t, err)
 
-		_, err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion, false, "", time.Time{}, false)
+		_, err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion, false, "", time.Time{}, Verified{})
 		require.NoError(t, err)
 
 		loaded, err := lm.Load()
@@ -459,7 +468,8 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		})
 		require.NoError(t, lm.Save(seeded))
 
-		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()), WithLockfileManager(lm))
+		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()), WithLockfileManager(lm))
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		// Force pull resolves default-branch HEAD ("newhead") with no requested version.
@@ -489,7 +499,8 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		})
 		require.NoError(t, lm.Save(seeded))
 
-		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()), WithLockfileManager(lm))
+		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
+		WithTreeVerifier(stubTreeVerifier()), WithLockfileManager(lm))
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		requireUpdateLockfile(t, puller, ref, "v2sha", "v2.0.0", rem)
@@ -507,6 +518,6 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 // fails the test on error (helper for the hold-preservation cases above).
 func requireUpdateLockfile(t *testing.T, puller *Puller, ref, sha, requestedVersion string, rem *Remote) {
 	t.Helper()
-	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{}, false)
+	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{}, Verified{})
 	require.NoError(t, err)
 }

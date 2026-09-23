@@ -212,6 +212,17 @@ type LockEntry struct {
 	// fresher than it is) nor as "definitely stale" (a fresh check with no
 	// prior fallback has nothing to be stale relative to).
 	RetractionCheckedAt time.Time `yaml:"retraction_checked_at,omitempty" json:"retraction_checked_at,omitempty"`
+
+	// SignedVersion is the release version a trusted publisher signed for the
+	// content at SHA, and it is this entry's VERSION FLOOR: no writer of SHA
+	// may move it to content signed at a lower version, or to unattested
+	// content, without the operator naming this ref (release.CheckAdvance).
+	// Empty when the pinned content is unattested.
+	SignedVersion string `yaml:"signed_version,omitempty" json:"signed_version,omitempty"`
+
+	// Publisher is the trust-root principal whose signature SignedVersion
+	// came from. Display only; empty when unattested.
+	Publisher string `yaml:"publisher,omitempty" json:"publisher,omitempty"`
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.

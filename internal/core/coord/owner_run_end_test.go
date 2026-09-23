@@ -71,3 +71,45 @@ func TestTerminateRun_OwnerRunIsNotAChildOfItself(t *testing.T) {
 		})
 	}
 }
+
+// relaunchForLeftoverMail's top-level guard is not redundant with
+// resumeChild's refusal of a top-level record: that refusal comes only AFTER
+// the tail has already spent relaunch budget (nextRelaunch) and started a
+// tracked resume goroutine. The guard has to stop an owner run's leftover mail
+// before any of that happens. The budget counter is advanced synchronously, so
+// reading it right after the call settles the question without a timing window.
+func TestRelaunchForLeftoverMail_TopLevelRunArmsNoRelaunch(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(nil, nil)
+	c := newTestCoordinator(t, sp, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+
+	const ownerHarp = "owner-harp"
+	token, err := c.RegisterSessionOwner(ownerHarp)
+	require.NoError(t, err)
+	owner, ok := c.Identify(token)
+	require.True(t, ok)
+	starter, started := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
+	out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "do the thing")
+	require.NoError(t, err)
+	require.True(t, *started)
+	c.terminateRun(out.RunID, CauseRunnerExit, "")
+
+	_, err = c.queueMail(ownerHarp, ownerHarp, "message", "a turn the run never took")
+	require.NoError(t, err)
+	var rec RunRecord
+	c.runs.View(func() { rec = *c.runsF.run(out.RunID) })
+	require.True(t, rec.TopLevel(), "precondition: the owner's run is top-level")
+	require.Positive(t, c.pendingCount(ownerHarp), "precondition: the owner has leftover mail")
+
+	c.relaunchForLeftoverMail(rec, CauseRunnerExit, "")
+
+	c.mu.Lock()
+	st := c.launches[ownerHarp]
+	c.mu.Unlock()
+	if st != nil {
+		assert.Zero(t, st.relaunches,
+			"a top-level run's leftover mail spent relaunch budget: the tail armed a relaunch of the owner's harp")
+	}
+}

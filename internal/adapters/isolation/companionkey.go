@@ -3,17 +3,18 @@ package isolation
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os/exec"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// companionLookPath resolves a companion binary on the host PATH. It is the
-// seam stageCompanions and companionVersionKey SHARE, so the key is computed
-// over exactly the files a build would stage — a key describing a different
-// binary than the one baked in would be worse than no key at all.
-var companionLookPath = exec.LookPath
+// companionLookPath resolves a companion binary to its ADMITTED copy (see
+// pinnedCompanionLookPath) — never a bare PATH lookup, which would bake
+// whatever binary of that name happened to come first. It is the seam
+// stageCompanions and companionVersionKey SHARE, so the key is computed over
+// exactly the files a build would stage — a key describing a different binary
+// than the one baked in would be worse than no key at all.
+var companionLookPath = pinnedCompanionLookPath
 
 // companionVersionProbe reads one companion's self-reported version. It goes
 // through cliversion, the single owner of the `<bin> version --format json`

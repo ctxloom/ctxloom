@@ -176,15 +176,32 @@ func AdmitNoCompanionForTesting() func() {
 // "recorded no", "nobody could be asked" and "the store is unreadable" are one
 // implementation for every consumer.
 func admitCompanion(bin string, root trust.TrustRoot) CompanionAdmission {
+	a, _ := admitCompanionVerified(bin, root)
+	return a
+}
+
+// verifiedCompanion is the bytes an admission decision was made OVER: the
+// binary exactly as it was read and verified, and the signature that verified
+// it. Only an admitted decision carries one. Anything that acts on an admitted
+// companion after the decision acts on THESE bytes, never on a re-read of the
+// path, which could have changed in between.
+type verifiedCompanion struct {
+	payload []byte
+	sig     []byte
+}
+
+// admitCompanionVerified is admitCompanion, also returning the verified bytes
+// when the decision is an admission.
+func admitCompanionVerified(bin string, root trust.TrustRoot) (CompanionAdmission, verifiedCompanion) {
 	raw, err := lookPath(bin)
 	if err != nil {
 		// not installed — ordinary, not a warning
-		return newCompanionAdmission(CompanionKey{Bin: bin}, false, CompanionAdmissionNotInstalled)
+		return newCompanionAdmission(CompanionKey{Bin: bin}, false, CompanionAdmissionNotInstalled), verifiedCompanion{}
 	}
 	resolved, rerr := resolveCompanionPath(raw)
 	if rerr != nil {
 		clidiag.Warn("ctxloom", "companion %q: cannot resolve %s, withholding: %v", bin, raw, rerr)
-		return newCompanionAdmission(CompanionKey{Bin: bin, Path: raw}, false, CompanionAdmissionUnreadable)
+		return newCompanionAdmission(CompanionKey{Bin: bin, Path: raw}, false, CompanionAdmissionUnreadable), verifiedCompanion{}
 	}
 	key := CompanionKey{Bin: bin, Path: resolved}
 
@@ -212,12 +229,12 @@ func admitCompanion(bin string, root trust.TrustRoot) CompanionAdmission {
 		clidiag.WarnOnce("ctxloom",
 			"companion %q at %s: no signature beside it, skipping — a companion must be signed by a publisher you "+
 				"trust (sign it where it is built: `just sign-binary %s`)", bin, resolved, resolved)
-		return newCompanionAdmission(key, false, CompanionAdmissionUnsigned)
+		return newCompanionAdmission(key, false, CompanionAdmissionUnsigned), verifiedCompanion{}
 	}
 	payload, readErr := os.ReadFile(resolved)
 	if readErr != nil {
 		clidiag.Warn("ctxloom", "companion %q: cannot read %s to verify it, withholding: %v", bin, resolved, readErr)
-		return newCompanionAdmission(key, false, CompanionAdmissionUnreadable)
+		return newCompanionAdmission(key, false, CompanionAdmissionUnreadable), verifiedCompanion{}
 	}
 	principal, verifyErr := signing.VerifyInNamespace(payload, sig, root, signing.NamespaceCompanion, time.Now())
 	switch {
@@ -225,7 +242,7 @@ func admitCompanion(bin string, root trust.TrustRoot) CompanionAdmission {
 		clidiag.WarnOnce("ctxloom",
 			"companion %q at %s: its signature does not cover these bytes, refusing to execute it: %v",
 			bin, resolved, verifyErr)
-		return newCompanionAdmission(key, false, CompanionAdmissionTampered)
+		return newCompanionAdmission(key, false, CompanionAdmissionTampered), verifiedCompanion{}
 	case principal == "":
 		// VerifyInNamespace's "unsigned to you": a well-formed signature by a
 		// key the trust root does not authorize for THIS namespace. A bundle
@@ -234,9 +251,9 @@ func admitCompanion(bin string, root trust.TrustRoot) CompanionAdmission {
 			"companion %q at %s: signed by a key you do not trust to authorize execution, skipping "+
 				"(add its publisher to allowed_signers with namespaces=%q)",
 			bin, resolved, signing.NamespaceCompanion)
-		return newCompanionAdmission(key, false, CompanionAdmissionUntrusted)
+		return newCompanionAdmission(key, false, CompanionAdmissionUntrusted), verifiedCompanion{}
 	}
-	return newCompanionAdmission(key, true, CompanionAdmissionSigned)
+	return newCompanionAdmission(key, true, CompanionAdmissionSigned), verifiedCompanion{payload: payload, sig: sig}
 }
 
 // companionSigSuffix is the detached signature's extension — the one

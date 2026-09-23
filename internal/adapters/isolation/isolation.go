@@ -192,11 +192,12 @@ const RunnerTerm = "dumb"
 
 // RunnerCommand is the self-exec'd host runner command: `ctxloom runner
 // <engine>` with spawnEnv (the reach-back trio) laid over the process env,
-// under RunnerTerm.
+// under RunnerTerm, with the admitted companions first on PATH
+// (withPinnedPath).
 func RunnerCommand(backendName string, spawnEnv map[string]string) *exec.Cmd {
 	cmd := exec.Command(selfexec.Path(), "runner", backendName)
 	cmd.Env = append(os.Environ(), "TERM="+RunnerTerm)
-	cmd.Env = append(cmd.Env, envPairs(spawnEnv)...)
+	cmd.Env = withPinnedPath(append(cmd.Env, envPairs(spawnEnv)...))
 	return cmd
 }
 

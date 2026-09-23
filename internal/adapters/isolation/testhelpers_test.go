@@ -150,15 +150,15 @@ func claudeSeed(t *testing.T) engine.CredentialSeed {
 // noCompanionsOnPath is the TestMain default: no companion resolves.
 func noCompanionsOnPath(string) (string, error) { return "", exec.ErrNotFound }
 
-// withRealCompanionLookPath restores the production PATH lookup for one test,
-// for the tests that drive companion resolution through a fabricated PATH
-// (t.Setenv) rather than through the fixture. Without it TestMain's
-// no-companions default silently answers first and the PATH those tests built
-// is never consulted.
+// withRealCompanionLookPath restores the production companion lookup — the
+// admitted copy the injected pin provides — for one test, for the tests that
+// drive companion resolution through a real pin (SetCompanionPin) rather than
+// through the fixture. Without it TestMain's no-companions default silently
+// answers first and the pin those tests built is never consulted.
 func withRealCompanionLookPath(t *testing.T) {
 	t.Helper()
 	orig := companionLookPath
-	companionLookPath = exec.LookPath
+	companionLookPath = pinnedCompanionLookPath
 	t.Cleanup(func() { companionLookPath = orig })
 }
 

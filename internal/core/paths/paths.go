@@ -131,6 +131,12 @@ const (
 	// classify the directory without either side inventing the name twice.
 	ContextCacheDir = "context"
 
+	// CompanionPinCacheDir is the CacheDir subdirectory holding the admitted
+	// companions' verified bytes and signatures, one directory per admitted
+	// set's digest (companions.PinAdmittedCompanions) — what a host launch puts
+	// first on the engine's PATH.
+	CompanionPinCacheDir = "companions"
+
 	// LocksDir is the StateDir subdirectory holding the advisory lock sidecars
 	// that guard project-scoped files (ProjectPathFor, lockpath.go). It is state,
 	// not cache: a lock file is a fact about THIS machine's concurrent
@@ -413,13 +419,14 @@ const (
 	whatAllowedSigners    = "the user trust root"
 	whatDistrustedSigners = "the user distrust record"
 	whatHomeRecords       = "the home records directory"
+	whatCompanionPin      = "the admitted-companion pin"
 )
 
 // homeUnder resolves ~/<AppDirName>/<segments...>, naming what failed in the
 // caller's own terms.
 //
 // Every Home*/cache accessor below shares this body exactly; it is one function
-// so the nine of them cannot drift apart. The `what` string is the caller's,
+// so they cannot drift apart. The `what` string is the caller's,
 // because the remedy for a failure here is stated in terms of the store the
 // caller wanted, not of os.UserHomeDir.
 func homeUnder(what string, segments ...string) (string, error) {
@@ -428,6 +435,12 @@ func homeUnder(what string, segments ...string) (string, error) {
 		return "", fmt.Errorf(homeUnderErrFormat, what, AppDirName, filepath.Join(segments...), err)
 	}
 	return filepath.Join(append([]string{home, AppDirName}, segments...)...), nil
+}
+
+// HomeCompanionPinDir returns ~/.ctxloom/cache/companions — the store
+// companions.PinAdmittedCompanions writes admitted companions into.
+func HomeCompanionPinDir() (string, error) {
+	return homeUnder(whatCompanionPin, CacheDir, CompanionPinCacheDir)
 }
 
 func HomeSessionsDir() (string, error) {
@@ -1175,6 +1188,14 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, CacheDir, ContextCacheDir), Tier: TierDerived,
 			Rebuild: "ctxloom manage hooks install (the next ctxloom run also rewrites it)",
+		},
+		// The admitted companions a host launch puts first on the engine's
+		// PATH (companions.PinAdmittedCompanions). Content-addressed by the
+		// admitted set, so sessions share one copy; every launch re-verifies
+		// and rewrites whatever is missing.
+		{
+			Rel: filepath.Join(AppDirName, CacheDir, CompanionPinCacheDir), Tier: TierDerived,
+			Rebuild: "ctxloom run (every host launch re-pins the admitted companions)",
 		},
 		{
 			Rel: filepath.Join(AppDirName, StateDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,

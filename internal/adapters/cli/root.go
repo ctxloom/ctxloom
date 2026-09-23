@@ -329,6 +329,11 @@ func rootCommand() *cobra.Command {
 		// isolation could import internal/shared/version directly (it's a leaf), but
 		// this stays a Set* push for now rather than churning that wiring too.
 		isolation.SetBinaryVersion(version.Version)
+
+		// A host launch puts the admitted companions first on the engine's
+		// PATH, and an agent image stages only admitted ones; both need the
+		// configuration's trust root, which isolation does not hold.
+		isolation.SetCompanionPin(pinAdmittedCompanions)
 	})
 	resetHelpFlag(rootCmd)
 	return rootCmd

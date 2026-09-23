@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sort"
 	"sync"
 	"time"
 
@@ -51,19 +50,9 @@ const hostRunnerWaitDelay = 10 * time.Second
 // would get a healthy-looking *HostRunner for a process that never dials home,
 // and the failure would surface only as the coordinator's readiness timeout.
 func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, error) {
-	if len(args) == 0 || args[0] == "" {
-		return nil, fmt.Errorf("start host runner: no subcommand in args")
-	}
-	// Resolve the running binary upgrade-safely (selfexec strips a Linux
-	// "(deleted)" suffix after an in-place upgrade), as RunnerCommand does.
-	cmd := exec.Command(selfexec.Path(), args...)
-	if len(spawnEnv) > 0 {
-		kv := make([]string, 0, len(spawnEnv))
-		for k, v := range spawnEnv {
-			kv = append(kv, k+"="+v)
-		}
-		sort.Strings(kv)
-		cmd.Env = append(os.Environ(), kv...)
+	cmd, err := hostRunnerCmd(args, spawnEnv)
+	if err != nil {
+		return nil, err
 	}
 	// Fresh session leader so killSession has a safe, scoped teardown boundary.
 	isolateRunner(cmd)
@@ -87,6 +76,21 @@ func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, er
 		return waitErr
 	}
 	return h, nil
+}
+
+// hostRunnerCmd is StartHostRunner's command: the running binary with args,
+// spawnEnv laid over the process env, and the admitted companions first on
+// PATH (withPinnedPath) so the engine this runner launches resolves a
+// companion's bare name to the bytes admission verified.
+func hostRunnerCmd(args []string, spawnEnv map[string]string) (*exec.Cmd, error) {
+	if len(args) == 0 || args[0] == "" {
+		return nil, fmt.Errorf("start host runner: no subcommand in args")
+	}
+	// Resolve the running binary upgrade-safely (selfexec strips a Linux
+	// "(deleted)" suffix after an in-place upgrade), as RunnerCommand does.
+	cmd := exec.Command(selfexec.Path(), args...)
+	cmd.Env = withPinnedPath(append(os.Environ(), envPairs(spawnEnv)...))
+	return cmd, nil
 }
 
 // Kill terminates the runner and reaps its whole session (killSession) —

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/release"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func fixtureRel(t *testing.T) release.Release {
@@ -37,7 +38,8 @@ func TestVerifyBundle_ATreeSignedAsOneBundleServedAsAnotherIsTampered(t *testing
 		}
 		data, err := afero.ReadFile(fsys, p)
 		require.NoError(t, err)
-		return afero.WriteFile(fsys, dst+rel, data, 0o644)
+		testsupport.WriteFile(t, fsys, dst+rel, data, 0o644)
+		return nil
 	}))
 	moved, err := store.Open(ctx, "impostor")
 	require.NoError(t, err)

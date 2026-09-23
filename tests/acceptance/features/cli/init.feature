@@ -15,14 +15,18 @@ Feature: init — the setup interview, and what it does to a project that alread
   interview body for a shell or a script.
 
   WHAT THIS FILE COVERS, AND WHAT IT DELIBERATELY DOES NOT. A first-time init
-  on a NEW `.ctxloom` clones the seeded default remote, so it reaches the
-  NETWORK — it cannot be specified hermetically and no scenario here attempts
-  it. Every scenario below runs against a project that ALREADY has a `.ctxloom`
-  directory, which takes init's already-exists branch: no scaffold, no clone,
-  no dependency pull. That branch is not a lesser case — it is what every
-  re-run of `init` does, and it is where the flags that were once silently
-  ignored live. The fresh-project path is exercised end to end over a real pty
-  in j000200_setup.feature, against a mock engine.
+  on a NEW `.ctxloom` clones the seeded default remote and pulls its
+  dependencies, so it reaches the NETWORK. The one fresh-project scenario here
+  answers init's questions over a real pty with the network refused and the
+  setup session skipped (`--skip-launch`): it proves what the QUESTIONS write,
+  not what the clone or the setup session do. Every other scenario runs
+  against a project that ALREADY has a `.ctxloom` directory, which takes
+  init's already-exists branch: no questions, no scaffold, no clone, no
+  dependency pull. That branch is not a lesser case — it is what every re-run
+  of `init` does, and it is where the flags that were once silently ignored
+  live. The setup session itself is launched over a real pty, against a mock
+  engine, in j000200_setup.feature — on an existing project, so without the
+  questions.
 
   The interactive interview needs a terminal too. Off one, init resolves the
   engine and returns without launching anything, which is precisely what makes
@@ -138,3 +142,25 @@ Feature: init — the setup interview, and what it does to a project that alread
       And the output contains "Phase 2 — Companions"
       And the output contains "Phase 4 — Agents"
       And the output contains "Phase 5 — Close"
+
+  Rule: A first init asks its questions at the terminal, and writes the answers
+
+    Init's questions are asked in-process, on the user's own terminal, before
+    any engine is involved: that is what keeps an answer like the headless
+    posture unambiguously the human's. Taking every recommendation must leave
+    a project whose default agent may run headless read-only.
+
+    # Hermetic: a stub `claude` makes claude-code the only installed engine
+    # (so init announces it rather than asking), the https clone of the seeded
+    # remote is refused, and --skip-launch stops before the auth probe and
+    # the setup session. The stub records any execution, which is how "no
+    # engine ran" is proven rather than assumed.
+    Scenario: A first init writes the answers given at the terminal
+      Given an empty project directory
+      And claude-code is the only engine installed, and nothing reaches the network
+      When Alice answers init's questions at a terminal, taking every recommendation
+      Then init told her which engine it chose, "Using claude-code (only available engine)"
+      And no engine ran during the interview
+      And the file ".ctxloom/config.yaml" contains "type: claude-code"
+      And the file ".ctxloom/config.yaml" contains "dirty_tree_handler: commit"
+      And the default agent's headless posture is "plan"

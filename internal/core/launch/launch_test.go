@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // TestResolve_EverySource_OneResolver: every way a launch is asked for goes
@@ -30,9 +31,9 @@ func TestResolve_EverySource_OneResolver(t *testing.T) {
 			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionDefault}},
 		{"label override", launch.Source{Identity: env.Identity, Agent: "dev", Label: "fast", Mode: engine.Interactive, Prompt: "x", WorkDir: env.Project},
 			launchtest.Expect{Engine: launchtest.EngineName, Label: "fast", Permission: engine.PermissionPlan}},
-		{"init probe", launch.Source{Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Prompt: "ping", WorkDir: env.Project},
-			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionBypass}}, // headless floor applied ONCE, here
-		{"internal one-shot", launch.Source{Identity: env.Identity, Agent: "distiller", Mode: engine.Structured, Prompt: "payload", WorkDir: env.Project},
+		{"init probe", launch.Source{Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "ping", WorkDir: env.Project},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionBypass}},
+		{"internal one-shot", launch.Source{Identity: env.Identity, Agent: "distiller", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "payload", WorkDir: env.Project},
 			launchtest.Expect{Engine: launchtest.EngineName, Label: "fast", Permission: engine.PermissionBypass}},
 	}
 	for _, tc := range cases {
@@ -75,24 +76,53 @@ func TestResolve_Refuses_TheIncompleteShapes(t *testing.T) {
 }
 
 // TestResolve_Permission_FlooredOnce: the floor is applied here and nowhere
-// else. A posture the engine cannot honour is refused ONCE, at the floor; a
-// delegated child (depth > 0) that would block on a prompt is refused rather
-// than widened, because no human answers a child's engine.
+// else. A posture the engine cannot honour is refused ONCE, at the floor.
 func TestResolve_Permission_FlooredOnce(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("typo", launchtest.Permissions("plann")))
 	_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "typo", Mode: engine.Interactive, Prompt: "x", WorkDir: env.Project})
 	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
 	require.ErrorContains(t, err, "plann")
+}
 
-	env = launchtest.Deps(t, launchtest.WithAgent("silent"))
+// TestResolve_Permission_HeadlessOneRule: a Structured run that would block
+// on a prompt has no human at the engine, whoever launched it. The
+// originator's own run (depth 0) and a delegated child (depth > 0) follow
+// ONE rule: refused, never silently widened to bypass; the refusal names
+// the door the run was selected by. --degraded launches it at the floor
+// and SAYS so.
+func TestResolve_Permission_HeadlessOneRule(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("silent"))
 	child := env.Identity
 	child.Depth = 1
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Orchestrator: env.Identity.Harp})
-	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "a child declaring no headless-safe posture is refused, never widened to bypass")
+	for _, tc := range []struct {
+		name string
+		id   sessions.Identity
+		orch string
+	}{
+		{"originator at depth 0", env.Identity, ""},
+		{"delegated child", child, env.Identity.Harp},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: tc.id, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Orchestrator: tc.orch})
+			require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "a headless run declaring no headless-safe posture is refused, never widened to bypass")
+			require.ErrorContains(t, err, `on agent "silent"`, "an agent-selected run is told to declare the posture on its agent")
 
-	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true, Orchestrator: env.Identity.Harp})
-	require.NoError(t, err)
-	require.Equal(t, engine.PermissionPlan, l.Permission, "degraded narrows a child to the most restrictive headless-safe posture")
+			var got report.Findings
+			deps := env.Deps
+			deps.Reporter = &got
+			l, err := launch.Resolve(context.Background(), deps, launch.Source{Identity: tc.id, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true, Orchestrator: tc.orch})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
+			require.Equal(t, engine.PermissionPlan, l.Permission, "degraded narrows to the most restrictive headless-safe posture")
+			require.Len(t, got, 1, "the drop to the floor is announced, never silent")
+			require.Contains(t, got[0].Text, "--degraded")
+			require.Contains(t, got[0].Text, "plan")
+		})
+	}
+
+	_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
+	require.ErrorContains(t, err, "--permissions", "a run selected with no agent is told to pass the flag")
 }
 
 // TestResolve_MCPEndpoint_PerSession_StableAcrossResume: the endpoint is
@@ -142,7 +172,7 @@ func TestLaunch_Session_IsTheOnlyProjection(t *testing.T) {
 // the managed surfaces, the headless floor.
 func TestResolve_InternalSource_BindsNoAgent(t *testing.T) {
 	env := launchtest.Deps(t)
-	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Internal: true, Label: "fast", Mode: engine.Structured, Prompt: "distill this", WorkDir: env.Project})
+	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Internal: true, Label: "fast", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "distill this", WorkDir: env.Project})
 	require.NoError(t, err)
 	require.Equal(t, "fast", l.Label.Label)
 	pkg, err := launch.Open(context.Background(), env.Deps, l)
@@ -283,19 +313,17 @@ func (emptyAssembler) LabelEnv(*config.Snapshot, string) map[string]string { ret
 
 // TestResolve_Permission_PlanCollapsesOnEveryPath: on an engine with no
 // read-only tier a declared plan is not enforced and collapses to default —
-// on the originator's interactive run, on its structured run (then floored
-// to bypass at depth 0) and on a delegated child, which is REFUSED rather
-// than launched at a posture it cannot honour. One floor, no path skips
-// the collapse.
+// on an interactive run, and on every structured run, which is then REFUSED
+// rather than launched at a posture it cannot honour. One floor, no path
+// skips the collapse.
 func TestResolve_Permission_PlanCollapsesOnEveryPath(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("planner", launchtest.Permissions("plan")), launchtest.NoReadOnlyPlan())
 	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Interactive, WorkDir: env.Project})
 	require.NoError(t, err)
 	require.Equal(t, engine.PermissionDefault, l.Permission, "interactive: plan collapses to default, which prompts")
 
-	l, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
-	require.NoError(t, err)
-	require.Equal(t, engine.PermissionBypass, l.Permission, "the originator's structured run: collapsed, then floored up at depth 0")
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
+	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "the originator's structured run: collapsed, then refused, never floored up to bypass")
 
 	child := env.Identity
 	child.Depth = 1

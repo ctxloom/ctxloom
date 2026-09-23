@@ -219,10 +219,9 @@ type depWalker struct {
 	factory remote.FetcherFactory
 	auth    remote.AuthConfig
 
-	// treeFetch is the pinned-remote tree walker a DIRECTORY-form bundle
-	// profile parent needs, wired in for the same layering reason Puller and
-	// BundleReader take theirs (see remote.TreeFetchFunc). Nil reads only the
-	// single-file shape, which since the v1 removal is no bundle at all.
+	// treeFetch is the pinned-remote tree walker a bundle profile parent
+	// needs, wired in for the same layering reason Puller and BundleReader
+	// take theirs (see remote.TreeFetchFunc). Nil reads nothing.
 	treeFetch remote.TreeFetchFunc
 
 	// trustRoot decides whether a remote tree bundle's publisher is one this

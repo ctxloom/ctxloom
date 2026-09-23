@@ -752,8 +752,7 @@ func (c Catalog) missing(ask string) error {
 // resolution still picks the old form appears to succeed and changes nothing,
 // which is the failure this project produces most often and detects least.
 type Located struct {
-	// Path is the file backing the bundle — the document for a single-file
-	// bundle, the envelope for a directory or tree bundle.
+	// Path is the file backing the bundle: its tree's envelope.
 	Path string
 	// Layout is the layout that answered, or paths.LayoutUnknown for a bundle
 	// that came from somewhere with no layout: an installed remote tree, a

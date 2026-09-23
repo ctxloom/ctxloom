@@ -61,8 +61,8 @@ type RefusedAdvance struct {
 // The check is the ONE verifier every reader uses (attest.VerifyBundle, via
 // bundles.ReadRemoteRef): the pull walk and this pre-advance read refuse the
 // same things. It is fail-closed on a tamper: a tree that cannot be read at the
-// proposed commit refuses the advance. Content that is not there at all, and a
-// document-form ref, carry nothing to verify and establish no release — which
+// proposed commit refuses the advance. Content that is not there at all
+// carries nothing to verify and establishes no release — which
 // the floor, when there is one, then refuses as unsigned.
 //
 // A non-bundle (a remote parent profile) is never refused here: publisher
@@ -82,7 +82,7 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 	switch {
 	case err == nil:
 	case errors.Is(err, errs.ErrRemoteContentNotFound) || errors.Is(err, content.ErrNotFound),
-		errors.Is(err, bundles.ErrTreeUnattested), errors.Is(err, bundles.ErrDocumentFormUnreadable):
+		errors.Is(err, bundles.ErrTreeUnattested):
 		// None of these is a tamper, and none is more readable at the kept pin
 		// than at the proposed one: they establish no release, and the floor
 		// below decides.

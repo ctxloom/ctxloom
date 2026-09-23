@@ -2,42 +2,28 @@ package remote
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
-
-	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
-// RefContent is what ONE canonical ref resolved to, and it is a choice of two
-// because a bundle has two published shapes: the single file at the ref's own
-// path, or the DIRECTORY at that path whose bundle.yaml is its manifest.
+// RefContent is what ONE canonical ref resolved to: the bundle TREE at the
+// ref's path.
 //
-// The two are kept apart rather than collapsed to bytes because collapsing them
-// is precisely the data loss this type exists to remove. A tree's items live in
-// files BESIDE its manifest, and internal/core/bundles refuses a tree manifest that
-// declares any item inline, so a tree reduced to its bundle.yaml is an envelope
-// whose every item map is empty — a bundle that loads, assembles and delivers
-// nothing, with no error anywhere. A caller that wants the whole bundle must be
-// handed the whole tree; one that genuinely wants manifest bytes asks for them
-// by name (TreeManifest).
+// It carries the whole tree rather than its manifest's bytes because a tree's
+// items live in files BESIDE its manifest, and internal/core/bundles refuses a
+// manifest that declares any item inline — so a tree reduced to its
+// bundle.yaml is an envelope whose every item map is empty, a bundle that
+// loads, assembles and delivers nothing, with no error anywhere. A caller that
+// genuinely wants manifest bytes asks for them by name (TreeManifest).
 type RefContent struct {
-	// Data is the single-file document's bytes, set when the file form
-	// answered. Nil for a tree.
-	Data []byte
-
-	// Tree is the complete directory-form bundle, keyed by BUNDLE-ROOT-relative
-	// forward-slash path ("bundle.yaml", "profiles/parent.yaml"), with each
-	// file's declared executability already resolved. Nil for a file.
+	// Tree is the complete bundle, keyed by BUNDLE-ROOT-relative forward-slash
+	// path ("bundle.yaml", "profiles/parent.yaml"), with each file's declared
+	// executability already resolved.
 	Tree map[string]TreeFile
 
 	// Root is the repository path the tree answered from, for diagnostics and
-	// for naming the bundle. Empty for a file.
+	// for naming the bundle.
 	Root string
 }
-
-// IsTree reports whether this ref resolved to a directory-form bundle.
-func (c RefContent) IsTree() bool { return c.Tree != nil }
 
 // FetchRef fetches the content a canonical ref names at a specific commit sha
 // from the local git clone cache (via the cached fetcher factory), WITHOUT
@@ -47,13 +33,10 @@ func (c RefContent) IsTree() bool { return c.Tree != nil }
 // -graph walker share: a hash-pinned ref is fully self-describing, so reading
 // it needs nothing but the clone at that sha — no lockfile, no registry.
 //
-// A bundle has two published shapes and this reads either, reporting WHICH it
-// found rather than flattening both to bytes. treeFetch supplies the
-// pinned-remote tree walker for the directory shape, wired from above exactly
+// treeFetch supplies the pinned-remote tree walker, wired from above exactly
 // as Puller.treeFetch and BundleReader.treeFetch are and for the same layering
 // reason (see TreeFetchFunc) — this package cannot reach the walker's
-// implementation. Nil keeps the single-file-only behaviour, which for a bundle
-// published as a tree means it cannot be read.
+// implementation. Nil means the ref cannot be read, and FetchRef says so.
 //
 // It returns REMOTE types only. Turning a tree into a *bundles.Bundle needs the
 // content layer, which sits ABOVE this package and imports it; a sibling here
@@ -79,35 +62,15 @@ func FetchRef(ctx context.Context, factory FetcherFactory, auth AuthConfig, ref 
 	if err != nil {
 		return RefContent{}, fmt.Errorf("parse repo URL %s: %w", ref.URL, err)
 	}
-	filePath := ref.BuildFilePath(ref.ItemType)
-	data, fileErr := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
-	switch {
-	case fileErr == nil:
-		return RefContent{Data: data}, nil
-	case !errors.Is(fileErr, errs.ErrRemoteContentNotFound):
-		return RefContent{}, fmt.Errorf("fetch %s@%s: %w", filePath, sha, fileErr)
-	case ref.ItemType != ItemTypeBundle:
-		// Only bundles have a directory form. Anything else that is missing is
-		// simply missing, and must say so rather than reporting a tree gap.
-		return RefContent{}, fmt.Errorf("fetch %s@%s: %w", filePath, sha, fileErr)
-	case treeFetch == nil:
-		// No walker was wired in, so this read genuinely cannot tell whether a
-		// tree is there. Say that, rather than reporting the file's absence as
-		// the whole story — a bare "not found" against a repo that DOES publish
-		// the directory form is the diagnostic that cost this capability its
-		// first attempt.
-		return RefContent{}, fmt.Errorf("fetch %s@%s: %w (and this read has no tree fetcher wired in, so %s could not be checked for a directory-form bundle)",
-			filePath, sha, fileErr, strings.Join(BundleTreeRoots(filePath), " or "))
+	if treeFetch == nil {
+		return RefContent{}, fmt.Errorf("fetch %s@%s: this read has no tree fetcher wired in", ref.String(), sha)
 	}
-
+	filePath := ref.BuildFilePath(ref.ItemType)
 	tree, treeRoot, terr := ProbeBundleTreeRoots(filePath, func(root string) (map[string]TreeFile, error) {
 		return treeFetch(ctx, fetcher, owner, repo, root, sha, ref.URL)
 	})
 	if terr != nil {
-		// Quote BOTH failures. Either one alone is misleading: the file error
-		// alone hides that a directory form was looked for, and the tree error
-		// alone reads as though the directory were the only shape a bundle has.
-		return RefContent{}, fmt.Errorf("fetch %s@%s: neither the file (%v) nor the directory-form bundle at %s: %w", filePath, sha, fileErr, treeRoot, terr)
+		return RefContent{}, fmt.Errorf("fetch %s@%s: the bundle tree at %s: %w", ref.String(), sha, treeRoot, terr)
 	}
 	if _, ok := TreeManifest(tree); !ok {
 		return RefContent{}, fmt.Errorf("refusing to read %s: the directory %s exists at %s but carries no %s, so nothing can load it as a bundle (it has %d file(s))",

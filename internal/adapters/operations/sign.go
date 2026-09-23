@@ -290,12 +290,8 @@ func bundleRelease(name string, b *bundles.Bundle) (release.Release, error) {
 // cache: this project only has write access to its own authored bundle files.
 // Sorted for deterministic --all output.
 //
-// The enumeration MIRRORS bundles.Loader.List: both bundle shapes, walked
-// recursively, named by slash-joined path relative to the search dir.
-// Listing only top-level `*.yaml` files skipped every DIRECTORY-form bundle —
-// which is exactly the shape that can ship skills (skills.go requires
-// directory form) — so a bundle with skills was unsignable via --all while
-// the command reported success having signed a subset. It is mirrored rather
+// The enumeration MIRRORS bundles.Loader.List: trees, walked recursively,
+// named by slash-joined path relative to the search dir. It is mirrored rather
 // than delegated because the loader's walk deliberately swallows read errors
 // (a corrupt bundle must not blank a listing), whereas this set decides what
 // gets SIGNED: an unreadable authored dir has to stay loud here.

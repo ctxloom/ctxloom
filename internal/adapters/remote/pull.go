@@ -3,7 +3,6 @@ package remote
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -106,8 +105,7 @@ type Puller struct {
 	// exported option for it.
 	now func() time.Time
 	// treeFetch is the pinned-remote tree walker, wired in from above (see
-	// TreeFetchFunc). Nil means this Puller can fetch only single-file bundles,
-	// which is what every Puller could do before the seam existed.
+	// TreeFetchFunc). Nil means this Puller cannot fetch a bundle at all.
 	treeFetch TreeFetchFunc
 	// treeInstall materializes a pinned tree as a git worktree, wired in from
 	// above (see TreeInstallFunc). Nil means this Puller cannot materialize a
@@ -126,10 +124,8 @@ type Puller struct {
 // PullerOption is a functional option for configuring a Puller.
 type PullerOption func(*Puller)
 
-// WithTreeFetcher supplies the pinned-remote tree walker a directory-form
-// bundle needs. Without it a Puller fetches single-file bundles only — the
-// behaviour every Puller had before this seam — so omitting it degrades to the
-// old capability rather than to a half-installed tree.
+// WithTreeFetcher supplies the pinned-remote tree walker a bundle needs.
+// Without it a Puller cannot fetch a bundle, and says so.
 func WithTreeFetcher(tf TreeFetchFunc) PullerOption {
 	return func(p *Puller) {
 		p.treeFetch = tf
@@ -345,7 +341,7 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 	}
 
 	filePath := ref.BuildFilePath(opts.ItemType)
-	content, tree, treeRoot, err := p.fetchItemBytes(ctx, fetcher, owner, repo, repoURL, ref, filePath, sha, opts)
+	content, tree, treeRoot, err := p.fetchItemBytes(ctx, fetcher, owner, repo, repoURL, ref, filePath, sha)
 	if err != nil {
 		return nil, err
 	}
@@ -360,56 +356,17 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 	}, nil
 }
 
-// fetchItemBytes reads the item at filePath, falling back to its DIRECTORY form
-// when the single file is absent.
-//
-// The single file is tried FIRST and the tree only on a genuine
-// not-found. That ordering is not a preference between the two shapes: it is
-// what makes the addition invisible to every publisher who already ships single
-// files. A tree probe in front would issue an extra listing on every pull in the
-// world to serve the rarer case, and — worse — would let a stray directory
-// beside a real bundle.yaml decide which of the two a pull installed.
-//
-// A fetcher error that is NOT "not found" propagates unchanged. Falling through
-// to a tree probe on an auth failure or a transport error would convert one
-// diagnosable error into a second, more confusing one about a directory nobody
-// asked for.
-func (p *Puller) fetchItemBytes(ctx context.Context, fetcher Fetcher, owner, repo, repoURL string, ref *Reference, filePath, sha string, opts PullOptions) (content []byte, tree map[string]TreeFile, treeRoot string, err error) {
-	content, fileErr := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
-	switch {
-	case fileErr == nil:
-		// A zero-byte remote file must never be pinned as a successful install:
-		// the lockfile entry installPulledItem is about to write would
-		// otherwise report a real SHA and "installed" status for content that
-		// is empty — a silent no-op indistinguishable from a genuine pull.
-		if len(content) == 0 {
-			return nil, nil, "", fmt.Errorf("refusing to pull %s: remote file %s is empty at %s", ref.String(), filePath, sha)
-		}
-		return content, nil, "", nil
-	case !errors.Is(fileErr, errs.ErrRemoteContentNotFound):
-		return nil, nil, "", fmt.Errorf("failed to fetch: %w", fileErr)
-	case opts.ItemType != ItemTypeBundle:
-		// Only bundles have a directory form. Anything else that is missing is
-		// simply missing, and must say so rather than reporting a tree gap.
-		return nil, nil, "", fmt.Errorf("failed to fetch: %w", fileErr)
-	case p.treeFetch == nil:
-		// No walker was wired in, so this Puller genuinely cannot tell whether a
-		// tree is there. Say that, rather than reporting the file's absence as
-		// the whole story — a bare "not found" against a repo that DOES publish
-		// the directory form is the diagnostic that cost this capability its
-		// first attempt.
-		return nil, nil, "", fmt.Errorf("failed to fetch: %w (and this puller has no tree fetcher wired in, so %s could not be checked for a directory-form bundle)",
-			fileErr, strings.Join(BundleTreeRoots(filePath), " or "))
+// fetchItemBytes reads the bundle TREE at filePath at sha, returning its
+// manifest's bytes together with the whole tree and the root it answered from.
+func (p *Puller) fetchItemBytes(ctx context.Context, fetcher Fetcher, owner, repo, repoURL string, ref *Reference, filePath, sha string) (content []byte, tree map[string]TreeFile, treeRoot string, err error) {
+	if p.treeFetch == nil {
+		return nil, nil, "", fmt.Errorf("failed to fetch %s: this puller has no tree fetcher wired in", ref.String())
 	}
-
 	tree, treeRoot, terr := ProbeBundleTreeRoots(filePath, func(root string) (map[string]TreeFile, error) {
 		return p.treeFetch(ctx, fetcher, owner, repo, root, sha, repoURL)
 	})
 	if terr != nil {
-		// Quote BOTH failures. Either one alone is misleading: the file error
-		// alone hides that a directory form was looked for, and the tree error
-		// alone reads as though the directory were the only shape a bundle has.
-		return nil, nil, "", fmt.Errorf("failed to fetch: neither %s (%v) nor the directory-form bundle at %s: %w", filePath, fileErr, treeRoot, terr)
+		return nil, nil, "", fmt.Errorf("failed to fetch the bundle tree at %s: %w", treeRoot, terr)
 	}
 	manifest, ok := TreeManifest(tree)
 	if !ok {
@@ -606,21 +563,12 @@ func resolveContentSHA(ctx context.Context, fetcher Fetcher, owner, repo string,
 func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts PullOptions, item *fetchedItem) (*PullResult, error) {
 	content := item.content
 
-	// A bundle is always a DIRECTORY-form tree now: a single-file bundle is one
-	// blob a reader could once pull out of the clone's object store on demand,
-	// but a tree is a package — multi-file, mode-bearing, and read by machinery
-	// (skill materialization, hook enumeration) that takes a real directory, not
-	// bytes. So the checked-out worktree is the only LocalPath a bundle ever
-	// gets; nothing here is a synthetic informational string anymore. The
+	// A bundle is a tree — a package: multi-file, mode-bearing, and read by
+	// machinery (skill materialization, hook enumeration) that takes a real
+	// directory, not bytes. So the checked-out worktree is the only LocalPath a
+	// bundle ever gets. The
 	// checkout lands in the CACHE (gitignored, regenerable): the pin in the
 	// lockfile stays the authority, and the worktree is checked out from it.
-	// A DOCUMENT CANNOT BE PULLED. Only a tree materializes, and every read
-	// path resolves the worktree — so accepting a single-file item
-	// here records a pin whose content nothing can ever read, and reports
-	// success doing it. Refuse where the shape is still visible.
-	if item.tree == nil {
-		return nil, fmt.Errorf("refusing to install %q: it is a single-file bundle, and bundles are distributed as trees — nothing materializes a document, so its pin would resolve to content no reader can reach; the publisher must republish it in tree form", item.localName)
-	}
 	// The commit that is CHECKED OUT and the commit that is RECORDED must be
 	// one commit. Resolving the hold here rather than only at the lockfile write
 	// is what stops a forced pull from advancing the bytes past a pin the hold

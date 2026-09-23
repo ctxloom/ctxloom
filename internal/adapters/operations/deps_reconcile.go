@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -190,11 +188,9 @@ func ReconcileInstalled(ctx context.Context, cfg *config.Config) (ReconcileResul
 		items = append(items, RemovedItem{Type: remote.ItemTypeBundle, Ref: ref})
 	}
 	removed, err := RemoveLocalItems(RemoveLocalItemsRequest{
-		AppDir:      appDir,
 		Items:       items,
 		Lockfile:    lockfile,
 		LockManager: lockManager,
-		FS:          afero.NewOsFs(),
 	})
 	if err != nil {
 		res.Warnings = append(res.Warnings, "remove withdrawn dependencies: "+err.Error())
@@ -218,11 +214,8 @@ func ReconcileInstalled(ctx context.Context, cfg *config.Config) (ReconcileResul
 // satisfy proves nothing about the remote, which is why this one goes through
 // UpdateRepo instead of through the fetcher's cached read path.
 //
-// CONTENT is a fetch of ONE reference's own path, with the directory form
-// checked when the single file is absent, mirroring how a pull resolves a
-// bundle (remote.Puller.fetchItemBytes). Only when BOTH shapes report not-found
-// is the bundle absent — a publisher who migrated a single-file bundle to its
-// directory form has not withdrawn anything. It is safe to read through the
+// CONTENT is a listing of ONE reference's bundle tree, probed the way a pull
+// resolves a bundle (remote.Puller.fetchItemBytes). It is safe to read through the
 // cached fetcher because it only ever runs after REACH has already proved,
 // this run, that the repository is live — by which point the clone UpdateRepo
 // just produced is current.
@@ -266,14 +259,6 @@ func upstreamProbes(cfg *config.Config) (reachProbe, contentProbe) {
 			return err
 		}
 		filePath := ref.BuildFilePath(remote.ItemTypeBundle)
-		if _, ferr := f.FetchFile(ctx, owner, repo, filePath, ""); ferr == nil {
-			return nil
-		} else if !errors.Is(ferr, errs.ErrRemoteContentNotFound) {
-			return ferr
-		}
-		// The single file is absent; the directory form is the other shape a
-		// bundle legitimately takes, and a publisher who migrated between them
-		// has withdrawn nothing.
 		if _, _, derr := remote.ProbeBundleTreeRoots(filePath, func(root string) ([]remote.DirEntry, error) {
 			return f.ListDir(ctx, owner, repo, root, "")
 		}); derr != nil {

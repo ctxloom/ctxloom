@@ -143,6 +143,27 @@ func EnvelopeAt(fsys afero.Fs, path string) ([]byte, *Bundle, error) {
 	return data, env, nil
 }
 
+// ReadTreeAt reads the local bundle tree whose envelope is at path, for a
+// caller that holds a PATH rather than a name a reader resolves (an author
+// tool pointed at files). It reads exactly as the project reader does, an
+// item-less tree included, and names the bundle by its directory when the
+// envelope declares no name.
+func ReadTreeAt(ctx context.Context, fsys afero.Fs, path string) (*Bundle, error) {
+	tree, err := openTreeAt(ctx, fsys, path, content.Provenance{IsLocal: true})
+	if err != nil {
+		return nil, err
+	}
+	b, err := readTreeOrEnvelope(ctx, tree)
+	if err != nil {
+		return nil, fmt.Errorf("bundles: reading the tree at %s: %w", filepath.Dir(path), err)
+	}
+	b.Path = path
+	if b.Name == "" {
+		b.Name = ExtractBundleName(path)
+	}
+	return b, nil
+}
+
 // openLocalTree opens the directory holding manifestPath as a content.Bundle.
 //
 // The store is rooted at the bundle directory's PARENT and the id is that

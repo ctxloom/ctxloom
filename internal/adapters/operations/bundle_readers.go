@@ -71,9 +71,9 @@ func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root trust.Tru
 // treeBundleReader points a pinned-tree reader at the worktree `deps pull`
 // checked out for one lockfile entry.
 //
-// WHY THE INSTALLED TREE AND NOT THE CLONE AT THE PINNED SHA — the single-file
-// path reads its bytes back out of the git clone at entry.SHA, and the obvious
-// symmetry would be to walk the tree there too. Two things rule it out:
+// WHY THE INSTALLED TREE AND NOT THE CLONE AT THE PINNED SHA — walking the
+// tree in the git clone at entry.SHA is the obvious alternative. Two things
+// rule it out:
 //
 //   - a bundle's SKILLS are files on disk. bundles.Bundle.FSDir has to return a
 //     real directory or a skill package is unloadable (it refuses the synthetic
@@ -148,9 +148,7 @@ func treeBundleDir(baseDir, canonical string) (string, error) {
 // disk and re-pulling would fetch the same ones, so the default fix cannot fix
 // it. It is also not a delivery problem at all — the content disagrees with what
 // its publisher signed — so it is classed as a trust failure rather than a
-// delivery one. It no longer mirrors anything: the single-file tamper branch it
-// was written against is gone, because single-file bundles are no longer read at
-// all, so this is now the only path on which installed remote bytes can be
+// delivery one. This is the only path on which installed remote bytes can be
 // refused for disagreeing with their signature. A fix line that cannot fix the
 // thing it is attached to is worse than no fix line at all.
 func reportBundleLoadFailures(failures map[string]error) {
@@ -167,9 +165,8 @@ func reportBundleLoadFailures(failures map[string]error) {
 }
 
 // remoteBundleReaders builds one pinned-tree reader per lockfile-listed bundle:
-// the bytes come from the local git clone cache at the pinned SHA (single-file
-// bundles) or from the tree `deps pull` installed (directory-form bundles),
-// and each reader does its OWN signature checking over exactly those bytes.
+// the bytes come from the tree `deps pull` installed, and each reader does its
+// OWN signature checking over exactly those bytes.
 //
 // Canonical refs are the sole resolution identity: profiles author canonical
 // refs and resolve straight to these readers' content, so each reader is
@@ -242,9 +239,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 
 	// EVERY remote bundle is a TREE, so treeBundleReaders is the whole set.
 	//
-	// There used to be a document-reader loop here, skipped for tree entries.
-	// With the document form removed it would match everything, and presenting
-	// a tree's bundle.yaml as a lone document drops the items beside it — the
+	// Presenting a tree's bundle.yaml as a lone document drops the items beside it — the
 	// fragments, skills and prompts that live as FILES in the tree — while
 	// checking a signature over the manifest alone rather than over the tree.
 	// That is not hypothetical: leaving the loop unguarded is exactly what made

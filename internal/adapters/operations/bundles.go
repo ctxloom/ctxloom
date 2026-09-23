@@ -698,18 +698,16 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	}
 
 	// Bundle name in the target repo = the name the LOADER knows this bundle by,
-	// not the basename of the file it happens to live in. The two differ for
-	// directory form (`<name>/bundle.yaml`), where the basename is always
-	// "bundle.yaml" — so every directory-form bundle used to publish as
+	// not the basename of the file it happens to live in, which is always
+	// "bundle.yaml" — publishing by basename made every bundle publish as
 	// "bundle", collide at one remote path, and silently overwrite the last one.
 	// ExtractBundleName is the loader's own rule (bundles.Loader sets
 	// Bundle.Name from it), so what you push is filed under the name you pushed.
 	//
 	// The path is computed ONCE, here, and then both reported (result.TargetPath
 	// — printed by the CLI, and turned into SigDest by moveToRemote) and written
-	// (handed to publish as PublishOptions.RemotePath by runPush). It used to be
-	// spelled out a second time inside remote.preparePublish, with nothing
-	// binding the two together.
+	// (handed to publish as PublishOptions.RemotePath by runPush), so the two
+	// cannot disagree.
 	bundleName := bundles.ExtractBundleName(absPath)
 	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName)
 
@@ -1296,13 +1294,12 @@ func treeCarriesSignature(files map[string][]byte) bool {
 	return false
 }
 
-// refusePushOfStaleTree refuses to publish a directory-form bundle whose
-// signature no longer covers its files, by the reader's own facts
-// (refuseStaleSignature over the project's bundle roots). A single-file
-// bundle carries no signature and is never refused here; a tree outside the
-// project's bundle roots has no reader to ask and publishes as it stands.
+// refusePushOfStaleTree refuses to publish a bundle whose signature no longer
+// covers its files, by the reader's own facts (refuseStaleSignature over the
+// project's bundle roots). A tree outside the project's bundle roots has no
+// reader to ask and publishes as it stands.
 func refusePushOfStaleTree(cfg *config.Config, absPath string) error {
-	if filepath.Base(absPath) != bundles.DirectoryFormManifest || cfg == nil {
+	if cfg == nil {
 		return nil
 	}
 	name := filepath.Base(filepath.Dir(absPath))

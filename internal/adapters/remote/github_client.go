@@ -13,7 +13,6 @@ type GitHubRepositoriesService interface {
 	GetCommit(ctx context.Context, owner, repo, sha string, opts *github.ListOptions) (*github.RepositoryCommit, *github.Response, error)
 	GetBranch(ctx context.Context, owner, repo, branch string, maxRedirects int) (*github.Branch, *github.Response, error)
 	Get(ctx context.Context, owner, repo string) (*github.Repository, *github.Response, error)
-	CreateFile(ctx context.Context, owner, repo, path string, opts *github.RepositoryContentFileOptions) (*github.RepositoryContentResponse, *github.Response, error)
 }
 
 // GitHubGitService defines the GitHub Git API methods we use.

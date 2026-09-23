@@ -89,16 +89,13 @@ Examples:
   ctxloom bundle edit my-bundle --add-tag golang --add-tag testing
   ctxloom bundle edit my-bundle --add-mcp tree-sitter
 
-SKILLS are not edited here. A skill is a directory PACKAGE with its own
-per-file manifest, not a single entry in a map, so it has its own verbs:
+SKILLS are not edited here. A skill is a directory PACKAGE (skills/<name>/),
+not a single entry in a map, so it has its own verbs:
 
-  ctxloom skill create <bundle> <name>   scaffold it and register it in bundle.yaml
-  ctxloom skill sync <bundle>            refresh the manifest after editing SKILL.md
+  ctxloom skill create <bundle> <name>   scaffold its directory
 
-Run 'ctxloom skill --help' for the rest. Note the ordering: create, edit
-SKILL.md, sync, THEN sign — 'ctxloom bundle sign' refreshes the tree digest but
-not a skill's per-file manifest, so signing without syncing first leaves the
-bundle signed and withheld at materialize.`,
+Run 'ctxloom skill --help' for the rest. Sign after editing a skill's files:
+the bundle's SHA256SUMS covers them.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleEdit,
 }

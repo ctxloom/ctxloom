@@ -203,31 +203,31 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 	fs := getFS(req.FS)
-	srcDir, err := bundleTreeSource(fs, req.SourcePath)
+	envelope, err := bundleEnvelopePath(fs, req.SourcePath)
 	if err != nil {
 		return nil, err
 	}
-	return importBundleTree(fs, cfg, req, srcDir)
+	return importBundleTree(fs, cfg, req, filepath.Dir(envelope))
 }
 
 // ErrNotABundleTree refuses an import source that is not a bundle: a bundle is
 // a directory holding bundle.yaml, addressed by the directory or by that file.
 var ErrNotABundleTree = errors.New("not a bundle: a bundle is a directory holding " + bundles.DirectoryFormManifest)
 
-// bundleTreeSource resolves an import source to the root directory of a
-// bundle tree.
-func bundleTreeSource(fs afero.Fs, sourcePath string) (string, error) {
-	info, err := fs.Stat(sourcePath)
+// bundleEnvelopePath resolves a bundle named by its tree directory or by the
+// bundle.yaml inside it to that envelope's path.
+func bundleEnvelopePath(fs afero.Fs, p string) (string, error) {
+	info, err := fs.Stat(p)
 	if err != nil {
-		return "", fmt.Errorf("failed to read source %s: %w", sourcePath, err)
+		return "", fmt.Errorf("failed to read %s: %w", p, err)
 	}
 	if info.IsDir() {
-		return filepath.Clean(sourcePath), nil
+		return filepath.Join(filepath.Clean(p), bundles.DirectoryFormManifest), nil
 	}
-	if filepath.Base(sourcePath) == bundles.DirectoryFormManifest {
-		return filepath.Dir(sourcePath), nil
+	if filepath.Base(p) != bundles.DirectoryFormManifest {
+		return "", fmt.Errorf("%w: %s", ErrNotABundleTree, p)
 	}
-	return "", fmt.Errorf("%w: %s", ErrNotABundleTree, sourcePath)
+	return p, nil
 }
 
 // importBundleTree copies a bundle tree into the project's committed content

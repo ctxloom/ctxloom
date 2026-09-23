@@ -295,6 +295,7 @@ func TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher(t *te
 
 	trusted := allowedsigners.NewStore(allowedsigners.Entry{
 		Principals: []string{"reviewer@example.com"},
+		Namespaces: []string{signing.NamespacePublish},
 		KeyType:    signer.PublicKey().Type(),
 		PublicKey:  signer.PublicKey(),
 	})

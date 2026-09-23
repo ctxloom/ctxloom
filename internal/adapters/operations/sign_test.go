@@ -547,6 +547,7 @@ func TestSignBundleFile_TreeSignsThroughItsManifestAndClearsTheSibling(t *testin
 
 	root := allowedsigners.NewStore(allowedsigners.Entry{
 		Principals: []string{"me@example.com"},
+		Namespaces: []string{signing.NamespacePublish},
 		KeyType:    signer.PublicKey().Type(),
 		PublicKey:  signer.PublicKey(),
 	})

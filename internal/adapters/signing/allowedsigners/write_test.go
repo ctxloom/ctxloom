@@ -159,7 +159,7 @@ func TestFormatEntry_PrincipalWithComma_IsRefused(t *testing.T) {
 // Two separate principals remain legal — the guard must not outlaw the format.
 func TestFormatEntry_MultiplePrincipals_StillWork(t *testing.T) {
 	pub := testPublicKey(t)
-	line, err := FormatEntry(Entry{Principals: []string{"alice@example.com", "bob@example.com"}, PublicKey: pub})
+	line, err := FormatEntry(Entry{Principals: []string{"alice@example.com", "bob@example.com"}, Namespaces: []string{"publish.v1.ctxloom.dev"}, PublicKey: pub})
 	require.NoError(t, err)
 
 	store, perrs, err := Parse(strings.NewReader(line + "\n"))

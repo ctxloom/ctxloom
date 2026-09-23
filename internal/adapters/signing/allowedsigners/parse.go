@@ -252,6 +252,10 @@ func parseLine(line string, lineNo int) (*Entry, error) {
 	if err := applyOptions(entry, rawOptions); err != nil {
 		return nil, err
 	}
+	if entry.Namespaces == nil {
+		return nil, fmt.Errorf("%w for %s: OpenSSH would trust this key in EVERY namespace, including companion execution and approval; ctxloom trusts it in none — add namespaces=\"<namespace>\" naming what it may sign",
+			errNoNamespaces, strings.Join(principals, ","))
+	}
 	return entry, nil
 }
 

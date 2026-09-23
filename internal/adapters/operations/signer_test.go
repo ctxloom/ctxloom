@@ -22,6 +22,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
+// publishNSOpt scopes a hand-written fixture line to the publish namespace.
+// allowedsigners refuses a line without namespaces=, so a fixture meant to be
+// a readable entry must carry one.
+const publishNSOpt = `namespaces="publish.v1.ctxloom.dev" `
+
 func testKeyLine(t *testing.T) (ssh.Signer, string) {
 	t.Helper()
 	signer := testSigner(t)
@@ -796,7 +801,7 @@ func TestRemoveSigner_UnparseableLine_IsReportedNotSilentlyNothingToRemove(t *te
 	writeAllowedSignersLines(t, cfg,
 		fs,
 		"this-line-is-not-an-allowed-signers-entry",
-		"keep@example.com "+strings.TrimSpace(line),
+		"keep@example.com "+publishNSOpt+strings.TrimSpace(line),
 	)
 
 	_, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "unreadable@example.com", Project: true, FS: fs})
@@ -812,7 +817,7 @@ func TestRemoveSigner_ParseableStoreWithoutThePrincipal_StaysAQuietNoop(t *testi
 	fs := afero.NewOsFs()
 
 	_, line := testKeyLine(t)
-	writeAllowedSignersLines(t, cfg, fs, "keep@example.com "+strings.TrimSpace(line))
+	writeAllowedSignersLines(t, cfg, fs, "keep@example.com "+publishNSOpt+strings.TrimSpace(line))
 
 	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "nobody@example.com", Project: true, FS: fs})
 	require.NoError(t, err)
@@ -827,7 +832,7 @@ func TestRemoveSigner_SucceedsDespiteAnUnrelatedUnparseableLine(t *testing.T) {
 	fs := afero.NewOsFs()
 
 	_, line := testKeyLine(t)
-	writeAllowedSignersLines(t, cfg, fs, "garbage-line", "drop@example.com "+strings.TrimSpace(line))
+	writeAllowedSignersLines(t, cfg, fs, "garbage-line", "drop@example.com "+publishNSOpt+strings.TrimSpace(line))
 
 	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: "drop@example.com", Project: true, FS: fs})
 	require.NoError(t, err)
@@ -844,7 +849,7 @@ func TestListSigners_UnparseableLine_DoesNotBlankTheListingAndIsCounted(t *testi
 	fs := afero.NewOsFs()
 
 	_, line := testKeyLine(t)
-	writeAllowedSignersLines(t, cfg, fs, "garbage-line", "keep@example.com "+strings.TrimSpace(line))
+	writeAllowedSignersLines(t, cfg, fs, "garbage-line", "keep@example.com "+publishNSOpt+strings.TrimSpace(line))
 
 	entries, err := ListSigners(cfg, fs)
 	require.NoError(t, err)
@@ -886,7 +891,7 @@ func TestRemoveSigner_UnreadableStore_IsAnErrorNotNoEntry(t *testing.T) {
 	fs := afero.NewOsFs()
 
 	_, line := testKeyLine(t)
-	path := writeAllowedSignersLines(t, cfg, fs, "alice@example.com "+strings.TrimSpace(line))
+	path := writeAllowedSignersLines(t, cfg, fs, "alice@example.com "+publishNSOpt+strings.TrimSpace(line))
 	require.NoError(t, os.Chmod(path, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 
@@ -908,7 +913,7 @@ func TestListSigners_UnreadableStore_AppearsAsAnUnreadableRow(t *testing.T) {
 	fs := afero.NewOsFs()
 
 	_, line := testKeyLine(t)
-	path := writeAllowedSignersLines(t, cfg, fs, "alice@example.com "+strings.TrimSpace(line))
+	path := writeAllowedSignersLines(t, cfg, fs, "alice@example.com "+publishNSOpt+strings.TrimSpace(line))
 	require.NoError(t, os.Chmod(path, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 
@@ -949,7 +954,7 @@ func TestRemoveFromAllowedSignersFile_WarnsNamingTheRegisteredVerb(t *testing.T)
 	_, keyLine := testKeyLine(t)
 	fs := afero.NewMemMapFs()
 	const path = "/allowed_signers"
-	content := "alice@example.com " + keyLine + "\nthis line is not an allowed_signers entry\n"
+	content := "alice@example.com " + publishNSOpt + keyLine + "\nthis line is not an allowed_signers entry\n"
 	require.NoError(t, afero.WriteFile(fs, path, []byte(content), 0o600))
 
 	var buf bytes.Buffer

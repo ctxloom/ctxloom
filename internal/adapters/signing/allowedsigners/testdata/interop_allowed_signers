@@ -15,8 +15,9 @@ publish-only@example.com namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3N
 # quoted, comma-separated pattern-list) — trusted for review, not publish.
 reviewer@example.com namespaces="approve.v1.ctxloom.dev,reject.v1.ctxloom.dev" ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCuHOuc+h3KxwlNc6Xv1utYi1Z7MuSQTwbvlubgqn7Bl9RfFS34tYDtFkX+2dbLs/vzvjSmRrJGOKEhikmQSXtxAMDMsR7Z5WveH8TacfqYz5JmgDQIgiMU+/s7pcmGTZ8L+q3AyXNImSvpcqPacyEMdl/U6kGFkPSWVkkicuJgBTZIXJ6k1HSUI0vA7ha1U6eg8icocx2BjI/UVFlwgyahHEFAUHG71XyATMLHO0RvxVWWnGQg/ps0WIECxJzyXX2+3uM+sTyTruim03KAGaKr7gOMT5wlAeQ7gOS7+XlqXgl/Pa8iU7JMXuVP9Yndiz8ZHlgwPa6b8I/358XJapMF rsakey@example.com
 
-# No namespaces= option at all: unrestricted (all namespaces), confirmed
-# against real ssh-keygen. This is a broad grant and is documented as such.
+# No namespaces= option at all: real ssh-keygen accepts this for every
+# namespace (verified). ctxloom deliberately refuses the line instead, so it
+# grants nothing — see TestInterop_NoNamespacesOption_LineRejected.
 allrole@example.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBJ1WE9ldxIve99p1uHmdTaMfocHVhtkQCZNl5odlNnUKJRa5TlZZwksn8U4zUpywax8tQzFCOFmW3L9xGHev1og= ecdsakey@example.com
 
 # Time-boxed key: quoted valid-after/valid-before, both required to be

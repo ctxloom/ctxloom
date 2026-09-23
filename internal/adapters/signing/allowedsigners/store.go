@@ -145,7 +145,7 @@ type principalCheck struct {
 // decide answers with the core-owned trust.SignerDecision and nothing more:
 // no handle on the matched entry rides out. A decision used to carry a
 // pointer into s.entries, and a caller could widen a grant through it
-// (Namespaces = nil is "every namespace"); the port's answer is a value.
+// (appending to Namespaces); the port's answer is a value.
 func (s *Store) decide(check principalCheck, key ssh.PublicKey, ns string, now time.Time) trust.SignerDecision {
 	if s == nil || key == nil {
 		return trust.SignerDecision{}

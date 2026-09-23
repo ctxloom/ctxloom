@@ -75,9 +75,12 @@ binary before being committed.
     validity window otherwise match.
   - `namespaces=namespace-list` — a quoted pattern-list of namespaces the key
     is accepted for, same pattern-list rules as the principals field.
-    Absent means unrestricted; present-but-empty (`namespaces=""`) means
-    accepted for no namespace at all. **VERIFIED** against real `ssh-keygen`
-    for both the absent and empty cases.
+    Present-but-empty (`namespaces=""`) means accepted for no namespace at
+    all (**VERIFIED** against real `ssh-keygen`). **Absent is refused** — a
+    deliberate divergence: `ssh-keygen` accepts such a line for every
+    namespace, which here would include companion execution and approval.
+    The line is reported as a parse error naming the principal and grants
+    nothing.
   - `valid-after=timestamp` / `valid-before=timestamp` — `YYYYMMDD[Z]` or
     `YYYYMMDDHHMM[SS][Z]`, local time unless a trailing `Z` forces UTC.
     **VERIFIED** against real `ssh-keygen -Overify-time=...` with and without

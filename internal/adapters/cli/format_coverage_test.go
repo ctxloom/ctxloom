@@ -361,7 +361,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"skill remove":           {skip: "destructive; not exercised here (needs an existing skill package fixture)"},
 	"skill export":           {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
 	"skill import":           {skip: "wired to emit(), but needs an existing skill archive fixture; not exercised here"},
-	"skill sync":             {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
 	"agent show":             {skip: "wired to emit(), but needs an existing agent fixture; not exercised here"},
 	"agent create":           {skip: "wired to emit(), but mutating and needs a valid engine/profile fixture; not exercised here"},
 	"agent edit":             {skip: "wired to emit(), but mutating and needs an existing agent fixture; not exercised here"},

@@ -433,14 +433,9 @@ defaults, `~/.ctxloom/allowed_signers` (user), and `.ctxloom/allowed_signers`
 (committable project store). All are unioned; precedence lives in the decision
 function, never in the filesystem. **One signature per bundle.** A bundle's
 signature is its `SHA256SUMS` manifest, covering every file of the tree, and
-the `.sigs/SHA256SUMS.<namespace>.<key-tag>.sig` entry over it; a single-file
-bundle carries none and cannot be signed
-(`operations.ErrSingleFileBundleUnsignable`) — a signed bundle takes the tree
-form. Every reader verifies through the ONE verifier, `attest.VerifyBundle`,
-before any item is read. The detached sibling `bundle.yaml.sig` is retired: no
-reader parses it, and a bundle still carrying one is REFUSED, naming re-sign
-(`bundles.ErrSiblingSignatureRetired`), which `ctxloom bundle sign` performs
-by writing the manifest entry and removing the sibling.
+the `.sigs/SHA256SUMS.<namespace>.<key-tag>.sig` entry over it. Every reader
+verifies through the ONE verifier, `attest.VerifyBundle`, before any item is
+read.
 
 **A re-sign replaces.** The `.sigs/` store files an entry per (signing key,
 namespace): the tag in the filename is the signing key's

@@ -258,8 +258,6 @@
 ./internal/adapters/projectroot/worktree.go|DetectWorktree fs afero . Fs , dir string|1|12|DetectWorktree|74-133
 ./internal/shared/refuri/refuri.go|Parse raw string|1|11|Parse|186-266
 ./internal/shared/refuri/refuri.go|(p*Parts)parseExternal u * url . URL|1|12|parseExternal|269-326
-./internal/adapters/remote/git_publisher.go|(p*GitPublisher)CreateOrUpdateFile ctx context . Context , _ , _ , filePath , branch , message string , content [ ] byte|1|12|CreateOrUpdateFile|181-227
-./internal/adapters/remote/publish.go|(pm*PublishManager)preparePublish ctx context . Context , localPath , remoteName string , opts PublishOptions|1|12|preparePublish|295-404
 ./internal/adapters/remote/registry.go|(r*Registry)Update name string , edit RemoteEdit|1|16|Update|281-347
 ./internal/adapters/remote/registry.go|(r*Registry)save|1|11|save|105-171
 ./internal/adapters/remote/repo_cache.go|(c*RepoCache)safeRepoPath parts ... string|1|11|safeRepoPath|380-401

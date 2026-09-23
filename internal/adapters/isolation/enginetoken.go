@@ -60,9 +60,9 @@ var (
 	storedExports = map[string]bool{}
 )
 
-// tokenAuthFor is the engine's declared token auth; false when the engine is
+// TokenAuthFor is the engine's declared token auth; false when the engine is
 // unknown or declares none.
-func tokenAuthFor(name string) (engine.TokenAuth, bool) {
+func TokenAuthFor(name string) (engine.TokenAuth, bool) {
 	f, ok := factsFor(name)
 	if !ok {
 		return engine.TokenAuth{}, false
@@ -74,7 +74,7 @@ func tokenAuthFor(name string) (engine.TokenAuth, bool) {
 // creation (iox.WriteFileAtomic), in an owner-only directory, surrounding
 // whitespace trimmed. It returns the file's path and never echoes the token.
 func StoreEngineToken(name string, token []byte) (string, error) {
-	if _, ok := tokenAuthFor(name); !ok {
+	if _, ok := TokenAuthFor(name); !ok {
 		return "", fmt.Errorf("%s: %w", name, ErrNoTokenAuth)
 	}
 	tok := bytes.TrimSpace(token)
@@ -107,7 +107,7 @@ func StoreEngineToken(name string, token []byte) (string, error) {
 func ExportStoredTokens() error {
 	var errs []error
 	for _, name := range factNames() {
-		a, ok := tokenAuthFor(name)
+		a, ok := TokenAuthFor(name)
 		if !ok || os.Getenv(a.TokenVar) != "" {
 			continue
 		}
@@ -153,7 +153,7 @@ type EngineTokenStatus struct {
 func EngineTokenStatuses() ([]EngineTokenStatus, error) {
 	var out []EngineTokenStatus
 	for _, name := range factNames() {
-		a, ok := tokenAuthFor(name)
+		a, ok := TokenAuthFor(name)
 		if !ok {
 			continue
 		}

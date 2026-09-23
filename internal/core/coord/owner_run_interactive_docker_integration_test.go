@@ -77,7 +77,7 @@ func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[strin
 		_ = ws.Cleanup()
 		return nil, "", err
 	}
-	sess, err := attach.Start(context.Background(), cmd, name, func() { pol.Remove(name) })
+	sess, err := attach.Start(context.Background(), cmd, name, func(runExited <-chan struct{}) { pol.Remove(name, runExited) })
 	if err != nil {
 		_ = ws.Cleanup()
 		return nil, "", err

@@ -255,6 +255,14 @@ func stubTreeInstaller() TreeInstallFunc {
 	}
 }
 
+// stubTreeVerifier reports every tree as unattested: admitted, with no floor
+// recorded. The floor itself is pinned by pull_floor_test.go.
+func stubTreeVerifier() TreeVerifyFunc {
+	return func(context.Context, map[string]TreeFile, string, string, string) (Verified, error) {
+		return Verified{}, nil
+	}
+}
+
 // TestInstallPulledItem_AHoldFreezesTheCHECKOUT_NotJustTheLockfile.
 //
 // A hold defended the recorded SHA while the checkout moved to the freshly

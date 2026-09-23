@@ -34,13 +34,13 @@ func sigEntries(t *testing.T, fsys afero.Fs) []string {
 func TestSignBundle_ReSignAfterAnEditReplacesTheSameKeysEntry(t *testing.T) {
 	store, b, fsys := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 	require.Len(t, sigEntries(t, fsys), 1)
 
 	// The tree changes, so the next manifest — and the signature over it —
 	// differ byte-for-byte from the first.
 	write(t, fsys, solidFS, "an edited body\n")
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	assert.Len(t, sigEntries(t, fsys), 1, "a re-sign by the same key must replace its earlier entry, not sit beside it")
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
@@ -53,8 +53,8 @@ func TestSignBundle_ASecondSignerAddsASecondEntry(t *testing.T) {
 	store, b, fsys := fixture(t)
 	alice, alicePub := testSigner(t)
 	bob, bobPub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, alice))
-	require.NoError(t, SignBundle(ctx, store, b, bob))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), alice))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), bob))
 
 	assert.Len(t, sigEntries(t, fsys), 2, "two keys are two entries")
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("alice@example.test", alicePub)), now)
@@ -73,7 +73,7 @@ func TestSignBundle_ASecondSignerAddsASecondEntry(t *testing.T) {
 func TestVerifyBundle_ADirectoryAlreadyHoldingTwoEntriesForOneKeyStillVerifies(t *testing.T) {
 	store, b, fsys := fixture(t)
 	signer, pub := testSigner(t)
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 	sigDir := filepath.Join(storeRoot, "code-quality", content.SigDirName)
 	first := sigEntries(t, fsys)
 	require.Len(t, first, 1)
@@ -81,7 +81,7 @@ func TestVerifyBundle_ADirectoryAlreadyHoldingTwoEntriesForOneKeyStillVerifies(t
 	require.NoError(t, err)
 
 	write(t, fsys, solidFS, "an edited body\n")
-	require.NoError(t, SignBundle(ctx, store, b, signer))
+	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), signer))
 
 	// Re-create the pre-ruling shape: the stale signature filed under a
 	// signature-bytes-derived tag, beside the live entry.

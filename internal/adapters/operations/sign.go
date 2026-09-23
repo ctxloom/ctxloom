@@ -14,9 +14,11 @@ import (
 	fs2 "io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
@@ -145,6 +148,9 @@ type SignBundleRequest struct {
 	// produced it — the difference between "wrong key" and "your git config is
 	// pointing at your personal key".
 	SignerSource string
+	// Force re-signs a version whose previous signature covered different
+	// content (see ErrVersionAlreadySigned). Deliberate and per invocation.
+	Force bool
 	// Store overrides the default filesystem bundle store (ADR 0026); nil
 	// uses bundles.NewFSStore(fs, cfg.GetBundleDirs()).
 	Store bundles.Store
@@ -262,7 +268,16 @@ func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) 
 	if err != nil {
 		return nil, fmt.Errorf("sign %s: open the bundle tree at %s: %w", req.Target.BundleName, dir, err)
 	}
-	if err := attest.SignBundle(ctx, store, tree, req.Signer); err != nil {
+	rel, err := bundleRelease(string(tree.ID()), bundle)
+	if err != nil {
+		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
+	}
+	if !req.Force {
+		if err := refuseResignedVersion(ctx, tree, rel); err != nil {
+			return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
+		}
+	}
+	if err := attest.SignBundle(ctx, store, tree, rel, req.Signer); err != nil {
 		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
 	}
 	return &SignBundleResult{
@@ -273,6 +288,64 @@ func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) 
 		ManifestPath: filepath.Join(dir, content.ManifestPath),
 		ItemNote:     req.Target.ItemNote,
 	}, nil
+}
+
+// ErrUnsignableVersion refuses to sign a bundle whose bundle.yaml version is
+// not strict semver. The signed version is what every consumer's rollback
+// floor is measured in, so a version two consumers could read differently —
+// "v1.2", "1.2" — is not one a signature may carry.
+var ErrUnsignableVersion = errors.New("sign: bundle.yaml version must be strict semver (MAJOR.MINOR.PATCH)")
+
+// ErrVersionAlreadySigned refuses to sign a version whose last signature
+// covered different content. One version names one content: a consumer
+// holding the version floor accepts the same version again, so re-signing it
+// over new bytes would change what they run while nothing they check moves.
+var ErrVersionAlreadySigned = errors.New("sign: this version was already signed over different content")
+
+// refuseResignedVersion compares the release about to be signed with the one
+// the tree's existing SHA256SUMS records — the manifest the last `bundle sign`
+// wrote, and what a push carries — and refuses the same version over different
+// files. It is the cheap, local answer to "is this version already
+// published?": the tree's own last signature, not a network read of the
+// remote. A manifest this build cannot parse (none yet, or a retired format)
+// records no version, so there is nothing to refuse.
+func refuseResignedVersion(ctx context.Context, tree content.Bundle, rel release.Release) error {
+	prior, err := tree.Manifest(ctx)
+	if err != nil {
+		return nil
+	}
+	pr := prior.Release()
+	if pr.Version == nil || !pr.Version.Equal(rel.Version) {
+		return nil
+	}
+	next, err := content.BuildManifest(ctx, tree, rel)
+	if err != nil {
+		return err
+	}
+	if slices.Equal(prior.Entries(), next.Entries()) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s %s is already signed over other files — bump version: in %s, or pass --force to re-sign %s deliberately",
+		ErrVersionAlreadySigned, rel.Name, rel.Version, bundles.DirectoryFormManifest, rel.Version)
+}
+
+// bundleRelease is the release a signature over the bundle named name asserts,
+// read from its authored bundle.yaml: the version, and the retractions and
+// withdrawal the author wrote there.
+func bundleRelease(name string, b *bundles.Bundle) (release.Release, error) {
+	v, err := semver.StrictNewVersion(b.Version)
+	if err != nil {
+		return release.Release{}, fmt.Errorf("%w: %s has version %q", ErrUnsignableVersion, name, b.Version)
+	}
+	rel := release.Release{Name: name, Version: v, Withdrawn: b.Withdrawn}
+	for _, r := range b.Retracts {
+		rv, err := semver.StrictNewVersion(r.Version)
+		if err != nil {
+			return release.Release{}, fmt.Errorf("%w: %s retracts version %q", ErrUnsignableVersion, name, r.Version)
+		}
+		rel.Retracts = append(rel.Retracts, release.Retraction{Version: rv, Reason: r.Reason})
+	}
+	return rel, nil
 }
 
 // ListLocalBundleNames returns every bundle name found in the project's

@@ -444,11 +444,12 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		ts := tsOf(w)
 		bareDir := strings.TrimPrefix(ts.url, "file://")
-		manifest := fmt.Sprintf(
-			"version: 1\nretracted:\n  - type: bundle\n    name: %q\n    version: \"\"\n    reason: %q\n",
-			ts.bundleName, "trust-surface GAP-E retraction demo")
-		if err := w.env.AdvanceRemote(bareDir, map[string]string{".ctxloom/content/manifest.yaml": manifest}); err != nil {
-			return fmt.Errorf("advance trust-surface remote with a retraction manifest: %w", err)
+		// A retraction is a new SIGNED release withdrawing the bundle; the
+		// retraction check reads only the signed tip manifest.
+		envelope := "version: 1.1.0\nwithdrawn: trust-surface GAP-E retraction demo\n"
+		if err := w.env.AdvanceSignedTreeRemote(bareDir, remoteSingleFilePublishPath(ts.bundleName), ts.bundleName, envelope,
+			tsFullTreeItems("context", tsFragmentMarker, ""), ts.signer); err != nil {
+			return fmt.Errorf("publish the trust-surface bundle's signed retracting release: %w", err)
 		}
 		return runOK(w, "deps", "pull")
 	})

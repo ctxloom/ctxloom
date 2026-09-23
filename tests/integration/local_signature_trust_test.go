@@ -59,7 +59,7 @@ func setupLocalSigEnv(t *testing.T, signer *testenv.TestSigner) (*testenv.TestEn
 	mockLM, err := env.SetupMockLM()
 	require.NoError(t, err)
 	require.NoError(t, mockLM.SetResponse("OK"))
-	require.NoError(t, env.SeedSignedLocalTree(localSigTree, "version: \"1.0\"\n",
+	require.NoError(t, env.SeedSignedLocalTree(localSigTree, "version: 1.0.0\n",
 		map[string]string{"fragments/signed-local.md": localSigFragmentBody + "\n"}, signer))
 	return env, mockLM
 }

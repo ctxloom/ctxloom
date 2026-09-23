@@ -280,7 +280,7 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	bundlesDir := filepath.Join(root, "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "b.yaml"),
-		[]byte("version: \"1.0\"\nfragments:\n  hidden:\n    content: hi\n"), 0o644))
+		[]byte("version: 1.0.0\nfragments:\n  hidden:\n    content: hi\n"), 0o644))
 	require.NoError(t, os.Chmod(bundlesDir, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(bundlesDir, 0o755) })
 

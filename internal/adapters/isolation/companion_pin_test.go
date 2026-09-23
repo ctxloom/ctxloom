@@ -145,6 +145,7 @@ func TestStageCompanions_StagesOnlyAdmittedWithSignature(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got, "the staged ltk is the admitted bytes")
 	assert.FileExists(t, filepath.Join(staged, "ltk.sig"), "the signature is staged beside the binary")
+	assert.FileExists(t, filepath.Join(staged, "ltk.release"), "the release statement the signature covers is staged too")
 	info, err := os.Stat(filepath.Join(staged, "ltk"))
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "staged companion is 0755 exactly, umask notwithstanding")

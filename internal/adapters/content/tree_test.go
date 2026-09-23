@@ -276,25 +276,6 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 	if bytes.Equal(rawDigest, distDigest) {
 		t.Fatal("raw and distilled produced the same Content digest")
 	}
-
-	// Sign only the raw form; the distilled form must see nothing.
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), testKey(t), []byte("sig-over-raw")); err != nil {
-		t.Fatalf("PutSignature: %v", err)
-	}
-	rawSigs, err := raw.Signatures(ctx)
-	if err != nil {
-		t.Fatalf("raw.Signatures: %v", err)
-	}
-	if len(rawSigs) != 1 || string(rawSigs[0].Bytes) != "sig-over-raw" {
-		t.Fatalf("raw.Signatures = %+v", rawSigs)
-	}
-	distSigs, err := distilled.Signatures(ctx)
-	if err != nil {
-		t.Fatalf("distilled.Signatures: %v", err)
-	}
-	if len(distSigs) != 0 {
-		t.Fatalf("a raw signature was found for the distilled form: %+v", distSigs)
-	}
 }
 
 // TestForm_ContentIsAlwaysADigestEvenAtN1 pins the uniform poly-file rule: a

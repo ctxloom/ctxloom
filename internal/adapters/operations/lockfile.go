@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/afero"
 
@@ -41,6 +42,11 @@ type LockDependenciesResult struct {
 // anywhere in the closure that is a conflict: surfaced immediately as a hard
 // error when FailOnConflict is set, else warned and the conflicted items
 // dropped so startup is never blocked (CLAUDE.md).
+//
+// A rebuild is a writer of LockEntry.SHA like any other, so a pin it MOVES is
+// held to the signed version floor its previous entry recorded (verifyAdvance).
+// A move below the floor keeps the previous entry: a hard error under
+// FailOnConflict, and a warning otherwise, so startup is never blocked by it.
 func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenciesRequest) (*LockDependenciesResult, error) {
 	fs := getFS(req.FS)
 	baseDir := ProjectAppDir(cfg)
@@ -61,16 +67,15 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	// must survive a relock), the per-item Retracted flag, and the preserved
 	// entries when the closure is incomplete.
 	//
-	// An UNREADABLE previous lockfile degrades to an empty one here, which
-	// means none of those three can be carried forward. That
-	// degrade is survivable only because it can no longer be PERSISTED: the
-	// Save below reads back what is on disk and refuses to overwrite a file it
-	// cannot parse (remote.ErrLockfileUnreadable), so the corrupt file — and
-	// the holds and retractions still recorded in it — is left intact for the
-	// user to fix or delete. Do not "recover" by writing over it.
+	// An UNREADABLE previous lockfile FAILS the rebuild (ruled). It may record
+	// version floors, and a rebuild that started from an empty lock would hand
+	// every pin it moves a floor of nothing — the rollback the floor exists to
+	// refuse, decided by a read error. The corrupt file, and the holds,
+	// retractions and floors still recorded in it, is left for the user to fix
+	// or delete.
 	prev, prevErr := lockManager.Load()
 	if prevErr != nil {
-		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
+		return nil, fmt.Errorf("%w: the holds, retractions and version floors in %s would be lost to a rebuild; fix or delete it: %w", remote.ErrLockfileUnreadable, lockManager.Path(), prevErr)
 	}
 	// prevEntries is the previous lockfile keyed the same way the rebuild keys
 	// its pins, so every field that must OUTLIVE a closure rebuild is read from
@@ -82,6 +87,8 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	// What must survive, and why:
 	//   Pinned    — the user's "do not upgrade this" hold is a decision, and a
 	//               relock is not entitled to reverse it.
+	//   SignedVersion/Publisher — the version floor. Carried only while the
+	//               pin does not move; a moved pin is re-verified against it.
 	//   Retracted — this rebuild has no live manifest in hand, so it must never
 	//               CLEAR a retraction only a fresh check (sync's own re-check,
 	//               or the next Pull) is entitled to lift. Without it a relock
@@ -97,6 +104,8 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		Version: 1,
 		Bundles: make(map[string]remote.LockEntry),
 	}
+	var factory remote.FetcherFactory
+	var auth remote.AuthConfig
 	for _, p := range pins {
 		key := string(p.Type) + "\x00" + p.Identity
 		// RequestedVersion records the manifest constraint so a later relock can
@@ -107,6 +116,25 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 			entry.Held = prevEntry.Held
 			entry.Retracted = prevEntry.Retracted
 			entry.RetractedReason = prevEntry.RetractedReason
+			switch {
+			case prevEntry.SHA == p.Hash:
+				entry.SignedVersion, entry.Publisher = prevEntry.SignedVersion, prevEntry.Publisher
+			case prevEntry.SignedVersion != "":
+				if factory == nil {
+					auth = remote.LoadAuth(baseDir)
+					factory = remote.FetcherFactory(NewCachedFetcherFactory(cfg))
+				}
+				v, refusal := verifyAdvance(ctx, cfg, factory, auth, p, prevEntry, false)
+				if refusal != nil {
+					if req.FailOnConflict {
+						return nil, fmt.Errorf("refusing to move %s from %s to %s: %w", p.Identity, prevEntry.SHA, p.Hash, refusal)
+					}
+					clidiag.Warn("ctxloom", "keeping %s at %s rather than moving it to %s: %v", p.Identity, prevEntry.SHA, p.Hash, refusal)
+					lockfile.AddEntry(p.Type, p.Identity, prevEntry)
+					continue
+				}
+				entry.SignedVersion, entry.Publisher = v.LockFields()
+			}
 		}
 		lockfile.AddEntry(p.Type, p.Identity, entry)
 	}

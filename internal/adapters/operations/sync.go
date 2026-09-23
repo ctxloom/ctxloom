@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -39,6 +40,10 @@ type SyncDependenciesRequest struct {
 
 	// ApplyHooks applies hooks after sync.
 	ApplyHooks bool `json:"apply_hooks"`
+
+	// AllowDowngrade names the refs whose signed version floor the operator
+	// waives for this run (`deps pull --allow-downgrade <ref>`). Never blanket.
+	AllowDowngrade []string `json:"allow_downgrade,omitempty"`
 
 	// Testing injection points
 	FS       afero.Fs         `json:"-"`
@@ -142,6 +147,10 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 	if err != nil {
 		return nil, err
 	}
+	downgrades, err := newDowngradeSet(req.AllowDowngrade)
+	if err != nil {
+		return nil, err
+	}
 
 	// Installed-probe source (reference-only model: lockfile entry + content
 	// retrievable from the clone cache, never a disk check).
@@ -171,7 +180,7 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 		if req.Puller == nil {
 			refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(refs))
 		}
-		if err := syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, result); err != nil {
+		if err := syncRefs(ctx, puller, refs, remote.ItemTypeBundle, baseDir, req.Force, bundleReader, downgrades, result); err != nil {
 			return err
 		}
 		// A pull lands new pinned content: the next generation is the one that
@@ -312,6 +321,13 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 			// same reason: git owns the checkout (remote.RepoCache) and the
 			// content layer owns the tree format that decides its modes.
 			remote.WithTreeInstaller(remotetree.WorktreeInstaller(NewRepoCache(cfg))),
+			// Verify before pin: the tree is held to its publisher's signature
+			// and the entry's version floor before anything is checked out or
+			// recorded, with the same verifier every reader uses.
+			remote.WithTreeVerifier(bundles.TreeVerifier(cfg.TrustRoot())),
+			// Retractions are read only from the default branch's signed tip
+			// manifest, verified by the same trust root.
+			remote.WithManifestVerifier(bundles.ManifestVerifier(cfg.TrustRoot())),
 		)
 	}
 	return puller, nil
@@ -319,12 +335,12 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 
 // syncRefs syncs each ref of one item type into result, checking for context
 // cancellation between items (returns ctx.Err() to abort the whole sync).
-func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, result *SyncDependenciesResult) error {
+func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, downgrades downgradeSet, result *SyncDependenciesResult) error {
 	for _, ref := range refs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		item := syncItem(ctx, puller, ref, itemType, baseDir, force, bundles)
+		item := syncItem(ctx, puller, ref, itemType, baseDir, force, bundles, downgrades)
 		result.Total++
 		addSyncItem(result, item)
 	}
@@ -562,7 +578,7 @@ func isRemoteReference(ref string) bool {
 }
 
 // syncItem syncs a single item and returns the result.
-func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource) SyncItem {
+func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.ItemType, baseDir string, force bool, bundles remote.BundleByteSource, downgrades downgradeSet) SyncItem {
 	item := SyncItem{
 		Reference: ref,
 		Type:      string(itemType),
@@ -604,9 +620,10 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// stdout carries the JSON-RPC stream; pull's informational output (lockfile
 	// warnings) must never land there.
 	opts := remote.PullOptions{
-		Force:    true,
-		ItemType: itemType,
-		Stdout:   os.Stderr,
+		Force:          true,
+		ItemType:       itemType,
+		Stdout:         os.Stderr,
+		AllowDowngrade: downgrades.allows(ref),
 	}
 
 	result, err := puller.Pull(ctx, ref, opts)

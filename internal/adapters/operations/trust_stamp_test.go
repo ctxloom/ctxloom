@@ -211,12 +211,12 @@ func TestTrustStamper_ForHook(t *testing.T) {
 	fx.rejectContent(trust.KindHook, signing.FormRaw, deniedPayload)
 
 	loader := seedLoader(t, map[string]*bundles.Bundle{
-		"hookb": {Name: "hookb", Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+		"hookb": {Name: "hookb", Version: "1.0.0", Fragments: map[string]bundles.BundleFragment{"f": {
 			ItemBody: bundles.ItemBody{
 				Content: "x",
 			},
 		}}},
-		"other": {Name: "other", Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+		"other": {Name: "other", Version: "1.0.0", Fragments: map[string]bundles.BundleFragment{"f": {
 			ItemBody: bundles.ItemBody{
 				Content: "x",
 			},

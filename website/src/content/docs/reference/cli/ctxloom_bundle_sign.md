@@ -56,6 +56,7 @@ ctxloom bundle sign [ref] [flags]
 
 ```
       --all          sign every local bundle this project publishes
+      --force        re-sign a version whose last signature covered different files (bump the version instead unless you mean it)
       --key string   explicit signing key: a SHA256:... ssh-agent fingerprint, a path to a public key, or a ssh-agent key's comment/name (case-insensitive substring)
 ```
 

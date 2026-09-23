@@ -171,31 +171,6 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 	return nil
 }
 
-// PutSignature stores signature bytes against a form's content digest. It does
-// not verify anything: layer 0 knows only where signature bytes live.
-func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.Form, ns Namespace, by ssh.PublicKey, sig []byte) error {
-	if err := s.beginWrite(ctx); err != nil {
-		return err
-	}
-	bundle, err := s.Open(ctx, BundleID(ref.Bundle))
-	if err != nil {
-		return err
-	}
-	item, err := bundle.Item(ctx, ref)
-	if err != nil {
-		return err
-	}
-	form, err := item.Form(ctx, f)
-	if err != nil {
-		return err
-	}
-	digest, err := form.Content(ctx)
-	if err != nil {
-		return err
-	}
-	return writeSignature(s.fsys, s.osPath(ref.Bundle), contentKey(digest), ns, by, sig)
-}
-
 // PutManifest writes a bundle's manifest.
 //
 // An empty manifest is refused rather than written: its bytes would be just the

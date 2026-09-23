@@ -44,7 +44,7 @@ var readerLoadoutDoc = []byte("run:\n  version: \"1.0\"\n  fragments:\n    keepe
 // the document form is no longer readable at all: the repofs fixtures need the
 // tree, and the remaining readerBundleYAML users are the DOCUMENT-form readers
 // (project, companion), which still read documents legitimately.
-const readerTreeEnvelope = "version: \"1.0\"\n"
+const readerTreeEnvelope = "version: 1.0.0\n"
 
 var readerTreeFragments = map[string]string{"keeper": "KEEPER-PAYLOAD"}
 

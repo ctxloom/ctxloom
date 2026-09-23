@@ -107,7 +107,7 @@ func localTreeFixture(t *testing.T, name string, signed bool) (afero.Fs, string)
 		signer, _ := testSkillSigner(t)
 		b, err := st.Open(context.Background(), content.BundleID(name))
 		require.NoError(t, err)
-		require.NoError(t, attest.SignBundle(context.Background(), st, b, signer))
+		require.NoError(t, attest.SignBundle(context.Background(), st, b, treeRelease(t, b), signer))
 	}
 	return mem, filepath.Join(v2, name)
 }

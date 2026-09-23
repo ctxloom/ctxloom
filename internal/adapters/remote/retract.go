@@ -3,11 +3,11 @@ package remote
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
-	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/Masterminds/semver/v3"
 )
 
 // RetractionVerdict is CheckRetracted's three-valued outcome. A bool cannot
@@ -19,20 +19,22 @@ import (
 type RetractionVerdict int
 
 const (
-	// RetractionClean means the manifest was read successfully and ref is not
-	// listed as retracted in it.
+	// RetractionClean means a trusted publisher's signed release at the tip
+	// neither withdraws the bundle nor retracts the pinned version.
 	RetractionClean RetractionVerdict = iota
-	// RetractionRetracted means the manifest was read successfully and ref IS
-	// listed as retracted in it (see the accompanying reason string).
+	// RetractionRetracted means it does (see the accompanying reason string).
 	RetractionRetracted
 	// RetractionUnknown means no verdict could be established on THIS call:
-	// the remote could not be reached (repo/branch/manifest fetch failed) or —
-	// indistinguishably at this seam, see the doc below — the repo simply
-	// publishes no manifest at all (the ordinary case; most remotes don't).
-	// Callers MUST NOT treat Unknown as Clean. The fail-stale policy is: fall
-	// back to the last verdict this project itself recorded for the ref, not
-	// "assume cleared".
+	// the tip could not be read, or nothing a trusted publisher signed is
+	// there. Callers MUST NOT treat Unknown as Clean. The fail-stale policy
+	// is: fall back to the last verdict this project itself recorded for the
+	// ref, not "assume cleared".
 	RetractionUnknown
+	// RetractionRollback means the tip IS signed by a trusted publisher, at a
+	// version below the one this project pinned: the branch was rewound. It
+	// is a finding in its own right, and like Unknown it never clears a
+	// recorded verdict — the caller falls back to it and says why.
+	RetractionRollback
 )
 
 // RetractionStaleAfter is how old a PERSISTED retraction verdict may get
@@ -43,74 +45,105 @@ const (
 // "optimise" it.
 const RetractionStaleAfter = 14 * 24 * time.Hour
 
-// CheckRetracted checks if a version is retracted in the manifest.
+// ManifestVerifyFunc verifies a bundle's SHA256SUMS fetched on its own, with
+// the signature files filed against it in the bundle's .sigs/ directory
+// (keyed by file name). It is wired in from above for the same reason
+// TreeVerifyFunc is: the signed-manifest format and the trust root live in
+// layers remote cannot import.
 //
-// "Could not determine" is NOT "not retracted". A retraction is the
-// only channel a publisher has to withdraw content they already SIGNED, so a
-// fault on this path that resolves to a clean bill of health lets the
-// withdrawal lose to the publisher's own signature. The two answers must not
-// share a return value — hence RetractionVerdict rather than a bool.
-//
-// The faults here are not equally knowable, and this function is honest about
-// which is which:
-//
-//   - An unparseable manifest is UNAMBIGUOUS: the file was fetched, it simply
-//     does not parse. There is no reading of that under which the publisher
-//     retracted nothing, so it is an error (verdict RetractionUnknown, err
-//     non-nil) — this half was already fixed and is unchanged here.
-//   - A fetch failure is AMBIGUOUS at this seam: Fetcher returns an
-//     undifferentiated error, so a repo that publishes no manifest (the
-//     ordinary case — most do not) is indistinguishable from a network fault
-//     or a revoked token. Telling them apart needs a not-found sentinel on
-//     the Fetcher interface, a cross-cutting change to every implementation
-//     this fix does not make. Instead it reports RetractionUnknown (err nil)
-//     and pushes the distinction to the CALLER, which — unlike this
-//     function — knows whether it has ever recorded a verdict for this ref
-//     before: fall back to that verdict when one exists (warning if it is
-//     stale — RetractionStaleAfter — or has no recorded check time at all),
-//     and default to Clean, un-warned, when there is nothing to fall back to
-//     (matching the long-standing "most remotes publish no manifest"
-//     default). See Puller.resolveRetraction, the caller-side half of this
-//     fix, and docs/trust-model.md.
-func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, itemType ItemType) (RetractionVerdict, string, error) {
-	// Try to fetch manifest
-	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
-	if err != nil {
-		return RetractionUnknown, "", nil // Could not reach the remote at all.
-	}
+// It returns an error for bytes that are not a manifest or whose signature
+// does not cover them, and Verified{} with a nil error for a manifest no key
+// this machine trusts to publish has signed.
+type ManifestVerifyFunc func(manifest []byte, sigFiles map[string][]byte) (Verified, error)
 
-	manifestPath := paths.RepoContentPrefix + "/manifest.yaml"
-	content, err := fetcher.FetchFile(ctx, owner, repo, manifestPath, branch)
-	if err != nil {
-		// Ambiguous at this seam (see the doc comment above): "no manifest
-		// published" (the ordinary case) and "could not reach this one file"
-		// are indistinguishable here without a not-found sentinel on Fetcher.
-		// Reporting Unknown rather than Clean pushes the distinction to the
-		// caller, which CAN tell them apart (it knows whether it has ever
-		// recorded a verdict for this ref before) — see the fail-stale policy
-		// in docs/trust-model.md.
+// CheckRetracted asks the newest release of ref's bundle whether the pinned
+// content has been withdrawn.
+//
+// It reads ONE thing: the SHA256SUMS at the tip of the default branch, with
+// its signatures — never the tree, never an unsigned index. Only a release a
+// trusted publisher signed can retract. Any key trusted to publish may (ruled:
+// not only the key that signed the pin), because the question a retraction
+// answers is "has a publisher you trust withdrawn this", and a co-maintainer's
+// withdrawal is that answer.
+//
+//   - A tip signed by a trusted key, for THIS bundle: Retracted when it is
+//     withdrawn or its retractions name pinned.SignedVersion; Clean otherwise.
+//   - A signed tip whose version is BELOW pinned.SignedVersion:
+//     RetractionRollback. The branch was rewound to an older release; it
+//     says nothing about what was retracted since, so it clears nothing.
+//   - Anything else — no manifest, unreachable, unsigned, signed by nobody
+//     trusted, tampered, or a trusted manifest for ANOTHER bundle served at
+//     this path — is RetractionUnknown, and the caller's fail-stale policy
+//     applies (docs/trust-model.md).
+//
+// Why unsigned is Unknown and not Clean: a retraction is the only channel a
+// publisher has to withdraw content they already SIGNED, and whoever controls
+// the repository can serve any unsigned bytes they like. If an unsigned tip
+// could clear a verdict, stripping the signature would strip the retraction.
+func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, pinned LockEntry, verify ManifestVerifyFunc) (RetractionVerdict, string, error) {
+	if err := ctx.Err(); err != nil {
+		return RetractionUnknown, "", err
+	}
+	if verify == nil {
 		return RetractionUnknown, "", nil
 	}
-
-	var manifest Manifest
-	if err := yaml.Unmarshal(content, &manifest); err != nil {
-		return RetractionUnknown, "", fmt.Errorf("retraction manifest %s in %s/%s could not be parsed, so whether this content has been retracted is UNKNOWN: %w",
-			manifestPath, owner, repo, err)
+	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
+	if err != nil {
+		return RetractionUnknown, "", nil
 	}
-
-	// Check retracted entries. A retraction entry with an empty Version retracts
-	// the item at every version; an entry pinned to a specific version only fires
-	// when the request asks for that exact version. The earlier `ref.ContentVersion
-	// == ""` disjunct was wrong: it flagged any unversioned/"latest" install as
-	// retracted on the FIRST retracted version of that name, even when the
-	// retracted version was not the one being installed.
-	for _, r := range manifest.Retracted {
-		if r.Type == itemType && r.Name == ref.Path {
-			if r.Version == "" || r.Version == ref.ContentVersion {
-				return RetractionRetracted, r.Reason, nil
-			}
+	root := ref.TreeRepoPath()
+	raw, err := fetcher.FetchFile(ctx, owner, repo, root+"/"+tipManifestName, branch)
+	if err != nil {
+		return RetractionUnknown, "", nil
+	}
+	v, err := verify(raw, tipManifestSignatures(ctx, fetcher, owner, repo, root, branch))
+	if err != nil || v.Publisher == "" || v.Release.Version == nil {
+		return RetractionUnknown, "", nil
+	}
+	if v.Release.Name != path.Base(root) {
+		return RetractionUnknown, "", nil
+	}
+	var pv *semver.Version
+	if pinned.SignedVersion != "" {
+		pv, err = semver.StrictNewVersion(pinned.SignedVersion)
+		if err != nil {
+			return RetractionUnknown, "", fmt.Errorf("the lockfile records signed_version %q for %s, which is not strict semver: %w", pinned.SignedVersion, ref.String(), err)
+		}
+		if v.Release.Version.LessThan(pv) {
+			return RetractionRollback, fmt.Sprintf("the newest signed release at %s/%s is %s, below the %s this project pinned", owner, repo, v.Release.Version, pv), nil
 		}
 	}
-
+	if retracted, why := v.Release.Retracted(pv); retracted {
+		return RetractionRetracted, why, nil
+	}
 	return RetractionClean, "", nil
+}
+
+// tipManifestName is the bundle manifest's file name and its signatures' key
+// in .sigs/ (content.ManifestPath and content.BundleSigKey — remote cannot
+// import content, and the verifier re-derives which entries it trusts, so a
+// mismatch here only fails closed).
+const tipManifestName = "SHA256SUMS"
+
+// tipManifestSignatures fetches the .sigs/ entries filed against the manifest.
+// A missing or unreadable directory is no signatures: the verifier then
+// reports the manifest unattested, which is Unknown, never Clean.
+func tipManifestSignatures(ctx context.Context, fetcher Fetcher, owner, repo, root, branch string) map[string][]byte {
+	sigDir := root + "/.sigs"
+	entries, err := fetcher.ListDir(ctx, owner, repo, sigDir, branch)
+	if err != nil {
+		return nil
+	}
+	out := map[string][]byte{}
+	for _, e := range entries {
+		if e.IsDir || !strings.HasPrefix(e.Name, tipManifestName+".") {
+			continue
+		}
+		data, err := fetcher.FetchFile(ctx, owner, repo, sigDir+"/"+e.Name, branch)
+		if err != nil {
+			continue
+		}
+		out[e.Name] = data
+	}
+	return out
 }

@@ -156,7 +156,7 @@ func TestLoadTreeBundle_SignedByATrustedKeyYieldsThePrincipal(t *testing.T) {
 	ctx := context.Background()
 	c, store, tree, _ := stageInstalledTree(t)
 	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
+	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
 
 	b, read, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestLoadTreeBundle_SignedByAnUntrustedKeyNamesTheKeyWithoutTrustingIt(t *te
 	ctx := context.Background()
 	c, store, tree, _ := stageInstalledTree(t)
 	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
+	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
 
 	// A trust root that knows a DIFFERENT key: Carol signed, and nobody here
 	// trusts Carol.
@@ -196,7 +196,7 @@ func TestLoadTreeBundle_EditedAfterSigningIsWithheldNotDegradedToUnsigned(t *tes
 	ctx := context.Background()
 	c, store, tree, fsys := stageInstalledTree(t)
 	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
+	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
 
 	dir, err := treeBundleDir(treeBase, treeCanonical)
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestLoadTreeBundle_FileAddedAfterSigningIsWithheld(t *testing.T) {
 	ctx := context.Background()
 	c, store, tree, fsys := stageInstalledTree(t)
 	signer, pub := treeTestSigner(t)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
+	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
 
 	dir, err := treeBundleDir(treeBase, treeCanonical)
 	require.NoError(t, err)

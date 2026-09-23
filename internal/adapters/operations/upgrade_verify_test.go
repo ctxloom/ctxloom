@@ -40,6 +40,14 @@ func trustPublisher(t *testing.T, baseDir string, signer ssh.Signer) {
 // root, so a caller can commit the tree into a repository file by file.
 func demoTreeFiles(t *testing.T, signer ssh.Signer, fragBody string) map[string]string {
 	t.Helper()
+	return demoTreeFilesAt(t, signer, fragBody, "1.0.0")
+}
+
+// demoTreeFilesAt is demoTreeFiles at a chosen bundle.yaml version, signed
+// under that version. A nil signer leaves the tree unsigned: no manifest, no
+// signature.
+func demoTreeFilesAt(t *testing.T, signer ssh.Signer, fragBody, version string) map[string]string {
+	t.Helper()
 	fsys := afero.NewMemMapFs()
 	const root = "/stage"
 	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
@@ -48,10 +56,12 @@ func demoTreeFiles(t *testing.T, signer ssh.Signer, fragBody string) map[string]
 		trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "keeper"},
 		signing.FormRaw,
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: fragBody}}))
-	require.NoError(t, st.PutRootFile(context.Background(), "demo", bundles.DirectoryFormManifest, []byte("version: \"1.0.0\"\n")))
+	require.NoError(t, st.PutRootFile(context.Background(), "demo", bundles.DirectoryFormManifest, []byte("version: "+version+"\n")))
 	tree, err := st.Open(context.Background(), "demo")
 	require.NoError(t, err)
-	require.NoError(t, attest.SignBundle(context.Background(), st, tree, signer))
+	if signer != nil {
+		require.NoError(t, attest.SignBundle(context.Background(), st, tree, treeRelease(t, tree), signer))
+	}
 
 	files := map[string]string{}
 	dir := filepath.Join(root, "demo")
@@ -76,8 +86,9 @@ func demoTreeFiles(t *testing.T, signer ssh.Signer, fragBody string) map[string]
 
 // commitTree writes every file of a composed tree under demo's tree root and
 // commits them as ONE commit (init creates the repository first), returning
-// the commit. Old signature entries are removed first, so a re-signed tree
-// carries exactly its own .sigs/ entries.
+// the commit. The old manifest and signature entries are removed first, so a
+// tree carries exactly its own SHA256SUMS and .sigs/ entries — and an unsigned
+// tree carries none.
 func commitTree(t *testing.T, src string, files map[string]string, init bool) string {
 	t.Helper()
 	var repo *git.Repository
@@ -93,6 +104,7 @@ func commitTree(t *testing.T, src string, files map[string]string, init bool) st
 	require.NoError(t, err)
 	root := repoV2("demo")
 	_ = os.RemoveAll(filepath.Join(src, root, content.SigDirName))
+	_ = os.Remove(filepath.Join(src, root, content.ManifestPath))
 	for rel, data := range files {
 		full := filepath.Join(src, root, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
@@ -147,7 +159,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	edited := addFileToLocalRepo(t, src, repoV2("demo")+"/fragments/keeper.md", "EDITED AFTER SIGNING\n")
 	require.NotEqual(t, verified, edited)
 
-	res, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg, nil)
 	require.NoError(t, err, "a refused advance is a reported outcome, not a command failure")
 	assert.Equal(t, 0, res.Advanced, "nothing may be counted as advanced")
 
@@ -180,7 +192,7 @@ func TestUpgrade_AdvancesOntoReSignedContent(t *testing.T) {
 	reSigned := commitTree(t, src, demoTreeFiles(t, signer, "REVISED AND RE-SIGNED\n"), false)
 	require.NotEqual(t, verified, reSigned)
 
-	res, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Advanced, "a properly re-signed republish still advances")
 	assert.Empty(t, res.Refused)
@@ -209,7 +221,7 @@ func TestUpgrade_UnsignedContentStillAdvances(t *testing.T) {
 	c2 := addFileToLocalRepo(t, src, repoV2("demo")+"/bundle.yaml", "version: \"2.0.0\"\n")
 	require.NotEqual(t, c1, c2)
 
-	res, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Advanced, "unsigned content is ordinary and still advances")
 	assert.Empty(t, res.Refused)

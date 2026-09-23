@@ -45,15 +45,10 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 
 		fetcher := newMockFetcher()
 		fetcher.defaultBranch = "main"
-		fetcher.files[".ctxloom/content/manifest.yaml"] = []byte(`
-version: 1
-retracted:
-  - type: bundle
-    name: incident-runbook
-    reason: "shipped an incorrect deploy step"
-`)
+		fetcher.files[ref.TreeRepoPath()+"/SHA256SUMS"] = []byte("tip")
+		p.manifestVerify = verifierFor(map[string]Verified{"tip": signedTip("incident-runbook", "2.0.0", "shipped an incorrect deploy step")})
 
-		retracted, reason, checkedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName)
+		retracted, reason, checkedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
 		assert.True(t, retracted, "a fresh manifest read reporting retracted must be honoured directly, no fallback involved")
 		assert.Equal(t, "shipped an incorrect deploy step", reason)
@@ -74,7 +69,7 @@ retracted:
 		restore := clidiag.SetSink(&out)
 		defer restore()
 
-		retracted, _, gotCheckedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName)
+		retracted, _, gotCheckedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
 		assert.False(t, retracted, "the persisted (clean) verdict must be what's delivered, not a fresh guess")
 		assert.True(t, gotCheckedAt.Equal(checkedAt), "the fallback reports the PERSISTED check time, not now")
@@ -97,7 +92,7 @@ retracted:
 
 		fetcher := newMockFetcher() // unreachable manifest -> RetractionUnknown
 
-		retracted, reason, gotCheckedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName)
+		retracted, reason, gotCheckedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
 		assert.True(t, retracted, "an unreachable remote must NOT resurrect content the publisher already retracted")
 		assert.Equal(t, "shipped an incorrect deploy step", reason)
@@ -119,7 +114,7 @@ retracted:
 		restore := clidiag.SetSink(&out)
 		defer restore()
 
-		retracted, _, _, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName)
+		retracted, _, _, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
 		assert.True(t, retracted, "staleness warns but still honors the last known verdict — it never becomes fail-closed")
 		assert.Contains(t, out.String(), "warning", "a verdict older than the 14-day threshold must warn")
@@ -144,7 +139,7 @@ retracted:
 		restore := clidiag.SetSink(&out)
 		defer restore()
 
-		retracted, _, gotCheckedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName)
+		retracted, _, gotCheckedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
 		assert.True(t, retracted, "an untimed but recorded retraction must still be honoured, not treated as absent")
 		assert.True(t, gotCheckedAt.IsZero(), "resolveRetraction must not fabricate a timestamp the entry never had")
@@ -184,7 +179,7 @@ retracted:
 				restore := clidiag.SetSink(&out)
 				defer restore()
 
-				_, _, _, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName)
+				_, _, _, err := p.resolveRetraction(context.Background(), newMockFetcher(), "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 				require.NoError(t, err)
 
 				warning := out.String()
@@ -213,11 +208,69 @@ retracted:
 		restore := clidiag.SetSink(&out)
 		defer restore()
 
-		retracted, reason, checkedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName)
+		retracted, reason, checkedAt, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, LockEntry{})
 		require.NoError(t, err)
 		assert.False(t, retracted)
 		assert.Empty(t, reason)
 		assert.True(t, checkedAt.IsZero())
 		assert.Empty(t, out.String(), "nothing to fall back to must not be reported as a stale warning")
+	})
+
+	// Attack (b), stripping: whoever controls the repository replaces the
+	// signed tip that retracted this pin with an UNSIGNED one that does not.
+	// An unsigned tip says nothing, so the recorded verdict stands.
+	t.Run("a stripped retraction does not clear a recorded one", func(t *testing.T) {
+		now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+		p := newPuller(t, now, &LockEntry{
+			SHA: "abc123", URL: "https://github.com/trent/company", SignedVersion: "1.0.0",
+			Retracted: true, RetractedReason: "leaked token", RetractionCheckedAt: now.Add(-time.Hour),
+		})
+		fetcher := newMockFetcher()
+		fetcher.files[ref.TreeRepoPath()+"/SHA256SUMS"] = []byte("unsigned")
+		p.manifestVerify = verifierFor(map[string]Verified{"unsigned": {}})
+
+		retracted, reason, _, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, pinnedAt("1.0.0"))
+		require.NoError(t, err)
+		assert.True(t, retracted)
+		assert.Equal(t, "leaked token", reason)
+	})
+
+	// Attack (b), rewinding: the tip is moved back to the release this project
+	// pinned — genuinely signed, at the floor, and from before the retraction
+	// existed. A signed retraction of an exact version is permanent, so no
+	// later clean tip lifts it for the same pin; only moving the pin does.
+	t.Run("an older signed manifest cannot hide a newer retraction", func(t *testing.T) {
+		now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+		p := newPuller(t, now, &LockEntry{
+			SHA: "abc123", URL: "https://github.com/trent/company", SignedVersion: "1.0.0",
+			Retracted: true, RetractedReason: "leaked token", RetractionCheckedAt: now.Add(-time.Hour),
+		})
+		fetcher := newMockFetcher()
+		fetcher.files[ref.TreeRepoPath()+"/SHA256SUMS"] = []byte("old")
+		p.manifestVerify = verifierFor(map[string]Verified{"old": signedTip("incident-runbook", "1.0.0", "")})
+
+		retracted, reason, _, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, pinnedAt("1.0.0"))
+		require.NoError(t, err)
+		assert.True(t, retracted, "a clean tip must not lift a signed retraction already recorded for this pin")
+		assert.Equal(t, "leaked token", reason)
+	})
+
+	t.Run("a tip below the floor is reported as a rollback and keeps the recorded verdict", func(t *testing.T) {
+		now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+		p := newPuller(t, now, &LockEntry{
+			SHA: "abc123", URL: "https://github.com/trent/company", SignedVersion: "1.2.0",
+			Retracted: true, RetractedReason: "leaked token", RetractionCheckedAt: now.Add(-time.Hour),
+		})
+		fetcher := newMockFetcher()
+		fetcher.files[ref.TreeRepoPath()+"/SHA256SUMS"] = []byte("rewound")
+		p.manifestVerify = verifierFor(map[string]Verified{"rewound": signedTip("incident-runbook", "1.0.0", "")})
+
+		var out bytes.Buffer
+		restore := clidiag.SetSink(&out)
+		defer restore()
+		retracted, _, _, err := p.resolveRetraction(context.Background(), fetcher, "trent", "company", ref, ItemTypeBundle, localName, pinnedAt("1.2.0"))
+		require.NoError(t, err)
+		assert.True(t, retracted)
+		assert.Contains(t, out.String(), "rolled back")
 	})
 }

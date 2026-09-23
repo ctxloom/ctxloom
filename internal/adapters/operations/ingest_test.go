@@ -79,7 +79,7 @@ func ingestLoader(t *testing.T, fs afero.Fs) *bundles.Loader {
 func TestIngest_CompanionFragmentAlsoSelectedByRefIsAssembledOnce(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
 	body := companionIsolationContent(t)
-	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
+	writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
@@ -203,7 +203,7 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 	assemble := func(t *testing.T, refs []config.FragmentRef) string {
 		t.Helper()
 		fs, _ := setupContextTestFS(t)
-		writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
+		writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 		cfg.SetFS(fs)
 		cfg = withProfileDefs(t, cfg, map[string]config.Profile{"p": {Fragments: refs}})
@@ -259,7 +259,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 
 	t.Run("two different refs, one item: warns and names both", func(t *testing.T) {
 		fs, _ := setupContextTestFS(t)
-		writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
+		writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 		cfg.SetFS(fs)
 		cfg = withProfileDefs(t, cfg, map[string]config.Profile{
@@ -289,7 +289,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
 	body := companionIsolationContent(t)
-	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
+	writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
@@ -336,7 +336,7 @@ func TestIngest_RegenerateContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnc
 	body := companionIsolationContent(t)
 	appDir, workDir := regenTestApp(t)
 	writeRegenBundle(t, appDir, "isolation",
-		"version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
+		"version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := publishedWith(t, cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 		"default": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
@@ -407,7 +407,7 @@ fragments:
     content: "OMEGA-BODY"
 `)
 		writeRegenBundle(t, appDir, "isolation",
-			"version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
+			"version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 		cfg := publishedWith(t, cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 			"default": {Fragments: refs},
 		}, config.Fixture{
@@ -487,7 +487,7 @@ fragments:
 func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 	body := companionIsolationContent(t)
 	fs, _ := setupContextTestFS(t)
-	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
+	writeIngestBundle(t, fs, "isolation", "version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)

@@ -89,8 +89,9 @@ signature and signer axes, provenance). First match wins; it is fail-closed:
 
 1. **rejected** — a rejection covers this ref, or covers exactly these bytes
    (the repo/ref-agnostic content denylist) → **DENY**.
-2. **retracted** — the publisher themselves withdrew this bundle, learned from
-   their remote manifest at the last sync and recorded locally → **DENY**.
+2. **retracted** — a publisher you trust withdrew this bundle, or the exact
+   version pinned, learned from the newest SIGNED release at the last sync and
+   recorded locally → **DENY**.
    Retraction is a *peer* of rejection, not a kind of it: a rejection is a
    human's decision about bytes, a retraction is the publisher's own
    withdrawal, and it must beat every allow below — including the publisher's
@@ -105,23 +106,45 @@ signature and signer axes, provenance). First match wins; it is fail-closed:
      record" is not "nothing is retracted", and collapsing the two re-exposes
      content a publisher deliberately withdrew. An *absent* record is not this
      case: a project with no pins legitimately has nothing retracted.
-   - **2b. the sync-time network probe itself is FAIL-STALE, not fail-open.**
-     `internal/adapters/remote.CheckRetracted`'s remote-manifest read is three-valued
-     (`RetractionVerdict`: clean / retracted / unknown), not a bool — a fetch
-     failure (the remote is unreachable, or — indistinguishably at that seam —
-     it simply publishes no manifest, the ordinary case) reports *unknown*,
-     never a silent "clean". `Puller.resolveRetraction` (the caller-side half)
-     turns *unknown* into a decision: fall back to the last verdict this
-     project itself recorded for the ref (`LockEntry.Retracted` +
-     `RetractionCheckedAt`), never to "assume cleared" — so a network
-     partition cannot resurrect content the publisher already retracted. A
-     fallback verdict older than 14 days (`remote.RetractionStaleAfter`), or
-     one with no recorded check time at all (an entry written before this
-     field existed — unknown age, not implicitly fresh), warns via `clidiag`
-     but is still honored, never discarded: staleness degrades toward *more*
-     caution communicated to the operator, never toward more exposure. Closes
-     U088-F01, U095-F02 (fetch-failure half — the parse-failure half was
-     already fixed), and U150-F04.
+   - **2b. only a signed release can retract, and the probe is FAIL-STALE.**
+     `internal/adapters/remote.CheckRetracted` reads ONE thing: the
+     `SHA256SUMS` at the tip of the default branch, with its signatures,
+     verified by `attest.VerifyManifest`. A retraction is part of a release's
+     signed header (`# retracts: <version> <reason>`, `# withdrawn: <reason>`),
+     authored in `bundle.yaml` and published by signing a new version. Any key
+     trusted to publish may retract, not only the one that signed the pin.
+     The verdict is `RetractionVerdict`, never a bool:
+     - a trusted tip for this bundle that withdraws it, or retracts the
+       pinned `signed_version` → *retracted*; otherwise *clean*;
+     - a trusted tip below the pinned `signed_version` → *rollback*: the
+       branch was rewound, and it clears nothing;
+     - anything else — unreachable, no manifest, unsigned, untrusted,
+       tampered, or a trusted manifest for another bundle served at this
+       path → *unknown*.
+     No unsigned file decides anything: whoever controls a repository can
+     serve any unsigned bytes, so if an unsigned tip could clear a verdict,
+     stripping the signature would strip the retraction.
+     `Puller.resolveRetraction` turns *unknown* and *rollback* into a
+     decision: fall back to the last verdict this project itself recorded for
+     the ref (`LockEntry.Retracted` + `RetractionCheckedAt`), never to "assume
+     cleared" — so neither a network partition nor a rewound branch can
+     resurrect content a publisher already retracted. A *clean* tip never
+     lifts a retraction already recorded for the same pinned version either:
+     a retraction of an exact signed version is permanent, and a tip that no
+     longer lists it is an older release served again, not the publisher
+     changing their mind; only moving the pin resets it. A fallback verdict
+     older than 14 days (`remote.RetractionStaleAfter`), or one with no
+     recorded check time at all (unknown age, not implicitly fresh), warns via
+     `clidiag` but is still honored, never discarded: staleness degrades
+     toward *more* caution communicated to the operator, never toward more
+     exposure.
+   - **2c. the version floor.** A pull verifies the fetched tree before it
+     pins it, and every writer of a lock entry's `sha` holds it to the
+     `signed_version` the entry recorded: a lower signed version
+     (`release.ErrRollback`), or unsigned content where signed content was
+     pinned (`release.ErrSignatureDowngrade`), is refused.
+     `deps pull|upgrade --allow-downgrade <ref>` accepts it for that named
+     ref only, says so, and records the lower version as the new floor.
 3. **local** — the item was authored in this project (`ctxloom:local`), any kind
    including MCP servers and hooks → **ALLOW**. **Locality is the trust
    boundary; the signature is for what travels.** A project-local bundle whose

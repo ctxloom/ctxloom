@@ -23,6 +23,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // Companion EXEC consent. Every assertion here is about OBSERVABLE BEHAVIOR —
@@ -51,9 +52,26 @@ type consentFixture struct {
 // is refused as unsigned — which several tests below rely on.
 func (f *consentFixture) sign(t *testing.T, path string) {
 	t.Helper()
-	payload, err := os.ReadFile(path)
+	f.signAs(t, path, filepath.Base(path))
+}
+
+// signAs writes the release statement naming the binary at path as name, and
+// signs the statement — which is what a companion publisher ships beside it.
+func (f *consentFixture) signAs(t *testing.T, path, name string) {
+	t.Helper()
+	binary, err := os.ReadFile(path)
 	require.NoError(t, err)
-	sig, err := signing.Sign(payload, f.signer, signing.NamespaceCompanion)
+	statement := testsupport.CompanionReleaseStatement(name, "1.0.0", binary)
+	require.NoError(t, os.WriteFile(path+".release", statement, 0o600))
+	f.signStatement(t, path, statement)
+}
+
+// signStatement writes statement as path's release statement and signs it
+// verbatim, so a test can sign a statement admission must refuse.
+func (f *consentFixture) signStatement(t *testing.T, path string, statement []byte) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path+".release", statement, 0o600))
+	sig, err := signing.Sign(statement, f.signer, signing.NamespaceCompanion)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path+".sig", sig, 0o600))
 }

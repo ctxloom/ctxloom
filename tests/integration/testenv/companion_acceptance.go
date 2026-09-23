@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // InstallFakeCompanion writes an executable shell script named bin (e.g.
@@ -119,19 +120,24 @@ func companionEnvVar(prefix, bin string) string {
 // allowed_signers, so nothing here depends on the developer's keys and two
 // scenarios cannot vouch for each other's binaries.
 
-// signCompanion signs the binary at path with this environment's fixture key,
-// leaving the detached `<path>.sig` admission reads, and ensures the scenario's
+// signCompanion writes the release statement for the binary at path and signs
+// it with this environment's fixture key, leaving the `<path>.release` and
+// `<path>.sig` admission reads, and ensures the scenario's
 // trust root authorizes that key for the companion namespace.
 func (e *TestEnvironment) signCompanion(path string) error {
 	signer, err := e.companionSigner()
 	if err != nil {
 		return err
 	}
-	payload, err := os.ReadFile(path) //nolint:gosec // fixture path built by this package
+	binary, err := os.ReadFile(path) //nolint:gosec // fixture path built by this package
 	if err != nil {
 		return fmt.Errorf("read %q to sign it: %w", path, err)
 	}
-	sig, err := signing.Sign(payload, signer, signing.NamespaceCompanion)
+	statement := testsupport.CompanionReleaseStatement(filepath.Base(path), "1.0.0", binary)
+	if err := os.WriteFile(path+".release", statement, 0o600); err != nil {
+		return fmt.Errorf("write release statement for %q: %w", path, err)
+	}
+	sig, err := signing.Sign(statement, signer, signing.NamespaceCompanion)
 	if err != nil {
 		return fmt.Errorf("sign companion %q: %w", path, err)
 	}

@@ -198,11 +198,13 @@ function Install-SignedBinary {
         binary landing ahead of its own signature is one a concurrent ctxloom
         silently skips for that window.
 
-        The signature is named for the INSTALLED file rather than the archived
-        one. Admission reads the resolved binary path with ".sig" appended
-        (internal/core/config resolveCompanionPath + companionSigSuffix), and on
-        Windows that resolved path carries the .exe suffix, so an archived
-        "<name>.sig" has to land as "<name>.exe.sig".
+        Admission reads the resolved binary path with ".release" and ".sig"
+        appended (internal/adapters/companions admitCompanion:
+        resolveCompanionPath + companionReleaseSuffix / companionSigSuffix).
+        On Windows that path carries the .exe suffix, and the release archive
+        ships the pair under exactly those names ("<name>.exe.release",
+        "<name>.exe.sig"), so both move across unrenamed. The statement inside
+        names "<name>.exe", which is what admission compares it with.
 
         Nothing here concerns SmartScreen or Apple notarization; those are a
         separate mechanism with a separate remedy.
@@ -214,8 +216,19 @@ function Install-SignedBinary {
     )
 
     $binaryDest = Join-Path $Destination "$Name.exe"
-    $sigSource = Join-Path $SourceDir "$Name.sig"
+    $sigSource = Join-Path $SourceDir "$Name.exe.sig"
     $sigDest = "$binaryDest.sig"
+
+    # The signature covers "<name>.exe.release" (the binary's name, version
+    # and hash), so the statement travels with it.
+    $releaseSource = Join-Path $SourceDir "$Name.exe.release"
+    $releaseDest = "$binaryDest.release"
+    if (Test-Path $releaseDest) {
+        Remove-Item $releaseDest -Force
+    }
+    if (Test-Path $releaseSource) {
+        Move-Item $releaseSource $releaseDest -Force
+    }
 
     if (Test-Path $sigDest) {
         Remove-Item $sigDest -Force
@@ -226,7 +239,7 @@ function Install-SignedBinary {
     else {
         # No stale signature is left behind: an absent one reads truthfully as
         # unsigned, where a mismatched one reads as failed verification.
-        Write-Warn "${Name}: no $Name.sig in the archive; ctxloom will decline to run it"
+        Write-Warn "${Name}: no $Name.exe.sig in the archive; ctxloom will decline to run it"
         Write-Warn "  (a companion must carry a signature from a publisher you trust)"
     }
 

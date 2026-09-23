@@ -2,11 +2,13 @@ package operations
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -67,7 +69,15 @@ type UpgradeResult struct {
 // date" on that basis alone — Advanced counts only what WAS resolved, and an
 // incomplete closure means part of the project was never actually checked
 // against upstream.
-func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult, error) {
+//
+// allowDowngrade names the refs whose version floor the operator waives for
+// this run (`deps upgrade --allow-downgrade <ref>`); every other pin is held to
+// the signed version it recorded (see verifyAdvance).
+func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade []string) (UpgradeResult, error) {
+	downgrades, err := newDowngradeSet(allowDowngrade)
+	if err != nil {
+		return UpgradeResult{}, err
+	}
 	loader := profileLoader(cfg)
 	// The closure roots must match FlattenDependencies' canonical set (inline
 	// config.yaml definitions, directory profiles, and config-default remote
@@ -128,23 +138,36 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult
 		}
 		// A REAL advance — an entry that already exists and would move to a
 		// different commit — must land on content whose publisher signature
-		// verifies. It is checked only here, and only for a move: a FIRST pin
-		// has no last-verified value to keep, so there is nothing to refuse
-		// back to, and holding one back would simply install nothing while the
-		// exposure gate would have withheld it anyway with a reason.
-		if has && cur.SHA != p.Hash {
-			if detail, refuse := verifyAdvance(ctx, cfg, factory, auth, p); refuse {
+		// verifies, at or above the version its last pin was signed at. A FIRST
+		// pin is read too, to record its floor, but never refused: it has no
+		// last-verified value to keep, so there is nothing to refuse back to,
+		// and holding one back would simply install nothing while the exposure
+		// gate would have withheld it anyway with a reason.
+		var verified remote.Verified
+		if !has || cur.SHA != p.Hash {
+			v, refusal := verifyAdvance(ctx, cfg, factory, auth, p, cur, downgrades.allows(p.Identity))
+			verified = v
+			if refusal != nil && has {
 				newActive.AddEntry(p.Type, p.Identity, cur)
 				result.Refused = append(result.Refused, RefusedAdvance{
 					Identity:    p.Identity,
 					KeptSHA:     cur.SHA,
 					ProposedSHA: p.Hash,
-					Detail:      detail,
+					Detail:      refusal.Error(),
+					BelowFloor:  errors.Is(refusal, release.ErrRollback) || errors.Is(refusal, release.ErrSignatureDowngrade),
 				})
 				continue
 			}
 		}
 		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
+		// The floor moves only with the content it was read from: an unmoved pin
+		// keeps what its last verified pin recorded, a moved one records what
+		// verifyAdvance just established.
+		if has && cur.SHA == p.Hash {
+			entry.SignedVersion, entry.Publisher = cur.SignedVersion, cur.Publisher
+		} else {
+			entry.SignedVersion, entry.Publisher = verified.LockFields()
+		}
 		// A full re-resolve is NOT a fresh retraction check — only
 		// sync's installed-ref re-check (checkInstalledRetraction) or the next
 		// Pull actually reads the publisher's manifest and is entitled to lift

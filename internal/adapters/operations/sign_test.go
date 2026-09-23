@@ -179,8 +179,6 @@ func TestListLocalBundleNames_EmptyWhenNoLocalDir(t *testing.T) {
 	assert.Empty(t, names)
 }
 
-// --- SignItem (the Signable seam) ------------------------------------------
-
 // SignBundleFile read the bundle file and handed the bytes to
 // signing.Sign with no length check, so a truncated or zero-byte bundle got a
 // .sig and a "Signed ..." line at exit 0 — a valid publish signature covering
@@ -526,7 +524,7 @@ func TestSignBundleFile_TreeSignsThroughItsManifestAndClearsTheSibling(t *testin
 	_, cfg := setupBundleTestDir(t)
 	dir := filepath.Join(paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2), "kit")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: \"1.0\"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: 1.0.0\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "keeper.md"), []byte("KEEPER\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest+".sig"), []byte("retired sibling\n"), 0o644))
 	signer := testSigner(t)

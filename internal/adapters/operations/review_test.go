@@ -27,7 +27,7 @@ const reviewSeedKey = acmeBundle + "toolkit"
 // reviewable kind.
 func reviewBundle() *bundles.Bundle {
 	return &bundles.Bundle{
-		Version: "1.0",
+		Version: "1.0.0",
 		Fragments: map[string]bundles.BundleFragment{
 			"solid": {
 				ItemBody: bundles.ItemBody{
@@ -266,7 +266,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 
 	t.Run("local bundle is exempt — nothing pending", func(t *testing.T) {
 		local := &bundles.Bundle{
-			Version: "1.0",
+			Version: "1.0.0",
 			Fragments: map[string]bundles.BundleFragment{"x": {
 				ItemBody: bundles.ItemBody{
 					Content: "project-authored",
@@ -562,7 +562,7 @@ func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
 	// package that arrived broken. So the directory is written straight into
 	// the tree, holding a file that is not a SKILL.md.
 	b := &bundles.Bundle{
-		Version:   "1.0",
+		Version:   "1.0.0",
 		Fragments: map[string]bundles.BundleFragment{"decoy": {ItemBody: bundles.ItemBody{Content: "body"}}},
 	}
 	tree := seedHostileTree(t, reviewSeedKey, b, map[string][]byte{
@@ -643,7 +643,7 @@ func TestRenderHookSurface_NoCommandOrPromptShowsMarker(t *testing.T) {
 const reviewPubRef = "https://example.test/repo@bundles/pub"
 
 func TestReviewPublisherOf_ThreeReachableStates(t *testing.T) {
-	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+	b := &bundles.Bundle{Version: "1.0.0", Fragments: map[string]bundles.BundleFragment{"f": {
 		ItemBody: bundles.ItemBody{
 			Content: "x",
 		},
@@ -691,7 +691,7 @@ func TestReviewPublisherOf_ThreeReachableStates(t *testing.T) {
 func TestReviewPublisherOf_EmptyPrincipalIsNotATrustedPublisher(t *testing.T) {
 	// One real item: a tree with no items is not a bundle, so the converter
 	// writes nothing and there would be no read to ask about.
-	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+	b := &bundles.Bundle{Version: "1.0.0", Fragments: map[string]bundles.BundleFragment{"f": {
 		ItemBody: bundles.ItemBody{Content: "x"},
 	}}}
 	loader := seedTrustedSigned(t, reviewPubRef, "runbooks@acme.example", b)

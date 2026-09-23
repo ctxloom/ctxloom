@@ -141,7 +141,7 @@ func remoteTreeContentRepo(t *testing.T) (repoDir, rev1, rev2 string, pub ssh.Pu
 		require.NoError(t, err)
 		tree, err := store.Open(context.Background(), content.BundleID("go-tools"))
 		require.NoError(t, err)
-		require.NoError(t, attest.SignBundle(context.Background(), store, tree, signer))
+		require.NoError(t, attest.SignBundle(context.Background(), store, tree, treeRelease(t, tree), signer))
 
 		require.NoError(t, wt.AddWithOptions(&git.AddOptions{All: true}))
 		h, err := wt.Commit(msg, &git.CommitOptions{

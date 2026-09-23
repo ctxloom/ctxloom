@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	depsPullForce bool
-	depsPullLock  bool
+	depsPullForce          bool
+	depsPullLock           bool
+	depsPullAllowDowngrade []string
 )
 
 var depsPullCmd = &cobra.Command{
@@ -61,9 +62,10 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "Pulling dependencies...")
 
 	result, err := operations.SyncDependencies(cmd.Context(), App(), operations.SyncDependenciesRequest{
-		Force:      depsPullForce,
-		Lock:       depsPullLock,
-		ApplyHooks: true,
+		Force:          depsPullForce,
+		Lock:           depsPullLock,
+		ApplyHooks:     true,
+		AllowDowngrade: depsPullAllowDowngrade,
 	})
 	if err != nil {
 		return err
@@ -156,4 +158,6 @@ func init() {
 		"Re-resolve every reference instead of honoring what is already installed")
 	depsPullCmd.Flags().BoolVar(&depsPullLock, "lock", true,
 		"Update lockfile after pull")
+	depsPullCmd.Flags().StringArrayVar(&depsPullAllowDowngrade, "allow-downgrade", nil,
+		"Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref")
 }

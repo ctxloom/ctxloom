@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -13,8 +14,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
+
+// treeRelease is the release a publisher signs a tree under: its own id and
+// the version its bundle.yaml declares, which a reader requires to match.
+func treeRelease(t *testing.T, b content.Bundle) release.Release {
+	t.Helper()
+	raw, err := b.ReadFile(context.Background(), DirectoryFormManifest)
+	require.NoError(t, err)
+	env, err := ParseBundle(raw)
+	require.NoError(t, err)
+	v, err := semver.StrictNewVersion(env.Version)
+	require.NoError(t, err, "a signed fixture's bundle.yaml must carry a strict semver version")
+	return release.Release{Name: string(b.ID()), Version: v}
+}
 
 // repoTree stages a TREE-form bundle named leaf and returns it as the TreeFS a
 // repoFSReader reads through: a store rooted at the bundle's PARENT, so the
@@ -63,7 +78,7 @@ func stageRepoTree(t *testing.T, leaf, envelope string, frags map[string]string,
 	if signer != nil {
 		b, err := st.Open(context.Background(), content.BundleID(leaf))
 		require.NoError(t, err)
-		require.NoError(t, attest.SignBundle(context.Background(), st, b, signer))
+		require.NoError(t, attest.SignBundle(context.Background(), st, b, treeRelease(t, b), signer))
 	}
 	return fsys, repoTreeRoot
 }

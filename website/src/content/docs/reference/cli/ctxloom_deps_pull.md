@@ -52,8 +52,9 @@ ctxloom deps pull [flags]
 ### Options
 
 ```
-  -f, --force   Re-resolve every reference instead of honoring what is already installed
-      --lock    Update lockfile after pull (default true)
+      --allow-downgrade stringArray   Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref
+  -f, --force                         Re-resolve every reference instead of honoring what is already installed
+      --lock                          Update lockfile after pull (default true)
 ```
 
 ### Options inherited from parent commands

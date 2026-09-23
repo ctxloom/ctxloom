@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // PinAdmittedCompanions admits every discovered companion and writes each
-// admitted one — the exact bytes admitCompanion verified, and the signature
-// that verified them — into a directory under storeRoot, returning that
-// directory ("" when nothing was admitted).
+// admitted one — the exact bytes admitCompanion verified, the release statement
+// that names and hashes them, and the signature over that statement — into a
+// directory under storeRoot, returning that directory ("" when nothing was
+// admitted).
 //
 // WHY IT EXISTS. Admission verifies ONE file, the one ctxloom's PATH resolved.
 // But the hooks and MCP servers a companion's loadout contributes name it by
@@ -33,9 +35,12 @@ import (
 // digest, so every session with the same companions shares one copy, and a
 // changed companion gets a new directory.
 //
-// The signature is copied too because a ctxloom started FROM this PATH — a hook
-// the engine fires — discovers the pinned copy first and must admit it; the
-// signature covers these bytes exactly, so it does.
+// The statement and signature are copied too because a ctxloom started FROM
+// this PATH — a hook the engine fires — discovers the pinned copy first and
+// must admit it. Admission checks the statement's name against the file it
+// resolves, so the copy is written under the name the ORIGINAL was admitted as
+// (verifiedCompanion.name: the bare name on a normal install, "<name>.exe" on
+// Windows), and the statement's hash covers these bytes exactly, so it admits.
 func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, error) {
 	var names []string
 	admitted := map[string]verifiedCompanion{}
@@ -53,8 +58,8 @@ func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, erro
 	h := sha256.New()
 	for _, bin := range names {
 		v := admitted[bin]
-		p, s := sha256.Sum256(v.payload), sha256.Sum256(v.sig)
-		fmt.Fprintf(h, "%s\x00%x\x00%x\n", bin, p, s)
+		p, r, s := sha256.Sum256(v.payload), sha256.Sum256(v.statement), sha256.Sum256(v.sig)
+		fmt.Fprintf(h, "%s\x00%s\x00%x\x00%x\x00%x\n", bin, v.name, p, r, s)
 	}
 	dir := filepath.Join(storeRoot, hex.EncodeToString(h.Sum(nil)))
 	if pinHolds(dir, admitted) {
@@ -70,10 +75,13 @@ func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, erro
 	defer os.RemoveAll(tmp) //nolint:errcheck // gone after a successful rename; best-effort otherwise
 	for _, bin := range names {
 		v := admitted[bin]
-		if err := os.WriteFile(filepath.Join(tmp, bin), v.payload, 0o755); err != nil { //nolint:gosec // a companion must be executable
+		if err := iox.WriteFileAtomic(filepath.Join(tmp, v.name), v.payload, 0o755); err != nil { //nolint:gosec // a companion must be executable
 			return "", fmt.Errorf("pin companion %s: %w", bin, err)
 		}
-		if err := os.WriteFile(filepath.Join(tmp, bin+companionSigSuffix), v.sig, 0o644); err != nil { //nolint:gosec // a public signature
+		if err := iox.WriteFileAtomic(filepath.Join(tmp, v.name+companionReleaseSuffix), v.statement, 0o644); err != nil { //nolint:gosec // a public statement
+			return "", fmt.Errorf("pin companion %s release statement: %w", bin, err)
+		}
+		if err := iox.WriteFileAtomic(filepath.Join(tmp, v.name+companionSigSuffix), v.sig, 0o644); err != nil { //nolint:gosec // a public signature
 			return "", fmt.Errorf("pin companion %s signature: %w", bin, err)
 		}
 	}
@@ -100,14 +108,16 @@ func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, erro
 // every name. The digest names the set, but the directory is only a file on
 // disk, so a reused one is checked rather than believed.
 func pinHolds(dir string, admitted map[string]verifiedCompanion) bool {
-	for bin, v := range admitted {
-		got, err := os.ReadFile(filepath.Join(dir, bin)) //nolint:gosec // a path this package named
-		if err != nil || !bytes.Equal(got, v.payload) {
-			return false
-		}
-		sig, err := os.ReadFile(filepath.Join(dir, bin+companionSigSuffix)) //nolint:gosec // a path this package named
-		if err != nil || !bytes.Equal(sig, v.sig) {
-			return false
+	for _, v := range admitted {
+		for file, want := range map[string][]byte{
+			v.name:                          v.payload,
+			v.name + companionReleaseSuffix: v.statement,
+			v.name + companionSigSuffix:     v.sig,
+		} {
+			got, err := os.ReadFile(filepath.Join(dir, file)) //nolint:gosec // a path this package named
+			if err != nil || !bytes.Equal(got, want) {
+				return false
+			}
 		}
 	}
 	return true

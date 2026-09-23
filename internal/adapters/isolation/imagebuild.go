@@ -570,14 +570,14 @@ func companionGateFor(names []string) string {
 	return `RUN set -e; for b in ` + strings.Join(names, " ") + `; do \
         if command -v "$b" >/dev/null && ! "$b" --version; then \
             echo "warning: companion $b cannot run on this base (ABI mismatch); dropping it from the image" >&2; \
-            rm -f "/usr/local/bin/$b" "/usr/local/bin/$b.sig"; \
+            rm -f "/usr/local/bin/$b" "/usr/local/bin/$b.sig" "/usr/local/bin/$b.release"; \
         fi; \
     done`
 }
 
 // stageCompanions populates <contextDir>/companions with every ADMITTED
-// companion — the bytes companions.admitCompanion verified, with their
-// signature beside them (companionLookPath resolves only the admitted copy).
+// companion — the bytes companions.admitCompanion verified, with their release
+// statement and signature beside them (companionLookPath resolves only the admitted copy).
 // A companion that is absent, or present but not admitted, is refused and
 // warned about, and the image builds without it (CLAUDE.md fault tolerance);
 // baking whatever binary of that name the host PATH resolved first would ship
@@ -600,20 +600,29 @@ func stageCompanions(contextDir string) error {
 		if err := copyExecutable(src, filepath.Join(dir, name)); err != nil {
 			return fmt.Errorf("companions build context: stage %s: %w", name, err)
 		}
-		sig, err := os.ReadFile(src + companionSigSuffix) //nolint:gosec // beside an admitted companion
-		if err != nil {
-			return fmt.Errorf("companions build context: stage %s signature: %w", name, err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name+companionSigSuffix), sig, 0o644); err != nil { //nolint:gosec // a public signature
-			return fmt.Errorf("companions build context: stage %s signature: %w", name, err)
+		// The signature covers the release statement (the binary's name,
+		// version and hash), not the binary, so both travel with it: an
+		// in-image ctxloom admits these companions under the same rule.
+		for _, suffix := range []string{companionReleaseSuffix, companionSigSuffix} {
+			data, err := os.ReadFile(src + suffix) //nolint:gosec // beside an admitted companion
+			if err != nil {
+				return fmt.Errorf("companions build context: stage %s%s: %w", name, suffix, err)
+			}
+			if err := iox.WriteFileAtomic(filepath.Join(dir, name+suffix), data, 0o644); err != nil { //nolint:gosec // public, signed metadata
+				return fmt.Errorf("companions build context: stage %s%s: %w", name, suffix, err)
+			}
 		}
 	}
 	return nil
 }
 
-// companionSigSuffix is a companion's detached-signature extension, the one
-// companions admission reads beside the binary.
-const companionSigSuffix = ".sig"
+// companionSigSuffix and companionReleaseSuffix are the two files companions
+// admission reads beside a binary: the signed release statement and the
+// signature over it.
+const (
+	companionSigSuffix     = ".sig"
+	companionReleaseSuffix = ".release"
+)
 
 // binaryVersion is the running binary's version stamp, injected by the CLI at
 // startup (isolation cannot import internal/adapters/cli — the dependency runs the other

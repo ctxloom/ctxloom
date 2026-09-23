@@ -382,13 +382,14 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// A retraction is a new SIGNED release: its bundle.yaml withdraws the
+	// bundle, and the retraction check reads only the signed tip manifest.
 	ctx.Step(`^Trent retracts that version of the bundle$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
-		manifest := fmt.Sprintf(
-			"version: 1\nretracted:\n  - type: bundle\n    name: %q\n    version: \"\"\n    reason: %q\n",
-			j001500.bundleName, "found to be incorrect guidance; do not use")
-		return w.env.AdvanceRemote(j001500.bare, map[string]string{".ctxloom/content/manifest.yaml": manifest})
+		root := remoteSingleFilePublishPath(j001500.bundleName)
+		envelope := "version: 1.1.0\nwithdrawn: found to be incorrect guidance; do not use\n"
+		return w.env.AdvanceSignedTreeRemote(j001500.bare, root, j001500.bundleName, envelope, j001500TreeItems(j001500CompanyMarker, false), j001500.signer)
 	})
 
 	ctx.Step(`^Alice is told the content was retracted$`, func(c context.Context) error {

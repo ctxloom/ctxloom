@@ -58,7 +58,7 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2"), "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	res, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Advanced)
 
@@ -89,7 +89,7 @@ func TestUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), repoV2("demo2"), "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	res, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, res.Advanced, "a held entry is never advanced by upgrade")
 
@@ -140,7 +140,7 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	a2 := addFileToLocalRepo(t, srcA, repoV2("demoA2"), "name: demoA2\n")
 	require.NotEqual(t, a1, a2)
 
-	res, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, res.Advanced, "repo A advanced")
 

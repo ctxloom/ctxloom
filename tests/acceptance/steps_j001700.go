@@ -60,7 +60,8 @@ const (
 
 // j001700State is this journey's fixture state.
 type j001700State struct {
-	companyBare string // bare repo path (no file:// prefix) for the company's signed bundle remote, for AdvanceRemote
+	companyBare   string              // bare repo path (no file:// prefix) for the company's signed bundle remote, for AdvanceRemote
+	companySigner *testenv.TestSigner // the company's publishing key, which signs its retracting release
 
 	// Carol's and Bob's retraction-sync {pull, materialize} outputs are read
 	// off their own run histories (w.env / w.j000700().bobRuns) at assertion
@@ -142,6 +143,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("seed signed company remote: %w", err)
 		}
 		j001700.companyBare = strings.TrimPrefix(url, "file://")
+		j001700.companySigner = signer
 
 		// Carol trusts the company key in the PROJECT store, so it is
 		// committed to the team's own git history and Bob inherits it on
@@ -220,13 +222,14 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// A retraction is a new SIGNED release: its bundle.yaml withdraws the
+	// bundle, and the retraction check reads only the signed tip manifest.
 	ctx.Step(`^Trent retracts the bundle$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001700 := j001700Of(w)
-		manifest := fmt.Sprintf(
-			"version: 1\nretracted:\n  - type: bundle\n    name: %q\n    version: \"\"\n    reason: %q\n",
-			j001700BundleName, j001700RetractReason)
-		return w.env.AdvanceRemote(j001700.companyBare, map[string]string{".ctxloom/content/manifest.yaml": manifest})
+		root := remoteSingleFilePublishPath(j001700BundleName)
+		envelope := "version: 1.1.0\nwithdrawn: " + j001700RetractReason + "\n"
+		return w.env.AdvanceSignedTreeRemote(j001700.companyBare, root, j001700BundleName, envelope, j001700TreeItems(j001700Marker), j001700.companySigner)
 	})
 
 	ctx.Step(`^Carol runs her next routine sync$`, func(c context.Context) error {

@@ -100,7 +100,7 @@ func canonicalWithheldRef(t *testing.T, ref string) string {
 func execRead(t *testing.T, principal string) bundles.BundleRead {
 	t.Helper()
 	const ref = acmeBundle + "tooling"
-	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
+	b := &bundles.Bundle{Version: "1.0.0", Fragments: map[string]bundles.BundleFragment{"f": {
 		ItemBody: bundles.ItemBody{
 			Content: "x",
 		},

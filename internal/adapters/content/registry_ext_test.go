@@ -7,8 +7,6 @@ package content_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"fmt"
 	"path"
 	"slices"
@@ -16,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
@@ -227,32 +224,6 @@ func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 	newRef := trust.Ref{Bundle: "gadgets", Kind: widgetKind, Name: "flange"}
 	if err := store.Put(ctx, newRef, signing.FormRaw, Widget{Name: "flange", Spec: "teeth: 3\n", Owner: "me"}); err != nil {
 		t.Fatalf("Put: %v", err)
-	}
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-	key, err := ssh.NewPublicKey(pub)
-	if err != nil {
-		t.Fatalf("NewPublicKey: %v", err)
-	}
-	if err := store.PutSignature(ctx, newRef, signing.FormRaw, content.Namespace(signing.NamespacePublish), key, []byte("sig")); err != nil {
-		t.Fatalf("PutSignature: %v", err)
-	}
-	newItem, err := bundle.Item(ctx, newRef)
-	if err != nil {
-		t.Fatalf("Item(flange): %v", err)
-	}
-	newForm, err := newItem.Form(ctx, signing.FormRaw)
-	if err != nil {
-		t.Fatalf("Form(flange): %v", err)
-	}
-	sigs, err := newForm.Signatures(ctx)
-	if err != nil {
-		t.Fatalf("Signatures: %v", err)
-	}
-	if len(sigs) != 1 || string(sigs[0].Bytes) != "sig" {
-		t.Fatalf("Signatures = %+v", sigs)
 	}
 	if err := store.Delete(ctx, newRef); err != nil {
 		t.Fatalf("Delete: %v", err)

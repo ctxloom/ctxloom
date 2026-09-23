@@ -228,7 +228,7 @@ func stageSeedTree(t *testing.T, ref string, b *bundles.Bundle, signer ssh.Signe
 	if signer != nil {
 		tree, err := st.Open(context.Background(), id)
 		require.NoError(t, err)
-		require.NoError(t, attest.SignBundle(context.Background(), st, tree, signer))
+		require.NoError(t, attest.SignBundle(context.Background(), st, tree, treeRelease(t, tree), signer))
 	}
 	return fsys, root, id
 }

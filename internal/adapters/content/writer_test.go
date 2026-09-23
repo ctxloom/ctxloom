@@ -206,139 +206,6 @@ func TestWriter_DeleteKeepsSiblingHooksInTheSameEvent(t *testing.T) {
 	}
 }
 
-// TestWriter_DeleteDoesNotRemoveSignatures: signatures are keyed by content hash so
-// they OUTLIVE the file. A rejection a file deletion could remove would mean you
-// could un-blacklist content by deleting it.
-func TestWriter_DeleteDoesNotRemoveSignatures(t *testing.T) {
-	ctx := context.Background()
-	store := fixtureStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespaceReject), testKey(t), []byte("rejection")); err != nil {
-		t.Fatalf("PutSignature: %v", err)
-	}
-	before, err := afero.ReadDir(store.fsys, fixtureRoot+"/code-quality/.sigs")
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
-	if err := store.Delete(ctx, ref); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	after, err := afero.ReadDir(store.fsys, fixtureRoot+"/code-quality/.sigs")
-	if err != nil {
-		t.Fatalf("ReadDir after Delete: %v", err)
-	}
-	if len(after) != len(before) || len(after) == 0 {
-		t.Fatalf("signature store changed by Delete: %d -> %d entries", len(before), len(after))
-	}
-}
-
-// TestWriter_PutSignatureRoundTrip covers write-then-read, per-namespace
-// separation, idempotence for an identical signature, and coexistence of two
-// different signatures over the same content (mixed provenance).
-func TestWriter_PutSignatureRoundTrip(t *testing.T) {
-	ctx := context.Background()
-	store := fixtureStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}
-	publish := Namespace(signing.NamespacePublish)
-	approve := Namespace(signing.NamespaceApprove)
-
-	bundle, _ := store.Open(ctx, "code-quality")
-	item, err := bundle.Item(ctx, ref)
-	if err != nil {
-		t.Fatalf("Item: %v", err)
-	}
-	form, err := item.Form(ctx, signing.FormRaw)
-	if err != nil {
-		t.Fatalf("Form: %v", err)
-	}
-	sigs, err := form.Signatures(ctx)
-	if err != nil {
-		t.Fatalf("Signatures: %v", err)
-	}
-	if len(sigs) != 0 {
-		t.Fatalf("unsigned item reported %d signatures", len(sigs))
-	}
-
-	alice, bob := testKey(t), testKey(t)
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, alice, []byte("pub-a")); err != nil {
-		t.Fatalf("PutSignature: %v", err)
-	}
-	// A second write by the same key in the same namespace REPLACES the
-	// first: the entry is filed under the signing key, so a re-sign — same
-	// bytes or new ones — is one entry, never a stale one beside a live one.
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, alice, []byte("pub-a")); err != nil {
-		t.Fatalf("PutSignature (repeat): %v", err)
-	}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, alice, []byte("pub-a2")); err != nil {
-		t.Fatalf("PutSignature (re-sign): %v", err)
-	}
-	// A second, different publisher's signature over the same content coexists.
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, bob, []byte("pub-b")); err != nil {
-		t.Fatalf("PutSignature (second signer): %v", err)
-	}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, approve, alice, []byte("approval")); err != nil {
-		t.Fatalf("PutSignature (approve): %v", err)
-	}
-
-	sigs, err = form.Signatures(ctx)
-	if err != nil {
-		t.Fatalf("Signatures: %v", err)
-	}
-	if len(sigs) != 3 {
-		t.Fatalf("Signatures = %+v, want 3", sigs)
-	}
-	pub := sigs.ForNamespace(publish)
-	if len(pub) != 2 {
-		t.Errorf("ForNamespace(publish) = %d signatures, want 2", len(pub))
-	}
-	for _, b := range pub {
-		if string(b) == "pub-a" {
-			t.Errorf("ForNamespace(publish) still carries the bytes alice's re-sign replaced: %q", pub)
-		}
-	}
-	app := sigs.ForNamespace(approve)
-	if len(app) != 1 || string(app[0]) != "approval" {
-		t.Errorf("ForNamespace(approve) = %q", app)
-	}
-	// Ordering must be stable across reads.
-	again, err := form.Signatures(ctx)
-	if err != nil {
-		t.Fatalf("Signatures: %v", err)
-	}
-	if !reflect.DeepEqual(sigs, again) {
-		t.Errorf("signature order is not stable:\n%+v\n%+v", sigs, again)
-	}
-}
-
-// TestWriter_PutSignatureIsContentKeyed: editing the item's bytes must strand the
-// old signature rather than have it apply to the new content.
-func TestWriter_PutSignatureIsContentKeyed(t *testing.T) {
-	ctx := context.Background()
-	store := fixtureStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), testKey(t), []byte("sig")); err != nil {
-		t.Fatalf("PutSignature: %v", err)
-	}
-	writeFile(t, store.fsys, fixtureRoot+"/code-quality/hooks/pre_tool/guard.yaml", "matcher: Bash\ntype: command\ncommand: rm -rf /\n")
-
-	bundle, _ := store.Open(ctx, "code-quality")
-	item, err := bundle.Item(ctx, ref)
-	if err != nil {
-		t.Fatalf("Item: %v", err)
-	}
-	form, err := item.Form(ctx, signing.FormRaw)
-	if err != nil {
-		t.Fatalf("Form: %v", err)
-	}
-	sigs, err := form.Signatures(ctx)
-	if err != nil {
-		t.Fatalf("Signatures: %v", err)
-	}
-	if len(sigs) != 0 {
-		t.Fatalf("a signature over the old bytes was found for the new bytes: %+v", sigs)
-	}
-}
-
 func TestWriter_PutRefusesMismatchedIdentity(t *testing.T) {
 	ctx := context.Background()
 	store := emptyStore(t)
@@ -414,16 +281,15 @@ func TestWriter_PutSkillAppliesDeclaredMode(t *testing.T) {
 	}
 }
 
-func TestWriter_PutSignatureRefusesUnsafeNamespace(t *testing.T) {
+func TestWriter_PutBundleSignatureRefusesUnsafeNamespace(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
-	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}
 	for _, ns := range []Namespace{"", "../escape", "with/slash", "*"} {
-		if err := store.PutSignature(ctx, ref, signing.FormRaw, ns, testKey(t), []byte("sig")); !errors.Is(err, ErrBadPath) {
+		if err := store.PutBundleSignature(ctx, "code-quality", ns, testKey(t), []byte("sig")); !errors.Is(err, ErrBadPath) {
 			t.Errorf("namespace %q: err = %v, want ErrBadPath", ns, err)
 		}
 	}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), testKey(t), nil); err == nil {
+	if err := store.PutBundleSignature(ctx, "code-quality", Namespace(signing.NamespacePublish), testKey(t), nil); err == nil {
 		t.Error("an empty signature was accepted")
 	}
 }

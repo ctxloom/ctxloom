@@ -38,17 +38,6 @@ variables:
   TEAM: "backend"
 ```
 
-### In Config
-
-```yaml
-# .ctxloom/config.yaml
-profiles:
-  definitions:
-    quick:
-      variables:
-        MODE: "fast"
-```
-
 ## Variable Inheritance
 
 When using parent profiles, variables inherit and can be overridden:
@@ -117,7 +106,7 @@ This is not production - be careful!
 ## Error Handling
 
 - **Undefined plain variables** (`{{NAME}}`): Logged as a warning naming the fragment (`ctxloom: warning: undefined variable: {{NAME}} (fragment "bundle#fragments/name")`), rendered **verbatim** — the literal `{{NAME}}` text reaches the assembled context, not blanked. This applies to `{{name}}`, `{{{name}}}`, and `{{&name}}` alike (all render as `{{name}}` when undefined — the raw/escaped distinction isn't preserved for an undefined tag).
-- **Undefined sections/inverted sections** (`{{#NAME}}`/`{{^NAME}}`): Unaffected by the above — an undefined name is still simply falsy, so `{{#NAME}}...{{/NAME}}` omits its body and `{{^NAME}}...{{/NAME}}` emits its. This is the documented presence-toggle idiom (see [Sections (Conditionals)](#sections-conditionals)); it is never flipped by verbatim rendering, even when the same name is also used as a plain variable elsewhere in the same fragment — that collision case renders the plain occurrence as empty (not verbatim), protecting the section's polarity.
+- **Undefined sections/inverted sections** (`{{#NAME}}`/`{{^NAME}}`): The same warning is logged, but rendering is unaffected: an undefined name is still simply falsy, so `{{#NAME}}...{{/NAME}}` omits its body and `{{^NAME}}...{{/NAME}}` emits its. This is the documented presence-toggle idiom (see [Sections (Conditionals)](#sections-conditionals)); it is never flipped by verbatim rendering, even when the same name is also used as a plain variable elsewhere in the same fragment — that collision case renders the plain occurrence as empty (not verbatim), protecting the section's polarity.
 - **Render failures**: Original content returned unchanged
 - **All variables are strings**: Converted to `map[string]interface{}`
 
@@ -127,10 +116,9 @@ A fragment that *documents* another `{{...}}`-flavored syntax — a `justfile`'s
 `{{TOP}}` / `{{justfile_directory()}}`, a Jinja2 template, a Vue/Handlebars
 binding — collides with fragment templating: every such tag looks like a
 ctxloom variable reference, so it's checked and (if the name isn't one of the
-profile's variables) logged as an undefined-variable warning. As of the fix
-described above, the literal text now survives verbatim in the assembled
-output by default — `{{ARGS}}` reaches the engine as `{{ARGS}}`, not nothing —
-but the warning still fires on every assembly, which is noisy for prose that
+profile's variables) logged as an undefined-variable warning. The literal
+text survives verbatim in the assembled output (`{{ARGS}}` reaches the engine
+as `{{ARGS}}`), but the warning still fires on every assembly, which is noisy for prose that
 will never bind a real variable of that name.
 
 Mustache's standard "Set Delimiter" tag remains the more surgical fix: it

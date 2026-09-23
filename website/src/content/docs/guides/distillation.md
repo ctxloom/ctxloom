@@ -20,11 +20,10 @@ AI context windows have limits, and verbose documentation can quickly consume yo
 
 Distillation uses AI to compress content while preserving meaning:
 
-- The distiller targets 30-50% of the original size (e.g., 5,000 → 1,500-2,500 tokens)
-- Essential rules and patterns preserved, verbose explanations removed
+- Every rule is kept, with its conditions and exceptions; restatement, motivation and extra examples are dropped
 - More room for actual code and conversation
 
-*Actual compression varies by content type—structured guidelines compress well, code examples less so.*
+There is no size target. Verbose guidance shrinks a lot; dense guidance may barely shrink, and the distiller will not drop a rule to reach a length.
 
 ## How It Works
 
@@ -52,7 +51,12 @@ compression has no such gate and works in every build.
 
 ### LLM-Based Compression (Prose)
 
-For prose and documentation, ctxloom falls back to LLM compression:
+For prose and documentation, ctxloom falls back to LLM compression. The model is
+the **fast role** (`llm.defaults.fast`, or `bundle distill --llm <label>`), run as
+one internal one-shot session whose turns are the items being distilled. The
+prompt is ctxloom's built-in one unless a bundle you use ships a `distill`
+command, which replaces it; a `distill` command the trust gate withholds stops the
+run rather than falling back to the built-in prompt (`ctxloom review` settles it).
 
 1. **Original content** is analyzed by an AI model
 2. **Key information** is extracted and condensed
@@ -97,8 +101,12 @@ ctxloom bundle distill ./my-bundle.yaml --dry-run
 ctxloom bundle distill ./my-bundle.yaml --force
 
 # Multiple files / globs
-ctxloom bundle distill .ctxloom/content/bundles/*.yaml
+ctxloom bundle distill .ctxloom/content/bundles/v2/*.yaml
 ```
+
+`bundle distill` reads single-file bundle documents. Your project's own bundles
+live under `.ctxloom/content/bundles/v2/`; a file directly under
+`.ctxloom/content/bundles/` is not loaded at all.
 
 ### Comparing Original and Distilled Content
 
@@ -217,30 +225,30 @@ fragments:
 
 ### Compression Strategy
 
-ctxloom's distillation uses an extractive approach designed to preserve actionable information while removing redundancy. The algorithm:
+The built-in prompt compresses by restructuring, never by deleting the small words a rule's meaning lives in ("unless", "only when", "not"). It:
 
-**Preserves (never removes):**
-- Code syntax and exact patterns
-- Function/file/variable names (breadcrumbs for navigation)
-- Error handling rules and edge cases
-- Actionable instructions ("DO X", "NEVER do Y")
-- Technical constraints and requirements
+**Never alters:**
+- Conditions, exceptions, scope and negation (a rule it cannot shorten safely is emitted unchanged)
+- Identifiers: paths, symbols, commands, flags, config keys, URLs
+- Code and literal patterns
+- Rule strength ("must", "never" and "prefer" stay distinct)
+- The number of distinct rules (it never merges two)
 
-**Compresses aggressively:**
-- Verbose explanations of "why"
-- Redundant examples (keeps 1 best example per concept)
-- Motivational/philosophical content
-- Historical context unless directly actionable
+**Drops:**
+- Restatement of a rule already given
+- Motivational or philosophical passages
+- Historical narration
+- Extra examples beyond the clearest one
+- Commentary about the document itself
 
-**Target:** 30-50% of original size while maintaining same structure.
+It keeps a rationale that states a constraint, a trap or a rejected alternative, and cuts a "why" only when it restates the rule. Output is direct imperative statements, one rule per line where it can, and never JSON or XML.
 
 ### What Makes Good Distillation
 
-- Preserves **key concepts** and **essential rules**
-- Maintains **actionable guidance**
-- Keeps **critical examples** (one per concept)
-- Removes **redundancy** and **verbose explanations**
-- Uses **bullet points and abbreviations** where clear
+- Every rule survives with its conditions intact
+- Identifiers are reproduced exactly or omitted, never abbreviated
+- The clearest example per concept is kept
+- Redundancy and motivational text are gone
 
 ### Example
 
@@ -298,9 +306,9 @@ ctxloom fragment distill --force my-bundle#fragments/standards
 
 ## Cost Considerations
 
-Distillation uses AI API calls, which have costs:
+Distillation runs model turns on the fast role's engine, which have costs:
 
-- Each fragment requires one API call to distill
+- Each item LLM-distilled takes one turn; AST and JSON compression take none
 - Longer content = more tokens = higher cost
 - Re-distillation only happens when content changes
 
@@ -321,7 +329,7 @@ Distillation uses AI API calls, which have costs:
 
 ## Context Size Research
 
-The 16KB warning and the compression targets above aren't arbitrary — they're grounded in published research on how LLMs actually handle long context.
+The 16KB warning isn't arbitrary. It is grounded in published research on how LLMs actually handle long context.
 
 ### Key Findings
 
@@ -349,7 +357,7 @@ This threshold is conservative - degradation varies by model and task. The warni
 
 | Strategy | Description |
 |----------|-------------|
-| Distill verbose content | Compress 5,000 tokens → ~1,500-2,500 tokens |
+| Distill verbose content | Drop restatement and motivation, keep every rule |
 | Front-load key info | Put critical instructions at the start |
 | Summarize at end | Reiterate key points at context end |
 | Use tags selectively | Include only relevant fragments |

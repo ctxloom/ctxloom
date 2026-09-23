@@ -19,7 +19,7 @@ ctxloom remote discover --stars 10
 
 ## How Discovery Works
 
-ctxloom searches for repositories named `ctxloom` or starting with `ctxloom-` on GitHub. It validates that discovered repositories have the proper `ctxloom/` structure before showing them.
+ctxloom searches GitHub for repositories named `ctxloom` or starting with `ctxloom-`, sorted by stars. Results are not checked for content. When you add one as a remote, ctxloom checks it for a `.ctxloom/content/` directory; if that is missing, the remote is still added, with a warning.
 
 ### Search Sources
 
@@ -126,7 +126,8 @@ from a remote is born pending and withheld from the agent until a human
 reviews it, unless you already trust the publisher's signing key. `ctxloom
 review` walks the pending items and shows each one's content: `[t]rust`,
 `[r]eject`, `[s]kip`, or `[T]`/`[R]` to answer for everything left in a bundle.
-Trusting countersigns the exact bytes you saw with your own SSH key, so any
+Trusting countersigns the exact bytes you saw with your own SSH key (an
+sshsig signature, never GPG/PGP), so any
 later change to that content — including a version upgrade — drops it back to
 pending until you review it again. `ctxloom bundle trust <ref>` and `ctxloom
 bundle reject <ref>` are the same two decisions as scriptable one-liners, for
@@ -139,9 +140,15 @@ skips this per-item review for everything they sign.
 Reference remote content for a single run without authoring a profile:
 
 ```bash
-# Use a remote fragment
-ctxloom run -f golang-bundles/testing#fragments/table-driven "write tests"
+# Use a remote fragment by its bare name...
+ctxloom run -f table-driven "write tests"
+
+# ...or by its canonical bundle URL
+ctxloom run -f 'https://github.com/alice/ctxloom-golang@bundles/testing#fragments/table-driven' "write tests"
 ```
+
+`-f` does not accept the `<remote-alias>/<bundle>` form that `profile create -b`
+does: a bundle token in front of `#fragments/` is read as a local bundle.
 
 This only works once the fragment is already pulled and reviewed: `-f` never
 fetches on demand, and unreviewed content isn't silently added to context —
@@ -229,14 +236,14 @@ Content that changes under an upgraded pin re-gates to pending, even if
 you'd already reviewed the old bytes — run `ctxloom review` again afterward
 to see what changed and decide.
 
-`ctxloom deps check [ref]` is a different, narrower command: it refreshes
-the local clone and checks for available updates without applying them
-(`--apply` applies; `--force` skips confirmation). Its optional argument is a
-full item/bundle reference, not a remote name — a bare `golang-bundles` is
-rejected; use a canonical URL, e.g. `ctxloom deps check
-'https://github.com/alice/ctxloom-golang@bundles/testing#fragments/table-driven'`,
+`ctxloom deps check [ref]` is a different, narrower command: it reports which
+lockfile entries have a newer commit that satisfies their constraint, and
+changes nothing. `ctxloom deps upgrade` is what advances them. Its optional
+argument is a canonical bundle reference, not a remote name. A bare
+`golang-bundles` is rejected; use a repository URL plus its bundle path, e.g.
+`ctxloom deps check 'https://github.com/alice/ctxloom-golang@bundles/testing'`,
 or omit the argument to check everything in the lockfile.
 
 ## Creating Discoverable Repositories
 
-Want your bundles to be discoverable? See the [Sharing Bundles](./sharing.md) guide for how to structure and publish your own ctxloom repository.
+Want your bundles to be discoverable? See the [Sharing Bundles](/guides/sharing/) guide for how to structure and publish your own ctxloom repository.

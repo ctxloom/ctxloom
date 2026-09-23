@@ -52,9 +52,11 @@ ctxloom review
 Content from a third-party remote is withheld from the engine until a human has
 looked at it. Skip this and the run still launches — the fragments are simply
 missing from the assembled context, with an "N item(s) awaiting review" notice
-on stderr. (Content signed by a key you trust is exempt: `ctxloom-default` ships
-with a trusted signer, so it needs no review. A `community` or `team` remote
-does.)
+on stderr. (Content signed by a key you trust is exempt. The binary embeds
+ctxloom's publishing key, so `ctxloom-default` bundles signed with it need no
+review; unsigned content from any remote, `ctxloom-default` included, takes the
+review path. A `community` or `team` remote needs review unless you trust its
+publisher's key.)
 
 ### 5. Start Coding
 
@@ -77,8 +79,9 @@ ctxloom profile show default
 
 ### During Development
 
-Your context reaches the engine on its own, provided ctxloom's hooks are applied
-to it, the engine supports hooks, and the content has passed the trust gate. When
+Your context reaches the engine on its own in every `ctxloom run` session,
+provided the content has passed the trust gate. An engine you start directly
+gets it only after `ctxloom manage hooks install`. When
 it does not, the troubleshooting section below is where to look. For specific
 tasks:
 
@@ -109,34 +112,38 @@ git commit -m "Update ctxloom configuration"
 
 ```bash
 mkdir team-ctxloom && cd team-ctxloom
-mkdir -p ctxloom/bundles
+mkdir -p .ctxloom/content/bundles/v2/team-standards/fragments
+mkdir -p .ctxloom/content/bundles/v2/team-standards/profiles
 ```
+
+A published bundle is a directory tree with one file per item (see
+[Sharing Bundles](/guides/sharing/) for the full layout).
 
 2. **Add team standards**:
 
 ```yaml
-# ctxloom/bundles/team-standards.yaml
-version: "1.0"
+# .ctxloom/content/bundles/v2/team-standards/bundle.yaml
+version: 1.0.0
 description: Team coding standards
-fragments:
-  code-style:
-    content: |
-      # Team Code Style
-      - Use gofmt for all Go code
-      - 100 character line limit
-      - Descriptive variable names
 ```
 
-3. **Create team profile** (profiles ship inside a bundle's `profiles:` map):
+`.ctxloom/content/bundles/v2/team-standards/fragments/code-style.md`:
+
+```markdown
+# Team Code Style
+- Use gofmt for all Go code
+- 100 character line limit
+- Descriptive variable names
+```
+
+3. **Create team profile** (profiles ship inside a bundle's `profiles/` directory):
 
 ```yaml
-# ctxloom/bundles/team-standards.yaml (continued)
-profiles:
-  team-developer:
-    description: Standard team development environment
-    bundles:
-      - team-standards
-      - security-basics
+# .ctxloom/content/bundles/v2/team-standards/profiles/team-developer.yaml
+description: Standard team development environment
+bundles:
+  - team-standards
+  - security-basics
 ```
 
 4. **Publish**:
@@ -167,8 +174,9 @@ ctxloom review
 ctxloom run -p my-dev "help with code"
 ```
 
-If your team signs its bundles and everyone trusts the team's signing key
-(`ctxloom signer trust context@myorg.example --key team-publish.pub`), the review
+If your team signs its bundles and everyone trusts the team's SSH signing key
+(`ctxloom signer trust context@myorg.example --key team-publish.pub`; ctxloom
+signatures are SSH signatures verified against `allowed_signers`, never GPG), the review
 step is unnecessary: content from a trusted signer is exempt from the gate. Trust
 is anchored to the key, not to the remote's URL.
 
@@ -201,7 +209,7 @@ contributes nothing.
 Create a bundle specific to your project:
 
 ```yaml
-# .ctxloom/content/bundles/project-specific.yaml
+# .ctxloom/content/bundles/v2/project-specific.yaml
 version: "1.0"
 description: Project-specific context
 
@@ -324,7 +332,7 @@ ctxloom run -p reviewer -f query-optimization \
 Bind an engine and profiles under a named agent, then run it by name (see [Agents](/concepts/agents/)):
 
 ```bash
-ctxloom agent create reviewer --engine claude-code --profiles reviewer
+ctxloom agent create reviewer --llm claude-code --profiles reviewer
 ctxloom run --agent reviewer "review this change"
 ```
 
@@ -409,10 +417,9 @@ ctxloom run --dry-run
 # Check nothing is being withheld pending review
 ctxloom review --list
 
-# Check hooks are applied
+# Only for an engine you start directly, outside `ctxloom run`:
+# check hooks are applied, and reapply them
 cat .claude/settings.json | jq '.hooks'
-
-# Reapply hooks
 ctxloom manage hooks install
 ```
 

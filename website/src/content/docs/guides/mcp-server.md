@@ -2,45 +2,21 @@
 title: "MCP Server"
 ---
 
-ctxloom can run as an MCP (Model Context Protocol) server, allowing AI assistants to retrieve context during a session.
+ctxloom exposes MCP (Model Context Protocol) tools to the agent it launches, so the agent can retrieve context during a session.
 
-## Running the MCP Server
+## How a Session Reaches It
 
-```bash
-ctxloom mcp serve
-```
+The server is served by the running session. When `ctxloom run` starts a session, the session's runner serves an MCP endpoint and writes its URL and a bearer token into the session's own MCP registry, in the session home (Claude Code receives it on `--mcp-config`). The engine dials that endpoint directly.
 
-This starts ctxloom as an MCP server over stdio.
+There is no `ctxloom` command that speaks the protocol, and nothing is registered in your project at rest: ctxloom injects its MCP only while a session is running. A Claude Code you launch directly, outside `ctxloom run`, does not get ctxloom's tools. `ctxloom manage hooks install` registers the MCP servers your bundles declare, but not ctxloom's own.
 
-## Claude Code Configuration
-
-A `ctxloom run` session registers this server in its own session home (passed on `--mcp-config`), so nothing in your project is needed for it. For a Claude Code you launch directly: it doesn't read `mcpServers` from `~/.claude/settings.json` — it reads `.mcp.json` (project scope) or `~/.claude.json` (user scope). The easiest path is to let ctxloom write that entry for you:
-
-```bash
-ctxloom manage hooks install
-```
-
-If you need to add it by hand, put the block in `.mcp.json` (project) or `~/.claude.json` (user), not `settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "ctxloom": {
-      "command": "/path/to/ctxloom",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-Replace `/path/to/ctxloom` with your actual binary location (e.g., `~/go/bin/ctxloom`).
+If an old project `.mcp.json` still has a `ctxloom` entry that launches the binary, the engine starts and waits forever for a handshake that never arrives. `ctxloom doctor` flags this (`DOCTOR-CHECK-MCP-INVOCATION-g7`), and `ctxloom manage hooks install` rewrites the registry without it.
 
 ### Where the registration comes from
 
-ctxloom's own server ships in the builtin `ctxloom` bundle, which every
-session composes unconditionally — so it is registered by default and there is
-no flag to turn on. To withhold it, exclude it from the profiles a session
-composes:
+ctxloom's own server is declared by ctxloom's own companion loadout, which every
+session composes, so it is registered by default and there is no flag to turn
+on. To withhold it, exclude it from the profiles a session composes:
 
 ```yaml
 # .ctxloom/profiles/<name>.yaml
@@ -53,83 +29,11 @@ Withholding it costs the session every ctxloom tool, including the
 
 ## What the Server Exposes
 
-The MCP surface is deliberately small: it retrieves context, works with session memory, and delegates to other ctxloom agents. Everything that *manages* ctxloom — bundles, profiles, remotes, review/approval, trust, hooks — is CLI-only; an agent runs those commands through its shell. Task tracking is served by the separate `taskloom mcp` server.
+The MCP surface is deliberately small: it retrieves context, works with session memory, reports the session's context-window occupancy, and delegates to other ctxloom agents. Everything that *manages* ctxloom (bundles, profiles, remotes, review/approval, trust, hooks) is CLI-only; an agent runs those commands through its shell. Task tracking is served by the separate `taskloom mcp` server.
 
-### Tools
+Read-only catalog listings, such as fragments, commands and skills, are MCP resources (`ctxloom://...`) rather than tools; `ctxloom://help` describes every resource URI to the connected agent.
 
-| Tool | Description |
-|------|-------------|
-| `assemble_context` | Combine a profile, fragments, and/or tags into context |
-| `search_content` | Search installed content (fragments, commands, profiles, MCP servers) |
-| `search_library` | Search installable bundles across configured remotes (discovery) |
-| `compact_session` | Compact a session log into a distilled summary |
-| `load_session` | Distill and load a session by ID or harp name |
-| `recover_session` | Recover the most-recent session's context after `/clear` |
-| `get_previous_session` | Get the previous session's distilled content |
-| `agent_run` | Launch a configured ctxloom agent as a delegated child session |
-| `agent_send` | Send a message to another agent session (coordinator → child by harp, or child → "parent") |
-| `agent_recv` | Receive pending mailbox messages for this session, waiting up to a bounded timeout |
-| `agent_stop` | Stop one delegated child session by harp, or — with no harp and a reason — every live child of this session; a stopped child stays resumable via a later `agent_send` |
-
-:::note
-This is the standalone `ctxloom mcp serve` surface — the one this page documents. A normal
-A `ctxloom run` session gets a **richer, runner-terminated** delegation surface
-instead (different `agent_run`/`agent_send`/`agent_recv`/`agent_stop` schemas, plus
-`agent_report`, `agent_fetch_artifact`, and `roster`), reached automatically — you never
-register `ctxloom mcp serve` yourself for a normal session. See [Agent
-Delegation](/concepts/agent-delegation/) for that surface, and the [MCP Tools
-Reference](/reference/mcp-tools/) for the schema difference in full.
-:::
-
-### Resources
-
-Read-only listings are exposed as MCP resources rather than tools:
-
-| URI | Contents |
-|-----|----------|
-| `ctxloom://help` | Orientation for the connected agent |
-| `ctxloom://fragments`, `ctxloom://fragments/{name}` | Fragment listing / content |
-| `ctxloom://commands`, `ctxloom://commands/{name}` | Command listing / content |
-| `ctxloom://profiles`, `ctxloom://profiles/{name}` | Profile listing / configuration |
-| `ctxloom://remotes`, `ctxloom://remotes/{name}/contents` | Remotes / a remote's bundles |
-| `ctxloom://mcp-servers` | Configured MCP servers |
-| `ctxloom://sessions`, `ctxloom://sessions/recent` | Session listings |
-
-See the [MCP Tools Reference](/reference/mcp-tools/) for parameter schemas.
-
-## Tool Schemas (summary)
-
-### assemble_context
-
-```json
-{
-  "profile": "string",
-  "bundles": ["string"],
-  "tags": ["string"]
-}
-```
-
-### search_content
-
-```json
-{
-  "query": "string (required)",
-  "types": ["fragment", "prompt", "profile", "mcp_server"],
-  "tags": ["string"],
-  "sort_by": "name|type|relevance",
-  "sort_order": "asc|desc",
-  "limit": "integer"
-}
-```
-
-### search_library
-
-```json
-{
-  "query": "string (required; plain words or tag:NAME)",
-  "item_type": "bundle"
-}
-```
+The [MCP Tools Reference](/reference/mcp-tools/) is generated from the registered tools and resources, and lists each one with its parameter schema. `ctxloom mcp --help` gives the same tools grouped by purpose. For the delegation tools, see [Agent Delegation](/concepts/agent-delegation/).
 
 ## MCP Usage Examples
 
@@ -199,4 +103,4 @@ When pulling from remotes:
 - **Context Items**: Risk of prompt injection
 - **Bundles**: Combine both risks
 
-Always review content before referencing it in a profile and running `ctxloom deps pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom bundle trust <ref>` for a single item) — or trust the publisher's key with `ctxloom signer trust <principal> --key <path> --namespace publish` so their future content skips review. A remote itself carries no trust; trust follows a signing key, not a fetch address.
+Always review content before referencing it in a profile and running `ctxloom deps pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom bundle trust <ref>` for a single item) — or trust the publisher's key with `ctxloom signer trust <principal> --key <path> --namespace publish` so their future content skips review. A remote itself carries no trust; trust follows a signing key, not a fetch address. Those keys are SSH keys and the signatures are SSH signatures (sshsig, verified against `allowed_signers`); ctxloom does not use GPG/PGP.

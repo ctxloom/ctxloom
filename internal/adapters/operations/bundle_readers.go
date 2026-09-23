@@ -288,7 +288,7 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		factory remote.FetcherFactory
 		auth    remote.AuthConfig
 	)
-	return func(canonicalRef, commit string) (*bundles.Bundle, error) {
+	return func(canonicalRef, commit string, root trust.TrustRoot) (*bundles.Bundle, error) {
 		ref, err := remote.ParseReference(canonicalRef)
 		if err != nil {
 			return nil, fmt.Errorf("parse %q: %w", canonicalRef, err)
@@ -320,7 +320,7 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		// and skills are FILES beside its bundle.yaml, so reading the manifest
 		// alone resolved every @<commit>-pinned tree bundle to a bundle with
 		// zero items — the real product bundle, silently empty.
-		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, cfg.Trust().Root())
+		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, root)
 	}
 }
 

@@ -1215,7 +1215,7 @@ func (c *Config) BundleReaderDirs() []string {
 func (c *Config) BundleLoader() *bundles.Loader {
 	loader := bundles.LoaderOf(c.Catalog())
 	if c.versionResolver != nil {
-		loader.WithVersionResolver(c.versionResolver)
+		loader.WithVersionResolver(c.versionResolver, c.trust.Root())
 	}
 	return loader
 }

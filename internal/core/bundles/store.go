@@ -70,7 +70,7 @@ func NewFSStore(fsys afero.Fs, dirs []string) Store {
 // generation is left to its caller.
 func (s *fsStore) republish() {
 	if s.own != nil {
-		s.Loader = NewLoader(s.own).WithReporter(s.cat.rep.Sink).WithVersionResolver(s.versionResolver)
+		s.Loader = NewLoader(s.own).WithReporter(s.cat.rep.Sink).WithVersionResolver(s.versionResolver, s.versionRoot)
 	}
 }
 

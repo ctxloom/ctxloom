@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // testApp opens the process composition over the real reader with opts
@@ -156,4 +157,14 @@ var packageDirAtStart, _ = os.Getwd()
 func withCtxloomLoadout(t *testing.T, cfg *config.Config) *config.Config {
 	t.Helper()
 	return publishedWith(t, cfg, ctxloomOwnLoadout(t))
+}
+
+// onDiskRoot is the trust root a generation read over appDir holds: the
+// embedded signers plus the user's and appDir's allowed_signers, minus any
+// distrusted — built by configload exactly as a process builds it.
+func onDiskRoot(t *testing.T, appDir string) trust.TrustRoot {
+	t.Helper()
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	return cfg.Trust().Root()
 }

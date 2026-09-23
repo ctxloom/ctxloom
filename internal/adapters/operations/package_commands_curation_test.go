@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
@@ -191,7 +192,7 @@ func promptRawHash(body string) string {
 // pinned to "@<commit>" exports that historical version, and that the export is
 // gated by the pinned version's own content hash (a deny withholds it).
 func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
-	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
+	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*bundles.Bundle, error) {
 		if commit != "c1" {
 			t.Fatalf("unexpected commit %q", commit)
 		}

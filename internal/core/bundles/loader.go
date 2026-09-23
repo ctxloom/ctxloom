@@ -33,17 +33,24 @@ type Loader struct {
 	cat Catalog
 
 	// versionResolver materializes a specific historical commit-version of a
-	// remote bundle (FetchItem); nil = version-unaware.
+	// remote bundle (FetchItem); nil = version-unaware. versionRoot is the
+	// trust root each call verifies the historical bytes against — the
+	// generation's, handed in with the resolver so no resolver holds a
+	// configuration of its own.
 	versionResolver BundleVersionResolver
+	versionRoot     trust.TrustRoot
 	versionMu       sync.Mutex         // protects versionCache
 	versionCache    map[string]*Bundle // canonical-ref+"@"+commit → parsed historical bundle
 
 }
 
 // BundleVersionResolver materializes one pinned historical version of a
-// remote bundle: canonicalRef at commit, parsed. Injected because fetching is
-// an adapter's job; the loader only caches what it returns.
-type BundleVersionResolver func(canonicalRef, commit string) (*Bundle, error)
+// remote bundle: canonicalRef at commit, parsed, with any signature verified
+// against root. Injected because fetching is an adapter's job; the loader only
+// caches what it returns. The root is a CALL-TIME argument, supplied by the
+// loader from the generation it serves, so a resolver cannot come to verify
+// against a configuration's root that nobody bound.
+type BundleVersionResolver func(canonicalRef, commit string, root trust.TrustRoot) (*Bundle, error)
 
 // remotePathSentinel prefixes the synthetic Path a remote read reports; see
 // isSyntheticPath.
@@ -64,6 +71,9 @@ func LoaderOf(cat Catalog) *Loader {
 // historical versions through; nil when it is version-unaware.
 func (l *Loader) VersionResolver() BundleVersionResolver { return l.versionResolver }
 
+// VersionRoot is the trust root this loader hands its version resolver.
+func (l *Loader) VersionRoot() trust.TrustRoot { return l.versionRoot }
+
 // WithReporter names the sink the read-time diagnostics (stale local
 // signature, unresolved ref, ambiguous bare ask) go to, so the caller
 // renders them — or a test reads what the user would have been told. A
@@ -77,9 +87,14 @@ func (l *Loader) WithReporter(sink report.Sink) *Loader {
 // version-aware methods can materialize a historical version of a bundle. A
 // nil resolver (the default) leaves the loader version-unaware: the
 // lockfile-pinned default is the only version, and a pinned-version request
-// fails closed.
-func (l *Loader) WithVersionResolver(resolver BundleVersionResolver) *Loader {
+// fails closed. root is what every historical version is verified against; a
+// nil root trusts no signer (trust.NoSigners).
+func (l *Loader) WithVersionResolver(resolver BundleVersionResolver, root trust.TrustRoot) *Loader {
+	if root == nil {
+		root = trust.NoSigners{}
+	}
 	l.versionResolver = resolver
+	l.versionRoot = root
 	return l
 }
 

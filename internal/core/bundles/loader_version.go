@@ -70,7 +70,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 		}
 	}
 
-	b, err := l.versionResolver(canonical, commit)
+	b, err := l.versionResolver(canonical, commit, l.versionRoot)
 	if err != nil {
 		return BundleRead{}, fmt.Errorf("resolve %s@%s: %w", canonical, commit, err)
 	}

@@ -70,19 +70,23 @@ var ErrAskUnavailable = errors.New("ask: this target does not take correlated as
 // never "the question failed to send".
 var ErrAskTimeout = errors.New("ask: the target did not answer within the budget")
 
-// askBudget bounds one correlated ask when the caller's context carries no
-// deadline. It matches controlRequestBudget rather than inventing a second
-// number: an ask is a foreground control action with a caller waiting on it,
-// and the substrate underneath it changed, not the human's patience.
-const askBudget = controlRequestBudget
+// controlAskBudget bounds one correlated ask (question or summarize) when the
+// caller's context carries no deadline. It is deliberately NOT the 60s
+// DefaultRequestTimeout the mechanical verbs keep: an ask waits for a
+// cooperative answer, which a busy child gives only at its next turn
+// boundary, so a fail-fast budget would report "unanswered" for a question
+// that is simply queued behind real work. Consequence: an ask routinely
+// outlives a reconnect or the run it was put to, so the request file — not
+// the waiter — is what must survive both.
+const controlAskBudget = 30 * time.Minute
 
 // AskWireBudget is what a TRANSPORT should allow one question/summarize ask
-// to take end to end: askBudget plus slack. The coordinator's own verdict on
+// to take end to end: controlAskBudget plus slack. The coordinator's own verdict on
 // an unanswered ask (ErrAskTimeout, which says the request is still in the
 // child's spool and a late answer will be dropped) is the one the caller must
 // read; a wire hop that expired at the same instant would replace it with a
 // bare "request timed out" that says nothing about where the question went.
-const AskWireBudget = askBudget + 5*time.Second
+const AskWireBudget = controlAskBudget + 5*time.Second
 
 // ---- steer -------------------------------------------------------------
 
@@ -311,7 +315,7 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, askBudget)
+		ctx, cancel = context.WithTimeout(ctx, controlAskBudget)
 		defer cancel()
 	}
 	select {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 )
 
 // Coordinator→agent CONTROL (steer, question, summarize, pause, resume): the
@@ -95,11 +94,6 @@ func capUnavailable(format string, a ...any) error {
 // not exist" (ErrNotInjectable) without reading the message.
 var ErrControlRefused = errors.New("control: the initiator may not control this target")
 
-// controlRequestBudget bounds one control request when the caller's ctx
-// carries no deadline. A control action is a foreground command against an
-// attached target: the caller is waiting.
-const controlRequestBudget = 60 * time.Second
-
 // controlTarget runs guards 1–4 shared by every control verb and returns the
 // target's run record. The ORDER is load-bearing and the switch is exhaustive
 // on purpose — see each guard's comment.
@@ -134,8 +128,7 @@ func (c *Coordinator) controlTarget(by ControlInitiator, harp string) (*RunRecor
 	// been designed would otherwise inherit child-control by default.
 	switch by.Kind {
 	case InitiatorHuman:
-		// The human may control any run this coordinator holds — Inject's
-		// existing rule, unchanged.
+		// The human may control any run this coordinator holds.
 	case InitiatorAgent:
 		if rec.ParentHarp != by.Harp {
 			return nil, fmt.Errorf("%w: %q is not the parent of %q; a coordinating agent controls only its own children", ErrControlRefused, by.Harp, harp)

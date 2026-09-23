@@ -138,9 +138,7 @@ func SenderMailKind(kind string) error {
 //
 // The empty string is a member of the closed vocabulary, not something
 // ingress can ever produce: SenderMailKind refuses it from a sender, and
-// coordinator-internal producers no longer mint it either (control.go's Inject
-// — historically the "" traffic's single biggest source — now names KindSteer
-// on its mailbox fallback). It stays a member because the frontmatter
+// coordinator-internal producers do not mint it either. It stays a member because the frontmatter
 // round-trip (SpoolKindForMail/MailKindForSpool below) and knownMailKind need
 // a defined answer for a Message whose Kind field was never set — the Go zero
 // value — rather than a lookup miss on data this build did not itself create.

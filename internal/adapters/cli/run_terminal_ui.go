@@ -84,7 +84,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 // terminalUISources wires the overlay's data seams to the session index, the
 // per-harp feed resolver, and the harp session dir. The contexts the closures
 // receive are the overlay's watch contexts (run-scoped via the factory).
-// sessionCoord's roster/Inject calls are IN-PROCESS Go method calls (D2) —
+// sessionCoord's roster/Control calls are IN-PROCESS Go method calls (D2) —
 // this run process hosts the coordinator itself, so there is no transport to
 // dial for its OWN terminal viewer (unlike `ctxloom session transcript watch`, a
 // separate process, which reaches a coordinator over ConsumerService —
@@ -113,11 +113,11 @@ func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string
 			}
 			return &tui.Feed{Source: feed.Source, Events: feed.Events, Errs: feed.Errs, Cancel: cancel}, nil
 		},
-		Inject: func(harp, text string) (string, error) {
+		Control: func(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error) {
 			if sessionCoord == nil {
-				return "", coord.ErrNotInjectable
+				return coord.ControlResult{}, coord.ErrNotInjectable
 			}
-			return sessionCoord.Inject(harp, text)
+			return sessionCoord.Control(ctx, coord.ControlInitiator{Kind: coord.InitiatorHuman}, req)
 		},
 	}
 }

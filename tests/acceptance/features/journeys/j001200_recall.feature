@@ -39,11 +39,8 @@ Feature: The archaeologist — what did we decide in March?
   # the March one. A search returning one hit proves nothing if there was
   # nothing else it could have returned.
   #
-  # NOTE ON TAGS. Every scenario carried its own @wip untag condition,
-  # including the ones believed to pass at the time they were written. As of
-  # 2026-08-05, nine of the ten are untagged (verified pass + a killing
-  # mutation, per-scenario comment below); one stays @wip pending a design
-  # decision — see its own comment.
+  # NOTE ON TAGS. Each scenario's own comment names the defect it catches
+  # and the mutation that turns it red.
 
   Background:
     Given a design question everyone remembers deciding and nobody remembers why
@@ -157,29 +154,15 @@ Feature: The archaeologist — what did we decide in March?
   # discrimination — essence present, raw absent — so neither "carried
   # everything" nor "carried nothing" can pass.
   #
-  # STILL @wip 2026-08-05, after investigation, deliberately not force-fixed.
-  # Confirmed red: `run --session <harp> --distill --dry-run` carries NEITHER
-  # marker. Root cause is structural, not a bug in the usual sense —
-  # cli.runState.emitDryRun (the --dry-run early return) fires in runRun
-  # BEFORE cli.runState.openSession, and openSession is the only place
-  # applyResumeEnv/resumeDistillEnv run. So the entire distilled-resume
-  # mechanism — including the on-demand distill it may trigger — never
-  # executes under --dry-run; there is no essence content anywhere for
-  # --dry-run to show, not merely a rendering gap. Making --dry-run exercise
-  # it is a real design decision with two shapes, not a scoped fix:
-  #   (a) preview-only — read/on-demand-distill the essence for DISPLAY in
-  #       emitDryRun without running the rest of openSession (no session-index
-  #       writes, no AssignSession) — a visibility fix, but a new code path;
-  #   (b) fold the essence into ctxResult.Context the same way full-resume
-  #       folds the transcript in prepareRequestInputs — changes what a REAL
-  #       (non-dry-run) --distill run actually delivers into the assembled
-  #       context, on top of (redundant with) the existing
-  #       CTXLOOM_RESUMED_FROM/PARTS + SessionStart hook delivery. That is a
-  #       production behaviour/contract change, not this row's to make
-  #       unilaterally.
-  # UNTAG WHEN: a human picks (a), (b), or a third shape, and --distill
-  # --dry-run demonstrably shows the essence content somewhere in its output.
-  @wip
+  # The essence reaches the model through the launch's SessionStart hook
+  # (CTXLOOM_RESUMED_FROM/PARTS), NOT through the assembled context, and a
+  # --dry-run stops before the launch sets that env. So the preview shows it
+  # in its own section, read by the hook's own function
+  # (cli.distilledResumePreview over cli.resumedEssenceForInjection) — what is
+  # shown is what the hook would inject. The preview is read-only: a missing or
+  # stale essence is named ("the launch distills it on demand"), never
+  # distilled, because a dry run writes nothing. Mutation: dropping the
+  # Resumed Essence section from cli.runState.emitDryRun turns this red.
   Scenario: Resuming through the essence carries the conclusion, not the whole conversation
     When I run "ctxloom run --session amber-quiet-heron --distill --dry-run -p default"
     Then the assembled context carries the distilled essence and not the raw conversation

@@ -366,3 +366,69 @@ func repointDefaultAgentAtMock(w *World) error {
 	}
 	return runOK(w, "agent", verb, "default", "--llm", "mock", "--profiles", "default")
 }
+
+// freshInitStubDir and freshInitStubRan are where the fresh-init interview's
+// stand-in engine lives, and the file it writes if anything ever executes it.
+func freshInitStubDir(w *World) string { return filepath.Join(w.env.Root, "engine-stubs") }
+func freshInitStubRan(w *World) string { return filepath.Join(w.env.Root, "engine-stub-ran") }
+
+// installFreshInitEngineStub puts a `claude` executable first on the
+// interview's PATH, so init's engine question resolves to claude-code
+// (operations.EngineAvailable is a PATH lookup) whatever the developer has
+// installed. The stub records that it ran and fails: the interview runs with
+// --skip-launch, so nothing may execute an engine, and freshInitStubRan's
+// absence is what proves that.
+func installFreshInitEngineStub(w *World) error {
+	dir := freshInitStubDir(w)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	script := fmt.Sprintf("#!/bin/sh\necho \"$@\" >> %q\nexit 1\n", freshInitStubRan(w))
+	return os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755)
+}
+
+// driveFreshInitInterview runs a REAL `ctxloom init` on a project with no
+// .ctxloom over a real pty, answering each question as it is asked:
+// no personal repositories, then Enter (the recommendation) at the dirty-tree
+// and headless-posture questions. It is hermetic by construction:
+//   - --skip-launch stops init after its questions and scaffold: no auth
+//     probe and no setup session, so no engine runs (mock or real);
+//   - --no-pull skips the dependency pull;
+//   - GIT_ALLOW_PROTOCOL=file refuses the seeded remote's https clone
+//     outright, which init tolerates (a failed clone warns and continues).
+//
+// Each answer waits for its own prompt, so a question that is skipped,
+// reordered or renamed fails here, naming the one that never came.
+func driveFreshInitInterview(w *World) (string, error) {
+	env := []string{
+		"PATH=" + freshInitStubDir(w) + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"GIT_ALLOW_PROTOCOL=file",
+	}
+	sess, err := w.env.RunPTY(100, 30, env, "init", "--skip-launch", "--no-pull")
+	if err != nil {
+		return "", fmt.Errorf("start pty session: %w", err)
+	}
+	defer sess.Close()
+
+	for _, qa := range []struct{ prompt, answer string }{
+		{"Do you have any personal ctxloom repositories? (y/N): ", "n"},
+		{"at delegation time?", ""},
+		{"headless runs use?", ""},
+	} {
+		if !sess.WaitForOutput(ptyWaitTimeout, func(out string) bool { return strings.Contains(out, qa.prompt) }) {
+			return sess.Output(), fmt.Errorf("init never asked %q; captured output:\n%s", qa.prompt, sess.Output())
+		}
+		if _, err := sess.Write([]byte(qa.answer + "\r")); err != nil {
+			return sess.Output(), fmt.Errorf("answer %q: %w", qa.prompt, err)
+		}
+	}
+
+	exited, waitErr := sess.Wait(ptyWaitTimeout)
+	if !exited {
+		return sess.Output(), fmt.Errorf("ctxloom init did not exit within %s; captured output:\n%s", ptyWaitTimeout, sess.Output())
+	}
+	if waitErr != nil {
+		return sess.Output(), fmt.Errorf("ctxloom init exited with an error: %w; captured output:\n%s", waitErr, sess.Output())
+	}
+	return sess.Output(), nil
+}

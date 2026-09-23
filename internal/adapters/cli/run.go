@@ -91,6 +91,12 @@ type dryRunJSON struct {
 	Profiles  []string `json:"profiles"`
 	Fragments []string `json:"fragments"`
 	Context   string   `json:"context"`
+	// ResumedEssence is what a --session --distill launch delivers through
+	// its SessionStart hook rather than through Context: the harp's
+	// distilled essence (distilledResumePreview). ResumedEssenceNote says
+	// when the launch would distill first, so what is shown is not final.
+	ResumedEssence     string `json:"resumed_essence,omitempty"`
+	ResumedEssenceNote string `json:"resumed_essence_note,omitempty"`
 	// Delivery is the plan's static routes: each surface's root, the
 	// project-root and work-dir routes marked unsafe.
 	Delivery []routeJSON `json:"delivery"`
@@ -210,8 +216,32 @@ func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), stale
 	}
 	return map[string]string{
 		"CTXLOOM_RESUMED_FROM":  harp,
-		"CTXLOOM_RESUMED_PARTS": "session",
+		"CTXLOOM_RESUMED_PARTS": resumedPartsSession,
 	}
+}
+
+// resumedPartsSession is the CTXLOOM_RESUMED_PARTS value a distilled resume
+// sets, and the one resumePartsIncludeSession opens the essence gate on.
+const resumedPartsSession = "session"
+
+// distilledResumePreview is what a --distill --dry-run shows of the resume:
+// the essence the launch's SessionStart hook would inject
+// (resumedEssenceForInjection, over the env resumeDistillEnv sets), plus a
+// caveat when the launch would replace it first.
+//
+// It is READ-ONLY, and that is the difference from a real launch: a launch
+// distills a missing or stale essence on demand (resumeDistillEnv) before the
+// engine starts, which writes the essence and the session index. A preview
+// writes nothing, so it names what the launch would do instead of doing it.
+func distilledResumePreview(harp string, staleFn func(string) bool) (essence, note string) {
+	essence = resumedEssenceForInjection(1, "startup", harp, resumedPartsSession)
+	switch {
+	case essence == "":
+		note = fmt.Sprintf("%s is not distilled yet; the launch distills it on demand before the session starts", harp)
+	case staleFn(harp):
+		note = fmt.Sprintf("%s's essence is stale; the launch re-distills it before the session starts, so the session will see a newer one than this", harp)
+	}
+	return essence, note
 }
 
 // resumeEssenceStale is resumeDistillEnv's production staleFn: whether harp's
@@ -862,6 +892,9 @@ func (st *runState) emitDryRun() error {
 		Tokens:     tokens.Estimate(context),
 		Prompt:     st.prompt,
 	}
+	if runResumeSession != "" && runResumeDistill {
+		payload.ResumedEssence, payload.ResumedEssenceNote = distilledResumePreview(runResumeSession, resumeEssenceStale)
+	}
 	return emit(st.cmd, payload, func() error {
 		if runAgent != "" {
 			fmt.Println("=== Agent ===")
@@ -892,6 +925,15 @@ func (st *runState) emitDryRun() error {
 			fmt.Println(context)
 		} else {
 			fmt.Println("(no context)")
+		}
+		if runResumeSession != "" && runResumeDistill {
+			fmt.Printf("\n=== Resumed Essence (%s, delivered at session start) ===\n", runResumeSession)
+			if payload.ResumedEssence != "" {
+				fmt.Println(payload.ResumedEssence)
+			}
+			if payload.ResumedEssenceNote != "" {
+				fmt.Println("(" + payload.ResumedEssenceNote + ")")
+			}
 		}
 		fmt.Println("\n=== Prompt ===")
 		if st.prompt != "" {

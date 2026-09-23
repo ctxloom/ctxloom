@@ -52,6 +52,7 @@ type World struct {
 	j000200RestartRecorded string                    // J000200: the mock's recorded input from the last "restart" (runFreshMockSession)
 	j000300RecordFile      string                    // J000300: path the mock backend records its received input to
 	j000300Recorded        string                    // J000300: the mock's recorded input from the discovery-session launch
+	initInterview          string                    // init.feature: everything a fresh `ctxloom init` wrote to its terminal (driveFreshInitInterview)
 
 	j000700s     *j000700State      // J000700: team-authoring journey state (see steps_j000700_team.go)
 	j001500      *j001500State      // J001500: the corporate-signed/trust journey's fixture state (steps_j001500.go)
@@ -190,6 +191,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerCoordinationContractSteps(ctx)
 	registerLiveSteps(ctx)
 	registerJ000200SetupSteps(ctx)
+	registerFreshInitSteps(ctx)
 	registerJ000300Steps(ctx)
 	registerJ000700Steps(ctx)
 	registerJ001500Steps(ctx)

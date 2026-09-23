@@ -11,9 +11,10 @@
 // roster), injected by the CLI wiring and faked in tests, so the model is
 // hermetically testable through Update without a terminal.
 //
-// Injection into a viewed agent is implemented: an inject input line opens
-// on demand (openInject), owns the keymap while open (updateInjectKey), and
-// sends through Sources.Inject (injectCmd).
+// Control of a viewed agent rides one seam, Sources.Control: openControl
+// starts a verb (controlKeys), a verb that carries text opens an input line
+// that owns the keymap while open (updateComposeKey), and sendControl makes
+// the round trip.
 //
 // # This package is a PARALLEL system, deliberately, and it is on a clock
 //

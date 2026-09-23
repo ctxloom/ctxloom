@@ -225,14 +225,16 @@ sign-loadouts key="":
         echo "  pass one explicitly: just sign-loadouts /path/to/key" >&2
         exit 1
     fi
+    err="$(mktemp)"
+    trap 'rm -f "$err"' EXIT
     for f in cmd/ctxloom/loadout.yaml cmd/ltk/loadout.yaml cmd/taskloom/loadout.yaml; do
         rm -f "$f.sig"
-        if ! ssh-keygen -Y sign -f "$key" -n publish.v1.ctxloom.dev "$f" 2>/tmp/sign-loadouts-err; then
+        if ! ssh-keygen -Y sign -f "$key" -n publish.v1.ctxloom.dev "$f" 2>"$err"; then
             if [ -f "$key.pub" ]; then
                 echo "sign-loadouts: $key needs a passphrase this recipe doesn't have; trying ssh-agent via $key.pub" >&2
                 ssh-keygen -Y sign -U -f "$key.pub" -n publish.v1.ctxloom.dev "$f"
             else
-                cat /tmp/sign-loadouts-err >&2
+                cat "$err" >&2
                 exit 1
             fi
         fi

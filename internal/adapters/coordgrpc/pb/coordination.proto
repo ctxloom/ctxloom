@@ -73,9 +73,8 @@
 //     no typed field for it — only permission_mode is typed; MCP config/env
 //     and the harp stay in the Struct, harness-specific shapes.
 //   - Documented on RunStarted/StartRunResult: harness_session_id is
-//     journaled by the coordinator (run.harness fact) and feeds
-//     HarnessSpec.resume_session_id on a later retry/resume of the same
-//     harp — closing the loop the fields already implied.
+//     bound by the coordinator onto the harp's session entry
+//     (sessions.Entry), the key a later resume of the same harp continues.
 //
 //   - AgentRequest gains `stop_run` (CoordinatorResponse the matching
 //     result). A PARENT requesting a child's termination is SpawnAgent's
@@ -632,11 +631,9 @@ message HarnessSpec {
   // would need to know about.
   google.protobuf.Struct config = 5;
   // Harness-native session to resume instead of starting fresh
-  // (claude --resume <id>, codex thread/resume). Retry-with-context. Fed
-  // from the coordinator's own journal: StartRunResult.harness_session_id
-  // (below) is recorded as the run.harness fact when a run first reports
-  // it, and a later respawn of the same harp reads it back into this
-  // field.
+  // (claude --resume <id>, codex thread/resume). Retry-with-context. The
+  // coordinator does not set it: a resume's key rides the launch
+  // (ResumeRef.native_key), read from the harp's session entry.
   string resume_session_id = 6;
   // The security-relevant contract for delegated children: a headless
   // child must declare a headless-safe mode (it has no channel to
@@ -646,11 +643,11 @@ message HarnessSpec {
 }
 
 message StartRunResult {
-  // Native session/thread id, for resume. The coordinator JOURNALS this
-  // (run.harness fact, keyed on run_id) the moment it learns it — whether
-  // reported here at spawn time or later on a RunExited frame — and feeds
-  // it back as HarnessSpec.resume_session_id when the same harp's next run
-  // attempt starts (a fresh run_id; the harp is what stays continuous).
+  // Native session/thread id, for resume. The coordinator binds this onto
+  // the harp's session entry (sessions.Entry, the key's one record) the
+  // moment it learns it — here at spawn time, on the harness_session event,
+  // or on a RunExited frame — and the same harp's next run resumes by the
+  // entry's key (a fresh run_id; the harp is what stays continuous).
   string harness_session_id = 1;
   int64 pid = 2;
 }

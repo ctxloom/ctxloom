@@ -144,21 +144,21 @@ func (c *Coordinator) RunnerHeartbeat(rs *RunnerSession) {
 func (rs *RunnerSession) CredHash() string { return rs.credHash }
 
 // RunnerExited processes an explicit process-level exit fact from the
-// runner connected under credHash: validate ownership, record the harness
-// resume handle, terminate.
+// runner connected under credHash: validate ownership, bind the native
+// session key onto the session entry, terminate.
 func (c *Coordinator) RunnerExited(credHash string, exited RunExited) {
 	runID := exited.RunID
-	owned := false
+	owned, harp := false, ""
 	c.runs.View(func() {
 		if r := c.runsF.run(runID); r != nil && r.CredHash == credHash {
-			owned = true
+			owned, harp = true, r.Harp
 		}
 	})
 	if !owned {
 		c.rep.Warnf("coordinator: RunExited for %s from a credential that does not own it; ignored", runID)
 		return
 	}
-	c.recordHarnessSession(runID, exited.HarnessSessionID)
+	c.bindNativeSession(harp, exited.HarnessSessionID)
 	detail := ""
 	switch {
 	case exited.Signal != "":

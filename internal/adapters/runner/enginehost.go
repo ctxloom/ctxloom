@@ -700,7 +700,8 @@ func (eh *EngineHost) finish(home engineHome, turnErr, ctxErr error) {
 }
 
 // announceSession reports the engine's native session key up to the
-// coordinator's run record — the key a later incarnation resumes by. It
+// coordinator, which binds it onto the harp's session entry — the key a later
+// incarnation resumes by. It
 // rides the generic custom event (no proto change); resumable is true by
 // construction here: a key the driver reported IS what the next turn's
 // process resumes with.

@@ -62,8 +62,8 @@ const (
 
 	// defaultEndedRunTail / defaultEndedRunMaxAge are the one-shot retention
 	// reap bounds (one-shot-resume plan, Slice 4 / Fork 2.3), overridable via
-	// Options. The reap keeps every harp's CURRENT run (the resume key lives
-	// there) plus the newest defaultEndedRunTail ended runs across all harps,
+	// Options. The reap keeps every harp's CURRENT run (the record a resume
+	// is claimed against) plus the newest defaultEndedRunTail ended runs across all harps,
 	// and drops any ended, non-current run beyond the tail OR older than
 	// defaultEndedRunMaxAge. Chosen so a normal session keeps a generous audit
 	// tail while a long-running one-shot session's per-turn ended records stop
@@ -936,8 +936,8 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 		"run_id": rt.runID, "harness": rt.plan.Backend, "model": model,
 		"resume_session_id": resumeSessionID,
 	})
-	if res, ok := resp.Kind.(StartRunResult); ok && res.HarnessSessionID != "" {
-		c.recordHarnessSession(rt.runID, res.HarnessSessionID)
+	if res, ok := resp.Kind.(StartRunResult); ok {
+		c.bindNativeSession(rt.harp, res.HarnessSessionID)
 	}
 	// Mail written while the engine was coming up is the runner's own
 	// startup sweep's to deliver, as turns.
@@ -999,22 +999,15 @@ func runnerExitReason(exited <-chan error) (string, bool) {
 	}
 }
 
-// recordHarnessSession journals the run's harness-native session id (the
-// resume handle) — idempotent on the same id. Sources: StartRunResult, the
-// engine host's ctxloom/harness_session event, and RunExited.
-func (c *Coordinator) recordHarnessSession(runID, sessionID string) {
-	if sessionID == "" {
+// bindNativeSession binds the engine's native session key (the resume
+// handle) onto the run's session entry — sessions.Entry is its one record.
+// Sources: StartRunResult, the engine host's ctxloom/harness_session event,
+// and RunExited; the same bind serves a host and a container child.
+func (c *Coordinator) bindNativeSession(harp, key string) {
+	if key == "" {
 		return
 	}
-	if err := c.runs.Exec(func() ([]Fact, error) {
-		r := c.runsF.run(runID)
-		if r == nil || r.HarnessSessionID == sessionID {
-			return nil, nil
-		}
-		return []Fact{factAt(factRunHarness, c.now(), runHarness{RunID: runID, HarnessSessionID: sessionID})}, nil
-	}); err != nil {
-		c.rep.Warnf("coordinator: record harness session id: %v", err)
-	}
+	c.spawner.BindNativeSession(harp, key)
 }
 
 // recordResumable journals the run engine's LIVE resume capability
@@ -1035,30 +1028,6 @@ func (c *Coordinator) recordResumable(runID string, resumable bool) {
 	}); err != nil {
 		c.rep.Warnf("coordinator: record run resumable: %v", err)
 	}
-}
-
-// resumeKeyFor is the resume key formalized as a single accessor (one-shot-
-// resume plan Slice 1): (harp, HarnessSessionID) on the harp's CURRENT run —
-// the handle a resume threads back into the backend (StartRun's
-// ResumeSessionID / Spawner.Launch's resumeSessionID) so the engine
-// continues its OWN session instead of a rendered-transcript replay. ok is
-// false when harp has no run yet, or its current run never reported a
-// native session id.
-//
-// NOT used by resumeChild itself: by the time a resume wants this key, it
-// means the JUST-ENDED run's handle (captured in its own local rec before
-// enqueueRun mints the fresh one), and "harp's CURRENT run" would instead
-// resolve to that brand-new run — necessarily keyless, since it has not
-// reported a session id yet. This accessor is for callers who want the
-// latest committed resume handle for a harp from outside that narrow
-// window (tests, and Slice 2's per-engine gating).
-func (c *Coordinator) resumeKeyFor(harp string) (sessionID string, ok bool) {
-	c.runs.View(func() {
-		if r := c.runsF.currentRun(harp); r != nil {
-			sessionID = r.HarnessSessionID
-		}
-	})
-	return sessionID, sessionID != ""
 }
 
 // onTurnStarted folds a migrated child's engine-reported turn start into the
@@ -1531,8 +1500,8 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 // reapEndedRuns bounds the live folds' ended-run records (one-shot-resume
 // plan, Slice 4 / Fork 2.3). One-shot mints one ended run per turn per harp;
 // without a bound runsFold.runs / queueFold.state / rosterFold.byRun grow
-// unbounded over a long session. It keeps every harp's CURRENT run (the
-// resume key lives there, so it is NEVER reaped) plus the newest
+// unbounded over a long session. It keeps every harp's CURRENT run (a
+// resume is claimed against it, so it is NEVER reaped) plus the newest
 // endedRunTail ended runs across all harps, dropping any ended, non-current
 // run beyond the tail OR older than endedRunMaxAge. The reap is a durable
 // fact (factRunReaped) so a replay/reconciliation reaches the SAME bounded
@@ -1541,8 +1510,8 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 // The candidate set is chosen in a View but the final decision is RE-CHECKED
 // inside the journal's single-writer window: a run that became current
 // between the View and the write (a concurrent resume) is dropped from the
-// reap set there, so a live resume key can never be reaped out from under a
-// harp.
+// reap set there, so a harp's current run can never be reaped out from
+// under it.
 func (c *Coordinator) reapEndedRuns() {
 	type cand struct {
 		id string
@@ -1750,20 +1719,13 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	}
 	c.setState(rt, StateExecuting)
 
-	// resumeKeyFor is NOT used here: it reads the harp's CURRENT run, but
-	// enqueueRun (above) already minted the fresh one for this very resume,
-	// whose HarnessSessionID is necessarily still empty (not yet reported).
-	// The key this resume must thread is the JUST-ENDED run's — exactly what
-	// `rec` (captured before enqueueRun) already holds.
-	resumeSessionID := rec.HarnessSessionID
-
-	// Respawn via StartRun with the JOURNALED harness-native session id —
-	// the engine continues its own recorded session; no transcript
-	// re-priming needed. A prior run that never reported a session id falls
+	// Respawn via StartRun with the native session key the harp's session
+	// entry holds — the engine continues its own recorded session; no
+	// transcript re-priming needed. An entry that never bound a key falls
 	// back to the rendered-history context prime, still over StartRun.
 	// Queued mail is pushed as turns once the engine attaches
 	// (runChildViaStartRun's drain).
-	c.runChildViaStartRun(lctx, rt, "", token, url, SpawnStart{Resumed: true, ResumeKey: resumeSessionID})
+	c.runChildViaStartRun(lctx, rt, "", token, url, SpawnStart{Resumed: true, ResumeKey: c.spawner.NativeSession(harp)})
 }
 
 // deliveryEndedDraining is driveQueued's observation for an ENDED recipient

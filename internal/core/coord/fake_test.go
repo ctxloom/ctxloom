@@ -710,15 +710,9 @@ func newTestCoordinatorAt(t *testing.T, stateDir string) *Coordinator {
 	return c
 }
 
-// harnessSessionID reads the harp's current run's captured native session id.
-func harnessSessionID(c *Coordinator, harp string) string {
-	var id string
-	c.runs.View(func() {
-		if r := c.runsF.currentRun(harp); r != nil {
-			id = r.HarnessSessionID
-		}
-	})
-	return id
+// nativeSession reads the native session key harp's session entry holds.
+func nativeSession(c *Coordinator, harp string) string {
+	return c.spawner.NativeSession(harp)
 }
 
 // childRecv is a child's agent_recv: its OWN runner's Home.Recv, projected

@@ -47,12 +47,9 @@ type RunRecord struct {
 	// for an agent_stop, the stopping session plus the caller's `reason`
 	// (`reason` used to be advertised to the model and discarded).
 	// Empty when the terminal cause carried no detail.
-	Detail           string
-	HarnessSessionID string
+	Detail string
 	// Resumable is the run engine's LIVE resume capability (factRunResumable,
-	// from ChatSessionInfo.Resumable) — the one-shot gate's live half. A run
-	// tears its engine down at a turn boundary only when this is true AND its
-	// plan resolved ResumeModeOneShot AND HarnessSessionID is captured.
+	// from ChatSessionInfo.Resumable).
 	Resumable    bool
 	EnqueuedAt   time.Time
 	LastActivity time.Time
@@ -111,8 +108,6 @@ func (f *runsFold) apply(fact Fact) {
 		applyDecoded(fact, f.applyState)
 	case factRunEnded:
 		applyDecoded(fact, f.applyEnded)
-	case factRunHarness:
-		applyDecoded(fact, f.applyHarness)
 	case factRunContainer:
 		applyDecoded(fact, f.applyContainer)
 	case factRunResumable:
@@ -183,12 +178,6 @@ func (f *runsFold) applyEnded(p runEnded, at time.Time) {
 	delete(f.creds, r.CredHash)
 }
 
-func (f *runsFold) applyHarness(p runHarness, _ time.Time) {
-	if r := f.runs[p.RunID]; r != nil {
-		r.HarnessSessionID = p.HarnessSessionID
-	}
-}
-
 func (f *runsFold) applyContainer(p runContainer, _ time.Time) {
 	if r := f.runs[p.RunID]; r != nil {
 		r.ContainerName = p.ContainerName
@@ -203,7 +192,7 @@ func (f *runsFold) applyResumable(p runResumable, _ time.Time) {
 
 // applyReaped drops the evicted run records (one-shot retention). byHarp is
 // never touched — the reap set excludes every harp's current run, so the
-// harp→current-run index (and the resume key it points at) survives.
+// harp→current-run index survives.
 func (f *runsFold) applyReaped(p runReaped, _ time.Time) {
 	for _, id := range p.RunIDs {
 		delete(f.runs, id)

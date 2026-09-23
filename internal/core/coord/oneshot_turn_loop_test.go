@@ -126,7 +126,7 @@ func countRuns(c *Coordinator) int {
 // TestReapEndedRuns_KeepsCurrentAndTail is the DETERMINISTIC unit test of the
 // retention reap: manufacturing several ended runs for one harp directly on
 // the journal (each an idle-reaped incarnation), reapEndedRuns must keep the
-// harp's CURRENT run (its resume key) plus the newest EndedRunTail ended runs
+// harp's CURRENT run plus the newest EndedRunTail ended runs
 // and drop the rest — the fold-level guarantee a long-lived harp's
 // incarnations rely on, tested without engine timing.
 func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
@@ -145,7 +145,7 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 	const harp = "child-harp-X"
 	base := time.Now().Add(-time.Minute) // recent: not max-age reaped
 	// Six runs for one harp, oldest→newest; the last is the harp's current run
-	// (byHarp points to the latest factRunEnqueued) and carries the resume key.
+	// (byHarp points to the latest factRunEnqueued).
 	runIDs := make([]string, 6)
 	for i := range runIDs {
 		id := fmt.Sprintf("run-x-%d", i)
@@ -154,7 +154,6 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 		require.NoError(t, c.runs.Exec(func() ([]Fact, error) {
 			return []Fact{
 				factAt(factRunEnqueued, at, runEnqueued{RunID: id, Harp: harp, Agent: "worker", CredHash: id + "-cred", Depth: 1}),
-				factAt(factRunHarness, at, runHarness{RunID: id, HarnessSessionID: "native-sess-42"}),
 				factAt(factRunEnded, at, runEnded{RunID: id, Cause: CauseIdleReaped}),
 			}, nil
 		}))
@@ -174,11 +173,6 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 		}
 	})
 	assert.Equal(t, 3, countRuns(c), "current + tail(2) retained")
-
-	// The harp's current run — and its resume key — survives the reap.
-	sid, ok := c.resumeKeyFor(harp)
-	require.True(t, ok, "the current run's resume key must survive reaping")
-	assert.Equal(t, "native-sess-42", sid)
 
 	// Idempotent: a second reap at the bounded floor changes nothing.
 	c.reapEndedRuns()

@@ -99,7 +99,7 @@ type Options struct {
 	// folds retain across all harps — the one-shot retention reap (Slice 4 /
 	// Fork 2.3). One-shot mints one ended run per turn per harp, so without a
 	// bound the in-memory run/state maps grow unbounded over a long session.
-	// Every harp's CURRENT run (the resume key) is ALWAYS kept, outside this
+	// Every harp's CURRENT run is ALWAYS kept, outside this
 	// count. <= 0 keeps the package default (defaultEndedRunTail). Tests set a
 	// tiny value to exercise reaping; production keeps the default.
 	EndedRunTail int

@@ -135,10 +135,10 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 						appendFact(factAt(factRunEnded, at, runEnded{RunID: id, Cause: CauseRunnerExit}))
 						delete(live, id)
 					}
-				case 3: // bind a harness session id
+				case 3: // bind a run's resume capability
 					if len(allRuns) > 0 {
 						id := allRuns[rng.Intn(len(allRuns))]
-						appendFact(factAt(factRunHarness, at, runHarness{RunID: id, HarnessSessionID: "sid"}))
+						appendFact(factAt(factRunResumable, at, runResumable{RunID: id, Resumable: true}))
 					}
 				case 4: // file a report (B1.6 fact kind)
 					harp := fmt.Sprintf("harp-%d", rng.Intn(7))

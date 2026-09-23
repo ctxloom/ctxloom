@@ -260,7 +260,7 @@ func TestFinalReport_OneShotChildIsEndedByItsFinal(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return harnessSessionID(c, out.Harp) != "" }, conformanceWait, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return nativeSession(c, out.Harp) != "" }, conformanceWait, 10*time.Millisecond,
 		"the fixture must be a live-confirmed one-shot run before it files FINAL")
 
 	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: task one done"))

@@ -248,7 +248,9 @@ func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach session
 func (s *liveTapSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *liveTapSpawner) RecordEngineVersion(context.Context, string, string) {}
 
-func (s *liveTapSpawner) MarkSessionEnded(string) {}
+func (s *liveTapSpawner) MarkSessionEnded(string)          {}
+func (s *liveTapSpawner) BindNativeSession(string, string) {}
+func (s *liveTapSpawner) NativeSession(string) string      { return "" }
 
 // syncBuf is a goroutine-safe io.Writer (the overlay's tty writer runs on
 // its own goroutine, same as overlay_test.go's syncBuffer — re-derived here

@@ -130,11 +130,9 @@ var resumeCapableBackends = map[string]bool{
 
 // oneShotSupportedBackends is the set of backends whose driving:oneshot turn
 // loop is wired END TO END in this release (one-shot-resume plan, Slice 4): the
-// MIGRATED (viaStartRunBackends), resume-capable engines whose LIVE loadSession
-// capability the coordinator confirms before tearing an engine down at a turn
-// boundary (children.go's oneShotReady) and then resumes by native session key
-// via StartRun{ResumeSessionId} → ACP session/load. That is the intersection of
-// viaStartRunBackends and resumeCapableBackends.
+// MIGRATED (viaStartRunBackends), resume-capable engines, which resume by
+// native session key. That is the intersection of viaStartRunBackends and
+// resumeCapableBackends.
 //
 // A backend in neither table never reaches the gate at all: resolveResumeMode
 // already fails it loud on the capability reason.
@@ -362,6 +360,24 @@ func (s *spawner) ResumeHistory(ctx context.Context, harp string) string {
 		s.rep.Warnf("agent resume %s: no recorded history to prime (transcript rendered empty); resuming with the agent context only", harp)
 	}
 	return rendered
+}
+
+func (s *spawner) BindNativeSession(harp, key string) {
+	if err := operations.BindSession(harp, key, ""); err != nil {
+		s.rep.Warnf("agent %s: bind native session key: %v", harp, err)
+	}
+}
+
+func (s *spawner) NativeSession(harp string) string {
+	entry, err := operations.GetSession(harp)
+	if err != nil {
+		s.rep.Warnf("agent resume %s: read session entry: %v (resuming without a native session key)", harp, err)
+		return ""
+	}
+	if entry == nil {
+		return ""
+	}
+	return entry.SessionID
 }
 
 func (s *spawner) MarkSessionEnded(harp string) {

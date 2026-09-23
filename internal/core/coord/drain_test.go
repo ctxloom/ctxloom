@@ -54,7 +54,7 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	// its first turn onward and no emitter here is timer-driven, so once that
 	// fact is durable the channel is genuinely quiet and ackSeq+1 is a seq
 	// nothing else can claim.
-	require.Eventually(t, func() bool { return harnessSessionID(c, out.Harp) != "" }, conformanceWait, 5*time.Millisecond,
+	require.Eventually(t, func() bool { return nativeSession(c, out.Harp) != "" }, conformanceWait, 5*time.Millisecond,
 		"the RunChannel must be live and have processed the whole of standup")
 
 	var credHash string

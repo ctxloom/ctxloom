@@ -132,11 +132,12 @@ two map user IDs differently and a workload can depend on either. If no runtime 
 requested ownership is reachable, the launch aborts with an isolation finding. `--degraded`
 does not override that finding, and the other ownership mode is never substituted.
 
-A second kind of failure is softer. The runtime is there, but the container cannot start: no
-agent image and none it can build, no engine credentials to hand it, or session state it
-cannot prepare. That is fatal by default too. Under `--degraded` the run falls back to the
-host with its configured permission posture, and ctxloom prints a warning saying so. Read
-`--degraded` on a container agent as "run it unsandboxed if you have to".
+The same holds when the runtime is there but the container cannot start: no agent image and
+none it can build, no engine credentials to hand it, or session state it cannot prepare. The
+launch aborts, with or without `--degraded`. ctxloom never runs a container agent on the host
+because its container failed, since starting the engine unsandboxed is the exposure the
+container was there to prevent. If you want a different runtime, select it on the agent
+yourself, so the choice is visibly yours.
 
 ## The host runtime is not a boundary between agents
 

@@ -27,7 +27,7 @@ ctxloom remote default <name>           # Set the default remote
 ```
 
 A remote is an **address**, and nothing more: registering one grants its content
-no access to the agent. Content published under a signing key you trust reaches
+no access to the agent. Content published under an SSH signing key you trust reaches
 the agent automatically; everything else from a remote lands as **pending** and is
 withheld per item until you approve it with `ctxloom review`. Trust follows the
 key, not the repository — see [Review and trust](/concepts/review-and-trust/).

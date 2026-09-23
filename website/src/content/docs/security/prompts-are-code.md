@@ -94,7 +94,9 @@ context. You get one content-free line on stderr telling you how many items are 
 
 ## What signing buys, and what it does not
 
-ctxloom proves two things about the bytes that reach your agent:
+ctxloom signs with SSH signatures only: the sshsig format that `ssh-keygen -Y sign` writes,
+verified against an `allowed_signers` file. It does not use GPG, PGP or any other scheme.
+A valid signature proves two things about the bytes that reach your agent:
 
 - **Provenance** — who published them.
 - **Integrity** — that they have not changed since.

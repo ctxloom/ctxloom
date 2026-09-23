@@ -75,7 +75,7 @@ func signTreeManifest(t *testing.T, fsys afero.Fs, root string, signer ssh.Signe
 	require.NoError(t, err)
 	b, err := st.Open(context.Background(), verifyTreeName)
 	require.NoError(t, err)
-	require.NoError(t, attest.SignBundle(context.Background(), st, b, signer))
+	require.NoError(t, attest.SignBundle(context.Background(), st, b, treeRelease(t, b), signer))
 }
 
 // mutateAnItemFile appends a byte to the first file inside the tree's fragments

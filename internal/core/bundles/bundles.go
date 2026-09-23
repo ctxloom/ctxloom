@@ -25,6 +25,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
+// BundleRetraction withdraws one exact earlier version of a bundle. Reason is a
+// single line, shown to consumers and never decided on.
+type BundleRetraction struct {
+	Version string `yaml:"version"`
+	Reason  string `yaml:"reason"`
+}
+
 // Bundle represents a versioned collection of related content.
 // All items within a bundle share the same version.
 // Each fragment and prompt is distilled individually with bundle context.
@@ -36,6 +43,13 @@ type Bundle struct {
 	Description  string   `yaml:"description,omitempty"`
 	Notes        string   `yaml:"notes,omitempty"`        // Human-readable, not sent to AI
 	Installation string   `yaml:"installation,omitempty"` // Setup instructions, shown on install
+
+	// Retracts and Withdrawn are the publisher's withdrawals, authored here and
+	// published ONLY by signing: `bundle sign` copies them into the signed
+	// manifest's release header, which is the one place a consumer reads them.
+	// Retracts names exact earlier versions; Withdrawn withdraws every version.
+	Retracts  []BundleRetraction `yaml:"retracts,omitempty"`
+	Withdrawn string             `yaml:"withdrawn,omitempty"`
 
 	// Content maps (keyed by name)
 	Fragments map[string]BundleFragment `yaml:"fragments,omitempty"`

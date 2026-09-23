@@ -72,11 +72,8 @@ func j001500Of(w *World) *j001500State {
 	return w.j001500
 }
 
-// j001500TreeEnvelope is every j001500 fixture's tree envelope — no inline
-// item keys, because `deps pull` refuses a single-file bundle outright now
-// (nothing materializes a document — remote.Puller.installPulledItem) and a
-// remote tree bundle is read through internal/core/bundles/tree_read.go's
-// readEnvelope, which refuses one that still declares items inline.
+// j001500TreeEnvelope is every j001500 fixture's tree envelope; the items are
+// files beside it.
 const j001500TreeEnvelope = "version: \"1.0.0\"\n"
 
 // j001500TreeItems builds the item-file map for a j001500 bundle: one

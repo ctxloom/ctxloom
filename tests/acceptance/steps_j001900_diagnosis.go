@@ -135,15 +135,8 @@ func j001900Of(w *World) *j001900State {
 	return w.j001900
 }
 
-// j001900EnvelopeYAML renders the runbook's TREE envelope at a given version —
-// no inline item keys: the deploy process lives in a file beside it
-// (j001900FragmentBody), because a remote bundle is read through ReadTree
-// (internal/core/bundles/tree_read.go's readEnvelope), which REFUSES an envelope
-// that still declares items inline. An inline-declaring bundle.yaml signs
-// cleanly (operations.signBundleTree does not care) and PULLS cleanly (nothing
-// probes the envelope's content before installing the tree), but every
-// materialize afterwards fails — so this has to be a true tree from the start,
-// not something discovered by running the scenario.
+// j001900EnvelopeYAML renders the runbook's envelope at a given version; the
+// deploy process lives in a file beside it (j001900FragmentBody).
 //
 // The VERSION is a parameter because it is what makes a republish an actual
 // PIN ADVANCE. Measured while writing this journey: editing a bundle's content

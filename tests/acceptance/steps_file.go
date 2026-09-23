@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -24,6 +25,13 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 	// assert what a ctxloom rewrite does to content ctxloom did not write.
 	ctx.Step(`^the project already has the file "([^"]*)":$`, func(c context.Context, rel string, body *godog.DocString) error {
 		return worldFrom(c).env.WriteFile(rel, body.Content)
+	})
+
+	// Seeds an authored bundle stated as one YAML document; it lands as the
+	// tree ctxloom reads (testenv.WriteBundleTree), each item in its own file.
+	ctx.Step(`^the project already has the bundle "([^"]*)":$`, func(c context.Context, name string, body *godog.DocString) error {
+		w := worldFrom(c)
+		return testenv.WriteBundleTree(w.env.ProjectDir, name, body.Content)
 	})
 
 	// The HOME-layer twin of the step above. A scenario that needs to prove a

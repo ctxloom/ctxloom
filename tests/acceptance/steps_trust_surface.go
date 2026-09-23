@@ -88,11 +88,8 @@ func tsOf(w *World) *tsState {
 	return w.ts
 }
 
-// tsTreeEnvelope is every trust-surface fixture's tree envelope — no inline
-// item keys, because `deps pull` refuses a single-file bundle outright now
-// (nothing materializes a document — remote.Puller.installPulledItem) and a
-// remote tree bundle is read through internal/core/bundles/tree_read.go's
-// readEnvelope, which refuses one that still declares items inline.
+// tsTreeEnvelope is every trust-surface fixture's tree envelope; the items are
+// files beside it.
 const tsTreeEnvelope = "version: \"1.0.0\"\n"
 
 // tsFullTreeItems builds the item-file map for the full trust-surface bundle:

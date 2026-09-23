@@ -100,15 +100,6 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 			return runCLI(c, fmt.Sprintf("ctxloom skill create %s ctxloom-doctor -d %s", bundle, desc), "")
 		})
 
-	// `skill sync` recomputes the per-file manifest (sha256 + POSIX mode) into
-	// bundle.yaml. Until it runs, the files: map is empty and a fresh parse of
-	// the tree is trusted unconditionally — so this is the step that arms the
-	// install-time tamper check the later scenarios rely on.
-	ctx.Step(`^Alice records the skill's file manifest so tampering would be caught$`,
-		func(c context.Context) error {
-			return runCLI(c, "ctxloom skill sync ops#skills/ctxloom-doctor", "")
-		})
-
 	ctx.Step(`^Alice authors the ctxloom-doctor skill's full body in "([^"]*)"$`, func(c context.Context, ref string) error {
 		w := worldFrom(c)
 		bundle, name, err := splitSkillRef(ref)

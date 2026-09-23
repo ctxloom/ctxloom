@@ -19,27 +19,25 @@ the word "skill" for that different thing. ctxloom's old name collided with a
 real capability it did not otherwise expose at all.
 
 This journey is the proof that the collision is resolved and the real thing
-now exists end to end: author a package, sync its manifest, materialize it
+now exists end to end: author a package, materialize it
 into an engine's own skills directory with its files' permissions intact,
 curate which skills a profile actually exports, and move a package between
 machines through export/import — with a signature that is reported honestly,
 never silently upgraded into trust it did not earn.
 <!-- /doc:intro -->
 
-<!-- doc:scenario: Alice authors a skill package and its manifest, listing, and show all reflect the real tree -->
+<!-- doc:scenario: Alice authors a skill package and its listing and show reflect the real tree -->
 A skill is a directory, not a single text blob — there is no `content:` field
 to fill in. `ctxloom skill create` scaffolds `SKILL.md` with frontmatter that
 already passes validation (the `name` field is generated to match the
 directory), and everything after that is ordinary file authoring: this
 scenario adds a `scripts/` file itself, exactly as a human author would.
 
-`ctxloom skill sync` is the step that actually matters for safety later: it is
-what computes the per-file manifest (a sha256 and a POSIX mode for every file)
-and writes it into `bundle.yaml`. Until sync has run once, a skill's `files:`
-map is empty and a fresh parse of the tree is trusted unconditionally — after
-sync, any drift between what's recorded and what's on disk is a loud withhold,
-never a silent pass-through. The manifest recorded here is the same one a
-later export/import round-trip signs and verifies.
+Nothing records the package's files anywhere else, so there is nothing to
+keep in step: `ctxloom skill show` lists what is in the directory now — every
+file with its sha256 and POSIX mode — and a signed bundle's SHA256SUMS covers
+the same files. The listing asserted here is the one a later export/import
+round-trip signs and verifies.
 <!-- /doc:scenario -->
 
 <!-- doc:scenario: A curated skill materializes into claude's native Agent Skills directory with its exec bit intact -->

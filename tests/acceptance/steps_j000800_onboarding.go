@@ -110,10 +110,7 @@ const j000800GuidanceEnvelope = "version: \"1.0.0\"\n"
 // j000800GuidanceTreeItems is j000700FragmentBundleYAML's tree-shaped
 // replacement for j000800's signed-remote fixtures: a single fragment named
 // "guidance" (matching j000700FragmentBundleYAML's own single-fragment shape),
-// as a tree item file rather than an inline manifest key. `deps pull` refuses
-// a single-file bundle outright now (nothing materializes a document —
-// remote.Puller.installPulledItem), so these fixtures publish trees, signed
-// through SeedSignedTreeRemote (the product's own attest.SignBundle, not a
+// as a tree item file, signed through SeedSignedTreeRemote (the product's own attest.SignBundle, not a
 // hand-rolled manifest).
 func j000800GuidanceTreeItems(content string) map[string]string {
 	// NO front-matter description: a fragment's `description` IS its PREMISE

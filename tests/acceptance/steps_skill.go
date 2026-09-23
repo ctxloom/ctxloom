@@ -8,13 +8,6 @@
 // signature verification outcomes) — never a bare exit-code or
 // substring-of-a-key-name.
 //
-// Bundles here are always DIRECTORY-FORM (bundle.yaml + skills/<name>/):
-// `ctxloom skill create`/`sync`/`import` all reject a single-file bundle
-// (loud validation error), and `ctxloom bundle create` (steps_fixture.go's
-// fixture) only ever writes a single-file bundle — so, like J000400's own "team"
-// bundle, the bundle.yaml is written directly rather than through that
-// fixture.
-//
 // Signing here mirrors steps_j000200_common.go/signing_acceptance.go's approach
 // (a generated ed25519 TestSigner + signing.Sign / TrustSigner) rather than
 // driving `ctxloom skill export --sign`: that flag resolves a key through a
@@ -32,11 +25,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -191,56 +184,48 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 	// --- Then: payload assertions (every one sets w.docStepMaterialized with
 	// real, observed evidence — living-docs' evidence gate requires it) -------
 
-	ctx.Step(`^the bundle manifest for "([^"]*)" records real hashes and modes for "([^"]*)" and "([^"]*)"$`,
-		func(c context.Context, ref, skillMDPath, scriptPath string) error {
+	// The listing is read off the skill's own directory — there is no
+	// recorded manifest to consult — so a real hash and a real exec bit here
+	// are what is on disk now.
+	ctx.Step(`^the skill show output lists "([^"]*)" and an executable "([^"]*)"$`,
+		func(c context.Context, skillMDPath, scriptPath string) error {
 			w := worldFrom(c)
-			bundle, name, err := splitSkillRef(ref)
-			if err != nil {
-				return err
+			out := w.env.LastStdout()
+			var res struct {
+				Files []struct {
+					Path   string `json:"path"`
+					SHA256 string `json:"sha256"`
+					Mode   string `json:"mode"`
+				} `json:"files"`
 			}
-			body, err := w.env.ReadFile(treeBundleManifestPath(bundle))
-			if err != nil {
-				return fmt.Errorf("read bundle.yaml: %w", err)
+			if err := json.Unmarshal([]byte(out), &res); err != nil {
+				return fmt.Errorf("`ctxloom skill show --format json` is not JSON: %w; stdout:\n%s", err, out)
 			}
-			var doc struct {
-				Skills map[string]struct {
-					Files map[string]struct {
-						SHA256 string `yaml:"sha256"`
-						Mode   string `yaml:"mode"`
-					} `yaml:"files"`
-				} `yaml:"skills"`
-			}
-			if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
-				return fmt.Errorf("parse bundle.yaml: %w", err)
-			}
-			skill, ok := doc.Skills[name]
-			if !ok {
-				return fmt.Errorf("bundle.yaml has no skills.%s entry; content:\n%s", name, body)
-			}
+			modes := map[string]uint64{}
 			var evidence []string
-			for _, p := range []string{skillMDPath, scriptPath} {
-				f, ok := skill.Files[p]
-				if !ok {
-					return fmt.Errorf("skills.%s.files has no entry for %q; recorded: %+v", name, p, skill.Files)
-				}
-				// bundles.hashContent's canonical form is "sha256:<64 hex chars>".
+			for _, f := range res.Files {
+				// bundles.HashPayload's canonical form is "sha256:<64 hex chars>".
 				if !strings.HasPrefix(f.SHA256, "sha256:") || len(f.SHA256) != len("sha256:")+64 {
-					return fmt.Errorf("skills.%s.files[%q].sha256 = %q, does not look like a real \"sha256:<hex>\" digest", name, p, f.SHA256)
+					return fmt.Errorf("file %q has sha256 %q, which does not look like a real digest", f.Path, f.SHA256)
 				}
-				if f.Mode == "" {
-					return fmt.Errorf("skills.%s.files[%q].mode is empty", name, p)
+				mode, err := strconv.ParseUint(f.Mode, 8, 32)
+				if err != nil {
+					return fmt.Errorf("file %q has mode %q, which is not octal: %w", f.Path, f.Mode, err)
 				}
-				evidence = append(evidence, fmt.Sprintf("%s: sha256=%s mode=%s", p, f.SHA256, f.Mode))
+				modes[f.Path] = mode
+				evidence = append(evidence, fmt.Sprintf("%s: sha256=%s mode=%s", f.Path, f.SHA256, f.Mode))
 			}
-			w.docStepMaterialized = fmt.Sprintf("%s -> skills.%s.files\n%s",
-				treeBundleManifestPath(bundle), name, strings.Join(evidence, "\n"))
-			// scripts/ entries are executables — the mode's exec bit is
-			// load-bearing and must be recorded, not merely present.
-			if skill.Files[scriptPath].Mode != "0755" {
-				return fmt.Errorf("skills.%s.files[%q].mode = %q, want \"0755\"", name, scriptPath, skill.Files[scriptPath].Mode)
+			w.docStepMaterialized = strings.Join(evidence, "\n")
+			for _, p := range []string{skillMDPath, scriptPath} {
+				if _, ok := modes[p]; !ok {
+					return fmt.Errorf("skill show lists no %q; listed:\n%s", p, w.docStepMaterialized)
+				}
 			}
-			if skill.Files[skillMDPath].Mode != "0644" {
-				return fmt.Errorf("skills.%s.files[%q].mode = %q, want \"0644\"", name, skillMDPath, skill.Files[skillMDPath].Mode)
+			if modes[scriptPath]&0o111 == 0 {
+				return fmt.Errorf("%q is listed without its exec bit (mode %04o)", scriptPath, modes[scriptPath])
+			}
+			if modes[skillMDPath]&0o111 != 0 {
+				return fmt.Errorf("%q is listed as executable (mode %04o)", skillMDPath, modes[skillMDPath])
 			}
 			return nil
 		})

@@ -64,8 +64,8 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         ctxloom command create demo review
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "review"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "Add content here."
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" exists
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "Add content here."
       When I run "ctxloom command list"
       Then the output contains "review"
       When the agent reads resource "ctxloom://commands"
@@ -118,7 +118,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       Then the command succeeds
       And the output reports "applied" as "<reports nothing removed>"
       And the output reports "apply" as "<names the apply command>"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "COMMAND-BODY-review"
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "COMMAND-BODY-review"
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | reports nothing removed | names the apply command |
@@ -140,7 +140,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         ctxloom command remove demo#commands/review --yes
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not contain "COMMAND-BODY-review"
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" does not exist
       When I run "ctxloom command list"
       Then the output does not contain "review"
       When the agent reads resource "ctxloom://commands"
@@ -165,7 +165,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         """
       Then the command succeeds
       And the output reports "distilled" as "<says the distillation was not refreshed>"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "EDITED-BY-TEST"
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "EDITED-BY-TEST"
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | says the distillation was not refreshed  |
@@ -189,7 +189,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         """
       Then the command fails
       And the output contains "refusing to overwrite"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "COMMAND-BODY-review"
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "COMMAND-BODY-review"
 
   Rule: A command already marked no_distill is reported, not silently skipped
 
@@ -199,7 +199,7 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
     # exiting 0 with no explanation of which of the two reasons applied.
     Scenario Outline: Distilling a command marked no_distill reports why it did nothing
       Given an initialized ctxloom project
-      And the project already has the file ".ctxloom/content/bundles/v2/demo.yaml":
+      And the project already has the bundle "demo":
         """
         version: "1.0.0"
         commands:

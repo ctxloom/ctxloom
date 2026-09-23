@@ -384,9 +384,7 @@ func j001600PublishedFragmentPath(fragment string) string {
 // reader as steps_j001400_bundle_distribution.go's j001400AuthoredTree.
 //
 // NO front-matter description. A fragment's `description` IS its PREMISE
-// (content.ItemMeta.Description: "the item's applicability condition ...
-// Fragments author this as `premise` in the single-file format"), so a
-// described fragment is selected CONDITIONALLY — bundles.Pipeline withholds it
+// (content.ItemMeta.Description), so a described fragment is selected CONDITIONALLY — bundles.Pipeline withholds it
 // from an ordinary assembly and indexes it instead. Every scenario here asserts
 // this fragment's unconditional DELIVERY, which a premise makes unreachable.
 func j001600FragmentFileBody(content string) string {

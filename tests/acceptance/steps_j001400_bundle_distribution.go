@@ -4,14 +4,10 @@
 // carrying EVERY surface kind, and a consumer receiving each kind's payload
 // intact — across the two isolation axes.
 //
-// The publication AND consumption halves are GREEN. A directory-form bundle
-// used to be unfetchable — fetchAtLockedSHA resolved a ref to ONE file and
-// called FetchFile on it — while skills REQUIRE the directory form
-// (internal/core/bundles/loader.go:389). `deps pull` now probes the directory
-// form, walks the tree at the pinned SHA through internal/adapters/content/remotetree,
-// and installs it under the consumer's cache with the publisher's exec bit
-// intact; config.loadRemoteBundleSeed then reads the installed tree back into a
-// bundle through convert.Read, verified by internal/adapters/content/attest.
+// The publication AND consumption halves are GREEN. `deps pull` walks the tree
+// at the pinned SHA through internal/adapters/content/remotetree and installs it
+// under the consumer's cache with the publisher's exec bit intact; the
+// installed tree is read back and verified by internal/adapters/content/attest.
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
 // `profile materialize --backend mock`, over the mock backend's own context and

@@ -93,12 +93,7 @@ func j000200ItemTreePath(kind, item string) (string, error) {
 // content), but j000300's codeword scenario writes a whole instruction
 // SENTENCE containing the codeword as content while marker stays the bare
 // codeword an assertion later searches for.
-//
-// It publishes a tree because `deps pull` refuses a single-file bundle
-// outright now (nothing materializes a document —
-// remote.Puller.installPulledItem) — see bundle_paths.go's identical
-// reasoning for the acceptance-tagged fixtures this untagged file's callers
-// sit beside.
+
 func seedSource(w *World, name, kind, item, marker, content string, sign, trustAsProject bool) (*j000200Source, error) {
 	src := w.source(name)
 	src.marker = marker
@@ -112,9 +107,8 @@ func seedSource(w *World, name, kind, item, marker, content string, sign, trustA
 	}
 	// A COMMAND's front-matter description is its human-facing summary and is
 	// carried through untouched. A FRAGMENT's is not: `description` IS the
-	// fragment's PREMISE (content.ItemMeta.Description — "the item's
-	// applicability condition ... Fragments author this as `premise` in the
-	// single-file format"), so describing one makes it conditionally selected
+	// fragment's PREMISE (content.ItemMeta.Description), so describing one
+	// makes it conditionally selected
 	// and withheld from an ordinary assembly. Every fragment seeded here has
 	// its DELIVERY asserted, so it must carry no premise at all.
 	itemBody := content + "\n"

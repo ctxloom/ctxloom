@@ -95,9 +95,7 @@ func j001700Of(w *World) *j001700State {
 // j001500TreeEnvelope/j001500TreeItems exactly (same shape, new marker)
 // rather than reusing J001500's constant, since J001700's content is
 // thematically distinct (an incident runbook, not secure-coding guidance)
-// even though the underlying mechanism is identical. A tree because `deps
-// pull` refuses a single-file bundle outright now (nothing materializes a
-// document — remote.Puller.installPulledItem).
+// even though the underlying mechanism is identical.
 const j001700TreeEnvelope = "version: \"1.0.0\"\n"
 
 func j001700TreeItems(marker string) map[string]string {

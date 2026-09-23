@@ -2,9 +2,8 @@
 
 // A BUNDLE ITEM'S PATH COMPOSES ITS LEAF FROM THE LAYOUT, IN ONE PLACE.
 //
-// A bundles prefix is layout-qualified (".ctxloom/content/bundles/v1"), and the
-// LEAF beneath it is decided by that same layout: v1 is the single-file
-// document form and its leaf carries ".yaml"; v2 holds true trees and its leaf
+// A bundles prefix is layout-qualified (".ctxloom/content/bundles/v2"), and the
+// LEAF beneath it is decided by that same layout: v2 holds trees and its leaf
 // is the directory name. paths.BundleLayout.ItemFileName is the only place that
 // says so, and remote.RepoItemPath / remote.ContentItemPath are the only things
 // that compose a prefix with it.

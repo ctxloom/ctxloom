@@ -6,9 +6,10 @@ Feature: bundle — the container authored content lives in, and everything that
   its `rm`/`del` aliases), `bundle export`, `bundle import`, `bundle push`, and
   the bare `ctxloom bundle` form.
 
-  A bundle is a CONTAINER. One YAML file under `.ctxloom/content/bundles/v2/`
-  holds fragments, commands, MCP servers, skills and profiles together, and
-  that file is the unit everything else in ctxloom addresses: a profile names a
+  A bundle is a CONTAINER. One directory under `.ctxloom/content/bundles/v2/`
+  holds fragments, commands, MCP servers, skills and profiles together — its
+  bundle.yaml envelope beside a file per item — and that tree is the unit
+  everything else in ctxloom addresses: a profile names a
   bundle, the lockfile pins a bundle, a publisher signs a bundle, and every
   item ref in the system is spelled `<bundle>#<kind>/<name>`. Nothing here
   reaches the network — authoring a bundle is a local file edit, and that is
@@ -59,13 +60,13 @@ Feature: bundle — the container authored content lives in, and everything that
         ctxloom bundle create demo -d acceptance-fixture-bundle
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" exists
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" is valid YAML
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" is valid YAML
       # The seeded bodies, not the name: a create that wrote only the scalar
       # header would satisfy a name check and leave an unusable skeleton.
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "# Example Fragment"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "Example prompt content. Describe what this prompt does."
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "acceptance-fixture-bundle"
+      And the file ".ctxloom/content/bundles/v2/demo/fragments/example.md" contains "# Example Fragment"
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/example.md" contains "Example prompt content. Describe what this prompt does."
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance-fixture-bundle"
       When I run "ctxloom bundle list"
       Then the command succeeds
       And the output contains "demo"
@@ -314,14 +315,14 @@ Feature: bundle — the container authored content lives in, and everything that
       # The description the bundle was created with, read first so the
       # "no longer there" assertion below is made against a fixture that
       # demonstrably had it.
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "acceptance fixture bundle"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
       When Alice re-describes the bundle:
         """
         ctxloom bundle edit demo -d updated-desc
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "updated-desc"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not contain "acceptance fixture bundle"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "updated-desc"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not contain "acceptance fixture bundle"
 
     # Attach then detach, in one fixture, on the payload. A `--remove-*` that
     # reported success and removed nothing passes any exit-code check, and a
@@ -335,21 +336,21 @@ Feature: bundle — the container authored content lives in, and everything that
         ctxloom bundle edit demo --add-fragment coding-standards --add-prompt review --add-mcp tree-sitter --add-tag golang
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "coding-standards"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "Add prompt content here."
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "tree-sitter"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "golang"
+      And the file ".ctxloom/content/bundles/v2/demo/fragments/coding-standards.md" exists
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "Add prompt content here."
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tree-sitter.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "golang"
       When Alice detaches the two she did not want after all:
         """
         ctxloom bundle edit demo --remove-fragment coding-standards --remove-mcp tree-sitter --remove-tag golang
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not contain "coding-standards"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not contain "tree-sitter"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not contain "golang"
+      And the file ".ctxloom/content/bundles/v2/demo/fragments/coding-standards.md" does not exist
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tree-sitter.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not contain "golang"
       # The command that was NOT detached is still there, so the removals above
       # took exactly what they named rather than emptying the manifest.
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "Add prompt content here."
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/review.md" contains "Add prompt content here."
 
     # An edit with no flags is a person who does not yet know what to type, and
     # the answer is help plus a plain statement that nothing happened — not a
@@ -360,7 +361,7 @@ Feature: bundle — the container authored content lives in, and everything that
       When I run "ctxloom bundle edit demo <flags>"
       Then the command succeeds
       And the output reports "status" as "<no changes signal>"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "acceptance fixture bundle"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | no changes signal |
@@ -368,7 +369,7 @@ Feature: bundle — the container authored content lives in, and everything that
         | --format json | no_changes         |
         | --format text | No changes made.   |
 
-  Rule: A bundle travels as a file, and an import never clobbers without being told to
+  Rule: A bundle travels as its tree, and an import never clobbers without being told to
 
     Export copies the bundle as-is; import copies it back. "Observable" is the
     claim, and existence plus a name did not observe it: an export that
@@ -385,20 +386,20 @@ Feature: bundle — the container authored content lives in, and everything that
         ctxloom bundle export demo exported
         """
       Then the command succeeds
-      And the file "exported/demo.yaml" contains "Example prompt content. Describe what this prompt does."
-      And the file "exported/demo.yaml" contains "# Example Fragment"
+      And the file "exported/demo/prompts/example.md" contains "Example prompt content. Describe what this prompt does."
+      And the file "exported/demo/fragments/example.md" contains "# Example Fragment"
       When I run "ctxloom bundle remove demo --yes"
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not exist
       When Alice imports the copy back:
         """
-        ctxloom bundle import exported/demo.yaml -f
+        ctxloom bundle import exported/demo -f
         """
       Then the command succeeds
       When I run "ctxloom bundle list"
       Then the output contains "demo"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "Example prompt content. Describe what this prompt does."
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "# Example Fragment"
+      And the file ".ctxloom/content/bundles/v2/demo/prompts/example.md" contains "Example prompt content. Describe what this prompt does."
+      And the file ".ctxloom/content/bundles/v2/demo/fragments/example.md" contains "# Example Fragment"
 
     # `-o` writes to an exact file path instead of a directory. Same payload
     # claim, different destination shape — and the only place this flag is
@@ -408,10 +409,10 @@ Feature: bundle — the container authored content lives in, and everything that
       And a bundle "demo" exists
       When Alice exports to a path of her own choosing:
         """
-        ctxloom bundle export demo -o handoff.yaml
+        ctxloom bundle export demo -o handoff
         """
       Then the command succeeds
-      And the file "handoff.yaml" contains "# Example Fragment"
+      And the file "handoff/fragments/example.md" contains "# Example Fragment"
 
     # THE DATA-LOSS GUARD. An import lands on a path that may already hold
     # somebody's work, so the refusal has to be proven by what SURVIVES it, not
@@ -426,19 +427,19 @@ Feature: bundle — the container authored content lives in, and everything that
       And I run "ctxloom bundle edit demo -d LOCAL-EDIT-MARKER"
       When Alice imports the shared copy over her own:
         """
-        ctxloom bundle import exported/demo.yaml
+        ctxloom bundle import exported/demo
         """
       Then the command fails
       And the output contains "bundle already exists"
       And the output contains "use --force to overwrite"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "LOCAL-EDIT-MARKER"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "LOCAL-EDIT-MARKER"
       When Alice decides she meant it:
         """
-        ctxloom bundle import exported/demo.yaml --force
+        ctxloom bundle import exported/demo --force
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not contain "LOCAL-EDIT-MARKER"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "acceptance fixture bundle"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not contain "LOCAL-EDIT-MARKER"
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" contains "acceptance fixture bundle"
 
   Rule: Publishing carries a signature rather than deciding one on the spot
 
@@ -508,7 +509,7 @@ Feature: bundle — the container authored content lives in, and everything that
       # The report side asserts the bundle still EXISTS — on disk and in the
       # listing both, because a remove that pruned the listing while leaving
       # the file (or the reverse) would satisfy exactly one of these.
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" exists
       When I run "ctxloom bundle list <flags>"
       Then the output reports "[name=demo].name" as "<the bundle that survived>"
 
@@ -526,7 +527,7 @@ Feature: bundle — the container authored content lives in, and everything that
         ctxloom bundle remove demo --yes
         """
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not exist
       When I run "ctxloom bundle list --no-companions <flags>"
       Then the output reports "$" as empty, saying "No bundles installed."
 
@@ -546,10 +547,10 @@ Feature: bundle — the container authored content lives in, and everything that
       When I run "ctxloom bundle rm demo <flags>"
       Then the command succeeds
       And the output reports "applied" as "<nothing was applied>"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" exists
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" exists
       When I run "ctxloom bundle del demo --yes"
       Then the command succeeds
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" does not exist
+      And the file ".ctxloom/content/bundles/v2/demo/bundle.yaml" does not exist
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | nothing was applied |

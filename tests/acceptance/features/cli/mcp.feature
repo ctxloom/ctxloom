@@ -142,7 +142,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     # how a server comes to exist: there is no other store to create one in.
     Scenario: Editing a bundle's MCP server writes the editor's result back
       Given a ctxloom project with a command-rewriting editor
-      And the project already has the file ".ctxloom/content/bundles/v2/demo.yaml":
+      And the project already has the bundle "demo":
         """
         version: 1.0.0
         description: mcp edit fixture
@@ -158,11 +158,11 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
         """
       Then the command succeeds
       And the output contains "Updated MCP server"
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "EDITED-BY-TEST"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "EDITED-BY-TEST"
       # The rest of the entry must survive the round trip. An implementation
       # that rewrote the manifest from just the edited field would satisfy
       # the line above while silently dropping the arguments.
-      And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "KEEP-THIS-ARGUMENT"
+      And the file ".ctxloom/content/bundles/v2/demo/mcp/tools.yaml" contains "KEEP-THIS-ARGUMENT"
 
     # The refusal path. A ref naming a server that is not there must fail
     # rather than launch an editor on an empty buffer and write a new entry

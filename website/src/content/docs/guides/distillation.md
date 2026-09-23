@@ -101,8 +101,12 @@ ctxloom bundle distill ./my-bundle.yaml --dry-run
 ctxloom bundle distill ./my-bundle.yaml --force
 
 # Multiple files / globs
-ctxloom bundle distill .ctxloom/content/bundles/*.yaml
+ctxloom bundle distill .ctxloom/content/bundles/v2/*.yaml
 ```
+
+`bundle distill` reads single-file bundle documents. Your project's own bundles
+live under `.ctxloom/content/bundles/v2/`; a file directly under
+`.ctxloom/content/bundles/` is not loaded at all.
 
 ### Comparing Original and Distilled Content
 

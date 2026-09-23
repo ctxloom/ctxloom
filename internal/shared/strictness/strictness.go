@@ -505,9 +505,7 @@ func FailOnce(class Class, fixit, format string, args ...any) {
 // Be sure the remedy is honest before using this. A fix-it that offers
 // --degraded as its way out cannot belong to a NonDegradable finding: the
 // escape hatch it names would not work, and a remedy the caller cannot follow
-// is proof the check is firing outside its own design premise. Every existing
-// ClassIsolation raise site fails that test today, which is why none of them
-// uses this.
+// is proof the check is firing outside its own design premise.
 func FailAlways(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
 	clidiag.Warn(prog, "%s", msg)

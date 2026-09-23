@@ -26,9 +26,9 @@ type Runtime interface {
 	Binary() string
 	// Available reports whether this runtime can launch a container NOW: the CLI
 	// is on PATH and its daemon is reachable. Drives runtime selection: when
-	// nothing is available an EXPLICITLY-requested container is a fatal finding
-	// (ClassIsolation, exit 3) unless --degraded, while an ambient default
-	// degrades silently to the host.
+	// nothing is available a requested container is a non-degradable fatal
+	// finding (ClassIsolation, exit 3): the run is refused, never moved to the
+	// host.
 	Available() bool
 	// RunArgs builds the full argv (after Binary) that starts the container in the
 	// FOREGROUND with stdout/stderr attached — no -d, and -t only when the spec
@@ -515,9 +515,8 @@ func renderRunSpec(spec RunSpec) []string {
 
 // runtimeReachable reports whether a container runtime CLI is on PATH and its
 // daemon answers `<bin> info`. Any failure (missing binary, daemon down) →
-// false → the caller degrades down the chain to None: a fatal finding
-// (ClassIsolation) the choke owner aborts on when a container was EXPLICITLY
-// requested, unless --degraded; an ambient default degrades silently.
+// false → the runtime is not selected, and a requested container becomes a
+// non-degradable fatal finding (ClassIsolation) the choke owner aborts on.
 func runtimeReachable(bin string) bool {
 	if _, err := exec.LookPath(bin); err != nil {
 		return false
@@ -649,8 +648,8 @@ var runtimeCandidates = func() []runtimeCandidate {
 // detection order — and returns the first that is launchable AND accepted by
 // ok, or Host{} when none is. It never errors: a runtime that cannot serve is
 // simply not selected, and the caller decides the consequence (chainFor makes
-// an EXPLICITLY-requested container that lands on Host a fatal ClassIsolation
-// finding unless --degraded). SelectRuntime and ProbeRuntime differ ONLY in ok.
+// an EXPLICITLY-requested container that lands on Host a non-degradable fatal
+// ClassIsolation finding). SelectRuntime and ProbeRuntime differ ONLY in ok.
 func selectRuntimeWhere(prefer string, ok func(owns RuntimeAxis) bool) Runtime {
 	candidates := runtimeCandidates()
 	pick := func(c runtimeCandidate) Runtime {
@@ -687,8 +686,8 @@ func selectRuntimeWhere(prefer string, ok func(owns RuntimeAxis) bool) Runtime {
 // ownership IS want. A rootful request on a host offering only a rootless
 // runtime returns Host{}, not the rootless runtime — handing back the other
 // ownership mode is the exact silent substitution the two container axis
-// values exist to prevent, and it stays forbidden under --degraded, which
-// falls back to the HOST (chainFor) rather than to the other mode.
+// values exist to prevent, and it stays forbidden under --degraded: chainFor
+// refuses the run instead, naming the other mode as an explicit selection.
 //
 // want that is not a container axis value ("", "host", a typo) demands no
 // container at all, so none is selected: Host{}. That totality is deliberate —

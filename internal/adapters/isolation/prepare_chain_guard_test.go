@@ -38,6 +38,7 @@ func TestPrepareChain_NonContainerDegradeRaisesNoFinding(t *testing.T) {
 // The firing side, asserted here too so the pair reads together and neither can
 // be weakened alone: losing a CONTAINER boundary IS a fatal isolation finding.
 func TestPrepareChain_LostContainerBoundaryRaisesIsolationFinding(t *testing.T) {
+	stubRuntimeCandidates(t)
 	mark := strictness.Checkpoint()
 
 	pol, ws := prepareChain(context.Background(),

@@ -144,7 +144,7 @@ func TestChainFor_NonContainer(t *testing.T) {
 // live-dir Container and degrades straight to None — it never grows a worktree
 // that wasn't requested. The no-runtime shape (the container tier dropped up
 // front) is pinned separately, also hermetically, in
-// TestChainFor_NoRuntime_FatalUnlessDegraded.
+// TestChainFor_NoRuntime_Fatal.
 func TestChainFor_Container(t *testing.T) {
 	resetStrictness(t)
 	stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
@@ -172,6 +172,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// which records a fatal ClassIsolation finding (the lost container boundary);
 	// reset so those findings never bleed into a later test.
 	resetStrictness(t)
+	stubRuntimeCandidates(t)
 	ctx := context.Background()
 	common := t.TempDir() // stand-in .git common dir so the worktree exclude write succeeds
 

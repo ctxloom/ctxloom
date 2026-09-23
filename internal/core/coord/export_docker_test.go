@@ -55,3 +55,9 @@ func (v ProgressVerdict) Parked() bool          { return v.parked() }
 func ProgressMonitor(thr liveness.Thresholds, now func() time.Time) *liveness.Monitor {
 	return progressMonitor(thr, now)
 }
+
+// PeerSend is peerSend, for a test that needs the id of the message it sent:
+// AgentSend returns only the delivery disposition.
+func (c *Coordinator) PeerSend(caller Identity, to, kind, body string) (msgID, disposition string, err error) {
+	return c.peerSend(caller, to, kind, body, nil, "")
+}

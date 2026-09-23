@@ -475,6 +475,7 @@ func isoMatrixConfigYAML(engineType, engineHome string) string {
   configs:
     iso:
       type: %s
+      permissions: bypass
   defaults:
     primary: iso
     fast: iso

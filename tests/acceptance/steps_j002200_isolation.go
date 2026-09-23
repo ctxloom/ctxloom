@@ -93,10 +93,12 @@ agents:
   mock:
     llm: fast
     profiles: []
+    permissions: bypass
   mock-container:
     llm: fast
     profiles: []
     runtime: container-rootless
+    permissions: bypass
 `
 }
 

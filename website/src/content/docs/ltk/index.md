@@ -59,7 +59,7 @@ duplicate rule id, or a typo in the installed hook's `--engine` or `--shell`) it
 **denies every tool call it guards**: Bash, PowerShell, Edit, Write, MultiEdit,
 NotebookEdit. The agent stops working and relays the parse error to you.
 
-That is deliberate. Both hook hosts treat a hook that exits non-zero as
+That is deliberate. Claude Code treats a hook that exits non-zero as
 non-blocking, so an `ltk` that failed loudly on the hook path would silently
 disable every rule you wrote and leave you believing you were still guarded. A
 guard that fails open is worse than no guard, so `ltk` fails closed and makes the

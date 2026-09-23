@@ -47,8 +47,7 @@ taskloom list --tag-query "urgent/release/or"      # tagged urgent OR release
 taskloom list --tag-query "urgent/not"             # NOT tagged urgent
 ```
 
-Verified against a real `taskloom` build (see the four scenarios below, run against a scratch
-project, `taskloom` v0.7.0):
+On a scratch project with four tasks, the first, third and fourth queries return:
 
 ```
 $ taskloom list --tag-query "urgent/release/and"
@@ -103,7 +102,8 @@ $ taskloom show hilly-crane
 The second `--add` didn't accumulate — `defect` is gone, replaced by `chore`, with no `--remove`
 in sight. This is the one sharp edge in the whole tag system worth remembering: for a
 scalar-declared target, "add a different value" *is* "replace the value," not "add another
-tag." (Adding the exact same value again is a genuine no-op, not a re-write.) The log itself
+tag." (Adding the exact same value again leaves the view unchanged, though the log still records
+the redundant tag event.) The log itself
 stays append-only underneath this — the fold that produces `taskloom show`'s answer records
 both the retracting untag and the new tag as separate events, so nothing is destructively
 edited on disk, but the *view* you see collapses to one current value, which is the entire
@@ -111,7 +111,7 @@ point of declaring scalar in the first place: `triage:kind` answering "defect an
 once" would be a task that doesn't know what it is.
 
 `taskloom`'s own built-in default schema already declares this for its triage vocabulary, with
-no `.taskloom/config.yaml` required — `triage:kind` (defect/capability/chore, scalar, enum-
+no `.taskloom/config.yaml` required. Among its targets are `triage:kind` (defect/capability/chore, scalar, enum-
 checked), `triage:effort` (a 0–5 range, scalar), and `triage:blocks-release` (scalar, and
 compared as a real SemVer rather than lexicographically, so `<=0.7.0` orders the way a human
 expects). A project can declare its own targets the same way to get the same guarantees for its
@@ -120,21 +120,27 @@ own vocabulary.
 ## Guardrails that reject bad tags outright, at write time
 
 A value outside a declared enum or numeric range is rejected, not silently accepted and
-ignored by the query engine later:
+ignored by the query engine later. The whole write is refused and nothing lands:
 
 ```
 $ taskloom tag hilly-crane --add "triage:kind=bogus"
-Error: add tags: tag "triage:kind=bogus"'s value "bogus" is not one of triage:kind's declared enum values [defect capability chore]
+Error: add tags: refused 1 tag(s), nothing written: fatal startup findings:
+  - add tags: tag "triage:kind=bogus"'s value "bogus" is not one of triage:kind's declared enum values [defect capability chore] (fix: drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it)
 ```
 
+`--degraded` is the escape hatch the message names: the write goes through without the refused
+tag, and the refusal is still printed. A refused tag is never written.
+
 Two more things can never be written as a tag, on any project: the query grammar's own operator
-words (`and`, `or`, `not`, matched case-insensitively — a tag named `or` would parse as an
-operator and become permanently unqueryable), and anything under the `tagma.` namespace, which
-is reserved for the schema declarations themselves.
+words (`and`, `or`, `not`, matched case-insensitively; a tag named `or` would parse as an
+operator and become permanently unqueryable), and any tag whose namespace is `tagma` or starts
+with `tagma.` (`tagma:x`, `tagma.arity:x`), which is reserved for the schema declarations
+themselves.
 
 ```
 $ taskloom tag hilly-crane --add "or"
-Error: add tags: tag "or" is a reserved operator word in tagma's query grammar (and/or/not, matched case-insensitively) — it would always parse as an operator, never as a matchable tag, and so would be permanently unqueryable except by quoting it at query time
+Error: add tags: refused 1 tag(s), nothing written: fatal startup findings:
+  - add tags: tag "or" is a reserved operator word in tagma's query grammar (and/or/not, matched case-insensitively) — it would always parse as an operator, never as a matchable tag, and so would be permanently unqueryable except by quoting it at query time (fix: drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it)
 ```
 
 ## Ranking a pile of tags into one order: `--sort priority`
@@ -144,11 +150,12 @@ Once tasks carry structured tags, `taskloom list --sort priority` (and `task_lis
 number you assign by hand, but one computed from `tag_schema`'s declared `priority_fn` /
 `decay_fn` formulas over each task's actual tag values, plus a couple of taskloom-provided
 built-ins like `age_days`. Every returned task carries its own `derived_priority` so you can see
-the number the sort used, not just trust the order. taskloom's built-in default derives priority
-from a handful of independently-checkable factual flags — `triage:crashes`,
-`triage:data-loss`, `triage:no-workaround`, `triage:security=<cwe>`, `triage:regression`,
-`triage:exploited-in-wild` — rather than a hand-picked severity label, on the theory that "does
-it crash" is something two people agree on and "how severe is this, 1–5" usually isn't.
+the number the sort used, not just trust the order.
+
+taskloom's built-in default `priority_fn` scores a task from `triage:level` (1 is the most
+urgent), multiplies by the age factor its `decay_fn` produces, raises the score for
+`triage:blocks-release`, and lowers it as `triage:effort` grows. Separately from any formula, a
+task tagged `triage:exploited-in-wild` is pinned to the maximum priority while it is open.
 
 ## Discovering what's already in use before coining something new
 

@@ -77,8 +77,9 @@ Trailing arguments are always allowed. A pattern may mix positionals and options
 in any list order, so `[docker, --debug, build]` and `[docker, build, --debug]`
 are the same rule.
 
-A subcommand's position carries meaning (`go test` and `go help test` are
-different operations), so positionals must appear in order. An option's position
+A subcommand's position carries meaning, so positionals must appear in order:
+`[git, remote, add]` matches `git remote add origin …` but not `git add remote`.
+An option's position
 does not, so options match as an unordered set. Options are skipped when locating
 positionals.
 
@@ -88,8 +89,8 @@ than a strict prefix, which means a value-taking flag whose value lands among
 the operands cannot push the subcommand out of position: `go --mod=mod test`,
 `git -C /repo push`, and `docker --context prod build` all still match
 `[go, test]`, `[git, push]`, and `[docker, build]` as a **deny**. The trade-off
-is that a positional can match a non-leading operand of the same spelling,
-which only ever widens what a deny rule catches — fail-safe for a guard.
+is that a positional can match a non-leading operand of the same spelling (a
+deny `[go, test]` also catches `go help test`), which only ever widens what a deny rule catches — fail-safe for a guard.
 
 For an **allow** rule that same looseness is fail-*open*, not fail-safe: it
 widens what gets let through, not just what gets caught. `allow: [git, status]`
@@ -194,6 +195,13 @@ The shell in question is the one ltk resolved for that command, not the one you
 typed it in. A wrapped inner command is re-parsed under the inner shell, so
 `pwsh -Command "..."` invoked from bash yields commands whose shell is `pwsh`.
 When a rule mysteriously fails to fire, check the resolved shell first.
+
+PowerShell is parsed by PowerShell itself: ltk runs `pwsh` (or `powershell`) from
+`PATH` to parse the command. Where neither is installed, every PowerShell command,
+including the inner command of a `pwsh -Command "…"` wrapper, is unparseable, and
+`defaults.on_parse_error` decides it. With the default `allow`, PowerShell rules
+never fire on such a machine. `ltk check` reports this as `"analyzed": false` with
+the parse error.
 
 ## Understanding, not blocking
 

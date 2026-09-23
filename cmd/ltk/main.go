@@ -6,7 +6,7 @@
 //
 // The hook gates two kinds of agent action: shell commands (Bash/PowerShell
 // tools, matched by command rules) and file edits (Edit/Write/MultiEdit/
-// NotebookEdit tools, matched by `match.path` rules). See docs/RULES.md.
+// NotebookEdit tools, matched by `match.path` rules). See docs/ltk/RULES.md.
 package main
 
 import (
@@ -47,7 +47,7 @@ everything under vendor). The special pattern "@submodules" expands to every
 path in .gitmodules, so one rule blocks edits inside all git submodules.
 
 On a denial the agent is handed your message and suggested alternative so it can
-retry the right way. See docs/RULES.md for the full rule model.`,
+retry the right way. See https://ctxloom.dev/ltk/rules/ for the full rule model.`,
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

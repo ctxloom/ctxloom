@@ -601,8 +601,9 @@ var (
 
 var tagCmd = &cobra.Command{
 	Use:   "tag <harp-id>",
-	Short: "Add and/or remove flat tags on a task",
-	Long: `Add and/or remove flat tags on a task, keyed by its harp ID.
+	Short: "Add and/or remove tags on a task",
+	Long: `Add and/or remove tags on a task, keyed by its harp ID. A tag is
+(namespace:)key(=value): "urgent" and "triage:kind=defect" are both tags.
 
 --add and --remove are each repeatable; at least one is required. --add is
 applied before --remove, so a tag named in both ends up removed. See the
@@ -870,7 +871,7 @@ func init() {
 
 	addCmd.Flags().StringVar(&tasksAddStatus, "status", "", "initial status (default: \"To Do\")")
 	addCmd.Flags().StringVar(&tasksAddTrigger, "trigger", "", "revive condition for a Deferred task (required when --status Deferred)")
-	addCmd.Flags().StringArrayVar(&tasksAddTags, "tag", nil, "flat tag to set at creation (repeatable)")
+	addCmd.Flags().StringArrayVar(&tasksAddTags, "tag", nil, "tag to set at creation, (namespace:)key(=value) (repeatable)")
 
 	statusCmd.Flags().StringVar(&tasksStatusTrigger, "trigger", "", "revive condition when setting status to Deferred")
 

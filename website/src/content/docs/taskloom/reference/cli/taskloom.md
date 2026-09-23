@@ -14,15 +14,16 @@ Manage the per-project task store
 ### Synopsis
 
 Read and modify the per-project task store. Tasks are keyed by harp IDs
-(e.g. "swift-amber-falcon") and persisted as an append-only log at
-~/.ctxloom/tasks/<project-id>.jsonl.
+(e.g. "swift-amber-falcon") and persisted as an append-only log: privately at
+~/.ctxloom/tasks/<project-id>.jsonl by default, or at .taskloom/tasks.jsonl in
+the repository under --homing repo / homing: repo.
 
-The project is resolved from CTXLOOM_PROJECT_ID (exported by ctxloom run),
---project, or the working directory's identity marker/registry, in that order
-of precedence. Agents reach the same store via the MCP tools served by
+The project is resolved from --project, then CTXLOOM_PROJECT_ID (exported by
+ctxloom run), then the working directory's identity marker/registry. A
+repo-homed store ignores both pins: the repository is its identity. Agents reach the same store via the MCP tools served by
 `taskloom mcp` (task_list, task_add, task_set_status, task_edit, task_tag).
 
-Tasks carry flat tags: apply them with `taskloom tag` (or `add --tag`), see the
+Tasks carry (namespace:)key(=value) tags: apply them with `taskloom tag` (or `add --tag`), see the
 vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-query`.
 
 ### Options
@@ -54,7 +55,7 @@ vocabulary in use with `taskloom tags`, and filter with `taskloom list --tag-que
 * [taskloom status](/taskloom/reference/cli/taskloom_status/)	 - Change the status of a task
 * [taskloom statuses](/taskloom/reference/cli/taskloom_statuses/)	 - List the task status taxonomy (name, order, terminal, requires_trigger)
 * [taskloom summary](/taskloom/reference/cli/taskloom_summary/)	 - Show per-status counts and active in-progress tasks
-* [taskloom tag](/taskloom/reference/cli/taskloom_tag/)	 - Add and/or remove flat tags on a task
+* [taskloom tag](/taskloom/reference/cli/taskloom_tag/)	 - Add and/or remove tags on a task
 * [taskloom tags](/taskloom/reference/cli/taskloom_tags/)	 - List the tags in use, with per-tag task counts
 * [taskloom version](/taskloom/reference/cli/taskloom_version/)	 - Print the taskloom version
 

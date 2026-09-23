@@ -32,15 +32,16 @@ var rootCmd = &cobra.Command{
 	Use:   progName,
 	Short: "Manage the per-project task store",
 	Long: `Read and modify the per-project task store. Tasks are keyed by harp IDs
-(e.g. "swift-amber-falcon") and persisted as an append-only log at
-~/.ctxloom/tasks/<project-id>.jsonl.
+(e.g. "swift-amber-falcon") and persisted as an append-only log: privately at
+~/.ctxloom/tasks/<project-id>.jsonl by default, or at .taskloom/tasks.jsonl in
+the repository under --homing repo / homing: repo.
 
-The project is resolved from CTXLOOM_PROJECT_ID (exported by ctxloom run),
---project, or the working directory's identity marker/registry, in that order
-of precedence. Agents reach the same store via the MCP tools served by
+The project is resolved from --project, then CTXLOOM_PROJECT_ID (exported by
+ctxloom run), then the working directory's identity marker/registry. A
+repo-homed store ignores both pins: the repository is its identity. Agents reach the same store via the MCP tools served by
 ` + "`taskloom mcp`" + ` (task_list, task_add, task_set_status, task_edit, task_tag).
 
-Tasks carry flat tags: apply them with ` + "`taskloom tag`" + ` (or ` + "`add --tag`" + `), see the
+Tasks carry (namespace:)key(=value) tags: apply them with ` + "`taskloom tag`" + ` (or ` + "`add --tag`" + `), see the
 vocabulary in use with ` + "`taskloom tags`" + `, and filter with ` + "`taskloom list --tag-query`" + `.`,
 	SilenceUsage: true,
 	// cobra's own error print knows nothing about --format, so it would emit a

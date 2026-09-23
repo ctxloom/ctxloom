@@ -8,7 +8,7 @@ Environment variables that affect ctxloom behavior.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CTXLOOM_VERBOSE` | Enable verbose logging (including delegated-child launch diagnostics: the child plugin's stderr) | `0` (disabled) |
+| `CTXLOOM_VERBOSE` | Enable verbose logging. Also turns on a delegated child's launch trace (a container runner reports its auth route) | `0` (disabled) |
 | `CTXLOOM_ROOT` | Override project-root resolution (normally the git root or the directory containing `.ctxloom`) | unset |
 | `CTXLOOM_DEBUG_HTTP` | Log HTTP requests made to remote forges | `0` (disabled) |
 | `CTXLOOM_DEGRADED` | Set to `1` for the environment-variable form of `--degraded`: relaxed strictness (warn-and-continue instead of a hard fail on findings that would otherwise abort). Read before cobra dispatch, so it also covers the pre-command window (config discovery, project-root resolution). There is deliberately no config-file equivalent — a broken config can't excuse itself. As config decoding becomes stricter, this is the escape hatch that unblocks a session a strict decode would otherwise refuse to start | unset |
@@ -48,23 +48,21 @@ Agents with `runtime: container-rootless` or `runtime: container-rootful` pass a
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | Passed through for token-based Claude auth (subscription auth, via mounted OAuth credentials, is the default when this is unset) |
-| `ANTHROPIC_AUTH_TOKEN` | Forwarded alongside `ANTHROPIC_API_KEY` when present |
-| `ANTHROPIC_BASE_URL` | Forwarded alongside `ANTHROPIC_API_KEY` when present |
-| `ANTHROPIC_MODEL` | Forwarded alongside `ANTHROPIC_API_KEY` when present. Selects the model for a containerized claude run |
-| `ANTHROPIC_SMALL_FAST_MODEL` | Forwarded alongside `ANTHROPIC_API_KEY` when present |
+| `ANTHROPIC_API_KEY` | Selects token-based Claude auth and is passed through. When neither this nor `ANTHROPIC_AUTH_TOKEN` is set, subscription auth via the mounted OAuth credentials is used instead |
+| `ANTHROPIC_AUTH_TOKEN` | Also selects token-based auth on its own, for a gateway that authenticates with `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` and no API key. Passed through |
+| `ANTHROPIC_BASE_URL` | Forwarded when present, if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set |
+| `ANTHROPIC_MODEL` | Forwarded when present, if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set. Selects the model for a containerized claude run |
+| `ANTHROPIC_SMALL_FAST_MODEL` | Forwarded when present, if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set |
 | `TERM`, `COLORTERM` | Forwarded so the engine renders with the host terminal's actual capabilities instead of the image default (or `dumb`, which drops color and cursor control) |
 | `PUID`, `PGID` | *Not* read from your environment — set by the isolation runtime from `os.Getuid()`/`os.Getgid()` and passed into the container. Under a rootful daemon (rootful Docker, Podman) the entrypoint uses them to remap the image's baked-in `ctxloom` user to your uid/gid and drop privileges to it before the engine starts, so files the engine writes into the bind-mounted project are owned by you, not by the container's generic user or by root. If the remap can't be performed (no usable `gosu`/`setpriv` in the image) the entrypoint refuses to run the engine as root and fails the launch loudly, unless `--degraded` (or `CTXLOOM_DEGRADED=1`) is in effect, which downgrades the refusal to a warning and lets the engine run as root. Rootless Docker never sets these — container-root there already is the launching user |
-| `CLAUDECODE` | Claude's own nested-session guard. When driving claude, ctxloom strips this from the spawned child's environment unconditionally, because claude 2.x refuses to start with it set — it would otherwise leak in as pure process-tree lineage under delegation |
 
 ## Host and Engine Integration
 
-These are read on the host (or inside the launched engine process) rather than crossing into a container — they don't appear in either scoped passthrough list above.
+These are read on the host (or inside the launched engine process) rather than crossing into a container — they don't appear in the scoped passthrough list above.
 
 | Variable | Description |
 |----------|-------------|
 | `SSH_AUTH_SOCK` | ssh-agent socket used when signing a bundle with an ssh-agent-held key |
-| `XDG_RUNTIME_DIR` | Preferred base directory for the MCP runner's local unix-socket dir (`$XDG_RUNTIME_DIR/ctxloom`), tried after `/run/ctxloom/local` and before a `MkdirTemp` fallback |
 
 ## Delegated Agents
 
@@ -75,7 +73,6 @@ A child session spawned under agent delegation (`agent_run` / agentcoord) receiv
 | `CTXLOOM_COORD_URL` | The coordinator's MCP endpoint URL (`http://host:port/mcp`) |
 | `CTXLOOM_COORD_CRED` | The child's bearer credential for authenticating back to the coordinator |
 | `CTXLOOM_RUN_ID` | The coordinator-minted run id correlating this child to the run it was spawned for |
-| `CTXLOOM_MCP_SOCKET` | The runner's local MCP-endpoint socket path; a `ctxloom mcp` shim finding this forwards the whole tool surface there over HTTP-over-unix |
 
 ## Delegated Launch Retry
 

@@ -41,10 +41,18 @@ func sessionReapPolicy(now time.Time) (sessions.ReapPolicy, error) {
 	if cleanIncludePersist {
 		p.Scope = paths.Persist
 	}
-	if cleanOlderThan != "" {
-		cutoff, err := parseAgeBound("--older-than", cleanOlderThan, now)
-		p.Cutoff = cutoff
-		return p, err
+	cutoff, err := reclaimCutoff(cleanOlderThan, now)
+	p.Cutoff = cutoff
+	return p, err
+}
+
+// reclaimCutoff resolves the reclaim bound: --older-than when given, else
+// the configured session_reap_age, else config.DefaultSessionReapAge (see
+// sessionReapPolicy). Shared by `clean` and `session sweep`, whose reclaim
+// is one rule.
+func reclaimCutoff(olderThan string, now time.Time) (time.Time, error) {
+	if olderThan != "" {
+		return parseAgeBound("--older-than", olderThan, now)
 	}
 	age := config.DefaultSessionReapAge
 	if cfg, err := GetConfig(); err != nil {
@@ -52,9 +60,7 @@ func sessionReapPolicy(now time.Time) (sessions.ReapPolicy, error) {
 	} else {
 		age = cfg.SessionReapAge()
 	}
-	cutoff, err := parseAgeBound("session_reap_age", age, now)
-	p.Cutoff = cutoff
-	return p, err
+	return parseAgeBound("session_reap_age", age, now)
 }
 
 // renderSessionReclaim prints the aged-session plan.

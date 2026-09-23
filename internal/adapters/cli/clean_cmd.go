@@ -52,10 +52,12 @@ either for one invocation:
 
 persist/ — transcripts, plans, session artifacts — is REFERENCED DATA:
 task rows and design records cite paths in it, so no age takes it. Pass
---include-persist to reap it too, whole and transcripts included, from the
-same aged sessions. The session's own record (its sidecar, essence, next
-step and rotation segments) is never taken: the directory stays, and the
-session still lists and resolves.
+--include-persist to reap it too, transcripts included, from the same aged
+sessions — except a session that was never distilled, whose transcript is
+its only record: its persist/ stays until 'ctxloom session distill <harp>'.
+The session's own record (its sidecar, essence, next step and rotation
+segments) is never taken: the directory stays, and the session still
+lists and resolves.
 
 To exempt one session from every sweep, place an empty file named 'keep'
 at the top of its directory.
@@ -76,6 +78,9 @@ one is a per-session decision a human makes by naming it:
 counterpart) destroy the machine-written bulk of the one session you name.
 
 Without --yes this only reports; nothing on disk changes.
+
+This is the reclaim half of 'ctxloom session sweep', which tidies one
+project's ended sessions by the same rules and can also purge them.
 
 clean is not uninstall. What it takes comes back on your next run, because
 that is what regenerable means. To strip ctxloom's integration with this
@@ -116,10 +121,17 @@ func runClean(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	rep.Sessions, err = operations.ReclaimAgedSessions(cmd.Context(), nil, policy)
+	sweep, err := operations.SweepSessions(cmd.Context(), nil, operations.SweepRequest{
+		ReclaimCutoff: policy.Cutoff,
+		ReclaimScope:  policy.Scope,
+		AllProjects:   true,
+		Apply:         policy.Apply,
+		ReclaimOnly:   true,
+	})
 	if err != nil {
 		return err
 	}
+	rep.Sessions = *sweep.Reclaim
 
 	if err := emit(cmd, rep, func() error {
 		return renderCleanPlan(cmd.OutOrStdout(), rep)

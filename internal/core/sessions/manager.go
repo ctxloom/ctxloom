@@ -161,6 +161,11 @@ type Entry struct {
 	// recoverable; a silent mis-parse on the path that feeds a model is not.
 	EngineVersion string `yaml:"engine_version,omitempty" json:"engine_version,omitempty"`
 
+	// Origin is who the session was minted for (Seed.Origin), stamped by the
+	// mint. EMPTY READS AS A HUMAN'S SESSION: a session that predates the
+	// field, or whose stamp failed, is never purged undistilled.
+	Origin Origin `yaml:"origin,omitempty" json:"origin,omitempty"`
+
 	// Rotations records every binding this harp has DISPLACED, oldest first.
 	// claude-code's /clear starts a fresh session UUID and transcript file
 	// under the same live process, firing SessionStart again; without this, a
@@ -741,6 +746,14 @@ func (m *Manager) RecordEngineVersion(harpName, version string) error {
 	}
 	return m.update(harpName, func(e *Entry) (bool, error) {
 		e.EngineVersion = version
+		return true, nil
+	})
+}
+
+// RecordOrigin stamps Origin on the named entry.
+func (m *Manager) RecordOrigin(harpName string, o Origin) error {
+	return m.update(harpName, func(e *Entry) (bool, error) {
+		e.Origin = o
 		return true, nil
 	})
 }

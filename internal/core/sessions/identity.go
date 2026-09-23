@@ -89,3 +89,32 @@ type Seed struct {
 	Depth      int
 	OneShot    bool
 }
+
+// Origin is who a session was minted for, recorded at the mint so a later
+// process can tell a human's session from ctxloom's own internal work.
+type Origin string
+
+const (
+	// OriginSession is a human's session: a run at depth 0 that is not a
+	// one-shot. Its transcript is never destroyed undistilled by a sweep.
+	OriginSession Origin = "session"
+	// OriginAgent is a delegated child's session.
+	OriginAgent Origin = "agent"
+	// OriginOneShot is an internal one-shot (a distiller, a probe): a single
+	// machine-driven turn nobody resumes, so a sweep may purge it without an
+	// essence.
+	OriginOneShot Origin = "oneshot"
+)
+
+// Origin is the origin this seed mints. One-shot-ness wins over depth: a
+// one-shot spawned below a coordinator is still internal work.
+func (s Seed) Origin() Origin {
+	switch {
+	case s.OneShot:
+		return OriginOneShot
+	case s.Depth > 0:
+		return OriginAgent
+	default:
+		return OriginSession
+	}
+}

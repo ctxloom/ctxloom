@@ -24,6 +24,7 @@ type sessionSeed struct {
 	EndedAt        string             `yaml:"ended_at,omitempty"`
 	TranscriptPath string             `yaml:"transcript_path,omitempty"`
 	EngineVersion  string             `yaml:"engine_version,omitempty"`
+	Origin         string             `yaml:"origin,omitempty"`
 	Rotations      []sessionSeedEntry `yaml:"rotations,omitempty"`
 }
 

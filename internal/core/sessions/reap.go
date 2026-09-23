@@ -30,7 +30,9 @@ type ReapPolicy struct {
 	// Scope is the widest Lifetime the policy takes. Zero reads as
 	// paths.Ephemeral, the default; paths.Persist is a human's
 	// --include-persist and TAKES the transcripts with the rest of persist/ —
-	// there is no transcript-sparing arm.
+	// from a DISTILLED session only. An undistilled one (Distilled) keeps
+	// persist/, because its transcript is its only record; it is reaped as
+	// under the default scope and the report says why.
 	Scope paths.Lifetime
 	// Apply is the plan/act switch. False reports the same verdicts and
 	// bytes and moves nothing.
@@ -198,7 +200,7 @@ func Reap(ctx context.Context, l Layout, locks Locks, p ReapPolicy, triage Triag
 		if !isHarpDir(e) {
 			continue
 		}
-		c, ok := reapOne(ctx, l, locks, e.Name(), p, triage)
+		c, ok := ReapSession(ctx, l, locks, e.Name(), p, triage)
 		if !ok {
 			continue
 		}
@@ -240,7 +242,8 @@ func isHarpDir(e fs.DirEntry) bool {
 	return harp.Validate(e.Name()) == nil
 }
 
-// reapOne decides, and when p.Apply carries out, one session's fate.
+// ReapSession decides, and when p.Apply carries out, one session's fate —
+// Reap's per-session step, for a caller that selects the sessions itself.
 //
 // The second return is false when the session is not a candidate at all —
 // nothing the policy takes is there — and the candidate's Verdict is empty
@@ -248,7 +251,7 @@ func isHarpDir(e fs.DirEntry) bool {
 // than listed. The order of checks is deliberate: the CHEAP, non-destructive
 // ones run first, so a session that is too new, or kept by hand, is never
 // probed for liveness or triaged at all.
-func reapOne(ctx context.Context, l Layout, locks Locks, name string, p ReapPolicy, triage Triage) (ReapCandidate, bool) {
+func ReapSession(ctx context.Context, l Layout, locks Locks, name string, p ReapPolicy, triage Triage) (ReapCandidate, bool) {
 	c := ReapCandidate{Harp: name, Dir: l.Dir(name)}
 	members := p.Members()
 
@@ -273,6 +276,20 @@ func reapOne(ctx context.Context, l Layout, locks Locks, name string, p ReapPoli
 		c.Verdict = ReapKept
 		c.Reason = fmt.Sprintf("it carries a %s marker", paths.SessionKeepMarkerFileName)
 		return c, true
+	}
+
+	// An undistilled session's transcript is its only record: persist scope
+	// narrows to the default scope's members for it, so a wider scope never
+	// frees less, and the spare is reported whatever the verdict.
+	if p.scope() == paths.Persist && !Distilled(c.Dir) {
+		c.Reason = fmt.Sprintf("its %s/ is spared: it was never distilled, so its transcript is its only record — run `ctxloom session distill %s` first", paths.PersistDirName, name)
+		members = ReapPolicy{}.Members()
+		m = measureMembers(l, name, members)
+		c.Bytes = m.bytes
+		if !m.populated {
+			c.Verdict = ReapSpared
+			return c, true
+		}
 	}
 
 	if m.symlinked != "" {

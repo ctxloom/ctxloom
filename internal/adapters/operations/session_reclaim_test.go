@@ -122,32 +122,39 @@ func srSeedDeadSession(t *testing.T, harp string) {
 
 func srCutoff() time.Time { return time.Now().Add(-24 * time.Hour) }
 
+// srReclaim is `clean`'s session half: the sweep with only its reclaim rows,
+// over every project.
 func srReclaim(t *testing.T, p sessions.ReapPolicy) sessions.Report {
 	t.Helper()
-	res, err := ReclaimAgedSessions(context.Background(), git.NewExec(), p)
+	res, err := SweepSessions(context.Background(), git.NewExec(), srRequest(p))
 	require.NoError(t, err)
-	return res
+	require.NotNil(t, res.Reclaim)
+	return *res.Reclaim
 }
 
-// TestReclaimAgedSessions_WithoutAnAgeBound_ReclaimsNothing: the reaper's
+func srRequest(p sessions.ReapPolicy) SweepRequest {
+	return SweepRequest{ReclaimCutoff: p.Cutoff, ReclaimScope: p.Scope, Apply: p.Apply, AllProjects: true, ReclaimOnly: true}
+}
+
+// TestSweepReclaim_WithoutAnAgeBound_ReclaimsNothing: the reaper's
 // refusal passes through this adapter untouched — the CLI's defaulted age
 // is the CLI's, and this layer must not supply one.
-func TestReclaimAgedSessions_WithoutAnAgeBound_ReclaimsNothing(t *testing.T) {
+func TestSweepReclaim_WithoutAnAgeBound_ReclaimsNothing(t *testing.T) {
 	testsupport.Isolate(t)
 	dir := srSeedHarp(t, "aged-quiet-heron")
 	srSeedDeadSession(t, "aged-quiet-heron")
 
-	_, err := ReclaimAgedSessions(context.Background(), git.NewExec(), sessions.ReapPolicy{Apply: true})
+	_, err := SweepSessions(context.Background(), git.NewExec(), srRequest(sessions.ReapPolicy{Apply: true}))
 
 	require.ErrorIs(t, err, sessions.ErrNoAgeBound)
 	srAssertIntact(t, dir, paths.EphemeralDirName, paths.PersistDirName, paths.SegmentsDirName)
 }
 
-// TestReclaimAgedSessions_TakesThePolicysMembers: the adapter removes what
+// TestSweepReclaim_TakesThePolicysMembers: the adapter removes what
 // the policy names and nothing else — the table's Ephemeral rows by default,
 // persist/ besides under Scope Persist. The reaper's own contract is pinned
 // in core (sessions.Reap's tests); this is the adapter's end of it.
-func TestReclaimAgedSessions_TakesThePolicysMembers(t *testing.T) {
+func TestSweepReclaim_TakesThePolicysMembers(t *testing.T) {
 	testsupport.Isolate(t)
 	dir := srSeedHarp(t, "aged-quiet-heron")
 	srSeedDeadSession(t, "aged-quiet-heron")
@@ -166,10 +173,10 @@ func TestReclaimAgedSessions_TakesThePolicysMembers(t *testing.T) {
 	srAssertIntact(t, dir, paths.SegmentsDirName)
 }
 
-// TestReclaimAgedSessions_SkipsARunningSession pins the lock adapter's one
+// TestSweepReclaim_SkipsARunningSession pins the lock adapter's one
 // permitting verdict from the held side: a lock this process holds is a
 // running owner, and the reap skips the session naming its pid.
-func TestReclaimAgedSessions_SkipsARunningSession(t *testing.T) {
+func TestSweepReclaim_SkipsARunningSession(t *testing.T) {
 	testsupport.Isolate(t)
 	dir := srSeedHarp(t, "aged-quiet-heron")
 	require.NoError(t, sessionlock.Hold("aged-quiet-heron"))
@@ -185,11 +192,11 @@ func TestReclaimAgedSessions_SkipsARunningSession(t *testing.T) {
 	srAssertIntact(t, dir, paths.EphemeralDirName)
 }
 
-// TestReclaimAgedSessions_SkipsASessionWithNoLock pins the adapter from the
+// TestSweepReclaim_SkipsASessionWithNoLock pins the adapter from the
 // missing side: no lock file at all — a session from before the lock
 // existed, or whose Hold failed — cannot be proven dead, and "cannot
 // determine" is never permission.
-func TestReclaimAgedSessions_SkipsASessionWithNoLock(t *testing.T) {
+func TestSweepReclaim_SkipsASessionWithNoLock(t *testing.T) {
 	testsupport.Isolate(t)
 	dir := srSeedHarp(t, "aged-quiet-heron")
 
@@ -201,10 +208,10 @@ func TestReclaimAgedSessions_SkipsASessionWithNoLock(t *testing.T) {
 	srAssertIntact(t, dir, paths.EphemeralDirName)
 }
 
-// TestReclaimAgedSessions_LeavesTheLockFileBehind: unlinking the lock while
+// TestSweepReclaim_LeavesTheLockFileBehind: unlinking the lock while
 // holding it would let a session resuming under this harp lock a FRESH inode
 // and believe it owns the session being deleted.
-func TestReclaimAgedSessions_LeavesTheLockFileBehind(t *testing.T) {
+func TestSweepReclaim_LeavesTheLockFileBehind(t *testing.T) {
 	testsupport.Isolate(t)
 	srSeedHarp(t, "aged-quiet-heron")
 	srSeedDeadSession(t, "aged-quiet-heron")
@@ -217,7 +224,7 @@ func TestReclaimAgedSessions_LeavesTheLockFileBehind(t *testing.T) {
 	assert.FileExists(t, lock)
 }
 
-// TestReclaimAgedSessions_SparesSessionWhoseWorktreeHoldsUncommittedWork is the
+// TestSweepReclaim_SparesSessionWhoseWorktreeHoldsUncommittedWork is the
 // rule that makes a mistaken liveness answer survivable rather than fatal: a
 // dirty worktree is REPORTED, never reclaimed. The session is aged and its
 // owner is provably gone — every other signal says take it — and it survives
@@ -225,7 +232,7 @@ func TestReclaimAgedSessions_LeavesTheLockFileBehind(t *testing.T) {
 //
 // The assertion reads the WIP file's OWN BYTES, not merely that a directory
 // exists: this project has lost work to a force-removed worktree before.
-func TestReclaimAgedSessions_SparesSessionWhoseWorktreeHoldsUncommittedWork(t *testing.T) {
+func TestSweepReclaim_SparesSessionWhoseWorktreeHoldsUncommittedWork(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -252,12 +259,12 @@ func TestReclaimAgedSessions_SparesSessionWhoseWorktreeHoldsUncommittedWork(t *t
 	assert.Contains(t, string(body), "uncommitted")
 }
 
-// TestReclaimAgedSessions_ReclaimsSessionWhoseWorktreeIsClean is the
+// TestSweepReclaim_ReclaimsSessionWhoseWorktreeIsClean is the
 // contrasting arm, and it is what stops the test above from passing against an
 // implementation that simply never reclaims anything with a worktree: a CLEAN
 // checkout is torn down through the worktree leaf's own triage and the store
 // then goes.
-func TestReclaimAgedSessions_ReclaimsSessionWhoseWorktreeIsClean(t *testing.T) {
+func TestSweepReclaim_ReclaimsSessionWhoseWorktreeIsClean(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -344,12 +351,12 @@ func srGit(t *testing.T, dir string, args ...string) {
 	require.NoError(t, err, "git %v: %s", args, out)
 }
 
-// TestReclaimAgedSessions_DeletesTheSessionsKeychainItemsOnApply: the macOS
+// TestSweepReclaim_DeletesTheSessionsKeychainItemsOnApply: the macOS
 // credential items a session's home was seeded with are keyed by that home's
 // path, so the reap that removes the home is the one clock that deletes
 // them — on apply, for every reaped harp, and never on a plan or for a
 // session the triage spared.
-func TestReclaimAgedSessions_DeletesTheSessionsKeychainItemsOnApply(t *testing.T) {
+func TestSweepReclaim_DeletesTheSessionsKeychainItemsOnApply(t *testing.T) {
 	testsupport.Isolate(t)
 	srSeedHarp(t, "aged-quiet-heron")
 	srSeedDeadSession(t, "aged-quiet-heron")
@@ -373,7 +380,7 @@ func TestReclaimAgedSessions_DeletesTheSessionsKeychainItemsOnApply(t *testing.T
 
 // A keychain that cannot be cleaned does not spare the session — the disk
 // is still reclaimed — but the failure is reported, not swallowed.
-func TestReclaimAgedSessions_AKeychainFailureIsReportedNotSparing(t *testing.T) {
+func TestSweepReclaim_AKeychainFailureIsReportedNotSparing(t *testing.T) {
 	testsupport.Isolate(t)
 	dir := srSeedHarp(t, "aged-quiet-heron")
 	srSeedDeadSession(t, "aged-quiet-heron")

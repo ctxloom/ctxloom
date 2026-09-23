@@ -1,11 +1,9 @@
 <!--
 J001300 narration companion (j001300_closeout.feature) — FLOWS-UNIFIED.md's U11.
 
-This companion was written when the journey was ENTIRELY unbuilt: all fifteen
-scenarios were red, every one against a surface that did not exist. Ten have
-since gone green — `session worktrees`, `session purge` and doctor's new
-checks shipped — and five remain red. Where the prose argues the design rather
-than reporting a measurement it says so.
+This companion was written when the journey was ENTIRELY unbuilt, every
+scenario red against a surface that did not exist. Where the prose argues the
+design rather than reporting a measurement it says so.
 
 The one thing here that IS measured: three of these scenarios initially passed
 green, purely because the commands they drive do not exist, so "nothing was
@@ -14,12 +12,10 @@ transferable lesson in the file.
 -->
 
 <!-- doc:intro -->
-Every other journey in this suite describes something ctxloom does. This one
-describes something it does not do yet, and the reason it is worth writing
-before the code is that a close-out flow is defined almost entirely by what it
-REFUSES to do — and refusals are the part that is hardest to add afterwards,
-because by then someone has already shipped the version that just deletes
-things.
+This journey was written before its code, and the reason that was worth doing
+is that a close-out flow is defined almost entirely by what it REFUSES to do —
+and refusals are the part that is hardest to add afterwards, because by then
+someone has already shipped the version that just deletes things.
 
 The trigger is ordinary to the point of boredom. The feature shipped Friday.
 Monday there are stale worktrees, several holding commits nobody merged;
@@ -172,18 +168,16 @@ manufacture the exact defect it exists to close, quietly, in the one flow whose
 entire purpose is not losing knowledge.
 
 <!-- doc:outro -->
-The routine that ties the four legs together is deliberately not a new
+The one command that ties the legs together is deliberately not a new
 top-level verb. `cleanup` as a command was raised during design and settled
 against, by a convention this repo argued once and does not re-litigate: the
 CLI is noun-verb, and a verb-first exception optimizes for a CLI a third this
-size. So cleanup dissolves into noun-homed leaves, and the
-one-thing-you-run affordance comes back through ctxloom's own mechanism — a
-first-party signed bundle command reached by `run -r`, with the shipped
-`check-triggers` command as the existing precedent.
-
-The honest cost is stated where it belongs: `run -r` is LLM-driven, so the
-routine is agentic rather than deterministic. Anyone wanting determinism
-scripts the four leaves in shell, and ctxloom does not need to own that script.
+size. So the sweep lives under the noun it tidies — `ctxloom session sweep` —
+and it is deterministic: a fixed table decides each session, and every action
+goes through the leaf that owns it, with that leaf's refusals intact. An
+earlier design reached it through `run -r`, which is LLM-driven; a routine
+whose whole value is what it refuses to do cannot have those refusals depend
+on a model's reading of them.
 
 The property that makes this worth building rather than merely worth having is
 the dogfooding one. Because the lessons skill is bundle content, a team ships
@@ -193,9 +187,6 @@ own supply chain. That is the strongest available argument that the supply
 chain is worth anything: the product uses it on itself, for the thing it cares
 about most.
 
-Five of the fifteen scenarios are still `@wip` and red — the lessons-extraction
-group and the `cleanup` routine — and each carries its own untag condition in
-the feature file. The other ten pass, and each says what closed it. None of the
-fifteen can be turned green by weakening an assertion; the guard added after the
-first run makes sure of that.
+No scenario can be turned green by weakening an assertion; the guard added
+after the first run makes sure of that.
 <!-- /doc:outro -->

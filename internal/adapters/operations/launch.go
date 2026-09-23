@@ -71,6 +71,11 @@ func MintIdentity(store sessions.Store, seed sessions.Seed) (sessions.Identity, 
 	if err != nil {
 		return sessions.Identity{}, fmt.Errorf("session naming failed, refusing to run: %w", err)
 	}
+	// A failed stamp warns rather than refuses: an unstamped session reads as
+	// a human's, the reading a sweep never purges undistilled.
+	if oerr := store.RecordOrigin(entry.HarpName, seed.Origin()); oerr != nil {
+		clidiag.Warn("ctxloom", "session %s: cannot record its origin, so a sweep will treat it as a human's session: %v", entry.HarpName, oerr)
+	}
 	// THIS PROCESS OWNS THE SESSION FROM HERE: hold its liveness lock until
 	// EndSession. A failed hold leaves NO lock file, so the harp reads
 	// Indeterminate — never reclaimed — rather than Dead.

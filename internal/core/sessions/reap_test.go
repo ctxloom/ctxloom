@@ -190,8 +190,8 @@ func TestReap_RemovesExactlyTheEphemeralMembers(t *testing.T) {
 }
 
 // TestReap_PersistScope_TakesThePersistStoreWithItsTranscript: Scope Persist
-// is a human's --include-persist, and it TAKES the transcripts with the rest
-// of persist/ — there is no transcript-sparing arm. The session's identity,
+// is a human's --include-persist, and from a DISTILLED session it TAKES the
+// transcripts with the rest of persist/. The session's identity,
 // its essence, its next step and its segments still survive: the directory
 // stays, and the session still lists and resolves.
 func TestReap_PersistScope_TakesThePersistStoreWithItsTranscript(t *testing.T) {
@@ -208,6 +208,76 @@ func TestReap_PersistScope_TakesThePersistStoreWithItsTranscript(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), "--include-persist takes the transcript")
 	assert.NoDirExists(t, filepath.Join(dir, paths.PersistDirName), "the persist store goes whole")
 	assert.Contains(t, rep.Members, paths.PersistDirName)
+}
+
+// reapSeedUndistilled is reapSeed without the essence: the session was never
+// distilled, so its transcript is the only record of it.
+func reapSeedUndistilled(t *testing.T, l Layout, harp string) string {
+	t.Helper()
+	dir := reapSeed(t, l, harp)
+	require.NoError(t, os.Remove(filepath.Join(dir, paths.EssenceFileName)))
+	reapBackdate(t, dir)
+	return dir
+}
+
+// TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession: without
+// an essence the transcript is the session's only record, so even
+// --include-persist leaves persist/ alone — the same rule PurgeSession
+// enforces with ErrPurgeUndistilled. The ephemeral members still go: a wider
+// scope must never free less than the default one. The report names the
+// spare and the command that lifts it.
+func TestReap_PersistScope_SparesThePersistStoreOfAnUndistilledSession(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeedUndistilled(t, l, "aged-quiet-heron")
+
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	require.NoError(t, err)
+
+	assert.FileExists(t, filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), "an undistilled session's transcript is its only record")
+	for rel, body := range reapFixture {
+		m, ok := paths.ClassifyMember(rel)
+		require.True(t, ok)
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		switch {
+		case rel == paths.EssenceFileName:
+			continue
+		case m.Lifetime == paths.Ephemeral:
+			assert.NoFileExists(t, p, "%s is ephemeral and is still reaped", rel)
+		default:
+			got, err := os.ReadFile(p)
+			if assert.NoError(t, err, "%s must survive", rel) {
+				assert.Equal(t, body, string(got))
+			}
+		}
+	}
+	require.Len(t, rep.Candidates, 1)
+	c := rep.Candidates[0]
+	assert.Equal(t, ReapReclaimed, c.Verdict, "its ephemeral members were reclaimed")
+	assert.Contains(t, c.Reason, "never distilled")
+	assert.Contains(t, c.Reason, "ctxloom session distill aged-quiet-heron")
+}
+
+// TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared: when
+// persist/ is all an undistilled session holds, nothing is taken and the
+// session is reported spared rather than hidden.
+func TestReap_PersistScope_UndistilledWithOnlyPersistDataIsSpared(t *testing.T) {
+	l := reapLayout(t)
+	dir := reapSeedUndistilled(t, l, "aged-quiet-heron")
+	for _, m := range (ReapPolicy{}).Members() {
+		require.NoError(t, os.RemoveAll(l.Member("aged-quiet-heron", m)))
+	}
+	reapBackdate(t, dir)
+
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	require.NoError(t, err)
+
+	assert.FileExists(t, filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName))
+	assert.Equal(t, 1, rep.Spared)
+	assert.Zero(t, rep.Bytes)
+	require.Len(t, rep.Candidates, 1)
+	assert.Equal(t, ReapSpared, rep.Candidates[0].Verdict)
+	assert.Contains(t, rep.Candidates[0].Reason, "never distilled")
+	assert.Contains(t, rep.Candidates[0].Reason, "ctxloom session distill aged-quiet-heron")
 }
 
 // TestReap_WithoutAnAgeBound_ReapsNothing is the load-bearing one at this

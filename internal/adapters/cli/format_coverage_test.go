@@ -154,6 +154,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// project that has no cache without destroying anything.
 	"clean": {extraArgs: noExtraArgs},
 
+	// Report-only without --yes, like clean.
+	"session sweep": {extraArgs: noExtraArgs},
+
 	// Mutating and path-taking: it records a refusal for a real binary, which
 	// this fixture has no business minting five times over.
 	"companion deny": {skip: "wired to emit(), but mutating and needs a real binary to refuse; not exercised here"},

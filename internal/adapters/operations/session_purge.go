@@ -160,12 +160,8 @@ var (
 // keeps the row instead of silently reconciling it away over its now-missing
 // transcript.
 //
-// "Is this session distilled?" is answered by whether essence.md exists on
-// disk under the harp directory — NOT by entry.Summary. The session index
-// always carries a Summary once anything has synced a summary line for it
-// (harp rename, a resume pass, this journey's own fixture), so Summary != ""
-// is true long before a real essence has ever been written; using it here
-// would let --everything sail through the one session it exists to protect.
+// "Is this session distilled?" is sessions.Distilled — the disk, never
+// entry.Summary.
 func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, error) {
 	if len(req.Populations) == 0 {
 		return nil, fmt.Errorf("%w: %q", ErrPurgeNoPopulation, harp)
@@ -205,10 +201,7 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 		return res, fmt.Errorf("%w: %s", ErrPurgeOwnerNotProvenDead, probe.Reason)
 	}
 
-	hasEssence := false
-	if _, statErr := os.Stat(filepath.Join(harpDir, paths.EssenceFileName)); statErr == nil {
-		hasEssence = true
-	}
+	hasEssence := sessions.Distilled(harpDir)
 	wantTranscript := req.wants(PurgePopulationTranscript)
 	wantArtifacts := req.wants(PurgePopulationArtifacts)
 

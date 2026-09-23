@@ -217,6 +217,11 @@ type Config struct {
 	// home-global, so this is honoured from the home file and never from
 	// the committed project file (layerscope: ScopeMachine).
 	sessionReapAge string
+	// sessionPurgeAge is how old an ended session must be before `ctxloom
+	// session sweep` purges it, in the same age grammar. It has NO default:
+	// empty means the sweep reports its purge rows and acts on none. Machine
+	// scope, like sessionReapAge.
+	sessionPurgeAge string
 
 	// Runtime-only fields: populated during Load, never part of the persisted
 	// config — configDoc (their yaml counterpart) simply omits them, which
@@ -339,6 +344,7 @@ type configDoc struct {
 	IsolationEngines             []string                `yaml:"isolation_engines,omitempty"`
 	UI                           UIConfig                `yaml:"ui,omitempty"`
 	SessionReapAge               string                  `yaml:"session_reap_age,omitempty"`
+	SessionPurgeAge              string                  `yaml:"session_purge_age,omitempty"`
 }
 
 // toDoc copies c's persisted fields into a configDoc for marshaling, cloning
@@ -369,6 +375,7 @@ func (c *Config) toDoc() configDoc {
 		IsolationEngines:             slices.Clone(c.isolationEngines),
 		UI:                           cloneUIConfig(c.ui),
 		SessionReapAge:               c.sessionReapAge,
+		SessionPurgeAge:              c.sessionPurgeAge,
 	}
 }
 
@@ -397,6 +404,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.isolationEngines = doc.IsolationEngines
 	c.ui = doc.UI
 	c.sessionReapAge = doc.SessionReapAge
+	c.sessionPurgeAge = doc.SessionPurgeAge
 
 	// lm.Configs is pre-populated before every decode precisely so downstream
 	// code may write into it, and a document is free to null it back out.
@@ -659,6 +667,10 @@ func (c *Config) SessionReapAge() string {
 	}
 	return c.sessionReapAge
 }
+
+// SessionPurgeAge returns the configured session_purge_age, or "" when
+// unset — there is no default, and a caller must not supply one.
+func (c *Config) SessionPurgeAge() string { return c.sessionPurgeAge }
 
 // DefaultUIPrefixKey is the default viewer prefix key (decision O2 of the
 // agent-io-observation plan: Ctrl-], explicitly not ESC).

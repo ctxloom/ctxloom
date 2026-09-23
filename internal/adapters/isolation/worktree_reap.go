@@ -211,7 +211,7 @@ func ClassifyOrphanedWorktrees(ctx context.Context, g git.Git, harp string) ([]W
 
 // ClassifyHarpWorktrees classifies one harp's scratch worktrees against an
 // ALREADY-TAKEN liveness verdict, for a caller that is itself HOLDING that
-// harp's session lock while it reclaims (operations.ReclaimAgedSessions).
+// harp's session lock while it reclaims (operations.SweepSessions).
 //
 // It exists because probing again from underneath our own hold would answer
 // the wrong question: flock refuses a second descriptor on a file this

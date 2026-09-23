@@ -649,6 +649,9 @@ func isoParseSpySection(body, marker string) string {
 	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
 		rest = rest[nl+1:]
 	}
+	// Prefix a newline so an EMPTY section — the next marker on the very
+	// first line — ends the section too, instead of being read as content.
+	rest = "\n" + rest
 	if next := strings.Index(rest, "\n==="); next >= 0 {
 		rest = rest[:next]
 	}

@@ -325,6 +325,22 @@ func TestParse_GarbageLineIsSkippedNotFatal(t *testing.T) {
 	assert.Equal(t, []string{"ben@abbitt.me"}, store.Entries()[0].Principals)
 }
 
+// TestParse_NoNamespacesOptionIsRefusedNamingThePrincipal: a line without
+// namespaces= would, under OpenSSH's semantics, grant every namespace. It is
+// refused as a ParseError — so it grants nothing, and every surface that
+// already reports dropped lines (the trust-root loader, `signer list`) tells
+// the user which principal's line to fix.
+func TestParse_NoNamespacesOptionIsRefusedNamingThePrincipal(t *testing.T) {
+	src := "# comment\nunscoped@example.com " + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	assert.Empty(t, store.Entries(), "a line without namespaces= must contribute no entry")
+	require.Len(t, perrs, 1)
+	assert.Equal(t, 2, perrs[0].Line)
+	assert.ErrorIs(t, perrs[0], errNoNamespaces)
+	assert.Contains(t, perrs[0].Err.Error(), "unscoped@example.com", "the cause must name the principal whose line to fix")
+}
+
 func TestParse_UnquotedNamespacesValueIsMalformed(t *testing.T) {
 	// Verified against real ssh-keygen: unquoted namespaces=value is
 	// rejected outright ("bad options: missing start quote"), not

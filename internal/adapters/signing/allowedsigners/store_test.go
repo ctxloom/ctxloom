@@ -221,20 +221,19 @@ func TestRole_NotYetValidKeyCannotAuthorize(t *testing.T) {
 	assert.False(t, d.Trusted)
 }
 
-func TestRole_UnrestrictedKeyIsTrustedEverywhere_DocumentedBroadGrant(t *testing.T) {
-	// An entry with no namespaces= option is intentionally broad (real
-	// ssh-keygen semantics, not a shortcut). Documented here so the
-	// breadth of omitting namespaces= is visible in the test suite, not
-	// just prose.
+func TestRole_EntryWithoutNamespacesIsTrustedNowhere(t *testing.T) {
+	// OpenSSH reads an absent namespaces= as "every namespace", which would
+	// hand one careless line execute (companion) and approve rights. An
+	// entry built without Namespaces grants nothing.
 	key := mustParseKey(t, testEd25519Key)
 	store := NewStore(Entry{
-		Principals: []string{"unrestricted@example.com"},
+		Principals: []string{"unscoped@example.com"},
 		PublicKey:  key,
 	})
 
-	assert.True(t, store.TrustedForNamespace(key, "publish.v1.ctxloom.dev", fixedNow()).Trusted)
-	assert.True(t, store.TrustedForNamespace(key, "approve.v1.ctxloom.dev", fixedNow()).Trusted)
-	assert.True(t, store.TrustedForNamespace(key, "reject.v1.ctxloom.dev", fixedNow()).Trusted)
+	for _, ns := range []string{"publish.v1.ctxloom.dev", "approve.v1.ctxloom.dev", "companion.v1.ctxloom.dev"} {
+		assert.False(t, store.TrustedForNamespace(key, ns, fixedNow()).Trusted, ns)
+	}
 }
 
 // --- Union / precedence ---

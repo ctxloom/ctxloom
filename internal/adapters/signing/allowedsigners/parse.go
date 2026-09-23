@@ -36,6 +36,7 @@ var (
 	errByteOrderMark               = errors.New("line begins with a UTF-8 byte-order mark, which would become part of the first principal")
 	errLineTooLong                 = errors.New("line is longer than the 1 MiB limit and was not read")
 	errUnterminatedPrincipalsQuote = errors.New("principals field has an unterminated double quote")
+	errNoNamespaces                = errors.New("no namespaces= option")
 )
 
 // ParseError describes one allowed_signers line that could not be used.

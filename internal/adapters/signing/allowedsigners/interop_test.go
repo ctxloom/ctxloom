@@ -79,7 +79,7 @@ func TestInterop_ParsesTheRealFixtureCleanly(t *testing.T) {
 	// The fixture deliberately mixes 4 malformed lines in among the good
 	// ones (see the fixture's own comments) to prove tolerant parsing;
 	// everything else must parse.
-	assert.Len(t, perrs, 4, "expected exactly the 4 deliberately-malformed lines to be rejected")
+	assert.Len(t, perrs, 5, "expected exactly the 4 deliberately-malformed lines and the namespace-less line to be rejected")
 	assert.NotEmpty(t, store.Entries())
 }
 
@@ -213,4 +213,15 @@ func TestInterop_ReviewerKey_TrustedForApproveAndReject_NotPublish(t *testing.T)
 	assert.True(t, store.TrustedAs("reviewer@example.com", rsaKey, "reject.v1.ctxloom.dev", interopNow()).Trusted)
 	assert.False(t, store.TrustedAs("reviewer@example.com", rsaKey, "publish.v1.ctxloom.dev", interopNow()).Trusted,
 		"the reviewer's RSA key is namespaced to approve+reject only; it must not authorize publish")
+}
+
+func TestInterop_NoNamespacesOption_LineRejected(t *testing.T) {
+	// Real ssh-keygen accepts this line for every namespace. ctxloom refuses
+	// it: a namespace-less line must not grant execute or approve rights.
+	allroleKey := mustParseKey(t, "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBJ1WE9ldxIve99p1uHmdTaMfocHVhtkQCZNl5odlNnUKJRa5TlZZwksn8U4zUpywax8tQzFCOFmW3L9xGHev1og=")
+	store := loadInteropStore(t)
+	for _, ns := range []string{"publish.v1.ctxloom.dev", "approve.v1.ctxloom.dev", "companion.v1.ctxloom.dev"} {
+		d := store.TrustedAs("allrole@example.com", allroleKey, ns, interopNow())
+		assert.False(t, d.Trusted, ns)
+	}
 }

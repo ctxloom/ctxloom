@@ -367,7 +367,9 @@ func (c *Coordinator) nextRelaunch(harp string) (delay time.Duration, ok, exhaus
 // other cause simply stops re-arming (the child is not resumable by
 // retrying, and its mail waits for an explicit delivery).
 func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail string) {
-	if cause == CauseStopped {
+	// A top-level run's mail waits for the session's next run; it is not a
+	// child this coordinator can relaunch (see resumeChild's claim).
+	if cause == CauseStopped || rec.TopLevel() {
 		return
 	}
 	pending := c.pendingCount(rec.Harp)

@@ -1485,7 +1485,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// end (exited). The idle reaper is the exception — it is a NON-death,
 	// EXPECTED terminal: the child's every turn was already reported, and
 	// the next mail resumes the harp, so no notice is due.
-	if rec.ParentHarp != "" && cause != CauseIdleReaped {
+	if !rec.TopLevel() && cause != CauseIdleReaped {
 		kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)
 		if cause == CauseLaunchFailed {
 			kind, body = "error", fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
@@ -1660,7 +1660,10 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	var rec RunRecord
 	found := false
 	c.runs.View(func() {
-		if r := c.runsF.currentRun(harp); r != nil && r.Ended && r.RunID == forRun {
+		// A top-level run is never resumed here: its harp names a session,
+		// not an agent binding, so Resolve can only fail — and mail the
+		// failure to the session's own inbox as if it were its parent.
+		if r := c.runsF.currentRun(harp); r != nil && r.Ended && r.RunID == forRun && !r.TopLevel() {
 			rec = *r
 			found = true
 		}

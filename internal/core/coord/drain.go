@@ -521,13 +521,10 @@ func (c *Coordinator) endOnFinalReport(harp string) *Drain {
 		switch {
 		case r.Harp != harp:
 			return false
-		// A TOP-LEVEL RUN IS NEVER ENDED BY ITS OWN REPORT. A plugin-hosted
-		// session has no parent at all; an owner-owned run (StartOwnedRun) is
-		// `ctxloom run`'s own foreground session and journals ParentHarp as its
-		// OWN harp — the self-loop owner_run.go names. Either way there is no
+		// A TOP-LEVEL RUN IS NEVER ENDED BY ITS OWN REPORT: there is no
 		// delegating parent whose contract this FINAL completes, and ending it
 		// would tear down the session the human is sitting in front of.
-		case r.ParentHarp == "" || r.ParentHarp == r.Harp:
+		case r.TopLevel():
 			return false
 		}
 		return true

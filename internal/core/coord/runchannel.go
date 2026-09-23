@@ -243,7 +243,10 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 		c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload)
 		c.flushItems(ch)
 	case ArtifactProduced:
-		c.recordArtifact(ch.role, payload)
+		if err := c.recordArtifact(ch.role, payload); err != nil {
+			c.rep.Warnf("coordinator: journal artifact manifest for %s: %v — the manifest is LOST, "+
+				"so any bytes already uploaded for it are unreachable through the log", ch.role, err)
+		}
 		c.flushItems(ch)
 	default:
 		if kind := itemKind(ev); kind != "" {

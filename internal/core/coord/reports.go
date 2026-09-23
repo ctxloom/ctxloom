@@ -318,10 +318,11 @@ func (c *Coordinator) notifyParentOfFinalReport(harp string, s Summary) {
 
 // recordArtifact journals one artifact manifest, assigning the monotonic
 // revision inside the journal's serialized window (the producer sends 0; an
-// unchanged sha256 is not a new revision).
-func (c *Coordinator) recordArtifact(harp string, a ArtifactProduced) {
+// unchanged sha256 is not a new revision). A failure means the manifest is
+// LOST, so any bytes already stored for it are unreachable through the log.
+func (c *Coordinator) recordArtifact(harp string, a ArtifactProduced) error {
 	sha := hex.EncodeToString(a.SHA256)
-	if err := c.runs.Exec(func() ([]Fact, error) {
+	return c.runs.Exec(func() ([]Fact, error) {
 		rev := a.Revision
 		if rev == 0 {
 			next, changed := c.reportsF.nextRevision(harp, a.ArtifactID, sha)
@@ -342,10 +343,7 @@ func (c *Coordinator) recordArtifact(harp string, a ArtifactProduced) {
 			Path:       a.Labels["path"],
 			UploadID:   a.UploadID,
 		})}, nil
-	}); err != nil {
-		c.rep.Warnf("coordinator: journal artifact manifest for %s: %v — the manifest is LOST, "+
-			"so any bytes already uploaded for it are unreachable through the log", harp, err)
-	}
+	})
 }
 
 // Artifacts lists the harp's artifact manifests (latest revisions) — the

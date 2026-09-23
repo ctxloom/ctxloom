@@ -108,11 +108,11 @@ func TestArtifacts_ReturnsAStableOrder(t *testing.T) {
 
 	ids := []string{"zeta", "mu", "alpha", "omega", "beta", "kappa", "delta", "sigma"}
 	for _, id := range ids {
-		c.recordArtifact("child-a", ArtifactProduced{
+		assert.NoError(t, c.recordArtifact("child-a", ArtifactProduced{
 			ArtifactID: id,
 			Name:       id,
 			SHA256:     []byte(id),
-		})
+		}))
 	}
 
 	first := c.Artifacts("child-a")

@@ -337,12 +337,25 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 // and dropped rather than mailed onward: the asker asked, the asker left, and
 // turning a late answer into unsolicited mail to the parent would make every
 // timed-out ask produce a message nobody can place.
-func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, structured json.RawMessage) (disposition string, matched bool) {
+//
+// The answer is bounded like mail (boundBody) — it never becomes mail, so
+// queueMailPayloadID's bound does not reach it. The overflow is filed under
+// the ANSWERING child, which its parent may read. A body past the ceiling is
+// refused with the ask left outstanding.
+func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, structured json.RawMessage) (disposition string, matched bool, err error) {
 	c.mu.Lock()
 	pa := c.asks[inReplyTo]
+	c.mu.Unlock()
 	if pa == nil || pa.targetHarp != caller.Harp {
+		return "", false, nil
+	}
+	if body, err = c.boundBody(caller.Harp, body); err != nil {
+		return "", true, err
+	}
+	c.mu.Lock()
+	if c.asks[inReplyTo] != pa { // answered meanwhile: this reply is ordinary mail
 		c.mu.Unlock()
-		return "", false
+		return "", false, nil
 	}
 	delete(c.asks, inReplyTo)
 	c.mu.Unlock()
@@ -352,7 +365,7 @@ func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, s
 	case pa.ch <- AskAnswer{AskID: inReplyTo, From: caller.Harp, Text: body, Structured: structured}:
 	default: // the asker already gave up; the answer has nowhere to land
 	}
-	return fmt.Sprintf("answered the coordinator's %s (%s)", pa.kind, inReplyTo), true
+	return fmt.Sprintf("answered the coordinator's %s (%s)", pa.kind, inReplyTo), true, nil
 }
 
 // ---- pause / resume ------------------------------------------------------

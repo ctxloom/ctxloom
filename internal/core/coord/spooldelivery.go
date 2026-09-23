@@ -427,6 +427,14 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	if !c.spoolDeliverTo(to) {
 		return "", fmt.Errorf("%w: %q (from %q, kind %q)", ErrNoSpoolReader, to, from, kind)
 	}
+	// The body bound, here because every mail write funnels through here: the
+	// Send verb, the bare agent_send, a child's spool out/ (routeSpoolOut ->
+	// peerSend), and the coordinator's own notices alike. The overflow is filed
+	// under the RECIPIENT, whose own artifacts it may always read.
+	body, err := c.boundBody(to, body)
+	if err != nil {
+		return "", err
+	}
 	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	// Write-and-ring is ONE operation (spoolcourier.go): the pairing used to be
 	// a convention repeated at each site, which is what made "made durable and

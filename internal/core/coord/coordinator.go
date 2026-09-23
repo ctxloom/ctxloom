@@ -998,8 +998,8 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 		// delivering the answer onward would give the target's parent a message
 		// it never asked for. A miss falls through, so a stale correlation
 		// degrades to ordinary mail rather than failing the send.
-		if disposition, matched := c.resolveAskReply(caller, inReplyTo, body, structured); matched {
-			return inReplyTo, disposition, nil
+		if disposition, matched, err := c.resolveAskReply(caller, inReplyTo, body, structured); matched {
+			return inReplyTo, disposition, err
 		}
 	}
 	// The closed-vocabulary ingress guard, at the ONE point both sender surfaces

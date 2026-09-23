@@ -142,9 +142,7 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
 			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (Part 1.0: slice 5); slice 5 landed without the move, which is still open",
 
-			// core/config — Part 1.0 also lists config/layerscope, which is under the
-			// from-prefix today and so not a violation until the rename moves it to
-			// adapters/configload/layerscope.
+			// core/config
 			"internal/core/config -> internal/adapters/remote":                 "slice 5: trust ports behind Sources.TrustPorts",
 			"internal/core/config -> internal/shared/admission":                "slice 5: admission is decided by composite.Trust",
 			"internal/core/config -> internal/adapters/signing/allowedsigners": "slice 5: trust ports behind Sources.TrustPorts",

@@ -2,7 +2,7 @@
 
 `confload` closes the config precedence chain — **home file < project file < env vars < `--config-set` flags** — for any ctxloom-family binary without knowing any product's schema. A `Product` names one binary's conventions (env prefix, an optional `KnownPath` schema predicate); `Sources` names the two file paths stage-1 bootstrap already resolved; `Overrides` carries the once-captured raw env/CLI pairs, deliberately unresolved. The package owns two contracts nobody else may re-implement: the koanf **merge semantics** (presence beats truthiness, maps deep-merge, everything else replaces) and the **override path resolution** that turns `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME` into `["agents","mycoder","runtime"]`.
 
-Consumers: `cmd/taskloom` uses `Product.Load` end-to-end; `internal/core/config` drives its own per-layer upgrade+validation pipeline and calls `Merge` + `ApplyOverrides` directly for identical override semantics; `internal/testsupport` and `internal/shared/tasks/taskstest` use the `process.go` holder for test isolation.
+Consumers are adapters and the family products, never the core ring: `confload` does I/O and warns through `clidiag`, so it is not toolbox (ruled 2026-09-22; `30-decided-architecture.md` Part 3.3). `cmd/taskloom` uses `Product.Load` end-to-end; `internal/adapters/configload` is ctxloom's product (its hooks, layer policy and decode) — it drives its own per-layer upgrade+validation pipeline and calls `Product.MergeLayers` + `Product.ApplyOverrides` directly for identical override semantics, and hands core only the decoded `*config.Config`; `internal/testsupport` and `internal/shared/tasks/taskstest` use the `process.go` holder for test isolation.
 
 ## Structure
 

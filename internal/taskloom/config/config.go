@@ -60,7 +60,7 @@ const (
 	FileName = "config.yaml"
 
 	// envPrefix mirrors ctxloom's own CTXLOOM_CONFIG_ convention (see
-	// internal/core/config's ctxloomProduct), scoped to taskloom so the two never
+	// internal/adapters/configload's (*Sources).product), scoped to taskloom so the two never
 	// collide even when both binaries run in the same process tree.
 	envPrefix = "TASKLOOM_CONFIG_"
 
@@ -231,10 +231,10 @@ func (c Config) ParsedTagSchema() (*tagschema.Schema, error) {
 }
 
 // product builds the confload.Product describing taskloom's own on-disk/env
-// conventions, exactly mirroring internal/core/config's ctxloomProduct — including
+// conventions, mirroring internal/adapters/configload's (*Sources).product — including
 // leaving KnownPath NIL when validator is nil (schema failed to load), which
 // is confload's own documented "no schema knowledge available" degradation.
-// See ctxloomProduct's doc for why a method value on a nil pointer would
+// A method value bound to a nil pointer is itself a non-nil func, so it would
 // defeat that path rather than take it.
 func product(validator *schema.ConfigValidator) confload.Product {
 	p := confload.Product{
@@ -245,7 +245,7 @@ func product(validator *schema.ConfigValidator) confload.Product {
 	}
 	if validator != nil {
 		p.KnownPath = validator.KnownPath
-		// Same override schema gate ctxloomProduct installs, for the same
+		// Same override schema gate ctxloom's product installs, for the same
 		// reason: a file layer is validated before it merges, so without this
 		// an env/--config-set value is the one way into this config that no
 		// schema ever sees.

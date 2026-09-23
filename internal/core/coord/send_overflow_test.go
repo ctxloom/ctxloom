@@ -38,7 +38,7 @@ func assertOverflowed(t *testing.T, c *Coordinator, recipient Identity, holder, 
 	sum := sha256.Sum256([]byte(full))
 	id := overflowArtifactID(hex.EncodeToString(sum[:]))
 	marker := overflowMarker(holder, id, len(full))
-	if !assert.Contains(t, delivered, overflowMarkerPhrase, "the delivered body must tell the reader to keep reading") {
+	if !assert.Contains(t, delivered, OverflowMarkerPhrase, "the delivered body must tell the reader to keep reading") {
 		return false
 	}
 	if !assert.True(t, strings.HasSuffix(delivered, marker), "the marker names the holder and the artifact id") {
@@ -116,7 +116,7 @@ func TestSendOverflow_OwnerToChild(t *testing.T) {
 	ok := assert.Eventually(t, func() bool {
 		for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName, spool.DirInConsumed} {
 			for _, e := range spoolEntries(t, out.Harp, dir) {
-				if strings.Contains(e.Message.Body, overflowMarkerPhrase) {
+				if strings.Contains(e.Message.Body, OverflowMarkerPhrase) {
 					delivered = e.Message.Body
 					return true
 				}
@@ -149,7 +149,7 @@ func ownerReceivesOverflow(t *testing.T, c *Coordinator, full string) {
 		return
 	}
 	for _, m := range msgs {
-		if strings.Contains(m.Body, overflowMarkerPhrase) {
+		if strings.Contains(m.Body, OverflowMarkerPhrase) {
 			assertOverflowed(t, c, ownerIdentity(), ownerIdentity().Harp, full, m.Body)
 			return
 		}

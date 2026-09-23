@@ -19,9 +19,10 @@ const MaxInlineBodyBytes = 8 << 10
 var ErrBodyTooLarge = fmt.Errorf("%w: body exceeds ArtifactUploadSizeCap (%d bytes), the largest body an overflow artifact can carry",
 	ErrInvalidRequest, ArtifactUploadSizeCap)
 
-// overflowMarkerPhrase is the reader's cue. The agent_send and agent_report
-// tool descriptions quote it, so a reader told to look for it finds it.
-const overflowMarkerPhrase = "keep reading for more detail"
+// OverflowMarkerPhrase is the reader's cue. The agent_send and agent_report
+// tool descriptions quote it (asserted in mcpschema), so a reader told to look
+// for it finds it.
+const OverflowMarkerPhrase = "keep reading for more detail"
 
 // inlineHead returns the part of body delivered inline and whether anything
 // was cut. The cut falls after the last whole line when one ends in the second
@@ -52,7 +53,7 @@ func overflowArtifactID(shaHex string) string {
 func overflowMarker(holder, artifactID string, size int) string {
 	return fmt.Sprintf("\n[... %s: this message is %d bytes and only the part above is inline. "+
 		"The full text is attached: agent_fetch_artifact with agent_id %q, artifact_id %q.]\n",
-		overflowMarkerPhrase, size, holder, artifactID)
+		OverflowMarkerPhrase, size, holder, artifactID)
 }
 
 // boundBody is THE body bound, for every body an agent or the coordinator

@@ -44,11 +44,12 @@ content-hash-verified before it's ever written to disk. **`roster`** lists a coo
 children — harp, run state, latest report, last activity — the live-status view an operator or
 a coordinator itself reads instead of holding it all in the conversation.
 
-Every one of these is part of the **runner-terminated** MCP surface a normal `ctxloom run` /
-`ctxloom run` session gets automatically — richer than, and schema-different from, what a
-standalone `ctxloom mcp serve` registration exposes (see the [MCP Server
-guide](/guides/mcp-server/)). You don't wire this up; it's there because you're running through
-`ctxloom run` at all.
+Every one of these is served by the session's own runner, on the MCP endpoint a `ctxloom run`
+session gets automatically. There is no standalone ctxloom MCP server to register: the endpoint
+exists only while the session runs (see the [MCP Server guide](/guides/mcp-server/)). You don't
+wire this up; it's there because you're running through `ctxloom run` at all. A delegated child
+that sits at the bottom of the tree gets only the reporting half (`agent_send`, `agent_recv`,
+`agent_report`); the tools that spawn, observe or control other children are withheld from it.
 
 ## Why each child gets its own grant, never a union
 
@@ -121,5 +122,4 @@ either.
 - [The delegation journey](/journeys/j002100-delegation/) — the real Gherkin and captured evidence
   this page is drawn from.
 - [MCP Tools Reference](/reference/mcp-tools/) — full parameter schemas for every tool above.
-- [MCP Server guide](/guides/mcp-server/) — why the standalone `ctxloom mcp serve` surface is
-  smaller than the one described here.
+- [MCP Server guide](/guides/mcp-server/): how the session endpoint reaches the engine.

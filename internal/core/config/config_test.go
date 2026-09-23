@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,7 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -18,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -637,8 +636,7 @@ func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
 	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "local.yaml"),
-		[]byte("version: \"1.0\"\nfragments:\n  onboarding:\n    content: hi\n"), 0644))
+	bundletree.WriteOS(t, bundlesDir, "local", "version: \"1.0\"\nfragments:\n  onboarding:\n    content: hi\n")
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "p.yaml"),
 		[]byte("name: p\nbundles:\n  - local#fragments/onboarding\n"), 0644))
 
@@ -699,8 +697,7 @@ func TestConfig_ResolveBundleMCPServers_InheritedBundle(t *testing.T) {
 		[]byte("name: parent\nbundles:\n  - seq-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "child.yaml"),
 		[]byte("name: child\nparents:\n  - parent\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "seq-bundle.yaml"),
-		[]byte("version: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"), 0644))
+	bundletree.WriteOS(t, bundlesDir, "seq-bundle", "version: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n")
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"child"}}},
@@ -725,8 +722,7 @@ func TestConfig_ResolveBundleMCPServers_ExcludeMCP(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 		[]byte("name: dev\nbundles:\n  - mcp-bundle\nexclude_mcp:\n  - noisy-server\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"),
-		[]byte("version: \"1.0\"\nmcp:\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"), 0644))
+	bundletree.WriteOS(t, bundlesDir, "mcp-bundle", "version: \"1.0\"\nmcp:\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n")
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
@@ -757,10 +753,8 @@ func TestConfig_ResolveBundle_ScopesToSelectedProfile(t *testing.T) {
 		[]byte("name: developer\nbundles:\n  - dev-bundle\n"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "finder.yaml"),
 		[]byte("name: finder\nbundles:\n  - finder-bundle\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev-bundle.yaml"),
-		[]byte("version: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\ncommands:\n  dev-skill:\n    description: d\n    content: c\n"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "finder-bundle.yaml"),
-		[]byte("version: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\ncommands:\n  finder-skill:\n    description: f\n    content: c\n"), 0644))
+	bundletree.WriteOS(t, bundlesDir, "dev-bundle", "version: \"1.0\"\nmcp:\n  dev-mcp:\n    command: npx\n    args: [\"-y\", \"dev\"]\ncommands:\n  dev-skill:\n    description: d\n    content: c\n")
+	bundletree.WriteOS(t, bundlesDir, "finder-bundle", "version: \"1.0\"\nmcp:\n  finder-mcp:\n    command: npx\n    args: [\"-y\", \"finder\"]\ncommands:\n  finder-skill:\n    description: f\n    content: c\n")
 
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"developer"}}},
@@ -836,7 +830,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 
 	t.Run("direct profile reference surfaces bundle hooks", func(t *testing.T) {
 		appDir, profilesDir, bundlesDir := newProject(t)
-		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hook-bundle.yaml"), []byte(hookBundleYAML), 0644))
+		bundletree.WriteOS(t, bundlesDir, "hook-bundle", hookBundleYAML)
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 			[]byte("name: dev\nbundles:\n  - hook-bundle\n"), 0644))
 
@@ -854,7 +848,7 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 
 	t.Run("parent-inherited bundle hooks resolve recursively", func(t *testing.T) {
 		appDir, profilesDir, bundlesDir := newProject(t)
-		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hook-bundle.yaml"), []byte(hookBundleYAML), 0644))
+		bundletree.WriteOS(t, bundlesDir, "hook-bundle", hookBundleYAML)
 		// Parent ships the bundle; the child (the default) only inherits it.
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "parent.yaml"),
 			[]byte("name: parent\nbundles:\n  - hook-bundle\n"), 0644))
@@ -906,7 +900,7 @@ mcp:
 	// the bundle goes in the v2 root beneath it, or nothing reads it.
 	v2Dir := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(v2Dir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(v2Dir, "test-bundle.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, v2Dir, "test-bundle", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadMCPFromBundleRef(report.Reporter{}, "test-bundle", loader.Catalog(), composite.Ungated().Authorizer())
@@ -933,20 +927,16 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	// Pinned remote content reaches the loader through a repofs reader over the
 	// bytes at its pinned revision — the same path the lockfile takes — so the
 	// test cannot mint a provenance no reader would have produced.
-	// A TREE, staged through the production converter: the MCP entry is a file
-	// beside the envelope, which is the only shape a remote bundle has.
+	// A TREE: the MCP entry is a file beside the envelope, which is the only
+	// shape a bundle has.
 	const root = "/pinned"
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, fsys.MkdirAll(root, 0o755))
-	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
-	require.NoError(t, err)
-	require.NoError(t, convert.Convert(context.Background(), st, content.BundleID("sequential-thinking"),
-		&bundles.Bundle{
-			Version: "1.0",
-			MCP: map[string]bundles.BundleMCP{
-				"sequential-thinking": {Command: "npx", Args: []string{"-y", "server"}},
-			},
-		}, convert.Options{}))
+	bundletree.WriteBundle(t, fsys, root, "sequential-thinking", &bundles.Bundle{
+		Version: "1.0",
+		MCP: map[string]bundles.BundleMCP{
+			"sequential-thinking": {Command: "npx", Args: []string{"-y", "server"}},
+		},
+	})
 	tree, err := content.NewAferoTreeFS(fsys, root)
 	require.NoError(t, err)
 	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref, bundles.WithRepoURL("https://example.test/repo")))
@@ -980,7 +970,7 @@ hooks:
 `
 	v2Dir := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
 	require.NoError(t, os.MkdirAll(v2Dir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(v2Dir, "with-hooks.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, v2Dir, "with-hooks", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
@@ -1006,7 +996,7 @@ mcp:
   some-server:
     command: foo
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
+	bundletree.WriteOS(t, bundlesDir, "no-hooks", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef(report.Reporter{}, "no-hooks", loader.Catalog(), composite.Ungated().Authorizer(), bundles.LinksUnchecked())

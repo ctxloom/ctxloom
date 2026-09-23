@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +31,7 @@ func mcpContestFixture(t *testing.T, bundleYAML map[string]string, profileBundle
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 
 	for name, body := range bundleYAML {
-		require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, name+".yaml"), []byte(body), 0o644))
+		bundletree.WriteOS(t, bundlesDir, name, body)
 	}
 	for profile, bundle := range profileBundles {
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, profile+".yaml"),

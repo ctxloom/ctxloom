@@ -3,9 +3,10 @@ package config_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 
@@ -155,9 +156,7 @@ func remoteExposure(t *testing.T) bundles.Exposure {
 
 func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {
 	memfs := afero.NewMemMapFs()
-	testsupport.WriteFile(t, memfs,
-		filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), "only.yaml"),
-		[]byte("version: \"1.0\"\n"), 0o644)
+	bundletree.Write(t, memfs, paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), "only", "version: \"1.0\"\n")
 
 	src := sequenceSources(fixtureWithDefault("a"))
 	src.readers = func(*config.Config) []bundles.Reader {

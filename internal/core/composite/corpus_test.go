@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // The unit corpus: two project bundles in memory. "alpha" ships fragments
@@ -90,10 +91,9 @@ func corpus(t *testing.T) bundles.Catalog {
 func corpusWith(t *testing.T, companions ...bundles.CompanionLoadout) bundles.Catalog {
 	t.Helper()
 	fs := afero.NewMemMapFs()
-	testsupport.SeedTree(t, fs, paths.BundlesLayoutRoot("/app", paths.LayoutV2), map[string]string{
-		"alpha.yaml": alphaYAML,
-		"beta.yaml":  betaYAML,
-	})
+	root := paths.BundlesLayoutRoot("/app", paths.LayoutV2)
+	bundletree.Write(t, fs, root, "alpha", alphaYAML)
+	bundletree.Write(t, fs, root, "beta", betaYAML)
 	readers := []bundles.Reader{bundles.NewProjectReader(fs, []string{"/app"})}
 	if len(companions) > 0 {
 		probe := func(context.Context) (bundles.CompanionProbe, error) {

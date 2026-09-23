@@ -1,4 +1,6 @@
-# ctxloom-content-digest/1
+# ctxloom-bundle-manifest/1
+# name: ctxloom-project
+# version: 1.0.0
 d2b59a52d12f4ddb32fa20aecedbff3482371c4e717ffcf6227b4bbf634e14a2  bundle.yaml
 68b3ba076a75140ec7e589bd03574bfc3175b2ec83f888c67b0fdfb56480a9db  fragments/conditional-guidance.md
 4d86cd6db2b315f41f584d4c19b90a03b65e186732fb35eed319b2b45af54cbd  fragments/config-hierarchy.md

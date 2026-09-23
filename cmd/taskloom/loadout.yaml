@@ -67,7 +67,7 @@ run:
       # time remains as defense in depth.
       #
       # pre_tool_fallback: the bind is first-bind-wins idempotent, so on
-      # agents without a session-start event (Antigravity) it may fire on
+      # agents without a session-start event it may fire on
       # PreToolUse instead — the session binds at the first tool call.
       - command: ctxloom hook session-bind
         type: command

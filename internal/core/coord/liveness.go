@@ -92,10 +92,10 @@ func (c *Coordinator) runnerHeartbeatProbe() liveness.Probe {
 		since := c.now().Sub(last)
 		return liveness.ProcState{
 			Observed: true,
-			// runnerLossTimeout is the same bound runnerWatchdog uses to
+			// RunnerLossTimeout is the same bound runnerWatchdog uses to
 			// synthesize RunExited, so this probe and the existing loss
 			// machinery can never disagree about whether a runner is gone.
-			Alive:  since <= runnerLossTimeout,
+			Alive:  since <= RunnerLossTimeout,
 			Detail: "runner heartbeat " + since.Round(time.Second).String() + " ago",
 		}
 	}}

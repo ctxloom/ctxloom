@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -88,24 +87,4 @@ func TestOneShot_SurfacesWithheldExecutable(t *testing.T) {
 
 	assert.Contains(t, warnings.String(), "noisy-server",
 		"the withheld MCP executable must be named in an advisory, not dropped silently")
-}
-
-// TestOneShot_VerbosityReachesTheRunnerStart: the invoking surface's -v
-// count reaches the runner's start (Policy.StartRunner) through the one
-// starter, so a verbose distill starts a verbose runner.
-func TestOneShot_VerbosityReachesTheRunnerStart(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := oneshotTestConfig(t)
-	for _, vCount := range []int{0, 1, 2, 3} {
-		seen := &stubSpawn{}
-		stubPrepareIsolation(t, nil, seen)
-		deps := testLaunchDeps(t, cfg, opPipe(cfg, loader))
-		stubPrepareIsolation(t, nil, seen) // testLaunchDeps installs its own; the recording one wins
-		_, hosts := hostsFor(deps, &stubEngine{out: "ran"})
-		o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: t.TempDir()}, launch.Source{Profiles: []string{"rev"}, WorkDir: t.TempDir()}, vCount)
-		require.NoError(t, err)
-		t.Cleanup(o.End)
-		require.Equal(t, 1, seen.calls, "the run started exactly one runner")
-		assert.Equal(t, vCount, seen.verbosity, "-v x%d must reach the runner start", vCount)
-	}
 }

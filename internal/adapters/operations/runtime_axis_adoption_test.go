@@ -171,7 +171,7 @@ func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stu
 	}
 	src.WorkDir = t.TempDir()
 	_, hosts := hostsFor(deps, stub)
-	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src)
 	if err != nil {
 		return "", err
 	}

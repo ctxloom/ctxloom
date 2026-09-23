@@ -65,7 +65,7 @@ func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub 
 		src.WorkDir = t.TempDir()
 	}
 	_, hosts := hostsFor(deps, stub)
-	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func TestOneShot_TurnsShareOneSession(t *testing.T) {
 
 	deps := testLaunchDeps(t, cfg, opPipe(cfg, loader))
 	host, hosts := hostsFor(deps, stub)
-	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: t.TempDir()}, launch.Source{Profiles: []string{"rev"}, WorkDir: t.TempDir()}, 0)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: t.TempDir()}, launch.Source{Profiles: []string{"rev"}, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(o.End)
 	first, err := o.Turn(context.Background(), "one")

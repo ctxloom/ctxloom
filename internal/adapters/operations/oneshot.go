@@ -73,7 +73,7 @@ var ErrNoRunHost = errors.New("internal one-shot: no coordinator hosts this run 
 // transport, parked with no briefing until the first Turn. src is the caller's Source — Internal with
 // a label for the engine, or an agent binding — and is forced Structured,
 // the only mode a turn is driven in.
-func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed sessions.Seed, src launch.Source, verbosity int) (*OneShotSession, error) {
+func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed sessions.Seed, src launch.Source) (*OneShotSession, error) {
 	if hosts == nil {
 		return nil, ErrNoRunHost
 	}
@@ -94,7 +94,7 @@ func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed se
 		return nil, ErrNoRunHost
 	}
 	o.host = host
-	start := o.starter(verbosity)
+	start := o.starter()
 	// A structured run, not the coordinator's ONE-SHOT kind: that kind gets
 	// exactly one turn and must open with it, while this session takes each
 	// of its turns as a frame — the launch's identity already says it is a
@@ -115,7 +115,7 @@ func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed se
 // recording the runner's handle for End. A cell prepared elsewhere (a test
 // double) carries no transport, which is the starter's own refusal — the
 // coordinator asks for the runner only when it starts the run.
-func (o *OneShotSession) starter(verbosity int) coord.OwnedRunStarter {
+func (o *OneShotSession) starter() coord.OwnedRunStarter {
 	l := o.Launch
 	cell, ok := TransportOf(l.Cell)
 	if !ok {
@@ -123,7 +123,7 @@ func (o *OneShotSession) starter(verbosity int) coord.OwnedRunStarter {
 			return nil, "", errors.New("one-shot: the cell carries no transport handle")
 		}
 	}
-	return RunnerStarter(cell, string(l.Engine), l.Label.Label, verbosity, func(h *isolation.RunnerHandle) { o.kill = h.Kill })
+	return RunnerStarter(cell, string(l.Engine), l.Label.Label, 0, func(h *isolation.RunnerHandle) { o.kill = h.Kill })
 }
 
 // Turn drives one turn on the parked runner — a fresh engine process resumed
@@ -277,7 +277,7 @@ func (b *OneShotBuilder) Start(ctx context.Context) (*OneShotSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	return StartOneShot(ctx, deps, b.hosts, sessions.Seed{ProjectDir: b.workDir}, InternalSource(b.label, b.model, b.workDir), 0)
+	return StartOneShot(ctx, deps, b.hosts, sessions.Seed{ProjectDir: b.workDir}, InternalSource(b.label, b.model, b.workDir))
 }
 
 // Lazy defers Start to the one-shot's first turn: a caller that never turns

@@ -702,7 +702,7 @@ func pingHosts() operations.RunHosts {
 func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, engine, workDir string) error {
 	src := operations.InternalSource(engine, "", workDir)
 	src.Permission = agent.PermissionBypass
-	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src, 0)
+	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src)
 	if err != nil {
 		return probeFailure(engine, probeFailedToStart, err)
 	}

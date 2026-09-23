@@ -112,7 +112,7 @@ type PendingReviewRequest struct {
 	UserStore    *countersign.Store `json:"-"`
 	ProjectStore *countersign.Store `json:"-"`
 	// Root overrides the allowed_signers trust root (test injection);
-	// production uses cfg.TrustRoot(). Every candidate countersignature must
+	// production uses cfg.Trust().Root(). Every candidate countersignature must
 	// clear this namespace/role check before it counts.
 	Root     trust.TrustRoot  `json:"-"`
 	Registry *remote.Registry `json:"-"`

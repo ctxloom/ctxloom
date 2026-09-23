@@ -1,4 +1,4 @@
-package config
+package configload
 
 import (
 	"crypto/ed25519"
@@ -129,8 +129,8 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 	appDir := "/project/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
 
-	cfg := &Config{appPaths: []string{appDir}}
-	cfg.SetFS(fs)
+	cfg := &signerFiles{appPaths: []string{appDir}}
+	cfg.fs = fs
 
 	key := parseAuthorizedKey(t, ctxloomReleasePubkey)
 	now := time.Now()
@@ -138,7 +138,7 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 	// Before any suppression: the embedded release key is trusted to publish,
 	// exactly as TestEmbeddedSigners_ReleaseKeyTrustedForPublishOnly proves for
 	// the raw embedded store — TrustRoot() must agree.
-	before := cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now)
+	before := cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now)
 	assert.True(t, before.Trusted, "the embedded release key starts out trusted for publish")
 
 	// Write the SAME suppression record `signer remove <embedded-principal>
@@ -148,14 +148,14 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 	// internal/adapters/operations).
 	require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(appDir), []byte("ben+ctxloom@abbitt.me\n"), 0o600))
 
-	after := cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now)
+	after := cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now)
 	assert.False(t, after.Trusted, "a locally suppressed embedded principal's key must no longer be trusted by TrustRoot()")
 
 	// A blank line and a `#`-comment line must never themselves suppress
 	// anything (only an exact principal line does) — guards against a
 	// hand-edited file accidentally distrusting nothing, or a stray blank
 	// line being read as a (never-matching) empty principal.
-	suppressed := cfg.SuppressedEmbeddedPrincipals()
+	suppressed := displaySuppressed(cfg)
 	assert.True(t, suppressed["ben+ctxloom@abbitt.me"])
 	assert.False(t, suppressed[""])
 }
@@ -224,7 +224,7 @@ func TestTrustRoot_UnreadableRevocationListDoesNotResurrectTrust(t *testing.T) {
 	key := parseAuthorizedKey(t, ctxloomReleasePubkey)
 	now := time.Now()
 
-	newCfg := func(t *testing.T, revoked bool, readable bool) *Config {
+	newCfg := func(t *testing.T, revoked bool, readable bool) *signerFiles {
 		t.Helper()
 		base := afero.NewMemMapFs()
 		appDir := "/project/.ctxloom"
@@ -237,8 +237,8 @@ func TestTrustRoot_UnreadableRevocationListDoesNotResurrectTrust(t *testing.T) {
 		if !readable {
 			fs = &unreadableFs{Fs: base, openErr: map[string]error{path: errors.New("permission denied")}}
 		}
-		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetFS(fs)
+		cfg := &signerFiles{appPaths: []string{appDir}}
+		cfg.fs = fs
 		return cfg
 	}
 
@@ -247,14 +247,14 @@ func TestTrustRoot_UnreadableRevocationListDoesNotResurrectTrust(t *testing.T) {
 	// against a trust root that trusts nothing at all.
 	t.Run("a key nobody revoked is trusted", func(t *testing.T) {
 		cfg := newCfg(t, false, true)
-		assert.True(t, cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
+		assert.True(t, cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
 			"the embedded release key starts out trusted for publish")
 	})
 
 	// UNTRUSTED SIDE, the ordinary one: revoked and readable.
 	t.Run("a revoked key is not trusted", func(t *testing.T) {
 		cfg := newCfg(t, true, true)
-		assert.False(t, cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
+		assert.False(t, cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
 			"a revoked principal's key must not be trusted")
 	})
 
@@ -262,7 +262,7 @@ func TestTrustRoot_UnreadableRevocationListDoesNotResurrectTrust(t *testing.T) {
 	// revocation cannot be read.
 	t.Run("a revoked key stays untrusted when the revocation list is unreadable", func(t *testing.T) {
 		cfg := newCfg(t, true, false)
-		assert.False(t, cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
+		assert.False(t, cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
 			"an unreadable revocation list must not re-grant a key the operator revoked")
 	})
 }

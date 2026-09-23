@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -73,7 +74,7 @@ func TestCtxloomDefaultTrusted(t *testing.T) {
 	})
 
 	t.Run("a locally distrusted embedded principal is no longer trusted", func(t *testing.T) {
-		embedded := config.EmbeddedSigners().Entries()
+		embedded := configload.EmbeddedSigners().Entries()
 		require.NotEmpty(t, embedded, "the embedded trust root must ship at least one signer for this test to mean anything")
 		principal := embedded[0].Principals[0]
 

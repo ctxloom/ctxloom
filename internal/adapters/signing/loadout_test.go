@@ -63,7 +63,7 @@ func TestDecodeLoadoutEnvelope_RefusesEnvelopeDecodingToEmptyBundle(t *testing.T
 // a key the caller trusts for the publish namespace resolves to that key's
 // verified principal — the "signed by a trusted key -> allowed" contract
 // test the task requires. This stands in for "the embedded ctxloom key": in
-// production that key is compiled into config.TrustRoot(); here a fresh test
+// production that key is compiled into the config generation's Trust().Root(); here a fresh test
 // key exercises the identical DecodeLoadoutEnvelope -> VerifyPublisher path.
 func TestLoadoutEnvelope_RoundTrip_SignedByTrustedKey(t *testing.T) {
 	bundle := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")

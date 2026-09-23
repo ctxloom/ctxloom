@@ -166,7 +166,7 @@ func reviewTrustRoot(cfg *config.Config, injected trust.TrustRoot) trust.TrustRo
 		return injected
 	}
 	if cfg != nil {
-		return cfg.TrustRoot()
+		return cfg.Trust().Root()
 	}
 	return allowedsigners.NewStore()
 }

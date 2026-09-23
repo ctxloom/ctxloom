@@ -270,7 +270,7 @@ type Config struct {
 	rep report.Reporter
 
 	// trust is the generation's gate holder (composite.Trust), bound by the
-	// Owner (bindGeneration) before the Snapshot carrying this Config is
+	// Owner (bindTrust) before the Snapshot carrying this Config is
 	// published, so the bundle EXECUTABLE surfaces (ResolveBundleMCPServers,
 	// ResolveBundleHooks, LoadCommandExports) decide with the same gate the
 	// Snapshot carries. Zero for a fixture nobody bound: its nil authorizer
@@ -279,7 +279,7 @@ type Config struct {
 
 	// catalog and versionResolver are the generation's bundle view: the
 	// catalog resolved (once, on first use) from the Sources' readers, bound
-	// by the Owner (bindGeneration) before the Snapshot carrying this Config
+	// by the Owner (bindCatalog) before the Snapshot carrying this Config
 	// is published; the resolver, attached by the reader
 	// (Builder.BindVersionResolver), materializes a pinned historical
 	// version of a remote bundle on demand.

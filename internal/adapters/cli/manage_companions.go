@@ -64,7 +64,7 @@ func printCompanionStatus(w io.Writer) {
 		fmt.Fprintln(w, "  (companion discovery disabled for this run — --no-companions/CTXLOOM_NO_COMPANIONS)")
 		return
 	}
-	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
+	root := loadConfigOrFallback(GetConfig, os.Stderr).Trust().Root()
 	for _, adm := range companions.AdmitCompanions(companions.DiscoverCompanions(), root) {
 		hint := hintForCompanion(adm.Bin)
 		switch {

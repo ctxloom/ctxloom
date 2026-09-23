@@ -138,12 +138,12 @@ func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 	return snap, nil
 }
 
-// build resolves the generation's Catalog and Trust from the sources and
-// binds both to the generation's OWN Config value, so a consumer that
+// build resolves the generation's Trust and then its Catalog from the
+// sources and binds both to the generation's OWN Config value, so a consumer that
 // reaches this generation through its *Config sees the same catalog and gate
 // the Snapshot carries — and a consumer still holding an earlier
 // generation's *Config keeps that generation's. The Config the source read
-// is copied here rather than bound in place: bindGeneration is never called
+// is copied here rather than bound in place: bindTrust/bindCatalog are never called
 // on a published value, and that must hold whatever the source returns (a
 // source that hands back one shared value on every read would otherwise
 // have a reload rebind a generation under a reader mid-assembly).
@@ -156,11 +156,9 @@ func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*S
 			warnings = append(warnings, Warning{Kind: WarnKindValidate, Text: err.Error()})
 		}
 	}
-	readers, err := o.src.Readers(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("config: resolving bundle sources: %w", err)
-	}
-	catalog := sync.OnceValue(func() bundles.Catalog { return bundles.Resolve(context.Background(), o.rep.Sink, readers...) })
+	// Trust first: the readers verify signatures against the generation's
+	// root, so it is built once and bound before they are asked for, and every
+	// reader and gate of one generation decides against the same root.
 	root, records, retraction, err := o.src.TrustPorts(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)
@@ -169,7 +167,13 @@ func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*S
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)
 	}
-	cfg.bindGeneration(catalog, trust)
+	cfg.bindTrust(trust)
+	readers, err := o.src.Readers(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("config: resolving bundle sources: %w", err)
+	}
+	catalog := sync.OnceValue(func() bundles.Catalog { return bundles.Resolve(context.Background(), o.rep.Sink, readers...) })
+	cfg.bindCatalog(catalog)
 	return &Snapshot{
 		Config:     cfg,
 		Trust:      trust,

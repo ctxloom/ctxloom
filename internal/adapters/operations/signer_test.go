@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -556,13 +557,13 @@ func TestRemoveSigner_EmbeddedPrincipal_TakesEffectOnTrustRoot(t *testing.T) {
 
 	key := embeddedTestPublicKey(t)
 	now := time.Now()
-	before := cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now)
+	before := cfg.Trust().Root().TrustedForNamespace(key, signing.NamespacePublish, now)
 	require.True(t, before.Trusted, "sanity: the embedded key starts out trusted for publish")
 
 	_, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: testEmbeddedPrincipal, Project: true, FS: fs})
 	require.NoError(t, err)
 
-	after := cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now)
+	after := cfg.Trust().Root().TrustedForNamespace(key, signing.NamespacePublish, now)
 	assert.False(t, after.Trusted, "after `signer remove` suppresses the embedded principal, TrustRoot() must no longer trust its key")
 }
 
@@ -591,9 +592,9 @@ func TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive(t *testing.T) {
 
 	embeddedKey := embeddedTestPublicKey(t)
 	now := time.Now()
-	require.True(t, cfg.TrustRoot().TrustedForNamespace(onDiskKey.PublicKey, signing.NamespacePublish, now).Trusted,
+	require.True(t, cfg.Trust().Root().TrustedForNamespace(onDiskKey.PublicKey, signing.NamespacePublish, now).Trusted,
 		"sanity: the on-disk key starts out trusted")
-	require.True(t, cfg.TrustRoot().TrustedForNamespace(embeddedKey, signing.NamespacePublish, now).Trusted,
+	require.True(t, cfg.Trust().Root().TrustedForNamespace(embeddedKey, signing.NamespacePublish, now).Trusted,
 		"sanity: the embedded key starts out trusted")
 
 	res, err := RemoveSigner(cfg, RemoveSignerRequest{Principal: testEmbeddedPrincipal, Project: true, FS: fs})
@@ -601,9 +602,9 @@ func TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive(t *testing.T) {
 	assert.Equal(t, 1, res.Removed, "the on-disk line must still be deleted")
 	assert.True(t, res.EmbeddedSuppressed, "the embedded principal must ALSO be suppressed, not skipped because Removed>0")
 
-	assert.False(t, cfg.TrustRoot().TrustedForNamespace(onDiskKey.PublicKey, signing.NamespacePublish, now).Trusted,
+	assert.False(t, cfg.Trust().Root().TrustedForNamespace(onDiskKey.PublicKey, signing.NamespacePublish, now).Trusted,
 		"the deleted on-disk key must no longer be trusted")
-	assert.False(t, cfg.TrustRoot().TrustedForNamespace(embeddedKey, signing.NamespacePublish, now).Trusted,
+	assert.False(t, cfg.Trust().Root().TrustedForNamespace(embeddedKey, signing.NamespacePublish, now).Trusted,
 		"the suppressed embedded key must no longer be trusted — this is the effect F17(a)'s early return used to skip")
 }
 
@@ -621,7 +622,7 @@ func TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive(t *testing.T) {
 //
 // ctxloom's real embedded store carries only a literal principal today (see
 // testEmbeddedPrincipal), so this exercises the fixed function directly with
-// a SYNTHETIC glob entry — config.EmbeddedSigners() has no test seam to
+// a SYNTHETIC glob entry — configload.EmbeddedSigners() has no test seam to
 // inject a glob principal into the production compiled-in store (see this
 // package's report for why that path is code-only, not end-to-end tested).
 func TestSuppressEmbeddedPrincipal_RecordsEntrysLiteralPrincipals(t *testing.T) {
@@ -661,7 +662,7 @@ func TestSuppressEmbeddedPrincipal_RecordsEntrysLiteralPrincipals(t *testing.T) 
 // (not just its principal string) to query TrustRoot() directly.
 func embeddedTestPublicKey(t *testing.T) ssh.PublicKey {
 	t.Helper()
-	for _, e := range config.EmbeddedSigners().Entries() {
+	for _, e := range configload.EmbeddedSigners().Entries() {
 		if e.MatchesPrincipal(testEmbeddedPrincipal) {
 			return e.PublicKey
 		}

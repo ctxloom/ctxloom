@@ -237,11 +237,13 @@ func (s *Sources) target(fs afero.Fs) (string, config.ConfigSource) {
 }
 
 // Readers are the bundle sources of cfg's generation, in precedence order —
+// verifying against the generation's trust root, which the Owner binds
+// (TrustPorts runs first) before it asks for them —
 // a later reader wins a name collision, so pinned remote content shadows a
 // stale extracted copy on disk and a companion's own ref, which nothing else
 // can claim, comes last.
 func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter())),
 	}
@@ -259,7 +261,7 @@ func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Read
 // out: a generation with a port missing is refused (composite.NewTrust), and
 // a listing that means "ungated" says so by name (composite.Ungated).
 func (s *Sources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root := cfg.TrustRoot()
+	root := signerFilesOf(cfg).trustStore()
 	fs := cfg.FS()
 	if fs == nil {
 		fs = afero.NewOsFs()

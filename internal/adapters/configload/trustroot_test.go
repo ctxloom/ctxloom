@@ -1,4 +1,4 @@
-package config
+package configload
 
 import (
 	"bufio"
@@ -18,8 +18,10 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -44,9 +46,9 @@ func TestTrustRoot_ProjectStoreIsParsedAndTrusted(t *testing.T) {
 	line := "bundles@ctxloom.dev namespaces=\"" + signing.NamespacePublish + "\" " + keyLine
 	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(line), 0o644))
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 
-	decision := cfg.TrustRoot().TrustedForNamespace(pub, signing.NamespacePublish, time.Now())
+	decision := cfg.trustStore().TrustedForNamespace(pub, signing.NamespacePublish, time.Now())
 	assert.True(t, decision.Trusted, "a key listed in the project allowed_signers is trusted for the namespace it lists")
 	assert.Equal(t, "bundles@ctxloom.dev", decision.Principal)
 }
@@ -60,8 +62,8 @@ func TestTrustRoot_NamespaceScopingIsEnforced(t *testing.T) {
 	line := "lead@team.example namespaces=\"" + signing.NamespaceApprove + "\" " + keyLine
 	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(line), 0o644))
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
-	root := cfg.TrustRoot()
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	root := cfg.trustStore()
 
 	assert.True(t, root.TrustedForNamespace(pub, signing.NamespaceApprove, time.Now()).Trusted,
 		"the key is trusted for the namespace it lists")
@@ -75,9 +77,9 @@ func TestTrustRoot_AbsentStoreTrustsNothing(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	pub, _ := newTestKey(t)
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 
-	root := cfg.TrustRoot()
+	root := cfg.trustStore()
 	require.NotNil(t, root, "an absent trust root is an empty store, never nil")
 	assert.False(t, root.TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted)
 }
@@ -92,9 +94,9 @@ func TestTrustRoot_MalformedLineSkippedRestStillLoads(t *testing.T) {
 		"bundles@ctxloom.dev namespaces=\"" + signing.NamespacePublish + "\" " + keyLine
 	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(content), 0o644))
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 
-	assert.True(t, cfg.TrustRoot().TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
+	assert.True(t, cfg.trustStore().TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
 		"a malformed line is skipped; the valid entries in the same file still load")
 }
 
@@ -125,7 +127,7 @@ func TestTrustRoot_UnreadableStore_IsRecordedNotErased(t *testing.T) {
 	require.NoError(t, afero.WriteFile(base, path, []byte("# whatever\n"), 0o644))
 	fs := denyOpenFs{Fs: base, deny: path}
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 	root := cfg.trustStore()
 
 	failed := root.LoadErrors()
@@ -142,15 +144,15 @@ func TestTrustRoot_UnreadableStore_IsRecordedNotErased(t *testing.T) {
 // disarm the whole on-disk trust root with only a line easy to miss in a
 // noisy startup, no structured finding a choke owner could act on.
 func TestTrustRoot_UnreadableStore_EscalatesViaStrictness(t *testing.T) {
-	resetConfigStrictness(t)
+	resetStrictness(t)
 	base := afero.NewMemMapFs()
 	path := paths.AllowedSignersPath(".ctxloom")
 	require.NoError(t, afero.WriteFile(base, path, []byte("# whatever\n"), 0o644))
 	fs := denyOpenFs{Fs: base, deny: path}
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 	mark := strictness.Checkpoint()
-	cfg.TrustRoot()
+	cfg.trustStore()
 
 	findings := strictness.Since(mark)
 	require.NotEmpty(t, findings, "an unreadable allowed_signers must be escalated, not just warned to stderr")
@@ -160,7 +162,7 @@ func TestTrustRoot_UnreadableStore_EscalatesViaStrictness(t *testing.T) {
 // failure. It must contribute nothing and record nothing — otherwise every
 // fresh install reports a broken trust root.
 func TestTrustRoot_AbsentStore_IsNotALoadError(t *testing.T) {
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: afero.NewMemMapFs()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: afero.NewMemMapFs()}
 	assert.Empty(t, cfg.trustStore().LoadErrors())
 }
 
@@ -176,13 +178,13 @@ func TestSuppressedEmbeddedPrincipals_UnreadableStore_IsLoud(t *testing.T) {
 	require.NoError(t, afero.WriteFile(base, path, []byte("bundles@ctxloom.dev\n"), 0o644))
 	fs := denyOpenFs{Fs: base, deny: path}
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	cfg.SuppressedEmbeddedPrincipals()
+	displaySuppressed(cfg)
 
 	assert.Contains(t, buf.String(), "distrusted_signers",
 		"an unreadable suppression file re-trusts a key the operator removed; that must be reported")
@@ -207,11 +209,11 @@ func TestTrustRootFilesystemResolution_NilFSFallsBackAndInjectedFSIsHonored(t *t
 	t.Setenv("HOME", t.TempDir())
 
 	t.Run("nil filesystem does not panic", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{"/nonexistent-ctxloom-project/.ctxloom"}}
+		cfg := &signerFiles{appPaths: []string{"/nonexistent-ctxloom-project/.ctxloom"}}
 		require.Nil(t, cfg.fs, "the fixture must exercise the nil-filesystem path")
 		assert.NotPanics(t, func() {
-			assert.NotNil(t, cfg.TrustRoot())
-			assert.Empty(t, cfg.SuppressedEmbeddedPrincipals())
+			assert.NotNil(t, cfg.trustStore())
+			assert.Empty(t, displaySuppressed(cfg))
 		})
 	})
 
@@ -225,9 +227,9 @@ func TestTrustRootFilesystemResolution_NilFSFallsBackAndInjectedFSIsHonored(t *t
 			paths.DistrustedSignersPath(".ctxloom"),
 			[]byte("suppressed@example.com\n"), 0o644))
 
-		cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+		cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 		assert.NotEmpty(t, cfg.trustStore().Entries(), "the injected allowed_signers must be read")
-		assert.True(t, cfg.SuppressedEmbeddedPrincipals()["suppressed@example.com"],
+		assert.True(t, displaySuppressed(cfg)["suppressed@example.com"],
 			"the injected distrusted_signers must be read")
 	})
 }
@@ -244,7 +246,7 @@ func TestTrustRootFilesystemResolution_NilFSFallsBackAndInjectedFSIsHonored(t *t
 func TestSignerStorePaths_AllowedAndDistrustedAgreeOnShape(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
-	homeApp := filepath.Join(home, AppDirName)
+	homeApp := filepath.Join(home, config.AppDirName)
 
 	cases := []struct {
 		name     string
@@ -257,7 +259,7 @@ func TestSignerStorePaths_AllowedAndDistrustedAgreeOnShape(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &Config{appPaths: tc.appPaths}
+			cfg := &signerFiles{appPaths: tc.appPaths}
 			allowed := cfg.allowedSignersPaths()
 			distrusted := cfg.distrustedSignersPaths()
 
@@ -297,13 +299,13 @@ func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
 		"lost@example.com\n"
 	require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(".ctxloom"), []byte(content), 0o644))
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	suppressed := cfg.SuppressedEmbeddedPrincipals()
+	suppressed := displaySuppressed(cfg)
 
 	// The fixture must actually truncate from the reader's point of view, or
 	// this test proves nothing about the reporting below it.
@@ -318,7 +320,7 @@ func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
 	// And the consequence is real, not merely announced: a revocation below
 	// the truncation point cannot be reversed by the truncation.
 	assert.False(t,
-		cfg.TrustRoot().TrustedForNamespace(parseAuthorizedKey(t, ctxloomReleasePubkey), signing.NamespacePublish, time.Now()).Trusted,
+		cfg.trustStore().TrustedForNamespace(parseAuthorizedKey(t, ctxloomReleasePubkey), signing.NamespacePublish, time.Now()).Trusted,
 		"a partially-read revocation list must not leave first-party keys trusted")
 }
 
@@ -337,7 +339,7 @@ func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
 // It must still be REPORTED — a line that silently does not count is how a
 // trusted signer looks revoked — so the warning is asserted here too.
 func TestTrustRoot_MalformedLine_WarnsButIsNotATrustStoreFinding(t *testing.T) {
-	resetConfigStrictness(t)
+	resetStrictness(t)
 	fs := afero.NewMemMapFs()
 	pub, keyLine := newTestKey(t)
 
@@ -345,14 +347,14 @@ func TestTrustRoot_MalformedLine_WarnsButIsNotATrustStoreFinding(t *testing.T) {
 		"bundles@ctxloom.dev namespaces=\"" + signing.NamespacePublish + "\" " + keyLine
 	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(content), 0o644))
 
-	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
+	cfg := &signerFiles{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
 	mark := strictness.Checkpoint()
-	root := cfg.TrustRoot()
+	root := cfg.trustStore()
 
 	// The fixture must actually contain a line the parser rejects, or the
 	// assertions below hold vacuously.
@@ -361,4 +363,16 @@ func TestTrustRoot_MalformedLine_WarnsButIsNotATrustStoreFinding(t *testing.T) {
 		"the valid entries in the same file still load")
 	assert.Empty(t, strictness.Since(mark),
 		"a skipped line is not a corrupt trust store; escalating it would abort startup over one stray line")
+}
+
+// ledgerReporter reports into the strictness ledger, so a test can assert the
+// findings a degraded signer-store read records.
+func ledgerReporter() report.Reporter { return report.To(strictness.Sink("ctxloom")) }
+
+// displaySuppressed is the display form of the suppression set (the one
+// SuppressedEmbeddedPrincipals returns): the principals named, without the
+// unreadable flag the trust root itself acts on.
+func displaySuppressed(c *signerFiles) map[string]bool {
+	out, _ := c.suppressedEmbeddedPrincipals()
+	return out
 }

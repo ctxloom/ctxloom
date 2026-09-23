@@ -848,7 +848,7 @@ func HomeAllowedSignersPath() (string, error) {
 // to it. allowed_signers is purely additive — there is no way
 // to write a "no longer trust this key" entry into it — so a distrusted
 // embedded principal is recorded HERE instead, one principal per line, and
-// Config.TrustRoot() (trustroot.go) subtracts any embedded entry matching a
+// the configload trust root (signerFiles.trustStore) subtracts any embedded entry matching a
 // line in this file before unioning the trust root. It never edits
 // allowed_signers itself, and it can never remove a key that isn't ctxloom's
 // own compiled-in one — `signer remove` only writes here when the principal

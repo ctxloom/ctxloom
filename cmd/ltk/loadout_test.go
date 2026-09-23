@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
 
@@ -75,7 +75,7 @@ func TestLoadout_JSONFormat_DecodesToIdenticalDocument(t *testing.T) {
 // (S8 loadoutSig seam, filled) that ltk's loadout is trusted-by-construction,
 // not review-pending: the envelope `ltk loadout --format json` actually
 // emits, verified through signing.VerifyPublisher against the REAL trust
-// root ctxloom ships (config.Config.TrustRoot(), which includes the compiled-
+// root ctxloom ships (configload.EmbeddedSigners(), the compiled-
 // in ctxloom release key), resolves to that key's principal. It also
 // DOUBLES as the drift gate item 2 requires — if loadout.yaml is ever edited
 // without regenerating loadout.yaml.sig (`just sign-loadouts`), the
@@ -88,8 +88,7 @@ func TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
 
-	cfg := &config.Config{}
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), cfg.TrustRoot(), time.Now())
+	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), configload.EmbeddedSigners(), time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, loadoutYAML, decoded)
 	assert.Equal(t, "ben+ctxloom@abbitt.me", signer, "ltk's loadout must verify as published by the ctxloom release key")
@@ -108,8 +107,7 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, loadout.Emit(&buf, "json", tampered, loadoutSig))
 
-	cfg := &config.Config{}
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), cfg.TrustRoot(), time.Now())
+	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), configload.EmbeddedSigners(), time.Now())
 	require.Error(t, err, "a loadout body that drifted from its signature must be withheld, not degraded to unsigned")
 	assert.Nil(t, decoded)
 	assert.Empty(t, signer)

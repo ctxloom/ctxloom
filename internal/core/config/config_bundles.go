@@ -40,33 +40,36 @@ func SetPreimageBuildersForTesting(hook func(bundles.BundleHook) ([]byte, error)
 	return func() { hookPreimage, mcpPreimage = prevHook, prevMCP }
 }
 
-// bindGeneration attaches the generation's resolved Catalog and Trust to the
-// Config the Owner is about to publish, so a consumer reaching this
-// generation through its *Config sees exactly what the Snapshot carries.
-// Called once per generation, before publication; never on a published value.
-func (c *Config) bindGeneration(catalog func() bundles.Catalog, trust composite.Trust) {
-	c.catalog = catalog
-	c.trust = trust
-}
+// bindTrust and bindCatalog attach the generation's Trust and resolved
+// Catalog to the Config the Owner is about to publish, so a consumer reaching
+// this generation through its *Config sees exactly what the Snapshot carries.
+// Trust is bound first because the readers the catalog resolves verify
+// against its root. Called once per generation, before publication; never on
+// a published value.
+func (c *Config) bindTrust(trust composite.Trust) { c.trust = trust }
+
+func (c *Config) bindCatalog(catalog func() bundles.Catalog) { c.catalog = catalog }
 
 // Catalog returns the generation's bundle catalog. Every Config an Owner
-// published had one bound before publication (bindGeneration) and returns
+// published had one bound before publication (bindCatalog) and returns
 // that same resolved set for its life. A Config no Owner published — a
 // fixture — has no generation to pin: it resolves the one reader core
 // itself can build, the project's authored bundles, on every call, and never
 // sees remote or companion content, which only the composition root's
-// Sources supply.
+// Sources supply. It verifies against its Trust's root, which for a fixture
+// nobody bound trusts no signer (trust.NoSigners): a signed bundle reads as
+// untrusted rather than as whatever the machine's signer files say.
 func (c *Config) Catalog() bundles.Catalog {
 	if c.catalog != nil {
 		return c.catalog()
 	}
-	root := c.TrustRoot()
+	root := c.trust.Root()
 	return bundles.Resolve(context.Background(), c.rep.Sink,
 		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)))
 }
 
 // Trust is the generation's gate holder, bound before publication
-// (bindGeneration). A Config no Owner published — a fixture — holds a ZERO
+// (bindTrust). A Config no Owner published — a fixture — holds a ZERO
 // Trust, whose nil authorizer bundles.Decide withholds on and names
 // (ReasonUngoverned): a surface that forgot its gate is a defect, never an
 // admit. A listing surface that means "ungated" binds composite.Ungated()

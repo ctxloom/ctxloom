@@ -99,6 +99,6 @@ func ctxloomOwnLoadoutReader(t *testing.T) func(*config.Config) []bundles.Reader
 		probe := func(context.Context) (bundles.CompanionProbe, error) {
 			return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{self}}, nil
 		}
-		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(cfg.TrustRoot()))}
+		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(cfg.Trust().Root()))}
 	}
 }

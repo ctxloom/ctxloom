@@ -65,7 +65,7 @@ func (s probeSources) Read(context.Context) (*config.Config, []config.Warning, e
 }
 
 func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 	return []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 		bundles.NewCompanionReader(s.probe, bundles.WithTrustRoot(root)),

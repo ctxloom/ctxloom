@@ -61,6 +61,21 @@ type (
 	}
 )
 
+// NoSigners is the TrustRoot that trusts no key in any namespace. It is the
+// root of a Trust no configuration generation built — a fixture, or a
+// configuration that failed to load — so a surface that verifies a signature
+// itself still gets an answer, and the answer is "untrusted", never a nil to
+// dereference.
+type NoSigners struct{}
+
+// NoSignersReason is the refusal NoSigners gives every key.
+const NoSignersReason = "no trust root: the configuration was not loaded, so no signer is trusted"
+
+// TrustedForNamespace implements TrustRoot: never trusted.
+func (NoSigners) TrustedForNamespace(ssh.PublicKey, string, time.Time) SignerDecision {
+	return SignerDecision{Reason: NoSignersReason}
+}
+
 // Faulted is the OPTIONAL capability a records port exposes when its backing
 // store could not be read. The gate checks it by type assertion, never as a
 // port method, so a closure-shaped test fake stays two lines and a real

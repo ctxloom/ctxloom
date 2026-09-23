@@ -238,7 +238,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	// The trust root (embedded + user + project allowed_signers) is resolved once
 	// for the whole set and handed to every reader, so no two pinned bundles are
 	// judged against different roots.
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 
 	// EVERY remote bundle is a TREE, so treeBundleReaders is the whole set.
 	//
@@ -320,7 +320,7 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		// and skills are FILES beside its bundle.yaml, so reading the manifest
 		// alone resolved every @<commit>-pinned tree bundle to a bundle with
 		// zero items — the real product bundle, silently empty.
-		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, cfg.TrustRoot())
+		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, cfg.Trust().Root())
 	}
 }
 

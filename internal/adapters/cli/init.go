@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
@@ -276,9 +277,9 @@ func ctxloomDefaultTrusted(cfg *config.Config) bool {
 	if cfg == nil {
 		return false
 	}
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 	now := time.Now()
-	for _, e := range config.EmbeddedSigners().Entries() {
+	for _, e := range configload.EmbeddedSigners().Entries() {
 		if root.TrustedForNamespace(e.PublicKey, signing.NamespacePublish, now).Trusted {
 			return true
 		}
@@ -315,10 +316,10 @@ func seedCompanionTrust(project bool) string {
 		clidiag.Warn("ctxloom", "could not authorize ctxloom's companions: %v", err)
 		return ""
 	}
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 	now := time.Now()
 	wrote := ""
-	for _, e := range config.EmbeddedSigners().Entries() {
+	for _, e := range configload.EmbeddedSigners().Entries() {
 		if e.PublicKey == nil || len(e.Principals) == 0 {
 			continue
 		}

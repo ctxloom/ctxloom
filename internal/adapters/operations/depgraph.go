@@ -185,7 +185,7 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 	// which is exactly the empty-lock behaviour of a first-ever lock.
 	active, _ := remote.NewLockfileManager(ProjectAppDir(cfg)).Load()
 	resolve := newConstraintResolver(ctx, active, factory, auth, false)
-	return flattenRootsWith(ctx, loader, factory, auth, cfg.TrustRoot(), roots, resolve)
+	return flattenRootsWith(ctx, loader, factory, auth, cfg.Trust().Root(), roots, resolve)
 }
 
 // flattenRootsWith walks the closure of roots using a caller-supplied hash

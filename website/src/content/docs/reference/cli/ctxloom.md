@@ -59,7 +59,6 @@ Run 'ctxloom <command> --help' for details on any command.
 ### SEE ALSO
 
 * [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Inspect local agents (engine↔profile bindings)
-* [ctxloom attach](/reference/cli/ctxloom_attach/)	 - Attach your terminal to a run's live pane
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 * [ctxloom clean](/reference/cli/ctxloom_clean/)	 - Remove this project's regenerable cache, keeping everything a clone cannot restore
 * [ctxloom command](/reference/cli/ctxloom_command/)	 - Manage commands

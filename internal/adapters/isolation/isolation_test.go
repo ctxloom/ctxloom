@@ -248,6 +248,21 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 			"the whole point: under --degraded this finding is STILL actionable, so the choke owner aborts")
 	})
 
+	t.Run("a container that fails to start names the other ownership this host CAN give", func(t *testing.T) {
+		resetStrictness(t)
+		stubRuntimeCandidates(t, ownedBy("docker", RuntimeContainerRootless), ownedBy("podman", RuntimeContainerRootful))
+
+		prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
+		all := strictness.All()
+		require.Len(t, all, 1)
+		assert.Contains(t, all[0].Message, "container-rootful (podman)",
+			"the refusal names the reachable container other than the one that just failed")
+		assert.Contains(t, all[0].Message, "ctxloom agent edit <agent> --runtime container-rootful",
+			"and the explicit selection that opts into it")
+		assert.NotContains(t, all[0].Message, "container-rootless (docker)",
+			"the ownership that just failed to start is not offered back as the way out")
+	})
+
 	t.Run("a workspace-axis degrade (worktree→none) is not an isolation finding", func(t *testing.T) {
 		resetStrictness(t)
 
@@ -319,6 +334,10 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 			"a requested container that cannot be provided refuses in both modes")
 		assert.NotContains(t, findings[0].FixIt, "--degraded",
 			"a non-degradable refusal must not offer --degraded as its remedy")
+		assert.Contains(t, findings[0].Message, "no container runtime is reachable on this host",
+			"with nothing to select, the refusal says so")
+		assert.Contains(t, findings[0].Message, "install docker or podman",
+			"and what to install or start")
 	})
 
 	t.Run("strict {worktree,container}: the finding fires but the worktree survives", func(t *testing.T) {

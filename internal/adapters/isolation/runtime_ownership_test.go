@@ -153,20 +153,21 @@ func TestProbeRuntime_IsUnconstrainedByOwnership(t *testing.T) {
 	assert.IsType(t, Host{}, ProbeRuntime(""), "no candidate at all is still Host{}")
 }
 
-// TestChainFor_OwnershipMismatch_FatalUnlessDegraded is the run-path half of
-// the contract, driven through the REAL SelectRuntime (the runtimeCandidates
-// seam, not the selectRuntimeProbe one) so the ownership filter actually runs.
+// TestChainFor_OwnershipMismatch_Fatal is the run-path half of the contract,
+// driven through the REAL SelectRuntime (the runtimeCandidates seam, not the
+// selectRuntimeProbe one) so the ownership filter actually runs.
 //
-// Two things are asserted that no other test covers:
+// Three things are asserted that no other test covers:
 //
 //   - An ownership mismatch takes the SAME fatal path as "no runtime at all":
-//     the container tier never enters the chain, and strict mode records one
-//     fatal ClassIsolation finding the choke owner aborts on (exit 3).
-//   - Under --degraded the fallback is the HOST. The other ownership mode is
-//     reachable in this fixture and must still not be chosen — degrading is
-//     permission to drop the boundary, never permission to satisfy the request
-//     with a different one.
-func TestChainFor_OwnershipMismatch_FatalUnlessDegraded(t *testing.T) {
+//     the container tier never enters the chain, and one non-degradable
+//     ClassIsolation finding is recorded that the choke owner aborts on.
+//   - The refusal names the container this host CAN give and the explicit
+//     selection that opts into it: choosing the other ownership is the
+//     user's decision, never ours.
+//   - --degraded changes neither: the other ownership mode is reachable in
+//     this fixture and is still not chosen, and the gate still aborts.
+func TestChainFor_OwnershipMismatch_Fatal(t *testing.T) {
 	// Only a ROOTLESS runtime is reachable, and the run demands ROOTFUL.
 	onlyRootless := func(t *testing.T) { stubRuntimeCandidates(t, ownedBy("docker", RuntimeContainerRootless)) }
 
@@ -185,6 +186,10 @@ func TestChainFor_OwnershipMismatch_FatalUnlessDegraded(t *testing.T) {
 		assert.Contains(t, findings[0].Message, string(RuntimeContainerRootful),
 			"the finding must name the ownership that was demanded, or the user cannot tell which half failed")
 		assert.Contains(t, findings[0].Message, "ownership")
+		assert.Contains(t, findings[0].Message, "container-rootless (docker)",
+			"the refusal names the container this host CAN give")
+		assert.Contains(t, findings[0].Message, "ctxloom agent edit <agent> --runtime container-rootless",
+			"and the explicit selection that opts into it")
 	})
 
 	t.Run("strict {worktree,rootful}: the runtime axis degrades ALONE", func(t *testing.T) {
@@ -200,16 +205,18 @@ func TestChainFor_OwnershipMismatch_FatalUnlessDegraded(t *testing.T) {
 		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 	})
 
-	t.Run("degraded: falls back to the HOST, never to the other ownership mode", func(t *testing.T) {
+	t.Run("degraded: still refused, and never satisfied by the other ownership mode", func(t *testing.T) {
 		resetStrictness(t)
 		onlyRootless(t)
 
 		chain := chainFor(Axes{Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0],
-			"--degraded drops the container boundary; it does not authorize the OTHER ownership mode, which is the same silent substitution wearing a flag")
-		assert.NotEmpty(t, strictness.All(),
-			"the host degrade is the accepted OUTCOME; the finding is still recorded, it just aborts nothing")
+			"--degraded does not authorize the OTHER ownership mode, which is the same silent substitution wearing a flag")
+		all := strictness.All()
+		require.NotEmpty(t, all)
+		assert.NotEmpty(t, strictness.Mode{Degraded: true}.Actionable(all),
+			"--degraded must not turn a refused boundary into a host run: the gate still aborts")
 	})
 
 	t.Run("a MATCHING ownership still builds the container tier", func(t *testing.T) {

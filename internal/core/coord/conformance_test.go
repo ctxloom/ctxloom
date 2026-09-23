@@ -524,7 +524,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 		return e != nil && len(e.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
-	mode, err := c.Inject(out.Harp, "mid-turn note")
+	mode, err := injectAsHuman(c, out.Harp, "mid-turn note")
 	require.NoError(t, err)
 	assert.Equal(t, "queued", mode)
 
@@ -543,7 +543,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 		return len(texts) == 2 && texts[1] == runnerHooks.FrameCoordinatorDelivery(UserSender, KindSteer, "mid-turn note")
 	}, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.Inject("foreign-session-harp", "hello?")
+	_, err = injectAsHuman(c, "foreign-session-harp", "hello?")
 	require.ErrorIs(t, err, ErrNotInjectable, "a non-child target is the typed refusal, not just any error")
 }
 
@@ -568,7 +568,7 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 	}, conformanceWait, 10*time.Millisecond)
 
 	long := strings.Repeat("π", 130) // 130 RUNES (2 bytes each) — proves rune counting, not byte counting
-	_, err = c.Inject(out.Harp, long)
+	_, err = injectAsHuman(c, out.Harp, long)
 	require.NoError(t, err)
 
 	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
@@ -598,7 +598,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	mode, err := c.Inject(out.Harp, "wake up")
+	mode, err := injectAsHuman(c, out.Harp, "wake up")
 	require.NoError(t, err)
 	// The write rings the runner BEFORE the disposition reads the roster, so
 	// an idle child may already be executing the new turn by then: both
@@ -631,7 +631,7 @@ func TestInject_ResumesEndedChild(t *testing.T) {
 	require.NoError(t, err)
 	endChildAtItsFirstBoundary(t, c, sp, out)
 
-	mode, err := c.Inject(out.Harp, "one more thing")
+	mode, err := injectAsHuman(c, out.Harp, "one more thing")
 	require.NoError(t, err)
 	assert.Equal(t, DeliveryResumed, mode)
 
@@ -678,7 +678,7 @@ func TestInject_CompletesParkedRecvWithUserSenderIdentity(t *testing.T) {
 	}()
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateParked }, conformanceWait, 10*time.Millisecond)
 
-	mode, err := c.Inject(out.Harp, "direct note")
+	mode, err := injectAsHuman(c, out.Harp, "direct note")
 	require.NoError(t, err)
 	// The runner completes the parked recv from the file; the coordinator
 	// reports what it can observe — queued for a parked child.

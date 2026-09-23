@@ -111,3 +111,10 @@ func TestCapUnavailable_IsACause(t *testing.T) {
 	assert.False(t, errors.Is(err, ErrRecvTimeout))
 	assert.Contains(t, err.Error(), "pause")
 }
+
+// injectAsHuman is a human steer reduced to its delivery mode — what the
+// viewer's inject line reports.
+func injectAsHuman(c *Coordinator, harp, text string) (string, error) {
+	out, err := c.ControlSteer(context.Background(), ControlInitiator{Kind: InitiatorHuman}, harp, text)
+	return out.Delivery, err
+}

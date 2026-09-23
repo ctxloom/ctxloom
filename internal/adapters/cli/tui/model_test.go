@@ -30,8 +30,8 @@ type answerCall struct {
 	note      string
 }
 
-// fakeSources records watches/cancels/injects and lets tests push feed
-// events and script the inject outcome.
+// fakeSources records watches/cancels/control requests and lets tests push
+// feed events and script the control outcome.
 type fakeSources struct {
 	// mu guards watched, which the overlay tests read from the test goroutine
 	// while a real tea.Program appends to it from its own.
@@ -42,9 +42,9 @@ type fakeSources struct {
 	cancelled map[string]int
 	exportDir string
 
-	injected   [][2]string // {harp, text} per inject call
-	injectMode string      // "" defaults to DeliveryQueued
-	injectErr  error
+	controlled []coord.ControlRequest // every Control call, in order
+	controlOut coord.ControlResult    // scripted result; a steer with no Delivery reports DeliveryQueued
+	controlErr error
 
 	approvals []coord.PendingApproval // scripted PendingApprovals() return
 	answered  []answerCall            // AnswerApproval calls, in order
@@ -84,15 +84,19 @@ func (f *fakeSources) sources() Sources {
 			}, nil
 		},
 		Now: func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },
-		Inject: func(harp, text string) (string, error) {
-			f.injected = append(f.injected, [2]string{harp, text})
-			if f.injectErr != nil {
-				return "", f.injectErr
+		Control: func(_ context.Context, req coord.ControlRequest) (coord.ControlResult, error) {
+			f.mu.Lock()
+			f.controlled = append(f.controlled, req)
+			out, err := f.controlOut, f.controlErr
+			f.mu.Unlock()
+			if err != nil {
+				return coord.ControlResult{}, err
 			}
-			if f.injectMode == "" {
-				return coord.DeliveryQueued, nil
+			out.Verb = req.Verb
+			if req.Verb == coord.ControlVerbSteer && out.Delivery == "" {
+				out.Delivery = coord.DeliveryQueued
 			}
-			return f.injectMode, nil
+			return out, nil
 		},
 		PendingApprovals: func() []coord.PendingApproval {
 			f.mu.Lock()
@@ -357,9 +361,9 @@ func TestModel_PaneStateIsCoupledNotThreeIndependentSubModels(t *testing.T) {
 	// The inject target is latched from the feed, which was latched from the
 	// roster: all three panes in one flow.
 	m, _ = step(t, m, keyMsg("i"))
-	require.True(t, m.injecting)
-	assert.Equal(t, m.feedHarp, m.injectHarp)
-	assert.Equal(t, m.rows[m.sel].Harp, m.injectHarp)
+	require.Equal(t, coord.ControlVerbSteer, m.composeVerb)
+	assert.Equal(t, m.feedHarp, m.composeHarp)
+	assert.Equal(t, m.rows[m.sel].Harp, m.composeHarp)
 }
 
 func TestModel_ScrollbackEnds(t *testing.T) {
@@ -411,7 +415,7 @@ func TestModel_RosterRefreshDoesNotWipeAnActionOutcome(t *testing.T) {
 	// Any action that reports an outcome will do; inject is the one the
 	// overlay still has. What is under test is that a BACKGROUND refresh does
 	// not clear it, not the action itself.
-	m, _ = step(t, m, injectResultMsg{harp: "h1", mode: "queued"})
+	m, _ = step(t, m, controlResultMsg{req: coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "h1"}, res: coord.ControlResult{Delivery: "queued"}})
 	require.Contains(t, m.status, "injected into h1")
 
 	m, _ = step(t, m, rosterMsg{rows: f.rows})
@@ -457,10 +461,10 @@ func TestModel_ASucceedingActionRetiresTheEarlierFailure(t *testing.T) {
 	m := openSelected(t, newTestModel(f), f)
 	m = pushEntry(t, m, f, entryEv("user", "hello"))
 
-	m, _ = step(t, m, injectResultMsg{harp: "h1", err: fmt.Errorf("no agent bus")})
+	m, _ = step(t, m, controlResultMsg{req: coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "h1"}, err: fmt.Errorf("no agent bus")})
 	require.Contains(t, m.errMsg, "no agent bus")
 
-	m, _ = step(t, m, injectResultMsg{harp: "h1", mode: "queued"})
+	m, _ = step(t, m, controlResultMsg{req: coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "h1"}, res: coord.ControlResult{Delivery: "queued"}})
 	assert.Contains(t, m.status, "injected into h1")
 	assert.Empty(t, m.errMsg, "the superseded failure must not outlive the success")
 	assert.Contains(t, m.hintNote(), "injected into h1", "and the success is what the user actually sees")
@@ -500,7 +504,7 @@ func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
 	m := openSelected(t, newTestModel(f), f)
 
 	m, _ = step(t, m, keyMsg("i"))
-	require.True(t, m.injecting)
+	require.Equal(t, coord.ControlVerbSteer, m.composeVerb)
 	assert.Contains(t, m.render(), "inject → h1:", "the input line shows the explicit target harp")
 
 	// While the line is open, navigation keys type into it, not the roster.
@@ -510,19 +514,19 @@ func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
 	m, _ = step(t, m, keyMsg("k"))
 	m, _ = step(t, m, keyMsg("space"))
 	m, _ = step(t, m, keyMsg("q"))
-	assert.Equal(t, "jk q", m.injectText)
+	assert.Equal(t, "jk q", m.composeText)
 	assert.Contains(t, m.render(), "inject → h1: jk q")
 
 	// Backspace edits; enter on blank text sends nothing; esc cancels.
 	m, _ = step(t, m, keyMsg("backspace"))
-	assert.Equal(t, "jk ", m.injectText)
-	m.injectText = "  "
+	assert.Equal(t, "jk ", m.composeText)
+	m.composeText = "  "
 	m, cmd = step(t, m, keyMsg("enter"))
 	assert.Nil(t, cmd, "blank text must not send")
-	assert.True(t, m.injecting)
+	assert.Equal(t, coord.ControlVerbSteer, m.composeVerb)
 	m, _ = step(t, m, keyMsg("esc"))
-	assert.False(t, m.injecting)
-	assert.Empty(t, f.injected, "cancel sends nothing")
+	assert.Empty(t, m.composeVerb)
+	assert.Empty(t, f.controlled, "cancel sends nothing")
 
 	// And navigation works again after cancel.
 	_, cmd = step(t, m, keyMsg("j"))
@@ -531,24 +535,24 @@ func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
 
 func TestModel_InjectSendRendersDeliveryMode(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "idle"})
-	f.injectMode = coord.DeliveryNewTurn
+	f.controlOut = coord.ControlResult{Delivery: coord.DeliveryNewTurn}
 	m := openSelected(t, newTestModel(f), f)
 
 	m, _ = step(t, m, keyMsg("i"))
 	m, _ = step(t, m, keyMsg("go left"))
 	m, cmd := step(t, m, keyMsg("enter"))
 	require.NotNil(t, cmd, "enter must dispatch the bus round trip")
-	assert.False(t, m.injecting, "the line closes at send")
+	assert.Empty(t, m.composeVerb, "the line closes at send")
 
 	m, _ = step(t, m, cmd())
-	require.Equal(t, [][2]string{{"h1", "go left"}}, f.injected)
+	require.Equal(t, []coord.ControlRequest{{Verb: coord.ControlVerbSteer, Harp: "h1", Body: "go left"}}, f.controlled)
 	assert.Equal(t, "injected into h1: "+coord.DeliveryNewTurn, m.status,
 		"the delivery mode renders inline")
 }
 
 func TestModel_InjectTypedErrorRendersInline(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "ended"})
-	f.injectErr = coord.ErrNotInjectable
+	f.controlErr = coord.ErrNotInjectable
 	m := openSelected(t, newTestModel(f), f)
 
 	m, _ = step(t, m, keyMsg("i"))
@@ -566,19 +570,19 @@ func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
 	f := newFakeSources(t.TempDir())
 	m, _ := step(t, newTestModel(f), rosterMsg{rows: nil})
 	m, _ = step(t, m, keyMsg("i"))
-	assert.False(t, m.injecting)
+	assert.Empty(t, m.composeVerb)
 	assert.Contains(t, m.status, "no agent selected")
 
 	// No Inject seam wired (no bus can ever be reached): typed unavailability.
 	f2 := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	src := f2.sources()
-	src.Inject = nil
+	src.Control = nil
 	m2 := NewModel(context.Background(), src, testGeo(), 0x1d)
 	m2, cmd := step(t, m2, rosterMsg{rows: f2.rows})
 	require.NotNil(t, cmd)
 	m2, _ = step(t, m2, cmd())
 	m2, _ = step(t, m2, keyMsg("i"))
-	assert.False(t, m2.injecting)
+	assert.Empty(t, m2.composeVerb)
 	assert.Contains(t, m2.errMsg, "inject unavailable")
 }
 

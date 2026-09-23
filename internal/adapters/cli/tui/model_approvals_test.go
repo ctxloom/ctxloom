@@ -12,7 +12,7 @@ import (
 )
 
 // TestModel_ApprovalsKeyOnEmptyListHintsWithoutOpening pins the "a" key's
-// refusal to open on nothing to show — the same shape openInject's "no agent
+// refusal to open on nothing to show — the same shape openControl's "no agent
 // selected" hint uses, not a blank panel.
 func TestModel_ApprovalsKeyOnEmptyListHintsWithoutOpening(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})

@@ -56,9 +56,9 @@ type Model struct {
 	follow     bool
 	vp         viewport.Model
 
-	injecting  bool   // the inject input line is open: keys type into it
-	injectHarp string // the explicit target, latched when the line opens
-	injectText string
+	composeVerb string // the open input line's control verb ("" = closed): keys type into it
+	composeHarp string // the explicit target, latched when the line opens
+	composeText string
 
 	approving   bool                    // the approvals view is open: keys drive it, not the roster/feed
 	approvals   []coord.PendingApproval // the last fetched pending list
@@ -126,10 +126,10 @@ type feedClosedMsg struct {
 	harp string
 	err  error
 }
-type injectResultMsg struct {
-	harp string
-	mode string // coord.Delivery* on success (internal/core/coord)
-	err  error
+type controlResultMsg struct {
+	req coord.ControlRequest
+	res coord.ControlResult
+	err error
 }
 type approvalResultMsg struct {
 	messageID string
@@ -276,8 +276,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyFeedEvent(msg)
 	case feedClosedMsg:
 		return m.applyFeedClosed(msg)
-	case injectResultMsg:
-		return m.applyInjectResult(msg)
+	case controlResultMsg:
+		return m.applyControlResult(msg)
 	case approvalResultMsg:
 		return m.applyApprovalResult(msg)
 	}
@@ -291,13 +291,41 @@ func (m Model) applyFeedErr(msg feedErrMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) applyInjectResult(msg injectResultMsg) (tea.Model, tea.Cmd) {
+// applyControlResult lands one control round trip's outcome on the hint bar.
+// An ask's answer is flattened onto that one line: the full reply is also in
+// the target's own feed, as the agent_send that carried it.
+func (m Model) applyControlResult(msg controlResultMsg) (tea.Model, tea.Cmd) {
+	harp := msg.req.Harp
 	if msg.err != nil {
-		m.reportErr(fmt.Sprintf("inject %s: %v", msg.harp, msg.err))
-	} else {
-		m.reportOK(fmt.Sprintf("injected into %s: %s", msg.harp, msg.mode))
+		m.reportErr(fmt.Sprintf("%s %s: %v", controlLabel(msg.req.Verb), harp, msg.err))
+		return m, nil
+	}
+	switch msg.req.Verb {
+	case coord.ControlVerbSteer:
+		m.reportOK(fmt.Sprintf("injected into %s: %s", harp, msg.res.Delivery))
+	case coord.ControlVerbQuestion, coord.ControlVerbSummarize:
+		what := "answer"
+		if msg.req.Verb == coord.ControlVerbSummarize {
+			what = "summary"
+		}
+		text := ""
+		if msg.res.Answer != nil {
+			text = strings.Join(strings.Fields(msg.res.Answer.Text), " ")
+		}
+		m.reportOK(fmt.Sprintf("%s from %s: %s", what, harp, text))
+	case coord.ControlVerbPause:
+		m.reportOK(changedOr(msg.res.Changed, "paused "+harp, harp+" was already paused"))
+	case coord.ControlVerbResume:
+		m.reportOK(changedOr(msg.res.Changed, "resumed "+harp, harp+" was not paused"))
 	}
 	return m, nil
+}
+
+func changedOr(changed bool, did, didNot string) string {
+	if changed {
+		return did
+	}
+	return didNot
 }
 
 // applyApprovalResult lands the outcome of an answerApprovalCmd round trip.
@@ -413,8 +441,8 @@ func (m Model) applyFeedClosed(msg feedClosedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.injecting {
-		return m.updateInjectKey(msg)
+	if m.composeVerb != "" {
+		return m.updateComposeKey(msg)
 	}
 	if m.approving {
 		return m.updateApprovalKey(msg)
@@ -483,79 +511,126 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshFeed()
 		return m, nil
-	case "i":
-		return m.openInject()
+	case "i", "?", "s", "p", "r":
+		return m.openControl(controlKeys[key])
 	case "a":
 		return m.openApprovals()
 	}
 	return m, nil
 }
 
-// openInject opens the inject input line targeting the viewed harp. The
-// target is latched at open so a roster refresh can't silently retarget the
-// text mid-composition.
-func (m Model) openInject() (tea.Model, tea.Cmd) {
+// controlKeys maps each control key to the verb it drives.
+var controlKeys = map[string]string{
+	"i": coord.ControlVerbSteer,
+	"?": coord.ControlVerbQuestion,
+	"s": coord.ControlVerbSummarize,
+	"p": coord.ControlVerbPause,
+	"r": coord.ControlVerbResume,
+}
+
+// controlLabel is the verb's name on the viewer's surface. Steer keeps the
+// viewer's own word for it, "inject".
+func controlLabel(verb string) string {
+	switch verb {
+	case coord.ControlVerbSteer:
+		return "inject"
+	case coord.ControlVerbQuestion:
+		return "ask"
+	}
+	return verb
+}
+
+// controlTakesBody reports whether verb carries typed text (the instruction,
+// the question, the summary's focus) and so opens the input line; pause and
+// resume act at the keypress.
+func controlTakesBody(verb string) bool {
+	return verb != coord.ControlVerbPause && verb != coord.ControlVerbResume
+}
+
+// openControl starts a control action on the viewed harp: the input line for
+// a verb that carries text, the request itself for one that does not. The
+// target is latched here so a roster refresh can't silently retarget it.
+func (m Model) openControl(verb string) (tea.Model, tea.Cmd) {
 	if m.feedHarp == "" {
-		m.reportOK("no agent selected to inject into")
+		m.reportOK("no agent selected to " + controlLabel(verb))
 		return m, nil
 	}
-	if m.src.Inject == nil {
-		m.reportErr("inject unavailable (no agent bus for this session)")
+	if m.src.Control == nil {
+		m.reportErr(controlLabel(verb) + " unavailable (no agent bus for this session)")
 		return m, nil
 	}
-	m.injecting = true
-	m.injectHarp = m.feedHarp
-	m.injectText = ""
+	if !controlTakesBody(verb) {
+		return m.sendControl(coord.ControlRequest{Verb: verb, Harp: m.feedHarp})
+	}
+	m.composeVerb = verb
+	m.composeHarp = m.feedHarp
+	m.composeText = ""
 	m.reportOK("")
 	return m, nil
 }
 
-// updateInjectKey owns every key while the inject line is open: printable
+// updateComposeKey owns every key while the input line is open: printable
 // keys type into the line (including j/k — navigation is suspended), enter
 // sends over the bus, esc cancels. The engine prefix and ctrl+c still back
 // out of the overlay entirely.
-func (m Model) updateInjectKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateComposeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// v2 reports printable input as Key.Text — one field covering both v1's
 	// KeyRunes and its separate KeySpace. A non-printable key (enter, esc,
 	// ctrl+c, the arrows) carries an empty Text and falls through to the
 	// bindings below, which is the same precedence v1's type switch had.
 	if msg.Text != "" {
-		m.injectText += msg.Text
+		m.composeText += msg.Text
 		return m, nil
 	}
 	switch msg.String() {
 	case m.prefixKey, "ctrl+c":
 		return m.quit()
 	case "esc":
-		m.injecting = false
-		m.injectText = ""
+		m.composeVerb = ""
+		m.composeText = ""
 		return m, nil
 	case "enter":
-		text := m.injectText
-		if strings.TrimSpace(text) == "" {
+		if strings.TrimSpace(m.composeText) == "" {
 			return m, nil
 		}
-		harp := m.injectHarp
-		m.injecting = false
-		m.injectText = ""
-		m.status = "injecting into " + harp + "…"
-		return m, m.injectCmd(harp, text)
+		req := coord.ControlRequest{Verb: m.composeVerb, Harp: m.composeHarp, Body: m.composeText}
+		m.composeVerb = ""
+		m.composeText = ""
+		return m.sendControl(req)
 	case "backspace":
-		if r := []rune(m.injectText); len(r) > 0 {
-			m.injectText = string(r[:len(r)-1])
+		if r := []rune(m.composeText); len(r) > 0 {
+			m.composeText = string(r[:len(r)-1])
 		}
 	}
 	return m, nil
 }
 
-// injectCmd runs the bus round trip off the update loop; the outcome — the
-// delivery mode, or the bus's typed error — renders inline on arrival.
-func (m Model) injectCmd(harp, text string) tea.Cmd {
-	inject := m.src.Inject
-	return func() tea.Msg {
-		mode, err := inject(harp, text)
-		return injectResultMsg{harp: harp, mode: mode, err: err}
+// sendControl runs the bus round trip off the update loop; the outcome
+// renders inline on arrival. It rides the overlay's context: closing the
+// viewer abandons a pending ask (the question stays in the target's spool,
+// and a late answer is dropped), rather than leaving a waiter nobody reads.
+func (m Model) sendControl(req coord.ControlRequest) (tea.Model, tea.Cmd) {
+	m.status = controlPending(req)
+	control, ctx := m.src.Control, m.ctx
+	return m, func() tea.Msg {
+		res, err := control(ctx, req)
+		return controlResultMsg{req: req, res: res, err: err}
 	}
+}
+
+// controlPending is the hint while a request is in flight. An ask says it
+// waits for a reply: it resolves when the target answers, not when the
+// request lands.
+func controlPending(req coord.ControlRequest) string {
+	switch req.Verb {
+	case coord.ControlVerbSteer:
+		return "injecting into " + req.Harp + "…"
+	case coord.ControlVerbQuestion, coord.ControlVerbSummarize:
+		return "asked " + req.Harp + "; waiting for its reply…"
+	case coord.ControlVerbPause:
+		return "pausing " + req.Harp + "…"
+	}
+	return "resuming " + req.Harp + "…"
 }
 
 // openApprovals opens the approvals view — a FULL body-region view (like the
@@ -582,7 +657,7 @@ func (m Model) openApprovals() (tea.Model, tea.Cmd) {
 
 // updateApprovalKey owns every key while the approvals view is open. The
 // note line (declining) is nested state, checked first exactly like
-// updateInjectKey's own printable-vs-binding precedence.
+// updateComposeKey's own printable-vs-binding precedence.
 func (m Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.approvalNoting {
 		return m.updateApprovalNoteKey(msg)
@@ -616,8 +691,8 @@ func (m Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // answerSelected latches the CURRENTLY selected approval's target
-// (messageID+harp) at the keypress — exactly why openInject latches
-// injectHarp at open — so a list refresh mid-flight (the async answer, or a
+// (messageID+harp) at the keypress — exactly why openControl latches
+// composeHarp at open — so a list refresh mid-flight (the async answer, or a
 // background rosterTickMsg) cannot silently retarget an answer already in
 // flight.
 func (m Model) answerSelected(decision agentcoordpb.ApprovalDecision_Decision, note string) (tea.Model, tea.Cmd) {
@@ -644,7 +719,7 @@ func (m Model) openApprovalNote() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateApprovalNoteKey mirrors updateInjectKey's printable-accumulation
+// updateApprovalNoteKey mirrors updateComposeKey's printable-accumulation
 // idiom: enter sends DECISION_DECLINE with the note (empty is legal — the
 // decline itself, not the note, is the decision), esc backs out to the LIST
 // (not the whole overlay) without calling AnswerApproval at all.
@@ -959,16 +1034,16 @@ func (m Model) feedTitle() string {
 	return title
 }
 
-// footerLine is the panel's bottom row: the inject input while it is open,
+// footerLine is the panel's bottom row: the input line while it is open,
 // otherwise the key hints plus the current note.
 func (m Model) footerLine(cols int) string {
-	if m.injecting {
-		// The inject line replaces the hints while open: explicit target, the
-		// text so far, and its own key hints. Deliberately not dimmed — it is
-		// the focused input.
-		return padCell(" inject → "+m.injectHarp+": "+m.injectText+"_ · enter send · esc cancel", cols)
+	if m.composeVerb != "" {
+		// The input line replaces the hints while open: the verb, its explicit
+		// target, the text so far, and its own key hints. Deliberately not
+		// dimmed — it is the focused input.
+		return padCell(" "+controlLabel(m.composeVerb)+" → "+m.composeHarp+": "+m.composeText+"_ · enter send · esc cancel", cols)
 	}
-	hints := " j/k move · enter feed · i inject · x expand · f follow · g/G ends · s/S save · y copy · " +
+	hints := " j/k move · enter feed · i inject · ? ask · s summarize · p pause · r resume · a approvals · x expand · f follow · g/G ends · " +
 		strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
 	if note := m.hintNote(); note != "" {
 		hints += "  ─ " + note

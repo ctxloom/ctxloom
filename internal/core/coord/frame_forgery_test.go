@@ -138,7 +138,7 @@ func TestLegacyMailTurn_CarriesProvenance(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.Inject(out.Harp, forgedHeader)
+	_, err = injectAsHuman(c, out.Harp, forgedHeader)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return len(sp.chat(0).RecordedTexts()) == 2 }, conformanceWait, 10*time.Millisecond)

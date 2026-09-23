@@ -18,12 +18,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// ErrNotInjectable rejects a user injection whose target the coordinator does
+// ErrNotInjectable rejects a control action whose target the coordinator does
 // not hold and cannot resume (an unknown harp, or a foreign process's session
 // — there is no delivery channel into another process's terminal, by
-// design). Relocated from the retired internal/agentbus package (D2): the
-// vocabulary was always native to the coordinator's own Inject method; the
-// bus socket was just one of two transports wrapping it.
+// design).
 var ErrNotInjectable = errors.New("inject: target is not a child this coordinator holds or can resume")
 
 // ErrDraining is returned by every admission site (AgentRun, StartOwnedRun,
@@ -39,10 +37,8 @@ var ErrDraining = errors.New("coordinator is draining: refusing new work (alread
 // it would have bound have no owner left to close them.
 var ErrClosed = errors.New("coordinator is closed")
 
-// Delivery modes Inject reports back: which §6a delivery-by-state rule the
-// coordinator applied to the user's text. Relocated from internal/agentbus
-// (D2) — same vocabulary, now native rather than borrowed from the retired
-// bus wire protocol.
+// Delivery modes a steer reports back (SteerOutcome.Delivery): which §6a
+// delivery-by-state rule the coordinator applied to the instruction.
 const (
 	DeliveryNewTurn = "new-turn" // woke an idle child into a new turn
 	DeliveryQueued  = "queued"   // queued for the child's next turn boundary
@@ -1065,7 +1061,7 @@ func (c *Coordinator) ownerSend(caller Identity, to, kind, body string, structur
 
 // deliveryDisposition classifies ONE §6a delivery-by-state outcome — the state
 // the delivery observed (driveQueued's return) — into the two vocabularies the
-// coordinator answers in: the typed mode Inject reports to the TUI, and the
+// coordinator answers in: the typed mode a steer reports to its initiator, and the
 // prose peerSend hands the sending agent. They are ONE classification on
 // purpose: a state described two ways is a state the two surfaces can come to
 // disagree about.
@@ -1159,25 +1155,6 @@ func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) st
 	return fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", rec.Harp)
 }
 
-// Inject delivers user-typed text into a child: ControlSteer with a HUMAN
-// initiator — same verb, one implementation. The signature is the TUI's
-// contract (caller: run_terminal_ui.go): a Delivery* mode string.
-//
-// INVARIANT (decision O3): the KindUserInjected mirror notice to the target's
-// parent fires on EVERY successful injection — a coordinator's picture of its
-// child never diverges without a trace.
-func (c *Coordinator) Inject(harp, text string) (string, error) {
-	out, err := c.ControlSteer(context.Background(), ControlInitiator{
-		Kind: InitiatorHuman,
-	}, harp, text)
-	if err != nil {
-		// ErrNotInjectable is the TUI's typed refusal and must survive the
-		// indirection; ControlSteer already wraps it.
-		return "", err
-	}
-	return out.Delivery, nil
-}
-
 // injectDigestRunes bounds the mirror notice body: enough for the parent to
 // recognize what was said, never the bulk.
 const injectDigestRunes = 120
@@ -1189,10 +1166,3 @@ func injectDigest(text string) string {
 	}
 	return fmt.Sprintf("%s… (%d chars total)", string(r[:injectDigestRunes]), len(r))
 }
-
-// D2 retired the agentbus-backed viewer socket entirely (BindSessionSocket,
-// the per-owner-harp agent-bus.sock, Hub()): observe/roster/inject now ride
-// ConsumerService (consumer.go) — a single coordinator-wide surface, not a
-// per-session-owner socket — so no per-harp bind step exists anymore. Inject
-// itself (below) is unchanged; it was always native to the coordinator, the
-// socket was only ever one of two transports wrapping it.

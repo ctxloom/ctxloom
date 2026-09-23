@@ -48,7 +48,7 @@ func TestValidateTerminalUIConfig_DefaultAndValidKeysPass(t *testing.T) {
 // a run with no hosted coordinator (coordinator startup failed, or was
 // skipped) must still hand the overlay a working Sources value: an empty
 // bar roster (never an error), and a typed ErrNotInjectable rather than a
-// nil-pointer panic on Inject.
+// nil-pointer panic on Control.
 
 func TestTerminalUISources_NilCoordinatorRosterDegradesToEmptyNotError(t *testing.T) {
 	home := testsupport.Isolate(t)
@@ -61,11 +61,11 @@ func TestTerminalUISources_NilCoordinatorRosterDegradesToEmptyNotError(t *testin
 	assert.Empty(t, rows, "no coordinator hosted and no indexed sessions: an empty bar roster, not an error")
 }
 
-func TestTerminalUISources_NilCoordinatorInjectIsNotInjectable(t *testing.T) {
+func TestTerminalUISources_NilCoordinatorControlIsNotInjectable(t *testing.T) {
 	src := terminalUISources(nil, "/irrelevant", "self-harp")
-	_, err := src.Inject("some-harp", "hello")
+	_, err := src.Control(context.Background(), coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "some-harp", Body: "hello"})
 	require.ErrorIs(t, err, coord.ErrNotInjectable,
-		"no coordinator hosted: Inject degrades to the typed refusal, not a nil-pointer panic")
+		"no coordinator hosted: Control degrades to the typed refusal, not a nil-pointer panic")
 }
 
 func TestSurroundRoster_NilCoordinatorIsEmptyNotError(t *testing.T) {

@@ -128,8 +128,7 @@ func (c *Coordinator) controlTarget(by ControlInitiator, harp string) (*RunRecor
 	// been designed would otherwise inherit child-control by default.
 	switch by.Kind {
 	case InitiatorHuman:
-		// The human may control any run this coordinator holds — Inject's
-		// existing rule, unchanged.
+		// The human may control any run this coordinator holds.
 	case InitiatorAgent:
 		if rec.ParentHarp != by.Harp {
 			return nil, fmt.Errorf("%w: %q is not the parent of %q; a coordinating agent controls only its own children", ErrControlRefused, by.Harp, harp)

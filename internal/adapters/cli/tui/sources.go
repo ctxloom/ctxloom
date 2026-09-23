@@ -19,10 +19,11 @@ type Sources struct {
 	// Watch opens a harp's observation feed (operations.WatchSessionFeed
 	// behind a cancel).
 	Watch func(ctx context.Context, harp string) (*Feed, error)
-	// Inject delivers user-typed text into harp through the serving
-	// coordinator, returning the delivery mode it reports (coord.Delivery*,
-	// internal/core/coord). Nil when no coordinator is hosted.
-	Inject func(harp, text string) (string, error)
+	// Control runs one control verb (steer, question, summarize, pause,
+	// resume) against a harp as the HUMAN initiator, through the serving
+	// coordinator (coord.Coordinator.Control). Nil when no coordinator is
+	// hosted; every control key then says so rather than opening.
+	Control func(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error)
 	// Now is the export-filename clock; nil means time.Now.
 	Now func() time.Time
 	// PendingApprovals lists approvals parked for this human's decision

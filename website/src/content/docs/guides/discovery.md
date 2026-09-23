@@ -139,9 +139,15 @@ skips this per-item review for everything they sign.
 Reference remote content for a single run without authoring a profile:
 
 ```bash
-# Use a remote fragment
-ctxloom run -f golang-bundles/testing#fragments/table-driven "write tests"
+# Use a remote fragment by its bare name...
+ctxloom run -f table-driven "write tests"
+
+# ...or by its canonical bundle URL
+ctxloom run -f 'https://github.com/alice/ctxloom-golang@bundles/testing#fragments/table-driven' "write tests"
 ```
+
+`-f` does not accept the `<remote-alias>/<bundle>` form that `profile create -b`
+does: a bundle token in front of `#fragments/` is read as a local bundle.
 
 This only works once the fragment is already pulled and reviewed: `-f` never
 fetches on demand, and unreviewed content isn't silently added to context —

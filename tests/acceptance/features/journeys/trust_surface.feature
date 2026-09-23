@@ -154,20 +154,20 @@ Feature: The trust surface — what "review" actually controls
   # STALING. The composite form is a change to what gets signed, so it bumps the
   # countersign contract and every approval recorded before it stops verifying.
   # That is accepted and announced — but it must land as STALE, not ABSENT: an
-  # item whose earlier approval no longer covers it has to come back labelled an
-  # UPDATE, because "new" would tell the reviewer nobody ever looked at this,
-  # hiding that these bytes might be a substitution for something they approved.
+  # item whose earlier approval no longer covers it has to come back labelled a
+  # RE-REVIEW, because "new" would tell the reviewer nobody ever looked at this,
+  # and "update" would tell them the bytes changed when they did not.
   # Tabled by format: `review` is wired to emit(), so off a terminal (which
   # this harness always is) the no-flag row now gets the JSON
-  # PendingReviewResult, not the per-line "update"/"new" prose the old
+  # PendingReviewResult, not the per-line status prose the old
   # assertion checked unconditionally.
-  Scenario Outline: An approval recorded under a superseded contract reads as an update, not as a new item
+  Scenario Outline: An approval recorded under a superseded contract reads as a re-review, not as a new item or an update
     Given a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice approves the fragment
     And her approval was recorded under a superseded countersign contract
     And Alice starts a session
     Then the fragment is absent from her assistant's delivered surface
-    And review lists the fragment as an update awaiting re-review, not as a new item, asking for "<flags>"
+    And review lists the fragment as awaiting re-review, not as a new item or an update, asking for "<flags>"
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         |

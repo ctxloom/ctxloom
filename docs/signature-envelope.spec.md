@@ -460,8 +460,9 @@ the remote-target fields above. Every `/1` exec record — every MCP and every
 HOOK approval, since both kinds share this contract — therefore stops verifying
 and its item returns to pending. That is the announced mass re-review the
 version carrier exists to produce, not a regression: the records are still
-READ, so a superseded approval surfaces as an UPDATE rather than as a
-first-time item, and no stale record is ever re-keyed onto the new bytes.
+READ, so a superseded approval of unchanged bytes surfaces as a RE-REVIEW
+rather than as a first-time item, and no stale record is ever re-keyed onto the
+new bytes.
 
 Which fields are covered is not restated anywhere else. `bundles.mcpContentPayload`
 and `bundles.hookContentPayload` ARE the field sets, declaration order is byte
@@ -1634,7 +1635,8 @@ preimage binds, and lookups into it key on `(ref, layout form)` only. That is wh
 makes a contract bump (§12) land as STALE rather than ABSENT: a record framed under
 a superseded contract can never verify again, but "a human approved something here
 once" is still true, and the index is the only thing left that can say so, which is
-what labels the item an UPDATE to re-review instead of a first-time item. Such a
+what labels the item a RE-REVIEW (or an UPDATE, when the recorded payload hash
+differs from the current bytes) instead of a first-time item. Such a
 record is only ever REPORTED, never re-keyed onto the current vocabulary —
 re-keying would have to guess the role it was approved in.
 

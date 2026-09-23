@@ -243,14 +243,18 @@ func warnIfSoftwareKey(out io.Writer, signer ssh.Signer) bool {
 }
 
 // renderReviewList prints the non-interactive pending table: bundle, who signed
-// it, then ref, kind, new|update — the refs are directly usable with
+// it, then ref, kind, new|update|re-review — the refs are directly usable with
 // trust/blacklist.
 func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 	if res.Total == 0 {
 		fmt.Fprintln(w, "Nothing is pending review.")
 		return
 	}
-	fmt.Fprintf(w, "%d item(s) pending review (%d update(s)):\n", res.Total, res.Updates)
+	fmt.Fprintf(w, "%d item(s) pending review (%d update(s)", res.Total, res.Updates)
+	if res.ReReviews > 0 {
+		fmt.Fprintf(w, ", %d re-review(s)", res.ReReviews)
+	}
+	fmt.Fprintln(w, "):")
 	for _, b := range res.Bundles {
 		// Every interpolation below is a string the PUBLISHER chose, on the
 		// one surface whose job is to tell a human which publisher they are
@@ -386,10 +390,13 @@ func (o *reviewObserver) ContentNotCountersigned(ref string) {
 
 // printReviewBundleHeader names the bundle, its source remote, and the counts.
 func printReviewBundleHeader(w io.Writer, b operations.ReviewBundle) {
-	updates := 0
+	updates, reReviews := 0, 0
 	for _, it := range b.Items {
-		if it.Status == operations.ReviewStatusUpdate {
+		switch it.Status {
+		case operations.ReviewStatusUpdate:
 			updates++
+		case operations.ReviewStatusReReview:
+			reReviews++
 		}
 	}
 	fmt.Fprintf(w, "\n━━ %s", termsafe.Field(b.Ref))
@@ -400,17 +407,23 @@ func printReviewBundleHeader(w io.Writer, b operations.ReviewBundle) {
 	if updates > 0 {
 		fmt.Fprintf(w, " (%d update(s))", updates)
 	}
+	if reReviews > 0 {
+		fmt.Fprintf(w, " (%d re-review(s))", reReviews)
+	}
 	fmt.Fprintln(w)
 }
 
-// printReviewItem shows one item: full content for NEW items and executables
-// (mcp/hooks always render as what they run), a unified diff against the
-// previously-accepted snapshot for an UPDATE — falling back to full content
-// when no snapshot exists (e.g. a migrated v1 grant).
+// printReviewItem shows one item: full content for NEW and RE-REVIEW items and
+// executables (mcp/hooks always render as what they run), a unified diff
+// against the previously-accepted snapshot for an UPDATE — falling back to full
+// content when no snapshot exists (e.g. a migrated v1 grant).
 func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 	label := "NEW"
-	if item.Status == operations.ReviewStatusUpdate {
+	switch item.Status {
+	case operations.ReviewStatusUpdate:
 		label = "UPDATE — changed since acceptance"
+	case operations.ReviewStatusReReview:
+		label = "RE-REVIEW — approval no longer applies"
 	}
 	fmt.Fprintf(w, "\n[%d/%d] %s/%s (%s)\n", idx, count, termsafe.Field(item.Kind), termsafe.Field(item.Name), label)
 	if item.AlternateContent != "" {
@@ -431,23 +444,20 @@ func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 func printReviewItemBody(w io.Writer, item operations.ReviewItem) {
 	isUpdate := item.Status == operations.ReviewStatusUpdate
 	switch {
+	case item.Status == operations.ReviewStatusReReview:
+		// The bytes are the ones a human approved; a superseded approval
+		// record (e.g. a countersign-contract bump) re-gates them. Full content
+		// below is then the whole story, and saying so is the difference
+		// between a re-read and a re-audit.
+		fmt.Fprintln(w, "  (unchanged since it was approved — it is pending again because the earlier approval no longer applies; showing it in full)")
 	case isUpdate && item.PreviousContent != "":
-		switch diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent); {
-		case diff != "":
+		if diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent); diff != "" {
 			// BOTH sides of this diff are publisher bytes, so the update path
 			// is sanitised exactly like the full-content path below it.
 			printPublisherBlock(w, item.Ref, diff)
 			return
-		case item.PreviousContent == item.CurrentContent:
-			// An item is labelled UPDATE whenever a prior approval exists, not
-			// only when the bytes moved — a superseded approval record (e.g. a
-			// countersign-contract bump) re-gates identical content. Full
-			// content below is then the whole story, and saying so is the
-			// difference between a re-read and a re-audit.
-			fmt.Fprintln(w, "  (unchanged since it was approved — it is pending again because the earlier approval no longer applies; showing it in full)")
-		default:
-			fmt.Fprintln(w, "  (no differences could be rendered against the approved content — showing the incoming content in full)")
 		}
+		fmt.Fprintln(w, "  (no differences could be rendered against the approved content — showing the incoming content in full)")
 	case isUpdate && !item.Executable:
 		// No snapshot to diff against (e.g. a migrated grant). Executables are
 		// exempt: mcp/hooks always render as what they run, never as a diff.

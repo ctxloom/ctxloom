@@ -70,10 +70,6 @@ const (
 	CauseStopped = "stopped"
 	// CauseLaunchFailed is a child that never came up.
 	CauseLaunchFailed = "launch-failed"
-	// CauseOrphaned marks runs adopted from disk after a coordinator
-	// relaunch: their engine died with the previous process. Queued mail is
-	// preserved; a later send/inject resumes the harp as a fresh run.
-	CauseOrphaned = "orphaned-by-restart"
 	// CauseIdleReaped is the idle reaper's terminal: the run's runner had no
 	// turn for delegation.idle_timeout and was ended to free its slot, its
 	// process (a container, on that axis) and its bound endpoint. It is an

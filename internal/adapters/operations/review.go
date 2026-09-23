@@ -309,20 +309,15 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, read bundles.BundleRea
 		skill := bundle.Skills[name]
 		// Bundle.Path is overloaded and filepath.Dir of a companion/seeded
 		// value is ".", which would hash files from the process working
-		// directory into what the user is asked to approve. Only a
-		// manifest-LESS skill actually needs the tree, so only that case is
-		// fatal here — see SkillPreimageDir.
-		skillDir, dirErr := bundle.SkillPreimageDir(skill)
+		// directory into what the user is asked to approve. FSDir refuses it.
+		skillDir, dirErr := bundle.FSDir()
 		if dirErr != nil {
 			clidiag.Warn("ctxloom", "bundle %q: cannot review skill %q: %v", bundleRef, name, dirErr)
 			continue
 		}
-		// The EFFECTIVE manifest — authored if synced, derived from the tree
-		// if not — is resolved once and used for BOTH the preimage the user
-		// is asked to approve and the file listing they are shown. Rendering
-		// the authored manifest while hashing a derived one would ask for
-		// approval of files review never displayed.
-		manifest, merr := skill.EffectiveManifest(e.fs, skillDir, name)
+		// The package manifest is resolved once and used for BOTH the preimage
+		// the user is asked to approve and the file listing they are shown.
+		manifest, merr := skill.PackageManifest(e.fs, skillDir, name)
 		if merr != nil {
 			clidiag.Warn("ctxloom", "review: skipping skill %q in bundle %q: %v", name, bundleRef, merr)
 			continue

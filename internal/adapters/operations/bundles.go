@@ -11,7 +11,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,7 +20,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -85,18 +83,9 @@ type CreateBundleRequest struct {
 	// (ADR 0026); nil defaults to the filesystem. Frontends leave it nil.
 	Store bundles.Store `json:"-"`
 
-	// Tree authors the bundle as a TREE in the v2 layout — bundle.yaml plus one
-	// file per item — instead of a single-file document in v1.
-	//
-	// It is a BOOL and not a paths.BundleLayout because form and layout are one
-	// axis here, not two: the v1 layout holds documents and the v2 layout holds
-	// trees, so a layout-typed field would admit "a document in v2" and "a tree
-	// in v1", neither of which any reader can resolve.
-	Tree bool `json:"tree,omitempty"`
-
-	// FS, when non-nil, is the afero filesystem a TREE is written to; nil
-	// defaults to the OS filesystem. It has no effect on a single-file create,
-	// which persists through Store.
+	// FS, when non-nil, is the afero filesystem the tree is written to (and
+	// checked for an existing bundle on) when no Store is given; nil defaults
+	// to the session's store and the OS filesystem.
 	FS afero.Fs `json:"-"`
 }
 
@@ -146,21 +135,25 @@ type CreateBundleResult struct {
 	Path   string `json:"path"`
 }
 
-// CreateBundle writes a new bundle YAML to .ctxloom/content/bundles/<name>.yaml
-// — the COMMITTED content tree, always. Creation is repo-local by definition: a
-// new bundle is this project's own authored content, git-tracked from the
-// moment it exists, and it takes no remote/destination (choosing where a bundle
-// goes happens later, at push time). Writing it to the gitignored cache instead
-// is how authored work ends up untracked and unsignable.
+// CreateBundle scaffolds a new bundle TREE at
+// .ctxloom/content/bundles/v2/<name>/ — bundle.yaml plus one file per item —
+// in the COMMITTED content tree, always. Creation is repo-local by definition:
+// a new bundle is this project's own authored content, git-tracked from the
+// moment it exists, and it takes no remote/destination (choosing where a
+// bundle goes happens later, at push time). Writing it to the gitignored cache
+// instead is how authored work ends up untracked and unsignable.
+//
+// A bundle created with no items is its envelope alone: the author's scaffold,
+// which the local reader reads as an empty bundle until items are added.
 //
 // Path safety: req.Name is validated via bundles.ValidateBundleName before
 // any filesystem call, so names containing "..", absolute paths, or null
 // bytes are rejected. Slash-separated names like "personal/foo" are
-// supported and land at .ctxloom/content/bundles/personal/foo.yaml (parent
-// dirs are MkdirAll'd). In addition, requireSafeBundlePath rejects any
-// directory component already on disk that is a symlink — without this an
-// attacker who had planted .ctxloom/content/bundles/personal -> /etc could
-// induce Save to write outside the bundles root.
+// supported and land at .ctxloom/content/bundles/v2/personal/foo/. In
+// addition, requireSafeBundlePath rejects any directory component already on
+// disk that is a symlink — without this an attacker who had planted
+// .ctxloom/content/bundles/personal -> /etc could induce Save to write outside
+// the bundles root.
 func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleRequest) (*CreateBundleResult, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
@@ -172,40 +165,17 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	// The layout and the on-disk form are one choice: v1 holds documents, v2
-	// holds trees. See CreateBundleRequest.Tree.
-	layout := paths.LayoutV2
-	if req.Tree {
-		layout = paths.LayoutV2
-	}
-	dir := paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], layout)
-	path := filepath.Join(dir, req.Name+".yaml")
-	if req.Tree {
-		// A tree's document is the ENVELOPE inside the bundle's own directory,
-		// not a sibling file named for it. This is the ONLY place that path is
-		// derived — createTreeBundle takes it rather than recomputing it, so
-		// there is no second answer to drift from this one.
-		path = filepath.Join(dir, req.Name, bundles.DirectoryFormManifest)
-	}
+	dir := paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV2)
+	path := filepath.Join(dir, req.Name, bundles.DirectoryFormManifest)
 	if err := requireSafeBundlePath([]string{dir}, path); err != nil {
 		return nil, err
 	}
 	// Fail fast on a bundle that already exists, before distillation spends an
-	// LLM round trip per item on a create that cannot land. This check is an
-	// economy, NOT the decision: it is racy by construction, and the window it
-	// opens is as long as distillation takes. reserveNewBundlePath (or, for a
-	// tree, createTreeBundle's own check) is what actually decides.
-	//
-	// It consults the REQUEST's filesystem, which for every caller that passes
-	// none is the OS filesystem this always used. Checking os unconditionally
-	// would consult a filesystem the tree write never touches.
-	if exists, err := afero.Exists(getFS(req.FS), path); err == nil && exists {
+	// LLM round trip per item on a create that cannot land.
+	if exists, err := afero.Exists(getFS(req.FS), path); err != nil {
+		return nil, fmt.Errorf("failed to check for an existing bundle: %w", err)
+	} else if exists {
 		return nil, fmt.Errorf("bundle already exists: %s", path)
-	}
-	if !req.Tree {
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create bundles directory: %w", err)
-		}
 	}
 
 	version := req.Version
@@ -227,17 +197,11 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
 	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Commands), req.Distiller)
 
-	if req.Tree {
-		return createTreeBundle(ctx, getFS(req.FS), path, req.Name, bundle)
+	store := req.Store
+	if store == nil && req.FS != nil {
+		store = bundles.NewFSStore(req.FS, nil)
 	}
-
-	if err := reserveNewBundlePath(path); err != nil {
-		return nil, err
-	}
-	if err := bundleStore(cfg, req.Store).Save(bundle); err != nil {
-		// The reservation is a zero-byte placeholder nobody can use. Drop it so
-		// it neither reads as a bundle nor blocks the retry.
-		_ = os.Remove(path)
+	if err := bundleStore(cfg, store).Save(bundle); err != nil {
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 
@@ -246,73 +210,6 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		Name:   req.Name,
 		Path:   path,
 	}, nil
-}
-
-// reserveNewBundlePath claims path for a brand-new bundle, atomically. Creation
-// is "write only if absent", and a plain Stat-then-Save cannot express that:
-// anything appearing at the path in between — a concurrent `bundle create`, a
-// pull, another author on a shared checkout — is silently overwritten, and what
-// is destroyed is authored content nobody has a copy of. O_CREATE|O_EXCL makes
-// the existence test and the claim one operation, so a loser of the race gets
-// the same "already exists" refusal as a serial caller.
-//
-// The placeholder it leaves is zero bytes; Save writes the real content over it
-// immediately, and the caller removes it if Save fails.
-func reserveNewBundlePath(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-	if err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			return fmt.Errorf("bundle already exists: %s", path)
-		}
-		return fmt.Errorf("failed to create bundle file: %w", err)
-	}
-	return f.Close()
-}
-
-// createTreeBundle authors a new bundle as a TREE through internal/adapters/content/convert
-// — the SAME converter a migration runs, rather than a second one written for
-// authoring. Two converters would drift, and the drift would surface as a
-// signature that stops verifying rather than as a test failure.
-//
-// The store is rooted at the bundle directory's PARENT and the id is that
-// directory's base name, because a bundle id must be a single path segment
-// (content.validateBundleID) — a nested authored name ("personal/foo") is
-// absorbed by the root rather than smuggled into the id. This is the same
-// rooting rule bundles.localFSReader.openLocalTree uses, and the two must agree
-// or a bundle would read differently depending on how it arrived.
-func createTreeBundle(ctx context.Context, fsys afero.Fs, envelope, name string, b *bundles.Bundle) (*CreateBundleResult, error) {
-	dir := filepath.Dir(envelope)
-	root := filepath.Dir(dir)
-	id := content.BundleID(filepath.Base(dir))
-
-	if exists, err := afero.Exists(fsys, envelope); err != nil {
-		return nil, fmt.Errorf("failed to check for an existing bundle: %w", err)
-	} else if exists {
-		return nil, fmt.Errorf("bundle already exists: %s", envelope)
-	}
-	if err := fsys.MkdirAll(root, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
-	}
-	store, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
-	if err != nil {
-		return nil, fmt.Errorf("failed to open the bundles tree at %s: %w", root, err)
-	}
-	// SkillFiles is nil: a bundle being CREATED declares no skills, because there
-	// is no directory for their packages to have been authored in yet. Skills are
-	// added afterwards, by CreateSkill.
-	if err := convert.Convert(ctx, store, id, b, convert.Options{}); err != nil {
-		_ = fsys.RemoveAll(dir)
-		return nil, fmt.Errorf("failed to write bundle tree: %w", err)
-	}
-	// convert.Convert is deliberately a NO-OP for a bundle that plans to zero
-	// items, so without this the call above returns nil having written nothing:
-	// exit 0, a "created" result, and no bytes. Assert the envelope landed
-	// rather than trusting the report.
-	if exists, err := afero.Exists(fsys, envelope); err != nil || !exists {
-		_ = fsys.RemoveAll(dir)
-		return nil, fmt.Errorf("bundle %q would hold nothing: a tree bundle has no inline items, so it must be created with at least one fragment, command or MCP server — add one, or create a single-file bundle instead", name)
-	}
-	return &CreateBundleResult{Status: "created", Name: name, Path: envelope}, nil
 }
 
 // UpdateBundleRequest is the input for UpdateBundle. Pointer fields
@@ -717,8 +614,7 @@ type PushBundleRequest struct {
 
 	// A bundle's signature is not a publish-time concern: `ctxloom bundle
 	// sign` writes a tree's SHA256SUMS manifest and its .sigs/ entry, and a
-	// tree push carries that store with the rest of the tree. A single-file
-	// bundle publishes unsigned; it cannot carry a signature at all.
+	// tree push carries that store with the rest of the tree.
 }
 
 // PushBundleResult reports what was (or would be) published.
@@ -726,7 +622,7 @@ type PushBundleResult struct {
 	Status     string `json:"status"` // "preview" (dry-run), "pushed", "pr-created"
 	Path       string `json:"path"`
 	Remote     string `json:"remote"`      // Resolved registry name, or URL if no name match.
-	TargetPath string `json:"target_path"` // Path inside the remote repo (e.g. ctxloom/bundles/foo.yaml).
+	TargetPath string `json:"target_path"` // Path inside the remote repo (e.g. .ctxloom/content/bundles/v2/foo).
 	Branch     string `json:"branch,omitempty"`
 	Title      string `json:"title,omitempty"`   // PR title / commit subject
 	Message    string `json:"message,omitempty"` // PR body / commit body
@@ -741,13 +637,13 @@ type PushBundleResult struct {
 	Preview string `json:"preview,omitempty"`
 
 	// Signed reports whether the published tree carries a signature — an
-	// entry in its .sigs/ store. A single-file bundle is never signed.
+	// entry in its .sigs/ store.
 	Signed bool `json:"signed,omitempty"`
 }
 
-// PushBundle publishes (or dry-runs) a local bundle file to req.Remote (a
-// resolved registry name — see ResolveBundleRemote). Network is touched only
-// for a non-dry-run.
+// PushBundle publishes (or dry-runs) a local bundle tree, named by its
+// bundle.yaml, to req.Remote (a resolved registry name — see
+// ResolveBundleRemote). Network is touched only for a non-dry-run.
 func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) (*PushBundleResult, error) {
 	if err := validatePushRequest(cfg, req); err != nil {
 		return nil, err
@@ -756,6 +652,9 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	absPath, err := filepath.Abs(req.Path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
+	}
+	if filepath.Base(absPath) != bundles.DirectoryFormManifest {
+		return nil, fmt.Errorf("%w: %s", ErrNotABundleTree, absPath)
 	}
 
 	// Read + parse the bundle to validate it before any inference. Push has no
@@ -812,28 +711,6 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	// spelled out a second time inside remote.preparePublish, with nothing
 	// binding the two together.
 	bundleName := bundles.ExtractBundleName(absPath)
-	// A directory-form bundle publishes its WHOLE directory, not just the
-	// manifest — the same predicate ExportBundle already uses for the sending
-	// half of this same copy (bundle_transfer.go): the basename check, not
-	// bundles.IsTreeFormBundle's stricter "declares nothing inline" rule,
-	// which answers a different question (which FORMAT root a bundle's local
-	// storage belongs under) than the one asked here (does this directory
-	// hold more than its manifest, and if so must all of it travel).
-	// treeForm answers a question about the SOURCE — does this directory hold
-	// more than its manifest, so must all of it travel — and it decides that
-	// alone (see runPush below). It does NOT decide the target's shape:
-	// where a bundle lands is the LAYOUT's business, resolved once in
-	// remote.RepoItemPath. Letting the source's shape pick the target path is
-	// how publish and fetch came to disagree.
-	treeForm := filepath.Base(absPath) == bundles.DirectoryFormManifest
-	// A DOCUMENT CANNOT BE PUBLISHED. The tree form is the only format, so a
-	// single-file bundle has no readable destination: pull materializes nothing
-	// for it, and every read path resolves a tree. Publishing one used to
-	// SUCCEED and leave bytes nobody could ever read — exit 0 over a payload
-	// that is permanently unreachable, which is worse than any refusal.
-	if !treeForm {
-		return nil, fmt.Errorf("cannot publish %q: it is a single-file bundle, and bundles are distributed as trees — a document has no readable form on the consumer side; convert it to a directory with a %s before publishing", bundleName, bundles.DirectoryFormManifest)
-	}
 	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName)
 
 	// Resolve title/body the same way publish.go does, so the result accurately
@@ -856,7 +733,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return result, nil
 	}
 
-	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result, treeForm)
+	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result)
 }
 
 // validatePushRequest checks the request preconditions for PushBundle.
@@ -895,16 +772,14 @@ func pushDryRunPreview(bundleName string, size int, remURL, targetPath string, c
 }
 
 // runPush performs the actual (non-dry-run) publish and records the outcome
-// on result. A single-file bundle travels through remote.PublishManager.Publish;
-// a directory-form one (treeForm) through PublishTree, so that every file
-// under the bundle's directory lands in ONE commit (engaged-chivalry).
+// on result. The tree travels through PublishTree, so that every file under
+// the bundle's directory lands in ONE commit (engaged-chivalry).
 //
 // A tree's signature — its SHA256SUMS manifest and .sigs/ entries, written to
 // disk before PushBundle runs by `ctxloom bundle sign` — is just more of the
 // files gatherPublishTreeFiles walks off disk, so it travels in that same
-// commit and result.Signed reports whether one was carried. A single-file
-// bundle carries no signature.
-func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult, treeForm bool) (*PushBundleResult, error) {
+// commit and result.Signed reports whether one was carried.
+func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
 	pm := req.PublishManager
 	if pm == nil {
 		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.GetAppPaths()[0]))
@@ -920,29 +795,18 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 		RemotePath: result.TargetPath,
 	}
 
-	var (
-		pubResult *remote.PublishResult
-		signed    bool
-	)
-	if treeForm {
-		files, err := gatherPublishTreeFiles(afero.NewOsFs(), filepath.Dir(absPath))
-		if err != nil {
-			return nil, fmt.Errorf("gather bundle tree: %w", err)
-		}
-		if pubResult, err = pm.PublishTree(ctx, files, remoteName, opts); err != nil {
-			return nil, fmt.Errorf("publish: %w", err)
-		}
-		signed = treeCarriesSignature(files)
-	} else {
-		var err error
-		if pubResult, err = pm.Publish(ctx, absPath, remoteName, opts); err != nil {
-			return nil, fmt.Errorf("publish: %w", err)
-		}
+	files, err := gatherPublishTreeFiles(afero.NewOsFs(), filepath.Dir(absPath))
+	if err != nil {
+		return nil, fmt.Errorf("gather bundle tree: %w", err)
+	}
+	pubResult, err := pm.PublishTree(ctx, files, remoteName, opts)
+	if err != nil {
+		return nil, fmt.Errorf("publish: %w", err)
 	}
 
 	result.CommitSHA = pubResult.SHA
 	result.PRURL = pubResult.PRURL
-	result.Signed = signed
+	result.Signed = treeCarriesSignature(files)
 	result.Status = "pushed"
 	if req.CreatePR {
 		result.Status = "pr-created"

@@ -72,7 +72,7 @@ type MoveBundleResult struct {
 	Name     string `json:"name"`
 	Source   string `json:"source"`
 	DestKind string `json:"dest_kind"` // "remote" | "path"
-	// Dest is the local destination file, or the path inside the remote repo.
+	// Dest is the local destination tree, or the path inside the remote repo.
 	Dest string `json:"dest"`
 	// SigDest is where the tree's .sigs/ store landed, or "" when the
 	// bundle was never signed.
@@ -87,10 +87,9 @@ type MoveBundleResult struct {
 // remote (a publish) or to another local directory / ctxloom checkout (a copy) —
 // and then removes the source.
 //
-// Bytes are carried VERBATIM. A bundle's publisher signature covers the bundle
-// file's exact bytes (spec §3.1) and nothing between publisher and verifier may
-// re-serialize them (spec §3.0), so move never parses-and-re-emits, and never
-// re-signs: the existing detached `<name>.yaml.sig` stays valid at the
+// Bytes are carried VERBATIM. A tree's signature — its SHA256SUMS manifest and
+// the .sigs/ entries over it — covers its files' exact bytes, so move never
+// parses-and-re-emits, and never re-signs: the signature stays valid at the
 // destination precisely because the bytes don't change. A signature that exists
 // but cannot be carried is an error — landing the bundle unsigned would be a
 // silent trust downgrade (spec §7A.4).
@@ -116,11 +115,7 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 	if err != nil {
 		return nil, err
 	}
-	layout, err := moveSourceLayout(fs, src)
-	if err != nil {
-		return nil, err
-	}
-	dest, err := resolveMoveDest(cfg, fs, req.To, layout)
+	dest, err := resolveMoveDest(cfg, fs, req.To)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +183,7 @@ func loadMoveSource(cfg *config.Config, fs afero.Fs, arg string) (name, path str
 // addressed by name, not by whatever directory happens to share its spelling);
 // otherwise the argument must be an existing directory. Anything else is an
 // error listing what was available, rather than a silent misfire.
-func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string, layout paths.BundleLayout) (moveDest, error) {
+func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string) (moveDest, error) {
 	registry, err := getRegistry(cfg, remote.WithRegistryFS(fs))
 	if err != nil {
 		return moveDest{}, fmt.Errorf("load registry: %w", err)
@@ -201,7 +196,7 @@ func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string, layout paths.Bu
 		return moveDest{}, fmt.Errorf("inspect destination %q: %w", to, err)
 	}
 	if isDir {
-		return moveDest{Kind: moveDestPath, Dir: destBundlesDir(fs, to, layout)}, nil
+		return moveDest{Kind: moveDestPath, Dir: destBundlesDir(fs, to)}, nil
 	}
 	return moveDest{}, fmt.Errorf("destination %q is neither a configured remote nor an existing directory%s",
 		to, knownRemotesHint(registry))
@@ -211,29 +206,14 @@ func resolveMoveDest(cfg *config.Config, fs afero.Fs, to string, layout paths.Bu
 // actually lands in: a ctxloom project checkout (or a .ctxloom directory itself)
 // takes the bundle into the FORMAT root of its committed content tree; any
 // other directory takes it as-is, because a plain directory has no layout.
-func destBundlesDir(fs afero.Fs, dir string, layout paths.BundleLayout) string {
+func destBundlesDir(fs afero.Fs, dir string) string {
 	if filepath.Base(dir) == paths.AppDirName {
-		return paths.LocalBundlesPathFor(dir, layout)
+		return paths.LocalBundlesPathFor(dir, paths.LayoutV2)
 	}
 	if isDir, _ := afero.DirExists(fs, filepath.Join(dir, paths.AppDirName)); isDir {
-		return paths.LocalBundlesPathFor(filepath.Join(dir, paths.AppDirName), layout)
+		return paths.LocalBundlesPathFor(filepath.Join(dir, paths.AppDirName), paths.LayoutV2)
 	}
 	return dir
-}
-
-// moveSourceLayout reports which FORMAT root the moved bundle belongs in once
-// it lands in another project.
-//
-// The destination root follows the bundle's OWN format, not the root it was
-// sitting in here: a move is a copy plus a deletion, and a copy filed under the
-// wrong format root is a bundle the receiving project cannot load — at exit 0,
-// with the source already gone.
-func moveSourceLayout(fs afero.Fs, src string) (paths.BundleLayout, error) {
-	_, env, err := bundles.EnvelopeAt(fs, src)
-	if err != nil {
-		return paths.LayoutUnknown, err
-	}
-	return bundles.BundleLayoutFor(src, env), nil
 }
 
 // knownRemotesHint lists the configured remote names for an error message.
@@ -254,12 +234,13 @@ func knownRemotesHint(registry *remote.Registry) string {
 // copy itself is ExportBundle — one verbatim-bytes copier, signature-carrying
 // included — so move re-implements none of it.
 func moveToPath(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBundleRequest, name, src, destDir string) (*MoveBundleResult, error) {
-	destFile := filepath.Join(destDir, filepath.Base(src))
-	if sameMovePath(destFile, src) {
+	srcTree := filepath.Dir(src)
+	destTree := filepath.Join(destDir, filepath.Base(srcTree))
+	if sameMovePath(destTree, srcTree) {
 		return nil, fmt.Errorf("destination is the bundle's own directory: %s", destDir)
 	}
-	if exists, _ := afero.Exists(fs, destFile); exists && !req.Force {
-		return nil, fmt.Errorf("bundle already exists at destination: %s (use --force to overwrite)", destFile)
+	if exists, _ := afero.Exists(fs, destTree); exists && !req.Force {
+		return nil, fmt.Errorf("bundle already exists at destination: %s (use --force to overwrite)", destTree)
 	}
 
 	res, err := ExportBundle(ctx, cfg, ExportBundleRequest{Name: name, DestDir: destDir, FS: fs})
@@ -308,36 +289,17 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 	}, nil
 }
 
-// removeMoveSource deletes the source bundle — the last step of a move,
-// reached only once the destination holds the whole thing.
+// removeMoveSource deletes the source bundle — its WHOLE tree, the last step of
+// a move, reached only once the destination holds the whole thing. Leaving
+// fragments/, skills/ etc. behind would strand exactly what the publish side
+// just proved it could carry.
 //
-// A DIRECTORY-form bundle's source is its WHOLE directory, not just the
-// manifest and its sidecar: moveToRemote (runPush, tree form) and moveToPath
-// (exportBundleTree) both already carry every file beneath it, so leaving
-// fragments/, skills/ etc. behind here would strand exactly what the publish
-// side just proved it could carry — orphaned at the source, at exit 0, with
-// no warning. For a single-file bundle the manifest and its detached .sig
-// sibling ARE the whole source.
-//
-// Both failures name the DESTINATION, because the two states they leave behind
-// need opposite responses and the user cannot tell them apart otherwise:
-//   - the source is still here — the bundle now exists in two places, and the
-//     move can be re-run or the duplicate deleted;
-//   - the source is gone (directory form) or only an orphan .sig remains
-//     (single-file) — the move HAPPENED. Re-running it cannot work (there is
-//     no source left to move) and the only remaining action is cleaning up by
-//     hand. Saying so is the difference between a user cleaning up and a user
-//     retrying a command that will now tell them the bundle does not exist.
+// The failure names the DESTINATION: the bundle now exists in two places, and
+// the move can be re-run or the duplicate deleted.
 func removeMoveSource(fs afero.Fs, src, dest string) error {
-	if filepath.Base(src) == bundles.DirectoryFormManifest {
-		dir := filepath.Dir(src)
-		if err := fs.RemoveAll(dir); err != nil {
-			return fmt.Errorf("the bundle was written to %s but the source directory %s could not be removed — it now exists in both places: %w", dest, dir, err)
-		}
-		return nil
-	}
-	if err := fs.Remove(src); err != nil {
-		return fmt.Errorf("the bundle was written to %s but the source %s could not be removed — it now exists in both places: %w", dest, src, err)
+	dir := filepath.Dir(src)
+	if err := fs.RemoveAll(dir); err != nil {
+		return fmt.Errorf("the bundle was written to %s but the source directory %s could not be removed — it now exists in both places: %w", dest, dir, err)
 	}
 	return nil
 }

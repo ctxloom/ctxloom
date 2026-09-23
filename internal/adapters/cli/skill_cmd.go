@@ -8,9 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // This file is Part B6a's `ctxloom skill` CLI group — the true Agent Skills
@@ -29,16 +27,14 @@ var skillCmd = groupNodeDefault(&cobra.Command{
 optional scripts/assets) that an engine loads via progressive disclosure,
 distinct from a user-invoked slash "command" (ctxloom command).
 
-Skills live inside directory-form bundles — .ctxloom/content/bundles/<bundle>/
-(bundle.yaml + skills/<name>/) — and are referenced using the syntax:
-bundle#skills/name
+Skills live inside bundles — .ctxloom/content/bundles/v2/<bundle>/skills/<name>/
+— and are referenced using the syntax: bundle#skills/name
 
 Examples:
   ctxloom skill list                                   # List all skills
-  ctxloom skill show core#skills/code-reviewer          # Show frontmatter + manifest
+  ctxloom skill show core#skills/code-reviewer          # Show frontmatter + files
   ctxloom skill create my-bundle code-reviewer          # Scaffold a new skill package
   ctxloom skill remove my-bundle#skills/code-reviewer --yes  # Remove a skill package
-  ctxloom skill sync my-bundle#skills/code-reviewer      # Recompute + write the manifest
   ctxloom skill export my-bundle#skills/code-reviewer    # Pack to an Anthropic-shaped .zip
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle`,
 }, "list")
@@ -170,13 +166,12 @@ var skillCreateDescription string
 var skillCreateCmd = &cobra.Command{
 	Use:   "create <bundle> <name>",
 	Short: "Scaffold a new Agent Skill package",
-	Long: `Scaffold a new Agent Skill package (skills/<name>/SKILL.md) in an existing,
-directory-form bundle, and register it in bundle.yaml.
+	Long: `Scaffold a new Agent Skill package (skills/<name>/SKILL.md) in an existing
+bundle. The directory is the skill: nothing else is registered.
 
 The scaffolded SKILL.md has valid frontmatter (name matching the directory,
 a placeholder description) that passes validation immediately — edit
-SKILL.md to describe the skill, add any scripts/assets, then run
-'ctxloom skill sync' before signing.
+SKILL.md to describe the skill and add any scripts/assets.
 
 Examples:
   ctxloom skill create my-bundle code-reviewer
@@ -202,7 +197,7 @@ func runSkillCreate(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Created skill %q in bundle %q\n", res.Name, res.Bundle)
 		fmt.Fprintf(out, "  %s\n", res.Dir)
-		fmt.Fprintf(out, "Edit %s/SKILL.md, then run: ctxloom skill sync %s#skills/%s\n", res.Dir, res.Bundle, res.Name)
+		fmt.Fprintf(out, "Edit %s/SKILL.md to describe the skill\n", res.Dir)
 		return nil
 	})
 }
@@ -213,8 +208,7 @@ var skillRemoveCmd = &cobra.Command{
 	Use:     "remove <bundle>#skills/<name>",
 	Aliases: []string{"rm", "del"},
 	Short:   "Remove an Agent Skill package",
-	Long: `Remove a skill package: its bundle.yaml registration and its on-disk
-directory tree (skills/<name>/).
+	Long: `Remove a skill package: its directory (skills/<name>/).
 
 Bare invocation reports what would be removed and removes nothing (exit 0).
 Pass --yes to apply it.
@@ -245,8 +239,7 @@ func runSkillRemove(cmd *cobra.Command, args []string) error {
 		// Deliberately the UNGATED listing (ListSkills, the same one `skill
 		// list` uses) rather than GetSkill's content-validating read: a
 		// skill whose SKILL.md is malformed or withheld must still be
-		// removable — this is a bundle.yaml membership check, not a
-		// well-formedness one.
+		// removable — this is a membership check, not a well-formedness one.
 		if !skillExistsInBundle(cmd.Context(), cfg, bundleName, skillName) {
 			return fmt.Errorf("skill %q not found in bundle %q", skillName, bundleName)
 		}
@@ -269,9 +262,8 @@ func runSkillRemove(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// skillExistsInBundle reports whether bundle registers a skill named name —
-// a bundle.yaml membership check via the same ungated ListSkills path `skill
-// list` uses, degrading to false (not found) rather than propagating a
+// skillExistsInBundle reports whether bundle holds a skill named name — a
+// membership check via the same ungated ListSkills path `skill list` uses, degrading to false (not found) rather than propagating a
 // listing error, since a listing failure and "this one skill is absent" are
 // both refused identically by runSkillRemove's caller.
 func skillExistsInBundle(ctx context.Context, cfg *config.Config, bundle, name string) bool {
@@ -289,86 +281,6 @@ func skillExistsInBundle(ctx context.Context, cfg *config.Config, bundle, name s
 		}
 	}
 	return false
-}
-
-var skillSyncCmd = &cobra.Command{
-	Use:   "sync <bundle>[#skills/<name>]",
-	Short: "Recompute and write a skill's per-file manifest",
-	Long: `Recompute the per-file manifest (sha256 + POSIX mode) for a skill's source
-tree and write it into bundle.yaml's skills.<name>.files map.
-
-This is what activates the install-time tamper check: until a skill has been
-synced, its files: manifest is empty and a fresh parse of the tree is
-trusted unconditionally. After syncing, any drift between the recorded
-manifest and the on-disk tree (a tampered or corrupted file) is withheld
-loudly rather than silently materialized.
-
-A bare bundle name syncs every skill the bundle ships; "bundle#skills/name"
-syncs just that one.
-
-Examples:
-  ctxloom skill sync my-bundle#skills/code-reviewer
-  ctxloom skill sync my-bundle`,
-	Args: cobra.ExactArgs(1),
-	RunE: runSkillSync,
-}
-
-func runSkillSync(cmd *cobra.Command, args []string) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	bundleName, skillName, err := skillSyncTarget(args[0])
-	if err != nil {
-		return err
-	}
-	res, err := operations.SyncSkill(cmd.Context(), cfg, operations.SyncSkillRequest{
-		Bundle: bundleName,
-		Name:   skillName,
-	})
-	if err != nil {
-		return err
-	}
-	return emit(cmd, res, func() error {
-		out := cmd.OutOrStdout()
-		for _, s := range res.Synced {
-			status := "unchanged"
-			if s.Changed {
-				status = "changed"
-			}
-			fmt.Fprintf(out, "  %s: %d file(s), manifest %s\n", s.Name, s.FileCount, status)
-		}
-		fmt.Fprintf(out, "Synced %d skill(s) in bundle %q\n", len(res.Synced), res.Bundle)
-		return nil
-	})
-}
-
-// skillSyncTarget resolves `skill sync`'s single argument into the bundle and
-// the optional skill name: a bare bundle name selects every skill the bundle
-// ships, "<bundle>#skills/<name>" selects exactly one. The selector is judged
-// by bundles.ParseItemAsk, the one parser every reader shares.
-//
-// A selector is an explicit NARROWING request, so a malformed one — an empty
-// name, or a kind other than skills — is refused rather than falling through
-// to the bare-bundle form. Widening there would rewrite the files: manifest of
-// every skill in the bundle — manifests the user never named, and whose
-// rewrite re-baselines the install-time tamper check against whatever is on
-// disk right now.
-func skillSyncTarget(arg string) (bundle, name string, err error) {
-	ask, err := bundles.ParseItemAsk(arg)
-	if err != nil {
-		return "", "", fmt.Errorf("invalid skill reference %q: %w — name a skill as \"#skills/<name>\", or pass the bare bundle name to sync every skill in it", arg, err)
-	}
-	if !ask.Scoped {
-		return arg, "", nil
-	}
-	if ask.Kind != trust.KindSkill {
-		return "", "", fmt.Errorf("invalid skill reference %q: it selects a %s, not a skill — name a skill as \"#skills/<name>\", or pass the bare bundle name to sync every skill in it", arg, ask.Kind.Dir())
-	}
-	if strings.TrimSpace(ask.Item) == "" {
-		return "", "", fmt.Errorf("invalid skill reference %q: no name after \"#skills/\" — name a skill, or pass the bare bundle name to sync every skill in it", arg)
-	}
-	return ask.Bundle, ask.Item, nil
 }
 
 var skillExportOut string
@@ -499,7 +411,6 @@ func init() {
 	skillCmd.AddCommand(skillShowCmd)
 	skillCmd.AddCommand(skillCreateCmd)
 	skillCmd.AddCommand(skillRemoveCmd)
-	skillCmd.AddCommand(skillSyncCmd)
 	skillCmd.AddCommand(skillExportCmd)
 	skillCmd.AddCommand(skillImportCmd)
 

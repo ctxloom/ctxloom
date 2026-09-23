@@ -117,17 +117,28 @@ func (u retiredParentUpgrade) rewrite(ref string) (string, bool) {
 	return successor, true
 }
 
-// findBundleProfileKey returns the canonical "<bundle>#profiles/<name>" key in
-// seeded for the profile shipped by repo url under the bare name, when exactly
-// one bundle from that repo ships it. Ambiguity — two bundles from the same
-// repo shipping the same profile name — yields false: a migration must not
-// guess between them.
+// findBundleProfileKey returns the key in seeded for the profile shipped by
+// repo url under the bare name, when exactly one bundle from that repo ships
+// it. Ambiguity — two bundles from the same repo shipping the same profile
+// name — yields false: a migration must not guess between them.
+//
+// A seeded key is the bundle's canonical identity plus "#profiles/<name>", and
+// url is however the retired ref spelled the repository (https, scp, file), so
+// the two are compared as REPOSITORIES — each parsed and normalized by the
+// repo-URL grammar — never as string prefixes.
 func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string, bool) {
-	prefix := url + "@" + remote.ItemTypeBundle.DirName() + "/"
-	suffix := refuri.ProfileSelector + name
+	repo := refuri.NormalizeURL(url)
+	if repo == "" {
+		return "", false
+	}
 	var match string
 	for key := range seeded {
-		if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, suffix) {
+		bundle, profile, ok := remote.SplitBundleProfileRef(key)
+		if !ok || profile != name {
+			continue
+		}
+		ref, err := remote.ParseReference(bundle)
+		if err != nil || ref.URL == "" || refuri.NormalizeURL(ref.URL) != repo {
 			continue
 		}
 		if match != "" {

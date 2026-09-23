@@ -1385,12 +1385,11 @@ func (c *Coordinator) releaseSlotIntent(rt *childRt) {
 }
 
 // terminateRun is the EXACTLY-ONCE terminal seam every death path funnels
-// through: the legacy chat-stream-close (endChild), the runner-loss
-// synthesis, an explicit RunExited, agent_stop, launch failure,
-// and restart adoption. The terminal fact is claimed inside the journal's
+// through, whatever ended the run (its callers each pass their own cause).
+// The terminal fact is claimed inside the journal's
 // single-writer window; only the claimant runs the runtime consequences —
 // slot release (queue advances), credential revocation + severing, the
-// synthesized terminal notice into the parent's mailbox, and session-end
+// synthesized terminal notice into the parent's spool, and session-end
 // accounting. The record stays: a later send/inject resumes the harp as a
 // fresh run.
 func (c *Coordinator) terminateRun(runID, cause, detail string) {

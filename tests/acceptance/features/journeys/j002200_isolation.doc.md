@@ -137,7 +137,5 @@ it, and what would go red if it closed.
 
 ## UNKNOWN, explicitly
 
-Nothing outstanding for this matrix as of the antigravity engine's removal —
-the one entry that lived here (antigravity's container-axis authentication
-success) was retired along with the engine itself.
+Nothing outstanding for this matrix.
 <!-- /doc:outro -->

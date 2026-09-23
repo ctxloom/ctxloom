@@ -2,11 +2,9 @@ package operations
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/go-viper/mapstructure/v2"
@@ -24,17 +22,6 @@ func DecodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	bc, err := DecodeEngineConfig(cfg.EffectiveType(entry), entry.Body)
 	if err != nil {
 		clidiag.Warn("ctxloom", "LLM config %q: %v", label, err)
-		if cfg.EffectiveType(entry) == "gemini" || cfg.EffectiveType(entry) == "antigravity" {
-			// Both "gemini" (the pre-v4 name) and its v4 successor
-			// "antigravity" are removed backends with no supported
-			// replacement — 0.7.0 dropped the Antigravity CLI (agy) engine
-			// entirely, not just renamed it. It rides clidiag like the line
-			// above it: that is the one channel that honours the process's
-			// structured-diagnostics wire shape and the TUI's sink redirect,
-			// both of which a bare write to os.Stderr corrupts.
-			clidiag.Warn("ctxloom", "the %q backend is not supported in this release; point this entry's type at a currently-supported engine (%s)", cfg.EffectiveType(entry),
-				strings.Join(EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly }), ", "))
-		}
 		return nil
 	}
 	return bc

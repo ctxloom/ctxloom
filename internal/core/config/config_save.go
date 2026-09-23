@@ -413,6 +413,7 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// through to DefaultSessionReapAge rather than persisting a value nobody
 	// chose.
 	setOrDelete(existing, "session_reap_age", c.sessionReapAge != "", c.sessionReapAge)
+	setOrDelete(existing, "session_purge_age", c.sessionPurgeAge != "", c.sessionPurgeAge)
 	if c.isolationDevcontainerBase != nil {
 		setOrDelete(existing, "isolation_devcontainer_base", true, *c.isolationDevcontainerBase)
 	} else {

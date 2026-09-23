@@ -50,6 +50,7 @@ func fullyPopulatedFixture() Fixture {
 		IsolationEngines:             []string{"claude-code"},
 		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},
 		SessionReapAge:               "45d",
+		SessionPurgeAge:              "180d",
 	}
 }
 
@@ -116,4 +117,20 @@ func TestDelegationDepthAloneSurvivesSaveRoundTrip(t *testing.T) {
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)
 	assert.Equal(t, 2, reloaded.GetDelegationDepth(), "the accessor must read back what was written")
+}
+
+// session_purge_age has NO default: unset reads as empty, so a sweep
+// reports its purge rows and acts on none of them.
+func TestSessionPurgeAgeSurvivesSaveRoundTrip(t *testing.T) {
+	data, err := NewFixture(Fixture{Version: CurrentConfigVersion, SessionPurgeAge: "180d"}).Marshal()
+	require.NoError(t, err)
+	reloaded, err := ParseConfig(data)
+	require.NoError(t, err)
+	assert.Equal(t, "180d", reloaded.SessionPurgeAge())
+
+	data, err = NewFixture(Fixture{Version: CurrentConfigVersion}).Marshal()
+	require.NoError(t, err)
+	reloaded, err = ParseConfig(data)
+	require.NoError(t, err)
+	assert.Empty(t, reloaded.SessionPurgeAge(), "unset has no default")
 }

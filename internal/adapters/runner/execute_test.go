@@ -473,3 +473,55 @@ func TestExecute_TheLaunchsEngineEnvRidesTheExec(t *testing.T) {
 	require.Equal(t, "MOCK-REPLY", got["CTXLOOM_MOCK_RESPONSE"], "the caller's passthrough reaches the engine")
 	require.Equal(t, id.Harp, got[sessions.EnvHarp], "the identity carriers reach the engine")
 }
+
+// TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot: the runner
+// of a container cell is the container's foreground process, so its
+// filesystem is the ENGINE's. A root relocated by the runtime advice (in
+// production the engine home, mounted at a fixed in-container path) must be
+// written at its Engine side: the Host side is the originator's directory,
+// which nothing mounts where the runner runs, and a write there lands in the
+// container's own layer while the engine is pointed at an empty mount.
+//
+// The mock's session files land under Scratch, so this cell relocates Scratch
+// the way production relocates EngineHome; the seam is root-agnostic.
+func TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.T) {
+	env := newDeliveryEnv(t)
+	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+		Identity:     env.mint(t, 1, "run-ctr"),
+		Orchestrator: "root-harp",
+		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+	})
+	require.NoError(t, err)
+
+	host := child.Cell.Paths.Paths()
+	engineSide := t.TempDir() // stands in for the in-container mount target
+	advised := present.Containerize{Scratch: engineSide}.Apply(present.Paths{
+		ProjectRoot: present.Root{Host: host.ProjectRoot.Host},
+		CtxloomHome: present.Root{Host: host.CtxloomHome.Host},
+		Scratch:     present.Root{Host: host.Scratch.Host},
+	})
+	child.Cell.Paths = advised
+	child.Cell.Container = &launch.ContainerCell{Runtime: launch.RuntimeRootless, Mounts: advised.Mounts()}
+
+	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
+	require.NoError(t, err)
+	drive := &recordingDriver{}
+	out, err := runner.Execute(context.Background(), runner.Deps{
+		Kind:   mock.New(),
+		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
+	}, wire)
+	require.NoError(t, err)
+
+	require.True(t, strings.HasPrefix(out.MCPConfig, engineSide+string(filepath.Separator)),
+		"the MCP file the engine is pointed at must be written at the engine side %s, got %s", engineSide, out.MCPConfig)
+	require.NotEmpty(t, treeOf(t, engineSide, strings.NewReplacer()), "nothing was delivered at the engine side of the relocated root")
+	require.Empty(t, treeOf(t, host.Scratch.Host, strings.NewReplacer()),
+		"the runner wrote into the originator-side directory, which is not mounted where it runs")
+	require.Len(t, drive.turns, 1)
+	for _, p := range drive.turns[0].Presented {
+		if p.HostPath != "" {
+			require.Equal(t, p.EnginePath, p.HostPath, "beside the engine, the written path IS the engine's path")
+		}
+	}
+}

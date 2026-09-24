@@ -21,11 +21,13 @@ import (
 //     one (ErrRecvPreempted); a delivery WAKES the poll without handing it
 //     anything (the payload is on disk); revocation severs it (ErrRevoked).
 //   - CLAIM. A receive that runs, or is woken, takes in/ into in/claimed/
-//     (spool.Claim) and hands the in-flight set to a live caller — the ONE
-//     place a hand-off becomes real. It remembers only which NAMES it handed
-//     out, for the ack.
-//   - ACK. The next receive acknowledges every name the previous one handed
-//     out: in/claimed/ → in/consumed/ (spool.Ack).
+//     (spool.Claim). The claim belongs to the receive that made it until that
+//     receive RETURNS it to its caller (handOut) — the ONE place a hand-off
+//     becomes real. Only then do its NAMES join the ack cursor.
+//   - ACK. A receive begins by acknowledging every batch an earlier receive
+//     returned: in/claimed/ → in/consumed/ (spool.Ack). A receive still in
+//     flight has returned nothing, so an overlapping newer receive's ack
+//     cannot consume what the older one claimed.
 //
 // THE RESERVATION IS ON DISK, not here. in/claimed/ is what keeps a message
 // from being counted pending or handed out twice, and it is shared with the
@@ -60,9 +62,10 @@ type spoolInbox struct {
 	mu sync.Mutex
 	// polls holds the one parked receive per role.
 	polls map[string]*parkedPoll
-	// handed is the ack cursor: per role, the spool file names a receive has
-	// handed to a live caller and the next receive has not yet acknowledged.
-	// It is not the reservation — that is in/claimed/ on disk.
+	// handed is the ack cursor: per role, the spool file names of batches
+	// receives have RETURNED to their callers and no receive has yet
+	// acknowledged. It is not the reservation — that is in/claimed/ on disk —
+	// and it never holds an in-flight receive's claim.
 	handed map[string][]string
 }
 
@@ -140,14 +143,27 @@ func (in *spoolInbox) sever(role string, err error) {
 }
 
 // recv is the long-poll behind agent_recv: ack prior deliveries, claim
-// deliverable mail, or park for up to wait.
+// deliverable mail, or park for up to wait. What it returns is handed out
+// here and nowhere else.
 func (in *spoolInbox) recv(ctx context.Context, role, runID string, wait time.Duration) ([]Message, error) {
 	in.ack(role)
-	if msgs, _, ok := in.claim(role); ok {
-		return msgs, nil
+	msgs, names, err := in.receive(ctx, role, runID, wait)
+	if err != nil {
+		return nil, err
+	}
+	in.handOut(role, names)
+	return msgs, nil
+}
+
+// receive claims or parks for one recv and returns what that call's caller is
+// owed with its spool names; it hands nothing out. A claim it makes and does
+// not return stays in in/claimed/, where the next Claim returns it again.
+func (in *spoolInbox) receive(ctx context.Context, role, runID string, wait time.Duration) ([]Message, []string, error) {
+	if msgs, names, ok := in.claim(role); ok {
+		return msgs, names, nil
 	}
 	if wait <= 0 {
-		return nil, ErrRecvTimeout
+		return nil, nil, ErrRecvTimeout
 	}
 	p := in.register(role, runID)
 	// Claim once more now that the poll is registered. A delivery that landed
@@ -155,8 +171,8 @@ func (in *spoolInbox) recv(ctx context.Context, role, runID string, wait time.Du
 	// (the courier rings only after the write); its file is on disk, and
 	// without this look the receive would sit out its whole wait beside it.
 	// Any delivery landing after this claim finds the poll and wakes it.
-	// A caller that left while parking is owed nothing, and a claim made for
-	// it would be consumed by the next ack unseen.
+	// A caller that left while parking is owed nothing: a claim returned to it
+	// would be handed out, and the next ack would consume it unseen.
 	if err := ctx.Err(); err != nil {
 		return in.abandon(role, p, err, true)
 	}
@@ -169,16 +185,16 @@ func (in *spoolInbox) recv(ctx context.Context, role, runID string, wait time.Du
 	select {
 	case r := <-p.ch:
 		if r.err != nil {
-			return nil, r.err
+			return nil, nil, r.err
 		}
 		// The wake is redeemed here: the call receiving it is, by
 		// construction, still live (mid-select on this very channel), so a
 		// claim made here is a genuine hand-off the next receive's ack can
 		// trust. Woken but beaten to the mail by another claim is a timeout.
-		if msgs, _, ok := in.claim(role); ok {
-			return msgs, nil
+		if msgs, names, ok := in.claim(role); ok {
+			return msgs, names, nil
 		}
-		return nil, ErrRecvTimeout
+		return nil, nil, ErrRecvTimeout
 	case <-timer.C:
 		// The timer expiring does not end the CALLER: it is still waiting for
 		// this call's return value, so a delivery that won the race is handed
@@ -199,21 +215,17 @@ func (in *spoolInbox) recv(ctx context.Context, role, runID string, wait time.Du
 // completed it: the same, its completer having settled the slot.
 //
 // A preemption or revocation completed it: this call is superseded and
-// answers with that error — a preempted receive answers empty — so its claim
-// must not stand. While the names are still on the ack cursor they come off
-// it, and the files stay in in/claimed/ for the next receive's claim. If a
-// newer receive's ack has already consumed them, they are in in/consumed/,
-// seen by nobody, and this still-waiting caller is the only one left who can
-// be given them: the mail is returned rather than lost.
-func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message, names []string) ([]Message, error) {
+// answers with that error — a preempted receive answers empty — and its claim
+// is simply not returned. It was never handed out, so no ack can have
+// consumed it: the files stay in in/claimed/ for the next receive's claim.
+func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message, names []string) ([]Message, []string, error) {
 	in.mu.Lock()
 	if p.done {
 		in.mu.Unlock()
-		r := <-p.ch
-		if r.err != nil && in.unhand(role, names) {
-			return nil, r.err
+		if r := <-p.ch; r.err != nil {
+			return nil, nil, r.err
 		}
-		return msgs, nil
+		return msgs, names, nil
 	}
 	p.done = true
 	if in.polls[role] == p {
@@ -221,37 +233,7 @@ func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message, names [
 	}
 	in.mu.Unlock()
 	in.onUnpark(role, p.runID)
-	return msgs, nil
-}
-
-// unhand takes names off role's ack cursor if every one is still there, and
-// reports whether it did. An ack clears the cursor wholesale, so either all
-// of a claim's names are present or the claim was acked.
-func (in *spoolInbox) unhand(role string, names []string) bool {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	cursor := in.handed[role]
-	drop := make(map[string]bool, len(names))
-	for _, n := range names {
-		drop[n] = true
-	}
-	kept := cursor[:0:0]
-	for _, n := range cursor {
-		if drop[n] {
-			delete(drop, n)
-			continue
-		}
-		kept = append(kept, n)
-	}
-	if len(drop) != 0 {
-		return false
-	}
-	if len(kept) == 0 {
-		delete(in.handed, role)
-	} else {
-		in.handed[role] = kept
-	}
-	return true
+	return msgs, names, nil
 }
 
 // register parks a new poll for role and returns it. Newest preempts: an
@@ -286,21 +268,21 @@ func (in *spoolInbox) register(role, runID string) *parkedPoll {
 // the next receive's ack consume — a message no agent ever saw. Not claiming
 // is what keeps at-least-once true there; the timeout path claims, because
 // there the caller is still present to be given it.
-func (in *spoolInbox) abandon(role string, p *parkedPoll, err error, callerGone bool) ([]Message, error) {
+func (in *spoolInbox) abandon(role string, p *parkedPoll, err error, callerGone bool) ([]Message, []string, error) {
 	in.mu.Lock()
 	if p.done {
 		in.mu.Unlock()
 		r := <-p.ch
 		if r.err != nil {
-			return nil, r.err
+			return nil, nil, r.err
 		}
 		if callerGone {
-			return nil, err
+			return nil, nil, err
 		}
-		if msgs, _, ok := in.claim(role); ok {
-			return msgs, nil
+		if msgs, names, ok := in.claim(role); ok {
+			return msgs, names, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	p.done = true
 	if in.polls[role] == p {
@@ -308,11 +290,13 @@ func (in *spoolInbox) abandon(role string, p *parkedPoll, err error, callerGone 
 	}
 	in.mu.Unlock()
 	in.onUnpark(role, p.runID)
-	return nil, err
+	return nil, nil, err
 }
 
-// claim takes role's in/ into in/claimed/ and hands back the whole in-flight
-// set as mailbox messages. ok=false means nothing is deliverable right now.
+// claim takes role's in/ into in/claimed/ and returns the whole in-flight
+// set as mailbox messages with their spool names, for the receive that made
+// it; it hands nothing out (handOut does). ok=false means nothing is
+// deliverable right now.
 //
 // A file that parses as a spool entry but not as a mailbox message (an
 // unknown kind, a structured payload that will not decode) is moved to
@@ -347,14 +331,19 @@ func (in *spoolInbox) claim(role string) ([]Message, []string, bool) {
 	if len(out) == 0 {
 		return nil, nil, false
 	}
-	in.mu.Lock()
-	in.handed[role] = append(in.handed[role], names...)
-	in.mu.Unlock()
-	in.counters.Delivered.Add(uint64(len(out)))
 	return out, names, true
 }
 
-// ack acknowledges every file a prior receive handed to role's caller by
+// handOut records names as returned to role's caller: they join the ack
+// cursor, and the next receive acknowledges them.
+func (in *spoolInbox) handOut(role string, names []string) {
+	in.mu.Lock()
+	in.handed[role] = append(in.handed[role], names...)
+	in.mu.Unlock()
+	in.counters.Delivered.Add(uint64(len(names)))
+}
+
+// ack acknowledges every file an earlier receive returned to role's caller by
 // renaming it from in/claimed/ into in/consumed/, and drops the cursor.
 //
 // A rename that fails for any reason other than the file already being gone

@@ -28,7 +28,7 @@ flowchart LR
 | `spoolInbox.recv` | ack the prior batch, claim, or park for up to `wait` (`RecvWaitMax` bounds it); a newer receive preempts the parked one (`ErrRecvPreempted`) |
 | `spoolInbox.wake` | completes a parked poll WITHOUT reserving anything — the payload is on disk; the woken receive claims it itself |
 | `spoolInbox.claim` | the ONE place a hand-off becomes real: reads `in/`, reserves the ids it returns, remembers each file's ref; an unreadable message goes to `in/failed/` |
-| `spoolInbox.ack` | consume-renames every reserved file and releases the reservation — one receive LATE, which is the at-least-once half |
+| `spoolInbox.ack` | consume-renames every file an earlier receive RETURNED (`spoolInbox.handOut`) — one receive LATE, which is the at-least-once half; a claim still held by an in-flight receive is not on the cursor, so an overlapping receive's ack cannot consume it |
 | `spoolInbox.pending` | what is in `in/` minus what a live receive already holds (the ended-child relaunch reads this through `Coordinator.pendingCount`) |
 | `spoolInbox.sever` | credential revocation completes the poll with `ErrRevoked`, without the unpark slot re-acquisition |
 

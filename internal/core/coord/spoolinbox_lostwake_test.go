@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -61,14 +62,14 @@ func TestSpoolInboxRetire_PreemptedAfterItsClaimLeavesTheMailForTheNextReceive(t
 	require.True(t, ok)
 	pB := in.register(harp, "") // B preempts A
 
-	got, err := in.retire(harp, pA, msgs, names)
+	got, _, err := in.retire(harp, pA, msgs, names)
 	require.ErrorIs(t, err, ErrRecvPreempted, "a superseded receive answers as preempted")
 	assert.Nil(t, got)
 	in.mu.Lock()
-	assert.Empty(t, in.handed[harp], "X is off the cursor, so no ack can consume it unseen")
+	assert.Empty(t, in.handed[harp], "X is not on the cursor, so no ack can consume it unseen")
 	in.mu.Unlock()
 
-	_, err = in.abandon(harp, pB, ErrRecvTimeout, false) // B's wait ends
+	_, _, err = in.abandon(harp, pB, ErrRecvTimeout, false) // B's wait ends
 	require.ErrorIs(t, err, ErrRecvTimeout)
 	next, err := in.recv(context.Background(), harp, "", 0)
 	require.NoError(t, err)
@@ -76,31 +77,50 @@ func TestSpoolInboxRetire_PreemptedAfterItsClaimLeavesTheMailForTheNextReceive(t
 	assert.Equal(t, "X", next[0].Body)
 }
 
-// TestSpoolInboxRetire_PreemptedAfterANewerAckConsumedItsClaimStillDelivers
-// forces the other order: A's post-park claim takes X; B's ack then consumes
-// X (the cursor is acked wholesale) and B preempts A. X is in in/consumed/
-// and has been seen by nobody, so answering A as preempted would lose it; A's
-// caller is still waiting on this very call and is the only one left who can
-// be given it.
-func TestSpoolInboxRetire_PreemptedAfterANewerAckConsumedItsClaimStillDelivers(t *testing.T) {
+// TestSpoolInboxAck_NewerReceiveCannotConsumeAnOlderReceivesInFlightMail
+// forces overlapping receives: A's post-park claim takes X, and before A
+// returns, a newer receive B runs its ack. X was handed to A, not returned by
+// it, so B's ack must leave it in in/claimed/ — consuming it would lose it the
+// moment A is preempted. A then answers as preempted, and X reaches the next
+// receive.
+func TestSpoolInboxAck_NewerReceiveCannotConsumeAnOlderReceivesInFlightMail(t *testing.T) {
 	teeHome(t)
-	const harp = "owner-harp-preempt-a"
+	const harp = "owner-harp-overlap"
 	in := newBareInbox()
 
 	pA := in.register(harp, "")
 	writeSpoolMail(t, harp, "child-harp-1", KindMessage, "X")
 	msgs, names, ok := in.claim(harp) // A's post-park claim
 	require.True(t, ok)
-	in.ack(harp) // B's ack consumes X
-	_, _, bFound := in.claim(harp)
-	require.False(t, bFound)
-	pB := in.register(harp, "") // B preempts A
-	t.Cleanup(func() { _, _ = in.abandon(harp, pB, ErrRecvTimeout, false) })
+	in.ack(harp) // B's ack, while A is still in flight
+	assert.Equal(t, names, claimedNames(t, harp), "B's ack left A's in-flight X claimed, not consumed")
 
-	got, err := in.retire(harp, pA, msgs, names)
-	require.NoError(t, err, "X is already consumed: a preempted answer here would lose it")
-	require.Len(t, got, 1)
-	assert.Equal(t, "X", got[0].Body)
+	pB := in.register(harp, "") // B preempts A
+	got, _, err := in.retire(harp, pA, msgs, names)
+	require.ErrorIs(t, err, ErrRecvPreempted)
+	assert.Nil(t, got)
+	_, _, err = in.abandon(harp, pB, ErrRecvTimeout, false)
+	require.ErrorIs(t, err, ErrRecvTimeout)
+
+	next, err := in.recv(context.Background(), harp, "", 0)
+	require.NoError(t, err)
+	require.Len(t, next, 1, "the next receive delivers X")
+	assert.Equal(t, "X", next[0].Body)
+}
+
+// claimedNames lists role's in/claimed/ — mail taken by a receive and not
+// yet acknowledged.
+func claimedNames(t *testing.T, role string) []string {
+	t.Helper()
+	dir, err := spool.DirPath(spool.NewHomeMapper(), role, spool.ClaimedDirName)
+	require.NoError(t, err)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Name())
+	}
+	return out
 }
 
 // TestSpoolInboxRecv_CancelledWhileParkingClaimsNothing forces a context

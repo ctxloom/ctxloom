@@ -48,7 +48,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 	}
 
 	// ...and only now does the client's context die.
-	msgs, err := c.inbox.abandon(role, p, context.Canceled, true)
+	msgs, _, err := c.inbox.abandon(role, p, context.Canceled, true)
 
 	assert.Empty(t, msgs, "nothing may be handed to a caller that is gone")
 	assert.ErrorIs(t, err, context.Canceled, "the cancellation must be reported, not masked by the delivery")
@@ -102,7 +102,7 @@ func TestRecvTimeout_DeliveryThatWonTheRaceIsStillDelivered(t *testing.T) {
 
 	// The timer fires AFTER the delivery claimed the poll (callerGone == false:
 	// the recv's own caller is still there waiting for an answer).
-	msgs, err := c.inbox.abandon(role, p, ErrRecvTimeout, false)
+	msgs, _, err := c.inbox.abandon(role, p, ErrRecvTimeout, false)
 
 	assert.NoError(t, err, "a delivery that already won must not be reported as a timeout")
 	if !assert.Len(t, msgs, 1, "the reserved message must reach its recv, not be stranded by the timer") {

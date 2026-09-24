@@ -918,25 +918,8 @@ test-acceptance-container: build _ensure-gotmpdir
 
 # test-docker-integration lives in build/gates.justfile, imported at the top
 # of this file and by justfile.container, so the host recipe and the one CI
-# runs are the SAME recipe over the SAME package list. What it covers:
-#   internal/adapters/isolation      — the gRPC container transport + the
-#                                force-removal-on-Kill boundary end to end,
-#                                including a real git worktree mounted in;
-#   internal/core/coord  — the docker-direct delegated spawn
-#                                (TestCoordContainerDirect_NoPluginNoPort),
-#                                the owner-owned top-level container runs
-#                                (TestCoordOwnerRun_*) and the container
-#                                progress/liveness trio
-#                                (TestCoordContainerProgress_*);
-#   internal/vpio/dockerexec   — the interactive docker-exec turn;
-#   internal/testsupport/containercell
-#                              — the hermetic container cell's three-runtime
-#                                matrix (docker rootful, docker rootless,
-#                                podman), asserting delivered bytes, POSIX mode
-#                                AND OWNERSHIP on the host side of a bind mount.
-#                                Ownership is the axis nothing else covers: a
-#                                rootful daemon writes byte-identical,
-#                                mode-identical, ROOT-OWNED files.
+# runs are the SAME recipe over the SAME package list; that list is where its
+# coverage is read from.
 # Reachability is mandatory under CTXLOOM_REQUIRE_DOCKER=1 (set in CI only);
 # locally the tests still self-skip so a machine without docker isn't blocked.
 

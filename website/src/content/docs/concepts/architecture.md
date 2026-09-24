@@ -295,9 +295,16 @@ write can forge one.
 ├── coord/               # Coordinator state (owner locks, journals)
 ├── tasks/               # Per-project task logs (<project-id>.jsonl)
 ├── approvals/           # Personal countersignatures ("my approvals follow me")
+├── records/             # Undo records for config files ctxloom patches but does not own
 ├── allowed_signers      # Personal trust root
 └── remotes.yaml         # User-wide remotes
 ```
+
+When ctxloom patches a config file it does not own, such as an `.mcp.json` or a
+`settings.json`, it writes an undo record under `records/`. To undo a change, a
+record keeps the previous value of each key it undoes, in plaintext. If that
+key held a secret, the record holds a copy of it. So `records/` and every
+record in it are owner-only.
 
 ## Configuration Resolution
 

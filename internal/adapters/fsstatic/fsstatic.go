@@ -185,9 +185,11 @@ func writtenFiles(layer afero.Fs) []string {
 }
 
 // writeThrough lands a file the approach wrote outside the target's roots
-// on the real filesystem, bytes and mode as written.
+// on the real filesystem, bytes and mode as written. That file is the
+// approach's own state (claude's undo record, which keeps the previous value
+// of the key it undoes), so a directory created for it is owner-only.
 func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) error {
-	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := fs.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	return iox.WriteFileAtomicFs(fs, path, bytes, mode)

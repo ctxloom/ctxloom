@@ -104,6 +104,38 @@ type RecordOp struct {
 // has to split a filename on it to insert its counter.
 const recordFileSuffix = ".hew-record.yaml"
 
+// recordDirMode is owner-only because a record's inverse keeps the previous
+// value of the key it undoes, verbatim — undo needs it — and that value may be
+// anything the user kept in the file.
+const recordDirMode = 0o700
+
+// EnsureRecordDir creates dir owner-only, and tightens it if it already exists
+// looser: MkdirAll leaves an existing directory's mode alone, so a directory an
+// older binary created 0755 would otherwise stay readable to everyone. Every
+// writer of a record calls it before the write.
+//
+// The chmod is skipped when the mode is already right, and that is load-bearing:
+// claude's approach writes its record through fsstatic's copy-on-write overlay,
+// whose Chmod on a directory in the base fails (it tries to copy it up as a
+// file). fsstatic.NewRecords tightens the real directory before any delivery,
+// so through the overlay this finds it correct and does nothing.
+func EnsureRecordDir(fs afero.Fs, dir string) error {
+	if err := fs.MkdirAll(dir, recordDirMode); err != nil {
+		return fmt.Errorf("confpatch: create %s: %w", dir, err)
+	}
+	info, err := fs.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("confpatch: stat %s: %w", dir, err)
+	}
+	if info.Mode().Perm() == recordDirMode {
+		return nil
+	}
+	if err := fs.Chmod(dir, recordDirMode); err != nil {
+		return fmt.Errorf("confpatch: restrict %s: %w", dir, err)
+	}
+	return nil
+}
+
 // Last returns the newest record ctxloom wrote for target.
 //
 // Newest is decided by the record's own applied_at, not by filename order:
@@ -205,8 +237,8 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 	if err != nil {
 		return "", fmt.Errorf("confpatch: marshal application record: %w", err)
 	}
-	if err := s.fs.MkdirAll(s.dir, 0o755); err != nil {
-		return "", fmt.Errorf("confpatch: create %s: %w", s.dir, err)
+	if err := EnsureRecordDir(s.fs, s.dir); err != nil {
+		return "", err
 	}
 	recordPath, err := FreeRecordPath(s.fs, s.dir, target, at)
 	if err != nil {

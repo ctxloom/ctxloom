@@ -159,6 +159,9 @@ out="$CTXLOOM_ISOSPY_OUT"
   if [ -z "${CLAUDE_CODE_OAUTH_TOKEN-}" ]; then echo unset
   elif [ "$CLAUDE_CODE_OAUTH_TOKEN" = "` + isoFixtureSetupToken + `" ]; then echo fixture
   else echo other; fi
+  echo "===SHARED_LOGIN==="
+  if [ -z "${CLAUDE_SECURESTORAGE_CONFIG_DIR+x}" ]; then echo unset
+  else echo "set:$CLAUDE_SECURESTORAGE_CONFIG_DIR"; fi
   echo "===CLAUDE_CONFIG_DIR_CREDS==="
   [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.credentials.json" 2>/dev/null
   echo "===CODEX_HOME_CREDS==="
@@ -500,12 +503,26 @@ func writeIsoEngineHomeViaCLI(w *World, value string) error {
 // gets the same safety net), write config.yaml for engine, and run `ctxloom
 // run --agent iso --workspace <workspace> --one-shot`. The run's own
 // success/failure is asserted by later Then steps, not here.
+// isoPinHumansLogin empties Alice's own CLAUDE_CONFIG_DIR and credential
+// storage var: the acceptance binary inherits the developer's shell, and a
+// developer running inside a ctxloom session carries both, which would
+// otherwise decide what a host run is told Alice's login is. Empty, Alice's
+// claude resolves its login from her $HOME/.claude.
+func isoPinHumansLogin(w *World) {
+	w.env.SetEnv("CLAUDE_CONFIG_DIR", "")
+	w.env.SetEnv(isoSecureStorageEnv, "")
+}
+
+// isoSecureStorageEnv moves only claude's credential storage.
+const isoSecureStorageEnv = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
+
 func runIsoMatrix(c context.Context, engine, workspace string) error {
 	w := worldFrom(c)
 	j := isoMatrixOf(w)
 
 	j.engine = engine
 	j.workspace = workspace
+	isoPinHumansLogin(w)
 
 	binNames, err := isoBinaryNames(engine)
 	if err != nil {
@@ -571,6 +588,7 @@ func runIsoMatrixOwnerSession(c context.Context, engine string) error {
 
 	j.engine = engine
 	j.workspace = "none"
+	isoPinHumansLogin(w)
 
 	binNames, err := isoBinaryNames(engine)
 	if err != nil {
@@ -1228,17 +1246,34 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the spy "([^"]*)" process was handed the stored setup-token$`, func(c context.Context, engine string) error {
+	// A HOST run shares Alice's own login in place: the storage var SET to
+	// what her claude resolves ("" under isoPinHumansLogin: her
+	// $HOME/.claude), read from inside the spy.
+	ctx.Step(`^the spy "([^"]*)" process shares Alice's own login in place$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		j := isoMatrixOf(w)
-		body, err := isoReadSpyOut(j)
+		body, err := isoReadSpyOut(isoMatrixOf(w))
 		if err != nil {
 			return fmt.Errorf("engine %q: %w", engine, err)
 		}
-		if got := isoParseSpySection(body, "===SETUP_TOKEN==="); got != "fixture" {
-			return fmt.Errorf("the %s process was not handed the stored setup-token (spy saw %q)", engine, got)
+		if got := isoParseSpySection(body, "===SHARED_LOGIN==="); got != "set:" {
+			return fmt.Errorf("the %s process does not share Alice's login: %s is %q, want set to \"\"", engine, isoSecureStorageEnv, got)
 		}
-		w.docStepMaterialized = fmt.Sprintf("the %s process's token var equals the stored fixture token (read from inside the spy; the value is never recorded)", engine)
+		w.docStepMaterialized = fmt.Sprintf("the %s process's %s is set to \"\": Alice's own $HOME/.claude login", engine, isoSecureStorageEnv)
+		return nil
+	})
+
+	// The setup-token is blanked on the host even when one is stored: claude
+	// reads it ahead of any credential, so it would shadow the shared login.
+	ctx.Step(`^the spy "([^"]*)" process was handed no setup-token$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		body, err := isoReadSpyOut(isoMatrixOf(w))
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		if got := isoParseSpySection(body, "===SETUP_TOKEN==="); got != "unset" {
+			return fmt.Errorf("the %s process was handed a setup-token on the host (spy saw %q)", engine, got)
+		}
+		w.docStepMaterialized = fmt.Sprintf("the %s process's token var is empty (read from inside the spy)", engine)
 		return nil
 	})
 

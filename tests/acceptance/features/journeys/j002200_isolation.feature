@@ -368,25 +368,26 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | claude-code |
 
   # The credential half of the "gets a ctxloom-controlled config home" scenario
-  # above, claude-code only. Every ctxloom-launched claude authenticates from
-  # ONE long-lived `claude setup-token` token in CLAUDE_CODE_OAUTH_TOKEN,
-  # which ctxloom exports from the file `ctxloom auth set-token` stores.
-  # Nothing is copied into the session home: Alice's own native login is
-  # neither read into it nor rewritten.
+  # above, claude-code only. A HOST claude shares Alice's own login in place
+  # (CLAUDE_SECURESTORAGE_CONFIG_DIR set to what her claude resolves), and the
+  # setup-token is blanked even when one is stored, because claude would read
+  # it ahead of her login. Nothing is copied into the session home: Alice's
+  # own native login is neither read into it nor rewritten.
   #
   # The instance-side assertions are read from INSIDE the running engine: the
-  # spy dumps what it was handed while it runs (whether the token var equals
-  # the stored fixture, never its value). The instance itself is an Ephemeral
+  # spy dumps what it was handed while it runs (whether the token var is
+  # empty, never its value). The instance itself is an Ephemeral
   # member of the session (paths.HarpMembers) and is taken by the ONE reaper
   # (sessions.Reap) once the session ages out. The last line pins that
   # disposal end to end.
-  Scenario: An in-tree run authenticates from the stored setup-token and copies no credential
+  Scenario: An in-tree run shares Alice's own login in place and copies no credential
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice has stored a "claude-code" setup-token
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the spy "claude-code" process was handed the stored setup-token
+    Then the spy "claude-code" process shares Alice's own login in place
+    And the spy "claude-code" process was handed no setup-token
     And the isolated "claude-code" home holds no credential file
     And the host "claude-code" credential file was never modified
     And the "claude-code" config-home instance is reaped once the session has aged out
@@ -415,50 +416,28 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And the instance's claude config carries the generated trust answer and the account identity, and none of Alice's own registrations or history
     And the host "claude-code" credential file was never modified
 
-  # The fail-loud half. With no stored or exported token and no API var,
-  # ctxloom refuses rather than pointing claude at a controlled home it
-  # cannot authenticate in — the same ClassIsolation mechanism the worktree
-  # axis uses, never degradable to the real home. The failure names the
-  # remedies (mint and store a setup-token, set an API var, or select the
-  # real home), and it happens BEFORE any engine is spawned.
-  Scenario: An in-tree AGENT run refuses a controlled home it cannot authenticate
+  # A host run needs no token: with none stored or exported and no API var it
+  # still proceeds, on Alice's own login shared in place. The refusal of an
+  # unauthenticatable home now belongs to container runs, which cannot reach
+  # her login (isolation.PrepareInstanceHome).
+  Scenario: An in-tree AGENT run with no token proceeds on Alice's own login
     Given Alice has a git-backed project
     And Alice has no "claude-code" credentials or API key on the host
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the run aborts with an isolation finding naming "none of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"
-    And the output contains "ctxloom auth set-token"
-    And the output contains "engine_home: host"
+    Then the run reports no isolation finding
+    And the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
+    And the spy "claude-code" process shares Alice's own login in place
+    And the spy "claude-code" process was handed no setup-token
+    And the isolated "claude-code" home holds no credential file
 
-  # LOCKED — the safety net grave-prize exists to guarantee: a run that
-  # declared engine_home: session, on the WORKTREE cell this time, for an
-  # engine that DOES relocate credentials with its config-home var refuses to
-  # start rather than silently handing the engine an empty, logged-out
-  # config-home. The home is orthogonal to the worktree: the SAME resolver
-  # and the SAME refusal the in-tree scenario above pins, reached from a
-  # different cell. This is provable without any engine binary at all: the
-  # finding fires, and the run aborts, BEFORE isolation.Prepare ever tries to
-  # spawn one.
-  Scenario Outline: A worktree run refuses to start an engine it cannot authenticate, rather than silently sharing the host's global credentials
-    Given Alice has a git-backed project
-    And Alice has no "<engine>" credentials or API key on the host
-    And Alice's agent declares engine_home "session"
-    When Alice runs the isolated "<engine>" agent under workspace "worktree"
-    Then the run aborts with an isolation finding naming "<needle>"
-
-    Examples:
-      | engine      | needle                                                                                   |
-      | claude-code | none of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY                                       |
-
-  # The bypass half of the SAME gate: an API key riding the environment
-  # authenticates the run as well as the setup-token does, so the run is
-  # never blocked on a missing token.
+  # An API key riding the environment reaches a host run beside the shared
+  # login, and the run is never blocked on a missing token.
   #
   # "PROCEED" is the load-bearing word in this scenario's title, so it is what
   # gets asserted: the run exits 0, the engine really launches, and the
   # config-home variable it is handed points at this session's instance — the
-  # controlled home the binding asked for is still in place, only the
-  # credential gate stood down. Asserting merely that no finding was printed
+  # controlled home the binding asked for is still in place. Asserting merely that no finding was printed
   # used to let this pass under a mutation that stopped any engine from
   # launching, and under one that collapsed isolation to nothing at all; the
   # degrade warning's wording matched neither needle.
@@ -478,17 +457,18 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # The worktree cell gets the SAME session home and the SAME auth as the
   # in-tree cell — the home is orthogonal to the worktree. The spy is
   # cooperative BY CONSTRUCTION, so this proves ctxloom's own bookkeeping
-  # (the var it sets, the token it hands over, the login it leaves alone),
+  # (the var it sets, the token it blanks, the login it leaves alone),
   # not that a real engine honours them; the vendor half is the live
   # isolation probe (tests/acceptance/features/probes/isolation_probe.feature).
-  Scenario: A worktree claude run authenticates from the stored setup-token and never touches the host's own login
+  Scenario: A worktree claude run shares Alice's own login in place and never touches it
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice has stored a "claude-code" setup-token
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "worktree"
     Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
-    And the spy "claude-code" process was handed the stored setup-token
+    And the spy "claude-code" process shares Alice's own login in place
+    And the spy "claude-code" process was handed no setup-token
     And the isolated "claude-code" home holds no credential file
     And the host "claude-code" credential file was never modified
 

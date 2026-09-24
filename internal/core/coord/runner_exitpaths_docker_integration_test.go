@@ -25,6 +25,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -79,18 +80,42 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	return coord.Resolved{Launch: l}, nil
 }
 
-// Start is directBusSpawner's, with the teardown it hands the coordinator
-// recorded: the spawn's Kill is the ONE door a live owner releases a run's
-// cell through (runtime remove, then the workspace's Cleanup), so a live-owner
-// end path that never reached it would leak every ephemeral the cell holds.
+// Start launches through the production spawn.StartRunner (so the runner env
+// it builds — reach-back plus the operator's owner-loss override — is what
+// reaches the container) and records the teardown it hands the coordinator:
+// the spawn's Kill is the ONE door a live owner releases a run's cell through
+// (runtime remove, then the workspace's Cleanup), so a live-owner end path
+// that never reached it would leak every ephemeral the cell holds.
 func (s *exitSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*coord.EngineSpawn, error) {
-	es, err := s.directBusSpawner.Start(ctx, l, reach)
+	s.mu.Lock()
+	cell := s.cells[l.Identity.Harp]
+	s.mu.Unlock()
+	h, err := spawn.StartRunner(ctx, cellStarter{cell: cell}, l, reach)
 	if err != nil {
+		_ = cell.ws.Cleanup()
 		return nil, err
 	}
-	kill := es.Kill
-	es.Kill = func() { s.killed.Store(true); kill() }
-	return es, nil
+	kill := sync.OnceFunc(func() {
+		s.killed.Store(true)
+		h.Kill()
+		_ = cell.ws.Cleanup()
+	})
+	s.mu.Lock()
+	s.containers = append(s.containers, h.Name)
+	s.cleanups = append(s.cleanups, kill)
+	s.mu.Unlock()
+	return &coord.EngineSpawn{Kill: kill}, nil
+}
+
+// cellStarter is spawn.Runtimes over one prepared container cell.
+type cellStarter struct{ cell preparedContainerCell }
+
+func (c cellStarter) Start(ctx context.Context, _ launch.Launch, env map[string]string) (coord.RunnerHandle, error) {
+	handle, err := isolation.StarterForWorkspace(c.cell.pol, c.cell.ws, c.cell.backend, c.cell.label, 0, env)(ctx)
+	if err != nil {
+		return coord.RunnerHandle{}, err
+	}
+	return coord.RunnerHandle{Name: handle.Name, Kill: handle.Kill}, nil
 }
 
 // exitRun is one live container child: its coordinator, harp and container.
@@ -106,10 +131,17 @@ type exitRun struct {
 // container child and waits until that child's runner has dialled home and
 // finished its first turn (the run is idle): the runner is ATTACHED, so what
 // follows is a loss of something that was really there.
-func startExitRun(t *testing.T, runtimeName, image string) exitRun {
+//
+// ownerLossWindow, when non-zero, is the operator's override the runner is
+// launched under (sessions.EnvRunnerOwnerLossWindow) — set AFTER the test's
+// environment is isolated, which clears every CTXLOOM_* variable.
+func startExitRun(t *testing.T, runtimeName, image string, ownerLossWindow time.Duration) exitRun {
 	t.Helper()
 	coord.ResetStrictness(t)
 	projectDir := testsupport.ProjectDir(t)
+	if ownerLossWindow > 0 {
+		t.Setenv(sessions.EnvRunnerOwnerLossWindow, ownerLossWindow.String())
+	}
 	sp := &exitSpawner{directBusSpawner: directBusSpawner{image: image, projectDir: projectDir}, runtime: runtimeName}
 	coord.TeeHome(t)
 	var logs syncBuffer
@@ -262,6 +294,10 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
+// exitPathOwnerLossWindow is the owner-loss window the owner-loss leg runs
+// its runner under, through sessions.EnvRunnerOwnerLossWindow.
+const exitPathOwnerLossWindow = 20 * time.Second
+
 // removalSlack bounds how long a container takes to go once its runner has
 // exited or its remove was issued: process teardown plus --rm.
 const removalSlack = 30 * time.Second
@@ -287,18 +323,21 @@ func TestRunnerExitPaths(t *testing.T) {
 			// (SIGKILL, OOM, a closed terminal). Nothing on the host removes the
 			// container; the runner must notice, exit, and let --rm take it.
 			t.Run("owner-loss", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				// The operator's override, set where ctxloom runs: proof it
+				// reaches a container runner, and a test that does not wait
+				// out the two-minute default.
+				r := startExitRun(t, rtc.name, image, exitPathOwnerLossWindow)
 				persistent := r.persistentMembers(t)
 				coord.CrashCoordinator(r.c)
-				r.requireContainerGone(t, coord.RunnerLossTimeout+removalSlack,
-					"a runner whose coordinator is gone must exit within the runner-loss grace")
+				r.requireContainerGone(t, exitPathOwnerLossWindow+removalSlack,
+					"a runner whose coordinator is gone must exit once its owner-loss window runs out")
 				r.requirePersistentKept(t, persistent, "owner loss")
 			})
 
 			// AGENT STOP: the coordinator's own teardown door (terminateRun ->
 			// the spawn's Kill -> remove by name).
 			t.Run("agent-stop", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
 				_, err := r.c.AgentStop(coord.OwnerIdentity(), r.harp, "exit-path test")
 				require.NoError(t, err)
@@ -311,7 +350,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// RUNTIME STOP: SIGTERM through the init to the runner, which
 			// returns from Main and exits; --rm takes the container.
 			t.Run("runtime-stop", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "stop", "-t", "20", r.container).CombinedOutput()
 				require.NoError(t, err, "%s stop: %s", r.bin, out)
@@ -324,7 +363,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// RUNTIME KILL: SIGKILL; nothing in the container runs, --rm still
 			// takes it, and the coordinator synthesizes the loss from the drop.
 			t.Run("runtime-kill", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "kill", r.container).CombinedOutput()
 				require.NoError(t, err, "%s kill: %s", r.bin, out)
@@ -341,7 +380,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// exits with its child and the kernel takes the rest, so no
 			// surviving process can hold the container open.
 			t.Run("runner-crash", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "exec", "-d", r.container, "sleep", "600").CombinedOutput()
 				require.NoError(t, err, "%s exec -d sleep: %s", r.bin, out)

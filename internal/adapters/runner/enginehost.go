@@ -51,6 +51,12 @@ type engineHome interface {
 	// engine host's seam for issuing an agent-initiated request to the
 	// coordinator and awaiting its answer.
 	Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error)
+	// ownerPresent is closed while the owner's lifecycle link is up
+	// (Home.ownerPresent): the gate every new turn waits on.
+	ownerPresent() <-chan struct{}
+	// setTurning tells the owner-loss clock a turn started or reached its
+	// boundary (Home.setTurning): progress pauses it.
+	setTurning(on bool)
 }
 
 // Compile-time assertion that Home satisfies the engine host's seam.
@@ -552,6 +558,7 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 	eh.mu.Unlock()
 
 	eh.beginTurn()
+	home.setTurning(true)
 
 	out := make(chan engine.Event, 64)
 	events := make(chan agent.ChatEvent, 64)
@@ -611,6 +618,7 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 	items.closeOpen()
 
 	tag := eh.endTurn()
+	home.setTurning(false)
 	eh.mu.Lock()
 	if res.NativeKey != "" {
 		eh.nativeKey = res.NativeKey

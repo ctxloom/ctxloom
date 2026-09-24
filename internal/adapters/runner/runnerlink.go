@@ -11,8 +11,10 @@ import (
 
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -148,6 +150,36 @@ func grpcTarget(coordURL string) (string, error) {
 
 // bearerCreds attaches the credential to every RPC (per-RPC metadata; the
 // server re-verifies per request).
+// coordKeepalive pings the coordinator on an idle transport and drops a
+// connection whose ping goes unanswered. Without it a half-open link — the
+// coordinator's host gone without a FIN — reads as up for as long as the
+// kernel's TCP timeout, which stops the owner-loss clock for all of it.
+// 10s is grpc-go's floor for the ping interval; the coordinator's h2c server
+// answers pings without an enforcement policy.
+var coordKeepalive = keepalive.ClientParameters{Time: 10 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: true}
+
+// coordConnectParams caps grpc's own reconnect backoff at the runner's redial
+// pace. The run channel rides ONE long-lived ClientConn, and grpc-go's default
+// backoff grows to two minutes while the coordinator is down, failing every
+// RPC fast in between — so a coordinator back after a 30s outage would wait
+// out that backoff before the run channel could reattach, however often the
+// runner's loop asked.
+var coordConnectParams = grpc.ConnectParams{
+	Backoff:           backoff.Config{BaseDelay: time.Second, Multiplier: backoff.DefaultConfig.Multiplier, Jitter: backoff.DefaultConfig.Jitter, MaxDelay: HomeRedialBackoff},
+	MinConnectTimeout: 20 * time.Second,
+}
+
+// coordDialOptions is how every runner-side conn to the coordinator dials:
+// plaintext h2c, the bearer credential, coordKeepalive and coordConnectParams.
+func coordDialOptions(token string) []grpc.DialOption {
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(bearerCreds(token)),
+		grpc.WithKeepaliveParams(coordKeepalive),
+		grpc.WithConnectParams(coordConnectParams),
+	}
+}
+
 type bearerCreds string
 
 func (b bearerCreds) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
@@ -168,10 +200,7 @@ func DialRunner(ctx context.Context, rep report.Sink, coordURL, token, runID, ha
 	if err != nil {
 		return nil, err
 	}
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(bearerCreds(token)),
-	)
+	conn, err := grpc.NewClient(target, coordDialOptions(token)...)
 	if err != nil {
 		return nil, fmt.Errorf("coord: dial coordinator %s: %w", target, err)
 	}

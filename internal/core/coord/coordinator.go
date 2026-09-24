@@ -720,7 +720,7 @@ func (c *Coordinator) adopt() {
 		c.mu.Unlock()
 		c.goTracked(func() {
 			select {
-			case <-time.After(RunnerLossTimeout):
+			case <-time.After(runnerLossTimeout):
 				fire()
 			case <-fired:
 			case <-c.baseCtx.Done():

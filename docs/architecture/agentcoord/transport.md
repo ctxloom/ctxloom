@@ -131,7 +131,7 @@ it is not inferred from scattered call sites:
 | `coordService.RunnerChannel` | Hello / ownership / ack, registration, writer pump, recv loop, and loss synthesis in the defer |
 | `Coordinator.handleRunExited` | validates ownership, records the resume handle, terminates; an unowned `RunExited` warns and is ignored |
 | `Coordinator.runnerLost` | synthesizes termination for every active run of a dead credential |
-| `runnerWatchdog` / `checkRunnerLiveness` | declares loss past `RunnerLossTimeout`, outside the lock |
+| `runnerWatchdog` / `checkRunnerLiveness` | declares loss past `runnerLossTimeout`, outside the lock |
 | `Coordinator.awaitRunner` | blocks until the spawned runner dials home; distinguishes "signalled but already ended" from ctx expiry |
 | `Coordinator.requestRunner` | one coordinator→runner request/response round trip (`defaultRequestTimeout` 60s) |
 | `runnerSession.end` | `bidiSession.failPending`: answers every waiter `UNAVAILABLE` and ends the session in one step, so a later register is refused rather than parked forever |

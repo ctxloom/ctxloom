@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"google.golang.org/grpc"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ownerServer is a coordinator reduced to the one thing the owner-loss clock
@@ -130,8 +133,8 @@ func TestHome_OwnerLinkBackInsideTheWindowKeepsTheRunner(t *testing.T) {
 // ErrOwnerLost — the return that ends a container's foreground process.
 func TestMain_EndsWhenItsOwnerIsLost(t *testing.T) {
 	env := &mainEnv{vars: reachEnv("http://127.0.0.1:1/mcp", "t", "run-1")}
+	t.Setenv(sessions.EnvRunnerOwnerLossWindow, "200ms")
 	deps := mainDeps(env, func(*EngineHost, *Home) (Deps, error) { return Deps{}, nil })
-	deps.OwnerLossWindow = 200 * time.Millisecond
 	done := make(chan error, 1)
 	go func() { done <- Main(context.Background(), deps) }()
 	select {
@@ -140,4 +143,135 @@ func TestMain_EndsWhenItsOwnerIsLost(t *testing.T) {
 	case <-time.After(conformanceWait):
 		t.Fatal("Main kept running with no coordinator past its owner-loss window")
 	}
+}
+
+// TestMain_OwnerLossWindowOverride: the operator's override is what the home
+// runs on; a set-but-invalid one (unparseable, zero, negative) falls back to
+// DefaultOwnerLossWindow and says so LOUDLY, naming the variable; unset is
+// the default, silently.
+func TestMain_OwnerLossWindowOverride(t *testing.T) {
+	for _, c := range []struct {
+		raw  string
+		set  bool
+		want time.Duration
+		warn bool
+	}{
+		{raw: "5m", set: true, want: 5 * time.Minute},
+		{raw: "nope", set: true, want: DefaultOwnerLossWindow, warn: true},
+		{raw: "0s", set: true, want: DefaultOwnerLossWindow, warn: true},
+		{raw: "-1m", set: true, want: DefaultOwnerLossWindow, warn: true},
+		{set: false, want: DefaultOwnerLossWindow},
+	} {
+		t.Run(c.raw, func(t *testing.T) {
+			if c.set {
+				t.Setenv(sessions.EnvRunnerOwnerLossWindow, c.raw)
+			} else {
+				t.Setenv(sessions.EnvRunnerOwnerLossWindow, "")
+			}
+			var found report.Findings
+			env := &mainEnv{vars: reachEnv("http://127.0.0.1:1/mcp", "t", "run-1")}
+			got := make(chan time.Duration, 1)
+			deps := mainDeps(env, func(_ *EngineHost, h *Home) (Deps, error) { got <- h.cfg.OwnerLossWindow; return Deps{}, nil })
+			deps.Reporter = &found
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() { done <- Main(ctx, deps) }()
+			require.Equal(t, c.want, <-got)
+			cancel()
+			require.NoError(t, <-done)
+			var warned bool
+			for _, f := range found {
+				if strings.Contains(f.Text, sessions.EnvRunnerOwnerLossWindow) {
+					warned = true
+				}
+			}
+			require.Equal(t, c.warn, warned, "findings: %v", found)
+		})
+	}
+}
+
+// TestHome_AHangingDialDoesNotStopTheClock: a coordinator that accepts the
+// RunnerChannel and never answers the Hello — wedged, or a half-open peer —
+// must not hold the owner-loss clock. The dial is cut off when the window
+// runs out, and the owner is declared lost on time.
+func TestHome_AHangingDialDoesNotStopTheClock(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := grpc.NewServer()
+	agentcoordpb.RegisterCoordinatorServiceServer(srv, wedgedOwner{})
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(srv.Stop)
+
+	const window = 300 * time.Millisecond
+	start := time.Now()
+	h := ownerLossHome(t, fmt.Sprintf("http://%s/mcp", ln.Addr().String()), window)
+	select {
+	case <-h.OwnerLost():
+		require.GreaterOrEqual(t, time.Since(start), window)
+	case <-time.After(conformanceWait):
+		t.Fatal("a dial that never completes held the owner-loss clock")
+	}
+}
+
+// wedgedOwner takes the RunnerChannel and never answers the Hello.
+type wedgedOwner struct {
+	agentcoordpb.UnimplementedCoordinatorServiceServer
+}
+
+func (wedgedOwner) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]) error {
+	<-stream.Context().Done()
+	return stream.Context().Err()
+}
+
+// TestHome_ATurnBlockedOnTheCoordinatorIsWaiting: a turn in progress pauses
+// the owner-loss clock only while it makes progress. Blocked on a
+// coordinator-bound request (Home.Request, which waits up to
+// coord.DefaultRequestTimeout and is reissued on reconnect) it is waiting on
+// its owner, and the clock runs.
+func TestHome_ATurnBlockedOnTheCoordinatorIsWaiting(t *testing.T) {
+	const window = 300 * time.Millisecond
+	owner := &ownerServer{}
+	owner.serve(t)
+	h := ownerLossHome(t, owner.url(), window)
+	require.Eventually(t, func() bool { return owner.hellos.Load() == 1 }, conformanceWait, 5*time.Millisecond)
+	h.setTurning(true)
+	owner.srv.Stop()
+
+	// Progress: the clock is paused.
+	select {
+	case <-h.OwnerLost():
+		t.Fatal("a turn making progress was cut off")
+	case <-time.After(3 * window):
+	}
+
+	blocked := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	go func() {
+		_, _ = h.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_ListRuns{ListRuns: &agentcoordpb.ListRunsRequest{}}})
+	}()
+	select {
+	case <-h.OwnerLost():
+		require.GreaterOrEqual(t, time.Since(blocked), window, "the clock starts when the turn blocks on its owner")
+	case <-time.After(conformanceWait):
+		t.Fatal("a turn blocked on a coordinator request never counted as waiting")
+	}
+}
+
+// TestDeliverNotice_NoWakeOrNudgeWhileTheOwnerIsAway: the session owner's
+// engine takes mail through a wake or a terminal nudge — each starts a turn.
+// With the owner away neither fires; mail buffers, and the owner's return
+// fires once for what waited.
+func TestDeliverNotice_NoWakeOrNudgeWhileTheOwnerIsAway(t *testing.T) {
+	h := newNoticeHome(t)
+	h.ownerUp, h.present = false, make(chan struct{})
+	var nudges atomic.Int32
+	h.SetTerminalNudge(func() { nudges.Add(1) })
+
+	h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-away"})
+	require.Zero(t, nudges.Load(), "no nudge — no new turn — while the owner is away")
+	require.Equal(t, 1, h.BufferedMailCount())
+
+	h.setOwnerPresent(true)
+	require.Equal(t, int32(1), nudges.Load(), "the owner's return fires for the mail that waited")
 }

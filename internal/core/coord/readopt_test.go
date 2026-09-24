@@ -114,3 +114,45 @@ func TestReadopt_ARunnerThatNeverReturns_IsRunnerLoss(t *testing.T) {
 	require.Eventually(t, func() bool { return rosterState(second, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, CauseRunnerLoss, runCause(second, out.RunID))
 }
+
+// TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner: a coordinator
+// that is DOWN ends nothing, so a restart that takes longer than the
+// coordinator's own runner-loss grace (runnerLossTimeout) must still find its
+// runners alive and re-adopt them. The runner's owner-loss window is its own
+// (runner.DefaultOwnerLossWindow), deliberately longer than any grace; tying
+// it to runnerLossTimeout killed every live child of a coordinator that took
+// over 20s to come back.
+func TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner(t *testing.T) {
+	resetStrictness(t)
+	stateDir := t.TempDir()
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{} })
+	t.Cleanup(func() {
+		for i := 0; i < sp.spawnCount(); i++ {
+			sp.killEngine(i)
+		}
+	})
+
+	first := newTestCoordinatorOver(t, stateDir, sp)
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(first, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+
+	crashCoordinator(first)
+	// The coordinator stays down longer than its own grace. Nothing here is a
+	// race to win: the premise IS the elapsed time.
+	time.Sleep(runnerLossTimeout + 10*time.Second)
+
+	// No Redial kick: in production nothing tells the runner its coordinator
+	// is back, so its own loops — and its conns' reconnect backoff — must
+	// find it within a redial or two.
+	second := newTestCoordinatorOver(t, stateDir, sp)
+	require.Eventually(t, func() bool { return second.runnerConnected(out.RunID) }, conformanceWait, 10*time.Millisecond,
+		"a runner must outlive a coordinator restart slower than the coordinator's own grace")
+	assert.NotEqual(t, StateEnded, rosterState(second, out.Harp))
+
+	_, err = second.AgentSend(ownerIdentity(), out.Harp, KindMessage, "still there", nil, "")
+	require.NoError(t, err)
+	res := recvWhere(t, second, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "still there") }, conformanceWait)
+	require.NotEmpty(t, res, "the re-adopted runner takes the next turn")
+	assert.Equal(t, 1, sp.spawnCount())
+}

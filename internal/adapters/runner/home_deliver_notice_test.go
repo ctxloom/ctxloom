@@ -13,14 +13,20 @@ import (
 
 // newNoticeHome builds the minimum Home deliverNotice touches: the dedupe maps,
 // a context for the turn-queue send, and no pump on turnQ so the test can read
-// the queue itself rather than race a sink.
+// the queue itself rather than race a sink. Its owner is present — the link is
+// up — which is the state every notice here is delivered in.
 func newNoticeHome(t *testing.T) *Home {
 	t.Helper()
+	present := make(chan struct{})
+	close(present)
 	return &Home{
 		rep:         termRep(),
 		ctx:         context.Background(),
 		consumed:    map[string]bool{},
 		turnPending: map[string]bool{},
+		ownerUp:     true,
+		present:     present,
+		waitChange:  make(chan struct{}),
 	}
 }
 

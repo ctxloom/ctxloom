@@ -28,6 +28,7 @@ type TestHome interface {
 	RunID() string
 	Capabilities() []string
 	Done() <-chan struct{}
+	OwnerLost() <-chan struct{}
 	EmittedSeq() uint64
 	Redial()
 	SetTerminalNudge(fn func())
@@ -82,6 +83,7 @@ type TestHomeConfig struct {
 	Mapper             spool.PathMapper
 	SpoolSweepInterval time.Duration
 	RedialBackoff      time.Duration
+	OwnerLossWindow    time.Duration
 	Reporter           report.Sink
 }
 

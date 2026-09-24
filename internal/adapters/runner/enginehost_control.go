@@ -101,6 +101,24 @@ func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string)
 			return runCtx.Err()
 		}
 	}
+	// THE OWNER GATE: LET IT FINISH, THEN WAIT. The turn in flight has just
+	// reached its boundary; the next one starts only with the owner present,
+	// so a runner whose coordinator is away runs nothing new — however the
+	// turn was offered (the boundary's own spool sweep, the periodic one, a
+	// queued delivery). The owner-loss clock runs while it waits here, and
+	// its expiry ends runCtx (Main tears the run down).
+	eh.mu.Lock()
+	home := eh.home
+	eh.mu.Unlock()
+	if home != nil {
+		select {
+		case <-home.ownerPresent():
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-runCtx.Done():
+			return runCtx.Err()
+		}
+	}
 	eh.mu.Lock()
 	if eh.ended {
 		eh.mu.Unlock()

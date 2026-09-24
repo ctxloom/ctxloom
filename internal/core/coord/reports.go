@@ -216,6 +216,11 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 	return 1, true
 }
 
+// ErrReportNotJournaled wraps a journal failure while recording a report: the
+// report is not durable, and nothing re-sends it, so the filer must be told
+// rather than led to believe it was recorded.
+var ErrReportNotJournaled = errors.New("agent_report: the report could not be journaled and was not recorded")
+
 // recordSummary journals one filed report (plane-1 Summary event → durable
 // fact).
 //
@@ -224,7 +229,8 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 // the flush that follows acks through it), so the runner will not re-emit it and
 // nothing else re-sends it — there is no retry buffer on this path, unlike the
 // item path's flushItems, which restores its facts and holds the watermark
-// back. So the failure warns, and everything downstream that would ASSERT the
+// back. So the failure is returned (ErrReportNotJournaled) — to agent_report's
+// caller, or to the run channel, which has no caller and warns — and everything downstream that would ASSERT the
 // report exists is skipped: no audit interaction (the interaction log would
 // otherwise record a report the reports journal does not contain) and no
 // checkpoint snapshot (whose contract is that the report it compacts to is
@@ -263,9 +269,7 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) e
 		if errors.Is(err, ErrRevoked) {
 			return err
 		}
-		c.rep.Warnf("coordinator: journal report for %s: %v — the report is LOST "+
-			"(the runner's ack has already advanced past it and nothing re-sends it)", harp, err)
-		return nil
+		return fmt.Errorf("%w: %s: %w", ErrReportNotJournaled, harp, err)
 	}
 	c.audit("agent_report", harp, map[string]string{"scope": string(s.Scope)})
 	c.notifyParentOfFinalReport(harp, s)

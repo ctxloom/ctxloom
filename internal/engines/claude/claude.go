@@ -96,10 +96,14 @@ func (w *ClaudeCodeHookWriter) MCPConfigPath(projectDir string) string {
 }
 
 // claudeCodeStatusLine represents the statusLine configuration in settings.json.
+// Other keeps every key this struct does not model verbatim — the statusLine
+// schema is Claude Code's, not ctxloom's, and a key it adds must not vanish on
+// ctxloom's next write (the claudeCodePermissions.Other idiom).
 type claudeCodeStatusLine struct {
-	Type    string `json:"type"`
-	Command string `json:"command"`
-	Padding int    `json:"padding,omitempty"`
+	Type    string                     `json:"type"`
+	Command string                     `json:"command"`
+	Padding int                        `json:"padding,omitempty"`
+	Other   map[string]json.RawMessage `json:"-"`
 }
 
 // claudeCodeSettings represents the structure of .claude/settings.json
@@ -421,6 +425,13 @@ func (w *ClaudeCodeHookWriter) parseStatusLine(path string, data []byte, raw jso
 	if err := json.Unmarshal(raw, &sl); err != nil {
 		return nil, w.corruptSettings(path, data, "statusLine", err, "to avoid replacing or deleting the statusline already in it")
 	}
+	// The typed decode above succeeding means raw is an object.
+	if err := json.Unmarshal(raw, &sl.Other); err != nil {
+		return nil, w.corruptSettings(path, data, "statusLine", err, "to avoid replacing or deleting the statusline already in it")
+	}
+	for _, k := range []string{"type", "command", "padding"} {
+		delete(sl.Other, k)
+	}
 	return &sl, nil
 }
 
@@ -463,18 +474,47 @@ func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what st
 // cannot be re-encoded refuses the whole write (preserveFailure); dropping one
 // silently would delete the user's own allow/ask/defaultMode rules.
 func permissionsOutput(path string, perm *claudeCodePermissions) (map[string]interface{}, error) {
-	out := make(map[string]interface{})
-	for k, v := range perm.Other {
-		var val interface{}
-		if err := json.Unmarshal(v, &val); err != nil {
-			return nil, preserveFailure(path, "permissions."+k, err)
-		}
-		// The decode above is the GATE, not the value: what gets re-emitted is
-		// the user's original bytes. See saveSettings for why.
-		out[k] = json.RawMessage(v)
+	out, err := preservedOutput(path, "permissions.", perm.Other)
+	if err != nil {
+		return nil, err
 	}
 	if len(perm.Deny) > 0 {
 		out["deny"] = perm.Deny
+	}
+	return out, nil
+}
+
+// statusLineOutput renders the statusLine for re-emission: its preserved
+// unmodelled keys, then the typed fields layered on top — permissionsOutput's
+// shape, for the same reason.
+func statusLineOutput(path string, sl *claudeCodeStatusLine) (map[string]interface{}, error) {
+	out, err := preservedOutput(path, "statusLine.", sl.Other)
+	if err != nil {
+		return nil, err
+	}
+	out["type"] = sl.Type
+	out["command"] = sl.Command
+	if sl.Padding != 0 {
+		out["padding"] = sl.Padding
+	}
+	return out, nil
+}
+
+// preservedOutput is the re-emission gate every preserved block shares: each
+// key goes back out as its ORIGINAL bytes, and decoding it serves only to
+// reject what cannot be carried through (preserveFailure). Handing the DECODED
+// value to the canonicaliser instead would round every number the user wrote
+// past float64's exact range — 1234567890123456789 comes back
+// 1234567890123456800 — a rewrite of the user's own file that no warning or
+// exit code reports. prefix qualifies the key named in a refusal.
+func preservedOutput(path, prefix string, other map[string]json.RawMessage) (map[string]interface{}, error) {
+	out := make(map[string]interface{}, len(other))
+	for k, v := range other {
+		var val interface{}
+		if err := json.Unmarshal(v, &val); err != nil {
+			return nil, preserveFailure(path, prefix+k, err)
+		}
+		out[k] = json.RawMessage(v)
 	}
 	return out, nil
 }
@@ -503,20 +543,9 @@ func preserveFailure(path, key string, cause error) error {
 // 2. Atomic write: Writes to temp file first, then renames (prevents corruption)
 func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSettings) error {
 	// Build output map starting with preserved fields
-	output := make(map[string]interface{})
-	for k, v := range settings.Other {
-		var val interface{}
-		if err := json.Unmarshal(v, &val); err != nil {
-			return preserveFailure(path, k, err)
-		}
-		// A preserved key is re-emitted as its ORIGINAL bytes, and the decode
-		// above serves only as the gate that rejects what cannot be carried
-		// through (preserveFailure). Handing the DECODED value to the
-		// canonicaliser instead would round every number the user wrote past
-		// float64's exact range — 1234567890123456789 comes back
-		// 1234567890123456800 — a rewrite of the user's own file that no
-		// warning or exit code reports.
-		output[k] = json.RawMessage(v)
+	output, err := preservedOutput(path, "", settings.Other)
+	if err != nil {
+		return err
 	}
 
 	// Add hooks if non-empty
@@ -526,7 +555,11 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 
 	// Add statusLine if configured
 	if settings.StatusLine != nil {
-		output["statusLine"] = settings.StatusLine
+		slOut, err := statusLineOutput(path, settings.StatusLine)
+		if err != nil {
+			return err
+		}
+		output["statusLine"] = slOut
 	}
 
 	// Add permissions if configured: Other's preserved sibling keys first, then
@@ -745,9 +778,16 @@ func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings, pr
 	// executable (agent.CtxloomCommand) and resolves via PATH at fire time:
 	// settings.json is a TRACKED file, so an absolute path here is one
 	// developer's machine baked into every clone.
+	// Reclaiming ctxloom's own line keeps its unmodelled keys: ctxloom never
+	// writes one, so any there are the user's.
+	var other map[string]json.RawMessage
+	if settings.StatusLine != nil {
+		other = settings.StatusLine.Other
+	}
 	settings.StatusLine = &claudeCodeStatusLine{
 		Type:    "command",
 		Command: ctxloomStatusLineCommand(),
+		Other:   other,
 	}
 }
 

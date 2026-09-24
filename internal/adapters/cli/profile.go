@@ -135,9 +135,6 @@ Example:
 
 func runProfileCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if shown, err := helpShortcut(cmd, name); shown {
-		return err
-	}
 
 	if len(profileCreateParents) == 0 && len(profileCreateBundles) == 0 {
 		return fmt.Errorf("at least one parent (--parent) or bundle (-b) is required")
@@ -242,9 +239,6 @@ Pass --yes to apply it.`,
 
 func runProfileRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if shown, err := helpShortcut(cmd, name); shown {
-		return err
-	}
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -255,6 +249,9 @@ func runProfileRemove(cmd *cobra.Command, args []string) error {
 	if !profileRemoveYes {
 		res, err := operations.GetProfile(cmd.Context(), cfg, operations.GetProfileRequest{Name: name})
 		if err != nil {
+			if shown, herr := helpFallback(cmd, name); shown {
+				return herr
+			}
 			return fmt.Errorf("profile %q not found", name)
 		}
 		var detail []string
@@ -272,6 +269,9 @@ func runProfileRemove(cmd *cobra.Command, args []string) error {
 	// defaults if it was the default — a cleanup the old CLI path skipped.
 	res, err := operations.DeleteProfile(cmd.Context(), cfg, operations.DeleteProfileRequest{Name: name})
 	if err != nil {
+		if shown, herr := helpFallback(cmd, name); shown {
+			return herr
+		}
 		return err
 	}
 
@@ -290,9 +290,6 @@ var profileShowCmd = &cobra.Command{
 
 func runProfileShow(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if shown, err := helpShortcut(cmd, name); shown {
-		return err
-	}
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -301,6 +298,9 @@ func runProfileShow(cmd *cobra.Command, args []string) error {
 
 	res, err := operations.GetProfile(cmd.Context(), cfg, operations.GetProfileRequest{Name: name})
 	if err != nil {
+		if shown, herr := helpFallback(cmd, name); shown {
+			return herr
+		}
 		return fmt.Errorf("profile %q not found", name)
 	}
 	// "Default" now means membership in the default AGENT's composed profiles
@@ -381,9 +381,6 @@ Examples:
 
 func runProfileUpdate(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if shown, err := helpShortcut(cmd, name); shown {
-		return err
-	}
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -426,6 +423,9 @@ func runProfileUpdate(cmd *cobra.Command, args []string) error {
 	// default flag into config.
 	res, err := operations.UpdateProfile(cmd.Context(), cfg, req)
 	if err != nil {
+		if shown, herr := helpFallback(cmd, name); shown {
+			return herr
+		}
 		return err
 	}
 

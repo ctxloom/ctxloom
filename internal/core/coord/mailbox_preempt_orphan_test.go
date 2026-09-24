@@ -57,7 +57,7 @@ func TestRecvPreempted_DeliveryToAnOrphanedPollIsNotLost(t *testing.T) {
 	// A newer recv now issues for the SAME role — "one active long-poll per
 	// role, newest preempts" — while the older poll's delivery sits
 	// undrained.
-	got, err := c.inbox.recv(context.Background(), role, 0)
+	got, err := c.inbox.recv(context.Background(), role, "", 0)
 
 	assert.NoError(t, err, "a message handed to an orphaned poll must still reach the next recv, not vanish as an ack for a delivery nobody received")
 	if !assert.Len(t, got, 1, "the batch delivered to the abandoned poll must not be silently lost") {

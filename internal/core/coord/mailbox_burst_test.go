@@ -59,7 +59,7 @@ func TestRecvMail_MailLandingAfterAClaimReturnsOnTheNextReceiveWithoutParking(t 
 	}
 	done := make(chan recvOutcome, 1)
 	go func() {
-		msgs, err := c.inbox.recv(context.Background(), role, 5*time.Second)
+		msgs, err := c.inbox.recv(context.Background(), role, "", 5*time.Second)
 		done <- recvOutcome{msgs: msgs, err: err}
 	}()
 	if !waitParked(t, c, role) {
@@ -91,7 +91,7 @@ func TestRecvMail_MailLandingAfterAClaimReturnsOnTheNextReceiveWithoutParking(t 
 	}
 	assert.False(t, c.inbox.parked(role), "nothing is parked between the two receives: the reminder path, not a settle, covers this window")
 
-	rest, err := c.inbox.recv(context.Background(), role, 0)
+	rest, err := c.inbox.recv(context.Background(), role, "", 0)
 	if !assert.NoError(t, err, "a zero-wait receive returns what landed since the last claim without parking") {
 		return
 	}
@@ -113,7 +113,7 @@ func TestRecvMail_ASingleArrivalStillReturnsPromptly(t *testing.T) {
 	done := make(chan recvOutcome, 1)
 	started := time.Now()
 	go func() {
-		msgs, err := c.inbox.recv(context.Background(), role, 5*time.Second)
+		msgs, err := c.inbox.recv(context.Background(), role, "", 5*time.Second)
 		done <- recvOutcome{msgs: msgs, err: err}
 	}()
 

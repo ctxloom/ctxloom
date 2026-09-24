@@ -55,7 +55,7 @@ type spoolInbox struct {
 	counters *SpoolDeliveryCounters
 	// onPark / onUnpark tie a parked receive to the coordinator's slot
 	// accounting (onRolePark / onRoleUnpark).
-	onPark, onUnpark func(role string)
+	onPark, onUnpark func(role, runID string)
 
 	mu sync.Mutex
 	// polls holds the one parked receive per role.
@@ -66,7 +66,7 @@ type spoolInbox struct {
 	handed map[string][]string
 }
 
-func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *SpoolDeliveryCounters, onPark, onUnpark func(string)) *spoolInbox {
+func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *SpoolDeliveryCounters, onPark, onUnpark func(role, runID string)) *spoolInbox {
 	return &spoolInbox{
 		rep: rep, mapper: mapper, counters: counters, onPark: onPark, onUnpark: onUnpark,
 		polls:  make(map[string]*parkedPoll),
@@ -78,8 +78,11 @@ func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *Spool
 // mu so the deliver/timeout/preempt/revoke races resolve to exactly one
 // completion.
 type parkedPoll struct {
-	done bool
-	ch   chan pollResult
+	// runID is the run whose receive parked: the park and its unpark speak for
+	// that run, not for whichever run the role is on when the poll completes.
+	runID string
+	done  bool
+	ch    chan pollResult
 }
 
 // pollResult is what completes a parked poll's channel. A delivery sends a
@@ -114,7 +117,7 @@ func (in *spoolInbox) wake(role string) bool {
 	delete(in.polls, role)
 	in.mu.Unlock()
 	go func() {
-		in.onUnpark(role)
+		in.onUnpark(role, p.runID)
 		p.ch <- pollResult{}
 	}()
 	return true
@@ -138,7 +141,7 @@ func (in *spoolInbox) sever(role string, err error) {
 
 // recv is the long-poll behind agent_recv: ack prior deliveries, claim
 // deliverable mail, or park for up to wait.
-func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration) ([]Message, error) {
+func (in *spoolInbox) recv(ctx context.Context, role, runID string, wait time.Duration) ([]Message, error) {
 	in.ack(role)
 	if msgs, ok := in.claim(role); ok {
 		return msgs, nil
@@ -155,12 +158,12 @@ func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration)
 		prev.done = true
 		go func() { prev.ch <- pollResult{err: ErrRecvPreempted} }()
 	}
-	p := &parkedPoll{ch: make(chan pollResult, 1)}
+	p := &parkedPoll{runID: runID, ch: make(chan pollResult, 1)}
 	in.polls[role] = p
 	in.mu.Unlock()
 
 	if fresh {
-		in.onPark(role)
+		in.onPark(role, runID)
 	}
 	// Claim once more now that the poll is registered. A delivery that landed
 	// after the claim above rang a wake that found no poll and was dropped
@@ -215,7 +218,7 @@ func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message) []Messa
 		delete(in.polls, role)
 	}
 	in.mu.Unlock()
-	in.onUnpark(role)
+	in.onUnpark(role, p.runID)
 	return msgs
 }
 
@@ -251,7 +254,7 @@ func (in *spoolInbox) abandon(role string, p *parkedPoll, err error, callerGone 
 		delete(in.polls, role)
 	}
 	in.mu.Unlock()
-	in.onUnpark(role)
+	in.onUnpark(role, p.runID)
 	return nil, err
 }
 

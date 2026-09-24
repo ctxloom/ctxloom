@@ -74,7 +74,7 @@ func TestRecvOverlapping_EveryQueuedMessageIsReceivedExactlyOnce(t *testing.T) {
 		}
 
 		// The newer receive for the same role.
-		msgs, err := c.inbox.recv(context.Background(), role, 0)
+		msgs, err := c.inbox.recv(context.Background(), role, "", 0)
 		if !assert.NoError(t, err, "message %d was handed to an orphaned poll and must still reach the next recv", i) {
 			return
 		}
@@ -113,7 +113,7 @@ func TestRecvPreempted_ConcurrentOverlapLosesNoMessage(t *testing.T) {
 	// The older receive parks and is then abandoned by its caller.
 	olderErr := make(chan error, 1)
 	go func() {
-		_, err := c.inbox.recv(context.Background(), role, conformanceWait)
+		_, err := c.inbox.recv(context.Background(), role, "", conformanceWait)
 		olderErr <- err
 	}()
 	if !assert.Eventually(t, func() bool {
@@ -129,7 +129,7 @@ func TestRecvPreempted_ConcurrentOverlapLosesNoMessage(t *testing.T) {
 	// makes "the mail arrived after the preemption" a fact rather than a race.
 	newer := make(chan []Message, 1)
 	go func() {
-		msgs, err := c.inbox.recv(context.Background(), role, conformanceWait)
+		msgs, err := c.inbox.recv(context.Background(), role, "", conformanceWait)
 		if err != nil {
 			newer <- nil
 			return
@@ -174,7 +174,7 @@ func TestRecvPreempted_ConcurrentOverlapLosesNoMessage(t *testing.T) {
 	// here and never appear.
 	deadline := time.Now().Add(conformanceWait)
 	for len(received) < n && time.Now().Before(deadline) {
-		msgs, err := c.inbox.recv(context.Background(), role, 10*time.Millisecond)
+		msgs, err := c.inbox.recv(context.Background(), role, "", 10*time.Millisecond)
 		if err != nil {
 			continue
 		}

@@ -23,11 +23,11 @@ func TestSpoolInboxRecv_MailLandingAsItParksIsReceived(t *testing.T) {
 	teeHome(t)
 	const harp = "owner-harp-lostwake"
 	in := newSpoolInbox(report.To(termSink()), spool.NewHomeMapper(), &SpoolDeliveryCounters{},
-		func(role string) { writeSpoolMail(t, role, "child-harp-1", KindMessage, "landed as it parked") },
-		func(string) {})
+		func(role, _ string) { writeSpoolMail(t, role, "child-harp-1", KindMessage, "landed as it parked") },
+		func(string, string) {})
 
 	start := time.Now()
-	msgs, err := in.recv(context.Background(), harp, 5*time.Second)
+	msgs, err := in.recv(context.Background(), harp, "", 5*time.Second)
 	require.NoError(t, err, "the mail was on disk the whole time the receive was parked")
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "landed as it parked", msgs[0].Body)

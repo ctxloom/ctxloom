@@ -42,7 +42,7 @@ func TestQueueMail_RefusesAnEmptyBody(t *testing.T) {
 	}
 
 	// A recv finds nothing: no phantom delivery was made.
-	msgs, err := c.inbox.recv(context.Background(), role, 0)
+	msgs, err := c.inbox.recv(context.Background(), role, "", 0)
 	assert.Empty(t, msgs)
 	assert.ErrorIs(t, err, ErrRecvTimeout)
 }

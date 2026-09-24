@@ -350,7 +350,7 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 	t.Cleanup(func() { sessionlock.Release(harp) })
 	// Park it through the production path: a child waiting in agent_recv
 	// yields its slot mid-turn and holds the turn open.
-	c.onRolePark(harp)
+	c.onRolePark(harp, currentRunID(c, harp))
 	require.Equal(t, StateParked, rosterState(c, harp), "precondition: the child is parked")
 	require.Equal(t, sessionlock.Alive, sessionlock.Inspect(harp).Verdict, "precondition: the spawner holds the lock")
 
@@ -371,7 +371,7 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 
 	// Once the human answers, the park lifts and the drain policy applies:
 	// the child ends at its boundary rather than taking another turn.
-	c.onRoleUnpark(harp)
+	c.onRoleUnpark(harp, currentRunID(c, harp))
 	close(gate)
 	require.Eventually(t, func() bool { return rosterState(c, harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 	assert.Equal(t, CauseDrained, currentRunCause(c, harp))

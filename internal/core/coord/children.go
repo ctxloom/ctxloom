@@ -1035,6 +1035,25 @@ func (c *Coordinator) recordResumable(runID string, resumable bool) {
 	}
 }
 
+// runtimeForLocked resolves the runtime a run-channel frame speaks for: the run
+// the channel was attached under, never the harp's current runtime. A frame an
+// ended run's channel had already read is still dispatched after severChan (the
+// receive goroutine outlives it), and by then the harp may be running again as a
+// fresh run — resolved by harp, that frame would idle, park, unpark or end a run
+// that never sent it (TestRunChannel_LateTurnEventsFromAnEndedRunDoNotMoveTheResumedRun).
+// c.attach is keyed by run and dropped at that run's terminal, so an ended run
+// resolves to nothing. An empty runID is the depth-0 session-owner credential,
+// which serves the harp itself rather than one run. Caller holds c.mu.
+func (c *Coordinator) runtimeForLocked(role, runID string) *childRt {
+	if runID == "" {
+		return c.byHarp[role]
+	}
+	if rt := c.attach[runID]; rt != nil && rt.harp == role {
+		return rt
+	}
+	return nil
+}
+
 // onTurnStarted folds a migrated child's engine-reported turn start into the
 // §6a roster state and the D4 slot accounting. The acquire is BEST-EFFORT
 // (tryAcquire): this runs on the RunChannel's receive path, which must not
@@ -1046,9 +1065,9 @@ func (c *Coordinator) recordResumable(runID string, resumable bool) {
 // tryAcquire rolls the claim back via releaseSlotIntent, and a successful
 // one is committed via commitSlotClaim rather than left at
 // slotClaimed forever.
-func (c *Coordinator) onTurnStarted(role string) {
+func (c *Coordinator) onTurnStarted(role, runID string) {
 	c.mu.Lock()
-	rt := c.byHarp[role]
+	rt := c.runtimeForLocked(role, runID)
 	if rt != nil {
 		rt.idleSince = time.Time{}
 	}
@@ -1057,7 +1076,8 @@ func (c *Coordinator) onTurnStarted(role string) {
 		// A frame that was already in flight when the channel was severed is
 		// still dispatched: the RunChannel's receive goroutine outlives
 		// RunChannel's return, and severChan/terminateRun do not synchronise
-		// with it. c.byHarp keeps the ended run's childRt, so this
+		// with it. The run's runtime outlives its terminal fact for a moment
+		// (terminateRun journals the end before it drops c.attach), so this
 		// would ACQUIRE a slot for a run whose terminal has already released
 		// everything it held — and nothing would ever give that slot back,
 		// shrinking the execution cap for the rest of the process's life. Its
@@ -1089,7 +1109,7 @@ func (c *Coordinator) onTurnStarted(role string) {
 // CANCELLED is captured when its text is non-empty: those two are not
 // failures to explain, and an empty text carries nothing (this project's
 // silent no-op — never surfaced as a reason).
-func (c *Coordinator) captureRunFailure(role string, ev Event) {
+func (c *Coordinator) captureRunFailure(role, runID string, ev Event) {
 	rc, ok := ev.Payload.(RunCompleted)
 	if !ok || rc.Result == nil {
 		return
@@ -1110,7 +1130,7 @@ func (c *Coordinator) captureRunFailure(role string, ev Event) {
 		return
 	}
 	c.mu.Lock()
-	if rt := c.byHarp[role]; rt != nil {
+	if rt := c.runtimeForLocked(role, runID); rt != nil {
 		rt.runFailure = text
 	}
 	c.mu.Unlock()
@@ -1120,9 +1140,9 @@ func (c *Coordinator) captureRunFailure(role string, ev Event) {
 // that queued mid-turn pushes now (§6a "queued mid-turn → deliver at the
 // next boundary" — the runner-side driver also queues internally; this push
 // covers mail that arrived while no channel push was possible).
-func (c *Coordinator) onTurnIdle(role string) {
+func (c *Coordinator) onTurnIdle(role, runID string) {
 	c.mu.Lock()
-	rt := c.byHarp[role]
+	rt := c.runtimeForLocked(role, runID)
 	c.mu.Unlock()
 	if rt == nil || c.runEnded(rt.runID) {
 		// A turn boundary that lands after the run's terminal (see
@@ -1813,9 +1833,9 @@ func (c *Coordinator) deliverMailID(msgID, from, to, kind, body string, structur
 // calling releaseSlot because onRolePark alone decides whether to
 // setState(StateParked), and only in the slotHeld case, matching prior
 // behavior).
-func (c *Coordinator) onRolePark(role string) {
+func (c *Coordinator) onRolePark(role, runID string) {
 	c.mu.Lock()
-	rt := c.byHarp[role]
+	rt := c.runtimeForLocked(role, runID)
 	var wasHeld bool
 	if rt != nil {
 		switch rt.slot {
@@ -1845,9 +1865,9 @@ func (c *Coordinator) onRolePark(role string) {
 // if a concurrent onRolePark/releaseSlot cancelled the claim while that
 // wait was in flight, the just-landed slot is unwanted and must be given
 // straight back rather than leaked.
-func (c *Coordinator) onRoleUnpark(role string) {
+func (c *Coordinator) onRoleUnpark(role, runID string) {
 	c.mu.Lock()
-	rt := c.byHarp[role]
+	rt := c.runtimeForLocked(role, runID)
 	c.mu.Unlock()
 	if rt == nil || c.runState(rt.runID) != StateParked {
 		return

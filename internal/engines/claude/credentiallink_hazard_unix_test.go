@@ -37,9 +37,10 @@ import (
 //   - it writes the credential by staging a temp file and renaming it over
 //     the target, which orphans a hardlink. Its fallback to an in-place write
 //     on a small errno set (EXDEV, EBUSY among them) is what a bind MOUNT of
-//     the file would depend on. The only check of that writer is the
-//     tag-gated probe TestClaudeCredentialWriter_FallsBackThroughEBUSY, which
-//     runs against the installed binary, not the default suite.
+//     the file would depend on. Like the ELOOP mapping, that fallback lives
+//     only in claude's shipped code; nothing in this repository checks it, so
+//     a proposal to mount the credential must first establish it against
+//     the claude it targets.
 //
 // Linking the containing DIRECTORY is the one shape that survives a rename,
 // and it is unavailable: the credential lives in the directory

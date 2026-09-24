@@ -24,6 +24,9 @@ import (
 //     produces — thinking, tool_use, tool_result, assistant — before
 //     completing. A liveness check asserts entry-type VARIETY, which is only
 //     meaningful against a stub that can produce more than one type.
+//   - "HANG": a STALLED engine — the turn is taken (hooks fire, the record is
+//     written) and then emits nothing at all until its context ends. A
+//     liveness check's red direction needs an engine that goes silent.
 //
 // The knobs (EnvResponse and kin) script the reply and the evidence; the
 // hooks the delivered hook file registers fire for every event the turn
@@ -51,6 +54,12 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 		if n, perr := strconv.Atoi(code); perr == nil && n != 0 {
 			return engine.TurnResult{}, fmt.Errorf("mock: the engine process exited %d", n)
 		}
+	}
+	if strings.Contains(in.Prompt, "HANG") {
+		// Parks BEFORE the first send, so the stall leaves no session event,
+		// entry or completion behind — the signature liveness must catch.
+		<-ctx.Done()
+		return engine.TurnResult{}, ctx.Err()
 	}
 
 	// A nil out relays nothing: the caller wants the result alone.

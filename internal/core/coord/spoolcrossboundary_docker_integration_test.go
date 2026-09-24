@@ -98,11 +98,13 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 			t.Errorf("removing the cross-boundary fixture %s: %v", fixture, err)
 		}
 	})
-	t.Setenv("HOME", fixture)
-
 	sp := coord.NewFakeSpawner(map[string]coord.FakeAgent{"worker": coord.BypassAgent()}, nil)
 	sp.SetEngineCaps(coord.RunnerCapabilities(true))
 	c := coord.NewTestCoordinator(t, sp, nil)
+	// AFTER the constructor, which gives every coordinator test a private
+	// HOME of its own and would otherwise replace this one with a tmpfs dir.
+	// Nothing has resolved a spool path yet: that happens on each write.
+	t.Setenv("HOME", fixture)
 
 	out, err := c.AgentRun(context.Background(), coord.OwnerIdentity(), "worker", "go", "", "")
 	require.NoError(t, err)
@@ -115,7 +117,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	home.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { rings <- ref })
 
 	const body = "cross-boundary body\n"
-	msgID, err := c.AgentSend(coord.OwnerIdentity(), out.Harp, coord.KindMessage, body, nil, "")
+	msgID, _, err := c.PeerSend(coord.OwnerIdentity(), out.Harp, coord.KindMessage, body)
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 

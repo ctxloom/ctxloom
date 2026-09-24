@@ -162,6 +162,14 @@ func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration)
 	if fresh {
 		in.onPark(role)
 	}
+	// Claim once more now that the poll is registered. A delivery that landed
+	// after the claim above rang a wake that found no poll and was dropped
+	// (the courier rings only after the write); its file is on disk, and
+	// without this look the receive would sit out its whole wait beside it.
+	// Any delivery landing after this claim finds the poll and wakes it.
+	if msgs, ok := in.claim(role); ok {
+		return in.retire(role, p, msgs), nil
+	}
 
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
@@ -188,6 +196,27 @@ func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration)
 		// received — so a delivery that won the race has to be released.
 		return in.abandon(role, p, ctx.Err(), true)
 	}
+}
+
+// retire takes p down once its own call has claimed msgs, and returns them.
+// The caller is live — it is this call — so the claim is a genuine hand-off
+// whatever completed p meanwhile: a wake, a preemption or a revocation is
+// drained (its completer settled the slot), and otherwise p is taken down and
+// the slot re-acquired, as abandon does.
+func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message) []Message {
+	in.mu.Lock()
+	if p.done {
+		in.mu.Unlock()
+		<-p.ch
+		return msgs
+	}
+	p.done = true
+	if in.polls[role] == p {
+		delete(in.polls, role)
+	}
+	in.mu.Unlock()
+	in.onUnpark(role)
+	return msgs
 }
 
 // abandon resolves the timeout/cancel race against a concurrent delivery: if

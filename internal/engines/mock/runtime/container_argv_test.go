@@ -19,7 +19,7 @@ const containerPrompt = "summarize the project rules"
 
 // claudeContainerVendorArgv mirrors what claude's Exec emits for a bare
 // oneshot launch. The mock's own personality selector is NOT part of it —
-// main.go consumes the leading --claude before this reaches ParseArgv.
+// main.go consumes the leading personality flag before this reaches ParseArgv.
 func claudeContainerVendorArgv() []string {
 	return []string{"--print", "--model", "mock-model"}
 }

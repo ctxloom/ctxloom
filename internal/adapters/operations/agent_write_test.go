@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -236,7 +237,8 @@ func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
 	// Create: the agent must not come into existence at all.
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "odd", Runtime: ptr("container")})
 	require.Error(t, err, "unknown runtime must be refused, not warned-and-stored")
-	assert.Contains(t, err.Error(), `unknown runtime axis "container"`)
+	assert.ErrorIs(t, err, launch.ErrUnknownRuntimeAxis)
+	assert.Contains(t, err.Error(), `"container"`, "the refusal names the bad value")
 	assert.Contains(t, err.Error(), "host|container-rootless|container-rootful",
 		"the refusal must name the legal values, not just complain")
 	_, ok := readAgentFromDisk(t, appDir, "odd")

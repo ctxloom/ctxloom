@@ -67,7 +67,7 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*coord.
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
-		Runtime:    "container",
+		Runtime:    launch.RuntimeRootless,
 		Permission: perm.String(),
 	}, nil
 }
@@ -112,6 +112,12 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnP
 	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
 	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	// What the coordinator settled for this start rides the launch, as the
+	// production resolver stamps it: the run id (Start encodes it into the
+	// reach-back; a runner handed none refuses to host) and the first turn
+	// (StartRun refuses a launch that carries none).
+	l.Identity = start.Identity
+	l.Prompt = start.Prompt
 	l.Cell.Env = env
 	// As Resolve carries a container launch: the container axis (the runner
 	// dials the container-reachable listener) and a session endpoint for the
@@ -215,7 +221,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	out, err := c.AgentRun(ctx, owner, directAgentName, seedPayload, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
-	require.Equal(t, "container", string(out.Runtime))
+	require.Equal(t, launch.RuntimeRootless, out.Runtime)
 	childHarp := out.Harp
 
 	// Subscribe to the live tap before the container has even been run.

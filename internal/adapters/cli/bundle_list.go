@@ -241,8 +241,9 @@ func renderBundleShowHeader(w *iox.ErrWriter, bundle *bundles.Bundle) {
 const selfSignedLine = "Signature: ctxloom's own (verified, but circular — it adds no trust)"
 
 // Every value below except Path is publisher-authored, so each goes through
-// termsafe.Field and the free-text Notes through publisherBody; Path is the
-// local install location, ctxloom's own.
+// termsafe.Field and the free-text bodies (Notes, an MCP entry's Notes and
+// Installation) through publisherBody; Path is the local install location,
+// ctxloom's own.
 func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
 	w := iox.NewErrWriter(out)
 	renderBundleShowHeader(w, bundle)
@@ -293,10 +294,12 @@ func renderBundleMCPEntry(w *iox.ErrWriter, name string, mcp bundles.BundleMCP) 
 		}
 	}
 	if mcp.Notes != "" {
-		w.Printf("      Notes: %s\n", termsafe.Field(mcp.Notes))
+		w.Println("      Notes:")
+		_ = publisherBody("        ", "", true).Render(w, name+" notes", mcp.Notes)
 	}
 	if mcp.Installation != "" {
-		w.Printf("      Installation: %s\n", termsafe.Field(mcp.Installation))
+		w.Println("      Installation:")
+		_ = publisherBody("        ", "", true).Render(w, name+" installation", mcp.Installation)
 	}
 }
 

@@ -188,8 +188,8 @@ func TestRenderBundleShow_FullBundle(t *testing.T) {
 	assert.Contains(t, out, "Args: --root /tmp")
 	assert.Contains(t, out, "Env:")
 	assert.Contains(t, out, "DEBUG=1")
-	assert.Contains(t, out, "Notes: Filesystem access")
-	assert.Contains(t, out, "Installation: go install ...")
+	assert.Contains(t, out, "      Notes:\n        Filesystem access\n")
+	assert.Contains(t, out, "      Installation:\n        go install ...\n")
 
 	// Fragment entry: tag list, distilled marker, first-line preview.
 	assert.Contains(t, out, "Fragments (1):")

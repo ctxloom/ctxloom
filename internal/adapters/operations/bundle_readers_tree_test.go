@@ -255,6 +255,15 @@ func rewriteManifestMarker(t *testing.T, fsys afero.Fs, marker string) {
 	testsupport.WriteFile(t, fsys, p, []byte(marker+"\n"+rest), 0o644)
 }
 
+// editInstalledFragment substitutes one item file of the installed tree after
+// it was signed.
+func editInstalledFragment(t *testing.T, fsys afero.Fs) {
+	t.Helper()
+	dir, err := treeBundleDir(treeBase, treeCanonical)
+	require.NoError(t, err)
+	testsupport.WriteFile(t, fsys, filepath.Join(dir, "fragments", "house-style.md"), []byte("SUBSTITUTED"), 0o644)
+}
+
 // A pin at a commit its publisher signed in the RETIRED format (a content
 // digest where a bundle manifest is required) is withheld exactly as before —
 // but a re-pull fetches the same commit, so the fix line must name the command
@@ -281,11 +290,7 @@ func TestLoadTreeBundle_SupersededManifestFormatIsWithheldAndPointsAtUpgrade(t *
 // NEWER format, which advancing the pin would only make more of.
 func TestLoadTreeBundle_OtherWithheldCausesKeepTheTamperRemedy(t *testing.T) {
 	cases := map[string]func(t *testing.T, fsys afero.Fs){
-		"file edited after signing": func(t *testing.T, fsys afero.Fs) {
-			dir, err := treeBundleDir(treeBase, treeCanonical)
-			require.NoError(t, err)
-			testsupport.WriteFile(t, fsys, filepath.Join(dir, "fragments", "house-style.md"), []byte("SUBSTITUTED"), 0o644)
-		},
+		"file edited after signing": editInstalledFragment,
 		"unknown manifest marker": func(t *testing.T, fsys afero.Fs) {
 			rewriteManifestMarker(t, fsys, "# ctxloom-bundle-manifest/99")
 		},

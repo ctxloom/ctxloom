@@ -106,8 +106,12 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 		clidiag.Fwarn(ew, "ctxloom", "sync completed with %d errors", result.Errors)
 		for _, item := range result.Failed {
 			ew.Printf("ctxloom:   - %s (%s): %s\n", item.Reference, item.Type, item.Error)
-			strictness.Record(strictness.ClassSync, "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile",
+			strictness.Record(strictness.ClassSync, remedySyncFailed,
 				"sync: %s (%s) is neither cached nor fetchable: %s", item.Reference, item.Type, item.Error)
 		}
 	}
 }
+
+// remedySyncFailed is the fix line for an item a sync could neither find cached
+// nor fetch.
+const remedySyncFailed = "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile"

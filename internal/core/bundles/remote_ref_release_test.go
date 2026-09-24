@@ -173,3 +173,70 @@ func TestManifestVerifier_EditedBytesAreRefused(t *testing.T) {
 	_, err := ManifestVerifier(root)(edited, sigs)
 	require.Error(t, err, "a trusted key's signature over other bytes is a tamper, never a clean answer")
 }
+
+// withMarker returns raw with its first line replaced by marker, leaving every
+// signature filed against the original bytes exactly as it was.
+func withMarker(t *testing.T, raw []byte, marker string) []byte {
+	t.Helper()
+	_, rest, ok := strings.Cut(string(raw), "\n")
+	require.True(t, ok)
+	return []byte(marker + "\n" + rest)
+}
+
+// A pull that meets a commit signed in the RETIRED manifest format withholds it
+// exactly as before, but carries that cause typed — a re-pull fetches the same
+// commit, so only a caller that can tell this apart can name the fix.
+func TestTreeVerifier_SupersededManifestFormatCarriesItsCauseTyped(t *testing.T) {
+	st, b := stageVersionedTree(t, "1.4.0")
+	signer, root, _ := treeSignerFor(t, "pub@example.test")
+	require.NoError(t, attest.SignBundle(context.Background(), st, b, treeRelease(t, b), signer))
+	files := fetchedTreeOf(t, b)
+	files[content.ManifestPath] = remote.TreeFile{Data: withMarker(t, files[content.ManifestPath].Data, content.DigestVersionMarker)}
+
+	_, err := TreeVerifier(root)(context.Background(), files, ".ctxloom/content/bundles/v2/kit", "abc", repoTreeURL)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrTreeBundleWithheld, "what is withheld does not change")
+	assert.ErrorIs(t, err, content.ErrManifestSuperseded)
+}
+
+// Every other withheld cause carries no superseded cause: a marker this build
+// does not know is a NEWER format, and edited bytes are tampering.
+func TestTreeVerifier_OtherWithheldCausesAreNotSuperseded(t *testing.T) {
+	cases := map[string]func(files map[string]remote.TreeFile){
+		"unknown manifest marker": func(files map[string]remote.TreeFile) {
+			files[content.ManifestPath] = remote.TreeFile{Data: withMarker(t, files[content.ManifestPath].Data, "# ctxloom-bundle-manifest/99")}
+		},
+		"manifest edited after signing": func(files map[string]remote.TreeFile) {
+			files[content.ManifestPath] = remote.TreeFile{Data: []byte(strings.Replace(string(files[content.ManifestPath].Data), "# version: 1.4.0", "# version: 9.4.0", 1))}
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			st, b := stageVersionedTree(t, "1.4.0")
+			signer, root, _ := treeSignerFor(t, "pub@example.test")
+			require.NoError(t, attest.SignBundle(context.Background(), st, b, treeRelease(t, b), signer))
+			files := fetchedTreeOf(t, b)
+			mutate(files)
+
+			_, err := TreeVerifier(root)(context.Background(), files, ".ctxloom/content/bundles/v2/kit", "abc", repoTreeURL)
+			require.ErrorIs(t, err, ErrTreeBundleWithheld)
+			assert.NotErrorIs(t, err, content.ErrManifestSuperseded)
+		})
+	}
+}
+
+func TestManifestVerifier_SupersededManifestFormatCarriesItsCauseTyped(t *testing.T) {
+	st, b := stageVersionedTree(t, "1.4.0")
+	signer, root, _ := treeSignerFor(t, "pub@example.test")
+	require.NoError(t, attest.SignBundle(context.Background(), st, b, treeRelease(t, b), signer))
+	raw, sigs := manifestAndSigs(t, b)
+
+	_, err := ManifestVerifier(root)(withMarker(t, raw, content.DigestVersionMarker), sigs)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrTreeBundleWithheld)
+	assert.ErrorIs(t, err, content.ErrManifestSuperseded)
+
+	_, err = ManifestVerifier(root)(withMarker(t, raw, "# ctxloom-bundle-manifest/99"), sigs)
+	require.ErrorIs(t, err, ErrTreeBundleWithheld)
+	assert.NotErrorIs(t, err, content.ErrManifestSuperseded)
+}

@@ -152,8 +152,8 @@ func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration)
 	// (the courier rings only after the write); its file is on disk, and
 	// without this look the receive would sit out its whole wait beside it.
 	// Any delivery landing after this claim finds the poll and wakes it.
-	if msgs, _, ok := in.claim(role); ok {
-		return in.retire(role, p, msgs), nil
+	if msgs, names, ok := in.claim(role); ok {
+		return in.retire(role, p, msgs, names)
 	}
 
 	timer := time.NewTimer(wait)
@@ -183,17 +183,29 @@ func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration)
 	}
 }
 
-// retire takes p down once its own call has claimed msgs, and returns them.
-// The caller is live — it is this call — so the claim is a genuine hand-off
-// whatever completed p meanwhile: a wake, a preemption or a revocation is
-// drained (its completer settled the slot), and otherwise p is taken down and
-// the slot re-acquired, as abandon does.
-func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message) []Message {
+// retire takes p down once its own call has claimed msgs (spool names
+// names), and returns what the caller is owed.
+//
+// Nothing completed p: p is taken down and the slot re-acquired, as abandon
+// does, and the claim is a genuine hand-off to this live call. A wake
+// completed it: the same, its completer having settled the slot.
+//
+// A preemption or revocation completed it: this call is superseded and
+// answers with that error — a preempted receive answers empty — so its claim
+// must not stand. While the names are still on the ack cursor they come off
+// it, and the files stay in in/claimed/ for the next receive's claim. If a
+// newer receive's ack has already consumed them, they are in in/consumed/,
+// seen by nobody, and this still-waiting caller is the only one left who can
+// be given them: the mail is returned rather than lost.
+func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message, names []string) ([]Message, error) {
 	in.mu.Lock()
 	if p.done {
 		in.mu.Unlock()
-		<-p.ch
-		return msgs
+		r := <-p.ch
+		if r.err != nil && in.unhand(role, names) {
+			return nil, r.err
+		}
+		return msgs, nil
 	}
 	p.done = true
 	if in.polls[role] == p {
@@ -201,7 +213,37 @@ func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message) []Messa
 	}
 	in.mu.Unlock()
 	in.onUnpark(role)
-	return msgs
+	return msgs, nil
+}
+
+// unhand takes names off role's ack cursor if every one is still there, and
+// reports whether it did. An ack clears the cursor wholesale, so either all
+// of a claim's names are present or the claim was acked.
+func (in *spoolInbox) unhand(role string, names []string) bool {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	cursor := in.handed[role]
+	drop := make(map[string]bool, len(names))
+	for _, n := range names {
+		drop[n] = true
+	}
+	kept := cursor[:0:0]
+	for _, n := range cursor {
+		if drop[n] {
+			delete(drop, n)
+			continue
+		}
+		kept = append(kept, n)
+	}
+	if len(drop) != 0 {
+		return false
+	}
+	if len(kept) == 0 {
+		delete(in.handed, role)
+	} else {
+		in.handed[role] = kept
+	}
+	return true
 }
 
 // register parks a new poll for role and returns it. Newest preempts: an

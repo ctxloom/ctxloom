@@ -35,6 +35,11 @@ const ownedScratchAttempts = 3
 // instead of waiting for it.
 var scratchCreated = func(dir string) {}
 
+// scratchReapRemove is the reaper's delete of a dead owner's dir, made while
+// it HOLDS that dir's lock: the instant an owner can open the lock file of a
+// dir about to vanish. A seam so tests can run an owner inside that window.
+var scratchReapRemove = os.RemoveAll
+
 // ownedScratch is an ephemeral directory held live by its owner's lock.
 type ownedScratch struct {
 	dir  string
@@ -121,7 +126,7 @@ func reapDeadScratch(parent, prefix string) {
 		// what lets it detect the loss (newOwnedScratch). The second pass,
 		// after the unlock, finishes the job where the held lock file itself
 		// could not be unlinked while open.
-		_ = os.RemoveAll(dir)
+		_ = scratchReapRemove(dir)
 		_ = fl.Unlock()
 		_ = os.RemoveAll(dir)
 	}

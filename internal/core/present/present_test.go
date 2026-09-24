@@ -571,3 +571,23 @@ func TestUnder_RootOrBelowIt_NeverASharedPrefix(t *testing.T) {
 		}
 	}
 }
+
+// TestReachVia: the Engine side of a re-minted reach dials the route's host
+// on the Host side's own port and path, and the Host side is kept; a Host
+// URL naming no port cannot be re-minted onto a shared-port listener.
+func TestReachVia(t *testing.T) {
+	onHost := ReachOnHost("http://127.0.0.1:41234/mcp")
+	if onHost.Engine != onHost.Host {
+		t.Fatalf("uncontainerized, Engine is Host: %+v", onHost)
+	}
+	r, err := onHost.Via("169.254.1.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Host != "http://127.0.0.1:41234/mcp" || r.Engine != "http://169.254.1.3:41234/mcp" {
+		t.Fatalf("re-mint = %+v", r)
+	}
+	if _, err := ReachOnHost("http://127.0.0.1/mcp").Via("10.0.2.2"); err == nil {
+		t.Fatal("a Host URL with no port must be refused")
+	}
+}

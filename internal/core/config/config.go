@@ -76,6 +76,11 @@ const (
 // other 88 nil-tolerant would convert those caller bugs into silently empty
 // behaviour, which is this codebase's characteristic failure. The closed set is
 // pinned by TestConfig_NilReceiverContract.
+//
+// PERSISTED unless marked: a field tagged `config:"runtime"` is never written
+// to disk; every other field must reach configDoc through fromDoc/toDoc, and
+// TestArch_Config_EveryPersistedFieldReachesConfigDoc fails if one does not.
+// The mark lives on the declaration so there is no second list to forget.
 type Config struct {
 	version  int            // config schema version (integer; distinct from app version)
 	lm       LMConfig       //
@@ -100,7 +105,7 @@ type Config struct {
 	// config was validated against (Validate). Never a literal here; empty
 	// until a registry is bound, and then every resolution refuses loudly
 	// downstream.
-	defaultEngine string
+	defaultEngine string `config:"runtime"`
 	// workspace is the project-wide DEFAULT for the SESSION-level workspace
 	// axis (none | worktree): where a session's working directory lives.
 	// Empty means "none" (the shared live project dir — today's behaviour).
@@ -229,11 +234,11 @@ type Config struct {
 	// notably `config show`, which would otherwise dump resolved paths, load
 	// warnings, and (worst) the pendingUpgrade's raw []byte config as an
 	// integer array.
-	appPaths []string     // Resolved .ctxloom directory (at most one)
-	appRoot  string       // Project root (parent of .ctxloom directory)
-	appDir   string       // Full path to the .ctxloom directory
-	source   ConfigSource // Where the configuration was loaded from
-	warnings []Warning    // Kind-tagged warnings collected during load
+	appPaths []string     `config:"runtime"` // Resolved .ctxloom directory (at most one)
+	appRoot  string       `config:"runtime"` // Project root (parent of .ctxloom directory)
+	appDir   string       `config:"runtime"` // Full path to the .ctxloom directory
+	source   ConfigSource `config:"runtime"` // Where the configuration was loaded from
+	warnings []Warning    `config:"runtime"` // Kind-tagged warnings collected during load
 
 	// pendingUpgrade is set when Load upgraded an older on-disk schema to the
 	// current one in memory. The upgraded bytes are NOT persisted automatically;
@@ -242,7 +247,7 @@ type Config struct {
 	// project was found, home) layer only — the same file identity this field
 	// named before layering existed — so every existing CommitUpgrade caller
 	// keeps working unchanged.
-	pendingUpgrade *PendingUpgrade
+	pendingUpgrade *PendingUpgrade `config:"runtime"`
 
 	// homePendingUpgrade is pendingUpgrade's counterpart for the HOME layer,
 	// populated only when a project layer ALSO exists (so home is being read
@@ -253,9 +258,9 @@ type Config struct {
 	// home is never rewritten as a silent side effect of a project-scoped
 	// run. Before that existed, home was upgraded in memory on every load and
 	// never written back — visible, but never converging (long-ice).
-	homePendingUpgrade *PendingUpgrade
+	homePendingUpgrade *PendingUpgrade `config:"runtime"`
 
-	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
+	fs afero.Fs `config:"runtime"` // Filesystem for file operations (nil = OS filesystem)
 
 	// injectedFS records whether fs was EXPLICITLY provided (the reader's
 	// injected filesystem, or a later SetFS call) as opposed to defaulted.
@@ -266,13 +271,13 @@ type Config struct {
 	// Builder always populates it with a concrete value (afero.NewOsFs by
 	// default), so a "c.fs == nil" check would skip the lock for every real
 	// on-disk config.
-	injectedFS bool
+	injectedFS bool `config:"runtime"`
 
 	// rep receives what composing a generation reports about one item
 	// without failing the whole load — a bundle withheld, a profile that
 	// selects nothing, a trust file that cannot be read. The Owner sets it
 	// from the Sink the composition root gave it; the caller renders.
-	rep report.Reporter
+	rep report.Reporter `config:"runtime"`
 
 	// trust is the generation's gate holder (composite.Trust), bound by the
 	// Owner (bindTrust) before the Snapshot carrying this Config is
@@ -280,7 +285,7 @@ type Config struct {
 	// ResolveBundleHooks, LoadCommandExports) decide with the same gate the
 	// Snapshot carries. Zero for a fixture nobody bound: its nil authorizer
 	// is withheld on loudly (bundles.Decide), never admitted. Never persisted.
-	trust composite.Trust
+	trust composite.Trust `config:"runtime"`
 
 	// catalog and versionResolver are the generation's bundle view: the
 	// catalog resolved (once, on first use) from the Sources' readers, bound
@@ -288,21 +293,21 @@ type Config struct {
 	// is published; the resolver, attached by the reader
 	// (Builder.BindVersionResolver), materializes a pinned historical
 	// version of a remote bundle on demand.
-	catalog         func() bundles.Catalog
-	versionResolver bundles.BundleVersionResolver
+	catalog         func() bundles.Catalog        `config:"runtime"`
+	versionResolver bundles.BundleVersionResolver `config:"runtime"`
 
 	// profileRemote and profileRemoteURL are the generation's remotes
 	// registry lookups, attached by the reader (Builder.BindProfileResolvers)
 	// because the registry is an adapter's file. Nil for a Config no reader
 	// built: no registry, so profile names and refs are read verbatim.
-	profileRemote    func(string) string
-	profileRemoteURL func(string) string
+	profileRemote    func(string) string `config:"runtime"`
+	profileRemoteURL func(string) string `config:"runtime"`
 
 	// lmDefaultOverlay snapshots what OverlayDefaultRegistry overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
 	// still match it: the overlay is a runtime fallback, and persisting it
 	// would pin the user to a snapshot of shipped model defaults.
-	lmDefaultOverlay *LMConfig
+	lmDefaultOverlay *LMConfig `config:"runtime"`
 }
 
 // configDoc mirrors Config's persisted shape with EXPORTED fields and the

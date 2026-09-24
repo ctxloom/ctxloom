@@ -131,11 +131,13 @@ func TestSpoolTurnResult_ExactlyOnceFileXorBridge(t *testing.T) {
 		c.spoolReactor.Mark(out.Harp)
 		home.SweepSpoolIn()
 	}
-	require.Never(t, func() bool {
-		got := recvWhere(t, c, func(m Message) bool { return m.Body == first.Body }, 10*time.Millisecond)
-		return len(got) > 0
-	}, 500*time.Millisecond, 25*time.Millisecond,
-		"repeated sweeps of a routed report must not deliver it again")
+	// A synchronous window, not require.Never: Never runs its condition on a
+	// goroutine it does not join when its timer fires, and this condition is
+	// a receive — it claims and acks in the owner's in/ spool. Left running,
+	// it recreates in/claimed/ or in/consumed/ under a HOME the test's
+	// cleanup is already removing.
+	again := recvWhere(t, c, func(m Message) bool { return m.Body == first.Body }, 500*time.Millisecond)
+	require.Empty(t, again, "repeated sweeps of a routed report must not deliver it again")
 }
 
 // TestSpoolTurnResult_AskStaysParkedUntilTheDeliberateReply is THE COLLISION,

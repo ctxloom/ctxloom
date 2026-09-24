@@ -35,6 +35,14 @@ const ownedScratchAttempts = 3
 // instead of waiting for it.
 var scratchCreated = func(dir string) {}
 
+// scratchLocked runs once the owner holds its lock and before it confirms the
+// lock file is still at its path. An owner that opened its lock file inside a
+// reaper's hold reaches this point holding a lock on a file the reaper has
+// since unlinked. A seam so tests can put the owner in that state on any
+// platform: flock.Lock opens and locks in one call, so the open itself cannot
+// be intercepted without a kernel file-event watch.
+var scratchLocked = func(dir string) {}
+
 // scratchReapRemove is the reaper's delete of a dead owner's dir, made while
 // it HOLDS that dir's lock: the instant an owner can open the lock file of a
 // dir about to vanish. A seam so tests can run an owner inside that window.
@@ -77,6 +85,7 @@ func newOwnedScratch(parent, prefix string) (*ownedScratch, error) {
 			_ = os.RemoveAll(dir)
 			return nil, fmt.Errorf("lock scratch %s: %w", dir, err)
 		}
+		scratchLocked(dir)
 		if _, err := os.Lstat(lockPath); err == nil {
 			return &ownedScratch{dir: dir, lock: fl}, nil
 		}

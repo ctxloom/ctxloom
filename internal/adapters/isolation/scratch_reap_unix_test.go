@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -258,4 +259,76 @@ func TestNewOwnedScratch_ReclaimsAfterReaperWinsClaimRace(t *testing.T) {
 	assert.DirExists(t, s.dir, "the owner claimed a dir that exists")
 	reapDeadScratch(parent, prefix)
 	assert.DirExists(t, s.dir, "and holds it live against the next reaper")
+}
+
+// TestReapDeadScratch_DeletesOnlyWhileHoldingLock: the reaper deletes a dead
+// owner's dir while still HOLDING that dir's lock. An owner that opened the
+// lock file just before is then kept out until the dir is gone, which is what
+// lets it detect the loss. The scratchReapRemove seam checks, at the moment of
+// the delete, that nobody else can take the lock.
+func TestReapDeadScratch_DeletesOnlyWhileHoldingLock(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = "ctxloom-reaphold-"
+	dead := filepath.Join(parent, prefix+"dead")
+	require.NoError(t, os.Mkdir(dead, 0o700))
+
+	var (
+		removed     []string
+		probeLocked bool
+		probeErr    error
+	)
+	orig := scratchReapRemove
+	scratchReapRemove = func(dir string) error {
+		removed = append(removed, dir)
+		probe := flock.New(filepath.Join(dir, ownedScratchLockName))
+		if probeLocked, probeErr = probe.TryLock(); probeLocked {
+			_ = probe.Unlock()
+		}
+		return os.RemoveAll(dir)
+	}
+	t.Cleanup(func() { scratchReapRemove = orig })
+
+	reapDeadScratch(parent, prefix)
+
+	require.Equal(t, []string{dead}, removed, "precondition: the reaper took the dead dir")
+	require.NoError(t, probeErr)
+	assert.False(t, probeLocked, "the reaper holds the owner lock at the moment it deletes")
+	assert.NoDirExists(t, dead)
+}
+
+// TestNewOwnedScratch_LockGrantedOnUnlinkedFileRetries: an owner that opened
+// its lock file inside a reaper's hold is granted the lock only after the
+// reaper deleted the dir, on a lock file no longer at its path. It must
+// notice and claim a fresh dir rather than keep the deleted one. The
+// scratchLocked seam puts the owner in exactly that state, once: it holds the
+// lock and its dir is gone.
+func TestNewOwnedScratch_LockGrantedOnUnlinkedFileRetries(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = "ctxloom-unlinked-"
+	var (
+		raced     string
+		removeErr error
+	)
+	orig := scratchLocked
+	scratchLocked = func(dir string) {
+		if raced == "" {
+			raced = dir
+			removeErr = os.RemoveAll(dir)
+		}
+	}
+	t.Cleanup(func() { scratchLocked = orig })
+
+	s, err := newOwnedScratch(parent, prefix)
+	require.NoError(t, removeErr)
+	require.NoError(t, err)
+	t.Cleanup(s.release)
+
+	require.NotEmpty(t, raced)
+	assert.NoDirExists(t, raced, "precondition: the first dir was deleted under the held lock")
+	assert.NotEqual(t, raced, s.dir, "the owner must not keep a dir deleted under it")
+	assert.DirExists(t, s.dir)
+	assert.FileExists(t, filepath.Join(s.dir, ownedScratchLockName))
+	assert.Equal(t, []string{s.dir}, scratchDirs(t, parent, prefix), "nothing left behind")
+	reapDeadScratch(parent, prefix)
+	assert.DirExists(t, s.dir, "and the owner holds it live against the next reaper")
 }

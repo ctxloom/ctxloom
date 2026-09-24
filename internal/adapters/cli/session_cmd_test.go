@@ -405,20 +405,23 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 
 // --- Phase 2: direct tests for the extracted `session` RunE bodies ----------
 
-// loadSessionEntries normalizes nil to an empty slice. That is the difference
-// between `[]` and `null` in `session list --format json` — "no sessions" vs
-// "the field is missing" for a consumer — and it has to hold on BOTH the
-// per-project and the --all path, because --distill calls this twice.
-func TestLoadSessionEntries_NeverReturnsNil(t *testing.T) {
+// An empty session index renders `[]` under `session list --format json`, on
+// BOTH the per-project and the --all path and in both row shapes: `null` is
+// the difference between "no sessions" and "the field is missing" for a
+// consumer iterating it with jq.
+func TestSessionList_EmptyIndexRendersEmptyJSONList(t *testing.T) {
 	dir := t.TempDir()
 	chdir(t, dir)
 	t.Setenv("HOME", dir)
 
 	for _, all := range []bool{false, true} {
-		entries, err := loadSessionEntries(all)
-		require.NoError(t, err, "all=%v", all)
-		require.NotNil(t, entries, "all=%v: a nil slice marshals to null, not []", all)
-		assert.Empty(t, entries, "all=%v", all)
+		for _, full := range []bool{false, true} {
+			entries, err := loadSessionEntries(all)
+			require.NoError(t, err, "all=%v", all)
+			cmd, out := formatCmd("json")
+			require.NoError(t, emitSessionRows(cmd, operations.ViewSessions(entries), full))
+			assert.Equal(t, "[]\n", out.String(), "all=%v full=%v", all, full)
+		}
 	}
 }
 

@@ -206,11 +206,6 @@ func runFragmentPremises(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list premised fragments: %w", err)
 	}
-	// A nil slice marshals to `null`, which a caller parsing a LIST has to
-	// special-case; an empty corpus is an empty list, not the absence of one.
-	if entries == nil {
-		entries = []operations.PremiseIndexEntry{}
-	}
 	// The INSTRUCTION travels with the entries, in every format. Piped output
 	// resolves to JSON, so the programmatic caller -- an agent running this
 	// command -- is the common case, and handing it the index without the

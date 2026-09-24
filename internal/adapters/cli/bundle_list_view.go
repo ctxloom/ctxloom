@@ -63,9 +63,7 @@ func newBundleListRow(info *bundles.BundleInfo) bundleListRow {
 	}
 }
 
-// newBundleListRows projects the loader's listing in its own order. The
-// result is never nil: an empty listing encodes as [] rather than null, which
-// is what a consumer checking "$ is empty" can actually read.
+// newBundleListRows projects the loader's listing in its own order.
 func newBundleListRows(infos []*bundles.BundleInfo) []bundleListRow {
 	rows := make([]bundleListRow, 0, len(infos))
 	for _, info := range infos {

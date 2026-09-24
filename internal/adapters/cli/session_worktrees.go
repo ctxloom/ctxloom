@@ -28,8 +28,6 @@ type sessionWorktreeRow struct {
 }
 
 // sessionWorktreeReport is `session worktrees`' --format json payload.
-// Worktrees is normalized nil -> [] so JSON renders [] not null — the same
-// reason loadSessionEntries does it.
 type sessionWorktreeReport struct {
 	Worktrees []sessionWorktreeRow `json:"worktrees"`
 	Reaped    int                  `json:"reaped"`

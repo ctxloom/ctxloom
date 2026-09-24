@@ -45,9 +45,7 @@ type sessionArtifactRow struct {
 	Path      string `json:"path,omitempty" label:"Path"      col:"PATH"`
 }
 
-// sessionArtifactReport is `session artifacts list`'s payload. Artifacts is
-// normalized nil -> [] so JSON renders [] not null, for the reason
-// loadSessionEntries gives.
+// sessionArtifactReport is `session artifacts list`'s payload.
 type sessionArtifactReport struct {
 	Artifacts []sessionArtifactRow `json:"artifacts"`
 }

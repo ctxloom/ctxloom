@@ -65,13 +65,6 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 // loadSessionEntries reads the session index: every project's sessions when
 // all is set (ListAllSessions — enriched + activity-sorted like the
 // per-project path), the cwd's project otherwise.
-//
-// It NORMALIZES nil to an empty slice. That is load-bearing rather than
-// cosmetic: `session list --format json` renders this value directly, and a nil
-// slice marshals to `null` where an empty one marshals to `[]` — the difference
-// between "no sessions" and "the field is missing" for a consumer. Called twice
-// per --distill run (before and after distillation), so the normalization has
-// to live here, not at one call site.
 func loadSessionEntries(all bool) ([]sessions.Entry, error) {
 	load := operations.ListSessionsForProject
 	var entries []sessions.Entry
@@ -84,9 +77,6 @@ func loadSessionEntries(all bool) ([]sessions.Entry, error) {
 	}
 	if err != nil {
 		return nil, err
-	}
-	if entries == nil {
-		entries = []sessions.Entry{}
 	}
 	return entries, nil
 }

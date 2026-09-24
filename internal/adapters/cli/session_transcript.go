@@ -49,9 +49,7 @@ type sessionTranscriptRow struct {
 	Path     string `json:"path,omitempty" label:"Path"     col:"PATH"`
 }
 
-// sessionTranscriptReport is `session transcript list`'s payload. Transcripts
-// is normalized nil -> [] so JSON renders [] not null, for the reason
-// loadSessionEntries gives.
+// sessionTranscriptReport is `session transcript list`'s payload.
 type sessionTranscriptReport struct {
 	Transcripts []sessionTranscriptRow `json:"transcripts"`
 }

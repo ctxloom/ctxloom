@@ -116,14 +116,6 @@ type axesJSON struct {
 	Runtime   string `json:"runtime"`
 }
 
-// orEmpty returns a non-nil slice so json renders [] rather than null.
-func orEmpty(items []string) []string {
-	if items == nil {
-		return []string{}
-	}
-	return items
-}
-
 // execCommand is the seam tests override to avoid actually shelling
 // out. Production points it at exec.CommandContext
 var execCommand = exec.CommandContext
@@ -879,8 +871,8 @@ func (st *runState) emitDryRun() error {
 		Resolved:   axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
 		LLM:        l.Label.Label,
 		Backend:    string(l.Engine),
-		Profiles:   orEmpty(pkg.Selection.Profiles),
-		Fragments:  orEmpty(pkg.Loaded),
+		Profiles:   pkg.Selection.Profiles,
+		Fragments:  pkg.Loaded,
 		Context:    context,
 		Delivery:   deliveryRoutes(l.Plan),
 		EngineHome: engineHomeRoute(l.Cell.HomeMode),

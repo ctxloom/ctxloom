@@ -233,10 +233,11 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// scrubs delivered settings at session teardown, so a scan afterwards
 		// reports "no carriage" on a cell where carriage worked perfectly.
 		// Measured — see hookProbeCarriageWatcher.
+		sessionsRoot := filepath.Join(realHomeDir, ".ctxloom", "sessions")
 		watcher := hookProbeWatchCarriage(hookProbeCarriage{
 			Needle:    h.scriptPath,
-			Roots:     []string{w.env.ProjectDir, filepath.Join(realHomeDir, ".ctxloom", "sessions")},
-			RootGlobs: hookProbeContainerOverlayGlobs(),
+			Roots:     []string{w.env.ProjectDir, sessionsRoot},
+			RootGlobs: hookProbeContainerOverlayGlobs(sessionsRoot),
 			Authored:  h.authored,
 			NotBefore: runStart,
 		})

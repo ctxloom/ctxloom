@@ -4,5 +4,4 @@ const (
 	containersInVM = false
 	loginShell     = true
 	linuxHost      = true
-	tempBase       = ""
 )

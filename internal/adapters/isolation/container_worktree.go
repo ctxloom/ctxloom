@@ -93,23 +93,22 @@ func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID strin
 // the project's config tree into the checkout. The worktree's .git is ALWAYS a
 // pointer file, so the git mirror is unconditional (unlike the host base's
 // pointer-only mirror). The mapping creates nothing host-side but the config
-// mountpoint INSIDE the ephemeral checkout, which dies with it, hence the nil
-// cleanup; a failure here leaves the checkout for the workspace to tear down,
+// mountpoint INSIDE the ephemeral checkout, which dies with it; a failure here leaves the checkout for the workspace to tear down,
 // which lets the chain retry as a bare host worktree where git resolves natively
 // (a Tier-0 non-issue).
-func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir, _ string, _ engineContainerSpec, _ git.Git) ([]Mount, func() error, error) {
+func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir, _ string, _ engineContainerSpec, _ git.Git) ([]Mount, error) {
 	gitMount, err := gitCommonDirMount(ctx, rt, b.wt.git, dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	cfgMount, ok, err := projectConfigMount(rt, projectDir, dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if !ok {
-		return []Mount{gitMount}, nil, nil
+		return []Mount{gitMount}, nil
 	}
-	return []Mount{gitMount, cfgMount}, nil, nil
+	return []Mount{gitMount, cfgMount}, nil
 }
 
 // projectConfigMount delivers the LIVE project's .ctxloom tree into a worktree

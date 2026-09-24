@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -638,19 +639,24 @@ func TestHookProbeCarriage_ResolveRootsSurvivesAMalformedPattern(t *testing.T) {
 // is unexported, so if it is renamed this test still passes and the live
 // container cell is what catches it. That is stated rather than papered over —
 // the value here is proving the glob matches a scratch-SHAPED directory in the
-// base the scratch really lands in, which is the half that broke by hand.
+// base the scratch really lands in (a session's ephemeral dir), which is the
+// half that broke by hand.
 func TestHookProbeContainerOverlayGlobs_TargetTheScratchIsolationCreates(t *testing.T) {
-	globs := hookProbeContainerOverlayGlobs()
+	sessionsRoot := t.TempDir()
+	globs := hookProbeContainerOverlayGlobs(sessionsRoot)
 	if len(globs) == 0 {
 		t.Fatal("no overlay globs at all — every container cell is blind")
 	}
 
-	// A real scratch root, named the way isolation names one.
-	scratch, err := os.MkdirTemp("", hookProbeContainerOverlayScratchPrefix)
+	// A real scratch root, named and placed the way isolation places one.
+	ephemeral := filepath.Join(sessionsRoot, "brisk-teal-otter", paths.EphemeralDirName)
+	if err := os.MkdirAll(ephemeral, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scratch, err := os.MkdirTemp(ephemeral, hookProbeContainerOverlayScratchPrefix)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(scratch)
 
 	var matched bool
 	for _, g := range globs {

@@ -59,6 +59,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // --- what each engine's hook surface can be asked to prove --------------------
@@ -403,8 +405,9 @@ func hookProbeCarriageOrUnknown(h *hookProbeState) string {
 
 // hookProbeContainerOverlayScratchPrefix is the name isolation gives every
 // per-run container scratch root: isolation.prepareContainerScratch calls
-// os.MkdirTemp with this prefix, and isolation.containerConfigOverlay puts the
-// engine's managed-config overlay inside it as cfg0, cfg1, …
+// os.MkdirTemp with this prefix under the session's ephemeral dir, and
+// isolation.containerConfigOverlay puts the engine's managed-config overlay
+// inside it as cfg0, cfg1, …
 //
 // Cited by PREFIX rather than restated as a rule, and the test below is what
 // keeps the citation honest: if isolation renames it, the glob quietly matches
@@ -416,20 +419,13 @@ const hookProbeContainerOverlayScratchPrefix = "ctxloom-iso-"
 // hookProbeContainerOverlayGlobs returns the patterns that reach a container
 // cell's managed-config overlay — where a containerized engine's settings are
 // actually delivered, as opposed to the project tree the host cells watch.
+// sessionsRoot is the sessions dir of the home the run uses.
 //
-// WHY BOTH BASES. platform.TempBase is "" on linux, so
-// os.MkdirTemp falls back to os.TempDir(); on darwin it is "/tmp"
-// explicitly, because there os.TempDir() is a per-user /var/folders path the
-// scratch never lands in. Emitting both costs one glob that matches nothing on
-// the platform it does not apply to; guessing wrong costs a silently blind
-// cell, which is strictly worse.
-func hookProbeContainerOverlayGlobs() []string {
-	pattern := hookProbeContainerOverlayScratchPrefix + "*"
-	globs := []string{filepath.Join(os.TempDir(), pattern)}
-	if os.TempDir() != "/tmp" {
-		globs = append(globs, filepath.Join("/tmp", pattern))
-	}
-	return globs
+// The harp segment is a wildcard because the run mints its own harp after the
+// watch starts; the ephemeral dir and the prefix narrow the match to container
+// scratch roots.
+func hookProbeContainerOverlayGlobs(sessionsRoot string) []string {
+	return []string{filepath.Join(sessionsRoot, "*", paths.EphemeralDirName, hookProbeContainerOverlayScratchPrefix+"*")}
 }
 
 // hookProbeCarriage describes one carriage scan: what to look for, where to

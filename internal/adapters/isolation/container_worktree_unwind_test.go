@@ -3,15 +3,13 @@ package isolation
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestWorktreeBase_UnwindsWhatItCreated pins worktreeBase's two failure exits,
@@ -78,11 +76,10 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 		// down itself.
 		ws := &containerWorkspace{dir: dir, scratchRoot: scratch, agentID: "m", baseCleanup: cleanup}
 
-		mounts, mountCleanup, err := base.mountBase(ctx, rt, proj, dir, scratch, engineContainerSpec{}, f)
+		mounts, err := base.mountBase(ctx, rt, proj, dir, scratch, engineContainerSpec{}, f)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, boom, "the mapping failure must reach the caller intact")
 		assert.Nil(t, mounts)
-		assert.Nil(t, mountCleanup, "a failed mapping hands back no cleanup for the caller to run")
 		assert.Empty(t, f.Removed,
 			"the mapping must NOT tear down a checkout it does not own — the workspace does")
 
@@ -107,31 +104,16 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 func TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout(t *testing.T) {
 	ctx := context.Background()
 
-	fake := t.TempDir()
-	script := filepath.Join(fake, "fake-docker")
-	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
-	writeFakeRuntimeScript(t, script, filepath.Join(fake, "builds.log"), fake, labels)
-	require.NoError(t, os.WriteFile(filepath.Join(fake, "ctxloom-agent-unwind-test_latest"), nil, 0o644))
-
+	testsupport.Isolate(t)
 	// The mapping fails: the checkout's git common dir cannot be resolved, so no
 	// gitdir mirror mount can be built. Resolution has already created the
 	// checkout by then, which is what makes this the leak-prone path.
 	boom := errors.New("common dir unreadable")
 	f := &git.Fake{CommonDirErr: boom}
 
-	c := Container{
-		runtime: fakeRuntime{name: "docker", binary: script, available: true},
-		image:   "ctxloom-agent-unwind-test:latest",
-		engineSpec: engineContainerSpec{
-			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func() (containerAuth, bool) {
-				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-			},
-		},
-		binaryPath: defaultContainerBinary,
-		home:       defaultContainerHome,
-		base:       worktreeBase{wt: NewWorktree(f)},
-	}
+	c := hermeticHostContainer(t, nil)
+	c.base = worktreeBase{wt: NewWorktree(f)}
+	c.state = SessionState{Harp: "brisk-teal-otter"}
 
 	ws, err := c.PrepareWorkspace(ctx, t.TempDir(), "member-unwind")
 	require.Error(t, err, "a mapping that cannot be built must fail the prepare, never launch a broken container")

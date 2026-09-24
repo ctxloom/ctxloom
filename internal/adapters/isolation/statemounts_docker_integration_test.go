@@ -51,7 +51,7 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 	// hole lived in (containerConfigOverlay's targets).
 	protected := filepath.Join(projectDir, ".claude", "settings.json")
 
-	c := NewContainerFor(rt, "mock").WithImage("alpine:latest")
+	c := NewContainerFor(rt, "mock").WithImage("alpine:latest").WithSessionState(SessionState{Harp: "brisk-teal-otter"})
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
 

@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,9 +17,10 @@ import (
 // which harp names this run's per-session state dir, and which stable project
 // id keys the shared task log. It decides the SCOPED read-write state mounts a
 // containerized run gets (sessionStateMounts) and where a worktree's ephemeral
-// scratch lands (Worktree.scratchBase). Zero fields degrade per facet — an
-// ensemble member without per-member session accounting simply has no
-// per-session state to persist. Never a blanket ~/.ctxloom mount: that would
+// scratch lands (Worktree.scratchBase). A container run without a usable harp
+// is refused (SessionState.ephemeralDir); a worktree without one falls back to
+// the OS temp dir; a zero ProjectID skips the shared task-log facet. Never a
+// blanket ~/.ctxloom mount: that would
 // expose cache/bundles/config and every OTHER session's state to the run.
 type SessionState struct {
 	Harp      string
@@ -37,18 +39,13 @@ func SessionStateFromEnv(env map[string]string) SessionState {
 	}
 }
 
-// noHarpNotice and noProjectIDNotice are the two durability degrades a run
-// without session identity reports. They are WarnOnce lines: a delegated
-// fan-out (agent_run) puts every member through sessionStateMounts in ONE
-// process, so N identical lines would be startup spam. The cost of that
-// collapse is that the surviving line cannot name WHICH members it covers —
-// there is no identity available here to name them with, since the missing
-// harp IS that identity — so each says plainly that it speaks for every
+// noProjectIDNotice is the durability degrade a run without a project id
+// reports. It is a WarnOnce line: a delegated fan-out (agent_run) puts every
+// member through sessionStateMounts in ONE process, so N identical lines would
+// be startup spam. The cost of that collapse is that the surviving line cannot
+// name WHICH members it covers, so it says plainly that it speaks for every
 // affected run rather than reading as one run's notice.
-const (
-	noHarpNotice      = "container runs with no session harp: their engine transcripts and session artifacts will not survive the container — reported once for every affected run in this session"
-	noProjectIDNotice = "container runs with no project id: their in-container task writes will not reach the shared task log — reported once for every affected run in this session"
-)
+const noProjectIDNotice = "container runs with no project id: their in-container task writes will not reach the shared task log — reported once for every affected run in this session"
 
 // safePathSegment reports whether s can be trusted as a single path segment
 // under ~/.ctxloom/sessions. Harps are normally minted by AssignSession, but
@@ -57,6 +54,36 @@ const (
 // becomes both a host path and a bind-mount source.
 func safePathSegment(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\")
+}
+
+// errNoSessionHarp and errUnsafeSessionHarp are ephemeralDir's two refusals of
+// the harp itself, told apart from a failure to prepare the dir: the worktree
+// half stays silent on the first, warns on the second, and falls back to the
+// OS temp dir on either, while the container half refuses the run on both.
+var (
+	errNoSessionHarp     = errors.New("the run carries no session harp")
+	errUnsafeSessionHarp = errors.New("session harp is not a safe path segment")
+)
+
+// ephemeralDir resolves and creates the session's ephemeral/ dir
+// (paths.HarpEphemeralDir) — where every per-run scratch a workspace makes
+// lives, so the session layout accounts for it and cleanup of the session dir
+// sweeps whatever an owner that died left behind.
+func (s SessionState) ephemeralDir() (string, error) {
+	if s.Harp == "" {
+		return "", errNoSessionHarp
+	}
+	if !safePathSegment(s.Harp) {
+		return "", fmt.Errorf("%w: %q", errUnsafeSessionHarp, s.Harp)
+	}
+	dir, err := paths.HarpEphemeralDir(s.Harp)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // sessionStateMounts builds the scoped read-write state mounts that keep a
@@ -125,17 +152,13 @@ func safePathSegment(s string) bool {
 //
 // All of them are RW host state and so ride the container identity contract
 // (entrypoint PUID/PGID remap): the in-container writer must be the host user
-// or these dirs collect wrongly-owned files. A missing harp/project id skips
-// the facet with a streamed warning — NOT a strictness finding, because
-// ensemble members legitimately run without per-member session accounting
-// today and there is no user-side fix-it; a preparation FAILURE for a known
-// identity, by contrast, errors so the caller's degrade chain raises the
-// fatal-unless-degraded ClassIsolation finding.
+// or these dirs collect wrongly-owned files. A missing project id skips the
+// task-log facet with a streamed warning, not a strictness finding. A missing
+// or unsafe harp, or a preparation FAILURE for a known identity, errors so the
+// caller's degrade chain raises the fatal ClassIsolation finding.
 func (c Container) sessionStateMounts() ([]Mount, error) {
 	var mounts []Mount
 	switch {
-	case c.state.Harp == "":
-		clidiag.WarnOnce("ctxloom", "%s", noHarpNotice)
 	case !safePathSegment(c.state.Harp):
 		return nil, fmt.Errorf("container session-state mounts: session harp %q is not a safe path segment", c.state.Harp)
 	default:

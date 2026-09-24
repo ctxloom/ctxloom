@@ -146,10 +146,9 @@ func TestWorktreeBase_MountBaseCarriesTheConfigMount(t *testing.T) {
 	f := &git.Fake{}
 	base := worktreeBase{wt: NewWorktree(f)}
 
-	mounts, cleanup, err := base.mountBase(ctx, rt, projectDir, worktreeDir, t.TempDir(), engineContainerSpec{}, f)
+	mounts, err := base.mountBase(ctx, rt, projectDir, worktreeDir, t.TempDir(), engineContainerSpec{}, f)
 
 	require.NoError(t, err)
-	assert.Nil(t, cleanup, "the mountpoint dies with the ephemeral checkout, so there is nothing to unwind")
 
 	// The gitdir mirror, unchanged: without it the cell's .git pointer file
 	// resolves to nothing and git is broken in-container.
@@ -175,7 +174,7 @@ func TestWorktreeBase_MountBaseOmitsTheConfigMountWhenThereIsNothingToDeliver(t 
 	f := &git.Fake{}
 	base := worktreeBase{wt: NewWorktree(f)}
 
-	mounts, _, err := base.mountBase(ctx, rt, projectDir, worktreeDir, t.TempDir(), engineContainerSpec{}, f)
+	mounts, err := base.mountBase(ctx, rt, projectDir, worktreeDir, t.TempDir(), engineContainerSpec{}, f)
 
 	require.NoError(t, err)
 	require.Len(t, mounts, 1, "a project with no config contributes no mount at all")

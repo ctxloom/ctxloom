@@ -99,10 +99,10 @@ func probeKey(rt Runtime, image string, roots []string) string {
 // throwaway tempdir (which only ever proved os.TempDir()'s own sharing status,
 // never the REAL roots a run mounts) with the actual mount set: the run's cwd
 // (the live project dir, or the per-agent worktree checkout once created),
-// the host scratch root (covers the socket dir, config overlays and
-// session-state mounts — all of them live under scratchRoot), and every OTHER
-// mount's host path (a directly-mounted host file or dir, e.g. a session
-// engine home or a linked worktree's mirrored git common-dir). A mount whose
+// the host scratch root (the config overlays live under it), and every mount's
+// own host path (a directly-mounted host file or dir, e.g. a session-state
+// mount, a session engine home or a linked worktree's mirrored git
+// common-dir). A mount whose
 // Host is a FILE probes its PARENT DIRECTORY instead — the probe writes its own marker
 // file alongside, never touching the real mounted file. Deduplicated and
 // sorted for a stable, memoizable probe key.

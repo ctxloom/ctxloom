@@ -1029,6 +1029,15 @@ func buildFromSource(ctx context.Context, rt Runtime, image string, src buildSou
 	}, output)
 }
 
+// imageBaseScratchPrefix and imageBuildScratchPrefix name the build-context
+// scratch dirs the base and agent stages create in the OS temp dir. Distinct
+// prefixes, both ctxloom-owned, are what let a later build recognize a dead
+// build's leftovers as its own debris and nothing else.
+const (
+	imageBaseScratchPrefix  = "ctxloom-imgbase-"
+	imageBuildScratchPrefix = "ctxloom-imgbuild-"
+)
+
 // buildBaseImage builds the stage-1 base image and returns the content-keyed
 // tag it built (baseImageTagFor). A user-provided or auto-detected-devcontainer
 // Containerfile builds with ITS OWN context dir (base.context when set — a
@@ -1060,18 +1069,12 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 		return tag, runImageBuild(ctx, rt, tag, abs, contextDir, flags, output)
 	}
 
-	dir, err := os.MkdirTemp("", "ctxloom-imgbase-")
+	scratch, err := newOwnedScratch(os.TempDir(), imageBaseScratchPrefix)
 	if err != nil {
-		// dir is normally "" here (MkdirTemp itself failed) — this is
-		// defensive against a mutation-testing mutant that flips this check
-		// and discards a dir MkdirTemp actually created, which would
-		// otherwise leak it under the OS temp dir with no reference left
-		// anywhere to remove it (see container.go's prepareContainerScratch
-		// for the same hardening).
-		_ = os.RemoveAll(dir)
 		return "", fmt.Errorf("base build context: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(dir) }()
+	defer scratch.release()
+	dir := scratch.dir
 	file := filepath.Join(dir, "Containerfile")
 	if err := os.WriteFile(file, base.containerfile, 0o644); err != nil {
 		return "", fmt.Errorf("base build context: %w", err)
@@ -1259,15 +1262,12 @@ type buildFlags struct {
 // buildImage runs one agent/overlay stage over a temp context holding the
 // Containerfile plus the running static ctxloom binary.
 func buildImage(ctx context.Context, rt Runtime, image string, containerfile []byte, selfExe string, flags buildFlags, output io.Writer) error {
-	dir, err := os.MkdirTemp("", "ctxloom-imgbuild-")
+	scratch, err := newOwnedScratch(os.TempDir(), imageBuildScratchPrefix)
 	if err != nil {
-		// See the identical guard in buildBaseImage above: defends against a
-		// mutant flipping this check and orphaning a dir MkdirTemp actually
-		// created.
-		_ = os.RemoveAll(dir)
 		return fmt.Errorf("image build context: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(dir) }()
+	defer scratch.release()
+	dir := scratch.dir
 	file := filepath.Join(dir, "Containerfile")
 	if err := os.WriteFile(file, containerfile, 0o644); err != nil {
 		return fmt.Errorf("image build context: %w", err)

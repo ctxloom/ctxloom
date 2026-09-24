@@ -154,7 +154,10 @@ parse the patch from stdin → decode the existing file → deep-merge → write
 emits `configWriteResult` so a caller inspects the report rather than trusting
 exit 0. No backup is taken; the `hew` application record
 (`buildAndWriteApplicationRecord`, reported as `configWriteResult.Record`) is
-the durable evidence of what changed in a file ctxloom does not own.
+the durable evidence of what changed in a file ctxloom does not own. Its
+inverse keeps the previous value of each key it undoes, in plaintext, because
+undo needs it; the records directory and each record are therefore owner-only
+(`confpatch.EnsureRecordDir`).
 
 `decodeConfigPatch` is the reference anti-silent-no-op guard in this package:
 it refuses an empty body *and* an empty JSON object. `containsConfigPatch` is

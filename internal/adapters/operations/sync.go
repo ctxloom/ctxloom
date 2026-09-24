@@ -63,6 +63,9 @@ type SyncItem struct {
 	Status    string `json:"status"` // "installed", "updated", "skipped", "retracted", "failed"
 	Error     string `json:"error,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
+	// cause is the failure Error was rendered from, kept typed so a reporter
+	// can choose a fix line with errors.Is rather than by matching the text.
+	cause error
 }
 
 // RetractionChecker is the OPTIONAL seam a Puller may satisfy to let sync
@@ -632,6 +635,7 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	if err != nil {
 		item.Status = "failed"
 		item.Error = err.Error()
+		item.cause = err
 		return item
 	}
 

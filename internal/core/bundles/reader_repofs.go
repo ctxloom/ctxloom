@@ -233,6 +233,18 @@ func (r *repoFSReader) openTreeBundle() (content.Bundle, error) {
 	return tree, nil
 }
 
+// tamperedCause is how a StatusTampered verdict's cause is carried. The verdict
+// holds a manifest parse failure only as text; when the manifest's own parse
+// error says it is in the retired format, that error is carried TYPED instead,
+// so a caller can tell a retired signing format from tampering and name the
+// fix. It chooses how the cause is carried, never whether anything is withheld.
+func tamperedCause(parseErr error, detail string) error {
+	if errors.Is(parseErr, content.ErrManifestSuperseded) {
+		return parseErr
+	}
+	return errors.New(detail)
+}
+
 // verifyTree resolves a directory-form bundle's attestation into the two
 // signature axes. A tree that is INTERNALLY inconsistent — signed manifest
 // present, files no longer matching it — is a state a single document cannot
@@ -247,14 +259,8 @@ func (r *repoFSReader) verifyTree(ctx context.Context, tree content.Bundle) (Sig
 		return SignatureFacts{}, fmt.Errorf("%w: %q — %v", ErrTreeBundleWithheld, r.ref, verdict.Contents)
 	}
 	if verdict.Status == attest.StatusTampered {
-		// The verdict carries a manifest parse failure only as text. Re-reading
-		// the manifest recovers it TYPED, so a caller can tell a retired signing
-		// format from tampering. Both branches withhold: the re-read chooses how
-		// the cause is carried, never whether the tree is used.
-		if _, merr := tree.Manifest(ctx); errors.Is(merr, content.ErrManifestSuperseded) {
-			return SignatureFacts{}, fmt.Errorf("%w: %q — %w", ErrTreeBundleWithheld, r.ref, merr)
-		}
-		return SignatureFacts{}, fmt.Errorf("%w: %q — %s", ErrTreeBundleWithheld, r.ref, verdict.Detail)
+		_, merr := tree.Manifest(ctx)
+		return SignatureFacts{}, fmt.Errorf("%w: %q — %w", ErrTreeBundleWithheld, r.ref, tamperedCause(merr, verdict.Detail))
 	}
 	if verdict.OK() {
 		return SignatureFacts{Signature: SignatureValid, Signer: SignerTrusted, Principal: verdict.Principal}, nil

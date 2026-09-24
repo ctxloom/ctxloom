@@ -9,10 +9,16 @@ This page is generated from `ctxloom config show --help`.
 
 ## ctxloom config show
 
-Show full configuration
+Show the effective configuration
 
 ```
 ctxloom config show [flags]
+```
+
+### Options
+
+```
+      --raw   Show only what the configuration sets, without the shipped default engine registry
 ```
 
 ### Options inherited from parent commands

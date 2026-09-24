@@ -376,7 +376,7 @@
                 "primary",
                 "fast"
               ],
-              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+              "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
             },
             "permissions": {
               "type": "string",
@@ -421,7 +421,7 @@
                 "primary",
                 "fast"
               ],
-              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+              "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
             },
             "permissions": {
               "type": "string",

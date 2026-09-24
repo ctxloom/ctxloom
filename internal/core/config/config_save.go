@@ -3,9 +3,11 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
@@ -83,40 +85,43 @@ func (c *Config) commitPendingUpgrade(p *PendingUpgrade) error {
 // silently discard one another's change, despite the write itself never
 // interleaving at the byte level.
 func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
-	existingData, existing, err := readExistingConfig(fs, configPath)
+	existingData, merged, err := readExistingConfig(fs, configPath)
 	if err != nil {
 		return err
 	}
 
-	c.applyConfigSections(existing)
-
-	// Normalize the desired sections (applyConfigSections' typed-struct blocks —
-	// c.editor, c.settings, ...) into a nested generic map, exactly like a
-	// freshly-read config layer, so (a) the layer-scope walker can traverse it via
-	// kmaps and (b) each section compares canonically against the on-disk node in
-	// marshalPreservingComments below.
-	desiredBytes, err := yaml.Marshal(existing)
+	// The persisted document owns every key configDoc declares: each is
+	// replaced by what persistedDoc renders, or removed when that rendering
+	// prunes it. Keys ctxloom does not model are left exactly as the file has
+	// them; retired keys are dropped.
+	desired, err := c.persistedDoc().yamlMap()
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	var desired map[string]any
-	if err := yaml.Unmarshal(desiredBytes, &desired); err != nil {
-		return fmt.Errorf("failed to normalize config for save: %w", err)
+	for _, key := range retiredConfigKeys {
+		delete(merged, key)
 	}
+	for _, key := range persistedKeys() {
+		delete(merged, key)
+	}
+	maps.Copy(merged, desired)
 
 	// c is the FULLY MERGED view Owner.Update's fresh Read produced (home <
-	// project < env < flag), so applyConfigSections wrote every section it
-	// carries regardless of which layer contributed it — a Machine-scoped value
-	// set ONLY in home (editor.command, llm.configs.*.binary_path, ...) included. Writing
-	// that into configPath is exactly the leak internal/core/config/layerscope closes:
-	// the file being written IS the project layer whenever a separate home layer
-	// also exists (c.source == SourceProject), and Scope.Allows(LayerProject)
-	// forbids a Machine-scoped value there. Drop each via the SAME
-	// dropLayerScopeViolations load-time uses (never a bespoke filter), zap-logged
-	// because there is no live *Config.warnings slice to append to here. When
-	// c.source is SourceHome (this file IS home acting alone), nothing to filter.
+	// project < env < flag), so persistedDoc carries every section regardless
+	// of which layer contributed it — a Machine-scoped value set ONLY in home
+	// (editor.command, llm.configs.*.binary_path, ...) included. Writing that
+	// into configPath is exactly the leak internal/core/config/layerscope
+	// closes: the file being written IS the project layer whenever a separate
+	// home layer also exists (c.source == SourceProject), and
+	// Scope.Allows(LayerProject) forbids a Machine-scoped value there. The
+	// filter runs over the WHOLE merged file, not just the modeled sections,
+	// because the policy also covers keys configDoc does not model
+	// (mcp.servers.*.env). Drop each via the SAME dropLayerScopeViolations
+	// load-time uses (never a bespoke filter), zap-logged because there is no
+	// live *Config.warnings slice to append to here. When c.source is
+	// SourceHome (this file IS home acting alone), nothing to filter.
 	if c.source == SourceProject {
-		for _, v := range DropLayerScopeViolations(layerscope.LayerProject, desired) {
+		for _, v := range DropLayerScopeViolations(layerscope.LayerProject, merged) {
 			zap.L().Warn("config_layer_scope_save_warning", zap.Strings("key", v.Path))
 		}
 	}
@@ -125,9 +130,10 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	// key order survive — only a section whose canonical content actually changed
 	// is re-encoded, exactly like the comment-preserving upgrade path, rather than
 	// re-emitting a sorted, comment-stripped map[string]interface{} marshal on
-	// every write (U049-F16). A first write (no existing bytes) falls back to a
-	// fresh document whose keys are emitted sorted, matching what Marshal produces.
-	data, err := marshalPreservingComments(existingData, desired)
+	// every write (U049-F16). A first write (no existing bytes) emits a fresh
+	// document with every key sorted: the same bytes yaml.Marshal(c.Authored())
+	// produces.
+	data, err := marshalPreservingComments(existingData, merged)
 	if err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
@@ -242,28 +248,13 @@ func canonicalYAML(v any) ([]byte, error) {
 	return yaml.Marshal(g)
 }
 
-// Marshal renders the configuration to YAML bytes using the same section
-// assembly as saveLocked (registry role-stripping included), but over a fresh
-// map rather than the on-disk file. Used by callers that build a config in
-// memory and write it themselves (e.g. init), so the written shape matches
-// what a save produces.
-func (c *Config) Marshal() ([]byte, error) {
-	out := make(map[string]interface{})
-	c.applyConfigSections(out)
-	data, err := yaml.Marshal(out)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal config: %w", err)
-	}
-	return data, nil
-}
-
 // readExistingConfig loads the current config file into a generic map so that
 // unknown fields are preserved across a save. A missing file yields an empty
 // map — that is the normal first-write shape.
 //
 // A file that will not PARSE is refused. The old behaviour warned and
 // returned an empty map, and saveLocked then atomically replaced the file
-// with only the sections applyConfigSections emits: every key ctxloom does
+// with only the sections persistedDoc renders: every key ctxloom does
 // not model, and every key it does model but this in-memory Config happens
 // not to carry, was destroyed by a command the user ran for an unrelated
 // reason (`ctxloom agent add`, `mcp add`, anything through Owner.Update).
@@ -288,138 +279,87 @@ func readExistingConfig(fs afero.Fs, configPath string) ([]byte, map[string]inte
 	return existingData, existing, nil
 }
 
-// userAuthoredLM returns the LM section with default-overlaid values stripped:
-// registry entries and role defaults that came verbatim from the embedded
-// default config (Builder.OverlayDefaultRegistry) are runtime fallbacks, not user
-// configuration. Persisting them would pin the user to a snapshot of shipped
-// model defaults that stops tracking future releases. Anything the user added
-// or changed since the overlay survives.
-func (c *Config) userAuthoredLM() LMConfig {
-	lm := c.lm
-	ov := c.lmDefaultOverlay
-	if ov == nil {
+// effectiveDoc is c as every run resolves it: toDoc's lossless copy, role and
+// the shipped default registry included, with the version stamped current
+// (load has already migrated whatever the file held). `config show` and
+// `config get` render it, so they describe the configuration actually in
+// force rather than only the part a file spells out.
+func (c *Config) effectiveDoc() configDoc {
+	d := c.toDoc()
+	d.Version = CurrentConfigVersion
+	return d
+}
+
+// persistedDoc is effectiveDoc without the shipped default registry
+// (userAuthoredLM): what every save and init's scaffold write emit, and what
+// `config show --raw` prints. The registry is left out because writing it
+// would freeze one release's model defaults into every saved config.
+// Everything else — role included — is written exactly as the layer holds it.
+func (c *Config) persistedDoc() configDoc {
+	d := c.effectiveDoc()
+	d.LM = userAuthoredLM(d.LM, c.lmDefaultOverlay)
+	return d
+}
+
+// Authored returns c as a save writes it (persistedDoc), for callers that
+// render or write the file's document rather than the effective one. It
+// marshals through the same configDoc.MarshalYAML as c itself.
+func (c *Config) Authored() yaml.Marshaler { return authoredView{c} }
+
+type authoredView struct{ c *Config }
+
+// MarshalYAML returns the configDoc itself, like Config.MarshalYAML, so
+// `config get --raw` can reflect a section out of it by yaml tag.
+func (v authoredView) MarshalYAML() (any, error) { return v.c.persistedDoc(), nil }
+
+// retiredConfigKeys are top-level keys ctxloom once wrote and no longer
+// models; a save removes them from the file rather than carrying them forward
+// as unknown keys.
+var retiredConfigKeys = []string{
+	"lm",         // renamed to llm
+	"generators", // no longer supported
+	"profiles",   // the inline arm is retired; profiles are files
+	"defaults",   // superseded by the config block
+}
+
+// persistedKeys is every top-level key configDoc declares, read off its yaml
+// tags so it cannot fall behind the document it describes.
+func persistedKeys() []string {
+	typ := reflect.TypeOf(configDoc{})
+	keys := make([]string, 0, typ.NumField())
+	for i := range typ.NumField() {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		keys = append(keys, name)
+	}
+	return keys
+}
+
+// userAuthoredLM returns lm with default-overlaid values stripped: registry
+// entries and role defaults that came verbatim from the embedded default config
+// (Builder.OverlayDefaultRegistry, recorded as overlay) are runtime fallbacks,
+// not user configuration. Persisting them would pin the user to a snapshot of
+// shipped model defaults that stops tracking future releases. Anything the user
+// added or changed since the overlay survives.
+func userAuthoredLM(lm LMConfig, overlay *LMConfig) LMConfig {
+	if overlay == nil {
 		return lm
 	}
 	configs := make(map[string]LLMConfig, len(lm.Configs))
 	for label, entry := range lm.Configs {
-		if def, ok := ov.Configs[label]; ok && reflect.DeepEqual(entry, def) {
+		if def, ok := overlay.Configs[label]; ok && reflect.DeepEqual(entry, def) {
 			continue
 		}
 		configs[label] = entry
 	}
 	lm.Configs = configs
-	if ov.Defaults.Primary != "" && lm.Defaults.Primary == ov.Defaults.Primary {
+	if overlay.Defaults.Primary != "" && lm.Defaults.Primary == overlay.Defaults.Primary {
 		lm.Defaults.Primary = ""
 	}
-	if ov.Defaults.Fast != "" && lm.Defaults.Fast == ov.Defaults.Fast {
+	if overlay.Defaults.Fast != "" && lm.Defaults.Fast == overlay.Defaults.Fast {
 		lm.Defaults.Fast = ""
 	}
 	return lm
-}
-
-// persistableLM returns a copy of the LM config with the registry-only Role
-// dropped from every entry, so persisted user configs carry plain {type, model}
-// entries. The input is not mutated (the in-memory registry keeps its roles).
-func persistableLM(lm LMConfig) LMConfig {
-	if len(lm.Configs) == 0 {
-		return lm
-	}
-	configs := make(map[string]LLMConfig, len(lm.Configs))
-	for label, entry := range lm.Configs {
-		entry.Role = ""
-		configs[label] = entry
-	}
-	lm.Configs = configs
-	return lm
-}
-
-// setOrDelete writes value under key when present, otherwise removes key — so
-// emptied sections are pruned from the on-disk config rather than left behind.
-func setOrDelete(m map[string]interface{}, key string, present bool, value interface{}) {
-	if present {
-		m[key] = value
-	} else {
-		delete(m, key)
-	}
-}
-
-// applyConfigSections updates existing with the current config values, pruning
-// keys for empty sections. Editor round-trips like every other block; without
-// it editor settings would be silently dropped.
-func (c *Config) applyConfigSections(existing map[string]interface{}) {
-	existing["version"] = CurrentConfigVersion // stamp current schema version so saved configs are never stale
-	lm := c.userAuthoredLM()
-	setOrDelete(existing, "llm", lm.hasAny(), persistableLM(lm))
-	delete(existing, "lm")         // remove old key if present
-	delete(existing, "generators") // no longer supported
-
-	setOrDelete(existing, "config", c.settings.hasAny(), c.settings)
-	setOrDelete(existing, "editor", c.editor.Command != "" || len(c.editor.Args) > 0, c.editor)
-	delete(existing, "profiles") // the inline arm is retired; profiles are files
-	delete(existing, "defaults") // superseded by the config block
-	// Pruned when empty so an emptied map removes the block rather than
-	// leaving `agents: {}` behind.
-	setOrDelete(existing, "agents", len(c.agents) > 0, c.agents)
-	// The always-bound default agent (replaces the retired profiles.defaults);
-	// pruned when empty so an unset default_agent leaves no key behind.
-	setOrDelete(existing, "default_agent", c.defaultAgent != "", c.defaultAgent)
-	// Session-level workspace default + agent-level runtime default; pruned
-	// when empty ("none"/"host" are the implicit defaults, so unset axes
-	// leave no keys behind).
-	setOrDelete(existing, "workspace", c.workspace != "", c.workspace)
-	// dirty_tree_handler default; pruned when empty so an unset project falls
-	// through to the built-in default ("commit", unacknowledged — the
-	// "commit" handler still refuses). This was declared on configDoc/Fixture
-	// (toDoc/fromDoc, ToFixture/NewFixture) when the dirty-tree handler
-	// feature landed but never wired into this section-by-section persist
-	// path, so ANY caller that set it via a save or Marshal() (rather than a
-	// raw yaml.Marshal(cfg)) silently lost it — exactly this project's
-	// characteristic bug. Fixed here so the init-interview write
-	// (internal/adapters/cli/init.go's promptDirtyTreeHandler) actually lands it on
-	// disk. Its commit acknowledgement is no longer a config key at all — see
-	// DirtyTreeCommitAcknowledged/SetDirtyTreeCommitAck.
-	setOrDelete(existing, "dirty_tree_handler", c.dirtyTreeHandler != "", c.dirtyTreeHandler)
-	setOrDelete(existing, "runtime", c.runtime != "", c.runtime)
-	// The project-wide default permission posture; pruned when empty so an
-	// undeclared project falls through to the engine's own built-in default
-	// rather than persisting a posture nobody chose. Written here for the same
-	// reason dirty_tree_handler above documents: a field declared on
-	// configDoc/Fixture but missing from this section-by-section persist path is
-	// silently discarded on every Save()/Marshal().
-	setOrDelete(existing, "permissions", c.permissions != "", c.permissions)
-	// Agent delegation's settings (concurrency resource ceiling + depth
-	// structural ceiling — see DelegationConfig's doc);
-	// pruned as a whole key when none is set (<=0 / false means "use the
-	// built-in default"). Wired here so a save/Marshal() round-trip does not
-	// silently drop it (the exact bug class dirty_tree_handler's own comment
-	// above documents having hit) — and EVERY field of the group has to be in
-	// this condition, because a group pruned on a stale subset of its own
-	// fields discards the ones nobody remembered to add.
-	// Renamed/regrouped from the flat agent_turn_cap — see
-	// errRetiredAgentTurnCapKey.
-	setOrDelete(existing, "delegation", c.delegation.Concurrency > 0 || c.delegation.Depth > 0 || c.delegation.IdleTimeout != "", c.delegation)
-	// Per-backend user-provided agent images; pruned when empty (built-in
-	// defaults leave no key behind).
-	setOrDelete(existing, "isolation_images", len(c.isolationImages) > 0, c.isolationImages)
-	setOrDelete(existing, "isolation_base_containerfile", c.isolationBaseContainerfile != "", c.isolationBaseContainerfile)
-	// Agent-observation viewer settings (prefix key + surround bar). Declared
-	// on configDoc/Fixture when the viewer landed but never wired here — the
-	// THIRD instance of the bug dirty_tree_handler and agent_turn_cap above
-	// each document. Pruned when neither field is set; Surround is a *bool
-	// precisely so an explicit `surround: false` is distinguishable from
-	// unset and survives the round trip.
-	setOrDelete(existing, "ui", c.ui.PrefixKey != "" || c.ui.Surround != nil, c.ui)
-	// The aged-session sweep's age; pruned when empty so an unset file falls
-	// through to DefaultSessionReapAge rather than persisting a value nobody
-	// chose.
-	setOrDelete(existing, "session_reap_age", c.sessionReapAge != "", c.sessionReapAge)
-	setOrDelete(existing, "session_purge_age", c.sessionPurgeAge != "", c.sessionPurgeAge)
-	if c.isolationDevcontainerBase != nil {
-		setOrDelete(existing, "isolation_devcontainer_base", true, *c.isolationDevcontainerBase)
-	} else {
-		delete(existing, "isolation_devcontainer_base")
-	}
-	setOrDelete(existing, "isolation_devcontainer_service", c.isolationDevcontainerService != "", c.isolationDevcontainerService)
-	setOrDelete(existing, "isolation_engines", len(c.isolationEngines) > 0, c.isolationEngines)
-	setOrDelete(existing, "sync", c.sync.AutoSync != nil, c.sync)
 }

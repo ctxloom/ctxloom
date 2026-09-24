@@ -7,7 +7,7 @@
 # This file doubles as the shipped registry init reads: each entry's `role`
 # marks it as its backend type's default primary or fast pick, so selecting an
 # engine resolves its pair (primary + fast) by scanning for matching type+role.
-# `role` is registry-only metadata, stripped from any persisted user config.
+# init clears `role` on the entries it copies: llm.defaults names the pair.
 version: 6
 
 llm:

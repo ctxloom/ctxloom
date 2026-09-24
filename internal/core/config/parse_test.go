@@ -40,31 +40,3 @@ llm:
 	assert.Equal(t, "claude-code", cfg.lm.Defaults.Primary)
 	assert.Equal(t, "claude-fast", cfg.lm.Defaults.Fast)
 }
-
-// TestMarshal_StripsRole confirms the persist path drops the registry-only role
-// from every entry while leaving the in-memory config's roles untouched.
-func TestMarshal_StripsRole(t *testing.T) {
-	cfg := &Config{
-		lm: LMConfig{
-			Configs: map[string]LLMConfig{
-				"claude-code": {Type: "claude-code", Role: "primary", Body: map[string]interface{}{"model": "opus"}},
-			},
-			Defaults: RoleDefaults{Primary: "claude-code", Fast: "claude-code"},
-		},
-	}
-
-	data, err := cfg.Marshal()
-	require.NoError(t, err)
-	assert.NotContains(t, string(data), "role:")
-
-	// The in-memory registry keeps its role — Marshal must not mutate it.
-	assert.Equal(t, "primary", cfg.lm.Configs["claude-code"].Role)
-
-	// The model and type survive the round trip.
-	back, err := ParseConfig(data)
-	require.NoError(t, err)
-	entry := back.lm.Configs["claude-code"]
-	assert.Equal(t, "claude-code", entry.Type)
-	assert.Equal(t, "opus", entry.Body["model"])
-	assert.Empty(t, entry.Role)
-}

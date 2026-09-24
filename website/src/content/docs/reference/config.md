@@ -188,7 +188,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
-| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
+| `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `claude-code`. |
 
 #### mock
@@ -198,7 +198,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment, and the retired key 'env' is refused at load. |
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
-| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
+| `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `mock`. |
 
 ### unifiedHooks

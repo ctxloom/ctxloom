@@ -30,8 +30,8 @@
 // whenever the exclusion table changes shape. Three excluded classes exist
 // today: values a vendor CLI owns and ctxloom only passes through
 // (claude-code's hook `type`); the `role`
-// field, which is registry-only display metadata the schema itself says is
-// "stripped from persisted user configs and ignored otherwise"; and the
+// field, a shipped-registry marker the schema itself says is "ignored at
+// runtime", so no Go vocabulary backs it; and the
 // escalation ladder's `kinds`/`action`, whose real vocabulary
 // (internal/core/coord.approvalKindNames, coord.LadderAction) is
 // unexported in a package this test cannot reach without either a production
@@ -159,10 +159,10 @@ var schemaEnumBindings = []schemaEnumBinding{
 
 func init() {
 	// $defs/llmConfig/anyOf has one branch per backend. `permissions` mirrors
-	// the same ctxloom-owned vocabulary as everywhere else; `role` is
-	// registry-only display metadata the schema's own description says is
-	// "stripped from persisted user configs and ignored otherwise" — no Go
-	// vocabulary backs it, by design, so it is excluded rather than bound.
+	// the same ctxloom-owned vocabulary as everywhere else; `role` is a
+	// shipped-registry marker the schema's own description says is "ignored
+	// at runtime" — no Go vocabulary backs it, by design, so it is excluded
+	// rather than bound.
 	//
 	// Built in init() rather than spelled out per branch in the literal
 	// above: the branches are homogeneous in which fields they share, and a
@@ -175,7 +175,7 @@ func init() {
 		schemaEnumBindings = append(schemaEnumBindings,
 			schemaEnumBinding{
 				path:          prefix + "/role",
-				excludeReason: "registry-only display metadata the schema itself says is stripped from persisted user configs and ignored otherwise; no Go vocabulary backs it",
+				excludeReason: "a shipped-registry marker the schema itself says is ignored at runtime; no Go vocabulary backs it",
 			},
 			schemaEnumBinding{path: prefix + "/permissions", goNames: agentaxis.PermissionModeNames},
 		)

@@ -22,6 +22,12 @@ Run with an unknown or omitted section to see the available ones, or use
 ctxloom config get <section> [flags]
 ```
 
+### Options
+
+```
+      --raw   Show only what the configuration sets, without the shipped default engine registry
+```
+
 ### Options inherited from parent commands
 
 ```

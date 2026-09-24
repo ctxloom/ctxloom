@@ -295,3 +295,59 @@ func TestConfigCreateWritesItsSuccessLineToTheCommandWriter(t *testing.T) {
 	assert.Contains(t, buf.String(), "Wrote ")
 	assert.Contains(t, buf.String(), filepath.Join(dir, ".ctxloom", "config.yaml"))
 }
+
+// --- effective vs --raw -------------------------------------------------------
+//
+// `config show` and `config get` render the EFFECTIVE configuration: a project
+// that configured no LLMs still runs against the shipped registry, so that is
+// what they print. --raw renders only what the configuration sets — the
+// document a save writes — so the two can be told apart.
+
+// setConfigRaw sets the --raw flag's variable for one test.
+func setConfigRaw(t *testing.T, v bool) {
+	t.Helper()
+	prev := configRaw
+	configRaw = v
+	t.Cleanup(func() { configRaw = prev })
+}
+
+func TestRunConfigShow_RendersTheShippedRegistry(t *testing.T) {
+	agentProject(t, "version: 6\nworkspace: worktree\n")
+	setConfigRaw(t, false)
+	cmd, out := textCmd()
+	require.NoError(t, runConfigShow(cmd, nil))
+	assert.Contains(t, out.String(), "claude-code", "show must print the registry every run resolves against")
+	assert.Contains(t, out.String(), "workspace: worktree")
+}
+
+func TestRunConfigShow_RawShowsOnlyWhatTheConfigSets(t *testing.T) {
+	agentProject(t, "version: 6\nworkspace: worktree\n")
+	setConfigRaw(t, true)
+	cmd, out := textCmd()
+	require.NoError(t, runConfigShow(cmd, nil))
+	assert.NotContains(t, out.String(), "claude-code", "--raw must leave the shipped registry out")
+	assert.Contains(t, out.String(), "workspace: worktree", "--raw still shows everything the file sets")
+}
+
+func TestRunConfigGet_RawNarrowsTheAuthoredDocument(t *testing.T) {
+	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: mock, role: fast }\n")
+	setConfigRaw(t, true)
+	cmd, out := textCmd()
+	require.NoError(t, runConfigGet(cmd, []string{"llm"}))
+	assert.Contains(t, out.String(), "big:")
+	assert.Contains(t, out.String(), "role: fast", "the section is lossless, role included")
+}
+
+func TestRunConfigGet_RawLeavesTheShippedRegistryOut(t *testing.T) {
+	agentProject(t, "version: 6\nworkspace: worktree\n")
+	for _, raw := range []bool{false, true} {
+		setConfigRaw(t, raw)
+		cmd, out := textCmd()
+		require.NoError(t, runConfigGet(cmd, []string{"llm"}))
+		if raw {
+			assert.NotContains(t, out.String(), "claude-code", "--raw must leave the shipped registry out of the section")
+		} else {
+			assert.Contains(t, out.String(), "claude-code", "get renders the effective section")
+		}
+	}
+}

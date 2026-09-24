@@ -30,7 +30,8 @@ var configCmd = groupNodeDefault(&cobra.Command{
 	Long: `Show or modify ctxloom configuration.
 
 Examples:
-  ctxloom config show              # Show full configuration
+  ctxloom config show              # Show the effective configuration
+  ctxloom config show --raw        # Show only what the configuration sets
   ctxloom config get defaults      # Get a specific section
   ctxloom config edit              # Open config.yaml in $EDITOR
   ctxloom config create            # Scaffold a default config.yaml`,
@@ -38,20 +39,37 @@ Examples:
 
 var configShowCmd = &cobra.Command{
 	Use:   "show",
-	Short: "Show full configuration",
+	Short: "Show the effective configuration",
 	RunE:  runConfigShow,
 }
 
 func runConfigShow(cmd *cobra.Command, args []string) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	payload, err := configPayload(cfg)
+	doc, err := configDocument()
 	if err != nil {
 		return err
 	}
-	return emit(cmd, payload, func() error { return renderConfigYAML(cfg, cmd.OutOrStdout()) })
+	payload, err := configPayload(doc)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, payload, func() error { return renderConfigYAML(doc, cmd.OutOrStdout()) })
+}
+
+// configRawHelp is the --raw flag's usage, shared by show and get.
+const configRawHelp = "Show only what the configuration sets, without the shipped default engine registry"
+
+// configDocument loads the config and picks the view show and get render: the
+// effective configuration, or with --raw the authored one a save writes. Both
+// marshal through the same serializer.
+func configDocument() (yaml.Marshaler, error) {
+	cfg, err := GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+	if configRaw {
+		return cfg.Authored(), nil
+	}
+	return cfg, nil
 }
 
 // configPayload re-expresses a config value as a plain map/slice/scalar tree by
@@ -98,11 +116,11 @@ var configGetCmd = &cobra.Command{
 }
 
 func runConfigGet(cmd *cobra.Command, args []string) error {
-	cfg, err := GetConfig()
+	doc, err := configDocument()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
-	section, err := resolveConfigSection(cfg, args[0])
+	section, err := resolveConfigSection(doc, args[0])
 	if err != nil {
 		return err
 	}
@@ -110,14 +128,14 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return emit(cmd, payload, func() error { return renderConfigSection(cfg, args[0], cmd.OutOrStdout()) })
+	return emit(cmd, payload, func() error { return renderConfigSection(doc, args[0], cmd.OutOrStdout()) })
 }
 
-// renderConfigYAML marshals cfg to YAML and writes it to out. Extracted
+// renderConfigYAML marshals doc to YAML and writes it to out. Extracted
 // from configShowCmd's RunE so the marshal + write composition is
 // testable without invoking cobra.
-func renderConfigYAML(cfg *config.Config, out io.Writer) error {
-	data, err := yaml.Marshal(cfg)
+func renderConfigYAML(doc yaml.Marshaler, out io.Writer) error {
+	data, err := yaml.Marshal(doc)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -125,22 +143,22 @@ func renderConfigYAML(cfg *config.Config, out io.Writer) error {
 	return err
 }
 
-// resolveConfigSection returns the named top-level section of cfg, or an
+// resolveConfigSection returns the named top-level section of doc, or an
 // error whose message lists the valid section names.
 //
 // The valid sections are not a second, hand-maintained list: they are read
-// off cfg's own MarshalYAML document — the SAME configDoc value `config show`
+// off doc's own MarshalYAML document — the SAME configDoc value `config show`
 // marshals to render the whole configuration (renderConfigYAML calls
-// yaml.Marshal(cfg), which yaml.v3 routes through this exact Marshaler). A
+// yaml.Marshal(doc), which yaml.v3 routes through this exact Marshaler). A
 // field reflected out of that document by its yaml tag is returned as-is, so
 // adding a section to configDoc makes it both showable and gettable in one
 // edit — there is no longer a second place `config get` can fall behind.
-func resolveConfigSection(cfg *config.Config, name string) (any, error) {
-	doc, err := cfg.MarshalYAML()
+func resolveConfigSection(doc yaml.Marshaler, name string) (any, error) {
+	rendered, err := doc.MarshalYAML()
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
-	v := reflect.ValueOf(doc)
+	v := reflect.ValueOf(rendered)
 	t := v.Type()
 	available := make([]string, 0, t.NumField())
 	for i := 0; i < t.NumField(); i++ {
@@ -158,8 +176,8 @@ func resolveConfigSection(cfg *config.Config, name string) (any, error) {
 
 // renderConfigSection resolves the named section and writes it to out as
 // YAML. Extracted from configGetCmd's RunE.
-func renderConfigSection(cfg *config.Config, name string, out io.Writer) error {
-	data, err := resolveConfigSection(cfg, name)
+func renderConfigSection(doc yaml.Marshaler, name string, out io.Writer) error {
+	data, err := resolveConfigSection(doc, name)
 	if err != nil {
 		return err
 	}
@@ -254,7 +272,11 @@ func runConfigCreate(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-var configCreateEngine string
+var (
+	configCreateEngine string
+	// configRaw is --raw on show and get.
+	configRaw bool
+)
 
 // projectConfigPath returns the path to the project's config.yaml.
 func projectConfigPath() string {
@@ -290,4 +312,6 @@ func init() {
 	// the registry (runConfigCreate); flags are declared at init, before
 	// any engine is registered, and the help names the default once it is.
 	configCreateCmd.Flags().StringVar(&configCreateEngine, "engine", "", "AI engine to record in the scaffolded config")
+	configShowCmd.Flags().BoolVar(&configRaw, "raw", false, configRawHelp)
+	configGetCmd.Flags().BoolVar(&configRaw, "raw", false, configRawHelp)
 }

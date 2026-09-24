@@ -85,7 +85,16 @@ func (c *Coordinator) LoopbackURL() string {
 
 // ReachURL resolves the URL a caller on runtimeAxis dials — the spawn path
 // uses it for the runner's env trio.
+//
+// The axis is parsed here, the one door every spawn and owner run takes to
+// its reach-back, because a transport answers "not a container" with
+// loopback: an unknown spelling reaching it would hand a container runner an
+// address it cannot dial, or run a container-bound session without one. An
+// unknown value is refused with launch.ErrUnknownRuntimeAxis.
 func (c *Coordinator) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) {
+	if _, err := launch.ParseRuntimeAxis(string(runtimeAxis)); err != nil {
+		return "", err
+	}
 	t := c.Transport()
 	if t == nil {
 		return "", ErrNotServing

@@ -707,7 +707,12 @@ func (c *Coordinator) spawnReachURL(harp string, runtimeAxis launch.RuntimeAxis)
 	if err == nil {
 		return url, nil
 	}
-	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %v — this child could not dial home, so nothing it sends could be routed and its work would be lost; check the container runtime's bridge network", runtimeAxis, err)
+	if errors.Is(err, launch.ErrUnknownRuntimeAxis) {
+		// A misspelled plan, not an unreachable network: the hint below
+		// would send the operator to the wrong place.
+		return "", fmt.Errorf("agent_run: %w", err)
+	}
+	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %w — this child could not dial home, so nothing it sends could be routed and its work would be lost; check the container runtime's bridge network", runtimeAxis, err)
 }
 
 // runChild is a spawned child's driver goroutine: wait for an execution slot

@@ -7,6 +7,7 @@
 package launch
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -134,6 +135,10 @@ func ParseWorkspaceAxis(s string) (WorkspaceAxis, error) {
 	}
 }
 
+// ErrUnknownRuntimeAxis is ParseRuntimeAxis's refusal of a spelling the
+// runtime axis does not have.
+var ErrUnknownRuntimeAxis = errors.New("unknown runtime axis")
+
 // ParseRuntimeAxis is the ONE conversion between the runtime-axis string
 // vocabulary (config YAML, CLI flags, wire fields, Gherkin cells) and the
 // typed RuntimeAxis. Every boundary that receives a runtime string parses it
@@ -148,13 +153,13 @@ func ParseWorkspaceAxis(s string) (WorkspaceAxis, error) {
 // retired value like bare "container" — is refused with an error naming the
 // bad value and the legal ones. This function never warns and never
 // degrades: the runtime axis is a security boundary and gets no caller-side
-// softening.
+// softening. The refusal wraps ErrUnknownRuntimeAxis.
 func ParseRuntimeAxis(s string) (RuntimeAxis, error) {
 	switch RuntimeAxis(s) {
 	case "", RuntimeHost, RuntimeRootless, RuntimeRootful:
 		return RuntimeAxis(s), nil
 	default:
-		return "", fmt.Errorf("unknown runtime axis %q (known: %s)", s, strings.Join(RuntimeNames(), "|"))
+		return "", fmt.Errorf("%w %q (known: %s)", ErrUnknownRuntimeAxis, s, strings.Join(RuntimeNames(), "|"))
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -103,17 +102,32 @@ func installPulled(t *testing.T, appDir, repoURL, bundleRef string, retracted bo
 	require.NoError(t, os.WriteFile(filepath.Join(installDir, "bundle.yaml"), []byte("version: 1.0.0\ndescription: remote tools bundle\n"), 0o644))
 }
 
+// canonicalRef renders raw, a hand-joined ctxloom+ reference, in the form
+// trust.BundleRef.String produces. An expected reference is derived through
+// the renderer rather than spelled: String percent-encodes every component,
+// so a joined "ctxloom+file://"+dir matches it only while dir needs no
+// escaping — a temp root containing a space is enough to break it.
+func canonicalRef(t *testing.T, raw string) string {
+	t.Helper()
+	ref, err := trust.ParseBundleRef(raw)
+	require.NoError(t, err)
+	return ref.String()
+}
+
 // catalogHas reports whether the catalog read the tools bundle installed
 // from repoURL: a remote read's source ref carries the repository it came
 // from.
-func catalogHas(cat bundles.Catalog, repoURL string) bool {
-	_, ok := pulledRead(cat, repoURL)
+func catalogHas(t *testing.T, cat bundles.Catalog, repoURL string) bool {
+	t.Helper()
+	_, ok := pulledRead(t, cat, repoURL)
 	return ok
 }
 
-func pulledRead(cat bundles.Catalog, repoURL string) (bundles.BundleRead, bool) {
+func pulledRead(t *testing.T, cat bundles.Catalog, repoURL string) (bundles.BundleRead, bool) {
+	t.Helper()
+	want := canonicalRef(t, "ctxloom+"+repoURL+"//bundles/tools")
 	for _, r := range cat.Reads() {
-		if r.Provenance == bundles.ProvenanceRemote && strings.HasSuffix(r.SourceRef().String(), strings.TrimPrefix(repoURL, "file://")+"//bundles/tools") {
+		if r.Provenance == bundles.ProvenanceRemote && r.SourceRef().String() == want {
 			return r, true
 		}
 	}
@@ -124,7 +138,7 @@ func pulledRead(cat bundles.Catalog, repoURL string) (bundles.BundleRead, bool) 
 // server — the decision every executable surface is made with.
 func gateVerdict(t *testing.T, snap *config.Snapshot, repoURL string) bundles.Verdict {
 	t.Helper()
-	read, ok := pulledRead(snap.Catalog(), repoURL)
+	read, ok := pulledRead(t, snap.Catalog(), repoURL)
 	require.True(t, ok)
 	ref, err := bundles.ItemRefFor(read.SourceRef(), trust.KindMCP, "tools-server")
 	require.NoError(t, err)
@@ -142,7 +156,7 @@ func TestPullThenSpawn_NextGenerationHoldsThePulledBundleAndItsRetraction(t *tes
 	app := pulledApp(t, appDir)
 	before, err := app.Snapshot(context.Background())
 	require.NoError(t, err)
-	require.False(t, catalogHas(before.Catalog(), repoURL), "precondition: nothing is installed before the pull")
+	require.False(t, catalogHas(t, before.Catalog(), repoURL), "precondition: nothing is installed before the pull")
 
 	// The pull: the tree lands and the lockfile pins it, carrying the
 	// publisher's retraction of this release.
@@ -152,8 +166,8 @@ func TestPullThenSpawn_NextGenerationHoldsThePulledBundleAndItsRetraction(t *tes
 	after, err := app.Reload(context.Background())
 	require.NoError(t, err)
 
-	assert.True(t, catalogHas(after.Catalog(), repoURL), "the next generation holds the pulled bundle")
-	assert.False(t, catalogHas(before.Catalog(), repoURL), "the generation before the pull is unchanged")
+	assert.True(t, catalogHas(t, after.Catalog(), repoURL), "the next generation holds the pulled bundle")
+	assert.False(t, catalogHas(t, before.Catalog(), repoURL), "the generation before the pull is unchanged")
 	assert.True(t, after.Trust.Gates(), "the generation's Trust is the real gate, never ungated")
 	verdict := gateVerdict(t, after, repoURL)
 	assert.False(t, verdict.Allow)
@@ -176,7 +190,7 @@ func TestPullThenSpawn_NextGenerationAdmitsAnUnretractedPull(t *testing.T) {
 
 	after, err := app.Reload(context.Background())
 	require.NoError(t, err)
-	require.True(t, catalogHas(after.Catalog(), repoURL))
+	require.True(t, catalogHas(t, after.Catalog(), repoURL))
 	verdict := gateVerdict(t, after, repoURL)
 	assert.NotEqual(t, bundles.ReasonRetracted, verdict.Reason,
 		"without a retraction record the gate's reason is the review state, never a retraction")

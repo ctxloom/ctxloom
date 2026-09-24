@@ -201,7 +201,7 @@ func DialRunner(ctx context.Context, rep report.Sink, coordURL, token, runID, ha
 			ActiveRunIds:      active,
 		},
 	}}); err != nil {
-		return unwind("coord: RunnerHello: %w", err)
+		return unwind("coord: RunnerHello: %w", helloSendErr(err, func() error { _, rerr := stream.Recv(); return rerr }))
 	}
 	ack, err := stream.Recv()
 	if err != nil {
@@ -219,6 +219,11 @@ func DialRunner(ctx context.Context, rep report.Sink, coordURL, token, runID, ha
 	l.goTracked(func() { l.heartbeatLoop(linkCtx) })
 	l.goTracked(l.receiveLoop)
 	return l, nil
+}
+
+// helloSendErr is a handshake Send's failure as the caller must see it.
+func helloSendErr(err error, recv func() error) error {
+	return err
 }
 
 // runnerLinkCloseJoinBudget bounds Shutdown's wait for tracked goroutines —

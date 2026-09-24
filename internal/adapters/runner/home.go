@@ -457,7 +457,7 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 		ProtocolVersion: 1,
 		Capabilities:    h.helloCapabilities(),
 	}}}); err != nil {
-		return err
+		return helloSendErr(err, func() error { _, rerr := stream.Recv(); return rerr })
 	}
 	first, err := stream.Recv()
 	if err != nil {

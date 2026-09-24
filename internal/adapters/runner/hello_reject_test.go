@@ -2,12 +2,15 @@ package runner
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
@@ -76,4 +79,20 @@ func TestDialRunner_RejectionCarriesTheCoordinatorsReason(t *testing.T) {
 		"the handshake must be REFUSED, not left parked")
 	assert.Contains(t, err.Error(), "was not issued to this credential",
 		"the coordinator refused for a named reason; it must travel in reject_reason and reach the caller, not be dropped for a bare %q", err.Error())
+}
+
+// TestHelloSendErr_AStreamThePeerAlreadyEndedReadsItsStatus forces the
+// ordering a loaded host produces: the coordinator refuses the stream (a
+// sealed coordinator answers Unavailable) before the runner's Hello is
+// written. grpc-go then fails the Send with a bare io.EOF and keeps the
+// refusal for Recv, so a caller that reports the Send error reports "EOF" and
+// loses the reason and the code.
+func TestHelloSendErr_AStreamThePeerAlreadyEndedReadsItsStatus(t *testing.T) {
+	refusal := status.Error(codes.Unavailable, "coordinator is shutting down")
+	err := helloSendErr(io.EOF, func() error { return refusal })
+	assert.Equal(t, codes.Unavailable, status.Code(err), "%v", err)
+
+	// Any other Send failure is already the transport's own account.
+	other := status.Error(codes.Internal, "write failed")
+	assert.Same(t, other, helloSendErr(other, func() error { t.Fatal("recv must not be consulted"); return nil }))
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 var (
@@ -140,13 +141,13 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	if len(result.Retracted) > 0 {
 		fmt.Fprintf(w, "  Retracted: %d\n", len(result.Retracted))
 		for _, item := range result.Retracted {
-			fmt.Fprintf(w, "    - %s: retracted (%s)\n", item.Reference, item.Error)
+			fmt.Fprintf(w, "    - %s: retracted (%s)\n", termsafe.Field(item.Reference), termsafe.Field(item.Error))
 		}
 	}
 	if result.Errors > 0 {
 		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)
 		for _, item := range result.Failed {
-			fmt.Fprintf(w, "    - %s: %s\n", item.Reference, item.Error)
+			fmt.Fprintf(w, "    - %s: %s\n", termsafe.Field(item.Reference), termsafe.Field(item.Error))
 		}
 	}
 }

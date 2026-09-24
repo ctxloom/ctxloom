@@ -8,6 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // reconcileInstalled is `deps pull`'s rendering over
@@ -22,7 +23,7 @@ func reconcileInstalled(ctx context.Context, cfg *config.Config, out io.Writer) 
 	}
 	renderReconcile(out, res.Plan)
 	for _, w := range res.Warnings {
-		clidiag.Warn("ctxloom", "reconcile: %s", w)
+		clidiag.Warn("ctxloom", "reconcile: %s", termsafe.Field(w))
 	}
 }
 
@@ -38,19 +39,19 @@ func renderReconcile(w io.Writer, plan operations.ReconcilePlan) {
 	if len(plan.Gone) > 0 {
 		fmt.Fprintf(w, "\nRemoved %d dependency(ies) no longer published by their remote:\n", len(plan.Gone))
 		for _, ref := range plan.Gone {
-			fmt.Fprintf(w, "  - %s\n", ref)
+			fmt.Fprintf(w, "  - %s\n", termsafe.Field(ref))
 		}
 		fmt.Fprintln(w, "  Re-adding them upstream and pulling again restores them; nothing authored here was touched.")
 	}
 
 	for _, u := range plan.Unreachable {
-		where := u.URL
+		where := termsafe.Field(u.URL)
 		if where == "" {
 			where = "an unidentifiable repository"
 		}
-		fmt.Fprintf(w, "\n%s could not be reached, so its dependencies were left exactly as they are (%s).\n", where, u.Reason)
+		fmt.Fprintf(w, "\n%s could not be reached, so its dependencies were left exactly as they are (%s).\n", where, termsafe.Field(u.Reason))
 		for _, ref := range u.Refs {
-			fmt.Fprintf(w, "  - kept: %s\n", ref)
+			fmt.Fprintf(w, "  - kept: %s\n", termsafe.Field(ref))
 		}
 		fmt.Fprintln(w, "  Nothing is removed on the strength of a remote that could not be read.")
 	}

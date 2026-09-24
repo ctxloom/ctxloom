@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 var browseRecursive bool
@@ -60,6 +62,14 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	renderRemoteBrowse(out, itemType, result)
+	return nil
+}
+
+// renderRemoteBrowse is `remote show`'s listing of a non-empty browse. Each
+// PullRef is built from the remote's own paths, so it is publisher-authored;
+// the remote's name and URL are the operator's registration.
+func renderRemoteBrowse(out io.Writer, itemType string, result *operations.BrowseRemoteResult) {
 	title := strings.ToUpper(itemType[:1]) + itemType[1:] + "s"
 	fmt.Fprintf(out, "%s in %s (%s):\n\n", title, result.Remote, result.URL)
 
@@ -70,13 +80,11 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	})
 
 	for _, item := range items {
-		fmt.Fprintf(out, "  %s\n", item.PullRef)
+		fmt.Fprintf(out, "  %s\n", termsafe.Field(item.PullRef))
 	}
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Use one: add its ref to a profile (ctxloom profile create/edit), then ctxloom deps pull")
-
-	return nil
 }
 
 func init() {

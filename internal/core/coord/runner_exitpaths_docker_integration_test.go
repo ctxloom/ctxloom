@@ -131,10 +131,17 @@ type exitRun struct {
 // container child and waits until that child's runner has dialled home and
 // finished its first turn (the run is idle): the runner is ATTACHED, so what
 // follows is a loss of something that was really there.
-func startExitRun(t *testing.T, runtimeName, image string) exitRun {
+//
+// ownerLossWindow, when non-zero, is the operator's override the runner is
+// launched under (sessions.EnvRunnerOwnerLossWindow) — set AFTER the test's
+// environment is isolated, which clears every CTXLOOM_* variable.
+func startExitRun(t *testing.T, runtimeName, image string, ownerLossWindow time.Duration) exitRun {
 	t.Helper()
 	coord.ResetStrictness(t)
 	projectDir := testsupport.ProjectDir(t)
+	if ownerLossWindow > 0 {
+		t.Setenv(sessions.EnvRunnerOwnerLossWindow, ownerLossWindow.String())
+	}
 	sp := &exitSpawner{directBusSpawner: directBusSpawner{image: image, projectDir: projectDir}, runtime: runtimeName}
 	coord.TeeHome(t)
 	var logs syncBuffer
@@ -319,8 +326,7 @@ func TestRunnerExitPaths(t *testing.T) {
 				// The operator's override, set where ctxloom runs: proof it
 				// reaches a container runner, and a test that does not wait
 				// out the two-minute default.
-				t.Setenv(sessions.EnvRunnerOwnerLossWindow, exitPathOwnerLossWindow.String())
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, exitPathOwnerLossWindow)
 				persistent := r.persistentMembers(t)
 				coord.CrashCoordinator(r.c)
 				r.requireContainerGone(t, exitPathOwnerLossWindow+removalSlack,
@@ -331,7 +337,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// AGENT STOP: the coordinator's own teardown door (terminateRun ->
 			// the spawn's Kill -> remove by name).
 			t.Run("agent-stop", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
 				_, err := r.c.AgentStop(coord.OwnerIdentity(), r.harp, "exit-path test")
 				require.NoError(t, err)
@@ -344,7 +350,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// RUNTIME STOP: SIGTERM through the init to the runner, which
 			// returns from Main and exits; --rm takes the container.
 			t.Run("runtime-stop", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "stop", "-t", "20", r.container).CombinedOutput()
 				require.NoError(t, err, "%s stop: %s", r.bin, out)
@@ -357,7 +363,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// RUNTIME KILL: SIGKILL; nothing in the container runs, --rm still
 			// takes it, and the coordinator synthesizes the loss from the drop.
 			t.Run("runtime-kill", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "kill", r.container).CombinedOutput()
 				require.NoError(t, err, "%s kill: %s", r.bin, out)
@@ -374,7 +380,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			// exits with its child and the kernel takes the rest, so no
 			// surviving process can hold the container open.
 			t.Run("runner-crash", func(t *testing.T) {
-				r := startExitRun(t, rtc.name, image)
+				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "exec", "-d", r.container, "sleep", "600").CombinedOutput()
 				require.NoError(t, err, "%s exec -d sleep: %s", r.bin, out)

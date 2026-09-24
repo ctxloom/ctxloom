@@ -229,3 +229,33 @@ read _ < %q
 	require.NoError(t, <-aDone, "A's runtime still finds its build context")
 	assert.Empty(t, scratchDirs(t, tmp, imageBaseScratchPrefix))
 }
+
+// TestNewOwnedScratch_ReclaimsAfterReaperWinsClaimRace: a reaper can see a
+// dir in the instant between its creation and its owner's lock, find it
+// unlocked, and delete it. The owner must notice and claim a fresh dir — never
+// carry on in a deleted one. The race is forced through the scratchCreated
+// seam: the reaper runs exactly in that instant, once.
+func TestNewOwnedScratch_ReclaimsAfterReaperWinsClaimRace(t *testing.T) {
+	parent := t.TempDir()
+	const prefix = "ctxloom-claimrace-"
+	var raced []string
+	orig := scratchCreated
+	scratchCreated = func(dir string) {
+		if len(raced) == 0 {
+			raced = append(raced, dir)
+			reapDeadScratch(parent, prefix)
+		}
+	}
+	t.Cleanup(func() { scratchCreated = orig })
+
+	s, err := newOwnedScratch(parent, prefix)
+	require.NoError(t, err)
+	t.Cleanup(s.release)
+
+	require.Len(t, raced, 1)
+	assert.NoDirExists(t, raced[0], "precondition: the reaper took the first dir")
+	assert.NotEqual(t, raced[0], s.dir)
+	assert.DirExists(t, s.dir, "the owner claimed a dir that exists")
+	reapDeadScratch(parent, prefix)
+	assert.DirExists(t, s.dir, "and holds it live against the next reaper")
+}

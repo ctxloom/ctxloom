@@ -30,8 +30,8 @@ const SchemaViolationHarpID = "(schema)"
 
 // Violation is one triage-standard violation Lint found on a task.
 type Violation struct {
-	HarpID string
-	Reason string
+	HarpID string `json:"harp_id"`
+	Reason string `json:"reason"`
 }
 
 // Result is Lint's full return value: the violations found, plus how much
@@ -41,12 +41,12 @@ type Violation struct {
 // checked at all". A caller positioning this as a CI gate (see
 // cmd/taskloom's lint command) must distinguish the two.
 type Result struct {
-	Violations []Violation
+	Violations []Violation `json:"violations"`
 	// CheckedTargets is the number of distinct targets this run examined
 	// under a declared enum or range facet. Zero means the schema (nil, or
 	// one declaring neither facet) gave Lint nothing to check — a clean
 	// Violations slice in that case is not evidence of clean data.
-	CheckedTargets int
+	CheckedTargets int `json:"checked_targets"`
 }
 
 // Lint folds every task in all (any status — even a Done task's tags stay

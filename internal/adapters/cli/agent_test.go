@@ -496,3 +496,28 @@ func TestRunAgentList_CannotRenderAnEnginelessAgent(t *testing.T) {
 	assert.NotContains(t, string(raw), `"x"`)
 	assert.NotContains(t, string(raw), "null", "no row can carry a null llm AND null profiles once the loader refuses the shell")
 }
+
+// TestAgentShow_JSONEscalationKeysMatchTheConfigKeys: agents.EscalationRung
+// carried only yaml tags, so `agent show --format json` rendered its rungs as
+// Kinds/Action while the config file and every sibling key are snake_case.
+// The json names are the yaml names, so what a user writes is what jq reads.
+func TestAgentShow_JSONEscalationKeysMatchTheConfigKeys(t *testing.T) {
+	cmd, out := formatCmd("json")
+	require.NoError(t, emit(cmd, agentShowJSON{Definition: &operations.AgentEntry{
+		Name: "dev",
+		Escalation: []agents.EscalationRung{{
+			Kinds: []string{"FILE_CHANGE"}, Action: "relay_to_role", Role: "parent", Timeout: "5m",
+		}},
+	}}, nil))
+
+	var got struct {
+		Definition struct {
+			Escalation []map[string]any `json:"escalation"`
+		} `json:"definition"`
+	}
+	require.NoError(t, json.Unmarshal(out.Bytes(), &got), out.String())
+	require.Len(t, got.Definition.Escalation, 1)
+	assert.Equal(t, map[string]any{
+		"kinds": []any{"FILE_CHANGE"}, "action": "relay_to_role", "role": "parent", "timeout": "5m",
+	}, got.Definition.Escalation[0])
+}

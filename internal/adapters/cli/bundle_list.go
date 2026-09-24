@@ -39,9 +39,6 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to list bundles: %w", err)
 		}
 	}
-	if bundleInfos == nil {
-		bundleInfos = []*bundles.BundleInfo{}
-	}
 
 	// The structured forms publish the CLI-owned row, never the loader's
 	// type: bundles.BundleInfo is free to change for its own callers without

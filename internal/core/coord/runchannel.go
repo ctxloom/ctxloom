@@ -241,11 +241,7 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 		c.handleCustomEvent(ch, payload)
 		c.flushItems(ch)
 	case Summary:
-		switch err := c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload); {
-		case errors.Is(err, ErrReportNotJournaled):
-			c.rep.Warnf("coordinator: journal report for %s: %v — the report is LOST "+
-				"(the runner's ack has already advanced past it and nothing re-sends it)", ch.role, err)
-		case err != nil:
+		if err := c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload); err != nil {
 			c.rep.Warnf("coordinator: refusing a report on %s's run channel: %v", ch.role, err)
 		}
 		c.flushItems(ch)

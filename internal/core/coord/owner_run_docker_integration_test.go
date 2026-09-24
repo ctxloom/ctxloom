@@ -70,27 +70,38 @@ type dockerOwnerRunStarter struct {
 	projectDir string
 	harp       string
 
+	pol isolation.Container
+	ws  isolation.Workspace
+
 	mu         sync.Mutex
 	containers []string
 	cleanups   []func()
 }
 
-func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+// ownerRunBackend is the one engine these starters run: it keys the container
+// AUTH (NewContainerFor) and names the runner backend (StartRunner), so the two
+// cannot drift into asking for one engine's credentials while launching
+// another's.
+const ownerRunBackend = "mock"
+
+// prepare stands the cell up BEFORE StartOwnedRun, as the host's Resolve
+// does, so the listen requirement it names rides the launch the coordinator
+// honours before the runner starts.
+func (s *dockerOwnerRunStarter) prepare(ctx context.Context, t *testing.T, l launch.Launch) launch.Launch {
+	t.Helper()
 	rt := isolation.ProbeRuntime("docker")
-	// The session harp drives the session-state mounts (transcript survival),
-	// exactly as the host resolves it into the runner spawn env.
 	stateEnv := map[string]string{"CTXLOOM_SESSION_HARP": s.harp}
-	// One name for the engine this starter runs: it keys the container AUTH
-	// (NewContainerFor) and names the runner backend (StartRunner below), so
-	// the two cannot drift into asking for one engine's credentials while
-	// launching another's.
-	const backend = "mock"
-	pol := isolation.NewContainerFor(rt, backend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
-	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
-	if err != nil {
-		return nil, "", err
-	}
-	handle, err := pol.StartRunner(ctx, backend, "fast", 0, ws, spawnEnv)
+	s.pol = isolation.NewContainerFor(rt, ownerRunBackend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
+	ws, err := s.pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
+	require.NoError(t, err)
+	s.ws = ws
+	l.Cell.Listen = isolation.WorkspaceListen(ws)
+	return l
+}
+
+func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+	pol, ws := s.pol, s.ws
+	handle, err := pol.StartRunner(ctx, ownerRunBackend, "fast", 0, ws, spawnEnv)
 	if err != nil {
 		_ = ws.Cleanup()
 		return nil, "", err
@@ -177,7 +188,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	defer collector.stop()
 
 	seed := "OWNER-STRUCT-" + coord.RandID("", 6)
-	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(containerOwnerLaunch(ownerHarp, engine.Structured), false), starter.start, seed)
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(starter.prepare(ctx, t, containerOwnerLaunch(ownerHarp, engine.Structured)), false), starter.start, seed)
 	require.NoError(t, err)
 	require.Equal(t, ownerHarp, outcome.Harp)
 
@@ -283,7 +294,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	defer collector.stop()
 
 	seed := "OWNER-ONESHOT-" + coord.RandID("", 6)
-	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(containerOwnerLaunch(ownerHarp, engine.Structured), true), starter.start, seed)
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(starter.prepare(ctx, t, containerOwnerLaunch(ownerHarp, engine.Structured)), true), starter.start, seed)
 	require.NoError(t, err)
 
 	want := "mock chat: " + seed

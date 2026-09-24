@@ -73,6 +73,7 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	l.Identity = start.Identity
 	l.Prompt = start.Prompt
 	l.Cell.Env = env
+	l.Cell.Listen = isolation.WorkspaceListen(ws)
 	l.Axes.Runtime = launch.RuntimeRootless
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l

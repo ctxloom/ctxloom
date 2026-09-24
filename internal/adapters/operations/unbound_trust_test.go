@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // A Config that reaches a delivery entry point without a bound Trust is a
@@ -20,18 +20,18 @@ func TestDeliveryEntryPoints_RefuseAnUnboundConfig(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 	ctx := context.Background()
 
-	_, err := ApplyHooks(ctx, ApplyHooksRequest{Cfg: cfg, Backend: "claude-code"})
+	_, err := ApplyHooks(ctx, engines.Registry(), ApplyHooksRequest{Cfg: cfg, Backend: "claude-code"})
 	require.ErrorIs(t, err, config.ErrTrustUnbound, "ApplyHooks")
 
 	_, err = ResolveHooks(ctx, ResolveHooksRequest{Cfg: cfg})
 	require.ErrorIs(t, err, config.ErrTrustUnbound, "ResolveHooks")
 
-	_, err = MaterializeProfile(ctx, cfg, MaterializeProfileRequest{Profiles: []string{"p"}, Target: t.TempDir()})
+	_, err = MaterializeProfile(ctx, engines.Registry(), cfg, MaterializeProfileRequest{Profiles: []string{"p"}, Target: t.TempDir()})
 	require.ErrorIs(t, err, config.ErrTrustUnbound, "MaterializeProfile")
 
 	_, err = AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: []string{"p"}})
 	require.ErrorIs(t, err, config.ErrTrustUnbound, "AssembleContext")
 
-	_, err = StartInternalOneShot(ctx, nil, cfg, strictness.Mode{}, "primary", "", t.TempDir(), "", 0)
-	require.ErrorIs(t, err, config.ErrTrustUnbound, "StartInternalOneShot")
+	_, err = OneShot(testLaunchFacts(), nil, cfg).Label("primary").WorkDir(t.TempDir()).Start(ctx)
+	require.ErrorIs(t, err, config.ErrTrustUnbound, "OneShot.Start")
 }

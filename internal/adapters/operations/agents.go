@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
@@ -212,9 +214,9 @@ func warnAgentAxisTypos(name string, req SetAgentRequest) {
 // config.yaml genuinely has no labels yet) would reject the documented
 // invocation. An explicitly empty engine stays legal: it CLEARS the override,
 // falling back to the composed profiles' llm and then the project default.
-func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) error {
+func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
 	if req.LLM != nil && *req.LLM != "" {
-		if available := AvailableLLMNames(cfg); !slices.Contains(available, *req.LLM) {
+		if available := AvailableLLMNames(reg, cfg); !slices.Contains(available, *req.LLM) {
 			return fmt.Errorf("agent %q: unknown engine %q; valid engines: %s",
 				name, *req.LLM, strings.Join(available, ", "))
 		}
@@ -249,7 +251,7 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 			return fmt.Errorf("agent %q: a surface preference needs a known engine — set --engine in the same command, "+
 				"since which approaches exist is the engine's answer, not ctxloom's", name)
 		}
-		if _, err := ResolveAgentSurfaces(engine, req.Surfaces); err != nil {
+		if _, err := ResolveAgentSurfaces(reg, engine, req.Surfaces); err != nil {
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
@@ -264,12 +266,12 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 			return fmt.Errorf("agent %q: a root selection needs a known engine — set --llm in the same command, "+
 				"since which roots an approach offers is the engine's answer, not ctxloom's", name)
 		}
-		if _, err := ResolveAgentRoots(engine, req.Roots); err != nil {
+		if _, err := ResolveAgentRoots(reg, engine, req.Roots); err != nil {
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
 
-	if err := validateContainerAuth(cfg, name, req); err != nil {
+	if err := validateContainerAuth(reg, cfg, name, req); err != nil {
 		return err
 	}
 
@@ -305,7 +307,7 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 // `--runtime container` does. An agent with NO engine on the binding is left
 // alone: its engine comes from the composed profiles' llm and then the project
 // default at resolve time, so there is no pair here to judge.
-func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest) error {
+func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
 	existing, hasExisting := cfg.Agent(name)
 
 	runtime := ""
@@ -343,7 +345,7 @@ func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest)
 	if label == "" {
 		return nil
 	}
-	backend, _ := ResolveBackend(cfg, label)
+	backend, _ := ResolveBackend(reg, cfg, label)
 	if isolation.HasContainerAuth(backend) {
 		return nil
 	}
@@ -390,6 +392,7 @@ func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest)
 var ErrAgentWithoutEngine = errors.New("an agent needs an llm or at least one profile to bind an engine; neither was given")
 
 func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
+	reg := app.Engines()
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
@@ -405,7 +408,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 	// a refusal writes nothing and a typo'd `agent edit` cannot half-apply over
 	// a live binding.
 	warnAgentAxisTypos(name, req)
-	if err := validateAgentAxes(cfg, name, req); err != nil {
+	if err := validateAgentAxes(reg, cfg, name, req); err != nil {
 		return nil, err
 	}
 
@@ -617,12 +620,12 @@ type ResolvedAgent struct {
 // The agent DEFINITION is ungated config: resolution touches no trust gate
 // and no baseline. (Its constituent fragments/mcp/hooks still gate downstream
 // when the composed context is actually assembled/applied.)
-func ResolveAgent(ctx context.Context, cfg *config.Config, name, engineOverride string) (*ResolvedAgent, error) {
+func ResolveAgent(ctx context.Context, reg engine.Registry, cfg *config.Config, name, engineOverride string) (*ResolvedAgent, error) {
 	sub, ok := cfg.Agent(name)
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
-	return resolveAgentBinding(ctx, cfg, name, sub, engineOverride, nil)
+	return resolveAgentBinding(ctx, reg, cfg, name, sub, engineOverride, nil)
 }
 
 // resolveAgentBinding is the shared compose+engine core ResolveAgent goes
@@ -644,7 +647,7 @@ func ResolveAgent(ctx context.Context, cfg *config.Config, name, engineOverride 
 // Engine precedence (resolveOneshotLabel): the effective engine (override else
 // the binding's engine) wins; an empty effective engine falls back to the
 // composed profiles' llm, then the project default backend.
-func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, sub agents.Agent, engineOverride string, pipe *bundles.Pipeline) (*ResolvedAgent, error) {
+func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.Config, name string, sub agents.Agent, engineOverride string, pipe *bundles.Pipeline) (*ResolvedAgent, error) {
 	// Reject an unknown Driving value here too, not just at SetAgent: an
 	// `agents:` entry is parsed by the whole-config.yaml unmarshal, which
 	// validates no axis of its own, so a hand-edited config.yaml with a
@@ -675,7 +678,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		engine = engineOverride
 	}
 	label := resolveOneshotLabel(cfg, engine, ctxResult.ProfileLLM)
-	backend, model := ResolveBackend(cfg, label)
+	backend, model := ResolveBackend(reg, cfg, label)
 
 	// Effective runtime axis: the agent's own choice wins, else the project's
 	// `runtime:` default (cfg.Runtime), else empty (→ RuntimeHost downstream).
@@ -703,7 +706,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	// fix, not a launch worth refusing; warning names what was dropped so the
 	// degrade is never the silent kind.
 
-	surfaces, serr := ResolveAgentSurfaces(backend, sub.Surfaces)
+	surfaces, serr := ResolveAgentSurfaces(reg, backend, sub.Surfaces)
 	if serr != nil {
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
@@ -725,7 +728,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	// launch would use, so it prints the floor rather than re-diagnosing it.
 	effectivePerm, _ := agent.ResolveDefault(report.To(strictness.Sink("ctxloom")),
 		[]string{sub.Permissions, labelEntry.Permissions, cfg.GetPermissions()},
-		EnginePermissionFacts(backend).HostDefault)
+		EnginePermissionFacts(reg, backend).HostDefault)
 
 	return &ResolvedAgent{
 		Name:                 name,

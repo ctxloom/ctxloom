@@ -7,12 +7,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -32,6 +34,8 @@ func testComposition() Composition {
 		Reporter:       strictness.Sink("ctxloom"),
 		OpenConfig:     config.Open,
 		NewCoordinator: func(_ *operations.App, opts coord.Options) (*coord.Coordinator, error) { return coord.New(opts) },
+		Engines:        engines.Registry(),
+		SessionClaims:  fsstore.SessionClaims,
 	}
 }
 
@@ -48,7 +52,7 @@ func testApp(t *testing.T, opts ...configload.Option) *operations.App {
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	app := operations.OpenedApp(owner)
+	app := operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 	t.Cleanup(SetAppForTesting(app))
 	return app
 }

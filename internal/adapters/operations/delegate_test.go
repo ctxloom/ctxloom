@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -41,7 +42,7 @@ func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 	t.Run("strict: the cell is refused with the finding text", func(t *testing.T) {
 		resetStrictness(t)
 		stubPrepareIsolation(t, map[string]bool{"builder": true})
-		_, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req(t))
+		_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req(t))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, launch.ErrRuntimeUnavailable)
 		// "NOT sandboxed" comes from the FINDING's own message (prepareChain,
@@ -56,7 +57,7 @@ func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 	t.Run("degraded: the cell proceeds on the degraded workspace", func(t *testing.T) {
 		resetStrictness(t)
 		stubPrepareIsolation(t, map[string]bool{"builder": true})
-		cell, err := Cells{cfg: config.NewFixture(config.Fixture{}), mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), req(t))
+		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{}), mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), req(t))
 		require.NoError(t, err)
 		_ = cell.Cleanup()
 	})
@@ -190,7 +191,7 @@ func TestCellsPrepare_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M internal/foo.go"}}
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
-	p, err := Cells{cfg: cfg, Git: fake, mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), launch.CellRequest{
+	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake, mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -212,7 +213,7 @@ func TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}}
 	cfg := config.NewFixture(config.Fixture{})
-	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("none"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    sessions.Identity{Harp: "coder"},
@@ -236,7 +237,7 @@ func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	t.Cleanup(func() { prepareIsolation = prev })
 
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
-	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -333,7 +334,7 @@ func TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing
 	t.Cleanup(func() { prepareIsolation = prev })
 
 	cfg := config.NewFixture(config.Fixture{})
-	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -377,7 +378,7 @@ func TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 	t.Cleanup(func() { prepareIsolation = prev })
 
 	cfg := config.NewFixture(config.Fixture{})
-	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -409,7 +410,7 @@ func TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 	t.Cleanup(func() { prepareIsolation = prev })
 
 	cfg := config.NewFixture(config.Fixture{})
-	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -668,7 +669,7 @@ func TestCellsPrepare_DirtyTreeHandler_UnsettledDoesNotCommit(t *testing.T) {
 	prepare := func(t *testing.T, fake *git.Fake, handler launch.DirtyTreeHandler) (launch.Cell, error) {
 		t.Helper()
 		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree"})
-		return Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		return Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 			Axes:        launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost},
 			Engine:      mock.New(),
 			Identity:    delegatedChild("coder"),
@@ -718,7 +719,7 @@ func TestCellsPrepare_DirtyTree_OriginatorIsNotGated(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	for _, handler := range []launch.DirtyTreeHandler{launch.DirtyTreeHandlerCommit, launch.DirtyTreeHandlerFail} {
 		t.Run(string(handler), func(t *testing.T) {
-			p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+			p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
 				Axes:        launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost},
 				Engine:      mock.New(),
 				Identity:    sessions.Identity{Harp: "originator"},

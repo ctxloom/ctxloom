@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,7 @@ func TestDoctorCheckMCPInvocation_WrongState_StaleEntryIsNamed(t *testing.T) {
 			root := t.TempDir()
 			writeSurface(t, root, ".mcp.json", body)
 
-			check := doctorCheckMCPInvocation(root)
+			check := doctorCheckMCPInvocation(engines.Registry(), root)
 
 			assert.Equal(t, DoctorWarn, check.Status,
 				"a stale entry is a real problem, and warn is this command's fail-loud signal")
@@ -55,7 +56,7 @@ func TestDoctorCheckMCPInvocation_RightState_NoCtxloomEntryIsQuiet(t *testing.T)
 	root := t.TempDir()
 	writeSurface(t, root, ".mcp.json", `{"mcpServers": {"taskloom": {"command": "taskloom", "args": ["mcp"]}}}`)
 
-	check := doctorCheckMCPInvocation(root)
+	check := doctorCheckMCPInvocation(engines.Registry(), root)
 
 	assert.Equal(t, DoctorOK, check.Status, "a registry naming no ctxloom launch is fine")
 	assert.NotContains(t, check.Detail, ".mcp.json",
@@ -76,7 +77,7 @@ func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 			root := t.TempDir()
 			writeSurface(t, root, rel, body)
 
-			check := doctorCheckMCPInvocation(root)
+			check := doctorCheckMCPInvocation(engines.Registry(), root)
 
 			assert.Equal(t, DoctorWarn, check.Status)
 			assert.Contains(t, check.Detail, rel, "the report names the engine's own file")
@@ -93,7 +94,7 @@ func TestDoctorCheckMCPInvocation_SessionEndpointEntryIsQuiet(t *testing.T) {
 	writeSurface(t, root, ".mcp.json",
 		`{"mcpServers": {"ctxloom": {"type": "http", "url": "http://127.0.0.1:4242/mcp", "headers": {"Authorization": "Bearer x"}}}}`)
 
-	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(root).Status)
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), root).Status)
 }
 
 // TestDoctorCheckMCPInvocation_LeavesForeignServersAlone: only ctxloom's own
@@ -105,7 +106,7 @@ func TestDoctorCheckMCPInvocation_LeavesForeignServersAlone(t *testing.T) {
 	writeSurface(t, root, ".mcp.json",
 		`{"mcpServers": {"taskloom": {"command": "taskloom", "args": ["mcp"]}}}`)
 
-	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(root).Status,
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), root).Status,
 		"another tool's invocation is not ctxloom's to correct")
 }
 
@@ -113,8 +114,8 @@ func TestDoctorCheckMCPInvocation_LeavesForeignServersAlone(t *testing.T) {
 // materialized nothing yet has nothing stale, and saying so as `info` keeps
 // the warn channel meaning "act on this".
 func TestDoctorCheckMCPInvocation_NoSurfacesIsNotAProblem(t *testing.T) {
-	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(t.TempDir()).Status)
-	assert.Equal(t, DoctorInfo, doctorCheckMCPInvocation("").Status,
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(engines.Registry(), t.TempDir()).Status)
+	assert.Equal(t, DoctorInfo, doctorCheckMCPInvocation(engines.Registry(), "").Status,
 		"with no project located there is nothing to inspect")
 }
 
@@ -127,7 +128,7 @@ func TestDoctorCheckMCPInvocation_UnreadableSurfaceIsNotHealth(t *testing.T) {
 	root := t.TempDir()
 	writeSurface(t, root, ".mcp.json", `{"mcpServers": {`)
 
-	check := doctorCheckMCPInvocation(root)
+	check := doctorCheckMCPInvocation(engines.Registry(), root)
 
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, ".mcp.json", "the report names the file it could not read")

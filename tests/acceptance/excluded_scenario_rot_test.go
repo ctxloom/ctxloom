@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // runStepCommand matches the command a `When I run "ctxloom ..."` step drives.
@@ -61,7 +62,7 @@ func TestExcludedScenarios_InvokeCommandsThatStillExist(t *testing.T) {
 		t.Fatalf("excludedScenarioTags %v must equal completeness_test.go's excludedCorpusTags %v", got, want)
 	}
 
-	root := cli.GetRootCmd()
+	root := cli.GetRootCmd(cli.Composition{Engines: engines.Registry()})
 	files := excludedScenarioFeatureFiles(t)
 
 	checked := 0

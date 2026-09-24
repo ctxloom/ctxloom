@@ -20,8 +20,8 @@ import (
 // primaryEngines are shown first in the selection menu: the engines shipped
 // by default (engine.DistributionDefault), read off the registry so the menu
 // cannot name an engine that is not there.
-func primaryEngines() []string {
-	return operations.EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution == engine.DistributionDefault })
+func primaryEngines(reg engine.Registry) []string {
+	return operations.EngineNamesWhere(reg, func(d engine.Definition) bool { return d.Distribution == engine.DistributionDefault })
 }
 
 // getAvailableEngines returns engines filtered by what's actually installed.
@@ -30,29 +30,29 @@ func primaryEngines() []string {
 // backend that is not a test double — for help text that advertises them.
 // Derived from the registry so the help cannot name an engine that no longer
 // exists.
-func userEngineNames() string {
-	return strings.Join(operations.EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly }), ", ")
+func userEngineNames(reg engine.Registry) string {
+	return strings.Join(operations.EngineNamesWhere(reg, func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly }), ", ")
 }
 
 func getAvailableEngines() (primary, secondary []string) {
 	primarySet := make(map[string]bool)
-	for _, e := range primaryEngines() {
+	for _, e := range primaryEngines(App().Engines()) {
 		primarySet[e] = true
 	}
 
 	// Check which primary engines are available
-	for _, name := range primaryEngines() {
-		if operations.EngineAvailable(name) {
+	for _, name := range primaryEngines(App().Engines()) {
+		if operations.EngineAvailable(App().Engines(), name) {
 			primary = append(primary, name)
 		}
 	}
 
 	// Get secondary engines (all others except mock)
-	for _, name := range operations.EngineNames() {
+	for _, name := range operations.EngineNames(App().Engines()) {
 		if isTestOnlyBackend(name) || primarySet[name] {
 			continue
 		}
-		if operations.EngineAvailable(name) {
+		if operations.EngineAvailable(App().Engines(), name) {
 			secondary = append(secondary, name)
 		}
 	}
@@ -194,7 +194,7 @@ func pickDefaultEngine(selected string, primary []string) string {
 	if len(primary) > 0 {
 		return primary[0]
 	}
-	return operations.DefaultEngineName()
+	return operations.DefaultEngineName(App().Engines())
 }
 
 // noEnginesInstalled reports whether neither a primary nor a secondary engine

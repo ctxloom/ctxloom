@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -40,13 +41,14 @@ func authPingTestConfig(t *testing.T) *config.Config {
 func testLaunchDeps(t *testing.T, cfg *config.Config) launch.Deps {
 	t.Helper()
 	deps := launch.Deps{
-		Snapshot:  &config.Snapshot{Config: cfg},
-		Engines:   engines.Registry(),
-		Assembler: launchtestAssembler{},
-		Cells:     dryCells{},
-		Endpoints: sequenceMinter{},
-		Sessions:  sessions.NewMemStore(),
-		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+		SessionClaims: fsstore.SessionClaims,
+		Snapshot:      &config.Snapshot{Config: cfg},
+		Engines:       engines.Registry(),
+		Assembler:     launchtestAssembler{},
+		Cells:         dryCells{},
+		Endpoints:     sequenceMinter{},
+		Sessions:      sessions.NewMemStore(),
+		Host:          launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
 	}
 	orig := initLaunchDeps
 	initLaunchDeps = func(context.Context) (launch.Deps, error) { return deps, nil }
@@ -273,7 +275,7 @@ func TestPrintDiscoveryPostureHint(t *testing.T) {
 // text is read from production via engineAuthFixHint rather than re-typed
 // here. A newly registered backend is covered without editing this file.
 func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
-	engines := operations.EngineNames()
+	engines := operations.EngineNames(engines.Registry())
 	require.NotEmpty(t, engines,
 		"the backend registry is empty — every subtest below would be skipped and this suite would pass having checked nothing")
 

@@ -3,9 +3,10 @@ package operations
 import (
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/go-viper/mapstructure/v2"
 )
@@ -14,12 +15,12 @@ import (
 // config via the backend registry. The label is looked up verbatim; the
 // backend is chosen solely by the entry's type. Returns nil on a missing label
 // or unknown/undecodable type (fault tolerant — caller degrades to defaults).
-func DecodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
+func DecodeBackendConfig(reg engine.Registry, cfg *config.Config, label string) agent.BackendConfig {
 	entry, ok := cfg.GetLLMEntry(label)
 	if !ok {
 		return nil
 	}
-	bc, err := DecodeEngineConfig(cfg.EffectiveType(entry), entry.Body)
+	bc, err := DecodeEngineConfig(reg, cfg.EffectiveType(entry), entry.Body)
 	if err != nil {
 		clidiag.Warn("ctxloom", "LLM config %q: %v", label, err)
 		return nil
@@ -46,8 +47,8 @@ type mockControlConfig interface {
 // callers that pass env through the run request. Empty when the label is
 // unset, carries none, or its decoded config type does not implement
 // mockControlConfig — every real engine.
-func MockControlFor(cfg *config.Config, label string) map[string]string {
-	bc := DecodeBackendConfig(cfg, label)
+func MockControlFor(reg engine.Registry, cfg *config.Config, label string) map[string]string {
+	bc := DecodeBackendConfig(reg, cfg, label)
 	if mc, ok := bc.(mockControlConfig); ok {
 		return mc.MockControl()
 	}
@@ -60,8 +61,8 @@ func MockControlFor(cfg *config.Config, label string) map[string]string {
 // entry is NOT consulted — only the explicit type drives which decoder runs.
 // One shared mapstructure pass fills the engine's own zero config from the
 // raw YAML body; the engine declares the TYPE, this owns the decode.
-func DecodeEngineConfig(engineType string, body map[string]interface{}) (agent.BackendConfig, error) {
-	h, ok := engines.Hosted(engineType)
+func DecodeEngineConfig(reg engine.Registry, engineType string, body map[string]interface{}) (agent.BackendConfig, error) {
+	h, ok := agent.HostedIn(reg, engineType)
 	if !ok {
 		return nil, fmt.Errorf("unknown LLM backend type %q", engineType)
 	}

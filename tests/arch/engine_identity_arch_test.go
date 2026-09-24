@@ -123,14 +123,14 @@ type rosterCheck struct {
 // than naming backends here, so a new, correctly-registered backend never
 // requires updating this test.
 func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
-	known := operations.EngineNames()
+	known := operations.EngineNames(engines.Registry())
 	if len(known) == 0 {
 		t.Fatal("operations.EngineNames() returned nothing — the canonical registry did not populate; the gate has " +
 			"nothing to validate against")
 	}
 
 	rosters := []rosterCheck{
-		{source: "internal/adapters/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
+		{source: "internal/adapters/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames(engines.Registry())},
 		{source: "internal/adapters/isolation.ComposableEngines (pushed engine.Descriptor.Container)", members: isolation.ComposableEngines()},
 	}
 
@@ -162,7 +162,7 @@ type derivedRoster struct {
 // transcriptAbsence explains a registered backend outside the vendor-reader
 // roster: its kind supplies no readers (an empty slice, the port's absence).
 func transcriptAbsence(name string) string {
-	if _, ok := operations.VendorReaderAdaptersFor(name); ok {
+	if _, ok := operations.VendorReaderAdaptersFor(engines.Registry(), name); ok {
 		return ""
 	}
 	return name + " supplies no transcript readers (Engine.Transcripts is empty)"
@@ -176,7 +176,7 @@ func transcriptAbsence(name string) string {
 // (a filter that skips an engine the descriptor provides for) — the
 // mutation "remove an engine from the derived roster" dies here.
 func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
-	known := operations.EngineNames()
+	known := operations.EngineNames(engines.Registry())
 	if len(known) == 0 {
 		t.Fatal("operations.EngineNames() returned nothing — the canonical registry did not populate; the gate has " +
 			"nothing to validate against")
@@ -185,7 +185,7 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 	rosters := []derivedRoster{
 		{
 			source:  "internal/adapters/operations.VendorReaderEngineNames (Engine.Transcripts)",
-			members: operations.VendorReaderEngineNames(),
+			members: operations.VendorReaderEngineNames(engines.Registry()),
 			absence: transcriptAbsence,
 		},
 		{
@@ -266,7 +266,7 @@ const transcriptSchemaRelPath = "docs/transcript.schema.json"
 // validation. Reads both sides live so neither a new backend nor a removal
 // needs an edit here — only the schema does.
 func TestArch_TranscriptSchemaEngineEnum_EqualsBackendRegistry(t *testing.T) {
-	registered := operations.EngineNames()
+	registered := operations.EngineNames(engines.Registry())
 	if len(registered) == 0 {
 		t.Fatal("operations.EngineNames() returned nothing — the canonical registry did not populate; the gate has " +
 			"nothing to validate against")

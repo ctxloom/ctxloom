@@ -297,7 +297,7 @@ func refreshManagedArtifacts(ctx context.Context, cfg *config.Config) {
 	if !harnessApplied(ctx, cfg) {
 		return
 	}
-	if _, err := operations.ApplyHooks(ctx, operations.ApplyHooksRequest{
+	if _, err := operations.ApplyHooks(ctx, App().Engines(), operations.ApplyHooksRequest{
 		Cfg:               cfg,
 		RegenerateContext: true,
 	}); err != nil {
@@ -311,7 +311,7 @@ func refreshManagedArtifacts(ctx context.Context, cfg *config.Config) {
 // "not applied" — fail safe toward never creating artifacts on an unreadable
 // project (the trust change persisted regardless).
 func harnessApplied(ctx context.Context, cfg *config.Config) bool {
-	status, err := operations.HarnessStatus(ctx, cfg, operations.HarnessStatusRequest{})
+	status, err := operations.HarnessStatus(ctx, App().Engines(), cfg, operations.HarnessStatusRequest{})
 	if err != nil {
 		return false
 	}

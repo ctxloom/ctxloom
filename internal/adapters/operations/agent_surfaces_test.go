@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // TestResolveAgentSurfaces_AcceptsWhatTheEngineDeclares: system-prompt is
@@ -14,7 +15,7 @@ import (
 // interaction delivery there is (a flag on the command line; no project file
 // touched, no process of ours started).
 func TestResolveAgentSurfaces_AcceptsWhatTheEngineDeclares(t *testing.T) {
-	got, err := ResolveAgentSurfaces("claude-code", map[string]string{"context": "system-prompt"})
+	got, err := ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"context": "system-prompt"})
 	require.NoError(t, err)
 	assert.Equal(t, map[agent.SurfaceKind]string{
 		agent.SurfaceContext: "system-prompt",
@@ -31,7 +32,7 @@ func TestResolveAgentSurfaces_AcceptsWhatTheEngineDeclares(t *testing.T) {
 // context a way they did not choose.
 func TestResolveAgentSurfaces_RefusesAnApproachTheEngineDoesNotHave(t *testing.T) {
 	for _, engine := range []string{"mock"} {
-		got, err := ResolveAgentSurfaces(engine, map[string]string{"context": "system-prompt"})
+		got, err := ResolveAgentSurfaces(engines.Registry(), engine, map[string]string{"context": "system-prompt"})
 		require.Error(t, err, "%s does not declare system-prompt", engine)
 		assert.Nil(t, got, "%s: a refused preference must resolve to nothing, never a partial map", engine)
 		assert.Contains(t, err.Error(), "system-prompt")
@@ -42,11 +43,11 @@ func TestResolveAgentSurfaces_RefusesAnApproachTheEngineDoesNotHave(t *testing.T
 // Names that exist nowhere are refused before any engine is consulted, so the
 // message is about the typo rather than about an engine's capabilities.
 func TestResolveAgentSurfaces_RefusesUnknownNames(t *testing.T) {
-	_, err := ResolveAgentSurfaces("claude-code", map[string]string{"kontext": "hook"})
+	_, err := ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"kontext": "hook"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "kontext")
 
-	_, err = ResolveAgentSurfaces("claude-code", map[string]string{"context": "telepathy"})
+	_, err = ResolveAgentSurfaces(engines.Registry(), "claude-code", map[string]string{"context": "telepathy"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "telepathy")
 }
@@ -55,7 +56,7 @@ func TestResolveAgentSurfaces_RefusesUnknownNames(t *testing.T) {
 // approaches" for a name nobody registered would make every pair unsupported
 // and report it as the engine's limitation instead of as a bad engine name.
 func TestResolveAgentSurfaces_RefusesAnUnknownEngine(t *testing.T) {
-	_, err := ResolveAgentSurfaces("no-such-engine", map[string]string{"context": "hook"})
+	_, err := ResolveAgentSurfaces(engines.Registry(), "no-such-engine", map[string]string{"context": "hook"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no-such-engine")
 }
@@ -63,7 +64,7 @@ func TestResolveAgentSurfaces_RefusesAnUnknownEngine(t *testing.T) {
 // Nothing declared is not an error and resolves to nothing: the overwhelmingly
 // common agent has no preference and takes the engine's default.
 func TestResolveAgentSurfaces_EmptyIsNotAPreference(t *testing.T) {
-	got, err := ResolveAgentSurfaces("claude-code", nil)
+	got, err := ResolveAgentSurfaces(engines.Registry(), "claude-code", nil)
 	require.NoError(t, err)
 	assert.Nil(t, got)
 }

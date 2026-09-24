@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
@@ -80,7 +81,7 @@ func TestTrustMutations_RefreshManagedArtifacts(t *testing.T) {
 
 	// Apply the harness once. Both local MCP servers are project-authored, so they
 	// auto-trust and are written into settings immediately — no manual trust step.
-	_, err = operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
+	_, err = operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
 		Cfg:               cfg,
 		Backend:           "claude-code",
 		RegenerateContext: true,
@@ -122,7 +123,7 @@ func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 
 	// Apply once so a harness exists (harnessApplied → true), guaranteeing the
 	// refresh actually reaches ApplyHooks rather than being skipped.
-	_, err = operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
+	_, err = operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
 		Cfg:               cfg,
 		Backend:           "claude-code",
 		RegenerateContext: true,

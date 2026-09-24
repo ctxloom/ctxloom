@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -27,7 +28,7 @@ func TestDecodeBackendConfig_GeminiTypeWarnsAsUnknown(t *testing.T) {
 	})
 
 	var bc interface{}
-	out := captureStderr(t, func() { bc = DecodeBackendConfig(cfg, "gem") })
+	out := captureStderr(t, func() { bc = DecodeBackendConfig(engines.Registry(), cfg, "gem") })
 	assert.Nil(t, bc, "an unknown backend type degrades to nil")
 	assert.Contains(t, out, `LLM config "gem": unknown LLM backend type "gemini"`)
 }
@@ -55,7 +56,7 @@ func TestDecodeBackendConfig_DecodeFailureRidesTheDiagnosticChannel(t *testing.T
 	clidiag.SetStructured(true)
 	t.Cleanup(func() { clidiag.SetStructured(false) })
 
-	out := captureStderr(t, func() { DecodeBackendConfig(cfg, "x") })
+	out := captureStderr(t, func() { DecodeBackendConfig(engines.Registry(), cfg, "x") })
 
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	require.NotEmpty(t, lines[0], "the decode failure must be reported")
@@ -88,8 +89,8 @@ func TestMockControlFor_ReadsTheMockLabelsControlMapAndNothingElse(t *testing.T)
 		},
 	})
 
-	assert.Equal(t, map[string]string{"CTXLOOM_MOCK_RESPONSE": "canned-7f3a"}, MockControlFor(cfg, "m"),
+	assert.Equal(t, map[string]string{"CTXLOOM_MOCK_RESPONSE": "canned-7f3a"}, MockControlFor(engines.Registry(), cfg, "m"),
 		"the mock label's mock_control map must reach the request env verbatim")
-	assert.Nil(t, MockControlFor(cfg, "big"), "a real engine's label carries no request env map")
-	assert.Nil(t, MockControlFor(cfg, "absent"), "an unset label carries none either")
+	assert.Nil(t, MockControlFor(engines.Registry(), cfg, "big"), "a real engine's label carries no request env map")
+	assert.Nil(t, MockControlFor(engines.Registry(), cfg, "absent"), "an unset label carries none either")
 }

@@ -30,7 +30,7 @@ func parseSurfaceOverrides(pairs []string) (map[agent.SurfaceKind]string, error)
 	if len(pairs) == 0 {
 		return nil, nil
 	}
-	known := operations.KnownApproachNames()
+	known := operations.KnownApproachNames(App().Engines())
 	out := make(map[agent.SurfaceKind]string, len(pairs))
 	for _, p := range pairs {
 		name, approach, ok := strings.Cut(p, "=")

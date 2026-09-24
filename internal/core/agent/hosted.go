@@ -1,10 +1,12 @@
 package agent
 
+import "github.com/ctxloom/ctxloom/internal/core/engine"
+
 // Hosted is the instance half's REMAINING contract over an engine value:
 // what agent.Backend still needs that the port (engine.Engine) does not
 // carry. An engine.Engine the composition root ships also implements
 // Hosted; the adapters that drive a Backend assert it on the registry's
-// value (engines.Hosted). Everything declarative is the port's; this
+// value (HostedIn). Everything declarative is the port's; this
 // interface leaves with Backend.
 type Hosted interface {
 	// Backend constructs a fresh backend over the injected launcher — the
@@ -25,6 +27,19 @@ type Hosted interface {
 	// `manage hooks install` applies; false for an engine whose global path
 	// never collapses onto the project path.
 	HookGlobalScope() (HookGlobalScope, bool)
+}
+
+// HostedIn resolves name in reg to its kind's instance-half contract by
+// EXACT match on the registered name. No alias, case or prefix resolution:
+// an engine has one spelling, and any other reaches the caller unresolved so
+// it is refused rather than rounded to a real engine.
+func HostedIn(reg engine.Registry, name string) (Hosted, bool) {
+	e, ok := reg.Lookup(engine.Name(name))
+	if !ok {
+		return nil, false
+	}
+	h, ok := e.(Hosted)
+	return h, ok
 }
 
 // HookGlobalScope resolves an engine's project-scoped config path (under a

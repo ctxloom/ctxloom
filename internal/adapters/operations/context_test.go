@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -1056,17 +1057,17 @@ func TestContextConsumer_ResolvesDeliveryFromWhatIsWritten(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, static, "a live session can pull, so premised fragments are withheld and indexed")
 
-	static, err = MaterializedFor("mock").static()
+	static, err = MaterializedFor(engines.Registry(), "mock").static()
 	require.NoError(t, err)
 	assert.False(t, static, "an engine with a skills surface re-delivers withheld fragments as skills, so the context itself stays dynamic")
 
-	static, err = MaterializedFor("mock-noskills").static()
+	static, err = MaterializedFor(engines.Registry(), "mock-noskills").static()
 	require.NoError(t, err)
 	assert.True(t, static, "an engine with no skills surface has nothing behind a materialized file that can pull, so the fragments go into the context")
 
-	_, err = MaterializedFor("no-such-engine").static()
+	_, err = MaterializedFor(engines.Registry(), "no-such-engine").static()
 	require.Error(t, err, "a surface for an engine that does not exist cannot be resolved; silently treating it as skill-less would dump every premised fragment into a file nobody asked for")
 
-	_, err = MaterializedFor("").static()
+	_, err = MaterializedFor(engines.Registry(), "").static()
 	require.Error(t, err, "'materialized for nobody' is not a live session in disguise")
 }

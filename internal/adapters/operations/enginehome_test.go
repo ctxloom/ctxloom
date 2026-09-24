@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -83,7 +84,7 @@ const containerInstanceRoot = "/ctxloom-test/home"
 // declared engine_home: session, on the host (no runtime advice).
 func resolveHome(t *testing.T, in InTreeAgentHome) AgentHomeResolution {
 	t.Helper()
-	return ResolveInTreeAgentHome(in)
+	return ResolveInTreeAgentHome(engines.Registry(), in)
 }
 
 func projectHome(workDir, harp string) InTreeAgentHome {

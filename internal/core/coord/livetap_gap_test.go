@@ -20,6 +20,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -175,7 +176,7 @@ func TestLiveTap_GapNoticeReachesTheOverlay(t *testing.T) {
 	f := newGapFakeConsumer(harp, "run-1")
 	startGapFakeCoordinator(t, home, "proj", f)
 
-	feed, err := operations.WatchSessionFeed(context.Background(), operations.SessionFeedRequest{Harp: harp, Source: operations.FeedSourceAuto})
+	feed, err := operations.WatchSessionFeed(context.Background(), engines.Registry(), operations.SessionFeedRequest{Harp: harp, Source: operations.FeedSourceAuto})
 	require.NoError(t, err)
 	require.Equal(t, "live", feed.Source)
 

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // wireClaudeHarness writes a ctxloom-managed hook set into dir's claude-code
@@ -35,7 +36,7 @@ func TestHarnessStatus_ReportsWiring(t *testing.T) {
 	wireClaudeHarness(t, fs, dir)
 
 	cfg := &config.Config{}
-	res, err := HarnessStatus(context.Background(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
+	res, err := HarnessStatus(context.Background(), engines.Registry(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 
 	assert.Equal(t, dir, res.WorkDir)
@@ -52,12 +53,12 @@ func TestRemoveHooks_StripsWiring(t *testing.T) {
 	wireClaudeHarness(t, fs, dir)
 
 	cfg := &config.Config{}
-	res, err := RemoveHooks(context.Background(), cfg, RemoveHooksRequest{Backend: "", FS: fs, WorkDir: dir})
+	res, err := RemoveHooks(context.Background(), engines.Registry(), cfg, RemoveHooksRequest{Backend: "", FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 	assert.Equal(t, "removed", res.Status)
 	assert.Contains(t, res.Backends, "claude-code")
 
-	status, err := HarnessStatus(context.Background(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
+	status, err := HarnessStatus(context.Background(), engines.Registry(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 	assert.False(t, backendWiring(t, status, "claude-code").HooksPresent,
 		"hooks must be gone after RemoveHooks")
@@ -69,7 +70,7 @@ func TestRemoveHooks_SingleBackendFilter(t *testing.T) {
 	wireClaudeHarness(t, fs, dir)
 
 	cfg := &config.Config{}
-	res, err := RemoveHooks(context.Background(), cfg, RemoveHooksRequest{Backend: "claude-code", FS: fs, WorkDir: dir})
+	res, err := RemoveHooks(context.Background(), engines.Registry(), cfg, RemoveHooksRequest{Backend: "claude-code", FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-code"}, res.Backends)
 }
@@ -81,7 +82,7 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 
 	off := false
 	cfg := gatedFixture(config.Fixture{Settings: config.SettingsConfig{Statusline: &off}})
-	res, err := HarnessStatus(context.Background(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
+	res, err := HarnessStatus(context.Background(), engines.Registry(), cfg, HarnessStatusRequest{FS: fs, WorkDir: dir})
 	require.NoError(t, err)
 	assert.False(t, res.ManageStatusline, "status reflects the statusline opt-out")
 }
@@ -120,7 +121,7 @@ func TestApplyHooks_HonorsStatuslineOptOut(t *testing.T) {
 		}}, config.Fixture{Settings: config.SettingsConfig{Statusline: &off}}), nil
 	}
 
-	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, loader),

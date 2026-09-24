@@ -70,7 +70,7 @@ type llmDistiller struct {
 	prompt string
 	// session is the one-shot, started lazily so a command that distils
 	// nothing mints no session.
-	session *operations.OneShot
+	session *operations.OneShotSession
 }
 
 // Close ends the distiller's session. Nil-safe; idempotent.
@@ -85,7 +85,7 @@ func (d *llmDistiller) Close() {
 // turn drives one distill turn on the session, starting it on first use.
 func (d *llmDistiller) turn(ctx context.Context, prompt string) (answer, model string, err error) {
 	if d.session == nil {
-		s, err := operations.StartInternalOneShot(ctx, internalRunHosts(), d.cfg, App().Strictness, d.label, "", projectroot.WorkDir(), "", 0)
+		s, err := operations.OneShot(App().LaunchFacts(), internalRunHosts(), d.cfg).Label(d.label).WorkDir(projectroot.WorkDir()).Start(ctx)
 		if err != nil {
 			return "", "", fmt.Errorf("no reachable engine for distillation (label %q): %w — content saved raw, undistilled", d.label, err)
 		}

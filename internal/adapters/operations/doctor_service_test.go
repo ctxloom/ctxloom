@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -22,7 +23,7 @@ func doctorApp(t *testing.T) (*App, string) {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
-	_, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code"})
+	_, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code"})
 	require.NoError(t, err)
 	return testApp(t, configload.WithAppDir(appDir)), home
 }

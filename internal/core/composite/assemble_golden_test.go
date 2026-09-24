@@ -149,12 +149,12 @@ func renderToday(t *testing.T, g *golden, cfg *config.Config, engine, profile, a
 	live, err := operations.AssembleContext(context.Background(), cfg, operations.AssembleContextRequest{Profiles: []string{profile}})
 	require.NoError(t, err)
 	g.section(t, fmt.Sprintf("engine=%s profile=%s consumer=live", engine, profile), live)
-	mat, err := operations.AssembleContext(context.Background(), cfg, operations.AssembleContextRequest{Profiles: []string{profile}, Consumer: operations.MaterializedFor(engine)})
+	mat, err := operations.AssembleContext(context.Background(), cfg, operations.AssembleContextRequest{Profiles: []string{profile}, Consumer: operations.MaterializedFor(engines.Registry(), engine)})
 	require.NoError(t, err)
 	g.section(t, fmt.Sprintf("engine=%s profile=%s consumer=materialized", engine, profile), mat)
 	pkg, err := operations.AssemblePackage(context.Background(), cfg, operations.PackageRequest{Profiles: []string{profile}, WorkDir: filepath.Dir(appDir)})
 	require.NoError(t, err)
-	managed, err := operations.ManagedConfigOf(pkg, engine)
+	managed, err := operations.ManagedConfigOf(engines.Registry(), pkg, engine)
 	require.NoError(t, err)
 	g.section(t, fmt.Sprintf("engine=%s profile=%s managed", engine, profile), managed)
 }
@@ -337,6 +337,6 @@ func TestCorpus_EveryExportBlockDecodesThroughTheEngine(t *testing.T) {
 		_, err := claude.DecodeExportBlock(s.Exports)
 		assert.NoError(t, err, "skill %s", s.Ref)
 	}
-	_, err = operations.ExportsFor(pkg, claude.EngineName)
+	_, err = operations.ExportsFor(engines.Registry(), pkg, claude.EngineName)
 	assert.NoError(t, err, "the engine exports the whole corpus without a refusal")
 }

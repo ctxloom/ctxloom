@@ -282,7 +282,7 @@ func promptForEngineAndRepos() (engineName string, repos []string, dirtyTreeHand
 			return "", nil, "", false, "", err
 		}
 		clidiag.Warn("ctxloom", "failed to read engine selection: %v", err)
-		engineName = operations.DefaultEngineName()
+		engineName = operations.DefaultEngineName(App().Engines())
 	}
 
 	repos, repoErr := prompts.promptPersonalRepos()

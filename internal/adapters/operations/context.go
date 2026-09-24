@@ -10,7 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // ProfileLoader interface for resolving profiles from directory (allows mocking in tests).
@@ -73,6 +72,7 @@ func (req AssembleContextRequest) packageRequest() PackageRequest {
 type ContextConsumer struct {
 	materialized bool
 	backend      string
+	engines      engine.Registry
 }
 
 // MaterializedFor names an OUT-OF-THE-LOOP surface: backend's native context
@@ -82,8 +82,8 @@ type ContextConsumer struct {
 // engine has a skills surface, or written into the context itself. The
 // comparison side must state this too: composing for a live session and
 // diffing against a materialized file reports a correct file stale forever.
-func MaterializedFor(backend string) ContextConsumer {
-	return ContextConsumer{materialized: true, backend: backend}
+func MaterializedFor(reg engine.Registry, backend string) ContextConsumer {
+	return ContextConsumer{materialized: true, backend: backend, engines: reg}
 }
 
 // static is THE resolution of static-vs-dynamic delivery, and the only one:
@@ -100,7 +100,7 @@ func (c ContextConsumer) static() (bool, error) {
 	if !c.materialized {
 		return false, nil
 	}
-	eng, ok := engines.Registry().Lookup(engine.Name(c.backend))
+	eng, ok := c.engines.Lookup(engine.Name(c.backend))
 	if !ok {
 		return false, fmt.Errorf("unknown backend %q", c.backend)
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -20,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -66,7 +68,7 @@ func pulledApp(t *testing.T, appDir string) *App {
 	t.Helper()
 	src, err := ComposeSources(Compose{NoCompanions: true, Options: []configload.Option{configload.WithAppDir(appDir)}})
 	require.NoError(t, err)
-	return NewApp(src, true, nil, strictness.Mode{Prog: "ctxloom"}, config.Open, strictness.Sink("ctxloom"))
+	return NewApp(src, true, nil, strictness.Mode{Prog: "ctxloom"}, Handed{Open: config.Open, Reporter: strictness.Sink("ctxloom"), Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
 // installPulled writes what a pull writes: the installed tree and the

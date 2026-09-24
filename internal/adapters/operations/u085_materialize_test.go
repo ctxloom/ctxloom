@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // emptyContextMaterializeFixture is materializeFixture with every source of
@@ -44,7 +45,7 @@ func TestMaterializeProfile_RefusesEmptyAssembledContext(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, asm.Context, "the fixture must genuinely reach an empty assembled context")
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"},
 		Target:   target,
 	})
@@ -66,7 +67,7 @@ func TestMaterializeProfile_DecidesWithTheGenerationsGate(t *testing.T) {
 	gate := compositetest.Trust(compositetest.Observe(func(trust.Ref, []byte) { generationsGateConsulted++ }))
 	cfg.BindTrustForTesting(gate)
 
-	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"},
 		Target:   target,
 	})

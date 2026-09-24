@@ -95,7 +95,7 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	var gotDeadline bool
 	var budget time.Duration
 	prev := compactEntryFn
-	compactEntryFn = func(ctx context.Context, _ *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
+	compactEntryFn = func(ctx context.Context, _ operations.LaunchFacts, _ *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
 		dl, ok := ctx.Deadline()
 		gotDeadline = ok
 		if ok {
@@ -105,7 +105,7 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	}
 	defer func() { compactEntryFn = prev }()
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	entries := []sessions.Entry{{HarpName: e.HarpName, Backend: "claude-code"}}
 
 	// Deadline-less, as the coordinator's base context is.
@@ -140,7 +140,7 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 	// compactor would have written, so the SECOND probe sees a distilled
 	// session where the first saw none.
 	prev := compactEntryFn
-	compactEntryFn = func(_ context.Context, entry *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
+	compactEntryFn = func(_ context.Context, _ operations.LaunchFacts, entry *sessions.Entry, _ *config.Config, _ operations.DistillOptions) (*memory.CompactionResult, error) {
 		p, perr := paths.HarpEssencePath(entry.HarpName)
 		require.NoError(t, perr)
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
@@ -149,7 +149,7 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 	}
 	defer func() { compactEntryFn = prev }()
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{AllProjects: true, DistillMissing: true})
 	require.NoError(t, err)
 	require.Len(t, out.Sessions, 1)
@@ -185,7 +185,7 @@ func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testi
 	require.NoError(t, err)
 
 	prev := compactEntryFn
-	compactEntryFn = func(context.Context, *sessions.Entry, *config.Config, operations.DistillOptions) (*memory.CompactionResult, error) {
+	compactEntryFn = func(context.Context, operations.LaunchFacts, *sessions.Entry, *config.Config, operations.DistillOptions) (*memory.CompactionResult, error) {
 		return nil, errors.New("legacy session needs a cwd-bound reader")
 	}
 	defer func() { compactEntryFn = prev }()
@@ -194,7 +194,7 @@ func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testi
 	restore := clidiag.SetSink(&diagnostics)
 	defer restore()
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	s.distillMissingForList(context.Background(), []sessions.Entry{{HarpName: e.HarpName, Backend: "claude-code"}})
 
 	assert.Contains(t, diagnostics.String(), e.HarpName,

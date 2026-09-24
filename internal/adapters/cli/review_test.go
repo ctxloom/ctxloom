@@ -15,12 +15,14 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // TestParseReviewChoice covers the menu parse.
@@ -292,7 +294,7 @@ func appOver(t *testing.T, cfg *config.Config) *operations.App {
 		return bundles.CompanionProbe{}, nil
 	}})
 	require.NoError(t, err)
-	return operations.OpenedApp(owner)
+	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
 // TestPrintReviewItem_ShowsBothCountersignedForms closes a gap: an

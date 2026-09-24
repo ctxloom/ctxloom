@@ -19,6 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
@@ -67,6 +69,12 @@ type Composition struct {
 	// it is handed: the root composes the production launch seam
 	// (adapters/spawn) from that App unless the options carry one.
 	NewCoordinator func(*operations.App, coord.Options) (*coord.Coordinator, error)
+	// Engines is the shipped engine registry the App resolves every engine
+	// by name against.
+	Engines engine.Registry
+	// SessionClaims constructs the per-session claim store a launch roots
+	// at its minted harp.
+	SessionClaims launch.SessionClaims
 }
 
 // theComposition is the root's Composition for this process; theApp is the
@@ -120,7 +128,12 @@ func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, mode 
 	if err != nil {
 		clidiag.Warn("ctxloom", "config overrides: %v", err)
 	}
-	theApp = operations.NewApp(src, noCompanions, selfLoadout, mode, theComposition.OpenConfig, theComposition.Reporter)
+	theApp = operations.NewApp(src, noCompanions, selfLoadout, mode, operations.Handed{
+		Open:          theComposition.OpenConfig,
+		Reporter:      theComposition.Reporter,
+		Engines:       theComposition.Engines,
+		SessionClaims: theComposition.SessionClaims,
+	})
 }
 
 // strictnessMode is the posture this invocation runs under. Degraded comes
@@ -282,8 +295,12 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	clidiag.SetStructured(ferr == nil && format.Structured())
 }
 
-// GetRootCmd returns the root command for documentation generation.
-func GetRootCmd() *cobra.Command {
+// GetRootCmd returns the root command assembled over comp, for a path that
+// documents or inspects the CLI without dispatching it (scripts/gendocs).
+// The help that names engines is computed from comp.Engines, so comp must
+// carry the registry the binary's own composition root hands Run.
+func GetRootCmd(comp Composition) *cobra.Command {
+	theComposition = comp
 	return rootCommand()
 }
 
@@ -300,19 +317,21 @@ func rootCommand() *cobra.Command {
 		installHelpFlag(rootCmd)
 		disableHelpCommand(rootCmd)
 
-		// Compose the registry HERE as well as in Run(). Compose is idempotent,
-		// and Run() still reports its error — but a path that only
-		// DOCUMENTS the CLI (scripts/gendocs via GetRootCmd) never reaches Run(),
-		// so without this the generated reference renders every engine list
-		// empty while the shipped binary renders it correctly. This function's
-		// own contract is that every path which dispatches OR documents the CLI
-		// comes through here, which makes it the one place that cannot diverge.
+		// Compose the process registry HERE as well as in Run(): the cli's own
+		// engine readers and the cells adapter's facts still read it, and a
+		// path that only DOCUMENTS the CLI (scripts/gendocs via GetRootCmd)
+		// never reaches Run(). Compose is idempotent.
 		_ = composeEngines()
 
-		// The help that NAMES the registered engines is filled in after that,
-		// for the same reason version.Version is read here: registration is
-		// explicit, and it happens after every package init() has fired.
-		applyEngineNamedHelp()
+		// The help that NAMES the registered engines is computed from the
+		// registry the Composition handed in — installed by Run or GetRootCmd
+		// before this runs, after every package init() has fired. A tree
+		// assembled with none would ship help and flag defaults naming no
+		// engine, so it is refused rather than rendered.
+		if len(theComposition.Engines.Names(nil)) == 0 {
+			panic("cli: the command tree was assembled without a composed engine registry; hand it through the Composition (Run or GetRootCmd)")
+		}
+		applyEngineNamedHelp(theComposition.Engines)
 
 		// version.Version is read HERE and not in init() because a TEST binary
 		// receives its stamp from TestMain (testsupport.StampTestBinary), which

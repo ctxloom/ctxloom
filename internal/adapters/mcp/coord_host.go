@@ -42,7 +42,15 @@ func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 	if pid, _, err := taskops.ResolveProjectIdentity(projectDir); err == nil {
 		key = pid
 	} // best-effort: "" falls back to a path-derived key inside coord.New
-	host := NewHostApp(cfg)
+	// The relay launches under the strict default, NOT the App's own mode: it
+	// serves a caller whose composition it cannot read, so no --degraded of
+	// the hosting process may widen what that caller's launches refuse.
+	base := app.LaunchFacts()
+	facts, err := operations.NewLaunchFacts(base.Engines).Claims(base.SessionClaims).Build()
+	if err != nil {
+		return nil, err
+	}
+	host := NewHostApp(cfg, facts)
 	c, err := build(coord.Options{
 		ProjectDir: projectDir,
 		ProjectID:  key,
@@ -89,15 +97,19 @@ type HostApp struct {
 	// (Bind): the host an internal one-shot a relayed tool starts runs on.
 	c     *coord.Coordinator
 	tools map[string]hostTool
+	// facts is the hosting App's launch facts under relayMode, handed to
+	// every per-call server.
+	facts operations.LaunchFacts
 }
 
 // hostTool serves one relayed tool: decode the args into the tool's own
 // input struct, run its handler under the caller's server, encode the result.
 type hostTool func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error)
 
-// NewHostApp composes the relayed tool set over cfg.
-func NewHostApp(cfg *config.Config) *HostApp {
-	return &HostApp{cfg: cfg, distill: &singleflight.Group{}, tools: map[string]hostTool{
+// NewHostApp composes the relayed tool set over cfg, launching and
+// resolving engines by name through f.
+func NewHostApp(cfg *config.Config, f operations.LaunchFacts) *HostApp {
+	return &HostApp{cfg: cfg, facts: f, distill: &singleflight.Group{}, tools: map[string]hostTool{
 		"compact_session": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
 			return decodeThen(args, func(in compactSessionInput) (any, error) {
 				_, out, err := s.handleCompactSession(ctx, nil, in)
@@ -150,7 +162,7 @@ func (a *HostApp) Serve(ctx context.Context, caller coord.Identity, req coord.Ho
 	if !ok {
 		return coord.HostResult{}, fmt.Errorf("%w: %q", coord.ErrUnknownHostTool, req.Tool)
 	}
-	s := &ctxServer{cfg: a.cfg, self: caller, distill: a.distill, hosts: a}
+	s := &ctxServer{cfg: a.cfg, self: caller, distill: a.distill, hosts: a, facts: a.facts}
 	out, err := tool(ctx, s, req.Args)
 	if err != nil {
 		return coord.HostResult{}, err

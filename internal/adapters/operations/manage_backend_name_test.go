@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ import (
 // The user's actual harness is still installed and they have been told it is
 // gone — the worst shape of this defect, because it reads as confirmation.
 func TestRemoveHooks_UnknownBackendIsRejected(t *testing.T) {
-	res, err := RemoveHooks(context.Background(), nil, RemoveHooksRequest{
+	res, err := RemoveHooks(context.Background(), engines.Registry(), nil, RemoveHooksRequest{
 		Backend: "claude-cod", // one keystroke short of claude-code
 		FS:      afero.NewMemMapFs(),
 		WorkDir: "/proj",
@@ -34,7 +35,7 @@ func TestRemoveHooks_UnknownBackendIsRejected(t *testing.T) {
 // A known backend, and the all/empty filters, still work.
 func TestRemoveHooks_KnownBackendStillRuns(t *testing.T) {
 	for _, backend := range []string{"", "claude-code"} {
-		res, err := RemoveHooks(context.Background(), nil, RemoveHooksRequest{
+		res, err := RemoveHooks(context.Background(), engines.Registry(), nil, RemoveHooksRequest{
 			Backend: backend,
 			FS:      afero.NewMemMapFs(),
 			WorkDir: "/proj",

@@ -183,7 +183,7 @@ func TestManagedSettings_ClaudeCode(t *testing.T) {
 // refuses it by name rather than answering with an engine that carries
 // nothing.
 func TestEngineDeclaration_UnknownEngineIsRefused(t *testing.T) {
-	_, err := engineDeclaration("unknown-backend")
+	_, err := engineDeclaration(engines.Registry(), "unknown-backend")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown-backend")
 }
@@ -303,7 +303,7 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 		}}, config.Fixture{}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -333,7 +333,7 @@ func TestApplyHooks_NamedBackendTargetsOnlyThatOne(t *testing.T) {
 		}}, config.Fixture{}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -359,7 +359,7 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 		return &config.Config{}, nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "", // empty should default to "all"
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -373,7 +373,7 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	// the whole registry instead.
 	cfg, cerr := mockConfigLoader()
 	require.NoError(t, cerr)
-	want := ConfiguredEngines(cfg)
+	want := ConfiguredEngines(engines.Registry(), cfg)
 	require.NotEmpty(t, want, "the fixture configures no engine; this comparison would be vacuous")
 	assert.ElementsMatch(t, want, result.Backends)
 }
@@ -422,10 +422,10 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 
 	cfg, cerr := mockConfigLoader()
 	require.NoError(t, cerr)
-	require.ElementsMatch(t, []string{"claude-code", config.BackendMock}, ConfiguredEngines(cfg),
+	require.ElementsMatch(t, []string{"claude-code", config.BackendMock}, ConfiguredEngines(engines.Registry(), cfg),
 		"fixture must configure BOTH engines, or this test proves nothing")
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -450,7 +450,7 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 // A request without a generation is refused: there is no configuration to
 // apply from, and nothing here reads one.
 func TestApplyHooks_NoGeneration_Refuses(t *testing.T) {
-	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      afero.NewMemMapFs(),
 		WorkDir: "/project",
@@ -474,7 +474,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 		return withCtxloomLoadout(t, gatedFixture(config.Fixture{})), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -524,7 +524,7 @@ func TestApplyHooks_RefusesHomeCollision(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
-	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -549,7 +549,7 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 	var result *ApplyHooksResult
 	stderr := captureStderr(t, func() {
 		var err error
-		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
+		result, err = ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend: "claude-code",
 			FS:      fs,
 			Cfg:     loaded(t, mockConfigLoader),
@@ -591,14 +591,14 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	// A collision class shaped exactly like the guarded engines' own: the
 	// "project" path is a workDir join that happens to equal the "global"
 	// path whenever workDir == HOME.
-	enginefixture.Install(t, enginefixture.Kind(fakeBackend, mock.WithHookGlobalScope(agent.HookGlobalScope{
+	reg := enginefixture.Install(t, enginefixture.Kind(fakeBackend, mock.WithHookGlobalScope(agent.HookGlobalScope{
 		Paths: func(workDir string) (string, string, error) {
 			return filepath.Join(workDir, ".t12fake", "settings.json"), filepath.Join(home, ".t12fake", "settings.json"), nil
 		},
 		Label: "the T12 fake engine's global settings",
 	})))
 
-	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), reg, ApplyHooksRequest{
 		Backend: fakeBackend,
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -621,7 +621,7 @@ func TestApplyHooks_SubdirOfHomeIsNotACollision(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -648,7 +648,7 @@ func TestApplyHooks_WarnsWhenNotInAGitRepository(t *testing.T) {
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
 	stderr := captureStderr(t, func() {
-		_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend: "claude-code",
 			FS:      fs,
 			Cfg:     loaded(t, mockConfigLoader),
@@ -677,7 +677,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 		})), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
@@ -728,7 +728,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockConfigLoader),
@@ -755,7 +755,7 @@ func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
 		}}, config.Fixture{}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
@@ -819,7 +819,7 @@ fragments:
 	nativeContextPath := filepath.Join(tmpDir, "MOCK_CONTEXT.md")
 
 	// First apply: succeeds, installs real managed context.
-	result1, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result1, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "mock",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockConfigLoader),
@@ -840,7 +840,7 @@ fragments:
 	require.NoError(t, os.RemoveAll(filepath.Join(appDir, "cache")))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "cache"), []byte("blocking file"), 0644))
 
-	result2, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result2, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "mock",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockConfigLoader),
@@ -883,7 +883,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockConfigLoader),
@@ -941,7 +941,7 @@ fragments:
 	var result *ApplyHooksResult
 	stderr := captureStderr(t, func() {
 		var err error
-		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
+		result, err = ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend:           "claude-code",
 			RegenerateContext: true,
 			Cfg:               loaded(t, mockConfigLoader),
@@ -996,7 +996,7 @@ fragments:
 	var result *ApplyHooksResult
 	stderr := captureStderr(t, func() {
 		var err error
-		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
+		result, err = ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend:           "claude-code",
 			RegenerateContext: true,
 			Cfg:               loaded(t, mockConfigLoader),
@@ -1042,7 +1042,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockConfigLoader),
@@ -1092,7 +1092,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockConfigLoader),
@@ -1146,7 +1146,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockConfigLoader),
@@ -1168,7 +1168,7 @@ func TestApplyHooks_NoWorkDir(t *testing.T) {
 	}
 
 	// Call without WorkDir - exercises the gitutil.FindRoot fallback path
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, mockConfigLoader),
@@ -1194,7 +1194,7 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 		})), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,

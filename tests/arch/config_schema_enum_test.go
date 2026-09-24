@@ -52,6 +52,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -397,11 +398,11 @@ func TestArch_ConfigSchemaLLMTypes_MatchShippableEngines(t *testing.T) {
 			t.Errorf("$defs/llmConfig/anyOf/%d has no properties/type const: every branch must name the engine it configures", i)
 			continue
 		}
-		if !operations.IsTestOnlyEngine(typ) {
+		if !operations.IsTestOnlyEngine(engines.Registry(), typ) {
 			branchTypes = append(branchTypes, typ)
 		}
 	}
-	shippable := operations.EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly })
+	shippable := operations.EngineNamesWhere(engines.Registry(), func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly })
 	if len(shippable) == 0 {
 		t.Fatal("fixture sanity: the composed registry has no shippable engine")
 	}

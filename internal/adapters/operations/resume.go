@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -31,7 +33,7 @@ import (
 // slice: the three callers all treat an error as "warn and carry on with the
 // context you have" (see cli/run.go's resumeFullContext), and a typo'd or
 // stale --session must never block a launch.
-func RecordedSessionEntries(ctx context.Context, harp string) ([]agent.SessionEntry, error) {
+func RecordedSessionEntries(ctx context.Context, reg engine.Registry, harp string) ([]agent.SessionEntry, error) {
 	entry, err := GetSession(harp)
 	if err != nil {
 		return nil, fmt.Errorf("look up session %q: %w", harp, err)
@@ -63,7 +65,7 @@ func RecordedSessionEntries(ctx context.Context, harp string) ([]agent.SessionEn
 	if entry.SessionID == "" {
 		return nil, fmt.Errorf("session %q has no bound transcript to load", harp)
 	}
-	hist, err := HistoryForBackend(entry.Backend)
+	hist, err := HistoryForBackend(reg, entry.Backend)
 	if err != nil {
 		return nil, fmt.Errorf("load session %q: %w", harp, err)
 	}

@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -26,7 +25,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -49,7 +47,7 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 	}
 	src.Identity = id
 	if deps.ClaimCheck == nil {
-		deps = ForSession(deps, id.Harp)
+		deps = deps.ForSession(id.Harp)
 	}
 	l, err := launch.Resolve(ctx, deps, src)
 	if err != nil {
@@ -93,15 +91,17 @@ func (a *App) LaunchDeps(ctx context.Context) (launch.Deps, error) {
 	if err != nil {
 		return launch.Deps{}, err
 	}
-	return LaunchDepsFor(snap, a.Strictness)
+	return LaunchDepsFor(a.LaunchFacts(), snap)
 }
 
 // LaunchDepsFor composes the resolver's ports over one generation: the
 // composed engines, the assembler and cells adapters, the endpoint minter,
-// the session store and the host facts. A caller holding only the
+// the session store, the host facts and the per-session claim constructor
+// ForSession roots once the harp is minted. A caller holding only the
 // generation's Config (the compactor, the trigger evaluator) wraps it in a
 // Snapshot; Resolve reads the Config and nothing else off it.
-func LaunchDepsFor(snap *config.Snapshot, mode strictness.Mode) (launch.Deps, error) {
+func LaunchDepsFor(f LaunchFacts, snap *config.Snapshot) (launch.Deps, error) {
+	reg, mode := f.Engines, f.Mode
 	store, err := openSessions()
 	if err != nil {
 		return launch.Deps{}, err
@@ -111,16 +111,17 @@ func LaunchDepsFor(snap *config.Snapshot, mode strictness.Mode) (launch.Deps, er
 		return launch.Deps{}, err
 	}
 	return launch.Deps{
-		Snapshot:  snap,
-		Engines:   engines.Registry(),
-		Assembler: &assembler{},
-		Cells:     Cells{cfg: snap.Config, mode: mode},
-		Endpoints: endpointMinter{},
-		Sessions:  store,
-		Inline:    composite.Inline{Max: composite.DefaultInlineMax},
-		InlineMax: composite.DefaultInlineMax,
-		Host:      host,
-		Reporter:  mode.Sink(),
+		Snapshot:      snap,
+		Engines:       reg,
+		Assembler:     &assembler{engines: reg},
+		Cells:         Cells{cfg: snap.Config, mode: mode, engines: reg},
+		Endpoints:     endpointMinter{},
+		Sessions:      store,
+		Inline:        composite.Inline{Max: composite.DefaultInlineMax},
+		SessionClaims: f.SessionClaims,
+		InlineMax:     composite.DefaultInlineMax,
+		Host:          host,
+		Reporter:      mode.Sink(),
 	}, nil
 }
 
@@ -143,15 +144,6 @@ func OpenLaunch(ctx context.Context, deps launch.Deps, l launch.Launch) (Opened,
 		return Opened{}, fmt.Errorf("open the launch's package: %w", err)
 	}
 	return Opened{Package: pkg, Loadout: l.Loadout(pkg), Managed: agent.ManagedConfigFor(ManagedSurfacesOf(pkg), l.Exports)}, nil
-}
-
-// ForSession roots the claim check at the minted session: the package store
-// is the session dir (<harp>/persist/package), so it exists only once the
-// harp does. StartRun composes it after its mint unless the caller already
-// chose a claim check (a preview keeps its claims in memory).
-func ForSession(deps launch.Deps, harp string) launch.Deps {
-	deps.ClaimCheck = composite.ClaimCheck{Store: fsstore.PackageStore{Root: filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir), Harp: harp}}
-	return deps
 }
 
 // PreviewClaims is the claim check a --dry-run carries with: in memory, so a
@@ -193,6 +185,8 @@ type assembler struct {
 	// preview composes the same package for a --dry-run, at the same
 	// severity, and delivers no surfaces from it.
 	preview bool
+	// engines resolves a label's engine for its request-borne environment.
+	engines engine.Registry
 }
 
 func (a *assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel launch.Selection) (composite.Package, error) {
@@ -221,11 +215,13 @@ func (*assembler) Index(_ context.Context, snap *config.Snapshot) (composite.Ind
 // where a run would be, and --degraded previews past it exactly as it would
 // launch past it — so the preview never renders a setup the run would
 // refuse.
-func PreviewAssembler() launch.Assembler { return &assembler{preview: true} }
+func PreviewAssembler(reg engine.Registry) launch.Assembler {
+	return &assembler{preview: true, engines: reg}
+}
 
 // LabelEnv is the labeled entry's own request-borne environment.
-func (*assembler) LabelEnv(snap *config.Snapshot, label string) map[string]string {
-	return MockControlFor(snap.Config, label)
+func (a *assembler) LabelEnv(snap *config.Snapshot, label string) map[string]string {
+	return MockControlFor(a.engines, snap.Config, label)
 }
 
 // Cells implements launch.Cells: it settles the dirty parent tree for a
@@ -236,6 +232,8 @@ func (*assembler) LabelEnv(snap *config.Snapshot, label string) map[string]strin
 type Cells struct {
 	cfg  *config.Config
 	mode strictness.Mode // the gate's posture: which isolation findings refuse the member
+	// engines resolves the member's engine by name for its agent home.
+	engines engine.Registry
 	// Git overrides the git seam the dirty-parent-tree decision uses (nil
 	// selects the real binary).
 	Git git.Git
@@ -300,7 +298,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	mark := strictness.Checkpoint()
 	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env))
 	env := isolation.WorkspaceEnv(ws)
-	home := BindAgentHome(ws, InTreeAgentHome{
+	home := BindAgentHome(c.engines, ws, InTreeAgentHome{
 		Backend:  backend,
 		Cwd:      ws.Dir(),
 		Harp:     harp,

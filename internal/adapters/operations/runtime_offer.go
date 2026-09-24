@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
@@ -83,14 +85,14 @@ const noConfigRuntimeWithheld = "no config could be loaded, so this engine's bac
 // A nil cfg degrades to host alone with noConfigRuntimeWithheld rather than
 // failing — this feeds an interview, and an interview must never be blocked by
 // a config read (CLAUDE.md fault tolerance).
-func AgentRuntimeOffer(cfg *config.Config, label string) RuntimeOffer {
+func AgentRuntimeOffer(reg engine.Registry, cfg *config.Config, label string) RuntimeOffer {
 	offer := RuntimeOffer{Label: label, Runtimes: []isolation.RuntimeAxis{isolation.RuntimeHost}}
 	if cfg == nil {
 		offer.ContainerWithheld = noConfigRuntimeWithheld
 		return offer
 	}
 
-	backend, _ := ResolveBackend(cfg, label)
+	backend, _ := ResolveBackend(reg, cfg, label)
 	offer.Backend = backend
 	if !isolation.HasContainerAuth(backend) {
 		offer.ContainerWithheld = fmt.Sprintf(

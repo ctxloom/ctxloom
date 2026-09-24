@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -49,7 +51,7 @@ type ResolvedSource struct {
 //
 // harp == "" or an unindexed harp resolves to a zero ResolvedSource with no
 // error and Healed == false: there is nothing to heal.
-func ResolveAndHeal(ctx context.Context, harp string) (ResolvedSource, error) {
+func ResolveAndHeal(ctx context.Context, reg engine.Registry, harp string) (ResolvedSource, error) {
 	if harp == "" {
 		return ResolvedSource{}, nil
 	}
@@ -59,7 +61,7 @@ func ResolveAndHeal(ctx context.Context, harp string) (ResolvedSource, error) {
 	}
 
 	src := ResolvedSource{Entry: entry}
-	src.Healed, src.HealErr = RefreshVendorTranscript(ctx, *entry)
+	src.Healed, src.HealErr = RefreshVendorTranscript(ctx, reg, *entry)
 
 	// Re-resolve after a successful heal: a fresh conversion can populate or
 	// change CanonicalTranscriptPath (computed on read — see sessions.Entry's
@@ -113,9 +115,9 @@ func EssenceCurrent(src ResolvedSource, cached []byte) (current, known bool) {
 // the long-lived MCP host relay fielding concurrent tool calls for the same
 // session, and stay there (withDistillBudget, singleflightDistill) rather
 // than becoming a concern every one-shot CLI caller has to reason about too.
-func DistillEntry(ctx context.Context, src ResolvedSource, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
+func DistillEntry(ctx context.Context, f LaunchFacts, src ResolvedSource, cfg *config.Config, opts DistillOptions) (*memory.CompactionResult, error) {
 	if src.Entry == nil {
 		return nil, fmt.Errorf("nothing to distill: session not found in the index")
 	}
-	return CompactEntry(ctx, src.Entry, cfg, opts)
+	return CompactEntry(ctx, f, src.Entry, cfg, opts)
 }

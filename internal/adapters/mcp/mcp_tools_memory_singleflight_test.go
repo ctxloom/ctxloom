@@ -22,7 +22,7 @@ import (
 // re-distills every chunk through the LLM a second time.
 func TestSingleflightDistill_ConcurrentCallersShareOneDistillation(t *testing.T) {
 	group := &singleflight.Group{}
-	serverFor := func() *ctxServer { return &ctxServer{distill: group} } // as coordCustomHandlers does
+	serverFor := func() *ctxServer { return &ctxServer{facts: testLaunchFacts(), distill: group} } // as coordCustomHandlers does
 
 	var runs atomic.Int64
 	release := make(chan struct{})
@@ -78,7 +78,7 @@ func TestSingleflightDistill_ConcurrentCallersShareOneDistillation(t *testing.T)
 // keyed by session, not a global lock — two different sessions still distill
 // concurrently.
 func TestSingleflightDistill_DistinctSessionsDoNotBlockEachOther(t *testing.T) {
-	s := &ctxServer{distill: &singleflight.Group{}}
+	s := &ctxServer{facts: testLaunchFacts(), distill: &singleflight.Group{}}
 
 	var runs atomic.Int64
 	both := make(chan struct{})
@@ -105,7 +105,7 @@ func TestSingleflightDistill_DistinctSessionsDoNotBlockEachOther(t *testing.T) {
 // fallback, and every test that builds one) has no group; the work must still
 // happen, just undeduped.
 func TestSingleflightDistill_NilGroupStillRuns(t *testing.T) {
-	s := &ctxServer{}
+	s := &ctxServer{facts: testLaunchFacts()}
 	got, err := s.singleflightDistill("session-x", func() (*loadSessionResult, error) {
 		return &loadSessionResult{Loaded: true, SessionID: "session-x"}, nil
 	})
@@ -161,7 +161,7 @@ func TestSingleflightDistill_UnresolvedSessionKeyCollapsesDifferentCallers(t *te
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		s := &ctxServer{distill: group, self: coord.Identity{Harp: "alpha-harp"}}
+		s := &ctxServer{facts: testLaunchFacts(), distill: group, self: coord.Identity{Harp: "alpha-harp"}}
 		results[0], _ = s.singleflightDistill(naiveKey, body("alpha-harp"))
 	}()
 	<-entered
@@ -171,7 +171,7 @@ func TestSingleflightDistill_UnresolvedSessionKeyCollapsesDifferentCallers(t *te
 	go func() {
 		defer wg.Done()
 		close(calling)
-		s := &ctxServer{distill: group, self: coord.Identity{Harp: "beta-harp"}}
+		s := &ctxServer{facts: testLaunchFacts(), distill: group, self: coord.Identity{Harp: "beta-harp"}}
 		results[1], _ = s.singleflightDistill(naiveKey, body("beta-harp"))
 	}()
 	<-calling

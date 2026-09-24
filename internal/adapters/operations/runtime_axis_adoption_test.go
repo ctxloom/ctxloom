@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -159,17 +160,18 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub *stubEngine, src launch.Source) (string, error) {
 	t.Helper()
 	deps := launch.Deps{
-		Snapshot:  &config.Snapshot{Config: cfg},
-		Engines:   engines.Registry(),
-		Assembler: &assembler{pipe: pipe},
-		Cells:     Cells{cfg: cfg},
-		Endpoints: endpointMinter{},
-		Sessions:  sessions.NewMemStore(),
-		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+		SessionClaims: fsstore.SessionClaims,
+		Snapshot:      &config.Snapshot{Config: cfg},
+		Engines:       engines.Registry(),
+		Assembler:     &assembler{pipe: pipe, engines: engines.Registry()},
+		Cells:         Cells{engines: engines.Registry(), cfg: cfg},
+		Endpoints:     endpointMinter{},
+		Sessions:      sessions.NewMemStore(),
+		Host:          launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
 	}
 	src.WorkDir = t.TempDir()
 	_, hosts := hostsFor(deps, stub)
-	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src)
 	if err != nil {
 		return "", err
 	}
@@ -252,12 +254,12 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 // decision collected and then thrown away.
 func TestAgentRuntimeOffer_MenuCanOnlyHoldDeclaredMembers(t *testing.T) {
 	cfg, _ := loadConfigDir(t, "version: 6\n")
-	names := EngineNames()
+	names := EngineNames(engines.Registry())
 	require.NotEmpty(t, names)
 
 	sawContainer := false
 	for _, backend := range names {
-		offer := AgentRuntimeOffer(cfg, backend)
+		offer := AgentRuntimeOffer(engines.Registry(), cfg, backend)
 		require.NotEmpty(t, offer.Runtimes, "%s: host is always offered", backend)
 		for _, r := range offer.Runtimes {
 			parsed, err := launch.ParseRuntimeAxis(string(r))

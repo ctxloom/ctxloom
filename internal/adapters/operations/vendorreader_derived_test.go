@@ -19,17 +19,17 @@ import (
 // registered): every registered name whose kind supplies readers IS listed,
 // so a lookup miss can no longer mean "somebody forgot the table".
 func TestVendorReaderAdaptersFor_AgreesWithEveryRegisteredDeclaration(t *testing.T) {
-	names := EngineNames()
+	names := EngineNames(engines.Registry())
 	require.NotEmpty(t, names)
 	for _, name := range names {
 		declared, provided := declaredReaders(name)
-		got, ok := VendorReaderAdaptersFor(name)
+		got, ok := VendorReaderAdaptersFor(engines.Registry(), name)
 		assert.Equal(t, provided, ok, "%s: the reader roster must carry the engine exactly when its kind supplies readers", name)
 		if provided {
 			assert.Equal(t, declared, got, "%s: the roster must hand back the engine's own readers", name)
-			assert.Contains(t, VendorReaderEngineNames(), name)
+			assert.Contains(t, VendorReaderEngineNames(engines.Registry()), name)
 		} else {
-			assert.NotContains(t, VendorReaderEngineNames(), name)
+			assert.NotContains(t, VendorReaderEngineNames(engines.Registry()), name)
 		}
 	}
 }
@@ -38,11 +38,11 @@ func TestVendorReaderAdaptersFor_AgreesWithEveryRegisteredDeclaration(t *testing
 // roster: an empty slice, not an error and not a flag.
 func TestVendorReaderAdaptersFor_EngineWithoutReadersIsNotReadable(t *testing.T) {
 	const name = "fixture-no-transcripts"
-	enginefixture.Install(t, enginefixture.Kind(name))
+	reg := enginefixture.Install(t, enginefixture.Kind(name))
 
-	_, ok := VendorReaderAdaptersFor(name)
+	_, ok := VendorReaderAdaptersFor(reg, name)
 	assert.False(t, ok)
-	assert.NotContains(t, VendorReaderEngineNames(), name)
+	assert.NotContains(t, VendorReaderEngineNames(reg), name)
 	_, ok = declaredReaders("never-registered")
 	assert.False(t, ok, "an unregistered name has no readers either")
 }

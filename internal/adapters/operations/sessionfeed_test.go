@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -306,7 +307,7 @@ func TestAdaptConsumerFeed_SeqGapDetection(t *testing.T) {
 			f.setRuns(runInfoFor(harp, "run-1"))
 			startFakeCoordinator(t, home, "proj", f)
 
-			feed, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+			feed, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 			require.NoError(t, err)
 
 			for _, s := range tc.steps {
@@ -338,7 +339,7 @@ func TestAdaptConsumerFeed_EventsLostMarkerIsAGap(t *testing.T) {
 	f.setRuns(runInfoFor(harp, "run-1"))
 	startFakeCoordinator(t, home, "proj", f)
 
-	feed, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	feed, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 	require.NoError(t, err)
 
 	pushToolCall(t, f, 1)
@@ -404,7 +405,7 @@ func TestWatchSessionFeed_AutoPrefersLive(t *testing.T) {
 	f.setRuns(runInfoFor(harp, "run-1"))
 	startFakeCoordinator(t, home, "proj", f)
 
-	feed, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	feed, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 	require.NoError(t, err)
 	assert.Equal(t, "live", feed.Source)
 
@@ -439,7 +440,7 @@ func TestWatchSessionFeed_LiveStitchesScrollback(t *testing.T) {
 	f.setRuns(runInfoFor(harp, "run-1"))
 	startFakeCoordinator(t, home, "proj", f)
 
-	feed, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	feed, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 	require.NoError(t, err)
 	assert.Equal(t, "live", feed.Source)
 
@@ -462,7 +463,7 @@ func TestWatchSessionFeed_AutoFallsBackToStore(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	feed, err := WatchSessionFeed(ctx, SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	feed, err := WatchSessionFeed(ctx, engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 	require.NoError(t, err)
 	assert.Equal(t, "store", feed.Source)
 
@@ -481,7 +482,7 @@ func TestWatchSessionFeed_ForcedStoreIgnoresLive(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	feed, err := WatchSessionFeed(ctx, SessionFeedRequest{Harp: harp, Source: FeedSourceStore})
+	feed, err := WatchSessionFeed(ctx, engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceStore})
 	require.NoError(t, err)
 	assert.Equal(t, "store", feed.Source)
 	assert.Equal(t, "stored question", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
@@ -493,7 +494,7 @@ func TestWatchSessionFeed_ForcedLiveErrorsWhenNotLive(t *testing.T) {
 	home := testsupport.Isolate(t)
 	harp := seedFeedHarp(t, home, true)
 
-	_, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceLive})
+	_, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceLive})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no live tap")
 }
@@ -510,7 +511,7 @@ func TestWatchSessionFeed_LiveNotHoldingHarpFallsBack(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	feed, err := WatchSessionFeed(ctx, SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	feed, err := WatchSessionFeed(ctx, engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 	require.NoError(t, err)
 	assert.Equal(t, "store", feed.Source)
 	assert.Equal(t, "stored question", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
@@ -534,7 +535,7 @@ func TestWatchSessionFeed_AutoWarnsOnLiveTapFailure(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	feed, err := WatchSessionFeed(ctx, SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	feed, err := WatchSessionFeed(ctx, engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 	require.NoError(t, err)
 	assert.Equal(t, "store", feed.Source)
 
@@ -548,7 +549,7 @@ func TestWatchSessionFeed_AutoWarnsOnLiveTapFailure(t *testing.T) {
 // fmt.Errorf(..., err) call as the parse-failure branch), producing a
 // "...%!w(<nil>)" string in user-facing output.
 func TestWatchConsumerFeed_EmptyHostNeverWrapsNilErr(t *testing.T) {
-	_, err := watchConsumerFeed(context.Background(),
+	_, err := watchConsumerFeed(context.Background(), engines.Registry(),
 		discover.Endpoint{URL: "no-host-path"},
 		&sessions.Entry{HarpName: "h"}, "claude-code")
 	require.Error(t, err)
@@ -569,7 +570,7 @@ func TestWatchFeed_DiscoveryAcrossMultipleCoordinators(t *testing.T) {
 	mine.setRuns(runInfoFor(harp, "run-1"))
 	startFakeCoordinator(t, home, "proj-b", mine)
 
-	feed, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	feed, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 	require.NoError(t, err)
 	assert.Equal(t, "live", feed.Source)
 
@@ -582,12 +583,12 @@ func TestWatchFeed_DiscoveryAcrossMultipleCoordinators(t *testing.T) {
 func TestWatchSessionFeed_ErrorSurface(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	_, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: "no-such-harp"})
+	_, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: "no-such-harp"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "harp not found")
 
 	bare := seedFeedHarp(t, home, false) // no live tap, no transcript, no session id
-	_, err = WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: bare})
+	_, err = WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: bare})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nothing to watch")
 }
@@ -604,7 +605,7 @@ func TestAdaptConsumerFeed_ToolCallsAndBoundaries(t *testing.T) {
 	f.setRuns(runInfoFor(harp, "run-1"))
 	startFakeCoordinator(t, home, "proj", f)
 
-	feed, err := WatchSessionFeed(context.Background(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
+	feed, err := WatchSessionFeed(context.Background(), engines.Registry(), SessionFeedRequest{Harp: harp, Source: FeedSourceAuto})
 	require.NoError(t, err)
 
 	assistantMessage(t, f, "m-1", "one")

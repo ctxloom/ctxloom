@@ -40,11 +40,10 @@ type stubPolicy struct{ seen *stubSpawn }
 
 // stubSpawn records the runner starts a stubPolicy saw.
 type stubSpawn struct {
-	mu        sync.Mutex
-	calls     int
-	verbosity int
-	backend   string
-	spawnEnv  map[string]string
+	mu       sync.Mutex
+	calls    int
+	backend  string
+	spawnEnv map[string]string
 }
 
 func (stubPolicy) Name() string { return isolation.None{}.Name() }
@@ -64,11 +63,10 @@ func (p stubPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID st
 	}
 	return ws, nil
 }
-func (p stubPolicy) StartRunner(_ context.Context, backend, _ string, verbosity int, _ isolation.Workspace, spawnEnv map[string]string) (*isolation.RunnerHandle, error) {
+func (p stubPolicy) StartRunner(_ context.Context, backend, _ string, _ int, _ isolation.Workspace, spawnEnv map[string]string) (*isolation.RunnerHandle, error) {
 	if p.seen != nil {
 		p.seen.mu.Lock()
 		p.seen.calls++
-		p.seen.verbosity = verbosity
 		p.seen.backend = backend
 		p.seen.spawnEnv = spawnEnv
 		p.seen.mu.Unlock()

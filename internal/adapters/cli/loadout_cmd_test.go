@@ -15,7 +15,7 @@ import (
 // the documented tree — ctxloom is its own companion and answers the same
 // probe every companion answers.
 func TestLoadoutCmd_IsOnTheRoot(t *testing.T) {
-	sub, _, err := GetRootCmd().Find([]string{loadout.Subcommand})
+	sub, _, err := GetRootCmd(testComposition()).Find([]string{loadout.Subcommand})
 	require.NoError(t, err)
 	assert.Equal(t, loadout.Subcommand, sub.Name())
 }

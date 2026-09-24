@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -337,7 +338,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	// all — called directly (not lazily from the overlay's Watch closure) so
 	// the test can confirm the ConsumerService.WatchRuns subscription is
 	// live BEFORE releasing the gate below.
-	feed, err := operations.WatchSessionFeed(ctx, operations.SessionFeedRequest{Harp: out.Harp})
+	feed, err := operations.WatchSessionFeed(ctx, engines.Registry(), operations.SessionFeedRequest{Harp: out.Harp})
 	require.NoError(t, err)
 	require.Equal(t, "live", feed.Source, "the coordinator holds this child; the tap must be live, not the store fallback")
 

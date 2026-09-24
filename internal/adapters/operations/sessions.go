@@ -175,7 +175,7 @@ func ForgetSession(harp string) error {
 // probeEngineVersion is the seam AssignSession probes through. A package var
 // so tests can drive both outcomes without an engine binary installed — the
 // production value execs the real CLI through the shared cached prober.
-var probeEngineVersion = ProbeEngineVersion
+var probeEngineVersion = (*App).ProbeEngineVersion
 
 // AssignSession mints a fresh harp for a new run in projectDir under backend,
 // records the engine's version against it, and returns the pending index entry
@@ -193,12 +193,12 @@ var probeEngineVersion = ProbeEngineVersion
 // ctx bounds the probe. It used to be discarded outright in favour of
 // context.Background(), which meant a wedged `--version` had no deadline at
 // all on any path.
-func AssignSession(ctx context.Context, projectDir, backend string) (sessions.Entry, error) {
+func (a *App) AssignSession(ctx context.Context, projectDir, backend string) (sessions.Entry, error) {
 	entry, err := AssignSessionHarp(projectDir, backend)
 	if err != nil {
 		return sessions.Entry{}, err
 	}
-	if version, ok := RecordSessionEngineVersion(ctx, entry.HarpName, backend); ok {
+	if version, ok := a.RecordSessionEngineVersion(ctx, entry.HarpName, backend); ok {
 		entry.EngineVersion = version
 	}
 	return entry, nil
@@ -257,8 +257,8 @@ func AssignSessionHarp(projectDir, backend string) (sessions.Entry, error) {
 // ctx bounds the probe on top of the prober's own budget
 // (engineversion.DefaultProbeTimeout); neither is optional, because this is
 // the step that exec's somebody else's binary.
-func RecordSessionEngineVersion(ctx context.Context, harp, backend string) (string, bool) {
-	version, perr := probeEngineVersion(ctx, backend)
+func (a *App) RecordSessionEngineVersion(ctx context.Context, harp, backend string) (string, bool) {
+	version, perr := probeEngineVersion(a, ctx, backend)
 	if perr != nil {
 		// An engine that declares no version command at all (mock, the
 		// generic acp backend — neither has one binary whose version would

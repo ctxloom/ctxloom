@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
@@ -53,13 +55,13 @@ type engineVersionProbe func(ctx context.Context, engine string) (string, error)
 // and never what wrote those bytes) — this check reports the CURRENT machine,
 // which is the other half a user needs and the only half a probe can honestly
 // supply.
-func doctorCheckTranscriptReaders(ctx context.Context, cfg *config.Config, probe engineVersionProbe) DoctorCheck {
-	engines := doctorConfiguredEngines(cfg)
+func doctorCheckTranscriptReaders(ctx context.Context, reg engine.Registry, cfg *config.Config, probe engineVersionProbe) DoctorCheck {
+	engines := doctorConfiguredEngines(reg, cfg)
 	var lines []string
 	refused := false
 
 	for _, engine := range engines {
-		adapters, ok := VendorReaderAdaptersFor(engine)
+		adapters, ok := VendorReaderAdaptersFor(reg, engine)
 		if !ok {
 			// No vendor reader for this engine at all. Every REGISTERED
 			// backend has one, so this is the config-names-an-unknown-engine

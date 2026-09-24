@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // --- DOCTOR-CHECK-TRANSCRIPT-READER-v2 --------------------------------------
@@ -51,7 +52,7 @@ func TestDoctorCheckTranscriptReaders_RightState_DetectedVersionSelectsCarriedRe
 	require.Len(t, claudereader.VersionedAdapters, 1, "this test reads the single declared claude reader")
 	declared := claudereader.VersionedAdapters[0]
 
-	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("2.1.225"))
+	check := doctorCheckTranscriptReaders(context.Background(), engines.Registry(), cfg, fixedVersionProbe("2.1.225"))
 
 	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "claude-code", "must name the engine")
@@ -71,7 +72,7 @@ func TestDoctorCheckTranscriptReaders_WrongState_DetectedVersionCarriesNoReader(
 	_, cfg := setupProject(t, "claude-code")
 	declared := claudereader.VersionedAdapters[0]
 
-	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("9.9.9"))
+	check := doctorCheckTranscriptReaders(context.Background(), engines.Registry(), cfg, fixedVersionProbe("9.9.9"))
 
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "claude-code 9.9.9", "must name the version that has no reader")
@@ -86,7 +87,7 @@ func TestDoctorCheckTranscriptReaders_WrongState_DetectedVersionCarriesNoReader(
 func TestDoctorCheckTranscriptReaders_WrongState_UnparseableVersionAlsoRefuses(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 
-	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("not-a-version"))
+	check := doctorCheckTranscriptReaders(context.Background(), engines.Registry(), cfg, fixedVersionProbe("not-a-version"))
 
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "not-a-version")
@@ -101,7 +102,7 @@ func TestDoctorCheckTranscriptReaders_RightState_UnprobedVersionIsInfoNotWarn(t 
 	_, cfg := setupProject(t, "claude-code")
 	declared := claudereader.VersionedAdapters[0]
 
-	check := doctorCheckTranscriptReaders(context.Background(), cfg,
+	check := doctorCheckTranscriptReaders(context.Background(), engines.Registry(), cfg,
 		failingVersionProbe(errors.New("claude: binary not on PATH")))
 
 	assert.Equal(t, DoctorInfo, check.Status)
@@ -133,7 +134,7 @@ func TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader(t *tes
 	cfg, err := configload.Load(configload.WithAppDir(filepath.Join(root, ".ctxloom")))
 	require.NoError(t, err)
 
-	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("1.18.4"))
+	check := doctorCheckTranscriptReaders(context.Background(), engines.Registry(), cfg, fixedVersionProbe("1.18.4"))
 
 	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "no configured engine reads a vendor-native transcript store")
@@ -144,7 +145,7 @@ func TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader(t *tes
 // config-failed-to-load path every other check here handles: no configured
 // engines means nothing to report, not a panic.
 func TestDoctorCheckTranscriptReaders_RightState_NoConfigIsNotACrash(t *testing.T) {
-	check := doctorCheckTranscriptReaders(context.Background(), nil, fixedVersionProbe("2.1.225"))
+	check := doctorCheckTranscriptReaders(context.Background(), engines.Registry(), nil, fixedVersionProbe("2.1.225"))
 
 	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "no configured engine reads a vendor-native transcript store")

@@ -242,9 +242,9 @@ func runConfigCreate(cmd *cobra.Command, _ []string) error {
 	if engine == "" {
 		// The flag's default is a registry fact: the engine shipped by
 		// default, resolved here rather than spelled at declaration.
-		engine = operations.DefaultEngineName()
+		engine = operations.DefaultEngineName(App().Engines())
 	}
-	if _, err := operations.InitializeProject(cmd.Context(), operations.InitializeProjectRequest{
+	if _, err := operations.InitializeProject(cmd.Context(), App().Engines(), operations.InitializeProjectRequest{
 		AppDir: appDir,
 		Engine: engine,
 	}); err != nil {

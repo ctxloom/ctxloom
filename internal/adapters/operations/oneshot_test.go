@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -44,26 +45,27 @@ func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline) la
 	t.Helper()
 	stubPrepareIsolation(t, nil)
 	return launch.Deps{
-		Snapshot:  &config.Snapshot{Config: cfg},
-		Engines:   engines.Registry(),
-		Assembler: &assembler{pipe: pipe},
-		Cells:     Cells{cfg: cfg},
-		Endpoints: endpointMinter{},
-		Sessions:  sessions.NewMemStore(),
-		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+		SessionClaims: fsstore.SessionClaims,
+		Snapshot:      &config.Snapshot{Config: cfg},
+		Engines:       engines.Registry(),
+		Assembler:     &assembler{pipe: pipe, engines: engines.Registry()},
+		Cells:         Cells{engines: engines.Registry(), cfg: cfg},
+		Endpoints:     endpointMinter{},
+		Sessions:      sessions.NewMemStore(),
+		Host:          launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
 	}
 }
 
 // testOneShot resolves a one-shot session over cfg on a fake host whose
 // runs answer from stub.
-func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub *stubEngine, src launch.Source) (*OneShot, error) {
+func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub *stubEngine, src launch.Source) (*OneShotSession, error) {
 	t.Helper()
 	deps := testLaunchDeps(t, cfg, pipe)
 	if src.WorkDir == "" {
 		src.WorkDir = t.TempDir()
 	}
 	_, hosts := hostsFor(deps, stub)
-	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +114,7 @@ func TestOneShot_TurnsShareOneSession(t *testing.T) {
 
 	deps := testLaunchDeps(t, cfg, opPipe(cfg, loader))
 	host, hosts := hostsFor(deps, stub)
-	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: t.TempDir()}, launch.Source{Profiles: []string{"rev"}, WorkDir: t.TempDir()}, 0)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: t.TempDir()}, launch.Source{Profiles: []string{"rev"}, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(o.End)
 	first, err := o.Turn(context.Background(), "one")
@@ -165,19 +167,19 @@ func TestResolveBackend(t *testing.T) {
 	require.NoError(t, cfg.Validate(engines.Registry()))
 
 	t.Run("configured label resolves to its type and model", func(t *testing.T) {
-		backend, model := ResolveBackend(cfg, "agy-code")
+		backend, model := ResolveBackend(engines.Registry(), cfg, "agy-code")
 		assert.Equal(t, "mock", backend)
 		assert.Equal(t, "gemini-3-pro", model)
 	})
 
 	t.Run("unknown non-backend label degrades to the default", func(t *testing.T) {
-		backend, model := ResolveBackend(cfg, "no-such-label")
+		backend, model := ResolveBackend(engines.Registry(), cfg, "no-such-label")
 		assert.Equal(t, "claude-code", backend)
 		assert.Empty(t, model)
 	})
 
 	t.Run("the ad-hoc arm admits only a registered backend name", func(t *testing.T) {
-		backend, model := ResolveBackend(cfg, "claude-code")
+		backend, model := ResolveBackend(engines.Registry(), cfg, "claude-code")
 		assert.Equal(t, "claude-code", backend)
 		assert.Empty(t, model)
 	})
@@ -188,7 +190,7 @@ func TestResolveBackend(t *testing.T) {
 	// the engine it used to abbreviate.
 	t.Run("a retired short spelling is an unknown label, not a backend", func(t *testing.T) {
 		for _, spelling := range []string{"claude", "CLAUDE", "claudecode", "Claude-Code"} {
-			backend, model := ResolveBackend(cfg, spelling)
+			backend, model := ResolveBackend(engines.Registry(), cfg, spelling)
 			assert.Equal(t, "claude-code", backend, "ResolveBackend(%q) degrades like any unknown label", spelling)
 			assert.Empty(t, model)
 		}
@@ -202,7 +204,7 @@ func TestResolveBackend(t *testing.T) {
 		handWritten := gatedFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 			"hand-edited": {Type: "claude", Body: map[string]any{"model": "opus"}},
 		}}})
-		backend, model := ResolveBackend(handWritten, "hand-edited")
+		backend, model := ResolveBackend(engines.Registry(), handWritten, "hand-edited")
 		assert.Equal(t, "claude", backend)
 		assert.Equal(t, "opus", model)
 	})

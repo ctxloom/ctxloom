@@ -54,7 +54,7 @@ var matrixKinds = []agent.SurfaceKind{
 // derived, so an engine's new name joins the cross product on its own. Used
 // for the NEGATIVE direction: the cross product minus the declared pairs must
 // be refused loudly.
-func matrixApproaches() []string { return operations.KnownApproachNames() }
+func matrixApproaches() []string { return operations.KnownApproachNames(engines.Registry()) }
 
 // sentinel slots. Each names one SurfaceInputs field, so an assertion can say
 // WHICH input reached WHICH file rather than "the tree is non-empty".
@@ -144,7 +144,7 @@ func findSentinel(tree map[string]string, sentinel string) []string {
 func matrixBackends(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	for _, name := range operations.EngineNames() {
+	for _, name := range operations.EngineNames(engines.Registry()) {
 		decl := hostedDeclaration(name)
 		for _, k := range matrixKinds {
 			if len(decl.Names(k)) > 0 {

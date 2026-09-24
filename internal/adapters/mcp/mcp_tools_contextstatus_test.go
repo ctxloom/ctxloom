@@ -51,7 +51,7 @@ func TestContextStatus_ReturnsLatestAndTrendForTheCallingSession(t *testing.T) {
 	// A second session's series must not leak into the answer.
 	seedContextSeries(t, "bold-crimson-thunder", 3, 90, 1)
 
-	s := &ctxServer{self: coord.Identity{Harp: harp}}
+	s := &ctxServer{facts: testLaunchFacts(), self: coord.Identity{Harp: harp}}
 	_, out, err := s.handleContextStatus(context.Background(), nil, contextStatusInput{})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -79,7 +79,7 @@ func TestContextStatus_TrendIsBoundedAndDefaulted(t *testing.T) {
 	const harp = "swift-amber-falcon"
 	seedContextSeries(t, harp, 150, 1, 0.1)
 
-	s := &ctxServer{self: coord.Identity{Harp: harp}}
+	s := &ctxServer{facts: testLaunchFacts(), self: coord.Identity{Harp: harp}}
 
 	_, def, err := s.handleContextStatus(context.Background(), nil, contextStatusInput{})
 	require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestContextStatus_TrendIsBoundedAndDefaulted(t *testing.T) {
 func TestContextStatus_NoSamplesSaysSoInsteadOfReturningZero(t *testing.T) {
 	testsupport.Isolate(t)
 
-	s := &ctxServer{self: coord.Identity{Harp: "swift-amber-falcon"}}
+	s := &ctxServer{facts: testLaunchFacts(), self: coord.Identity{Harp: "swift-amber-falcon"}}
 	_, out, err := s.handleContextStatus(context.Background(), nil, contextStatusInput{})
 	require.NoError(t, err, "an absent series is a fact to report, not an error to raise")
 	require.NotNil(t, out)
@@ -128,7 +128,7 @@ func TestContextStatus_NoIdentitySaysSoToo(t *testing.T) {
 	testsupport.Isolate(t)
 	seedContextSeries(t, "bold-crimson-thunder", 3, 80, 1)
 
-	s := &ctxServer{self: coord.Identity{}}
+	s := &ctxServer{facts: testLaunchFacts(), self: coord.Identity{}}
 	_, out, err := s.handleContextStatus(context.Background(), nil, contextStatusInput{})
 	require.NoError(t, err)
 	require.NotNil(t, out)

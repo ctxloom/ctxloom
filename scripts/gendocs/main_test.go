@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 )
 
@@ -113,12 +114,12 @@ func TestRun_ReportsAnAssemblyFailureInsteadOfPanicking(t *testing.T) {
 
 // pristineHidden records every top-level command's Hidden flag exactly as
 // internal/adapters/cli declares it, snapshotted at package init. It has to be a
-// snapshot: cli.GetRootCmd() returns a process-wide singleton and PrepareTree
+// snapshot: cli.GetRootCmd(cli.Composition{Engines: engines.Registry()}) returns a process-wide singleton and PrepareTree
 // MUTATES it, so a test that reads c.Hidden directly is reading whatever an
 // earlier test in the same binary left behind.
 var pristineHidden = func() map[string]bool {
 	m := map[string]bool{}
-	for _, c := range cli.GetRootCmd().Commands() {
+	for _, c := range cli.GetRootCmd(cli.Composition{Engines: engines.Registry()}).Commands() {
 		m[c.Name()] = c.Hidden
 	}
 	return m

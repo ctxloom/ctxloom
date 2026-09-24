@@ -411,7 +411,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, headlessPermissions string, err error) {
 	if selected == "" && noEnginesInstalled() {
 		warnNoEnginesDetected()
-		selected = operations.DefaultEngineName()
+		selected = operations.DefaultEngineName(App().Engines())
 	}
 
 	if interactive && selected == "" {
@@ -433,7 +433,7 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 // discovery launch read that generation; nothing in this process observes
 // the pre-scaffold state again.
 func writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions string, dirtyTreeCommitAck bool) error {
-	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
+	_, err := operations.InitializeProject(context.Background(), App().Engines(), operations.InitializeProjectRequest{
 		AppDir:              appDir,
 		Engine:              engine,
 		DirtyTreeHandler:    dirtyTreeHandler,
@@ -702,7 +702,7 @@ func pingHosts() operations.RunHosts {
 func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, engine, workDir string) error {
 	src := operations.InternalSource(engine, "", workDir)
 	src.Permission = agent.PermissionBypass
-	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src, 0)
+	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src)
 	if err != nil {
 		return probeFailure(engine, probeFailedToStart, err)
 	}

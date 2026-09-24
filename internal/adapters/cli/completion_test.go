@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // TestCompletionCmd_UnsupportedShellFailsInsteadOfWritingNothing pins that
@@ -52,11 +53,11 @@ func TestCompletionCmd_ValidArgsMatchTheGeneratorArms(t *testing.T) {
 // stays defensible for as long as it stays true.
 func TestCompleteLLMNames_BackendFallbackIsAdmissible(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{})
-	names := operations.EngineNames()
+	names := operations.EngineNames(engines.Registry())
 	require.NotEmpty(t, names)
 
 	for _, name := range names {
-		backend, _ := operations.ResolveBackend(cfg, name)
+		backend, _ := operations.ResolveBackend(engines.Registry(), cfg, name)
 		assert.Equal(t, name, backend,
 			"a bare backend name is a valid --llm/--engine value, so completing it is not a defect")
 	}

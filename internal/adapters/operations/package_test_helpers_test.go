@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // commandsOf is the package's commands for a profile set (nil ⇒ the
@@ -56,7 +57,7 @@ func claudeExportsOf(t *testing.T, cfg *config.Config) []agent.CommandExport {
 	t.Helper()
 	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{})
 	require.NoError(t, err)
-	exports, err := ExportsFor(pkg, "claude-code")
+	exports, err := ExportsFor(engines.Registry(), pkg, "claude-code")
 	require.NoError(t, err)
 	return CommandExportsOf(exports)
 }
@@ -66,7 +67,7 @@ func claudeSkillExportsOf(t *testing.T, cfg *config.Config, profileNames []strin
 	t.Helper()
 	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{Profiles: profileNames})
 	require.NoError(t, err)
-	exports, err := ExportsFor(pkg, "claude-code")
+	exports, err := ExportsFor(engines.Registry(), pkg, "claude-code")
 	require.NoError(t, err)
 	return SkillExportsOf(exports)
 }

@@ -11,6 +11,7 @@ import (
 
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -62,7 +63,7 @@ func TestResolveTurnTranscript_SelectsTheReaderForTheSessionsOwnEngine(t *testin
 			src := filepath.Join(t.TempDir(), "vendor-transcript")
 			require.NoError(t, os.WriteFile(src, []byte("{}\n"), 0o644))
 
-			adapter, gotSrc, err := ResolveTurnTranscript(context.Background(), harp, src)
+			adapter, gotSrc, err := ResolveTurnTranscript(context.Background(), engines.Registry(), harp, src)
 			require.NoError(t, err)
 			assert.IsType(t, tc.want, adapter, "the reader must come from the session's own engine")
 			assert.Equal(t, src, gotSrc)
@@ -88,7 +89,7 @@ func TestResolveTurnTranscript_RefusesAnUnrecordedEngineVersion(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "vendor-transcript")
 	require.NoError(t, os.WriteFile(src, []byte("{}\n"), 0o644))
 
-	_, _, rerr := ResolveTurnTranscript(context.Background(), entry.HarpName, src)
+	_, _, rerr := ResolveTurnTranscript(context.Background(), engines.Registry(), entry.HarpName, src)
 	require.Error(t, rerr, "an unknown transcript format must refuse, never guess")
 }
 
@@ -98,7 +99,7 @@ func TestResolveTurnTranscript_RefusesAnUnrecordedEngineVersion(t *testing.T) {
 // the silent no-op this project keeps paying for.
 func TestResolveTurnTranscript_UnindexedHarpIsNamed(t *testing.T) {
 	testsupport.Isolate(t)
-	_, _, err := ResolveTurnTranscript(context.Background(), "no-such-harp", "")
+	_, _, err := ResolveTurnTranscript(context.Background(), engines.Registry(), "no-such-harp", "")
 	require.Error(t, err)
 	assert.NotEmpty(t, err.Error())
 }

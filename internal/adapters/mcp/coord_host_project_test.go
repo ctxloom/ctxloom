@@ -35,7 +35,7 @@ func TestHostApp_ListSessionsResolvesTheCallersProjectNotTheHostsCwd(t *testing.
 	callerEntry, err := operations.AssignSessionHarp(callerProject, "mock")
 	require.NoError(t, err)
 
-	app := NewHostApp(&config.Config{})
+	app := NewHostApp(&config.Config{}, testLaunchFacts())
 
 	caller := coord.Identity{Harp: callerEntry.HarpName, ProjectDir: callerProject}
 	res, err := app.Serve(context.Background(), caller, coord.HostRequest{Tool: "list_sessions"})
@@ -57,6 +57,6 @@ func TestHostApp_ListSessionsResolvesTheCallersProjectNotTheHostsCwd(t *testing.
 // every tool that reads the sessions root or cross-session history — and a
 // name outside it is refused by name, never answered by a default.
 func TestHostApp_AnUnknownToolIsRefused(t *testing.T) {
-	_, err := NewHostApp(&config.Config{}).Serve(context.Background(), coord.Identity{Harp: "h"}, coord.HostRequest{Tool: "agent_run"})
+	_, err := NewHostApp(&config.Config{}, testLaunchFacts()).Serve(context.Background(), coord.Identity{Harp: "h"}, coord.HostRequest{Tool: "agent_run"})
 	require.ErrorIs(t, err, coord.ErrUnknownHostTool)
 }

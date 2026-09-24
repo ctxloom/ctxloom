@@ -51,7 +51,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -1388,7 +1390,7 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 		lockCalls++
 		return &LockDependenciesResult{}, nil
 	}
-	syncHooksStep = func(context.Context, ApplyHooksRequest) (*ApplyHooksResult, error) {
+	syncHooksStep = func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error) {
 		hookCalls++
 		return &ApplyHooksResult{}, nil
 	}
@@ -1416,7 +1418,7 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 			result := &SyncDependenciesResult{Installed: tt.installed, Updated: tt.updated, Total: tt.total}
 			req := SyncDependenciesRequest{Lock: tt.lock, ApplyHooks: tt.applyHooks}
 
-			runSyncPostSteps(context.Background(), &config.Config{}, req, result, afero.NewMemMapFs())
+			runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, req, result, afero.NewMemMapFs())
 
 			assert.Equal(t, tt.wantLock, lockCalls == 1, "lockfile step fired=%v, want %v", lockCalls == 1, tt.wantLock)
 			assert.Equal(t, tt.wantHooks, hookCalls == 1, "hooks step fired=%v, want %v", hookCalls == 1, tt.wantHooks)

@@ -48,7 +48,7 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 	}
 	if c, ok := backend.(agent.Configurable); ok {
 		deps.Configure = func(body map[string]any) error {
-			bc, err := operations.DecodeEngineConfig(backendName, body)
+			bc, err := operations.DecodeEngineConfig(App().Engines(), backendName, body)
 			if err != nil {
 				return err
 			}

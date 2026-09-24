@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -61,10 +63,10 @@ func SetDefaultLLM(ctx context.Context, app *App, req SetDefaultLLMRequest) (*Se
 
 // AvailableLLMNames returns a sorted list of all known LLM names:
 // registered built-ins plus any with an explicit config entry.
-func AvailableLLMNames(cfg *config.Config) []string {
+func AvailableLLMNames(reg engine.Registry, cfg *config.Config) []string {
 	seen := map[string]bool{}
 	var names []string
-	for _, n := range EngineNames() {
+	for _, n := range EngineNames(reg) {
 		if !seen[n] {
 			seen[n] = true
 			names = append(names, n)
@@ -154,6 +156,7 @@ func warnLLMPermissionsTypo(label string, permissions *string) {
 // cannot land between the read of the existing entry and the write of the
 // merged one.
 func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error) {
+	reg := app.Engines()
 	if app == nil {
 		return nil, fmt.Errorf("app is required")
 	}
@@ -165,8 +168,8 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 		// registry's exact-name membership check here is also what keeps an
 		// entry that would fail schema validation on every later load from
 		// landing on disk.
-		if !EngineExists(*req.Type) {
-			return nil, fmt.Errorf("llm %q: unknown type %q; known: %s", req.Label, *req.Type, strings.Join(EngineNames(), ", "))
+		if !EngineExists(reg, *req.Type) {
+			return nil, fmt.Errorf("llm %q: unknown type %q; known: %s", req.Label, *req.Type, strings.Join(EngineNames(reg), ", "))
 		}
 	}
 	warnLLMPermissionsTypo(req.Label, req.Permissions)

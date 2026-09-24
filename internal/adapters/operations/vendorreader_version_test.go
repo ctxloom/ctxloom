@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
@@ -95,7 +96,7 @@ func TestVendorReaderRanges_ContainThePinnedTestedVersion(t *testing.T) {
 		pin, ok := pins[key]
 		require.True(t, ok, "%s must be pinned in .github/engine-versions.env", key)
 
-		reg, ok := vendorReaderFor(engine)
+		reg, ok := vendorReaderFor(engines.Registry(), engine)
 		require.True(t, ok, "%s must have a vendor reader", engine)
 		require.NotEmpty(t, reg.adapters, "%s must declare at least one versioned adapter", engine)
 
@@ -120,7 +121,7 @@ func TestConvertVendorTranscript_UnrecordedVersionRefusesAndWritesNothing(t *tes
 	harp := "convert-unversioned-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath}
 
-	converted, err := ConvertVendorTranscript(context.Background(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
 	assert.False(t, converted, "nothing may be attempted for a session whose format is unknown")
 	require.Error(t, err)
 
@@ -137,7 +138,7 @@ func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 	harp := "convert-future-version-harp"
 	e := sessions.Entry{HarpName: harp, Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: "9.9.9"}
 
-	converted, err := ConvertVendorTranscript(context.Background(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
 	assert.False(t, converted)
 	require.Error(t, err)
 
@@ -155,7 +156,7 @@ func TestConvertVendorTranscript_UnknownVersionRefuses(t *testing.T) {
 func TestConvertVendorTranscript_UnlocatableSessionStaysSilentDespiteNoVersion(t *testing.T) {
 	e := sessions.Entry{HarpName: "convert-unbound-harp", Backend: "claude-code"}
 
-	converted, err := ConvertVendorTranscript(context.Background(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
 	assert.False(t, converted)
 	assert.NoError(t, err,
 		"a session with nothing to convert must not shout about an unknown version — the refusal is for transcripts that actually exist")
@@ -185,7 +186,7 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 		EngineVersion:  stubEngineVersion, // a version the adapter IS validated for
 	}
 
-	converted, err := ConvertVendorTranscript(context.Background(), e)
+	converted, err := ConvertVendorTranscript(context.Background(), engines.Registry(), e)
 	require.NoError(t, err,
 		"a bad LINE inside a known format is not a structural failure — only an unreadable source, a cancelled context or a failing recorder is")
 	assert.True(t, converted)
@@ -208,20 +209,20 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 // require below fails loudly rather than passing vacuously, which is the
 // point.
 func TestVendorReaderRegistry_IsAPortNotASingleImplementation(t *testing.T) {
-	engines := VendorReaderEngineNames()
-	require.GreaterOrEqual(t, len(engines), 2,
+	names := VendorReaderEngineNames(engines.Registry())
+	require.GreaterOrEqual(t, len(names), 2,
 		"a one-entry registry cannot prove polymorphism — every mutation to the keyed lookup would survive")
 
 	seen := map[string]string{}
-	for _, engine := range engines {
-		reg, ok := vendorReaderFor(engine)
+	for _, engine := range names {
+		vr, ok := vendorReaderFor(engines.Registry(), engine)
 		require.True(t, ok)
-		require.NotEmpty(t, reg.adapters, "%s must declare at least one versioned adapter", engine)
-		require.NotNil(t, reg.locate, "%s must declare a locate func", engine)
+		require.NotEmpty(t, vr.adapters, "%s must declare at least one versioned adapter", engine)
+		require.NotNil(t, vr.locate, "%s must declare a locate func", engine)
 
 		// Each engine's OWN cited version must resolve through its OWN entry.
-		for _, a := range reg.adapters {
-			got, err := vendorreader.SelectAdapter(engine, a.ValidatedVersion, "", reg.adapters)
+		for _, a := range vr.adapters {
+			got, err := vendorreader.SelectAdapter(engine, a.ValidatedVersion, "", vr.adapters)
 			require.NoError(t, err, "%s: its own validated version %s must resolve", engine, a.ValidatedVersion)
 			require.NotNil(t, got)
 		}
@@ -229,7 +230,7 @@ func TestVendorReaderRegistry_IsAPortNotASingleImplementation(t *testing.T) {
 		// Go through the REAL keyed lookup, not the map literal: a mutation
 		// that resolves every engine to one hard-coded entry is invisible to
 		// a test that ranges the map itself.
-		viaLookup, ok := VendorReaderAdaptersFor(engine)
+		viaLookup, ok := VendorReaderAdaptersFor(engines.Registry(), engine)
 		require.True(t, ok, "%s must resolve through the exported keyed lookup", engine)
 		require.NotEmpty(t, viaLookup)
 

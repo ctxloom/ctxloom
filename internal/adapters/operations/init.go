@@ -69,7 +69,7 @@ const SeedProfileName = "default"
 // scaffold files are overwritten — EXCEPT the seed profile, which is left
 // untouched if it already exists so a re-init never clobbers user edits.
 //
-// req.Engine is validated against the composed engine registry (engines.Registry
+// req.Engine is validated against the composed engine registry (App.Engines
 // — the one place a "known engine" is defined) BEFORE anything is written: an
 // unknown value refuses loud, with the value named and the valid set listed,
 // rather than scaffolding a config.yaml that then fails ctxloom's own
@@ -78,12 +78,12 @@ const SeedProfileName = "default"
 // accepts a user-typed --engine (manage install, config create and its
 // deprecated aliases, root init) funnels through here, so this is the single
 // choke point — no per-call-site duplicate check needed.
-func InitializeProject(_ context.Context, req InitializeProjectRequest) (*InitializeProjectResult, error) {
+func InitializeProject(_ context.Context, reg enginepkg.Registry, req InitializeProjectRequest) (*InitializeProjectResult, error) {
 	if req.AppDir == "" {
 		return nil, fmt.Errorf("app dir is required")
 	}
-	if !EngineExists(req.Engine) {
-		return nil, fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(EngineNames(), ", "))
+	if !EngineExists(reg, req.Engine) {
+		return nil, fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(EngineNames(reg), ", "))
 	}
 	fs := getFS(req.FS)
 	// The authored-bundles home is the COMMITTED content tree; the cache is

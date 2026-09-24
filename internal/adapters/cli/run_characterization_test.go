@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -407,7 +406,7 @@ func TestRunCharacterization_UnknownSavedCommandFails(t *testing.T) {
 func TestRunCharacterization_UnboundResumeSessionDegrades(t *testing.T) {
 	dir := runCLIFixture(t)
 
-	entry, err := operations.AssignSession(context.Background(), dir, "claude-code")
+	entry, err := App().AssignSession(context.Background(), dir, "claude-code")
 	require.NoError(t, err)
 
 	base := runCLI(t, "run", "--dry-run", "--format", "json", "-p", "dev", "hi")

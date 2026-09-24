@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // This file covers the OTHER two surfaces of the silent-capability-loss
@@ -67,9 +68,9 @@ func setupCapabilityLossProject(t *testing.T, engine string) (string, *config.Co
 // are not the same finding.
 func requireFixtureLosesSomething(t *testing.T, cfg *config.Config, wantDetail, wantReason string) {
 	t.Helper()
-	resolved, err := operations.ResolveAgent(context.Background(), cfg, "default", "")
+	resolved, err := operations.ResolveAgent(context.Background(), engines.Registry(), cfg, "default", "")
 	require.NoError(t, err, "precondition: the fixture's agent must resolve")
-	losses := operations.CapabilityLoss(cfg, resolved.Backend, resolved.Profiles)
+	losses := operations.CapabilityLoss(engines.Registry(), cfg, resolved.Backend, resolved.Profiles)
 	require.NotEmpty(t, losses, "precondition: the fixture must actually lose a hook on %s", resolved.Backend)
 	var joined string
 	for _, l := range losses {
@@ -99,9 +100,9 @@ func linesContaining(t *testing.T, out, needle string) []string {
 // given, so a report that stays silent is silent for the right reason.
 func requireFixtureLosesNothing(t *testing.T, cfg *config.Config) {
 	t.Helper()
-	resolved, err := operations.ResolveAgent(context.Background(), cfg, "default", "")
+	resolved, err := operations.ResolveAgent(context.Background(), engines.Registry(), cfg, "default", "")
 	require.NoError(t, err, "precondition: the fixture's agent must resolve")
-	require.Empty(t, operations.CapabilityLoss(cfg, resolved.Backend, resolved.Profiles),
+	require.Empty(t, operations.CapabilityLoss(engines.Registry(), cfg, resolved.Backend, resolved.Profiles),
 		"precondition: %s must carry this fixture's hooks, or the silence below proves nothing", resolved.Backend)
 }
 

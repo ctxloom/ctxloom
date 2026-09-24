@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // =============================================================================
@@ -21,7 +22,7 @@ import (
 func TestAvailableLLMNames_IncludesBuiltIns(t *testing.T) {
 	// All built-in plugins must appear in the available list
 	cfg := &config.Config{}
-	names := AvailableLLMNames(cfg)
+	names := AvailableLLMNames(engines.Registry(), cfg)
 
 	expected := map[string]bool{
 		"claude-code": false,
@@ -44,7 +45,7 @@ func TestAvailableLLMNames_IncludesBuiltIns(t *testing.T) {
 func TestAvailableLLMNames_Sorted(t *testing.T) {
 	// Sorted output provides consistent, scannable display to users
 	cfg := &config.Config{}
-	names := AvailableLLMNames(cfg)
+	names := AvailableLLMNames(engines.Registry(), cfg)
 
 	for i := 1; i < len(names); i++ {
 		if names[i] < names[i-1] {

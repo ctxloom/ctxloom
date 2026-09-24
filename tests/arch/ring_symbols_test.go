@@ -39,6 +39,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
@@ -343,7 +344,7 @@ var noEngineNameInCoreAllowed = map[string]string{
 // read from the live registry (composed by TestMain), never listed here.
 func scanEngineNameLiterals(t *testing.T) []ringSite {
 	t.Helper()
-	names := operations.EngineNames()
+	names := operations.EngineNames(engines.Registry())
 	if len(names) == 0 {
 		t.Fatal("operations.EngineNames() returned nothing — the registry did not populate; the rule has nothing to look for")
 	}

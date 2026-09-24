@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -31,9 +32,9 @@ var (
 // composition root runs in Run(), after every package var has already been
 // evaluated. A var here freezes the engine list at init, when the registry is
 // still empty, and the help ships reading "the backend discriminator ()".
-func llmWriteLong() string {
-	return `--type is the backend discriminator (` + userEngineNames() + `);
-omit it to keep claude-code's default. --model sets the model string. --permissions
+func llmWriteLong(reg engine.Registry) string {
+	return `--type is the backend discriminator (` + userEngineNames(reg) + `);
+omit it to keep ` + operations.DefaultEngineName(reg) + `'s default. --model sets the model string. --permissions
 sets the launch-time posture (default|acceptEdits|plan|bypass).
 
 An entry carries NO credentials and no environment: the engine authenticates
@@ -93,7 +94,7 @@ func writeLLM(cmd *cobra.Command, label string, mustExist bool) error {
 // built-in; edit accepts it — that is how a built-in becomes explicit).
 func checkLLMExistence(cfg *config.Config, label string, mustExist bool) error {
 	exists := false
-	for _, n := range operations.AvailableLLMNames(cfg) {
+	for _, n := range operations.AvailableLLMNames(App().Engines(), cfg) {
 		if n == label {
 			exists = true
 			break
@@ -136,7 +137,7 @@ func renderLLMWritten(out io.Writer, entry *operations.LLMEntry, edited bool) er
 	}
 	typ := entry.Type
 	if typ == "" {
-		typ = operations.DefaultEngineName()
+		typ = operations.DefaultEngineName(App().Engines())
 	}
 	w.Printf("%s llm %q (type: %s", verb, entry.Label, typ)
 	if entry.Model != "" {
@@ -165,7 +166,7 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&llmSetModel, "model", "", "model string")
 	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission posture: default|acceptEdits|plan|bypass")
 	_ = cmd.RegisterFlagCompletionFunc("type", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return operations.EngineNames(), cobra.ShellCompDirectiveNoFileComp
+		return operations.EngineNames(App().Engines()), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 }
@@ -176,19 +177,19 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 // package vars and init() both run before Run() composes the registry, so the
 // engine list would be empty and the help would ship saying so. rootCommand()
 // is the one place that is reached only after registration.
-func applyEngineNamedHelp() {
-	engines := userEngineNames()
+func applyEngineNamedHelp(reg engine.Registry) {
+	engines := userEngineNames(reg)
 	// The scaffolding flags' HELP names the engine shipped by default — a
 	// registry fact; the value itself is resolved where each command runs.
 	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine"), authSetTokenCmd.Flags().Lookup("engine")} {
-		f.DefValue = operations.DefaultEngineName()
+		f.DefValue = operations.DefaultEngineName(reg)
 	}
 	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of
 .ctxloom/config.yaml. Refuses a label that already names a config entry OR a
 registered backend (` + engines + `) — change an
 existing one with 'ctxloom llm edit'.
 
-` + llmWriteLong() + `
+` + llmWriteLong(reg) + `
 
 Examples:
   ctxloom llm create big --type claude-code --model claude-opus-4-8
@@ -203,7 +204,7 @@ explicit entry.
 Only the flags you pass are applied; every unnamed field keeps its current
 value.
 
-` + llmWriteLong() + `
+` + llmWriteLong(reg) + `
 
 Examples:
   ctxloom llm edit big --model o1-pro
@@ -211,7 +212,7 @@ Examples:
 
 	for _, c := range []*cobra.Command{llmCreateCmd, llmEditCmd} {
 		if f := c.Flags().Lookup("type"); f != nil {
-			f.Usage = "backend discriminator: " + engines + " (empty = claude-code)"
+			f.Usage = "backend discriminator: " + engines + " (empty = " + operations.DefaultEngineName(reg) + ")"
 		}
 	}
 	if f := initCmd.Flags().Lookup("engine"); f != nil {

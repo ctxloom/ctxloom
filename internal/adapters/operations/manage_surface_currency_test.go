@@ -60,7 +60,7 @@ func currencyFor(surfaces []SurfaceCurrency, backend string) (SurfaceCurrency, b
 // project writer's record owns the context file the check reads.
 func materializeInto(t *testing.T, cfg *config.Config, backend, dir string) {
 	t.Helper()
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: cfg.DefaultAgentProfiles(), Target: dir, Backend: backend, FS: afero.NewOsFs(),
 	})
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func materializeInto(t *testing.T, cfg *config.Config, backend, dir string) {
 func TestSurfaceCurrencies_StaysSilentWhereNothingIsMaterialized(t *testing.T) {
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 
-	surfaces, errs := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
+	surfaces, errs := surfaceCurrencies(context.Background(), engines.Registry(), cfg, afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 	got, ok := currencyFor(surfaces, "claude-code")
 	assert.False(t, ok, "claude's context reaches it through the hook, so an absent CLAUDE.md is not a finding; got %+v", got)
@@ -85,7 +85,7 @@ func TestSurfaceCurrencies_LeavesTheHermeticMockEngineOutOfTheReport(t *testing.
 	cfg, workDir := surfaceCurrencyFixture(t, "SECURITY-RULES")
 	materializeInto(t, cfg, "mock", workDir)
 
-	surfaces, _ := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
+	surfaces, _ := surfaceCurrencies(context.Background(), engines.Registry(), cfg, afero.NewOsFs(), workDir)
 	got, ok := currencyFor(surfaces, "mock")
 	assert.False(t, ok, "mock must not appear in the report; got %+v", got)
 }
@@ -100,7 +100,7 @@ func TestSurfaceCurrencies_ReportsAMaterializedFileTheCompositionMovedAwayFrom(t
 	cfg := currencyConfig(t, appDir, "SECURITY-RULES")
 	materializeInto(t, cfg, "claude-code", workDir)
 
-	surfaces, errs := surfaceCurrencies(context.Background(), cfg, afero.NewOsFs(), workDir)
+	surfaces, errs := surfaceCurrencies(context.Background(), engines.Registry(), cfg, afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 	got, ok := currencyFor(surfaces, "claude-code")
 	require.True(t, ok, "claude's freshly materialized context file must be reported")
@@ -109,7 +109,7 @@ func TestSurfaceCurrencies_ReportsAMaterializedFileTheCompositionMovedAwayFrom(t
 
 	// The composition moves on: the bundle now carries other rules.
 	moved := currencyConfig(t, appDir, "REVISED-RULES")
-	surfaces, errs = surfaceCurrencies(context.Background(), moved, afero.NewOsFs(), workDir)
+	surfaces, errs = surfaceCurrencies(context.Background(), engines.Registry(), moved, afero.NewOsFs(), workDir)
 	assert.Empty(t, errs)
 	got, ok = currencyFor(surfaces, "claude-code")
 	require.True(t, ok)

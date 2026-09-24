@@ -587,11 +587,11 @@ func (st *runState) resolveLaunch() error {
 	}
 	// The startup findings are composed HERE, after the cell was prepared:
 	// a degraded-to-host finding is the case they exist for.
-	l, err = launch.WithLead(st.ctx, operations.ForSession(deps, l.Identity.Harp), l, st.startupFindings()...)
+	l, err = launch.WithLead(st.ctx, deps.ForSession(l.Identity.Harp), l, st.startupFindings()...)
 	if err != nil {
 		return err
 	}
-	opened, err := operations.OpenLaunch(st.ctx, operations.ForSession(deps, l.Identity.Harp), l)
+	opened, err := operations.OpenLaunch(st.ctx, deps.ForSession(l.Identity.Harp), l)
 	if err != nil {
 		return err
 	}
@@ -637,7 +637,7 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 		return nil
 	}
 	rendered := resumeFullContext("", runResumeSession, func(h string) ([]agent.SessionEntry, error) {
-		return operations.RecordedSessionEntries(st.ctx, h)
+		return operations.RecordedSessionEntries(st.ctx, App().Engines(), h)
 	})
 	if rendered == "" {
 		return nil
@@ -658,7 +658,7 @@ func (st *runState) warnPosture() {
 	if st.launch.Mode == engine.Structured && st.permMode == agent.PermissionPlan {
 		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
 	}
-	pf := operations.EnginePermissionFacts(st.backendName)
+	pf := operations.EnginePermissionFacts(App().Engines(), st.backendName)
 	if runPermissions == "" && runVerbosity > 0 && pf.HostDefaultReason != "" && st.permMode == pf.HostDefault {
 		clidiag.Warn("ctxloom", "%s", pf.HostDefaultReason)
 	}
@@ -850,7 +850,7 @@ func (st *runState) emitDryRun() error {
 	}
 	deps.Sessions = sessions.NewMemStore()
 	deps.Cells = dryCells{}
-	deps.Assembler = operations.PreviewAssembler()
+	deps.Assembler = operations.PreviewAssembler(App().Engines())
 	deps.ClaimCheck = operations.PreviewClaims()
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
@@ -869,7 +869,7 @@ func (st *runState) emitDryRun() error {
 	context := pkg.Context.Text
 	if runResumeSession != "" && !runResumeDistill {
 		context = resumeFullContext(context, runResumeSession, func(h string) ([]agent.SessionEntry, error) {
-			return operations.RecordedSessionEntries(st.ctx, h)
+			return operations.RecordedSessionEntries(st.ctx, App().Engines(), h)
 		})
 	}
 	payload := dryRunJSON{
@@ -1363,7 +1363,7 @@ func convertVendorTranscriptOnExit(harp string) {
 	// path. Reusing it would make the heal abort immediately
 	// (vendorreader.VendorAdapter implementations check ctx.Err() up front) on
 	// exactly the sessions this hook most needs to capture.
-	src, err := operations.ResolveAndHeal(context.Background(), harp)
+	src, err := operations.ResolveAndHeal(context.Background(), App().Engines(), harp)
 	if err != nil {
 		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
 		return
@@ -1410,10 +1410,10 @@ func validateExplicitLLM(cfg *config.Config, override string) (string, error) {
 		return override, nil
 	}
 	// Otherwise allow naming a registered backend type whose binary is present.
-	if operations.EngineExists(override) && operations.EngineAvailable(override) {
+	if operations.EngineExists(App().Engines(), override) && operations.EngineAvailable(App().Engines(), override) {
 		return override, nil
 	}
-	if operations.EngineExists(override) {
+	if operations.EngineExists(App().Engines(), override) {
 		return "", fmt.Errorf("LLM %q is a known backend but not configured and its binary is not installed; usable now: %s",
 			override, strings.Join(usableLLMs(cfg), ", "))
 	}
@@ -1428,11 +1428,11 @@ func usableLLMs(cfg *config.Config) []string {
 	for _, label := range cfg.GetLLMLabels() {
 		set[label] = true
 	}
-	for _, name := range operations.EngineNames() {
+	for _, name := range operations.EngineNames(App().Engines()) {
 		if isTestOnlyBackend(name) {
 			continue
 		}
-		if operations.EngineAvailable(name) {
+		if operations.EngineAvailable(App().Engines(), name) {
 			set[name] = true
 		}
 	}

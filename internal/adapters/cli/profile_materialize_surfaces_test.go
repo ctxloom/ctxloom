@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 func TestParseSurfaceOverrides_ParsesPairsAndRejectsNamesThatExistNowhere(t *testing.T) {
@@ -62,7 +63,7 @@ func TestParseSurfaceOverrides_ErrorTextIsDerivedFromTheDeclarations(t *testing.
 
 	_, err = parseSurfaceOverrides([]string{"context=nope"})
 	require.Error(t, err)
-	known := operations.KnownApproachNames()
+	known := operations.KnownApproachNames(engines.Registry())
 	require.NotEmpty(t, known)
 	for _, name := range known {
 		assert.Contains(t, err.Error(), name,

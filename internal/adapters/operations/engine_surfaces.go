@@ -7,7 +7,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // This file is the operations' read of an engine's DECLARED surface facts by
@@ -18,10 +17,10 @@ import (
 // KnownApproachNames is the union of every approach name any composed
 // engine declares, sorted — what a CLI offers as "names that exist at all"
 // before an engine is chosen. Derived from the declarations, never listed.
-func KnownApproachNames() []string {
+func KnownApproachNames(reg engine.Registry) []string {
 	var decls []agent.Declaration
-	for _, n := range engines.NamesWhere(func(_ string, e engine.Engine) bool { _, ok := e.(agent.Hosted); return ok }) {
-		h, _ := engines.Hosted(n)
+	for _, n := range reg.NamesWhere(func(_ engine.Name, e engine.Engine) bool { _, ok := e.(agent.Hosted); return ok }) {
+		h, _ := agent.HostedIn(reg, string(n))
 		decls = append(decls, h.Declaration())
 	}
 	return agent.ApproachNames(decls...)
@@ -40,8 +39,8 @@ func KnownApproachNames() []string {
 // surface KIND an engine declares no approach for is not one: every such
 // absence is a FOLD, and reporting a folded surface as lost would be a false
 // alarm — the fastest way to get the real line ignored.
-func uncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
-	e, ok := engines.Registry().Lookup(engine.Name(name))
+func uncarriedSurfaces(reg engine.Registry, name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
+	e, ok := reg.Lookup(engine.Name(name))
 	if !ok || in.Hooks == nil {
 		return nil
 	}

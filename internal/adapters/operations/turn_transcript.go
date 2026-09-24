@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 )
 
@@ -36,7 +38,7 @@ import (
 // convertVendorTranscript: an unknown-version refusal is a real, actionable
 // signal and should only be raised about a session that actually has a
 // transcript to read.
-func ResolveTurnTranscript(ctx context.Context, harp, hookTranscriptPath string) (vendorreader.VendorAdapter, string, error) {
+func ResolveTurnTranscript(ctx context.Context, reg engine.Registry, harp, hookTranscriptPath string) (vendorreader.VendorAdapter, string, error) {
 	entry, err := GetSession(harp)
 	if err != nil {
 		return nil, "", fmt.Errorf("look up session %s: %w", harp, err)
@@ -44,7 +46,7 @@ func ResolveTurnTranscript(ctx context.Context, harp, hookTranscriptPath string)
 	if entry == nil {
 		return nil, "", fmt.Errorf("%s is not an indexed session, so there is no engine to select a transcript reader for", harp)
 	}
-	reg, ok := vendorReaderFor(entry.Backend)
+	vr, ok := vendorReaderFor(reg, entry.Backend)
 	if !ok {
 		return nil, "", fmt.Errorf("ctxloom carries no transcript reader for engine %q, so %s's turn cannot be read", entry.Backend, harp)
 	}
@@ -56,14 +58,14 @@ func ResolveTurnTranscript(ctx context.Context, harp, hookTranscriptPath string)
 		}
 	}
 	if src == "" {
-		located, found := reg.locate(ctx, *entry)
+		located, found := vr.locate(ctx, *entry)
 		if !found {
 			return nil, "", fmt.Errorf("no %s transcript could be located for %s", entry.Backend, harp)
 		}
 		src = located
 	}
 
-	adapter, aerr := vendorreader.SelectAdapter(entry.Backend, entry.EngineVersion, harp, reg.adapters)
+	adapter, aerr := vendorreader.SelectAdapter(entry.Backend, entry.EngineVersion, harp, vr.adapters)
 	if aerr != nil {
 		return nil, "", aerr
 	}

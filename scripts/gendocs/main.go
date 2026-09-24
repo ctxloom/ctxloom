@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 )
 
@@ -66,8 +67,11 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 		return nil, nil, err
 	}
 	return &docsgen.Product{
-		Bin:       "ctxloom",
-		Root:      cli.GetRootCmd(),
+		Bin: "ctxloom",
+		// The tree is assembled over the shipped engine registry, as the
+		// binary's own composition root hands Run: the help and flag
+		// defaults that name engines are computed from it.
+		Root:      cli.GetRootCmd(cli.Composition{Engines: engines.Registry()}),
 		CLISource: "internal/adapters/cli",
 		LinkBase:  "/reference/cli/",
 		ManTitle:  "CTXLOOM",

@@ -6,28 +6,27 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
 // This file is the operations' read of the composed engine registry
-// (engines.Registry) for the questions the CLI asks by NAME: does an engine
+// (the App's engine.Registry) for the questions the CLI asks by NAME: does an engine
 // exist, is it installed, which ships by default, what version is it.
 
 // EngineExists reports whether name is a composed engine, by EXACT match.
-func EngineExists(name string) bool {
-	_, ok := engines.Registry().Lookup(engine.Name(name))
+func EngineExists(reg engine.Registry, name string) bool {
+	_, ok := reg.Lookup(engine.Name(name))
 	return ok
 }
 
 // EngineNames lists every composed engine's name, sorted.
-func EngineNames() []string {
-	return namesOf(engines.Registry().Names(nil))
+func EngineNames(reg engine.Registry) []string {
+	return namesOf(reg.Names(nil))
 }
 
 // EngineNamesWhere lists, sorted, the composed engines keep accepts.
-func EngineNamesWhere(keep func(engine.Definition) bool) []string {
-	return namesOf(engines.Registry().Names(keep))
+func EngineNamesWhere(reg engine.Registry, keep func(engine.Definition) bool) []string {
+	return namesOf(reg.Names(keep))
 }
 
 func namesOf(names []engine.Name) []string {
@@ -42,8 +41,8 @@ func namesOf(names []engine.Name) []string {
 // an untyped llm entry, an init with no choice made, or a scaffold records.
 // "" when no engine ships by default, which the composition refuses
 // upstream.
-func DefaultEngineName() string {
-	def, err := engines.Registry().Default()
+func DefaultEngineName(reg engine.Registry) string {
+	def, err := reg.Default()
 	if err != nil {
 		return ""
 	}
@@ -56,16 +55,16 @@ func DefaultEngineName() string {
 // unknown name is NOT test-only: callers distinguish "unknown engine" from
 // "engine you may not pick" separately, and folding the two here would turn
 // a typo into a silent omission.
-func IsTestOnlyEngine(name string) bool {
-	e, ok := engines.Registry().Lookup(engine.Name(name))
+func IsTestOnlyEngine(reg engine.Registry, name string) bool {
+	e, ok := reg.Lookup(engine.Name(name))
 	return ok && e.Root().Distribution == engine.DistributionTestOnly
 }
 
 // EnginePermissionFacts reads the named engine's declared permission facts
 // off its Definition. An unregistered name has the zero facts, which
 // resolve to prompt-per-call and collapse plan.
-func EnginePermissionFacts(name string) engine.PermissionFacts {
-	e, ok := engines.Registry().Lookup(engine.Name(name))
+func EnginePermissionFacts(reg engine.Registry, name string) engine.PermissionFacts {
+	e, ok := reg.Lookup(engine.Name(name))
 	if !ok {
 		return engine.PermissionFacts{}
 	}
@@ -75,8 +74,8 @@ func EnginePermissionFacts(name string) engine.PermissionFacts {
 // EngineBinary is the native client binary the named engine's interactive
 // grammar launches, "" for an engine with no declared grammar for it (a
 // double, or an unregistered name).
-func EngineBinary(name string) string {
-	e, ok := engines.Registry().Lookup(engine.Name(name))
+func EngineBinary(reg engine.Registry, name string) string {
+	e, ok := reg.Lookup(engine.Name(name))
 	if !ok {
 		return ""
 	}
@@ -93,8 +92,8 @@ func EngineBinary(name string) string {
 // terminal-launched one would), or the reason it could not be: "unregistered
 // engine", "engine has no binary" and "binary not on PATH" are three
 // different answers to `ctxloom init`'s "which engines can I offer".
-func EngineAvailability(name string) (string, error) {
-	binary := EngineBinary(name)
+func EngineAvailability(reg engine.Registry, name string) (string, error) {
+	binary := EngineBinary(reg, name)
 	if binary == "" {
 		return "", fmt.Errorf("engine %q has no binary to resolve", name)
 	}
@@ -103,34 +102,38 @@ func EngineAvailability(name string) (string, error) {
 
 // EngineAvailable is EngineAvailability's boolean; use that directly when
 // the reason for unavailability matters.
-func EngineAvailable(name string) bool {
-	_, err := EngineAvailability(name)
+func EngineAvailable(reg engine.Registry, name string) bool {
+	_, err := EngineAvailability(reg, name)
 	return err == nil
 }
 
-// engineVersionProber is the process-wide probe cache. One instance, so the
-// fingerprint cache is shared across everything in a `ctxloom run` that
-// might ask; per-call Probers would each re-exec the engine. It pairs the
-// engine's resolved binary (EngineAvailability) with the version command its
-// Definition declares (engine.Definition.Version). An unresolvable binary
-// is *engineversion.BinaryAbsentError so a caller can tell "not installed"
+// newEngineVersionProber is the probe cache over reg. The App holds one
+// (App.ProbeEngineVersion), so the fingerprint cache is shared across
+// everything in a `ctxloom run` that might ask; per-call Probers would each
+// re-exec the engine. It pairs the engine's resolved binary
+// (EngineAvailability) with the version command its Definition declares
+// (engine.Definition.Version). An unresolvable binary is
+// *engineversion.BinaryAbsentError so a caller can tell "not installed"
 // (ordinary) from "installed and misbehaved" (worth saying out loud).
-var engineVersionProber = engineversion.NewProber(func(name string) (string, engineversion.Command, error) {
-	e, ok := engines.Registry().Lookup(engine.Name(name))
-	if !ok || !e.Root().Version.Declared() {
-		return "", engineversion.Command{}, &engineversion.NoVersionCommandError{Engine: name}
-	}
-	binary, err := EngineAvailability(name)
-	if err != nil {
-		return "", engineversion.Command{}, &engineversion.BinaryAbsentError{Engine: name, Err: err}
-	}
-	v := e.Root().Version
-	return binary, engineversion.Command{Args: v.Args, Parse: v.Parse}, nil
-})
+func newEngineVersionProber(reg engine.Registry) *engineversion.Prober {
+	return engineversion.NewProber(func(name string) (string, engineversion.Command, error) {
+		e, ok := reg.Lookup(engine.Name(name))
+		if !ok || !e.Root().Version.Declared() {
+			return "", engineversion.Command{}, &engineversion.NoVersionCommandError{Engine: name}
+		}
+		binary, err := EngineAvailability(reg, name)
+		if err != nil {
+			return "", engineversion.Command{}, &engineversion.BinaryAbsentError{Engine: name, Err: err}
+		}
+		v := e.Root().Version
+		return binary, engineversion.Command{Args: v.Args, Parse: v.Parse}, nil
+	})
+}
 
 // ProbeEngineVersion reports the version the named engine's installed CLI
-// says it is, through the shared cached prober. Every error is one of
+// says it is, through this App's shared cached prober. Every error is one of
 // engineversion's typed refusals; there is no fallback value.
-func ProbeEngineVersion(ctx context.Context, name string) (string, error) {
-	return engineVersionProber.Probe(ctx, name)
+func (a *App) ProbeEngineVersion(ctx context.Context, name string) (string, error) {
+	a.proberOnce.Do(func() { a.prober = newEngineVersionProber(a.engines) })
+	return a.prober.Probe(ctx, name)
 }

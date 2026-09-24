@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -44,8 +45,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
@@ -121,14 +122,14 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 		DefaultAgent:    "x",
 		IsolationImages: map[string]string{claude.EngineName: image},
 	})
-	deps, err := operations.LaunchDepsFor(&config.Snapshot{Config: cfg}, strictness.Mode{Prog: "ctxloom"})
+	deps, err := operations.LaunchDepsFor(launchFacts(t), &config.Snapshot{Config: cfg})
 	require.NoError(t, err)
 	deps.Assembler = engineHomeAssembler{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	entry, err := operations.AssignSession(ctx, projectDir, claude.EngineName)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}).AssignSession(ctx, projectDir, claude.EngineName)
 	require.NoError(t, err)
 	id := coord.OwnerIdentity()
 	id.Harp = entry.HarpName
@@ -204,4 +205,13 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 	require.NoError(t, err)
 	require.Contains(t, body, "ENGINE-HOME-MARKER-5c1e", "the system-prompt file must carry the composed context")
 
+}
+
+// launchFacts is the launch facts a composition root would hand this test:
+// the process registry and the session dir's claim store, strict.
+func launchFacts(t *testing.T) operations.LaunchFacts {
+	t.Helper()
+	f, err := operations.NewLaunchFacts(engines.Registry()).Claims(fsstore.SessionClaims).Build()
+	require.NoError(t, err)
+	return f
 }

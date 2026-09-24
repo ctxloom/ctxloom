@@ -32,7 +32,7 @@ import (
 const sharedAgentDir = "internal/core/agent"
 
 func TestArch_SharedAgent_NamesNoEngineOnlyApproach(t *testing.T) {
-	names := operations.EngineNames()
+	names := operations.EngineNames(engines.Registry())
 	if len(names) == 0 {
 		t.Fatal("operations.EngineNames() returned nothing — the registry did not populate")
 	}

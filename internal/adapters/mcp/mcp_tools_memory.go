@@ -200,7 +200,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 	// concurrent compact_session calls for the same harp don't each pay for
 	// their own redundant heal.
 	res, err := s.singleflightCompact(harp+"\x00compact\x00"+model, func() (*compactSessionResult, error) {
-		src, herr := operations.ResolveAndHeal(ctx, harp)
+		src, herr := operations.ResolveAndHeal(ctx, s.facts.Engines, harp)
 		if herr != nil {
 			return nil, fmt.Errorf("resolve session %s: %w", harp, herr)
 		}
@@ -210,7 +210,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			}
 		}
 		if src.Entry != nil {
-			result, derr := operations.DistillEntry(ctx, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard})
+			result, derr := operations.DistillEntry(ctx, s.facts, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard})
 			if derr != nil {
 				return nil, fmt.Errorf("compaction failed: %w", derr)
 			}
@@ -234,9 +234,9 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// The TurnEnd-captured next step; absent on a harp that has not
 		// finished a turn, and absent costs nothing (see distillPrompt).
 		taskHint, _ := memory.ReadNextStep(harp)
-		distiller := operations.NewLazyOneShot(s.hostsFor(), s.cfg, s.strictness(), s.cfg.FastLabel(), model, workDir, "", 0)
+		distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
 		defer distiller.End()
-		source, serr := operations.DistillSource(backend, workDir)
+		source, serr := operations.DistillSource(s.facts.Engines, backend, workDir)
 		if serr != nil {
 			return nil, fmt.Errorf("resolve transcript source: %w", serr)
 		}
@@ -338,7 +338,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		if _, err := compactEntryFn(ctx, e, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Progress: io.Discard}); err != nil {
+		if _, err := compactEntryFn(ctx, s.facts, e, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Progress: io.Discard}); err != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
 		}
 	}
@@ -407,7 +407,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 	if backendName == "" {
 		backendName = s.cfg.GetDefaultLLM()
 	}
-	if !operations.EngineExists(backendName) {
+	if !operations.EngineExists(s.facts.Engines, backendName) {
 		return nil, nil, fmt.Errorf("unknown backend: %s", backendName)
 	}
 
@@ -440,7 +440,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 
 		targetSessionID = res.target()
 		if targetSessionID == "" {
-			source, _, serr := operations.ResolveSessionSource(s.cfg, backendName, workDir)
+			source, _, serr := operations.ResolveSessionSource(s.facts.Engines, s.cfg, backendName, workDir)
 			if serr != nil {
 				return nil, nil, serr
 			}
@@ -570,7 +570,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		}
 	}
 
-	if !operations.EngineExists(backendName) {
+	if !operations.EngineExists(s.facts.Engines, backendName) {
 		return nil, nil, fmt.Errorf("backend %q not found", backendName)
 	}
 
@@ -582,7 +582,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	// session by mtime and shift every position by one, so a blind index-1 pick
 	// can return the active session itself or an unrelated foreign transcript.
 	if sessionID == "" {
-		source, _, serr := operations.ResolveSessionSource(s.cfg, backendName, workDir)
+		source, _, serr := operations.ResolveSessionSource(s.facts.Engines, s.cfg, backendName, workDir)
 		if serr != nil {
 			return nil, nil, serr
 		}
@@ -660,7 +660,7 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 		// be stale post-heal (a fresh conversion can change
 		// CanonicalTranscriptPath), so use the ResolvedSource's entry, not
 		// the outer one, from here on.
-		src, herr := operations.ResolveAndHeal(ctx, harp)
+		src, herr := operations.ResolveAndHeal(ctx, s.facts.Engines, harp)
 		if herr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
@@ -690,7 +690,7 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 			}
 		}
 
-		if _, derr := operations.DistillEntry(ctx, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard}); derr != nil {
+		if _, derr := operations.DistillEntry(ctx, s.facts, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard}); derr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
 				Message: fmt.Sprintf("Couldn't distill previous session %s: %v", harp, derr),
@@ -795,7 +795,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
-	source, backendName, err := operations.ResolveSessionSource(s.cfg, backendName, workDir)
+	source, backendName, err := operations.ResolveSessionSource(s.facts.Engines, s.cfg, backendName, workDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -814,7 +814,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	refreshFailed := false
 	if policy.LiveTranscript {
 		if harp := sessionHarpForID(sessionID); harp != "" {
-			if src, _ := operations.ResolveAndHeal(ctx, harp); src.HealErr != nil {
+			if src, _ := operations.ResolveAndHeal(ctx, s.facts.Engines, harp); src.HealErr != nil {
 				// The stored transcript may still be readable; a refresh failure
 				// costs freshness, not the recovery. It does cost the right to
 				// call the cached essence current, though — see the cache branch.
@@ -838,7 +838,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		// lost the context in which to act on it.
 		var noCanon *transcript.NoCanonicalTranscriptError
 		if errors.As(err, &noCanon) {
-			src, herr := operations.ResolveAndHeal(ctx, noCanon.Harp)
+			src, herr := operations.ResolveAndHeal(ctx, s.facts.Engines, noCanon.Harp)
 			if herr == nil {
 				herr = src.HealErr
 			}
@@ -1078,9 +1078,9 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	// The TurnEnd-captured next step; absent on a harp that has not finished
 	// a turn, and absent costs nothing (see distillPrompt).
 	taskHint, _ := memory.ReadNextStep(harp)
-	distiller := operations.NewLazyOneShot(s.hostsFor(), s.cfg, s.strictness(), s.cfg.FastLabel(), model, workDir, "", 0)
+	distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
 	defer distiller.End()
-	source, serr := operations.DistillSource(backendName, workDir)
+	source, serr := operations.DistillSource(s.facts.Engines, backendName, workDir)
 	if serr != nil {
 		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't resolve a transcript source for session %s: %v", sessionID, serr)}, nil
 	}

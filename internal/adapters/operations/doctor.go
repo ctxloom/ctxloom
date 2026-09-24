@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
@@ -123,6 +125,7 @@ type DoctorRequest struct {
 // configuration that fails to load is a finding the checks report, not an
 // error.
 func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, error) {
+	reg := app.Engines()
 	cfg, cfgErr := app.Config(ctx)
 	discoverer, err := SignerDiscoverer()
 	if err != nil {
@@ -131,28 +134,28 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 	var checks []DoctorCheck
 	if req.DepsOnly {
 		checks = []DoctorCheck{
-			doctorCheckDeps(cfg),
+			doctorCheckDeps(reg, cfg),
 			doctorCheckSignKey(ctx, cfg, discoverer),
 			doctorCheckGitIdentity(ctx, discoverer.GitConfig),
 		}
 	} else {
 		checks = []DoctorCheck{
 			doctorCheckSetupMarker(cfg, cfgErr),
-			doctorCheckDeps(cfg),
+			doctorCheckDeps(reg, cfg),
 			doctorCheckSignKey(ctx, cfg, discoverer),
 			doctorCheckGitIdentity(ctx, discoverer.GitConfig),
-			doctorCheckAgents(ctx, cfg, cfgErr),
-			doctorCheckCapabilityLoss(ctx, cfg, cfgErr),
+			doctorCheckAgents(ctx, reg, cfg, cfgErr),
+			doctorCheckCapabilityLoss(ctx, reg, cfg, cfgErr),
 			doctorCheckVersion(),
-			doctorCheckTranscriptReaders(ctx, cfg, ProbeEngineVersion),
-			doctorCheckHooksTrust(ctx, cfg, cfgErr),
-			doctorCheckMCPInvocation(doctorProjectDir(cfg)),
+			doctorCheckTranscriptReaders(ctx, reg, cfg, app.ProbeEngineVersion),
+			doctorCheckHooksTrust(ctx, reg, cfg, cfgErr),
+			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
 			doctorCheckContentTrust(cfg, cfgErr),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
 			doctorCheckSetupAuthPing(),
-			doctorCheckIngestionLimit(cfg),
+			doctorCheckIngestionLimit(reg, cfg),
 			doctorCheckLocalTierState(cfg, req.Home),
 			doctorCheckGitignorePosture(cfg, cfgErr),
 			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
@@ -170,13 +173,13 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 // backend names (e.g. claude-code) every configured agent's Engine
 // label resolves to. nil cfg (config failed to load) yields none — the
 // deps check then reports only the engine-independent binaries.
-func doctorConfiguredEngines(cfg *config.Config) []string {
+func doctorConfiguredEngines(reg engine.Registry, cfg *config.Config) []string {
 	if cfg == nil {
 		return nil
 	}
 	set := map[string]bool{}
 	for _, a := range cfg.GetConfiguredAgents() {
-		backend, _ := ResolveBackend(cfg, a.LLM)
+		backend, _ := ResolveBackend(reg, cfg, a.LLM)
 		if backend != "" {
 			set[backend] = true
 		}
@@ -229,10 +232,10 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 // (doctorContainerRuntimeRequired). The two buckets are reported separately so
 // "missing" never conflates an optional convenience with a real hard
 // dependency.
-func doctorCheckDeps(cfg *config.Config) DoctorCheck {
+func doctorCheckDeps(reg engine.Registry, cfg *config.Config) DoctorCheck {
 	const marker = "DOCTOR-CHECK-DEPS-a1"
 	missingRequired := doctorMissingFromPath(doctorDepBinariesRequired)
-	missingRequired = append(missingRequired, doctorMissingEngineClients(cfg)...)
+	missingRequired = append(missingRequired, doctorMissingEngineClients(reg, cfg)...)
 	missingRecommended := doctorMissingFromPath(doctorDepBinariesRecommended)
 	if len(doctorRuntimes()) == 0 {
 		if doctorContainerRuntimeRequired(cfg) {
@@ -320,11 +323,11 @@ func doctorMissingFromPath(bins []string) []string {
 // probe. The binary is the one the engine's own grammar declares
 // (EngineBinary); a test double declares none and is skipped rather
 // than reported as missing.
-func doctorMissingEngineClients(cfg *config.Config) []string {
+func doctorMissingEngineClients(reg engine.Registry, cfg *config.Config) []string {
 	var missing []string
-	for _, engine := range doctorConfiguredEngines(cfg) {
-		bin := EngineBinary(engine)
-		if bin == "" || IsTestOnlyEngine(engine) {
+	for _, engine := range doctorConfiguredEngines(reg, cfg) {
+		bin := EngineBinary(reg, engine)
+		if bin == "" || IsTestOnlyEngine(reg, engine) {
 			continue
 		}
 		if _, err := exec.LookPath(bin); err != nil {
@@ -534,7 +537,7 @@ func gitIdentityGapDetail(nameSet, emailSet bool) string {
 // project with genuinely zero agents is rare enough that silently calling it
 // "info" would hide the far more common case, an interrupted/incomplete
 // setup.
-func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckAgents(ctx context.Context, reg engine.Registry, cfg *config.Config, cfgErr error) DoctorCheck {
 	if cfgErr != nil {
 		return DoctorCheck{Marker: "DOCTOR-CHECK-AGENTS-b2", Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
@@ -550,7 +553,7 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) Do
 	sort.Strings(names)
 	var failed []string
 	for _, name := range names {
-		if _, err := ResolveAgent(ctx, cfg, name, ""); err != nil {
+		if _, err := ResolveAgent(ctx, reg, cfg, name, ""); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", name, err))
 		}
 	}
@@ -584,7 +587,7 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) Do
 // lost when nothing is configured that cannot be carried, and the check then
 // says so rather than staying silent, so a reader can tell "checked, clean"
 // apart from "never checked".
-func doctorCheckCapabilityLoss(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckCapabilityLoss(ctx context.Context, reg engine.Registry, cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-CAPABILITY-LOSS-u1"
 	if cfgErr != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
@@ -593,7 +596,7 @@ func doctorCheckCapabilityLoss(ctx context.Context, cfg *config.Config, cfgErr e
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "no config to read an engine binding from"}
 	}
 	configured := len(cfg.GetConfiguredAgents())
-	entries := CapabilityLossByAgent(ctx, cfg)
+	entries := CapabilityLossByAgent(ctx, reg, cfg)
 	if len(entries) == 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: fmt.Sprintf(
 			"every configured engine carries what its agent's profiles declare (%d agent(s) checked)", configured)}
@@ -620,13 +623,13 @@ func doctorCheckVersion() DoctorCheck {
 // never as a fault (ruled 2026-09-21). Plus how many signers the trust store
 // carries (ListSigners — always includes the embedded root, so a healthy
 // store is never reported as empty).
-func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
+func doctorCheckHooksTrust(ctx context.Context, reg engine.Registry, cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-HOOKS-TRUST-d4"
 	if cfgErr != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
 	status := DoctorOK
-	hooks, hooksOK := doctorHooksWiringDetail(ctx, cfg)
+	hooks, hooksOK := doctorHooksWiringDetail(ctx, reg, cfg)
 	trust, trustOK := doctorTrustStoreDetail(ListSigners(cfg, nil))
 	if !hooksOK || !trustOK {
 		status = DoctorWarn
@@ -640,12 +643,12 @@ func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error
 // and MCP (the explicit `manage hooks install` door) and which rely on the
 // session's own delivery — both are healthy states. ok=false is the caller's
 // warn signal, raised only when the read itself fails.
-func doctorHooksWiringDetail(ctx context.Context, cfg *config.Config) (detail string, ok bool) {
-	configured := doctorConfiguredEngines(cfg)
+func doctorHooksWiringDetail(ctx context.Context, reg engine.Registry, cfg *config.Config) (detail string, ok bool) {
+	configured := doctorConfiguredEngines(reg, cfg)
 	if len(configured) == 0 {
 		return "hooks/MCP: no engine is configured to check", true
 	}
-	result, err := HarnessStatus(ctx, cfg, HarnessStatusRequest{})
+	result, err := HarnessStatus(ctx, reg, cfg, HarnessStatusRequest{})
 	if err != nil {
 		return "hooks/MCP: " + err.Error(), false
 	}
@@ -1027,10 +1030,10 @@ func doctorCheckSetupAuthPing() DoctorCheck {
 // session that has run every other check ends on a STATED limit instead of a
 // report that simply goes quiet, which a reader could otherwise mistake for
 // "checked and confirmed read".
-func doctorCheckIngestionLimit(cfg *config.Config) DoctorCheck {
+func doctorCheckIngestionLimit(reg engine.Registry, cfg *config.Config) DoctorCheck {
 	const marker = "DOCTOR-CHECK-INGESTION-q7"
 	who := "the configured engine"
-	if engines := doctorConfiguredEngines(cfg); len(engines) > 0 {
+	if engines := doctorConfiguredEngines(reg, cfg); len(engines) > 0 {
 		who = strings.Join(engines, ", ")
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: fmt.Sprintf(

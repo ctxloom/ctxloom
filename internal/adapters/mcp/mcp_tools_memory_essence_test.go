@@ -45,7 +45,7 @@ func TestLoadHarpEssence_ReadFailureIsNotReportedAsNeverDistilled(t *testing.T) 
 	// over chmod 0000 because it fails for root too.
 	require.NoError(t, os.MkdirAll(essencePath, 0o755))
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	_, out, err := s.loadHarpEssence(harp)
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -67,7 +67,7 @@ func TestLoadHarpEssence_MissingEssenceStillAdvisesCompaction(t *testing.T) {
 	proj := t.TempDir()
 	harp, _ := bindHarpForEssence(t, proj)
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	_, out, err := s.loadHarpEssence(harp)
 	require.NoError(t, err)
 	require.NotNil(t, out)

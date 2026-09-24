@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // corruptApprovalsRecord plants an unparseable .sig in dir, which is exactly
@@ -55,7 +56,7 @@ func TestApplyHooks_UnreadableApprovalsStore_IsNotReportedAsApplied(t *testing.T
 	corruptApprovalsRecord(t, filepath.Join(tmpDir, ".ctxloom", paths.ApprovalsDirName))
 
 	cfg := realGated(fixtureConfig(tmpDir))
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               cfg,
@@ -80,7 +81,7 @@ func TestApplyHooks_ReadableApprovalsStore_StillApplies(t *testing.T) {
 	t.Cleanup(countersign.SetHomeDirForTesting(t.TempDir()))
 
 	cfg := realGated(fixtureConfig(tmpDir))
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               cfg,

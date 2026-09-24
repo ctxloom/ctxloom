@@ -154,14 +154,32 @@ func treeBundleDir(baseDir, canonical string) (string, error) {
 func reportBundleLoadFailures(failures map[string]error) {
 	for name, err := range failures {
 		if errors.Is(err, bundles.ErrTreeBundleWithheld) {
-			strictness.FailOnce(strictness.ClassTrust,
-				"re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed",
+			strictness.FailOnce(strictness.ClassTrust, withheldRemedy(err),
 				"remote bundle %q was installed but withheld: %v", name, err)
 			continue
 		}
 		strictness.FailOnce(strictness.ClassBundle, "ctxloom deps pull (or remove the bundle from its profiles)",
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
+}
+
+// The fix lines a withheld tree can carry. The withhold itself is decided by
+// the reader; these only choose what to tell the user about it.
+const (
+	remedyWithheldTampered = "re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed"
+	// A pin at a commit signed in the retired format stays withheld for as long
+	// as the pin does, and `deps pull` keeps the pin — so only an upgrade, which
+	// moves it to the publisher's re-signed commit, can fix it.
+	remedyWithheldSuperseded = "ctxloom deps upgrade — the pinned commit predates its publisher's re-sign in the current manifest format, and `deps pull` keeps the pin"
+)
+
+// withheldRemedy selects the fix line for a withheld tree from the error's
+// typed cause.
+func withheldRemedy(err error) string {
+	if errors.Is(err, content.ErrManifestSuperseded) {
+		return remedyWithheldSuperseded
+	}
+	return remedyWithheldTampered
 }
 
 // remoteBundleReaders builds one pinned-tree reader per lockfile-listed bundle:

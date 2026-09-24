@@ -247,6 +247,13 @@ func (r *repoFSReader) verifyTree(ctx context.Context, tree content.Bundle) (Sig
 		return SignatureFacts{}, fmt.Errorf("%w: %q — %v", ErrTreeBundleWithheld, r.ref, verdict.Contents)
 	}
 	if verdict.Status == attest.StatusTampered {
+		// The verdict carries a manifest parse failure only as text. Re-reading
+		// the manifest recovers it TYPED, so a caller can tell a retired signing
+		// format from tampering. Both branches withhold: the re-read chooses how
+		// the cause is carried, never whether the tree is used.
+		if _, merr := tree.Manifest(ctx); errors.Is(merr, content.ErrManifestSuperseded) {
+			return SignatureFacts{}, fmt.Errorf("%w: %q — %w", ErrTreeBundleWithheld, r.ref, merr)
+		}
 		return SignatureFacts{}, fmt.Errorf("%w: %q — %s", ErrTreeBundleWithheld, r.ref, verdict.Detail)
 	}
 	if verdict.OK() {

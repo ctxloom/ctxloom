@@ -71,6 +71,15 @@ var (
 	// re-rendered another would be signed as one byte string and checked as a
 	// different one.
 	ErrManifestFormat = errors.New("content: malformed manifest")
+	// ErrManifestSuperseded ACCOMPANIES ErrManifestFormat — never replaces it —
+	// when a manifest's first line is DigestVersionMarker: the retired format a
+	// publisher signed in before bundle manifests existed. It changes no
+	// decision (the manifest is refused exactly as any malformed one is); it
+	// exists so a surface can say the fix is to advance the pin to the
+	// publisher's re-signed commit, which a re-pull of the same commit is not.
+	// An UNKNOWN marker does not carry it: that is a format newer than this
+	// build, and the fix there is a newer ctxloom.
+	ErrManifestSuperseded = errors.New("content: manifest is in the retired content-digest format")
 	// ErrContentsMismatch reports a tree that does not match its manifest, in
 	// either direction. Inspect the wrapped *ContentsError for which.
 	ErrContentsMismatch = errors.New("content: tree does not match its manifest")
@@ -230,6 +239,9 @@ func ParseManifest(raw []byte) (Manifest, error) {
 		first := ""
 		if len(body) > 0 {
 			first = body[0]
+		}
+		if first == DigestVersionMarker {
+			return Manifest{}, fmt.Errorf("%w: %w: version marker is %q, this build understands only %q", ErrManifestFormat, ErrManifestSuperseded, first, ManifestVersionMarker)
 		}
 		return Manifest{}, fmt.Errorf("%w: version marker is %q, this build understands only %q", ErrManifestFormat, first, ManifestVersionMarker)
 	}

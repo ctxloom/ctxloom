@@ -111,12 +111,26 @@ func TestParseManifest_RejectsNonCanonicalAndMalformed(t *testing.T) {
 			_, err := ParseManifest([]byte(raw))
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrManifestFormat)
+			assert.NotErrorIs(t, err, ErrManifestSuperseded,
+				"only the retired digest marker is a superseded format; anything else is malformed or newer than this build")
 		})
 	}
 
 	m, err := ParseManifest([]byte(good))
 	require.NoError(t, err)
 	assert.Equal(t, 2, m.Len())
+}
+
+// A SHA256SUMS a publisher signed before bundle manifests existed opens with
+// the content-digest marker. It is refused exactly as any malformed manifest is
+// (ErrManifestFormat), and ALSO names that it is the retired format, so a
+// surface can tell the user to advance the pin rather than re-pull it.
+func TestParseManifest_DigestMarkerIsMalformedAndSuperseded(t *testing.T) {
+	raw := DigestVersionMarker + "\n" + strings.Repeat("a", 64) + "  fragments/a.md\n"
+	_, err := ParseManifest([]byte(raw))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrManifestFormat, "the refusal itself is unchanged")
+	assert.ErrorIs(t, err, ErrManifestSuperseded)
 }
 
 func TestBundleManifest_MissingIsItsOwnError(t *testing.T) {

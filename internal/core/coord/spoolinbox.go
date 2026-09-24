@@ -140,34 +140,19 @@ func (in *spoolInbox) sever(role string, err error) {
 // deliverable mail, or park for up to wait.
 func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration) ([]Message, error) {
 	in.ack(role)
-	if msgs, ok := in.claim(role); ok {
+	if msgs, _, ok := in.claim(role); ok {
 		return msgs, nil
 	}
 	if wait <= 0 {
 		return nil, ErrRecvTimeout
 	}
-	in.mu.Lock()
-	prev := in.polls[role]
-	fresh := prev == nil || prev.done
-	if !fresh {
-		// Newest preempts: the older poll completes with a typed error. No
-		// park-hook churn — the role stays parked, only the waiter swaps.
-		prev.done = true
-		go func() { prev.ch <- pollResult{err: ErrRecvPreempted} }()
-	}
-	p := &parkedPoll{ch: make(chan pollResult, 1)}
-	in.polls[role] = p
-	in.mu.Unlock()
-
-	if fresh {
-		in.onPark(role)
-	}
+	p := in.register(role)
 	// Claim once more now that the poll is registered. A delivery that landed
 	// after the claim above rang a wake that found no poll and was dropped
 	// (the courier rings only after the write); its file is on disk, and
 	// without this look the receive would sit out its whole wait beside it.
 	// Any delivery landing after this claim finds the poll and wakes it.
-	if msgs, ok := in.claim(role); ok {
+	if msgs, _, ok := in.claim(role); ok {
 		return in.retire(role, p, msgs), nil
 	}
 
@@ -182,7 +167,7 @@ func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration)
 		// construction, still live (mid-select on this very channel), so a
 		// claim made here is a genuine hand-off the next receive's ack can
 		// trust. Woken but beaten to the mail by another claim is a timeout.
-		if msgs, ok := in.claim(role); ok {
+		if msgs, _, ok := in.claim(role); ok {
 			return msgs, nil
 		}
 		return nil, ErrRecvTimeout
@@ -219,6 +204,27 @@ func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message) []Messa
 	return msgs
 }
 
+// register parks a new poll for role and returns it. Newest preempts: an
+// older live poll completes with ErrRecvPreempted, with no park-hook churn —
+// the role stays parked, only the waiter swaps — so onPark runs only for a
+// role that was not already parked.
+func (in *spoolInbox) register(role string) *parkedPoll {
+	in.mu.Lock()
+	prev := in.polls[role]
+	fresh := prev == nil || prev.done
+	if !fresh {
+		prev.done = true
+		go func() { prev.ch <- pollResult{err: ErrRecvPreempted} }()
+	}
+	p := &parkedPoll{ch: make(chan pollResult, 1)}
+	in.polls[role] = p
+	in.mu.Unlock()
+	if fresh {
+		in.onPark(role)
+	}
+	return p
+}
+
 // abandon resolves the timeout/cancel race against a concurrent delivery: if
 // the delivery already won (done), its completion is authoritative — wait for
 // it; otherwise take the poll down, re-acquire the slot (unpark), and fail
@@ -241,7 +247,7 @@ func (in *spoolInbox) abandon(role string, p *parkedPoll, err error, callerGone 
 		if callerGone {
 			return nil, err
 		}
-		if msgs, ok := in.claim(role); ok {
+		if msgs, _, ok := in.claim(role); ok {
 			return msgs, nil
 		}
 		return nil, err
@@ -263,12 +269,12 @@ func (in *spoolInbox) abandon(role string, p *parkedPoll, err error, callerGone 
 // in/failed/ rather than left to be re-read and re-warned about on every
 // receive for the life of the process — the terminal state the runner's
 // reader gives such a file, for the same reason.
-func (in *spoolInbox) claim(role string) ([]Message, bool) {
+func (in *spoolInbox) claim(role string) ([]Message, []string, bool) {
 	res, err := spool.Claim(in.mapper, role)
 	if err != nil {
 		in.rep.Warnf("coordinator: claiming the session owner's inbox: %v", err)
 		in.counters.Failed.Add(1)
-		return nil, false
+		return nil, nil, false
 	}
 	for _, p := range res.Problems {
 		in.rep.Warnf("coordinator: a file in the owner's in/ spool is not a message and will not be delivered: %v", p.Error())
@@ -289,13 +295,13 @@ func (in *spoolInbox) claim(role string) ([]Message, bool) {
 		out = append(out, msg)
 	}
 	if len(out) == 0 {
-		return nil, false
+		return nil, nil, false
 	}
 	in.mu.Lock()
 	in.handed[role] = append(in.handed[role], names...)
 	in.mu.Unlock()
 	in.counters.Delivered.Add(uint64(len(out)))
-	return out, true
+	return out, names, true
 }
 
 // ack acknowledges every file a prior receive handed to role's caller by

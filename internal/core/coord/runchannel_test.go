@@ -465,3 +465,72 @@ func TestRunChannel_StopRunOmittedRunIdAndReason_IsRefused(t *testing.T) {
 	assert.Contains(t, resp.GetStatus().GetMessage(), "run_id")
 	assert.NotEqual(t, StateEnded, rosterState(c, out.Harp), "a refused sweep stops nothing")
 }
+
+// TestRunChannel_LateTurnEventsFromAnEndedRunDoNotMoveTheResumedRun forces the
+// run-identity case on the turn-state path: frames an ended run's channel had
+// already read are still dispatched (the receive goroutine outlives severChan
+// and nothing synchronises with it), and by then the harp may be running again
+// under a FRESH run. Those frames speak for the run that sent them. Resolved
+// by harp instead, a late TurnIdle marks the resumed run idle and yields its
+// slot mid-turn, a late park releases a slot the resumed run is still using,
+// and a TurnIdle landing while the resumed run carries an exit request ends it
+// at a boundary it never reached.
+//
+// HandleEvent dispatches custom events synchronously, so each assertion is
+// decided when the call returns — no window.
+func TestRunChannel_LateTurnEventsFromAnEndedRunDoNotMoveTheResumedRun(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	var spawned atomic.Int32
+	sp := startRunSpawner(func() *scriptedChat {
+		if spawned.Add(1) == 1 {
+			return &scriptedChat{} // run 1: its turn completes on its own
+		}
+		return &scriptedChat{Gate: gate} // run 2: held mid-turn
+	})
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	c.mu.Lock()
+	stale := c.chans[out.Harp]
+	c.mu.Unlock()
+	require.NotNil(t, stale)
+	require.Equal(t, out.RunID, stale.Identity().RunID)
+	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done"))
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
+
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond,
+		"the harp must be resumed as a fresh run and be mid-turn before the late frames land")
+	resumed := currentRunID(c, out.Harp)
+	require.NotEqual(t, out.RunID, resumed)
+	slotHeldBy := func(runID string) bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		rt := c.attach[runID]
+		return rt != nil && rt.slot == slotHeld
+	}
+	require.True(t, slotHeldBy(resumed))
+
+	c.HandleEvent(stale, Event{Payload: CustomEvent{Name: CustomTurnIdle}})
+	assert.Equal(t, StateExecuting, rosterState(c, out.Harp), "a late TurnIdle from the ended run must not idle the resumed run mid-turn")
+	assert.True(t, slotHeldBy(resumed), "a late TurnIdle from the ended run must not yield the resumed run's slot")
+
+	c.HandleEvent(stale, Event{Payload: CustomEvent{Name: CustomRecvParked}})
+	assert.Equal(t, StateExecuting, rosterState(c, out.Harp), "a late park from the ended run must not park the resumed run")
+	assert.True(t, slotHeldBy(resumed), "a late park from the ended run must not release the resumed run's slot")
+
+	c.recordSummary(out.Harp, resumed, 1, finalSummary("FINAL: the resumed run's own"))
+	require.Eventually(t, func() bool { return exitMarked(c, resumed) }, conformanceWait, time.Millisecond)
+	c.HandleEvent(stale, Event{Payload: CustomEvent{Name: CustomTurnIdle}})
+	assert.NotEqual(t, StateEnded, rosterState(c, out.Harp),
+		"the resumed run's exit request must be taken at ITS boundary, not at a boundary the ended run reports")
+
+	close(gate)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
+	assert.Equal(t, CauseFinalReported, runCause(c, resumed))
+	assert.Contains(t, runTerminalDetail(c, resumed), "at its turn boundary")
+}

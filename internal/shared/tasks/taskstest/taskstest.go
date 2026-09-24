@@ -64,6 +64,10 @@ var EnvKeys = []string{
 	"CTXLOOM_LAUNCH_MAX_ATTEMPTS",
 	"CTXLOOM_LAUNCH_BACKOFF_BASE",
 	"CTXLOOM_LAUNCH_BACKOFF_MAX",
+	// sessions.EnvRunnerOwnerLossWindow, read by runner.Main through the
+	// constant and forwarded by spawn.StartRunner — an ambient value would
+	// change how long every test's runner outlives its coordinator.
+	"CTXLOOM_RUNNER_OWNER_LOSS_WINDOW",
 	// procsec.EnvAllowProcessInspection, read at the top of main() to skip
 	// same-uid /proc hardening for debugging. An ambient value would leave every
 	// test process's environ peer-readable, so a test asserting the hardened

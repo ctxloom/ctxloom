@@ -98,6 +98,16 @@ Tunables for the bounded launch-retry budget that gates a delegated child's (`ag
 
 An unset or empty value keeps the default silently. A set-but-invalid value (unparseable, zero, or negative) also falls back to the default, but with a loud warning naming the variable — never silently to zero, which would reopen unbounded retry.
 
+## Runner Owner-Loss Window
+
+How long a delegated child's runner outlives an unreachable coordinator. Operator-settable, forwarded onto every runner (container runners included):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` | How long (Go duration syntax, e.g. `5m`) a runner keeps redialling an unreachable coordinator before exiting on its own, which lets a container child's `--rm` remove its container. A coordinator restarted within the window re-adopts its children. | `2m` |
+
+Read once when the runner starts. An unset or empty value keeps the default silently; a set-but-invalid value (unparseable, zero, or negative) keeps the default with a loud warning naming the variable.
+
 ## Session Variables
 
 `ctxloom run` exports these into the launched backend's environment. They are set for you — listed here for debugging:

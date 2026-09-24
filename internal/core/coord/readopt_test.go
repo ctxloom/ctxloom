@@ -117,10 +117,10 @@ func TestReadopt_ARunnerThatNeverReturns_IsRunnerLoss(t *testing.T) {
 
 // TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner: a coordinator
 // that is DOWN ends nothing, so a restart that takes longer than the
-// coordinator's own runner-loss grace (RunnerLossTimeout) must still find its
+// coordinator's own runner-loss grace (runnerLossTimeout) must still find its
 // runners alive and re-adopt them. The runner's owner-loss window is its own
 // (runner.DefaultOwnerLossWindow), deliberately longer than any grace; tying
-// it to RunnerLossTimeout killed every live child of a coordinator that took
+// it to runnerLossTimeout killed every live child of a coordinator that took
 // over 20s to come back.
 func TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner(t *testing.T) {
 	resetStrictness(t)
@@ -140,7 +140,7 @@ func TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner(t *testing.T) 
 	crashCoordinator(first)
 	// The coordinator stays down longer than its own grace. Nothing here is a
 	// race to win: the premise IS the elapsed time.
-	time.Sleep(RunnerLossTimeout + 10*time.Second)
+	time.Sleep(runnerLossTimeout + 10*time.Second)
 
 	second := newTestCoordinatorOver(t, stateDir, sp)
 	sp.engineHome(0).Redial()

@@ -52,6 +52,14 @@ ctxloom: GitHub API status: 404 for /repos/owner/repo
 
 Each is read once, at coordinator startup. An unset or empty value falls back to the default silently (the ordinary, unconfigured case); a set-but-invalid value (unparseable, zero, or negative) falls back to the default too, but LOUDLY — a warning names the variable and its bad value — because a zero or negative override here would silently reopen the unbounded-retry bug this budget exists to close (a broken launch spun for 49 minutes at ~2 attempts/sec before this gate existed).
 
+## Runner owner-loss window
+
+| Variable | Values | Default | Purpose |
+|----------|--------|---------|---------|
+| `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` | Go duration (e.g. `5m`) | `2m` | How long a delegated child's runner keeps redialling an unreachable coordinator before it exits on its own (a container child's exit is what lets `--rm` remove its container). A coordinator restarted within the window re-adopts its children however long the restart took, so raise it if restarts can be slow; lower it to reclaim orphaned containers sooner. |
+
+Set it where you run ctxloom; it is forwarded onto each runner, container runners included, and read once when the runner starts. Unset or empty keeps the default silently; a set-but-invalid value (unparseable, zero, or negative) keeps the default LOUDLY — the runner warns, naming the variable — because a zero window would end a runner the instant its coordinator blinked.
+
 ## Authentication
 
 | Variable | Default | Purpose |

@@ -219,7 +219,7 @@ const HomeRedialBackoff = 2 * time.Second
 // coordinator before it exits on its own (HomeConfig.OwnerLossWindow;
 // sessions.EnvRunnerOwnerLossWindow overrides it).
 //
-// It is NOT the coordinator's runner-loss grace (coord.RunnerLossTimeout), and
+// It is NOT the coordinator's runner-loss grace (coord's runnerLossTimeout), and
 // must not be tied to it: that grace is what a LIVE coordinator gives a silent
 // runner, and what a RESTARTED one gives a runner to re-Hello once it is back.
 // A coordinator that is down ends nothing, and a restarted one re-adopts any

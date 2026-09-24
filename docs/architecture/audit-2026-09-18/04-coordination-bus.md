@@ -308,7 +308,7 @@ flowchart LR
   subgraph detect["five detectors, one terminal"]
     D1["coordService.RunnerChannel recv pump<br/>RunExited frame"]
     D2["coordService.RunnerChannel deferred<br/>(stream ended, still registered)"]
-    D3["runnerWatchdog → checkRunnerLiveness<br/>(now−lastBeat > RunnerLossTimeout)"]
+    D3["runnerWatchdog → checkRunnerLiveness<br/>(now−lastBeat > runnerLossTimeout)"]
     D4["issueStartRun: watchRunnerExit(engine.Wait)<br/>+ awaitRunner timeout"]
     D5["recordSummary(SCOPE_FINAL) → endOnFinalReport<br/>(finalPolicy drain)"]
     D6["stopRun / StopChildren / runDrain<br/>(explicit)"]
@@ -617,7 +617,7 @@ flowchart TD
 **Settles it:** `grpc.WaitForHandlers(true)` in `grpcServer()` and delete `c.streams`+`waitBounded`; or route handler registration through a sealed counter that answers `Unavailable` once `Close` has begun. Then a `bidiSession` helper both handlers call. Test: the named test under `-race -count=50`.
 
 ### F7 · DUPLICATION · five death detectors, one of them narrating instead of acting
-**Sites:** `handleRunExited`; `RunnerChannel`'s deferred `runnerLost`; `runnerWatchdog → checkRunnerLiveness`; `issueStartRun`'s `watchRunnerExit`/`awaitRunner` timeout → `failChild`; `recordSummary(SCOPE_FINAL) → endOnFinalReport`; plus `livenessWatchdog → runnerHeartbeatProbe` (`liveness.go`) which evaluates the SAME `now − rs.lastBeat > RunnerLossTimeout` as `checkRunnerLiveness` but only warns, once a minute, and whose detail string names "the legacy chat path".
+**Sites:** `handleRunExited`; `RunnerChannel`'s deferred `runnerLost`; `runnerWatchdog → checkRunnerLiveness`; `issueStartRun`'s `watchRunnerExit`/`awaitRunner` timeout → `failChild`; `recordSummary(SCOPE_FINAL) → endOnFinalReport`; plus `livenessWatchdog → runnerHeartbeatProbe` (`liveness.go`) which evaluates the SAME `now − rs.lastBeat > runnerLossTimeout` as `checkRunnerLiveness` but only warns, once a minute, and whose detail string names "the legacy chat path".
 **What:** all five funnel into `terminateRun` (I6 holds), so correctness is fine; the cost is that "is this runner dead" has two clocks and two owners, and the warn-only one can fire for a runner the acting one already terminated (it then reads "no runner connected", which is true and useless). `checkRunnerLiveness` deletes from `c.runners` before `runnerLost` — a heartbeat that arrives in between is dropped on the floor by the recv pump's `rs.lastBeat` write to an unregistered session.
 **Settles it:** the liveness probe reads `checkRunnerLiveness`'s verdict (or the roster's terminal cause) instead of recomputing it; delete the string.
 

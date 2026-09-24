@@ -337,3 +337,17 @@ func TestRunConfigGet_RawNarrowsTheAuthoredDocument(t *testing.T) {
 	assert.Contains(t, out.String(), "big:")
 	assert.Contains(t, out.String(), "role: fast", "the section is lossless, role included")
 }
+
+func TestRunConfigGet_RawLeavesTheShippedRegistryOut(t *testing.T) {
+	agentProject(t, "version: 6\nworkspace: worktree\n")
+	for _, raw := range []bool{false, true} {
+		setConfigRaw(t, raw)
+		cmd, out := textCmd()
+		require.NoError(t, runConfigGet(cmd, []string{"llm"}))
+		if raw {
+			assert.NotContains(t, out.String(), "claude-code", "--raw must leave the shipped registry out of the section")
+		} else {
+			assert.Contains(t, out.String(), "claude-code", "get renders the effective section")
+		}
+	}
+}

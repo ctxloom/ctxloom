@@ -78,11 +78,10 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 		// down itself.
 		ws := &containerWorkspace{dir: dir, scratchRoot: scratch, agentID: "m", baseCleanup: cleanup}
 
-		mounts, mountCleanup, err := base.mountBase(ctx, rt, proj, dir, scratch, engineContainerSpec{}, f)
+		mounts, err := base.mountBase(ctx, rt, proj, dir, scratch, engineContainerSpec{}, f)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, boom, "the mapping failure must reach the caller intact")
 		assert.Nil(t, mounts)
-		assert.Nil(t, mountCleanup, "a failed mapping hands back no cleanup for the caller to run")
 		assert.Empty(t, f.Removed,
 			"the mapping must NOT tear down a checkout it does not own — the workspace does")
 

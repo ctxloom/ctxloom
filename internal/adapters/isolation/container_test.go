@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -442,63 +443,65 @@ func TestContainerWorkspace_CleanupSurfacesBaseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "remove container scratch")
 }
 
-// TestHostBase_PrunesOverlayTargetsItCreated pins a regression. The
-// overlay TARGET dirs must be pre-created as the invoking user — otherwise a
-// rootful daemon creates the bind mountpoint as ROOT inside the identical-path
-// project bind, EACCES-ing every later host run. But they were created inside the
-// user's HOST project and never removed: Cleanup only removed the scratch tree,
-// so preparing a container run left `.claude/` and `.ctxloom/cache/` behind in a
-// project that never had them, as a side effect of a run that writes nothing
-// there (the overlay shadows them; every write lands in scratch).
+// TestContainer_CleanupKeepsOverlayTargets pins the ruling that the overlay
+// mountpoints a container run needs inside the LIVE project are created and
+// KEPT. They must be pre-created as the invoking user (containerConfigOverlay
+// says why), and removing them again at teardown is unsafe: the project is
+// shared, so a second run on it mounts the SAME targets, and one run's teardown
+// removing an empty target detaches the path the other run's overlay is bound
+// to. The accepted cost is an empty .claude/ and .ctxloom/cache/ in a
+// container-only project.
 //
-// Only what we created, only while still empty, and never a directory the
-// project already had.
-func TestHostBase_PrunesOverlayTargetsItCreated(t *testing.T) {
+// Driven through the real PrepareWorkspace and Cleanup, with two workspaces on
+// one project: the first creates the targets, and its Cleanup must leave them
+// for the second.
+func TestContainer_CleanupKeepsOverlayTargets(t *testing.T) {
+	testsupport.Isolate(t)
 	ctx := context.Background()
-	rt := fakeRuntime{name: "docker", available: true}
-	proj := t.TempDir()
-	scratch := t.TempDir()
 
-	// A directory the project already owns, with content: untouchable.
-	preexisting := filepath.Join(proj, ".kept")
-	require.NoError(t, os.MkdirAll(preexisting, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(preexisting, "user.json"), []byte("{}"), 0o644))
+	fake := t.TempDir()
+	script := filepath.Join(fake, "fake-docker")
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
+	writeFakeRuntimeScript(t, script, filepath.Join(fake, "builds.log"), fake, labels)
+	require.NoError(t, os.WriteFile(filepath.Join(fake, "ctxloom-agent-keep-test_latest"), nil, 0o644))
 
-	spec := engineContainerSpec{overlayDirs: []string{".kept", ".claude", filepath.FromSlash(".ctxloom/cache")}}
-	_, cleanup, err := hostBase{}.mountBase(ctx, rt, proj, proj, scratch, spec, &git.Fake{})
-	require.NoError(t, err)
+	prevFS := sharedFSCheck
+	sharedFSCheck = func(context.Context, Runtime, string, []string) error { return nil }
+	t.Cleanup(func() { sharedFSCheck = prevFS })
 
-	for _, rel := range []string{".claude", filepath.FromSlash(".ctxloom/cache")} {
-		require.DirExists(t, filepath.Join(proj, rel), "the overlay target must exist before the daemon sees the mount")
+	targets := []string{".claude", filepath.FromSlash(".ctxloom/cache")}
+	c := Container{
+		runtime: fakeRuntime{name: "docker", binary: script, available: true},
+		image:   "ctxloom-agent-keep-test:latest",
+		engineSpec: engineContainerSpec{
+			engineInstall: []byte("RUN echo fake-install\n"),
+			resolveAuth: func() (containerAuth, bool) {
+				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
+			},
+			overlayDirs: targets,
+		},
+		binaryPath: defaultContainerBinary,
+		home:       defaultContainerHome,
+		base:       hostBase{},
+		state:      SessionState{Harp: "brisk-teal-otter"},
 	}
 
-	require.NoError(t, cleanup())
-
-	assert.NoDirExists(t, filepath.Join(proj, ".claude"),
-		"an overlay target this run created must not outlive it in the user's project")
-	assert.NoDirExists(t, filepath.Join(proj, ".ctxloom"),
-		"…including the intermediate directories created with it")
-	assert.FileExists(t, filepath.Join(preexisting, "user.json"),
-		"a directory the project already owned is never pruned")
-}
-
-// TestHostBase_KeepsOverlayTargetsThatGainedContent: pruning is empty-only.
-// Anything that landed in a target dir belongs to the user (or to a writer the
-// overlay did not shadow), so the directory stays — and its parents with it.
-func TestHostBase_KeepsOverlayTargetsThatGainedContent(t *testing.T) {
-	ctx := context.Background()
 	proj := t.TempDir()
-
-	spec := engineContainerSpec{overlayDirs: []string{filepath.FromSlash(".ctxloom/cache")}}
-	_, cleanup, err := hostBase{}.mountBase(ctx, fakeRuntime{name: "docker", available: true},
-		proj, proj, t.TempDir(), spec, &git.Fake{})
+	first, err := c.PrepareWorkspace(ctx, proj, "member-first")
 	require.NoError(t, err)
+	for _, rel := range targets {
+		require.DirExists(t, filepath.Join(proj, rel), "premise: the first run created the overlay target")
+	}
+	second, err := c.PrepareWorkspace(ctx, proj, "member-second")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = second.Cleanup() })
 
-	require.NoError(t, os.WriteFile(filepath.Join(proj, ".ctxloom", "cache", "landed"), []byte("x"), 0o644))
-	require.NoError(t, cleanup())
+	require.NoError(t, first.Cleanup())
 
-	assert.FileExists(t, filepath.Join(proj, ".ctxloom", "cache", "landed"),
-		"a target that gained content is never removed")
+	for _, rel := range targets {
+		assert.DirExists(t, filepath.Join(proj, rel),
+			"the first run's teardown must not remove a target the second run's overlay is still bound to")
+	}
 }
 
 // TestGitCommonDirMount_WholeCommonDirReadWrite pins the ACCEPTED posture a

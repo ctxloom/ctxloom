@@ -355,7 +355,7 @@ func remintReach(cw *containerWorkspace, spawnEnv map[string]string) (map[string
 // container sees. The one thing it does write inside the tree is the managed-
 // config overlay MOUNTPOINTS (empty directories a bind mount requires to exist;
 // see containerConfigOverlay for why they must be pre-created as the invoking
-// user), and its teardown prunes exactly the ones it made.
+// user), which it keeps: see containerConfigOverlay.
 func (c Container) Mount(ctx context.Context, ws Workspace) (MountPlan, error) {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
@@ -364,7 +364,7 @@ func (c Container) Mount(ctx context.Context, ws Workspace) (MountPlan, error) {
 	// The base's own mounts: the host base shadows the LIVE project's
 	// managed-config dirs (overlays) and mirrors a pointer-file .git; the
 	// worktree base mirrors its checkout's .git common-dir.
-	baseMounts, mountCleanup, err := c.base.mountBase(ctx, c.runtime, cw.projectDir, cw.dir, cw.scratchRoot, c.engineSpec, c.gitSeam())
+	baseMounts, err := c.base.mountBase(ctx, c.runtime, cw.projectDir, cw.dir, cw.scratchRoot, c.engineSpec, c.gitSeam())
 	if err != nil {
 		return MountPlan{}, err
 	}
@@ -372,24 +372,21 @@ func (c Container) Mount(ctx context.Context, ws Workspace) (MountPlan, error) {
 	// renders as an independent --mount. Scoped state rides every axis; the
 	// base mounts (overlays/gitdir mirror, or the worktree .git mirror) layer on.
 	mounts := append(append([]Mount(nil), cw.stateMounts...), baseMounts...)
-	// The shared-filesystem probe runs HERE — now that every real mount root is
-	// known: cw.dir (the project dir, or the worktree checkout resolveBase
-	// created), cw.scratchRoot (covers the socket dir, config overlays and
-	// session-state mounts), and every OTHER mount's host path (a linked
-	// worktree's gitdir mirror). Probing a synthetic tempdir elsewhere (the prior behavior)
-	// only ever proved THAT directory's sharing status — a standing false
-	// positive on a partially-shared Docker Desktop file-sharing list, exactly
-	// the platform this probe exists to protect. A mismatch on ANY root means
-	// that identical-path mount would resolve against a DIFFERENT filesystem and
-	// the plugin handshake would hang — erroring here turns that hang into the
-	// caller's clean per-axis degrade. Only the MAPPING's own residue is undone
-	// here; the workspace owns the scratch and the base resource and tears them
-	// down through Cleanup().
+	// The shared-filesystem probe runs HERE, once every real mount root is
+	// known (mountProbeRoots): cw.dir (the project dir, or the worktree
+	// checkout resolveBase created), cw.scratchRoot (the config overlays), and
+	// every mount's own host path (the session-state mounts, a linked
+	// worktree's gitdir mirror). Probing a synthetic tempdir instead would only
+	// prove THAT directory's sharing status — a standing false positive on a
+	// partially-shared Docker Desktop file-sharing list, exactly the platform
+	// this probe exists to protect. A mismatch on ANY root means that
+	// identical-path mount would resolve against a DIFFERENT filesystem and the
+	// handshake would hang — erroring here turns that hang into the caller's
+	// clean per-axis degrade. The mapping leaves nothing to undo on failure; the
+	// workspace owns the scratch and the base resource and tears them down
+	// through Cleanup().
 	roots := mountProbeRoots(cw.dir, cw.scratchRoot, mounts)
 	if perr := sharedFSCheck(ctx, c.runtime, c.image, roots); perr != nil {
-		if mountCleanup != nil {
-			_ = mountCleanup()
-		}
 		return MountPlan{}, sharedFSGateError(c.runtime, perr)
 	}
 	// Scope the container run's git identity to this agent, the SAME way the
@@ -410,7 +407,6 @@ func (c Container) Mount(ctx context.Context, ws Workspace) (MountPlan, error) {
 	}
 	cw.extraMounts = plan.Mounts
 	cw.extraEnv = plan.Env
-	cw.mountCleanup = mountCleanup
 	return plan, nil
 }
 
@@ -560,10 +556,8 @@ type containerBase interface {
 	// the error so the caller removes the shared scratch and the chain degrades;
 	// a base that got partway unwinds its own resource WIP-safely first.
 	resolveBase(ctx context.Context, projectDir, agentID string) (dir string, cleanup func() error, err error)
-	// mountBase builds the base-specific mounts for an ALREADY-MATERIALIZED dir
-	// and returns a cleanup for anything the MAPPING created (the host base's
-	// overlay mountpoints), run by containerWorkspace.Cleanup after the shared
-	// scratch is removed. rt/g are the runtime + git seams, scratchRoot the
+	// mountBase builds the base-specific mounts for an ALREADY-MATERIALIZED dir.
+	// rt/g are the runtime + git seams, scratchRoot the
 	// already-created host scratch (the caller removes it), spec the
 	// managed-config overlay set. It must not change the dir's CONTENT.
 	// projectDir is the user's LIVE project; dir is the already-materialized
@@ -571,7 +565,7 @@ type containerBase interface {
 	// worktree base, whose cwd is an ephemeral checkout — a base that must
 	// reach project-level state (the .ctxloom config tree) has to read the
 	// former and mount into the latter.
-	mountBase(ctx context.Context, rt Runtime, projectDir, dir, scratchRoot string, spec engineContainerSpec, g git.Git) (mounts []Mount, cleanup func() error, err error)
+	mountBase(ctx context.Context, rt Runtime, projectDir, dir, scratchRoot string, spec engineContainerSpec, g git.Git) (mounts []Mount, err error)
 	// withState stamps the run's session identity onto the base — worktreeBase
 	// stamps its Worktree's ephemeral-scratch home; hostBase is a no-op. Returns
 	// the stamped base (bases are value types).
@@ -606,14 +600,15 @@ func (hostBase) resolveBase(_ context.Context, projectDir, _ string) (string, fu
 // engine's config writers off the host project, and a pointer-file .git gets its
 // common dir mirrored so in-container git resolves. dir is the already-resolved
 // cwd (== the project dir for this base). Failure returns the error (the caller
-// tears the workspace down); nothing but overlay mountpoints is created here.
+// tears the workspace down); nothing but overlay mountpoints is created here,
+// and those are kept (see containerConfigOverlay).
 // The live project and the resolved cwd are the SAME dir for this base (its
 // resolveBase hands the project dir straight back), so it works from the
 // resolved one and ignores the duplicate.
-func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratchRoot string, spec engineContainerSpec, g git.Git) ([]Mount, func() error, error) {
-	overlays, created, err := containerConfigOverlay(rt, projectDir, scratchRoot, spec.overlayDirs)
+func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratchRoot string, spec engineContainerSpec, g git.Git) ([]Mount, error) {
+	overlays, err := containerConfigOverlay(rt, projectDir, scratchRoot, spec.overlayDirs)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// When the LIVE project is itself a linked worktree (or a submodule) its .git
 	// is a POINTER FILE whose common dir lives OUTSIDE projectDir — and so is not
@@ -622,20 +617,11 @@ func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratc
 	// resolution failure fails this workspace so the chain degrades
 	// (fatal-unless-degraded), never a silent broken-git launch.
 	if gitMount, ok, gerr := gitdirMirrorMount(ctx, rt, g, projectDir); gerr != nil {
-		pruneCreatedOverlayTargets(projectDir, created)
-		return nil, nil, gerr
+		return nil, gerr
 	} else if ok {
 		overlays = append(overlays, gitMount)
 	}
-	// The host base creates no workspace of its own, but the MAPPING does create
-	// the overlay mountpoints inside the user's live project. Undoing those is
-	// this base's whole teardown: nothing is supposed to be written through them
-	// (the overlay shadows every write into scratch), so a target this run
-	// created and that is still empty is pure residue.
-	return overlays, func() error {
-		pruneCreatedOverlayTargets(projectDir, created)
-		return nil
-	}, nil
+	return overlays, nil
 }
 
 // gitdirMirrorMount returns the git common-dir mirror mount the plain container
@@ -797,21 +783,14 @@ func hostTerminalEnv(getenv func(string) string) []string {
 // Directories only — a single-file overlay would break the atomic write+rename
 // the writers use, which is why the project-root file .mcp.json is deliberately
 // NOT overlaid (flagged residue, see the Container doc).
-func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayDirs []string) ([]Mount, []string, error) {
+func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayDirs []string) ([]Mount, error) {
 	mounts := make([]Mount, 0, len(overlayDirs))
-	var created []string
 	for i, rel := range overlayDirs {
 		host := filepath.Join(scratchRoot, fmt.Sprintf("cfg%d", i))
 		if err := os.MkdirAll(host, 0o755); err != nil {
-			return nil, nil, fmt.Errorf("container config overlay scratch: %w", err)
+			return nil, fmt.Errorf("container config overlay scratch: %w", err)
 		}
 		target := filepath.Join(projectDir, rel)
-		if _, statErr := os.Stat(target); os.IsNotExist(statErr) {
-			// Ours to undo: the project did not have this directory before the
-			// run. Recorded BEFORE the MkdirAll below, which is the only moment
-			// the distinction is still observable.
-			created = append(created, target)
-		}
 		seedOverlay(target, host)
 		// Pre-create the overlay TARGET (as the invoking user — this process runs
 		// as it) BEFORE docker sees the mount. The target is nested inside the
@@ -821,38 +800,18 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		// project through the identical-path bind, EACCES-ing every later host
 		// run's managed-config writers. Creating it ourselves makes docker find it
 		// existing. Idempotent (a no-op — never a chmod — when it already exists).
+		//
+		// The target is KEPT after the run, never pruned at teardown: the project
+		// is shared, so a concurrent run on it mounts the same target, and
+		// removing it while empty would detach that run's overlay. An empty
+		// .claude/ or .ctxloom/cache/ in a container-only project is the accepted
+		// cost.
 		if err := os.MkdirAll(target, 0o755); err != nil {
-			return nil, nil, fmt.Errorf("container config overlay target: %w", err)
+			return nil, fmt.Errorf("container config overlay target: %w", err)
 		}
 		mounts = append(mounts, rt.Expose(host, target, false))
 	}
-	return mounts, created, nil
-}
-
-// pruneCreatedOverlayTargets removes the managed-config directories this run
-// created inside the user's HOST project, walking each one upward through the
-// intermediate directories MkdirAll made with it and stopping at projectDir.
-//
-// Removal is gated on an EXPLICIT emptiness check, never on Remove failing for a
-// non-empty directory: that is true on the OS filesystem but FALSE on afero's
-// MemMapFs, and this package's tests are not the only consumers of that
-// asymmetry. Anything a directory holds belongs to the user (or to a writer the
-// overlay did not shadow), so content stops the walk — as does any directory the
-// project already owned, which never enters created in the first place. Failures
-// are silent by design: an unprunable residue is a cosmetic empty directory, and
-// warning about it on every teardown would be noise, not signal.
-func pruneCreatedOverlayTargets(projectDir string, created []string) {
-	for _, target := range created {
-		for dir := target; strings.HasPrefix(dir, projectDir+string(filepath.Separator)); dir = filepath.Dir(dir) {
-			entries, err := os.ReadDir(dir)
-			if err != nil || len(entries) > 0 {
-				break
-			}
-			if err := os.Remove(dir); err != nil {
-				break
-			}
-		}
-	}
+	return mounts, nil
 }
 
 // gitCommonDirMount builds the identical-path .git mirror mount from a checkout's
@@ -1049,10 +1008,6 @@ type containerWorkspace struct {
 	// reach is the runtime's route home for this workspace's runner,
 	// settled at ResolveWorkspace (remintReach, WorkspaceListen).
 	reach hostRoute
-	// mountCleanup undoes what the MAPPING created — the host base's overlay
-	// mountpoints inside the live project. Nil until Mount runs, and nil for a
-	// base whose mapping creates nothing.
-	mountCleanup func() error
 	// baseCleanup tears down the base's own resource AFTER the scratch is
 	// removed: a noop for the host base (the live project dir is never torn
 	// down), the worktree's WIP-safe teardown for the worktree base. Nil only on
@@ -1089,14 +1044,6 @@ func (w *containerWorkspace) Cleanup() error {
 		if err := os.RemoveAll(dir); err != nil {
 			warnCleanupResidue("container scratch", dir, err)
 			errs = fmt.Errorf("remove container scratch: %w", err)
-		}
-	}
-	// Mapping residue before base teardown: the host base's overlay mountpoints
-	// live INSIDE the dir the base owns, so pruning them after a base that
-	// removed that dir would be pruning nothing.
-	if w.mountCleanup != nil {
-		if err := w.mountCleanup(); err != nil {
-			errs = errors.Join(errs, err)
 		}
 	}
 	if w.baseCleanup != nil {

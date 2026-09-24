@@ -16,7 +16,7 @@ func orderCell(seq *[]string) launch.Cell {
 
 // The ORDER is the invariant: the transport is killed before the workspace it
 // runs in is removed. As two separate defers these ran LIFO — workspace first —
-// which deleted the scratch tree (config overlays, socket dir, credential mount
+// which deleted the scratch tree (config overlays, credential mount
 // sources) out from under a live transport, and
 // isolation.containerWorkspace.Cleanup's own contract is "safe to call once
 // after the run's client is killed".

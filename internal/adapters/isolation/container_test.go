@@ -28,7 +28,10 @@ func (f fakeRuntime) Binary() string           { return f.binary }
 func (f fakeRuntime) Available() bool          { return f.available }
 func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
 func (fakeRuntime) RemoveArgs(string) []string { return nil }
-func (fakeRuntime) ContainerHostAlias() string { return "" }
+
+// reachRoute is empty: a fake runner's env passes through un-re-minted.
+func (fakeRuntime) reachRoute(context.Context) (hostRoute, error) { return hostRoute{}, nil }
+func (fakeRuntime) gatewayInspectArgs() []string                  { return ociRuntime{}.gatewayInspectArgs() }
 
 // The CLI grammar is the shared OCI default, so a call site routed through the
 // seam renders the same argv against the fake as against a real runtime.

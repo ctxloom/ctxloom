@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
+	"github.com/ctxloom/ctxloom/internal/shared/hostnet"
 )
 
 // Runtime is the pluggable container launcher — proper polymorphism, NOT
@@ -69,14 +73,6 @@ type Runtime interface {
 	// ReapOrphanedContainers uses instead of composing `ps` argv itself: Host
 	// launches no containers and always returns nil, nil.
 	Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error)
-	// ContainerHostAlias is the hostname a container of this runtime dials to
-	// reach a listener on the host, or "" when one of the host's own interface
-	// addresses reaches it and no alias is needed. Where the containers run
-	// inside a VM the alias lands on the host's loopback; under rootless
-	// podman's pasta network it lands on the host's primary address, which the
-	// container cannot dial directly because pasta copies it onto the
-	// container's own interface.
-	ContainerHostAlias() string
 
 	// The methods below are the CLI grammar a runtime's own tooling differs
 	// in. Unexported like mapper(): internal wiring, each with one default on
@@ -94,6 +90,57 @@ type Runtime interface {
 	// passesPUID reports whether a run passes the PUID/PGID identity env, i.e.
 	// relies on the image entrypoint to remap and drop to the launching user.
 	passesPUID() bool
+	// reachRoute is how a container of this runtime reaches a coordinator on
+	// the host, in preference order: the host's LOOPBACK through the
+	// runtime's own translator, where its network offers one; the private
+	// host-side bridge gateway (rootful); else the host's primary outbound
+	// address, flagged Public. Only the last one's listener is reachable
+	// beyond this host, and the coordinator's endpoint is token-protected
+	// there — allowed, never preferred.
+	reachRoute(ctx context.Context) (hostRoute, error)
+	// gatewayInspectArgs builds the argv printing the default bridge
+	// network's host-side gateway address.
+	gatewayInspectArgs() []string
+}
+
+// hostRoute is a runtime's answer to reachRoute: the host part a container
+// dials, and what the coordinator must listen on for that dial to land.
+type hostRoute struct {
+	dial   string
+	listen present.Listen
+}
+
+// ErrNoHostReach refuses a container whose runtime offers no route to the
+// host at all: no loopback translator, no bridge gateway, and no default
+// route to take the primary address from. Its runner could never dial home.
+var ErrNoHostReach = errors.New("isolation: a container of this runtime has no address to reach the coordinator on")
+
+// primaryOutboundIP is the fallback route's address source; a package var so
+// tests decide it without the host's routing table.
+var primaryOutboundIP = hostnet.PrimaryOutboundIP
+
+// publicRoute is the last preference: the host's primary outbound address,
+// listened on and reachable beyond this host. why names the runtime mode's
+// missing private route for the one-time warning.
+func publicRoute(why string) (hostRoute, error) {
+	ip := primaryOutboundIP()
+	if ip == "" {
+		return hostRoute{}, fmt.Errorf("%w: %s, and the host has no default route to take its primary address from", ErrNoHostReach, why)
+	}
+	return hostRoute{dial: ip, listen: present.Listen{Addr: ip, Public: true, Why: why}}, nil
+}
+
+// bridgeRoute is the rootful preference: the default bridge network's
+// host-side gateway, a private address only the host and its containers
+// share. Falls back to publicRoute when the runtime reports none that parses.
+func bridgeRoute(ctx context.Context, rt Runtime) (hostRoute, error) {
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := probeExec(cctx, rt.Binary(), rt.gatewayInspectArgs())
+	if ip := strings.TrimSpace(out); err == nil && net.ParseIP(ip) != nil {
+		return hostRoute{dial: ip, listen: present.Listen{Addr: ip}}, nil
+	}
+	return publicRoute(fmt.Sprintf("%s reports no bridge gateway on the host to listen on (%v)", rt.Name(), err))
 }
 
 // removeOutcome is what a force-remove established about its container.
@@ -263,6 +310,11 @@ func (ociRuntime) imageInspectArgs(image, format string) []string {
 
 // daemonNameTemplate is the top-level {{.Name}} field.
 func (ociRuntime) daemonNameTemplate() string { return "{{.Name}}" }
+
+// gatewayInspectArgs reads the default `bridge` network's IPAM gateway.
+func (ociRuntime) gatewayInspectArgs() []string {
+	return []string{"network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"}
+}
 
 // passesPUID is true: every mode relies on the image entrypoint to remap, save
 // the one that overrides it. An unrecognised mode stays on the conservative

@@ -81,13 +81,20 @@ func (d Docker) removeOutcome(stdout []byte, err error) removeOutcome {
 	return d.ociRuntime.removeOutcome(stdout, err)
 }
 
-// ContainerHostAlias is Docker Desktop's name for the host when its containers
-// run in a VM; on a shared kernel the host's own addresses reach it.
-func (Docker) ContainerHostAlias() string {
-	if platform.ContainersInVM {
-		return "host.docker.internal"
+// reachRoute: Docker Desktop's host.docker.internal lands on the host's
+// loopback. Rootless docker offers no loopback route — dockerd-rootless.sh
+// starts RootlessKit with --disable-host-loopback — and its bridge lives in
+// RootlessKit's namespace, not on the host, so only the public fallback
+// reaches it. Rootful docker's docker0 gateway is on the host.
+func (d Docker) reachRoute(ctx context.Context) (hostRoute, error) {
+	switch {
+	case platform.ContainersInVM:
+		return hostRoute{dial: "host.docker.internal"}, nil
+	case d.rootless:
+		return publicRoute("rootless docker's RootlessKit disables the containers' route to the host's loopback, and its bridge is not on the host")
+	default:
+		return bridgeRoute(ctx, d)
 	}
-	return ""
 }
 
 // Enumerate lists RUNNING docker containers by name prefix, via the shared

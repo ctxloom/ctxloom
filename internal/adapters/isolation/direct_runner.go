@@ -39,6 +39,10 @@ func (c Container) StartRunner(ctx context.Context, backendName, label string, v
 	if verbosity > 0 {
 		fmt.Fprintf(os.Stderr, "ctxloom: container runner (%s, direct) auth via %s\n", c.runtime.Name(), cw.authMode)
 	}
+	spawnEnv, err := remintReach(cw, spawnEnv)
+	if err != nil {
+		return nil, err
+	}
 	name := containerName(cw.agentID)
 	// This name is the no-tmux fallback's only handle, is randomly suffixed, and dies with
 	// the container. Unconditional on purpose.
@@ -56,6 +60,10 @@ func (c Container) InteractiveRunner(_ context.Context, backendName string, ws W
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return nil, "", fmt.Errorf("container interactive runner: unexpected workspace %T (expected a container workspace)", ws)
+	}
+	spawnEnv, err := remintReach(cw, spawnEnv)
+	if err != nil {
+		return nil, "", err
 	}
 	name := containerName(cw.agentID)
 	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: %s logs -f %s)\n", name, c.runtime.Binary(), name)

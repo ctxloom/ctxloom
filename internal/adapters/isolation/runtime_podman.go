@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ import (
 //
 // rootlessNet is the rootless network command podman reports ("pasta",
 // "slirp4netns"; "" when unprobed), which decides how a container reaches the
-// host (ContainerHostAlias).
+// host (reachRoute, networkArgs).
 type Podman struct {
 	ociRuntime
 	rootless    bool
@@ -50,6 +51,7 @@ func (p Podman) RunArgs(spec RunSpec) []string {
 		// remap; enter as namespaced root so the entrypoint can usermod+drop.
 		args = append(args, "--userns=keep-id", "--user", "0:0")
 	}
+	args = append(args, p.networkArgs()...)
 	args = append(args, identityEnvArgs()...)
 	return p.runArgs(args, spec)
 }
@@ -63,20 +65,54 @@ func (Podman) RemoveArgs(name string) []string { return []string{"rm", "-f", "-t
 // execution error) and carries the host name under Host.
 func (Podman) daemonNameTemplate() string { return "{{.Host.Hostname}}" }
 
-// ContainerHostAlias is podman's host.containers.internal wherever an address
-// of the host's own does not reach it. Inside a VM (Podman Machine) it lands on
-// the host's loopback. Under rootless pasta the container carries a copy of the
-// host's primary address, so dialing that address stays inside the container,
-// while host.containers.internal is mapped by pasta to the host's primary
-// address itself. Rootful (bridge) and slirp4netns containers reach the host at
-// its own addresses, and under slirp4netns podman resolves the alias to an
-// arbitrary host interface that nothing need be listening on — so there is no
-// alias there.
-func (p Podman) ContainerHostAlias() string {
-	if platform.ContainersInVM || (p.rootless && p.rootlessNet == "pasta") {
-		return "host.containers.internal"
+// pastaHostLoopback is the in-container address pasta maps to the host's
+// loopback for our runners. Beside podman's own pasta addresses (169.254.1.1
+// DNS, 169.254.1.2 host.containers.internal), which do not reach loopback.
+const pastaHostLoopback = "169.254.1.3"
+
+// slirpHostLoopback is slirp4netns's gateway, which reaches the host's
+// loopback once allow_host_loopback is set.
+const slirpHostLoopback = "10.0.2.2"
+
+// networkArgs keeps the user's rootless translator and opens its route to the
+// host's loopback, so the coordinator needs no listener beyond loopback.
+// Measured on podman 5.4.2: without these options neither translator reaches
+// the host's 127.0.0.1, and pasta's host.containers.internal lands on a LAN
+// address.
+func (p Podman) networkArgs() []string {
+	if !p.rootless {
+		return nil
 	}
-	return ""
+	switch p.rootlessNet {
+	case "pasta":
+		return []string{"--network=pasta:--map-host-loopback," + pastaHostLoopback}
+	case "slirp4netns":
+		return []string{"--network=slirp4netns:allow_host_loopback=true"}
+	}
+	return nil
+}
+
+// reachRoute: host.containers.internal in Podman Machine; a rootless
+// translator's loopback route (networkArgs); rootful podman's netavark bridge
+// gateway; else the public fallback.
+func (p Podman) reachRoute(ctx context.Context) (hostRoute, error) {
+	switch {
+	case platform.ContainersInVM:
+		return hostRoute{dial: "host.containers.internal"}, nil
+	case p.rootless && p.rootlessNet == "pasta":
+		return hostRoute{dial: pastaHostLoopback}, nil
+	case p.rootless && p.rootlessNet == "slirp4netns":
+		return hostRoute{dial: slirpHostLoopback}, nil
+	case p.rootless:
+		return publicRoute(fmt.Sprintf("rootless podman's network %q has no known route to the host's loopback", p.rootlessNet))
+	default:
+		return bridgeRoute(ctx, p)
+	}
+}
+
+// gatewayInspectArgs reads the default `podman` network's subnet gateway.
+func (Podman) gatewayInspectArgs() []string {
+	return []string{"network", "inspect", "podman", "--format", "{{range .Subnets}}{{.Gateway}}{{end}}"}
 }
 
 // Enumerate lists RUNNING podman containers by name prefix, via the shared

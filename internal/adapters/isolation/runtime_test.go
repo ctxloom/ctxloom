@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"os"
 	"strings"
 	"testing"
@@ -371,26 +370,6 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 	require.Equal(t, defaultContainerHome, spec.Home)
 	assert.Contains(t, strings.Join(renderRunSpec(spec), " "), "-e HOME="+defaultContainerHome,
 		"a spec carrying a home must render the fresh-HOME env flag")
-}
-
-// TestContainerHostAlias_PodmanRootlessPastaNeedsTheAlias pins the measured
-// reachability on a Linux host (podman 5.4.2, rootless; a listener bound on the
-// host's primary address). Under pasta the container carries a COPY of that
-// address, so dialing it is refused inside the container, while
-// host.containers.internal (pasta's mapped 169.254.1.2) reaches the host.
-// Under slirp4netns the host's own address reaches it, and podman resolves the
-// alias to an arbitrary host interface — so no alias. Rootful podman's bridge
-// reaches the host's own addresses too.
-func TestContainerHostAlias_PodmanRootlessPastaNeedsTheAlias(t *testing.T) {
-	if platform.ContainersInVM {
-		t.Skip("inside a VM every runtime answers its alias; this pins the shared-kernel answer")
-	}
-	assert.Equal(t, "host.containers.internal", Podman{rootless: true, rootlessNet: "pasta"}.ContainerHostAlias())
-	assert.Empty(t, Podman{rootless: true, rootlessNet: "slirp4netns"}.ContainerHostAlias())
-	assert.Empty(t, Podman{rootless: true}.ContainerHostAlias(), "an unprobed network keeps the host-address path")
-	assert.Empty(t, Podman{rootlessNet: "pasta"}.ContainerHostAlias(), "rootful podman is on a bridge, not pasta")
-	assert.Empty(t, Docker{}.ContainerHostAlias())
-	assert.Empty(t, Host{}.ContainerHostAlias())
 }
 
 // TestPassesPUID: only rootless docker keeps the run container-root with no

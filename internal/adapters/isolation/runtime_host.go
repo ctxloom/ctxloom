@@ -48,8 +48,8 @@ func (Host) mapper() pathMapper { return identityMapper{} }
 // anything to list.
 func (Host) Enumerate(context.Context, string) ([]ContainerInfo, error) { return nil, nil }
 
-// ContainerHostAlias is "" — a host runner dials the host's loopback.
-func (Host) ContainerHostAlias() string { return "" }
+// reachRoute is empty: a host runner dials the loopback URL as minted.
+func (Host) reachRoute(context.Context) (hostRoute, error) { return hostRoute{}, nil }
 
 // The container-CLI grammar is empty: callers gate on Binary() == "" first.
 func (Host) inspectRunningArgs(string) []string        { return nil }
@@ -57,3 +57,4 @@ func (Host) imageInspectArgs(string, string) []string  { return nil }
 func (Host) daemonNameTemplate() string                { return "" }
 func (Host) removeOutcome([]byte, error) removeOutcome { return removeAlreadyGone }
 func (Host) passesPUID() bool                          { return false }
+func (Host) gatewayInspectArgs() []string              { return nil }

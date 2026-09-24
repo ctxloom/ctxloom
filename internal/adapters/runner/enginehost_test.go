@@ -565,3 +565,9 @@ func TestEngineHost_CancellationEmitsRunCompletedAndRunExited(t *testing.T) {
 	assert.Equal(t, uint64(2), completed.GetResult().GetUsage().GetCostUsdMicros(), "money converts ONCE at the runner boundary, round-half-even")
 	assert.Equal(t, uint32(1), completed.GetResult().GetNumTurns())
 }
+
+// alwaysPresent is a closed channel: the fake's owner never leaves.
+var alwaysPresent = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
+
+func (f *fakeEngineHome) ownerPresent() <-chan struct{} { return alwaysPresent }
+func (f *fakeEngineHome) setTurning(bool)               {}

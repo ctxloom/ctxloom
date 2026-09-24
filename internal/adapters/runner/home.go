@@ -144,6 +144,15 @@ type Home struct {
 	// ownerLost is closed once, by runnerChannelLoop, when the lifecycle link
 	// has been down for OwnerLossWindow — see OwnerLost.
 	ownerLost chan struct{}
+	// ownerUp/present are the owner's presence: up exactly while the lifecycle
+	// link is attached; present is closed while up (ownerPresent). turning and
+	// awaiting are the waiting state the owner-loss clock reads (waitState);
+	// waitChange is closed and replaced at each change of it. Guarded by mu.
+	ownerUp    bool
+	present    chan struct{}
+	turning    bool
+	awaiting   int
+	waitChange chan struct{}
 
 	// tracked owns Home's own background loops (runnerChannelLoop,
 	// runChannelLoop, and one turnPump per hosted engine). Close/crash join it
@@ -197,9 +206,10 @@ type HomeConfig struct {
 	// RedialBackoff paces reconnect attempts for both channels (0 =
 	// HomeRedialBackoff). Redial preempts it.
 	RedialBackoff time.Duration
-	// OwnerLossWindow is how long the lifecycle link may stay down — never
-	// attached since the dial, or lost since it was last up — before this
-	// runner declares its owner gone (OwnerLost). 0 = DefaultOwnerLossWindow.
+	// OwnerLossWindow is how long this runner WAITS on an absent owner —
+	// the lifecycle link never attached, or lost — before it declares the
+	// owner gone (OwnerLost). Only waiting counts (see runnerChannelLoop): a
+	// turn making progress pauses it. 0 = DefaultOwnerLossWindow.
 	OwnerLossWindow time.Duration
 	// Reporter receives every diagnostic this Home and the courier, doorbell
 	// and terminal injector built on it raise; the runner's composition
@@ -215,9 +225,11 @@ type homePark struct {
 // HomeRedialBackoff is the default HomeConfig.RedialBackoff.
 const HomeRedialBackoff = 2 * time.Second
 
-// DefaultOwnerLossWindow is how long a runner outlives an unreachable
+// DefaultOwnerLossWindow is how long a runner waits on an unreachable
 // coordinator before it exits on its own (HomeConfig.OwnerLossWindow;
-// sessions.EnvRunnerOwnerLossWindow overrides it).
+// sessions.EnvRunnerOwnerLossWindow overrides it). Time a turn spends making
+// progress does not count, so there is no cap on an orphaned turn: it runs
+// to its end, and the wait starts there.
 //
 // It is NOT the coordinator's runner-loss grace (coord's runnerLossTimeout), and
 // must not be tied to it: that grace is what a LIVE coordinator gives a silent
@@ -284,6 +296,8 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		acking:      make(map[string]bool),
 		ackWake:     make(chan struct{}),
 		ownerLost:   make(chan struct{}),
+		present:     make(chan struct{}),
+		waitChange:  make(chan struct{}),
 	}
 	// A runner writes exactly ONE spool: its own harp's out/. The cache is
 	// still keyed by harp because spoolWriterCache is shared with the
@@ -361,8 +375,8 @@ func (h *Home) Capabilities() []string { return h.helloCapabilities() }
 // loops stop and its spool is no longer its own.
 func (h *Home) Done() <-chan struct{} { return h.ctx.Done() }
 
-// OwnerLost is closed when the lifecycle link has been down for the whole
-// OwnerLossWindow: no coordinator this runner could still belong to is left.
+// OwnerLost is closed when this runner has waited the whole OwnerLossWindow
+// on an owner that never came back.
 // The lifecycle loop stops redialling at that moment; tearing the Home down
 // (Close) is its owner's call — runner.Main makes it, and its process exit is
 // what lets a container's --rm remove the container.
@@ -415,33 +429,51 @@ func (h *Home) redialWake() <-chan struct{} {
 }
 
 // runnerChannelLoop keeps the lifecycle RunnerChannel alive (Hello +
-// heartbeats + best-effort RunExited at Close), and runs the owner-loss clock:
-// a deadline OwnerLossWindow out, set at the start (nothing is attached yet)
-// and again on every drop, and read only while the link is down, so time the
-// link spends up never counts. Nothing the loop waits on can outlast it —
-// each dial is cut off when the window runs out (dialLink), and the conn's
-// keepalive ends a half-open link — so a wedged coordinator cannot stop the
-// clock. Expiry closes ownerLost and ends the loop.
+// heartbeats + best-effort RunExited at Close), redialling for as long as the
+// Home lives — mid-turn too, so the owner can re-adopt this runner at any
+// moment — and runs the owner-loss clock (ownerClock) while the link is down.
+// The clock spends its budget only while the runner is WAITING on its owner
+// (Home.waiting): idle between turns, parked on a recv, or blocked on a
+// coordinator-bound request. A turn making progress pauses it, so an
+// orphaned turn always runs to its end and the clock starts where it stops.
+// The budget is refilled on every drop. Nothing the loop waits on can outlast
+// it — a dial is cut off at the budget left (dialLink), and the conns'
+// keepalive ends a half-open link. Expiry closes ownerLost and ends the loop.
 func (h *Home) runnerChannelLoop() {
-	deadline := time.Now().Add(h.cfg.OwnerLossWindow)
-	// backoff waits out one redial pause and reports whether to go on.
+	clock := ownerClock{budget: h.cfg.OwnerLossWindow}
+	// backoff waits out one redial pause, running the clock, and reports
+	// whether to go on.
 	backoff := func(wake <-chan struct{}) bool {
-		select {
-		case <-time.After(time.Until(deadline)):
-		case <-h.ctx.Done():
-			return false
-		case <-time.After(h.cfg.RedialBackoff):
-			return true
-		case <-wake:
-			return true
+		pause := time.After(h.cfg.RedialBackoff)
+		for {
+			waiting, changed := h.waitState()
+			now := time.Now()
+			clock.observe(waiting, now)
+			var expire <-chan time.Time
+			if waiting {
+				expire = time.After(clock.left(now))
+			}
+			select {
+			case <-expire:
+				h.rep.Warnf("runner: waited %s for an absent coordinator (the owner-loss window, %s); exiting", h.cfg.OwnerLossWindow, sessions.EnvRunnerOwnerLossWindow)
+				close(h.ownerLost)
+				return false
+			case <-changed:
+			case <-h.ctx.Done():
+				return false
+			case <-pause:
+				return true
+			case <-wake:
+				return true
+			}
 		}
-		h.rep.Warnf("runner: no coordinator for %s (the owner-loss window, %s); exiting", h.cfg.OwnerLossWindow, sessions.EnvRunnerOwnerLossWindow)
-		close(h.ownerLost)
-		return false
 	}
 	for {
 		wake := h.redialWake()
-		link, release, err := h.dialLink(time.Until(deadline))
+		waiting, _ := h.waitState()
+		now := time.Now()
+		clock.observe(waiting, now)
+		link, release, err := h.dialLink(clock.left(now))
 		if err != nil {
 			h.rep.WarnOncef("runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
 			if !backoff(wake) {
@@ -452,14 +484,16 @@ func (h *Home) runnerChannelLoop() {
 		h.mu.Lock()
 		h.link = link
 		h.mu.Unlock()
+		h.setOwnerPresent(true)
 		select {
 		case <-link.Done():
+			h.setOwnerPresent(false)
 			// The dead link's connection is closed HERE, before the redial
 			// replaces it: Shutdown only ever reaches the link Close finds
 			// current, so an unreleased predecessor is a leaked ClientConn.
 			h.releaseLink(link)
 			release()
-			deadline = time.Now().Add(h.cfg.OwnerLossWindow)
+			clock = ownerClock{budget: h.cfg.OwnerLossWindow}
 			if !backoff(wake) {
 				return
 			}
@@ -468,6 +502,98 @@ func (h *Home) runnerChannelLoop() {
 			release()
 			return
 		}
+	}
+}
+
+// ownerClock is the owner-loss window's budget, spent only while the runner
+// waits on its owner. observe is told the current state at every change; left
+// is what remains. A paused clock keeps its budget.
+type ownerClock struct {
+	budget  time.Duration
+	running bool
+	since   time.Time
+}
+
+func (c *ownerClock) observe(waiting bool, now time.Time) {
+	if c.running {
+		c.budget -= now.Sub(c.since)
+	}
+	c.running, c.since = waiting, now
+}
+
+func (c *ownerClock) left(now time.Time) time.Duration {
+	if c.running {
+		return c.budget - now.Sub(c.since)
+	}
+	return c.budget
+}
+
+// waiting reports whether the runner is waiting on its owner — the only state
+// the owner-loss clock runs in: no turn in progress, or a turn that is parked
+// on a recv or blocked on a coordinator-bound request (Home.Request). changed
+// is closed at the next change of that state. Caller need not hold mu.
+func (h *Home) waitState() (waiting bool, changed <-chan struct{}) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return !h.turning || h.awaiting > 0 || h.parked, h.waitChange
+}
+
+// noteWaitLocked signals a change in the waiting state. Caller holds mu.
+func (h *Home) noteWaitLocked() {
+	close(h.waitChange)
+	h.waitChange = make(chan struct{})
+}
+
+// setTurning records a turn starting or reaching its boundary (the engine
+// host's beginTurn/endTurn).
+func (h *Home) setTurning(on bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.turning != on {
+		h.turning = on
+		h.noteWaitLocked()
+	}
+}
+
+// ownerPresent is closed while the owner is present — the lifecycle link is
+// attached — and a fresh, open channel while it is not. It is what "let it
+// finish, then wait" reads: a turn in flight when the link drops runs to its
+// boundary (its events are kept and resent on re-adoption), but no NEW turn
+// starts until the owner is back (EngineHost.enqueueTurn, deliverNotice's
+// wake and nudge). Mail keeps arriving on the mounted spool meanwhile — the
+// periodic and turn-boundary sweeps still read it — and simply waits.
+func (h *Home) ownerPresent() <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.present
+}
+
+// setOwnerPresent records the owner arriving or leaving. Arriving re-fires the
+// session owner's wake or nudge when mail was buffered while it was away,
+// because the notice that buffered it did not.
+func (h *Home) setOwnerPresent(up bool) {
+	h.mu.Lock()
+	if up == h.ownerUp {
+		h.mu.Unlock()
+		return
+	}
+	h.ownerUp = up
+	if !up {
+		h.present = make(chan struct{})
+		h.mu.Unlock()
+		return
+	}
+	close(h.present)
+	buffered := len(h.buffer) > 0
+	wake, nudge := h.wake, h.terminalNudge
+	h.mu.Unlock()
+	if !buffered {
+		return
+	}
+	if wake != nil {
+		go h.fireWake(wake)
+	} else if nudge != nil {
+		nudge()
 	}
 }
 
@@ -715,10 +841,14 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 	}
 	nudge := h.terminalNudge
 	wake := h.wake
+	up := h.ownerUp
 	h.mu.Unlock()
 	if msgs != nil {
 		p.ch <- msgs
 		return
+	}
+	if !up {
+		return // no new turn while the owner is away; its return re-fires (setOwnerPresent)
 	}
 	// Nothing claimed it: no parked recv (checked above) and no turn sink
 	// (the branch above this block already ruled that out). A terminal-driven
@@ -1004,6 +1134,17 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 		return nil, ErrCoordinatorUnreachable
 	}
 	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: req}})
+	// Blocked on the coordinator from here: waiting, for the owner-loss clock.
+	h.mu.Lock()
+	h.awaiting++
+	h.noteWaitLocked()
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.awaiting--
+		h.noteWaitLocked()
+		h.mu.Unlock()
+	}()
 
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc
@@ -1049,6 +1190,9 @@ func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.Pe
 	h.park = p
 	wasParked := h.parked
 	h.parked = true
+	if !wasParked {
+		h.noteWaitLocked()
+	}
 	h.mu.Unlock()
 	if !wasParked {
 		h.emitCustomEvent(coord.CustomRecvParked, nil)
@@ -1133,6 +1277,9 @@ func (h *Home) unpark() {
 	h.mu.Lock()
 	was := h.parked
 	h.parked = false
+	if was {
+		h.noteWaitLocked()
+	}
 	h.mu.Unlock()
 	if was {
 		h.emitCustomEvent(coord.CustomRecvUnparked, nil)

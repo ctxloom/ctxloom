@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -102,17 +103,21 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	// (re)written into the managed artifacts now, not at the next apply.
 	refreshManagedArtifacts(cmd.Context(), cfg)
 	return emit(cmd, res, func() error {
-		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Approved %s\n", res.Ref)
-		fmt.Fprintf(out, "  repo:  %s\n", res.RepoURL)
-		fmt.Fprintf(out, "  store: %s\n", res.Store)
-		if res.Unsigned {
-			fmt.Fprintln(out, "  UNSIGNED — recorded locally, not shareable (no signing key was available)")
-		} else {
-			fmt.Fprintf(out, "  signed by: %s\n", res.KeyFingerprint)
-		}
+		renderItemTrust(cmd.OutOrStdout(), res)
 		return nil
 	})
+}
+
+// renderItemTrust is `bundle trust`'s text rendering.
+func renderItemTrust(out io.Writer, res *operations.SetItemTrustResult) {
+	fmt.Fprintf(out, "Approved %s\n", res.Ref)
+	fmt.Fprintf(out, "  repo:  %s\n", res.RepoURL)
+	fmt.Fprintf(out, "  store: %s\n", res.Store)
+	if res.Unsigned {
+		fmt.Fprintln(out, "  UNSIGNED — recorded locally, not shareable (no signing key was available)")
+	} else {
+		fmt.Fprintf(out, "  signed by: %s\n", res.KeyFingerprint)
+	}
 }
 
 // bundleRejectLong documents `ctxloom bundle reject`.
@@ -173,23 +178,27 @@ func runItemReject(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	// already-written bundle MCP server / hook stops being exposed.
 	refreshManagedArtifacts(cmd.Context(), cfg)
 	return emit(cmd, res, func() error {
-		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Rejected %s\n", res.Ref)
-		fmt.Fprintf(out, "  repo:  %s\n", res.RepoURL)
-		fmt.Fprintf(out, "  store: %s\n", res.Store)
-		if res.Unsigned {
-			fmt.Fprintln(out, "  UNSIGNED — recorded locally, not shareable (no signing key was available)")
-		} else {
-			fmt.Fprintf(out, "  signed by: %s\n", res.KeyFingerprint)
-		}
-		fmt.Fprintln(out, "  ref block: recorded (sticky — survives content changes)")
-		if len(res.ContentForms) > 0 {
-			fmt.Fprintf(out, "  content:   rejected in form(s) %s (blocks this content even if renamed/moved)\n", strings.Join(res.ContentForms, ", "))
-		} else {
-			fmt.Fprintln(out, "  content:   not recorded (content could not be resolved)")
-		}
+		renderItemReject(cmd.OutOrStdout(), res)
 		return nil
 	})
+}
+
+// renderItemReject is `bundle reject`'s text rendering.
+func renderItemReject(out io.Writer, res *operations.SetBlacklistResult) {
+	fmt.Fprintf(out, "Rejected %s\n", res.Ref)
+	fmt.Fprintf(out, "  repo:  %s\n", res.RepoURL)
+	fmt.Fprintf(out, "  store: %s\n", res.Store)
+	if res.Unsigned {
+		fmt.Fprintln(out, "  UNSIGNED — recorded locally, not shareable (no signing key was available)")
+	} else {
+		fmt.Fprintf(out, "  signed by: %s\n", res.KeyFingerprint)
+	}
+	fmt.Fprintln(out, "  ref block: recorded (sticky — survives content changes)")
+	if len(res.ContentForms) > 0 {
+		fmt.Fprintf(out, "  content:   rejected in form(s) %s (blocks this content even if renamed/moved)\n", strings.Join(res.ContentForms, ", "))
+	} else {
+		fmt.Fprintln(out, "  content:   not recorded (content could not be resolved)")
+	}
 }
 
 // bundleForgetProject targets the committable project store.

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -60,6 +61,12 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	renderRemoteBrowse(out, itemType, result)
+	return nil
+}
+
+// renderRemoteBrowse is `remote show`'s listing of a non-empty browse.
+func renderRemoteBrowse(out io.Writer, itemType string, result *operations.BrowseRemoteResult) {
 	title := strings.ToUpper(itemType[:1]) + itemType[1:] + "s"
 	fmt.Fprintf(out, "%s in %s (%s):\n\n", title, result.Remote, result.URL)
 
@@ -75,8 +82,6 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Use one: add its ref to a profile (ctxloom profile create/edit), then ctxloom deps pull")
-
-	return nil
 }
 
 func init() {

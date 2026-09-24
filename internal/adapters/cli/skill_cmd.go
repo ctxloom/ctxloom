@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -139,26 +140,30 @@ func runSkillShow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return emit(cmd, res, func() error {
-		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "%s#skills/%s\n\n", res.Bundle, res.Name)
-		fmt.Fprintf(out, "description: %s\n", res.Description)
-		if res.License != "" {
-			fmt.Fprintf(out, "license: %s\n", res.License)
-		}
-		if res.Compatibility != "" {
-			fmt.Fprintf(out, "compatibility: %s\n", res.Compatibility)
-		}
-		if len(res.AllowedTools) > 0 {
-			fmt.Fprintf(out, "allowed-tools: %s\n", strings.Join(res.AllowedTools, ", "))
-		}
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, res.Body)
-		fmt.Fprintf(out, "\nFiles (%d):\n", len(res.Files))
-		for _, f := range res.Files {
-			fmt.Fprintf(out, "  %s  %s  %s\n", f.Mode, f.SHA256, f.Path)
-		}
-		return nil
+		return renderSkillShow(cmd.OutOrStdout(), res)
 	})
+}
+
+// renderSkillShow is `skill show`'s text rendering.
+func renderSkillShow(out io.Writer, res *operations.GetSkillResult) error {
+	fmt.Fprintf(out, "%s#skills/%s\n\n", res.Bundle, res.Name)
+	fmt.Fprintf(out, "description: %s\n", res.Description)
+	if res.License != "" {
+		fmt.Fprintf(out, "license: %s\n", res.License)
+	}
+	if res.Compatibility != "" {
+		fmt.Fprintf(out, "compatibility: %s\n", res.Compatibility)
+	}
+	if len(res.AllowedTools) > 0 {
+		fmt.Fprintf(out, "allowed-tools: %s\n", strings.Join(res.AllowedTools, ", "))
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, res.Body)
+	fmt.Fprintf(out, "\nFiles (%d):\n", len(res.Files))
+	for _, f := range res.Files {
+		fmt.Fprintf(out, "  %s  %s  %s\n", f.Mode, f.SHA256, f.Path)
+	}
+	return nil
 }
 
 var skillCreateDescription string
@@ -336,13 +341,17 @@ func runSkillExport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return emit(cmd, res, func() error {
-		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Exported %s -> %s (%d bytes)\n", res.Name, res.ZipPath, res.Bytes)
-		if res.SigPath != "" {
-			fmt.Fprintf(out, "Signed: %s\n", res.SigPath)
-		}
+		renderSkillExport(cmd.OutOrStdout(), res)
 		return nil
 	})
+}
+
+// renderSkillExport is `skill export`'s text rendering.
+func renderSkillExport(out io.Writer, res *operations.ExportSkillResult) {
+	fmt.Fprintf(out, "Exported %s -> %s (%d bytes)\n", res.Name, res.ZipPath, res.Bytes)
+	if res.SigPath != "" {
+		fmt.Fprintf(out, "Signed: %s\n", res.SigPath)
+	}
 }
 
 var skillImportBundle string
@@ -390,18 +399,22 @@ func runSkillImport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return emit(cmd, res, func() error {
-		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Imported skill %q into bundle %q (%d file(s))\n", res.Name, res.Bundle, res.FileCount)
-		fmt.Fprintf(out, "  %s\n", res.Dir)
-		fmt.Fprintf(out, "  signature: %s\n", res.SignatureState)
-		// The bundle name is NOT appended as an argument: reviewCmd is
-		// cobra.NoArgs, so `ctxloom review <bundle>` — which this line used to
-		// print — is rejected by the very tool that advised it. The bundle is
-		// already named on the first line of this output; what the user needs
-		// here is a command that runs.
-		fmt.Fprintln(out, "Pending review — run: ctxloom review")
+		renderSkillImport(cmd.OutOrStdout(), res)
 		return nil
 	})
+}
+
+// renderSkillImport is `skill import`'s text rendering.
+func renderSkillImport(out io.Writer, res *operations.ImportSkillResult) {
+	fmt.Fprintf(out, "Imported skill %q into bundle %q (%d file(s))\n", res.Name, res.Bundle, res.FileCount)
+	fmt.Fprintf(out, "  %s\n", res.Dir)
+	fmt.Fprintf(out, "  signature: %s\n", res.SignatureState)
+	// The bundle name is NOT appended as an argument: reviewCmd is
+	// cobra.NoArgs, so `ctxloom review <bundle>` — which this line used to
+	// print — is rejected by the very tool that advised it. The bundle is
+	// already named on the first line of this output; what the user needs
+	// here is a command that runs.
+	fmt.Fprintln(out, "Pending review — run: ctxloom review")
 }
 
 func init() {

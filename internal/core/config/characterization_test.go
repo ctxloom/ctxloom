@@ -20,11 +20,10 @@ type characterizationOutput struct {
 	render func(*Config) ([]byte, error)
 }
 
-// characterizationOutputs are the three byte-producing paths over one Config:
-// Marshal (init's scaffold write), yaml.Marshal(cfg) through MarshalYAML
-// (`config show`), and saveLocked's first write (Owner.Update) under each
-// layer source, since SourceProject applies the layer-scope filter and
-// SourceHome does not.
+// characterizationOutputs are the byte-producing paths over one Config:
+// yaml.Marshal(cfg) through MarshalYAML (init's scaffold write and `config
+// show`), and saveLocked's first write (Owner.Update) under each layer source,
+// since SourceProject applies the layer-scope filter and SourceHome does not.
 func characterizationOutputs() []characterizationOutput {
 	save := func(src ConfigSource) func(*Config) ([]byte, error) {
 		return func(c *Config) ([]byte, error) {
@@ -37,7 +36,6 @@ func characterizationOutputs() []characterizationOutput {
 		}
 	}
 	return []characterizationOutput{
-		{"Marshal", func(c *Config) ([]byte, error) { return c.Marshal() }},
 		{"MarshalYAML", func(c *Config) ([]byte, error) { return yaml.Marshal(c) }},
 		{"saveLocked-project", save(SourceProject)},
 		{"saveLocked-home", save(SourceHome)},
@@ -82,13 +80,12 @@ func characterizationCases() []characterizationCase {
 	}
 }
 
-// TestConfigSerializers_Characterization pins today's exact bytes from every
-// path that renders a Config. It is the precondition for consolidating
-// Marshal/applyConfigSections and MarshalYAML/toDoc (errant-john): those paths
-// do NOT agree today — version stamping, overlay and role stripping, pruning
-// and key order all differ by design — so any consolidation that moves a byte
-// here is a change to the on-disk format or to `config show`, not a refactor.
-// Regenerate only as a deliberate format decision.
+// TestConfigSerializers_Characterization pins the exact bytes of every path
+// that renders a Config. They share one policy (persistedDoc): the version is
+// stamped current, shipped default entries and llm.configs.*.role are dropped,
+// and keys are sorted at every depth. Any change here is a change to the
+// on-disk format or to `config show`, not a refactor. Regenerate only as a
+// deliberate format decision.
 func TestConfigSerializers_Characterization(t *testing.T) {
 	seen := 0
 	for _, tc := range characterizationCases() {
@@ -110,17 +107,42 @@ func TestConfigSerializers_Characterization(t *testing.T) {
 	assert.Len(t, characterizationGolden, seen, "a golden entry no case renders is pinning nothing")
 }
 
+// TestConfigSerializers_FirstSaveMatchesRender states the convergence the
+// goldens only imply: a first save to a home-layer file (no layer-scope filter
+// applies) writes exactly the bytes init writes and `config show` prints.
+func TestConfigSerializers_FirstSaveMatchesRender(t *testing.T) {
+	outs := characterizationOutputs()
+	var render, home func(*Config) ([]byte, error)
+	for _, o := range outs {
+		switch o.name {
+		case "MarshalYAML":
+			render = o.render
+		case "saveLocked-home":
+			home = o.render
+		}
+	}
+	for _, tc := range characterizationCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := render(tc.cfg())
+			if !assert.NoError(t, err) {
+				return
+			}
+			got, err := home(tc.cfg())
+			if assert.NoError(t, err) {
+				assert.Equal(t, string(want), string(got))
+			}
+		})
+	}
+}
+
 var characterizationGolden = map[string]string{
-	"empty/Marshal": `version: 6
-`,
-	"empty/MarshalYAML": `version: 0
-llm: {}
+	"empty/MarshalYAML": `version: 6
 `,
 	"empty/saveLocked-project": `version: 6
 `,
 	"empty/saveLocked-home": `version: 6
 `,
-	"full/Marshal": `agents:
+	"full/MarshalYAML": `agents:
     worker:
         llm: fast
 config:
@@ -132,9 +154,9 @@ delegation:
     idle_timeout: 10m
 dirty_tree_handler: commit
 editor:
-    command: vi
     args:
         - -n
+    command: vi
 isolation_base_containerfile: Containerfile.base
 isolation_devcontainer_base: true
 isolation_devcontainer_service: app
@@ -145,12 +167,12 @@ isolation_images:
 llm:
     configs:
         fast:
-            type: claude-code
-            permissions: plan
             model: m1
+            permissions: plan
+            type: claude-code
     defaults:
-        primary: fast
         fast: fast
+        primary: fast
 permissions: plan
 runtime: container
 session_purge_age: 180d
@@ -162,50 +184,6 @@ ui:
     surround: true
 version: 6
 workspace: worktree
-`,
-	"full/MarshalYAML": `version: 6
-llm:
-    configs:
-        fast:
-            type: claude-code
-            role: fast
-            permissions: plan
-            model: m1
-    defaults:
-        primary: fast
-        fast: fast
-editor:
-    command: vi
-    args:
-        - -n
-config:
-    essence_max_chars: 4096
-sync:
-    auto_sync: true
-agents:
-    worker:
-        llm: fast
-default_agent: worker
-workspace: worktree
-dirty_tree_handler: commit
-runtime: container
-permissions: plan
-delegation:
-    concurrency: 7
-    depth: 2
-    idle_timeout: 10m
-isolation_images:
-    claude-code: example.invalid/img:tag
-isolation_base_containerfile: Containerfile.base
-isolation_devcontainer_base: true
-isolation_devcontainer_service: app
-isolation_engines:
-    - claude-code
-ui:
-    prefix_key: ctrl-]
-    surround: true
-session_reap_age: 45d
-session_purge_age: 180d
 `,
 	"full/saveLocked-project": `agents:
     worker:
@@ -276,20 +254,12 @@ ui:
 version: 6
 workspace: worktree
 `,
-	"explicit_false_and_stale_version/Marshal": `isolation_devcontainer_base: false
+	"explicit_false_and_stale_version/MarshalYAML": `isolation_devcontainer_base: false
 sync:
     auto_sync: false
 ui:
     surround: false
 version: 6
-`,
-	"explicit_false_and_stale_version/MarshalYAML": `version: 1
-llm: {}
-sync:
-    auto_sync: false
-isolation_devcontainer_base: false
-ui:
-    surround: false
 `,
 	"explicit_false_and_stale_version/saveLocked-project": `sync:
     auto_sync: false
@@ -304,22 +274,11 @@ ui:
     surround: false
 version: 6
 `,
-	"default_overlay/Marshal": `llm:
+	"default_overlay/MarshalYAML": `llm:
     configs:
         mine:
             type: codex
 version: 6
-`,
-	"default_overlay/MarshalYAML": `version: 6
-llm:
-    configs:
-        mine:
-            type: codex
-        shipped:
-            type: claude-code
-            role: primary
-    defaults:
-        primary: shipped
 `,
 	"default_overlay/saveLocked-project": `llm:
     configs:

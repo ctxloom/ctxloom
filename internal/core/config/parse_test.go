@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // TestParseConfig_RoundTrips confirms ParseConfig reads a registry verbatim
@@ -53,7 +54,7 @@ func TestMarshal_StripsRole(t *testing.T) {
 		},
 	}
 
-	data, err := cfg.Marshal()
+	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "role:")
 

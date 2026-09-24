@@ -76,9 +76,7 @@ func TestInitializeProject_UnknownEngineRefusesAndWritesNothing(t *testing.T) {
 // interview's single dirty-tree question actually LANDS both its answers ON
 // DISK — not just that InitializeProject returns success. This is the exact
 // silent-no-op shape this project is known for (exit 0, success message, zero
-// bytes delivered). dirty_tree_handler still lands in config.yaml
-// (config_save.go's applyConfigSections used to omit it regardless of what
-// was passed in); the commit acknowledgement now lands in
+// bytes delivered). dirty_tree_handler lands in config.yaml; the commit acknowledgement now lands in
 // paths.DirtyTreeCommitAckPath — a SEPARATE file outside the layered config
 // chain entirely (see config.SetDirtyTreeCommitAck's doc) — so this test
 // reads each answer through its own independent path: raw config.yaml bytes

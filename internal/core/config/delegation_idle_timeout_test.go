@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // TestDelegationIdleTimeout_Unset_DefaultsToFifteenMinutes: the idle reaper
@@ -43,7 +44,7 @@ func TestDelegationIdleTimeout_Invalid_IsRefusedAtLoad(t *testing.T) {
 // documented API: written, marshalled, parsed back, read via the accessor.
 func TestDelegationIdleTimeout_SurvivesSaveRoundTrip(t *testing.T) {
 	cfg := NewFixture(Fixture{Version: CurrentConfigVersion, Delegation: DelegationConfig{IdleTimeout: "2h"}})
-	data, err := cfg.Marshal()
+	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)

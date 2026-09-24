@@ -8,18 +8,19 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 func ptrBool(b bool) *bool { return &b }
 
-// TestApplyConfigSections_EditorPresence pins the setOrDelete predicate for the
-// editor block. It must be emitted exactly when its presence predicate is true
-// and pruned otherwise — including when only one disjunct of the predicate
-// holds (editor args but no command). An `mcp` key is never emitted at all:
+// TestConfigRender_SectionPresence pins section pruning in the rendered config:
+// the editor block is emitted exactly when either of its fields is set —
+// including when only one is (editor args but no command) — and sync exactly
+// when AutoSync is set, even to false. An `mcp` key is never emitted at all:
 // native MCP config does not exist, so the block has no writer.
-func TestApplyConfigSections_EditorPresence(t *testing.T) {
+func TestConfigRender_SectionPresence(t *testing.T) {
 	tests := []struct {
 		name        string
 		mutate      func(*Config)
@@ -63,8 +64,10 @@ func TestApplyConfigSections_EditorPresence(t *testing.T) {
 			cfg := &Config{}
 			tt.mutate(cfg)
 
-			out := make(map[string]interface{})
-			cfg.applyConfigSections(out)
+			data, err := yaml.Marshal(cfg)
+			require.NoError(t, err)
+			var out map[string]any
+			require.NoError(t, yaml.Unmarshal(data, &out))
 
 			_, hasEditor := out["editor"]
 			_, hasMCP := out["mcp"]
@@ -74,8 +77,6 @@ func TestApplyConfigSections_EditorPresence(t *testing.T) {
 			assert.Equal(t, tt.wantSync, hasSync, "sync block presence")
 
 			if tt.wantSrvName != "" {
-				data, err := cfg.Marshal()
-				require.NoError(t, err)
 				assert.Contains(t, string(data), tt.wantSrvName)
 			}
 		})
@@ -83,10 +84,10 @@ func TestApplyConfigSections_EditorPresence(t *testing.T) {
 }
 
 // TestConfig_Save_PrunesEmptiedEditor exercises the delete branch of
-// setOrDelete end-to-end: a config file that already carries an editor block
+// the pruning end-to-end: a config file that already carries an editor block
 // must lose it when saved from a config where it is empty, while unknown keys
-// are preserved. This is the round-trip the Marshal table can't reach, since
-// Marshal always starts from an empty map.
+// are preserved. This is the round-trip the presence table can't reach, since
+// a render has no existing file to prune from.
 func TestConfig_Save_PrunesEmptiedEditor(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
@@ -184,7 +185,7 @@ func TestConfig_Save_LeavesNoTempFiles(t *testing.T) {
 // readExistingConfig exists to preserve unknown keys across a save. When the
 // file will not parse it warned and returned an EMPTY map, and saveLocked
 // then atomically replaced the file with only the sections
-// applyConfigSections emits — so every key ctxloom does not model, and every
+// persistedDoc renders — so every key ctxloom does not model, and every
 // key it does but the in-memory Config happens not to carry, was destroyed.
 // Reached by every `ctxloom agent add` / `mcp add` / `manage` write through
 // Owner.Update.

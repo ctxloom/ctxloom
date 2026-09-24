@@ -64,13 +64,13 @@ func TestSessionReapAgeSurvivesSaveRoundTrip(t *testing.T) {
 		SessionReapAge: "45d",
 	})
 
-	data, err := cfg.Marshal()
+	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
 
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)
 	assert.Equal(t, "45d", reloaded.SessionReapAge(),
-		"session_reap_age was silently discarded on save: applyConfigSections must emit it")
+		"session_reap_age was silently discarded on save")
 }
 
 // TestUISurvivesSaveRoundTrip is the instance that prompted the class fix:
@@ -83,7 +83,7 @@ func TestUISurvivesSaveRoundTrip(t *testing.T) {
 		UI:      UIConfig{PrefixKey: "ctrl-b", Surround: &surround},
 	})
 
-	data, err := cfg.Marshal()
+	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
 
 	var doc configDoc
@@ -106,13 +106,13 @@ func TestDelegationDepthAloneSurvivesSaveRoundTrip(t *testing.T) {
 		Delegation: DelegationConfig{Depth: 2},
 	})
 
-	data, err := cfg.Marshal()
+	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
 
 	var doc configDoc
 	require.NoError(t, yaml.Unmarshal(data, &doc))
 	assert.Equal(t, 2, doc.Delegation.Depth,
-		"delegation.depth was silently discarded on save: applyConfigSections prunes the whole delegation key on a condition that does not mention it")
+		"delegation.depth was silently discarded on save")
 
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)
@@ -122,13 +122,13 @@ func TestDelegationDepthAloneSurvivesSaveRoundTrip(t *testing.T) {
 // session_purge_age has NO default: unset reads as empty, so a sweep
 // reports its purge rows and acts on none of them.
 func TestSessionPurgeAgeSurvivesSaveRoundTrip(t *testing.T) {
-	data, err := NewFixture(Fixture{Version: CurrentConfigVersion, SessionPurgeAge: "180d"}).Marshal()
+	data, err := yaml.Marshal(NewFixture(Fixture{Version: CurrentConfigVersion, SessionPurgeAge: "180d"}))
 	require.NoError(t, err)
 	reloaded, err := ParseConfig(data)
 	require.NoError(t, err)
 	assert.Equal(t, "180d", reloaded.SessionPurgeAge())
 
-	data, err = NewFixture(Fixture{Version: CurrentConfigVersion}).Marshal()
+	data, err = yaml.Marshal(NewFixture(Fixture{Version: CurrentConfigVersion}))
 	require.NoError(t, err)
 	reloaded, err = ParseConfig(data)
 	require.NoError(t, err)

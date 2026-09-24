@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -231,7 +232,7 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 			Permissions: headlessPermissions,
 		},
 	}
-	return config.NewFixture(f).Marshal()
+	return yaml.Marshal(config.NewFixture(f))
 }
 
 // engineRegistry builds the llm block for an engine by selecting its

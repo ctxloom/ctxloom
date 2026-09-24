@@ -57,10 +57,10 @@ const (
 // these fields' exported names + tags directly; that no longer works once
 // they're unexported (reflection cannot see unexported field VALUES, even
 // from code in this same package — it's a language rule, not a package
-// boundary). MarshalYAML/UnmarshalYAML below round-trip through configDoc, an
-// exported-field mirror with the same tags, so every existing
-// yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) call site keeps working
-// unchanged.
+// boundary). MarshalYAML/UnmarshalYAML below go through configDoc, an
+// exported-field mirror with the same tags. UnmarshalYAML decodes every field;
+// MarshalYAML renders persistedDoc, the one policy every written or shown
+// config follows.
 //
 // NIL RECEIVERS: a *Config method is NOT nil-safe unless its own doc says so.
 // The type has 93 methods (73 of them exported) and exactly five tolerate a nil
@@ -304,8 +304,8 @@ type Config struct {
 	profileRemoteURL func(string) string `config:"runtime"`
 
 	// lmDefaultOverlay snapshots what OverlayDefaultRegistry overlaid into LM (nil
-	// when the user configured their own registry). Save strips values that
-	// still match it: the overlay is a runtime fallback, and persisting it
+	// when the user configured their own registry). persistedDoc strips values
+	// that still match it: the overlay is a runtime fallback, and persisting it
 	// would pin the user to a snapshot of shipped model defaults.
 	lmDefaultOverlay *LMConfig `config:"runtime"`
 }
@@ -318,20 +318,17 @@ type Config struct {
 // that's a language-level rule enforced by the runtime, not a compile-time
 // package-boundary check a same-package helper could route around.
 //
-// Config's MarshalYAML/UnmarshalYAML below round-trip through configDoc, so
-// EVERY existing yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) call site — both
-// of this package's own (loadLayeredConfig, ParseConfig) and the one external
-// site (internal/adapters/cli/config.go's renderConfigYAML) — keeps working completely
-// unchanged, with byte-identical output, because yaml.v3 automatically
-// prefers a type's Marshaler/Unmarshaler methods over reflecting its fields
-// directly.
+// Config's MarshalYAML renders a configDoc (persistedDoc) and UnmarshalYAML
+// decodes one, so yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) work on a Config
+// whose fields are unexported; yaml.v3 prefers a type's Marshaler/Unmarshaler
+// methods over reflecting its fields.
 //
 // Runtime-only fields (appPaths, appRoot, appDir, source, warnings,
 // pendingUpgrade, homePendingUpgrade) are deliberately absent here, exactly
 // mirroring their old yaml:"-" tag: configDoc IS the persisted-fields subset.
 type configDoc struct {
 	Version                      int                     `yaml:"version"`
-	LM                           LMConfig                `yaml:"llm"`
+	LM                           LMConfig                `yaml:"llm,omitempty"`
 	Editor                       EditorConfig            `yaml:"editor,omitempty"`
 	Settings                     SettingsConfig          `yaml:"config,omitempty"`
 	Sync                         SyncConfig              `yaml:"sync,omitempty"`
@@ -350,6 +347,30 @@ type configDoc struct {
 	UI                           UIConfig                `yaml:"ui,omitempty"`
 	SessionReapAge               string                  `yaml:"session_reap_age,omitempty"`
 	SessionPurgeAge              string                  `yaml:"session_purge_age,omitempty"`
+}
+
+// MarshalYAML emits d as a plain map, so every key is written sorted at every
+// depth. That is the only order a save can reproduce: saveLocked patches the
+// on-disk file section by section from this same map, and a map has no field
+// order to keep. Encoding the struct directly would emit field order, and init,
+// `config show` and a save would disagree on the bytes again.
+func (d configDoc) MarshalYAML() (any, error) {
+	return d.yamlMap()
+}
+
+// yamlMap is d decoded into a generic map: the form both MarshalYAML and
+// saveLocked's merge consume.
+func (d configDoc) yamlMap() (map[string]any, error) {
+	type fields configDoc // same fields and tags, no MarshalYAML to recurse into
+	raw, err := yaml.Marshal(fields(d))
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := yaml.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // toDoc copies c's persisted fields into a configDoc for marshaling, cloning
@@ -421,16 +442,15 @@ func (c *Config) fromDoc(doc configDoc) {
 	}
 }
 
-// MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — cli/config.go's
-// `config show`/`config get` and this package's own layer-remarshal step —
-// keeps producing the same shape it always has, now that Config's fields are
-// unexported and no longer reflectable. See configDoc's doc for why this is
-// necessary rather than optional.
+// MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — `config show`,
+// `config get` and init's scaffold write — renders persistedDoc. It returns the
+// configDoc itself rather than bytes so `config get` can reflect a section out
+// of it by yaml tag.
 func (c *Config) MarshalYAML() (any, error) {
 	if c == nil {
 		return nil, nil
 	}
-	return c.toDoc(), nil
+	return c.persistedDoc(), nil
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler so yaml.Unmarshal(data, cfg) —

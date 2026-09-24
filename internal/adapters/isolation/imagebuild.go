@@ -961,7 +961,7 @@ func (c Container) imageLabels(ctx context.Context) map[string]string {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, c.runtime.Binary(), "image", "inspect", c.image, "--format", "{{json .Config.Labels}}").Output()
+	out, err := exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "{{json .Config.Labels}}")...).Output()
 	if err != nil {
 		return nil
 	}
@@ -986,7 +986,7 @@ type imageIdentity struct {
 func (c Container) imageIdentityConfig(ctx context.Context) (imageIdentity, error) {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, c.runtime.Binary(), "image", "inspect", c.image, "--format", "{{json .Config}}").Output()
+	out, err := exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "{{json .Config}}")...).Output()
 	if err != nil {
 		return imageIdentity{}, fmt.Errorf("inspect image config: %w", err)
 	}

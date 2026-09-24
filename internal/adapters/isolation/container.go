@@ -870,7 +870,7 @@ func (c Container) imagePresent(ctx context.Context) bool {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return exec.CommandContext(cctx, c.runtime.Binary(), "image", "inspect", c.image).Run() == nil
+	return exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "")...).Run() == nil
 }
 
 // overrideIdentityFixIt names the ways out when a user-supplied image cannot
@@ -917,17 +917,16 @@ func rootishUser(user string) bool {
 // RUN the entrypoint, so a run-as-is image needs this static contract check —
 // the one pre-start signal, since a wrong-identity container launches cleanly.
 func runAsIsIdentityProblem(rt Runtime, id imageIdentity) string {
-	if d, ok := rt.(Docker); ok && d.rootless {
-		// Rootless docker passes no PUID: container-ROOT is the one uid that
-		// maps to the launching host user, so the image must run as root.
+	if !rt.passesPUID() {
+		// A mode that passes no PUID keeps the run container-ROOT, the one uid
+		// that maps to the launching host user, so the image must run as root.
 		if rootishUser(id.User) {
 			return ""
 		}
-		return fmt.Sprintf("its USER %q maps to a subordinate uid under the rootless docker daemon (only container-root maps to the launching user)", id.User)
+		return fmt.Sprintf("its USER %q maps to a subordinate uid under %s (only container-root maps to the launching user)", id.User, rt.Name())
 	}
-	// Every PUID-passing mode (rootful docker, podman both modes — and any
-	// unknown runtime, conservatively) relies on the baked ctxloom entrypoint,
-	// started as root, to remap and drop.
+	// Every PUID-passing mode relies on the baked ctxloom entrypoint, started
+	// as root, to remap and drop.
 	if !entrypointGoverned(id.Entrypoint) {
 		return "it does not run the ctxloom identity-remap entrypoint, so the PUID/PGID remap is inert and the engine runs as the image's own user"
 	}

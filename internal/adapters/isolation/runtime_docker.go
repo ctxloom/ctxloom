@@ -2,10 +2,12 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -50,12 +52,42 @@ func (d Docker) RunArgs(spec RunSpec) []string {
 	args := []string{"run", "--rm", "--name", spec.Name}
 	args = append(args, initArgs()...)
 	args = append(args, ownerLabelArgs()...)
-	if !d.rootless {
-		// Rootful daemon: the entrypoint remaps ctxloom to the launching
-		// uid/gid and drops privileges. Rootless already maps root→host user.
+	if d.passesPUID() {
 		args = append(args, identityEnvArgs()...)
 	}
 	return d.runArgs(args, spec)
+}
+
+// passesPUID is false under a rootless daemon: container-ROOT is the one uid
+// that maps to the launching host user, so the run stays root and the image
+// must run as root. A rootful daemon has the entrypoint remap and drop.
+func (d Docker) passesPUID() bool { return !d.rootless }
+
+// removeOutcome adds docker's failure-shaped gone-ness to the shared reading:
+// older daemons exit non-zero with "No such container" once --rm has already
+// finished, and any daemon answers "removal of container ... is already in
+// progress" while its OWN --rm cleanup is mid-flight (a long-lived container
+// that exits when its stdin closes reproduces it). Both are teardown success:
+// the container is gone, or docker's in-flight removal guarantees it shortly.
+func (d Docker) removeOutcome(stdout []byte, err error) removeOutcome {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		stderr := strings.ToLower(string(ee.Stderr))
+		if strings.Contains(stderr, "no such container") ||
+			(strings.Contains(stderr, "removal of container") && strings.Contains(stderr, "already in progress")) {
+			return removeAlreadyGone
+		}
+	}
+	return d.ociRuntime.removeOutcome(stdout, err)
+}
+
+// ContainerHostAlias is Docker Desktop's name for the host when its containers
+// run in a VM; on a shared kernel the host's own addresses reach it.
+func (Docker) ContainerHostAlias() string {
+	if platform.ContainersInVM {
+		return "host.docker.internal"
+	}
+	return ""
 }
 
 // Enumerate lists RUNNING docker containers by name prefix, via the shared

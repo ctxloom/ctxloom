@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"os"
 	"strings"
 	"testing"
@@ -184,7 +185,8 @@ func TestPodmanRootful_DockerCompatibleArgv(t *testing.T) {
 	assert.NotContains(t, joined, "--user")
 	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()))
 	assert.Contains(t, joined, "--mount type=bind,source=/home/u/proj,target=/home/u/proj")
-	assert.Equal(t, []string{"rm", "-f", "c1"}, Podman{}.RemoveArgs("c1"))
+	assert.Equal(t, []string{"rm", "-f", "-t", "0", "c1"}, Podman{}.RemoveArgs("c1"),
+		"podman's rm -f waits its stop timeout before SIGKILL unless told -t 0")
 }
 
 // TestPodmanRootless_KeepIDAsRoot: rootless podman needs keep-id so the
@@ -369,4 +371,35 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 	require.Equal(t, defaultContainerHome, spec.Home)
 	assert.Contains(t, strings.Join(renderRunSpec(spec), " "), "-e HOME="+defaultContainerHome,
 		"a spec carrying a home must render the fresh-HOME env flag")
+}
+
+// TestContainerHostAlias_PodmanRootlessPastaNeedsTheAlias pins the measured
+// reachability on a Linux host (podman 5.4.2, rootless; a listener bound on the
+// host's primary address). Under pasta the container carries a COPY of that
+// address, so dialing it is refused inside the container, while
+// host.containers.internal (pasta's mapped 169.254.1.2) reaches the host.
+// Under slirp4netns the host's own address reaches it, and podman resolves the
+// alias to an arbitrary host interface — so no alias. Rootful podman's bridge
+// reaches the host's own addresses too.
+func TestContainerHostAlias_PodmanRootlessPastaNeedsTheAlias(t *testing.T) {
+	if platform.ContainersInVM {
+		t.Skip("inside a VM every runtime answers its alias; this pins the shared-kernel answer")
+	}
+	assert.Equal(t, "host.containers.internal", Podman{rootless: true, rootlessNet: "pasta"}.ContainerHostAlias())
+	assert.Empty(t, Podman{rootless: true, rootlessNet: "slirp4netns"}.ContainerHostAlias())
+	assert.Empty(t, Podman{rootless: true}.ContainerHostAlias(), "an unprobed network keeps the host-address path")
+	assert.Empty(t, Podman{rootlessNet: "pasta"}.ContainerHostAlias(), "rootful podman is on a bridge, not pasta")
+	assert.Empty(t, Docker{}.ContainerHostAlias())
+	assert.Empty(t, Host{}.ContainerHostAlias())
+}
+
+// TestPassesPUID: only rootless docker keeps the run container-root with no
+// identity env; the RunArgs head and the run-as-is identity check read the
+// same answer.
+func TestPassesPUID(t *testing.T) {
+	assert.False(t, Docker{rootless: true}.passesPUID())
+	assert.NotContains(t, strings.Join(Docker{rootless: true}.RunArgs(sampleSpec()), " "), "PUID=")
+	assert.True(t, Docker{}.passesPUID())
+	assert.True(t, Podman{}.passesPUID())
+	assert.True(t, Podman{rootless: true}.passesPUID())
 }

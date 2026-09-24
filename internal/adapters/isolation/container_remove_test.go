@@ -8,21 +8,51 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestRemoveReportsGone: only the benign already-gone stderr counts as success;
-// a wedged/other failure (or a non-exit error like a timeout) is a potential leak.
-func TestRemoveReportsGone(t *testing.T) {
-	_, gone := exec.Command("sh", "-c", "echo 'No such container: abc' >&2; exit 1").Output()
-	_, wedged := exec.Command("sh", "-c", "echo 'daemon not responding' >&2; exit 1").Output()
-	// The SECOND benign race (ISO1, live-verified against a real docker
-	// daemon: a long-lived attached container exiting right as our own
-	// `rm -f` lands hits this message 100% of the time on this docker
-	// version) — docker's OWN async --rm cleanup is
-	// in-flight at the exact moment ours runs; the container is gone (or
-	// guaranteed to become so) either way, not a leak.
-	_, inProgress := exec.Command("sh", "-c",
-		"echo 'Error response from daemon: removal of container abc is already in progress' >&2; exit 1").Output()
-	assert.True(t, removeReportsGone(gone))
-	assert.True(t, removeReportsGone(inProgress))
-	assert.False(t, removeReportsGone(wedged))
-	assert.False(t, removeReportsGone(errors.New("context deadline exceeded")))
+// exitWith runs a shell that writes stderr and exits code, returning the error
+// the way probeExec's .Output() surfaces it (an *exec.ExitError carrying the
+// stderr), so removeOutcome reads exactly what it reads in production.
+func exitWith(t *testing.T, stderr string, code int) error {
+	t.Helper()
+	_, err := exec.Command("sh", "-c", "printf '%s' \"$1\" >&2; exit $2", "sh", stderr, string(rune('0'+code))).Output()
+	return err
+}
+
+// TestRemoveOutcome: each runtime reads its OWN CLI's teardown report.
+//
+// Measured on this host (docker 29, podman 5.4.2): `rm -f` of a missing name
+// exits 0 with EMPTY stdout on both — docker says "No such container" on
+// stderr, podman says nothing — and a remove that took a container down
+// echoes its name. Docker additionally reports gone-ness through a FAILURE on
+// older daemons ("No such container", exit 1) and while its own --rm cleanup
+// is in flight ("removal of container ... is already in progress"); podman
+// does not speak docker's wording, so the same failure is unconfirmed there.
+func TestRemoveOutcome(t *testing.T) {
+	gone := exitWith(t, "Error response from daemon: No such container: abc", 1)
+	inProgress := exitWith(t, "Error response from daemon: removal of container abc is already in progress", 1)
+	wedged := exitWith(t, "daemon not responding", 1)
+	timeout := errors.New("context deadline exceeded")
+
+	cases := []struct {
+		name   string
+		rt     Runtime
+		stdout string
+		err    error
+		want   removeOutcome
+	}{
+		{"docker removed", Docker{}, "abc\n", nil, removeRemoved},
+		{"docker missing name exits 0 empty", Docker{}, "", nil, removeAlreadyGone},
+		{"docker older daemon no such container", Docker{}, "", gone, removeAlreadyGone},
+		{"docker own --rm in flight", Docker{}, "", inProgress, removeAlreadyGone},
+		{"docker wedged", Docker{}, "", wedged, removeFailed},
+		{"docker timeout", Docker{}, "", timeout, removeFailed},
+		{"podman removed", Podman{}, "abc\n", nil, removeRemoved},
+		{"podman missing name exits 0 empty", Podman{}, "", nil, removeAlreadyGone},
+		{"podman does not read docker wording", Podman{}, "", gone, removeFailed},
+		{"podman wedged", Podman{}, "", wedged, removeFailed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.rt.removeOutcome([]byte(tc.stdout), tc.err))
+		})
+	}
 }

@@ -37,12 +37,12 @@ func (c Container) StartRunner(ctx context.Context, backendName, label string, v
 		return nil, fmt.Errorf("container start-runner: unexpected workspace %T (expected a container workspace)", ws)
 	}
 	if verbosity > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: container runner (docker-direct) auth via %s\n", cw.authMode)
+		fmt.Fprintf(os.Stderr, "ctxloom: container runner (%s, direct) auth via %s\n", c.runtime.Name(), cw.authMode)
 	}
 	name := containerName(cw.agentID)
 	// This name is the no-tmux fallback's only handle, is randomly suffixed, and dies with
 	// the container. Unconditional on purpose.
-	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
+	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: %s logs -f %s)\n", name, c.runtime.Binary(), name)
 	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)
 	return startDirectRunner(c.runtime, spec, spawnEnv)
 }
@@ -58,7 +58,7 @@ func (c Container) InteractiveRunner(_ context.Context, backendName string, ws W
 		return nil, "", fmt.Errorf("container interactive runner: unexpected workspace %T (expected a container workspace)", ws)
 	}
 	name := containerName(cw.agentID)
-	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
+	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: %s logs -f %s)\n", name, c.runtime.Binary(), name)
 	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)
 	spec.TTY = true
 	// The runner process runs under RunnerTerm (the last -e wins over the
@@ -138,7 +138,7 @@ const runnerWaitDelay = 10 * time.Second
 // process, capturing stderr into a bounded ring, and
 // returns a RunnerHandle. The per-spawn env values ride the run PROCESS env so
 // they never enter the world-readable argv. Kill force-removes the container
-// (reusing the same remove-with-timeout + removeReportsGone logic
+// (reusing the same remove-with-timeout + removeOutcome logic
 // containerRunner.Kill uses) then signals our own `run` CLI; the reaper
 // goroutine started here Waits it exactly once, and RunnerHandle.Wait reads
 // that one outcome (surfacing the stderr tail on failure).
@@ -244,7 +244,7 @@ func reapRunProcess(cmd *exec.Cmd) func() error {
 
 // removeContainer force-removes a named container under our OWN bounded timeout
 // (a wedged daemon must never hang teardown), surfacing a real leak LOUDLY —
-// the remove-with-timeout + removeReportsGone logic the RunnerHandle.Kill of
+// the remove-with-timeout + removeOutcome logic the RunnerHandle.Kill of
 // a container runner and Container.Remove both use. A missing name/binary
 // (a host-style runner) is a no-op. A racing --rm reporting already-gone is
 // not a leak and draws no warning; it is REPORTED (true) because it is only
@@ -256,14 +256,11 @@ func removeContainer(ctx context.Context, rt Runtime, name string) (reportedGone
 	cctx, cancel := context.WithTimeout(ctx, containerRemoveTimeout)
 	defer cancel()
 	out, err := probeExec(cctx, rt.Binary(), rt.RemoveArgs(name))
-	// A remove that removed something echoes its name/ID on stdout; current
-	// docker's `rm -f` of an absent name exits 0 with EMPTY stdout (its "No
-	// such container" goes to stderr only). Empty success is gone.
-	if err == nil {
-		return strings.TrimSpace(out) == ""
-	}
-	if removeReportsGone(err) {
+	switch rt.removeOutcome([]byte(out), err) {
+	case removeAlreadyGone:
 		return true
+	case removeRemoved:
+		return false
 	}
 	clidiag.Warn("ctxloom",
 		"container %q may still be running after teardown (%v) — the %s daemon did not confirm removal; it holds this run's workspace, remove it manually with `%s %s`",

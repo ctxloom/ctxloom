@@ -28,6 +28,21 @@ func (f fakeRuntime) Binary() string           { return f.binary }
 func (f fakeRuntime) Available() bool          { return f.available }
 func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
 func (fakeRuntime) RemoveArgs(string) []string { return nil }
+func (fakeRuntime) ContainerHostAlias() string { return "" }
+
+// The CLI grammar is the shared OCI default, so a call site routed through the
+// seam renders the same argv against the fake as against a real runtime.
+func (fakeRuntime) inspectRunningArgs(name string) []string {
+	return ociRuntime{}.inspectRunningArgs(name)
+}
+func (fakeRuntime) imageInspectArgs(image, format string) []string {
+	return ociRuntime{}.imageInspectArgs(image, format)
+}
+func (fakeRuntime) daemonNameTemplate() string { return ociRuntime{}.daemonNameTemplate() }
+func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
+	return ociRuntime{}.removeOutcome(stdout, err)
+}
+func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
 
 // Expose is the OCI identity bind mount, so tests that route delivery mounts
 // through the runtime (sessionStateMounts, gitCommonDirMount) see the same Mount

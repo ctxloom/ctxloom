@@ -165,7 +165,7 @@ type Policy interface {
 	// setsid. Readiness is NOT observed here: the coordinator's awaitRunner
 	// (the runner's RunnerChannel Hello) is the barrier. The returned handle's
 	// Kill tears the runner down (container: `rm -f` by Name under
-	// containerRemoveTimeout + removeReportsGone; host: setsid session sweep);
+	// containerRemoveTimeout + Runtime.removeOutcome; host: setsid session sweep);
 	// Wait reaps the process, surfacing the captured stderr tail on failure.
 	// spawnEnv crosses host → cmd.Env; container → bare-name `-e` with values
 	// on the run-process env.
@@ -297,8 +297,7 @@ func AwaitContainerRunning(rt Runtime, h *RunnerHandle) error {
 func containerObservedRunning(rt Runtime, name string) bool {
 	cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, rt.Binary(),
-		"container", "inspect", "-f", "{{.State.Running}}", name).Output()
+	out, err := exec.CommandContext(cctx, rt.Binary(), rt.inspectRunningArgs(name)...).Output()
 	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
 
@@ -528,10 +527,10 @@ func warnUnknownAxes(a Axes) {
 	if a.Workspace != "" && a.Workspace != WorkspaceShared && a.Workspace != WorkspaceWorktree {
 		clidiag.Warn("ctxloom", "unknown workspace axis %q (known: %s); treating as %q", a.Workspace, strings.Join(WorkspaceNames(), "|"), WorkspaceShared)
 	}
-	if a.Runtime != "" && a.Runtime != RuntimeHost && !IsContainerRuntimeAxis(a.Runtime) {
+	if _, err := launch.ParseRuntimeAxis(string(a.Runtime)); err != nil {
 		strictness.FailAlways(strictness.ClassIsolation,
 			"set the runtime axis to one of "+strings.Join(RuntimeNames(), "|")+" (fix the config/flag typo), or `runtime: host` if this run really should have no sandbox",
-			"unknown runtime axis %q (known: %s); refusing to run: an unrecognised runtime would land this session on the HOST without a container boundary (NOT sandboxed), and a typo must not be able to drop it", a.Runtime, strings.Join(RuntimeNames(), "|"))
+			"%v; refusing to run: an unrecognised runtime would land this session on the HOST without a container boundary (NOT sandboxed), and a typo must not be able to drop it", err)
 	}
 }
 

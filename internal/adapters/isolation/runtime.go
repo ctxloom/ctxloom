@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -68,7 +69,46 @@ type Runtime interface {
 	// ReapOrphanedContainers uses instead of composing `ps` argv itself: Host
 	// launches no containers and always returns nil, nil.
 	Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error)
+	// ContainerHostAlias is the hostname a container of this runtime dials to
+	// reach a listener on the host, or "" when one of the host's own interface
+	// addresses reaches it and no alias is needed. Where the containers run
+	// inside a VM the alias lands on the host's loopback; under rootless
+	// podman's pasta network it lands on the host's primary address, which the
+	// container cannot dial directly because pasta copies it onto the
+	// container's own interface.
+	ContainerHostAlias() string
+
+	// The methods below are the CLI grammar a runtime's own tooling differs
+	// in. Unexported like mapper(): internal wiring, each with one default on
+	// ociRuntime and overridden only by the runtime that really differs.
+
+	// inspectRunningArgs builds the argv that prints "true" while name runs.
+	inspectRunningArgs(name string) []string
+	// imageInspectArgs builds the argv that inspects image, rendering format
+	// when it is non-empty (a bare inspect answers only "does it exist").
+	imageInspectArgs(image, format string) []string
+	// daemonNameTemplate is the `info` Go template naming the daemon's host.
+	daemonNameTemplate() string
+	// removeOutcome reads what this runtime's CLI said about a RemoveArgs run.
+	removeOutcome(stdout []byte, err error) removeOutcome
+	// passesPUID reports whether a run passes the PUID/PGID identity env, i.e.
+	// relies on the image entrypoint to remap and drop to the launching user.
+	passesPUID() bool
 }
+
+// removeOutcome is what a force-remove established about its container.
+type removeOutcome int
+
+const (
+	// removeFailed: the runtime did not confirm the container is gone — a
+	// possible leak, surfaced by the caller.
+	removeFailed removeOutcome = iota
+	// removeRemoved: this remove took a container down.
+	removeRemoved
+	// removeAlreadyGone: there was nothing under the name. Final only once
+	// nothing can still create it (see removeLaunched).
+	removeAlreadyGone
+)
 
 // ContainerInfo is one running container as Enumerate reports it: enough for
 // a caller deciding whether to reap it, never more.
@@ -184,10 +224,50 @@ type Mount struct {
 // injection point a future Windows/DooD-aware SelectRuntime would populate.
 type ociRuntime struct{ pathMap pathMapper }
 
-// RemoveArgs force-removes the container (SIGKILL + rm; idempotent enough that a
-// racing --rm auto-remove just reports "no such container", which callers ignore).
-// Shared by Docker and Podman — the `rm -f <name>` argv is identical on both.
+// RemoveArgs force-removes the container: SIGKILL, then rm. A racing --rm
+// auto-remove leaves nothing under the name, which removeOutcome reads as
+// removeAlreadyGone. A runtime whose `rm -f` would first wait out a stop
+// timeout overrides this to skip that wait, so the SIGKILL claim holds for
+// every runtime.
 func (ociRuntime) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
+
+// removeOutcome reads a remove's result: success with the name echoed on
+// stdout removed a container; success with EMPTY stdout found none (current
+// CLIs exit 0 on a missing name and say so, if at all, only on stderr); any
+// failure is unconfirmed. A runtime whose CLI reports gone-ness through a
+// failure overrides this.
+func (ociRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
+	switch {
+	case err != nil:
+		return removeFailed
+	case len(bytes.TrimSpace(stdout)) == 0:
+		return removeAlreadyGone
+	default:
+		return removeRemoved
+	}
+}
+
+// inspectRunningArgs is the docker-CLI-compatible running-state inspect.
+func (ociRuntime) inspectRunningArgs(name string) []string {
+	return []string{"container", "inspect", "-f", "{{.State.Running}}", name}
+}
+
+// imageInspectArgs is the docker-CLI-compatible image inspect.
+func (ociRuntime) imageInspectArgs(image, format string) []string {
+	args := []string{"image", "inspect", image}
+	if format != "" {
+		args = append(args, "--format", format)
+	}
+	return args
+}
+
+// daemonNameTemplate is the top-level {{.Name}} field.
+func (ociRuntime) daemonNameTemplate() string { return "{{.Name}}" }
+
+// passesPUID is true: every mode relies on the image entrypoint to remap, save
+// the one that overrides it. An unrecognised mode stays on the conservative
+// side, where a run-as-is image must carry the entrypoint.
+func (ociRuntime) passesPUID() bool { return true }
 
 // runArgs assembles the full `run` argv from a runtime-specific HEAD (the
 // --rm/--name/--user/identity prefix each concrete runtime builds) and the
@@ -422,12 +502,12 @@ type runtimeCandidate struct {
 // selectRuntimeProbe seams.
 var runtimeCandidates = func() []runtimeCandidate {
 	return []runtimeCandidate{
-		{"docker", func() (Runtime, RuntimeAxis) {
+		{Docker{}.Name(), func() (Runtime, RuntimeAxis) {
 			d := newDockerRuntime(runtimeReachable)
 			return d, ownershipAxis(d.rootless)
 		}},
-		{"podman", func() (Runtime, RuntimeAxis) {
-			p := Podman{rootless: podmanIsRootless()}
+		{Podman{}.Name(), func() (Runtime, RuntimeAxis) {
+			p := newPodmanRuntime()
 			return p, ownershipAxis(p.rootless)
 		}},
 	}

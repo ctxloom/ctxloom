@@ -131,6 +131,12 @@ type fakeSpawner struct {
 	// refuseBinds is how many launches the runner tail refuses with
 	// delivery.ErrEndpointUnavailable before binding normally.
 	refuseBinds int
+	// bindHold, when non-nil, holds every launch inside the runner tail's
+	// bind seam — StartRun is on the wire, the runner is up, the reply has
+	// not been sent — until it is closed or the spawn is killed. bindEntered
+	// (buffered) is signalled each time a launch reaches the hold.
+	bindHold    chan struct{}
+	bindEntered chan struct{}
 }
 
 type fakeAgent struct {
@@ -333,7 +339,7 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 
 	sctx, cancel := context.WithCancel(context.Background())
 	host := runnerHooks.NewEngineHost(sctx, nil, string(l.Engine), runnerEnv[EnvRunID])
-	runnerHooks.BindTestRunner(host, inst, s.refuseBind)
+	runnerHooks.BindTestRunner(host, inst, func() bool { return s.refuseBind(sctx) })
 	home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
 		Reporter:     termSink(),
 		URL:          runnerEnv[EnvCoordURL],
@@ -380,8 +386,26 @@ func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 // refuseBind is the runner tail's bind seam: while refuseBinds is positive,
 // each launch the runner executes is refused with
 // delivery.ErrEndpointUnavailable (the port was taken between incarnations),
-// and the count goes down by one.
-func (s *fakeSpawner) refuseBind() bool {
+// and the count goes down by one. With bindHold set it first holds the
+// launch there (see bindHold); spawnCtx is the spawn's own context, which
+// the fake's kill cancels before joining the engine host, so a held launch
+// never outlives its runner.
+func (s *fakeSpawner) refuseBind(spawnCtx context.Context) bool {
+	s.mu.Lock()
+	hold, entered := s.bindHold, s.bindEntered
+	s.mu.Unlock()
+	if hold != nil {
+		if entered != nil {
+			select {
+			case entered <- struct{}{}:
+			default:
+			}
+		}
+		select {
+		case <-hold:
+		case <-spawnCtx.Done():
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.refuseBinds > 0 {

@@ -394,6 +394,12 @@ type Coordinator struct {
 	// must survive to the items fold) without depending on real scheduler
 	// timing.
 	drainHook func(role string)
+	// stopCancelledLaunchHook, if set (tests only, same package), runs
+	// synchronously in stopRun right after it cancels the harp's launch in
+	// flight: the seam that lets the cancelled launch settle (fail) before
+	// anything else the stop does, which is the interleaving a stop landing
+	// mid-StartRun meets under load.
+	stopCancelledLaunchHook func(harp string)
 	// spawnDispatchedHook, if set (tests only, same package), runs
 	// synchronously in AgentRun immediately after the child's driver
 	// goroutine has been dispatched, with the child's harp. It is the
@@ -1165,6 +1171,9 @@ func (c *Coordinator) AgentStop(caller Identity, harp, reason string) (string, e
 // ended, not just that it did.
 func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) string {
 	c.cancelLaunch(rec.Harp)
+	if hook := c.stopCancelledLaunchHook; hook != nil {
+		hook(rec.Harp)
+	}
 	if rec.Ended {
 		ended := rec.Cause
 		if rec.Detail != "" {

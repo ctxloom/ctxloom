@@ -11,11 +11,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -40,6 +43,7 @@ import (
 type exitSpawner struct {
 	directBusSpawner
 	runtime string
+	killed  atomic.Bool
 }
 
 func (s *exitSpawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPlan, error) {
@@ -75,8 +79,23 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	return coord.Resolved{Launch: l}, nil
 }
 
+// Start is directBusSpawner's, with the teardown it hands the coordinator
+// recorded: the spawn's Kill is the ONE door a live owner releases a run's
+// cell through (runtime remove, then the workspace's Cleanup), so a live-owner
+// end path that never reached it would leak every ephemeral the cell holds.
+func (s *exitSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*coord.EngineSpawn, error) {
+	es, err := s.directBusSpawner.Start(ctx, l, reach)
+	if err != nil {
+		return nil, err
+	}
+	kill := es.Kill
+	es.Kill = func() { s.killed.Store(true); kill() }
+	return es, nil
+}
+
 // exitRun is one live container child: its coordinator, harp and container.
 type exitRun struct {
+	sp        *exitSpawner
 	c         *coord.Coordinator
 	harp      string
 	container string
@@ -134,7 +153,7 @@ func startExitRun(t *testing.T, runtimeName, image string) exitRun {
 			st, dockergate.ContainersNamed(t, bin, name))
 	}
 	require.NotEmpty(t, dockergate.ContainersNamed(t, bin, name), "the child's container is up")
-	return exitRun{c: c, harp: out.Harp, container: name, bin: bin}
+	return exitRun{sp: sp, c: c, harp: out.Harp, container: name, bin: bin}
 }
 
 func waitFor(within time.Duration, cond func() bool) bool {
@@ -172,6 +191,49 @@ func (r exitRun) requireRunEnded(t *testing.T, why string) {
 	t.Helper()
 	require.Eventually(t, func() bool { return rosterState(r.c, r.harp) == coord.StateEnded }, 60*time.Second, 100*time.Millisecond,
 		"%s: the coordinator must see the run end", why)
+}
+
+// requireCellReleased: the owner reached the spawn's teardown for this run.
+func (r exitRun) requireCellReleased(t *testing.T, why string) {
+	t.Helper()
+	require.Eventually(t, r.sp.killed.Load, 30*time.Second, 50*time.Millisecond,
+		"%s: the coordinator must release the run's cell through the spawn's Kill", why)
+}
+
+// persistentMembers lists every path under the run's session dir that the
+// session-member table classifies as Persist (paths.HarpMembers): what resume,
+// distill, the session list and the human read after the run is over.
+func (r exitRun) persistentMembers(t *testing.T) []string {
+	t.Helper()
+	dir, err := paths.HarpDir(r.harp)
+	require.NoError(t, err)
+	var out []string
+	require.NoError(t, filepath.WalkDir(dir, func(p string, _ fs.DirEntry, werr error) error {
+		if werr != nil {
+			return werr
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		if m, ok := paths.ClassifyMember(filepath.ToSlash(rel)); ok && m.Lifetime == paths.Persist {
+			out = append(out, p)
+		}
+		return nil
+	}))
+	return out
+}
+
+// requirePersistentKept: every Persist member present before the end is
+// still there after it. Cleanup releases ephemerals only.
+func (r exitRun) requirePersistentKept(t *testing.T, before []string, why string) {
+	t.Helper()
+	require.NotEmpty(t, before, "the run left no persistent session state to check")
+	t.Logf("%s: %d persistent session member(s) checked: %v", why, len(before), before)
+	for _, p := range before {
+		_, err := os.Lstat(p)
+		require.NoError(t, err, "%s: persistent session member %s was removed", why, p)
+	}
 }
 
 // runtimeExec runs argv inside the run's container.
@@ -226,39 +288,50 @@ func TestRunnerExitPaths(t *testing.T) {
 			// container; the runner must notice, exit, and let --rm take it.
 			t.Run("owner-loss", func(t *testing.T) {
 				r := startExitRun(t, rtc.name, image)
+				persistent := r.persistentMembers(t)
 				coord.CrashCoordinator(r.c)
 				r.requireContainerGone(t, coord.RunnerLossTimeout+removalSlack,
 					"a runner whose coordinator is gone must exit within the runner-loss grace")
+				r.requirePersistentKept(t, persistent, "owner loss")
 			})
 
 			// AGENT STOP: the coordinator's own teardown door (terminateRun ->
 			// the spawn's Kill -> remove by name).
 			t.Run("agent-stop", func(t *testing.T) {
 				r := startExitRun(t, rtc.name, image)
+				persistent := r.persistentMembers(t)
 				_, err := r.c.AgentStop(coord.OwnerIdentity(), r.harp, "exit-path test")
 				require.NoError(t, err)
 				r.requireRunEnded(t, "agent_stop")
 				r.requireContainerGone(t, removalSlack, "agent_stop")
+				r.requireCellReleased(t, "agent_stop")
+				r.requirePersistentKept(t, persistent, "agent_stop")
 			})
 
 			// RUNTIME STOP: SIGTERM through the init to the runner, which
 			// returns from Main and exits; --rm takes the container.
 			t.Run("runtime-stop", func(t *testing.T) {
 				r := startExitRun(t, rtc.name, image)
+				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "stop", "-t", "20", r.container).CombinedOutput()
 				require.NoError(t, err, "%s stop: %s", r.bin, out)
 				r.requireContainerGone(t, removalSlack, "runtime stop (SIGTERM)")
 				r.requireRunEnded(t, "runtime stop (SIGTERM)")
+				r.requireCellReleased(t, "runtime stop (SIGTERM)")
+				r.requirePersistentKept(t, persistent, "runtime stop (SIGTERM)")
 			})
 
 			// RUNTIME KILL: SIGKILL; nothing in the container runs, --rm still
 			// takes it, and the coordinator synthesizes the loss from the drop.
 			t.Run("runtime-kill", func(t *testing.T) {
 				r := startExitRun(t, rtc.name, image)
+				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "kill", r.container).CombinedOutput()
 				require.NoError(t, err, "%s kill: %s", r.bin, out)
 				r.requireContainerGone(t, removalSlack, "runtime kill (SIGKILL)")
 				r.requireRunEnded(t, "runtime kill (SIGKILL)")
+				r.requireCellReleased(t, "runtime kill (SIGKILL)")
+				r.requirePersistentKept(t, persistent, "runtime kill (SIGKILL)")
 			})
 
 			// RUNNER CRASH: the runner process dies abruptly — SIGQUIT is a Go
@@ -269,11 +342,14 @@ func TestRunnerExitPaths(t *testing.T) {
 			// surviving process can hold the container open.
 			t.Run("runner-crash", func(t *testing.T) {
 				r := startExitRun(t, rtc.name, image)
+				persistent := r.persistentMembers(t)
 				out, err := exec.Command(r.bin, "exec", "-d", r.container, "sleep", "600").CombinedOutput()
 				require.NoError(t, err, "%s exec -d sleep: %s", r.bin, out)
 				r.runtimeExec(t, "sh", "-c", "kill -QUIT $(pidof ctxloom)")
 				r.requireContainerGone(t, removalSlack, "runner crash with a surviving process")
 				r.requireRunEnded(t, "runner crash")
+				r.requireCellReleased(t, "runner crash")
+				r.requirePersistentKept(t, persistent, "runner crash")
 			})
 		})
 	}

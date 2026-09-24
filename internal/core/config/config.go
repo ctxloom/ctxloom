@@ -63,8 +63,7 @@ const (
 // views of one document through the one serializer, configDoc.MarshalYAML.
 //
 // NIL RECEIVERS: a *Config method is NOT nil-safe unless its own doc says so.
-// The type has 93 methods (73 of them exported) and exactly five tolerate a nil
-// receiver —
+// Exactly five of its methods tolerate a nil receiver —
 // MarshalYAML, IsolationImageFor, IsolationBaseContainerfilePath,
 // IsolationDevcontainerBaseEnabled and DefaultAgentProfiles. That set is
 // deliberate and closed, not the start of a migration: a nil *Config means
@@ -73,7 +72,7 @@ const (
 // pointer; the isolation-image accessors, whose composite
 // launch.ImageConfigFor reads them off a Config the resolver holds; the default
 // agent set, which is legitimately empty before any config exists). Making the
-// other 88 nil-tolerant would convert those caller bugs into silently empty
+// rest nil-tolerant would convert those caller bugs into silently empty
 // behaviour, which is this codebase's characteristic failure. The closed set is
 // pinned by TestConfig_NilReceiverContract.
 //

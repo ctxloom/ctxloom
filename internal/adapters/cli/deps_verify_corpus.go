@@ -180,10 +180,10 @@ func reportCorpus(out io.Writer, report operations.CorpusReport) int {
 	result := corpusResultOf(report)
 
 	for _, v := range result.Violations {
-		fmt.Fprintf(out, "VIOLATION %s\n  %s\n  %s\n", termsafe.Field(v.Bundle), termsafe.Field(v.URL), termsafe.Field(v.Error))
+		fmt.Fprintf(out, "VIOLATION %s\n  %s\n  %s\n", termsafe.Field(v.Bundle), termsafe.Field(v.URL), termsafe.Sanitize(v.Error, 0, false).Text)
 	}
 	for _, g := range result.Gaps {
-		fmt.Fprintf(out, "UNCHECKED %s\n  %s\n  %s\n", termsafe.Field(g.Subject), termsafe.Field(g.URL), termsafe.Field(g.Error))
+		fmt.Fprintf(out, "UNCHECKED %s\n  %s\n  %s\n", termsafe.Field(g.Subject), termsafe.Field(g.URL), termsafe.Sanitize(g.Error, 0, false).Text)
 	}
 
 	fmt.Fprintf(out, "\nRead %d of %d configured remotes; parsed %d bundle(s).\n",

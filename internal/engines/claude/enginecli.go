@@ -76,6 +76,12 @@ const (
 	// settings/commands/skills and credentials resolve from an isolated
 	// location instead of the shared one.
 	ConfigDirEnv = "CLAUDE_CONFIG_DIR"
+	// SecureStorageEnv moves ONLY claude's credential storage (the credential
+	// file, its write lock, both refresh locks, the macOS keychain item name)
+	// apart from ConfigDirEnv: "" means HOME/.claude, and unset means the
+	// config dir. TestClaudeSecureStorage_FollowsTheVar pins that behaviour
+	// against the installed claude.
+	SecureStorageEnv = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 	// OAuthTokenEnv carries the long-lived token `claude setup-token` mints.
 	// claude reads it ahead of any credentials file and never refreshes it or
 	// writes it to disk.

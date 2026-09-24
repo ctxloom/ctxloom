@@ -24,7 +24,7 @@ import (
 // behind the tag would have broken the untagged build outright.
 
 // fullyPopulatedFixture sets every PERSISTED field to a distinctly non-zero
-// value, so a key missing from a Marshal() can only mean the persist path
+// value, so a key missing from a render can only mean the persist path
 // dropped it — never that the value was empty and legitimately pruned.
 func fullyPopulatedFixture() Fixture {
 	surround := true

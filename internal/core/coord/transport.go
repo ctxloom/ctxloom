@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -16,10 +17,11 @@ import (
 type Transport interface {
 	// LoopbackURL is the host-side address ("" before any listener is up).
 	LoopbackURL() string
-	// ReachURL resolves the address a caller on runtimeAxis dials: loopback
-	// for host runs, the container-reachable listener for container runs
-	// (opened on demand by the adapter, never 0.0.0.0).
-	ReachURL(runtimeAxis launch.RuntimeAxis) (string, error)
+	// Listen holds the listener a cell's re-minted reach needs beyond
+	// loopback, on the loopback listener's port (never 0.0.0.0). The address
+	// is the cell's to name; a Public one is reported once. The zero Listen
+	// needs nothing.
+	Listen(l present.Listen) error
 	// Close tears the listeners down.
 	Close()
 }
@@ -83,14 +85,14 @@ func (c *Coordinator) LoopbackURL() string {
 	return t.LoopbackURL()
 }
 
-// ReachURL resolves the URL a caller on runtimeAxis dials — the spawn path
-// uses it for the runner's env trio.
+// ReachURL mints the reach-back a runner on runtimeAxis is handed: the
+// coordinator's own loopback URL, for every axis. A container's cell re-mints
+// it into the URL its runtime's route dials, and names what must be listened
+// on for that (honourListen).
 //
 // The axis is parsed here, the one door every spawn and owner run takes to
-// its reach-back, because a transport answers "not a container" with
-// loopback: an unknown spelling reaching it would hand a container runner an
-// address it cannot dial, or run a container-bound session without one. An
-// unknown value is refused with launch.ErrUnknownRuntimeAxis.
+// its reach-back: an unknown spelling is refused with
+// launch.ErrUnknownRuntimeAxis before anything is enqueued.
 func (c *Coordinator) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) {
 	if _, err := launch.ParseRuntimeAxis(string(runtimeAxis)); err != nil {
 		return "", err
@@ -99,7 +101,20 @@ func (c *Coordinator) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) {
 	if t == nil {
 		return "", ErrNotServing
 	}
-	return t.ReachURL(runtimeAxis)
+	return t.LoopbackURL(), nil
+}
+
+// honourListen holds the listener a resolved cell named, before its runner
+// starts: without it the re-minted reach lands on nothing.
+func (c *Coordinator) honourListen(l present.Listen) error {
+	if l == (present.Listen{}) {
+		return nil
+	}
+	t := c.Transport()
+	if t == nil {
+		return ErrNotServing
+	}
+	return t.Listen(l)
 }
 
 // StateDir is the coordinator's state directory — where the wire adapter

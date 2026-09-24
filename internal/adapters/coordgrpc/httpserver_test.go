@@ -3,115 +3,14 @@ package coordgrpc
 import (
 	"net"
 	"net/url"
-	"os"
-	"path/filepath"
-	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/testsupport/coordharness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// TestAdvertiseHostFor pins the per-(VM, container-runtime) dial-home
-// decision from ensureWide's doc: a VM-hosted runtime advertises the Docker-
-// Desktop/Podman-Machine magic hostname against the existing loopback
-// listener; a runtime on this kernel falls back to the
-// bridge-gateway/primary-outbound-IP path, signaled by "".
-func TestAdvertiseHostFor(t *testing.T) {
-	cases := []struct {
-		name        string
-		inVM        bool
-		runtimeName string
-		want        string
-	}{
-		{"vm docker", true, "docker", "host.docker.internal"},
-		{"vm podman", true, "podman", "host.containers.internal"},
-		{"vm unknown runtime defaults to docker", true, "", "host.docker.internal"},
-		{"same-kernel docker: bridge-gateway path, not a magic hostname", false, "docker", ""},
-		{"same-kernel podman: bridge-gateway path, not a magic hostname", false, "podman", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := advertiseHostFor(tc.inVM, tc.runtimeName)
-			if got != tc.want {
-				t.Errorf("advertiseHostFor(%v, %q) = %q, want %q", tc.inVM, tc.runtimeName, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestPreferredContainerRuntimeIsDockerOrPodman confirms the live-host probe
-// only ever names one of the two runtimes ensureWide understands (never a
-// blank string that would silently fall through advertiseHostFor's default
-// case for an unrelated reason) — the whole point of the probe is picking
-// docker vs podman for the magic-hostname choice above.
-func TestPreferredContainerRuntimeIsDockerOrPodman(t *testing.T) {
-	got := preferredContainerRuntime()
-	if got != "docker" && got != "podman" {
-		t.Fatalf("preferredContainerRuntime() = %q, want %q or %q", got, "docker", "podman")
-	}
-}
-
-// fakeDockerOnPath installs a stub `docker` earlier on PATH than any real one,
-// printing output on the network-inspect probe. PATH holds ONLY the stub dir,
-// so podman is absent too and the probe set is fully controlled.
-func fakeDockerOnPath(t *testing.T, output string) {
-	t.Helper()
-	dir := t.TempDir()
-	script := "#!/bin/sh\nprintf '%s\\n' " + strconv.Quote(output) + "\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o700))
-	t.Setenv("PATH", dir)
-}
-
-// TestContainerReachIPs_RejectsNonAddressProbeOutput: the gateway probe is a
-// Go text/template evaluated by the container runtime, and a template whose
-// field is missing prints the sentinel "<no value>" rather than failing. The
-// filter used to compare against that one literal string, so any OTHER
-// non-address output — a template error, a warning line, a runtime that
-// renamed the field — became a candidate host IP the coordinator would try to
-// bind and advertise to a container. Only something that parses as an address
-// is an address.
-func TestContainerReachIPs_RejectsNonAddressProbeOutput(t *testing.T) {
-	for _, junk := range []string{
-		"<no value>",
-		"Template parsing error: template: :1:2: executing \"\" at <.IPAM>: nil pointer",
-		"error during connect: Get \"http://docker/v1.47/networks/bridge\": dial unix: permission denied",
-		"map[]",
-	} {
-		t.Run(junk, func(t *testing.T) {
-			fakeDockerOnPath(t, junk)
-			for _, ip := range containerReachIPs() {
-				assert.NotNil(t, net.ParseIP(ip), "probe output %q must not become a candidate host address", ip)
-			}
-		})
-	}
-}
-
-// TestContainerReachIPs_KeepsARealGatewayAddress: the filter is narrow — a
-// genuine gateway address still comes back, first (most specific first).
-func TestContainerReachIPs_KeepsARealGatewayAddress(t *testing.T) {
-	fakeDockerOnPath(t, "172.17.0.1")
-
-	got := containerReachIPs()
-	require.NotEmpty(t, got)
-	assert.Equal(t, "172.17.0.1", got[0], "the bridge gateway must stay ahead of the outbound-interface fallback")
-}
-
-// TestContainerReachIPs_ReturnsOnlyRoutableHostAddresses pins the posture
-// ensureWide's Linux fallback actually takes: the candidates it binds are
-// NON-loopback host addresses. That is the point (a container cannot reach the
-// host's 127.0.0.1) and it is the reason widening is on-demand and
-// credential-gated rather than the default — a widened listener is reachable
-// from the host's network, not just from the container.
-func TestContainerReachIPs_ReturnsOnlyRoutableHostAddresses(t *testing.T) {
-	for _, ip := range containerReachIPs() {
-		parsed := net.ParseIP(ip)
-		require.NotNil(t, parsed, "candidate %q must be an address", ip)
-		assert.False(t, parsed.IsLoopback(), "a container-reachable candidate is never loopback: %q", ip)
-		assert.False(t, parsed.IsUnspecified(), "the coordinator never binds the wildcard address: %q", ip)
-	}
-}
 
 // TestServe_BindsLoopbackOnly: nothing wide exists until a container child asks
 // for it. This is the invariant that keeps a plain host session off the
@@ -130,6 +29,64 @@ func TestServe_BindsLoopbackOnly(t *testing.T) {
 	srv := c.Transport().(*coordServing)
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
-	assert.Empty(t, srv.wide, "no wide listener may exist before a container run asks for one")
-	assert.Empty(t, srv.wideURL)
+	assert.Empty(t, srv.extra, "no listener beyond loopback may exist before a container cell names one")
+}
+
+// privateStandIn is a host address other than the loopback listener's that a
+// test may bind: 127.0.0.2 answers on Linux's lo (the whole 127/8), and stands
+// in for a bridge gateway or the public fallback.
+func privateStandIn(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.2:0")
+	if err != nil {
+		t.Skipf("127.0.0.2 is not bindable on this host: %v", err)
+	}
+	_ = ln.Close()
+	return "127.0.0.2"
+}
+
+// TestListen_OpensTheCellsAddressOnTheLoopbackPort: the listener a cell names
+// is opened on the loopback listener's port, so a reach re-minted by swapping
+// only the host lands on it; asked twice, it is opened once.
+func TestListen_OpensTheCellsAddressOnTheLoopbackPort(t *testing.T) {
+	addr := privateStandIn(t)
+	c := coordharness.New(t, t.TempDir())
+	t.Cleanup(c.Close)
+	require.NoError(t, Serve(c))
+	srv := c.Transport().(*coordServing)
+
+	require.NoError(t, srv.Listen(present.Listen{Addr: addr}))
+	require.NoError(t, srv.Listen(present.Listen{Addr: addr}), "a second cell naming the same address reuses its listener")
+
+	loop, err := url.Parse(c.LoopbackURL())
+	require.NoError(t, err)
+	conn, err := net.Dial("tcp", net.JoinHostPort(addr, loop.Port()))
+	require.NoError(t, err, "the named address answers on the loopback listener's port")
+	_ = conn.Close()
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	assert.Len(t, srv.extra, 1)
+}
+
+// TestListen_PublicIsReportedOnceWithItsReason: the fallback is allowed, never
+// silent — reported once per address, naming the runtime's reason and that
+// the endpoint is token-protected. A private listener draws no report.
+func TestListen_PublicIsReportedOnceWithItsReason(t *testing.T) {
+	addr := privateStandIn(t)
+	warnings := captureWarnings(t)
+	c := coordharness.New(t, t.TempDir())
+	t.Cleanup(c.Close)
+	require.NoError(t, Serve(c))
+	srv := c.Transport().(*coordServing)
+
+	require.NoError(t, srv.Listen(present.Listen{Addr: addr}))
+	assert.NotContains(t, warnings.String(), addr, "a private listener is not reported")
+
+	pub := present.Listen{Addr: addr, Public: true, Why: "the runtime offers no private route"}
+	require.NoError(t, srv.Listen(pub))
+	require.NoError(t, srv.Listen(pub))
+	out := warnings.String()
+	assert.Equal(t, 1, strings.Count(out, "reachable beyond this host"), "reported once: %s", out)
+	assert.Contains(t, out, "the runtime offers no private route")
+	assert.Contains(t, out, "token-protected")
 }

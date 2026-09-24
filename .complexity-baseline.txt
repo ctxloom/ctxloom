@@ -39,7 +39,6 @@
 ./internal/core/coord/home.go| h * Home|1|13||524-559
 ./internal/core/coord/home.go|(h*Home)runChannelOnce client agentcoordpb . CoordinatorServiceClient|1|12|runChannelOnce|357-427
 ./internal/core/coord/homeartifacts.go|(h*Home)DownloadArtifact ctx context . Context , agentID , artifactID , destPath string|1|16|DownloadArtifact|88-170
-./internal/core/coord/httpserver.go|(s*coordServing)ensureWide|1|12|ensureWide|237-298
 ./internal/core/coord/ladder.go|buildLadder agentName string , raw [ ] agents . EscalationRung , perm agent . PermissionMode|1|14|buildLadder|171-225
 ./internal/core/coord/livetap_test.go|(c*liveTapChat)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|12|Chat|91-130
 ./internal/core/coord/mailbox.go|(c*Coordinator)queueMailPayloadID msgID , from , to , kind , body string , structured json . RawMessage , inReplyTo string|1|12|queueMailPayloadID|100-163

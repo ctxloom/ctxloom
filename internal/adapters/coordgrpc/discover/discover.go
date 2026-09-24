@@ -55,11 +55,13 @@ const (
 // persistence.
 //
 // Written by coord's Serve, read by List below. omitempty throughout keeps an
-// unbound wide listener or an unminted credential absent rather than zero.
+// container listener never opened or an unminted credential absent rather than zero.
 type State struct {
-	LoopbackPort int    `json:"loopback_port,omitempty"`
-	WidePort     int    `json:"wide_port,omitempty"`
-	ConsumerCred string `json:"consumer_cred,omitempty"`
+	LoopbackPort int `json:"loopback_port,omitempty"`
+	// ListenAddrs are the addresses a container cell had it listen on beyond
+	// loopback, all on LoopbackPort.
+	ListenAddrs  []string `json:"listen_addrs,omitempty"`
+	ConsumerCred string   `json:"consumer_cred,omitempty"`
 }
 
 // LoopbackURL is the host-local URL for a coordinator bound to port on

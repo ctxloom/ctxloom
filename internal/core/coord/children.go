@@ -712,7 +712,7 @@ func (c *Coordinator) spawnReachURL(harp string, runtimeAxis launch.RuntimeAxis)
 		// would send the operator to the wrong place.
 		return "", fmt.Errorf("agent_run: %w", err)
 	}
-	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %w — this child could not dial home, so nothing it sends could be routed and its work would be lost; check the container runtime's bridge network", runtimeAxis, err)
+	return "", fmt.Errorf("agent_run: no coordinator endpoint for runtime %q: %w — this child could not dial home, so nothing it sends could be routed and its work would be lost; the coordinator must be serving its listeners before it delegates", runtimeAxis, err)
 }
 
 // runChild is a spawned child's driver goroutine: wait for an execution slot
@@ -785,6 +785,10 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	resolved, err := c.spawner.ResolveLaunch(ctx, rt.plan, start)
 	if err != nil {
 		c.failChild(rt, err)
+		return
+	}
+	if err := c.honourListen(resolved.Launch.Cell.Listen); err != nil {
+		c.failChild(rt, fmt.Errorf("agent_run: the child's runner has no listener to dial home to: %w", err))
 		return
 	}
 	engine, err := c.spawner.Start(ctx, resolved.Launch, sessions.Endpoint{URL: url, Credential: token})

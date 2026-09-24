@@ -47,7 +47,7 @@ func TestSpawnReachURL_RefusesInEveryMode(t *testing.T) {
 			"degraded=%v must NOT launch a child whose runner could never dial home: its work would be lost", degraded)
 		assert.Empty(t, url)
 		// A refusal that does not carry the way out just relocates the dead end.
-		assert.Contains(t, err.Error(), "bridge network",
+		assert.Contains(t, err.Error(), "must be serving its listeners",
 			"the refusal must name the repair — the endpoint itself")
 	}
 }

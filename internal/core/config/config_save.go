@@ -131,7 +131,8 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	// is re-encoded, exactly like the comment-preserving upgrade path, rather than
 	// re-emitting a sorted, comment-stripped map[string]interface{} marshal on
 	// every write (U049-F16). A first write (no existing bytes) emits a fresh
-	// document with every key sorted: the same bytes yaml.Marshal(c) produces.
+	// document with every key sorted: the same bytes yaml.Marshal(c.Authored())
+	// produces.
 	data, err := marshalPreservingComments(existingData, merged)
 	if err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
@@ -278,20 +279,38 @@ func readExistingConfig(fs afero.Fs, configPath string) ([]byte, map[string]inte
 	return existingData, existing, nil
 }
 
-// persistedDoc is the ONE rendering policy for a Config: `config show`, init's
-// scaffold write and every save all emit this document. It is toDoc's
-// lossless copy with three rules applied — the version is stamped current, so
-// a written config is never stale; shipped default registry entries are
-// dropped (userAuthoredLM); and the registry-only Role is stripped
-// (persistableLM). Key order is configDoc.MarshalYAML's. toDoc itself stays
-// lossless because Owner.Update and ToFixture hand it out as a copy of the
-// Config, not as its rendering.
-func (c *Config) persistedDoc() configDoc {
+// effectiveDoc is c as every run resolves it: toDoc's lossless copy, role and
+// the shipped default registry included, with the version stamped current
+// (load has already migrated whatever the file held). `config show` and
+// `config get` render it, so they describe the configuration actually in
+// force rather than only the part a file spells out.
+func (c *Config) effectiveDoc() configDoc {
 	d := c.toDoc()
 	d.Version = CurrentConfigVersion
-	d.LM = persistableLM(userAuthoredLM(d.LM, c.lmDefaultOverlay))
 	return d
 }
+
+// persistedDoc is effectiveDoc without the shipped default registry
+// (userAuthoredLM): what every save and init's scaffold write emit, and what
+// `config show --raw` prints. The registry is left out because writing it
+// would freeze one release's model defaults into every saved config.
+// Everything else — role included — is written exactly as the layer holds it.
+func (c *Config) persistedDoc() configDoc {
+	d := c.effectiveDoc()
+	d.LM = userAuthoredLM(d.LM, c.lmDefaultOverlay)
+	return d
+}
+
+// Authored returns c as a save writes it (persistedDoc), for callers that
+// render or write the file's document rather than the effective one. It
+// marshals through the same configDoc.MarshalYAML as c itself.
+func (c *Config) Authored() yaml.Marshaler { return authoredView{c} }
+
+type authoredView struct{ c *Config }
+
+// MarshalYAML returns the configDoc itself, like Config.MarshalYAML, so
+// `config get --raw` can reflect a section out of it by yaml tag.
+func (v authoredView) MarshalYAML() (any, error) { return v.c.persistedDoc(), nil }
 
 // retiredConfigKeys are top-level keys ctxloom once wrote and no longer
 // models; a save removes them from the file rather than carrying them forward
@@ -342,21 +361,5 @@ func userAuthoredLM(lm LMConfig, overlay *LMConfig) LMConfig {
 	if overlay.Defaults.Fast != "" && lm.Defaults.Fast == overlay.Defaults.Fast {
 		lm.Defaults.Fast = ""
 	}
-	return lm
-}
-
-// persistableLM returns a copy of the LM config with the registry-only Role
-// dropped from every entry, so persisted user configs carry plain {type, model}
-// entries. The input is not mutated (the in-memory registry keeps its roles).
-func persistableLM(lm LMConfig) LMConfig {
-	if len(lm.Configs) == 0 {
-		return lm
-	}
-	configs := make(map[string]LLMConfig, len(lm.Configs))
-	for label, entry := range lm.Configs {
-		entry.Role = ""
-		configs[label] = entry
-	}
-	lm.Configs = configs
 	return lm
 }

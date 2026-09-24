@@ -33,7 +33,7 @@ func TestGenerateConfig(t *testing.T) {
 			assert.Contains(t, body, "type: "+engine,
 				"engine must appear as a registry entry type")
 			assert.NotContains(t, body, "role:",
-				"role is registry-only and stripped on write")
+				"init clears role on the entries it copies from the shipped registry")
 			assert.True(t, strings.HasSuffix(body, "\n"),
 				"config must end with newline (POSIX-friendly + diff-friendly)")
 		})

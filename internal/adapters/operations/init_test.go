@@ -33,7 +33,7 @@ func TestInitializeProject(t *testing.T) {
 	assert.Contains(t, body, "type: claude-code")
 	assert.Contains(t, body, "primary: claude-code")
 	assert.Contains(t, body, "fast: claude-fast")
-	// `role` is registry-only metadata stripped on write — it must never persist.
+	// init clears `role` on the entries it copies: llm.defaults names the pair.
 	assert.NotContains(t, body, "role:")
 
 	bundlesDir, err := afero.DirExists(fs, authoredV1(appDir))
@@ -255,7 +255,7 @@ func TestBuildInitialConfig(t *testing.T) {
 			data, err := BuildInitialConfig(tt.engine, "", "")
 			require.NoError(t, err)
 
-			// `role` is registry-only — it must be stripped from the written config.
+			// init clears `role` on the entries it copies from the shipped registry.
 			assert.NotContains(t, string(data), "role:")
 
 			cfg, err := config.ParseConfig(data)
@@ -302,7 +302,7 @@ func TestEngineRegistry_SingleRoleMarkedEntryServesBothRoles(t *testing.T) {
 	assert.Equal(t, "solo-engine", got.Defaults.Primary)
 	assert.Equal(t, "solo-engine", got.Defaults.Fast, "no fast-role entry exists, so fast must fall back to primary")
 	require.Contains(t, got.Configs, "solo-engine")
-	assert.Empty(t, got.Configs["solo-engine"].Role, "role is registry-only and must be stripped")
+	assert.Empty(t, got.Configs["solo-engine"].Role, "init clears role on the entries it copies")
 }
 
 // TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent: the interview's

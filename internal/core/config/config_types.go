@@ -18,9 +18,9 @@ import (
 type LLMConfig struct {
 	Type string `mapstructure:"type" yaml:"type,omitempty"`
 	// Role marks an entry as its backend type's default primary or fast pick in
-	// the shipped registry. It is registry-only metadata: init reads it to wire a
-	// freshly-selected engine, and the persist path strips it so user configs
-	// stay plain {type, model}. It never affects runtime label resolution.
+	// the shipped registry: init reads it to wire a freshly-selected engine. It
+	// is authored data, persisted like any other field, and never affects
+	// runtime label resolution.
 	Role string `mapstructure:"role" yaml:"role,omitempty"`
 	// Permissions is this backend's launch-time permission posture
 	// (default|acceptEdits|plan|bypass). Empty defers to the resolver's built-in

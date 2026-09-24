@@ -16,7 +16,8 @@ Show or modify ctxloom configuration
 Show or modify ctxloom configuration.
 
 Examples:
-  ctxloom config show              # Show full configuration
+  ctxloom config show              # Show the effective configuration
+  ctxloom config show --raw        # Show only what the configuration sets
   ctxloom config get defaults      # Get a specific section
   ctxloom config edit              # Open config.yaml in $EDITOR
   ctxloom config create            # Scaffold a default config.yaml
@@ -41,5 +42,5 @@ ctxloom config [flags]
 * [ctxloom config create](/reference/cli/ctxloom_config_create/)	 - Scaffold a default config.yaml (and remotes.yaml)
 * [ctxloom config edit](/reference/cli/ctxloom_config_edit/)	 - Open config.yaml in $EDITOR
 * [ctxloom config get](/reference/cli/ctxloom_config_get/)	 - Get a configuration section
-* [ctxloom config show](/reference/cli/ctxloom_config_show/)	 - Show full configuration
+* [ctxloom config show](/reference/cli/ctxloom_config_show/)	 - Show the effective configuration
 

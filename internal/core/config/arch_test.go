@@ -325,8 +325,7 @@ func TestArch_ConfigSchema_ShippedConfigsValidate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Only the user-facing templates are validated. default-config.yaml is the
-	// internal registry seed: it carries a registry-only `role` field (stripped
-	// from any persisted user config), so it intentionally does NOT conform to
+	// internal registry seed, not a user-facing template, so it is not held to
 	// the user-input schema.
 	for _, c := range []struct {
 		name string

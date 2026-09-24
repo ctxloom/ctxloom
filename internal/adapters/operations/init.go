@@ -232,13 +232,14 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 			Permissions: headlessPermissions,
 		},
 	}
-	return yaml.Marshal(config.NewFixture(f))
+	return yaml.Marshal(config.NewFixture(f).Authored())
 }
 
 // engineRegistry builds the llm block for an engine by selecting its
 // role-marked entries out of the shipped registry. When the engine has both a
-// primary and a fast entry, both are copied (role cleared) under their original
-// labels with defaults pointing at them. Otherwise it falls back to a single
+// primary and a fast entry, both are copied under their original labels with
+// defaults pointing at them; role is cleared because llm.defaults now names the
+// pair, and a role marker in a user registry would select nothing. Otherwise it falls back to a single
 // {type: engine} entry that plays both roles.
 func engineRegistry(engine string, registry config.LMConfig) config.LMConfig {
 	primaryLabel := roleLabel(registry, engine, "primary")
@@ -257,7 +258,7 @@ func engineRegistry(engine string, registry config.LMConfig) config.LMConfig {
 	}
 	for _, label := range []string{primaryLabel, fastLabel} {
 		entry := registry.Configs[label]
-		entry.Role = "" // role is registry-only; user configs carry plain entries
+		entry.Role = ""
 		out.Configs[label] = entry
 	}
 	return out

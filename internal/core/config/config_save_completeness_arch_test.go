@@ -10,8 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Every write and every `config show` renders persistedDoc, which starts from
-// toDoc. A persisted field declared on configDoc but not copied by toDoc
+// Every write and every `config show` renders a view built from toDoc. A persisted field declared on configDoc but not copied by toDoc
 // renders as its zero value and is pruned, so a write through the documented
 // Draft/Fixture API compiles, reports success, and is silently discarded —
 // this project's characteristic failure. configDoc is the declaration of what

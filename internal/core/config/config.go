@@ -59,8 +59,8 @@ const (
 // from code in this same package — it's a language rule, not a package
 // boundary). MarshalYAML/UnmarshalYAML below go through configDoc, an
 // exported-field mirror with the same tags. UnmarshalYAML decodes every field;
-// MarshalYAML renders persistedDoc, the one policy every written or shown
-// config follows.
+// MarshalYAML renders effectiveDoc and Authored renders persistedDoc — two
+// views of one document through the one serializer, configDoc.MarshalYAML.
 //
 // NIL RECEIVERS: a *Config method is NOT nil-safe unless its own doc says so.
 // The type has 93 methods (73 of them exported) and exactly five tolerate a nil
@@ -318,7 +318,7 @@ type Config struct {
 // that's a language-level rule enforced by the runtime, not a compile-time
 // package-boundary check a same-package helper could route around.
 //
-// Config's MarshalYAML renders a configDoc (persistedDoc) and UnmarshalYAML
+// Config's MarshalYAML renders a configDoc (effectiveDoc) and UnmarshalYAML
 // decodes one, so yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) work on a Config
 // whose fields are unexported; yaml.v3 prefers a type's Marshaler/Unmarshaler
 // methods over reflecting its fields.
@@ -442,15 +442,15 @@ func (c *Config) fromDoc(doc configDoc) {
 	}
 }
 
-// MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — `config show`,
-// `config get` and init's scaffold write — renders persistedDoc. It returns the
-// configDoc itself rather than bytes so `config get` can reflect a section out
-// of it by yaml tag.
+// MarshalYAML implements yaml.Marshaler so yaml.Marshal(cfg) — `config show`
+// and `config get` — renders effectiveDoc. Anything that WRITES a file renders
+// cfg.Authored() instead. It returns the configDoc itself rather than bytes so
+// `config get` can reflect a section out of it by yaml tag.
 func (c *Config) MarshalYAML() (any, error) {
 	if c == nil {
 		return nil, nil
 	}
-	return c.persistedDoc(), nil
+	return c.effectiveDoc(), nil
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler so yaml.Unmarshal(data, cfg) —
@@ -1298,5 +1298,3 @@ func (c *Config) SetReporter(sink report.Sink) { c.rep = report.To(sink) }
 // way it does. nil when none was set.
 func (c *Config) Reporter() report.Sink { return c.rep.Sink }
 
-// Authored returns c as a save writes it. SKELETON: not yet distinct from c.
-func (c *Config) Authored() yaml.Marshaler { return c }

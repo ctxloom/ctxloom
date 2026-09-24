@@ -56,13 +56,25 @@ type Records struct {
 var _ delivery.Ownership = (*Records)(nil)
 
 // NewRecords opens the record store at dir on fs; dir is created on the
-// first record written.
+// first record written. An EXISTING dir is tightened to owner-only here, on
+// the real filesystem and before any delivery: the same directory holds the
+// undo records approaches write through the copy-on-write overlay, which
+// cannot chmod it (see confpatch.EnsureRecordDir).
 func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	if recordFS == nil {
 		return nil, errors.New("fsstatic: nil record filesystem")
 	}
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("fsstatic: empty record directory")
+	}
+	exists, err := afero.DirExists(recordFS, dir)
+	if err != nil {
+		return nil, fmt.Errorf("fsstatic: stat %s: %w", dir, err)
+	}
+	if exists {
+		if err := confpatch.EnsureRecordDir(recordFS, dir); err != nil {
+			return nil, err
+		}
 	}
 	return &Records{fs: recordFS, dir: dir}, nil
 }
@@ -336,7 +348,7 @@ func (r *Records) save(target string, rec ownershipRecord) error {
 	if err != nil {
 		return err
 	}
-	if err := r.fs.MkdirAll(r.dir, 0o700); err != nil {
+	if err := confpatch.EnsureRecordDir(r.fs, r.dir); err != nil {
 		return err
 	}
 	return iox.WriteFileAtomicFs(r.fs, r.path(target), data, 0o600)

@@ -627,8 +627,8 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 	if err != nil {
 		return "", err
 	}
-	if err := fs.MkdirAll(recordsDir, 0755); err != nil {
-		return "", fmt.Errorf("create %s: %w", recordsDir, err)
+	if err := confpatch.EnsureRecordDir(fs, recordsDir); err != nil {
+		return "", err
 	}
 	recordPath, err := confpatch.FreeRecordPath(fs, recordsDir, target, at)
 	if err != nil {

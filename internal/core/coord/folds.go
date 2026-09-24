@@ -64,7 +64,7 @@ type RunRecord struct {
 	// container-runtime run; empty for host runtime. Learned only after
 	// spawn, so — unlike Permission/MCPServers — it is never set at
 	// enqueue. Only meaningful while the run is live: the container is
-	// force-removed on teardown (isolation.AttachedContainer.Close).
+	// force-removed on teardown.
 	ContainerName string
 }
 

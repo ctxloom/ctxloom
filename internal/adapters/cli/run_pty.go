@@ -85,11 +85,13 @@ func (st *runState) ptyStarter() coord.OwnedRunStarter {
 			st.pty = s
 			return s.End, "", nil
 		}
-		container, ok := st.policy.(interface{ Remove(string) })
+		container, ok := st.policy.(interface {
+			Remove(name string, runExited <-chan struct{})
+		})
 		if !ok {
 			return nil, "", fmt.Errorf("policy %q names container %q but cannot remove one", st.policy.Name(), name)
 		}
-		s, err := attach.Start(context.Background(), cmd, name, func() { container.Remove(name) })
+		s, err := attach.Start(context.Background(), cmd, name, func(runExited <-chan struct{}) { container.Remove(name, runExited) })
 		if err != nil {
 			return nil, "", fmt.Errorf("attach the container runner on a pty: %w", err)
 		}

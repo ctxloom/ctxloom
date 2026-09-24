@@ -23,7 +23,7 @@ func TestStart_TheRunCLIIsOnAPtyAndKillTearsDownByName(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var order []string
-	remove := func() { order = append(order, "remove") }
+	remove := func(<-chan struct{}) { order = append(order, "remove") }
 	// A stand-in for the runtime CLI: it proves it is on a tty, echoes one
 	// line, then parks like an attached container does.
 	s, err := Start(ctx, exec.Command("sh", "-c", "[ -t 0 ] && echo ATTACHED; read line; echo got:$line; sleep 30"), "ctr-1", remove)
@@ -67,7 +67,7 @@ func (b *lockedBuffer) String() string {
 // is Kill's alone.
 func TestStart_WaitReapsTheCLIWithoutTouchingTheContainer(t *testing.T) {
 	removed := false
-	s, err := Start(context.Background(), exec.Command("sh", "-c", "exit 3"), "ctr-2", func() { removed = true })
+	s, err := Start(context.Background(), exec.Command("sh", "-c", "exit 3"), "ctr-2", func(<-chan struct{}) { removed = true })
 	require.NoError(t, err)
 	code, err := s.Wait()
 	require.NoError(t, err)

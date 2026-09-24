@@ -69,9 +69,14 @@ func (c Container) InteractiveRunner(_ context.Context, backendName string, ws W
 	return cmd, name, nil
 }
 
-// Remove force-removes the named container under the bounded teardown
-// timeout — the interactive runner's teardown by name.
-func (c Container) Remove(name string) { removeContainer(context.Background(), c.runtime, name) }
+// Remove force-removes the named container — the interactive runner's
+// teardown by name. runExited closes when the `run` CLI that launches it has
+// exited: until then an "already gone" answer may precede the CLI's create,
+// so Remove waits that out and removes again (removeLaunched), blocking at
+// most AwaitContainerRunning's backstop.
+func (c Container) Remove(name string, runExited <-chan struct{}) {
+	removeLaunched(c.runtime, &RunnerHandle{Name: name, Wait: func() error { <-runExited; return nil }})
+}
 
 // buildRunnerSpec assembles the RunSpec for one container runner. Env = the
 // fixed container base env (IS_SANDBOX) + the workspace's scoped auth/TERM/
@@ -168,16 +173,7 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 	var handle *RunnerHandle
 	kill := func() {
 		killOnce.Do(func() {
-			// "Already gone" is ambiguous while the CLI lives: the create it
-			// sent may not have reached the daemon yet, and killing the CLI
-			// now would orphan the container that create then makes. So wait
-			// for the launch to resolve — the container running, or the CLI
-			// exiting — and remove again. Bounded by AwaitContainerRunning's
-			// backstop, so a wedged daemon still cannot hang teardown.
-			if removeContainer(context.Background(), rt, spec.Name) {
-				_ = AwaitContainerRunning(rt, handle)
-				removeContainer(context.Background(), rt, spec.Name)
-			}
+			removeLaunched(rt, handle)
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}
@@ -197,6 +193,20 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 	}
 	handle = &RunnerHandle{Name: spec.Name, Kill: kill, Wait: wait, StderrTail: ring.Tail}
 	return handle, nil
+}
+
+// removeLaunched force-removes h's container before the caller kills the `run`
+// CLI that launched it. "Already gone" is ambiguous while that CLI lives: the
+// create it sent may not have reached the daemon yet, and killing the CLI now
+// would orphan the container that create then makes. So it waits for the
+// launch to resolve — the container running, or the CLI exiting (h.Wait) — and
+// removes again. Bounded by AwaitContainerRunning's backstop, so a wedged
+// daemon still cannot hang teardown.
+func removeLaunched(rt Runtime, h *RunnerHandle) {
+	if removeContainer(context.Background(), rt, h.Name) {
+		_ = AwaitContainerRunning(rt, h)
+		removeContainer(context.Background(), rt, h.Name)
+	}
 }
 
 // reapRunProcess Waits a started *exec.Cmd exactly once, in the background,

@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // Per-item content-decision CLI: the scriptable plumbing of the three-state
@@ -110,8 +111,8 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 
 // renderItemTrust is `bundle trust`'s text rendering.
 func renderItemTrust(out io.Writer, res *operations.SetItemTrustResult) {
-	fmt.Fprintf(out, "Approved %s\n", res.Ref)
-	fmt.Fprintf(out, "  repo:  %s\n", res.RepoURL)
+	fmt.Fprintf(out, "Approved %s\n", termsafe.Field(res.Ref))
+	fmt.Fprintf(out, "  repo:  %s\n", termsafe.Field(res.RepoURL))
 	fmt.Fprintf(out, "  store: %s\n", res.Store)
 	if res.Unsigned {
 		fmt.Fprintln(out, "  UNSIGNED — recorded locally, not shareable (no signing key was available)")
@@ -185,8 +186,8 @@ func runItemReject(cmd *cobra.Command, cfg *config.Config, ref string) error {
 
 // renderItemReject is `bundle reject`'s text rendering.
 func renderItemReject(out io.Writer, res *operations.SetBlacklistResult) {
-	fmt.Fprintf(out, "Rejected %s\n", res.Ref)
-	fmt.Fprintf(out, "  repo:  %s\n", res.RepoURL)
+	fmt.Fprintf(out, "Rejected %s\n", termsafe.Field(res.Ref))
+	fmt.Fprintf(out, "  repo:  %s\n", termsafe.Field(res.RepoURL))
 	fmt.Fprintf(out, "  store: %s\n", res.Store)
 	if res.Unsigned {
 		fmt.Fprintln(out, "  UNSIGNED — recorded locally, not shareable (no signing key was available)")

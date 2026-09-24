@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // doctorDepsOnlyFlag backs --deps (operations.DoctorRequest.DepsOnly).
@@ -96,7 +97,10 @@ func renderDoctorReport(out io.Writer, report operations.DoctorReport) error {
 	w := iox.NewErrWriter(out)
 	w.Println("ctxloom doctor")
 	for _, c := range report.Checks {
-		w.Printf("  %s [%s] %s\n", c.Marker, c.Status, c.Detail)
+		// A detail is ctxloom's sentence with publisher values (bundle refs,
+		// remote errors) spliced in. termsafe.Sanitize and not Field: Field's
+		// line-sized cap would clip ctxloom's own longer sentences.
+		w.Printf("  %s [%s] %s\n", c.Marker, c.Status, termsafe.Sanitize(c.Detail, 0, false).Text)
 	}
 	return w.Err()
 }

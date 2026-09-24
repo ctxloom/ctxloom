@@ -158,7 +158,10 @@ func runProfileMaterializeDiff(cmd *cobra.Command, cfg *config.Config, args []st
 	})
 }
 
-// renderMaterializeDiff is `profile materialize --diff`'s text rendering.
+// renderMaterializeDiff is `profile materialize --diff`'s text rendering. The
+// diff carries assembled fragment bodies, publisher-authored and unbounded, so
+// it goes through publisherBody — without the blank-line collapse, because a
+// diff redirected to a file must still be the diff.
 func renderMaterializeDiff(out io.Writer, label string, result profileMaterializeDiffJSON) error {
 	w := iox.NewErrWriter(out)
 	if result.Identical {
@@ -166,7 +169,7 @@ func renderMaterializeDiff(out io.Writer, label string, result profileMaterializ
 		return w.Err()
 	}
 	w.Printf("Comparing %s's materialized context with %s — content present on one side and absent on the other:\n", label, result.ComparedTo)
-	w.Printf("%s", result.Diff)
+	_ = publisherBody("", "", false).Render(w, label+" diff", result.Diff)
 	return w.Err()
 }
 

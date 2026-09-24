@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 // Bare `ctxloom profile` lists the profiles: the collection is the one
@@ -322,21 +323,24 @@ type profileDetailJSON struct {
 // to out. Each optional section (description, parents, bundles, tags,
 // variables, exclude_*) is suppressed when empty. Extracted from
 // profileShowCmd's RunE.
+//
+// A profile can ship inside a pulled bundle, so every value but Path (the
+// local file) is publisher-authored and goes through termsafe.Field.
 func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault bool) error {
 	w := iox.NewErrWriter(out)
-	w.Printf("Profile: %s\n", p.Name)
+	w.Printf("Profile: %s\n", termsafe.Field(p.Name))
 	w.Printf("Path: %s\n", p.Path)
 	if p.Bundle != "" {
-		w.Printf("Bundle: %s\n", p.Bundle)
+		w.Printf("Bundle: %s\n", termsafe.Field(p.Bundle))
 	}
 	if isDefault {
 		w.Println("Default: yes")
 	}
 	if p.Description != "" {
-		w.Printf("Description: %s\n", p.Description)
+		w.Printf("Description: %s\n", termsafe.Field(p.Description))
 	}
 	if p.LLM != "" {
-		w.Printf("LLM: %s\n", p.LLM)
+		w.Printf("LLM: %s\n", termsafe.Field(p.LLM))
 	}
 	writeBulletList(w, "Parents", p.Parents)
 	writeBulletList(w, "Bundles", p.Bundles)
@@ -344,7 +348,7 @@ func renderProfileShow(out io.Writer, p *operations.GetProfileResult, isDefault 
 	if len(p.Variables) > 0 {
 		w.Println("Variables:")
 		for k, v := range p.Variables {
-			w.Printf("  %s: %s\n", k, v)
+			w.Printf("  %s: %s\n", termsafe.Field(k), termsafe.Field(v))
 		}
 	}
 	writeBulletList(w, "Excluded fragments", p.ExcludeFragments)
@@ -358,7 +362,7 @@ func writeBulletList(w *iox.ErrWriter, heading string, items []string) {
 	}
 	w.Printf("%s:\n", heading)
 	for _, item := range items {
-		w.Printf("  - %s\n", item)
+		w.Printf("  - %s\n", termsafe.Field(item))
 	}
 }
 

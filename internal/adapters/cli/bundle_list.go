@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
 var bundleListCmd = &cobra.Command{
@@ -106,14 +107,14 @@ func bundleContentParts(info *bundles.BundleInfo) []string {
 // name. It is passed in rather than derived here because the disambiguation
 // rule needs the whole set and this function sees one row.
 func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo, label string) {
-	w.Printf("  %s", label)
+	w.Printf("  %s", termsafe.Field(label))
 	if info.Deleted {
 		// Removed upstream: no version/metadata to show — just flag it.
 		w.Println(" (deleted upstream)")
 		return
 	}
 	if info.Version != "" {
-		w.Printf(" (v%s)", info.Version)
+		w.Printf(" (v%s)", termsafe.Field(info.Version))
 	}
 	// State markers ride the name line so a scan of the listing surfaces them
 	// without reading each entry's body. Both are silent-loss modes: a held
@@ -130,18 +131,18 @@ func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo, label str
 	w.Println()
 
 	if info.Retracted && info.RetractedReason != "" {
-		w.Printf("    retracted by its publisher: %s\n", info.RetractedReason)
+		w.Printf("    retracted by its publisher: %s\n", termsafe.Field(info.RetractedReason))
 	}
 
 	if info.Description != "" {
-		w.Printf("    %s\n", info.Description)
+		w.Printf("    %s\n", termsafe.Field(info.Description))
 	}
 
 	if parts := bundleContentParts(info); len(parts) > 0 {
 		w.Printf("    Contains: %s\n", strings.Join(parts, ", "))
 	}
 	if len(info.Tags) > 0 {
-		w.Printf("    Tags: %s\n", strings.Join(info.Tags, ", "))
+		w.Printf("    Tags: %s\n", termsafe.Field(strings.Join(info.Tags, ", ")))
 	}
 	w.Println()
 }
@@ -215,18 +216,18 @@ var bundleShowInteractive bool
 // renderBundleShowHeader writes the bundle metadata header (name, plus optional
 // version/author/description/tags), the path, and a trailing blank line.
 func renderBundleShowHeader(w *iox.ErrWriter, bundle *bundles.Bundle) {
-	w.Printf("Bundle: %s\n", bundle.Name)
+	w.Printf("Bundle: %s\n", termsafe.Field(bundle.Name))
 	if bundle.Version != "" {
-		w.Printf("Version: %s\n", bundle.Version)
+		w.Printf("Version: %s\n", termsafe.Field(bundle.Version))
 	}
 	if bundle.Author != "" {
-		w.Printf("Author: %s\n", bundle.Author)
+		w.Printf("Author: %s\n", termsafe.Field(bundle.Author))
 	}
 	if bundle.Description != "" {
-		w.Printf("Description: %s\n", bundle.Description)
+		w.Printf("Description: %s\n", termsafe.Field(bundle.Description))
 	}
 	if len(bundle.Tags) > 0 {
-		w.Printf("Tags: %s\n", strings.Join(bundle.Tags, ", "))
+		w.Printf("Tags: %s\n", termsafe.Field(strings.Join(bundle.Tags, ", ")))
 	}
 	if bundle.SelfSigned() {
 		w.Println(selfSignedLine)
@@ -242,6 +243,9 @@ func renderBundleShowHeader(w *iox.ErrWriter, bundle *bundles.Bundle) {
 // cannot drift into a trust claim.
 const selfSignedLine = "Signature: ctxloom's own (verified, but circular — it adds no trust)"
 
+// Every value below except Path is publisher-authored, so each goes through
+// termsafe.Field and the free-text Notes through publisherBody; Path is the
+// local install location, ctxloom's own.
 func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
 	w := iox.NewErrWriter(out)
 	renderBundleShowHeader(w, bundle)
@@ -272,37 +276,37 @@ func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
 
 	if bundle.Notes != "" {
 		w.Println("Notes:")
-		w.Printf("  %s\n", bundle.Notes)
+		_ = publisherBody("  ", "", true).Render(w, bundle.Name+" notes", bundle.Notes)
 	}
 	return w.Err()
 }
 
 func renderBundleMCPEntry(w *iox.ErrWriter, name string, mcp bundles.BundleMCP) {
-	w.Printf("  - %s\n", name)
-	w.Printf("      Command: %s\n", mcp.Command)
+	w.Printf("  - %s\n", termsafe.Field(name))
+	w.Printf("      Command: %s\n", termsafe.Field(mcp.Command))
 	if len(mcp.Args) > 0 {
-		w.Printf("      Args: %s\n", strings.Join(mcp.Args, " "))
+		w.Printf("      Args: %s\n", termsafe.Field(strings.Join(mcp.Args, " ")))
 	}
 	if len(mcp.Env) > 0 {
 		w.Println("      Env:")
 		// Sorted: `bundle show` is diffed and scripted against, so two runs
 		// over an unchanged bundle must produce identical bytes.
 		for _, k := range slices.Sorted(maps.Keys(mcp.Env)) {
-			w.Printf("        %s=%s\n", k, mcp.Env[k])
+			w.Printf("        %s=%s\n", termsafe.Field(k), termsafe.Field(mcp.Env[k]))
 		}
 	}
 	if mcp.Notes != "" {
-		w.Printf("      Notes: %s\n", mcp.Notes)
+		w.Printf("      Notes: %s\n", termsafe.Field(mcp.Notes))
 	}
 	if mcp.Installation != "" {
-		w.Printf("      Installation: %s\n", mcp.Installation)
+		w.Printf("      Installation: %s\n", termsafe.Field(mcp.Installation))
 	}
 }
 
 func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.BundleFragment) {
-	w.Printf("  - %s", name)
+	w.Printf("  - %s", termsafe.Field(name))
 	if len(frag.Tags) > 0 {
-		w.Printf(" [%s]", strings.Join(frag.Tags, ", "))
+		w.Printf(" [%s]", termsafe.Field(strings.Join(frag.Tags, ", ")))
 	}
 	switch {
 	case frag.Distilled != "":
@@ -312,13 +316,13 @@ func renderBundleFragmentEntry(w *iox.ErrWriter, name string, frag bundles.Bundl
 	}
 	w.Println()
 
-	w.Printf("      %s\n", itemPreview(frag.Content))
+	w.Printf("      %s\n", termsafe.Field(itemPreview(frag.Content)))
 }
 
 func renderBundleCommandEntry(w *iox.ErrWriter, name string, prompt bundles.BundleCommand) {
-	w.Printf("  - %s", name)
+	w.Printf("  - %s", termsafe.Field(name))
 	if len(prompt.Tags) > 0 {
-		w.Printf(" [%s]", strings.Join(prompt.Tags, ", "))
+		w.Printf(" [%s]", termsafe.Field(strings.Join(prompt.Tags, ", ")))
 	}
 	switch {
 	case prompt.Distilled != "":
@@ -328,7 +332,7 @@ func renderBundleCommandEntry(w *iox.ErrWriter, name string, prompt bundles.Bund
 	}
 	w.Println()
 	if prompt.Description != "" {
-		w.Printf("      %s\n", prompt.Description)
+		w.Printf("      %s\n", termsafe.Field(prompt.Description))
 	}
 }
 

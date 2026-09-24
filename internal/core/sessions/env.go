@@ -25,7 +25,7 @@ const (
 	// credential.
 	EnvRunID = "CTXLOOM_RUN_ID"
 	// EnvRunnerOwnerLossWindow is the operator's override of how long a
-	// runner outlives an unreachable coordinator before it exits on its own
+	// runner WAITS on an unreachable coordinator before it exits on its own
 	// (runner.DefaultOwnerLossWindow), Go duration syntax. It is set where the
 	// operator runs ctxloom and forwarded onto each runner process
 	// (spawn.StartRunner), because a container runner inherits nothing from

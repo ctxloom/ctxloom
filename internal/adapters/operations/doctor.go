@@ -275,7 +275,7 @@ func doctorRuntimes() []isolation.Runtime {
 
 // doctorCheckOrphanContainers is the MANUAL backstop for a runner container
 // that outlived its owner. A runner exits on its own once its coordinator has
-// been unreachable for its owner-loss window (runner.Home.OwnerLost), and --rm then
+// been waited on for its owner-loss window (runner.Home.OwnerLost), and --rm then
 // removes its container, so nothing sweeps at startup; what is left for this
 // row is a runner WEDGED past that — still running, its owner confirmed dead.
 // It reaps those on every runtime present (reap's own rules decide, and skip

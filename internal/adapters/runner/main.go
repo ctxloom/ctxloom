@@ -38,9 +38,10 @@ var (
 	// ErrUnscrubbed refuses to compose an engine while the coordinator
 	// credential is still in the process environment it would inherit.
 	ErrUnscrubbed = errors.New("runner: the coordinator reach-back could not be scrubbed from the process environment")
-	// ErrOwnerLost ends a runner whose coordinator stayed unreachable for the
-	// whole owner-loss window (Home.OwnerLost): it tears down rather than
-	// redialling forever, which is what lets a container's --rm remove it.
+	// ErrOwnerLost ends a runner that waited the whole owner-loss window on
+	// an unreachable coordinator (Home.OwnerLost). It is only ever reached
+	// while waiting — never mid-progress — and tearing down is what lets a
+	// container's --rm remove it.
 	ErrOwnerLost = errors.New("runner: the owning coordinator is gone")
 )
 

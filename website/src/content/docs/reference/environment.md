@@ -100,11 +100,11 @@ An unset or empty value keeps the default silently. A set-but-invalid value (unp
 
 ## Runner Owner-Loss Window
 
-How long a delegated child's runner outlives an unreachable coordinator. Operator-settable, forwarded onto every runner (container runners included):
+How long a delegated child's runner waits on an unreachable coordinator. Operator-settable, forwarded onto every runner (container runners included):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` | How long (Go duration syntax, e.g. `5m`) a runner keeps redialling an unreachable coordinator before exiting on its own, which lets a container child's `--rm` remove its container. A coordinator restarted within the window re-adopts its children. | `2m` |
+| `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` | How long (Go duration syntax, e.g. `5m`) a runner waits on an unreachable coordinator before exiting on its own, which lets a container child's `--rm` remove its container. Only waiting counts: a turn in progress runs to its end and the wait starts there. The runner keeps redialling and starts no new turn until its coordinator is back. | `2m` |
 
 Read once when the runner starts. An unset or empty value keeps the default silently; a set-but-invalid value (unparseable, zero, or negative) keeps the default with a loud warning naming the variable.
 

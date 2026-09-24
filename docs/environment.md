@@ -56,7 +56,7 @@ Each is read once, at coordinator startup. An unset or empty value falls back to
 
 | Variable | Values | Default | Purpose |
 |----------|--------|---------|---------|
-| `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` | Go duration (e.g. `5m`) | `2m` | How long a delegated child's runner keeps redialling an unreachable coordinator before it exits on its own (a container child's exit is what lets `--rm` remove its container). A coordinator restarted within the window re-adopts its children however long the restart took, so raise it if restarts can be slow; lower it to reclaim orphaned containers sooner. |
+| `CTXLOOM_RUNNER_OWNER_LOSS_WINDOW` | Go duration (e.g. `5m`) | `2m` | How long a delegated child's runner WAITS on an unreachable coordinator before it exits on its own (a container child's exit is what lets `--rm` remove its container). Only waiting counts — idle between turns, or blocked on the coordinator: a turn making progress runs to its end, however long, and the wait starts there. The runner keeps redialling throughout, and starts no new turn until its coordinator is back; a restarted coordinator re-adopts it whenever it returns inside the window. Raise it if restarts can be slow; lower it to reclaim orphaned containers sooner. |
 
 Set it where you run ctxloom; it is forwarded onto each runner, container runners included, and read once when the runner starts. Unset or empty keeps the default silently; a set-but-invalid value (unparseable, zero, or negative) keeps the default LOUDLY — the runner warns, naming the variable — because a zero window would end a runner the instant its coordinator blinked.
 

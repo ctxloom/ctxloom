@@ -111,8 +111,8 @@ type ContainerReapResult struct {
 //
 // It is a MANUAL backstop, reachable only from `ctxloom doctor`: an owner
 // that dies without tearing its runner down (SIGKILL, an OOM kill, a closed
-// terminal) leaves the runner to notice on its own — it exits once its
-// coordinator has been unreachable for its owner-loss window (runner.Home.OwnerLost),
+// terminal) leaves the runner to notice on its own — it exits once it has
+// waited its owner-loss window on the absent coordinator (runner.Home.OwnerLost),
 // and --rm removes the exited container. What that leaves for this sweep is a
 // runner WEDGED past its own exit: a container still RUNNING whose owner is
 // dead. Nothing runs it at startup, because a host run must touch no

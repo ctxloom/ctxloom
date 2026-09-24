@@ -141,8 +141,8 @@ type Home struct {
 	selfReported bool
 
 	link *RunnerLink
-	// ownerLost is closed once, by runnerChannelLoop, when the lifecycle link
-	// has been down for OwnerLossWindow — see OwnerLost.
+	// ownerLost is closed once, by runnerChannelLoop, when the runner has
+	// waited OwnerLossWindow on an absent owner — see OwnerLost.
 	ownerLost chan struct{}
 	// ownerUp/present are the owner's presence: up exactly while the lifecycle
 	// link is attached; present is closed while up (ownerPresent). turning and

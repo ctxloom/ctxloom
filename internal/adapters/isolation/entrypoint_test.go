@@ -75,6 +75,24 @@ func TestEntrypoint_RemapOKDropsViaGosu(t *testing.T) {
 	assert.Contains(t, string(log), "ctxloom /bin/echo done", "gosu drops to the named remapped user")
 }
 
+// TestEntrypoint_RemapChatterNeverReachesStdout: stdout is the wrapped
+// command's, and callers read it byte for byte — the shared-fs probe compares
+// it to the marker it mounted. shadow's usermod reports "no changes" ON STDOUT
+// whenever PUID already equals the baked uid (1000, the commonest launching
+// uid), which failed every podman fs probe as a phantom sharing gap.
+func TestEntrypoint_RemapChatterNeverReachesStdout(t *testing.T) {
+	stdout, stderr, code := entrypointRun(t, map[string]string{
+		"id":       rootID,
+		"groupmod": "echo 'groupmod: chatter'",
+		"usermod":  "echo 'usermod: no changes'",
+		"setpriv":  "shift 5\nexec \"$@\"",
+	}, []string{"PUID=1000", "PGID=1000"}, "/bin/echo", "done")
+
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "done\n", stdout, "only the command's own output reaches stdout")
+	assert.Contains(t, stderr, "usermod: no changes", "the remap's report is kept, on stderr")
+}
+
 // TestEntrypoint_FailedRemapPrefersSetprivNumeric: when the remap FAILS (base
 // without usermod/groupmod), gosu would drop to the UN-remapped 1000:1000 —
 // only coincidentally the launching user — so the numeric-id setpriv path,

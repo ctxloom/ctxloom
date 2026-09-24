@@ -30,6 +30,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
@@ -77,8 +78,21 @@ func buildIntegrationImageFor(t *testing.T, bin string) string {
 	// bind-mounted project path (never bare "/"), so this never fires in
 	// production; it is a real bug this test's image sidesteps rather than a
 	// bus defect.
-	dockerfile := "FROM docker.io/library/alpine:latest\nWORKDIR /work\nCOPY ctxloom /usr/local/bin/ctxloom\n"
+	//
+	// The image carries the ctxloom identity entrypoint and the tools it drops
+	// privileges with, as every ctxloom-built agent image does: a runtime that
+	// passes PUID (rootless podman enters as namespaced root under keep-id)
+	// otherwise runs the runner as a subordinate uid, and the host cannot
+	// read the spool that runner writes.
+	dockerfile := "FROM docker.io/library/alpine:latest\n" +
+		"RUN apk add --no-cache shadow setpriv && addgroup -g 1000 ctxloom && adduser -D -u 1000 -G ctxloom -h /home/ctxloom -s /bin/sh ctxloom\n" +
+		"WORKDIR /work\n" +
+		"COPY ctxloom /usr/local/bin/ctxloom\n" +
+		"COPY ctxloom-entrypoint /usr/local/bin/ctxloom-entrypoint\n" +
+		"RUN chmod 0755 /usr/local/bin/ctxloom-entrypoint\n" +
+		"ENTRYPOINT [\"/usr/local/bin/ctxloom-entrypoint\"]\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ctxloom-entrypoint"), container.Entrypoint(), 0o755))
 
 	img := exec.Command(bin, "build", "-t", busIntegrationImage, dir)
 	if out, err := img.CombinedOutput(); err != nil {

@@ -39,12 +39,12 @@ func TestRecordSummary_JournalFailureDoesNotClaimTheReportWasFiled(t *testing.T)
 		return
 	}
 
-	c.recordSummary("child-a", "run-1", 1, Summary{
+	require.NoError(t, c.recordSummary(ownerIdentity().Harp, "", 1, Summary{
 		Scope: ScopeCheckpoint,
 		Text:  "everything up to seq 40",
-	})
+	}))
 
-	assert.Empty(t, c.LatestReport("child-a"), "precondition: nothing was journaled")
+	assert.Empty(t, c.LatestReport(ownerIdentity().Harp), "precondition: nothing was journaled")
 
 	interactions, err := os.ReadFile(filepath.Join(dir, "interactions.jsonl"))
 	if err != nil && !os.IsNotExist(err) {
@@ -71,12 +71,12 @@ func TestRecordSummary_SuccessStillAuditsAndCheckpoints(t *testing.T) {
 	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
-	c.recordSummary("child-a", "run-1", 1, Summary{
+	require.NoError(t, c.recordSummary(ownerIdentity().Harp, "", 1, Summary{
 		Scope: ScopeCheckpoint,
 		Text:  "everything up to seq 40",
-	})
+	}))
 
-	if !assert.Contains(t, c.LatestReport("child-a"), "everything up to seq 40") {
+	if !assert.Contains(t, c.LatestReport(ownerIdentity().Harp), "everything up to seq 40") {
 		return
 	}
 	interactions, err := os.ReadFile(filepath.Join(dir, "interactions.jsonl"))

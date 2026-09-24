@@ -58,6 +58,11 @@ type spoolInbox struct {
 	// onPark / onUnpark tie a parked receive to the coordinator's slot
 	// accounting (onRolePark / onRoleUnpark).
 	onPark, onUnpark func(role, runID string)
+	// live reports whether a receive made as (role, runID) still speaks for a
+	// live run (Coordinator.liveRun). A receive is re-checked where it is
+	// recorded — before its ack, when it parks, and when it hands mail out —
+	// because the credential was checked only when the call started.
+	live func(role, runID string) bool
 
 	mu sync.Mutex
 	// polls holds the one parked receive per role.
@@ -69,9 +74,9 @@ type spoolInbox struct {
 	handed map[string][]string
 }
 
-func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *SpoolDeliveryCounters, onPark, onUnpark func(role, runID string)) *spoolInbox {
+func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *SpoolDeliveryCounters, onPark, onUnpark func(role, runID string), live func(role, runID string) bool) *spoolInbox {
 	return &spoolInbox{
-		rep: rep, mapper: mapper, counters: counters, onPark: onPark, onUnpark: onUnpark,
+		rep: rep, mapper: mapper, counters: counters, onPark: onPark, onUnpark: onUnpark, live: live,
 		polls:  make(map[string]*parkedPoll),
 		handed: make(map[string][]string),
 	}
@@ -146,12 +151,17 @@ func (in *spoolInbox) sever(role string, err error) {
 // deliverable mail, or park for up to wait. What it returns is handed out
 // here and nowhere else.
 func (in *spoolInbox) recv(ctx context.Context, role, runID string, wait time.Duration) ([]Message, error) {
+	if !in.live(role, runID) {
+		return nil, ErrRevoked
+	}
 	in.ack(role)
 	msgs, names, err := in.receive(ctx, role, runID, wait)
 	if err != nil {
 		return nil, err
 	}
-	in.handOut(role, names)
+	if !in.handOut(role, runID, names) {
+		return nil, ErrRevoked
+	}
 	return msgs, nil
 }
 
@@ -165,7 +175,10 @@ func (in *spoolInbox) receive(ctx context.Context, role, runID string, wait time
 	if wait <= 0 {
 		return nil, nil, ErrRecvTimeout
 	}
-	p := in.register(role, runID)
+	p, err := in.register(role, runID)
+	if err != nil {
+		return nil, nil, err
+	}
 	// Claim once more now that the poll is registered. A delivery that landed
 	// after the claim above rang a wake that found no poll and was dropped
 	// (the courier rings only after the write); its file is on disk, and
@@ -240,8 +253,18 @@ func (in *spoolInbox) retire(role string, p *parkedPoll, msgs []Message, names [
 // older live poll completes with ErrRecvPreempted, with no park-hook churn —
 // the role stays parked, only the waiter swaps — so onPark runs only for a
 // role that was not already parked.
-func (in *spoolInbox) register(role, runID string) *parkedPoll {
+//
+// A receive whose run has ended is refused (ErrRevoked). The check is made
+// under mu, which sever also takes, and a run's terminal is journaled before
+// terminateRun severs: either the check sees the run ended, or the poll is in
+// place for that sever to find. Checked outside mu, a poll could park after
+// the sever and outlive its run.
+func (in *spoolInbox) register(role, runID string) (*parkedPoll, error) {
 	in.mu.Lock()
+	if !in.live(role, runID) {
+		in.mu.Unlock()
+		return nil, ErrRevoked
+	}
 	prev := in.polls[role]
 	fresh := prev == nil || prev.done
 	if !fresh {
@@ -254,7 +277,7 @@ func (in *spoolInbox) register(role, runID string) *parkedPoll {
 	if fresh {
 		in.onPark(role, runID)
 	}
-	return p
+	return p, nil
 }
 
 // abandon resolves the timeout/cancel race against a concurrent delivery: if
@@ -335,12 +358,18 @@ func (in *spoolInbox) claim(role string) ([]Message, []string, bool) {
 }
 
 // handOut records names as returned to role's caller: they join the ack
-// cursor, and the next receive acknowledges them.
-func (in *spoolInbox) handOut(role string, names []string) {
+// cursor, and the next receive acknowledges them. A caller whose run has
+// ended is handed nothing (false): the files stay in in/claimed/ for the
+// harp's next reader.
+func (in *spoolInbox) handOut(role, runID string, names []string) bool {
+	if !in.live(role, runID) {
+		return false
+	}
 	in.mu.Lock()
 	in.handed[role] = append(in.handed[role], names...)
 	in.mu.Unlock()
 	in.counters.Delivered.Add(uint64(len(names)))
+	return true
 }
 
 // ack acknowledges every file an earlier receive returned to role's caller by

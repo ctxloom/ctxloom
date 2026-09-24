@@ -108,7 +108,7 @@ func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond,
 		"the child must be mid-turn, which is when a real agent files FINAL")
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable")))
 
 	// THE TURN IS NOT CUT SHORT. The exit is requested, not taken.
 	assert.Never(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
@@ -142,7 +142,7 @@ func TestFinalReport_EndsAChildThatIsBetweenTurns(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done")))
 
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"an idle child that has filed FINAL must not sit holding its container")
@@ -163,10 +163,10 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, Summary{
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, Summary{
 		Scope: ScopeProgress,
 		Text:  "still working",
-	})
+	}))
 
 	assert.Never(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
 		"only FINAL is the completion contract; a heartbeat must never end a working agent")
@@ -198,7 +198,7 @@ func TestFinalReport_ParentGetsTheReportBeforeTheExitNotice(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the finding"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the finding")))
 
 	// FIRST: the report, while the child is still running. Nothing can have
 	// ended the run yet, so nothing can have queued an exit notice yet.
@@ -235,7 +235,7 @@ func TestFinalReport_SessionStaysResumableAfterTheRunEnds(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done")))
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 	require.Equal(t, 1, sp.chatCount(), "nothing may resume while the mailbox is empty — the child is genuinely down")
 
@@ -268,7 +268,7 @@ func TestFinalReport_OneShotChildIsEndedByItsFinal(t *testing.T) {
 	require.Eventually(t, func() bool { return nativeSession(c, out.Harp) != "" }, conformanceWait, 10*time.Millisecond,
 		"the fixture must be a live-confirmed one-shot run before it files FINAL")
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: task one done"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: task one done")))
 	close(gate)
 
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
@@ -313,7 +313,7 @@ func TestFinalReport_OwnerRunIsNeverEndedByItsOwnReport(t *testing.T) {
 	})
 	require.Equal(t, ownerHarp, parentHarp, "an owner run journals its OWN harp as its parent — that is the trap being guarded")
 
-	c.recordSummary(ownerHarp, out.RunID, 1, finalSummary("FINAL: the top-level session's own report"))
+	require.NoError(t, c.recordSummary(ownerHarp, out.RunID, 1, finalSummary("FINAL: the top-level session's own report")))
 
 	assert.Never(t, func() bool { return rosterState(c, ownerHarp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
 		"a top-level session must never be torn down by its own FINAL report")
@@ -354,7 +354,7 @@ func TestFinalReport_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable")))
 
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"a child whose boundary beat the exit mark must still be ended, not held idle for the drain bound")
@@ -436,7 +436,7 @@ func TestFinalReport_FiledWhileStillLaunchingEndsAtTheFirstBoundary(t *testing.T
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable")))
 	require.Eventually(t, func() bool { return exitMarked(c, out.RunID) }, conformanceWait, time.Millisecond,
 		"a run still launching is attached from enqueue, so the drain can mark it")
 	close(turnGate)
@@ -476,7 +476,7 @@ func TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun(t *testing.T
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done")))
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 
 	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
@@ -490,7 +490,7 @@ func TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun(t *testing.T
 		"the resumed run must be live and between turns before the late report lands")
 
 	// A later event from the ENDED run — it was in flight when that run ended.
-	c.recordSummary(out.Harp, out.RunID, 2, finalSummary("FINAL: late, from the run that already ended"))
+	require.ErrorIs(t, c.recordSummary(out.Harp, out.RunID, 2, finalSummary("FINAL: late, from the run that already ended")), ErrRevoked, "a report from a run that has ended is refused")
 
 	for _, e := range readAuditKind(t, c, "final_report_end") {
 		assert.NotEqual(t, resumed, e.Detail["run_id"],
@@ -499,7 +499,7 @@ func TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun(t *testing.T
 	assert.NotEqual(t, StateEnded, rosterState(c, out.Harp))
 	assert.Equal(t, resumed, currentRunID(c, out.Harp))
 
-	c.recordSummary(out.Harp, resumed, 1, finalSummary("FINAL: the resumed run's own"))
+	require.NoError(t, c.recordSummary(out.Harp, resumed, 1, finalSummary("FINAL: the resumed run's own")))
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"the resumed run's OWN FINAL must still end it")
 	assert.Equal(t, CauseFinalReported, runCause(c, resumed))

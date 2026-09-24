@@ -237,6 +237,18 @@ func (f *runsFold) currentRun(harp string) *RunRecord {
 	return f.runs[id]
 }
 
+// liveRun reports whether a call made as (harp, runID) still speaks for a
+// live run: runID names a run of harp that has not ended. An empty runID is
+// the depth-0 session-owner credential, which serves the harp rather than one
+// run, and stays valid for as long as its session does.
+func (f *runsFold) liveRun(harp, runID string) bool {
+	if runID == "" {
+		return true
+	}
+	r := f.runs[runID]
+	return r != nil && !r.Ended && r.Harp == harp
+}
+
 // identityFor resolves a credential hash to its identity.
 func (f *runsFold) identityFor(credHash string) (Identity, bool) {
 	id, ok := f.creds[credHash]

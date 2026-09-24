@@ -498,7 +498,7 @@ func TestRunChannel_LateTurnEventsFromAnEndedRunDoNotMoveTheResumedRun(t *testin
 	c.mu.Unlock()
 	require.NotNil(t, stale)
 	require.Equal(t, out.RunID, stale.Identity().RunID)
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done")))
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 
 	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
@@ -523,7 +523,7 @@ func TestRunChannel_LateTurnEventsFromAnEndedRunDoNotMoveTheResumedRun(t *testin
 	assert.Equal(t, StateExecuting, rosterState(c, out.Harp), "a late park from the ended run must not park the resumed run")
 	assert.True(t, slotHeldBy(resumed), "a late park from the ended run must not release the resumed run's slot")
 
-	c.recordSummary(out.Harp, resumed, 1, finalSummary("FINAL: the resumed run's own"))
+	require.NoError(t, c.recordSummary(out.Harp, resumed, 1, finalSummary("FINAL: the resumed run's own")))
 	require.Eventually(t, func() bool { return exitMarked(c, resumed) }, conformanceWait, time.Millisecond)
 	c.HandleEvent(stale, Event{Payload: CustomEvent{Name: CustomTurnIdle}})
 	assert.NotEqual(t, StateEnded, rosterState(c, out.Harp),

@@ -31,9 +31,11 @@ var (
 	// tool surfaces render it as a successful empty receive; it rides the
 	// error channel only because that is the one completion path a poll has.
 	ErrRecvPreempted = errors.New("agent_recv: yielded to a newer receive for this session")
-	// ErrRevoked completes a parked long-poll whose credential was revoked
-	// (run ended / agent_stop): revocation severs parked polls.
-	ErrRevoked = errors.New("agent_recv: this session's credential was revoked")
+	// ErrRevoked refuses a call whose run credential was revoked (run ended /
+	// agent_stop): revocation severs parked polls, and a receive or report
+	// recorded after the run ended is refused with it (runsFold.liveRun),
+	// however valid the credential was when the call started.
+	ErrRevoked = errors.New("this session's credential was revoked")
 	// ErrRecvNotOwner refuses a receive here for a role that is not the
 	// declared session owner: that role's inbox is a spool its own runner
 	// drains, and reading it from this process would either find nothing

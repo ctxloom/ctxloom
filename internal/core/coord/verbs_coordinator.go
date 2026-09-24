@@ -91,8 +91,7 @@ func (c *Coordinator) Report(_ context.Context, caller Identity, req ReportReque
 	if !ok {
 		return fmt.Errorf("%w: report: unknown scope %q", ErrInvalidRequest, req.Scope)
 	}
-	c.recordSummary(caller.Harp, caller.RunID, 0, Summary{Scope: scope, Text: req.Body})
-	return nil
+	return c.recordSummary(caller.Harp, caller.RunID, 0, Summary{Scope: scope, Text: req.Body})
 }
 
 // FetchArtifact is agent_fetch_artifact: an artifact the caller is entitled

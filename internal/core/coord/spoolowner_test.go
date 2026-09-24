@@ -44,7 +44,7 @@ func TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable")))
 
 	got := recvBody(t, c, "FINAL: the deliverable", conformanceWait)
 	require.NotEmpty(t, got, "the child's FINAL report must reach the owner's agent_recv")
@@ -98,7 +98,7 @@ func TestSpoolOwner_AckIsConsumeOnNextRecv(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
-	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: once"))
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: once")))
 	got := recvBody(t, c, "FINAL: once", conformanceWait)
 	require.NotEmpty(t, got)
 
@@ -275,7 +275,7 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 	assert.Equal(t, 1, c.pendingCount(b.Harp), "the message must be counted as pending for B before it launches")
 
 	// A finishes at its turn boundary and frees the slot; B launches.
-	c.recordSummary(a.Harp, a.RunID, 1, finalSummary("FINAL: A done"))
+	require.NoError(t, c.recordSummary(a.Harp, a.RunID, 1, finalSummary("FINAL: A done")))
 	close(gate)
 	require.Eventually(t, func() bool { return rosterState(c, a.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
 

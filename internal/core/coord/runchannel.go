@@ -241,7 +241,9 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 		c.handleCustomEvent(ch, payload)
 		c.flushItems(ch)
 	case Summary:
-		c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload)
+		if err := c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload); err != nil {
+			c.rep.Warnf("coordinator: refusing a report on %s's run channel: %v", ch.role, err)
+		}
 		c.flushItems(ch)
 	case ArtifactProduced:
 		if err := c.recordArtifact(ch.role, payload); err != nil {

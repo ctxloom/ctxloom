@@ -3,6 +3,7 @@ package coord
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -228,7 +229,12 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 // otherwise record a report the reports journal does not contain) and no
 // checkpoint snapshot (whose contract is that the report it compacts to is
 // already durable).
-func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) {
+//
+// A REPORT FROM A RUN THAT HAS ENDED IS REFUSED (ErrRevoked), decided inside
+// the journal window that also folds the run's terminal, so it cannot slip in
+// between: a credential checked when the call started does not outlive its
+// run, and a frame an ended run's channel had already read is not its harp's.
+func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) error {
 	structured := ""
 	if s.Structured != nil {
 		if raw, err := json.Marshal(s.Structured); err == nil {
@@ -236,6 +242,9 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) {
 		}
 	}
 	if err := c.runs.Exec(func() ([]Fact, error) {
+		if !c.runsF.liveRun(harp, runID) {
+			return nil, fmt.Errorf("%w: a report from run %q of %q, which has ended", ErrRevoked, runID, harp)
+		}
 		if seq != 0 && seq <= c.reportsF.seq[reportKey(harp, runID)] {
 			return nil, nil // duplicate delivery
 		}
@@ -251,9 +260,12 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) {
 			ArtifactIDs:   s.ArtifactIDs,
 		})}, nil
 	}); err != nil {
+		if errors.Is(err, ErrRevoked) {
+			return err
+		}
 		c.rep.Warnf("coordinator: journal report for %s: %v — the report is LOST "+
 			"(the runner's ack has already advanced past it and nothing re-sends it)", harp, err)
-		return
+		return nil
 	}
 	c.audit("agent_report", harp, map[string]string{"scope": string(s.Scope)})
 	c.notifyParentOfFinalReport(harp, s)
@@ -273,6 +285,7 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) {
 	// D4: a SCOPE_CHECKPOINT report is the natural compaction point — see
 	// checkpoint.go.
 	c.maybeCheckpointOnSummary(s)
+	return nil
 }
 
 // notifyParentOfFinalReport queues a child's FINAL report to its parent as

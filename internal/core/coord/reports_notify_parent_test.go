@@ -31,10 +31,10 @@ func TestFinalReport_IsQueuedToTheParent(t *testing.T) {
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
 	before := c.pendingCount(owner.Harp)
-	c.recordSummary(out.Harp, out.RunID, 1, Summary{
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, Summary{
 		Scope: ScopeFinal,
 		Text:  "FINAL: the finding the parent is waiting for",
-	})
+	}))
 
 	assert.Greater(t, c.pendingCount(owner.Harp), before,
 		"a child's FINAL report must reach its parent's MAILBOX, not only the reports fold")
@@ -60,10 +60,10 @@ func TestProgressReport_IsNotQueuedToTheParent(t *testing.T) {
 	require.NotEmpty(t, recvKind(t, c, KindResult, conformanceWait), "the turn's automatic report reaches the parent first")
 
 	before := c.pendingCount(owner.Harp)
-	c.recordSummary(out.Harp, out.RunID, 1, Summary{
+	require.NoError(t, c.recordSummary(out.Harp, out.RunID, 1, Summary{
 		Scope: ScopeProgress,
 		Text:  "still working",
-	})
+	}))
 
 	assert.Equal(t, before, c.pendingCount(owner.Harp),
 		"a PROGRESS report must not wake the parent; only FINAL is the completion contract")

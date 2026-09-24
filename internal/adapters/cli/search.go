@@ -12,8 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
+	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
 
 // searchLocalLimit caps the local half of a search — a huge tag-only query

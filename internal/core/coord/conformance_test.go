@@ -507,6 +507,62 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 	assert.Equal(t, KindExited, msgs[0].Kind)
 }
 
+// TestAgentStop_MidStartRunIsAStopNotALaunchFailure forces the interleaving
+// that reddened TestAgentStop_FreesSlot under load: the stop lands while the
+// child's StartRun is still on the wire (the runner is up, the engine has not
+// answered), and the launch it cancels gets to settle before anything else
+// the stop does. The cancelled launch then reports "StartRun never completed:
+// context canceled" — a consequence of the stop, not a launch failure — so
+// the parent must be told the child was STOPPED (exited), never that it
+// failed to launch.
+func TestAgentStop_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp.bindHold = make(chan struct{})
+	sp.bindEntered = make(chan struct{}, 1)
+	c := newTestCoordinator(t, sp, nil)
+	t.Cleanup(func() { close(sp.bindHold) })
+
+	var attached chan struct{}
+	c.stopCancelledLaunchHook = func(string) {
+		select {
+		case <-attached:
+		case <-time.After(conformanceWait):
+			t.Error("the cancelled launch never settled")
+		}
+	}
+
+	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	require.NoError(t, err)
+	select {
+	case <-sp.bindEntered:
+	case <-time.After(conformanceWait):
+		t.Fatal("the child's StartRun never reached the runner")
+	}
+	c.mu.Lock()
+	if rt := c.attach[first.RunID]; rt != nil {
+		attached = rt.attached
+	}
+	c.mu.Unlock()
+	require.NotNil(t, attached, "StartRun is in flight, so the launch attempt has not settled")
+
+	disp, err := c.AgentStop(ownerIdentity(), first.Harp, "")
+	require.NoError(t, err)
+	assert.Contains(t, disp, "stopped child")
+	assert.Equal(t, StateEnded, rosterState(c, first.Harp))
+
+	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	require.NoError(t, err)
+	var kinds []string
+	for _, m := range msgs {
+		if m.From == first.Harp {
+			kinds = append(kinds, m.Kind)
+		}
+	}
+	assert.Equal(t, []string{KindExited}, kinds,
+		"a stopped child is reported as stopped, exactly once; the launch the stop cancelled is not a launch failure: %+v", msgs)
+}
+
 // TestInject_DeliveryModes pins the S2 inject verb across delivery-by-state:
 // queued mid-turn (with the O3 mirror), and the typed refusal for a foreign
 // harp.

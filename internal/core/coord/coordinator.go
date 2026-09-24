@@ -399,6 +399,12 @@ type Coordinator struct {
 	// must survive to the items fold) without depending on real scheduler
 	// timing.
 	drainHook func(role string)
+	// stopCancelledLaunchHook, if set (tests only, same package), runs
+	// synchronously in stopRun right after it cancels the harp's launch in
+	// flight: the seam that lets the cancelled launch settle (fail) before
+	// anything else the stop does, which is the interleaving a stop landing
+	// mid-StartRun meets under load.
+	stopCancelledLaunchHook func(harp string)
 	// spawnDispatchedHook, if set (tests only, same package), runs
 	// synchronously in AgentRun immediately after the child's driver
 	// goroutine has been dispatched, with the child's harp. It is the
@@ -1155,13 +1161,19 @@ func (c *Coordinator) AgentStop(caller Identity, harp, reason string) (string, e
 // share once the caller's claim on rec is settled; it returns the disposition
 // prose the caller reports.
 //
-// The LAUNCH is cancelled before anything else, on both branches. A stop that
-// only ends the run record cannot stop a launcher: a stop can land on an
-// already-ended run (the retry loop's own terminal) with a relaunch already
-// armed behind it, report success, and leave the retry loop spinning on
-// indefinitely. cancelLaunch marks the harp stopped — so an armed-but-not-
-// yet-enqueued relaunch turns back — and cancels the context of any attempt
-// currently in flight, which a container prepare makes a seconds-wide window.
+// The harp is marked stopped before anything else, and the LAUNCH is
+// cancelled on both branches. A stop that only ends the run record cannot
+// stop a launcher: a stop can land on an already-ended run (the retry loop's
+// own terminal) with a relaunch already armed behind it, report success, and
+// leave the retry loop spinning on indefinitely. The mark turns an
+// armed-but-not-yet-enqueued relaunch back; cancelLaunch also cancels the
+// context of any attempt currently in flight, which a container prepare makes
+// a seconds-wide window.
+//
+// On a live run the stop's terminal is claimed BEFORE the launch is
+// cancelled. A launch cancelled mid-StartRun fails with context canceled, and
+// failChild would otherwise claim the exactly-once terminal as a launch
+// failure: the parent would be told a child it stopped "failed to launch".
 //
 // reason is the run's terminal DETAIL — what the roster, the journal and the
 // audit record show for this stop. Absent, the detail keeps the exact
@@ -1169,8 +1181,15 @@ func (c *Coordinator) AgentStop(caller Identity, harp, reason string) (string, e
 // terminal's reason when there was one, so a second agent_stop says WHY it
 // ended, not just that it did.
 func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) string {
-	c.cancelLaunch(rec.Harp)
+	c.markStopped(rec.Harp)
+	cancelLaunch := func() {
+		c.cancelLaunch(rec.Harp)
+		if hook := c.stopCancelledLaunchHook; hook != nil {
+			hook(rec.Harp)
+		}
+	}
 	if rec.Ended {
+		cancelLaunch()
 		ended := rec.Cause
 		if rec.Detail != "" {
 			ended += ": " + rec.Detail
@@ -1185,6 +1204,7 @@ func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) st
 	}
 	c.audit("agent_stop", caller.Harp, audit)
 	c.terminateRun(rec.RunID, CauseStopped, detail)
+	cancelLaunch()
 	return fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", rec.Harp)
 }
 

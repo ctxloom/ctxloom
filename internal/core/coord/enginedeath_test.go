@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -33,24 +36,35 @@ const engineDeathTail = "acp: connection closed (engine stderr tail: SyntaxError
 // failure this test exists to prevent: the assertion is on the REASON TEXT.
 func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	resetStrictness(t)
-	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	qe := newQuiescentEngine()
+	sp := startRunSpawner(nil)
+	sp.nextBackend = func() engine.Instance { return qe }
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
 
-	// Reach a live, journaled RunChannel so the synthetic FAILED terminal is
-	// indistinguishable from a genuine one on the same (run_id, channel).
+	// The test speaks for the runner on the runner's own (run, seq) space, so
+	// it may only do so once the runner has nothing left to say: a seq the
+	// live Home assigns after the test picked one is a collision, and
+	// HandleEvent drops the second arrival as a duplicate. The engine is
+	// inside its turn and relays nothing, so the Home's seq is FINAL here.
+	select {
+	case <-qe.entered:
+	case <-time.After(conformanceWait):
+		t.Fatal("the engine never entered its first turn")
+	}
+	home := sp.engineHome(0)
+	require.NotNil(t, home)
+	last := home.EmittedSeq()
+	require.Positive(t, last, "RunStarted precedes the first turn")
+	var ch *RunChannel
 	require.Eventually(t, func() bool {
-		var seq uint64
 		c.mu.Lock()
-		if ch := c.chans[out.Harp]; ch != nil {
-			seq = ch.ackSeq
-		}
-		c.mu.Unlock()
-		return seq > 0
-	}, conformanceWait, 5*time.Millisecond, "the RunChannel must be live before the terminal is driven")
+		defer c.mu.Unlock()
+		ch = c.chans[out.Harp]
+		return ch != nil && ch.ackSeq >= last
+	}, conformanceWait, 5*time.Millisecond, "the coordinator must have received every event the quiescent runner emitted")
 
 	var credHash string
 	c.runs.View(func() {
@@ -65,16 +79,16 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	// backend.Chat returns the acp-wrapped error), with NO final-channel
 	// output — so bridgeTurnResult has nothing to deliver and the terminal
 	// notice is the child's only voice.
-	c.mu.Lock()
-	ch := c.chans[out.Harp]
-	seq := ch.ackSeq + 1
-	c.mu.Unlock()
-	require.NotNil(t, ch)
 	c.HandleEvent(ch, Event{
 		RunID:   out.RunID,
-		Seq:     seq,
+		Seq:     last + 1,
 		Payload: RunCompleted{Result: &Result{Status: RunStatusFailed, Text: engineDeathTail}},
 	})
+	select {
+	case <-ch.completed:
+	default:
+		t.Fatal("the synthetic FAILED terminal was not journaled — a seq the runner had already used makes HandleEvent drop it as a duplicate")
+	}
 
 	// The runner then reports the process-level exit (CauseRunnerExit), which
 	// terminates the run and mails the parent.
@@ -93,6 +107,30 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	require.NotEmpty(t, body, "a terminal notice from the dead child must be in the parent's mailbox")
 	assert.True(t, strings.Contains(body, "SyntaxError: Unexpected token 'with'"),
 		"the dead engine's own reason (the stderr tail) must reach the parent — a bare 'exited (runner-exit)' is the silent dead end this whole change exists to fix; got: %q", body)
+}
+
+// quiescentEngine is an engine whose turn relays nothing and ends only when
+// its run is cancelled; entered closes the moment the first turn begins. It
+// makes "the runner has emitted everything it will emit" an observable
+// point rather than a guess.
+type quiescentEngine struct {
+	entered chan struct{}
+	once    sync.Once
+}
+
+func newQuiescentEngine() *quiescentEngine {
+	return &quiescentEngine{entered: make(chan struct{})}
+}
+
+func (q *quiescentEngine) Exec([]present.Presentation) (engine.Exec, error) {
+	return engine.Exec{Binary: "quiescent", Env: map[string]string{}}, nil
+}
+func (q *quiescentEngine) Drivers() []engine.StructuredDriver { return []engine.StructuredDriver{q} }
+func (q *quiescentEngine) Resume(string) error                { return nil }
+func (q *quiescentEngine) Turn(ctx context.Context, _ engine.Exec, _ engine.Turn, _ chan<- engine.Event) (engine.TurnResult, error) {
+	q.once.Do(func() { close(q.entered) })
+	<-ctx.Done()
+	return engine.TurnResult{}, ctx.Err()
 }
 
 // TestRunnerLoss_StderrTailReachesParentMailbox pins the fallback surface: a

@@ -27,6 +27,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,7 +69,8 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	wtDir := filepath.Join(t.TempDir(), "wt")
 	gitRun(t, repo, "worktree", "add", "-b", "feature", wtDir)
 
-	pol := NewContainerFor(rt, "mock").WithImage(worktreeIntegrationImage)
+	testsupport.Isolate(t) // the session scratch resolves under a fake $HOME, never the real ~/.ctxloom
+	pol := NewContainerFor(rt, "mock").WithImage(worktreeIntegrationImage).WithSessionState(SessionState{Harp: "brisk-teal-otter"})
 	ws, err := pol.PrepareWorkspace(ctx, wtDir, "hostwt-itest")
 	require.NoError(t, err, "PrepareWorkspace must mirror the out-of-repo worktree's git common dir")
 	t.Cleanup(func() { _ = ws.Cleanup() })

@@ -115,24 +115,17 @@ func TestSessionStateMounts_UnmappedBackendMountsNoStore(t *testing.T) {
 	}
 }
 
-// TestSessionStateMounts_NoHarp_SkipsPerSessionMounts pins the no-harp edge:
-// mounts that need a session identity degrade to skipped-with-warning (an
-// ensemble member without per-member session accounting runs this way by
-// design), while the harp-independent task-store mount still applies. Nothing
-// is created under the sessions root.
-func TestSessionStateMounts_NoHarp_SkipsPerSessionMounts(t *testing.T) {
+// TestSessionStateMounts_NoHarpIsRefused: a container run with no harp has no
+// per-session state to scope its mounts to, and is refused rather than degraded
+// to a run whose transcripts and artifacts die with the container. Nothing is
+// created under the sessions root.
+func TestSessionStateMounts_NoHarpIsRefused(t *testing.T) {
 	home := testsupport.Isolate(t)
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{ProjectID: "proj-1"}
-	mounts, err := c.sessionStateMounts()
-	require.NoError(t, err)
-	require.Len(t, mounts, 3, "the task-store mounts (log + lock) plus the harp-independent locks-dir mount apply without a harp")
-	assert.Equal(t, filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"), mounts[0].Host)
-	assert.Equal(t, filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"), mounts[1].Host)
-	wantLocks, err := paths.HomeLocksDir()
-	require.NoError(t, err)
-	assert.Equal(t, wantLocks, mounts[2].Host, "the locks-dir mount needs no session identity")
+	_, err := c.sessionStateMounts()
+	require.Error(t, err, "a harpless container run is refused")
 
 	_, statErr := os.Stat(filepath.Join(home, ".ctxloom", "sessions"))
 	assert.True(t, os.IsNotExist(statErr), "no session dir is minted for a harpless run")
@@ -243,7 +236,7 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 
 // TestSessionStateMounts_LocksDirMount_Unconditional is THE mutation-kill
 // target for the lock-path fix: the locks-dir mount must be present even
-// when NEITHER harp nor project id is set — every registered engine spec's
+// when no project id is set — every registered engine spec's
 // overlayDirs is non-empty (enginespec.go), so every container run gets an
 // engine-settings write mount and needs this facet regardless of session
 // identity. Deleting the mount's append call, or gating it behind the harp
@@ -253,19 +246,18 @@ func TestSessionStateMounts_LocksDirMount_Unconditional(t *testing.T) {
 	home := testsupport.Isolate(t)
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	c.state = SessionState{}
+	c.state = SessionState{Harp: "brisk-teal-otter"}
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
-	require.Len(t, mounts, 1, "no harp, no project id -- only the unconditional locks-dir mount survives")
 
 	wantLocks, err := paths.HomeLocksDir()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, ".ctxloom", "locks"), wantLocks)
-	assert.Equal(t, Mount{
+	assert.Contains(t, mounts, Mount{
 		Host:      wantLocks,
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "locks"),
 		ReadOnly:  false,
-	}, mounts[0])
+	}, "the locks-dir mount needs no project id")
 
 	info, statErr := os.Stat(wantLocks)
 	require.NoError(t, statErr, "the host locks dir must exist before `run`")
@@ -313,6 +305,7 @@ func TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir(t *testing.T) {
 	t.Setenv("HOME", realHome)
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	c.state = SessionState{Harp: "brisk-teal-otter"}
 	require.Equal(t, defaultContainerHome, c.home)
 	wantContainerLocksDir := filepath.Join(c.home, paths.AppDirName, paths.HomeLocksDirName)
 	require.True(t, strings.HasPrefix(containerLockPath, wantContainerLocksDir+string(filepath.Separator)))
@@ -546,8 +539,7 @@ func TestPathAtOrAboveHome(t *testing.T) {
 // else in this file would notice.
 //
 // This walks the REAL mounts sessionStateMounts returns, across every branch
-// that changes which mounts it emits (harp+project, harp only, project only,
-// neither) — never a hand-maintained list of expected mounts, which would
+// that changes which mounts it emits (harp+project, harp only) — never a hand-maintained list of expected mounts, which would
 // just reproduce the defect this gate exists to catch.
 func TestSessionStateMounts_NoMountAtOrAboveContainerHome(t *testing.T) {
 	testsupport.Isolate(t)
@@ -555,8 +547,6 @@ func TestSessionStateMounts_NoMountAtOrAboveContainerHome(t *testing.T) {
 	states := []SessionState{
 		{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
 		{Harp: "brisk-teal-otter"},
-		{ProjectID: "proj-1"},
-		{},
 	}
 	for _, state := range states {
 		c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
@@ -573,7 +563,7 @@ func TestSessionStateMounts_NoMountAtOrAboveContainerHome(t *testing.T) {
 }
 
 // TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember pins a fix.
-// A review row observed that a missing harp or project id degrades durability behind
+// A review row observed that a missing project id degrades durability behind
 // clidiag.WarnOnce, so in a delegated fan-out (agent_run — all one process)
 // only the FIRST affected member warns and every later one is silent. The
 // mechanism is real: WarnOnce dedups on the whole formatted line and these
@@ -581,8 +571,7 @@ func TestSessionStateMounts_NoMountAtOrAboveContainerHome(t *testing.T) {
 //
 // The collapse is deliberate and stays — the alternative is N identical lines
 // at startup — and per-member reporting is not available at this seam anyway:
-// Container carries no agent id, and the identity that would distinguish
-// members is precisely the harp that is missing. What was wrong is that the
+// Container carries no agent id. What was wrong is that the
 // single surviving line described "a container run", singular, so a reader of a
 // twenty-member fan-out concluded one member was affected.
 //
@@ -593,24 +582,21 @@ func TestSessionStateMounts_NoMountAtOrAboveContainerHome(t *testing.T) {
 // house workaround, internal/adapters/operations/context_test.go, is a per-test dedup
 // key, which is not available for a fixed diagnostic).
 func TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember(t *testing.T) {
-	for _, notice := range []string{noHarpNotice, noProjectIDNotice} {
-		assert.Contains(t, notice, "every affected run",
-			"the one surviving line must say it speaks for every affected member, not read as a single run: %q", notice)
-	}
+	assert.Contains(t, noProjectIDNotice, "every affected run",
+		"the one surviving line must say it speaks for every affected member, not read as a single run")
 
 	testsupport.Isolate(t)
 	buf := captureWarnings(t)
 
-	// Three fan-out members in one process, none carrying session identity.
+	// Three fan-out members in one process, none carrying a project id.
 	for range 3 {
 		c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+		c.state = SessionState{Harp: "brisk-teal-otter"}
 		_, err := c.sessionStateMounts()
-		require.NoError(t, err, "a member without session accounting degrades, it does not fail")
+		require.NoError(t, err, "a member without a project id degrades, it does not fail")
 	}
 
 	out := buf.String()
-	assert.LessOrEqual(t, strings.Count(out, "no session harp"), 1,
-		"the harp degrade collapses per process — one line per member would be startup spam in a fan-out")
 	assert.LessOrEqual(t, strings.Count(out, "no project id"), 1,
-		"the project-id degrade collapses the same way")
+		"the project-id degrade collapses per process — one line per member would be startup spam in a fan-out")
 }

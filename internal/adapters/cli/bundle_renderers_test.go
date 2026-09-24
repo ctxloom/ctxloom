@@ -188,8 +188,8 @@ func TestRenderBundleShow_FullBundle(t *testing.T) {
 	assert.Contains(t, out, "Args: --root /tmp")
 	assert.Contains(t, out, "Env:")
 	assert.Contains(t, out, "DEBUG=1")
-	assert.Contains(t, out, "Notes: Filesystem access")
-	assert.Contains(t, out, "Installation: go install ...")
+	assert.Contains(t, out, "      Notes:\n        Filesystem access\n")
+	assert.Contains(t, out, "      Installation:\n        go install ...\n")
 
 	// Fragment entry: tag list, distilled marker, first-line preview.
 	assert.Contains(t, out, "Fragments (1):")
@@ -333,6 +333,31 @@ func TestRenderBundleMCPEntry_MinimalShowsCommandOnly(t *testing.T) {
 	assert.NotContains(t, out, "Env:")
 	assert.NotContains(t, out, "Notes:")
 	assert.NotContains(t, out, "Installation:")
+}
+
+// An MCP entry's Notes and Installation are publisher-authored BODIES, like
+// the bundle's own Notes: an installation recipe is several commands, one per
+// line, and the one-line identifier cap would flatten it to ^J-joined text and
+// cut it at a line's worth of bytes. They keep their lines and the body cap —
+// and a control byte inside them is still escaped, not passed through.
+func TestRenderBundleMCPEntry_NotesAndInstallationRenderAsBodies(t *testing.T) {
+	long := strings.Repeat("x", 300) // past termsafe.DefaultFieldMaxBytes
+	mcp := bundles.BundleMCP{
+		Command:      "mcp-fs",
+		Notes:        "needs a token\n" + long,
+		Installation: "go install example.com/mcp-fs@latest\nmcp-fs init \x1b[2K" + long,
+	}
+	var buf bytes.Buffer
+	w := iox.NewErrWriter(&buf)
+	renderBundleMCPEntry(w, "fs", mcp)
+	require.NoError(t, w.Err())
+	out := buf.String()
+
+	assert.Contains(t, out, "      Notes:\n        needs a token\n        "+long+"\n")
+	assert.Contains(t, out,
+		"      Installation:\n        go install example.com/mcp-fs@latest\n        mcp-fs init ^[[2K"+long+"\n")
+	assert.NotContains(t, out, "^J", "a body's newlines are kept, not escaped")
+	assert.NotContains(t, out, "\x1b", "a control byte in a body is still escaped")
 }
 
 // =============================================================================

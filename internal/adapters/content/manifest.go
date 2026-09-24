@@ -240,6 +240,9 @@ func ParseManifest(raw []byte) (Manifest, error) {
 		if len(body) > 0 {
 			first = body[0]
 		}
+		if first == DigestVersionMarker {
+			return Manifest{}, fmt.Errorf("%w: %w: version marker is %q, this build understands only %q", ErrManifestFormat, ErrManifestSuperseded, first, ManifestVersionMarker)
+		}
 		return Manifest{}, fmt.Errorf("%w: version marker is %q, this build understands only %q", ErrManifestFormat, first, ManifestVersionMarker)
 	}
 	rel, rest, err := parseReleaseHeader(body[1:])

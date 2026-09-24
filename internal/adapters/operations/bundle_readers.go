@@ -176,6 +176,9 @@ const (
 // withheldRemedy selects the fix line for a withheld tree from the error's
 // typed cause.
 func withheldRemedy(err error) string {
+	if errors.Is(err, content.ErrManifestSuperseded) {
+		return remedyWithheldSuperseded
+	}
 	return remedyWithheldTampered
 }
 

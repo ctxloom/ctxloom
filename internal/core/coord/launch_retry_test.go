@@ -37,6 +37,9 @@ type failingLaunchSpawner struct {
 	// delay is how long one doomed launch takes, so a spinning loop is
 	// observable at a sane rate instead of pegging a core.
 	delay time.Duration
+	// firstDelay, when non-zero, replaces delay for the FIRST attempt only —
+	// holding the original launch in flight while later ones fail fast.
+	firstDelay time.Duration
 	// cancelled counts attempts that ended because their launch CONTEXT was
 	// cancelled rather than by their own failure — the proof that a stop
 	// reaches an in-flight launch, not merely the process it produced.
@@ -75,8 +78,11 @@ func newFailingLaunchSpawner() *failingLaunchSpawner {
 var errLaunchDoomed = errors.New("simulated container launch failure (shared-fs probe did not run)")
 
 func (s *failingLaunchSpawner) doomedLaunch(ctx context.Context) error {
-	s.attempts.Add(1)
-	t := time.NewTimer(s.delay)
+	d := s.delay
+	if s.attempts.Add(1) == 1 && s.firstDelay != 0 {
+		d = s.firstDelay
+	}
+	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-t.C:
@@ -261,6 +267,86 @@ func TestAgentSend_MailRacingTheTerminalIsNotStranded(t *testing.T) {
 
 	require.Eventually(t, func() bool { return sp.resolves.Load() >= 2 }, 5*time.Second, 10*time.Millisecond,
 		"the message queued behind the terminal was stranded: no relaunch reached Resolve")
+
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
+	require.NoError(t, err)
+}
+
+// TestAgentSend_MailRacingTheTerminalKeepsTheRetryBound is the other ordering
+// of the same race: the terminal lands AFTER the write, so the leftover-mail
+// tail sees the message and arms its bounded relaunch, while the send — which
+// observed a live run — finds the harp ended once its write is done. Mail
+// that raced a death is the tail's to relaunch, under the bound; it is not a
+// fresh explicit ask, so it must not reset the failure budget or launch a
+// second loop beside the tail's.
+func TestAgentSend_MailRacingTheTerminalKeepsTheRetryBound(t *testing.T) {
+	resetStrictness(t)
+	sp := newFailingLaunchSpawner()
+	sp.firstDelay = time.Hour // the original launch stays in flight until its terminal cancels it
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
+		"precondition: the first launch must be in flight")
+
+	var fired atomic.Bool
+	c.mu.Lock()
+	c.afterMailWritten = func(to string) {
+		if to != out.Harp || !fired.CompareAndSwap(false, true) {
+			return
+		}
+		c.terminateRun(out.RunID, CauseLaunchFailed, errLaunchDoomed.Error())
+	}
+	c.mu.Unlock()
+
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "ping", nil, "")
+	require.NoError(t, err)
+	require.True(t, fired.Load(), "precondition: the terminal landed between the write and the send's return")
+
+	time.Sleep(3 * time.Second)
+	attempts := sp.attempts.Load()
+	assert.LessOrEqual(t, attempts, int64(c.maxLaunchAttempts),
+		"mail racing the terminal re-armed the launch budget: %d attempts against a ceiling of %d", attempts, c.maxLaunchAttempts)
+	msgs := recvKind(t, c, "error", 5*time.Second)
+	require.NotEmpty(t, msgs, "a bounded retry that exhausts its attempts must tell the parent")
+	assert.Contains(t, msgs[len(msgs)-1].Body, "giving up")
+}
+
+// TestAgentSend_MailRacingTheTerminalArmsOneRelaunch pins the once-per-run
+// claim: when both terminateRun's tail and the racing send find the same run
+// ended with mail queued, exactly one of them spends the budget and arms the
+// relaunch. Every launch hangs (cancelled only by a stop or a terminal), so no
+// later terminal can arm another and the count is exact.
+func TestAgentSend_MailRacingTheTerminalArmsOneRelaunch(t *testing.T) {
+	resetStrictness(t)
+	sp := newFailingLaunchSpawner()
+	sp.delay = time.Hour
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
+		"precondition: the first launch must be in flight")
+
+	var fired atomic.Bool
+	c.mu.Lock()
+	c.afterMailWritten = func(to string) {
+		if to != out.Harp || !fired.CompareAndSwap(false, true) {
+			return
+		}
+		c.terminateRun(out.RunID, CauseLaunchFailed, errLaunchDoomed.Error())
+	}
+	c.mu.Unlock()
+
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "ping", nil, "")
+	require.NoError(t, err)
+	require.True(t, fired.Load(), "precondition: the terminal landed between the write and the send's return")
+
+	c.mu.Lock()
+	armed := c.launchGateLocked(out.Harp).relaunches
+	c.mu.Unlock()
+	assert.Equal(t, 1, armed, "the tail and the racing send both armed a relaunch for the same ended run")
 
 	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
 	require.NoError(t, err)

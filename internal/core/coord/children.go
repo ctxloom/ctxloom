@@ -1780,8 +1780,7 @@ const deliveryEndedDraining = "ended-draining"
 
 // observeRecipient reads the state a delivery to harp is judged by: the
 // harp's current run and its fold state. It is read BEFORE the write, and the
-// disposition the sender is told is THIS observation (unless the recipient has
-// ENDED by the time the write lands — see deliverMailID) — a read after the write
+// disposition the sender is told is THIS observation — a read after the write
 // races the recipient itself, which may already have taken the file and
 // started its turn, and would then describe an idle child it woke as
 // "queued mid-turn".
@@ -1828,8 +1827,8 @@ func (c *Coordinator) driveObserved(harp, state, runID string) string {
 
 // deliverMailID is the one delivery for mail whose sender is told what
 // happened: observe the recipient, write the file (queueMailPayloadID), then
-// act on the observation — or on a post-write one when the recipient ended in
-// between. The observed state is what deliveryDisposition
+// act on the observation — and, when the recipient ended in between, run its
+// leftover-mail tail. The observed state is what deliveryDisposition
 // classifies.
 func (c *Coordinator) deliverMailID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (observed string, err error) {
 	state, runID := c.observeRecipient(to)
@@ -1843,19 +1842,32 @@ func (c *Coordinator) deliverMailID(msgID, from, to, kind, body string, structur
 		return "", err
 	}
 	// A recipient observed LIVE may have ended before the write landed, and
-	// its terminateRun's leftover-mail tail (relaunchForLeftoverMail) may
-	// already have counted an empty mailbox — then neither side resumes and
-	// the message strands behind an ended harp. Re-observing after the write
-	// closes that: whichever of the two sees the file ended resumes, and the
-	// resume's claim (resumeChild's forRun, errResumeLost) keeps both from
-	// launching. Ended is the one state a post-write read cannot misdescribe:
-	// an ended recipient cannot have taken the file.
+	// its terminateRun's leftover-mail tail may already have counted an empty
+	// mailbox — then neither side resumes and the message strands behind an
+	// ended harp. So an ended recipient found AFTER the write is handed to
+	// that same tail, not to driveObserved: this is mail that raced a death,
+	// not a fresh ask to an ended child, so it relaunches under the bound
+	// (no budget reset, a stop honoured, a loud give-up) and the tail's
+	// once-per-run claim keeps the two from both arming.
 	if state != StateEnded {
-		if now, nowRun := c.observeRecipient(to); now == StateEnded {
-			state, runID = now, nowRun
-		}
+		c.relaunchIfEndedSinceObserved(to)
 	}
 	return c.driveObserved(to, state, runID), nil
+}
+
+// relaunchIfEndedSinceObserved runs the leftover-mail tail for harp's current
+// run if that run has ended (deliverMailID's post-write re-check).
+func (c *Coordinator) relaunchIfEndedSinceObserved(harp string) {
+	var rec RunRecord
+	ended := false
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil && r.Ended {
+			rec, ended = *r, true
+		}
+	})
+	if ended {
+		c.relaunchForLeftoverMail(rec, rec.Cause, rec.Detail)
+	}
 }
 
 // onRolePark ties recv parking to the execution-slot accounting (§6a slot

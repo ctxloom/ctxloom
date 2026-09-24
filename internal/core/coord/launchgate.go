@@ -172,6 +172,11 @@ type launchState struct {
 	// to all three factMailConsumed writers) and an explicit new delivery
 	// (clearLaunchGate) do. Draining is progress; coming up is not.
 	relaunches int
+	// leftoverFor is the ended run whose leftover mail has already been
+	// claimed for relaunch (claimLeftover): terminateRun's tail and a send
+	// that raced the terminal can both find that run ended with mail queued,
+	// and only one of them may spend the budget and arm the attempt.
+	leftoverFor string
 	// stopped records an explicit agent_stop. It survives the run terminal
 	// on purpose: the incident's stop landed on an ALREADY-ENDED run with a
 	// relaunch armed behind it, and the run record alone could not express
@@ -365,7 +370,9 @@ func (c *Coordinator) nextRelaunch(harp string) (delay time.Duration, ok, exhaus
 
 // relaunchForLeftoverMail is terminateRun's tail: a message that raced the
 // child's death must not strand, so an ended harp with a non-empty mailbox is
-// relaunched (§6a).
+// relaunched (§6a). deliverMailID runs it too, for a send whose write landed
+// after the tail had already counted; claimLeftover lets only one of them act
+// on a given ended run.
 //
 // It is ALSO the launch-retry loop, because a LAUNCH failure ends the run
 // without ever draining the mailbox — so it re-arms itself immediately,
@@ -394,6 +401,9 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 			rec.Agent, rec.Harp, cause, pending)
 		return
 	}
+	if !c.claimLeftover(rec.Harp, rec.RunID) {
+		return // the other party that found this run ended with mail queued has it
+	}
 	delay, ok, exhausted := c.nextRelaunch(rec.Harp)
 	if !ok {
 		// Budget exhaustion is LOUD whatever burned it. Restricting the notice
@@ -408,6 +418,19 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 	}
 	attached := c.armLaunch(rec.Harp)
 	c.goTracked(func() { c.resumeChild(rec.Harp, rec.RunID, attached, delay) })
+}
+
+// claimLeftover reports whether the caller is the first to act on runID's
+// leftover mail (launchState.leftoverFor).
+func (c *Coordinator) claimLeftover(harp, runID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := c.launchGateLocked(harp)
+	if st.leftoverFor == runID {
+		return false
+	}
+	st.leftoverFor = runID
+	return true
 }
 
 // giveUpLaunching is the LOUD end of a bounded retry: the parent's mailbox

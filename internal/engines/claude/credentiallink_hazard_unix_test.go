@@ -14,12 +14,11 @@ import (
 
 // WHY THIS FILE EXISTS.
 //
-// ctxloom places no credential file in a claude agent's home: a host run
-// shares the human's login through SecureStorageEnv and a container run
-// authenticates from the setup-token (see Claude.Home). The obvious
-// alternative, one that would let a token refresh by any agent reach the
-// human and every other agent, is to LINK the agent's credential to the
-// human's real one. It
+// ctxloom places no credential file in a claude agent's home: the run
+// authenticates from the setup-token in CLAUDE_CODE_OAUTH_TOKEN (see
+// Claude.Home and TestHome_DeclaresTokenAuth). The obvious alternative, one
+// that would let a token refresh by any agent reach the human and every other
+// agent, is to LINK the agent's credential to the human's real one. It
 // does not work for this engine, and these tests are the measured reason.
 // They exist so that a future link or mount of the real credential is not
 // attempted without re-running them against the shape being proposed.

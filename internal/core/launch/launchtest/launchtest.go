@@ -283,7 +283,7 @@ func newFixtureEngine(modes []engine.Mode, readOnlyPlan, relocatableHome bool) e
 	}
 	e := fixtureEngine{Base: engine.Base{Definition: d}}
 	if relocatableHome {
-		e.home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: ".fixture"}}, Auth: engine.Absent[engine.TokenAuth]("the fixture authenticates against no vendor"), SharedLogin: engine.Absent[engine.SharedLogin]("the fixture keeps no credential")}
+		e.home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: ".fixture"}}, Auth: engine.Absent[engine.TokenAuth]("the fixture authenticates against no vendor")}
 		if err := e.home.Validate(); err != nil {
 			panic(err)
 		}

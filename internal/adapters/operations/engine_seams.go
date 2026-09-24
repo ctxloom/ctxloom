@@ -3,7 +3,6 @@ package operations
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
@@ -71,14 +70,6 @@ type InTreeAgentHomeSpec struct {
 	// engine will actually run in — what a generated workspace-trust answer
 	// must name. nil when the backend needs neither.
 	Prepare func(cwd string) error
-	// LoginEnv shares the human's own login with a HOST run, replacing the
-	// token: the engine's credential-storage var set to the exact string the
-	// launching env resolves (engine.SharedLogin.Value), and the token var
-	// blanked, because an engine may read a token ahead of any credential
-	// (claude does) and the stored token is exported into every run's env.
-	// Empty for a container run, which keeps the token, and for an engine
-	// that declares no shared login.
-	LoginEnv map[string]string
 }
 
 // inTreeAgentHomeFor resolves the named backend's controlled config-home
@@ -104,10 +95,7 @@ type InTreeAgentHomeSpec struct {
 // pointing at it, prepared by isolation.PrepareInstanceHome.
 // An engine whose Home relocates nothing (mock: the zero HomeSpec) has no
 // in-tree home, and that absence is its own declaration.
-//
-// onHost is whether the engine runs on the host, the one cell whose run
-// shares the human's login in place (LoginEnv).
-func inTreeAgentHomeFor(reg engine.Registry, name, harp string, onHost bool) (InTreeAgentHomeSpec, bool) {
+func inTreeAgentHomeFor(reg engine.Registry, name, harp string) (InTreeAgentHomeSpec, bool) {
 	kind, exists := reg.Lookup(engine.Name(name))
 	if !exists {
 		return InTreeAgentHomeSpec{}, false
@@ -130,22 +118,13 @@ func inTreeAgentHomeFor(reg engine.Registry, name, harp string, onHost bool) (In
 	// var) — lift it here when one does.
 	v := home.Vars[0]
 	engine := name
-	var loginEnv map[string]string
-	if login, ok := home.SharedLogin.Get(); ok && onHost {
-		loginEnv = map[string]string{login.Var: login.Value(os.LookupEnv)}
-		if a, ok := home.Auth.Get(); ok {
-			loginEnv[a.TokenVar] = ""
-		}
-	}
-	shared := loginEnv != nil
 	return InTreeAgentHomeSpec{
 		EnvVar: v.Name,
 		Dir:    filepath.Join(root, v.Subdir),
 		Subdir: v.Subdir,
 		Prepare: func(cwd string) error {
-			return prepareInstanceHome(engine, root, cwd, shared)
+			return prepareInstanceHome(engine, root, cwd)
 		},
-		LoginEnv: loginEnv,
 	}, true
 }
 
@@ -166,12 +145,11 @@ func cleanAbsPath(p string) string {
 // loud on — the relocation is refused outright rather than point an engine
 // at a home it cannot authenticate in. cwd is the directory the engine runs
 // in, which the generated workspace-trust answer names.
-func prepareInstanceHome(engine, instanceRoot, cwd string, sharedLogin bool) error {
+func prepareInstanceHome(engine, instanceRoot, cwd string) error {
 	report, err := isolation.PrepareInstanceHome(isolation.InstanceHomeRequest{
 		Engine:       engine,
 		InstanceHome: instanceRoot,
 		WorkDir:      cwd,
-		SharedLogin:  sharedLogin,
 	})
 	if err != nil {
 		return err

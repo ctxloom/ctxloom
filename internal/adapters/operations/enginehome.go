@@ -69,10 +69,6 @@ type AgentHomeResolution struct {
 	Root present.Root
 	// Env is the engine's declared home var pointed at Root.Engine.
 	Env map[string]string
-	// Login is the shared login a HOST run authenticates from in place of the
-	// token (InTreeAgentHomeSpec.LoginEnv), for the caller to merge beside
-	// Env; nil for a container run and for an absent home.
-	Login map[string]string
 	// Mount makes Root.Engine true inside a container: Root.Host — this
 	// session's instance leaf, the RIGHT host directory — bound at
 	// Root.Engine. nil whenever Engine equals Host.
@@ -156,7 +152,7 @@ func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeRe
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the runtime's own config home instead", in.Backend)
 		return absent("this run carries no session name and a config-home instance is per-session")
 	}
-	spec, ok := inTreeAgentHomeFor(reg, in.Backend, in.Harp, in.ContainerHome == "")
+	spec, ok := inTreeAgentHomeFor(reg, in.Backend, in.Harp)
 	if !ok {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: engine_home is %q but %s declares no relocatable config home; using the runtime's own config home instead", in.Backend, agents.HomeModeSession, in.Backend)
 		return absent("%s declares no relocatable config home", in.Backend)
@@ -193,9 +189,8 @@ func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeRe
 	}
 	paths, mounts := advice.ApplyPaths(present.Paths{EngineHome: present.Root{Host: home}})
 	res := AgentHomeResolution{
-		Root:  paths.EngineHome,
-		Env:   map[string]string{spec.EnvVar: paths.EngineHome.Engine},
-		Login: spec.LoginEnv,
+		Root: paths.EngineHome,
+		Env:  map[string]string{spec.EnvVar: paths.EngineHome.Engine},
 	}
 	if len(mounts) > 0 {
 		m := mounts[0]

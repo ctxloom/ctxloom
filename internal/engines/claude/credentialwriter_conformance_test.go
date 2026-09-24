@@ -31,8 +31,8 @@ import (
 
 // TestClaudeCredentialWriter_FallsBackThroughEBUSY is the conformance probe
 // for the ONE fact about claude's shipped binary that any bind MOUNT of
-// claude's credential would depend on. ctxloom mounts no credential file
-// today (see Claude.Home for how a run authenticates); this probe, with
+// claude's credential would depend on. ctxloom mounts no credential today
+// (the run authenticates from CLAUDE_CODE_OAUTH_TOKEN); this probe, with
 // credentiallink_hazard_unix_test.go, is what a proposal to mount one must
 // re-run first. The fact: claude's credential writer, when a rename used to land
 // a write fails, checks the failure's errno against a small allow-set and —

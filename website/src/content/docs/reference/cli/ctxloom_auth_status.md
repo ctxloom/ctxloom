@@ -15,21 +15,17 @@ Show whether a token is stored and which one runs get (never the token)
 
 Store the long-lived token ctxloom-launched engines authenticate with.
 
-A claude that ctxloom launches on the HOST shares your own claude login in
-place: the same credential and the same refresh locks as your claude
-(CLAUDE_SECURESTORAGE_CONFIG_DIR), so it needs no token. A claude in a
-CONTAINER authenticates with one token from 'claude setup-token' instead. That
-token lasts a year, claude never refreshes it and never writes it to disk, so
-every container run can share it safely. ctxloom does not copy your ~/.claude
-login anywhere.
+Every claude that ctxloom launches, on the host or in a container, top-level or
+delegated, authenticates with one token from 'claude setup-token'. That token
+lasts a year, claude never refreshes it and never writes it to disk, so every
+run can share it safely. ctxloom does not copy your ~/.claude login anywhere.
 
   claude setup-token          # prints the token once
   ctxloom auth set-token      # paste it; stored owner-only under ~/.ctxloom/auth
 
-ctxloom exports the stored token as CLAUDE_CODE_OAUTH_TOKEN, which container
-runs carry; host runs blank it, because claude would read it ahead of your
-login. If you already export CLAUDE_CODE_OAUTH_TOKEN yourself, yours wins over
-the stored one.
+ctxloom exports the stored token as CLAUDE_CODE_OAUTH_TOKEN to every run. If
+you already export CLAUDE_CODE_OAUTH_TOKEN yourself, yours wins and the stored
+one is not used.
 
 ```
 ctxloom auth status [flags]

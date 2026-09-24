@@ -455,14 +455,8 @@ test-coverage: cover
 # Run the cross-agent equity conformance suite (every registered backend through
 # the shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
 # default `go test ./...`; run it explicitly here.
-#
-# Then the installed claude's secure-storage probe: a host run shares the
-# human's login only while claude still takes its credential and both refresh
-# locks from CLAUDE_SECURESTORAGE_CONFIG_DIR. Through test-pkg, so a -run that
-# selects nothing fails instead of passing.
 test-conformance:
     go test -trimpath -race -tags conformance ./internal/engines/conformance/...
-    just test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
 
 # Validate ONE vendor-transcript reader in isolation (its own package,
 # already part of `go test ./...`, but named here so a release-monitoring job

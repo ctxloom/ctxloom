@@ -227,26 +227,12 @@ definitive `*sharedFSMismatch` from a transient probe failure.
 
 ## Credential delivery
 
-A ctxloom-launched claude on the HOST, top-level or delegated, shares the
-human's own login in place: `CLAUDE_SECURESTORAGE_CONFIG_DIR` moves only
-claude's credential storage (the file, its write lock, both refresh locks, the
-macOS keychain item name) apart from `CLAUDE_CONFIG_DIR`, so a session-home
-run holds the SAME credential and the SAME lock pair as the human's claude,
-and claude's own locked, compare-and-swap refresh keeps them in step. The
-engine declares the var as `engine.HomeSpec.SharedLogin`;
-`operations.ResolveInTreeAgentHome` sets it on host cells only, to exactly the
-string the launching env's claude resolves (`engine.SharedLogin.Value`: the
-inherited var when set, else the human's `CLAUDE_CONFIG_DIR` byte for byte,
-else `""`, which claude reads as `$HOME/.claude`), and blanks
-`CLAUDE_CODE_OAUTH_TOKEN`, which claude reads ahead of any credential.
-`TestClaudeSecureStorage_FollowsTheVar` (`just test-conformance`) pins that
-the installed claude still honours the var.
-
-A claude in a CONTAINER authenticates from ONE long-lived token that
-`claude setup-token` mints, carried in `CLAUDE_CODE_OAUTH_TOKEN`. claude reads
-that variable ahead of any credentials file, never refreshes it and never
-writes it to disk. Nothing is copied into a session home, mounted into a
-container, replicated or refreshed by ctxloom.
+Every ctxloom-launched claude, on the host or in a container, top-level or
+delegated, authenticates from ONE long-lived token that `claude setup-token`
+mints, carried in `CLAUDE_CODE_OAUTH_TOKEN`. claude reads that variable ahead
+of any credentials file, never refreshes it and never writes it to disk.
+Nothing is copied into a session home, mounted into a container, replicated
+or refreshed by ctxloom.
 
 Why: an OAuth refresh token is single-use and rotating. Native claude sessions
 stay in step only because they share one credentials file AND one lock beside
@@ -265,12 +251,11 @@ runs get, never the value.
 **Injection.** `cli.run` calls `isolation.ExportStoredTokens` once, before any
 command: for each engine declaring `engine.TokenAuth`, it sets the engine's
 `TokenVar` from the stored file when the process env leaves it unset. A token
-the user exported wins. Every launch path inherits this process's env, so a
-container gets it by name; a host cell sharing the login blanks it.
+the user exported wins. Every launch path inherits this process's env, so the
+host runner gets it in its env and a container gets it by name.
 
-**Refusal.** A relocated home (`engine_home: session`) that shares no login
-and that none of the engine's auth vars authenticates is refused by
-`isolation.PrepareInstanceHome`
+**Refusal.** A relocated home (`engine_home: session`) that none of the
+engine's auth vars authenticates is refused by `isolation.PrepareInstanceHome`
 (a `strictness.ClassIsolation` finding, FailAlways) naming the mint command,
 `ctxloom auth set-token`, the API-key vars and `engine_home: host`.
 
@@ -310,8 +295,8 @@ and disposable. Two content classes live in it: ctxloom-generated content
 engine-specific scaffolding the engine package writes (claude's
 `.claude.json`, carrying the account identity and onboarding answers by name).
 
-No credential is placed in it. The run shares the human's login or
-authenticates from its env (see [Credential delivery](#credential-delivery)).
+No credential is placed in it. The run authenticates from its env (see
+[Credential delivery](#credential-delivery)).
 
 One accepted cost remains, and it is deliberate: trust/onboarding answers given
 inside an instance die with it (re-prompted next session unless the engine's own

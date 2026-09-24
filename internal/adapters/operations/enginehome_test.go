@@ -43,12 +43,6 @@ func fakeHostHome(t *testing.T, token string) string {
 	for _, v := range append([]string{a.TokenVar}, a.EnvTriggers...) {
 		t.Setenv(v, "")
 	}
-	// UNSET, not empty: the shared login reads whether the launching env
-	// sets these at all (engine.SharedLogin.Value).
-	for _, v := range []string{claude.ConfigDirEnv, claude.SecureStorageEnv} {
-		t.Setenv(v, "")
-		require.NoError(t, os.Unsetenv(v))
-	}
 	if token != "" {
 		t.Setenv(a.TokenVar, token)
 		require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
@@ -86,14 +80,6 @@ const hostLoginFixture = `{"claudeAiOauth":{"accessToken":"native-access","refre
 // so the Engine side of the root is observably distinct from the Host side.
 const containerInstanceRoot = "/ctxloom-test/home"
 
-// hostLogin is the shared login a HOST run is handed beside its home: the
-// human's own credential storage as the launching env resolves it (storage),
-// and the setup-token blanked, because claude reads a token ahead of any
-// credential and the stored one is exported into every run's env.
-func hostLogin(storage string) map[string]string {
-	return map[string]string{claude.SecureStorageEnv: storage, claude.OAuthTokenEnv: ""}
-}
-
 // projectHome is the input every case starts from: an agent binding that
 // declared engine_home: session, on the host (no runtime advice).
 func resolveHome(t *testing.T, in InTreeAgentHome) AgentHomeResolution {
@@ -119,7 +105,6 @@ func requireResolutionInvariant(t *testing.T, res AgentHomeResolution) {
 	if res.Root.Host == "" {
 		require.NotEmpty(t, res.Absent, "a resolution with no home must say why")
 		assert.Empty(t, res.Env, "an absent home contributes no env")
-		assert.Empty(t, res.Login, "an absent home shares no login")
 		assert.Nil(t, res.Mount, "an absent home mounts nothing")
 		return
 	}
@@ -154,7 +139,6 @@ func TestResolveInTreeAgentHome_ContainerGetsTheSessionHomeMapped(t *testing.T) 
 	assert.Equal(t, present.Root{Host: host, Engine: target}, res.Root)
 	assert.Equal(t, map[string]string{claude.ConfigDirEnv: target}, res.Env,
 		"the engine is told the path IT can open, never the host path")
-	assert.Nil(t, res.Login, "a container keeps the token: the human's login is not shared into it")
 	require.NotNil(t, res.Mount)
 	assert.Equal(t, present.Mount{HostDir: host, TargetDir: target}, *res.Mount,
 		"the RIGHT host directory — this session's instance leaf — lands at the fixed root")
@@ -175,12 +159,12 @@ func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
 	requireResolutionInvariant(t, res)
 	assert.Equal(t, present.Root{Host: want, Engine: want}, res.Root)
 	assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env)
-	assert.Equal(t, hostLogin(""), res.Login)
 	assert.Nil(t, res.Mount)
 }
 
-// The session home holds no credential: the engine var points at the
-// session instance, and the user's native login is NOT copied there. A child and its root are prepared identically, so a
+// The session home authenticates from the token in the env alone: the
+// engine var points at the session instance, and the user's native login is
+// NOT copied there. A child and its root are prepared identically, so a
 // claude child whose owner runs another engine needs nothing from the
 // owner's session home.
 func TestResolveInTreeAgentHome_ClaudeHomeCopiesNoCredential(t *testing.T) {
@@ -193,7 +177,6 @@ func TestResolveInTreeAgentHome_ClaudeHomeCopiesNoCredential(t *testing.T) {
 
 	want := mustClaudeInstance(t, workDir, harpA)
 	assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env)
-	assert.Equal(t, hostLogin(""), res.Login)
 	assert.NoFileExists(t, filepath.Join(want, ".credentials.json"), "the native login is never copied into a session home")
 	assert.FileExists(t, filepath.Join(want, ".claude.json"), "the engine's own instance config is still written")
 	assert.Empty(t, strictness.All())
@@ -268,61 +251,9 @@ func TestResolveInTreeAgentHome_EngineWithoutAHomeSaysWhy(t *testing.T) {
 	assert.Contains(t, res.Absent, "mock", "the reason names the engine")
 }
 
-// A HOST run shares the human's own login in place, so it needs no token:
-// with none stored and no API var it is still handed the session home, the
-// credential storage the human's claude resolves ("" when the launching env
-// sets no config dir), and nothing is copied or refused.
-func TestResolveInTreeAgentHome_HostRunSharesTheHumansLoginInPlace(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	home := fakeHostHome(t, "")
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(hostLoginFixture), 0o600))
-	workDir := t.TempDir()
-
-	res := resolveHome(t, projectHome(workDir, harpA))
-	requireResolutionInvariant(t, res)
-	want := mustClaudeInstance(t, workDir, harpA)
-	assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env)
-	assert.Equal(t, hostLogin(""), res.Login)
-	assert.NoFileExists(t, filepath.Join(want, ".credentials.json"), "the login is shared in place, never copied")
-	assert.Empty(t, strictness.All(), "a host run with the human's login is authenticated")
-}
-
-// The storage var carries the human's own CLAUDE_CONFIG_DIR byte for byte,
-// never cleaned: claude names the macOS keychain item from the exact string.
-func TestResolveInTreeAgentHome_HostLoginIsTheHumansConfigDirVerbatim(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, "")
-	const humans = "/home/someone/./custom-claude/"
-	t.Setenv(claude.ConfigDirEnv, humans)
-	workDir := t.TempDir()
-
-	res := resolveHome(t, projectHome(workDir, harpA))
-	requireResolutionInvariant(t, res)
-	assert.Equal(t, map[string]string{claude.ConfigDirEnv: mustClaudeInstance(t, workDir, harpA)}, res.Env)
-	assert.Equal(t, hostLogin(humans), res.Login)
-}
-
-// A launch from inside a run that already shares the login (its env names
-// its OWN session home as the config dir) passes the inherited storage on,
-// never that session home, which holds no credential.
-func TestResolveInTreeAgentHome_HostLoginInheritsTheLaunchingRunsStorage(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, "")
-	t.Setenv(claude.ConfigDirEnv, "/parent/session/home")
-	t.Setenv(claude.SecureStorageEnv, "")
-	workDir := t.TempDir()
-
-	res := resolveHome(t, projectHome(workDir, harpA))
-	requireResolutionInvariant(t, res)
-	assert.Equal(t, map[string]string{claude.ConfigDirEnv: mustClaudeInstance(t, workDir, harpA)}, res.Env)
-	assert.Equal(t, hostLogin(""), res.Login)
-}
-
-// Nothing to authenticate a CONTAINER run with is FAIL-LOUD, never a silent
-// relocation: it cannot reach the human's login, so with no token and no API
-// var, pointing claude at the controlled home would strand the agent logged
-// out. Record the ClassIsolation
+// Nothing to authenticate with is FAIL-LOUD, never a silent relocation: with
+// no token and no API var, pointing claude at the controlled home would
+// strand the agent logged out. Record the ClassIsolation
 // finding the choke owner aborts on, and resolve ABSENT with the reason — so a
 // --degraded run falls back to the home its runtime gives it, instead of
 // launching against a home that cannot authenticate.
@@ -334,9 +265,7 @@ func TestResolveInTreeAgentHome_NoTokenFailsLoudAndIsAbsent(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(hostLoginFixture), 0o600))
 	workDir := t.TempDir()
 
-	in := projectHome(workDir, harpA)
-	in.ContainerHome = containerInstanceRoot
-	res := resolveHome(t, in)
+	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 	assert.Contains(t, res.Absent, "ctxloom auth set-token")
 
@@ -360,7 +289,6 @@ func TestResolveInTreeAgentHome_ApiKeyAuthenticatesAFreshControlledHome(t *testi
 	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 	assert.Equal(t, map[string]string{claude.ConfigDirEnv: mustClaudeInstance(t, workDir, harpA)}, res.Env)
-	assert.Equal(t, hostLogin(""), res.Login)
 	assert.DirExists(t, mustClaudeInstance(t, workDir, harpA), "the home must exist")
 	assert.Empty(t, strictness.All())
 }

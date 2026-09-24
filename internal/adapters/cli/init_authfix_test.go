@@ -22,9 +22,8 @@ import (
 func TestEngineAuthFixHint_NamesTheEngineDeclaredMintCommandAndEnvVar(t *testing.T) {
 	const name = "fixture-authfix"
 	kind := enginefixture.Kind(name, mock.WithHome(engine.HomeSpec{
-		Vars:        []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}},
-		Auth:        engine.Provide(engine.TokenAuth{TokenVar: "FIXTURE_TOKEN", EnvTriggers: []string{"FIXTURE_KEY"}, MintHint: "fixture setup-token"}),
-		SharedLogin: engine.Absent[engine.SharedLogin]("the fixture keeps no credential"),
+		Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}},
+		Auth: engine.Provide(engine.TokenAuth{TokenVar: "FIXTURE_TOKEN", EnvTriggers: []string{"FIXTURE_KEY"}, MintHint: "fixture setup-token"}),
 	}))
 	enginefixture.Install(t, kind)
 

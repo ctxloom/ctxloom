@@ -94,9 +94,6 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		assert.Contains(t, want, "test-harp", "the home is THIS session's")
 		require.Len(t, cell.Home, 1, "the binding the cell made is reported on it")
 		assert.Equal(t, claude.ConfigDirEnv, cell.Home[0].Var)
-		assert.Contains(t, cell.Env, claude.SecureStorageEnv, "a host cell carries the shared login")
-		require.Contains(t, cell.Env, claude.OAuthTokenEnv)
-		assert.Empty(t, cell.Env[claude.OAuthTokenEnv], "and blanks the token it replaces")
 		assert.Equal(t, want, cell.Paths.Paths().EngineHome.Host, "the engine home is a root the launch advises")
 	})
 
@@ -155,12 +152,12 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 }
 
 // A claude CHILD of a mock-engine owner. The owner's session keeps no claude
-// home at all, and the child's cell still prepares: on the host it shares the
-// human's login in place, with the token blanked, and the stored setup-token
-// a container run authenticates from is in this process's env
-// (ExportStoredTokens) before any launch. Nothing is read from the owner's
-// session home, so the engine the owner runs is irrelevant.
-func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing.T) {
+// home at all, and the child's cell still prepares, from the stored
+// setup-token alone: ExportStoredTokens puts it in this process's env before
+// any launch, and that env is what every runner, host or container,
+// inherits. Nothing is read from the owner's session home, so the engine the
+// owner runs is irrelevant.
+func TestCellsPrepare_ClaudeChildOfAMockOwnerAuthenticatesFromTheStoredToken(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	a, ok := isolation.TokenAuthFor("claude-code")
@@ -188,9 +185,7 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 
 	assert.Empty(t, strictness.All(), "the child's home is not refused")
 	assert.Equal(t, claudeInstanceDir(t, workDir, harpA), cell.Env[claude.ConfigDirEnv])
-	assert.Equal(t, tokenFixture, os.Getenv(a.TokenVar), "the stored token is in the env a container's passthrough reads")
-	require.Contains(t, cell.Env, a.TokenVar)
-	assert.Empty(t, cell.Env[a.TokenVar], "the host cell blanks it: the shared login replaces it")
+	assert.Equal(t, tokenFixture, os.Getenv(a.TokenVar), "the stored token is in the env every runner inherits")
 	assert.NoFileExists(t, filepath.Join(cell.Env[claude.ConfigDirEnv], ".credentials.json"))
 	assert.NoDirExists(t, ownerHome, "the owner's session home is never consulted")
 }

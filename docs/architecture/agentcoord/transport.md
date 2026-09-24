@@ -70,13 +70,12 @@ flowchart TD
 
 | Symbol | Contract |
 | --- | --- |
-| `coordServing` | the listener set: loopback always, container-reachable ("wide") on demand |
-| `endpointState` | the on-disk `endpoint.json`: `LoopbackPort`, `WidePort`, `ConsumerCred` — a viewer's one discovery point for both |
+| `coordServing` | the listener set: loopback always, plus any address a container cell names, on the loopback port |
+| `endpointState` | the on-disk `endpoint.json`: the loopback port, the addresses a cell had it listen on, and the consumer credential — a viewer's one discovery point |
 | `coordgrpc.Serve` | stands up the h2c listener, mints the consumer credential, saves `endpoint.json` (0600), and binds the result to the coordinator through `Coordinator.BindTransport` (atomic with `Close`; a second bind is refused) |
 | `bindPreferring` | binds the recorded port, falls back to ephemeral — the fallback *is* the error handling |
-| `Coordinator.ReachURL` → `coordServing.ReachURL` | loopback for a host child, the widened endpoint for a container child; `coord.ErrNotServing` when no transport is bound |
-| `coordServing.ensureWide` | resolves and binds the container-reachable endpoint once; both no-candidate and no-bind fail loudly |
-| `advertiseHostFor` / `preferredContainerRuntime` / `containerReachIPs` / `primaryOutboundIP` | the per-OS magic hostname, docker-vs-podman guess, bridge-gateway probing, outbound-IP trick |
+| `Coordinator.ReachURL` | the loopback URL for every axis; `launch.ErrUnknownRuntimeAxis` or `coord.ErrNotServing` at the verb |
+| `present.Reach` / `present.Listen` | a container cell re-mints the reach for its runtime's route home (`isolation.Runtime.reachRoute`) and names what the coordinator must listen on; `Transport.Listen` opens it after the cell is prepared and before the runner starts, and reports a public one once |
 | `coordServing.Close` | `grpcSrv.Stop()` **before** shutting the listeners — `GracefulStop` caused a confirmed process-crashing panic |
 | `discover.List` | out-of-process discovery: glob `~/.ctxloom/coord/*/endpoint.json`, sort by mtime newest-first, return `(URL, Cred)` pairs |
 
@@ -111,11 +110,11 @@ it is not inferred from scattered call sites:
   reading a bearer in flight. On the loopback listener the reader must already
   share the host (and a host-runtime credential is readable from any same-uid
   process's environment regardless — the container runtime is the actual
-  isolation boundary, not this link). On the **wide** listener the exposure is
-  broader: `coordServing.ensureWide`'s fallback binds the host's primary
-  outbound interface IP (`containerReachIPs` → `primaryOutboundIP`), which is
-  LAN-visible, so a bearer crosses a LAN-visible socket in the clear whenever a
-  container child reaches back over it.
+  isolation boundary, not this link). A container runtime with no private
+  route home (`present.Listen.Public`, e.g. rootless docker) has the
+  coordinator listen on the host's primary address, which is LAN-visible, so
+  a bearer crosses a LAN-visible socket in the clear whenever such a child
+  reaches back over it.
 - **mTLS is slice 16's.** Encrypting the bridge and verifying a runner by client
   certificate — refusing a runner with no cert, and moving the boundary from
   "holds the bearer" to "presents a trusted cert" — is a later, separate change;
@@ -238,13 +237,6 @@ and the engine.
 - **A failed items-journal `Exec` loses the facts and the next flush acks past them**
   (`items.go`), so `flushedSeq`/`ackThrough` certify durability for seqs that
   were never written.
-- **`ensureWide`'s comment claims it "never opens anything LAN-visible"**
-  (`httpserver.go`); on Linux the fallback binds the host's primary outbound
-  interface IP (`containerReachIPs` → `primaryOutboundIP`), which is LAN-visible. Every
-  stream still requires a bearer token.
-- **`go s.saveEndpoint()` at `httpserver.go` is load-bearing for lock
-  re-entrancy** — `ensureWide` holds `s.mu` for its whole body and `saveEndpoint` retakes
-  it — and nothing says so.
 - **`Serve` leaks the bound listener and its serving goroutine** when the consumer-credential
   mint fails (`httpserver.go`): `c.srv` is never assigned on that path, so
   `Coordinator.Close` never closes it.

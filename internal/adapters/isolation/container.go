@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -255,6 +258,14 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 	if err != nil {
 		return nil, err
 	}
+	// The route home is settled before the base is materialized: a runner
+	// that could never dial the coordinator would run and lose its work, so
+	// no route is a non-degradable refusal, --degraded included.
+	route, err := settleReach(ctx, c.runtime)
+	if err != nil {
+		_ = os.RemoveAll(sc.root)
+		return nil, err
+	}
 	// sc.root is a real on-disk scratch tree that exists from here on but has
 	// no owning Workspace yet. The explicit error path below already removes it
 	// on a normal resolveBase failure; this guards the case a normal error
@@ -290,7 +301,49 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		baseCleanup:  baseCleanup,
 		runtime:      c.runtime,
 		instanceHome: c.instanceHome,
+		reach:        route,
 	}, nil
+}
+
+// settleReach is the workspace gate's route check: rt's route home, or a
+// non-degradable ClassIsolation finding and the refusal.
+func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
+	route, err := rt.reachRoute(ctx)
+	if err != nil {
+		strictness.FailAlways(strictness.ClassIsolation, noHostReachFixIt, "refusing to run a container that cannot dial home: %v", err)
+		return hostRoute{}, err
+	}
+	return route, nil
+}
+
+// noHostReachFixIt names the ways a container gets a route to the host.
+const noHostReachFixIt = "give the host a default route, or use a runtime whose containers reach the host privately: a rootless translator with a loopback route (pasta, slirp4netns) or a rootful bridge"
+
+// WorkspaceListen is the listener ws's runner needs the coordinator to hold
+// beyond its loopback one (zero for every runner that dials loopback).
+func WorkspaceListen(ws Workspace) present.Listen {
+	if cw, ok := ws.(*containerWorkspace); ok {
+		return cw.reach.listen
+	}
+	return present.Listen{}
+}
+
+// remintReach re-mints the runner's reach-back for its container: the
+// coordinator's host-side URL on spawnEnv becomes the URL the runtime's route
+// dials, as a mounted path's host side becomes its container side. An env
+// without a reach-back (a launch that carries none) passes through.
+func remintReach(cw *containerWorkspace, spawnEnv map[string]string) (map[string]string, error) {
+	hostURL, ok := spawnEnv[sessions.EnvCoordURL]
+	if !ok || cw.reach.dial == "" {
+		return spawnEnv, nil
+	}
+	r, err := present.ReachOnHost(hostURL).Via(cw.reach.dial)
+	if err != nil {
+		return nil, err
+	}
+	out := maps.Clone(spawnEnv)
+	out[sessions.EnvCoordURL] = r.Engine
+	return out, nil
 }
 
 // Mount maps an already-materialized container workspace into the container: it
@@ -870,7 +923,7 @@ func (c Container) imagePresent(ctx context.Context) bool {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return exec.CommandContext(cctx, c.runtime.Binary(), "image", "inspect", c.image).Run() == nil
+	return exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "")...).Run() == nil
 }
 
 // overrideIdentityFixIt names the ways out when a user-supplied image cannot
@@ -917,17 +970,16 @@ func rootishUser(user string) bool {
 // RUN the entrypoint, so a run-as-is image needs this static contract check —
 // the one pre-start signal, since a wrong-identity container launches cleanly.
 func runAsIsIdentityProblem(rt Runtime, id imageIdentity) string {
-	if d, ok := rt.(Docker); ok && d.rootless {
-		// Rootless docker passes no PUID: container-ROOT is the one uid that
-		// maps to the launching host user, so the image must run as root.
+	if !rt.passesPUID() {
+		// A mode that passes no PUID keeps the run container-ROOT, the one uid
+		// that maps to the launching host user, so the image must run as root.
 		if rootishUser(id.User) {
 			return ""
 		}
-		return fmt.Sprintf("its USER %q maps to a subordinate uid under the rootless docker daemon (only container-root maps to the launching user)", id.User)
+		return fmt.Sprintf("its USER %q maps to a subordinate uid under %s (only container-root maps to the launching user)", id.User, rt.Name())
 	}
-	// Every PUID-passing mode (rootful docker, podman both modes — and any
-	// unknown runtime, conservatively) relies on the baked ctxloom entrypoint,
-	// started as root, to remap and drop.
+	// Every PUID-passing mode relies on the baked ctxloom entrypoint, started
+	// as root, to remap and drop.
 	if !entrypointGoverned(id.Entrypoint) {
 		return "it does not run the ctxloom identity-remap entrypoint, so the PUID/PGID remap is inert and the engine runs as the image's own user"
 	}
@@ -994,6 +1046,9 @@ type containerWorkspace struct {
 	extraMounts []Mount           // Mount's mount plan (state + base mounts)
 	authMode    containerAuthMode // how auth was resolved (diagnostics; no secrets)
 	agentID     string
+	// reach is the runtime's route home for this workspace's runner,
+	// settled at ResolveWorkspace (remintReach, WorkspaceListen).
+	reach hostRoute
 	// mountCleanup undoes what the MAPPING created — the host base's overlay
 	// mountpoints inside the live project. Nil until Mount runs, and nil for a
 	// base whose mapping creates nothing.

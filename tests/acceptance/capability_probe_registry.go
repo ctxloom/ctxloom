@@ -353,7 +353,7 @@ var probeRegistry = []probeSpec{
 			//
 			//  1. MISATTRIBUTED BLOCKER. The cross-container-comms finding is
 			//     real and is now CLOSED (host-controlled discovery marker,
-			//     coord.containerReachIPs' advertise policy, the reach-back bridge)
+			//     the runtime's route home (isolation reachRoute), the reach-back bridge)
 			//     — but it describes the COORDINATOR bus, which never governed
 			//     this probe's own fixture stdio server. The actual blocker was
 			//     that the fixture was a python3 script and the agent image has

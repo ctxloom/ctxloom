@@ -31,19 +31,19 @@ func stubDaemonInfo(t *testing.T, fn func(ctx context.Context, args []string) (s
 
 // TestDaemonName_SeamTimeoutAndPortableTemplate: daemonName routes
 // through the probeExec seam (so the advisory is testable without a runtime),
-// bounds itself with its own deadline, and picks a template that EXISTS on both
-// docker (top-level {{.Name}}) and podman ({{.Host.Hostname}}) — so podman no
-// longer fails the template and silently breaks the advisory.
+// bounds itself with its own deadline, and asks each runtime for a template
+// that EXISTS on it — docker's top-level {{.Name}}, podman's {{.Host.Hostname}}
+// — so podman does not fail the template and silently break the advisory.
 func TestDaemonName_SeamTimeoutAndPortableTemplate(t *testing.T) {
 	tests := []struct {
-		runtimeName  string
+		rt           Runtime
 		wantTemplate string
 	}{
-		{"docker", "{{.Name}}"},
-		{"podman", "{{.Host.Hostname}}"},
+		{Docker{}, "{{.Name}}"},
+		{Podman{}, "{{.Host.Hostname}}"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.runtimeName, func(t *testing.T) {
+		t.Run(tt.rt.Name(), func(t *testing.T) {
 			var gotArgs []string
 			hasDeadline := false
 			stubDaemonInfo(t, func(ctx context.Context, args []string) (string, error) {
@@ -51,7 +51,7 @@ func TestDaemonName_SeamTimeoutAndPortableTemplate(t *testing.T) {
 				_, hasDeadline = ctx.Deadline()
 				return "daemon-host\n", nil
 			})
-			name, err := daemonName(context.Background(), fakeRuntime{name: tt.runtimeName, binary: tt.runtimeName})
+			name, err := daemonName(context.Background(), tt.rt)
 			require.NoError(t, err)
 			assert.Equal(t, "daemon-host", name)
 			assert.Equal(t, []string{"info", "--format", tt.wantTemplate}, gotArgs, "portable per-runtime template")

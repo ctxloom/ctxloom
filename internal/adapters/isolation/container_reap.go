@@ -151,7 +151,7 @@ func ReapOrphanedContainers(ctx context.Context, rt Runtime) ContainerReapResult
 		// the actual removal (and its own failure mode) happens here, kept
 		// separate so classification stays a pure decision a unit test can
 		// exercise without invoking probeExec/RemoveArgs at all.
-		if _, rerr := probeExec(ctx, rt.Binary(), rt.RemoveArgs(info.Name)); rerr != nil && !removeReportsGone(rerr) {
+		if out, rerr := probeExec(ctx, rt.Binary(), rt.RemoveArgs(info.Name)); rt.removeOutcome([]byte(out), rerr) == removeFailed {
 			clidiag.Warn("ctxloom", "container reap: %s owner %d is dead but rm -f failed (leaving it in place): %v", info.Name, c.OwnerPID, rerr)
 			result.Skipped++
 			continue

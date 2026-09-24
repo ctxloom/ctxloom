@@ -19,8 +19,11 @@ set -u
 if [ "$(id -u)" = "0" ] && [ -n "${PUID:-}" ]; then
     PGID="${PGID:-$PUID}"
     remapped=1
+    # stdout belongs to the command this execs, and callers read it byte for
+    # byte; usermod reports "no changes" on stdout when PUID is already 1000.
     (
         set -e
+        exec >&2
         groupmod -o -g "$PGID" ctxloom
         usermod -o -u "$PUID" -g "$PGID" ctxloom
     ) || remapped=0

@@ -691,8 +691,9 @@ func runnerEnv(runID, token, url string) map[string]string {
 	return env
 }
 
-// spawnReachURL resolves the coordinator URL a child on runtimeAxis can dial,
-// widening the listeners for a container child.
+// spawnReachURL mints the coordinator URL a child on runtimeAxis is handed —
+// the cheap coordinator-side checks only; a container cell names any listener
+// beyond loopback later, and runChildViaStartRun honours it.
 //
 // A child without reach-back is refused in EVERY strictness, --degraded
 // included. Its mail is a file spool, but the spool is swept by the child's
@@ -712,18 +713,20 @@ func (c *Coordinator) spawnReachURL(harp string, runtimeAxis launch.RuntimeAxis)
 
 // reachRefusal wraps a ReachURL failure for the verb named by what. An
 // unknown runtime value is returned as itself: it is a misspelled plan, and
-// the unreachable-network advice would send the operator to the wrong
-// place. Anything else is an endpoint that could not be reached, and says so
-// with detail and bridgeNetworkHint.
+// the not-serving advice would send the operator to the wrong place.
+// Anything else is a coordinator that is not serving, and says so with detail
+// and notServingHint.
 func reachRefusal(what string, runtimeAxis launch.RuntimeAxis, err error, detail string) error {
 	if errors.Is(err, launch.ErrUnknownRuntimeAxis) {
 		return fmt.Errorf("%s: %w", what, err)
 	}
-	return fmt.Errorf("%s: no coordinator endpoint reachable from runtime %q: %w — %s%s", what, runtimeAxis, err, detail, bridgeNetworkHint)
+	return fmt.Errorf("%s: no coordinator endpoint for runtime %q: %w — %s%s", what, runtimeAxis, err, detail, notServingHint)
 }
 
-// bridgeNetworkHint ends an unreachable-reach-back refusal.
-const bridgeNetworkHint = "check the container runtime's bridge network"
+// notServingHint ends a reach-back refusal: the axis parsed, so what failed is
+// the coordinator's own serving (a container's route home is its cell's, and
+// refused at cell preparation).
+const notServingHint = "the coordinator must be serving its listeners before it runs anything"
 
 // runChild is a spawned child's driver goroutine: wait for an execution slot
 // (D4), then spawn the runner and issue StartRun with the briefing as the
@@ -795,6 +798,10 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	resolved, err := c.spawner.ResolveLaunch(ctx, rt.plan, start)
 	if err != nil {
 		c.failChild(rt, err)
+		return
+	}
+	if err := c.honourListen(resolved.Launch.Cell.Listen); err != nil {
+		c.failChild(rt, fmt.Errorf("agent_run: the child's runner has no listener to dial home to: %w", err))
 		return
 	}
 	engine, err := c.spawner.Start(ctx, resolved.Launch, sessions.Endpoint{URL: url, Credential: token})

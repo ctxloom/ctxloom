@@ -44,10 +44,10 @@ func TestReachURL_RefusesAnUnknownRuntimeAxis(t *testing.T) {
 	assert.Equal(t, c.LoopbackURL(), url)
 }
 
-// TestStartOwnedRun_RefusesAnUnknownRuntimeAxisWithoutTheNetworkHint: the
-// owner run is refused with the sentinel, and not told to go and check a
-// bridge network — the value is misspelled, nothing is unreachable.
-func TestStartOwnedRun_RefusesAnUnknownRuntimeAxisWithoutTheNetworkHint(t *testing.T) {
+// TestStartOwnedRun_RefusesAnUnknownRuntimeAxisWithoutTheServingHint: the
+// owner run is refused with the sentinel, and not told the coordinator is not
+// serving — the value is misspelled, nothing is down.
+func TestStartOwnedRun_RefusesAnUnknownRuntimeAxisWithoutTheServingHint(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -63,16 +63,16 @@ func TestStartOwnedRun_RefusesAnUnknownRuntimeAxisWithoutTheNetworkHint(t *testi
 	starter, _ := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
 	_, err = c.StartOwnedRun(ctx, owner, ownerRun(l, false), starter, "hello")
 	require.ErrorIs(t, err, launch.ErrUnknownRuntimeAxis)
-	assert.NotContains(t, err.Error(), bridgeNetworkHint)
+	assert.NotContains(t, err.Error(), notServingHint)
 }
 
-// TestAgentRun_UnknownRuntimeAxisCarriesNoNetworkHint is the same claim on
+// TestAgentRun_UnknownRuntimeAxisCarriesNoServingHint is the same claim on
 // the delegated path.
-func TestAgentRun_UnknownRuntimeAxisCarriesNoNetworkHint(t *testing.T) {
+func TestAgentRun_UnknownRuntimeAxisCarriesNoServingHint(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"boxed": {perm: "bypass", runtime: retiredContainerAxis}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "boxed", "go", "", "")
 	require.ErrorIs(t, err, launch.ErrUnknownRuntimeAxis)
-	assert.NotContains(t, err.Error(), bridgeNetworkHint)
+	assert.NotContains(t, err.Error(), notServingHint)
 }

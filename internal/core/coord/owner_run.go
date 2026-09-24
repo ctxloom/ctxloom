@@ -95,12 +95,15 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// home has no transport at all, so an unresolvable endpoint is fatal here
 	// (never a silent degrade, unlike a delegated child which can fall back
 	// to a message-less local orchestrator). The runtime axis is the
-	// launch's: loopback for a host runner, the widened listener for a
-	// container's.
+	// launch's; its cell re-minted the reach for its runtime and names any
+	// listener beyond loopback that re-mint needs.
 	runtime := spec.Launch.Axes.Runtime
 	url, err := c.ReachURL(runtime)
 	if err != nil {
 		return nil, reachRefusal("owner run", runtime, err, "")
+	}
+	if err := c.honourListen(spec.Launch.Cell.Listen); err != nil {
+		return nil, fmt.Errorf("owner run: the runner has no listener to dial home to: %w", err)
 	}
 
 	// A synthetic plan carrying exactly what enqueueRun journals and

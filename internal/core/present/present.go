@@ -28,6 +28,9 @@
 package present
 
 import (
+	"fmt"
+	"net"
+	neturl "net/url"
 	"path"
 	"path/filepath"
 	"strings"
@@ -343,4 +346,42 @@ func Under(path, root string) bool {
 	}
 	root = strings.TrimSuffix(root, "/")
 	return path == root || strings.HasPrefix(path, root+"/")
+}
+
+// Reach is a coordinator endpoint in both presentations, as Root is a path:
+// Host is the URL the coordinator minted for a runner beside it (its loopback
+// listener), Engine the URL a runner inside the cell dials. Uncontainerized,
+// Engine equals Host. A containerization re-mints Engine and names the
+// Listen the coordinator must honour for Engine to land — as a Root's rewrite
+// comes with its Mount.
+type Reach struct{ Host, Engine string }
+
+// Listen is the listener a re-minted Reach needs beyond Host's own. The zero
+// value needs none: the runtime delivers Engine to Host's listener (a
+// translator's route to the host's loopback).
+type Listen struct {
+	// Addr is the host address to listen on, on Host's port.
+	Addr string
+	// Public marks a listener reachable beyond this host (the fallback when a
+	// runtime offers no private route); Why names that reason for the warning.
+	Public bool
+	Why    string
+}
+
+// ReachOnHost is the uncontainerized Reach: Engine is Host.
+func ReachOnHost(url string) Reach { return Reach{Host: url, Engine: url} }
+
+// Via re-mints r for a runner that reaches the host at dial: Engine is Host
+// with its host replaced by dial, port and path kept — the listener that
+// answers there shares Host's port.
+func (r Reach) Via(dial string) (Reach, error) {
+	u, err := neturl.Parse(r.Host)
+	if err != nil {
+		return Reach{}, fmt.Errorf("present: reach %q: %w", r.Host, err)
+	}
+	if u.Port() == "" {
+		return Reach{}, fmt.Errorf("present: reach %q names no port", r.Host)
+	}
+	u.Host = net.JoinHostPort(dial, u.Port())
+	return Reach{Host: r.Host, Engine: u.String()}, nil
 }

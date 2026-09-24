@@ -33,6 +33,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -50,6 +51,9 @@ type dockerInteractiveStarter struct {
 	projectDir string
 	harp       string
 
+	pol isolation.Container
+	ws  isolation.Workspace
+
 	mu       sync.Mutex
 	session  *attach.Session
 	name     string
@@ -59,22 +63,30 @@ type dockerInteractiveStarter struct {
 	out lockedBuffer
 }
 
-func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+// prepare stands the cell up BEFORE StartOwnedRun, as the host's Resolve
+// does, so the listen requirement it names rides the launch the coordinator
+// honours before the runner starts.
+func (s *dockerInteractiveStarter) prepare(ctx context.Context, t *testing.T, l launch.Launch) launch.Launch {
+	t.Helper()
 	rt := isolation.ProbeRuntime("docker")
 	stateEnv := map[string]string{"CTXLOOM_SESSION_HARP": s.harp}
-	const backend = "mock"
-	pol := isolation.NewContainerFor(rt, backend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
-	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
-	if err != nil {
-		return nil, "", err
-	}
+	s.pol = isolation.NewContainerFor(rt, ownerRunBackend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
+	ws, err := s.pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
+	require.NoError(t, err)
+	s.ws = ws
+	l.Cell.Listen = isolation.WorkspaceListen(ws)
+	return l
+}
+
+func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+	pol, ws := s.pol, s.ws
 	// The mock's interactive echo loop is what holds the turn open and
 	// reflects typed input; it reads the knob off the runner's environment.
 	env := map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"}
 	for k, v := range spawnEnv {
 		env[k] = v
 	}
-	cmd, name, err := pol.InteractiveRunner(ctx, backend, ws, env)
+	cmd, name, err := pol.InteractiveRunner(ctx, ownerRunBackend, ws, env)
 	if err != nil {
 		_ = ws.Cleanup()
 		return nil, "", err
@@ -144,7 +156,7 @@ func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 	owner, ok := c.Identify(token)
 	require.True(t, ok)
 
-	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(containerOwnerLaunch(ownerHarp, engine.Interactive), false), starter.start, "")
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(starter.prepare(ctx, t, containerOwnerLaunch(ownerHarp, engine.Interactive)), false), starter.start, "")
 	require.NoError(t, err)
 	require.Equal(t, ownerHarp, outcome.Harp)
 

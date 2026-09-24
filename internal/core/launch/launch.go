@@ -156,7 +156,12 @@ type Cell struct {
 	// session home, or the real one the binding selected — the unsafe
 	// selection a plan and a banner name. Local to the launching process;
 	// Home is what crosses the wire.
-	HomeMode  HomeMode
+	HomeMode HomeMode
+	// Listen is what the coordinator must listen on so this cell's runner can
+	// dial home: zero for a host cell and for a runtime that routes to the
+	// host's loopback. Local to the launching process, like HomeMode: the
+	// coordinator honours it before the runner starts.
+	Listen    present.Listen
 	Container *ContainerCell
 	Cleanup   func() error
 	// Handle is what the cells adapter keeps to START a process in this cell

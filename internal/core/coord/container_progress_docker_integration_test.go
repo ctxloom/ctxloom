@@ -186,6 +186,7 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	l.Identity = start.Identity
 	l.Prompt = start.Prompt
 	l.Cell.Env = env
+	l.Cell.Listen = isolation.WorkspaceListen(ws)
 	// As Resolve carries a container launch: the container axis (the runner
 	// dials the container-reachable listener) and a session endpoint for the
 	// runner to bind — any free loopback port inside the container.

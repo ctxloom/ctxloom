@@ -29,6 +29,24 @@ func (f fakeRuntime) Available() bool          { return f.available }
 func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
 func (fakeRuntime) RemoveArgs(string) []string { return nil }
 
+// reachRoute is empty: a fake runner's env passes through un-re-minted.
+func (fakeRuntime) reachRoute(context.Context) (hostRoute, error) { return hostRoute{}, nil }
+func (fakeRuntime) gatewayInspectArgs() []string                  { return ociRuntime{}.gatewayInspectArgs() }
+
+// The CLI grammar is the shared OCI default, so a call site routed through the
+// seam renders the same argv against the fake as against a real runtime.
+func (fakeRuntime) inspectRunningArgs(name string) []string {
+	return ociRuntime{}.inspectRunningArgs(name)
+}
+func (fakeRuntime) imageInspectArgs(image, format string) []string {
+	return ociRuntime{}.imageInspectArgs(image, format)
+}
+func (fakeRuntime) daemonNameTemplate() string { return ociRuntime{}.daemonNameTemplate() }
+func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
+	return ociRuntime{}.removeOutcome(stdout, err)
+}
+func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
+
 // Expose is the OCI identity bind mount, so tests that route delivery mounts
 // through the runtime (sessionStateMounts, gitCommonDirMount) see the same Mount
 // the literal produced.

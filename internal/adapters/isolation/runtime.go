@@ -1,16 +1,20 @@
 package isolation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/hostnet"
 )
 
 // Runtime is the pluggable container launcher — proper polymorphism, NOT
@@ -69,7 +73,89 @@ type Runtime interface {
 	// ReapOrphanedContainers uses instead of composing `ps` argv itself: Host
 	// launches no containers and always returns nil, nil.
 	Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error)
+
+	// The methods below are the CLI grammar a runtime's own tooling differs
+	// in. Unexported like mapper(): internal wiring, each with one default on
+	// ociRuntime and overridden only by the runtime that really differs.
+
+	// inspectRunningArgs builds the argv that prints "true" while name runs.
+	inspectRunningArgs(name string) []string
+	// imageInspectArgs builds the argv that inspects image, rendering format
+	// when it is non-empty (a bare inspect answers only "does it exist").
+	imageInspectArgs(image, format string) []string
+	// daemonNameTemplate is the `info` Go template naming the daemon's host.
+	daemonNameTemplate() string
+	// removeOutcome reads what this runtime's CLI said about a RemoveArgs run.
+	removeOutcome(stdout []byte, err error) removeOutcome
+	// passesPUID reports whether a run passes the PUID/PGID identity env, i.e.
+	// relies on the image entrypoint to remap and drop to the launching user.
+	passesPUID() bool
+	// reachRoute is how a container of this runtime reaches a coordinator on
+	// the host, in preference order: the host's LOOPBACK through the
+	// runtime's own translator, where its network offers one; the private
+	// host-side bridge gateway (rootful); else the host's primary outbound
+	// address, flagged Public. Only the last one's listener is reachable
+	// beyond this host, and the coordinator's endpoint is token-protected
+	// there — allowed, never preferred.
+	reachRoute(ctx context.Context) (hostRoute, error)
+	// gatewayInspectArgs builds the argv printing the default bridge
+	// network's host-side gateway address.
+	gatewayInspectArgs() []string
 }
+
+// hostRoute is a runtime's answer to reachRoute: the host part a container
+// dials, and what the coordinator must listen on for that dial to land.
+type hostRoute struct {
+	dial   string
+	listen present.Listen
+}
+
+// ErrNoHostReach refuses a container whose runtime offers no route to the
+// host at all: no loopback translator, no bridge gateway, and no default
+// route to take the primary address from. Its runner could never dial home.
+var ErrNoHostReach = errors.New("isolation: a container of this runtime has no address to reach the coordinator on")
+
+// primaryOutboundIP is the fallback route's address source; a package var so
+// tests decide it without the host's routing table.
+var primaryOutboundIP = hostnet.PrimaryOutboundIP
+
+// publicRoute is the last preference: the host's primary outbound address,
+// listened on and reachable beyond this host. why names the runtime mode's
+// missing private route for the one-time warning.
+func publicRoute(why string) (hostRoute, error) {
+	ip := primaryOutboundIP()
+	if ip == "" {
+		return hostRoute{}, fmt.Errorf("%w: %s, and the host has no default route to take its primary address from", ErrNoHostReach, why)
+	}
+	return hostRoute{dial: ip, listen: present.Listen{Addr: ip, Public: true, Why: why}}, nil
+}
+
+// bridgeRoute is the rootful preference: the default bridge network's
+// host-side gateway, a private address only the host and its containers
+// share. Falls back to publicRoute when the runtime reports none that parses.
+func bridgeRoute(ctx context.Context, rt Runtime) (hostRoute, error) {
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := probeExec(cctx, rt.Binary(), rt.gatewayInspectArgs())
+	if ip := strings.TrimSpace(out); err == nil && net.ParseIP(ip) != nil {
+		return hostRoute{dial: ip, listen: present.Listen{Addr: ip}}, nil
+	}
+	return publicRoute(fmt.Sprintf("%s reports no bridge gateway on the host to listen on (%v)", rt.Name(), err))
+}
+
+// removeOutcome is what a force-remove established about its container.
+type removeOutcome int
+
+const (
+	// removeFailed: the runtime did not confirm the container is gone — a
+	// possible leak, surfaced by the caller.
+	removeFailed removeOutcome = iota
+	// removeRemoved: this remove took a container down.
+	removeRemoved
+	// removeAlreadyGone: there was nothing under the name. Final only once
+	// nothing can still create it (see removeLaunched).
+	removeAlreadyGone
+)
 
 // ContainerInfo is one running container as Enumerate reports it: enough for
 // a caller deciding whether to reap it, never more.
@@ -139,18 +225,6 @@ type funcMapper func(hostPath string) string
 
 func (f funcMapper) toContainer(hostPath string) string { return f(hostPath) }
 
-// NewDockerWithMapperForTest builds a Docker runtime carrying a custom
-// host→container path-mapping function. mapper() is deliberately UNEXPORTED
-// (this interface's own doc: "not part of the public contract external
-// packages implement"), so a package outside internal/adapters/isolation has no
-// other way to construct a NON-IDENTITY Runtime and prove its call site
-// actually routes a mount through the mapper seam rather than hardcoding
-// Host==Container. No production caller uses this; every real construction
-// path still passes a nil pathMap (identity).
-func NewDockerWithMapperForTest(toContainer func(hostPath string) string) Docker {
-	return Docker{ociRuntime: ociRuntime{pathMap: funcMapper(toContainer)}}
-}
-
 // RunSpec is the runtime-agnostic description of one runner container: which
 // image to run, the in-container argv, the identical-path project mount and
 // the workspace's mounts, a fresh HOME, and the run's env. A Runtime renders
@@ -197,10 +271,55 @@ type Mount struct {
 // injection point a future Windows/DooD-aware SelectRuntime would populate.
 type ociRuntime struct{ pathMap pathMapper }
 
-// RemoveArgs force-removes the container (SIGKILL + rm; idempotent enough that a
-// racing --rm auto-remove just reports "no such container", which callers ignore).
-// Shared by Docker and Podman — the `rm -f <name>` argv is identical on both.
+// RemoveArgs force-removes the container: SIGKILL, then rm. A racing --rm
+// auto-remove leaves nothing under the name, which removeOutcome reads as
+// removeAlreadyGone. A runtime whose `rm -f` would first wait out a stop
+// timeout overrides this to skip that wait, so the SIGKILL claim holds for
+// every runtime.
 func (ociRuntime) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
+
+// removeOutcome reads a remove's result: success with the name echoed on
+// stdout removed a container; success with EMPTY stdout found none (current
+// CLIs exit 0 on a missing name and say so, if at all, only on stderr); any
+// failure is unconfirmed. A runtime whose CLI reports gone-ness through a
+// failure overrides this.
+func (ociRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
+	switch {
+	case err != nil:
+		return removeFailed
+	case len(bytes.TrimSpace(stdout)) == 0:
+		return removeAlreadyGone
+	default:
+		return removeRemoved
+	}
+}
+
+// inspectRunningArgs is the docker-CLI-compatible running-state inspect.
+func (ociRuntime) inspectRunningArgs(name string) []string {
+	return []string{"container", "inspect", "-f", "{{.State.Running}}", name}
+}
+
+// imageInspectArgs is the docker-CLI-compatible image inspect.
+func (ociRuntime) imageInspectArgs(image, format string) []string {
+	args := []string{"image", "inspect", image}
+	if format != "" {
+		args = append(args, "--format", format)
+	}
+	return args
+}
+
+// daemonNameTemplate is the top-level {{.Name}} field.
+func (ociRuntime) daemonNameTemplate() string { return "{{.Name}}" }
+
+// gatewayInspectArgs reads the default `bridge` network's IPAM gateway.
+func (ociRuntime) gatewayInspectArgs() []string {
+	return []string{"network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"}
+}
+
+// passesPUID is true: every mode relies on the image entrypoint to remap, save
+// the one that overrides it. An unrecognised mode stays on the conservative
+// side, where a run-as-is image must carry the entrypoint.
+func (ociRuntime) passesPUID() bool { return true }
 
 // runArgs assembles the full `run` argv from a runtime-specific HEAD (the
 // --rm/--name/--user/identity prefix each concrete runtime builds) and the
@@ -267,49 +386,6 @@ func (ociRuntime) enumerate(ctx context.Context, binary, namePrefix string) ([]C
 	return infos, nil
 }
 
-// Docker launches containers via the docker CLI. rootless records whether the
-// daemon is rootless — the axis that decides the run's identity mapping:
-// under rootless docker the container's ROOT user maps to the invoking host
-// user (the only uid that does — a non-root container user would map to a
-// subuid and wreck bind-mount ownership), so the run stays container-root and
-// no PUID is passed. Under a rootful daemon the container starts as root and
-// PUID/PGID tell the image entrypoint to remap its `ctxloom` user to the
-// launching uid/gid and drop to it — named non-root identity with correct
-// host-side ownership (socket and project files land launching-user-owned).
-type Docker struct {
-	ociRuntime
-	rootless bool
-}
-
-// Name identifies the runtime.
-func (Docker) Name() string { return "docker" }
-
-// Binary is the docker CLI.
-func (Docker) Binary() string { return "docker" }
-
-// Available reports docker CLI on PATH + a reachable daemon.
-func (Docker) Available() bool { return runtimeReachable("docker") }
-
-// RunArgs renders the spec into a `docker run` argv: the rootless-specific
-// identity HEAD plus the shared renderRunSpec tail (via ociRuntime.runArgs).
-func (d Docker) RunArgs(spec RunSpec) []string {
-	args := []string{"run", "--rm", "--name", spec.Name}
-	args = append(args, initArgs()...)
-	args = append(args, ownerLabelArgs()...)
-	if !d.rootless {
-		// Rootful daemon: the entrypoint remaps ctxloom to the launching
-		// uid/gid and drops privileges. Rootless already maps root→host user.
-		args = append(args, identityEnvArgs()...)
-	}
-	return d.runArgs(args, spec)
-}
-
-// Enumerate lists RUNNING docker containers by name prefix, via the shared
-// ociRuntime.enumerate.
-func (d Docker) Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error) {
-	return d.enumerate(ctx, d.Binary(), namePrefix)
-}
-
 // identityEnvArgs renders the PUID/PGID env that tells the agent image's
 // entrypoint to remap its generic ctxloom user to the launching uid/gid and
 // drop privileges to it.
@@ -332,112 +408,6 @@ func identityEnvArgs() []string {
 		"-e", fmt.Sprintf("PGID=%d", os.Getgid()),
 	}
 }
-
-// Podman launches containers via the podman CLI. podman's run/rm argv is
-// docker-CLI-compatible. rootless records whether the engine is rootless:
-// rootless podman needs --userns=keep-id so the launching uid maps to ITSELF
-// in-container instead of a subuid — then the entrypoint's PUID/PGID remap
-// yields a run that is genuinely non-root in-container AND correctly owned on
-// the host, something rootless docker cannot express. Rootful podman behaves
-// like rootful docker (identity mapping; entrypoint remap only). (Built but
-// not daemon-tested on this host — no podman installed.)
-type Podman struct {
-	ociRuntime
-	rootless bool
-}
-
-// Name identifies the runtime.
-func (Podman) Name() string { return "podman" }
-
-// Binary is the podman CLI.
-func (Podman) Binary() string { return "podman" }
-
-// Available reports podman CLI on PATH + a reachable engine.
-func (Podman) Available() bool { return runtimeReachable("podman") }
-
-// RunArgs renders the spec into a `podman run` argv (docker-compatible): the
-// rootless-specific keep-id/identity HEAD plus the shared renderRunSpec tail
-// (via ociRuntime.runArgs). Both modes start as container-root and let the
-// image entrypoint remap ctxloom to the launching uid/gid (PUID/PGID) and drop
-// to it; rootless additionally needs keep-id so that uid maps to itself on the
-// host instead of a subuid.
-func (p Podman) RunArgs(spec RunSpec) []string {
-	args := []string{"run", "--rm", "--name", spec.Name}
-	args = append(args, initArgs()...)
-	args = append(args, ownerLabelArgs()...)
-	if p.rootless {
-		// keep-id's DEFAULT user is the host uid (not root), which couldn't
-		// remap; enter as namespaced root so the entrypoint can usermod+drop.
-		args = append(args, "--userns=keep-id", "--user", "0:0")
-	}
-	args = append(args, identityEnvArgs()...)
-	return p.runArgs(args, spec)
-}
-
-// Enumerate lists RUNNING podman containers by name prefix, via the shared
-// ociRuntime.enumerate.
-func (p Podman) Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error) {
-	return p.enumerate(ctx, p.Binary(), namePrefix)
-}
-
-// podmanIsRootless reports whether the podman engine is rootless (`podman info`
-// security flag). Best-effort: on any error it returns true — podman is
-// rootless by default, and keep-id under a rootful engine errors loudly at
-// launch (degrading the run) while a missing keep-id under rootless silently
-// wrecks bind-mount ownership, the worse failure.
-func podmanIsRootless() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", "info", "--format", "{{.Host.Security.Rootless}}").Output()
-	if err != nil {
-		return true
-	}
-	return strings.TrimSpace(string(out)) != "false"
-}
-
-// Host is the non-container runtime: the runner runs as a bare host
-// subprocess (the None and Worktree policies, through RunnerCommand). It
-// satisfies Runtime so runtime selection is uniform, but it launches nothing
-// itself, so RunArgs/RemoveArgs are unused.
-type Host struct{}
-
-// Name identifies the runtime.
-func (Host) Name() string { return "host" }
-
-// Binary is empty — Host execs the runner directly, not via a container CLI.
-func (Host) Binary() string { return "" }
-
-// Available is always true — the host can always run a subprocess (None never
-// fails; it is the fault-tolerant floor).
-func (Host) Available() bool { return true }
-
-// RunArgs is a noop — Host does not launch a container.
-func (Host) RunArgs(RunSpec) []string { return nil }
-
-// RemoveArgs is a noop — Host has nothing to tear down.
-func (Host) RemoveArgs(string) []string { return nil }
-
-// Expose renders the identity bind mount, same as the OCI runtimes — the host
-// path IS the exposed path (no container namespace to remap into).
-func (Host) Expose(host, target string, readOnly bool) Mount {
-	return Mount{Host: host, Container: target, ReadOnly: readOnly}
-}
-
-// ExposeMapped is the identity mount for Host specifically — Host has no
-// container namespace to remap into, so this is unconditionally
-// Expose(hostPath, hostPath, readOnly) (matching Host.mapper() below, always
-// identityMapper).
-func (Host) ExposeMapped(hostPath string, readOnly bool) Mount {
-	return Mount{Host: hostPath, Container: hostPath, ReadOnly: readOnly}
-}
-
-// mapper is always identity — Host launches no container, so there is no
-// host↔container path translation to perform.
-func (Host) mapper() pathMapper { return identityMapper{} }
-
-// Enumerate is a noop — Host launches no containers, so there is never
-// anything to list.
-func (Host) Enumerate(context.Context, string) ([]ContainerInfo, error) { return nil, nil }
 
 // renderRunSpec renders the runtime-agnostic tail of a run argv (env, mounts,
 // workdir, image, in-container command) shared by Docker and Podman. The
@@ -529,55 +499,6 @@ func runtimeReachable(bin string) bool {
 	return cmd.Run() == nil
 }
 
-// dockerSecurityOptions probes the docker daemon's security options; a package
-// var so tests drive the undecidable-probe path hermetically (mirrors the
-// resolveSelfExe / sharedFSCheck seams).
-var dockerSecurityOptions = func() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.SecurityOptions}}").Output()
-	return string(out), err
-}
-
-// dockerIsRootless reports whether the docker daemon is rootless (its `info`
-// SecurityOptions list "rootless"). Called only for a REACHABLE daemon
-// (newDockerRuntime gates on reachability), so a probe failure here is a
-// genuinely undecidable identity direction — not a missing CLI or a down
-// daemon — and it must not pick one silently: the answer decides whether PUID
-// is injected, i.e. who OWNS every file the run writes. INVARIANT on error:
-// assume ROOTFUL (inject PUID) and route a finding. Wrongly assuming rootful
-// under a rootless daemon skews project-file ownership to a subordinate uid —
-// wrong, but confined to the launching user's privileges; wrongly assuming
-// rootless under a rootful daemon would run the engine as REAL root and
-// root-own project files — strictly worse. Strict mode collects the finding
-// (the choke owner aborts pre-launch); --degraded proceeds on the assumption
-// with the streamed warning.
-func dockerIsRootless() bool {
-	out, err := dockerSecurityOptions()
-	if err != nil {
-		strictness.Fail(strictness.ClassIsolation,
-			"check `docker info --format '{{.SecurityOptions}}'` against the daemon and retry, or pass --degraded to proceed assuming a rootful daemon",
-			"cannot determine whether the docker daemon is rootless (%v); assuming rootful — if it is actually rootless, files the container writes will land owned by a subordinate uid", err)
-		return false
-	}
-	return strings.Contains(out, "rootless")
-}
-
-// newDockerRuntime constructs the Docker runtime for selection. The rootless
-// identity probe runs only when the daemon is REACHABLE: an unreachable
-// docker is never selected (Available gates selection), so probing it would
-// only manufacture a spurious identity finding on docker-less or daemon-down
-// hosts where podman serves the run. It returns the CONCRETE Docker so the
-// candidate table can read the probed rootless-ness straight off it rather
-// than re-deriving ownership downstream, where it could drift from the flag
-// the run argv is actually built with.
-func newDockerRuntime(reachable func(string) bool) Docker {
-	if !reachable("docker") {
-		return Docker{}
-	}
-	return Docker{rootless: dockerIsRootless()}
-}
-
 // InContainer reports whether THIS process is already running inside a
 // container (dev container, CI job, pod). Markers: the docker/podman sentinel
 // files, the well-known dev-container/k8s env vars, and container-runtime
@@ -633,12 +554,12 @@ type runtimeCandidate struct {
 // selectRuntimeProbe seams.
 var runtimeCandidates = func() []runtimeCandidate {
 	return []runtimeCandidate{
-		{"docker", func() (Runtime, RuntimeAxis) {
+		{Docker{}.Name(), func() (Runtime, RuntimeAxis) {
 			d := newDockerRuntime(runtimeReachable)
 			return d, ownershipAxis(d.rootless)
 		}},
-		{"podman", func() (Runtime, RuntimeAxis) {
-			p := Podman{rootless: podmanIsRootless()}
+		{Podman{}.Name(), func() (Runtime, RuntimeAxis) {
+			p := newPodmanRuntime()
 			return p, ownershipAxis(p.rootless)
 		}},
 	}

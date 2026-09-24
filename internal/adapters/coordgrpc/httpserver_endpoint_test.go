@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/testsupport/coordharness"
 )
 
@@ -64,29 +64,30 @@ func TestServe_RecordedLoopbackPortIsReused(t *testing.T) {
 	assert.Equal(t, firstURL, second.LoopbackURL(), "a relaunch must re-bind the recorded port")
 }
 
-// TestEnsureWide_PersistsTheWidePortBeforeReturning: the wide port is written
-// so the NEXT coordinator re-binds it, and the caller's very next move is to
-// spawn a container child that discovers the coordinator through this file. The
-// persist used to be dispatched on a goroutine purely because the calling
-// function still held the lock the writer takes — an invisible re-entrancy
-// dependency whose visible cost is that the file lags the return.
-func TestEnsureWide_PersistsTheWidePortBeforeReturning(t *testing.T) {
-	if len(containerReachIPs()) == 0 {
-		t.Skip("no container-reachable host interface on this machine: ensureWide has nothing to bind")
-	}
+// TestListen_PersistsTheAddressBeforeReturning: the address a cell had the
+// coordinator listen on is on disk by the time Listen returns — the runner is
+// started right after — and the NEXT coordinator re-binds it on the recorded
+// port, so a container runner from before the restart redials something.
+func TestListen_PersistsTheAddressBeforeReturning(t *testing.T) {
+	addr := privateStandIn(t)
 	stateDir := t.TempDir()
-	c := servedCoordinator(t, stateDir)
-
-	advertised, err := c.Transport().(*coordServing).ensureWide()
-	require.NoError(t, err)
-	parsed, err := url.Parse(advertised)
-	require.NoError(t, err)
-	_, port, err := net.SplitHostPort(parsed.Host)
-	require.NoError(t, err)
+	first := servedCoordinator(t, stateDir)
+	require.NoError(t, first.Transport().(*coordServing).Listen(present.Listen{Addr: addr}))
 
 	raw, err := os.ReadFile(filepath.Join(stateDir, discover.FileName))
 	require.NoError(t, err)
 	var ep discover.State
 	require.NoError(t, json.Unmarshal(raw, &ep))
-	assert.Equal(t, port, strconv.Itoa(ep.WidePort), "the wide port must be on disk by the time ensureWide returns")
+	assert.Equal(t, []string{addr}, ep.ListenAddrs)
+	firstURL := first.LoopbackURL()
+	first.Close()
+
+	second := servedCoordinator(t, stateDir)
+	t.Cleanup(second.Close)
+	require.Equal(t, firstURL, second.LoopbackURL())
+	loop, err := url.Parse(second.LoopbackURL())
+	require.NoError(t, err)
+	conn, err := net.Dial("tcp", net.JoinHostPort(addr, loop.Port()))
+	require.NoError(t, err, "the relaunched coordinator re-binds the recorded address")
+	_ = conn.Close()
 }

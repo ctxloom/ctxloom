@@ -74,6 +74,7 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	l.Identity = start.Identity
 	l.Prompt = start.Prompt
 	l.Cell.Env = env
+	l.Cell.Listen = isolation.WorkspaceListen(ws)
 	l.Axes.Runtime = launch.RuntimeRootless
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
@@ -268,10 +269,14 @@ func (r exitRun) requirePersistentKept(t *testing.T, before []string, why string
 	}
 }
 
-// runtimeExec runs argv inside the run's container.
+// runtimeExec starts argv inside the run's container, detached: the argv kills
+// the container's own runner, and an attached exec races that death — podman
+// exits 255 ("container has already been removed") when --rm takes the
+// container out from under it. Whether the kill landed is what the caller's
+// assertions that follow establish.
 func (r exitRun) runtimeExec(t *testing.T, args ...string) {
 	t.Helper()
-	out, err := exec.Command(r.bin, append([]string{"exec", r.container}, args...)...).CombinedOutput()
+	out, err := exec.Command(r.bin, append([]string{"exec", "-d", r.container}, args...)...).CombinedOutput()
 	require.NoError(t, err, "%s exec %v: %s", r.bin, args, out)
 }
 

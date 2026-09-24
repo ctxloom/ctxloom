@@ -14,17 +14,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-// Every ctxloom-launched engine authenticates from ONE long-lived token in
-// its env (engine.TokenAuth.TokenVar), filled by ExportStoredTokens. Nothing
-// is copied into a session home, mounted into a container or refreshed.
+// A ctxloom-launched engine that shares no login authenticates from ONE
+// long-lived token in its env (engine.TokenAuth.TokenVar), filled by
+// ExportStoredTokens; a host run of an engine declaring
+// engine.HomeSpec.SharedLogin uses the human's own login in place instead,
+// with the token blanked. Nothing is copied into a session home, mounted into
+// a container or refreshed by ctxloom.
 //
 // Why: an OAuth refresh token is single-use and rotates. Native sessions stay
-// in step only because they share one credentials file AND one lock beside
-// the config dir. A per-session copy has its own config dir and its own lock,
-// and a container bind of the one file pins the inode claude replaces by
-// rename, so copies went stale and a refresh from one could revoke the rest.
-// A setup-token is never refreshed and never written by the engine, so there
-// is no second holder to fall out of step with.
+// in step only because they share one credentials file AND one lock pair. A
+// per-session copy has its own config dir and its own locks, and a container
+// bind of the one file pins the inode claude replaces by rename, so copies
+// went stale and a refresh from one could revoke the rest. A shared login is
+// the ONE file and lock pair; a setup-token is never refreshed and never
+// written by the engine. Neither has a second holder to fall out of step with.
 
 var (
 	// ErrNoTokenAuth: the engine declares no token var to store a token for.
@@ -102,8 +105,9 @@ func StoreEngineToken(name string, token []byte) (string, error) {
 
 // ExportStoredTokens sets each engine's token var from its stored token when
 // the process env leaves it unset. It runs once at process start, so every
-// launch path inherits the var: a host engine through the runner's env, a
-// container through the name-only passthrough (engine.ContainerAuth).
+// launch path inherits the var: a container through the name-only
+// passthrough (engine.ContainerAuth), a host engine through the runner's env
+// unless its cell shares the human's login and blanks it.
 func ExportStoredTokens() error {
 	var errs []error
 	for _, name := range factNames() {

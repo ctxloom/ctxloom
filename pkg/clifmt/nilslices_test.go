@@ -56,6 +56,7 @@ func TestRenderJSON_NilSlicesRenderAsEmptyLists(t *testing.T) {
 		ByKey:  map[string][]string{"k": nil},
 		Any:    []string(nil),
 		Nested: &nilSlicePayloadLeaf{},
+		hidden: []string{"x"},
 	}
 	got := renderDecoded(t, in, FormatJSON)
 
@@ -77,6 +78,7 @@ func TestRenderJSON_NilSlicesRenderAsEmptyLists(t *testing.T) {
 	assert.Nil(t, in.Remote[0].Tags)
 	assert.Nil(t, in.ByKey["k"])
 	assert.Nil(t, in.Nested.Items)
+	assert.Equal(t, []string{"x"}, in.hidden, "an unexported field is neither encoded nor touched")
 }
 
 func TestRenderJSON_TopLevelNilSliceIsEmptyList(t *testing.T) {

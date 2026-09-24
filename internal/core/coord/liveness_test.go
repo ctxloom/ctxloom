@@ -199,7 +199,7 @@ func TestRunnerHeartbeatProbe_LiveRunnerIsAlive(t *testing.T) {
 	// Past the loss bound the same probe reports dead — the SAME bound
 	// runnerWatchdog uses, so the two can never disagree.
 	c.mu.Lock()
-	c.runners[credHash].lastBeat = c.now().Add(-runnerLossTimeout - time.Second)
+	c.runners[credHash].lastBeat = c.now().Add(-RunnerLossTimeout - time.Second)
 	c.mu.Unlock()
 	st = c.runnerHeartbeatProbe().Inspect(context.Background(), liveness.Target{Harp: harp})
 	assert.True(t, st.Observed)

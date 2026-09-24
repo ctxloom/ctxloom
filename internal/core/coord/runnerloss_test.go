@@ -137,7 +137,7 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 
 	// Advance the clock past the loss bound and run the watchdog body directly
 	// (deterministic — no ticker timing).
-	c.checkRunnerLiveness(now.Add(runnerLossTimeout + time.Second))
+	c.checkRunnerLiveness(now.Add(RunnerLossTimeout + time.Second))
 
 	require.Eventually(t, func() bool { return rosterState(c, run.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"a runner silent past the loss bound is declared lost")

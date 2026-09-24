@@ -29,8 +29,8 @@ const labelCreatedAt = "ctxloom.created-at"
 // therefore to Enumerate) before its owning ctxloom process has finished the
 // rest of its own startup — a probe run in that instant would see a pid
 // whose parent shell/exec chain has not fully settled. The grace window is
-// generous next to that startup cost and cheap to pay: this sweep runs once
-// per `ctxloom run`/`ctxloom mcp` launch, not on a hot path.
+// generous next to that startup cost and cheap to pay: this sweep runs only
+// when a human asks for it (`ctxloom doctor`), never on a hot path.
 const containerReapGraceWindow = 60 * time.Second
 
 // ownerLabelArgs renders the `--label` flags every Docker/Podman RunArgs
@@ -109,14 +109,14 @@ type ContainerReapResult struct {
 // see (via Enumerate) and force-removes the ones whose owning ctxloom process
 // is CONFIRMED dead.
 //
-// This is the fix for a bug: teardown of a container-isolated runner is
-// `defer isolation.RunnerHandle.Kill` inside cli.runState.teardownAll, and a
-// defer never survives SIGKILL, an OOM kill, or a closed terminal — so a
-// killed ctxloom leaves its container running forever, with nothing else
-// ever sweeping it. --rm already means a container that merely EXITED is
-// gone by itself (see the RunArgs doc); orphans are therefore containers
-// still RUNNING whose owner died, never exited ones, so this reaper has
-// nothing to do with exit cleanup.
+// It is a MANUAL backstop, reachable only from `ctxloom doctor`: an owner
+// that dies without tearing its runner down (SIGKILL, an OOM kill, a closed
+// terminal) leaves the runner to notice on its own — it exits once its
+// coordinator has been gone for the runner-loss grace (runner.Home.OwnerLost),
+// and --rm removes the exited container. What that leaves for this sweep is a
+// runner WEDGED past its own exit: a container still RUNNING whose owner is
+// dead. Nothing runs it at startup, because a host run must touch no
+// container runtime at all.
 //
 // Every candidate is skipped rather than reaped on ANY doubt — the same
 // conservatism ReapOrphanedWorktrees applies, and for the same reason: a
@@ -132,8 +132,8 @@ func ReapOrphanedContainers(ctx context.Context, rt Runtime) ContainerReapResult
 
 	infos, err := rt.Enumerate(ctx, containerNamePrefix)
 	if err != nil {
-		// A startup sweep is fault-tolerant by contract (see doc above): warn
-		// and report nothing rather than propagate.
+		// The sweep is best-effort by contract (see doc above): warn and
+		// report nothing rather than propagate.
 		clidiag.Warn("ctxloom", "container reap (%s): %v", rt.Name(), err)
 		return result
 	}

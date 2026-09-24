@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -29,6 +30,9 @@ type MainDeps struct {
 	// home: the writers, the endpoint (runner/mcp over the home), the engine
 	// kind. Called ONCE, after the environment is scrubbed.
 	Ports func(host *EngineHost, home *Home) (Deps, error)
+	// OwnerLossWindow is the home's HomeConfig.OwnerLossWindow (0 = the
+	// coordinator's runner-loss grace, which is what production uses).
+	OwnerLossWindow time.Duration
 }
 
 var (
@@ -38,6 +42,10 @@ var (
 	// ErrUnscrubbed refuses to compose an engine while the coordinator
 	// credential is still in the process environment it would inherit.
 	ErrUnscrubbed = errors.New("runner: the coordinator reach-back could not be scrubbed from the process environment")
+	// ErrOwnerLost ends a runner whose coordinator stayed unreachable for the
+	// whole owner-loss window (Home.OwnerLost): nothing is left that would
+	// re-adopt it, so it tears down rather than redialling forever.
+	ErrOwnerLost = errors.New("runner: the owning coordinator is gone")
 )
 
 // reachKeys is the reach-back trio the originator stamps on a runner
@@ -49,8 +57,9 @@ var reachKeys = []string{sessions.EnvCoordURL, sessions.EnvCoordCred, sessions.E
 // machine or as a container's foreground process, started by
 // spawn.StartRunner. It decodes the reach-back trio ONCE, scrubs it, stands
 // the engine host up for its one run, dials home, composes its ports and
-// BLOCKS until the coordinator tears it down or ctx ends. The Launch arrives
-// over the RunnerChannel (StartRun) and Execute is its one tail.
+// BLOCKS until ctx ends (the coordinator's Kill, a signal) or the home reports
+// its owner lost (ErrOwnerLost). The Launch arrives over the RunnerChannel
+// (StartRun) and Execute is its one tail.
 func Main(ctx context.Context, d MainDeps) error {
 	reach, runID, err := sessions.DecodeReach(d.Getenv)
 	if err != nil {
@@ -81,6 +90,8 @@ func Main(ctx context.Context, d MainDeps) error {
 		Engine:       host.Handle,
 		Capabilities: coord.RunnerCapabilities(true),
 		Reporter:     d.Reporter,
+
+		OwnerLossWindow: d.OwnerLossWindow,
 	})
 	if err != nil {
 		host.Close()
@@ -95,10 +106,15 @@ func Main(ctx context.Context, d MainDeps) error {
 	host.BindRunner(Host{Deps: deps})
 	host.BindHome(home)
 
-	<-ctx.Done()
+	var ended error
+	select {
+	case <-ctx.Done():
+	case <-home.OwnerLost():
+		ended = ErrOwnerLost
+	}
 	// The engine host joins first so an in-flight adapt can finish its
 	// terminal RunCompleted while the home is still live.
 	host.Close()
 	home.Close(0, "")
-	return nil
+	return ended
 }

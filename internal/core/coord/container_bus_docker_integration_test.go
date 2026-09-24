@@ -42,21 +42,26 @@ import (
 // always what this run actually built.
 const busIntegrationImage = "ctxloom-coord-bus-itest:latest"
 
-// buildBusIntegrationImage builds the static linux ctxloom into a minimal
-// alpine image, targeting the HOST arch (a hardcoded amd64 binary would
-// `exec format error` on an arm64 host, since `FROM alpine:latest` resolves
-// the host's arch).
+// buildBusIntegrationImage is buildIntegrationImageFor on docker.
 func buildBusIntegrationImage(t *testing.T) string {
+	return buildIntegrationImageFor(t, "docker")
+}
+
+// buildIntegrationImageFor builds the static linux ctxloom into a minimal
+// alpine image with bin (docker or podman: each keeps its own image store),
+// targeting the HOST arch (a hardcoded amd64 binary would `exec format error`
+// on an arm64 host, since the alpine base resolves the host's arch).
+func buildIntegrationImageFor(t *testing.T, bin string) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	bin := filepath.Join(dir, "ctxloom")
+	ctxloomBin := filepath.Join(dir, "ctxloom")
 	// Built FROM THE MODULE ROOT: this suite runs inside a test sandbox whose
 	// cwd is no module (testsupport.SandboxedMain), where a bare `go build`
 	// finds no go.mod and the image is never built.
 	root, err := sourcedir.RepoRoot()
 	require.NoError(t, err)
-	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags", testsupport.TestBinaryLDFlags, "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
+	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags", testsupport.TestBinaryLDFlags, "-o", ctxloomBin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
 	build.Dir = root
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -72,12 +77,12 @@ func buildBusIntegrationImage(t *testing.T) string {
 	// bind-mounted project path (never bare "/"), so this never fires in
 	// production; it is a real bug this test's image sidesteps rather than a
 	// bus defect.
-	dockerfile := "FROM alpine:latest\nWORKDIR /work\nCOPY ctxloom /usr/local/bin/ctxloom\n"
+	dockerfile := "FROM docker.io/library/alpine:latest\nWORKDIR /work\nCOPY ctxloom /usr/local/bin/ctxloom\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644))
 
-	img := exec.Command("docker", "build", "-t", busIntegrationImage, dir)
+	img := exec.Command(bin, "build", "-t", busIntegrationImage, dir)
 	if out, err := img.CombinedOutput(); err != nil {
-		t.Fatalf("docker build bus integration image: %v\n%s", err, out)
+		t.Fatalf("%s build bus integration image: %v\n%s", bin, err, out)
 	}
 	return busIntegrationImage
 }

@@ -107,9 +107,8 @@ var worktreeCandidatePrefix = worktreeScratchPrefix + "-"
 // Cleanup(); nothing else ever runs it, so a crashed/killed run's worktree was
 // orphaned PERMANENTLY — one leftover checkout (and one stale `git worktree
 // list` registration in its project repo) per crash, forever. This sweep is
-// the missing "something else": callers run it once at startup (see
-// internal/adapters/cli's sweepOrphanedWorktrees, wired into `ctxloom run` / `ctxloom
-// mcp`). It is best-effort throughout — a single candidate's failure warns and
+// the missing "something else": `ctxloom run` runs it once at startup
+// (operations.SweepOrphanedWorktrees). It is best-effort throughout — a single candidate's failure warns and
 // moves on, never aborting the sweep or the caller's own startup.
 //
 // Implementation note: this is Classify → Reap → tally and nothing else — see

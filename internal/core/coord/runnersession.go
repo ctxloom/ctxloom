@@ -16,10 +16,18 @@ import (
 // (interval×(N+1)), checked by a watchdog ticking every interval — so queue
 // drain after a silent runner death starts within 25s; a DISCONNECT (the
 // docker-stop case) synthesizes immediately.
+//
+// RunnerLossTimeout is ONE bound read from both ends of the link. The
+// coordinator gives a runner that long to come back — heartbeat silence here,
+// and adopt's re-Hello grace after a coordinator restart — and the runner
+// gives its owner the same long before it exits on its own
+// (runner.HomeConfig.OwnerLossWindow): a runner that outlived the grace has
+// no coordinator left that would re-adopt it, and exiting is what lets a
+// container's --rm remove it.
 const (
 	HeartbeatInterval    = 5 * time.Second
 	RunnerLossHeartbeats = 3
-	runnerLossTimeout    = HeartbeatInterval * (RunnerLossHeartbeats + 1)
+	RunnerLossTimeout    = HeartbeatInterval * (RunnerLossHeartbeats + 1)
 )
 
 // RunnerSession is the coordinator's side of one connected runner: the
@@ -182,7 +190,7 @@ func (c *Coordinator) runnerLost(credHash, why string) {
 }
 
 // runnerWatchdog scans connected runners every HeartbeatInterval and declares
-// loss after runnerLossTimeout of heartbeat silence.
+// loss after RunnerLossTimeout of heartbeat silence.
 func (c *Coordinator) runnerWatchdog() {
 	c.every(HeartbeatInterval, func() { c.checkRunnerLiveness(c.now()) })
 }
@@ -193,7 +201,7 @@ func (c *Coordinator) checkRunnerLiveness(now time.Time) {
 	var lost []*RunnerSession
 	c.mu.Lock()
 	for hash, rs := range c.runners {
-		if now.Sub(rs.lastBeat) > runnerLossTimeout {
+		if now.Sub(rs.lastBeat) > RunnerLossTimeout {
 			delete(c.runners, hash)
 			lost = append(lost, rs)
 		}

@@ -141,6 +141,9 @@ type Home struct {
 	selfReported bool
 
 	link *RunnerLink
+	// ownerLost is closed once, by runnerChannelLoop, when the lifecycle link
+	// has been down for OwnerLossWindow — see OwnerLost.
+	ownerLost chan struct{}
 
 	// tracked owns Home's own background loops (runnerChannelLoop,
 	// runChannelLoop, and one turnPump per hosted engine). Close/crash join it
@@ -194,6 +197,13 @@ type HomeConfig struct {
 	// RedialBackoff paces reconnect attempts for both channels (0 =
 	// HomeRedialBackoff). Redial preempts it.
 	RedialBackoff time.Duration
+	// OwnerLossWindow is how long the lifecycle link may stay down — never
+	// attached since the dial, or lost since it was last up — before this
+	// runner declares its owner gone (OwnerLost). 0 = coord.RunnerLossTimeout:
+	// the coordinator's own runner-loss grace, so a coordinator that comes
+	// back inside it still re-adopts this runner, and one that does not has
+	// already ended the run as runner loss and would refuse it anyway.
+	OwnerLossWindow time.Duration
 	// Reporter receives every diagnostic this Home and the courier, doorbell
 	// and terminal injector built on it raise; the runner's composition
 	// chooses the sink. Nil discards.
@@ -266,6 +276,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		turnPending: make(map[string]bool),
 		acking:      make(map[string]bool),
 		ackWake:     make(chan struct{}),
+		ownerLost:   make(chan struct{}),
 	}
 	// A runner writes exactly ONE spool: its own harp's out/. The cache is
 	// still keyed by harp because spoolWriterCache is shared with the
@@ -276,6 +287,9 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	}
 	if h.cfg.RedialBackoff == 0 {
 		h.cfg.RedialBackoff = HomeRedialBackoff
+	}
+	if h.cfg.OwnerLossWindow == 0 {
+		h.cfg.OwnerLossWindow = coord.RunnerLossTimeout
 	}
 	h.spoolOut = coord.NewSpoolWriterCache(h.cfg.Mapper, spool.DirOut, "")
 	h.spoolRefs = make(map[string]spool.Ref)
@@ -340,6 +354,13 @@ func (h *Home) Capabilities() []string { return h.helloCapabilities() }
 // loops stop and its spool is no longer its own.
 func (h *Home) Done() <-chan struct{} { return h.ctx.Done() }
 
+// OwnerLost is closed when the lifecycle link has been down for the whole
+// OwnerLossWindow: no coordinator this runner could still belong to is left.
+// The lifecycle loop stops redialling at that moment; tearing the Home down
+// (Close) is its owner's call — runner.Main makes it, and its process exit is
+// what lets a container's --rm remove the container.
+func (h *Home) OwnerLost() <-chan struct{} { return h.ownerLost }
+
 // EmittedSeq is the seq of the last event this Home emitted (0 before any).
 func (h *Home) EmittedSeq() uint64 {
 	h.mu.Lock()
@@ -384,21 +405,37 @@ func (h *Home) redialWake() <-chan struct{} {
 }
 
 // runnerChannelLoop keeps the lifecycle RunnerChannel alive (Hello +
-// heartbeats + best-effort RunExited at Close).
+// heartbeats + best-effort RunExited at Close), and runs the owner-loss clock:
+// armed from the start (nothing is attached yet) and re-armed in full on every
+// drop, and read only while the link is down — between attempts, so time the
+// link spends up never counts, and a dial that is itself hanging delays the
+// verdict by that one attempt. Expiry closes ownerLost and ends the loop.
 func (h *Home) runnerChannelLoop() {
+	lost := time.NewTimer(h.cfg.OwnerLossWindow)
+	defer lost.Stop()
+	// backoff waits out one redial pause and reports whether to go on.
+	backoff := func(wake <-chan struct{}) bool {
+		select {
+		case <-lost.C:
+			h.rep.Warnf("runner: no coordinator for %s (the coordinator's runner-loss grace); exiting", h.cfg.OwnerLossWindow)
+			close(h.ownerLost)
+			return false
+		case <-h.ctx.Done():
+			return false
+		case <-time.After(h.cfg.RedialBackoff):
+		case <-wake:
+		}
+		return true
+	}
 	for {
 		wake := h.redialWake()
 		link, err := DialRunner(h.ctx, h.rep, h.cfg.URL, h.cfg.Token, h.cfg.RunID, h.cfg.Harness, h.cfg.Version, h.cfg.Engine)
 		if err != nil {
 			h.rep.WarnOncef("runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
-			select {
-			case <-time.After(h.cfg.RedialBackoff):
-				continue
-			case <-wake:
-				continue
-			case <-h.ctx.Done():
+			if !backoff(wake) {
 				return
 			}
+			continue
 		}
 		h.mu.Lock()
 		h.link = link
@@ -409,10 +446,8 @@ func (h *Home) runnerChannelLoop() {
 			// replaces it: Shutdown only ever reaches the link Close finds
 			// current, so an unreleased predecessor is a leaked ClientConn.
 			h.releaseLink(link)
-			select {
-			case <-time.After(h.cfg.RedialBackoff):
-			case <-wake:
-			case <-h.ctx.Done():
+			lost.Reset(h.cfg.OwnerLossWindow)
+			if !backoff(wake) {
 				return
 			}
 		case <-h.ctx.Done():

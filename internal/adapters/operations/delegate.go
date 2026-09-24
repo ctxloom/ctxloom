@@ -86,9 +86,9 @@ const maxDirtyFilesListed = 10
 // `dirty_tree_handler` default, else "commit") and arrives here on the
 // CellRequest already decided.
 //
-// WHY THIS EXISTS AT ALL: worktree isolation runs `git worktree add --detach
-// <ref>` (isolation.NewWorktree, internal/adapters/isolation/worktree.go) — a
-// checkout of COMMITTED state only, HEAD and everything reachable from it. A
+// WHY THIS EXISTS AT ALL: worktree isolation checks out a fresh branch at a
+// ref (git.Git.WorktreeAdd, `git worktree add -b`) — a checkout of COMMITTED
+// state only, HEAD and everything reachable from it. A
 // coordinator that drafts a file and then hands the work to a delegated
 // child would otherwise get a child that silently runs against stale or
 // missing content: exit 0, a plausible transcript, wrong bytes. That is this

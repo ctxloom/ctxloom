@@ -265,9 +265,9 @@ func TestOciRuntimeEnumerate_ParsesPsOutput(t *testing.T) {
 
 // TestOciRuntimeEnumerate_PropagatesRunFailure: a probeExec failure (daemon
 // down, timeout) must surface as an error, not as an empty/successful list —
-// ReapOrphanedContainers' caller (SweepOrphanedContainers) treats a nil
-// result identically to "nothing to reap", so silently swallowing a real
-// failure here would look exactly like an all-clear sweep.
+// ReapOrphanedContainers treats a nil result identically to "nothing to
+// reap", so silently swallowing a real failure here would look exactly like
+// an all-clear sweep.
 func TestOciRuntimeEnumerate_PropagatesRunFailure(t *testing.T) {
 	orig := probeExec
 	t.Cleanup(func() { probeExec = orig })

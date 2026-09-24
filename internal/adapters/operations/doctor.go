@@ -156,6 +156,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckLocalTierState(cfg, req.Home),
 			doctorCheckGitignorePosture(cfg, cfgErr),
 			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
+			doctorCheckOrphanContainers(ctx, doctorRuntimes(), isolation.ReapOrphanedContainers),
 			doctorCheckLegacyIndex(),
 			doctorCheckHarpDurability(),
 			doctorCheckSpoolBacklog(),
@@ -233,7 +234,7 @@ func doctorCheckDeps(cfg *config.Config) DoctorCheck {
 	missingRequired := doctorMissingFromPath(doctorDepBinariesRequired)
 	missingRequired = append(missingRequired, doctorMissingEngineClients(cfg)...)
 	missingRecommended := doctorMissingFromPath(doctorDepBinariesRecommended)
-	if !(isolation.Docker{}.Available()) && !(isolation.Podman{}.Available()) {
+	if len(doctorRuntimes()) == 0 {
 		if doctorContainerRuntimeRequired(cfg) {
 			missingRequired = append(missingRequired,
 				"docker/podman (container runtime — this project runs container agents)")
@@ -256,6 +257,50 @@ func doctorCheckDeps(cfg *config.Config) DoctorCheck {
 		parts = append(parts, "missing (recommended, not required — ssh is what git itself needs for an ssh:// remote, ssh-keygen is only for generating a NEW signing key by hand; signing itself is pure Go and never execs either): "+strings.Join(missingRecommended, ", "))
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: strings.Join(parts, "; ")}
+}
+
+// doctorRuntimes is every OCI runtime available on this host — the one probe
+// doctor's runtime rows share. It is doctor's alone: a host run never asks,
+// because the first `podman info` a user ever runs creates rootless storage
+// under their home.
+func doctorRuntimes() []isolation.Runtime {
+	var out []isolation.Runtime
+	for _, rt := range []isolation.Runtime{isolation.Docker{}, isolation.Podman{}} {
+		if rt.Available() {
+			out = append(out, rt)
+		}
+	}
+	return out
+}
+
+// doctorCheckOrphanContainers is the MANUAL backstop for a runner container
+// that outlived its owner. A runner exits on its own once its coordinator has
+// been gone for the runner-loss grace (runner.Home.OwnerLost), and --rm then
+// removes its container, so nothing sweeps at startup; what is left for this
+// row is a runner WEDGED past that — still running, its owner confirmed dead.
+// It reaps those on every runtime present (reap's own rules decide, and skip
+// on any doubt) and warns when it found one, because a wedged runner is a
+// defect worth reporting, not routine tidying.
+func doctorCheckOrphanContainers(ctx context.Context, runtimes []isolation.Runtime, reap func(context.Context, isolation.Runtime) isolation.ContainerReapResult) DoctorCheck {
+	const marker = "DOCTOR-CHECK-ORPHAN-CONTAINERS-z2"
+	if len(runtimes) == 0 {
+		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no container runtime on this host; nothing to check"}
+	}
+	var reaped []string
+	var names []string
+	for _, rt := range runtimes {
+		names = append(names, rt.Name())
+		if r := reap(ctx, rt); r.Reaped > 0 {
+			reaped = append(reaped, fmt.Sprintf("%d %s", r.Reaped, rt.Name()))
+		}
+	}
+	if len(reaped) == 0 {
+		return DoctorCheck{Marker: marker, Status: DoctorOK,
+			Detail: "no runner container outlived its owner (" + strings.Join(names, ", ") + ")"}
+	}
+	return DoctorCheck{Marker: marker, Status: DoctorWarn,
+		Detail: "removed runner container(s) whose owner is dead: " + strings.Join(reaped, ", ") +
+			" — a runner exits on its own once its coordinator is gone, so each of these was wedged past that"}
 }
 
 // doctorMissingFromPath returns the subset of bins that does not resolve on

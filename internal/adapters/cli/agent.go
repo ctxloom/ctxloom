@@ -125,8 +125,8 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// "help" is a legal agent name; the courtesy shortcut fires only
 		// when there is no such agent (see runBundleShow).
-		if name == helpArgName {
-			return cmd.Help()
+		if shown, herr := helpFallback(cmd, name); shown {
+			return herr
 		}
 		return err
 	}
@@ -549,8 +549,8 @@ func runAgentDefault(cmd *cobra.Command, args []string) error {
 	// courtesy help request instead, so `ctxloom agent default help` does
 	// not quietly bind a default nobody asked for; a DEFINED one is bound.
 	if _, ok := cfg.Agent(name); !ok {
-		if name == helpArgName {
-			return cmd.Help()
+		if shown, herr := helpFallback(cmd, name); shown {
+			return herr
 		}
 		clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
 	}
@@ -618,8 +618,8 @@ func runAgentRemove(cmd *cobra.Command, args []string) error {
 	if !agentRemoveYes {
 		if _, ok := cfg.Agent(name); !ok {
 			// See runAgentShow: only an ABSENT "help" is the courtesy request.
-			if name == helpArgName {
-				return cmd.Help()
+			if shown, herr := helpFallback(cmd, name); shown {
+				return herr
 			}
 			return fmt.Errorf("agent %q is not defined", name)
 		}
@@ -632,8 +632,8 @@ func runAgentRemove(cmd *cobra.Command, args []string) error {
 
 	if err := operations.RemoveAgent(cmd.Context(), App(), name); err != nil {
 		// See runAgentShow: only an ABSENT "help" is the courtesy request.
-		if name == helpArgName {
-			return cmd.Help()
+		if shown, herr := helpFallback(cmd, name); shown {
+			return herr
 		}
 		return err
 	}

@@ -133,8 +133,8 @@ func runBundleEdit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// See runBundleShow: the courtesy shortcut only fires when nothing of
 		// that name exists, so a bundle named "help" stays editable.
-		if name == helpArgName {
-			return cmd.Help()
+		if shown, herr := helpFallback(cmd, name); shown {
+			return herr
 		}
 		return err
 	}

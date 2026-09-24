@@ -86,18 +86,6 @@ func TestResolveMountGap_MountLeavesWorkspaceContentAlone(t *testing.T) {
 	testsupport.Isolate(t)
 	ctx := context.Background()
 
-	// The hermetic container gate: a fake runtime script that reports the image
-	// present and provenance-current, a stubbed shared-fs probe, stubbed auth.
-	fake := t.TempDir()
-	script := filepath.Join(fake, "fake-docker")
-	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
-	writeFakeRuntimeScript(t, script, filepath.Join(fake, "builds.log"), fake, labels)
-	require.NoError(t, os.WriteFile(filepath.Join(fake, "ctxloom-agent-gap-test_latest"), nil, 0o644))
-
-	prevFS := sharedFSCheck
-	sharedFSCheck = func(context.Context, Runtime, string, []string) error { return nil }
-	t.Cleanup(func() { sharedFSCheck = prevFS })
-
 	// ".kept" exists WITH content: the overlay seeds FROM it, so it proves the
 	// mapping reads the tree without writing back to it. ".claude" is absent, so
 	// its mountpoint is one the mapping must create — the observable that says
@@ -109,20 +97,8 @@ func TestResolveMountGap_MountLeavesWorkspaceContentAlone(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(proj, "src", "deep", "main.go"), []byte("package main\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(proj, "run.sh"), []byte("#!/bin/sh\necho hi\n"), 0o755))
 
-	c := Container{
-		runtime: fakeRuntime{name: "docker", binary: script, available: true},
-		image:   "ctxloom-agent-gap-test:latest",
-		engineSpec: engineContainerSpec{
-			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func() (containerAuth, bool) {
-				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-			},
-			overlayDirs: []string{".kept", ".claude"},
-		},
-		binaryPath: defaultContainerBinary,
-		home:       defaultContainerHome,
-		base:       hostBase{},
-	}
+	c := hermeticHostContainer(t, []string{".kept", ".claude"})
+	c.state = SessionState{Harp: "brisk-teal-otter"}
 
 	// STEP 1 — resolution only.
 	ws, err := c.ResolveWorkspace(ctx, proj, "member-gap")

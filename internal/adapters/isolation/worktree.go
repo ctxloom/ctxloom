@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -508,33 +508,28 @@ func nestedUnder(list []git.Worktree, target string) []git.Worktree {
 }
 
 // scratchBase picks where this worktree's per-agent scratch (checkout +
-// config-home) lives: the session's ephemeral/ dir when the run carries a
-// harp — regenerable state belongs in the per-session layout, and cleanup of
-// the session dir sweeps it — else the OS temp dir (no session accounting, or
+// config-home) lives: the session's ephemeral/ dir (SessionState.ephemeralDir)
+// when the run carries a harp, else the OS temp dir (no session accounting, or
 // the ephemeral dir cannot be prepared). Best-effort like the rest of the
-// worktree half: a fallback warns and the run proceeds.
+// worktree half: a fallback warns and the run proceeds. The container half
+// shares the helper but refuses instead of falling back.
 func (w Worktree) scratchBase() string {
-	if !safePathSegment(w.state.Harp) {
-		// An EMPTY harp is the documented no-session-accounting construction
-		// and stays silent. A NON-empty harp that fails the validator is a
-		// rejected value on the same untrusted channel (an env map) the
-		// container path hard-errors on — reporting it is the least this side
-		// can do, since the fallback silently relocates every per-agent
-		// scratch resource out of the session layout the run claims to use.
-		if w.state.Harp != "" {
-			clidiag.WarnOnce("ctxloom", "worktree: session harp %q is not a safe path segment; per-agent scratch falls back to the OS temp dir instead of the session's ephemeral dir", w.state.Harp)
-		}
-		return os.TempDir()
-	}
-	dir, err := paths.HarpEphemeralDir(w.state.Harp)
-	if err == nil {
-		err = os.MkdirAll(dir, 0o755)
-	}
-	if err != nil {
+	dir, err := w.state.ephemeralDir()
+	switch {
+	case err == nil:
+		return dir
+	case errors.Is(err, errNoSessionHarp):
+		// The documented no-session-accounting construction: silent.
+	case errors.Is(err, errUnsafeSessionHarp):
+		// A rejected value on the same untrusted channel (an env map) the
+		// container path refuses on — reporting it is the least this side can
+		// do, since the fallback silently relocates every per-agent scratch
+		// resource out of the session layout the run claims to use.
+		clidiag.WarnOnce("ctxloom", "worktree: session harp %q is not a safe path segment; per-agent scratch falls back to the OS temp dir instead of the session's ephemeral dir", w.state.Harp)
+	default:
 		clidiag.Warn("ctxloom", "worktree: session ephemeral dir unavailable (%v); using the OS temp dir", err)
-		return os.TempDir()
 	}
-	return dir
+	return os.TempDir()
 }
 
 // worktreeScratchPath builds a unique, ctxloom-managed scratch path under base

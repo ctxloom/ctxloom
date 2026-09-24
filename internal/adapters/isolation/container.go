@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -703,7 +702,7 @@ func gitIdentityEnv(agentID string) []string {
 // prepareContainerScratch runs the container degrade gate — a launchable runtime,
 // the required image present (or locally buildable, see ensureImage), and
 // resolvable engine auth (the spec's resolver) — then provisions the host
-// scratch (temp root). Any gate failure returns an error so the
+// scratch root under the session's ephemeral dir. Any gate failure returns an error so the
 // caller degrades (the top-level run → None; a fan-out member → a bare worktree).
 // It is the shared front-half of BOTH the top-level Container workspace and the
 // worktree-in-container composition; each layers its own extra mounts (config
@@ -730,8 +729,17 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// config overlays, gitdir mirror) is prepared, so it can probe the ACTUAL
 	// mount set (see mountProbeRoots) instead.
 	//
-	// The host-side scratch root is the tree Cleanup removes.
-	root, err := os.MkdirTemp(platform.TempBase, "ctxloom-iso-")
+	// The host-side scratch root is the tree Cleanup removes. It lives under the
+	// session's ephemeral dir so an owner that dies before Cleanup leaves it
+	// where the session layout accounts for it, never in the OS temp dir. A run
+	// with no usable harp has nowhere to put it and is refused: the error
+	// becomes the caller's fatal ClassIsolation finding, like an unpreparable
+	// state dir below.
+	base, err := c.state.ephemeralDir()
+	if err != nil {
+		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
+	}
+	root, err := os.MkdirTemp(base, "ctxloom-iso-")
 	if err != nil {
 		// root is normally "" here (MkdirTemp itself failed) — defensive
 		// against a mutant flipping this check and discarding a dir MkdirTemp

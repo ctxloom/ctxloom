@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // captureStderr swaps os.Stderr for a pipe; the returned func restores it and
@@ -171,7 +172,9 @@ func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 	// mount roots) — this test drives prepareContainerScratch directly, so
 	// there is no probe gate left in this call path to stub around.
 
-	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img")
+	testsupport.Isolate(t)
+	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img").
+		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
 	c.engineSpec.resolveAuth = func() (containerAuth, bool) { return containerAuth{}, true }
 
 	mark := strictness.Checkpoint()

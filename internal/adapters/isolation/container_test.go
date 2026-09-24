@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
@@ -458,33 +459,9 @@ func TestContainerWorkspace_CleanupSurfacesBaseError(t *testing.T) {
 func TestContainer_CleanupKeepsOverlayTargets(t *testing.T) {
 	testsupport.Isolate(t)
 	ctx := context.Background()
-
-	fake := t.TempDir()
-	script := filepath.Join(fake, "fake-docker")
-	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
-	writeFakeRuntimeScript(t, script, filepath.Join(fake, "builds.log"), fake, labels)
-	require.NoError(t, os.WriteFile(filepath.Join(fake, "ctxloom-agent-keep-test_latest"), nil, 0o644))
-
-	prevFS := sharedFSCheck
-	sharedFSCheck = func(context.Context, Runtime, string, []string) error { return nil }
-	t.Cleanup(func() { sharedFSCheck = prevFS })
-
 	targets := []string{".claude", filepath.FromSlash(".ctxloom/cache")}
-	c := Container{
-		runtime: fakeRuntime{name: "docker", binary: script, available: true},
-		image:   "ctxloom-agent-keep-test:latest",
-		engineSpec: engineContainerSpec{
-			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func() (containerAuth, bool) {
-				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-			},
-			overlayDirs: targets,
-		},
-		binaryPath: defaultContainerBinary,
-		home:       defaultContainerHome,
-		base:       hostBase{},
-		state:      SessionState{Harp: "brisk-teal-otter"},
-	}
+	c := hermeticHostContainer(t, targets)
+	c.state = SessionState{Harp: "brisk-teal-otter"}
 
 	proj := t.TempDir()
 	first, err := c.PrepareWorkspace(ctx, proj, "member-first")
@@ -501,6 +478,112 @@ func TestContainer_CleanupKeepsOverlayTargets(t *testing.T) {
 	for _, rel := range targets {
 		assert.DirExists(t, filepath.Join(proj, rel),
 			"the first run's teardown must not remove a target the second run's overlay is still bound to")
+	}
+}
+
+// hermeticHostContainer is a host-base Container whose whole prepare gate runs
+// without a daemon: a fake runtime script that reports the image present and
+// provenance-current, stubbed auth, and a stubbed shared-fs probe. The caller
+// stamps the session state.
+func hermeticHostContainer(t *testing.T, overlayDirs []string) Container {
+	t.Helper()
+	fake := t.TempDir()
+	script := filepath.Join(fake, "fake-docker")
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
+	writeFakeRuntimeScript(t, script, filepath.Join(fake, "builds.log"), fake, labels)
+	require.NoError(t, os.WriteFile(filepath.Join(fake, "ctxloom-agent-hermetic-test_latest"), nil, 0o644))
+
+	prevFS := sharedFSCheck
+	sharedFSCheck = func(context.Context, Runtime, string, []string) error { return nil }
+	t.Cleanup(func() { sharedFSCheck = prevFS })
+
+	return Container{
+		runtime: fakeRuntime{name: "docker", binary: script, available: true},
+		image:   "ctxloom-agent-hermetic-test:latest",
+		engineSpec: engineContainerSpec{
+			engineInstall: []byte("RUN echo fake-install\n"),
+			resolveAuth: func() (containerAuth, bool) {
+				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
+			},
+			overlayDirs: overlayDirs,
+		},
+		binaryPath: defaultContainerBinary,
+		home:       defaultContainerHome,
+		base:       hostBase{},
+	}
+}
+
+// TestContainer_ScratchLivesUnderTheSessionEphemeralDir pins where a container
+// run's host scratch goes: under the session's ephemeral dir, never the OS temp
+// dir. An owner that dies before Cleanup then leaves it inside the session
+// layout, where the session's own cleanup reaches it, instead of an orphaned
+// ctxloom-iso-* in the temp dir that nothing ever collects.
+func TestContainer_ScratchLivesUnderTheSessionEphemeralDir(t *testing.T) {
+	testsupport.Isolate(t)
+	const harp = "brisk-teal-otter"
+	c := hermeticHostContainer(t, []string{".claude"})
+	c.state = SessionState{Harp: harp}
+
+	ws, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "member-scratch")
+	require.NoError(t, err)
+	cw := ws.(*containerWorkspace)
+	root := cw.scratchRoot
+
+	eph, err := paths.HarpEphemeralDir(harp)
+	require.NoError(t, err)
+	assert.Equal(t, eph, filepath.Dir(root), "the scratch root is a direct child of the session's ephemeral dir")
+	assert.True(t, strings.HasPrefix(filepath.Base(root), "ctxloom-iso-"), "scratch root %q keeps its name prefix", root)
+	require.DirExists(t, root)
+
+	require.NoError(t, ws.Cleanup())
+	assert.NoDirExists(t, root, "Cleanup still removes the scratch root")
+}
+
+// TestContainer_HarplessRunIsRefused: a container run with no usable harp has
+// nowhere in the session layout to put its scratch, and is refused rather than
+// falling back to the OS temp dir. Through the degrade chain the refusal is the
+// fatal ClassIsolation finding, the same way an unpreparable state dir fails.
+func TestContainer_HarplessRunIsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		harp string
+		want error
+	}{
+		"no harp":     {"", errNoSessionHarp},
+		"unsafe harp": {"../evil", errUnsafeSessionHarp},
+	} {
+		t.Run(name, func(t *testing.T) {
+			testsupport.Isolate(t)
+			resetStrictness(t)
+			c := hermeticHostContainer(t, []string{".claude"})
+			c.state = SessionState{Harp: tc.harp}
+			proj := t.TempDir()
+
+			ws, err := c.ResolveWorkspace(context.Background(), proj, "member-harpless")
+			require.ErrorIs(t, err, tc.want)
+			assert.Nil(t, ws)
+
+			mark := strictness.Checkpoint()
+			done := captureStderr(t)
+			policy, fallback := prepareChain(context.Background(), []Policy{c, None{}}, RuntimeContainerRootless, proj, "member-harpless")
+			_ = done()
+			found := strictness.Since(mark)
+			strictness.Close(mark)
+			t.Cleanup(func() { _ = fallback.Cleanup() })
+
+			assert.Equal(t, None{}.Name(), policy.Name(), "the chain walks past the refused container")
+			// The hermetic gate records findings of its own (the fake image has
+			// no engine recipe and no ctxloom entrypoint); the one under test is
+			// the one naming the harp refusal.
+			var refusals []strictness.Finding
+			for _, f := range found {
+				if strings.Contains(f.Message, tc.want.Error()) {
+					refusals = append(refusals, f)
+				}
+			}
+			require.Len(t, refusals, 1, "the refusal is a recorded finding, never a silent host run: %v", found)
+			assert.Equal(t, strictness.ClassIsolation, refusals[0].Class)
+			assert.True(t, refusals[0].NonDegradable, "a requested container boundary is refused in both modes")
+		})
 	}
 }
 

@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,6 +58,36 @@ const (
 // becomes both a host path and a bind-mount source.
 func safePathSegment(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\")
+}
+
+// errNoSessionHarp and errUnsafeSessionHarp are ephemeralDir's two refusals of
+// the harp itself, told apart from a failure to prepare the dir: the worktree
+// half stays silent on the first, warns on the second, and falls back to the
+// OS temp dir on either, while the container half refuses the run on both.
+var (
+	errNoSessionHarp     = errors.New("the run carries no session harp")
+	errUnsafeSessionHarp = errors.New("session harp is not a safe path segment")
+)
+
+// ephemeralDir resolves and creates the session's ephemeral/ dir
+// (paths.HarpEphemeralDir) — where every per-run scratch a workspace makes
+// lives, so the session layout accounts for it and cleanup of the session dir
+// sweeps whatever an owner that died left behind.
+func (s SessionState) ephemeralDir() (string, error) {
+	if s.Harp == "" {
+		return "", errNoSessionHarp
+	}
+	if !safePathSegment(s.Harp) {
+		return "", fmt.Errorf("%w: %q", errUnsafeSessionHarp, s.Harp)
+	}
+	dir, err := paths.HarpEphemeralDir(s.Harp)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // sessionStateMounts builds the scoped read-write state mounts that keep a

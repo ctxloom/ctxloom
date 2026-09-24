@@ -15,7 +15,3 @@ const LoginShell = loginShell
 // LinuxHost reports that the host kernel is Linux: a container shares it, so
 // the running binary can serve as the in-container one.
 const LinuxHost = linuxHost
-
-// TempBase is the parent directory for a container run's host-side scratch
-// tree. Empty means os.TempDir.
-const TempBase = tempBase

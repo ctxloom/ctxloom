@@ -32,6 +32,13 @@ const After = 3 * time.Second
 // behind. Exported so a test asserts on the record, not on scraped text.
 const LogWaitExceeded = "lock_wait_exceeded"
 
+// waitNotice is the stderr line a wait past After prints. The label is part
+// of it: "something is stuck" is not actionable, "stuck on THIS thing" names
+// what to look for.
+func waitNotice(label string) string {
+	return "still waiting for lock on " + label
+}
+
 // Watch starts a watchdog goroutine that reports the wait if the operation
 // it guards has not finished within After: "still waiting for lock on
 // <label>" on stderr for whoever is watching the terminal, and a
@@ -53,7 +60,7 @@ func Watch(label string) (stop func()) {
 		select {
 		case <-settled:
 		case <-timer.C:
-			fmt.Fprintf(os.Stderr, "still waiting for lock on %s\n", label)
+			fmt.Fprintln(os.Stderr, waitNotice(label))
 			zap.L().Warn(LogWaitExceeded, zap.String("path", label))
 		}
 	}()

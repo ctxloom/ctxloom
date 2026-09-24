@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"os"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
@@ -21,15 +20,10 @@ import (
 // running the parent side of TestWatch_ReportsAWaitItCannotEnd.
 const waitHelperEnv = "CTXLOOM_LOCKWAIT_WAIT_HELPER"
 
-// waitNotice is the substring an operator has to see. The label is part of
-// it: "something is stuck" is not actionable, "stuck on THIS thing" names
-// what to look for.
-const waitNotice = "still waiting for lock on "
-
-// TestWatch_ReportsAWaitItCannotEnd carries forward filelock's
-// waitnotice_test.go contract (the package this replaced): a caller blocked
-// on something that never completes must say so, on real stderr, in a place
-// an operator is looking, while it waits.
+// TestWatch_ReportsAWaitItCannotEnd: a caller blocked on something that
+// never completes must say so, on real stderr, in a place an operator is
+// looking, while it waits. The line is compared whole, not by substring, so a
+// notice that drops or mangles the label fails.
 //
 // Two processes, not two goroutines: an in-process test could observe a
 // notice written by anything, whereas a child that inherits nothing but a
@@ -64,19 +58,19 @@ func TestWatch_ReportsAWaitItCannotEnd(t *testing.T) {
 		}
 	}()
 
-	want := waitNotice + "the child's forever-blocked call"
+	want := lockwait.WaitNotice("the child's forever-blocked call")
 	deadline := time.After(30 * time.Second)
 	for {
 		select {
 		case line, ok := <-lines:
 			if !ok {
-				t.Fatalf("the blocked child stopped writing without ever reporting the wait; wanted a line containing %q", want)
+				t.Fatalf("the blocked child stopped writing without ever reporting the wait; wanted the line %q", want)
 			}
-			if strings.Contains(line, want) {
+			if line == want {
 				return
 			}
 		case <-deadline:
-			t.Fatalf("a process blocked for 30s on a watched call never said so: no line containing %q on its stderr", want)
+			t.Fatalf("a process blocked for 30s on a watched call never said so: no line %q on its stderr", want)
 		}
 	}
 }

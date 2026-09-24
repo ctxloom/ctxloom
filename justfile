@@ -916,6 +916,46 @@ test-acceptance-container: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
+# The pre-merge gate: every leg, in order, and a failing leg does not stop
+# the ones after it, so one run shows every result rather than the first red.
+# It exits non-zero if ANY leg failed.
+#
+# test-docker-integration is a REQUIRED leg, run with CTXLOOM_REQUIRE_DOCKER=1
+# so an unreachable daemon fails it rather than letting it self-skip green:
+# it is in no other gate anyone runs, and it went red unseen four times
+# (sedate-reggae).
+#
+#   just merge-gate                 # logs to a fresh tmp dir, printed first
+#   just merge-gate /path/to/logs   # one <leg>.log per leg
+merge-gate LOGDIR="":
+    #!/usr/bin/env bash
+    # No `set -e`: a failing leg must not end the run.
+    set -uo pipefail
+    logdir="${1:-}"
+    if [ -z "$logdir" ]; then
+        logdir="$(mktemp -d "${TMPDIR:-/tmp}/ctxloom-merge-gate.XXXXXX")"
+    fi
+    mkdir -p "$logdir"
+    echo "merge-gate: logs in $logdir"
+    legs=(build lint lint-arch gen-docs-check build-cross test-arch test test-integration test-docker-integration test-acceptance)
+    failed=()
+    for leg in "${legs[@]}"; do
+        start=$(date +%s)
+        if [ "$leg" = test-docker-integration ]; then
+            CTXLOOM_REQUIRE_DOCKER=1 "{{just_executable()}}" --justfile "{{justfile()}}" "$leg" > "$logdir/$leg.log" 2>&1
+        else
+            "{{just_executable()}}" --justfile "{{justfile()}}" "$leg" > "$logdir/$leg.log" 2>&1
+        fi
+        rc=$?
+        printf 'merge-gate: %-24s exit %-3d %5ss  %s\n' "$leg" "$rc" "$(( $(date +%s) - start ))" "$logdir/$leg.log"
+        [ "$rc" -eq 0 ] || failed+=("$leg")
+    done
+    if [ "${#failed[@]}" -ne 0 ]; then
+        echo "merge-gate: FAILED legs: ${failed[*]}"
+        exit 1
+    fi
+    echo "merge-gate: every leg passed"
+
 # test-docker-integration lives in build/gates.justfile, imported at the top
 # of this file and by justfile.container, so the host recipe and the one CI
 # runs are the SAME recipe over the SAME package list; that list is where its

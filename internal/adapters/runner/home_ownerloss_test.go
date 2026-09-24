@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -168,11 +169,11 @@ func TestMain_OwnerLossWindowOverride(t *testing.T) {
 			} else {
 				t.Setenv(sessions.EnvRunnerOwnerLossWindow, "")
 			}
-			var found report.Findings
+			var sink lockedFindings
 			env := &mainEnv{vars: reachEnv("http://127.0.0.1:1/mcp", "t", "run-1")}
 			got := make(chan time.Duration, 1)
 			deps := mainDeps(env, func(_ *EngineHost, h *Home) (Deps, error) { got <- h.cfg.OwnerLossWindow; return Deps{}, nil })
-			deps.Reporter = &found
+			deps.Reporter = &sink
 			ctx, cancel := context.WithCancel(context.Background())
 			done := make(chan error, 1)
 			go func() { done <- Main(ctx, deps) }()
@@ -180,6 +181,7 @@ func TestMain_OwnerLossWindowOverride(t *testing.T) {
 			cancel()
 			require.NoError(t, <-done)
 			var warned bool
+			found := sink.all()
 			for _, f := range found {
 				if strings.Contains(f.Text, sessions.EnvRunnerOwnerLossWindow) {
 					warned = true
@@ -274,4 +276,23 @@ func TestDeliverNotice_NoWakeOrNudgeWhileTheOwnerIsAway(t *testing.T) {
 
 	h.setOwnerPresent(true)
 	require.Equal(t, int32(1), nudges.Load(), "the owner's return fires for the mail that waited")
+}
+
+// lockedFindings is a Sink a running Home may report into from several
+// goroutines at once; report.Findings is for a synchronous caller and races.
+type lockedFindings struct {
+	mu sync.Mutex
+	fs report.Findings
+}
+
+func (l *lockedFindings) Report(f report.Finding) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.fs = append(l.fs, f)
+}
+
+func (l *lockedFindings) all() report.Findings {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append(report.Findings(nil), l.fs...)
 }

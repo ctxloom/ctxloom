@@ -13,11 +13,12 @@ import (
 
 // renderJSON marshals v directly via encoding/json, which is the canonical
 // implementation of the json: tag convention (naming, "-", omitempty,
-// embedding) — no need to reinvent it.
+// embedding) — no need to reinvent it. Nil slices are emptied first (see
+// emptyNilSlices) so a list is always `[]`, never `null`.
 func renderJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(v)
+	return enc.Encode(emptyNilSlices(v))
 }
 
 // toGeneric round-trips v through encoding/json into a generic
@@ -26,9 +27,10 @@ func renderJSON(w io.Writer, v any) error {
 // omitempty) without depending on gopkg.in/yaml.v3 or go-toml/v2's own
 // struct tags, which are "yaml:"/"toml:" and know nothing about json:"-".
 // json.Number results are normalized back to int64/float64 so downstream
-// encoders emit bare numbers instead of quoted strings.
+// encoders emit bare numbers instead of quoted strings. Nil slices are
+// emptied first, exactly as renderJSON does, so yaml/toml agree with json.
 func toGeneric(v any) (any, error) {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(emptyNilSlices(v))
 	if err != nil {
 		return nil, fmt.Errorf("clifmt: marshaling %T to derive field identity: %w", v, err)
 	}

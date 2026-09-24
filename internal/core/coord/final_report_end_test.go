@@ -452,3 +452,55 @@ func TestFinalReport_FiledWhileStillLaunchingEndsAtTheFirstBoundary(t *testing.T
 	assert.Equal(t, CauseFinalReported, runCause(c, out.RunID))
 	assert.Contains(t, runTerminalDetail(c, out.RunID), "at its turn boundary")
 }
+
+// TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun forces the
+// run-identity case: a FINAL attributed to a run that has ALREADY ENDED arrives
+// after the same harp has been resumed as a fresh run. Nothing upstream stops
+// that delivery — the run channel's receive loop hands every frame it has
+// already read to HandleEvent without asking whether the channel is still the
+// harp's current one, and the agent_report verb authenticates its credential
+// once, before the call runs, not at the moment it journals. So the end must be
+// keyed to the run that FILED the report: that run's contract is what FINAL
+// completes, and a harp's later run has filed nothing.
+//
+// The negative half reads the final_report_end audit, which endOnFinalReport
+// writes synchronously before it starts a drain, so it is decided when
+// recordSummary returns — not a window the drain might outrun. The positive
+// half is what stops "never end anything" passing: the resumed run's OWN
+// FINAL still ends it.
+func TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun(t *testing.T) {
+	resetStrictness(t)
+	sp := startRunSpawner(nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
+	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: done"))
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
+
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
+	require.NoError(t, err)
+	awaitCtx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp))
+	resumed := currentRunID(c, out.Harp)
+	require.NotEqual(t, out.RunID, resumed, "the fixture must be a NEW run of the same harp")
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond,
+		"the resumed run must be live and between turns before the late report lands")
+
+	// A later event from the ENDED run — it was in flight when that run ended.
+	c.recordSummary(out.Harp, out.RunID, 2, finalSummary("FINAL: late, from the run that already ended"))
+
+	for _, e := range readAuditKind(t, c, "final_report_end") {
+		assert.NotEqual(t, resumed, e.Detail["run_id"],
+			"a FINAL filed by an ended run must not end the harp's resumed run: that run filed nothing")
+	}
+	assert.NotEqual(t, StateEnded, rosterState(c, out.Harp))
+	assert.Equal(t, resumed, currentRunID(c, out.Harp))
+
+	c.recordSummary(out.Harp, resumed, 1, finalSummary("FINAL: the resumed run's own"))
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
+		"the resumed run's OWN FINAL must still end it")
+	assert.Equal(t, CauseFinalReported, runCause(c, resumed))
+}

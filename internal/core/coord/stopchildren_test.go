@@ -354,3 +354,38 @@ func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 	assert.Equal(t, CauseRunnerExit, currentRunCause(c, harp))
 	assert.Positive(t, c.pendingCount(harp), "its mail is preserved for whoever runs next, not consumed")
 }
+
+// TestStopChildren_BoundaryRacingTheRequestStillEndsTheRun is the bulk-stop
+// copy of TestFinalReport_BoundaryRacingTheRequestStillEndsTheRun: the sweep
+// shares runDrain, so it shares the ordering that test forces — the drain reads
+// the child as EXECUTING, the turn boundary lands before the exit mark, and the
+// child parks idle with no later boundary to take the mark. A wait loop that
+// counts that idle child as running holds the sweep for the whole drain bound,
+// which is set far past the test here so that wait fails it.
+func TestStopChildren_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+	c.drainBound = time.Minute
+	c.drainRequestHook = func(runID string) {
+		close(gate)
+		deadline := time.Now().Add(conformanceWait)
+		for c.runState(runID) != StateIdle && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	stopped, err := c.StopChildren(ctx, ownerIdentity(), "done with this batch")
+	require.NoError(t, err, "a child whose boundary beat the exit mark must be ended, not held idle for the drain bound")
+	require.Len(t, stopped, 1)
+	assert.Equal(t, StopOutcomeStopped, stopped[0].Outcome)
+	assert.Equal(t, StateEnded, rosterState(c, out.Harp))
+	assert.Equal(t, CauseStopped, runCause(c, out.RunID))
+}

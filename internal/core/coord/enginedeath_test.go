@@ -70,6 +70,8 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	seq := ch.ackSeq + 1
 	c.mu.Unlock()
 	require.NotNil(t, ch)
+	// FORCED: the live Home's harness-session event lands at the seq just read.
+	c.HandleEvent(ch, Event{RunID: out.RunID, Seq: seq, Payload: CustomEvent{Name: CustomHarnessSession, Value: map[string]any{"session_id": "native-sess-42"}}})
 	c.HandleEvent(ch, Event{
 		RunID:   out.RunID,
 		Seq:     seq,

@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
+	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -91,9 +92,20 @@ func reportExecuteError(w io.Writer, root *cobra.Command, err error) {
 }
 
 func main() {
+	// Before anything can log, so a stalled lock wait leaves a record on disk.
+	// The sink is lazy: ltk runs before every agent shell command, and a run
+	// that logs nothing must write nothing. Not verbose: a stderr tee on a hook
+	// is exactly the output the sink exists to keep off that surface.
+	flush := logboot.Install("ltk", false)
+
 	root := newRootCmd()
-	if err := root.Execute(); err != nil {
+	err := root.Execute()
+	if err != nil {
 		reportExecuteError(os.Stderr, root, err)
+	}
+	// Flushed as a plain statement before the exit; see logboot.Install.
+	flush()
+	if err != nil {
 		os.Exit(1)
 	}
 }

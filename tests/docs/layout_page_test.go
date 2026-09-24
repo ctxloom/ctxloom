@@ -139,14 +139,14 @@ func declaredProjectPaths() []string {
 //     diverge" note on tasks/paths.IndexFileName for the same boundary drawn
 //     the other way. Referenced via the constants, not a hand-rolled literal,
 //     so a rename there cannot silently desync this allowlist.
-//   - `~/.ctxloom/logs/ctxloom.log` (paths.HomeLogFilePath) is diagnostic
-//     output every ctxloom process writes at startup, not state whose absence
+//   - `~/.ctxloom/logs/` (paths.HomeLogsDir) holds each binary's structured
+//     log (paths.HomeLogFilePath) — diagnostic output, not state whose absence
 //     doctor's local-tier check would ever report — see Presence's doc in
 //     internal/core/paths for why it has no Layout row at all.
 func declaredHomePaths() []string {
 	out := []string{
 		filepath.ToSlash(filepath.Join(tasksp.AppDirName, tasksp.TasksDir)),
-		filepath.ToSlash(filepath.Join(paths.AppDirName, paths.LogsDir, paths.LogFileName)),
+		filepath.ToSlash(filepath.Join(paths.AppDirName, paths.LogsDir)),
 	}
 	for _, e := range paths.Layout() {
 		if e.Root != paths.RootHome {

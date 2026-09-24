@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,14 +17,15 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 )
 
 // stalledLockEnv, present, tells a re-executed test binary to be the stalled
-// process of TestRunCLI_AStalledLockWaitIsInTheLogFileAfterTheProcessExits;
+// process of TestInstall_AStalledLockWaitIsInTheLogFileAfterTheProcessExits;
 // its value is the lock path to block on.
 const stalledLockEnv = "CTXLOOM_DURABLETRACE_STALLED_LOCK"
 
-// TestRunCLI_AStalledLockWaitIsInTheLogFileAfterTheProcessExits proves the
+// TestInstall_AStalledLockWaitIsInTheLogFileAfterTheProcessExits proves the
 // durable leg end to end: a ctxloom process whose lock wait outruns
 // lockwait.After leaves a LogWaitExceeded record in ~/.ctxloom/logs/ctxloom.log
 // that is still there, readable, once that process is gone. The in-package
@@ -34,16 +34,17 @@ const stalledLockEnv = "CTXLOOM_DURABLETRACE_STALLED_LOCK"
 // channel an operator reads after an unwatched stall.
 //
 // Two processes because "after the emitting process has exited" is the claim:
-// the child runs main's own runCLI + loggerConstructor, stalls on a real flock
+// the child installs the logger main installs (logboot.Install), stalls on a real flock
 // the parent holds, and exits; the parent reads the file only after that.
-func TestRunCLI_AStalledLockWaitIsInTheLogFileAfterTheProcessExits(t *testing.T) {
+func TestInstall_AStalledLockWaitIsInTheLogFileAfterTheProcessExits(t *testing.T) {
 	if lockPath := os.Getenv(stalledLockEnv); lockPath != "" {
-		os.Exit(runCLI(loggerConstructor(false), func() int {
-			if err := filelock.WithLock(afero.NewOsFs(), lockPath, func() error { return nil }); err != nil {
-				return 2
-			}
-			return 0
-		}, io.Discard))
+		flush := logboot.Install("ctxloom", false)
+		code := 0
+		if err := filelock.WithLock(afero.NewOsFs(), lockPath, func() error { return nil }); err != nil {
+			code = 2
+		}
+		flush()
+		os.Exit(code)
 	}
 
 	logPath := logHome(t)
@@ -67,7 +68,7 @@ func TestRunCLI_AStalledLockWaitIsInTheLogFileAfterTheProcessExits(t *testing.T)
 	}
 	defer releaseOnce()
 
-	child := exec.Command(os.Args[0], "-test.run=^TestRunCLI_AStalledLockWaitIsInTheLogFileAfterTheProcessExits$", "-test.timeout=120s")
+	child := exec.Command(os.Args[0], "-test.run=^TestInstall_AStalledLockWaitIsInTheLogFileAfterTheProcessExits$", "-test.timeout=120s")
 	child.Env = append(os.Environ(), stalledLockEnv+"="+lockPath)
 	require.NoError(t, child.Start())
 

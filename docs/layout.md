@@ -135,8 +135,9 @@ above: `~/.ctxloom/tasks/` is taskloom's own per-project task-log store
 (`internal/shared/tasks/paths.HomeTasksDir`) — a sibling vocabulary that
 shares the `.ctxloom` dot-dir without folding into `internal/core/paths`, the same
 boundary [architecture/core/paths.md](architecture/core/paths.md) draws for
-`IndexFileName` — and `~/.ctxloom/logs/ctxloom.log` is the structured log
-every ctxloom process writes at startup: diagnostic output, not state whose
+`IndexFileName` — and `~/.ctxloom/logs/` holds each binary's structured log
+(`ctxloom.log` for ctxloom, `<binary>.log` for each companion), created only
+once that binary has something to record: diagnostic output, not state whose
 absence is ever worth a doctor warning.
 
 ## Engine homes: your real home, and the per-session instance

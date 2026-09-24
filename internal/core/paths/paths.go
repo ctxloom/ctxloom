@@ -199,13 +199,6 @@ const (
 	// and for commands (hooks, `mcp`, `acp`) that may have no project at all.
 	LogsDir = "logs"
 
-	// LogFileName is the file every ctxloom process appends its structured log
-	// to. One file for all of them: the entries carry the caller, and a reader
-	// diagnosing "what did ctxloom do when my editor started" wants the hook,
-	// the MCP server and the CLI interleaved in one timeline, not scattered
-	// across per-command files they would have to merge by hand.
-	LogFileName = "ctxloom.log"
-
 	// IndexFileName is the name the RETIRED global session index was kept
 	// under at the sessions root. Nothing reads or writes it any more; it is
 	// named so the walkers over the sessions root know the file for what it
@@ -465,14 +458,19 @@ func HomeSessionsDir() (string, error) {
 
 // HomeLogsDir returns ~/.ctxloom/logs — where every ctxloom process writes its
 // structured log. A pure path join like its neighbours here: the caller decides
-// whether to create the directory (cmd/ctxloom does, at logger construction).
+// whether to create the directory (logsink.Open does, on the first write).
 func HomeLogsDir() (string, error) {
 	return homeUnder(whatHomeLogs, LogsDir)
 }
 
-// HomeLogFilePath returns ~/.ctxloom/logs/ctxloom.log — the STRUCTURED
-// logger's sink. Deliberately NOT stderr: for hooks and the statusline command,
-// stderr is a protocol surface the calling engine renders (Claude Code displays
+// HomeLogFilePath returns ~/.ctxloom/logs/<prog>.log — the STRUCTURED
+// logger's sink for the binary named prog. One file per binary, not one for
+// the family: every ctxloom subcommand shares ctxloom.log (the entries carry the
+// caller, so a hook, the MCP server and the CLI read as one timeline), while
+// each companion binary keeps its own, so its record is found under its name.
+//
+// Deliberately NOT stderr: for hooks and the statusline command, stderr is a
+// protocol surface the calling engine renders (Claude Code displays
 // SessionStart hook stderr as an error, and statusline stderr lands on the
 // terminal outside the alt-screen, destroying scrollback), so warn-level zap
 // JSON there corrupts the user's session rather than informing anyone.
@@ -481,12 +479,12 @@ func HomeLogsDir() (string, error) {
 // on stderr for every command, hooks included: those are written FOR a person
 // and say what to do about the problem, and a hook that did nothing must still
 // be able to say so out loud rather than swallow it.
-func HomeLogFilePath() (string, error) {
+func HomeLogFilePath(prog string) (string, error) {
 	dir, err := HomeLogsDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, LogFileName), nil
+	return filepath.Join(dir, prog+".log"), nil
 }
 
 // HarpSidecarPath returns ~/.ctxloom/sessions/<harp>/session.yaml — the

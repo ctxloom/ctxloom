@@ -222,3 +222,56 @@ func (wedgedOwner) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb.Ru
 	<-stream.Context().Done()
 	return stream.Context().Err()
 }
+
+// TestHome_ATurnBlockedOnTheCoordinatorIsWaiting: a turn in progress pauses
+// the owner-loss clock only while it makes progress. Blocked on a
+// coordinator-bound request (Home.Request, which waits up to
+// coord.DefaultRequestTimeout and is reissued on reconnect) it is waiting on
+// its owner, and the clock runs.
+func TestHome_ATurnBlockedOnTheCoordinatorIsWaiting(t *testing.T) {
+	const window = 300 * time.Millisecond
+	owner := &ownerServer{}
+	owner.serve(t)
+	h := ownerLossHome(t, owner.url(), window)
+	require.Eventually(t, func() bool { return owner.hellos.Load() == 1 }, conformanceWait, 5*time.Millisecond)
+	h.setTurning(true)
+	owner.srv.Stop()
+
+	// Progress: the clock is paused.
+	select {
+	case <-h.OwnerLost():
+		t.Fatal("a turn making progress was cut off")
+	case <-time.After(3 * window):
+	}
+
+	blocked := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	go func() {
+		_, _ = h.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_ListRuns{ListRuns: &agentcoordpb.ListRunsRequest{}}})
+	}()
+	select {
+	case <-h.OwnerLost():
+		require.GreaterOrEqual(t, time.Since(blocked), window, "the clock starts when the turn blocks on its owner")
+	case <-time.After(conformanceWait):
+		t.Fatal("a turn blocked on a coordinator request never counted as waiting")
+	}
+}
+
+// TestDeliverNotice_NoWakeOrNudgeWhileTheOwnerIsAway: the session owner's
+// engine takes mail through a wake or a terminal nudge — each starts a turn.
+// With the owner away neither fires; mail buffers, and the owner's return
+// fires once for what waited.
+func TestDeliverNotice_NoWakeOrNudgeWhileTheOwnerIsAway(t *testing.T) {
+	h := newNoticeHome(t)
+	h.ownerUp, h.present = false, make(chan struct{})
+	var nudges atomic.Int32
+	h.SetTerminalNudge(func() { nudges.Add(1) })
+
+	h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-away"})
+	require.Zero(t, nudges.Load(), "no nudge — no new turn — while the owner is away")
+	require.Equal(t, 1, h.BufferedMailCount())
+
+	h.setOwnerPresent(true)
+	require.Equal(t, int32(1), nudges.Load(), "the owner's return fires for the mail that waited")
+}

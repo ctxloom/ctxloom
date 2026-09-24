@@ -17,10 +17,9 @@ var writeDisciplineScopes = []string{"internal", "cmd"}
 // writeDisciplineExemptDirs are the packages that ARE the write library, and
 // so are structurally exempt: they are not a second copy of iox, they are
 // the thing this rule protects. The lock primitive is github.com/gofrs/flock,
-// a third-party module rather than an in-tree package, so unlike its
-// predecessor (internal/shared/filelock, deleted — every lock call site
-// calls flock.New directly per internal/core/agent/rendezvous.go's idiom)
-// there is nothing beside iox left to name here.
+// a third-party module; internal/shared/filelock wraps it (creating only the
+// lock file and its directory) and is not a write library, so iox is the
+// only in-tree write library to name here.
 var writeDisciplineExemptDirs = []string{
 	"internal/shared/iox",
 }

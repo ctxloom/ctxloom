@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
@@ -23,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -225,6 +227,86 @@ func TestLoadTreeBundle_FileAddedAfterSigningIsWithheld(t *testing.T) {
 	_, _, err = readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, bundles.ErrTreeBundleWithheld)
+}
+
+// withheldFinding runs the startup report over one withheld read and returns
+// the single finding it raised — the fix line is what the user is told to do.
+func withheldFinding(t *testing.T, err error) strictness.Finding {
+	t.Helper()
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	reportBundleLoadFailures(map[string]error{treeCanonical: err})
+	found := strictness.Since(mark)
+	require.Len(t, found, 1)
+	return found[0]
+}
+
+// rewriteManifestMarker replaces the first line of the installed tree's signed
+// SHA256SUMS, leaving its signature exactly as the publisher filed it.
+func rewriteManifestMarker(t *testing.T, fsys afero.Fs, marker string) {
+	t.Helper()
+	dir, err := treeBundleDir(treeBase, treeCanonical)
+	require.NoError(t, err)
+	p := filepath.Join(dir, content.ManifestPath)
+	raw, err := afero.ReadFile(fsys, p)
+	require.NoError(t, err)
+	_, rest, ok := strings.Cut(string(raw), "\n")
+	require.True(t, ok)
+	testsupport.WriteFile(t, fsys, p, []byte(marker+"\n"+rest), 0o644)
+}
+
+// A pin at a commit its publisher signed in the RETIRED format (a content
+// digest where a bundle manifest is required) is withheld exactly as before —
+// but a re-pull fetches the same commit, so the fix line must name the command
+// that moves the pin to the publisher's re-signed commit.
+func TestLoadTreeBundle_SupersededManifestFormatIsWithheldAndPointsAtUpgrade(t *testing.T) {
+	ctx := context.Background()
+	c, store, tree, fsys := stageInstalledTree(t)
+	signer, pub := treeTestSigner(t)
+	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
+	rewriteManifestMarker(t, fsys, content.DigestVersionMarker)
+
+	_, _, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, bundles.ErrTreeBundleWithheld, "what is withheld does not change")
+	assert.ErrorIs(t, err, content.ErrManifestSuperseded, "the withhold carries its cause, typed")
+
+	f := withheldFinding(t, err)
+	assert.Equal(t, strictness.ClassTrust, f.Class)
+	assert.Equal(t, remedyWithheldSuperseded, f.FixIt)
+}
+
+// Every OTHER withheld cause keeps the tamper remedy: bytes edited after
+// signing, and a manifest marker this build does not know — the latter is a
+// NEWER format, which advancing the pin would only make more of.
+func TestLoadTreeBundle_OtherWithheldCausesKeepTheTamperRemedy(t *testing.T) {
+	cases := map[string]func(t *testing.T, fsys afero.Fs){
+		"file edited after signing": func(t *testing.T, fsys afero.Fs) {
+			dir, err := treeBundleDir(treeBase, treeCanonical)
+			require.NoError(t, err)
+			testsupport.WriteFile(t, fsys, filepath.Join(dir, "fragments", "house-style.md"), []byte("SUBSTITUTED"), 0o644)
+		},
+		"unknown manifest marker": func(t *testing.T, fsys afero.Fs) {
+			rewriteManifestMarker(t, fsys, "# ctxloom-bundle-manifest/99")
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			c, store, tree, fsys := stageInstalledTree(t)
+			signer, pub := treeTestSigner(t)
+			require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
+			mutate(t, fsys)
+
+			_, _, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+			require.ErrorIs(t, err, bundles.ErrTreeBundleWithheld)
+			assert.NotErrorIs(t, err, content.ErrManifestSuperseded)
+
+			f := withheldFinding(t, err)
+			assert.Equal(t, strictness.ClassTrust, f.Class)
+			assert.Equal(t, remedyWithheldTampered, f.FixIt)
+		})
+	}
 }
 
 // A lockfile that records a tree which is not on disk must say THAT, not

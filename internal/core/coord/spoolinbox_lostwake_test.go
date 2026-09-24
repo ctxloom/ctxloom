@@ -102,3 +102,34 @@ func TestSpoolInboxRetire_PreemptedAfterANewerAckConsumedItsClaimStillDelivers(t
 	require.Len(t, got, 1)
 	assert.Equal(t, "X", got[0].Body)
 }
+
+// TestSpoolInboxRecv_CancelledWhileParkingClaimsNothing forces a context
+// cancelled inside the park window, with mail already on disk: the caller has
+// gone, so the post-park claim must not hand the mail to it — that would put
+// it on the ack cursor for a receive nobody reads, and the next ack would
+// consume it unseen. The mail stays for the next receive.
+func TestSpoolInboxRecv_CancelledWhileParkingClaimsNothing(t *testing.T) {
+	teeHome(t)
+	const harp = "owner-harp-cancelled"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	in := newSpoolInbox(report.To(termSink()), spool.NewHomeMapper(), &SpoolDeliveryCounters{},
+		func(role string) {
+			writeSpoolMail(t, role, "child-harp-1", KindMessage, "for a caller who left")
+			cancel()
+		},
+		func(string) {})
+
+	msgs, err := in.recv(ctx, harp, 5*time.Second)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, msgs)
+	in.mu.Lock()
+	assert.Empty(t, in.handed[harp], "nothing was handed to the caller that left")
+	in.mu.Unlock()
+	assert.False(t, in.parked(harp), "the cancelled receive leaves no poll behind")
+
+	next, err := in.recv(context.Background(), harp, 0)
+	require.NoError(t, err)
+	require.Len(t, next, 1, "the next receive delivers it")
+	assert.Equal(t, "for a caller who left", next[0].Body)
+}

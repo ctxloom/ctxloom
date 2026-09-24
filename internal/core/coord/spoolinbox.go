@@ -152,6 +152,11 @@ func (in *spoolInbox) recv(ctx context.Context, role string, wait time.Duration)
 	// (the courier rings only after the write); its file is on disk, and
 	// without this look the receive would sit out its whole wait beside it.
 	// Any delivery landing after this claim finds the poll and wakes it.
+	// A caller that left while parking is owed nothing, and a claim made for
+	// it would be consumed by the next ack unseen.
+	if err := ctx.Err(); err != nil {
+		return in.abandon(role, p, err, true)
+	}
 	if msgs, names, ok := in.claim(role); ok {
 		return in.retire(role, p, msgs, names)
 	}

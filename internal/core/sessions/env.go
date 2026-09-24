@@ -24,6 +24,13 @@ const (
 	// coordinator will StartRun on it. Absent on the parent-session
 	// credential.
 	EnvRunID = "CTXLOOM_RUN_ID"
+	// EnvRunnerOwnerLossWindow is the operator's override of how long a
+	// runner outlives an unreachable coordinator before it exits on its own
+	// (runner.DefaultOwnerLossWindow), Go duration syntax. It is set where the
+	// operator runs ctxloom and forwarded onto each runner process
+	// (spawn.StartRunner), because a container runner inherits nothing from
+	// the host's environment.
+	EnvRunnerOwnerLossWindow = "CTXLOOM_RUNNER_OWNER_LOSS_WINDOW"
 	// EnvHarp carries the run's session harp to the ENGINE process and its
 	// hook subprocesses; it names the session dir and the spool.
 	EnvHarp = "CTXLOOM_SESSION_HARP"

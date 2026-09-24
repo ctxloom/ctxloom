@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"os"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -23,6 +24,14 @@ type Runtimes interface {
 // IGNORED, and the ctx is never the teardown handle. Teardown has one door —
 // agent_stop, terminateRun, the idle reaper, or the runner's own exit — and
 // a single cancelled call never tears down a running container.
+//
+// The runner's env is the reach-back trio plus the operator's owner-loss
+// window override when one is set: the runner reads and validates it, and a
+// container runner would otherwise never see it.
 func StartRunner(ctx context.Context, rt Runtimes, l launch.Launch, reach sessions.Endpoint) (coord.RunnerHandle, error) {
-	return rt.Start(ctx, l, sessions.EncodeReach(reach, l.Identity.RunID))
+	env := sessions.EncodeReach(reach, l.Identity.RunID)
+	if v, ok := os.LookupEnv(sessions.EnvRunnerOwnerLossWindow); ok {
+		env[sessions.EnvRunnerOwnerLossWindow] = v
+	}
+	return rt.Start(ctx, l, env)
 }

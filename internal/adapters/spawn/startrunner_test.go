@@ -2,6 +2,7 @@ package spawn_test
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -20,9 +21,11 @@ type fakeRuntime struct {
 	removed  bool
 	alive    bool
 	killDoor bool
+	env      map[string]string
 }
 
 func (f *fakeRuntime) Start(ctx context.Context, l launch.Launch, env map[string]string) (coord.RunnerHandle, error) {
+	f.env = env
 	f.created = true // the container / worktree / pty exists from here
 	select {
 	case <-ctx.Done():
@@ -66,4 +69,24 @@ func TestStartRunner_CancelAfterAttach_IsIgnored_TeardownHasOneDoor(t *testing.T
 	h.Kill() // the one door
 	require.False(t, rt.alive)
 	require.True(t, rt.killDoor)
+}
+
+// TestStartRunner_ForwardsTheOwnerLossWindowOverride: the operator sets the
+// runner's owner-loss window where they run ctxloom; a container runner
+// inherits none of that environment, so the override rides the runner's env
+// beside the reach-back — and is absent when the operator set nothing.
+func TestStartRunner_ForwardsTheOwnerLossWindowOverride(t *testing.T) {
+	start := func() map[string]string {
+		rt := &fakeRuntime{attach: make(chan struct{})}
+		close(rt.attach)
+		_, err := spawn.StartRunner(context.Background(), rt, launch.Launch{Identity: sessions.Identity{Harp: "h", RunID: "r"}}, sessions.Endpoint{URL: "u", Credential: "c"})
+		require.NoError(t, err)
+		return rt.env
+	}
+	t.Setenv(sessions.EnvRunnerOwnerLossWindow, "5m")
+	require.Equal(t, "5m", start()[sessions.EnvRunnerOwnerLossWindow])
+
+	require.NoError(t, os.Unsetenv(sessions.EnvRunnerOwnerLossWindow))
+	_, present := start()[sessions.EnvRunnerOwnerLossWindow]
+	require.False(t, present, "nothing set, nothing forwarded")
 }

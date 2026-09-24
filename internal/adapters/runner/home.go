@@ -10,13 +10,13 @@ import (
 
 	"google.golang.org/grpc"
 
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -199,10 +199,7 @@ type HomeConfig struct {
 	RedialBackoff time.Duration
 	// OwnerLossWindow is how long the lifecycle link may stay down — never
 	// attached since the dial, or lost since it was last up — before this
-	// runner declares its owner gone (OwnerLost). 0 = coord.RunnerLossTimeout:
-	// the coordinator's own runner-loss grace, so a coordinator that comes
-	// back inside it still re-adopts this runner, and one that does not has
-	// already ended the run as runner loss and would refuse it anyway.
+	// runner declares its owner gone (OwnerLost). 0 = DefaultOwnerLossWindow.
 	OwnerLossWindow time.Duration
 	// Reporter receives every diagnostic this Home and the courier, doorbell
 	// and terminal injector built on it raise; the runner's composition
@@ -217,6 +214,19 @@ type homePark struct {
 
 // HomeRedialBackoff is the default HomeConfig.RedialBackoff.
 const HomeRedialBackoff = 2 * time.Second
+
+// DefaultOwnerLossWindow is how long a runner outlives an unreachable
+// coordinator before it exits on its own (HomeConfig.OwnerLossWindow;
+// sessions.EnvRunnerOwnerLossWindow overrides it).
+//
+// It is NOT the coordinator's runner-loss grace (coord.RunnerLossTimeout), and
+// must not be tied to it: that grace is what a LIVE coordinator gives a silent
+// runner, and what a RESTARTED one gives a runner to re-Hello once it is back.
+// A coordinator that is down ends nothing, and a restarted one re-adopts any
+// runner that dials back, however long the restart took — so the only cost of
+// a long window is a truly orphaned container living that long, while a short
+// one kills every live child of a coordinator that is merely slow to restart.
+const DefaultOwnerLossWindow = 2 * time.Minute
 
 // ErrCoordinatorUnreachable answers a plane-2 request that never got through:
 // the run channel has not once attached, so nothing was delivered and a retry
@@ -255,10 +265,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(bearerCreds(cfg.Token)),
-	)
+	conn, err := grpc.NewClient(target, coordDialOptions(cfg.Token)...)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +296,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		h.cfg.RedialBackoff = HomeRedialBackoff
 	}
 	if h.cfg.OwnerLossWindow == 0 {
-		h.cfg.OwnerLossWindow = coord.RunnerLossTimeout
+		h.cfg.OwnerLossWindow = DefaultOwnerLossWindow
 	}
 	h.spoolOut = coord.NewSpoolWriterCache(h.cfg.Mapper, spool.DirOut, "")
 	h.spoolRefs = make(map[string]spool.Ref)
@@ -406,30 +413,32 @@ func (h *Home) redialWake() <-chan struct{} {
 
 // runnerChannelLoop keeps the lifecycle RunnerChannel alive (Hello +
 // heartbeats + best-effort RunExited at Close), and runs the owner-loss clock:
-// armed from the start (nothing is attached yet) and re-armed in full on every
-// drop, and read only while the link is down — between attempts, so time the
-// link spends up never counts, and a dial that is itself hanging delays the
-// verdict by that one attempt. Expiry closes ownerLost and ends the loop.
+// a deadline OwnerLossWindow out, set at the start (nothing is attached yet)
+// and again on every drop, and read only while the link is down, so time the
+// link spends up never counts. Nothing the loop waits on can outlast it —
+// each dial is cut off when the window runs out (dialLink), and the conn's
+// keepalive ends a half-open link — so a wedged coordinator cannot stop the
+// clock. Expiry closes ownerLost and ends the loop.
 func (h *Home) runnerChannelLoop() {
-	lost := time.NewTimer(h.cfg.OwnerLossWindow)
-	defer lost.Stop()
+	deadline := time.Now().Add(h.cfg.OwnerLossWindow)
 	// backoff waits out one redial pause and reports whether to go on.
 	backoff := func(wake <-chan struct{}) bool {
 		select {
-		case <-lost.C:
-			h.rep.Warnf("runner: no coordinator for %s (the coordinator's runner-loss grace); exiting", h.cfg.OwnerLossWindow)
-			close(h.ownerLost)
-			return false
+		case <-time.After(time.Until(deadline)):
 		case <-h.ctx.Done():
 			return false
 		case <-time.After(h.cfg.RedialBackoff):
+			return true
 		case <-wake:
+			return true
 		}
-		return true
+		h.rep.Warnf("runner: no coordinator for %s (the owner-loss window, %s); exiting", h.cfg.OwnerLossWindow, sessions.EnvRunnerOwnerLossWindow)
+		close(h.ownerLost)
+		return false
 	}
 	for {
 		wake := h.redialWake()
-		link, err := DialRunner(h.ctx, h.rep, h.cfg.URL, h.cfg.Token, h.cfg.RunID, h.cfg.Harness, h.cfg.Version, h.cfg.Engine)
+		link, release, err := h.dialLink(time.Until(deadline))
 		if err != nil {
 			h.rep.WarnOncef("runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
 			if !backoff(wake) {
@@ -446,15 +455,47 @@ func (h *Home) runnerChannelLoop() {
 			// replaces it: Shutdown only ever reaches the link Close finds
 			// current, so an unreleased predecessor is a leaked ClientConn.
 			h.releaseLink(link)
-			lost.Reset(h.cfg.OwnerLossWindow)
+			release()
+			deadline = time.Now().Add(h.cfg.OwnerLossWindow)
 			if !backoff(wake) {
 				return
 			}
 		case <-h.ctx.Done():
 			h.releaseLink(link)
+			release()
 			return
 		}
 	}
+}
+
+// errDialOutlivedWindow is a dial the owner-loss window ran out on.
+var errDialOutlivedWindow = errors.New("runner: the dial home outlived the owner-loss window")
+
+// dialLink dials the lifecycle link with at most within to complete the
+// handshake: a coordinator that accepts the connection and never answers the
+// Hello would otherwise hold the loop — and the owner-loss clock — forever.
+// The link lives under the dial's context, so release (which the caller runs
+// once the link is done) is what frees it; a dial cut off at the bound hands
+// back nothing.
+func (h *Home) dialLink(within time.Duration) (*RunnerLink, func(), error) {
+	if within <= 0 {
+		return nil, nil, errDialOutlivedWindow
+	}
+	ctx, cancel := context.WithCancel(h.ctx)
+	cutoff := time.AfterFunc(within, cancel)
+	link, err := DialRunner(ctx, h.rep, h.cfg.URL, h.cfg.Token, h.cfg.RunID, h.cfg.Harness, h.cfg.Version, h.cfg.Engine)
+	if !cutoff.Stop() {
+		if link != nil {
+			link.Abort()
+		}
+		cancel()
+		return nil, nil, errDialOutlivedWindow
+	}
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	return link, cancel, nil
 }
 
 // runChannelLoop keeps the RunChannel alive: Hello/HelloAck, reissue of

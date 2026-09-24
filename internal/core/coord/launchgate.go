@@ -91,39 +91,48 @@ const (
 	EnvLaunchBackoffMax = "CTXLOOM_LAUNCH_BACKOFF_MAX"
 )
 
-// launchTunable is a value a launch-budget env override may carry. Both
+// PositiveTunable is a value a CTXLOOM_* operator override may carry. Both
 // members are ordered and zero-comparable, which is the whole contract
-// envLaunchPositive needs.
-type launchTunable interface {
+// EnvPositive needs.
+type PositiveTunable interface {
 	int | time.Duration
 }
 
-// envLaunchPositive resolves name from the environment as a POSITIVE value of
-// T, parsed by parse and described by unit ("integer", "duration") in the
-// rejection notice. It falls back to def with a loud warning when the variable
-// is SET but unparseable or non-positive (zero included — a zero attempt
-// budget or a zero backoff is the exact defect class this whole gate exists to
-// prevent). An unset or empty-string variable falls back to def SILENTLY: that
-// is the ordinary, unconfigured case, not an operator error.
-func envLaunchPositive[T launchTunable](rep report.Reporter, name string, def T, parse func(string) (T, error), unit string) T {
+// EnvPositive resolves name from the environment as a POSITIVE value of T,
+// parsed by parse and described by unit ("integer", "duration") in the
+// rejection notice. It falls back to def with a loud warning — naming the
+// variable, its bad value and consequence, what a zero or negative value would
+// break — when the variable is SET but unparseable or non-positive. An unset or
+// empty-string variable falls back to def SILENTLY: that is the ordinary,
+// unconfigured case, not an operator error. Every CTXLOOM_* positive tunable
+// resolves through here, so the rule has one copy.
+func EnvPositive[T PositiveTunable](rep report.Reporter, name string, def T, parse func(string) (T, error), unit, consequence string) T {
 	raw, ok := os.LookupEnv(name)
 	if !ok || raw == "" {
 		return def
 	}
 	v, err := parse(raw)
 	if err != nil || v <= 0 {
-		rep.Warnf("%s=%q is not a positive %s; using the default %v instead (a zero or negative value here would silently reopen the unbounded-retry bug this budget exists to close)", name, raw, unit, def)
+		rep.Warnf("%s=%q is not a positive %s; using the default %v instead (%s)", name, raw, unit, def, consequence)
 		return def
 	}
 	return v
 }
 
+// EnvPositiveDuration is EnvPositive over Go duration syntax.
+func EnvPositiveDuration(rep report.Reporter, name string, def time.Duration, consequence string) time.Duration {
+	return EnvPositive(rep, name, def, time.ParseDuration, "duration", consequence)
+}
+
+// launchConsequence is what a zero launch budget or backoff would break.
+const launchConsequence = "a zero or negative value here would silently reopen the unbounded-retry bug this budget exists to close"
+
 func envLaunchInt(rep report.Reporter, name string, def int) int {
-	return envLaunchPositive(rep, name, def, strconv.Atoi, "integer")
+	return EnvPositive(rep, name, def, strconv.Atoi, "integer", launchConsequence)
 }
 
 func envLaunchDuration(rep report.Reporter, name string, def time.Duration) time.Duration {
-	return envLaunchPositive(rep, name, def, time.ParseDuration, "duration")
+	return EnvPositiveDuration(rep, name, def, launchConsequence)
 }
 
 // resolveLaunchTunables reads the container launch-retry budget's operator

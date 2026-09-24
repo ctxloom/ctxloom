@@ -340,6 +340,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		for k, v := range home.Env {
 			cell.Home = append(cell.Home, engine.HomeBinding{Var: k, Path: v})
 		}
+		maps.Copy(cell.Env, home.Login)
 	}
 	if isolation.IsContainerPolicyName(policy.Name()) {
 		advice := present.Containerize{}

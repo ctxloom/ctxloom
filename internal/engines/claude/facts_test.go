@@ -41,6 +41,15 @@ func TestHome_DeclaresTokenAuth(t *testing.T) {
 	}, a)
 }
 
+// A host run shares the human's login through the credential-storage var,
+// falling back to the config dir as claude itself does; the probe
+// TestClaudeSecureStorage_FollowsTheVar pins that the installed claude honours it.
+func TestHome_DeclaresSharedLogin(t *testing.T) {
+	l, ok := claudeKind(t).Home().SharedLogin.Get()
+	require.True(t, ok)
+	assert.Equal(t, engine.SharedLogin{Var: "CLAUDE_SECURESTORAGE_CONFIG_DIR", FallbackVar: "CLAUDE_CONFIG_DIR"}, l)
+}
+
 // A container authenticates from the env alone: no credential file is ever
 // mounted into it, and the refusal names how to mint and store a token.
 func TestContainer_AuthIsEnvOnly(t *testing.T) {

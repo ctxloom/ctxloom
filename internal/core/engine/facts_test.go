@@ -9,8 +9,9 @@ import (
 
 func validHome() HomeSpec {
 	return HomeSpec{
-		Vars: []HomeVar{{Name: "X_CONFIG_DIR", Subdir: "x"}},
-		Auth: Provide(TokenAuth{TokenVar: "X_TOKEN", EnvTriggers: []string{"X_API_KEY"}, MintHint: "x setup-token"}),
+		Vars:        []HomeVar{{Name: "X_CONFIG_DIR", Subdir: "x"}},
+		Auth:        Provide(TokenAuth{TokenVar: "X_TOKEN", EnvTriggers: []string{"X_API_KEY"}, MintHint: "x setup-token"}),
+		SharedLogin: Provide(SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"}),
 	}
 }
 
@@ -68,6 +69,53 @@ func TestHomeSpec_Validate_TokenAuthNamesItsVarAndItsMintCommand(t *testing.T) {
 	assert.ErrorContains(t, h.Validate(), "TokenVar")
 	h.Auth = Provide(TokenAuth{TokenVar: "X_TOKEN"})
 	assert.ErrorContains(t, h.Validate(), "MintHint")
+}
+
+// An undecided SharedLogin is refused like an undecided Auth: an engine with
+// a relocatable home must say whether a host run can share the human's login.
+func TestHomeSpec_Validate_RefusesUndecidedSharedLogin(t *testing.T) {
+	h := validHome()
+	h.SharedLogin = Declared[SharedLogin]{}
+	assert.ErrorContains(t, h.Validate(), "SharedLogin")
+	h.SharedLogin = Absent[SharedLogin]("keeps no credential storage of its own")
+	assert.NoError(t, h.Validate())
+}
+
+func TestHomeSpec_Validate_SharedLoginNamesBothVars(t *testing.T) {
+	h := validHome()
+	h.SharedLogin = Provide(SharedLogin{FallbackVar: "X_CONFIG_DIR"})
+	assert.ErrorContains(t, h.Validate(), "Var is empty")
+	h.SharedLogin = Provide(SharedLogin{Var: "X_STORAGE_DIR"})
+	assert.ErrorContains(t, h.Validate(), "FallbackVar")
+}
+
+func TestHomeSpec_Validate_RefusesSharedLoginWithNoVar(t *testing.T) {
+	h := HomeSpec{SharedLogin: Provide(SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"})}
+	assert.ErrorContains(t, h.Validate(), "no home var")
+}
+
+// Value is the string the launching env's own engine resolves its storage
+// from, byte for byte: the storage var when set (even to ""), else the
+// fallback's value, else "".
+func TestSharedLogin_Value_IsWhatTheLaunchingEnvResolves(t *testing.T) {
+	l := SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"}
+	env := func(kv map[string]string) func(string) (string, bool) {
+		return func(k string) (string, bool) { v, ok := kv[k]; return v, ok }
+	}
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"neither set is the engine's default", map[string]string{}, ""},
+		{"the fallback verbatim, never cleaned", map[string]string{"X_CONFIG_DIR": "/h/./cfg/"}, "/h/./cfg/"},
+		{"an inherited storage var wins over the fallback", map[string]string{"X_STORAGE_DIR": "/real", "X_CONFIG_DIR": "/session"}, "/real"},
+		{"an inherited empty storage var is kept", map[string]string{"X_STORAGE_DIR": "", "X_CONFIG_DIR": "/session"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, l.Value(env(tc.env)))
+		})
+	}
 }
 
 func validContainer() ContainerSpec {

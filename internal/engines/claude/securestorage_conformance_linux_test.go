@@ -278,3 +278,23 @@ func (w *fileWatch) drain() []fsEvent {
 		}
 	}
 }
+
+// locateClaudeBinary resolves the claude on PATH to its real, versioned
+// binary (claude ships as a symlink from a launcher path into
+// ~/.local/share/claude/versions/<ver>). CTXLOOM_CLAUDE_BINARY_CONFORMANCE
+// overrides discovery, for pointing this probe at a specific version by
+// hand.
+func locateClaudeBinary() (string, error) {
+	if p := os.Getenv("CTXLOOM_CLAUDE_BINARY_CONFORMANCE"); p != "" {
+		return p, nil
+	}
+	p, err := exec.LookPath("claude")
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return p, nil // fall back to the unresolved path rather than fail discovery
+	}
+	return real, nil
+}

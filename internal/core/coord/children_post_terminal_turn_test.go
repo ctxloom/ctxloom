@@ -35,7 +35,7 @@ func TestOnTurnStarted_AfterTheRunsTerminal_DoesNotLeakAnExecutionSlot(t *testin
 
 	// THE RACE: a ctxloom/turn_started frame that was already on the wire when
 	// the channel was severed reaches handleCustomEvent now.
-	c.onTurnStarted(out.Harp)
+	c.onTurnStarted(out.Harp, out.RunID)
 
 	assert.True(t, slotsIdleWith(c.slots, 2),
 		"a turn-start for an ENDED run must not take a slot: nothing would ever release it, and the execution cap would shrink permanently")
@@ -70,7 +70,7 @@ func TestOnTurnIdle_AfterTheRunsTerminal_DoesNotBridgeAgain(t *testing.T) {
 	// Drain whatever the terminal itself legitimately delivered.
 	recvKind(t, c, KindExited, conformanceWait)
 
-	c.onTurnIdle(out.Harp)
+	c.onTurnIdle(out.Harp, out.RunID)
 
 	assertNoMailKind(t, c, "error", 300*time.Millisecond)
 }

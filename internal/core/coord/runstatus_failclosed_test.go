@@ -27,9 +27,10 @@ func TestCaptureRunFailure_ReadsTerminalStatusAsAnAllowList(t *testing.T) {
 		{"budget_exceeded", RunStatusBudgetExceeded, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := &Coordinator{byHarp: map[string]*childRt{"kid": {}}}
-			c.captureRunFailure("kid", Event{Payload: RunCompleted{Result: &Result{Status: tc.status, Text: "the adapter died"}}})
-			got := c.byHarp["kid"].runFailure
+			kid := &childRt{harp: "kid", runID: "run-kid"}
+			c := &Coordinator{attach: map[string]*childRt{"run-kid": kid}}
+			c.captureRunFailure("kid", "run-kid", Event{Payload: RunCompleted{Result: &Result{Status: tc.status, Text: "the adapter died"}}})
+			got := kid.runFailure
 			if tc.capture {
 				assert.Equal(t, "the adapter died", got, "terminal status %v must have its reason recorded", tc.status)
 				return

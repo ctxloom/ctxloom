@@ -251,7 +251,7 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 		c.flushItems(ch)
 	default:
 		if kind := itemKind(ev); kind != "" {
-			c.captureRunFailure(ch.role, ev)
+			c.captureRunFailure(ch.role, ch.id.RunID, ev)
 			c.bufferItem(ch, ev, kind)
 			if kind == "run_completed" {
 				// bufferItem flushes run_completed
@@ -282,9 +282,9 @@ func (c *Coordinator) ackThrough(ch *RunChannel, seq uint64) {
 func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 	switch ev.Name {
 	case CustomRecvParked:
-		c.onRolePark(ch.role)
+		c.onRolePark(ch.role, ch.id.RunID)
 	case CustomRecvUnparked:
-		c.onRoleUnpark(ch.role)
+		c.onRoleUnpark(ch.role, ch.id.RunID)
 	case CustomHarnessSession:
 		sid, _ := ev.Value["session_id"].(string)
 		if sid == "" {
@@ -305,9 +305,9 @@ func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 			c.recordResumable(ch.id.RunID, v)
 		}
 	case CustomTurnStarted:
-		c.onTurnStarted(ch.role)
+		c.onTurnStarted(ch.role, ch.id.RunID)
 	case CustomTurnIdle:
-		c.onTurnIdle(ch.role)
+		c.onTurnIdle(ch.role, ch.id.RunID)
 	}
 }
 

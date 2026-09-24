@@ -23,11 +23,11 @@ func TestSpoolInboxRecv_MailLandingAsItParksIsReceived(t *testing.T) {
 	teeHome(t)
 	const harp = "owner-harp-lostwake"
 	in := newSpoolInbox(report.To(termSink()), spool.NewHomeMapper(), &SpoolDeliveryCounters{},
-		func(role string) { writeSpoolMail(t, role, "child-harp-1", KindMessage, "landed as it parked") },
-		func(string) {})
+		func(role, _ string) { writeSpoolMail(t, role, "child-harp-1", KindMessage, "landed as it parked") },
+		func(string, string) {})
 
 	start := time.Now()
-	msgs, err := in.recv(context.Background(), harp, 5*time.Second)
+	msgs, err := in.recv(context.Background(), harp, "", 5*time.Second)
 	require.NoError(t, err, "the mail was on disk the whole time the receive was parked")
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "landed as it parked", msgs[0].Body)
@@ -38,7 +38,7 @@ func TestSpoolInboxRecv_MailLandingAsItParksIsReceived(t *testing.T) {
 // newBareInbox is an owner inbox with no park accounting, for tests that
 // drive its steps one at a time.
 func newBareInbox() *spoolInbox {
-	return newSpoolInbox(report.To(termSink()), spool.NewHomeMapper(), &SpoolDeliveryCounters{}, func(string) {}, func(string) {})
+	return newSpoolInbox(report.To(termSink()), spool.NewHomeMapper(), &SpoolDeliveryCounters{}, func(string, string) {}, func(string, string) {})
 }
 
 // TestSpoolInboxRetire_PreemptedAfterItsClaimLeavesTheMailForTheNextReceive
@@ -52,14 +52,14 @@ func TestSpoolInboxRetire_PreemptedAfterItsClaimLeavesTheMailForTheNextReceive(t
 	const harp = "owner-harp-preempt-b"
 	in := newBareInbox()
 
-	pA := in.register(harp)
+	pA := in.register(harp, "")
 	in.ack(harp) // B's ack: nothing handed yet
 	_, _, bFound := in.claim(harp)
 	require.False(t, bFound, "B's claim finds nothing, so B goes on to park")
 	writeSpoolMail(t, harp, "child-harp-1", KindMessage, "X")
 	msgs, names, ok := in.claim(harp) // A's post-park claim
 	require.True(t, ok)
-	pB := in.register(harp) // B preempts A
+	pB := in.register(harp, "") // B preempts A
 
 	got, err := in.retire(harp, pA, msgs, names)
 	require.ErrorIs(t, err, ErrRecvPreempted, "a superseded receive answers as preempted")
@@ -70,7 +70,7 @@ func TestSpoolInboxRetire_PreemptedAfterItsClaimLeavesTheMailForTheNextReceive(t
 
 	_, err = in.abandon(harp, pB, ErrRecvTimeout, false) // B's wait ends
 	require.ErrorIs(t, err, ErrRecvTimeout)
-	next, err := in.recv(context.Background(), harp, 0)
+	next, err := in.recv(context.Background(), harp, "", 0)
 	require.NoError(t, err)
 	require.Len(t, next, 1, "the next receive delivers X")
 	assert.Equal(t, "X", next[0].Body)
@@ -87,14 +87,14 @@ func TestSpoolInboxRetire_PreemptedAfterANewerAckConsumedItsClaimStillDelivers(t
 	const harp = "owner-harp-preempt-a"
 	in := newBareInbox()
 
-	pA := in.register(harp)
+	pA := in.register(harp, "")
 	writeSpoolMail(t, harp, "child-harp-1", KindMessage, "X")
 	msgs, names, ok := in.claim(harp) // A's post-park claim
 	require.True(t, ok)
 	in.ack(harp) // B's ack consumes X
 	_, _, bFound := in.claim(harp)
 	require.False(t, bFound)
-	pB := in.register(harp) // B preempts A
+	pB := in.register(harp, "") // B preempts A
 	t.Cleanup(func() { _, _ = in.abandon(harp, pB, ErrRecvTimeout, false) })
 
 	got, err := in.retire(harp, pA, msgs, names)
@@ -114,13 +114,13 @@ func TestSpoolInboxRecv_CancelledWhileParkingClaimsNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	in := newSpoolInbox(report.To(termSink()), spool.NewHomeMapper(), &SpoolDeliveryCounters{},
-		func(role string) {
+		func(role, _ string) {
 			writeSpoolMail(t, role, "child-harp-1", KindMessage, "for a caller who left")
 			cancel()
 		},
-		func(string) {})
+		func(string, string) {})
 
-	msgs, err := in.recv(ctx, harp, 5*time.Second)
+	msgs, err := in.recv(ctx, harp, "", 5*time.Second)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, msgs)
 	in.mu.Lock()
@@ -128,7 +128,7 @@ func TestSpoolInboxRecv_CancelledWhileParkingClaimsNothing(t *testing.T) {
 	in.mu.Unlock()
 	assert.False(t, in.parked(harp), "the cancelled receive leaves no poll behind")
 
-	next, err := in.recv(context.Background(), harp, 0)
+	next, err := in.recv(context.Background(), harp, "", 0)
 	require.NoError(t, err)
 	require.Len(t, next, 1, "the next receive delivers it")
 	assert.Equal(t, "for a caller who left", next[0].Body)

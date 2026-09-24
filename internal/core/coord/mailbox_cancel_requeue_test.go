@@ -57,7 +57,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 			"recv's cursor-ack journals a consume for a message nobody ever received")
 
 	// And it really is deliverable again: a fresh recv returns it.
-	got, rerr := c.inbox.recv(context.Background(), role, 0)
+	got, rerr := c.inbox.recv(context.Background(), role, "", 0)
 	if !assert.NoError(t, rerr) {
 		return
 	}

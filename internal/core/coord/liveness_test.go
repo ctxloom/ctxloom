@@ -142,7 +142,7 @@ func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 
 	// Park it through the production path: a child waiting in agent_recv
 	// yields its slot mid-turn.
-	c.onRolePark(harp)
+	c.onRolePark(harp, currentRunID(c, harp))
 	c.mu.Lock()
 	rt := c.byHarp[harp]
 	c.mu.Unlock()

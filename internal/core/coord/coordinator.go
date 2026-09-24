@@ -1113,7 +1113,7 @@ func (c *Coordinator) AgentRecv(ctx context.Context, caller Identity, wait time.
 	if !c.ownerSpool(caller.Harp) {
 		return nil, fmt.Errorf("%w (asked for %q; the owner is %q)", ErrRecvNotOwner, caller.Harp, c.ownerHarp)
 	}
-	return c.inbox.recv(ctx, caller.Harp, wait)
+	return c.inbox.recv(ctx, caller.Harp, caller.RunID, wait)
 }
 
 // AgentStop kills a child run (KillRun semantics): the engine/container dies,

@@ -323,7 +323,7 @@ func ownerReceivesOverflow(t *testing.T, c *Coordinator, full string, structured
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	msgs, err := c.inbox.recv(ctx, ownerIdentity().Harp, conformanceWait)
+	msgs, err := c.inbox.recv(ctx, ownerIdentity().Harp, "", conformanceWait)
 	if !assert.NoError(t, err) {
 		return
 	}

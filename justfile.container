@@ -163,13 +163,24 @@ build-archlint:
 #   narrower pass cannot see is not stale, and reporting it as stale is the
 #   same vacuous-green error in reverse.
 #
-# Both passes must pass; the recipe fails on the first that does not.
+#   THE OS PASSES reach the files GOOS hides. The loader resolves build
+#   constraints for ONE target OS, so the passes above never parse a
+#   _windows.go / _darwin.go file or one gated by an OS tag — those files got
+#   no analyzer coverage at all. Each OS pass repeats pass 1's tags under that
+#   GOOS. Allowlist liveness stays ON: it judges only files the pass analyzed,
+#   so an exemption naming a file this OS cannot see is skipped, not reported.
+#   A file built for none of linux, windows and darwin stays uncovered.
+#
+# Every pass must pass; the recipe fails on the first that does not.
 lint-arch: build-archlint
     #!/usr/bin/env bash
     set -euo pipefail
-    GOFLAGS=-tags=mutation,arch,conformance,docker_integration,acceptance,integration,schemagen,docsgen \
-        ./bin/archlint ./...
+    tags=mutation,arch,conformance,docker_integration,acceptance,integration,schemagen,docsgen
+    GOFLAGS=-tags=$tags ./bin/archlint ./...
     ARCHLINT_CHECK_ALLOWLISTS=0 ./bin/archlint ./...
+    for goos in windows darwin; do
+        GOOS=$goos GOFLAGS=-tags=$tags ./bin/archlint ./...
+    done
 
 # Build the ltk companion into bin/ltk — delegated to the ltk module
 # (cmd/ltk/justfile). No codegen prerequisites (pure-Go, no CGO).

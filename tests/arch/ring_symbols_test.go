@@ -5,7 +5,7 @@
 // MAY NAME A SYMBOL rather than who may import a package, and so cannot be a
 // archrules.LayeringRule row. Each is an AST walk over the module's production files
 // with a shrinking, reasoned allowlist in the same shape as the other symbol
-// gates here (pathAuthorityAllowed, archrules.WriteDisciplineAllowed): the day-one
+// rules' allowlists: the day-one
 // allowlist is the MEASURED set of sites, each naming the slice in which it
 // leaves, and a twin *_AllowlistIsLive test deletes an exhausted entry.
 //

@@ -14,8 +14,10 @@ package archrules
 // package key is what makes the ratchet fine-grained: a package with five
 // forbidden imports has five entries, each deleted the moment its own import
 // leaves, instead of one entry that stays live — and keeps masking the other
-// four — until the last of them goes. Both runners fail an entry whose edge
-// no longer exists. A nil map means the rule holds with zero exceptions.
+// four — until the last of them goes. An entry whose edge no longer exists
+// fails: archlint's LayeringAnalyzer when the import is gone, tests/arch's
+// TestArch_LayeringAllowlist_IsLive when the from-package is. A nil map means
+// the rule holds with zero exceptions.
 type LayeringRule struct {
 	Name    string
 	From    []string

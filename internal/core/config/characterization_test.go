@@ -21,9 +21,11 @@ type characterizationOutput struct {
 }
 
 // characterizationOutputs are the byte-producing paths over one Config:
-// yaml.Marshal(cfg) through MarshalYAML (init's scaffold write and `config
-// show`), and saveLocked's first write (Owner.Update) under each layer source,
-// since SourceProject applies the layer-scope filter and SourceHome does not.
+// yaml.Marshal(cfg) through MarshalYAML (`config show`, the effective
+// document), yaml.Marshal(cfg.Authored()) (`config show --raw` and init's
+// scaffold write), and saveLocked's first write (Owner.Update) under each layer
+// source, since SourceProject applies the layer-scope filter and SourceHome
+// does not.
 func characterizationOutputs() []characterizationOutput {
 	save := func(src ConfigSource) func(*Config) ([]byte, error) {
 		return func(c *Config) ([]byte, error) {
@@ -37,6 +39,7 @@ func characterizationOutputs() []characterizationOutput {
 	}
 	return []characterizationOutput{
 		{"MarshalYAML", func(c *Config) ([]byte, error) { return yaml.Marshal(c) }},
+		{"authored", func(c *Config) ([]byte, error) { return yaml.Marshal(c.Authored()) }},
 		{"saveLocked-project", save(SourceProject)},
 		{"saveLocked-home", save(SourceHome)},
 	}
@@ -81,11 +84,12 @@ func characterizationCases() []characterizationCase {
 }
 
 // TestConfigSerializers_Characterization pins the exact bytes of every path
-// that renders a Config. They share one policy (persistedDoc): the version is
-// stamped current, shipped default entries and llm.configs.*.role are dropped,
-// and keys are sorted at every depth. Any change here is a change to the
-// on-disk format or to `config show`, not a refactor. Regenerate only as a
-// deliberate format decision.
+// that renders a Config. They share one serializer (configDoc.MarshalYAML):
+// the document is lossless, role included, the version is stamped current and
+// keys are sorted at every depth. The effective view (MarshalYAML) carries the
+// shipped default registry; the authored view and every save leave it out. Any
+// change here is a change to the on-disk format or to `config show`, not a
+// refactor. Regenerate only as a deliberate format decision.
 func TestConfigSerializers_Characterization(t *testing.T) {
 	seen := 0
 	for _, tc := range characterizationCases() {
@@ -109,13 +113,13 @@ func TestConfigSerializers_Characterization(t *testing.T) {
 
 // TestConfigSerializers_FirstSaveMatchesRender states the convergence the
 // goldens only imply: a first save to a home-layer file (no layer-scope filter
-// applies) writes exactly the bytes init writes and `config show` prints.
+// applies) writes exactly the bytes init writes and `config show --raw` prints.
 func TestConfigSerializers_FirstSaveMatchesRender(t *testing.T) {
 	outs := characterizationOutputs()
 	var render, home func(*Config) ([]byte, error)
 	for _, o := range outs {
 		switch o.name {
-		case "MarshalYAML":
+		case "authored":
 			render = o.render
 		case "saveLocked-home":
 			home = o.render
@@ -137,6 +141,8 @@ func TestConfigSerializers_FirstSaveMatchesRender(t *testing.T) {
 
 var characterizationGolden = map[string]string{
 	"empty/MarshalYAML": `version: 6
+`,
+	"empty/authored": `version: 6
 `,
 	"empty/saveLocked-project": `version: 6
 `,
@@ -169,6 +175,51 @@ llm:
         fast:
             model: m1
             permissions: plan
+            role: fast
+            type: claude-code
+    defaults:
+        fast: fast
+        primary: fast
+permissions: plan
+runtime: container
+session_purge_age: 180d
+session_reap_age: 45d
+sync:
+    auto_sync: true
+ui:
+    prefix_key: ctrl-]
+    surround: true
+version: 6
+workspace: worktree
+`,
+	"full/authored": `agents:
+    worker:
+        llm: fast
+config:
+    essence_max_chars: 4096
+default_agent: worker
+delegation:
+    concurrency: 7
+    depth: 2
+    idle_timeout: 10m
+dirty_tree_handler: commit
+editor:
+    args:
+        - -n
+    command: vi
+isolation_base_containerfile: Containerfile.base
+isolation_devcontainer_base: true
+isolation_devcontainer_service: app
+isolation_engines:
+    - claude-code
+isolation_images:
+    claude-code: example.invalid/img:tag
+llm:
+    configs:
+        fast:
+            model: m1
+            permissions: plan
+            role: fast
             type: claude-code
     defaults:
         fast: fast
@@ -198,6 +249,7 @@ llm:
         fast:
             model: m1
             permissions: plan
+            role: fast
             type: claude-code
     defaults:
         fast: fast
@@ -238,6 +290,7 @@ llm:
         fast:
             model: m1
             permissions: plan
+            role: fast
             type: claude-code
     defaults:
         fast: fast
@@ -261,6 +314,13 @@ ui:
     surround: false
 version: 6
 `,
+	"explicit_false_and_stale_version/authored": `isolation_devcontainer_base: false
+sync:
+    auto_sync: false
+ui:
+    surround: false
+version: 6
+`,
 	"explicit_false_and_stale_version/saveLocked-project": `sync:
     auto_sync: false
 ui:
@@ -275,6 +335,17 @@ ui:
 version: 6
 `,
 	"default_overlay/MarshalYAML": `llm:
+    configs:
+        mine:
+            type: codex
+        shipped:
+            role: primary
+            type: claude-code
+    defaults:
+        primary: shipped
+version: 6
+`,
+	"default_overlay/authored": `llm:
     configs:
         mine:
             type: codex

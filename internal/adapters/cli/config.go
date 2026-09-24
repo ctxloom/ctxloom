@@ -256,6 +256,8 @@ func runConfigCreate(cmd *cobra.Command, _ []string) error {
 
 var configCreateEngine string
 
+var configRaw bool
+
 // projectConfigPath returns the path to the project's config.yaml.
 func projectConfigPath() string {
 	appDir, err := resolveAppDir(false)

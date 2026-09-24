@@ -4,6 +4,7 @@ package isolation
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,27 +16,42 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// awaitLockOpens blocks until the lock file directly inside the inotify-watched
-// dir has been opened n times. Opening it is how an owner reaches for the lock
-// — flock.Lock opens and locks in one call, so this is the only observable
-// point between the two, and inotify reports it as an event, not a guess.
-func awaitLockOpens(fd, n int) error {
+// lockOpens consumes the inotify events queued on fd (made IN_NONBLOCK) and
+// counts the opens of the lock file directly inside the watched dir. Opening
+// it is how an owner reaches for the lock — flock.Lock opens and locks in one
+// call, so this is the only observable point between the two. With wait it
+// blocks in poll until it has counted at least one.
+//
+// Counting only works from an empty queue: inotify merges an event into an
+// identical one still unread at the queue's tail, so two opens can arrive as
+// one.
+func lockOpens(fd int, wait bool) (int, error) {
 	buf := make([]byte, 64*(unix.SizeofInotifyEvent+unix.NAME_MAX+1))
-	for n > 0 {
+	n := 0
+	for {
 		r, err := unix.Read(fd, buf)
+		if errors.Is(err, unix.EAGAIN) {
+			if !wait || n > 0 {
+				return n, nil
+			}
+			pfd := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+			if _, err := unix.Poll(pfd, -1); err != nil && !errors.Is(err, unix.EINTR) {
+				return n, err
+			}
+			continue
+		}
 		if err != nil {
-			return err
+			return n, err
 		}
 		for off := 0; off+unix.SizeofInotifyEvent <= r; {
 			ev := (*unix.InotifyEvent)(unsafe.Pointer(&buf[off]))
 			name := buf[off+unix.SizeofInotifyEvent : off+unix.SizeofInotifyEvent+int(ev.Len)]
 			if ev.Mask&unix.IN_OPEN != 0 && string(bytes.TrimRight(name, "\x00")) == ownedScratchLockName {
-				n--
+				n++
 			}
 			off += unix.SizeofInotifyEvent + int(ev.Len)
 		}
 	}
-	return nil
 }
 
 // TestNewOwnedScratch_OwnerOpeningInsideReapersHoldRetries: the owner opens
@@ -46,14 +62,15 @@ func awaitLockOpens(fd, n int) error {
 // dir; nothing it keeps may vanish, and nothing may be left behind.
 //
 // Forced, not waited for: scratchCreated runs the reaper up to its delete
-// (scratchReapRemove) and parks it there, holding the lock; the owner then
-// proceeds, and the delete is released only once inotify reports the owner's
-// open of the lock file.
+// (scratchReapRemove) and parks it there, holding the lock, with every
+// inotify event so far consumed; the owner then proceeds, and the delete is
+// released only once inotify reports the next open of the lock file — the
+// owner's.
 func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldRetries(t *testing.T) {
 	parent := t.TempDir()
 	const prefix = "ctxloom-holdrace-"
 
-	ino, err := unix.InotifyInit1(unix.IN_CLOEXEC)
+	ino, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = unix.Close(ino) })
 
@@ -62,9 +79,9 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldRetries(t *testing.T) {
 		watchErr    error
 		probeLocked bool
 		probeErr    error
+		drainErr    error
 		awaitErr    error
 		inHold      = make(chan struct{})
-		ownerOpened = make(chan struct{})
 		reaperDone  = make(chan struct{})
 	)
 	origCreated, origRemove := scratchCreated, scratchReapRemove
@@ -77,8 +94,13 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldRetries(t *testing.T) {
 		if probeLocked, probeErr = probe.TryLock(); probeLocked {
 			_ = probe.Unlock()
 		}
+		if watchErr == nil {
+			_, drainErr = lockOpens(ino, false)
+		}
 		close(inHold)
-		<-ownerOpened
+		if watchErr == nil && drainErr == nil {
+			_, awaitErr = lockOpens(ino, true)
+		}
 		return os.RemoveAll(dir)
 	}
 	scratchCreated = func(dir string) {
@@ -86,12 +108,7 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldRetries(t *testing.T) {
 			return
 		}
 		raced = dir
-		if _, watchErr = unix.InotifyAddWatch(ino, dir, unix.IN_OPEN); watchErr != nil {
-			close(ownerOpened)
-		} else {
-			// Opens of the lock file: the reaper's, its probe's, the owner's.
-			go func() { awaitErr = awaitLockOpens(ino, 3); close(ownerOpened) }()
-		}
+		_, watchErr = unix.InotifyAddWatch(ino, dir, unix.IN_OPEN)
 		go func() { defer close(reaperDone); reapDeadScratch(parent, prefix) }()
 		<-inHold
 	}
@@ -100,6 +117,7 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldRetries(t *testing.T) {
 	<-reaperDone
 	restore()
 	require.NoError(t, watchErr)
+	require.NoError(t, drainErr)
 	require.NoError(t, awaitErr)
 	require.NoError(t, err)
 	t.Cleanup(s.release)

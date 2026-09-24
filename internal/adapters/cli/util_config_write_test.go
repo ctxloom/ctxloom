@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -844,4 +845,40 @@ func TestRecordJSONPatch_RecursionBoundary(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, hew.OpRemove, del.Op)
 	assert.True(t, del.Optional, "a delete must be optional so removing an absent key is a no-op, not HEW013")
+}
+
+// TestBuildAndWriteApplicationRecord_RecordDirIsOwnerOnly: the record keeps the
+// previous value of the key it undoes, so its directory is owner-only — a fresh
+// one created so, and a pre-existing looser one tightened on the write.
+func TestBuildAndWriteApplicationRecord_RecordDirIsOwnerOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		existing bool
+	}{
+		{name: "fresh directory", existing: false},
+		{name: "pre-existing 0755 directory", existing: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recordsDir := filepath.Join(t.TempDir(), "records")
+			t.Cleanup(paths.SetHomeRecordsDirForTesting(recordsDir))
+			if tc.existing {
+				require.NoError(t, os.MkdirAll(recordsDir, 0o755))
+				require.NoError(t, os.Chmod(recordsDir, 0o755))
+			}
+			fs := afero.NewOsFs()
+			target := filepath.Join(t.TempDir(), "settings.json")
+			before, after := []byte(`{"theme":"dark"}`), []byte(`{"theme":"light"}`)
+			tl := hew.TransformList{Target: target, Format: hew.FormatJSON}
+
+			recordPath, err := buildAndWriteApplicationRecord(fs, target, hew.FormatJSON, tl, nil, before, after)
+			require.NoError(t, err)
+
+			di, err := os.Stat(recordsDir)
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o700), di.Mode().Perm(), "the records directory must be owner-only")
+			fi, err := os.Stat(recordPath)
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), fi.Mode().Perm(), "a record file must be owner-only")
+		})
+	}
 }

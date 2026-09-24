@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"sync"
 	"time"
@@ -221,8 +222,18 @@ func DialRunner(ctx context.Context, rep report.Sink, coordURL, token, runID, ha
 	return l, nil
 }
 
-// helloSendErr is a handshake Send's failure as the caller must see it.
+// helloSendErr is a handshake Send's failure as the caller must see it. A
+// Send on a stream the coordinator already ended fails with a bare io.EOF —
+// grpc-go keeps the actual status for Recv — so a refusal that beats the
+// Hello write (a sealed coordinator's Unavailable) would reach the caller as
+// "EOF", its reason and code gone. recv reads that status.
 func helloSendErr(err error, recv func() error) error {
+	if !errors.Is(err, io.EOF) {
+		return err
+	}
+	if rerr := recv(); rerr != nil && !errors.Is(rerr, io.EOF) {
+		return rerr
+	}
 	return err
 }
 

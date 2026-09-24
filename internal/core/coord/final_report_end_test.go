@@ -105,7 +105,7 @@ func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond,
 		"the child must be mid-turn, which is when a real agent files FINAL")
 
 	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable"))
@@ -196,7 +196,7 @@ func TestFinalReport_ParentGetsTheReportBeforeTheExitNotice(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
 
 	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the finding"))
 
@@ -352,11 +352,103 @@ func TestFinalReport_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, 10*time.Millisecond)
 
 	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable"))
 
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"a child whose boundary beat the exit mark must still be ended, not held idle for the drain bound")
 	assert.Equal(t, CauseFinalReported, runCause(c, out.RunID))
+}
+
+// midTurn reports whether harp's child is genuinely inside a turn — the
+// precondition every "files FINAL mid-turn" test stands on: its current run's
+// engine has entered a turn (the scripted chat recorded the prompt) and its
+// event plane is attached, so the boundary it reaches next arrives on a live
+// channel. The roster's EXECUTING alone is not this: runChild sets it once the
+// slot is held, before the runner is spawned or has dialed home.
+func midTurn(c *Coordinator, sp *fakeSpawner, harp string) bool {
+	if rosterState(c, harp) != StateExecuting {
+		return false
+	}
+	runID := currentRunID(c, harp)
+	entered := false
+	sp.mu.Lock()
+	for _, sc := range sp.chats {
+		sc.Mu.Lock()
+		if sc.GotRunnerEnv[EnvRunID] == runID && len(sc.Texts) > 0 {
+			entered = true
+		}
+		sc.Mu.Unlock()
+	}
+	sp.mu.Unlock()
+	if !entered {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.chans[harp] != nil
+}
+
+// TestFinalReport_MidTurnIsNotMetByAChildStillLaunching forces the span a
+// loaded host stretches: the run is enqueued and its slot held, so the roster
+// already says EXECUTING, but the runner has not been spawned and has not
+// dialed home. A test that files FINAL on that signal spends its whole "ended
+// at the boundary" budget on the launch, so a slow launch reads as the FINAL
+// leak while the drain itself is sound. midTurn is the precondition those
+// tests wait on instead.
+func TestFinalReport_MidTurnIsNotMetByAChildStillLaunching(t *testing.T) {
+	resetStrictness(t)
+	launchGate, turnGate := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(turnGate) })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: turnGate} })
+	sp.startGate = launchGate
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, time.Millisecond,
+		"the roster says executing once the slot is held, before any runner exists")
+	require.Zero(t, sp.chatCount(), "the launch is held: no engine can exist yet")
+
+	assert.False(t, midTurn(c, sp, out.Harp),
+		"a child whose runner has not even been spawned is not mid-turn")
+
+	close(launchGate)
+	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, time.Millisecond,
+		"once launched, the held turn is mid-turn")
+}
+
+// TestFinalReport_FiledWhileStillLaunchingEndsAtTheFirstBoundary is the product
+// half of the launch span: the drain's REQUEST lands on a run that is
+// executing by the roster but has no runner yet. The mark sits on the
+// attachment from enqueue, so it outlives the launch, and the first boundary
+// the child reaches once it is up takes it — whatever order the report, the
+// release of the turn and the launch arrive in.
+func TestFinalReport_FiledWhileStillLaunchingEndsAtTheFirstBoundary(t *testing.T) {
+	resetStrictness(t)
+	launchGate, turnGate := make(chan struct{}), make(chan struct{})
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: turnGate} })
+	sp.startGate = launchGate
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, time.Millisecond)
+
+	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable"))
+	require.Eventually(t, func() bool { return exitMarked(c, out.RunID) }, conformanceWait, time.Millisecond,
+		"a run still launching is attached from enqueue, so the drain can mark it")
+	close(turnGate)
+
+	// Hard while the launch is held: no runner exists, so nothing can end it.
+	assert.Never(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
+		"the exit is requested, not taken, and there is no boundary until the child is up")
+	require.Zero(t, sp.chatCount(), "the launch is held: no engine can exist yet")
+
+	close(launchGate)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
+		"the mark must survive the launch and end the run at the first boundary it reaches")
+	assert.Equal(t, CauseFinalReported, runCause(c, out.RunID))
+	assert.Contains(t, runTerminalDetail(c, out.RunID), "at its turn boundary")
 }

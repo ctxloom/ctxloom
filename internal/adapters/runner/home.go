@@ -398,6 +398,9 @@ func (h *Home) Redial() {
 	close(h.redial)
 	h.redial = make(chan struct{})
 	h.mu.Unlock()
+	// The run channel's conn keeps its own reconnect backoff; a kick that
+	// left it waiting would redial into a conn that fails fast.
+	h.conn.ResetConnectBackoff()
 }
 
 // redialWake is the pending kick: a channel closed and replaced by Redial,

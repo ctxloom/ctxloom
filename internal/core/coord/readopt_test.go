@@ -142,8 +142,10 @@ func TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner(t *testing.T) 
 	// race to win: the premise IS the elapsed time.
 	time.Sleep(runnerLossTimeout + 10*time.Second)
 
+	// No Redial kick: in production nothing tells the runner its coordinator
+	// is back, so its own loops — and its conns' reconnect backoff — must
+	// find it within a redial or two.
 	second := newTestCoordinatorOver(t, stateDir, sp)
-	sp.engineHome(0).Redial()
 	require.Eventually(t, func() bool { return second.runnerConnected(out.RunID) }, conformanceWait, 10*time.Millisecond,
 		"a runner must outlive a coordinator restart slower than the coordinator's own grace")
 	assert.NotEqual(t, StateEnded, rosterState(second, out.Harp))

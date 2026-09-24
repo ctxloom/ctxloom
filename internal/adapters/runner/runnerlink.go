@@ -10,6 +10,7 @@ import (
 
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
@@ -156,13 +157,25 @@ func grpcTarget(coordURL string) (string, error) {
 // answers pings without an enforcement policy.
 var coordKeepalive = keepalive.ClientParameters{Time: 10 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: true}
 
+// coordConnectParams caps grpc's own reconnect backoff at the runner's redial
+// pace. The run channel rides ONE long-lived ClientConn, and grpc-go's default
+// backoff grows to two minutes while the coordinator is down, failing every
+// RPC fast in between — so a coordinator back after a 30s outage would wait
+// out that backoff before the run channel could reattach, however often the
+// runner's loop asked.
+var coordConnectParams = grpc.ConnectParams{
+	Backoff:           backoff.Config{BaseDelay: time.Second, Multiplier: backoff.DefaultConfig.Multiplier, Jitter: backoff.DefaultConfig.Jitter, MaxDelay: HomeRedialBackoff},
+	MinConnectTimeout: 20 * time.Second,
+}
+
 // coordDialOptions is how every runner-side conn to the coordinator dials:
-// plaintext h2c, the bearer credential, and coordKeepalive.
+// plaintext h2c, the bearer credential, coordKeepalive and coordConnectParams.
 func coordDialOptions(token string) []grpc.DialOption {
 	return []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithPerRPCCredentials(bearerCreds(token)),
 		grpc.WithKeepaliveParams(coordKeepalive),
+		grpc.WithConnectParams(coordConnectParams),
 	}
 }
 

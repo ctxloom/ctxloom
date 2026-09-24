@@ -205,6 +205,9 @@ jobs:
       - name: Run golangci-lint
         run: just lint
 
+      - name: Architectural analyzers (lint-arch)
+        run: just lint-arch
+
       - name: Enforce cyclomatic complexity (CCN ≤ 10)
         run: just complexity-check
 

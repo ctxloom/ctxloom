@@ -385,7 +385,6 @@
 ./tests/arch/corpus_floors_test.go|countDocumented f * ast . File|1|11|countDocumented|151-175
 ./tests/arch/corpus_floors_test.go|countVocabularies f * ast . File|1|11|countVocabularies|182-205
 ./tests/arch/ledger_discipline_test.go| n ast . Node|1|13||218-269
-./tests/arch/path_authority_test.go| p string , d fs . DirEntry , err error|1|11||115-143
 ./tests/arch/real_home_immutability_arch_test.go|TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch t * testing . T|1|14|TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch|193-270
 ./tests/arch/session_bind_single_writer_arch_test.go| p string , d fs . DirEntry , err error|1|14||74-116
 ./tests/arch/vocabulary_adoption_test.go| n ast . Node|1|12||332-353

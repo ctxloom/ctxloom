@@ -268,7 +268,7 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) {
 	// contract: the report is queued to the parent BEFORE the run can end, so
 	// a parent can never receive EXITED before the report that explains it.
 	if s.Scope == ScopeFinal {
-		c.endOnFinalReport(harp)
+		c.endOnFinalReport(harp, runID)
 	}
 	// D4: a SCOPE_CHECKPOINT report is the natural compaction point — see
 	// checkpoint.go.

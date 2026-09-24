@@ -486,7 +486,7 @@ func (c *Coordinator) stopChildren(ctx context.Context, caller Identity, reason 
 // FINAL's completion contract, honoured.
 // ---------------------------------------------------------------------------
 
-// endOnFinalReport ends harp's current run because it filed a SCOPE_FINAL
+// endOnFinalReport ends run runID of harp because that run filed a SCOPE_FINAL
 // report — the missing connection between the completion contract and the
 // teardown that already exists behind it.
 //
@@ -516,12 +516,22 @@ func (c *Coordinator) stopChildren(ctx context.Context, caller Identity, reason 
 // notifyParentOfFinalReport runs first), or a parent could receive EXITED
 // before the report that explains it.
 //
-// Returns nil when there is nothing to end — no live run, a parentless or
+// KEYED TO THE RUN THAT FILED IT, not to the harp: FINAL completes the filing
+// run's contract, and a harp resumed or relaunched since has filed nothing. The
+// key is load-bearing because nothing upstream refuses a late report — the run
+// channel's receive loop dispatches frames it already read without asking
+// whether the channel is still the harp's current one, and agent_report
+// authenticates once, at call start. A FINAL from an ended run therefore
+// arrives here while the harp's current run is a different, live one, and must
+// end nothing (TestFinalReport_LateFinalFromAnEndedRunDoesNotEndTheResumedRun).
+//
+// Returns nil when there is nothing to end — the filing run is not the harp's
+// live current run, a parentless or
 // owner-owned top-level run, or a coordinator already draining. Otherwise the drain handle, so a caller (a
 // test) can wait for it to settle; production fires and forgets, because
 // startDrain runs the drain on its own goroutine and the terminal is
 // exactly-once however many times FINAL is filed.
-func (c *Coordinator) endOnFinalReport(harp string) *Drain {
+func (c *Coordinator) endOnFinalReport(harp, runID string) *Drain {
 	// The shutdown drain already covers every child, and exitRequested gives
 	// its policy precedence over any per-run mark, so a second drain here
 	// would be a goroutine that changes nothing.
@@ -530,7 +540,7 @@ func (c *Coordinator) endOnFinalReport(harp string) *Drain {
 	}
 	tracked := c.drainTracked(func(r *RunRecord) bool {
 		switch {
-		case r.Harp != harp:
+		case r.Harp != harp || r.RunID != runID:
 			return false
 		// A TOP-LEVEL RUN IS NEVER ENDED BY ITS OWN REPORT: there is no
 		// delegating parent whose contract this FINAL completes, and ending it

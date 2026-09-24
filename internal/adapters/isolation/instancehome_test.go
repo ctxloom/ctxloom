@@ -131,6 +131,23 @@ func TestPrepareInstanceHome_NoAuthVarRefusesAndNamesTheFixes(t *testing.T) {
 	assert.Empty(t, rec.seen(), "no config is generated for an instance the caller will refuse")
 }
 
+// A run that shares the human's login needs no auth var: the same empty env
+// that refuses above prepares the home, config and all, and places no
+// credential in it.
+func TestPrepareInstanceHome_SharedLoginNeedsNoAuthVar(t *testing.T) {
+	withFakeHome(t)
+	clearAuth(t)
+	rec := &recordingInstanceConfig{}
+	withInstanceConfigWriter(t, "claude-code", rec)
+	instance := t.TempDir()
+
+	report, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), SharedLogin: true})
+	require.NoError(t, err)
+	assert.False(t, report.Unauthenticated)
+	assert.Len(t, rec.seen(), 1, "the engine's config is still generated")
+	assert.NoFileExists(t, filepath.Join(instance, ".credentials.json"))
+}
+
 // Any one auth var authenticates the home, and the engine's config is still
 // generated: auth riding the env says nothing about onboarding or trust.
 func TestPrepareInstanceHome_AnyAuthVarAuthenticates(t *testing.T) {

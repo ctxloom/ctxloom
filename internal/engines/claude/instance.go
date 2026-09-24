@@ -35,9 +35,13 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 // Home: CLAUDE_CONFIG_DIR relocates claude's config into a session home,
 // which gets its own .claude.json through claudeInstanceConfig (the account
 // identity and the onboarding answers, carried across by name and nothing
-// else). No credential is placed there: the run authenticates from the
-// setup-token in CLAUDE_CODE_OAUTH_TOKEN, which outranks any credentials
-// file, or from an API key, a gateway token or a cloud provider instead.
+// else). No credential is placed there. A HOST run shares the human's own
+// login in place through SecureStorageEnv: one credential and one pair of
+// refresh locks with the human's claude, so claude's own locked refresh
+// keeps every holder in step, where the copies it replaced diverged and
+// revoked each other. A container run authenticates from the setup-token in
+// CLAUDE_CODE_OAUTH_TOKEN, which outranks any credentials file, or from an
+// API key, a gateway token or a cloud provider instead.
 func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
@@ -46,6 +50,7 @@ func (c Claude) Home() engine.HomeSpec {
 			EnvTriggers: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"},
 			MintHint:    "claude setup-token",
 		}),
+		SharedLogin:    engine.Provide(engine.SharedLogin{Var: SecureStorageEnv, FallbackVar: ConfigDirEnv}),
 		InstanceConfig: claudeInstanceConfig{},
 	}
 }

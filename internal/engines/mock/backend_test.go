@@ -38,8 +38,9 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 		},
 	}
 	b := New(WithHome(engine.HomeSpec{
-		Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}, {Name: "OTHER_HOME", Subdir: "other"}},
-		Auth: engine.Absent[engine.TokenAuth]("fixture authenticates against no vendor"),
+		Vars:        []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}, {Name: "OTHER_HOME", Subdir: "other"}},
+		Auth:        engine.Absent[engine.TokenAuth]("fixture authenticates against no vendor"),
+		SharedLogin: engine.Absent[engine.SharedLogin]("fixture keeps no credential"),
 	})).(Mock).Backend(nil).(*Backend)
 	b.fragments = []*agent.Fragment{{Content: "a"}, {Content: "b"}}
 

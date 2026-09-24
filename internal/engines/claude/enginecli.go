@@ -62,10 +62,9 @@ const (
 )
 
 // The claude ISOLATION vocabulary. Unlike the block above (facts the writers
-// and probe declarations both build paths from), these three describe how
-// claude relocates its home and where its OWN credential/transcript state
-// lives. The descriptor (internal/engines/claude/engine) declares the credential
-// seed from them; internal/adapters/isolation's engineContainerSpec table still
+// and probe declarations both build paths from), these describe how claude
+// relocates its home and where its OWN credential/transcript state lives.
+// internal/adapters/isolation's engineContainerSpec table still
 // duplicates the container-side facts as literals rather than importing this
 // package, so tests/arch's engine-layout gate cross-checks those literals
 // against these instead.
@@ -73,9 +72,15 @@ const (
 	// ConfigDirEnv is the environment variable claude honors to relocate its
 	// config home away from the default ~/.claude — CLAUDE_CONFIG_DIR.
 	// ctxloom's per-agent isolation points this at a private home per run so
-	// settings/commands/skills and credentials resolve from an isolated
-	// location instead of the shared one.
+	// settings/commands/skills resolve from an isolated location instead of
+	// the shared one.
 	ConfigDirEnv = "CLAUDE_CONFIG_DIR"
+	// SecureStorageEnv moves ONLY claude's credential storage (the credential
+	// file, its write lock, both refresh locks, the macOS keychain item name)
+	// apart from ConfigDirEnv: "" means HOME/.claude, and unset means the
+	// config dir. TestClaudeSecureStorage_FollowsTheVar pins that behaviour
+	// against the installed claude.
+	SecureStorageEnv = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 	// OAuthTokenEnv carries the long-lived token `claude setup-token` mints.
 	// claude reads it ahead of any credentials file and never refreshes it or
 	// writes it to disk.

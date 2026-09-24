@@ -28,6 +28,10 @@ type InstanceHomeRequest struct {
 	// be keyed to the directory the run actually uses. Empty is tolerated (the
 	// engine skips its per-project half and says so).
 	WorkDir string
+	// SharedLogin: the run executes on the host and authenticates from the
+	// human's own login in place (engine.HomeSpec.SharedLogin), so its env
+	// needs no token and the unauthenticated refusal does not apply.
+	SharedLogin bool
 }
 
 // InstanceHomeReport is what one PrepareInstanceHome call decided and wrote.
@@ -55,9 +59,10 @@ type InstanceHomeReport struct {
 // own instance config (claude's field-scoped .claude.json). Every byte-level
 // edit of a vendor's format happens inside that vendor's package.
 //
-// No credential is placed in the home. The engine authenticates from its
-// env (see ExportStoredTokens for why), so the only credential question
-// here is whether that env carries anything.
+// No credential is placed in the home. The engine authenticates from the
+// human's own login in place (req.SharedLogin) or from its env (see
+// ExportStoredTokens for why), so the only credential question here is
+// whether a run that shares no login has an env that carries anything.
 //
 // The real host home is READ and never written by this call; tests/arch's
 // real-home byte-identity gate is what proves it.
@@ -81,7 +86,7 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	defer unlock()
 
 	var rep InstanceHomeReport
-	if a, ok := f.Home.Auth.Get(); ok && !envAuthenticates(a) {
+	if a, ok := f.Home.Auth.Get(); ok && !req.SharedLogin && !envAuthenticates(a) {
 		rep.Unauthenticated = true
 		rep.Reason = unauthenticatedReason(a)
 		// Do NOT generate a config for an instance the caller is about to

@@ -100,7 +100,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	runtime := spec.Launch.Axes.Runtime
 	url, err := c.ReachURL(runtime)
 	if err != nil {
-		return nil, fmt.Errorf("owner run: no coordinator endpoint reachable from runtime %q: %w — check the container runtime's bridge network", runtime, err)
+		return nil, reachRefusal("owner run", runtime, err, "")
 	}
 
 	// A synthetic plan carrying exactly what enqueueRun journals and

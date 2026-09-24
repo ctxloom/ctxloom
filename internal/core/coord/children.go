@@ -707,13 +707,23 @@ func (c *Coordinator) spawnReachURL(harp string, runtimeAxis launch.RuntimeAxis)
 	if err == nil {
 		return url, nil
 	}
-	if errors.Is(err, launch.ErrUnknownRuntimeAxis) {
-		// A misspelled plan, not an unreachable network: the hint below
-		// would send the operator to the wrong place.
-		return "", fmt.Errorf("agent_run: %w", err)
-	}
-	return "", fmt.Errorf("agent_run: no coordinator endpoint reachable from runtime %q: %w — this child could not dial home, so nothing it sends could be routed and its work would be lost; check the container runtime's bridge network", runtimeAxis, err)
+	return "", reachRefusal("agent_run", runtimeAxis, err, "this child could not dial home, so nothing it sends could be routed and its work would be lost; ")
 }
+
+// reachRefusal wraps a ReachURL failure for the verb named by what. An
+// unknown runtime value is returned as itself: it is a misspelled plan, and
+// the unreachable-network advice would send the operator to the wrong
+// place. Anything else is an endpoint that could not be reached, and says so
+// with detail and bridgeNetworkHint.
+func reachRefusal(what string, runtimeAxis launch.RuntimeAxis, err error, detail string) error {
+	if errors.Is(err, launch.ErrUnknownRuntimeAxis) {
+		return fmt.Errorf("%s: %w", what, err)
+	}
+	return fmt.Errorf("%s: no coordinator endpoint reachable from runtime %q: %w — %s%s", what, runtimeAxis, err, detail, bridgeNetworkHint)
+}
+
+// bridgeNetworkHint ends an unreachable-reach-back refusal.
+const bridgeNetworkHint = "check the container runtime's bridge network"
 
 // runChild is a spawned child's driver goroutine: wait for an execution slot
 // (D4), then spawn the runner and issue StartRun with the briefing as the

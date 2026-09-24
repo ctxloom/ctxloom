@@ -2,9 +2,11 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -106,8 +108,22 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 		clidiag.Fwarn(ew, "ctxloom", "sync completed with %d errors", result.Errors)
 		for _, item := range result.Failed {
 			ew.Printf("ctxloom:   - %s (%s): %s\n", item.Reference, item.Type, item.Error)
-			strictness.Record(strictness.ClassSync, "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile",
+			strictness.Record(strictness.ClassSync, syncFailureRemedy(item.cause),
 				"sync: %s (%s) is neither cached nor fetchable: %s", item.Reference, item.Type, item.Error)
 		}
 	}
+}
+
+// remedySyncFailed is the fix line for an item a sync could neither find cached
+// nor fetch.
+const remedySyncFailed = "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile"
+
+// syncFailureRemedy selects the fix line for a failed sync item from its typed
+// cause. A pin signed in the retired manifest format fails every pull the same
+// way, because a pull keeps the pin; only an upgrade moves it.
+func syncFailureRemedy(cause error) string {
+	if errors.Is(cause, content.ErrManifestSuperseded) {
+		return remedyWithheldSuperseded
+	}
+	return remedySyncFailed
 }

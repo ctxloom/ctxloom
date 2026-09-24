@@ -143,7 +143,8 @@ func verifyRemoteTree(ctx context.Context, tree content.Bundle, root trust.Trust
 			ErrTreeBundleWithheld, treeRoot, sha, content.ManifestPath, verdict.Contents)
 	}
 	if verdict.Status == attest.StatusTampered {
-		return remote.Verified{}, fmt.Errorf("%w: remote tree bundle %s at %s: %s", ErrTreeBundleWithheld, treeRoot, sha, verdict.Detail)
+		_, merr := tree.Manifest(ctx)
+		return remote.Verified{}, fmt.Errorf("%w: remote tree bundle %s at %s: %w", ErrTreeBundleWithheld, treeRoot, sha, tamperedCause(merr, verdict.Detail))
 	}
 	// verdict.Verdict.OK(), not verdict.OK(): BundleVerdict.OK() folds in the
 	// Contents check already reported above, and collapsing the two would send
@@ -193,7 +194,8 @@ func ManifestVerifier(root trust.TrustRoot) remote.ManifestVerifyFunc {
 		case attest.StatusManifestSigned:
 			return remote.Verified{Release: m.Release(), Publisher: v.Principal}, nil
 		case attest.StatusTampered:
-			return remote.Verified{}, fmt.Errorf("%w: tip manifest: %s", ErrTreeBundleWithheld, v.Detail)
+			_, perr := content.ParseManifest(raw)
+			return remote.Verified{}, fmt.Errorf("%w: tip manifest: %w", ErrTreeBundleWithheld, tamperedCause(perr, v.Detail))
 		default:
 			return remote.Verified{}, nil
 		}

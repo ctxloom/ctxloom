@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -157,4 +158,47 @@ func TestAddTaskWithTags_CollapsesTwoLevelsToOne(t *testing.T) {
 	}
 	assert.Equal(t, []string{"triage:level=4"}, levels,
 		"arity=scalar keeps the LAST value written, never both")
+}
+
+// TestRunLintCmd_JSONKeysAreTheOnesACallerWouldJqFor asserts the keys a
+// script reads, not merely that the output parses: before lint.Result and
+// lint.Violation carried json tags they rendered as Violations/HarpID, so
+// `jq '.violations[].harp_id'` silently returned nothing — valid JSON, wrong
+// answer.
+func TestRunLintCmd_JSONKeysAreTheOnesACallerWouldJqFor(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+	harpID := addLegacyTags(t, tc, "triage this", "triage:kind=sparkles")
+
+	var out strings.Builder
+	require.Error(t, runLintCmd(&out, tc, clifmt.FormatJSON))
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out.String()), &got), out.String())
+	assert.Greater(t, got["checked_targets"], float64(0))
+	violations, ok := got["violations"].([]any)
+	require.True(t, ok, "violations must be a list: %s", out.String())
+	require.Len(t, violations, 1)
+	v := violations[0].(map[string]any)
+	assert.Equal(t, harpID, v["harp_id"])
+	assert.Contains(t, v["reason"], "triage:kind")
+}
+
+// TestRunLintCmd_CleanJSONViolationsIsEmptyListNotNull: a clean run has no
+// violations, and `jq '.violations[]'` must yield nothing rather than die with
+// "Cannot iterate over null".
+func TestRunLintCmd_CleanJSONViolationsIsEmptyListNotNull(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+	_, err = operations.AddTaskWithTags(tc, "triage this", "", "", []string{"triage:kind=defect", "triage:exposed=cli", "triage:effort=3"})
+	require.NoError(t, err)
+
+	var out strings.Builder
+	require.NoError(t, runLintCmd(&out, tc, clifmt.FormatJSON))
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out.String()), &got), out.String())
+	assert.Equal(t, []any{}, got["violations"])
 }

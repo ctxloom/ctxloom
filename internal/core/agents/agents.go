@@ -286,20 +286,20 @@ type EscalationRung struct {
 	// "COMMAND_EXECUTION" | "FILE_CHANGE" | "TOOL_USE" |
 	// "PERMISSION_ESCALATION" | "ARTIFACT_REVIEW" | "CUSTOM". Empty matches
 	// every kind (a catch-all rung).
-	Kinds []string `yaml:"kinds,omitempty"`
+	Kinds []string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
 	// Action is the rung's disposition: auto_accept | auto_decline |
 	// relay_to_role | surface_to_human.
-	Action string `yaml:"action"`
+	Action string `yaml:"action" json:"action"`
 	// Role is the relay_to_role/surface_to_human target. Only "parent" is
 	// addressable in this window (flat-hub topology); empty defaults to
 	// "parent" for both actions.
-	Role string `yaml:"role,omitempty"`
+	Role string `yaml:"role,omitempty" json:"role,omitempty"`
 	// Timeout bounds a relay_to_role/surface_to_human rung's wait, Go
 	// duration syntax (e.g. "5m"). Empty uses the resolver's default.
 	// REFUSED on auto_accept/auto_decline: they resolve the request
 	// immediately, so nothing waits and a declared timeout can only mean the
 	// operator expected behaviour the ladder does not have.
-	Timeout string `yaml:"timeout,omitempty"`
+	Timeout string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
 // RetiredLLMKey is the pre-rename spelling of Agent.LLM.

@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
+	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 )
 
 // reportExecuteError writes a terminal error in the format the invocation
@@ -24,6 +25,12 @@ func reportExecuteError(w io.Writer, err error) {
 }
 
 func main() {
+	// Before anything can log: without it zap.L() is the no-op global and a
+	// stalled lock wait on the task log leaves nothing on disk. Not verbose:
+	// taskloom is an MCP server and a hook-driven CLI, and a stderr tee is
+	// ctxloom's operator switch, not this binary's.
+	flush := logboot.Install("taskloom", false)
+
 	// A no-op unless built with `-tags docsgen` (`just gen-docs`), which mounts
 	// the shared reference-doc generator on the tree. See docs_gen.go.
 	registerDocsCmd(rootCmd)
@@ -31,8 +38,13 @@ func main() {
 	// convention) so registration has no hidden ordering dependency.
 	rootCmd.AddCommand(newLoadoutCmd())
 
-	if err := rootCmd.Execute(); err != nil {
+	err := rootCmd.Execute()
+	if err != nil {
 		reportExecuteError(os.Stderr, err)
+	}
+	// Flushed as a plain statement before the exit; see logboot.Install.
+	flush()
+	if err != nil {
 		os.Exit(1)
 	}
 }

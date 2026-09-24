@@ -1,7 +1,7 @@
 # internal/core/paths
 
-`internal/core/paths` is the single declarative source of truth for ctxloom's on-disk layout: 36
-constants naming every directory and file, 39 pure functions joining them under two
+`internal/core/paths` is the single declarative source of truth for ctxloom's on-disk layout:
+constants naming every directory and file, pure functions joining them under two
 roots — the **home root** (`~/.ctxloom/...`, keyed by harp) and a **project app dir**
 (`<appPath>/...`, supplied by the caller) — and the layout classification itself
 (`Tier`, `Entry`, `Layout`). It declares no other types, performs no writes, and
@@ -34,7 +34,7 @@ what it costs — is [docs/layout.md](../../layout.md). This page is about the p
 ```mermaid
 flowchart TD
     HOME["os.UserHomeDir()"] --> HSD["HomeSessionsDir<br/>~/.ctxloom/sessions"]
-    HOME --> HLD["HomeLogsDir → HomeLogFilePath<br/>~/.ctxloom/logs/ctxloom.log"]
+    HOME --> HLD["HomeLogsDir → HomeLogFilePath<br/>~/.ctxloom/logs/&lt;prog&gt;.log"]
     HOME --> TCD["TriggerCacheDir<br/>~/.ctxloom/cache/triggers"]
     HOME --> HAP["HomeApprovalsPath<br/>~/.ctxloom/approvals"]
     HOME --> HCCP["HomeCompanionConsentPath"]
@@ -112,7 +112,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 
 | Group | Constants |
 |---|---|
-| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `LogFileName`, `TriggersDir`, `CompanionConsentFileName`, `CoordDirName`, `CoordEndpointFileName` |
+| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `TriggersDir`, `CompanionConsentFileName`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `RefusedAdvancesFileName`, `ProjectIDFileName` |
 | Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `DirtyTreeCommitAckFileName`, `SessionEngineHomesDirName` |
 | Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
@@ -129,7 +129,7 @@ this package.
 |---|---|---|
 | `HomeSessionsDir` | `~/.ctxloom/sessions` | 6 |
 | `HomeLogsDir` | `~/.ctxloom/logs` | 0 (feeds `HomeLogFilePath`) |
-| `HomeLogFilePath` | `~/.ctxloom/logs/ctxloom.log` | 1 |
+| `HomeLogFilePath` | `~/.ctxloom/logs/<prog>.log` | 1 |
 | `SessionIndexPath` | `+ index.yaml` | 1 |
 | `HarpDir` | `+ <harp>` — **validates the harp** | 9 |
 | `HarpEssencePath` | `<harp>/essence.md` | 4 |

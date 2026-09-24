@@ -26,6 +26,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
+	"github.com/ctxloom/ctxloom/internal/shared/logboot"
 )
 
 // envPersonality selects the personality when no --<backend>/--personality flag is
@@ -38,12 +39,21 @@ const envPersonality = "MOCKENGINE_PERSONALITY"
 const envSurface = "MOCKENGINE_SURFACE"
 
 func main() {
+	// Before anything can log, so a stalled lock wait leaves a record on disk.
+	// Not verbose: the mock impersonates a vendor CLI whose streams its driver
+	// reads, and a stderr tee would be output the real vendor never makes.
+	flush := logboot.Install("mockengine", false)
+
 	// The personalities are the composed engines; compose them first.
+	code := 2
 	if err := engines.Compose(); err != nil {
 		fmt.Fprintf(os.Stderr, "mockengine: %v\n", err)
-		os.Exit(2)
+	} else {
+		code = run(os.Args[1:])
 	}
-	os.Exit(run(os.Args[1:]))
+	// Flushed as a plain statement before the exit; see logboot.Install.
+	flush()
+	os.Exit(code)
 }
 
 // personalityFromFlag resolves a leading `--<engine>` token to the registered

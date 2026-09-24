@@ -35,6 +35,7 @@ func init() {
 				Mapper:             cfg.Mapper,
 				SpoolSweepInterval: cfg.SpoolSweepInterval,
 				RedialBackoff:      cfg.RedialBackoff,
+				OwnerLossWindow:    cfg.OwnerLossWindow,
 				Reporter:           cfg.Reporter,
 			})
 			if h == nil {

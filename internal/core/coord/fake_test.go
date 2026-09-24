@@ -22,6 +22,9 @@ import (
 // fakeSpawner is the hermetic Spawner: no config, no engines, no isolation.
 // It mints deterministic harps and scripts one fakeEngine per launch.
 type fakeSpawner struct {
+	// ownerLossWindow is every runner half's HomeConfig.OwnerLossWindow (0 =
+	// the runner's default).
+	ownerLossWindow time.Duration
 	// degraded is the posture the fake resolves children under, the way the
 	// production spawner reads its composition's strictness.Mode.
 	degraded bool
@@ -329,6 +332,7 @@ func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.E
 		// (llm_runner_common.go). The run's identity is NOT here: it arrives
 		// on the Launch, and the engine host binds it as it drives.
 		SpoolSweepInterval: sweepInterval,
+		OwnerLossWindow:    s.ownerLossWindow,
 	})
 	if err != nil {
 		cancel()

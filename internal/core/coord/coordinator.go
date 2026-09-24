@@ -305,6 +305,11 @@ type Coordinator struct {
 	// file at exactly that moment. Nil in production. Guarded by mu: the
 	// courier runs on the spool reactor's goroutine too.
 	afterMailWritten func(to string)
+	// afterRecipientObserved, when set, is called by deliverMailID between
+	// observing the recipient and writing the file — the seam a test uses to
+	// land the recipient's terminal inside that window. Nil in production.
+	// Guarded by mu.
+	afterRecipientObserved func(to string)
 	// spoolHandler is THE consumer for validated inbound spool doorbells
 	// (SetSpoolDoorbellHandler), registered by startSpoolReactor whenever
 	// delivery is on. Nil only when delivery is off, and then an arriving

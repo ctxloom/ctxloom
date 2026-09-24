@@ -70,7 +70,7 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	// The lockfile keys on the FETCH address (bundleRef); the profile is
 	// addressed by the bundle's canonical IDENTITY, which is what the seed and
 	// every listing carry.
-	profileRef = "ctxloom+file://" + repoDir + "//bundles/tools#profiles/dev"
+	profileRef = canonicalRef(t, "ctxloom+file://"+repoDir+"//bundles/tools") + "#profiles/dev"
 	lock.AddEntry(remote.ItemTypeBundle, bundleRef, entry)
 	require.NoError(t, lm.Save(lock))
 

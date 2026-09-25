@@ -149,40 +149,14 @@ func (s *Store) Last(target string) (Record, bool, error) {
 	var newestKey string
 	found := false
 
-	exists, err := afero.DirExists(s.fs, s.dir)
+	names, err := s.recordNames(target)
 	if err != nil {
-		return newest, false, fmt.Errorf("confpatch: stat %s: %w", s.dir, err)
+		return newest, false, err
 	}
-	if !exists {
-		// No record directory yet means no prior application — the first write
-		// to any target reaches here, so it is not an error.
-		return newest, false, nil
-	}
-	entries, err := afero.ReadDir(s.fs, s.dir)
-	if err != nil {
-		return newest, false, fmt.Errorf("confpatch: read %s: %w", s.dir, err)
-	}
-	prefix := RecordPrefix(target)
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		n := e.Name()
-		if strings.HasPrefix(n, prefix) && strings.HasSuffix(n, recordFileSuffix) {
-			names = append(names, n)
-		}
-	}
-	sort.Strings(names)
-
 	for _, n := range names {
-		data, err := afero.ReadFile(s.fs, filepath.Join(s.dir, n))
+		rec, err := s.readRecord(n)
 		if err != nil {
-			return newest, false, fmt.Errorf("confpatch: read record %s: %w", n, err)
-		}
-		var rec Record
-		if err := yamlv3.Unmarshal(data, &rec); err != nil {
-			return newest, false, fmt.Errorf("confpatch: parse record %s: %w", n, err)
+			return newest, false, err
 		}
 		// applied_at then filename: the filename tie-break keeps the choice
 		// deterministic when two records share a timestamp.
@@ -192,6 +166,46 @@ func (s *Store) Last(target string) (Record, bool, error) {
 		}
 	}
 	return newest, found, nil
+}
+
+// recordNames lists target's record files in the store, sorted by name. No
+// record directory yet means no prior application — the first write to any
+// target reaches here, so it is not an error.
+func (s *Store) recordNames(target string) ([]string, error) {
+	exists, err := afero.DirExists(s.fs, s.dir)
+	if err != nil {
+		return nil, fmt.Errorf("confpatch: stat %s: %w", s.dir, err)
+	}
+	if !exists {
+		return nil, nil
+	}
+	entries, err := afero.ReadDir(s.fs, s.dir)
+	if err != nil {
+		return nil, fmt.Errorf("confpatch: read %s: %w", s.dir, err)
+	}
+	prefix := RecordPrefix(target)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		n := e.Name()
+		if !e.IsDir() && strings.HasPrefix(n, prefix) && strings.HasSuffix(n, recordFileSuffix) {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// readRecord reads and parses the store's record file n.
+func (s *Store) readRecord(n string) (Record, error) {
+	data, err := afero.ReadFile(s.fs, filepath.Join(s.dir, n))
+	if err != nil {
+		return Record{}, fmt.Errorf("confpatch: read record %s: %w", n, err)
+	}
+	var rec Record
+	if err := yamlv3.Unmarshal(data, &rec); err != nil {
+		return Record{}, fmt.Errorf("confpatch: parse record %s: %w", n, err)
+	}
+	return rec, nil
 }
 
 // write builds and writes one §9.7 record.

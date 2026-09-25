@@ -215,186 +215,242 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 		return res, fmt.Errorf("confpatch: this build has no hew document reader for %q, so a write to %s could not be recorded", format, target)
 	}
 
-	err := sessions.WithFileLock(targetFS, target, func() error {
-		before, existed, err := ReadTarget(targetFS, target)
-		if err != nil {
-			return err
-		}
-		if !existed {
-			before = EmptyDocument(format)
-		}
-		res.Before = before
-
-		// 1+2. Reverse what ctxloom applied here last time.
-		//
-		// Only when the target still EXISTS. The record store is home-rooted
-		// and outlives the file it describes, so an absent target with a live
-		// record is ordinary (a regenerated `--target` directory), not
-		// suspicious: reversing into the empty document standing in for the
-		// missing file fails no-match, and that read as drift — refusing the
-		// write entirely. A file that is not there cannot be clobbered and
-		// holds no ctxloom entries to take back out, so the previous
-		// application is already reversed and the apply goes forward.
-		restored := before
-		prev, found, err := s.Last(target)
-		if err != nil {
-			return err
-		}
-		if existed && found && len(prev.Reversal) > 0 {
-			restored, err = ApplyPatchText(binding, before, []byte(prev.Reversal), target)
-			if err != nil {
-				// The reversal not fitting means SOMEONE ELSE wrote the region
-				// ctxloom manages. Refusing is right when that someone is the
-				// user. It is wrong when it was another ctxloom, which happens
-				// routinely and is not an edit anyone made: see healOwnedDrift.
-				healed, healedPaths, ok := healOwnedDrift(binding, format, target, before, prev, s.owner)
-				if !ok {
-					return fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", target, err)
-				}
-				restored, res.HealedPaths = healed, healedPaths
-			}
-			res.Reversed = true
-		}
-		// Take out any entry of ctxloom's OWN that the reversal did not
-		// account for — see WithOwnedPaths. Replacing such an entry in place is
-		// what makes the reversal unrenderable; removing it and adding it back
-		// fresh keeps the undo exact.
-		if len(cfg.ownedPaths) > 0 {
-			// No Recorded value: there is no record accounting for these, which
-			// is the whole reason this path exists. Executable identity is the
-			// only proof available for them.
-			candidates := make([]ownedCandidate, 0, len(cfg.ownedPaths))
-			for _, ptr := range cfg.ownedPaths {
-				candidates = append(candidates, ownedCandidate{Pointer: ptr})
-			}
-			cleaned, removed, _, cerr := ownedRemovals(binding, format, target, restored, candidates, s.owner)
-			if cerr == nil && len(removed) > 0 {
-				restored = cleaned
-				res.AdoptedPaths = removed
-			}
-		}
-		res.Restored = restored
-
-		// 3. Apply the newly computed set, recorded against the RESTORED
-		// document so the caller addresses the user's file as it will actually
-		// be written, not as it stood with ctxloom's old entries still in it.
-		doc, err := hew.OpenBytes(target, restored, hew.As(format))
-		if err != nil {
-			return fmt.Errorf("confpatch: open %s for hew: %w", target, err)
-		}
-		cur, err := binding.Document(target, restored)
-		if err != nil {
-			return fmt.Errorf("confpatch: parse %s to build against: %w", target, err)
-		}
-		recorded, err := build(doc, cur)
-		if err != nil {
-			return fmt.Errorf("confpatch: build the changes for %s: %w", target, err)
-		}
-
-		var want hew.TransformList
-		after := restored
-		if recorded > 0 {
-			if want, err = doc.Transforms(); err != nil {
-				return fmt.Errorf("confpatch: lower %s's changes to hew transforms: %w", target, err)
-			}
-			if after, err = doc.Bytes(); err != nil {
-				return fmt.Errorf("confpatch: apply ctxloom's changes to %s: %w", target, err)
-			}
-		}
-		res.After = after
-		res.Changed = string(after) != string(before)
-
-		// A write that changes nothing writes nothing — no target, no record.
-		// The prior record still describes the file accurately, so replacing it
-		// with an identical one would grow the audit trail without adding a
-		// fact to it.
-		if !res.Changed {
-			return nil
-		}
-
-		// 4. Derive this application's reversal from the two images, render it
-		// as patch text, and write the record BEFORE the target: a record
-		// describing a write that then fails is recoverable noise, whereas a
-		// write with no record is exactly the ownership gap this closes.
-		reversal, err := RenderReversal(format, restored, after, target)
-		if err != nil {
-			return err
-		}
-
-		// PROVE THE REVERSAL BEFORE STORING IT. A reversal is only worth
-		// keeping if it actually reverses, and that is checkable here and
-		// nowhere else: both images are in hand, in memory, this instant.
-		//
-		// It is checked rather than trusted because a reversal can SUCCEED and
-		// still hand back the wrong bytes — a hew defect did exactly that, and
-		// silently, in the two formats written here. And it compounds: the next
-		// write renders ITS reversal from the document this one restores, so a
-		// bad reversal is inherited by every later write and no later write can
-		// notice.
-		//
-		// Deliberately NOT a digest compared against a previous invocation. The
-		// question is whether THIS reversal round-trips, which is a property of
-		// the pair being written now — not whether the file changed since last
-		// time, which is a legitimate thing for a user's file to do.
-		// Only when the file already EXISTED. Creating one from nothing has no
-		// document to restore to — a reversal takes ctxloom's entries back out,
-		// it cannot express "make this file not exist" — so the round trip
-		// legitimately cannot hold there and is not evidence of anything.
-		if existed && !bytes.Equal(after, restored) {
-			roundTripped, rtErr := ApplyPatchText(binding, after, reversal, target)
-			if rtErr != nil {
-				return fmt.Errorf("confpatch: the reversal computed for %s does not apply to the document it was derived from, so ctxloom could not take its own entries back out later; refusing to write: %w", target, rtErr)
-			}
-			if !bytes.Equal(roundTripped, restored) {
-				// BYTE-EXACT ON PURPOSE, and there are TWO distinct ways to
-				// reach it. Both are LEGITIMATE refusals — the file is the
-				// user's, and handing it back other than as they wrote it is
-				// not restoring it.
-				//
-				//  1. ORDER. hew's emitters write a map's keys sorted, so a Set
-				//     on a container the document spelled in another order
-				//     permutes it, and the reversal brings the content back
-				//     without the position.
-				//  2. STYLE. hew's applier re-renders a container it edited in
-				//     its own layout rather than the document's. Observed
-				//     against claude.ClaudeCodeHookWriter.applyMCP: a member
-				//     patch under /mcpServers/<name> comes back with identical
-				//     keys in identical order, collapsed from the document's
-				//     indented form onto ONE line.
-				//
-				// Do not assume (1). It is the intuitive cause and it was the
-				// only one named here, which is why (2) went undiagnosed: the
-				// error text sent readers looking for a permutation that was
-				// not there. Diff the two images before theorising.
-				//
-				// Do NOT relax this to a parsed or semantic comparison to make
-				// either case pass. A parsed comparison cannot see order OR
-				// layout, so it would accept exactly what this exists to catch,
-				// and the deviation would then be inherited by every later
-				// reversal rendered from this document.
-				return fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from byte for byte, so ctxloom's entries could not be taken back out cleanly; refusing to write rather than store an undo that does not undo (the content is usually correct: compare the two images for a change of member ORDER or of LAYOUT, such as an edited container re-rendered onto one line)", target)
-			}
-		}
-
-		if cfg.dryRun {
-			return nil
-		}
-
-		recordPath, err := s.write(target, format, want, restored, after, reversal)
-		if err != nil {
-			return err
-		}
-		res.RecordPath = recordPath
-
-		if err := WriteTarget(targetFS, target, after); err != nil {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
+	run := applyRun{
+		store: s, targetFS: targetFS, target: target, format: format,
+		binding: binding, build: build, cfg: cfg, res: &res,
+	}
+	if err := sessions.WithFileLock(targetFS, target, run.locked); err != nil {
 		return res, err
 	}
 	return res, nil
+}
+
+// applyRun is one Apply against one target, run under the target's lock. It
+// fills res as it goes, so a caller sees every image reached before a
+// failure.
+type applyRun struct {
+	store    *Store
+	targetFS afero.Fs
+	target   string
+	format   hew.FormatID
+	binding  hew.Binding
+	build    Build
+	cfg      applyConfig
+	res      *Result
+}
+
+// locked is Apply's body: read, reverse, apply, prove, record, write.
+func (r *applyRun) locked() error {
+	before, existed, err := ReadTarget(r.targetFS, r.target)
+	if err != nil {
+		return err
+	}
+	if !existed {
+		before = EmptyDocument(r.format)
+	}
+	r.res.Before = before
+
+	restored, err := r.reverseLast(before, existed)
+	if err != nil {
+		return err
+	}
+	restored = r.removeOwned(restored)
+	r.res.Restored = restored
+
+	want, after, err := r.applyBuild(restored)
+	if err != nil {
+		return err
+	}
+	r.res.After = after
+	r.res.Changed = string(after) != string(before)
+
+	// A write that changes nothing writes nothing — no target, no record.
+	// The prior record still describes the file accurately, so replacing it
+	// with an identical one would grow the audit trail without adding a
+	// fact to it.
+	if !r.res.Changed {
+		return nil
+	}
+
+	// Derive this application's reversal from the two images, render it
+	// as patch text, and write the record BEFORE the target: a record
+	// describing a write that then fails is recoverable noise, whereas a
+	// write with no record is exactly the ownership gap this closes.
+	reversal, err := RenderReversal(r.format, restored, after, r.target)
+	if err != nil {
+		return err
+	}
+	if existed {
+		if err := r.proveReversal(restored, after, reversal); err != nil {
+			return err
+		}
+	}
+	if r.cfg.dryRun {
+		return nil
+	}
+	return r.commit(want, restored, after, reversal)
+}
+
+// reverseLast reverses what ctxloom applied to the target last time,
+// returning the restored document.
+//
+// Only when the target still EXISTS. The record store is home-rooted
+// and outlives the file it describes, so an absent target with a live
+// record is ordinary (a regenerated `--target` directory), not
+// suspicious: reversing into the empty document standing in for the
+// missing file fails no-match, and that read as drift — refusing the
+// write entirely. A file that is not there cannot be clobbered and
+// holds no ctxloom entries to take back out, so the previous
+// application is already reversed and the apply goes forward.
+func (r *applyRun) reverseLast(before []byte, existed bool) ([]byte, error) {
+	prev, found, err := r.store.Last(r.target)
+	if err != nil {
+		return nil, err
+	}
+	if !existed || !found || len(prev.Reversal) == 0 {
+		return before, nil
+	}
+	restored, err := ApplyPatchText(r.binding, before, []byte(prev.Reversal), r.target)
+	if err == nil {
+		r.res.Reversed = true
+		return restored, nil
+	}
+	// The reversal not fitting means SOMEONE ELSE wrote the region
+	// ctxloom manages. Refusing is right when that someone is the
+	// user. It is wrong when it was another ctxloom, which happens
+	// routinely and is not an edit anyone made: see healOwnedDrift.
+	healed, healedPaths, ok := healOwnedDrift(r.binding, r.format, r.target, before, prev, r.store.owner)
+	if !ok {
+		return nil, fmt.Errorf("confpatch: %s has drifted since ctxloom last wrote it, so the previous application could not be reversed; refusing to write rather than clobber the change: %w", r.target, err)
+	}
+	r.res.Reversed, r.res.HealedPaths = true, healedPaths
+	return healed, nil
+}
+
+// removeOwned takes out any entry of ctxloom's OWN that the reversal did not
+// account for — see WithOwnedPaths. Replacing such an entry in place is
+// what makes the reversal unrenderable; removing it and adding it back
+// fresh keeps the undo exact.
+func (r *applyRun) removeOwned(restored []byte) []byte {
+	if len(r.cfg.ownedPaths) == 0 {
+		return restored
+	}
+	// No Recorded value: there is no record accounting for these, which
+	// is the whole reason this path exists. Executable identity is the
+	// only proof available for them.
+	candidates := make([]ownedCandidate, 0, len(r.cfg.ownedPaths))
+	for _, ptr := range r.cfg.ownedPaths {
+		candidates = append(candidates, ownedCandidate{Pointer: ptr})
+	}
+	cleaned, removed, _, cerr := ownedRemovals(r.binding, r.format, r.target, restored, candidates, r.store.owner)
+	if cerr != nil || len(removed) == 0 {
+		return restored
+	}
+	r.res.AdoptedPaths = removed
+	return cleaned
+}
+
+// applyBuild applies the newly computed set, recorded against the RESTORED
+// document so the caller addresses the user's file as it will actually
+// be written, not as it stood with ctxloom's old entries still in it.
+func (r *applyRun) applyBuild(restored []byte) (hew.TransformList, []byte, error) {
+	doc, err := hew.OpenBytes(r.target, restored, hew.As(r.format))
+	if err != nil {
+		return hew.TransformList{}, nil, fmt.Errorf("confpatch: open %s for hew: %w", r.target, err)
+	}
+	cur, err := r.binding.Document(r.target, restored)
+	if err != nil {
+		return hew.TransformList{}, nil, fmt.Errorf("confpatch: parse %s to build against: %w", r.target, err)
+	}
+	recorded, err := r.build(doc, cur)
+	if err != nil {
+		return hew.TransformList{}, nil, fmt.Errorf("confpatch: build the changes for %s: %w", r.target, err)
+	}
+	if recorded == 0 {
+		return hew.TransformList{}, restored, nil
+	}
+	want, err := doc.Transforms()
+	if err != nil {
+		return hew.TransformList{}, nil, fmt.Errorf("confpatch: lower %s's changes to hew transforms: %w", r.target, err)
+	}
+	after, err := doc.Bytes()
+	if err != nil {
+		return hew.TransformList{}, nil, fmt.Errorf("confpatch: apply ctxloom's changes to %s: %w", r.target, err)
+	}
+	return want, after, nil
+}
+
+// proveReversal checks that reversal takes after back to restored, byte for
+// byte, and refuses the write when it does not.
+//
+// PROVE THE REVERSAL BEFORE STORING IT. A reversal is only worth
+// keeping if it actually reverses, and that is checkable here and
+// nowhere else: both images are in hand, in memory, this instant.
+//
+// It is checked rather than trusted because a reversal can SUCCEED and
+// still hand back the wrong bytes — a hew defect did exactly that, and
+// silently, in the two formats written here. And it compounds: the next
+// write renders ITS reversal from the document this one restores, so a
+// bad reversal is inherited by every later write and no later write can
+// notice.
+//
+// Deliberately NOT a digest compared against a previous invocation. The
+// question is whether THIS reversal round-trips, which is a property of
+// the pair being written now — not whether the file changed since last
+// time, which is a legitimate thing for a user's file to do.
+//
+// Only when the file already EXISTED (the caller's guard). Creating one from nothing has no
+// document to restore to — a reversal takes ctxloom's entries back out,
+// it cannot express "make this file not exist" — so the round trip
+// legitimately cannot hold there and is not evidence of anything.
+func (r *applyRun) proveReversal(restored, after, reversal []byte) error {
+	if bytes.Equal(after, restored) {
+		return nil
+	}
+	roundTripped, rtErr := ApplyPatchText(r.binding, after, reversal, r.target)
+	if rtErr != nil {
+		return fmt.Errorf("confpatch: the reversal computed for %s does not apply to the document it was derived from, so ctxloom could not take its own entries back out later; refusing to write: %w", r.target, rtErr)
+	}
+	if bytes.Equal(roundTripped, restored) {
+		return nil
+	}
+	// BYTE-EXACT ON PURPOSE, and there are TWO distinct ways to
+	// reach it. Both are LEGITIMATE refusals — the file is the
+	// user's, and handing it back other than as they wrote it is
+	// not restoring it.
+	//
+	//  1. ORDER. hew's emitters write a map's keys sorted, so a Set
+	//     on a container the document spelled in another order
+	//     permutes it, and the reversal brings the content back
+	//     without the position.
+	//  2. STYLE. hew's applier re-renders a container it edited in
+	//     its own layout rather than the document's. Observed
+	//     against claude.ClaudeCodeHookWriter.applyMCP: a member
+	//     patch under /mcpServers/<name> comes back with identical
+	//     keys in identical order, collapsed from the document's
+	//     indented form onto ONE line.
+	//
+	// Do not assume (1). It is the intuitive cause and it was the
+	// only one named here, which is why (2) went undiagnosed: the
+	// error text sent readers looking for a permutation that was
+	// not there. Diff the two images before theorising.
+	//
+	// Do NOT relax this to a parsed or semantic comparison to make
+	// either case pass. A parsed comparison cannot see order OR
+	// layout, so it would accept exactly what this exists to catch,
+	// and the deviation would then be inherited by every later
+	// reversal rendered from this document.
+	return fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from byte for byte, so ctxloom's entries could not be taken back out cleanly; refusing to write rather than store an undo that does not undo (the content is usually correct: compare the two images for a change of member ORDER or of LAYOUT, such as an edited container re-rendered onto one line)", r.target)
+}
+
+// commit writes the record, then the target.
+func (r *applyRun) commit(want hew.TransformList, restored, after, reversal []byte) error {
+	recordPath, err := r.store.write(r.target, r.format, want, restored, after, reversal)
+	if err != nil {
+		return err
+	}
+	r.res.RecordPath = recordPath
+	return WriteTarget(r.targetFS, r.target, after)
 }
 
 // RenderReversal diffs after back to restored and renders the result as .hew

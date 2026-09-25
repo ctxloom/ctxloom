@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
@@ -336,8 +337,11 @@ func parseFileReference(ref string) (*Reference, error) {
 		return nil, fmt.Errorf("file URL reference missing item path: %s (expected @<type>/<path>)", ref)
 	}
 
-	// Reconstruct file URL without type/path
-	repoURL := "file://" + repoPath
+	// The repository's fetch location, rendered by the one renderer: a
+	// percent-encoded file URL. repoPath is DECODED here, and git decodes a
+	// file:// URL again, so concatenating it raw would hand git a different
+	// directory the moment the path holds an escape.
+	repoURL := refuri.Parts{Class: refuri.ClassFile, RepoPath: repoPath}.FetchURL()
 
 	// Parse the remainder: type/path[@contentVersion]
 	itemType, itemPath, contentVersion, err := parseTypePathVersion(remainder)
@@ -485,93 +489,74 @@ func (r *Reference) localRef() string {
 
 // CanonicalString renders this reference as a canonical ctxloom URI
 // (ctxloom+git / ctxloom+file / ctxloom+local / ctxloom+companion), carrying
-// "@<version>" when the reference pins one. This is the reference's IDENTITY:
-// the spelling every API and stored identity outside the lockfile uses, and the
-// one parseCanonicalURIReference reads back.
+// "@<version>" when the reference pins one: BundleRef().String().
 //
-// It is NOT the lockfile key. A lockfile entry addresses a FETCH and is keyed
-// by LockKey, which spells the same bundle the way the lockfile on disk already
-// spells it — see LockKey's own doc for why the two are separate.
-//
-// A reference that cannot be classified into the URI family carries no URL and
-// is not local or companion, which makes it malformed by construction. It
-// renders as its fetch address rather than as an invented URI, and says so.
+// A reference that has no bundle identity is malformed by construction. It is
+// rendered for DIAGNOSTICS only, as the address it was given, and says so — it
+// is never a key: callers that key use BundleRef or LockKey, which error.
 func (r *Reference) CanonicalString() string {
-	p, err := r.canonicalParts()
+	br, err := r.BundleRef()
 	if err != nil {
-		clidiag.Warn("ctxloom", "cannot render %q as a canonical reference (%v); using its fetch address", r.LockKey(), err)
-		return r.LockKey()
+		diag := r.URL + "@" + ItemTypeBundle.DirName() + "/" + r.Path
+		clidiag.Warn("ctxloom", "cannot render %q as a canonical reference (%v)", diag, err)
+		return diag
 	}
-	return p.Render(true)
+	return br.String()
 }
 
-// canonicalParts maps this reference onto the shared URI syntax, minting
-// through refuri so a rendered identity is subject to exactly the rules a
-// parsed one is.
-//
-// ClassGit covers every transport that names a repository by host and path.
-// The transport is not part of a repository's identity — NormalizeURL already
-// folds git@ to https — so ssh://, git:// and https:// converge on one
-// identity, exactly as the trust grammar's own conversion does.
-func (r *Reference) canonicalParts() (refuri.Parts, error) {
+// BundleRef mints this reference's structured bundle reference from its own
+// fields — the source class, the repository the URL names (read by the one
+// repo-level canonicalizer, refuri.ParseRepoIdentity), the bundle path and the
+// content version. It is the ONE place a parsed Reference becomes an identity:
+// the lockfile key, the canonical string, a reader's source ref and the key a
+// retraction is looked up by all come from here, so no two of them can spell
+// one bundle two ways.
+func (r *Reference) BundleRef() (trust.BundleRef, error) {
+	var (
+		br  trust.BundleRef
+		err error
+	)
 	switch {
 	case r.IsLocal:
-		p, err := refuri.Local(r.Path)
-		if err != nil {
-			return refuri.Parts{}, err
-		}
-		p.Version = r.ContentVersion
-		return p, nil
+		br, err = trust.LocalRef(r.Path)
 	case r.IsCompanion:
-		return refuri.Companion(r.Path)
+		br, err = trust.CompanionRef(r.Path)
 	case r.URL == "":
-		return refuri.Parts{}, fmt.Errorf("reference has no source URL")
-	}
-	u, err := url.Parse(r.URL)
-	if err != nil || u.Scheme == "" {
-		// The scp spelling ("git@host:path") is not a URL. The repo-URL
-		// grammar folds it onto the https spelling of the same repository
-		// (refuri.NormalizeURL), so both spellings mint one identity; a URL
-		// url.Parse already reads is left exactly as it was.
-		u, err = url.Parse(refuri.NormalizeURL(r.URL))
-	}
-	if err != nil {
-		return refuri.Parts{}, fmt.Errorf("source URL %q: %w", r.URL, err)
-	}
-	var p refuri.Parts
-	if u.Scheme == "file" {
-		p, err = refuri.File(u.Path, r.Path)
-	} else {
-		p, err = refuri.Git(u.Host, u.Path, r.Path)
+		return trust.BundleRef{}, fmt.Errorf("%w: reference has no source URL", trust.ErrRefSyntax)
+	default:
+		repo, rerr := refuri.ParseRepoIdentity(r.URL)
+		if rerr != nil {
+			return trust.BundleRef{}, fmt.Errorf("source URL %q: %w", r.URL, rerr)
+		}
+		switch repo.Class {
+		case refuri.ClassGit:
+			br, err = trust.GitRef(repo.Host, repo.RepoPath, r.Path)
+		case refuri.ClassFile:
+			br, err = trust.FileRef(repo.RepoPath, r.Path)
+		default:
+			return trust.BundleRef{}, fmt.Errorf("%w: source URL %q names no repository", trust.ErrRefSyntax, r.URL)
+		}
 	}
 	if err != nil {
-		return refuri.Parts{}, err
+		return trust.BundleRef{}, err
 	}
-	p.Version = r.ContentVersion
-	return p, nil
+	if r.ContentVersion == "" {
+		return br, nil
+	}
+	return br.WithVersion(r.ContentVersion)
 }
 
-// LockKey renders this reference as the lockfile/fetch address:
-// "<url>@<kind>s/<path>", or the ctxloom:local / ctxloom:companion equivalent.
-//
-// It is deliberately a DIFFERENT string from CanonicalString. A lockfile entry
-// addresses a fetch — which repository, which path — and is keyed on this
-// spelling on disk; an identity addresses content and is a canonical URI.
-// Rendering one from the other would rewrite every lockfile key the moment the
-// identity grammar moved, so the two renderings are separate and each names
-// what it is for.
-func (r *Reference) LockKey() string {
-	if r.IsLocal {
-		return r.localRef()
+// LockKey is the key this reference's lockfile entry is stored under: its
+// version-less bundle identity, BundleRef().BundleIdentity(). The lockfile
+// keys on identity rather than on the address as typed because the trust gate
+// looks a publisher's retraction up by identity, and two spellings of one
+// repository must not be two entries — one of which no lookup reaches.
+func (r *Reference) LockKey() (trust.BundleKey, error) {
+	br, err := r.BundleRef()
+	if err != nil {
+		return "", err
 	}
-	if r.IsCompanion {
-		return r.companionRef()
-	}
-	typeName := r.ItemType.DirName()
-	if typeName == "" {
-		typeName = "bundles" // default
-	}
-	return fmt.Sprintf("%s@%s/%s", r.URL, typeName, r.Path)
+	return br.BundleIdentity(), nil
 }
 
 // IsCanonical reports whether this is a URL-based reference. A reference is
@@ -701,61 +686,28 @@ func (r *Reference) localRemoteName() string {
 		return ""
 	}
 
-	// Extract a meaningful name from the URL:
+	// Derived from the repository's IDENTITY, not its spelling: a pull
+	// installs under the reference as typed and a reader finds the tree again
+	// from the lockfile key, so the two must name one directory however the
+	// repository was spelled (host case, a trailing slash, scp or https).
 	//   https://github.com/owner/repo → github.com/owner/repo
 	//   git@github.com:owner/repo     → github.com/owner/repo
-	//   file:///path/to/repo          → path/to/repo
-	switch {
-	case strings.HasPrefix(r.URL, "https://"), strings.HasPrefix(r.URL, "http://"):
-		return httpHostPath(r.URL)
-	case strings.HasPrefix(r.URL, "git@"):
-		if name, ok := sshHostPath(r.URL); ok {
-			return name
-		}
-	case strings.HasPrefix(r.URL, "file://"):
-		if name, ok := fileLastTwoComponents(r.URL); ok {
-			return name
-		}
+	//   file:///path/to/repo          → to/repo
+	repo, err := refuri.ParseRepoIdentity(r.URL)
+	if err != nil {
+		return sanitizePath(r.URL)
 	}
-
+	switch repo.Class {
+	case refuri.ClassGit:
+		return path.Join(repo.Host, repo.RepoPath)
+	case refuri.ClassFile:
+		parts := strings.Split(strings.Trim(repo.RepoPath, "/"), "/")
+		if len(parts) >= 2 {
+			return path.Join(parts[len(parts)-2], parts[len(parts)-1])
+		}
+		return parts[0]
+	}
 	return sanitizePath(r.URL)
-}
-
-// httpHostPath returns host/path for an http(s) URL, falling back to a
-// sanitized form when the URL won't parse.
-func httpHostPath(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return sanitizePath(rawURL)
-	}
-	return path.Join(u.Host, u.Path)
-}
-
-// sshHostPath returns host/path for a git@host:owner/repo URL, reporting ok when
-// it matched the SSH shape.
-func sshHostPath(rawURL string) (string, bool) {
-	re := regexp.MustCompile(`^git@([^:]+):(.+)$`)
-	if matches := re.FindStringSubmatch(rawURL); len(matches) == 3 {
-		return path.Join(matches[1], matches[2]), true
-	}
-	return "", false
-}
-
-// fileLastTwoComponents returns the last two path components of a file:// URL
-// (for uniqueness), reporting ok when the path had usable components.
-func fileLastTwoComponents(rawURL string) (string, bool) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return sanitizePath(rawURL), true
-	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) >= 2 {
-		return path.Join(parts[len(parts)-2], parts[len(parts)-1]), true
-	}
-	if len(parts) == 1 {
-		return parts[0], true
-	}
-	return "", false
 }
 
 // sanitizePath makes a string safe for use in file paths.

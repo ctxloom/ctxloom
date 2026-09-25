@@ -2,6 +2,7 @@ package remote
 
 import (
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"os"
 	"path/filepath"
 	"sort"
@@ -185,11 +186,10 @@ func (r *Registry) Add(name, repoURL string) error {
 		return fmt.Errorf("remote already exists: %s", name)
 	}
 
-	// Normalize the URL
-	normalizedURL := NormalizeURL(repoURL)
+	normalizedURL := storedRepoURL(repoURL)
 
 	// Check if any existing remote points to this URL
-	if existingName, found := r.findByURLLocked(normalizedURL); found {
+	if existingName, found := r.findByURLLocked(repoURL); found {
 		return fmt.Errorf("remote '%s' already points to this URL; use 'ctxloom deps pull %s/<path>' instead", existingName, existingName)
 	}
 
@@ -216,15 +216,12 @@ func (r *Registry) GetOrCreateByURL(repoURL string) (*Remote, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	normalizedURL := NormalizeURL(repoURL)
+	normalizedURL := storedRepoURL(repoURL)
 
 	// Check if any existing remote points to this URL
-	for _, remote := range r.remotes {
-		if remote.URL == normalizedURL {
-			// Return existing remote
-			remoteCopy := *remote
-			return &remoteCopy, nil
-		}
+	if existing, found := r.findByURLLocked(repoURL); found {
+		remoteCopy := *r.remotes[existing]
+		return &remoteCopy, nil
 	}
 
 	// Auto-register using repo name
@@ -305,8 +302,8 @@ func (r *Registry) Update(name string, edit RemoteEdit) (*Remote, error) {
 
 	newURL := rem.URL
 	if edit.URL != nil {
-		normalized := NormalizeURL(*edit.URL)
-		if existing, found := r.findByURLLocked(normalized); found && existing != name {
+		normalized := storedRepoURL(*edit.URL)
+		if existing, found := r.findByURLLocked(*edit.URL); found && existing != name {
 			return nil, fmt.Errorf("remote '%s' already points to this URL", existing)
 		}
 		newURL = normalized
@@ -381,13 +378,39 @@ func (r *Registry) SetForge(name, label string) error {
 }
 
 // findByURLLocked searches for a remote by URL (must hold lock).
-func (r *Registry) findByURLLocked(normalizedURL string) (string, bool) {
+func (r *Registry) findByURLLocked(repoURL string) (string, bool) {
 	for name, remote := range r.remotes {
-		if remote.URL == normalizedURL {
+		if SameRepository(remote.URL, repoURL) {
 			return name, true
 		}
 	}
 	return "", false
+}
+
+// SameRepository reports whether a and b name one repository, compared on
+// refuri.CanonicalRepoURL — the one repo-level canonicalizer — so a remote
+// registered as git@host:o/r and a reference spelled https://Host/o/r/ match
+// here exactly as they key the same lockfile entry. A URL that does not
+// canonicalize matches only itself, byte for byte.
+func SameRepository(a, b string) bool {
+	ca, aerr := refuri.CanonicalRepoURL(a)
+	cb, berr := refuri.CanonicalRepoURL(b)
+	if aerr != nil || berr != nil {
+		return a == b
+	}
+	return ca == cb
+}
+
+// storedRepoURL is the spelling a remote's URL is STORED and fetched from: the
+// repo-URL grammar's normalized rendering, which folds scp and shorthand onto
+// https but keeps credentials and a port, because a fetch may need them. It is
+// never compared — SameRepository is.
+func storedRepoURL(raw string) string {
+	parsed, err := refuri.ParseRepoURL(raw)
+	if err != nil {
+		return ""
+	}
+	return parsed.Normalized()
 }
 
 // ResolveItemRemote returns the short remote name an installed item (profile or

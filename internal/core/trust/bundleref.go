@@ -169,6 +169,10 @@ func (r BundleRef) BundleIdentity() BundleKey {
 	return BundleKey(r.render(false))
 }
 
+// FetchURL renders the reference's repository as the location its content is
+// fetched from (refuri.Parts.FetchURL): the one reverse renderer.
+func (r BundleRef) FetchURL() string { return r.parts().FetchURL() }
+
 // IsItem reports whether the reference addresses an item within the bundle
 // rather than the bundle itself.
 func (r BundleRef) IsItem() bool { return r.Item != "" }

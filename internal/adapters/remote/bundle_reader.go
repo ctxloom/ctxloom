@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"sort"
 )
 
@@ -115,7 +116,7 @@ func (r *BundleReader) ListBundleNames() []string {
 	}
 	names := make([]string, 0, len(r.lock.Bundles))
 	for k := range r.lock.Bundles {
-		names = append(names, k)
+		names = append(names, string(k))
 	}
 	sort.Strings(names)
 	return names
@@ -127,7 +128,7 @@ func (r *BundleReader) HasBundle(bundleName string) bool {
 	if r == nil || r.lock == nil {
 		return false
 	}
-	_, ok := r.lock.Bundles[bundleName]
+	_, ok := r.lock.Bundles[trust.BundleKey(bundleName)]
 	return ok
 }
 
@@ -137,7 +138,7 @@ func (r *BundleReader) LockEntryFor(bundleName string) (LockEntry, bool) {
 	if r == nil || r.lock == nil {
 		return LockEntry{}, false
 	}
-	e, ok := r.lock.Bundles[bundleName]
+	e, ok := r.lock.Bundles[trust.BundleKey(bundleName)]
 	return e, ok
 }
 
@@ -160,7 +161,7 @@ func (r *BundleReader) readableEntry(bundleName string) (LockEntry, error) {
 	if r == nil || r.lock == nil {
 		return LockEntry{}, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
-	entry, ok := r.lock.Bundles[bundleName]
+	entry, ok := r.lock.Bundles[trust.BundleKey(bundleName)]
 	if !ok {
 		return LockEntry{}, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
@@ -192,8 +193,8 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName string) 
 		return nil, err
 	}
 
-	// Lockfile keys are canonical refs ("<url>@bundles/<path>"); parse out the
-	// repo URL and item path.
+	// Lockfile keys are bundle identities; parse out the repository's fetch
+	// location and the bundle path.
 	ref, err := ParseReference(bundleName)
 	if err != nil {
 		return nil, fmt.Errorf("invalid lockfile bundle key %q: %w", bundleName, err)

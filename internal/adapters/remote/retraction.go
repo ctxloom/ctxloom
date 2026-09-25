@@ -28,7 +28,7 @@ type LockfileRetraction struct {
 func NewLockfileRetraction(lm *LockfileManager) *LockfileRetraction {
 	lockfile, err := lm.Load()
 	if err != nil {
-		return &LockfileRetraction{lock: &Lockfile{Bundles: map[string]LockEntry{}}, unreadable: err, path: lm.Path()}
+		return &LockfileRetraction{lock: &Lockfile{Bundles: map[trust.BundleKey]LockEntry{}}, unreadable: err, path: lm.Path()}
 	}
 	return &LockfileRetraction{lock: lockfile}
 }
@@ -36,9 +36,11 @@ func NewLockfileRetraction(lm *LockfileManager) *LockfileRetraction {
 // Retracted reports whether ref's bundle is recorded as retracted, and the
 // publisher's stated reason (display-only, untrusted). A ref with no local
 // record reports false: a missing retraction record is not itself a security
-// gap, because a pull re-evaluates it for every installed ref.
-func (l *LockfileRetraction) Retracted(ref trust.Ref) (bool, string) {
-	if l == nil || l.lock == nil || ref.RepoURL == "" {
+// gap, because a pull re-evaluates it for every installed ref. Only content
+// that travelled from a repository (ClassGit, ClassFile) has a publisher who
+// can retract it.
+func (l *LockfileRetraction) Retracted(ref trust.BundleRef) (bool, string) {
+	if l == nil || l.lock == nil || (ref.Class != trust.ClassGit && ref.Class != trust.ClassFile) {
 		return false, ""
 	}
 	entry, ok := l.lock.GetEntry(ItemTypeBundle, lockfileKeyForRef(ref))
@@ -63,8 +65,11 @@ func (l *LockfileRetraction) Fault() error {
 	return l.unreadable
 }
 
-// lockfileKeyForRef renders the lockfile key a bundle item's ref resolves to:
-// the same "<repo>@bundles/<name>" spelling the pull wrote the entry under.
-func lockfileKeyForRef(ref trust.Ref) string {
-	return ref.RepoURL + "@" + ItemTypeBundle.DirName() + "/" + ref.Bundle
+// lockfileKeyForRef is the lockfile key a bundle item's ref resolves to: the
+// identity of the bundle holding the item, which is what a pull keys its entry
+// on (Reference.LockKey). It is taken from the BundleRef the gate already
+// parsed — never re-rendered through a URL, whose escaping is a second
+// spelling of the same bundle.
+func lockfileKeyForRef(ref trust.BundleRef) trust.BundleKey {
+	return ref.BundleIdentity()
 }

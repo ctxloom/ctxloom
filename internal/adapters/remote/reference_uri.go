@@ -17,19 +17,9 @@ import (
 // identities is two trust keys, where a rejection recorded against one does
 // not withhold the other.
 //
-// The Reference produced carries TWO addresses, and they answer different
-// questions. Reference.CanonicalString renders the canonical URI — the
-// identity a trust record and a signature preimage key on. Reference.LockKey
-// renders the pre-canonical spelling — the FETCH address, which is what a
-// lockfile entry and a fetch diagnostic name, because those address where the
-// bytes come from rather than what the bundle is.
-//
-// The two spellings of one git bundle converge because ctxloom+git carries no
-// transport choice and NormalizeURL already folds git@ to https, so host and
-// repo path are the same URL either way. That convergence is what makes
-// migrating an authored ref a spelling change rather than a key migration: a
-// decision recorded under one spelling still governs content addressed by the
-// other.
+// The URL it carries is the repository's FETCH location, rendered by the one
+// reverse renderer (refuri.Parts.FetchURL), so it reads back — through
+// Reference.BundleRef — to exactly the identity it was parsed from.
 func parseCanonicalURIReference(ref string) (*Reference, error) {
 	p, err := refuri.Parse(ref)
 	if err != nil {
@@ -56,14 +46,8 @@ func parseCanonicalURIReference(ref string) (*Reference, error) {
 		ContentVersion: p.Version,
 	}
 	switch p.Class {
-	case refuri.ClassGit:
-		// https, not ssh: ctxloom+git names a repository by host and path and
-		// says nothing about transport, and NormalizeURL already folds git@
-		// to https, so https is the single spelling a git repository's
-		// identity resolves to.
-		out.URL = "https://" + p.Host + p.RepoPath
-	case refuri.ClassFile:
-		out.URL = "file://" + p.RepoPath
+	case refuri.ClassGit, refuri.ClassFile:
+		out.URL = p.FetchURL()
 	case refuri.ClassLocal:
 		out.IsLocal = true
 	case refuri.ClassCompanion:

@@ -38,20 +38,20 @@ func SplitItemPath(ref string) (base, itemPath string) {
 
 // CanonicalKey parses ref and returns its version-less canonical IDENTITY —
 // the canonical ctxloom URI ("ctxloom+git://<host>/<repo>//bundles/<path>", or
-// the ctxloom+local / ctxloom+companion / ctxloom+file equivalent). ok is false
-// when ref does not parse as a reference at all (e.g. a plain local bundle
-// name).
-//
-// This is NOT the lockfile key: a lockfile entry addresses a fetch and is keyed
-// on Reference.LockKey. Both spellings parse back to the same Reference, which
-// is what lets an identity move without moving a fetch address.
+// the ctxloom+local / ctxloom+companion / ctxloom+file equivalent), which is
+// also its lockfile key. ok is false when ref does not parse as a reference, or
+// parses but has no bundle identity: never a key reported for a string no
+// lookup can reach.
 func CanonicalKey(ref string) (string, bool) {
 	parsed, err := ParseReference(ref)
 	if err != nil {
 		return "", false
 	}
-	parsed.ContentVersion = ""
-	return parsed.CanonicalString(), true
+	br, err := parsed.BundleRef()
+	if err != nil {
+		return "", false
+	}
+	return string(br.BundleIdentity()), true
 }
 
 // LocalBundleRef returns the canonical identity of a plain local bundle name

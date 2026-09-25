@@ -23,9 +23,6 @@ const (
 // ParseRepoURL is refuri.ParseRepoURL: the one repo-URL grammar.
 func ParseRepoURL(raw string) (RepoURL, error) { return refuri.ParseRepoURL(raw) }
 
-// NormalizeURL is refuri.NormalizeURL: a repository URL's IDENTITY rendering.
-func NormalizeURL(repoURL string) string { return refuri.NormalizeURL(repoURL) }
-
 // NormalizeRef is refuri.NormalizeRef: the ingest normaliser every reference
 // passes through.
 func NormalizeRef(ref string) string { return refuri.NormalizeRef(ref) }

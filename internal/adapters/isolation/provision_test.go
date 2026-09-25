@@ -135,6 +135,34 @@ func TestContainerConfigOverlay_SeedsFromProject(t *testing.T) {
 	assert.Empty(t, entries, "absent project dir seeds an empty overlay")
 }
 
+// TestContainerConfigOverlay_LeavesAnExistingHostTargetUntouched: the overlay
+// exists to keep the HOST project clean, and the target pre-create runs against
+// the user's REAL project directory. When that directory already exists it must
+// come out byte- and mode-identical: no content removed, no chmod, nothing
+// written into it. PrecreatesTargets only covers the fresh-project case, so a
+// pre-create that recreated or re-permissioned an existing target would pass it
+// while wiping or loosening the user's own config.
+func TestContainerConfigOverlay_LeavesAnExistingHostTargetUntouched(t *testing.T) {
+	proj := t.TempDir()
+	claudeDir := filepath.Join(proj, ".claude")
+	require.NoError(t, os.MkdirAll(claudeDir, 0o700))
+	require.NoError(t, os.Chmod(claudeDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(`{"user":true}`), 0o600))
+
+	_, err := containerConfigOverlay(Docker{}, proj, t.TempDir(), claudeOverlayDirs(t))
+	require.NoError(t, err)
+
+	info, err := os.Stat(claudeDir)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "an existing target is never chmod-ed")
+	entries, err := os.ReadDir(claudeDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "nothing is written into, or removed from, the host project's own config dir")
+	body, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
+	require.NoError(t, err)
+	assert.Equal(t, `{"user":true}`, string(body))
+}
+
 // TestHostTerminalEnv_ForwardsOnlySetVars: the host's TERM/COLORTERM cross into
 // the container run env verbatim; unset vars are omitted so the image default
 // applies. Nothing else is ever forwarded here.

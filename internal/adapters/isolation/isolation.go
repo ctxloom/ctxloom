@@ -278,16 +278,7 @@ func AwaitContainerRunning(rt Runtime, h *RunnerHandle) error {
 		}
 		select {
 		case werr := <-exited:
-			// The runner died before the container came up. Its stderr is the
-			// only copy of the reason: the daemon writes it there and --rm then
-			// destroys the container, so `logs` is already too late.
-			if werr == nil {
-				werr = ErrRunnerExitedCleanly
-			}
-			if s := StderrTailOf(h); s != "" {
-				return fmt.Errorf("runner container %q exited before it was running: %w (stderr: %s)", h.Name, werr, s)
-			}
-			return fmt.Errorf("runner container %q exited before it was running: %w", h.Name, werr)
+			return exitedBeforeRunning(h, werr)
 		default:
 		}
 		if time.Now().After(deadline) {
@@ -298,6 +289,20 @@ func AwaitContainerRunning(rt Runtime, h *RunnerHandle) error {
 		}
 		time.Sleep(containerReadyPoll)
 	}
+}
+
+// exitedBeforeRunning is AwaitContainerRunning's verdict for a runner that
+// died before its container came up. Its stderr is the only copy of the
+// reason: the daemon writes it there and --rm then destroys the container, so
+// `logs` is already too late.
+func exitedBeforeRunning(h *RunnerHandle, werr error) error {
+	if werr == nil {
+		werr = ErrRunnerExitedCleanly
+	}
+	if s := StderrTailOf(h); s != "" {
+		return fmt.Errorf("runner container %q exited before it was running: %w (stderr: %s)", h.Name, werr, s)
+	}
+	return fmt.Errorf("runner container %q exited before it was running: %w", h.Name, werr)
 }
 
 // containerObservedRunning reports whether name is running right now. Any error

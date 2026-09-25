@@ -194,6 +194,18 @@ func TestWriter_PutSkillPartitionsBodiesByForm(t *testing.T) {
 	if err := store.Put(ctx, ref, signing.FormDistilled, twoBodySkill()); err != nil {
 		t.Fatalf("Put(distilled): %v", err)
 	}
+	assertDistilledOnlyWritten(t, store, pkg)
+
+	if err := store.Put(ctx, ref, signing.FormRaw, twoBodySkill()); err != nil {
+		t.Fatalf("Put(raw): %v", err)
+	}
+	assertSkillComponents(t, ctx, store, ref)
+}
+
+// assertDistilledOnlyWritten checks a distilled Put wrote the distilled body
+// and nothing of the raw form.
+func assertDistilledOnlyWritten(t *testing.T, store *TreeStore, pkg string) {
+	t.Helper()
 	if exists, _ := afero.Exists(store.fsys, pkg+"SKILL.md"); exists {
 		t.Fatal("Put(distilled) wrote the raw body")
 	}
@@ -207,10 +219,12 @@ func TestWriter_PutSkillPartitionsBodiesByForm(t *testing.T) {
 	if string(got) != string(distilledBody) {
 		t.Errorf("distilled body = %q", got)
 	}
+}
 
-	if err := store.Put(ctx, ref, signing.FormRaw, twoBodySkill()); err != nil {
-		t.Fatalf("Put(raw): %v", err)
-	}
+// assertSkillComponents checks each form's components: the distilled body is
+// the distilled form's ONLY component, and the raw form is everything else.
+func assertSkillComponents(t *testing.T, ctx context.Context, store *TreeStore, ref trust.Ref) {
+	t.Helper()
 	bundle, err := store.Open(ctx, BundleID(ref.Bundle))
 	if err != nil {
 		t.Fatalf("Open: %v", err)

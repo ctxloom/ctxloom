@@ -129,7 +129,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         ctxloom deps pull
         """
       Then the command succeeds
-      And the file ".ctxloom/lock.yaml" contains "@bundles/demo"
+      And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
 
     Scenario: A second pull is incremental — an already-locked dependency is not re-fetched
       Given an initialized ctxloom project
@@ -194,7 +194,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output contains "no longer published"
       And the output contains "demo"
-      And the file ".ctxloom/lock.yaml" does not contain "@bundles/demo"
+      And the file ".ctxloom/lock.yaml" does not contain "//bundles/demo"
 
   Rule: "I could not reach upstream" is never "upstream deleted everything"
 
@@ -222,7 +222,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         """
       Then the output contains "could not be reached"
       And the output does not contain "no longer published"
-      And the file ".ctxloom/lock.yaml" contains "@bundles/demo"
+      And the file ".ctxloom/lock.yaml" contains "//bundles/demo"
       When I run "ctxloom profile materialize dev --target out"
       Then the file "out/CLAUDE.md" contains "Demo fragment content."
 

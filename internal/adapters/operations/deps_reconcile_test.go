@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -39,13 +40,13 @@ const (
 
 // probes builds a reconcile's two seams from lookup tables. A URL absent from
 // unreachable is reachable; a ref absent from missing is served.
-func probes(unreachable map[string]error, missing map[string]error) (reachProbe, contentProbe) {
+func probes(unreachable map[string]error, missing map[trust.BundleKey]error) (reachProbe, contentProbe) {
 	reach := func(_ context.Context, repoURL string) error { return unreachable[repoURL] }
-	content := func(_ context.Context, ref string) error { return missing[ref] }
+	content := func(_ context.Context, ref trust.BundleKey) error { return missing[ref] }
 	return reach, content
 }
 
-func gone(t *testing.T, plan ReconcilePlan) []string {
+func gone(t *testing.T, plan ReconcilePlan) []trust.BundleKey {
 	t.Helper()
 	return plan.Gone
 }
@@ -54,13 +55,13 @@ func gone(t *testing.T, plan ReconcilePlan) []string {
 // Without this the guard would be trivially satisfiable by never removing
 // anything, which is not synchronization.
 func TestReconcile_AReachableRemoteThatDroppedABundleIsAuthority(t *testing.T) {
-	reach, content := probes(nil, map[string]error{
+	reach, content := probes(nil, map[trust.BundleKey]error{
 		aliceDemo: fmt.Errorf("file not found: %w", errs.ErrRemoteContentNotFound),
 	})
 
-	plan := planReconcile(context.Background(), []string{aliceDemo, aliceGuide}, reach, content)
+	plan := planReconcile(context.Background(), []trust.BundleKey{aliceDemo, aliceGuide}, reach, content)
 
-	assert.Equal(t, []string{aliceDemo}, gone(t, plan), "a reachable remote's absence is a deletion")
+	assert.Equal(t, []trust.BundleKey{aliceDemo}, gone(t, plan), "a reachable remote's absence is a deletion")
 	assert.Empty(t, plan.Unreachable)
 }
 
@@ -70,17 +71,17 @@ func TestReconcile_AReachableRemoteThatDroppedABundleIsAuthority(t *testing.T) {
 func TestReconcile_AnUnreachableRemoteIsNeverAuthority(t *testing.T) {
 	reach, content := probes(
 		map[string]error{"https://github.com/alice/ctxloom": errors.New("authentication failed")},
-		map[string]error{
+		map[trust.BundleKey]error{
 			aliceDemo:  fmt.Errorf("file not found: %w", errs.ErrRemoteContentNotFound),
 			aliceGuide: fmt.Errorf("file not found: %w", errs.ErrRemoteContentNotFound),
 		})
 
-	plan := planReconcile(context.Background(), []string{aliceDemo, aliceGuide}, reach, content)
+	plan := planReconcile(context.Background(), []trust.BundleKey{aliceDemo, aliceGuide}, reach, content)
 
 	assert.Empty(t, gone(t, plan),
 		"a remote that could not be read removes NOTHING, whatever the per-item probe says")
 	require.Len(t, plan.Unreachable, 1)
-	assert.ElementsMatch(t, []string{aliceDemo, aliceGuide}, plan.Unreachable[0].Refs,
+	assert.ElementsMatch(t, []trust.BundleKey{aliceDemo, aliceGuide}, plan.Unreachable[0].Refs,
 		"every dependency of the unreachable remote is reported as unchecked")
 	assert.Contains(t, plan.Unreachable[0].Reason, "authentication failed",
 		"the report carries why the remote could not be read; 'could not check' with no cause is unactionable")
@@ -92,31 +93,31 @@ func TestReconcile_AnUnreachableRemoteIsNeverAuthority(t *testing.T) {
 func TestReconcile_OneDeadRemoteDoesNotBlockTheOthers(t *testing.T) {
 	reach, content := probes(
 		map[string]error{"https://github.com/alice/ctxloom": errors.New("no route to host")},
-		map[string]error{
+		map[trust.BundleKey]error{
 			aliceDemo:    fmt.Errorf("file not found: %w", errs.ErrRemoteContentNotFound),
 			corpSecurity: fmt.Errorf("file not found: %w", errs.ErrRemoteContentNotFound),
 		})
 
-	plan := planReconcile(context.Background(), []string{aliceDemo, corpSecurity}, reach, content)
+	plan := planReconcile(context.Background(), []trust.BundleKey{aliceDemo, corpSecurity}, reach, content)
 
-	assert.Equal(t, []string{corpSecurity}, gone(t, plan))
+	assert.Equal(t, []trust.BundleKey{corpSecurity}, gone(t, plan))
 	require.Len(t, plan.Unreachable, 1)
-	assert.Equal(t, []string{aliceDemo}, plan.Unreachable[0].Refs)
+	assert.Equal(t, []trust.BundleKey{aliceDemo}, plan.Unreachable[0].Refs)
 }
 
 // Reachable, but the item probe failed for a reason that is not "not found" —
 // a transport hiccup, a rate limit, a malformed response. Not found is a fact
 // about the repository; anything else is a fact about the attempt.
 func TestReconcile_AnItemProbeThatMerelyFailedIsNotADeletion(t *testing.T) {
-	reach, content := probes(nil, map[string]error{
+	reach, content := probes(nil, map[trust.BundleKey]error{
 		aliceDemo: errors.New("unexpected EOF"),
 	})
 
-	plan := planReconcile(context.Background(), []string{aliceDemo}, reach, content)
+	plan := planReconcile(context.Background(), []trust.BundleKey{aliceDemo}, reach, content)
 
 	assert.Empty(t, gone(t, plan), "only a not-found from a reachable remote is a deletion")
 	require.Len(t, plan.Unreachable, 1)
-	assert.Equal(t, []string{aliceDemo}, plan.Unreachable[0].Refs)
+	assert.Equal(t, []trust.BundleKey{aliceDemo}, plan.Unreachable[0].Refs)
 }
 
 // The reach probe runs ONCE per repository, not once per dependency. A project
@@ -126,9 +127,9 @@ func TestReconcile_AnItemProbeThatMerelyFailedIsNotADeletion(t *testing.T) {
 func TestReconcile_ReachIsProvedOncePerRepository(t *testing.T) {
 	reached := map[string]int{}
 	reach := func(_ context.Context, repoURL string) error { reached[repoURL]++; return nil }
-	content := func(context.Context, string) error { return nil }
+	content := func(context.Context, trust.BundleKey) error { return nil }
 
-	planReconcile(context.Background(), []string{aliceDemo, aliceGuide, corpSecurity}, reach, content)
+	planReconcile(context.Background(), []trust.BundleKey{aliceDemo, aliceGuide, corpSecurity}, reach, content)
 
 	assert.Equal(t, 1, reached["https://github.com/alice/ctxloom"])
 	assert.Equal(t, 1, reached["https://github.com/corp/ctxloom"])
@@ -140,9 +141,9 @@ func TestReconcile_ReachIsProvedOncePerRepository(t *testing.T) {
 func TestReconcile_AnUnreachableRepositoryIsNeverProbedForItems(t *testing.T) {
 	reach := func(context.Context, string) error { return errors.New("connection refused") }
 	asked := 0
-	content := func(context.Context, string) error { asked++; return nil }
+	content := func(context.Context, trust.BundleKey) error { asked++; return nil }
 
-	planReconcile(context.Background(), []string{aliceDemo, aliceGuide}, reach, content)
+	planReconcile(context.Background(), []trust.BundleKey{aliceDemo, aliceGuide}, reach, content)
 
 	assert.Zero(t, asked, "no item is probed against a repository that could not be read")
 }
@@ -154,11 +155,11 @@ func TestReconcile_AnUnreachableRepositoryIsNeverProbedForItems(t *testing.T) {
 func TestReconcile_AnUnparseableReferenceIsReportedNotRemoved(t *testing.T) {
 	reach, content := probes(nil, nil)
 
-	plan := planReconcile(context.Background(), []string{"::::not-a-reference"}, reach, content)
+	plan := planReconcile(context.Background(), []trust.BundleKey{"::::not-a-reference"}, reach, content)
 
 	assert.Empty(t, gone(t, plan))
 	require.Len(t, plan.Unreachable, 1)
-	assert.Equal(t, []string{"::::not-a-reference"}, plan.Unreachable[0].Refs)
+	assert.Equal(t, []trust.BundleKey{"::::not-a-reference"}, plan.Unreachable[0].Refs)
 }
 
 // An empty closure is an empty plan, and specifically NOT a plan that removes

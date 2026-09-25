@@ -169,7 +169,7 @@ func TestBundleReader_Surface(t *testing.T) {
 	t.Run("ListBundleNames is sorted and contains every lockfile key", func(t *testing.T) {
 		reader, _, _ := readerFixture(t)
 		names := reader.ListBundleNames()
-		assert.Equal(t, []string{subKey, secKey}, names)
+		assert.Equal(t, []trust.BundleKey{subKey, secKey}, names)
 	})
 
 	t.Run("HasBundle matches lockfile keys", func(t *testing.T) {
@@ -228,7 +228,7 @@ func TestLoadAllBytes(t *testing.T) {
 		loaded, failures := LoadAllBytes(context.Background(), reader)
 		assert.Len(t, loaded, 2, "the two valid bundles still load")
 		assert.Len(t, failures, 1, "the bad bundle is in failures")
-		assert.Contains(t, failures, "ghost/missing")
+		assert.Contains(t, failures, trust.BundleKey("ghost/missing"))
 	})
 
 	t.Run("nil source returns empty maps", func(t *testing.T) {

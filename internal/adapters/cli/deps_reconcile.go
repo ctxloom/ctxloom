@@ -39,7 +39,7 @@ func renderReconcile(w io.Writer, plan operations.ReconcilePlan) {
 	if len(plan.Gone) > 0 {
 		fmt.Fprintf(w, "\nRemoved %d dependency(ies) no longer published by their remote:\n", len(plan.Gone))
 		for _, ref := range plan.Gone {
-			fmt.Fprintf(w, "  - %s\n", termsafe.Field(ref))
+			fmt.Fprintf(w, "  - %s\n", termsafe.Field(string(ref)))
 		}
 		fmt.Fprintln(w, "  Re-adding them upstream and pulling again restores them; nothing authored here was touched.")
 	}
@@ -51,7 +51,7 @@ func renderReconcile(w io.Writer, plan operations.ReconcilePlan) {
 		}
 		fmt.Fprintf(w, "\n%s could not be reached, so its dependencies were left exactly as they are (%s).\n", where, termsafe.Field(u.Reason))
 		for _, ref := range u.Refs {
-			fmt.Fprintf(w, "  - kept: %s\n", termsafe.Field(ref))
+			fmt.Fprintf(w, "  - kept: %s\n", termsafe.Field(string(ref)))
 		}
 		fmt.Fprintln(w, "  Nothing is removed on the strength of a remote that could not be read.")
 	}

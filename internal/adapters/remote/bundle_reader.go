@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"sort"
 )
 
 // ErrBundleNotInLockfile is returned when a caller asks for a bundle that
@@ -33,13 +34,13 @@ var ErrTreeBundleUnreadable = errors.New("directory-form bundle: this reader has
 // must accept either form programs against this interface.
 type BundleByteSource interface {
 	// ReadBundleBytes returns the raw bundle YAML for name at its locked SHA.
-	ReadBundleBytes(ctx context.Context, name string) ([]byte, error)
+	ReadBundleBytes(ctx context.Context, name trust.BundleKey) ([]byte, error)
 	// LockEntryFor returns the lockfile entry for name (or zero+false).
-	LockEntryFor(name string) (LockEntry, bool)
-	// ListBundleNames returns every known bundle name, sorted.
-	ListBundleNames() []string
+	LockEntryFor(name trust.BundleKey) (LockEntry, bool)
+	// ListBundleNames returns every known bundle key, sorted.
+	ListBundleNames() []trust.BundleKey
 	// HasBundle reports whether the source knows about name.
-	HasBundle(name string) bool
+	HasBundle(name trust.BundleKey) bool
 }
 
 // BundleReader serves bundle YAML for remote bundles, version-pinned to the
@@ -109,43 +110,43 @@ func NewBundleReader(registry *Registry, factory FetcherFactory, auth AuthConfig
 	return r
 }
 
-// ListBundleNames returns the lockfile bundle keys ("remoteName/path"), sorted.
-func (r *BundleReader) ListBundleNames() []string {
+// ListBundleNames returns the lockfile bundle keys, sorted.
+func (r *BundleReader) ListBundleNames() []trust.BundleKey {
 	if r == nil || r.lock == nil {
 		return nil
 	}
-	names := make([]string, 0, len(r.lock.Bundles))
+	names := make([]trust.BundleKey, 0, len(r.lock.Bundles))
 	for k := range r.lock.Bundles {
-		names = append(names, string(k))
+		names = append(names, k)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 
 // HasBundle reports whether bundleName is a known remote bundle in this
 // reader's lockfile snapshot.
-func (r *BundleReader) HasBundle(bundleName string) bool {
+func (r *BundleReader) HasBundle(bundleName trust.BundleKey) bool {
 	if r == nil || r.lock == nil {
 		return false
 	}
-	_, ok := r.lock.Bundles[trust.BundleKey(bundleName)]
+	_, ok := r.lock.Bundles[bundleName]
 	return ok
 }
 
 // LockEntryFor returns the lockfile entry for bundleName (or zero+false).
 // Exposed so a caller can render provenance alongside the bytes.
-func (r *BundleReader) LockEntryFor(bundleName string) (LockEntry, bool) {
+func (r *BundleReader) LockEntryFor(bundleName trust.BundleKey) (LockEntry, bool) {
 	if r == nil || r.lock == nil {
 		return LockEntry{}, false
 	}
-	e, ok := r.lock.Bundles[trust.BundleKey(bundleName)]
+	e, ok := r.lock.Bundles[bundleName]
 	return e, ok
 }
 
 // ReadBundleBytes returns the raw bundle YAML for bundleName at its locked SHA.
 // bundleName matches lockfile keys ("remoteName/path"). Returns
 // ErrBundleNotInLockfile if no entry exists.
-func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) ([]byte, error) {
+func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName trust.BundleKey) ([]byte, error) {
 	return r.fetchAtLockedSHA(ctx, bundleName)
 }
 
@@ -157,11 +158,11 @@ func (r *BundleReader) ReadBundleBytes(ctx context.Context, bundleName string) (
 // bytes be read at all" — asked before any transport work happens, and because
 // each of them is a case where carrying on would produce a plausible-looking
 // wrong answer rather than an error.
-func (r *BundleReader) readableEntry(bundleName string) (LockEntry, error) {
+func (r *BundleReader) readableEntry(bundleName trust.BundleKey) (LockEntry, error) {
 	if r == nil || r.lock == nil {
 		return LockEntry{}, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
-	entry, ok := r.lock.Bundles[trust.BundleKey(bundleName)]
+	entry, ok := r.lock.Bundles[bundleName]
 	if !ok {
 		return LockEntry{}, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
@@ -187,7 +188,7 @@ func (r *BundleReader) readableEntry(bundleName string) (LockEntry, error) {
 
 // fetchAtLockedSHA resolves bundleName to its repo/path/SHA and fetches its
 // manifest at that SHA.
-func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName string) ([]byte, error) {
+func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName trust.BundleKey) ([]byte, error) {
 	entry, err := r.readableEntry(bundleName)
 	if err != nil {
 		return nil, err
@@ -195,7 +196,7 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName string) 
 
 	// Lockfile keys are bundle identities; parse out the repository's fetch
 	// location and the bundle path.
-	ref, err := ParseReference(bundleName)
+	ref, err := ParseReference(string(bundleName))
 	if err != nil {
 		return nil, fmt.Errorf("invalid lockfile bundle key %q: %w", bundleName, err)
 	}
@@ -222,7 +223,7 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName string) 
 		return nil, fmt.Errorf("parse repo URL %s: %w", repoURL, perr)
 	}
 
-	return r.readFromTree(ctx, fetcher, owner, repo, repoURL, bundleName, ref.BuildFilePath(ref.ItemType), entry.SHA)
+	return r.readFromTree(ctx, fetcher, owner, repo, repoURL, string(bundleName), ref.BuildFilePath(ref.ItemType), entry.SHA)
 }
 
 // readFromTree serves a bundle's manifest out of the tree at the pinned SHA.
@@ -272,9 +273,9 @@ func (r *BundleReader) readFromTree(ctx context.Context, fetcher Fetcher, owner,
 //
 // Individual per-bundle errors do not abort — fault tolerance applies to
 // the catalogue, not to one bad SHA.
-func LoadAllBytes(ctx context.Context, src BundleByteSource) (loaded map[string][]byte, failures map[string]error) {
-	loaded = make(map[string][]byte)
-	failures = map[string]error{}
+func LoadAllBytes(ctx context.Context, src BundleByteSource) (loaded map[trust.BundleKey][]byte, failures map[trust.BundleKey]error) {
+	loaded = make(map[trust.BundleKey][]byte)
+	failures = map[trust.BundleKey]error{}
 	if src == nil {
 		return loaded, failures
 	}

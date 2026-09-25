@@ -30,23 +30,26 @@ func newDowngradeSet(refs []string) (downgradeSet, error) {
 	return out, nil
 }
 
-// allows reports whether identity — a lockfile key or any ref that parses to
-// one — was named.
-func (d downgradeSet) allows(identity string) bool {
+// allows reports whether the bundle with lock key key was named.
+func (d downgradeSet) allows(key trust.BundleKey) bool {
+	_, ok := d[key]
+	return ok
+}
+
+// allowsRef is allows for a reference in any spelling: it is keyed through
+// the reference's own LockKey, never by casting the string. A reference that
+// names no bundle was not named.
+func (d downgradeSet) allowsRef(ref string) bool {
 	if len(d) == 0 {
 		return false
 	}
-	if _, ok := d[trust.BundleKey(identity)]; ok {
-		return true
-	}
-	ref, err := remote.ParseReference(identity)
+	parsed, err := remote.ParseReference(ref)
 	if err != nil {
 		return false
 	}
-	key, err := ref.LockKey()
+	key, err := parsed.LockKey()
 	if err != nil {
 		return false
 	}
-	_, ok := d[key]
-	return ok
+	return d.allows(key)
 }

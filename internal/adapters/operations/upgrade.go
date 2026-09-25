@@ -146,7 +146,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 		// gate would have withheld it anyway with a reason.
 		var verified remote.Verified
 		if !has || cur.SHA != p.Hash {
-			v, refusal := verifyAdvance(ctx, cfg, factory, auth, p, cur, downgrades.allows(string(p.Identity)))
+			v, refusal := verifyAdvance(ctx, cfg, factory, auth, p, cur, downgrades.allows(p.Identity))
 			verified = v
 			if refusal != nil && has {
 				newActive.AddEntry(p.Type, p.Identity, cur)

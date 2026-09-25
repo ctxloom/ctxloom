@@ -103,7 +103,13 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 		return
 	}
 	for _, info := range infos {
-		entry, ok := lock.Bundles[trust.BundleKey(info.Name)]
+		// Keyed through the parser, not a cast: a name that is not a bundle
+		// reference (a project bundle) has no lock entry to stamp.
+		br, perr := trust.ParseBundleRef(info.Name)
+		if perr != nil {
+			continue
+		}
+		entry, ok := lock.Bundles[br.BundleIdentity()]
 		if !ok {
 			continue
 		}

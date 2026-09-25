@@ -628,7 +628,7 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 		Force:          true,
 		ItemType:       itemType,
 		Stdout:         os.Stderr,
-		AllowDowngrade: downgrades.allows(ref),
+		AllowDowngrade: downgrades.allowsRef(ref),
 	}
 
 	result, err := puller.Pull(ctx, ref, opts)
@@ -901,7 +901,7 @@ func isInstalled(ctx context.Context, ref, baseDir string, bundles remote.Bundle
 	if kerr != nil {
 		return false
 	}
-	if _, rerr := bundles.ReadBundleBytes(ctx, string(key)); rerr != nil {
+	if _, rerr := bundles.ReadBundleBytes(ctx, key); rerr != nil {
 		return false
 	}
 	// READABLE IS NOT INSTALLED once a layout MATERIALIZES.

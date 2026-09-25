@@ -53,6 +53,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -892,13 +893,13 @@ type fakeBundleSource struct {
 	readable map[string]bool
 }
 
-func (f fakeBundleSource) ReadBundleBytes(_ context.Context, name string) ([]byte, error) {
+func (f fakeBundleSource) ReadBundleBytes(_ context.Context, name trust.BundleKey) ([]byte, error) {
 	for ref, ok := range f.readable {
 		if !ok {
 			continue
 		}
 		if parsed, err := remote.ParseReference(ref); err == nil {
-			if key, kerr := parsed.LockKey(); kerr == nil && string(key) == name {
+			if key, kerr := parsed.LockKey(); kerr == nil && key == name {
 				return []byte("version: 1"), nil
 			}
 		}
@@ -906,13 +907,13 @@ func (f fakeBundleSource) ReadBundleBytes(_ context.Context, name string) ([]byt
 	return nil, fmt.Errorf("%w: %s", remote.ErrBundleNotInLockfile, name)
 }
 
-func (f fakeBundleSource) LockEntryFor(string) (remote.LockEntry, bool) {
+func (f fakeBundleSource) LockEntryFor(trust.BundleKey) (remote.LockEntry, bool) {
 	return remote.LockEntry{}, false
 }
 
-func (f fakeBundleSource) ListBundleNames() []string { return nil }
+func (f fakeBundleSource) ListBundleNames() []trust.BundleKey { return nil }
 
-func (f fakeBundleSource) HasBundle(name string) bool { return f.readable[name] }
+func (f fakeBundleSource) HasBundle(name trust.BundleKey) bool { return f.readable[string(name)] }
 
 // TestCheckMissingDependencies verifies detection of missing vs installed bundles.
 func TestCheckMissingDependencies(t *testing.T) {

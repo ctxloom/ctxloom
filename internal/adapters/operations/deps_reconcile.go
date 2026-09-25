@@ -63,12 +63,12 @@ type reachProbe func(ctx context.Context, repoURL string) error
 // contentProbe reports whether one reference's content is retrievable from its
 // repository's current tip. It answers about that reference's own path and
 // never about a directory listing (see THE EVIDENCE RULE above).
-type contentProbe func(ctx context.Context, ref string) error
+type contentProbe func(ctx context.Context, ref trust.BundleKey) error
 
 // ReconcilePlan is what a reconcile decided, split by whether it is authority.
 type ReconcilePlan struct {
 	// Gone is every installed reference upstream demonstrably no longer serves.
-	Gone []string
+	Gone []trust.BundleKey
 	// Unreachable is every repository whose state could not be established,
 	// with the dependencies left untouched because of it.
 	Unreachable []UncheckedRemote
@@ -79,7 +79,7 @@ type ReconcilePlan struct {
 // cause is something a user can neither act on nor decide to ignore.
 type UncheckedRemote struct {
 	URL    string
-	Refs   []string
+	Refs   []trust.BundleKey
 	Reason string
 }
 
@@ -89,7 +89,7 @@ type UncheckedRemote struct {
 // It is a pure function of its two probes so the rule can be exercised against
 // every shape of failure without a network: an unreachable host, a revoked
 // credential, a transport error mid-listing, an unparseable lockfile entry.
-func planReconcile(ctx context.Context, installed []string, reach reachProbe, content contentProbe) ReconcilePlan {
+func planReconcile(ctx context.Context, installed []trust.BundleKey, reach reachProbe, content contentProbe) ReconcilePlan {
 	byRepo, unparseable := groupRefsByRepo(installed)
 
 	var plan ReconcilePlan
@@ -123,7 +123,7 @@ func planReconcile(ctx context.Context, installed []string, reach reachProbe, co
 				// about the repository; anything else is a fact about the
 				// attempt, and an attempt says nothing about what exists.
 				plan.Unreachable = append(plan.Unreachable, UncheckedRemote{
-					URL: repoURL, Refs: []string{ref}, Reason: err.Error(),
+					URL: repoURL, Refs: []trust.BundleKey{ref}, Reason: err.Error(),
 				})
 			}
 		}
@@ -135,10 +135,10 @@ func planReconcile(ctx context.Context, installed []string, reach reachProbe, co
 // from, so reachability is proved once per repository rather than once per
 // dependency — and so a repository can never be observed reachable for one of
 // its bundles and unreachable for another inside one reconcile.
-func groupRefsByRepo(installed []string) (byRepo map[string][]string, unparseable []string) {
-	byRepo = map[string][]string{}
+func groupRefsByRepo(installed []trust.BundleKey) (byRepo map[string][]trust.BundleKey, unparseable []trust.BundleKey) {
+	byRepo = map[string][]trust.BundleKey{}
 	for _, ref := range installed {
-		parsed, err := remote.ParseReference(ref)
+		parsed, err := remote.ParseReference(string(ref))
 		if err != nil || parsed.URL == "" {
 			unparseable = append(unparseable, ref)
 			continue
@@ -170,9 +170,9 @@ func ReconcileInstalled(ctx context.Context, cfg *config.Config) (ReconcileResul
 		return ReconcileResult{}, err
 	}
 
-	var installed []string
+	var installed []trust.BundleKey
 	for _, e := range lockfile.AllEntries() {
-		installed = append(installed, string(e.Ref))
+		installed = append(installed, e.Ref)
 	}
 	if len(installed) == 0 {
 		return ReconcileResult{}, nil
@@ -186,7 +186,7 @@ func ReconcileInstalled(ctx context.Context, cfg *config.Config) (ReconcileResul
 	}
 	items := make([]RemovedItem, 0, len(res.Plan.Gone))
 	for _, ref := range res.Plan.Gone {
-		items = append(items, RemovedItem{Type: remote.ItemTypeBundle, Ref: trust.BundleKey(ref)})
+		items = append(items, RemovedItem{Type: remote.ItemTypeBundle, Ref: ref})
 	}
 	removed, err := RemoveLocalItems(RemoveLocalItemsRequest{
 		Items:       items,
@@ -250,8 +250,8 @@ func upstreamProbes(cfg *config.Config) (reachProbe, contentProbe) {
 		return nil
 	}
 
-	content := func(ctx context.Context, refStr string) error {
-		ref, err := remote.ParseReference(refStr)
+	content := func(ctx context.Context, key trust.BundleKey) error {
+		ref, err := remote.ParseReference(string(key))
 		if err != nil {
 			return err
 		}

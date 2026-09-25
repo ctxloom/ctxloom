@@ -229,23 +229,25 @@ func collectRawWrites(node ast.Node, aferoOnly bool, report func(pos token.Pos, 
 // and never fall through to the afero.Fs receiver heuristic, so the two checks
 // stay visibly disjoint.
 func rawWriteCallee(sel *ast.SelectorExpr, call *ast.CallExpr, aferoOnly bool) string {
-	name := sel.Sel.Name
-	if pkgIdent, ok := sel.X.(*ast.Ident); ok {
-		switch pkgIdent.Name {
-		case "os":
-			if !aferoOnly && (forbiddenOSCalls[name] || isWriteModeOpen(sel, call)) {
-				return "os." + name
-			}
-			return ""
-		case "afero":
-			if forbiddenAferoPackageCalls[name] {
-				return "afero." + name
-			}
-			return ""
-		}
+	if pkgIdent, ok := sel.X.(*ast.Ident); ok && (pkgIdent.Name == "os" || pkgIdent.Name == "afero") {
+		return packageWriteCallee(pkgIdent.Name, sel, call, aferoOnly)
 	}
+	name := sel.Sel.Name
 	if aferoFsMethodCall(sel) && (forbiddenAferoMethodCalls[name] || isWriteModeOpen(sel, call)) {
 		return "(afero.Fs)." + name
+	}
+	return ""
+}
+
+// packageWriteCallee is rawWriteCallee's arm for a call qualified by the os or
+// afero package, or "" when that package's call is not a forbidden write.
+func packageWriteCallee(pkg string, sel *ast.SelectorExpr, call *ast.CallExpr, aferoOnly bool) string {
+	name := sel.Sel.Name
+	switch {
+	case pkg == "afero" && forbiddenAferoPackageCalls[name]:
+		return "afero." + name
+	case pkg == "os" && !aferoOnly && (forbiddenOSCalls[name] || isWriteModeOpen(sel, call)):
+		return "os." + name
 	}
 	return ""
 }

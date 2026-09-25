@@ -121,9 +121,7 @@ func walkCorpus(t *testing.T) corpusCounts {
 		}
 		rel = filepath.ToSlash(rel)
 		if strings.HasSuffix(rel, "_test.go") {
-			if countsAsAferoTest(t, fset, p, rel) {
-				c.aferoTests++
-			}
+			c.aferoTests += aferoTestCount(t, fset, p, rel)
 			return nil
 		}
 		dir := filepath.ToSlash(filepath.Dir(rel))
@@ -154,8 +152,18 @@ func walkCorpus(t *testing.T) corpusCounts {
 	return c
 }
 
+// aferoTestCount is 1 when a _test.go file is in the write-discipline test
+// arm's corpus — under one of aferoTestScopes, importing afero — and 0
+// otherwise.
+func aferoTestCount(t *testing.T, fset *token.FileSet, path, rel string) int {
+	if countsAsAferoTest(t, fset, path, rel) {
+		return 1
+	}
+	return 0
+}
+
 // countsAsAferoTest reports whether a _test.go file is in the write-discipline
-// test arm's corpus: under one of aferoTestScopes, importing afero.
+// test arm's corpus.
 func countsAsAferoTest(t *testing.T, fset *token.FileSet, path, rel string) bool {
 	t.Helper()
 	inScope := false

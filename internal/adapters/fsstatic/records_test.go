@@ -217,6 +217,25 @@ func TestNewRecords_CreatesNoDirectory(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "opening the store must not create its directory")
 }
 
+// TestRecords_Prepare_TightensADirLoosenedAfterOpen: Prepare, not opening,
+// is what makes the store owner-only for a delivery: a directory left loose
+// after the store was opened is tightened, and a missing one is not created.
+func TestRecords_Prepare_TightensADirLoosenedAfterOpen(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "records")
+	r, err := NewRecords(afero.NewOsFs(), dir)
+	require.NoError(t, err)
+
+	require.NoError(t, r.Prepare(context.Background()))
+	require.NoDirExists(t, dir, "preparing must not create the directory")
+
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.Chmod(dir, 0o755))
+	require.NoError(t, r.Prepare(context.Background()))
+	info, err := os.Stat(dir)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+}
+
 // TestWriteThrough_CreatesAMissingDirectoryOwnerOnly: what an approach writes
 // outside the target is its own state (claude's undo record), so a directory
 // writeThrough has to create for it is owner-only.

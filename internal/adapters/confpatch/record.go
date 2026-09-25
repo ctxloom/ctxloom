@@ -117,7 +117,8 @@ const recordDirMode = 0o700
 // The chmod is skipped when the mode is already right, and that is load-bearing:
 // claude's approach writes its record through fsstatic's copy-on-write overlay,
 // whose Chmod on a directory in the base fails (it tries to copy it up as a
-// file). fsstatic.NewRecords tightens the real directory before any delivery,
+// file). fsstatic's Static.Deliver prepares the owning store
+// (delivery.Ownership.Prepare) on the real directory before any approach runs,
 // so through the overlay this finds it correct and does nothing.
 func EnsureRecordDir(fs afero.Fs, dir string) error {
 	if err := fs.MkdirAll(dir, recordDirMode); err != nil {

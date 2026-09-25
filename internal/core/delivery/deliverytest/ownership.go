@@ -28,6 +28,7 @@ type Ownership struct {
 	mu      sync.Mutex
 	entries map[string]map[delivery.Writer][]string
 	created map[string]bool
+	calls   []string
 }
 
 var _ delivery.Ownership = (*Ownership)(nil)
@@ -37,12 +38,36 @@ func NewOwnership(fs afero.Fs) *Ownership {
 	return &Ownership{fs: fs, entries: map[string]map[delivery.Writer][]string{}, created: map[string]bool{}}
 }
 
+// Prepare records that it was called; the in-memory record has no storage
+// to ready.
+func (o *Ownership) Prepare(context.Context) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.calls = append(o.calls, CallPrepare)
+	return nil
+}
+
+// The calls Calls reports, in the order the record received them.
+const (
+	CallPrepare = "prepare"
+	CallApply   = "apply"
+)
+
+// Calls is the sequence of Prepare and Apply calls the record received, so a
+// test can pin that a delivery prepares before it writes.
+func (o *Ownership) Calls() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.Clone(o.calls)
+}
+
 // Apply reads the target, hands it to build and records the writer's
 // entries. A nil desired reconciles the writer to empty; a file ctxloom
 // created that no writer owns entries in any longer is removed.
 func (o *Ownership) Apply(_ context.Context, fsys afero.Fs, target string, writer delivery.Writer, build delivery.Build) (delivery.Result, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	o.calls = append(o.calls, CallApply)
 	current, err := afero.ReadFile(fsys, target)
 	existed := err == nil
 	if err != nil && !isNotExist(err) {

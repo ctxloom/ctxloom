@@ -23,10 +23,9 @@ import (
 // TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir: claude's MCP approach
 // writes its undo record into the home records directory THROUGH fsstatic's
 // copy-on-write overlay, which cannot chmod a directory that already exists
-// underneath it. So a records directory an older binary left 0755 is tightened
-// only because this delivery path opens the ownership record store on the
-// real filesystem before the approach runs. A path that stops doing so fails
-// here, on the loose directory, instead of on a user's machine.
+// underneath it. So a records directory an older binary left 0755 must be
+// tightened on the real filesystem before the approach runs; Deliver prepares
+// the ownership record (delivery.Ownership.Prepare) to do exactly that.
 func TestDeliverProject_ClaudesMCPRecordOverALooseRecordDir(t *testing.T) {
 	testsupport.Isolate(t)
 	recordsDir, err := paths.HomeRecordsDir()

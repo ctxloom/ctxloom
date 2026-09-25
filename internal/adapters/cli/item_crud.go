@@ -245,12 +245,17 @@ func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool)
 	}); err != nil {
 		return err
 	}
-	// A distiller was handed a changed, distillable item and no distilled form
-	// came back: the edit is saved raw, with its previous distillation cleared.
-	if distiller != nil && !cur.NoDistill && !res.Distilled {
-		return fmt.Errorf("%s %q: %w: content saved RAW (undistilled); run `ctxloom %s distill %s` once an engine is reachable", itemType, itemName, errDistillFailed, itemType, ref)
+	return distillFellBack(distiller != nil, cur.NoDistill, res.Distilled, itemType, itemName, ref)
+}
+
+// distillFellBack refuses an edit a distiller was handed — a changed,
+// distillable item — that came back with no distilled form: the edit is
+// saved raw, with its previous distillation cleared.
+func distillFellBack(hadDistiller, noDistill, distilled bool, itemType ItemType, itemName, ref string) error {
+	if !hadDistiller || noDistill || distilled {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("%s %q: %w: content saved RAW (undistilled); run `ctxloom %s distill %s` once an engine is reachable", itemType, itemName, errDistillFailed, itemType, ref)
 }
 
 // distillerForEdit resolves which Distiller SetItemContent should use for an

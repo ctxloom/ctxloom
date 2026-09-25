@@ -434,37 +434,10 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 		req.Runtime = &agentSetRuntime
 	}
 	if cmd.Flags().Changed("surface") {
-		// Parsed with the SAME function `profile materialize --surface` uses, so
-		// the two spellings cannot drift. Engine support is checked in SetAgent,
-		// which is the only place that knows which engine this write results in.
-		parsed, err := parseSurfaceOverrides(agentSetSurfaces)
-		if err != nil {
-			// Reported by SetAgent's own validation path; leaving the map nil
-			// here would silently drop the flag instead.
-			req.Surfaces = map[string]string{}
-			for _, p := range agentSetSurfaces {
-				if k, v, ok := strings.Cut(p, "="); ok {
-					req.Surfaces[strings.TrimSpace(k)] = strings.TrimSpace(v)
-				} else {
-					req.Surfaces[p] = ""
-				}
-			}
-		} else {
-			req.Surfaces = make(map[string]string, len(parsed))
-			for k, a := range parsed {
-				req.Surfaces[k.String()] = a
-			}
-		}
+		req.Surfaces = surfacesFromFlag(agentSetSurfaces)
 	}
 	if cmd.Flags().Changed("root") {
-		// Parsed as written; which roots the engine's approach offers is
-		// checked in SetAgent, the only place that knows which engine this
-		// write results in.
-		req.Roots = map[string]string{}
-		for _, p := range agentSetRoots {
-			k, v, _ := strings.Cut(p, "=")
-			req.Roots[strings.TrimSpace(k)] = strings.TrimSpace(v)
-		}
+		req.Roots = rootsFromFlag(agentSetRoots)
 	}
 	if cmd.Flags().Changed("permissions") {
 		req.Permissions = &agentSetPermissions
@@ -473,6 +446,44 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 		req.HomeMode = &agentSetEngineHome
 	}
 	return req
+}
+
+// surfacesFromFlag is the --surface pairs keyed by surface kind. They are
+// parsed with the SAME function `profile materialize --surface` uses, so the
+// two spellings cannot drift; engine support is checked in SetAgent, the
+// only place that knows which engine this write results in. A set that does
+// not parse is kept as written, for SetAgent's own validation to report —
+// leaving the map nil would silently drop the flag instead.
+func surfacesFromFlag(pairs []string) map[string]string {
+	parsed, err := parseSurfaceOverrides(pairs)
+	if err != nil {
+		out := map[string]string{}
+		for _, p := range pairs {
+			if k, v, ok := strings.Cut(p, "="); ok {
+				out[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			} else {
+				out[p] = ""
+			}
+		}
+		return out
+	}
+	out := make(map[string]string, len(parsed))
+	for k, a := range parsed {
+		out[k.String()] = a
+	}
+	return out
+}
+
+// rootsFromFlag is the --root pairs as written; which roots the engine's
+// approach offers is checked in SetAgent, the only place that knows which
+// engine this write results in.
+func rootsFromFlag(pairs []string) map[string]string {
+	out := map[string]string{}
+	for _, p := range pairs {
+		k, v, _ := strings.Cut(p, "=")
+		out[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	return out
 }
 
 // renderAgentWritten writes the one-line confirmation for a created/edited

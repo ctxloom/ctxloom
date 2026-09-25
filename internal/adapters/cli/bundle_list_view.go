@@ -150,48 +150,10 @@ func newBundleShowView(b *bundles.Bundle) bundleShowView {
 		Signed:       b.Signer() != "" || b.SelfSigned(),
 		Signer:       b.Signer(),
 		SelfSigned:   b.SelfSigned(),
-	}
-	if len(b.Fragments) > 0 {
-		v.Fragments = make(map[string]bundleShowFragment, len(b.Fragments))
-		for name, f := range b.Fragments {
-			v.Fragments[name] = bundleShowFragment{
-				Tags:      f.Tags,
-				Preview:   itemPreview(f.Content),
-				Distilled: f.Distilled != "",
-				NoDistill: f.NoDistill,
-				Premise:   f.Premise,
-			}
-		}
-	}
-	if len(b.Commands) > 0 {
-		v.Commands = make(map[string]bundleShowCommand, len(b.Commands))
-		for name, c := range b.Commands {
-			v.Commands[name] = bundleShowCommand{
-				Tags:        c.Tags,
-				Description: c.Description,
-				Preview:     itemPreview(c.Content),
-				Distilled:   c.Distilled != "",
-				NoDistill:   c.NoDistill,
-			}
-		}
-	}
-	if len(b.MCP) > 0 {
-		v.MCP = make(map[string]bundleShowMCP, len(b.MCP))
-		for name, m := range b.MCP {
-			v.MCP[name] = bundleShowMCP{
-				Command:      m.Command,
-				Args:         m.Args,
-				Env:          m.Env,
-				Notes:        m.Notes,
-				Installation: m.Installation,
-			}
-		}
-	}
-	if len(b.Skills) > 0 {
-		v.Skills = make(map[string]bundleShowSkill, len(b.Skills))
-		for name, s := range b.Skills {
-			v.Skills[name] = bundleShowSkill{Path: s.Path, Tags: s.Tags, Notes: s.Notes}
-		}
+		Fragments:    showFragments(b.Fragments),
+		Commands:     showCommands(b.Commands),
+		MCP:          showMCP(b.MCP),
+		Skills:       showSkills(b.Skills),
 	}
 	if len(b.Profiles) > 0 {
 		v.Profiles = b.ProfileNames()
@@ -200,4 +162,70 @@ func newBundleShowView(b *bundles.Bundle) bundleShowView {
 		v.Hooks = append(v.Hooks, e.ID())
 	}
 	return v
+}
+
+// showFragments is the fragments' show rows; nil when there are none.
+func showFragments(frags map[string]bundles.BundleFragment) map[string]bundleShowFragment {
+	if len(frags) == 0 {
+		return nil
+	}
+	out := make(map[string]bundleShowFragment, len(frags))
+	for name, f := range frags {
+		out[name] = bundleShowFragment{
+			Tags:      f.Tags,
+			Preview:   itemPreview(f.Content),
+			Distilled: f.Distilled != "",
+			NoDistill: f.NoDistill,
+			Premise:   f.Premise,
+		}
+	}
+	return out
+}
+
+// showCommands is the commands' show rows; nil when there are none.
+func showCommands(cmds map[string]bundles.BundleCommand) map[string]bundleShowCommand {
+	if len(cmds) == 0 {
+		return nil
+	}
+	out := make(map[string]bundleShowCommand, len(cmds))
+	for name, c := range cmds {
+		out[name] = bundleShowCommand{
+			Tags:        c.Tags,
+			Description: c.Description,
+			Preview:     itemPreview(c.Content),
+			Distilled:   c.Distilled != "",
+			NoDistill:   c.NoDistill,
+		}
+	}
+	return out
+}
+
+// showMCP is the MCP servers' show rows; nil when there are none.
+func showMCP(servers map[string]bundles.BundleMCP) map[string]bundleShowMCP {
+	if len(servers) == 0 {
+		return nil
+	}
+	out := make(map[string]bundleShowMCP, len(servers))
+	for name, m := range servers {
+		out[name] = bundleShowMCP{
+			Command:      m.Command,
+			Args:         m.Args,
+			Env:          m.Env,
+			Notes:        m.Notes,
+			Installation: m.Installation,
+		}
+	}
+	return out
+}
+
+// showSkills is the skills' show rows; nil when there are none.
+func showSkills(skills map[string]bundles.BundleSkill) map[string]bundleShowSkill {
+	if len(skills) == 0 {
+		return nil
+	}
+	out := make(map[string]bundleShowSkill, len(skills))
+	for name, sk := range skills {
+		out[name] = bundleShowSkill{Path: sk.Path, Tags: sk.Tags, Notes: sk.Notes}
+	}
+	return out
 }

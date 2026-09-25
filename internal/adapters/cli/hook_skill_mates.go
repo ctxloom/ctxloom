@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,28 +101,36 @@ func skillMatesOutput(cmd *cobra.Command) (claude.PostToolUseOutput, error) {
 	if err != nil {
 		return claude.PostToolUseOutput{}, err
 	}
-	// The delivered set is resolved the way the session's own assembly
-	// resolved it -- the default agent's profiles over the project config the
-	// hook process inherits -- so the mates named are skills the engine has.
+	delivered, err := deliveredEnabledSkills(cmd.Context())
+	if err != nil {
+		return claude.PostToolUseOutput{}, err
+	}
+	return buildSkillMatesOutput(payload, delivered, evs), nil
+}
+
+// deliveredEnabledSkills is the skill set the session's engine was
+// delivered, resolved the way the session's own assembly resolved it -- the
+// default agent's profiles over the project config the hook process
+// inherits -- so the mates named are skills the engine has.
+func deliveredEnabledSkills(ctx context.Context) ([]*bundles.LoadedSkill, error) {
 	cfg, err := GetConfig()
 	if err != nil {
-		return claude.PostToolUseOutput{}, fmt.Errorf("load project config: %w", err)
+		return nil, fmt.Errorf("load project config: %w", err)
 	}
-	pkg, err := operations.AssemblePackage(cmd.Context(), cfg, operations.PackageRequest{})
+	pkg, err := operations.AssemblePackage(ctx, cfg, operations.PackageRequest{})
 	if err != nil {
-		return claude.PostToolUseOutput{}, fmt.Errorf("assemble the delivered set: %w", err)
+		return nil, fmt.Errorf("assemble the delivered set: %w", err)
 	}
 	exports, err := operations.ExportsFor(App().Engines(), pkg, claude.EngineName)
 	if err != nil {
-		return claude.PostToolUseOutput{}, err
+		return nil, err
 	}
 	enabled := map[string]bool{}
 	for _, s := range exports.Skills {
 		enabled[s.Name] = s.Enabled
 	}
-	delivered := slices.DeleteFunc(operations.LoadedSkills(pkg),
-		func(s *bundles.LoadedSkill) bool { return !enabled[s.Frontmatter.Name] })
-	return buildSkillMatesOutput(payload, delivered, evs), nil
+	return slices.DeleteFunc(operations.LoadedSkills(pkg),
+		func(s *bundles.LoadedSkill) bool { return !enabled[s.Frontmatter.Name] }), nil
 }
 
 func init() {

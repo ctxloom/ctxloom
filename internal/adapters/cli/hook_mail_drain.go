@@ -81,17 +81,11 @@ func drainMail(cmd *cobra.Command, harp string) error {
 		return nil
 	}
 	mapper := spool.NewHomeMapper()
-	var problems []string
 	// An unreadable payload is a turn with no prompt we can read: never a
 	// wake, so never blocked.
 	var payload claude.UserPromptSubmitPayload
 	_ = json.Unmarshal(raw, &payload)
-	nonce, isWake := spool.WakeNonce(payload.Prompt)
-	if isWake {
-		if _, err := spool.ConsumeWake(mapper, harp, nonce); err != nil {
-			problems = append(problems, fmt.Sprintf("wake %s was not redeemed: %v", nonce, err))
-		}
-	}
+	isWake, problems := redeemWakeNonce(mapper, harp, payload.Prompt)
 	res, err := spool.Claim(mapper, harp)
 	if err != nil {
 		return fmt.Errorf("no mail delivered: %w", err)
@@ -101,12 +95,7 @@ func drainMail(cmd *cobra.Command, harp string) error {
 	}
 	if len(res.Entries) == 0 {
 		if isWake {
-			if err := writeHookOutput(cmd, claude.UserPromptSubmitOutput{
-				Decision: claude.DecisionBlock,
-				Reason:   "ctxloom: the mail this wake announced was already delivered",
-			}); err != nil {
-				problems = append(problems, fmt.Sprintf("a stale wake could not be blocked: %v", err))
-			}
+			problems = append(problems, blockStaleWake(cmd)...)
 		}
 		return joinProblems(problems)
 	}
@@ -122,12 +111,44 @@ func drainMail(cmd *cobra.Command, harp string) error {
 		// where the next turn's Claim hands it out again.
 		return fmt.Errorf("%d message(s) left claimed, not delivered: %w", len(res.Entries), err)
 	}
-	for _, e := range res.Entries {
+	return joinProblems(append(problems, ackDelivered(mapper, harp, res.Entries)...))
+}
+
+// redeemWakeNonce consumes the wake nonce a prompt carries, reporting whether
+// the prompt was a wake and, when the nonce could not be redeemed, why.
+func redeemWakeNonce(mapper spool.PathMapper, harp, prompt string) (bool, []string) {
+	nonce, isWake := spool.WakeNonce(prompt)
+	if !isWake {
+		return false, nil
+	}
+	if _, err := spool.ConsumeWake(mapper, harp, nonce); err != nil {
+		return true, []string{fmt.Sprintf("wake %s was not redeemed: %v", nonce, err)}
+	}
+	return true, nil
+}
+
+// blockStaleWake blocks a wake whose mail was already delivered, reporting
+// when the block could not be written.
+func blockStaleWake(cmd *cobra.Command) []string {
+	if err := writeHookOutput(cmd, claude.UserPromptSubmitOutput{
+		Decision: claude.DecisionBlock,
+		Reason:   "ctxloom: the mail this wake announced was already delivered",
+	}); err != nil {
+		return []string{fmt.Sprintf("a stale wake could not be blocked: %v", err)}
+	}
+	return nil
+}
+
+// ackDelivered acknowledges each delivered entry, reporting the ones that
+// could not be (and so will be delivered again); one already gone is fine.
+func ackDelivered(mapper spool.PathMapper, harp string, entries []spool.Entry) []string {
+	var problems []string
+	for _, e := range entries {
 		if err := spool.Ack(mapper, harp, e.Ref.Name); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
 			problems = append(problems, fmt.Sprintf("%s was delivered but could not be acknowledged and will be delivered again: %v", e.Ref, err))
 		}
 	}
-	return joinProblems(problems)
+	return problems
 }
 
 // writeHookOutput writes out as one JSON line. It is encoded to bytes first so

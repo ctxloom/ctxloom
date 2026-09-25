@@ -90,13 +90,9 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	// role, so a project can pair (say) a cheap label for distill with a
 	// stronger one for coding. The --llm flag names a config label; otherwise
 	// newLLMDistiller selects the fast role's label.
-	label := bundleDistillLLM
-	if label != "" {
-		validated, verr := validateExplicitLLM(cfg, label)
-		if verr != nil {
-			return verr
-		}
-		label = validated
+	label, err := distillLabel(cfg)
+	if err != nil {
+		return err
 	}
 	distiller, err := newLLMDistiller(cfg, label)
 	if err != nil {
@@ -120,16 +116,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", filePath, err))
 			continue
 		}
-		result.Files = append(result.Files, bundleDistillFileOutcome{Path: filePath, Saved: res.Saved, Items: res.Items})
-		items, skipped := countDistillItems(res.Items)
-		result.TotalItems += items
-		result.TotalSkipped += skipped
-		if res.Saved {
-			result.TotalFiles++
-		}
-		for _, inv := range res.Invalidated {
-			result.Invalidated = append(result.Invalidated, filePath+"#"+inv)
-		}
+		result.record(filePath, res)
 	}
 
 	if err := emit(cmd, result, func() error {
@@ -154,19 +141,44 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	}); err != nil {
 		return err
 	}
-	// Every per-file failure above only ever appended to
-	// result.Errors and `continue`d — nothing converted a non-empty Errors
-	// into a non-nil error for THIS command, so `ctxloom bundle distill` over
-	// a directory where every file failed still printed to stderr and exited
-	// 0. Checked AFTER emit (not instead of it) so the structured payload —
-	// which already carries result.Errors — is still printed either way;
-	// this only changes the exit code / final error, never the output.
-	if len(result.Errors) > 0 {
-		return fmt.Errorf("bundle distill: %d of %d file(s) failed", len(result.Errors), len(files))
+	return result.exitErr(len(files))
+}
+
+// distillLabel is the --llm label, validated, or "" for newLLMDistiller to
+// select the fast role's label.
+func distillLabel(cfg *config.Config) (string, error) {
+	if bundleDistillLLM == "" {
+		return "", nil
 	}
-	// A failed item is saved raw and tallied among the skips; the command that
-	// was asked to distill it has not done its job, whatever else it did.
-	if n := countFailedDistillItems(result.Files); n > 0 {
+	return validateExplicitLLM(cfg, bundleDistillLLM)
+}
+
+// record tallies one distilled file's outcome.
+func (r *bundleDistillResult) record(filePath string, res *operations.DistillBundleFileResult) {
+	r.Files = append(r.Files, bundleDistillFileOutcome{Path: filePath, Saved: res.Saved, Items: res.Items})
+	items, skipped := countDistillItems(res.Items)
+	r.TotalItems += items
+	r.TotalSkipped += skipped
+	if res.Saved {
+		r.TotalFiles++
+	}
+	for _, inv := range res.Invalidated {
+		r.Invalidated = append(r.Invalidated, filePath+"#"+inv)
+	}
+}
+
+// exitErr is the command's final error, checked AFTER emit (not instead of
+// it) so the structured payload — which already carries the errors — is
+// printed either way; it changes only the exit status, never the output.
+// Any file that failed fails the command, as does any item whose
+// distillation failed: a failed item is saved raw and tallied among the
+// skips, and the command asked to distill it has not done its job, whatever
+// else it did.
+func (r *bundleDistillResult) exitErr(fileCount int) error {
+	if len(r.Errors) > 0 {
+		return fmt.Errorf("bundle distill: %d of %d file(s) failed", len(r.Errors), fileCount)
+	}
+	if n := countFailedDistillItems(r.Files); n > 0 {
 		return fmt.Errorf("bundle distill: %d item(s) could not be distilled: %w", n, errDistillFailed)
 	}
 	return nil

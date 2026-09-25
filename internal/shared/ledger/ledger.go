@@ -147,9 +147,9 @@ func (l Ledger) Read(s Surface) ([]string, error) {
 //
 // The lock is deliberately NOT here. Every production caller already wraps
 // its whole load-modify-save-and-ledger-write cycle in agent.WithFileLock,
-// keyed on the settings file it is editing (claude, agent.MCPFileConfig), and tests/arch/lock_discipline_test.go excludes this
-// package from its scan for exactly that reason: this is the primitive, and
-// "their own callers are what must hold the lock". A second lock in here
+// keyed on the settings file it is editing (claude, agent.MCPFileConfig), and archlint's LockDisciplineAnalyzer leaves this
+// package out of its scope for exactly that reason: this is the primitive,
+// and its callers are what must hold the lock. A second lock in here
 // would be a second idiom over the same file with no way to make the two
 // agree.
 //

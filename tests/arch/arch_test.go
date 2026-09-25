@@ -106,6 +106,16 @@ func moduleRoot(t *testing.T) string {
 	}
 }
 
+// skippedDir reports the directory names a module sweep does not descend
+// into: VCS and tooling metadata, fixtures the go tool itself excludes, and
+// vendored or installed trees. The dot-dir rule is also what keeps
+// .claude/worktrees (another agent's checkout of this repo) out of this
+// module's gates.
+func skippedDir(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
+		name == "testdata" || name == "vendor" || name == "node_modules"
+}
+
 // scan parses every non-test Go file in the module and returns the packages by
 // module-relative directory. It fails the test rather than returning an error:
 // a scan that quietly found nothing would make every assertion below vacuous.
@@ -121,10 +131,7 @@ func scan(t *testing.T) map[string]*pkg {
 		}
 		name := d.Name()
 		if d.IsDir() {
-			// Skip VCS/tooling/fixture trees. testdata is excluded by the go
-			// tool itself, so its contents are not part of any package.
-			if p != root && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
-				name == "testdata" || name == "vendor" || name == "node_modules") {
+			if p != root && skippedDir(name) {
 				return filepath.SkipDir
 			}
 			return nil

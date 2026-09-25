@@ -1205,13 +1205,27 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 // (at-least-once, deduped on message_id).
 func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.PeerMessage, error) {
 	h.ackReturned()
+	msgs, p, newlyParked := h.takeBufferedOrPark()
+	if msgs != nil {
+		h.recordReturned(msgs)
+		return msgs, nil
+	}
+	if newlyParked {
+		h.emitCustomEvent(coord.CustomRecvParked, nil)
+	}
+	return h.awaitPark(ctx, p, wait)
+}
+
+// takeBufferedOrPark drains the buffer when it holds anything; otherwise it
+// installs a fresh park — preempting an older one — and reports whether the
+// runner was not already parked, which is when the parked event is owed.
+func (h *Home) takeBufferedOrPark() ([]*agentcoordpb.PeerMessage, *homePark, bool) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	if len(h.buffer) > 0 {
 		msgs := h.buffer
 		h.buffer = nil
-		h.mu.Unlock()
-		h.recordReturned(msgs)
-		return msgs, nil
+		return msgs, nil, false
 	}
 	if prev := h.park; prev != nil && !prev.done {
 		// Newest preempts: the older poll completes with the typed error.
@@ -1225,11 +1239,12 @@ func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.Pe
 	if !wasParked {
 		h.noteWaitLocked()
 	}
-	h.mu.Unlock()
-	if !wasParked {
-		h.emitCustomEvent(coord.CustomRecvParked, nil)
-	}
+	return nil, p, !wasParked
+}
 
+// awaitPark waits on p for up to wait, ending on a delivery, a preemption,
+// the timeout, the caller's context, or the Home's own teardown.
+func (h *Home) awaitPark(ctx context.Context, p *homePark, wait time.Duration) ([]*agentcoordpb.PeerMessage, error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {

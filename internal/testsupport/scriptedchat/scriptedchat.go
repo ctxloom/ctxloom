@@ -101,18 +101,7 @@ func (s *Chat) Resume(string) error { return nil }
 
 // Turn implements engine.StructuredDriver.
 func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
-	s.Mu.Lock()
-	s.Turns = append(s.Turns, in)
-	s.Execs = append(s.Execs, ex)
-	s.Texts = append(s.Texts, in.Prompt)
-	s.Keys = append(s.Keys, in.Resume)
-	gate := s.Gate
-	answer := s.Answer
-	first := s.turns == 0
-	s.turns++
-	fail := s.FailAfterTurns > 0 && s.turns > s.FailAfterTurns
-	end := s.EndAfterTurns > 0 && s.turns >= s.EndAfterTurns
-	s.Mu.Unlock()
+	plan := s.take(ex, in)
 	send := func(ev agent.ChatEvent) bool {
 		payload, err := json.Marshal(ev)
 		if err != nil {
@@ -128,34 +117,81 @@ func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out cha
 	// The session is announced the moment the process is up — before the
 	// gate holds the turn's content, as a real engine's init precedes its
 	// first answer.
-	if first && !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: NativeKey, Resumable: true}}) {
+	if plan.first && !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: NativeKey, Resumable: true}}) {
 		return engine.TurnResult{}, ctx.Err()
 	}
-	if gate != nil {
-		select {
-		case <-gate:
-		case <-ctx.Done():
-			return engine.TurnResult{}, ctx.Err()
-		}
+	if err := awaitGate(ctx, plan.gate); err != nil {
+		return engine.TurnResult{}, err
 	}
-	if fail {
+	if plan.fail {
 		return engine.TurnResult{}, ErrEngineDied
 	}
 	text := "echo: " + in.Prompt
-	if answer != nil {
-		text = answer(in.Prompt)
+	if plan.answer != nil {
+		text = plan.answer(in.Prompt)
 	}
-	if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: "pondering"}}) ||
-		!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}}) ||
-		!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "grep", ToolInput: []byte(`{"q":"x"}`)}}) ||
-		!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolOutput: "found"}}) ||
-		!send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015}}) {
+	if !sendTurnBody(send, text) {
 		return engine.TurnResult{}, ctx.Err()
 	}
-	if end {
+	if plan.end {
 		return engine.TurnResult{NativeKey: NativeKey, Answer: text}, ErrEngineEnded
 	}
 	return engine.TurnResult{NativeKey: NativeKey, Answer: text}, nil
+}
+
+// turnPlan is what one turn does, fixed under the lock as the turn is taken.
+type turnPlan struct {
+	gate   <-chan struct{}
+	answer func(string) string
+	first  bool
+	fail   bool
+	end    bool
+}
+
+// take records the turn and decides, under the lock, how it goes.
+func (s *Chat) take(ex engine.Exec, in engine.Turn) turnPlan {
+	s.Mu.Lock()
+	defer s.Mu.Unlock()
+	s.Turns = append(s.Turns, in)
+	s.Execs = append(s.Execs, ex)
+	s.Texts = append(s.Texts, in.Prompt)
+	s.Keys = append(s.Keys, in.Resume)
+	plan := turnPlan{gate: s.Gate, answer: s.Answer, first: s.turns == 0}
+	s.turns++
+	plan.fail = s.FailAfterTurns > 0 && s.turns > s.FailAfterTurns
+	plan.end = s.EndAfterTurns > 0 && s.turns >= s.EndAfterTurns
+	return plan
+}
+
+// awaitGate holds the turn until gate opens (a nil gate is open), or ctx
+// ends.
+func awaitGate(ctx context.Context, gate <-chan struct{}) error {
+	if gate == nil {
+		return nil
+	}
+	select {
+	case <-gate:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// sendTurnBody sends the turn's fixed event sequence around text, false as
+// soon as a send is abandoned.
+func sendTurnBody(send func(agent.ChatEvent) bool, text string) bool {
+	for _, ev := range []agent.ChatEvent{
+		{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: "pondering"}},
+		{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}},
+		{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "grep", ToolInput: []byte(`{"q":"x"}`)}},
+		{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolOutput: "found"}},
+		{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015}},
+	} {
+		if !send(ev) {
+			return false
+		}
+	}
+	return true
 }
 
 var _ engine.Instance = (*Chat)(nil)

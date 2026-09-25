@@ -19,10 +19,12 @@ import (
 // WarnWithheldBy surfaces one content-free advisory line PER item auth
 // withheld — bundle MCP servers, hooks, prompt exports, fragments — naming the
 // item and WHY (rejected, retracted by the publisher, pending review), via
-// bundles.Reason.Explain. Purely advisory (fault tolerance); a no-op when auth
-// is not a Trust's gate or withheld nothing.
+// bundles.Reason.Explain. Each item is reported once per gate: a command
+// reaches this from more than one site against the same generation's gate.
+// Purely advisory (fault tolerance); a no-op when auth is not a Trust's gate
+// or withheld nothing new.
 func WarnWithheldBy(auth bundles.Authorizer) {
-	for _, it := range composite.WithheldBy(auth) {
+	for _, it := range composite.NewlyWithheldBy(auth) {
 		clidiag.Warn("ctxloom", "withheld %s: %s", it.Ref, it.Verdict.Reason.Explain(it.Verdict.Detail))
 	}
 }

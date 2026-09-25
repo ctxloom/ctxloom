@@ -115,8 +115,8 @@ type profileMaterializeDiffJSON struct {
 // another checkout) and reports what differs against the profile(s) resolved
 // HERE, rather than merely asserting the two disagree.
 //
-// It reuses operations.AssembleContext directly — the same call
-// MaterializeProfile makes for the context surface, stating the same subject
+// It reuses operations.AssembleContext — the context view of the same
+// AssemblePackage assembly MaterializeProfile runs, stating the same subject
 // (MaterializedFor --backend), so it composes what materialize would WRITE for
 // that engine rather than what a live session would see — instead of writing a
 // scratch target to disk and reading it back: --diff is read-only by design,

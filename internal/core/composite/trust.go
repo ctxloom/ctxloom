@@ -104,6 +104,11 @@ type authorizer struct {
 
 	withheldMu sync.Mutex
 	withheld   map[string]bundles.Verdict
+	// reported is the subset of withheld NewlyWithheldBy has already handed
+	// out. The gate lives for the whole generation and more than one site in
+	// a single command prints the advisory, so without it each site reprinted
+	// every earlier withhold.
+	reported map[string]bool
 }
 
 // Ungated implements the capability bundles.Gates keys on: true only for the
@@ -291,15 +296,32 @@ type WithheldItem struct {
 
 // WithheldBy returns every ref the authorizer auth withheld, paired with its
 // verdict and sorted by ref; nil when auth is not a Trust's gate.
-func WithheldBy(auth bundles.Authorizer) []WithheldItem {
+func WithheldBy(auth bundles.Authorizer) []WithheldItem { return withheldBy(auth, false) }
+
+// NewlyWithheldBy is WithheldBy restricted to the refs no earlier
+// NewlyWithheldBy call on auth returned, and it marks them returned: the
+// source for an advisory that must name each withheld item once, however many
+// sites in one command print it.
+func NewlyWithheldBy(auth bundles.Authorizer) []WithheldItem { return withheldBy(auth, true) }
+
+func withheldBy(auth bundles.Authorizer, onlyNew bool) []WithheldItem {
 	a, ok := auth.(*authorizer)
 	if !ok {
 		return nil
 	}
 	a.withheldMu.Lock()
 	defer a.withheldMu.Unlock()
+	if onlyNew && a.reported == nil {
+		a.reported = make(map[string]bool)
+	}
 	out := make([]WithheldItem, 0, len(a.withheld))
 	for ref, v := range a.withheld {
+		if onlyNew {
+			if a.reported[ref] {
+				continue
+			}
+			a.reported[ref] = true
+		}
 		out = append(out, WithheldItem{Ref: ref, Verdict: v})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })

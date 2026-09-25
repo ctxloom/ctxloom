@@ -19,6 +19,7 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -243,6 +244,11 @@ const (
 	containerReadyBound = 30 * time.Second
 )
 
+// ErrRunnerExitedCleanly is the cause AwaitContainerRunning reports when the
+// runner process exited 0 before its container was observed running: there is
+// no wait error to wrap, and wrapping the nil printed "%!w(<nil>)".
+var ErrRunnerExitedCleanly = errors.New("runner exited with status 0")
+
 // AwaitContainerRunning blocks until h's container is OBSERVED running.
 //
 // The docker-exec interactive transport hands h.Name straight to a launcher
@@ -274,13 +280,7 @@ func AwaitContainerRunning(rt Runtime, h *RunnerHandle) error {
 		}
 		select {
 		case werr := <-exited:
-			// The runner died before the container came up. Its stderr is the
-			// only copy of the reason: the daemon writes it there and --rm then
-			// destroys the container, so `logs` is already too late.
-			if s := StderrTailOf(h); s != "" {
-				return fmt.Errorf("runner container %q exited before it was running: %w (stderr: %s)", h.Name, werr, s)
-			}
-			return fmt.Errorf("runner container %q exited before it was running: %w", h.Name, werr)
+			return exitedBeforeRunning(h, werr)
 		default:
 		}
 		if time.Now().After(deadline) {
@@ -291,6 +291,20 @@ func AwaitContainerRunning(rt Runtime, h *RunnerHandle) error {
 		}
 		time.Sleep(containerReadyPoll)
 	}
+}
+
+// exitedBeforeRunning is AwaitContainerRunning's verdict for a runner that
+// died before its container came up. Its stderr is the only copy of the
+// reason: the daemon writes it there and --rm then destroys the container, so
+// `logs` is already too late.
+func exitedBeforeRunning(h *RunnerHandle, werr error) error {
+	if werr == nil {
+		werr = ErrRunnerExitedCleanly
+	}
+	if s := StderrTailOf(h); s != "" {
+		return fmt.Errorf("runner container %q exited before it was running: %w (stderr: %s)", h.Name, werr, s)
+	}
+	return fmt.Errorf("runner container %q exited before it was running: %w", h.Name, werr)
 }
 
 // containerObservedRunning reports whether name is running right now. Any error
@@ -405,16 +419,6 @@ func MountEngineHome(ws Workspace, m present.Mount) error {
 	}
 	cw.extraMounts = append(cw.extraMounts, cw.runtime.Expose(m.HostDir, m.TargetDir, false))
 	return nil
-}
-
-// Isolated reports whether the policy provides a real per-agent workspace (a
-// worktree or container) rather than sharing the host project dir (none). The
-// fan-out uses it to decide whether to write per-member NATIVE config into the
-// workspace cwd — safe only when that cwd is isolated; a none member shares the
-// project dir and writing per-member config there would clobber the one shared
-// surface.
-func Isolated(p Policy) bool {
-	return p.Name() != None{}.Name()
 }
 
 // The isolation axes are launch's value types: WorkspaceAxis, RuntimeAxis

@@ -42,6 +42,25 @@ func TestAwaitContainerRunning_ExitingRunnerFailsWithItsStderr(t *testing.T) {
 		"must fail on the EXIT signal, not by timing out on the backstop")
 }
 
+// A runner that exits 0 before its container is observed running has no wait
+// error to wrap. Wrapping that nil rendered "%!w(<nil>)" in the abort a user
+// reads (the j002200 daemon row's keepalive exits 0 exactly so). The clean exit
+// is its own typed cause; a real wait error still wraps through.
+func TestAwaitContainerRunning_CleanExitIsItsOwnCause(t *testing.T) {
+	rt := newReapRuntime()
+
+	clean := &RunnerHandle{Name: "ctxloom-iso-probe-clean", Wait: func() error { return nil }}
+	err := AwaitContainerRunning(rt, clean)
+	require.ErrorIs(t, err, ErrRunnerExitedCleanly,
+		"a zero exit must be reported as a clean exit, not as a wrapped nil")
+
+	waitErr := errors.New("exit status 7")
+	failed := &RunnerHandle{Name: "ctxloom-iso-probe-failed", Wait: func() error { return waitErr }}
+	err = AwaitContainerRunning(rt, failed)
+	require.ErrorIs(t, err, waitErr, "a non-zero exit must keep its wait error in the chain")
+	require.NotErrorIs(t, err, ErrRunnerExitedCleanly, "a failed runner did not exit cleanly")
+}
+
 // A runtime that cannot be inspected at all (Host, or any fake) must not stall
 // a caller for the full backstop: there is no daemon to ask, so there is
 // nothing to wait for.

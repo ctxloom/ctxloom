@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -652,7 +651,7 @@ func ResolveAgent(ctx context.Context, reg engine.Registry, cfg *config.Config, 
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
-	return resolveAgentBinding(ctx, reg, cfg, name, sub, engineOverride, nil)
+	return resolveAgentBinding(ctx, reg, cfg, name, sub, engineOverride)
 }
 
 // resolveAgentBinding is the shared compose+engine core ResolveAgent goes
@@ -674,7 +673,7 @@ func ResolveAgent(ctx context.Context, reg engine.Registry, cfg *config.Config, 
 // Engine precedence (resolveOneshotLabel): the effective engine (override else
 // the binding's engine) wins; an empty effective engine falls back to the
 // composed profiles' llm, then the project default backend.
-func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.Config, name string, sub agents.Agent, engineOverride string, pipe *bundles.Pipeline) (*ResolvedAgent, error) {
+func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.Config, name string, sub agents.Agent, engineOverride string) (*ResolvedAgent, error) {
 	// Reject an unknown Driving value here too, not just at SetAgent: an
 	// `agents:` entry is parsed by the whole-config.yaml unmarshal, which
 	// validates no axis of its own, so a hand-edited config.yaml with a
@@ -692,7 +691,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		clidiag.Warn("ctxloom", "agent %q declares no profiles; composing empty context", name)
 	}
 
-	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: sub.Profiles, Pipeline: pipe})
+	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: sub.Profiles})
 	if err != nil {
 		return nil, fmt.Errorf("agent %q: compose profiles: %w", name, err)
 	}

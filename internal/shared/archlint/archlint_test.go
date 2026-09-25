@@ -34,3 +34,16 @@ func run(t *testing.T, a *analysis.Analyzer, rels ...string) {
 func TestDocComment_CoversProductionAndTestFiles(t *testing.T) {
 	run(t, archlint.DocCommentAnalyzer, "internal/docprod", "internal/docplant")
 }
+
+// TestLockDiscipline_WriteServersAndRemoveServersAreWrites plants unlocked
+// read-modify-writes through WriteServers and RemoveServers, and shows the
+// exempt primitive file is not judged.
+func TestLockDiscipline_WriteServersAndRemoveServersAreWrites(t *testing.T) {
+	run(t, archlint.LockDisciplineAnalyzer, "internal/engines/claude/lockplant", "internal/core/agent")
+}
+
+// TestLedgerDiscipline_ManagedWriteNeedsARecord plants a managed write through
+// WriteServers with no ownership record beside one that keeps a ledger.
+func TestLedgerDiscipline_ManagedWriteNeedsARecord(t *testing.T) {
+	run(t, archlint.LedgerDisciplineAnalyzer, "internal/core/agent/ledgerplant", "internal/core/agent")
+}

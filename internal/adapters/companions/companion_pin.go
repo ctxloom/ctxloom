@@ -50,6 +50,32 @@ func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, erro
 	if pinHolds(dir, admitted) {
 		return dir, nil
 	}
+	tmp, err := stagePinDir(storeRoot)
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmp) //nolint:errcheck // gone after a successful rename; best-effort otherwise
+	if err := fillPinDir(tmp, names, admitted); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, dir); err != nil {
+		// A concurrent launch pinned the same set first, or a directory under
+		// this digest no longer holds it. Keep a good one; replace a bad one.
+		if pinHolds(dir, admitted) {
+			return dir, nil
+		}
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
+			return "", fmt.Errorf("companion pin store: replace %s: %w", dir, errors.Join(err, rmErr))
+		}
+		if err := os.Rename(tmp, dir); err != nil {
+			return "", fmt.Errorf("companion pin store: %w", err)
+		}
+	}
+	return dir, nil
+}
+
+// stagePinDir creates a fresh staging directory under storeRoot.
+func stagePinDir(storeRoot string) (string, error) {
 	if err := os.MkdirAll(storeRoot, 0o755); err != nil {
 		return "", fmt.Errorf("companion pin store: %w", err)
 	}
@@ -57,19 +83,21 @@ func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("companion pin store: %w", err)
 	}
-	defer os.RemoveAll(tmp) //nolint:errcheck // gone after a successful rename; best-effort otherwise
+	return tmp, nil
+}
+
+// fillPinDir writes every admitted companion's copy into tmp and opens it as
+// a PATH directory.
+func fillPinDir(tmp string, names []string, admitted map[string]verifiedCompanion) error {
 	for _, bin := range names {
 		if err := writePinCopy(tmp, bin, admitted[bin]); err != nil {
-			return "", err
+			return err
 		}
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil { //nolint:gosec // a PATH directory
-		return "", fmt.Errorf("companion pin store: %w", err)
+		return fmt.Errorf("companion pin store: %w", err)
 	}
-	if err := installPin(tmp, dir, admitted); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return nil
 }
 
 // admittedCompanions is every discovered companion that admits, sorted (so
@@ -111,23 +139,6 @@ func writePinCopy(dir, bin string, v verifiedCompanion) error {
 	}
 	if err := iox.WriteFileAtomic(filepath.Join(dir, v.name+companionSigSuffix), v.sig, 0o644); err != nil { //nolint:gosec // a public signature
 		return fmt.Errorf("pin companion %s signature: %w", bin, err)
-	}
-	return nil
-}
-
-// installPin renames the filled tmp into place at dir. When the rename
-// fails, a concurrent launch pinned the same set first, or a directory under
-// this digest no longer holds it: keep a good one; replace a bad one.
-func installPin(tmp, dir string, admitted map[string]verifiedCompanion) error {
-	err := os.Rename(tmp, dir)
-	if err == nil || pinHolds(dir, admitted) {
-		return nil
-	}
-	if rmErr := os.RemoveAll(dir); rmErr != nil {
-		return fmt.Errorf("companion pin store: replace %s: %w", dir, errors.Join(err, rmErr))
-	}
-	if err := os.Rename(tmp, dir); err != nil {
-		return fmt.Errorf("companion pin store: %w", err)
 	}
 	return nil
 }

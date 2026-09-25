@@ -35,7 +35,7 @@ func upstreamRefusalProject(t *testing.T, ref, kept, proposed string) *config.Co
 	recPath := paths.RefusedAdvancesPath(appDir)
 	require.NoError(t, os.MkdirAll(filepath.Dir(recPath), 0o755))
 	body := fmt.Sprintf("version: 1\nrefusals:\n  - identity: %q\n    kept_sha: %q\n    proposed_sha: %q\n"+
-		"    detail: \"the signature does not cover these bytes\"\n    refused_at: 2026-08-05T10:32:00Z\n", ref, kept, proposed)
+		"    detail: \"the signature does not cover these bytes\"\n    refused_at: 2026-08-05T10:32:00Z\n", lockKeyOf(t, ref), kept, proposed)
 	require.NoError(t, os.WriteFile(recPath, []byte(body), 0o644))
 
 	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
@@ -92,10 +92,10 @@ func TestDoctorCheckUpstreamSignatures_IsSilentWhenTheKeptPinHasMovedOn(t *testi
 	mgr := remote.NewLockfileManager(appDir)
 	lock, err := mgr.Load()
 	require.NoError(t, err)
-	entry, ok := lock.GetEntry(remote.ItemTypeBundle, upstreamRef)
+	entry, ok := lock.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, upstreamRef))
 	require.True(t, ok)
 	entry.SHA = "3333333333333333333333333333333333333333"
-	lock.AddEntry(remote.ItemTypeBundle, upstreamRef, entry)
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, upstreamRef), entry)
 	require.NoError(t, mgr.Save(lock))
 
 	c := doctorCheckUpstreamSignatures(cfg, nil)

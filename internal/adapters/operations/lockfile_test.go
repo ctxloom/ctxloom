@@ -93,7 +93,7 @@ func TestLockDependencies_BuildsFromClosure(t *testing.T) {
 
 	lf, err := remote.NewLockfileManager(tmp).Load()
 	require.NoError(t, err)
-	entry, ok := lf.GetEntry(remote.ItemTypeBundle, "https://github.com/test/repo@bundles/demo")
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, "https://github.com/test/repo@bundles/demo"))
 	require.True(t, ok, "the pinned bundle is locked under its hashless canonical identity")
 	assert.Equal(t, "abc123def456", entry.SHA)
 }
@@ -116,7 +116,7 @@ func TestLockDependencies_ProfileBundleSurvives(t *testing.T) {
 
 	lf, err := remote.NewLockfileManager(tmp).Load()
 	require.NoError(t, err)
-	entry, ok := lf.GetEntry(remote.ItemTypeBundle, "https://github.com/test/repo@bundles/demo")
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, "https://github.com/test/repo@bundles/demo"))
 	require.True(t, ok, "the inline profile's bundle survives the lock rebuild")
 	assert.Equal(t, "abc123def456", entry.SHA)
 }

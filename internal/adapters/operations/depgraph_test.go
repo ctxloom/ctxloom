@@ -55,7 +55,7 @@ func TestDepWalker_RecordsAndConflicts(t *testing.T) {
 		pins, conflicts, _ := w.result()
 
 		require.Len(t, conflicts, 1)
-		assert.Equal(t, "https://github.com/o/r@bundles/demo", conflicts[0].Item)
+		assert.Equal(t, string(lockKeyOf(t, "https://github.com/o/r@bundles/demo")), conflicts[0].Item)
 		assert.Equal(t, []string{"aaaaaaa", "bbbbbbb"}, conflicts[0].Hashes)
 		require.Len(t, pins, 1, "the conflicted item still appears once in the pin set")
 	})

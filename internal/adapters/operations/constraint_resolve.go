@@ -85,11 +85,14 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 	}
 
 	return func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
+		expr := ref.ContentVersion
 		identity, err := ref.LockKey()
 		if err != nil {
+			// Said, not swallowed: a ref with no bundle identity is skipped
+			// exactly as an unresolvable one is, and the user is told why.
+			clidiag.Warn("ctxloom", "could not resolve %s@%s; skipping: %v", ref.URL+"@"+remote.ItemTypeBundle.DirName()+"/"+ref.Path, expr, err)
 			return "", "", "", false
 		}
-		expr := ref.ContentVersion
 		key := string(identity) + "\x00" + expr
 		if r, ok := cache[key]; ok {
 			return r.sha, r.version, r.kind, true

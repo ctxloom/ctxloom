@@ -252,7 +252,7 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 	// Seed a REAL, populated lock.yaml directly on the OS filesystem — the
 	// wrong place for this call to touch once an FS is injected.
 	osLock := &remote.Lockfile{Version: 1, Bundles: map[trust.BundleKey]remote.LockEntry{
-		"https://github.com/o/r@bundles/demo": {SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", URL: "https://github.com/o/r"},
+		lockKeyOf(t, "https://github.com/o/r@bundles/demo"): {SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", URL: "https://github.com/o/r"},
 	}}
 	require.NoError(t, remote.NewLockfileManager(baseDir).Save(osLock))
 
@@ -270,7 +270,7 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 	// The OS-disk lockfile must be untouched: still 1 entry, same SHA.
 	onDisk, err := remote.NewLockfileManager(baseDir).Load()
 	require.NoError(t, err)
-	entry, ok := onDisk.GetEntry(remote.ItemTypeBundle, "https://github.com/o/r@bundles/demo")
+	entry, ok := onDisk.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, "https://github.com/o/r@bundles/demo"))
 	require.True(t, ok, "UpgradeDependencies must not touch the real OS lockfile when an FS is injected")
 	assert.Equal(t, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", entry.SHA)
 

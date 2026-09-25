@@ -526,7 +526,7 @@ func (r *Reference) BundleRef() (trust.BundleRef, error) {
 	default:
 		repo, rerr := refuri.ParseRepoIdentity(r.URL)
 		if rerr != nil {
-			return trust.BundleRef{}, fmt.Errorf("source URL %q: %w", r.URL, rerr)
+			return trust.BundleRef{}, fmt.Errorf("unparseable repository URL %q: %w", r.URL, rerr)
 		}
 		switch repo.Class {
 		case refuri.ClassGit:

@@ -20,7 +20,7 @@ import (
 
 // One pulled directory-form bundle, as the pinned clone holds it.
 const (
-	treeProbeCanonical = "https://github.com/trent/atelier@bundles/atelier"
+	treeProbeCanonical = "ctxloom+git://github.com/trent/atelier//bundles/atelier"
 	treeProbeRepoURL   = "https://github.com/trent/atelier"
 )
 
@@ -115,7 +115,7 @@ func TestNewBundleReaderForConfig_CarriesTheTreeReadSurface(t *testing.T) {
 	// thing left to prove here is that the entry itself survives a save/load.
 	reloaded, err := lm.Load()
 	require.NoError(t, err)
-	require.Contains(t, reloaded.Bundles, treeProbeCanonical, "fixture did not round-trip through the lockfile")
+	require.Contains(t, reloaded.Bundles, trust.BundleKey(treeProbeCanonical), "fixture did not round-trip through the lockfile")
 
 	reader := NewBundleReaderForConfig(gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 	require.NotNil(t, reader)

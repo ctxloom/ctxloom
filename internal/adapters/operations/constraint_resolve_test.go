@@ -12,7 +12,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 )
 
-const crIdentity = "https://github.com/o/r@bundles/x"
+// crIdentity is the dependency as a user types it; crKey is the lockfile key
+// a pull of it writes (its bundle identity).
+const (
+	crIdentity = "https://github.com/o/r@bundles/x"
+	crKey      = "ctxloom+git://github.com/o/r//bundles/x"
+)
 
 // countingFactory returns a FetcherFactory yielding mock and a pointer to its
 // invocation count, so a test can prove a path resolved WITHOUT touching a repo.
@@ -29,7 +34,7 @@ func activeLock(entry remote.LockEntry) *remote.Lockfile {
 	lf := &remote.Lockfile{
 		Bundles: map[trust.BundleKey]remote.LockEntry{},
 	}
-	lf.AddEntry(remote.ItemTypeBundle, crIdentity, entry)
+	lf.AddEntry(remote.ItemTypeBundle, crKey, entry)
 	return lf
 }
 

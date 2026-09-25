@@ -30,7 +30,7 @@ import (
 
 const (
 	treeBase      = "/proj/.ctxloom"
-	treeCanonical = "https://github.com/acme/ctx@bundles/atelier"
+	treeCanonical = "ctxloom+git://github.com/acme/ctx//bundles/atelier"
 )
 
 func treeTestSigner(t *testing.T) (ssh.Signer, ssh.PublicKey) {
@@ -364,7 +364,7 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 // other entry — the same fault-tolerance the retired single-file seed path
 // pinned.
 func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T) {
-	const brokenCanonical = "https://github.com/acme/ctx@bundles/broken"
+	const brokenCanonical = "ctxloom+git://github.com/acme/ctx//bundles/broken"
 	c, _, _, fsys := stageInstalledTree(t)
 	_, pub := treeTestSigner(t)
 

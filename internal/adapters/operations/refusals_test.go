@@ -63,7 +63,7 @@ func TestRefusals_UpgradeRecordsTheRefusalWhereAnInspectorCanReadIt(t *testing.T
 	require.NoError(t, yaml.Unmarshal(raw, &doc))
 	assert.Equal(t, refusalStoreVersion, doc.Version)
 	require.Len(t, doc.Refusals, 1)
-	assert.Equal(t, r.ref, doc.Refusals[0].Identity, "the record must name WHICH bundle")
+	assert.Equal(t, string(lockKeyOf(t, r.ref)), doc.Refusals[0].Identity, "the record must name WHICH bundle")
 	assert.Equal(t, r.proposed, doc.Refusals[0].ProposedSHA, "the record must name the REVISION that was refused")
 	assert.Equal(t, r.kept, doc.Refusals[0].KeptSHA, "the record must name the pin being kept")
 	assert.Contains(t, doc.Refusals[0].Detail, bundles.ErrTreeBundleWithheld.Error())
@@ -72,7 +72,7 @@ func TestRefusals_UpgradeRecordsTheRefusalWhereAnInspectorCanReadIt(t *testing.T
 	live, err := LiveRefusedAdvances(r.cfg)
 	require.NoError(t, err)
 	require.Len(t, live, 1)
-	assert.Equal(t, r.ref, live[0].Identity)
+	assert.Equal(t, string(lockKeyOf(t, r.ref)), live[0].Identity)
 	assert.Equal(t, r.proposed, live[0].ProposedSHA)
 	assert.Equal(t, r.kept, live[0].KeptSHA)
 }
@@ -137,7 +137,7 @@ func TestRefusals_ARecordForAnEntryNoLongerLockedIsNotReported(t *testing.T) {
 	mgr := remote.NewLockfileManager(r.baseDir)
 	lock, err := mgr.Load()
 	require.NoError(t, err)
-	lock.AddEntry(remote.ItemTypeBundle, "file:///elsewhere@bundles/other", remote.LockEntry{SHA: "abc123", URL: "file:///elsewhere"})
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, "file:///elsewhere@bundles/other"), remote.LockEntry{SHA: "abc123", URL: "file:///elsewhere"})
 	lock.RemoveEntry(remote.ItemTypeBundle, lockKeyOf(t, r.ref))
 	require.NoError(t, mgr.Save(lock))
 

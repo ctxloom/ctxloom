@@ -66,7 +66,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 	ctx := context.Background()
 
 	lockfile := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
-		"https://github.com/o/r@bundles/x": {SHA: "relsha1", RequestedVersion: "release"},
+		"ctxloom+git://github.com/o/r//bundles/x": {SHA: "relsha1", RequestedVersion: "release"},
 	}}
 
 	t.Run("constrained entry tracks its branch, not HEAD", func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 
 	t.Run("entry at the constraint tip is up to date", func(t *testing.T) {
 		lf := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
-			"https://github.com/o/r@bundles/x": {SHA: "relsha2", RequestedVersion: "release"},
+			"ctxloom+git://github.com/o/r//bundles/x": {SHA: "relsha2", RequestedVersion: "release"},
 		}}
 		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x")
 		require.NoError(t, rerr)

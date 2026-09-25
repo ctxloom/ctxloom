@@ -164,7 +164,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	assert.Equal(t, 0, res.Advanced, "nothing may be counted as advanced")
 
 	require.Len(t, res.Refused, 1, "the refusal must be REPORTED — a silent non-advance reads as 'already up to date'")
-	assert.Equal(t, ref, res.Refused[0].Identity)
+	assert.Equal(t, string(lockKeyOf(t, ref)), res.Refused[0].Identity)
 	assert.Equal(t, verified, res.Refused[0].KeptSHA)
 	assert.Equal(t, edited, res.Refused[0].ProposedSHA)
 	assert.Contains(t, res.Refused[0].Detail, bundles.ErrTreeBundleWithheld.Error())

@@ -884,13 +884,22 @@ remotes:
 // content reads back without error, mirroring the production rule that a
 // lockfile entry alone is not enough — the content must be retrievable at the
 // locked address.
+// fakeBundleSource holds its readable bundles as a user types them; a read is
+// asked for by lockfile key, so each is matched on the key it would lock under.
 type fakeBundleSource struct {
 	readable map[string]bool
 }
 
 func (f fakeBundleSource) ReadBundleBytes(_ context.Context, name string) ([]byte, error) {
-	if f.readable[name] {
-		return []byte("version: 1"), nil
+	for ref, ok := range f.readable {
+		if !ok {
+			continue
+		}
+		if parsed, err := remote.ParseReference(ref); err == nil {
+			if key, kerr := parsed.LockKey(); kerr == nil && string(key) == name {
+				return []byte("version: 1"), nil
+			}
+		}
 	}
 	return nil, fmt.Errorf("%w: %s", remote.ErrBundleNotInLockfile, name)
 }

@@ -36,23 +36,18 @@ func TestCheckDependencies_NothingInstalled_ReportsNoEntries(t *testing.T) {
 	assert.Nil(t, res.Single)
 }
 
-// TestCheckDependencies_UnparseableEntryIsUncheckedNotCurrent: a lockfile
-// entry this build cannot parse is a typed Unchecked row — the result that
-// used to be a `continue` with no diagnostic, which let "All items are up to
-// date!" print with nothing checked.
-func TestCheckDependencies_UnparseableEntryIsUncheckedNotCurrent(t *testing.T) {
+// TestCheckDependencies_UnparseableEntryIsRefusedNotCurrent: a lockfile
+// entry whose key is not a bundle identity is refused with the lockfile, never
+// read past — the result that used to be a `continue` with no diagnostic,
+// which let "All items are up to date!" print with nothing checked.
+// (detectUpdates' own Unchecked row for an unparseable in-memory entry is
+// TestDetectUpdates_FailedChecksAreCounted.)
+func TestCheckDependencies_UnparseableEntryIsRefusedNotCurrent(t *testing.T) {
 	app := depsCheckApp(t, map[trust.BundleKey]remote.LockEntry{
 		"::::not-a-valid-reference": {SHA: "somesha", RequestedVersion: "main"},
 	})
-	res, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, 1, res.Entries)
-	assert.Empty(t, res.Updates)
-	assert.Zero(t, res.SkippedEmpty)
-	require.Len(t, res.Unchecked, 1)
-	assert.Equal(t, "::::not-a-valid-reference", res.Unchecked[0].Ref)
-	assert.Equal(t, UncheckedUnparseable, res.Unchecked[0].Reason)
-	assert.Error(t, res.Unchecked[0].Err)
+	_, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})
+	require.ErrorIs(t, err, remote.ErrLockKeyFormRetired)
 }
 
 // TestCheckDependencies_EmptySHAEntriesAreSkippedAndCounted: an entry with
@@ -61,7 +56,7 @@ func TestCheckDependencies_UnparseableEntryIsUncheckedNotCurrent(t *testing.T) {
 // unchecked.
 func TestCheckDependencies_EmptySHAEntriesAreSkippedAndCounted(t *testing.T) {
 	app := depsCheckApp(t, map[trust.BundleKey]remote.LockEntry{
-		"https://github.com/o/r@bundles/x": {SHA: "", RequestedVersion: "main"},
+		"ctxloom+git://github.com/o/r//bundles/x": {SHA: "", RequestedVersion: "main"},
 	})
 	res, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})
 	require.NoError(t, err)

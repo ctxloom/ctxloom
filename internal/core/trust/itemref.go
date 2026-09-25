@@ -24,7 +24,7 @@ import (
 //
 // It is therefore the only spelling the LOAD path may refuse outright. The
 // load path is handed self-contained identities that are still authored today
-// — a lockfile's "<url>@bundles/<path>", a resolved profile's
+// — an authored "<url>@bundles/<path>", a resolved profile's
 // "ctxloom:local@bundles/<name>" — and refusing those would withhold the
 // content they address.
 //

@@ -117,7 +117,7 @@ type ItemRead struct {
 
 // ExportName returns the short, slash-command-facing name for this item:
 // the owning bundle's last path segment plus the bare item name. Remote
-// bundles are keyed by canonical ref ("<url>@bundles/<path>"); exporting
+// bundles are keyed by an identity carrying the whole repository URL; exporting
 // that verbatim names the command after the entire URL (and ':' makes the
 // filename invalid on Windows). Name remains the full identity — only the
 // export-facing name shortens. Content without bundle metadata (builtin

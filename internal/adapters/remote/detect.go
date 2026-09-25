@@ -84,7 +84,7 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 	}
 
 	// scp-style SSH ("git@host:owner/repo") is a spelling ParseRepoURL accepts
-	// and NormalizeURL rewrites, but url.Parse refuses it outright — its first
+	// and renders as https, but url.Parse refuses it outright — its first
 	// path segment carries a colon — so the host is read off the string.
 	if host, ok := scpLikeHost(repoURL); ok {
 		return forgeForHost(host, "https://"+host)

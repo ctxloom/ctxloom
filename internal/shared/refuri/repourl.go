@@ -8,18 +8,16 @@ import (
 
 // This file is the ONE place the repo-URL grammar lives.
 //
-// It replaced three independent re-implementations that had drifted apart:
-// NormalizeURL (identity), normalizeCloneURL (transport) and
-// RepoDirForURL's own url.Parse (filesystem). The four concerns below are
-// legitimately distinct — a trust key is not a clone argument is not a cache
-// path — but they were each re-deriving "what shape is this string?", and the
-// derivations disagreed. Two shorthand arms with different guards is a bug you
-// cannot see in either file alone.
+// The concerns below are legitimately distinct — a trust key is not a clone
+// argument is not a cache path — but each re-deriving "what shape is this
+// string?" is how derivations come to disagree. Two shorthand arms with
+// different guards is a bug you cannot see in either file alone.
 //
 // Parse once, render per concern:
 //
 //	ParseRepoURL(raw) (RepoURL, error)   the grammar
-//	  .Normalized()  string              identity  -> trust namespace, lockfile keys, remotes.yaml
+//	  .Normalized()  string              stored    -> the spelling remotes.yaml keeps
+//	ParseRepoIdentity / CanonicalRepoURL identity  -> trust namespace, lockfile keys (repoidentity.go)
 //	  .CloneArg()    string              transport -> what git receives
 //	  .CacheSegments() ([]string, error)  filesystem -> cache path segments
 //	  .Kind()        SourceKind          dispatch  -> local / companion / remote
@@ -106,7 +104,7 @@ type RepoURL struct {
 	// step 5 ALLOW the item on its publisher signature. Approvals breaking is
 	// cheap (the item returns to pending); rejections breaking is not.
 	//
-	// trust.CanonicalRepoURL already declines to fold anything on these
+	// CanonicalRepoURL already declines to fold anything on these
 	// transports for the neighbouring reason ("their path is verbatim, where
 	// case may be significant"). This keeps the two layers agreeing.
 	pathVerbatim string
@@ -181,7 +179,7 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 	}
 
 	// Sentinels first: they contain a ":" and would otherwise be mangled into
-	// "https://ctxloom:local". trust.CanonicalRepoURL carried explicit early
+	// "https://ctxloom:local". CanonicalRepoURL carried explicit early
 	// returns for exactly that reason; recognising them in the grammar makes
 	// those guards belt-and-braces rather than load-bearing.
 	switch raw {
@@ -260,7 +258,7 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 // trimmed ".git" first so that "owner/repo.git" could still be recognised as
 // shorthand;
 // NormalizeURL trimmed it per-arm and so left ".git" on "…/repo.git/", where
-// the trailing slash hid it — connascence of order that trust.CanonicalRepoURL
+// the trailing slash hid it — connascence of order that CanonicalRepoURL
 // had to compensate for from another package. Doing all three here, once,
 // makes the function total over the suffix spellings and lets every renderer
 // decide only whether it WANTS the ".git" back.
@@ -277,9 +275,9 @@ func trimPathSuffixes(p string) (path string, hadGit bool) {
 // a companion loadout.
 func (r RepoURL) Kind() SourceKind { return r.kind }
 
-// Normalized renders the IDENTITY of the repository: the string that keys the
-// trust namespace (via trust.CanonicalRepoURL), names a remote in remotes.yaml,
-// and appears in lockfile keys.
+// Normalized renders the repository in the spelling a remote is STORED under
+// in remotes.yaml. It is not the identity key — CanonicalRepoURL is, and it
+// reads this same grammar — but it collapses transport the same way.
 //
 // TRANSPORT IS NOT IDENTITY, and that is a decision, not an accident of this
 // function. Every transport spelling of one repository collapses here: scp,
@@ -443,11 +441,11 @@ func (r RepoURL) isHTTP() bool {
 
 // renderURL rebuilds an explicit-scheme URL from the parsed value. Query,
 // fragment, userinfo and port survive verbatim: they are not part of a repo's
-// identity, but stripping them is trust.CanonicalRepoURL's job, not this
+// identity, but stripping them is CanonicalRepoURL's job, not this
 // layer's — a clone argument may legitimately need them.
 //
 // Only http(s) is rewritten at all. On http(s) the trailing ".git" is a forge
-// cosmetic and a trailing slash is noise, and trust.CanonicalRepoURL already
+// cosmetic and a trailing slash is noise, and CanonicalRepoURL already
 // removes both, so folding them here moves no key. On every other scheme the
 // httpPath is the path spelling render resolved for an http(s) URL. A
 // non-http(s) path is emitted byte-for-byte as written — see pathVerbatim for why that is

@@ -33,7 +33,7 @@ type PinnedRef struct {
 // DependencyConflict reports a single item referenced at two or more differing
 // hashes within a profile closure — the error the lock surfaces immediately.
 type DependencyConflict struct {
-	Item   string   // canonical identity ("<url>@<kind>/<path>")
+	Item   string   // the lockfile key: the bundle identity
 	Hashes []string // the differing hashes, sorted
 }
 

@@ -369,6 +369,70 @@ func TestSpoolAsk_TurnOutputIsNotTheAnswer(t *testing.T) {
 	}
 }
 
+// TestSpoolAsk_OnlyTheTargetCanAnswer pins resolveAskReply's answerer check:
+// the id alone is not authority. A reply quoting an outstanding ask's id from
+// any harp but the one asked must NOT resolve it — otherwise the asker is
+// handed someone else's words as the target's answer, a WRONG ANSWER rather
+// than an error, with nothing downstream able to tell.
+//
+// The foreign reply is sent from inside the publish hook, before the target
+// can have seen the ask at all, so what is asserted is the check and not who
+// won a race.
+func TestSpoolAsk_OnlyTheTargetCanAnswer(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, home := awaitCutoverChild(t, c, sp, "first task")
+
+	askIDs := make(chan string, 1)
+	var foreignErr error
+	c.onAskPublished = func(id string) {
+		// A harp that is NOT the target quotes the id. The owner is one such
+		// harp; which non-target it is does not matter to the check.
+		_, foreignErr = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "forged answer", nil, id)
+		askIDs <- id
+	}
+	answers := make(chan AskAnswer, 1)
+	errs := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	go func() {
+		ans, err := c.ControlQuestion(ctx, humanInitiator(), out.Harp, "who may answer this?")
+		if err != nil {
+			errs <- err
+			return
+		}
+		answers <- ans
+	}()
+	var askID string
+	select {
+	case askID = <-askIDs:
+	case <-time.After(conformanceWait):
+		t.Fatal("the ask was never published")
+	}
+	require.NoError(t, foreignErr, "a non-target's correlated send degrades to ordinary mail; it is not refused")
+
+	select {
+	case ans := <-answers:
+		t.Fatalf("a non-target's reply was taken as the target's answer: %q from %q", ans.Text, ans.From)
+	case err := <-errs:
+		t.Fatalf("the ask failed instead of staying outstanding: %v", err)
+	default:
+	}
+
+	answerAsk(t, home, askID, "the target's own answer", nil)
+	select {
+	case ans := <-answers:
+		assert.Equal(t, "the target's own answer", ans.Text)
+		assert.Equal(t, out.Harp, ans.From)
+	case err := <-errs:
+		t.Fatalf("the target's reply did not resolve the ask: %v", err)
+	case <-time.After(conformanceWait):
+		t.Fatal("the target's reply never resolved the ask")
+	}
+}
+
 // TestSpoolAsk_SummarizeCarriesItsOwnKind pins that the two asks are
 // distinguishable to the child: a summarize is not a question wearing the same
 // label, or the agent cannot tell what it is being asked for.

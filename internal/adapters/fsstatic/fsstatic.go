@@ -47,15 +47,8 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.B
 		return delivery.Delivered{}, err
 	}
 	surfaces := root.Surfaces()
-	paths := target.Root.Paths()
-	for _, it := range lo.Plan.Static {
-		if surfaces[it.Kind] == nil {
-			return delivery.Delivered{}, fmt.Errorf("fsstatic: the plan routes kind %v to approach %q but the engine declares no approach for it", it.Kind, it.Approach)
-		}
-		if !delivery.HasRoot(paths, it.Root) {
-			return delivery.Delivered{}, delivery.Unrootable{Kind: it.Kind, Approach: it.Approach, Needs: it.Root,
-				Remedy: fmt.Sprintf("the plan roots kind %v under %v and this target has no such root; select a root the target provides on the binding, or deliver to a target that has it", it.Kind, it.Root)}
-		}
+	if err := planRootable(lo.Plan.Static, surfaces, target.Root.Paths()); err != nil {
+		return delivery.Delivered{}, err
 	}
 	if err := target.Ownership.Prepare(ctx); err != nil {
 		return delivery.Delivered{}, fmt.Errorf("fsstatic: prepare the ownership record for %s: %w", target.Writer, err)
@@ -73,47 +66,83 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.B
 	}
 	out := delivery.Delivered{Undo: undo}
 	for _, it := range lo.Plan.Static {
-		layer := afero.NewMemMapFs()
-		overlay := afero.NewCopyOnWriteFs(s.fs, layer)
-		d, err := deliverKind(surfaces[it.Kind], it.Kind, target.Root, it.Root, inputs, overlay)
+		d, err := s.deliverItem(ctx, it, surfaces[it.Kind], target, inputs)
 		if err != nil {
-			return delivery.Delivered{}, fmt.Errorf("fsstatic: deliver %v through %s: %w", it.Kind, it.Approach, err)
-		}
-		for _, path := range writtenFiles(layer) {
-			bytes, err := afero.ReadFile(layer, path)
-			if err != nil {
-				return delivery.Delivered{}, err
-			}
-			info, err := layer.Stat(path)
-			if err != nil {
-				return delivery.Delivered{}, err
-			}
-			if !underARoot(paths, path) {
-				// An approach's OWN state outside the target (claude's MCP
-				// approach keeps a hew record under the home): written
-				// through as the approach wrote it, never a delivered file
-				// the record owns.
-				if err := writeThrough(s.fs, path, bytes, info.Mode().Perm()); err != nil {
-					return delivery.Delivered{}, fmt.Errorf("fsstatic: write %s: %w", path, err)
-				}
-				continue
-			}
-			entry := relativeTo(paths, path)
-			if _, err := target.Ownership.Apply(ctx, s.fs, path, target.Writer, func([]byte) ([]byte, []string, error) {
-				return bytes, []string{entry}, nil
-			}); err != nil {
-				return delivery.Delivered{}, fmt.Errorf("fsstatic: record %s for %s: %w", path, target.Writer, err)
-			}
-			// The record writes the bytes; the mode is the approach's (an
-			// exec bit on a skill's script is load-bearing).
-			if err := s.fs.Chmod(path, info.Mode().Perm()); err != nil {
-				return delivery.Delivered{}, fmt.Errorf("fsstatic: mode of %s: %w", path, err)
-			}
+			return delivery.Delivered{}, err
 		}
 		out.Presented = append(out.Presented, d.Presented)
 		out.Wrote = append(out.Wrote, it.Kind)
 	}
 	return out, nil
+}
+
+// planRootable refuses a plan item whose kind the engine declares no
+// approach for, or whose root the target does not provide.
+func planRootable(items []delivery.StaticItem, surfaces engine.Surfaces, paths present.Paths) error {
+	for _, it := range items {
+		if surfaces[it.Kind] == nil {
+			return fmt.Errorf("fsstatic: the plan routes kind %v to approach %q but the engine declares no approach for it", it.Kind, it.Approach)
+		}
+		if !delivery.HasRoot(paths, it.Root) {
+			return delivery.Unrootable{Kind: it.Kind, Approach: it.Approach, Needs: it.Root,
+				Remedy: fmt.Sprintf("the plan roots kind %v under %v and this target has no such root; select a root the target provides on the binding, or deliver to a target that has it", it.Kind, it.Root)}
+		}
+	}
+	return nil
+}
+
+// deliverItem runs the item's approach over a copy-on-write overlay, then
+// lands every file it wrote.
+func (s *Static) deliverItem(ctx context.Context, it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs) (present.Delivered, error) {
+	layer := afero.NewMemMapFs()
+	overlay := afero.NewCopyOnWriteFs(s.fs, layer)
+	d, err := deliverKind(approach, it.Kind, target.Root, it.Root, inputs, overlay)
+	if err != nil {
+		return present.Delivered{}, fmt.Errorf("fsstatic: deliver %v through %s: %w", it.Kind, it.Approach, err)
+	}
+	for _, path := range writtenFiles(layer) {
+		if err := s.landFile(ctx, layer, path, target); err != nil {
+			return present.Delivered{}, err
+		}
+	}
+	return d, nil
+}
+
+// landFile moves one file the approach wrote from the overlay layer onto the
+// filesystem: under a target root through the ownership record, with the
+// approach's mode; outside every root written through as-is.
+func (s *Static) landFile(ctx context.Context, layer afero.Fs, path string, target delivery.Target) error {
+	bytes, err := afero.ReadFile(layer, path)
+	if err != nil {
+		return err
+	}
+	info, err := layer.Stat(path)
+	if err != nil {
+		return err
+	}
+	paths := target.Root.Paths()
+	if !underARoot(paths, path) {
+		// An approach's OWN state outside the target (claude's MCP
+		// approach keeps a hew record under the home): written
+		// through as the approach wrote it, never a delivered file
+		// the record owns.
+		if err := writeThrough(s.fs, path, bytes, info.Mode().Perm()); err != nil {
+			return fmt.Errorf("fsstatic: write %s: %w", path, err)
+		}
+		return nil
+	}
+	entry := relativeTo(paths, path)
+	if _, err := target.Ownership.Apply(ctx, s.fs, path, target.Writer, func([]byte) ([]byte, []string, error) {
+		return bytes, []string{entry}, nil
+	}); err != nil {
+		return fmt.Errorf("fsstatic: record %s for %s: %w", path, target.Writer, err)
+	}
+	// The record writes the bytes; the mode is the approach's (an
+	// exec bit on a skill's script is load-bearing).
+	if err := s.fs.Chmod(path, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("fsstatic: mode of %s: %w", path, err)
+	}
+	return nil
 }
 
 // reconcileToEmpty reverses the writer's contribution to every file its
@@ -144,33 +173,50 @@ func (s *Static) reconcileToEmpty(ctx context.Context, target delivery.Target) e
 // interface (the Definition's typed fields made any other pairing a compile
 // error), so a miss here is a programming error in the engine, reported.
 func deliverKind(a present.Approach, kind present.Kind, start present.Start, root present.RootKind, in delivery.Inputs, fs afero.Fs) (present.Delivered, error) {
+	var (
+		d   present.Delivered
+		ok  bool
+		err error
+	)
 	switch kind {
 	case present.Context:
-		if c, ok := a.(engine.ContextApproach); ok {
+		d, ok, err = deliverAs(a, func(c engine.ContextApproach) (present.Delivered, error) {
 			return c.DeliverContext(start, root, in.Context, fs)
-		}
+		})
 	case present.MCP:
-		if c, ok := a.(engine.MCPApproach); ok {
-			return c.DeliverMCP(start, root, in.MCP, fs)
-		}
+		d, ok, err = deliverAs(a, func(c engine.MCPApproach) (present.Delivered, error) { return c.DeliverMCP(start, root, in.MCP, fs) })
 	case present.Settings:
-		if c, ok := a.(engine.SettingsApproach); ok {
+		d, ok, err = deliverAs(a, func(c engine.SettingsApproach) (present.Delivered, error) {
 			return c.DeliverSettings(start, root, in.Settings, fs)
-		}
+		})
 	case present.Hooks:
-		if c, ok := a.(engine.HooksApproach); ok {
+		d, ok, err = deliverAs(a, func(c engine.HooksApproach) (present.Delivered, error) {
 			return c.DeliverHooks(start, root, in.Hooks, fs)
-		}
+		})
 	case present.Commands:
-		if c, ok := a.(engine.CommandsApproach); ok {
+		d, ok, err = deliverAs(a, func(c engine.CommandsApproach) (present.Delivered, error) {
 			return c.DeliverCommands(start, root, in.Commands, fs)
-		}
+		})
 	case present.Skills:
-		if c, ok := a.(engine.SkillsApproach); ok {
+		d, ok, err = deliverAs(a, func(c engine.SkillsApproach) (present.Delivered, error) {
 			return c.DeliverSkills(start, root, in.Skills, fs)
-		}
+		})
 	}
-	return present.Delivered{}, fmt.Errorf("approach %q does not deliver kind %v", a.Name(), kind)
+	if !ok {
+		return present.Delivered{}, fmt.Errorf("approach %q does not deliver kind %v", a.Name(), kind)
+	}
+	return d, err
+}
+
+// deliverAs delivers through a when it implements kind interface A; ok is
+// false when it does not.
+func deliverAs[A any](a present.Approach, deliver func(A) (present.Delivered, error)) (d present.Delivered, ok bool, err error) {
+	c, ok := a.(A)
+	if !ok {
+		return present.Delivered{}, false, nil
+	}
+	d, err = deliver(c)
+	return d, true, err
 }
 
 // writtenFiles lists every regular file the approach left in the overlay's

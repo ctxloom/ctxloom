@@ -148,42 +148,65 @@ func (r *Records) Apply(_ context.Context, targetFS afero.Fs, target string, wri
 		if desired == nil {
 			return r.reconcile(targetFS, target, writer, rec, before, existed, restored, restoredExists, &res)
 		}
-		wr := writerRecord{Entries: slices.Clone(entries), AppliedAt: time.Now().UTC(), Existed: restoredExists}
-		switch {
-		case structured && (restoredExists || len(confpatch.EmptyDocument(format)) > 0):
-			// A created file's reversal is diffed against the format's empty
-			// document, so a reapply still takes the old entries out first.
-			// A format with no empty document to diff from (YAML) leaves a
-			// created file owned whole, like an opaque one.
-			base := restored
-			if !restoredExists || len(bytes.TrimSpace(base)) == 0 {
-				base = confpatch.EmptyDocument(format)
-			}
-			reversal, err := provenReversal(binding, format, target, base, desired)
-			if err != nil {
-				return err
-			}
-			wr.Reversal = string(reversal)
-		case restoredExists:
-			wr.Before = slices.Clone(restored)
+		wr, err := newWriterRecord(binding, format, target, structured, restored, restoredExists, desired, entries)
+		if err != nil {
+			return err
 		}
-		if !existed {
-			rec.Created = true
-		}
-		if rec.Writers == nil {
-			rec.Writers = map[string]writerRecord{}
-		}
-		rec.Writers[string(writer)] = wr
+		rec.setWriter(writer, wr, existed)
 		if err := r.save(target, rec); err != nil {
 			return err
 		}
-		if existed && bytes.Equal(before, desired) {
-			return nil
-		}
-		res.Changed = true
-		return confpatch.WriteTarget(targetFS, target, desired)
+		return writeDesired(targetFS, target, before, existed, desired, &res)
 	})
 	return res, err
+}
+
+// newWriterRecord is the writer's record of desired over restored: its
+// entries and the reversal that takes them back out — a proven hew patch for
+// a structured format, else the pre-image when a file stood there.
+func newWriterRecord(binding hew.Binding, format hew.FormatID, target string, structured bool, restored []byte, restoredExists bool, desired []byte, entries []string) (writerRecord, error) {
+	wr := writerRecord{Entries: slices.Clone(entries), AppliedAt: time.Now().UTC(), Existed: restoredExists}
+	switch {
+	case structured && (restoredExists || len(confpatch.EmptyDocument(format)) > 0):
+		// A created file's reversal is diffed against the format's empty
+		// document, so a reapply still takes the old entries out first.
+		// A format with no empty document to diff from (YAML) leaves a
+		// created file owned whole, like an opaque one.
+		base := restored
+		if !restoredExists || len(bytes.TrimSpace(base)) == 0 {
+			base = confpatch.EmptyDocument(format)
+		}
+		reversal, err := provenReversal(binding, format, target, base, desired)
+		if err != nil {
+			return writerRecord{}, err
+		}
+		wr.Reversal = string(reversal)
+	case restoredExists:
+		wr.Before = slices.Clone(restored)
+	}
+	return wr, nil
+}
+
+// setWriter records writer's contribution, marking the file ctxloom-created
+// when it did not exist before.
+func (rec *ownershipRecord) setWriter(writer delivery.Writer, wr writerRecord, existed bool) {
+	if !existed {
+		rec.Created = true
+	}
+	if rec.Writers == nil {
+		rec.Writers = map[string]writerRecord{}
+	}
+	rec.Writers[string(writer)] = wr
+}
+
+// writeDesired writes desired to target unless the file already holds
+// exactly those bytes, marking res changed when it writes.
+func writeDesired(targetFS afero.Fs, target string, before []byte, existed bool, desired []byte, res *delivery.Result) error {
+	if existed && bytes.Equal(before, desired) {
+		return nil
+	}
+	res.Changed = true
+	return confpatch.WriteTarget(targetFS, target, desired)
 }
 
 // reconcile is the empty build: the writer's tag leaves the record and the
@@ -195,18 +218,14 @@ func (r *Records) reconcile(targetFS afero.Fs, target string, writer delivery.Wr
 		return nil
 	}
 	delete(rec.Writers, string(writer))
-	othersRemain := len(rec.Writers) > 0
-	if othersRemain {
-		if err := r.save(target, rec); err != nil {
-			return err
-		}
-	} else if err := r.fs.Remove(r.path(target)); err != nil && !os.IsNotExist(err) {
+	othersRemain, err := r.dropWriterRecord(target, rec)
+	if err != nil {
 		return err
 	}
 	if !existed {
 		return nil
 	}
-	if !othersRemain && rec.Created || !restoredExists && !othersRemain {
+	if reconcileRemovesFile(othersRemain, rec.Created, restoredExists) {
 		res.Changed = true
 		return targetFS.Remove(target)
 	}
@@ -215,6 +234,24 @@ func (r *Records) reconcile(targetFS afero.Fs, target string, writer delivery.Wr
 	}
 	res.Changed = true
 	return confpatch.WriteTarget(targetFS, target, restored)
+}
+
+// dropWriterRecord persists rec after a writer left it: saved while other
+// writers remain, else removed. It reports whether others remain.
+func (r *Records) dropWriterRecord(target string, rec ownershipRecord) (bool, error) {
+	if len(rec.Writers) > 0 {
+		return true, r.save(target, rec)
+	}
+	if err := r.fs.Remove(r.path(target)); err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	return false, nil
+}
+
+// reconcileRemovesFile reports whether reconciling the last writer out
+// removes the file: ctxloom created it, or nothing stands once restored.
+func reconcileRemovesFile(othersRemain, created, restoredExists bool) bool {
+	return !othersRemain && created || !restoredExists && !othersRemain
 }
 
 // restore takes the writer's previous contribution back out of before: the

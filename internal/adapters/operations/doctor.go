@@ -160,6 +160,9 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckGitignorePosture(cfg, cfgErr),
 			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
 			doctorCheckOrphanContainers(ctx, doctorRuntimes(), isolation.ReapOrphanedContainers),
+			doctorCheckSupersededImages(ctx, doctorRuntimes(), func(ctx context.Context, rt isolation.Runtime) (isolation.ImagePrunePlan, error) {
+				return isolation.PlanImagePrune(ctx, rt, imagePruneOptions(reg, cfg, rt, DefaultImagePruneMinAge, time.Now()))
+			}),
 			doctorCheckLegacyIndex(),
 			doctorCheckHarpDurability(),
 			doctorCheckSpoolBacklog(),
@@ -262,13 +265,18 @@ func doctorCheckDeps(reg engine.Registry, cfg *config.Config) DoctorCheck {
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: strings.Join(parts, "; ")}
 }
 
+// ociRuntimes is every OCI runtime ctxloom knows, reachable or not.
+func ociRuntimes() []isolation.Runtime {
+	return []isolation.Runtime{isolation.Docker{}, isolation.Podman{}}
+}
+
 // doctorRuntimes is every OCI runtime available on this host — the one probe
 // doctor's runtime rows share. It is doctor's alone: a host run never asks,
 // because the first `podman info` a user ever runs creates rootless storage
 // under their home.
 func doctorRuntimes() []isolation.Runtime {
 	var out []isolation.Runtime
-	for _, rt := range []isolation.Runtime{isolation.Docker{}, isolation.Podman{}} {
+	for _, rt := range ociRuntimes() {
 		if rt.Available() {
 			out = append(out, rt)
 		}

@@ -1,11 +1,11 @@
 # ctxloom-bundle-manifest/1
 # name: ctxloom-project
-# version: 0.7.0-pre1
-bc0ec470affc4ff8cc639d620ac7125ee0dfa94919c07984d9d996e930b4855e  bundle.yaml
+# version: 0.7.0-pre2
+f5fdf128f2ebca9d174b4350040abb1624df68e5a905aaaeeb84afeec75de5d9  bundle.yaml
 68b3ba076a75140ec7e589bd03574bfc3175b2ec83f888c67b0fdfb56480a9db  fragments/conditional-guidance.md
 4d86cd6db2b315f41f584d4c19b90a03b65e186732fb35eed319b2b45af54cbd  fragments/config-hierarchy.md
 d088bc7a34cc551cb49714e49d7d9b854b3b827bd423919dd03c82b9ccf80f8c  fragments/dind-in-agent-cells.md
-8ba71d28b76b9a52a725c7e85feb45b7f02f9543edd2c9858430886d5852884a  fragments/fail-loud-launch.md
+40fc66d1926652b295584f531cd626783dc36f3c41dfd65f34cd5093f1e92c32  fragments/fail-loud-launch.md
 dc7da05efc588936c18cf69bd008a463e74a85802a5ed4fcf656c09193fee759  fragments/green-is-not-passing.md
 76dd5d033b8a132a703ad78a08081985b5a298089f3eab020441bc130a07b338  fragments/tool-intent-and-finding.md
 141db3ea6b63d8c1f9850e9a9a842f54238bcd19211ab2b28ac26df4a14ee1cf  fragments/turn-gates.md

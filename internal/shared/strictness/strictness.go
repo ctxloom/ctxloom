@@ -389,13 +389,13 @@ func (m Mode) Listing(header string, found report.Findings) string {
 	return b.String()
 }
 
-// listingError is Listing as an error for a gate that returns rather than
-// exits, or nil when found is empty. The listing already carries every
-// remedy in its text; the error additionally names the fix structurally
-// (report.Error.Fix, which clifmt.RenderError puts in the envelope) only
-// when there is exactly ONE finding, because a single remedy field cannot
-// honestly stand for several.
-func (m Mode) listingError(header string, found report.Findings) error {
+// ListingError renders found as m's Listing under header, as an error, or nil
+// when found is empty — the one form every findings gate returns. Every remedy
+// is in the listing text; the error names the fix structurally
+// (report.Error.Fix, which clifmt.RenderError puts in the envelope) only when
+// there is exactly one finding, because one remedy field cannot honestly stand
+// for several.
+func (m Mode) ListingError(header string, found report.Findings) error {
 	if len(found) == 0 {
 		return nil
 	}
@@ -417,7 +417,7 @@ func (m Mode) Sink() report.Sink { return Sink(m.Prog) }
 // its own callers), so the adapters that need it share one rendering
 // without importing one another.
 func (m Mode) FindingsError(mark Mark) error {
-	return m.listingError("fatal startup findings:", m.Actionable(Since(mark)))
+	return m.ListingError("fatal startup findings:", m.Actionable(Since(mark)))
 }
 
 // Fail reports a fatal-class fault at a choke. The warning line streams to

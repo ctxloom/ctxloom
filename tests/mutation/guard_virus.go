@@ -14,65 +14,42 @@ import (
 	"github.com/gtramontina/ooze/viruses"
 )
 
-// cascadeGuards are the EffectiveTrust decision steps the stock viruses
-// cannot reach — the guard expressions guardNegate fires ONLY on (matched by
+// cascadeGuards are the trust-cascade decision steps (composite's
+// (*authorizer).Admit and the helpers it asks) that the stock viruses cannot
+// reach — the guard expressions guardNegate fires ONLY on (matched by
 // rendering the condition back to source text), never on every `if` in the
-// file (trust.go has ~60 of them). The key is the condition EXACTLY as
-// go/printer renders it; the value is the cascade step it implements, used
-// as the mutant's name so a survivor is self-describing in the report.
-// This used to be an anonymous map literal inline in
-// newGuardNegate, while two doc comments referred to a "cascadeGuards"
-// identifier that did not exist anywhere in the file — promoted to a real
-// package-level var so the name is real.
+// file. The key is the condition EXACTLY as go/printer renders it; the value
+// is the cascade step it implements, used as the mutant's name so a survivor
+// is self-describing in the report.
 //
-// DRIFT: the keys "req.Ref.IsLocal" and "req.Ref.IsBuiltin" were
-// here until AssertAllTargetsMatched caught that neither text appears in
-// trust.go any more. Steps 3 and 4 were not deleted — they were MERGED. The
-// cascade now decides first-party posture once,
+// The keys are exact on purpose, and are never relaxed into something that
+// would match more than one shape: an exact miss is the only thing that makes
+// a refactor of the cascade visible (AssertAllTargetsMatched,
+// TestGuardNegate_MatchesRealTrustGo).
 //
-//	if req.Posture == bundles.TrustCtxLocal {
-//		switch req.Provenance {
-//		case bundles.ProvenanceProject:  ... SourceLocal
-//		case bundles.ProvenanceBuiltin:  ... SourceBuiltin
-//		case bundles.ProvenanceCompanion: ... SourceCompanion
-//		}
-//	}
-//
-// so there is one guard where there were two, and a third arm (COMPANION)
-// that did not exist when these keys were written. The single key below
-// replaces both. The old keys were NOT relaxed into something that would
-// match either shape: an exact match is the only reason the drift was
-// visible at all.
-//
-// The merged guard is a comparison, so the stock comparison viruses now
-// reach it too and this virus's mutant for it is largely redundant. It is
-// kept anyway: dropping it would make the cascade census silently partial
-// again, and the next merge or split of these arms has to be noticed the
-// same way this one was.
+// FIRST PARTY is keyed on localReason's posture test, not on Admit's
+// `if reason, ok := localReason(e.Read); ok`: a bare "ok" key would also fire
+// on fault's type assertion, which is not a cascade step. The posture test is
+// a comparison, so the stock comparison viruses reach it too and this virus's
+// mutant for it is largely redundant. It is kept anyway: dropping it would
+// make the cascade census silently partial, and the next split or merge of
+// the first-party arms has to be noticed by the same exact-match miss.
 var cascadeGuards = map[string]string{
-	"records.Rejected(req.Ref, req.Payload)":           "cascade step 1 REJECTED",
-	"retracted":                                        "cascade step 2 RETRACTED",
-	"req.Posture == bundles.TrustCtxLocal":             "cascade step 3/4/4b FIRST PARTY",
-	"records.Approved(req.Ref, req.Payload, req.Form)": "cascade step 6 APPROVED",
+	"a.records.Rejected(e.Ref(), e.Bytes)":         "cascade step REJECTED",
+	"retracted":                                    "cascade step RETRACTED",
+	"read.TrustCtx() != bundles.TrustCtxLocal":     "cascade step FIRST PARTY",
+	"a.records.Approved(e.Ref(), e.Bytes, e.Form)": "cascade step APPROVED",
 }
 
 // guardNegate is a custom ooze Virus that negates the boolean CONDITION of an
 // `if` statement — `if C { ... }` becomes `if !(C) { ... }`.
 //
 // WHY IT HAD TO BE WRITTEN. ooze's default virus set (and gremlins') mutates
-// only COMPARISONS and ARITHMETIC. But most steps of the EffectiveTrust
-// cascade are plain boolean guards:
-//
-//	step 1      REJECTED     if records.Rejected(req.Ref, req.Payload)
-//	step 2      RETRACTED    if retracted, reason := retraction.Retracted(req.BundleRef); retracted
-//	step 3/4/4b FIRST PARTY  if req.Posture == bundles.TrustCtxLocal
-//	step 6      APPROVED     if records.Approved(req.Ref, req.Payload, req.Form)
-//
-// Steps 1, 2 and 6 contain no binary comparison, so the stock viruses emit
-// ZERO mutants for them (measured: of trust.go's 114 stock mutants, not one
-// lands on steps 1, 2, 6). Step 5's `req.Signer != "" && req.Signer !=
-// trust.BuiltinSigner` is a comparison — and its 4 mutants were all killed —
-// as is the merged first-party guard (see cascadeGuards' drift note).
+// only COMPARISONS and ARITHMETIC. But most steps of the trust cascade are
+// plain boolean guards — a method call or a bool bound in an if-init — with no
+// binary comparison in them, so the stock viruses emit ZERO mutants for those
+// steps. (The trusted-signer step, `signer != ""`, is a comparison and needs
+// no help.)
 //
 // That means a clean "no survivors in the cascade" from the stock run is NOT
 // evidence the cascade is covered: it is evidence the tool never attacked it.
@@ -82,9 +59,9 @@ var cascadeGuards = map[string]string{
 //
 // SCOPE: it fires ONLY on the exact guard expressions named in cascadeGuards
 // above (matched by rendering the condition back to source text), never on
-// every `if` in the file — trust.go has ~60 `if`s, and mutating all of them
-// would cost hours to say nothing about the cascade. This is deliberately a
-// scalpel, not the stock shotgun.
+// every `if` in the file — mutating all of them would cost hours to say
+// nothing about the cascade. This is deliberately a scalpel, not the stock
+// shotgun.
 type guardNegate struct {
 	// targets holds the rendered source text of each condition to negate
 	// (cascadeGuards, captured per-instance so a future caller could pass a

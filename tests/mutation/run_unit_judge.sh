@@ -10,22 +10,12 @@
 # suite-wide judge cannot — a mutant killed by some other test reports KILLED
 # and tells you nothing about the test you just wrote.
 #
-# The embed re-materialisation is copied from run_scoped_suite.sh for one
-# reason that applies to `go test` exactly as it does to `go build`: go:embed
-# refuses to embed a SYMLINK ("contains no embeddable files"), and compiling
-# any package whose dependencies embed resources/ would fail in the laboratory
-# without this.
+# go:embed refuses to embed a SYMLINK, which applies to `go test` exactly as it
+# does to `go build`: materialize_embeds.sh replaces every embedded file's
+# symlink with a real copy before anything compiles.
 set -eu
 
-for d in resources cmd/ltk cmd/taskloom internal/shared/harp container \
-         internal/adapters/coordgrpc/mcpschema/schemas internal/core/config; do
-  [ -d "$d" ] || continue
-  find "$d" -type l | while IFS= read -r f; do
-    tgt=$(readlink -f "$f")
-    rm -f "$f"
-    cp "$tgt" "$f"
-  done
-done
+sh "$(dirname "$0")/materialize_embeds.sh"
 
 : "${MUT_PKG:?run_unit_judge.sh: MUT_PKG unset — the judge would run the whole module}"
 : "${MUT_RUN:?run_unit_judge.sh: MUT_RUN unset — the judge would run every test in the package}"

@@ -29,27 +29,26 @@ func parseIfStmt(t *testing.T, cond string) *ast.IfStmt {
 // tracking matches, nothing recorded which of the cascade guards Incubate
 // actually found, so a guard whose rendered source text drifted (a refactor
 // extracting a variable, inverting the condition, renaming a parameter,
-// MERGING TWO ARMS INTO ONE — which is what really happened to steps 3 and
-// 4; see cascadeGuards' drift note) silently stopped being attacked with no
-// signal anywhere.
+// merging two arms into one) silently stopped being attacked with no signal
+// anywhere.
 func TestGuardNegate_MissingTargets_ReportsAnUnfiredGuard(t *testing.T) {
 	v := newGuardNegate()
 	// Exercise all but one target — simulating a refactor that changed one
 	// guard's rendered source text out from under cascadeGuards.
-	v.Incubate(parseIfStmt(t, "records.Rejected(req.Ref, req.Payload)"))
+	v.Incubate(parseIfStmt(t, "a.records.Rejected(e.Ref(), e.Bytes)"))
 	v.Incubate(parseIfStmt(t, "retracted"))
-	v.Incubate(parseIfStmt(t, "req.Posture == bundles.TrustCtxLocal"))
-	// "records.Approved(req.Ref, req.Payload, req.Form)" deliberately never
+	v.Incubate(parseIfStmt(t, "read.TrustCtx() != bundles.TrustCtxLocal"))
+	// "a.records.Approved(e.Ref(), e.Bytes, e.Form)" deliberately never
 	// exercised here.
 
 	missing := v.missingTargets()
-	if len(missing) != 1 || missing[0] != "cascade step 6 APPROVED" {
-		t.Fatalf("missingTargets = %v, want [\"cascade step 6 APPROVED\"]", missing)
+	if len(missing) != 1 || missing[0] != "cascade step APPROVED" {
+		t.Fatalf("missingTargets = %v, want [\"cascade step APPROVED\"]", missing)
 	}
 }
 
 // TestGuardNegate_MissingTargets_EmptyWhenEveryGuardFired is the ordinary
-// (real, unrefactored trust.go) case: every one of the five conditions is
+// (real, unrefactored cascade) case: every condition is
 // found and missingTargets reports nothing.
 func TestGuardNegate_MissingTargets_EmptyWhenEveryGuardFired(t *testing.T) {
 	v := newGuardNegate()
@@ -61,8 +60,8 @@ func TestGuardNegate_MissingTargets_EmptyWhenEveryGuardFired(t *testing.T) {
 	}
 }
 
-// TestGuardNegate_MatchesRealTrustGo walks the REAL internal/adapters/operations/
-// trust.go (not a synthetic snippet) and confirms every one of the
+// TestGuardNegate_MatchesRealTrustGo walks the REAL file trustCascadeTarget
+// names (not a synthetic snippet) and confirms every one of the
 // cascade guards' rendered source text still matches — a cheap
 // (no-rebuild, no-subprocess) sanity check that the census-time keys
 // haven't already drifted out from under a since-landed refactor, without
@@ -90,7 +89,7 @@ func TestGuardNegate_MatchesRealTrustGo(t *testing.T) {
 }
 
 // TestGuardNegate_Incubate_IgnoresNonTargetGuards confirms an ordinary,
-// non-cascade `if` (trust.go has ~60 of them) is left alone: no mutant, no
+// non-cascade `if` is left alone: no mutant, no
 // match recorded.
 func TestGuardNegate_Incubate_IgnoresNonTargetGuards(t *testing.T) {
 	v := newGuardNegate()

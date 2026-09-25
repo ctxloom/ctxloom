@@ -96,6 +96,8 @@ _ensure-gotmpdir:
 # per-build image key, so versionator's definition would force an agent-image
 # rebuild on nearly every local build and deliver reuse only to CI.
 version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo "no version stamp: versionator is not installed or failed. Install it (version pinned in .devcontainer/tool-versions.env; CI uses 'just release-install-tools'), or set CTXLOOM_VERSION_STAMP to a stamp of the form v<major>.<minor>.<patch>-<short-sha>-<YYYYMMDDTHHMMSS>." >&2; echo no-versionator; fi`
+# The -X flag that stamps a ctxloom binary; an unstamped binary refuses to start.
+version_ldflag := "-X github.com/ctxloom/ctxloom/internal/shared/version.Version=" + version
 
 # ===== Version management (versionator) =====
 
@@ -259,7 +261,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -v -ldflags "{{version_ldflag}}" -o ctxloom ./cmd/ctxloom
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.
@@ -1434,10 +1436,10 @@ test-mutation-container:
 #   just test-mutation-acceptance -run 'TestAcceptanceMutation/^trust_cascade$'
 #
 # Cost: every mutant is a full build + a ~15-20s scoped suite run (measured
-# ~28s/mutant on this machine); trust_cascade alone is 132 mutants ≈ 63
-# minutes, and the whole table is a multi-hour job that WILL exceed the 120m
-# -timeout below. Nightly/scoped, never a per-PR gate — and run entries one
-# at a time unless you mean to spend the night on it.
+# ~28s/mutant on this machine), so one entry is tens of minutes and the whole
+# table is a multi-hour job that can outrun the driver's -timeout.
+# Nightly/scoped, never a per-PR gate — and run entries one at a time unless
+# you mean to spend the night on it.
 #
 # Scope is enforced inside the test file, built programmatically by walking
 # the repo and ignoring every other .go file — see that file's doc comment for
@@ -1464,6 +1466,10 @@ _mutation-driver RATCHET *ARGS:
     # rides along as an extra package pattern: `go test ./tests/mutation/...
     # no-ratchet` reports `ok` for the real package and a bare FAIL for the
     # pattern that matched nothing, failing the recipe over a passing run.
+    # The laboratory builds its own ctxloom (run_scoped_suite.sh); it must carry
+    # the same stamp `just build` applies, or every scenario dies at startup and
+    # the pre-flight refuses the run.
+    export CTXLOOM_VERSION_LDFLAG='{{version_ldflag}}'
     shift
     mkdir -p "{{mutation_tmp}}"
     # TMPDIR pinned to disk for every tool this driver can release: gremlins
@@ -1484,9 +1490,9 @@ _mutation-driver RATCHET *ARGS:
     # failing beside it and dragged the package output out; fixing that guard
     # silenced the gate entirely. See taskloom unwanted-deviate.
     #
-    # 240m, not 120m: the four-entry table measured 111 minutes of mutants
-    # (63 + 30 + 12 + 6) plus the guard test, so 120m was already marginal and a
-    # timeout mid-table loses the whole run's results.
+    # 240m, not 120m: the whole table's mutants run serially and a full run has
+    # measured close to 120m on its own, and a timeout mid-table loses the whole
+    # run's results. Re-measure before lowering it.
     output=$(go test -trimpath -tags mutation -v -count=1 -timeout 240m ./tests/mutation/... "$@" 2>&1)
     status=$?
     set -e
@@ -1527,20 +1533,25 @@ _mutation-driver RATCHET *ARGS:
     # than what is already recorded. A score alone cannot fail this gate, so
     # regression is what fails it — per target, because one number for the whole
     # table lets an improvement in one entry mask a regression in another.
-    # The ratchet follows the GATE, not the tool. An acceptance run is a
+    # The BASELINE follows the GATE, not the tool. An acceptance run is a
     # scheduled measurement whose whole point is "did it get worse"; the unit
     # judge is an authoring-time check you run once and read, for which a
     # baseline is meaningless — there is no previous run to have regressed from.
+    # The ratchet's per-target "measured nothing" refusals run in BOTH lanes:
+    # a target none of whose mutants compiled is a dead measurement beside
+    # healthy ones in either, and only a per-target count can see it.
+    baseline=--no-baseline
     if [ "{{RATCHET}}" = "ratchet" ]; then
-        runlog="{{mutation_tmp}}/.run.$$.log"
-        printf '%s\n' "$output" > "$runlog"
-        set +e
-        bash tests/mutation/survivor_ratchet.sh tests/mutation/survivor_baseline.txt "$runlog"
-        ratchet=$?
-        set -e
-        if [ "$ratchet" -ne 0 ]; then
-            exit "$ratchet"
-        fi
+        baseline=tests/mutation/survivor_baseline.txt
+    fi
+    runlog="{{mutation_tmp}}/.run.$$.log"
+    printf '%s\n' "$output" > "$runlog"
+    set +e
+    bash tests/mutation/survivor_ratchet.sh "$baseline" "$runlog"
+    ratchet=$?
+    set -e
+    if [ "$ratchet" -ne 0 ]; then
+        exit "$ratchet"
     fi
     # Past both guards, so a real score was produced and it did not regress.
 
@@ -1826,7 +1837,7 @@ complexity-baseline-update: dev-image
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -ldflags "{{version_ldflag}}" -o ctxloom ./cmd/ctxloom
     exec ./ctxloom {{ARGS}}
 
 # Build, compress, and install all three binaries to ~/go/bin (standard Go
@@ -2030,7 +2041,7 @@ container-build-minimal: _require-generated
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        -ldflags "{{version_ldflag}}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/minimal/Containerfile "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
@@ -2067,7 +2078,7 @@ _container-build-via-cli backend *engines: _require-generated
     bin="./ctxloom-build-tmp-$$"
     trap 'rm -f "$bin"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        -ldflags "{{version_ldflag}}" \
         -o "$bin" ./cmd/ctxloom
     args=(container build {{backend}} --no-devcontainer-base)
     if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi

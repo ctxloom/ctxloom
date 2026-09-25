@@ -41,29 +41,20 @@ func repoRootFromTest(t *testing.T) string {
 // The exit status matters as much as the marker — survivor counts must not
 // move, because the ratchet and every recorded baseline gate on them.
 func TestRunUnitJudge_MarksAMutantThatDoesNotCompile(t *testing.T) {
-	root := repoRootFromTest(t)
-	script := filepath.Join(root, "tests", "mutation", "run_unit_judge.sh")
+	src := fakeModule(t, map[string]string{
+		"go.mod":           labGoMod,
+		"broken/broken.go": "package broken\n\nfunc Broken() {}\n",
+	})
+	t.Setenv("MUT_PKG", "./broken")
+	t.Setenv("MUT_RUN", "^TestNothing$")
+	// Deliberately not valid Go, written over the laboratory's symlink as ooze
+	// writes a mutant: the shape a delete-a-call mutation produces in practice —
+	// an orphaned reference the compiler rejects.
+	out, err := runInLab(src, "sh tests/mutation/run_unit_judge.sh", map[string]string{
+		"broken/broken.go": "package broken\n\nfunc Broken() { this is not go }\n",
+	})
 
-	lab := t.TempDir()
-	if err := os.WriteFile(filepath.Join(lab, "go.mod"), []byte("module lab\n\ngo 1.24\n"), 0o644); err != nil {
-		t.Fatalf("write go.mod: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(lab, "broken"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	// Deliberately not valid Go: this is the shape a delete-a-call mutation
-	// produces in practice — an orphaned reference the compiler rejects.
-	if err := os.WriteFile(filepath.Join(lab, "broken", "broken.go"),
-		[]byte("package broken\n\nfunc Broken() { this is not go }\n"), 0o644); err != nil {
-		t.Fatalf("write broken.go: %v", err)
-	}
-
-	cmd := exec.Command("sh", script)
-	cmd.Dir = lab
-	cmd.Env = append(os.Environ(), "MUT_PKG=./broken", "MUT_RUN=^TestNothing$")
-	out, err := cmd.CombinedOutput()
-
-	if !strings.Contains(string(out), "ooze-invalid-mutant:") {
+	if !strings.Contains(out, "ooze-invalid-mutant:") {
 		t.Errorf("runner did not mark a non-compiling target as an invalid mutant.\nWithout the marker the score correction cannot subtract it and the compiler is counted as a kill.\noutput:\n%s", out)
 	}
 	if err == nil {
@@ -141,5 +132,23 @@ func TestScoreCorrection_SaysSoWhenThereIsNoSummaryToCorrect(t *testing.T) {
 	}
 	if !strings.Contains(got, "2 mutant(s)") {
 		t.Errorf("it must still report HOW MANY did not compile; that count is real even when the box is missing.\ngot: %q", got)
+	}
+}
+
+// A multi-target run prints one box per target and the markers of all of
+// them; subtracting every target's invalid mutants from the FIRST box alone
+// invents a number. The correction is over the whole run.
+func TestScoreCorrection_CorrectsAcrossEveryTargetsBox(t *testing.T) {
+	root := repoRootFromTest(t)
+	cmd := exec.Command("sh", filepath.Join(root, "tests", "mutation", "score_correction.sh"))
+	cmd.Stdin = strings.NewReader(
+		"ooze-invalid-mutant: a\n┃ • Total:       10 ┃\n┃ • Killed:       4 ┃\n" +
+			"ooze-invalid-mutant: b\nooze-invalid-mutant: c\n┃ • Total:       20 ┃\n┃ • Killed:      15 ┃\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed on a run with valid mutants: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "valid total:  27") || !strings.Contains(string(out), "real kills:   16") {
+		t.Errorf("want valid total 27 (30-3) and real kills 16 (19-3); got:\n%s", out)
 	}
 }

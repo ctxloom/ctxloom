@@ -94,7 +94,7 @@ func TestMutationTargets_FilesExist(t *testing.T) {
 // For every entry it rebuilds the ignore pattern and asserts, against the
 // real repo walk, that the pattern matches every non-test .go file in the
 // module EXCEPT that entry's target — which is the only thing standing
-// between a scoped 132-mutant run and ooze mutating all ~830 files.
+// between a scoped run and ooze mutating all ~830 files.
 //
 // It walks the tree itself, with the same rules buildIgnorePattern and ooze's
 // fsrepository.ListGoSourceFiles use, rather than trusting the count the
@@ -145,9 +145,8 @@ func TestMutationTargets_IgnorePatternScopesToTheEntry(t *testing.T) {
 // TestBuildIgnorePattern_AnchorsWholePaths pins that the pattern is anchored
 // and matches whole relative paths, not substrings: an unanchored alternation
 // would let a path that merely CONTAINS another path's text be ignored, and
-// the target itself is the likeliest victim (internal/adapters/operations/trust.go is
-// a substring of nothing today, but internal/adapters/operations/sign.go is a
-// substring of no path only by luck of naming).
+// the target itself is the likeliest victim (that no target path is a
+// substring of another path today is luck of naming, not a guarantee).
 func TestBuildIgnorePattern_AnchorsWholePaths(t *testing.T) {
 	root := repoRoot(t)
 	pattern, _ := buildIgnorePattern(t, root, trustCascadeTarget.SourceRelPath)

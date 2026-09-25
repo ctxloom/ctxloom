@@ -14,11 +14,10 @@ import (
 )
 
 // TestContainerWorktree_Axes pins the composed policy's identity: name
-// "container-worktree", and that it is an isolated policy.
+// "container-worktree".
 func TestContainerWorktree_Axes(t *testing.T) {
 	c := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: true}, "mock", ImageConfig{Image: "img"}, &git.Fake{})
 	assert.Equal(t, "container-worktree", c.Name())
-	assert.True(t, Isolated(c), "container-worktree is an isolated policy (writes per-member config into its worktree)")
 }
 
 // TestContainerWorktree_GitdirMountRoutesThroughMapper is the gitdir-when-mounted

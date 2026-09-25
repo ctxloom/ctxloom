@@ -414,16 +414,6 @@ func MountEngineHome(ws Workspace, m present.Mount) error {
 	return nil
 }
 
-// Isolated reports whether the policy provides a real per-agent workspace (a
-// worktree or container) rather than sharing the host project dir (none). The
-// fan-out uses it to decide whether to write per-member NATIVE config into the
-// workspace cwd — safe only when that cwd is isolated; a none member shares the
-// project dir and writing per-member config there would clobber the one shared
-// surface.
-func Isolated(p Policy) bool {
-	return p.Name() != None{}.Name()
-}
-
 // The isolation axes are launch's value types: WorkspaceAxis, RuntimeAxis
 // and the Axes pair are declared once, in core/launch, and this package
 // carries its established names forward for its own callers. The four

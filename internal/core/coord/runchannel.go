@@ -213,17 +213,9 @@ func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.Canc
 // also teed live, full payload, to the watch hub — independent of the
 // durable/counts-only journal path below.
 func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
-	c.mu.Lock()
-	if seq := ev.Seq; seq != 0 {
-		if seq <= ch.ackSeq {
-			flushed := ch.flushedSeq
-			c.mu.Unlock()
-			c.ackThrough(ch, flushed) // re-ack the durable watermark: the runner may have missed it
-			return
-		}
-		ch.ackSeq = seq
+	if !c.admitEventSeq(ch, ev.Seq) {
+		return
 	}
-	c.mu.Unlock()
 	if isLossMarker(ev) {
 		// EventsLost is the watch hub's own synthetic marker (consumer.go),
 		// never a runner's: teed through, it would tell every subscriber
@@ -241,13 +233,7 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 		c.handleCustomEvent(ch, payload)
 		c.flushItems(ch)
 	case Summary:
-		switch err := c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload); {
-		case errors.Is(err, ErrReportNotJournaled):
-			c.rep.Warnf("coordinator: journal report for %s: %v — the report is LOST "+
-				"(the runner's ack has already advanced past it and nothing re-sends it)", ch.role, err)
-		case err != nil:
-			c.rep.Warnf("coordinator: refusing a report on %s's run channel: %v", ch.role, err)
-		}
+		c.warnSummaryErr(ch, c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload))
 		c.flushItems(ch)
 	case ArtifactProduced:
 		if err := c.recordArtifact(ch.role, payload); err != nil {
@@ -256,21 +242,59 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 		}
 		c.flushItems(ch)
 	default:
-		if kind := itemKind(ev); kind != "" {
-			c.captureRunFailure(ch.role, ch.id.RunID, ev)
-			c.bufferItem(ch, ev, kind)
-			if kind == "run_completed" {
-				// bufferItem flushes run_completed
-				// synchronously (it is not a delta kind) — mark the channel
-				// completed the moment it is DURABLE, so terminateRun's
-				// drain wait (drainTerminalTail) can stop waiting the
-				// instant it is safe to sever, not just after the fixed cap.
-				ch.completedOnce.Do(func() { close(ch.completed) })
-			}
-		} else {
-			// Unknown/foreign payloads: ack-and-drop (forward compatibility).
-			c.flushItems(ch)
-		}
+		c.handleItemEvent(ch, ev)
+	}
+}
+
+// admitEventSeq records a sequenced event's seq on the channel, reporting
+// false for a replay at or below the acked watermark — which is re-acked at
+// the durable watermark instead, since the runner may have missed it.
+func (c *Coordinator) admitEventSeq(ch *RunChannel, seq uint64) bool {
+	c.mu.Lock()
+	if seq != 0 && seq <= ch.ackSeq {
+		flushed := ch.flushedSeq
+		c.mu.Unlock()
+		c.ackThrough(ch, flushed)
+		return false
+	}
+	if seq != 0 {
+		ch.ackSeq = seq
+	}
+	c.mu.Unlock()
+	return true
+}
+
+// warnSummaryErr reports a summary the coordinator could not keep: LOST when
+// the journal write failed (the runner's ack has already advanced past it),
+// refused otherwise.
+func (c *Coordinator) warnSummaryErr(ch *RunChannel, err error) {
+	switch {
+	case errors.Is(err, ErrReportNotJournaled):
+		c.rep.Warnf("coordinator: journal report for %s: %v — the report is LOST "+
+			"(the runner's ack has already advanced past it and nothing re-sends it)", ch.role, err)
+	case err != nil:
+		c.rep.Warnf("coordinator: refusing a report on %s's run channel: %v", ch.role, err)
+	}
+}
+
+// handleItemEvent buffers a run item, marking the channel completed once a
+// run_completed is durable; an unknown or foreign payload is acked and
+// dropped (forward compatibility).
+func (c *Coordinator) handleItemEvent(ch *RunChannel, ev Event) {
+	kind := itemKind(ev)
+	if kind == "" {
+		c.flushItems(ch)
+		return
+	}
+	c.captureRunFailure(ch.role, ch.id.RunID, ev)
+	c.bufferItem(ch, ev, kind)
+	if kind == "run_completed" {
+		// bufferItem flushes run_completed
+		// synchronously (it is not a delta kind) — mark the channel
+		// completed the moment it is DURABLE, so terminateRun's
+		// drain wait (drainTerminalTail) can stop waiting the
+		// instant it is safe to sever, not just after the fixed cap.
+		ch.completedOnce.Do(func() { close(ch.completed) })
 	}
 }
 

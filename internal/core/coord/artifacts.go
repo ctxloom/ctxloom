@@ -120,11 +120,8 @@ func (c *Coordinator) authorizeArtifactDownload(caller Identity, ownerHarp strin
 // caller may not read ownerHarp's artifacts), ErrNotFound (no such manifest,
 // or its content is gone). The caller closes the blob.
 func (c *Coordinator) OpenArtifact(caller Identity, ownerHarp, artifactID string, offset uint64) (ArtifactRecord, *os.File, error) {
-	if ownerHarp == "" {
-		return ArtifactRecord{}, nil, Refusal(ErrInvalidRequest, "download: agent_id is required")
-	}
-	if artifactID == "" {
-		return ArtifactRecord{}, nil, Refusal(ErrInvalidRequest, "download: artifact_id is required")
+	if err := requireArtifactAddress(ownerHarp, artifactID); err != nil {
+		return ArtifactRecord{}, nil, err
 	}
 	if err := c.authorizeArtifactDownload(caller, ownerHarp); err != nil {
 		return ArtifactRecord{}, nil, err
@@ -139,18 +136,41 @@ func (c *Coordinator) OpenArtifact(caller Identity, ownerHarp, artifactID string
 	if _, err := hex.DecodeString(rec.SHA256); err != nil {
 		return ArtifactRecord{}, nil, fmt.Errorf("download: corrupt manifest sha256 for %q: %v", artifactID, err)
 	}
+	f, err := c.openArtifactAt(rec, artifactID, offset)
+	if err != nil {
+		return ArtifactRecord{}, nil, err
+	}
+	return rec, f, nil
+}
+
+// requireArtifactAddress refuses a download that names no owner or no
+// artifact.
+func requireArtifactAddress(ownerHarp, artifactID string) error {
+	if ownerHarp == "" {
+		return Refusal(ErrInvalidRequest, "download: agent_id is required")
+	}
+	if artifactID == "" {
+		return Refusal(ErrInvalidRequest, "download: artifact_id is required")
+	}
+	return nil
+}
+
+// openArtifactAt opens rec's stored content positioned at offset. A bad
+// stored name is a corrupt manifest; absent content is not found.
+func (c *Coordinator) openArtifactAt(rec ArtifactRecord, artifactID string, offset uint64) (*os.File, error) {
 	f, err := c.artifacts.open(rec.SHA256)
 	if err != nil {
 		if errors.Is(err, errArtifactBadName) {
-			return ArtifactRecord{}, nil, fmt.Errorf("download: corrupt manifest sha256 for %q: %v", artifactID, err)
+			return nil, fmt.Errorf("download: corrupt manifest sha256 for %q: %v", artifactID, err)
 		}
-		return ArtifactRecord{}, nil, Refusal(ErrNotFound, "download: stored content missing for %q: %v", artifactID, err)
+		return nil, Refusal(ErrNotFound, "download: stored content missing for %q: %v", artifactID, err)
 	}
-	if offset > 0 {
-		if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
-			_ = f.Close()
-			return ArtifactRecord{}, nil, Refusal(ErrInvalidRequest, "download: seek to offset %d: %v", offset, err)
-		}
+	if offset == 0 {
+		return f, nil
 	}
-	return rec, f, nil
+	if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
+		_ = f.Close()
+		return nil, Refusal(ErrInvalidRequest, "download: seek to offset %d: %v", offset, err)
+	}
+	return f, nil
 }

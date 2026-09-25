@@ -249,36 +249,8 @@ type RunOutcome struct {
 // set: it is not even a config key any longer, precisely so no channel an
 // agent can reach (config, env, argv) can grant it.
 func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt string, workspace launch.WorkspaceAxis, dirtyTreeHandler launch.DirtyTreeHandler) (*RunOutcome, error) {
-	if c.Draining() {
-		return nil, fmt.Errorf("agent_run: %w", ErrDraining)
-	}
-	if agentName == "" {
-		return nil, errors.New("agent_run: agent is required (a configured agent name; see `ctxloom agent list`)")
-	}
-	if prompt == "" {
-		return nil, errors.New("agent_run: prompt is required (the child's briefing/first turn)")
-	}
-	// A OneShot caller may not spawn AT ALL, regardless of depth: its own
-	// engine tears down and is resumed by native session key at every turn
-	// boundary (Identity.OneShot's doc), so it cannot hold a coordination
-	// relationship across turns — a child it spawned could report back to a
-	// mailbox its parent's ended run will never drain again. Checked before
-	// the depth guard since it is a total refusal, not a depth-conditional
-	// one — a depth-0 OneShot caller is refused exactly like a depth-1 one.
-	if caller.OneShot {
-		return nil, errors.New("agent_run: refused: this session is a one-shot (driving: oneshot) run, which cannot hold a coordination relationship with a child across its own turn boundaries — report the work back to your coordinator (agent_send to \"parent\") instead")
-	}
-	// Depth derives from the CREDENTIAL, never from env: caller.Depth is
-	// resolved server-side from the authenticated Identity (Identify), so a
-	// child cannot spoof its own depth by forging an env var. A run may
-	// spawn iff its depth is BELOW the resolved cap (config.Config.
-	// GetDelegationDepth; <= 0 falls back to agentDepthCap) — the identical
-	// comparison the runner-side leaf computation makes (>=) on the SAME
-	// stamped depth, so raising the one config key re-enables deeper trees
-	// on both sides at once, never just one.
-	depthCap := c.depthCap
-	if caller.Depth >= depthCap {
-		return nil, fmt.Errorf("agent_run: refused: this session (depth %d) is already at the maximum delegation depth (delegation.depth = %d) — report the work back to your coordinator (agent_send to \"parent\") and let it fan out, or raise delegation.depth in config.yaml if a deeper tree is actually wanted", caller.Depth, depthCap)
+	if err := c.admitAgentRun(caller, agentName, prompt); err != nil {
+		return nil, err
 	}
 
 	// EVERYTHING FROM HERE TO enqueueRun IS THE TRACELESS SPAN. The run has
@@ -371,6 +343,44 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		Queued:   queued,
 		Degraded: plan.Degraded,
 	}, nil
+}
+
+// admitAgentRun refuses an agent_run before anything is resolved: a
+// draining coordinator, a missing agent or prompt, a one-shot caller, or a
+// caller already at the delegation depth cap.
+func (c *Coordinator) admitAgentRun(caller Identity, agentName, prompt string) error {
+	if c.Draining() {
+		return fmt.Errorf("agent_run: %w", ErrDraining)
+	}
+	if agentName == "" {
+		return errors.New("agent_run: agent is required (a configured agent name; see `ctxloom agent list`)")
+	}
+	if prompt == "" {
+		return errors.New("agent_run: prompt is required (the child's briefing/first turn)")
+	}
+	// A OneShot caller may not spawn AT ALL, regardless of depth: its own
+	// engine tears down and is resumed by native session key at every turn
+	// boundary (Identity.OneShot's doc), so it cannot hold a coordination
+	// relationship across turns — a child it spawned could report back to a
+	// mailbox its parent's ended run will never drain again. Checked before
+	// the depth guard since it is a total refusal, not a depth-conditional
+	// one — a depth-0 OneShot caller is refused exactly like a depth-1 one.
+	if caller.OneShot {
+		return errors.New("agent_run: refused: this session is a one-shot (driving: oneshot) run, which cannot hold a coordination relationship with a child across its own turn boundaries — report the work back to your coordinator (agent_send to \"parent\") instead")
+	}
+	// Depth derives from the CREDENTIAL, never from env: caller.Depth is
+	// resolved server-side from the authenticated Identity (Identify), so a
+	// child cannot spoof its own depth by forging an env var. A run may
+	// spawn iff its depth is BELOW the resolved cap (config.Config.
+	// GetDelegationDepth; <= 0 falls back to agentDepthCap) — the identical
+	// comparison the runner-side leaf computation makes (>=) on the SAME
+	// stamped depth, so raising the one config key re-enables deeper trees
+	// on both sides at once, never just one.
+	depthCap := c.depthCap
+	if caller.Depth >= depthCap {
+		return fmt.Errorf("agent_run: refused: this session (depth %d) is already at the maximum delegation depth (delegation.depth = %d) — report the work back to your coordinator (agent_send to \"parent\") and let it fan out, or raise delegation.depth in config.yaml if a deeper tree is actually wanted", caller.Depth, depthCap)
+	}
+	return nil
 }
 
 // releaseAssignedHarp gives back a harp AssignSession has already COMMITTED
@@ -1406,22 +1416,7 @@ func (c *Coordinator) releaseSlotIntent(rt *childRt) {
 // accounting. The record stays: a later send/inject resumes the harp as a
 // fresh run.
 func (c *Coordinator) terminateRun(runID, cause, detail string) {
-	var (
-		won bool
-		rec RunRecord
-	)
-	if err := c.runs.Exec(func() ([]Fact, error) {
-		r := c.runsF.run(runID)
-		if r == nil || r.Ended {
-			return nil, nil
-		}
-		won = true
-		rec = *r
-		return []Fact{factAt(factRunEnded, c.now(), runEnded{RunID: runID, Cause: cause, Detail: detail})}, nil
-	}); err != nil {
-		c.rep.Warnf("agent run %s: journal terminal: %v", runID, err)
-		return
-	}
+	rec, won := c.claimRunTerminal(runID, cause, detail)
 	if !won {
 		return
 	}
@@ -1446,37 +1441,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 		c.drainTerminalTail(rec.Harp)
 	}
 
-	c.mu.Lock()
-	rt := c.attach[runID]
-	delete(c.attach, runID)
-	var closeFn func()
-	var launchCancel context.CancelFunc
-	var runFailure string
-	if rt != nil {
-		closeFn = rt.close
-		rt.close = nil
-		launchCancel = rt.launchCancel
-		rt.launchCancel = nil
-		// The engine's own reason for dying (captureRunFailure) — read here,
-		// under the same lock that owns rt, to fold into the parent notice.
-		// When the engine emitted no FAILED RunCompleted (a docker-stop / OOM
-		// = runner loss, where the whole runner vanishes without a terminal
-		// event), fall back to the runner's captured stderr tail — the
-		// container's own dying words, streamed to us BEFORE teardown removed
-		// it. Read while rt is still ours; the accessor is cheap (a mutex +
-		// string copy) and nil-safe.
-		runFailure = rt.runFailure
-		if runFailure == "" && rt.stderrTail != nil {
-			runFailure = strings.TrimSpace(rt.stderrTail())
-		}
-	}
-	// Sever the revoked credential's runner stream (if one is connected).
-	if rs := c.runners[rec.CredHash]; rs != nil {
-		delete(c.runners, rec.CredHash)
-		rs.cancel()
-	}
-	c.mu.Unlock()
-
+	rt, closeFn, launchCancel, runFailure := c.detachRun(runID, rec.CredHash)
 	if rt != nil {
 		c.releaseSlot(rt)
 	}
@@ -1494,37 +1459,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	c.inbox.sever(rec.Harp, ErrRevoked)
 	c.severChan(rec.Harp)
 
-	// The synthesized terminal notice: the parent ALWAYS learns of a child
-	// death. Kind distinguishes a launch failure (error) from a lifecycle
-	// end (exited). The idle reaper is the exception — it is a NON-death,
-	// EXPECTED terminal: the child's every turn was already reported, and
-	// the next mail resumes the harp, so no notice is due.
-	if !rec.TopLevel() && cause != CauseIdleReaped {
-		kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)
-		if cause == CauseLaunchFailed {
-			kind, body = KindError, fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
-		} else if detail != "" {
-			body += ": " + detail
-		}
-		// A dead engine says WHY: the FAILED RunCompleted's reason
-		// (captureRunFailure) — carrying the adapter's stderr tail — is
-		// appended when the run failed and the
-		// terminal cause did not already carry it. Without this a child that
-		// died in its module loader reached the parent as a bare
-		// "exited (runner-exit)", the 49-minute dead end. Not appended when
-		// detail already IS this text (belt-and-suspenders against a future
-		// path that threads it through detail too).
-		if runFailure != "" && !strings.Contains(body, runFailure) {
-			kind = "error"
-			body += ": " + runFailure
-		}
-		if _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
-			// The spool write is what just failed, so the invariant above
-			// ("the parent ALWAYS learns of a child death") does not hold for
-			// this death. Said loudly: there is nothing behind the file.
-			c.rep.Warnf("agent %s: the terminal notice could not be written to parent %s's spool (%v) — the parent will not learn of this death", rec.Harp, rec.ParentHarp, err)
-		}
-	}
+	c.notifyParentOfDeath(rec, cause, detail, runFailure)
 	c.spawner.MarkSessionEnded(rec.Harp)
 
 	// A message that raced the death (queued after the last boundary drain)
@@ -1540,6 +1475,106 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// Last, so a drain that settles on this terminal settles after its
 	// consequences (the parent's notice above included) have landed.
 	c.drainWake()
+}
+
+// claimRunTerminal journals runID's end, reporting the run's record and
+// whether this call won the terminal (false when the run is unknown,
+// already ended, or the journal write failed — warned).
+func (c *Coordinator) claimRunTerminal(runID, cause, detail string) (RunRecord, bool) {
+	var (
+		won bool
+		rec RunRecord
+	)
+	if err := c.runs.Exec(func() ([]Fact, error) {
+		r := c.runsF.run(runID)
+		if r == nil || r.Ended {
+			return nil, nil
+		}
+		won = true
+		rec = *r
+		return []Fact{factAt(factRunEnded, c.now(), runEnded{RunID: runID, Cause: cause, Detail: detail})}, nil
+	}); err != nil {
+		c.rep.Warnf("agent run %s: journal terminal: %v", runID, err)
+		return RunRecord{}, false
+	}
+	return rec, won
+}
+
+// detachRun takes runID's runtime attachment out of the coordinator —
+// handing back its close and launch-cancel hooks and the engine's failure
+// reason — and severs the revoked credential's runner stream, if one is
+// connected.
+func (c *Coordinator) detachRun(runID, credHash string) (rt *childRt, closeFn func(), launchCancel context.CancelFunc, runFailure string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rt = c.attach[runID]
+	delete(c.attach, runID)
+	if rt != nil {
+		closeFn = rt.close
+		rt.close = nil
+		launchCancel = rt.launchCancel
+		rt.launchCancel = nil
+		// The engine's own reason for dying (captureRunFailure) — read here,
+		// under the same lock that owns rt, to fold into the parent notice.
+		// When the engine emitted no FAILED RunCompleted (a docker-stop / OOM
+		// = runner loss, where the whole runner vanishes without a terminal
+		// event), fall back to the runner's captured stderr tail — the
+		// container's own dying words, streamed to us BEFORE teardown removed
+		// it. Read while rt is still ours; the accessor is cheap (a mutex +
+		// string copy) and nil-safe.
+		runFailure = runFailureOf(rt)
+	}
+	if rs := c.runners[credHash]; rs != nil {
+		delete(c.runners, credHash)
+		rs.cancel()
+	}
+	return rt, closeFn, launchCancel, runFailure
+}
+
+// runFailureOf is the engine's own failure reason, else the runner's
+// captured stderr tail. Caller holds c.mu.
+func runFailureOf(rt *childRt) string {
+	if rt.runFailure == "" && rt.stderrTail != nil {
+		return strings.TrimSpace(rt.stderrTail())
+	}
+	return rt.runFailure
+}
+
+// notifyParentOfDeath queues the synthesized terminal notice to rec's parent.
+//
+// The synthesized terminal notice: the parent ALWAYS learns of a child
+// death. Kind distinguishes a launch failure (error) from a lifecycle
+// end (exited). The idle reaper is the exception — it is a NON-death,
+// EXPECTED terminal: the child's every turn was already reported, and
+// the next mail resumes the harp, so no notice is due.
+func (c *Coordinator) notifyParentOfDeath(rec RunRecord, cause, detail, runFailure string) {
+	if rec.TopLevel() || cause == CauseIdleReaped {
+		return
+	}
+	kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)
+	if cause == CauseLaunchFailed {
+		kind, body = KindError, fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
+	} else if detail != "" {
+		body += ": " + detail
+	}
+	// A dead engine says WHY: the FAILED RunCompleted's reason
+	// (captureRunFailure) — carrying the adapter's stderr tail — is
+	// appended when the run failed and the
+	// terminal cause did not already carry it. Without this a child that
+	// died in its module loader reached the parent as a bare
+	// "exited (runner-exit)", the 49-minute dead end. Not appended when
+	// detail already IS this text (belt-and-suspenders against a future
+	// path that threads it through detail too).
+	if runFailure != "" && !strings.Contains(body, runFailure) {
+		kind = KindError
+		body += ": " + runFailure
+	}
+	if _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
+		// The spool write is what just failed, so the invariant above
+		// ("the parent ALWAYS learns of a child death") does not hold for
+		// this death. Said loudly: there is nothing behind the file.
+		c.rep.Warnf("agent %s: the terminal notice could not be written to parent %s's spool (%v) — the parent will not learn of this death", rec.Harp, rec.ParentHarp, err)
+	}
 }
 
 // reapEndedRuns bounds the live folds' ended-run records (one-shot-resume
@@ -1646,20 +1681,7 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 			lcancel()
 		}
 	}()
-	// Back off before retrying (bounded-retry, defect 3): a launch that has
-	// just failed does not become launchable microseconds later, and the
-	// backoff-free version of this loop ran ~2 container launches/second for
-	// 49 minutes.
-	if !sleepLaunchBackoff(lctx, delay) {
-		return
-	}
-	if c.launchStopped(harp) {
-		return // an agent_stop landed while this attempt was armed/backing off
-	}
-	if c.Draining() {
-		// A relaunch is a fresh run, and a draining coordinator mints none —
-		// this is the backstop for an attempt armed before the drain began
-		// (relaunchForLeftoverMail and driveQueued refuse to arm one after).
+	if c.resumeBlocked(lctx, harp, delay) {
 		return
 	}
 	// THE CLAIM. An attempt is armed FOR the run that had ended (forRun) and
@@ -1671,26 +1693,13 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	// nothing and it idles forever. If a different run is current, the harp
 	// has moved on and whatever is queued now belongs to that run's own
 	// terminate tail (or the send that queued it).
-	var rec RunRecord
-	found := false
-	c.runs.View(func() {
-		// A top-level run is never resumed here: its harp names a session,
-		// not an agent binding, so Resolve can only fail — and mail the
-		// failure to the session's own inbox as if it were its parent.
-		if r := c.runsF.currentRun(harp); r != nil && r.Ended && r.RunID == forRun && !r.TopLevel() {
-			rec = *r
-			found = true
-		}
-	})
+	rec, found := c.resumableRun(harp, forRun)
 	if !found {
 		return
 	}
 	plan, err := c.spawner.Resolve(lctx, rec.Agent)
 	if err != nil {
-		c.rep.Warnf("agent resume %s: %v", harp, err)
-		if _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
-			c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
-		}
+		c.failResume(harp, rec, err)
 		return
 	}
 	// GAP 2 deferral: the ORIGINAL agent_run's workspace override is not
@@ -1703,20 +1712,7 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	// changed. Persisting it is a durable-fact/fold change outside this
 	// fix's scope (agent_run/spawner/delegate/mcp-input surface only);
 	// tracked as deferred work.
-	// D5: the resumed run's own parent_run_id must reflect the PARENT'S
-	// CURRENT live run (not the stale run_id recorded at the ORIGINAL
-	// enqueue) — the parent may itself have been resumed since. Empty when
-	// the parent has no live run of its own (a depth-0 session owner, or
-	// the parent has also ended).
-	parentRunID := ""
-	if rec.ParentHarp != "" {
-		c.runs.View(func() {
-			if p := c.runsF.currentRun(rec.ParentHarp); p != nil && !p.Ended {
-				parentRunID = p.RunID
-			}
-		})
-	}
-	caller := c.inProject(Identity{Harp: rec.ParentHarp, RunID: parentRunID})
+	caller := c.inProject(Identity{Harp: rec.ParentHarp, RunID: c.parentLiveRunID(rec.ParentHarp)})
 	// Last check before this attempt becomes a REAL run: a stop that landed
 	// while Resolve was in flight (config read, agent resolution — slow
 	// enough to matter in production) must not be overtaken here.
@@ -1728,10 +1724,7 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	// class must be known from the moment the fresh run is addressable.
 	url, uerr := c.spawnReachURL(harp, plan.Runtime)
 	if uerr != nil {
-		c.rep.Warnf("agent resume %s: %v", harp, uerr)
-		if _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, uerr)); qerr != nil {
-			c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
-		}
+		c.failResume(harp, rec, uerr)
 		return
 	}
 	// A resume keeps the SAME run identity, not a new generation: pass the
@@ -1752,17 +1745,9 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	c.mu.Unlock()
 	c.audit("agent_resume", rec.ParentHarp, map[string]string{"harp": harp, "run_id": rt.runID})
 
-	// rt is already published (enqueueRun) at this point, so
-	// onRolePark/onRoleUnpark/onTurnStarted/claimSlotIntent can all touch
-	// rt.slot concurrently; acquireRunSlot owns the whole check-acquire-commit
-	// under c.mu, exactly as runChild does.
-	if err := c.acquireRunSlot(rt); err != nil {
-		if !errors.Is(err, errSlotClaimCancelled) {
-			c.failChild(rt, err)
-		}
+	if !c.claimResumedSlot(rt) {
 		return
 	}
-	c.setState(rt, StateExecuting)
 
 	// Respawn via StartRun with the native session key the harp's session
 	// entry holds — the engine continues its own recorded session; no
@@ -1771,6 +1756,82 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	// Queued mail is pushed as turns once the engine attaches
 	// (runChildViaStartRun's drain).
 	c.runChildViaStartRun(lctx, rt, "", token, url, SpawnStart{Resumed: true, ResumeKey: c.spawner.NativeSession(harp)})
+}
+
+// resumeBlocked reports whether this attempt must not launch: its backoff
+// was cancelled, an agent_stop landed while it was armed or backing off, or
+// the coordinator is draining.
+//
+// The backoff is bounded-retry (defect 3): a launch that has just failed
+// does not become launchable microseconds later, and the backoff-free
+// version of this loop ran ~2 container launches/second for 49 minutes.
+// And a relaunch is a fresh run, which a draining coordinator mints none of
+// — this is the backstop for an attempt armed before the drain began
+// (relaunchForLeftoverMail and driveQueued refuse to arm one after).
+func (c *Coordinator) resumeBlocked(lctx context.Context, harp string, delay time.Duration) bool {
+	return !sleepLaunchBackoff(lctx, delay) || c.launchStopped(harp) || c.Draining()
+}
+
+// resumableRun is the run this attempt was armed for, when it is still the
+// harp's current, ended, non-top-level run. A top-level run is never resumed
+// here: its harp names a session, not an agent binding, so Resolve can only
+// fail — and mail the failure to the session's own inbox as if it were its
+// parent.
+func (c *Coordinator) resumableRun(harp, forRun string) (RunRecord, bool) {
+	var rec RunRecord
+	found := false
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil && r.Ended && r.RunID == forRun && !r.TopLevel() {
+			rec = *r
+			found = true
+		}
+	})
+	return rec, found
+}
+
+// parentLiveRunID is parentHarp's current live run, "" when it has none.
+//
+// D5: the resumed run's own parent_run_id must reflect the PARENT'S
+// CURRENT live run (not the stale run_id recorded at the ORIGINAL
+// enqueue) — the parent may itself have been resumed since. Empty when
+// the parent has no live run of its own (a depth-0 session owner, or
+// the parent has also ended).
+func (c *Coordinator) parentLiveRunID(parentHarp string) string {
+	parentRunID := ""
+	if parentHarp == "" {
+		return parentRunID
+	}
+	c.runs.View(func() {
+		if p := c.runsF.currentRun(parentHarp); p != nil && !p.Ended {
+			parentRunID = p.RunID
+		}
+	})
+	return parentRunID
+}
+
+// failResume warns that harp could not be resumed and tells its parent.
+func (c *Coordinator) failResume(harp string, rec RunRecord, err error) {
+	c.rep.Warnf("agent resume %s: %v", harp, err)
+	if _, qerr := c.queueMail(harp, rec.ParentHarp, KindError, fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
+		c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
+	}
+}
+
+// claimResumedSlot acquires the resumed run's slot and marks it executing;
+// false when the claim failed (the child failed, unless the claim was
+// cancelled). rt is already published (enqueueRun) at this point, so
+// onRolePark/onRoleUnpark/onTurnStarted/claimSlotIntent can all touch
+// rt.slot concurrently; acquireRunSlot owns the whole check-acquire-commit
+// under c.mu, exactly as runChild does.
+func (c *Coordinator) claimResumedSlot(rt *childRt) bool {
+	if err := c.acquireRunSlot(rt); err != nil {
+		if !errors.Is(err, errSlotClaimCancelled) {
+			c.failChild(rt, err)
+		}
+		return false
+	}
+	c.setState(rt, StateExecuting)
+	return true
 }
 
 // deliveryEndedDraining is driveQueued's observation for an ENDED recipient

@@ -126,6 +126,7 @@ func validContainer() ContainerSpec {
 			EnvTriggers:    []string{"X_API_KEY"},
 			EnvPassthrough: []string{"X_API_KEY", "X_BASE_URL"},
 			Hint:           "no X_API_KEY",
+			Remedy:         "export X_API_KEY",
 		}),
 		OverlayDirs:        []string{".x"},
 		TranscriptStoreRel: ".x/projects",
@@ -163,6 +164,11 @@ func TestContainerAuth_Validate_VendorlessExcludesTriggers(t *testing.T) {
 func TestContainerAuth_Validate_RefusesNothingToResolve(t *testing.T) {
 	a := ContainerAuth{Hint: "no way in"}
 	assert.ErrorContains(t, a.Validate(), "resolve")
+}
+
+func TestContainerAuth_Validate_RefusesMissingRemedy(t *testing.T) {
+	a := ContainerAuth{EnvTriggers: []string{"X_API_KEY"}, Hint: "no X_API_KEY"}
+	assert.ErrorContains(t, a.Validate(), "Remedy")
 }
 
 func TestContainerAuth_Validate_RefusesMissingHint(t *testing.T) {

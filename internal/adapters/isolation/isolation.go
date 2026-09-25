@@ -32,6 +32,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // THE RULE, stated here because this is the file an author reaches for a
@@ -751,7 +752,14 @@ func prepareChain(ctx context.Context, chain []Policy, requested RuntimeAxis, pr
 		// None so the WORKSPACE resolution has an answer to return; what stops
 		// the run is the non-degradable finding, not a missing workspace.
 		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
-			strictness.FailAlways(report.KindIsolation, isolationRemedy,
+			// A refusal that names its own fix (unresolvable container auth
+			// names the credential to provide) is more specific than the
+			// generic image/runtime remedy, and wins.
+			remedy, ok := clifmt.RemedyOf(err)
+			if !ok {
+				remedy = isolationRemedy
+			}
+			strictness.FailAlways(report.KindIsolation, remedy,
 				"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v%s", agentID, err, containerSelectionHint(requested))
 			continue
 		}

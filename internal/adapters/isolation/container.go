@@ -751,7 +751,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	auth, ok := c.engineSpec.resolveAuth()
 	if !ok {
 		_ = os.RemoveAll(root)
-		return containerScratch{}, fmt.Errorf("container auth: %s", c.engineSpec.authHint)
+		return containerScratch{}, report.Error{Msg: "container auth: " + c.engineSpec.authHint, Fix: c.engineSpec.authRemedy}
 	}
 	// Session-state persistence is part of the container gate: a run whose
 	// state dirs cannot be prepared errors here so the caller's degrade chain

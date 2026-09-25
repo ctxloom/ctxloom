@@ -27,6 +27,8 @@ func TestEngineContainerSpecFor_Claude(t *testing.T) {
 	// resolver IS the claude (ANTHROPIC_*) one — asserted behaviorally since a
 	// func value is not directly comparable.
 	assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "the degrade hint names claude's trigger var")
+	assert.Contains(t, p.authRemedy, "ctxloom auth set-token", "the remedy names how to provide the token")
+	assert.NotContains(t, p.authHint, p.authRemedy, "the hint says what is missing; the remedy travels beside it")
 	require.NotNil(t, p.resolveAuth, "the claude spec wires an auth resolver")
 	clearClaudeAuthEnv(t)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")

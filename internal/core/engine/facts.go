@@ -257,7 +257,7 @@ func (c ContainerSpec) Validate() error {
 
 // ContainerAuth is one engine's in-container authentication plan as DATA:
 // env passthrough when any trigger is set in the host env, else refuse with
-// Hint. No credential file is ever mounted into a container.
+// Hint and Remedy. No credential file is ever mounted into a container.
 type ContainerAuth struct {
 	// Vendorless, when set, declares the engine authenticates against no
 	// vendor at all: resolution always succeeds with no env and no mounts.
@@ -270,15 +270,19 @@ type ContainerAuth struct {
 	// value is never stored here. Only the present ones cross.
 	EnvPassthrough []string
 	// Hint is the degrade diagnostic when nothing resolves — names the
-	// trigger var / credential source without leaking values.
+	// trigger var / credential source without leaking values. It says what is
+	// missing, not what to do about it.
 	Hint string
+	// Remedy is what the user runs to provide the credential; it travels as
+	// the refusal's fix, beside Hint rather than inside it.
+	Remedy string
 }
 
 // Validate refuses an auth plan with no single reading or nothing to resolve.
 func (a ContainerAuth) Validate() error {
 	if a.Vendorless != "" {
-		if len(a.EnvTriggers) > 0 || len(a.EnvPassthrough) > 0 || a.Hint != "" {
-			return errors.New("ContainerAuth: Vendorless excludes triggers, passthrough and a hint")
+		if len(a.EnvTriggers) > 0 || len(a.EnvPassthrough) > 0 || a.Hint != "" || a.Remedy != "" {
+			return errors.New("ContainerAuth: Vendorless excludes triggers, passthrough, a hint and a remedy")
 		}
 		return nil
 	}
@@ -287,6 +291,9 @@ func (a ContainerAuth) Validate() error {
 	}
 	if a.Hint == "" {
 		return errors.New("ContainerAuth: Hint is empty; a plan that can fail must say what was missing")
+	}
+	if a.Remedy == "" {
+		return errors.New("ContainerAuth: Remedy is empty; a plan that can fail must say how to fix it")
 	}
 	return nil
 }

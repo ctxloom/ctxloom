@@ -225,3 +225,21 @@ func TestParse_VersionIsDecodedAndRoundTrips(t *testing.T) {
 		assert.Equal(t, p, back, "Parse(Render) with an @ in the version")
 	}
 }
+
+// A version is not a path: dot segments inside it must never reach the
+// bundle half. "x@a/../b" is bundle x at branch "a/../b" (a name git itself
+// refuses), never bundle "b" — resolving the ".." across the "@" would let a
+// version string choose which bundle the reference names.
+func TestParse_DotSegmentsInAVersionNeverReachTheBundle(t *testing.T) {
+	for _, ver := range []string{"a/../b", "a/./b", "../b", "a/.."} {
+		raw := "ctxloom+git://github.com/o/r//bundles/x@" + ver
+		p, err := Parse(raw)
+		require.NoError(t, err, raw)
+		assert.Equal(t, "x", p.Bundle, "the version %q moved the bundle name", ver)
+		assert.Equal(t, ver, p.Version, raw)
+
+		back, err := Parse(p.Render(true))
+		require.NoError(t, err, p.Render(true))
+		assert.Equal(t, p, back, "Parse(Render(%q))", raw)
+	}
+}

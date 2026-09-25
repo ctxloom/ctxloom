@@ -112,3 +112,37 @@ func TestFetchURL_RoundTripsThroughParseRepoIdentity(t *testing.T) {
 		}
 	}
 }
+
+// A repository path containing the "//" separator cannot be rendered into a
+// reference without the next parse splitting it there: "o//bundles/r" would
+// come back as repository "o". Refused, never re-keyed as another repository.
+func TestParseRepoIdentity_RefusesTheSeparatorInsideARepoPath(t *testing.T) {
+	for _, in := range []string{
+		"https://example.test/o//bundles/r",
+		"https://example.test/o//r",
+		"file:///srv//bundles/r",
+		"https://example.test/o/.//bundles/r",
+	} {
+		got, err := ParseRepoIdentity(in)
+		if !errors.Is(err, ErrSyntax) {
+			t.Errorf("ParseRepoIdentity(%q) = %+v, %v; want an ErrSyntax error", in, got, err)
+		}
+	}
+}
+
+// "%2F" decodes to a structural "/", so "a%2Fb" and "a/b" would be one
+// repository. ParseBundleRef refuses that escape; so must the repo parse, or
+// the two canonicalizers disagree about which repositories exist.
+func TestParseRepoIdentity_RefusesAnEncodedSlash(t *testing.T) {
+	for _, in := range []string{
+		"https://h/o/a%2Fb/r",
+		"https://h/o/a%2fb/r",
+		"file:///srv/a%2Fb/r",
+		"file:///srv/has space/a%2Fb/r",
+	} {
+		got, err := ParseRepoIdentity(in)
+		if !errors.Is(err, ErrSyntax) {
+			t.Errorf("ParseRepoIdentity(%q) = %+v, %v; want an ErrSyntax error", in, got, err)
+		}
+	}
+}

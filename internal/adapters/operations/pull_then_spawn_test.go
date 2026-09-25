@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,11 +33,19 @@ const pulledBundleBody = "version: 1.0.0\ndescription: remote tools bundle\nmcp:
 
 // pulledProject is a project whose default agent selects a profile naming a
 // remote bundle that is NOT yet installed: the state before `deps pull`.
-func pulledProject(t *testing.T) (appDir, repoURL, bundleRef string) {
+//
+// The source repository's path is FORCED to carry a space and a literal '%'
+// rather than left to whatever t.TempDir happens to return: those are the
+// characters a lockfile key and a trust key have spelled differently (one
+// raw, one percent-encoded), and "a%41b" is chosen so that any layer that
+// DECODES a raw path names a different directory ("aAb") instead of failing.
+// repoURL is the file URL a user has to type for that path — percent-encoded,
+// because the reference grammar parses it as a URL.
+func pulledProject(t *testing.T) (appDir, repoURL string) {
 	t.Helper()
 	testsupport.Isolate(t)
 
-	repoDir := filepath.Join(t.TempDir(), "source")
+	repoDir := filepath.Join(t.TempDir(), "has space", "a%41b", "source")
 	repo, err := git.PlainInit(repoDir, false)
 	require.NoError(t, err)
 	wt, err := repo.Worktree()
@@ -48,8 +56,10 @@ func pulledProject(t *testing.T) (appDir, repoURL, bundleRef string) {
 	require.NoError(t, err)
 	_, err = wt.Commit("seed", &git.CommitOptions{Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()}})
 	require.NoError(t, err)
-	repoURL = "file://" + repoDir
-	bundleRef = repoURL + "@bundles/tools"
+	repoURL = (&url.URL{Scheme: "file", Path: repoDir}).String()
+	require.Contains(t, repoURL, "%20", "precondition: the repo URL carries an escaped space")
+	require.Contains(t, repoURL, "%25", "precondition: the repo URL carries an escaped '%'")
+	bundleRef := repoURL + "@bundles/tools"
 
 	appDir = filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
@@ -57,7 +67,7 @@ func pulledProject(t *testing.T) (appDir, repoURL, bundleRef string) {
 		[]byte("bundles:\n  - "+bundleRef+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir),
 		[]byte("version: 6\ndefault_agent: default\nagents:\n  default:\n    profiles: [dev]\n"), 0o644))
-	return appDir, repoURL, bundleRef
+	return appDir, repoURL
 }
 
 // pulledApp is the PRODUCTION composition over the project — the real
@@ -70,36 +80,50 @@ func pulledApp(t *testing.T, appDir string) *App {
 	return NewApp(src, true, nil, strictness.Mode{Prog: "ctxloom"}, Handed{Open: config.Open, Reporter: strictness.Sink("ctxloom"), Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
-// installPulled writes what a pull writes: the installed tree and the
-// lockfile entry pinning it, carrying the publisher's retraction record when
-// retracted.
-func installPulled(t *testing.T, appDir, repoURL, bundleRef string, retracted bool) {
+// retractingPuller is the PRODUCTION puller with one thing replaced: the
+// network verdict. A publisher's retraction reaches a pull only as a signed
+// tip manifest, which is not what this test is about; what it is about is
+// everything downstream of the verdict — the key the real puller records it
+// under and the key the generation's gate reads it back with. So
+// CheckRetraction answers "retracted" and RecordRetraction is the real
+// puller's own write.
+type retractingPuller struct {
+	Puller
+	real RetractionChecker
+}
+
+func (p retractingPuller) CheckRetraction(context.Context, string, remote.ItemType) (bool, string, time.Time, error) {
+	return true, "compromised release", time.Now().UTC(), nil
+}
+
+func (p retractingPuller) RecordRetraction(itemType remote.ItemType, refStr string, retracted bool, reason string, checkedAt time.Time) error {
+	return p.real.RecordRetraction(itemType, refStr, retracted, reason, checkedAt)
+}
+
+// pull runs `deps pull` for real: the production puller fetches the tree from
+// the repository, installs it, and writes the lockfile entry. With retracted,
+// a second pass re-checks the now-installed ref and records the publisher's
+// retraction through the real puller's lockfile write.
+func pull(t *testing.T, app *App, retracted bool) {
 	t.Helper()
-	repo, err := git.PlainOpen(repoURL[len("file://"):])
+	ctx := context.Background()
+	res, err := SyncDependencies(ctx, app, SyncDependenciesRequest{})
 	require.NoError(t, err)
-	head, err := repo.Head()
-	require.NoError(t, err)
-
-	lm := remote.NewLockfileManager(appDir)
-	lock, err := lm.Load()
-	require.NoError(t, err)
-	entry := remote.LockEntry{SHA: head.Hash().String(), URL: repoURL, FetchedAt: time.Now().UTC()}
-	if retracted {
-		entry.Retracted = true
-		entry.RetractedReason = "compromised release"
-		entry.RetractionCheckedAt = time.Now().UTC()
+	require.Empty(t, res.Failed, "the real pull installs the bundle")
+	require.Equal(t, 1, res.Installed, "the real pull installs the bundle")
+	if !retracted {
+		return
 	}
-	lock.AddEntry(remote.ItemTypeBundle, bundleRef, entry)
-	require.NoError(t, lm.Save(lock))
-
-	ref, err := remote.ParseReference(bundleRef)
+	cfg, err := app.Config(ctx)
 	require.NoError(t, err)
-	installDir := ref.LocalTreePath(appDir)
-	require.NoError(t, os.MkdirAll(installDir, 0o755))
-	src, err := bundles.ParseBundle([]byte(pulledBundleBody))
+	baseDir := ProjectAppDir(cfg)
+	real, err := resolveSyncDeps(cfg, SyncDependenciesRequest{}, baseDir, getFS(nil))
 	require.NoError(t, err)
-	bundletree.WriteBundle(t, afero.NewOsFs(), filepath.Dir(installDir), "tools", src)
-	require.NoError(t, os.WriteFile(filepath.Join(installDir, "bundle.yaml"), []byte("version: 1.0.0\ndescription: remote tools bundle\n"), 0o644))
+	rc, ok := real.(RetractionChecker)
+	require.True(t, ok, "the production puller re-checks retraction")
+	res, err = SyncDependencies(ctx, app, SyncDependenciesRequest{Puller: retractingPuller{Puller: real, real: rc}})
+	require.NoError(t, err)
+	require.Len(t, res.Retracted, 1, "the re-check reports the retraction")
 }
 
 // canonicalRef renders raw, a hand-joined ctxloom+ reference, in the form
@@ -152,15 +176,15 @@ func gateVerdict(t *testing.T, snap *config.Snapshot, repoURL string) bundles.Ve
 // retracted item is withheld on that spawn and never admitted because an
 // earlier generation's gate predates the record.
 func TestPullThenSpawn_NextGenerationHoldsThePulledBundleAndItsRetraction(t *testing.T) {
-	appDir, repoURL, bundleRef := pulledProject(t)
+	appDir, repoURL := pulledProject(t)
 	app := pulledApp(t, appDir)
 	before, err := app.Snapshot(context.Background())
 	require.NoError(t, err)
 	require.False(t, catalogHas(t, before.Catalog(), repoURL), "precondition: nothing is installed before the pull")
 
-	// The pull: the tree lands and the lockfile pins it, carrying the
-	// publisher's retraction of this release.
-	installPulled(t, appDir, repoURL, bundleRef, true)
+	// The pull: the tree lands and the lockfile pins it, then the
+	// publisher's retraction of this release is recorded against that pin.
+	pull(t, app, true)
 
 	// The spawn: exactly one Reload, then the plan reads from the generation.
 	after, err := app.Reload(context.Background())
@@ -181,12 +205,12 @@ func TestPullThenSpawn_NextGenerationHoldsThePulledBundleAndItsRetraction(t *tes
 // state (an unreviewed remote item is pending), so the reason above is the
 // record's doing and not a gate that calls every pulled bundle retracted.
 func TestPullThenSpawn_NextGenerationAdmitsAnUnretractedPull(t *testing.T) {
-	appDir, repoURL, bundleRef := pulledProject(t)
+	appDir, repoURL := pulledProject(t)
 	app := pulledApp(t, appDir)
 	_, err := app.Snapshot(context.Background())
 	require.NoError(t, err)
 
-	installPulled(t, appDir, repoURL, bundleRef, false)
+	pull(t, app, false)
 
 	after, err := app.Reload(context.Background())
 	require.NoError(t, err)

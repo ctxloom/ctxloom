@@ -52,14 +52,8 @@ var ErrNoCloneForWorktree = errors.New("no local clone of the repository to take
 // Reference.LocalWorktreePath and Reference.LocalTreePath name the same two
 // directories from the reading side.
 func (c *RepoCache) EnsureSparseWorktree(ctx context.Context, repoURL, sha, subpath, worktreeDir string) (string, error) {
-	if strings.TrimSpace(sha) == "" {
-		return "", fmt.Errorf("refusing to check out a worktree of %s: no commit was given to pin it to", repoURL)
-	}
-	if err := checkWorktreeSubpath(subpath); err != nil {
-		return "", fmt.Errorf("refusing to check out a worktree of %s: %w", repoURL, err)
-	}
-	if strings.TrimSpace(worktreeDir) == "" {
-		return "", fmt.Errorf("refusing to check out a worktree of %s: no directory was given to check it out into", repoURL)
+	if err := validateWorktreeRequest(repoURL, sha, subpath, worktreeDir); err != nil {
+		return "", err
 	}
 
 	repoDir, err := c.RepoDirForURL(repoURL)
@@ -104,6 +98,21 @@ func (c *RepoCache) EnsureSparseWorktree(ctx context.Context, repoURL, sha, subp
 			"(the pin names a commit published before this bundle, or under a different layout)", sha, repoURL, subpath, dir)
 	}
 	return dir, nil
+}
+
+// validateWorktreeRequest refuses a checkout with no commit to pin, an
+// unsafe subpath, or no directory to check out into.
+func validateWorktreeRequest(repoURL, sha, subpath, worktreeDir string) error {
+	if strings.TrimSpace(sha) == "" {
+		return fmt.Errorf("refusing to check out a worktree of %s: no commit was given to pin it to", repoURL)
+	}
+	if err := checkWorktreeSubpath(subpath); err != nil {
+		return fmt.Errorf("refusing to check out a worktree of %s: %w", repoURL, err)
+	}
+	if strings.TrimSpace(worktreeDir) == "" {
+		return fmt.Errorf("refusing to check out a worktree of %s: no directory was given to check it out into", repoURL)
+	}
+	return nil
 }
 
 // ensureWorktreeAt guarantees worktreeDir is a registered worktree of repoDir.

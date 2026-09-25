@@ -522,13 +522,8 @@ func NewGitHubPublisherWithClient(client GitHubClient) *GitHubPublisher {
 // content to be valid UTF-8 and silently mangles anything that is not,
 // where a blob's Content+Encoding pair carries arbitrary bytes exactly.
 func (p *GitHubPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
-	if len(files) == 0 {
-		return "", fmt.Errorf("refusing to publish an empty file set to %s/%s on %s: nothing would be written", owner, repo, branch)
-	}
-	for filePath, content := range files {
-		if len(content) == 0 {
-			return "", fmt.Errorf("refusing to publish empty content to %s/%s/%s: a 0-byte write would replace the remote file with nothing", owner, repo, filePath)
-		}
+	if err := refuseEmptyPublish(owner, repo, branch, files); err != nil {
+		return "", err
 	}
 
 	ref, _, err := p.client.Git().GetRef(ctx, owner, repo, "refs/heads/"+branch)
@@ -581,6 +576,20 @@ func (p *GitHubPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, 
 	}
 
 	return commit.GetSHA(), nil
+}
+
+// refuseEmptyPublish refuses an empty file set, or any empty file in it: a
+// 0-byte write would replace the remote file with nothing.
+func refuseEmptyPublish(owner, repo, branch string, files map[string][]byte) error {
+	if len(files) == 0 {
+		return fmt.Errorf("refusing to publish an empty file set to %s/%s on %s: nothing would be written", owner, repo, branch)
+	}
+	for filePath, content := range files {
+		if len(content) == 0 {
+			return fmt.Errorf("refusing to publish empty content to %s/%s/%s: a 0-byte write would replace the remote file with nothing", owner, repo, filePath)
+		}
+	}
+	return nil
 }
 
 // CreatePullRequest creates a pull request.

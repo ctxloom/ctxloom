@@ -249,6 +249,15 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       |            |
       | --degraded |
 
+  # The same lost boundary, when the daemon SAYS why it dropped the container.
+  # The container was started with --rm, so by the time Alice looks, it and
+  # its logs are gone; what the daemon wrote while killing it is the only
+  # account of what happened, and she is given it with the refusal.
+  Scenario: A container the daemon kills before it runs is refused with the daemon's own reason
+    When Alice runs a container-bound agent whose container the daemon kills, saying why
+    Then the run aborts because the container never reached running state
+    And Alice is told the daemon's own reason
+
   # ===========================================================================
   # THE CONTAINER HOME AXIS — one read-write bind mount, not a copy.
   #

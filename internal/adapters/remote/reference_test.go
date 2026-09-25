@@ -413,11 +413,11 @@ func TestReference_LocalRemoteName(t *testing.T) {
 			want: "repo",
 		},
 		{
-			name: "malformed URL falls back to sanitize",
+			name: "unreadable URL has no name",
 			ref: Reference{
 				URL: "unknown://weird:url",
 			},
-			want: "unknown/weird/url",
+			want: "",
 		},
 	}
 

@@ -49,3 +49,27 @@ func TestResolveItemRemote(t *testing.T) {
 		})
 	}
 }
+
+// An unreadable remote URL has no repository identity, so it derives no local
+// name and nothing can match through it. Before, LocalRemoteName fell back to
+// a verbatim copy of the URL with "://", ":" and "@" rewritten to "/", and any
+// local name spelled that way was attributed to the remote. The remote's own
+// short name still resolves: that match is by name, not by identity.
+func TestResolveItemRemote_UnreadableURLMatchesNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "remotes.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(
+		"remotes:\n"+
+			"  odd:\n"+
+			"    url: unknown://weird:url\n"), 0o644))
+	reg, err := NewRegistry(path)
+	require.NoError(t, err)
+
+	got, ok := reg.ResolveItemRemote("unknown/weird/url/go-developer")
+	assert.False(t, ok, "an unreadable URL matched %q", got)
+	assert.Equal(t, "", got)
+
+	got, ok = reg.ResolveItemRemote("odd/go-developer")
+	assert.True(t, ok)
+	assert.Equal(t, "odd", got)
+}

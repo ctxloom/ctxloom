@@ -7,13 +7,15 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func lockWithBody(t *testing.T, body string) *LockfileManager {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	lm := NewLockfileManager("/proj/.ctxloom", WithLockfileFS(fs))
-	require.NoError(t, afero.WriteFile(fs, lm.Path(), []byte(body), 0o644))
+	testsupport.WriteFileString(t, fs, lm.Path(), body, 0o644)
 	return lm
 }
 
@@ -79,4 +81,20 @@ bundles:
 	again, err := lm.Load()
 	require.NoError(t, err)
 	assert.Equal(t, LockfileVersion, again.Version)
+}
+
+// A reference that parses but names no repository — here an https URL with no
+// repository path — has no bundle identity, and CanonicalKey says so rather
+// than reporting the raw address as a key: a key minted for a string no
+// lookup can reach is a retraction silently not enforced.
+func TestCanonicalKey_NoIdentityIsNotAKey(t *testing.T) {
+	const ref = "https://example.test/@bundles/kit"
+	parsed, err := ParseReference(ref)
+	require.NoError(t, err, "precondition: the reference grammar accepts it")
+	_, err = parsed.LockKey()
+	require.Error(t, err, "precondition: it has no bundle identity")
+
+	key, ok := CanonicalKey(ref)
+	assert.False(t, ok, "CanonicalKey reported %q for a ref with no identity", key)
+	assert.Empty(t, key)
 }

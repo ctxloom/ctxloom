@@ -465,28 +465,6 @@ func (r *Reference) String() string {
 	return r.CanonicalString()
 }
 
-// companionRef formats a ctxloom:companion reference as
-// "ctxloom:companion@<bin>" — the flat grammar parseCompanionReference reads
-// back, with no type/path/version tail (see that function's doc).
-func (r *Reference) companionRef() string {
-	return fmt.Sprintf("%s@%s", CompanionSource, r.Path)
-}
-
-// localRef formats a ctxloom:local reference as
-// "ctxloom:local@<type>/<path>[@version]". The version is included when present
-// (unlike the canonical URL form, the local form is fully round-trippable).
-func (r *Reference) localRef() string {
-	typeName := r.ItemType.DirName()
-	if typeName == "" {
-		typeName = "bundles" // default
-	}
-	s := fmt.Sprintf("%s@%s/%s", LocalSource, typeName, r.Path)
-	if r.ContentVersion != "" {
-		s += "@" + r.ContentVersion
-	}
-	return s
-}
-
 // CanonicalString renders this reference as a canonical ctxloom URI
 // (ctxloom+git / ctxloom+file / ctxloom+local / ctxloom+companion), carrying
 // "@<version>" when the reference pins one: BundleRef().String().

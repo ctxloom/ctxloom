@@ -329,6 +329,14 @@ func convertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 	if derr != nil {
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)
 	}
+	return rebuildCanonicalTranscript(ctx, adapter, e, dest, liveSrc, liveOK, refresh)
+}
+
+// rebuildCanonicalTranscript builds e's canonical transcript at dest from its
+// rotation segments and, when liveOK, the live vendor file liveSrc, committing
+// it only when the rebuild produced bytes. See convertVendorTranscript for the
+// contract; converted reports whether a rebuild was attempted.
+func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, dest, liveSrc string, liveOK, refresh bool) (converted bool, err error) {
 
 	// OWNERSHIP PROBE: a refresh REBUILDS a canonical
 	// transcript that may already be growing under a live
@@ -352,18 +360,12 @@ func convertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 	// Recorder to race with, so probing there would only cost a syscall for
 	// no exclusion anybody needs.
 	if refresh {
-		lockPath := paths.PathFor(dest)
-		if lerr := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); lerr != nil {
-			return false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", e.HarpName, lerr)
-		}
-		fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-		acquired, lerr := fl.TryLock()
+		release, acquired, lerr := tryOwnCanonicalTranscript(e.HarpName, dest)
 		if lerr != nil {
-			return false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", e.HarpName, lerr)
+			return false, lerr
 		}
-		defer func() { _ = fl.Unlock() }()
+		defer release()
 		if !acquired {
-			clidiag.Warn("ctxloom", "rebuild %s: canonical transcript %s is owned by a live recorder (or another rebuild is already in progress); skipping this rebuild — the existing file is current", e.HarpName, dest)
 			return false, nil
 		}
 	}
@@ -384,37 +386,50 @@ func convertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
-	tmp := af.TempPath()
 
+	if werr := writeRebuildSegments(ctx, adapter, e, af, liveSrc, liveOK); werr != nil {
+		_ = af.Abort()
+		return true, werr
+	}
+
+	return commitRebuild(af, e)
+}
+
+// writeRebuildSegments appends every rotation's cached segment onto af, then
+// converts the live vendor transcript (when liveOK) into af's temp file. The
+// caller aborts af on error.
+func writeRebuildSegments(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *iox.AtomicFile, liveSrc string, liveOK bool) error {
 	for _, rot := range e.Rotations {
 		if werr := appendRotationSegment(ctx, adapter, e, rot, af); werr != nil {
-			_ = af.Abort()
-			return true, werr
+			return werr
 		}
 	}
-
-	if liveOK {
-		// transcript.Recorder opens its own append handle by PATH — it has no
-		// io.Writer-shaped constructor — so this hands it af's temp path
-		// rather than af itself (iox.AtomicFile.TempPath's documented escape
-		// hatch). Commit below stats the temp file's actual on-disk size, so
-		// bytes Recorder writes here are covered by the same empty-guard as
-		// anything written through af.Write.
-		rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(tmp), transcript.WithClock(vendorSourceClock(liveSrc)))
-		if rerr != nil {
-			_ = af.Abort()
-			return true, fmt.Errorf("open recorder for %s: %w", e.HarpName, rerr)
-		}
-		cerr := adapter.Convert(ctx, rec, liveSrc)
-		_ = rec.Close()
-		if cerr != nil {
-			// Best-effort: Abort's removal failing is not itself reported,
-			// since the conversion error is already the actionable fact.
-			_ = af.Abort()
-			return true, fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
-		}
+	if !liveOK {
+		return nil
 	}
+	// transcript.Recorder opens its own append handle by PATH — it has no
+	// io.Writer-shaped constructor — so this hands it af's temp path
+	// rather than af itself (iox.AtomicFile.TempPath's documented escape
+	// hatch). commitRebuild stats the temp file's actual on-disk size, so
+	// bytes Recorder writes here are covered by the same empty-guard as
+	// anything written through af.Write.
+	rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(af.TempPath()), transcript.WithClock(vendorSourceClock(liveSrc)))
+	if rerr != nil {
+		return fmt.Errorf("open recorder for %s: %w", e.HarpName, rerr)
+	}
+	cerr := adapter.Convert(ctx, rec, liveSrc)
+	_ = rec.Close()
+	if cerr != nil {
+		// Best-effort: the caller's Abort failing to remove is not itself
+		// reported, since the conversion error is already the actionable fact.
+		return fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
+	}
+	return nil
+}
 
+// commitRebuild installs af over the canonical transcript when the rebuild
+// produced bytes, and otherwise aborts it.
+func commitRebuild(af *iox.AtomicFile, e sessions.Entry) (converted bool, err error) {
 	// Convert succeeding is NOT the same fact as bytes landing on disk.
 	// transcript.Recorder only creates its canonical file on the FIRST
 	// SUCCESSFUL Record, so a live Convert that (legitimately, per
@@ -422,7 +437,7 @@ func convertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 	// entries — combined with no rotation contributing a segment either —
 	// leaves the temp file at size zero (iox.NewAtomicFile creates it empty
 	// up front, so it always exists, unlike the old fixed ".rebuild" name).
-	info, serr := os.Stat(tmp)
+	info, serr := os.Stat(af.TempPath())
 	if serr != nil || info.Size() == 0 {
 		_ = af.Abort()
 		// A harp with NO recorded rotations degrading to nothing is the
@@ -446,6 +461,26 @@ func convertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 		return true, fmt.Errorf("install canonical transcript for %s: %w", e.HarpName, cerr)
 	}
 	return true, nil
+}
+
+// tryOwnCanonicalTranscript takes the exclusive ownership lock on dest's
+// canonical transcript without waiting. acquired=false means a live recorder
+// (or another rebuild) holds it, which is warned about here. release must be
+// deferred whenever err is nil, acquired or not.
+func tryOwnCanonicalTranscript(harp, dest string) (release func(), acquired bool, err error) {
+	lockPath := paths.PathFor(dest)
+	if lerr := os.MkdirAll(filepath.Dir(lockPath), lockDirMode); lerr != nil {
+		return nil, false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", harp, lerr)
+	}
+	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
+	acquired, lerr := fl.TryLock()
+	if lerr != nil {
+		return nil, false, fmt.Errorf("probe canonical-transcript ownership for %s: %w", harp, lerr)
+	}
+	if !acquired {
+		clidiag.Warn("ctxloom", "rebuild %s: canonical transcript %s is owned by a live recorder (or another rebuild is already in progress); skipping this rebuild — the existing file is current", harp, dest)
+	}
+	return func() { _ = fl.Unlock() }, acquired, nil
 }
 
 // appendRotationSegment ensures a cached canonical segment exists for one

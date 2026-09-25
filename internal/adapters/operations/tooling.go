@@ -17,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -93,58 +95,14 @@ func ScaffoldContainerBase(ctx context.Context, app *App, cfg *config.Config, re
 	}
 	fs := getFS(cfg.FS())
 	if existing := cfg.IsolationBaseContainerfilePath(); existing != "" && !force {
-		if _, err := fs.Stat(existing); err == nil {
-			return existing, nil
-		} else if !os.IsNotExist(err) {
-			return "", fmt.Errorf("stat configured base Containerfile: %w", err)
-		}
-		// Configured but not actually on disk (deleted, never created, a typo'd
-		// path) — materialize it at the CONFIGURED location instead of
-		// silently reporting success with nothing written.
-		if merr := fs.MkdirAll(filepath.Dir(existing), 0o755); merr != nil {
-			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
-		}
-		// No AllowEmpty: container.Base() is a fixed embedded template, never
-		// empty.
-		if werr := iox.WriteFileAtomicFs(fs, existing, container.Base(), 0o644); werr != nil {
-			return "", fmt.Errorf("write base Containerfile: %w", werr)
-		}
-		return existing, nil
+		return materializeConfiguredBase(fs, existing)
 	}
-	if relPath == "" {
-		relPath = DefaultContainerBasePath
-	}
-	abs := relPath
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(cfg.GetAppRoot(), relPath)
-	}
-	// relPath is documented as project-root-relative, and the CLI
-	// exposes it as a bare --path flag — untrusted user input. A "../"-laden
-	// relPath (or, via the IsAbs branch above, an absolute relPath naming
-	// anywhere on disk) must not be allowed to write outside the project.
-	// Contain it the same way safeRepoPath contains escalation-query paths:
-	// join/clean, reject if the result escapes the root, and re-check after
-	// symlink resolution for the case where the target already exists.
-	abs, err := containedPath(cfg.GetAppRoot(), abs)
+	relPath, abs, err := containerBaseTarget(cfg, relPath)
 	if err != nil {
-		return "", fmt.Errorf("base Containerfile path: %w", err)
+		return "", err
 	}
-
-	exists := false
-	if _, err := fs.Stat(abs); err == nil {
-		exists = true
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat base Containerfile: %w", err)
-	}
-	if !exists || force {
-		if merr := fs.MkdirAll(filepath.Dir(abs), 0o755); merr != nil {
-			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
-		}
-		// No AllowEmpty: container.Base() is a fixed embedded template, never
-		// empty.
-		if werr := iox.WriteFileAtomicFs(fs, abs, container.Base(), 0o644); werr != nil {
-			return "", fmt.Errorf("write base Containerfile: %w", werr)
-		}
+	if err := writeBaseUnlessPresent(fs, abs, force); err != nil {
+		return "", err
 	}
 
 	if _, err := app.Update(ctx, func(d *config.Draft) error {
@@ -154,6 +112,75 @@ func ScaffoldContainerBase(ctx context.Context, app *App, cfg *config.Config, re
 		return "", fmt.Errorf("wire isolation_base_containerfile: %w", err)
 	}
 	return abs, nil
+}
+
+// materializeConfiguredBase returns the already-configured base Containerfile
+// path, writing the default base there first when it is configured but not
+// actually on disk (deleted, never created, a typo'd path) — rather than
+// silently reporting success with nothing written.
+func materializeConfiguredBase(fs afero.Fs, existing string) (string, error) {
+	if _, err := fs.Stat(existing); err == nil {
+		return existing, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat configured base Containerfile: %w", err)
+	}
+	if err := writeBaseContainerfile(fs, existing); err != nil {
+		return "", err
+	}
+	return existing, nil
+}
+
+// containerBaseTarget resolves the scaffold's project-relative path (the
+// default when empty) and its contained absolute form.
+//
+// relPath is documented as project-root-relative, and the CLI exposes it as a
+// bare --path flag — untrusted user input. A "../"-laden relPath (or an
+// absolute relPath naming anywhere on disk) must not be allowed to write
+// outside the project. Contain it the same way safeRepoPath contains
+// escalation-query paths: join/clean, reject if the result escapes the root,
+// and re-check after symlink resolution for the case where the target
+// already exists.
+func containerBaseTarget(cfg *config.Config, relPath string) (rel, abs string, err error) {
+	if relPath == "" {
+		relPath = DefaultContainerBasePath
+	}
+	abs = relPath
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(cfg.GetAppRoot(), relPath)
+	}
+	abs, err = containedPath(cfg.GetAppRoot(), abs)
+	if err != nil {
+		return "", "", fmt.Errorf("base Containerfile path: %w", err)
+	}
+	return relPath, abs, nil
+}
+
+// writeBaseUnlessPresent writes the default base at abs when nothing is
+// there yet, or unconditionally under force.
+func writeBaseUnlessPresent(fs afero.Fs, abs string, force bool) error {
+	exists := false
+	if _, err := fs.Stat(abs); err == nil {
+		exists = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat base Containerfile: %w", err)
+	}
+	if exists && !force {
+		return nil
+	}
+	return writeBaseContainerfile(fs, abs)
+}
+
+// writeBaseContainerfile writes the embedded default base to path, creating
+// its directory. No AllowEmpty: container.Base() is a fixed embedded
+// template, never empty.
+func writeBaseContainerfile(fs afero.Fs, path string) error {
+	if merr := fs.MkdirAll(filepath.Dir(path), 0o755); merr != nil {
+		return fmt.Errorf("create base Containerfile directory: %w", merr)
+	}
+	if werr := iox.WriteFileAtomicFs(fs, path, container.Base(), 0o644); werr != nil {
+		return fmt.Errorf("write base Containerfile: %w", werr)
+	}
+	return nil
 }
 
 // containedPath validates that target is contained within root, rejecting a

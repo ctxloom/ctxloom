@@ -80,11 +80,8 @@ const SeedProfileName = "default"
 // deprecated aliases, root init) funnels through here, so this is the single
 // choke point — no per-call-site duplicate check needed.
 func InitializeProject(_ context.Context, reg enginepkg.Registry, req InitializeProjectRequest) (*InitializeProjectResult, error) {
-	if req.AppDir == "" {
-		return nil, fmt.Errorf("app dir is required")
-	}
-	if !EngineExists(reg, req.Engine) {
-		return nil, fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(EngineNames(reg), ", "))
+	if err := validateInitRequest(reg, req); err != nil {
+		return nil, err
 	}
 	fs := getFS(req.FS)
 	// The authored-bundles home is the COMMITTED content tree; the cache is
@@ -124,14 +121,8 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 		}
 	}
 
-	remotesContent, err := resources.GetDefaultRemotes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read default remotes: %w", err)
-	}
-	// No AllowEmpty: remotesContent is the embedded default remotes resource,
-	// never empty.
-	if err := iox.WriteFileAtomicFs(fs, paths.RemotesPath(req.AppDir), remotesContent, 0644); err != nil {
-		return nil, fmt.Errorf("failed to create remotes.yaml: %w", err)
+	if err := writeDefaultRemotes(fs, req.AppDir); err != nil {
+		return nil, err
 	}
 
 	if err := scaffoldSeedProfile(fs, req.AppDir); err != nil {
@@ -142,6 +133,31 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 	}
 
 	return &InitializeProjectResult{Status: "initialized", AppDir: req.AppDir}, nil
+}
+
+// validateInitRequest refuses a request with no app dir or an unknown engine.
+func validateInitRequest(reg enginepkg.Registry, req InitializeProjectRequest) error {
+	if req.AppDir == "" {
+		return fmt.Errorf("app dir is required")
+	}
+	if !EngineExists(reg, req.Engine) {
+		return fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(EngineNames(reg), ", "))
+	}
+	return nil
+}
+
+// writeDefaultRemotes writes the embedded default remotes.yaml into appDir.
+func writeDefaultRemotes(fs afero.Fs, appDir string) error {
+	remotesContent, err := resources.GetDefaultRemotes()
+	if err != nil {
+		return fmt.Errorf("failed to read default remotes: %w", err)
+	}
+	// No AllowEmpty: remotesContent is the embedded default remotes resource,
+	// never empty.
+	if err := iox.WriteFileAtomicFs(fs, paths.RemotesPath(appDir), remotesContent, 0644); err != nil {
+		return fmt.Errorf("failed to create remotes.yaml: %w", err)
+	}
+	return nil
 }
 
 // scaffoldSeedProfile writes the embedded local default coding profile into

@@ -91,17 +91,11 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	baseDir := ProjectAppDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
-	// Both lockfile manager constructions in
-	// this function used to omit WithLockfileFS, so under an injected
-	// filesystem (tests, or any future FS-scoped caller) the closure walk
-	// would enumerate roots from cfg's FS while this function's own Load/Save
-	// silently fell back to the real OS filesystem — reading and writing a
-	// DIFFERENT lock.yaml than the one the rest of the resolution sees.
-	// Contained today only by ErrLockfileWouldErase (an empty write over a
-	// populated file refuses), but that guard should never be the only thing
-	// standing between an FS mismatch and a wiped lockfile. Match
-	// trust.go:499 and lockfile.go:74, the two call sites that already do
-	// this correctly.
+	// Every lockfile manager here carries WithLockfileFS(cfg's FS): the closure
+	// walk enumerates roots from cfg's FS, so a manager on any other
+	// filesystem would read and write a DIFFERENT lock.yaml than the one the
+	// rest of the resolution sees. ErrLockfileWouldErase must never be the
+	// only thing standing between an FS mismatch and a wiped lockfile.
 	lockFS := getFS(cfg.FS())
 	active, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Load()
 	if err != nil {
@@ -122,74 +116,20 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	if len(conflicts) > 0 {
 		return result, ConflictError(conflicts)
 	}
-	// closureRoots' OWN failures (a root that could not load) used
-	// to be invisible to the preserve-existing-entries guard below — only
-	// the walker's internal unexpanded set fed it. Merge both.
+	// closureRoots' OWN failures (a root that could not load) feed the
+	// preserve-existing-entries guard below alongside the walker's internal
+	// unexpanded set.
 	unexpanded = append(unexpanded, rootsUnexpanded...)
 	result.Incomplete = len(unexpanded) > 0
-	incomplete := result.Incomplete
 
-	newActive := &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}}
+	round := upgradeRound{
+		ctx: ctx, cfg: cfg, factory: factory, auth: auth, downgrades: downgrades,
+		active:    active,
+		newActive: &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}},
+		result:    &result,
+	}
 	for _, p := range proposed {
-		cur, has := active.GetEntry(p.Type, p.Identity)
-		// A held entry never advances — carry its current pin forward unchanged.
-		if has && cur.Held {
-			newActive.AddEntry(p.Type, p.Identity, cur)
-			continue
-		}
-		// A REAL advance — an entry that already exists and would move to a
-		// different commit — must land on content whose publisher signature
-		// verifies, at or above the version its last pin was signed at. A FIRST
-		// pin is read too, to record its floor, but never refused: it has no
-		// last-verified value to keep, so there is nothing to refuse back to,
-		// and holding one back would simply install nothing while the exposure
-		// gate would have withheld it anyway with a reason.
-		var verified remote.Verified
-		if !has || cur.SHA != p.Hash {
-			v, refusal := verifyAdvance(ctx, cfg, factory, auth, p, cur, downgrades.allows(p.Identity))
-			verified = v
-			if refusal != nil && has {
-				newActive.AddEntry(p.Type, p.Identity, cur)
-				result.Refused = append(result.Refused, RefusedAdvance{
-					Identity:    string(p.Identity),
-					KeptSHA:     cur.SHA,
-					ProposedSHA: p.Hash,
-					Detail:      refusal.Error(),
-					BelowFloor:  errors.Is(refusal, release.ErrRollback) || errors.Is(refusal, release.ErrSignatureDowngrade),
-				})
-				continue
-			}
-		}
-		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
-		// The floor moves only with the content it was read from: an unmoved pin
-		// keeps what its last verified pin recorded, a moved one records what
-		// verifyAdvance just established.
-		if has && cur.SHA == p.Hash {
-			entry.SignedVersion, entry.Publisher = cur.SignedVersion, cur.Publisher
-		} else {
-			entry.SignedVersion, entry.Publisher = verified.LockFields()
-		}
-		// A full re-resolve is NOT a fresh retraction check — only
-		// sync's installed-ref re-check (checkInstalledRetraction) or the next
-		// Pull actually reads the publisher's manifest and is entitled to lift
-		// a retraction. Without this, `ctxloom deps upgrade` silently
-		// un-retracted every non-held bundle by building a zero-valued entry
-		// here, exactly the invariant LockDependencies' prevRetracted already
-		// protects on the sibling full-rebuild path (internal/adapters/operations/lockfile.go).
-		if has && cur.Retracted {
-			entry.Retracted = true
-			entry.RetractedReason = cur.RetractedReason
-		}
-		newActive.AddEntry(p.Type, p.Identity, entry)
-		if !has || cur.SHA != p.Hash {
-			result.Advanced++
-			// A MOVED PIN MOVES THE TREE WITH IT. The worktree is a git
-			// checkout detached at a commit, so "which commit is this tree?"
-			// is a question the tree itself answers — and advancing the pin
-			// without advancing the checkout would leave the two disagreeing
-			// while both look well-formed.
-			movePinnedWorktree(ctx, cfg, p)
-		}
+		round.apply(p)
 	}
 
 	// An INCOMPLETE closure (a remote parent profile could not be expanded) must
@@ -197,40 +137,12 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	// closure no longer reaches, so the wholesale Save(newActive) below cannot
 	// lose lock state to a transient fetch failure. The unexpanded subtrees'
 	// entries simply don't advance this round.
-	if incomplete {
-		preserved := 0
-		for _, e := range active.AllEntries() {
-			if _, ok := newActive.GetEntry(e.Type, e.Ref); !ok {
-				newActive.AddEntry(e.Type, e.Ref, e.Entry)
-				preserved++
-			}
-		}
-		if preserved > 0 {
-			clidiag.Warn("ctxloom", "dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)", len(unexpanded), preserved)
-		}
+	if result.Incomplete {
+		preserveUnreachedEntries(active, round.newActive, len(unexpanded))
 	}
 
-	// NOTHING DECLARED, AND NOTHING ON DISK TO PROTECT. Writing here would
-	// CREATE a lockfile that pins nothing — a project marker for a project that
-	// does not exist — or re-stamp LockedAt on an empty one to record a check
-	// that had nothing to check. Save's own guard is the mirror image of this
-	// one and deliberately does not cover it: ErrLockfileWouldErase protects
-	// entries that EXIST, and by construction there are none here, so an empty
-	// write is a legitimate success at that layer (a genuinely empty project
-	// must still be able to lock). Only this caller knows the emptiness came
-	// from resolving nothing rather than from meaning nothing, so the refusal
-	// to fabricate belongs here.
-	//
-	// The Incomplete case skips the write for the same reason but is NOT
-	// "nothing declared": something may well be declared behind the part of the
-	// closure that could not be reached, and saying otherwise would be a
-	// confident wrong answer rather than an honest empty one.
-	nothingToRecord := newActive.IsEmpty() && active.IsEmpty()
-	result.NothingDeclared = nothingToRecord && !result.Incomplete
-	if !nothingToRecord {
-		if serr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Save(newActive); serr != nil {
-			return result, serr
-		}
+	if serr := saveUpgradedLock(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)), active, round.newActive, &result); serr != nil {
+		return result, serr
 	}
 
 	// Persist this round's refusals AFTER the lockfile write, never before: a
@@ -249,6 +161,135 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 		clidiag.Warn("ctxloom", "could not record this upgrade's refusal(s) for later inspection (`ctxloom doctor` will not report them): %v", rerr)
 	}
 	return result, nil
+}
+
+// upgradeRound is one UpgradeDependencies pass: the active lock it reads,
+// the new lock it builds, and the result it tallies into.
+type upgradeRound struct {
+	ctx        context.Context
+	cfg        *config.Config
+	factory    remote.FetcherFactory
+	auth       remote.AuthConfig
+	downgrades downgradeSet
+	active     *remote.Lockfile
+	newActive  *remote.Lockfile
+	result     *UpgradeResult
+}
+
+// apply decides one proposed pin: a held entry carries forward unchanged, a
+// refused advance keeps its current pin, anything else lands at the proposed
+// commit (and a moved pin moves its worktree).
+func (u *upgradeRound) apply(p PinnedRef) {
+	cur, has := u.active.GetEntry(p.Type, p.Identity)
+	// A held entry never advances — carry its current pin forward unchanged.
+	if has && cur.Held {
+		u.newActive.AddEntry(p.Type, p.Identity, cur)
+		return
+	}
+	moved := !has || cur.SHA != p.Hash
+	// A REAL advance — an entry that already exists and would move to a
+	// different commit — must land on content whose publisher signature
+	// verifies, at or above the version its last pin was signed at. A FIRST
+	// pin is read too, to record its floor, but never refused: it has no
+	// last-verified value to keep, so there is nothing to refuse back to,
+	// and holding one back would simply install nothing while the exposure
+	// gate would have withheld it anyway with a reason.
+	var verified remote.Verified
+	if moved {
+		v, refusal := verifyAdvance(u.ctx, u.cfg, u.factory, u.auth, p, cur, u.downgrades.allows(p.Identity))
+		verified = v
+		if refusal != nil && has {
+			u.refuse(p, cur, refusal)
+			return
+		}
+	}
+	u.newActive.AddEntry(p.Type, p.Identity, upgradedEntry(p, cur, has, moved, verified))
+	if moved {
+		u.result.Advanced++
+		// A MOVED PIN MOVES THE TREE WITH IT. The worktree is a git
+		// checkout detached at a commit, so "which commit is this tree?"
+		// is a question the tree itself answers — and advancing the pin
+		// without advancing the checkout would leave the two disagreeing
+		// while both look well-formed.
+		movePinnedWorktree(u.ctx, u.cfg, p)
+	}
+}
+
+// refuse keeps cur verbatim and records why p's advance was refused.
+func (u *upgradeRound) refuse(p PinnedRef, cur remote.LockEntry, refusal error) {
+	u.newActive.AddEntry(p.Type, p.Identity, cur)
+	u.result.Refused = append(u.result.Refused, RefusedAdvance{
+		Identity:    string(p.Identity),
+		KeptSHA:     cur.SHA,
+		ProposedSHA: p.Hash,
+		Detail:      refusal.Error(),
+		BelowFloor:  errors.Is(refusal, release.ErrRollback) || errors.Is(refusal, release.ErrSignatureDowngrade),
+	})
+}
+
+// upgradedEntry is the lock entry p lands as.
+func upgradedEntry(p PinnedRef, cur remote.LockEntry, has, moved bool, verified remote.Verified) remote.LockEntry {
+	entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
+	// The floor moves only with the content it was read from: an unmoved pin
+	// keeps what its last verified pin recorded, a moved one records what
+	// verifyAdvance just established.
+	if moved {
+		entry.SignedVersion, entry.Publisher = verified.LockFields()
+	} else {
+		entry.SignedVersion, entry.Publisher = cur.SignedVersion, cur.Publisher
+	}
+	// A full re-resolve is NOT a fresh retraction check — only
+	// sync's installed-ref re-check (checkInstalledRetraction) or the next
+	// Pull actually reads the publisher's manifest and is entitled to lift
+	// a retraction; the same invariant LockDependencies' prevRetracted
+	// protects on the sibling full-rebuild path.
+	if has && cur.Retracted {
+		entry.Retracted = true
+		entry.RetractedReason = cur.RetractedReason
+	}
+	return entry
+}
+
+// preserveUnreachedEntries carries every active entry the new lock does not
+// reach into it, warning when any were carried.
+func preserveUnreachedEntries(active, newActive *remote.Lockfile, unexpandedCount int) {
+	preserved := 0
+	for _, e := range active.AllEntries() {
+		if _, ok := newActive.GetEntry(e.Type, e.Ref); !ok {
+			newActive.AddEntry(e.Type, e.Ref, e.Entry)
+			preserved++
+		}
+	}
+	if preserved > 0 {
+		clidiag.Warn("ctxloom", "dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)", unexpandedCount, preserved)
+	}
+}
+
+// saveUpgradedLock writes newActive unless there is nothing to record, and
+// sets result.NothingDeclared.
+//
+// NOTHING DECLARED, AND NOTHING ON DISK TO PROTECT. Writing then would
+// CREATE a lockfile that pins nothing — a project marker for a project that
+// does not exist — or re-stamp LockedAt on an empty one to record a check
+// that had nothing to check. Save's own guard is the mirror image of this
+// one and deliberately does not cover it: ErrLockfileWouldErase protects
+// entries that EXIST, and by construction there are none here, so an empty
+// write is a legitimate success at that layer (a genuinely empty project
+// must still be able to lock). Only this caller knows the emptiness came
+// from resolving nothing rather than from meaning nothing, so the refusal
+// to fabricate belongs here.
+//
+// The Incomplete case skips the write for the same reason but is NOT
+// "nothing declared": something may well be declared behind the part of the
+// closure that could not be reached, and saying otherwise would be a
+// confident wrong answer rather than an honest empty one.
+func saveUpgradedLock(m *remote.LockfileManager, active, newActive *remote.Lockfile, result *UpgradeResult) error {
+	nothingToRecord := newActive.IsEmpty() && active.IsEmpty()
+	result.NothingDeclared = nothingToRecord && !result.Incomplete
+	if nothingToRecord {
+		return nil
+	}
+	return m.Save(newActive)
 }
 
 // directRepoURLs returns the unique repo URLs of the direct remote refs across

@@ -300,52 +300,84 @@ func classifyHarpDir(harpDir string, entry *sessions.Entry) ([]PurgeItem, error)
 		}
 	}
 
-	var items []PurgeItem
-	walkErr := filepath.WalkDir(harpDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		if path == harpDir {
-			return nil
-		}
-		rel, relErr := filepath.Rel(harpDir, path)
-		if relErr != nil {
-			return relErr
-		}
-		member, isMember := paths.ClassifyMember(filepath.ToSlash(rel))
-		if d.IsDir() {
-			if isMember && member.Lifetime == paths.Ephemeral {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return nil // symlinks/devices/etc: not one of the enumerated classes, left alone
-		}
-		if isMember && member.Tier == paths.MemberIdentity {
-			return nil
-		}
-		info, infoErr := d.Info()
-		if infoErr != nil {
-			return infoErr
-		}
-		isTranscriptMatch := transcriptAbs != "" && filepath.Clean(path) == transcriptAbs
-		items = append(items, PurgeItem{
-			Path:  path,
-			Rel:   filepath.ToSlash(rel),
-			Class: classifyPurgeFile(rel, isTranscriptMatch),
-			Bytes: info.Size(),
-		})
-		return nil
-	})
+	w := harpDirWalk{harpDir: harpDir, transcriptAbs: transcriptAbs}
+	walkErr := filepath.WalkDir(harpDir, w.visit)
 	if walkErr != nil {
 		return nil, walkErr
 	}
+	items := w.items
 	sort.Slice(items, func(i, j int) bool { return items[i].Rel < items[j].Rel })
 	return items, nil
+}
+
+// harpDirWalk collects classifyHarpDir's items. transcriptAbs is the
+// session's bound transcript when it lies inside harpDir, else "".
+type harpDirWalk struct {
+	harpDir       string
+	transcriptAbs string
+	items         []PurgeItem
+}
+
+// visit is the fs.WalkDirFunc: it skips Ephemeral member directories and
+// classifies every regular, non-identity file. A path that vanished mid-walk
+// is not an error.
+func (w *harpDirWalk) visit(path string, d fs.DirEntry, err error) error {
+	if err != nil {
+		return tolerateVanished(err)
+	}
+	if path == w.harpDir {
+		return nil
+	}
+	rel, relErr := filepath.Rel(w.harpDir, path)
+	if relErr != nil {
+		return relErr
+	}
+	member, isMember := paths.ClassifyMember(filepath.ToSlash(rel))
+	if d.IsDir() {
+		return skipEphemeralMember(member, isMember)
+	}
+	if !purgeCandidateFile(d, member, isMember) {
+		return nil
+	}
+	info, infoErr := d.Info()
+	if infoErr != nil {
+		return infoErr
+	}
+	isTranscriptMatch := w.transcriptAbs != "" && filepath.Clean(path) == w.transcriptAbs
+	w.items = append(w.items, PurgeItem{
+		Path:  path,
+		Rel:   filepath.ToSlash(rel),
+		Class: classifyPurgeFile(rel, isTranscriptMatch),
+		Bytes: info.Size(),
+	})
+	return nil
+}
+
+// tolerateVanished drops a walk error for a path that no longer exists.
+func tolerateVanished(err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// skipEphemeralMember skips a directory that is an Ephemeral member: the walk
+// never descends into one.
+func skipEphemeralMember(member paths.HarpMember, isMember bool) error {
+	if isMember && member.Lifetime == paths.Ephemeral {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// purgeCandidateFile reports whether a walked file is a purge candidate: a
+// regular file (symlinks, devices and the like are not one of the enumerated
+// classes, so are left alone) outside the identity rows.
+func purgeCandidateFile(d fs.DirEntry, member paths.HarpMember, isMember bool) bool {
+	if !d.Type().IsRegular() {
+		return false
+	}
+	return !isMember || member.Tier != paths.MemberIdentity
 }
 
 // classifyPurgeFile decides one file's PurgeClass from the paths.HarpMembers

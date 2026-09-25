@@ -265,24 +265,9 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	backend := string(req.Engine.Root().Name)
 	harp := req.Identity.Harp
 
-	var (
-		gitClient   git.Git
-		pendingCopy *copySnapshot
-	)
-	// The dirty-tree handler is a DELEGATED spawn's concern (its rationale
-	// is with handleDirtyParentTree): the originator who asked for a
-	// worktree is at the terminal with the tree in front of them, and is
-	// not gated on it. The handler itself arrives settled by the resolver.
-	if req.Axes.Workspace == launch.WorkspaceWorktree && req.Identity.IsChild() {
-		gitClient = c.Git
-		if gitClient == nil {
-			gitClient = git.NewExec()
-		}
-		outcome, err := handleDirtyParentTree(ctx, c.cfg, gitClient, req.ProjectRoot, harp, req.DirtyTree)
-		if err != nil {
-			return launch.Cell{}, err
-		}
-		pendingCopy = outcome.copy
+	gitClient, pendingCopy, err := c.settleDirtyParentTree(ctx, req, harp)
+	if err != nil {
+		return launch.Cell{}, err
 	}
 
 	// The fail-loudly cell gate: a container degrade inside Prepare records
@@ -332,31 +317,65 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		Handle:    PreparedCell{Policy: policy, Workspace: ws},
 	}
 	if home.Absent == "" {
-		roots.EngineHome = present.Root{Host: home.Root.Host}
-		if cell.Env == nil {
-			cell.Env = map[string]string{}
-		}
-		maps.Copy(cell.Env, home.Env)
-		for k, v := range home.Env {
-			cell.Home = append(cell.Home, engine.HomeBinding{Var: k, Path: v})
-		}
-		maps.Copy(cell.Env, home.Login)
+		bindCellHome(&cell, &roots, home)
 	}
-	if isolation.IsContainerPolicyName(policy.Name()) {
-		advice := present.Containerize{}
-		if home.Mount != nil {
-			advice.EngineHome = home.Mount.TargetDir
-		}
-		cell.Paths = advice.Apply(roots)
-		cell.Container = &launch.ContainerCell{
-			Runtime: req.Axes.Runtime,
-			Mounts:  cell.Paths.Mounts(),
-			Home:    home.Root.Engine,
-		}
-	} else {
-		cell.Paths = present.OnHost(roots)
-	}
+	placeCellPaths(&cell, roots, policy, home, req.Axes.Runtime)
 	return cell, nil
+}
+
+// settleDirtyParentTree runs the dirty-tree handler for a delegated worktree
+// spawn, returning the git client it used and the snapshot still to copy
+// into the prepared workspace (nil for neither). The handler is a DELEGATED
+// spawn's concern (its rationale is with handleDirtyParentTree): the
+// originator who asked for a worktree is at the terminal with the tree in
+// front of them, and is not gated on it. The handler itself arrives settled
+// by the resolver.
+func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest, harp string) (git.Git, *copySnapshot, error) {
+	if req.Axes.Workspace != launch.WorkspaceWorktree || !req.Identity.IsChild() {
+		return nil, nil, nil
+	}
+	gitClient := c.Git
+	if gitClient == nil {
+		gitClient = git.NewExec()
+	}
+	outcome, err := handleDirtyParentTree(ctx, c.cfg, gitClient, req.ProjectRoot, harp, req.DirtyTree)
+	if err != nil {
+		return nil, nil, err
+	}
+	return gitClient, outcome.copy, nil
+}
+
+// bindCellHome carries a bound engine home into the cell: its root, its env
+// (also recorded as home bindings), and its login env.
+func bindCellHome(cell *launch.Cell, roots *present.Paths, home AgentHomeResolution) {
+	roots.EngineHome = present.Root{Host: home.Root.Host}
+	if cell.Env == nil {
+		cell.Env = map[string]string{}
+	}
+	maps.Copy(cell.Env, home.Env)
+	for k, v := range home.Env {
+		cell.Home = append(cell.Home, engine.HomeBinding{Var: k, Path: v})
+	}
+	maps.Copy(cell.Env, home.Login)
+}
+
+// placeCellPaths presents the roots as the cell sees them: containerized
+// (with the container's mounts) under a container policy, else on the host.
+func placeCellPaths(cell *launch.Cell, roots present.Paths, policy isolation.Policy, home AgentHomeResolution, runtime launch.RuntimeAxis) {
+	if !isolation.IsContainerPolicyName(policy.Name()) {
+		cell.Paths = present.OnHost(roots)
+		return
+	}
+	advice := present.Containerize{}
+	if home.Mount != nil {
+		advice.EngineHome = home.Mount.TargetDir
+	}
+	cell.Paths = advice.Apply(roots)
+	cell.Container = &launch.ContainerCell{
+		Runtime: runtime,
+		Mounts:  cell.Paths.Mounts(),
+		Home:    home.Root.Engine,
+	}
 }
 
 // endpointMinter mints the session's MCP endpoint on the host: a reserved

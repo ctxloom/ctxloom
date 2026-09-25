@@ -156,14 +156,8 @@ type CreateBundleResult struct {
 // .ctxloom/content/bundles/personal -> /etc could induce Save to write outside
 // the bundles root.
 func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleRequest) (*CreateBundleResult, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if err := bundles.ValidateBundleName(req.Name); err != nil {
+	if err := validateCreateBundle(cfg, req); err != nil {
 		return nil, err
-	}
-	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
-		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
 	dir := paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV2)
@@ -176,24 +170,11 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	// economy, NOT the decision: it is racy by construction, and the window it
 	// opens is as long as distillation takes. claimNewBundleDir decides.
 	fsys := getFS(req.FS)
-	if exists, err := afero.Exists(fsys, path); err != nil {
-		return nil, fmt.Errorf("failed to check for an existing bundle: %w", err)
-	} else if exists {
-		return nil, fmt.Errorf("bundle already exists: %s", path)
+	if err := refuseExistingBundle(fsys, path); err != nil {
+		return nil, err
 	}
 
-	version := req.Version
-	if version == "" {
-		version = "1.0.0"
-	}
-
-	bundle := &bundles.Bundle{
-		Version:     version,
-		Description: req.Description,
-		Tags:        req.Tags,
-		Author:      req.Author,
-		Path:        path,
-	}
+	bundle := newCreatedBundle(req, path)
 	applyFragmentInputs(bundle, req.Fragments)
 	applyPromptInputs(bundle, req.Commands)
 	applyMCPInputs(bundle, req.MCPServers)
@@ -220,6 +201,49 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		Name:   req.Name,
 		Path:   path,
 	}, nil
+}
+
+// validateCreateBundle refuses a missing or unsafe name, and a config with
+// no .ctxloom directory to create into.
+func validateCreateBundle(cfg *config.Config, req CreateBundleRequest) error {
+	if req.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if err := bundles.ValidateBundleName(req.Name); err != nil {
+		return err
+	}
+	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
+		return fmt.Errorf("no .ctxloom directory configured")
+	}
+	return nil
+}
+
+// refuseExistingBundle fails when a bundle manifest is already at path.
+func refuseExistingBundle(fsys afero.Fs, path string) error {
+	exists, err := afero.Exists(fsys, path)
+	if err != nil {
+		return fmt.Errorf("failed to check for an existing bundle: %w", err)
+	}
+	if exists {
+		return fmt.Errorf("bundle already exists: %s", path)
+	}
+	return nil
+}
+
+// newCreatedBundle is the new bundle's metadata, versioned 1.0.0 unless the
+// request names a version.
+func newCreatedBundle(req CreateBundleRequest, path string) *bundles.Bundle {
+	version := req.Version
+	if version == "" {
+		version = "1.0.0"
+	}
+	return &bundles.Bundle{
+		Version:     version,
+		Description: req.Description,
+		Tags:        req.Tags,
+		Author:      req.Author,
+		Path:        path,
+	}
 }
 
 // claimNewBundleDir claims dir — a brand-new bundle's own tree directory —

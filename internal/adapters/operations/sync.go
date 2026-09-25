@@ -214,14 +214,17 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 
 	runSyncPostSteps(ctx, reg, cfg, req, result, fs)
 
+	summarizeSync(result)
+	return result, nil
+}
+
+// summarizeSync settles the result's status and one-line tally.
+func summarizeSync(result *SyncDependenciesResult) {
 	if result.Errors > 0 {
 		result.Status = "completed_with_errors"
 	}
-
 	result.Message = fmt.Sprintf("Synced %d items: %d installed, %d updated, %d skipped, %d retracted, %d failed",
 		result.Total, result.Installed, result.Updated, len(result.Skipped), len(result.Retracted), result.Errors)
-
-	return result, nil
 }
 
 // RefCollector reports every remote ref currently visible.

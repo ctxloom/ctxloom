@@ -234,17 +234,9 @@ func bundleEnvelopePath(fs afero.Fs, p string) (string, error) {
 // bundles directory — whole, and under its OWN name: the source directory's,
 // through bundles.ExtractBundleName, the same derivation the loader uses.
 func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, srcDir string) (*ImportBundleResult, error) {
-	srcManifest := filepath.Join(srcDir, bundles.DirectoryFormManifest)
-	if _, _, err := bundles.EnvelopeAt(fs, srcManifest); err != nil {
-		if errors.Is(err, bundles.ErrEnvelopeRead) {
-			return nil, fmt.Errorf("import %s: a bundle must carry its %s: %w",
-				srcDir, bundles.DirectoryFormManifest, err)
-		}
-		return nil, fmt.Errorf("invalid bundle file: %w", err)
-	}
-	name := bundles.ExtractBundleName(srcManifest)
-	if err := bundles.ValidateBundleName(name); err != nil {
-		return nil, fmt.Errorf("import %s: %w", srcDir, err)
+	name, err := importedBundleName(fs, srcDir)
+	if err != nil {
+		return nil, err
 	}
 
 	destPath, exists, err := prepareImportDest(fs, cfg, name, req.Force)
@@ -292,6 +284,24 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 		res.SigDest = sigDest
 	}
 	return res, nil
+}
+
+// importedBundleName is the name of the bundle tree at srcDir, which must
+// carry a readable, valid envelope and a valid bundle name.
+func importedBundleName(fs afero.Fs, srcDir string) (string, error) {
+	srcManifest := filepath.Join(srcDir, bundles.DirectoryFormManifest)
+	if _, _, err := bundles.EnvelopeAt(fs, srcManifest); err != nil {
+		if errors.Is(err, bundles.ErrEnvelopeRead) {
+			return "", fmt.Errorf("import %s: a bundle must carry its %s: %w",
+				srcDir, bundles.DirectoryFormManifest, err)
+		}
+		return "", fmt.Errorf("invalid bundle file: %w", err)
+	}
+	name := bundles.ExtractBundleName(srcManifest)
+	if err := bundles.ValidateBundleName(name); err != nil {
+		return "", fmt.Errorf("import %s: %w", srcDir, err)
+	}
+	return name, nil
 }
 
 // prepareImportDest resolves and guards the path an import writes to: the given

@@ -80,10 +80,9 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	}
 	// prevEntries is the previous lockfile keyed the same way the rebuild keys
 	// its pins, so every field that must OUTLIVE a closure rebuild is read from
-	// one place. It replaced a set of parallel per-field maps: each new field
-	// that had to survive a relock meant another map and another chance to
-	// forget one, and forgetting one is silent — the rebuild writes a valid
-	// lockfile with the field simply gone.
+	// one entry. Forgetting to carry a field is silent — the rebuild writes a
+	// valid lockfile with the field simply gone — so they are carried together
+	// by relockPass.add rather than one lookup per field.
 	//
 	// What must survive, and why:
 	//   Pinned    — the user's "do not upgrade this" hold is a decision, and a
@@ -98,63 +97,29 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	//               that check had just recorded.
 	prevEntries := map[string]remote.LockEntry{}
 	for _, e := range prev.AllEntries() {
-		prevEntries[string(e.Type)+"\x00"+string(e.Ref)] = e.Entry
+		prevEntries[relockKey(e.Type, e.Ref)] = e.Entry
 	}
 
-	lockfile := &remote.Lockfile{
-		Version: remote.LockfileVersion,
-		Bundles: make(map[trust.BundleKey]remote.LockEntry),
+	pass := relockPass{
+		ctx: ctx, cfg: cfg, baseDir: baseDir, failOnConflict: req.FailOnConflict,
+		lockfile: &remote.Lockfile{
+			Version: remote.LockfileVersion,
+			Bundles: make(map[trust.BundleKey]remote.LockEntry),
+		},
 	}
-	var factory remote.FetcherFactory
-	var auth remote.AuthConfig
 	for _, p := range pins {
-		key := string(p.Type) + "\x00" + string(p.Identity)
-		// RequestedVersion records the manifest constraint so a later relock can
-		// carry this SHA forward while the constraint is unchanged; Version records
-		// the tag a semver constraint chose, for display and satisfaction checks.
-		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
-		if prevEntry, ok := prevEntries[key]; ok {
-			entry.Held = prevEntry.Held
-			entry.Retracted = prevEntry.Retracted
-			entry.RetractedReason = prevEntry.RetractedReason
-			switch {
-			case prevEntry.SHA == p.Hash:
-				entry.SignedVersion, entry.Publisher = prevEntry.SignedVersion, prevEntry.Publisher
-			case prevEntry.SignedVersion != "":
-				if factory == nil {
-					auth = remote.LoadAuth(baseDir)
-					factory = remote.FetcherFactory(NewCachedFetcherFactory(cfg))
-				}
-				v, refusal := verifyAdvance(ctx, cfg, factory, auth, p, prevEntry, false)
-				if refusal != nil {
-					if req.FailOnConflict {
-						return nil, fmt.Errorf("refusing to move %s from %s to %s: %w", p.Identity, prevEntry.SHA, p.Hash, refusal)
-					}
-					clidiag.Warn("ctxloom", "keeping %s at %s rather than moving it to %s: %v", p.Identity, prevEntry.SHA, p.Hash, refusal)
-					lockfile.AddEntry(p.Type, p.Identity, prevEntry)
-					continue
-				}
-				entry.SignedVersion, entry.Publisher = v.LockFields()
-			}
+		if err := pass.add(p, prevEntries); err != nil {
+			return nil, err
 		}
-		lockfile.AddEntry(p.Type, p.Identity, entry)
 	}
+	lockfile := pass.lockfile
 
 	// An INCOMPLETE closure (a remote parent profile could not be expanded)
 	// must not erase healthy entries: merge in every previous entry the rebuilt
 	// closure no longer reaches, so a transient fetch failure never loses lock
 	// state. The next complete relock drops genuinely-removed entries.
 	if len(unexpanded) > 0 {
-		preserved := 0
-		for _, e := range prev.AllEntries() {
-			if _, ok := lockfile.GetEntry(e.Type, e.Ref); !ok {
-				lockfile.AddEntry(e.Type, e.Ref, e.Entry)
-				preserved++
-			}
-		}
-		if preserved > 0 {
-			clidiag.Warn("ctxloom", "dependency closure is incomplete (%d parent profile(s) unreachable); preserving %d existing lockfile entry(ies)", len(unexpanded), preserved)
-		}
+		preserveUnreachedEntries(prev, lockfile, len(unexpanded))
 	}
 
 	if lockfile.IsEmpty() {
@@ -173,6 +138,67 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		Path:      lockManager.Path(),
 		ItemCount: len(lockfile.AllEntries()),
 	}, nil
+}
+
+// relockKey keys a lock entry by type and identity.
+func relockKey(t remote.ItemType, id trust.BundleKey) string {
+	return string(t) + "\x00" + string(id)
+}
+
+// relockPass is one LockDependencies rebuild: the lockfile it builds, and the
+// fetcher it opens only when a moved pin must be verified against its floor.
+type relockPass struct {
+	ctx            context.Context
+	cfg            *config.Config
+	baseDir        string
+	failOnConflict bool
+	lockfile       *remote.Lockfile
+	factory        remote.FetcherFactory
+	auth           remote.AuthConfig
+}
+
+// add pins p, carrying forward what its previous entry must keep. A pin that
+// moves below its previous entry's signed floor keeps the previous entry
+// (warned), or fails the rebuild under failOnConflict.
+func (r *relockPass) add(p PinnedRef, prevEntries map[string]remote.LockEntry) error {
+	// RequestedVersion records the manifest constraint so a later relock can
+	// carry this SHA forward while the constraint is unchanged; Version records
+	// the tag a semver constraint chose, for display and satisfaction checks.
+	entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
+	prevEntry, ok := prevEntries[relockKey(p.Type, p.Identity)]
+	if !ok {
+		r.lockfile.AddEntry(p.Type, p.Identity, entry)
+		return nil
+	}
+	entry.Held = prevEntry.Held
+	entry.Retracted = prevEntry.Retracted
+	entry.RetractedReason = prevEntry.RetractedReason
+	switch {
+	case prevEntry.SHA == p.Hash:
+		entry.SignedVersion, entry.Publisher = prevEntry.SignedVersion, prevEntry.Publisher
+	case prevEntry.SignedVersion != "":
+		v, refusal := r.verify(p, prevEntry)
+		if refusal != nil {
+			if r.failOnConflict {
+				return fmt.Errorf("refusing to move %s from %s to %s: %w", p.Identity, prevEntry.SHA, p.Hash, refusal)
+			}
+			clidiag.Warn("ctxloom", "keeping %s at %s rather than moving it to %s: %v", p.Identity, prevEntry.SHA, p.Hash, refusal)
+			r.lockfile.AddEntry(p.Type, p.Identity, prevEntry)
+			return nil
+		}
+		entry.SignedVersion, entry.Publisher = v.LockFields()
+	}
+	r.lockfile.AddEntry(p.Type, p.Identity, entry)
+	return nil
+}
+
+// verify is verifyAdvance for a moved pin, opening the fetcher on first use.
+func (r *relockPass) verify(p PinnedRef, prevEntry remote.LockEntry) (remote.Verified, error) {
+	if r.factory == nil {
+		r.auth = remote.LoadAuth(r.baseDir)
+		r.factory = remote.FetcherFactory(NewCachedFetcherFactory(r.cfg))
+	}
+	return verifyAdvance(r.ctx, r.cfg, r.factory, r.auth, p, prevEntry, false)
 }
 
 // dropConflicted returns the pins whose identity is NOT in conflicts — used by

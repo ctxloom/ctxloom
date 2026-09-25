@@ -215,38 +215,57 @@ func warnAgentAxisTypos(name string, req SetAgentRequest) {
 // invocation. An explicitly empty engine stays legal: it CLEARS the override,
 // falling back to the composed profiles' llm and then the project default.
 func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
-	if req.LLM != nil && *req.LLM != "" {
-		if available := AvailableLLMNames(reg, cfg); !slices.Contains(available, *req.LLM) {
-			return fmt.Errorf("agent %q: unknown engine %q; valid engines: %s",
-				name, *req.LLM, strings.Join(available, ", "))
-		}
+	if err := validateAgentEngine(reg, cfg, name, req); err != nil {
+		return err
 	}
+	if err := validateAgentModes(name, req); err != nil {
+		return err
+	}
+	if err := validateAgentApproaches(reg, cfg, name, req); err != nil {
+		return err
+	}
+	if err := validateContainerAuth(reg, cfg, name, req); err != nil {
+		return err
+	}
+	return validateAgentHomeMode(name, req)
+}
 
+// validateAgentEngine refuses a non-empty engine outside AvailableLLMNames.
+func validateAgentEngine(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
+	if req.LLM == nil || *req.LLM == "" {
+		return nil
+	}
+	if available := AvailableLLMNames(reg, cfg); !slices.Contains(available, *req.LLM) {
+		return fmt.Errorf("agent %q: unknown engine %q; valid engines: %s",
+			name, *req.LLM, strings.Join(available, ", "))
+	}
+	return nil
+}
+
+// validateAgentModes refuses an unparseable runtime axis or driving mode.
+func validateAgentModes(name string, req SetAgentRequest) error {
 	if req.Runtime != nil {
 		if _, rterr := launch.ParseRuntimeAxis(*req.Runtime); rterr != nil {
 			return fmt.Errorf("agent %q: %w", name, rterr)
 		}
 	}
-
 	if req.Driving != nil {
 		if err := agents.ValidateDriving(agents.DrivingMode(*req.Driving)); err != nil {
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
+	return nil
+}
 
-	// Validate the preference against the engine this write RESULTS IN, not the
-	// one recorded before it. `agent set x --engine <e> --surface
-	// context=system-prompt` for an engine without that approach must be
-	// refused as one act: checking against the
-	// OLD engine would accept a pair the new engine cannot honour, and the
-	// binding would be written already broken.
+// validateAgentApproaches validates the surface preferences and root
+// selections against the engine this write RESULTS IN, not the one recorded
+// before it. `agent set x --engine <e> --surface context=system-prompt` for an
+// engine without that approach must be refused as one act: checking against
+// the OLD engine would accept a pair the new engine cannot honour, and the
+// binding would be written already broken.
+func validateAgentApproaches(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
 	if len(req.Surfaces) > 0 {
-		engine := ""
-		if req.LLM != nil {
-			engine = *req.LLM
-		} else if existing, ok := cfg.Agent(name); ok {
-			engine = existing.LLM
-		}
+		engine := resultingAgentEngine(cfg, name, req)
 		if engine == "" {
 			return fmt.Errorf("agent %q: a surface preference needs a known engine — set --engine in the same command, "+
 				"since which approaches exist is the engine's answer, not ctxloom's", name)
@@ -256,12 +275,7 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 		}
 	}
 	if len(req.Roots) > 0 {
-		engine := ""
-		if req.LLM != nil {
-			engine = *req.LLM
-		} else if existing, ok := cfg.Agent(name); ok {
-			engine = existing.LLM
-		}
+		engine := resultingAgentEngine(cfg, name, req)
 		if engine == "" {
 			return fmt.Errorf("agent %q: a root selection needs a known engine — set --llm in the same command, "+
 				"since which roots an approach offers is the engine's answer, not ctxloom's", name)
@@ -270,22 +284,51 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
+	return nil
+}
 
-	if err := validateContainerAuth(reg, cfg, name, req); err != nil {
-		return err
+// validateAgentHomeMode refuses an unknown engine_home. It breaks rather than
+// degrades: an unknown value here would otherwise silently resolve to the host
+// default at launch (fault tolerance's usual treatment), which for THIS key
+// means silently dropping the very opt-in the write was trying to make —
+// refused here instead, before it is ever persisted.
+func validateAgentHomeMode(name string, req SetAgentRequest) error {
+	if req.HomeMode == nil || *req.HomeMode == "" {
+		return nil
 	}
-
-	// engine_home breaks rather than degrades: an unknown value here would
-	// otherwise silently resolve to the host default at launch (fault
-	// tolerance's usual treatment), which for THIS key means silently
-	// dropping the very opt-in the write was trying to make — refused here
-	// instead, before it is ever persisted.
-	if req.HomeMode != nil && *req.HomeMode != "" {
-		if _, err := agents.ParseHomeMode(*req.HomeMode); err != nil {
-			return fmt.Errorf("agent %q: %w", name, err)
-		}
+	if _, err := agents.ParseHomeMode(*req.HomeMode); err != nil {
+		return fmt.Errorf("agent %q: %w", name, err)
 	}
 	return nil
+}
+
+// resultingAgentEngine is the engine label the binding carries once req is
+// written: the requested one if req sets it (even to empty), else the
+// recorded one, else empty.
+func resultingAgentEngine(cfg *config.Config, name string, req SetAgentRequest) string {
+	if req.LLM != nil {
+		return *req.LLM
+	}
+	if existing, ok := cfg.Agent(name); ok {
+		return existing.LLM
+	}
+	return ""
+}
+
+// resultingAgentRuntime is the raw runtime the binding launches under once
+// req is written: the requested one, else the recorded one, else (when
+// either is empty) the project `runtime:` default.
+func resultingAgentRuntime(cfg *config.Config, name string, req SetAgentRequest) string {
+	runtime := ""
+	if req.Runtime != nil {
+		runtime = *req.Runtime
+	} else if existing, ok := cfg.Agent(name); ok {
+		runtime = existing.Runtime
+	}
+	if runtime == "" {
+		runtime = cfg.GetRuntime()
+	}
+	return runtime
 }
 
 // validateContainerAuth refuses a binding whose {engine, runtime: container}
@@ -300,7 +343,7 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 // here, at the command that typed the pair, rather than at the first run of an
 // agent that has looked fine in `agent list` all along.
 //
-// Same shape as the Surfaces check above: validated against the pair this write
+// Same shape as validateAgentApproaches: validated against the pair this write
 // RESULTS IN (the requested field if this call sets it, else the recorded one),
 // and for runtime the project `runtime:` default underneath both — a container
 // project default makes an unmapped engine just as unlaunchable as an explicit
@@ -308,18 +351,7 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 // alone: its engine comes from the composed profiles' llm and then the project
 // default at resolve time, so there is no pair here to judge.
 func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
-	existing, hasExisting := cfg.Agent(name)
-
-	runtime := ""
-	switch {
-	case req.Runtime != nil:
-		runtime = *req.Runtime
-	case hasExisting:
-		runtime = existing.Runtime
-	}
-	if runtime == "" {
-		runtime = cfg.GetRuntime()
-	}
+	runtime := resultingAgentRuntime(cfg, name, req)
 	// Two of the three sources above are still raw at this point: the RECORDED
 	// binding and the project `runtime:` default (only req.Runtime was parsed,
 	// by the caller). Asserted past the parser, an unrecognized spelling
@@ -335,13 +367,7 @@ func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string,
 		return nil
 	}
 
-	label := ""
-	switch {
-	case req.LLM != nil:
-		label = *req.LLM
-	case hasExisting:
-		label = existing.LLM
-	}
+	label := resultingAgentEngine(cfg, name, req)
 	if label == "" {
 		return nil
 	}

@@ -152,83 +152,129 @@ type SweepReport struct {
 // DecideSweep is the decision table. PURE: the facts and the request in,
 // the rows out, applied in order.
 func DecideSweep(f SessionFacts, req SweepRequest) []SweepRow {
-	row := func(a SweepAction, v SweepVerdict, reason string) SweepRow {
-		return SweepRow{Harp: f.Harp, Action: a, Verdict: v, Reason: reason}
-	}
-	aged := f.ActivityErr == "" && !req.ReclaimCutoff.IsZero() && !f.LastActive.After(req.ReclaimCutoff)
-	if req.ReclaimOnly && (!f.Reclaimable || (f.ActivityErr == "" && !aged)) {
+	aged := sweepAged(f, req)
+	if req.ReclaimOnly && !reclaimOnlyInScope(f, aged) {
 		return nil
 	}
-
-	switch {
-	case f.Lock == sessionlock.Alive:
-		return []SweepRow{row(SweepSkip, SweepLeft, "it is running: "+f.LockReason)}
-	case f.Lock != sessionlock.Dead:
-		r := row(SweepSkip, SweepLeft, "its liveness cannot be proven, so nothing is touched: "+f.LockReason)
-		r.Command = fmt.Sprintf("ctxloom session purge %s --even-if-live", f.Harp)
-		return []SweepRow{r}
-	case f.ActivityErr != "":
-		return []SweepRow{row(SweepSkip, SweepLeft, "its activity could not be read: "+f.ActivityErr)}
-	case f.Kept:
-		return []SweepRow{row(SweepKeep, SweepLeft, fmt.Sprintf("it carries a %s marker", paths.SessionKeepMarkerFileName))}
-	case f.WorktreeErr != "":
-		return []SweepRow{row(SweepSkip, SweepLeft, "its scratch worktrees could not be classified: "+f.WorktreeErr)}
+	if rows, blocked := sweepBlocked(f); blocked {
+		return rows
 	}
 
 	var rows []SweepRow
-	var clean []string
-	var held []isolation.WorktreeCandidate
-	for _, wt := range f.Worktrees {
+	clean, held := splitWorktrees(f.Worktrees)
+	if len(clean) > 0 {
+		r := newSweepRow(f, SweepReapWorktrees, SweepPlanned, "")
+		r.Worktrees = clean
+		rows = append(rows, r)
+	}
+	if len(held) > 0 {
+		return append(rows, newSweepRow(f, SweepSpare, SweepLeft, fmt.Sprintf(
+			"its scratch worktree %s must be preserved (%s), so the session is spared from reclaim and purge and the work stays where it is",
+			filepath.Base(held[0].Path), held[0].Reason)))
+	}
+
+	if aged && f.Reclaimable {
+		rows = append(rows, reclaimRow(f))
+	}
+	if !purgeInScope(f, req) {
+		return rows
+	}
+	return append(rows, purgeRow(f, req))
+}
+
+// newSweepRow is a row about f's session.
+func newSweepRow(f SessionFacts, a SweepAction, v SweepVerdict, reason string) SweepRow {
+	return SweepRow{Harp: f.Harp, Action: a, Verdict: v, Reason: reason}
+}
+
+// sweepAged reports whether the session's activity is known and at or before
+// the reclaim cutoff.
+func sweepAged(f SessionFacts, req SweepRequest) bool {
+	return f.ActivityErr == "" && !req.ReclaimCutoff.IsZero() && !f.LastActive.After(req.ReclaimCutoff)
+}
+
+// reclaimOnlyInScope reports whether a ReclaimOnly sweep has anything to say
+// about the session: it must be reclaimable, and aged unless its activity is
+// unreadable (which is itself reported).
+func reclaimOnlyInScope(f SessionFacts, aged bool) bool {
+	return f.Reclaimable && (f.ActivityErr != "" || aged)
+}
+
+// sweepBlocked is the single row for a session the sweep must not touch at
+// all — running, of unprovable liveness, unreadable, kept, or with
+// unclassifiable worktrees — and whether one applies.
+func sweepBlocked(f SessionFacts) ([]SweepRow, bool) {
+	switch {
+	case f.Lock == sessionlock.Alive:
+		return []SweepRow{newSweepRow(f, SweepSkip, SweepLeft, "it is running: "+f.LockReason)}, true
+	case f.Lock != sessionlock.Dead:
+		r := newSweepRow(f, SweepSkip, SweepLeft, "its liveness cannot be proven, so nothing is touched: "+f.LockReason)
+		r.Command = fmt.Sprintf("ctxloom session purge %s --even-if-live", f.Harp)
+		return []SweepRow{r}, true
+	case f.ActivityErr != "":
+		return []SweepRow{newSweepRow(f, SweepSkip, SweepLeft, "its activity could not be read: "+f.ActivityErr)}, true
+	case f.Kept:
+		return []SweepRow{newSweepRow(f, SweepKeep, SweepLeft, fmt.Sprintf("it carries a %s marker", paths.SessionKeepMarkerFileName))}, true
+	case f.WorktreeErr != "":
+		return []SweepRow{newSweepRow(f, SweepSkip, SweepLeft, "its scratch worktrees could not be classified: "+f.WorktreeErr)}, true
+	}
+	return nil, false
+}
+
+// splitWorktrees separates the reapable worktrees' paths from the ones that
+// must be preserved.
+func splitWorktrees(wts []isolation.WorktreeCandidate) (clean []string, held []isolation.WorktreeCandidate) {
+	for _, wt := range wts {
 		if wt.Verdict == isolation.VerdictReapable {
 			clean = append(clean, wt.Path)
 		} else {
 			held = append(held, wt)
 		}
 	}
-	if len(clean) > 0 {
-		r := row(SweepReapWorktrees, SweepPlanned, "")
-		r.Worktrees = clean
-		rows = append(rows, r)
-	}
-	if len(held) > 0 {
-		return append(rows, row(SweepSpare, SweepLeft, fmt.Sprintf(
-			"its scratch worktree %s must be preserved (%s), so the session is spared from reclaim and purge and the work stays where it is",
-			filepath.Base(held[0].Path), held[0].Reason)))
-	}
+	return clean, held
+}
 
-	if aged && f.Reclaimable {
-		r := row(SweepReclaim, SweepPlanned, "")
-		r.Bytes = f.ReclaimBytes
-		if f.ReclaimSymlink != "" {
-			r.Verdict = SweepLeft
-			r.Reason = fmt.Sprintf("its %s is a symlink, which a sweep never follows", f.ReclaimSymlink)
-		}
-		rows = append(rows, r)
+// reclaimRow plans the reclaim, or leaves it when the reclaim target is a
+// symlink, which a sweep never follows.
+func reclaimRow(f SessionFacts) SweepRow {
+	r := newSweepRow(f, SweepReclaim, SweepPlanned, "")
+	r.Bytes = f.ReclaimBytes
+	if f.ReclaimSymlink != "" {
+		r.Verdict = SweepLeft
+		r.Reason = fmt.Sprintf("its %s is a symlink, which a sweep never follows", f.ReclaimSymlink)
 	}
+	return r
+}
+
+// purgeInScope reports whether a purge row is considered at all: not a
+// ReclaimOnly sweep, a purgeable session, and not active after a stated
+// purge cutoff.
+func purgeInScope(f SessionFacts, req SweepRequest) bool {
 	if req.ReclaimOnly || !f.Purgeable {
-		return rows
+		return false
 	}
-	if !req.PurgeCutoff.IsZero() && f.LastActive.After(req.PurgeCutoff) {
-		return rows
-	}
+	return req.PurgeCutoff.IsZero() || !f.LastActive.After(req.PurgeCutoff)
+}
 
+// purgeRow decides the purge: spared for waiting mail or an undistilled
+// transcript, held when no purge age is stated, else planned.
+func purgeRow(f SessionFacts, req SweepRequest) SweepRow {
 	switch {
 	case f.Mail > 0:
-		rows = append(rows, row(SweepSpare, SweepLeft, fmt.Sprintf("%d undelivered message(s) wait in its spool, so it is spared from purge", f.Mail)))
+		return newSweepRow(f, SweepSpare, SweepLeft, fmt.Sprintf("%d undelivered message(s) wait in its spool, so it is spared from purge", f.Mail))
 	case !f.Distilled && f.Origin != sessions.OriginOneShot:
-		r := row(SweepSpare, SweepLeft, "it was never distilled, so its transcript is its only record and it is never purged")
+		r := newSweepRow(f, SweepSpare, SweepLeft, "it was never distilled, so its transcript is its only record and it is never purged")
 		r.Command = fmt.Sprintf("ctxloom session distill %s", f.Harp)
-		rows = append(rows, r)
+		return r
 	case req.PurgeCutoff.IsZero():
-		r := row(SweepPurge, SweepHeld, "no purge age is stated: pass --purge-older-than or set session_purge_age")
+		r := newSweepRow(f, SweepPurge, SweepHeld, "no purge age is stated: pass --purge-older-than or set session_purge_age")
 		r.Bytes = f.PurgeBytes
-		rows = append(rows, r)
+		return r
 	default:
-		r := row(SweepPurge, SweepPlanned, "")
+		r := newSweepRow(f, SweepPurge, SweepPlanned, "")
 		r.Bytes = f.PurgeBytes
-		rows = append(rows, r)
+		return r
 	}
-	return rows
 }
 
 // ClassifySessions gathers every in-scope session's facts. READ-ONLY: the
@@ -246,19 +292,16 @@ func ClassifySessions(ctx context.Context, g git.Git, req SweepRequest) ([]Sessi
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(l.SessionsRoot())
+	entries, err := readSessionsRoot(l)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("scan %q: %w", l.SessionsRoot(), err)
+		return nil, err
 	}
 	var out []SessionFacts
 	for _, e := range entries {
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
-		if e.Type()&fs.ModeSymlink != 0 || !e.IsDir() || harp.Validate(e.Name()) != nil {
+		if !isSessionDir(e) {
 			continue
 		}
 		if f, ok := classifySession(ctx, g, l, store, e.Name(), req); ok {
@@ -268,12 +311,30 @@ func ClassifySessions(ctx context.Context, g git.Git, req SweepRequest) ([]Sessi
 	return out, nil
 }
 
+// readSessionsRoot lists the sessions root; an absent root is no sessions.
+func readSessionsRoot(l sessions.Layout) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(l.SessionsRoot())
+	if err == nil {
+		return entries, nil
+	}
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("scan %q: %w", l.SessionsRoot(), err)
+}
+
+// isSessionDir reports whether a sessions-root entry is a real (non-symlink)
+// directory named by a valid harp.
+func isSessionDir(e os.DirEntry) bool {
+	return e.Type()&fs.ModeSymlink == 0 && e.IsDir() && harp.Validate(e.Name()) == nil
+}
+
 // classifySession gathers one session's facts; false when it is out of the
 // request's scope. A session whose record cannot be read has no project, so
 // only an all-projects sweep sees it.
 func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store sessions.Store, name string, req SweepRequest) (SessionFacts, bool) {
 	entry, _ := store.Find(name)
-	if !req.AllProjects && (entry == nil || entry.ProjectDir != req.ProjectDir) {
+	if !sweepScopeIncludes(entry, req) {
 		return SessionFacts{}, false
 	}
 	f := SessionFacts{Harp: name, Dir: l.Dir(name)}
@@ -291,12 +352,7 @@ func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store se
 		f.Kept = true
 	}
 	f.Distilled = sessions.Distilled(f.Dir)
-
-	members := req.reapPolicy(false).Members()
-	if req.ReclaimScope == paths.Persist && !f.Distilled {
-		members = sessions.ReapPolicy{}.Members() // ReapSession's own narrowing
-	}
-	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, members)
+	f.Reclaimable, f.ReclaimBytes, f.ReclaimSymlink = measureReclaim(l, name, reclaimMembers(req, f.Distilled))
 
 	if probe.Verdict == sessionlock.Dead {
 		wts, err := isolation.ClassifyHarpWorktrees(ctx, g, name, probe)
@@ -310,16 +366,42 @@ func classifySession(ctx context.Context, g git.Git, l sessions.Layout, store se
 	}
 	f.Mail = countSpool(l, name)
 	if entry != nil {
-		if items, err := classifyHarpDir(f.Dir, entry); err == nil {
-			for _, it := range items {
-				if it.Class == PurgeClassMachine || it.Class == PurgeClassDerived {
-					f.Purgeable = true
-					f.PurgeBytes += it.Bytes
-				}
-			}
-		}
+		addPurgeFacts(&f, entry)
 	}
 	return f, true
+}
+
+// sweepScopeIncludes reports whether a session with this record is in the
+// request's scope. A session whose record cannot be read has no project, so
+// only an all-projects sweep includes it.
+func sweepScopeIncludes(entry *sessions.Entry, req SweepRequest) bool {
+	return req.AllProjects || (entry != nil && entry.ProjectDir == req.ProjectDir)
+}
+
+// reclaimMembers is the member set a reclaim measures: the request's, narrowed
+// the way ReapSession narrows it for an undistilled session under a persist
+// reclaim scope.
+func reclaimMembers(req SweepRequest, distilled bool) []paths.HarpMember {
+	if req.ReclaimScope == paths.Persist && !distilled {
+		return sessions.ReapPolicy{}.Members() // ReapSession's own narrowing
+	}
+	return req.reapPolicy(false).Members()
+}
+
+// addPurgeFacts marks the session purgeable, and sums its bytes, when its
+// directory holds machine-written or derived files. An unclassifiable
+// directory is left not purgeable.
+func addPurgeFacts(f *SessionFacts, entry *sessions.Entry) {
+	items, err := classifyHarpDir(f.Dir, entry)
+	if err != nil {
+		return
+	}
+	for _, it := range items {
+		if it.Class == PurgeClassMachine || it.Class == PurgeClassDerived {
+			f.Purgeable = true
+			f.PurgeBytes += it.Bytes
+		}
+	}
 }
 
 // measureReclaim reports whether any of members holds anything, their total
@@ -391,10 +473,7 @@ func SweepSessions(ctx context.Context, g git.Git, req SweepRequest) (SweepRepor
 	if g == nil {
 		g = git.NewExec()
 	}
-	rep := SweepReport{Applied: req.Apply, ReclaimCutoff: req.ReclaimCutoff, PurgeCutoff: req.PurgeCutoff, Counts: map[SweepVerdict]int{}}
-	if req.ReclaimOnly {
-		rep.Reclaim = &sessions.Report{Applied: req.Apply, Cutoff: req.ReclaimCutoff, Members: req.reapPolicy(false).MemberRels()}
-	}
+	rep := newSweepReport(req)
 	l, err := sessions.HomeLayout()
 	if err != nil {
 		return rep, fmt.Errorf("resolve sessions dir: %w", err)
@@ -407,28 +486,44 @@ func SweepSessions(ctx context.Context, g git.Git, req SweepRequest) (SweepRepor
 		if err := ctx.Err(); err != nil {
 			return rep, err
 		}
-		rows := DecideSweep(f, req)
-		if len(rows) == 0 {
-			if req.ReclaimOnly && f.Reclaimable {
-				rep.Reclaim.Newer++
-			} else {
-				rep.Untouched++
-			}
-			continue
-		}
-		var reaped *sessions.ReapCandidate
-		if req.Apply {
-			rows, reaped = applySweep(ctx, g, l, req, f, rows)
-		}
-		for _, r := range rows {
-			rep.Rows = append(rep.Rows, r)
-			rep.Counts[r.Verdict]++
-		}
-		if rep.Reclaim != nil {
-			addReclaimCandidate(rep.Reclaim, f, rows, reaped)
-		}
+		sweepSession(ctx, g, l, req, f, &rep)
 	}
 	return rep, nil
+}
+
+// newSweepReport is an empty report for req; a ReclaimOnly sweep also
+// carries the reaper's own report.
+func newSweepReport(req SweepRequest) SweepReport {
+	rep := SweepReport{Applied: req.Apply, ReclaimCutoff: req.ReclaimCutoff, PurgeCutoff: req.PurgeCutoff, Counts: map[SweepVerdict]int{}}
+	if req.ReclaimOnly {
+		rep.Reclaim = &sessions.Report{Applied: req.Apply, Cutoff: req.ReclaimCutoff, Members: req.reapPolicy(false).MemberRels()}
+	}
+	return rep
+}
+
+// sweepSession decides one session, acts on it when req.Apply, and folds its
+// rows into rep.
+func sweepSession(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequest, f SessionFacts, rep *SweepReport) {
+	rows := DecideSweep(f, req)
+	if len(rows) == 0 {
+		if req.ReclaimOnly && f.Reclaimable {
+			rep.Reclaim.Newer++
+		} else {
+			rep.Untouched++
+		}
+		return
+	}
+	var reaped *sessions.ReapCandidate
+	if req.Apply {
+		rows, reaped = applySweep(ctx, g, l, req, f, rows)
+	}
+	for _, r := range rows {
+		rep.Rows = append(rep.Rows, r)
+		rep.Counts[r.Verdict]++
+	}
+	if rep.Reclaim != nil {
+		addReclaimCandidate(rep.Reclaim, f, rows, reaped)
+	}
 }
 
 // applySweep acts on one session's planned rows, after re-checking it. The
@@ -442,17 +537,30 @@ func applySweep(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequ
 	if !ok {
 		return leaveAll(rows, "it left the sweep's scope before it could be acted on"), nil
 	}
-	still := DecideSweep(fresh, req)
+	leaveNoLongerPlanned(rows, DecideSweep(fresh, req))
+	// THE RECLAIM RUNS FIRST. Its triage tears the clean worktrees down under
+	// the reaper's own hold AFTER the reaper's age check; removing them first
+	// would touch ephemeral/, and the age check would then read the session
+	// as active and reclaim nothing.
+	reaped, reclaimed := applyPlannedReclaim(ctx, g, l, req, rows)
+	applyPlannedRest(ctx, g, fresh, rows, reclaimed)
+	return rows, reaped
+}
+
+// leaveNoLongerPlanned leaves every planned row whose action the re-check's
+// decision (still) no longer plans.
+func leaveNoLongerPlanned(rows, still []SweepRow) {
 	for i := range rows {
 		r := &rows[i]
 		if r.Verdict == SweepPlanned && !slices.ContainsFunc(still, func(s SweepRow) bool { return s.Action == r.Action && s.Verdict == SweepPlanned }) {
 			r.Verdict, r.Reason = SweepLeft, "re-checked before acting, it no longer qualifies"
 		}
 	}
-	// THE RECLAIM RUNS FIRST. Its triage tears the clean worktrees down under
-	// the reaper's own hold AFTER the reaper's age check; removing them first
-	// would touch ephemeral/, and the age check would then read the session
-	// as active and reclaim nothing.
+}
+
+// applyPlannedReclaim runs the planned reclaim row, if any, returning the
+// reaper's candidate and whether it reclaimed.
+func applyPlannedReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequest, rows []SweepRow) (*sessions.ReapCandidate, bool) {
 	var reaped *sessions.ReapCandidate
 	reclaimed := false
 	for i := range rows {
@@ -461,6 +569,13 @@ func applySweep(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequ
 			reclaimed = r.Verdict == SweepDone
 		}
 	}
+	return reaped, reclaimed
+}
+
+// applyPlannedRest runs the planned worktree-reap and purge rows. A
+// worktree reap is already done when the reclaim ran, which tears the clean
+// worktrees down itself.
+func applyPlannedRest(ctx context.Context, g git.Git, fresh SessionFacts, rows []SweepRow, reclaimed bool) {
 	for i := range rows {
 		r := &rows[i]
 		if r.Verdict != SweepPlanned {
@@ -477,7 +592,6 @@ func applySweep(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequ
 			applyPurge(fresh, r)
 		}
 	}
-	return rows, reaped
 }
 
 // leaveAll marks every planned row left, for why.
@@ -574,8 +688,30 @@ func appendReason(reason, more string) string {
 // reaper's report: the reaper's own candidate when a reclaim ran, else one
 // built from the facts.
 func addReclaimCandidate(rep *sessions.Report, f SessionFacts, rows []SweepRow, reaped *sessions.ReapCandidate) {
+	c, found := reclaimCandidate(f, rows, reaped)
+	if !found || c.Verdict == "" {
+		return
+	}
+	switch c.Verdict {
+	case sessions.ReapReclaimed:
+		rep.Reclaimed++
+		rep.Bytes += c.Bytes
+	case sessions.ReapReclaimable:
+		rep.Bytes += c.Bytes
+	case sessions.ReapSpared:
+		rep.Spared++
+	case sessions.ReapKept:
+		rep.Kept++
+	default:
+		rep.Skipped++
+	}
+	rep.Candidates = append(rep.Candidates, c)
+}
+
+// reclaimCandidate is the candidate for the session's first reclaim-relevant
+// row (skip, keep, spare or reclaim); false when it has none.
+func reclaimCandidate(f SessionFacts, rows []SweepRow, reaped *sessions.ReapCandidate) (sessions.ReapCandidate, bool) {
 	c := sessions.ReapCandidate{Harp: f.Harp, Dir: f.Dir, LastActive: f.LastActive, Bytes: f.ReclaimBytes, OwnerPID: f.OwnerPID}
-	found := false
 	for _, r := range rows {
 		switch r.Action {
 		case SweepSkip:
@@ -596,24 +732,7 @@ func addReclaimCandidate(rep *sessions.Report, f SessionFacts, rows []SweepRow, 
 		default:
 			continue
 		}
-		found = true
-		break
+		return c, true
 	}
-	if !found || c.Verdict == "" {
-		return
-	}
-	switch c.Verdict {
-	case sessions.ReapReclaimed:
-		rep.Reclaimed++
-		rep.Bytes += c.Bytes
-	case sessions.ReapReclaimable:
-		rep.Bytes += c.Bytes
-	case sessions.ReapSpared:
-		rep.Spared++
-	case sessions.ReapKept:
-		rep.Kept++
-	default:
-		rep.Skipped++
-	}
-	rep.Candidates = append(rep.Candidates, c)
+	return c, false
 }

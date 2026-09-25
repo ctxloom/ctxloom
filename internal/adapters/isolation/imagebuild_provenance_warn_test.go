@@ -19,10 +19,10 @@ import (
 // prints the same empty value and exits 0. Returning "" quietly is therefore
 // the house silent-no-op shape — a check reporting success while doing
 // nothing — so the degrade must be announced.
-func TestHostVersionKey_UnstampedBinaryIsAnnounced(t *testing.T) {
+func TestHostImageKeys_UnstampedBinaryIsAnnounced(t *testing.T) {
 	unsetVersionStamp(t)
 
-	// The fixture must be hostile from hostVersionKey's own vantage point
+	// The fixture must be hostile from hostImageKeys' own vantage point
 	// before anything else is asserted: a stamp that still parsed would make
 	// every assertion below vacuous.
 	require.Empty(t, versionProvenanceKey(binaryVersion),
@@ -39,7 +39,9 @@ func TestHostVersionKey_UnstampedBinaryIsAnnounced(t *testing.T) {
 	clidiag.ResetWarnOnce()
 	t.Cleanup(clidiag.ResetWarnOnce)
 
-	require.Empty(t, hostVersionKey(), "an unstamped binary still yields no key")
+	tagKey, provenanceKey := hostImageKeys()
+	require.Empty(t, tagKey, "an unstamped binary still yields no tag key")
+	require.Empty(t, provenanceKey, "an unstamped binary still yields no provenance key")
 
 	out := sink.String()
 	require.NotEmpty(t, out, "the disabled staleness check must be announced, not silently returned as an empty key")
@@ -47,15 +49,17 @@ func TestHostVersionKey_UnstampedBinaryIsAnnounced(t *testing.T) {
 		"the warning must name what was disabled; got %q", out)
 }
 
-// TestHostVersionKey_StampedBinaryIsQuiet is the other half: the announcement
+// TestHostImageKeys_StampedBinaryIsQuiet is the other half: the announcement
 // is a degrade signal, not chatter on the healthy path.
-func TestHostVersionKey_StampedBinaryIsQuiet(t *testing.T) {
+func TestHostImageKeys_StampedBinaryIsQuiet(t *testing.T) {
 	var sink bytes.Buffer
 	restore := clidiag.SetSink(&sink)
 	t.Cleanup(restore)
 	clidiag.ResetWarnOnce()
 	t.Cleanup(clidiag.ResetWarnOnce)
 
-	require.NotEmpty(t, hostVersionKey(), "TestMain's stamp must resolve a key")
+	tagKey, provenanceKey := hostImageKeys()
+	require.NotEmpty(t, tagKey, "TestMain's stamp must resolve a tag key")
+	require.NotEmpty(t, provenanceKey, "TestMain's stamp must resolve a provenance key")
 	assert.Empty(t, sink.String(), "a usable stamp must produce no warning")
 }

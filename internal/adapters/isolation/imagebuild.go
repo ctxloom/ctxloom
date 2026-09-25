@@ -71,8 +71,9 @@ func composedContentHash(content []byte, engine string) string {
 }
 
 // composedImageTagFor is the shared image tag a COMPOSABLE spec's build
-// resolves to: one tag per (ctxloom version, resolved base content, ENGINE) —
-// the same triple across different projects and sessions shares the SAME tag
+// resolves to: one tag per (ctxloom version + admitted companion set, resolved
+// base content, ENGINE) — the key's companion half is hostImageKeys' — and the
+// same triple across different projects and sessions shares the SAME tag
 // and the runtime's layer cache. One engine per image, so the identity is a
 // function of the engine alone and cannot shift when some other project binds
 // a different set.
@@ -132,9 +133,10 @@ func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *
 	if err != nil {
 		return "", "", false
 	}
-	image = composedImageTagFor(content, engine, versionCommitKey(binaryVersion))
-	if vk := hostVersionKey(); vk != "" {
-		provenance = vk + "-" + composedContentHash(content, engine)
+	tagKey, provenanceKey := hostImageKeys()
+	image = composedImageTagFor(content, engine, tagKey)
+	if provenanceKey != "" {
+		provenance = provenanceKey + "-" + composedContentHash(content, engine)
 	}
 	return image, provenance, true
 }
@@ -640,7 +642,7 @@ var binaryVersion string
 
 // SetBinaryVersion injects the running binary's version stamp. Called once by
 // the CLI at startup. Everything downstream of the image-staleness gate reads
-// it, so an empty value disables that gate loudly (hostVersionKey).
+// it, so an empty value disables that gate loudly (hostImageKeys).
 func SetBinaryVersion(v string) { binaryVersion = v }
 
 const provenanceLabel = "ctxloom.provenance"
@@ -648,7 +650,7 @@ const provenanceLabel = "ctxloom.provenance"
 // HostProvenanceDigest returns the provenance label an agent image built NOW —
 // by this ctxloom, on the given base Containerfile config ("" = the embedded
 // default) — would carry: this build's version key (ctxloom's own version plus
-// the staged companions' versions — see hostVersionKey), suffixed with the base
+// the staged companions' versions — see hostImageKeys), suffixed with the base
 // config's content hash. It is the STALENESS SIGNAL: a new ctxloom version, an
 // uncommitted (tracked-dirty) rebuild, an updated companion, or a changed base
 // config changes it, and ensureImage rebuilds. Empty when this binary carries no usable stamp or
@@ -656,27 +658,41 @@ const provenanceLabel = "ctxloom.provenance"
 // Exported so the build tooling (`ctxloom container provenance`) can stamp a
 // matching label.
 func HostProvenanceDigest(baseContainerfile string) string {
-	return combineProvenance(hostVersionKey(), baseContainerfile)
+	_, provenanceKey := hostImageKeys()
+	return combineProvenance(provenanceKey, baseContainerfile)
 }
 
-// hostVersionKey is the running binary's provenance key, shared by
-// HostProvenanceDigest and composedIdentity's engine-aware suffix. It is empty
-// only for a binary carrying no usable stamp — which internal/adapters/cli's root gate
-// refuses to run — and that emptiness is ANNOUNCED, because a check that
-// silently stops checking is indistinguishable from one that passed.
+// hostImageKeys is the running binary's (tag key, provenance key), shared by
+// HostProvenanceDigest and composedIdentity. Both are empty only for a binary
+// carrying no usable stamp — which internal/adapters/cli's root gate refuses
+// to run — and that emptiness is ANNOUNCED, because a check that silently
+// stops checking is indistinguishable from one that passed.
 //
-// It keys on EVERYTHING the image bakes, not just ctxloom: the companion half
-// (companionVersionKey) is what makes a new ltk/taskloom/reprise invalidate an
-// image the way a new ctxloom does. The companion digest is appended
-// unconditionally — including when no companion is installed at all — so
-// "no companions" is a stated state rather than a missing suffix.
-func hostVersionKey() string {
-	key := versionProvenanceKey(binaryVersion)
-	if key == "" {
+// Both key on EVERYTHING the image bakes, not just ctxloom: the companion
+// digest (companionVersionKey) is what makes a new ltk/taskloom/reprise
+// invalidate an image the way a new ctxloom does. It is appended
+// unconditionally — including when no companion is admitted at all — so "no
+// companions" is a stated state rather than a missing suffix.
+//
+// WHY THE COMPANION DIGEST IS IN THE TAG TOO, not only the provenance: which
+// companions are admitted depends on the invoking HOME's trust, so two
+// environments at one commit (a developer's HOME and an acceptance cell's
+// sandboxed one) stage different images. Keyed in the provenance alone they
+// shared one tag, and each rebuilt over the other's image on every switch.
+// The ctxloom half differs between the two keys on purpose: the tag takes the
+// commit (versionCommitKey) so a dirty rebuild reuses its tag rather than
+// leaking an image, and the provenance takes the build (versionProvenanceKey)
+// so a dirty rebuild is forced. The companion probe runs ONCE for both, so the
+// tag and the label can never describe different companion sets.
+func hostImageKeys() (tagKey, provenanceKey string) {
+	build := versionProvenanceKey(binaryVersion)
+	if build == "" {
 		warnProvenanceDisabled(binaryVersion)
-		return ""
+		return "", ""
 	}
-	return key + companionKeySeparator + companionVersionKey()
+	companions := companionVersionKey()
+	return versionCommitKey(binaryVersion) + companionTagSeparator + companions,
+		build + companionKeySeparator + companions
 }
 
 // combineProvenance suffixes the version key with the base-config content

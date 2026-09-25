@@ -24,9 +24,13 @@ var companionLookPath = pinnedCompanionLookPath
 var companionVersionProbe = cliversion.Probe
 
 // companionKeySeparator joins the ctxloom half of the provenance key to the
-// companion half (hostVersionKey). "+" and not "-" because the ctxloom half
+// companion half (hostImageKeys). "+" and not "-" because the ctxloom half
 // already contains "-" and a reader should be able to see where it ends.
 const companionKeySeparator = "+c"
+
+// companionTagSeparator is companionKeySeparator's form in an image TAG, where
+// "+" is not a legal character.
+const companionTagSeparator = "-c"
 
 // companionVersionUnreportableToken stands in for a staged companion whose
 // version could not be read. It is NOT a silent omission: the same condition

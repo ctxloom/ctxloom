@@ -2024,7 +2024,7 @@ registry := "localhost"
 # small base, tagged ctxloom-agent:latest (the default the container isolation
 # policy looks for). Proves the plugin-in-container transport without an engine CLI
 # or auth. The production agent image (real engine + auth) is a separate follow-up.
-container-build-minimal:
+container-build-minimal: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
     ctx=$(mktemp -d)
@@ -2061,7 +2061,7 @@ container-build-base:
 # that declares `features:`) would otherwise become the base here. A real
 # `ctxloom run --runtime container` (or an explicit `ctxloom container build`)
 # still auto-detects normally; this recipe opts out deliberately.
-_container-build-via-cli backend *engines:
+_container-build-via-cli backend *engines: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail
     bin="./ctxloom-build-tmp-$$"

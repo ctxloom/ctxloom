@@ -1524,8 +1524,7 @@ _mutation-driver RATCHET *ARGS:
     # ooze's box counts a mutant that DID NOT COMPILE as killed: its verdict is
     # the runner's exit code and nothing else, so the compiler is scored as if it
     # were the test suite. The runners mark those; subtract them here so the
-    # number reported is over mutants a test could actually have caught. A run
-    # in which NO mutant compiled measured nothing, and this step fails it.
+    # number reported is over mutants a test could actually have caught.
     # Survivors are untouched by this — an invalid mutant never lands there — so
     # the ratchet and its baselines are unaffected.
     printf '%s\n' "$output" | sh tests/mutation/score_correction.sh
@@ -1534,20 +1533,25 @@ _mutation-driver RATCHET *ARGS:
     # than what is already recorded. A score alone cannot fail this gate, so
     # regression is what fails it — per target, because one number for the whole
     # table lets an improvement in one entry mask a regression in another.
-    # The ratchet follows the GATE, not the tool. An acceptance run is a
+    # The BASELINE follows the GATE, not the tool. An acceptance run is a
     # scheduled measurement whose whole point is "did it get worse"; the unit
     # judge is an authoring-time check you run once and read, for which a
     # baseline is meaningless — there is no previous run to have regressed from.
+    # The ratchet's per-target "measured nothing" refusals run in BOTH lanes:
+    # a target none of whose mutants compiled is a dead measurement beside
+    # healthy ones in either, and only a per-target count can see it.
+    baseline=--no-baseline
     if [ "{{RATCHET}}" = "ratchet" ]; then
-        runlog="{{mutation_tmp}}/.run.$$.log"
-        printf '%s\n' "$output" > "$runlog"
-        set +e
-        bash tests/mutation/survivor_ratchet.sh tests/mutation/survivor_baseline.txt "$runlog"
-        ratchet=$?
-        set -e
-        if [ "$ratchet" -ne 0 ]; then
-            exit "$ratchet"
-        fi
+        baseline=tests/mutation/survivor_baseline.txt
+    fi
+    runlog="{{mutation_tmp}}/.run.$$.log"
+    printf '%s\n' "$output" > "$runlog"
+    set +e
+    bash tests/mutation/survivor_ratchet.sh "$baseline" "$runlog"
+    ratchet=$?
+    set -e
+    if [ "$ratchet" -ne 0 ]; then
+        exit "$ratchet"
     fi
     # Past both guards, so a real score was produced and it did not regress.
 

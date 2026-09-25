@@ -16,7 +16,10 @@
 # lands in Killed, never in Survived — which is why the survivor ratchet and
 # every recorded baseline are unaffected by this correction.
 #
-# Exits nonzero when NO mutant compiled: that run measured nothing.
+# It does not decide whether a run measured anything. A target none of whose
+# mutants compiled is refused per target by survivor_ratchet.sh, which every
+# lane runs; a whole-run sum here cannot see one dead target beside healthy
+# ones.
 #
 # Prints nothing when no invalid mutants are present: a run with nothing to
 # correct must not grow a reassuring line saying so.
@@ -43,16 +46,6 @@ if [ -z "${total:-}" ] || [ -z "${killed:-}" ]; then
   echo
   echo "  ${invalid} mutant(s) DID NOT COMPILE, but no summary box was found to correct."
   exit 0
-fi
-
-# Nothing compiled: the box's perfect score is over nothing. This is the one
-# step every lane runs (the unit lane has no ratchet), so it fails the run.
-if [ "$invalid" -ge "$total" ]; then
-  echo
-  echo "  error: all ${total} mutant(s) DID NOT COMPILE — the run measured NOTHING." >&2
-  echo "         ooze scored each build failure as a kill; the laboratory cannot build" >&2
-  echo "         this tree. Read any mutant's output above for the compiler error." >&2
-  exit 1
 fi
 
 echo

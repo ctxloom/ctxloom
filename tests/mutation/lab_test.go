@@ -7,6 +7,9 @@ package mutation
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -48,6 +51,20 @@ func linkLab(src, lab string) error {
 // place that failure can be told apart from a real kill.
 func preflightJudge(root, testCommand string) (string, error) {
 	return runInLab(root, testCommand, nil)
+}
+
+// preflightThenRelease is the only route from a target's setup to its mutants:
+// it runs preflightJudge and calls launch only if the judge passes, returning
+// the judge's error and output otherwise. launch is the ooze release; it is a
+// parameter so this decision is exercised by an ordinary gate, not only inside
+// the mutation-tagged run it guards (TestEveryOozeReleaseIsBehindThePreflight
+// holds the harness to calling ooze through it).
+func preflightThenRelease(root, testCommand string, launch func()) error {
+	if out, err := preflightJudge(root, testCommand); err != nil {
+		return fmt.Errorf("%w\n%s", err, out)
+	}
+	launch()
+	return nil
 }
 
 // runInLab builds a laboratory of root, overwrites each overlay path (slash,
@@ -205,4 +222,117 @@ func TestPreflightJudge_RunsInASymlinkedLaboratory(t *testing.T) {
 	if out, err := preflightJudge(src, "sh check.sh"); err != nil {
 		t.Fatalf("the pre-flight did not run in a symlinked laboratory: %v\n%s", err, out)
 	}
+}
+
+// A pre-flight that fails must stop the release: no mutant may be judged by a
+// judge that is already red on the unmutated tree. And one that passes must
+// release exactly once.
+func TestPreflightThenRelease_ReleasesOnlyWhenTheJudgePassesOnTheUnmutatedTree(t *testing.T) {
+	src := fakeModule(t, map[string]string{
+		"go.mod":  labGoMod,
+		"fail.sh": "echo 'cannot embed irregular file loadout.yaml'\nexit 3\n",
+		"pass.sh": "exit 0\n",
+	})
+
+	launched := 0
+	err := preflightThenRelease(src, "sh fail.sh", func() { launched++ })
+	if err == nil {
+		t.Errorf("a pre-flight exiting 3 returned no error; the release would read as sound")
+	} else if !strings.Contains(err.Error(), "cannot embed irregular file") {
+		t.Errorf("the judge's own output must travel with the error so the failure is diagnosable; got %v", err)
+	}
+	if launched != 0 {
+		t.Fatalf("released %d time(s) after a FAILED pre-flight; ooze would score every mutant as a kill", launched)
+	}
+
+	if err := preflightThenRelease(src, "sh pass.sh", func() { launched++ }); err != nil {
+		t.Fatalf("a passing pre-flight returned %v", err)
+	}
+	if launched != 1 {
+		t.Fatalf("released %d time(s) after a passing pre-flight, want 1", launched)
+	}
+}
+
+// preflightThenRelease is proven above, but it only guards a release that goes
+// THROUGH it, and the harness that calls ooze is built only with -tags mutation
+// — so deleting the pre-flight there would fail nothing in an ordinary gate.
+// This reads the package's source, whatever its build tags, and requires every
+// reference to ooze.Release to sit inside the launch closure handed to
+// preflightThenRelease, whose error is not thrown away.
+func TestEveryOozeReleaseIsBehindThePreflight(t *testing.T) {
+	dir := filepath.Join(repoRootFromTest(t), "tests", "mutation")
+	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	releases := 0
+	for _, path := range files {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		var stack []ast.Node
+		ast.Inspect(f, func(n ast.Node) bool {
+			if n == nil {
+				stack = stack[:len(stack)-1]
+				return true
+			}
+			stack = append(stack, n)
+			if !isSelector(n, "ooze", "Release") {
+				return true
+			}
+			releases++
+			if !behindPreflight(stack) {
+				t.Errorf("%s: ooze.Release is reached without preflightThenRelease — a laboratory that cannot build would score every mutant as a kill", fset.Position(n.Pos()))
+			}
+			return true
+		})
+	}
+	if releases == 0 {
+		t.Fatalf("found no ooze.Release in %s; this check is vacuous — was the release renamed?", dir)
+	}
+}
+
+func isSelector(n ast.Node, pkg, name string) bool {
+	sel, ok := n.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != name {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == pkg
+}
+
+// behindPreflight reports whether the innermost function literal enclosing the
+// top of stack is an argument to a preflightThenRelease call whose result is
+// kept (not a bare statement, not assigned to _).
+func behindPreflight(stack []ast.Node) bool {
+	for i := len(stack) - 1; i > 0; i-- {
+		if _, ok := stack[i].(*ast.FuncLit); !ok {
+			continue
+		}
+		call, ok := stack[i-1].(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "preflightThenRelease" {
+			return false
+		}
+		if i < 2 {
+			return false
+		}
+		switch parent := stack[i-2].(type) {
+		case *ast.ExprStmt:
+			return false
+		case *ast.AssignStmt:
+			for _, lhs := range parent.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok && id.Name == "_" {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
 }

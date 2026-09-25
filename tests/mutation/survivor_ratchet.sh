@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# The SURVIVOR RATCHET for the mutation gates that carry a baseline.
+# The SURVIVOR RATCHET, and the per-target "measured nothing" check every mutation lane runs.
 #
 # Usage: survivor_ratchet.sh <baseline-file> <run-log>
+#        survivor_ratchet.sh --no-baseline <run-log>
+#
+# --no-baseline is the unratcheted lane's check: every per-target refusal of a
+# run that measured NOTHING below still applies, and no target is judged
+# against, or recorded into, a baseline. "Measured nothing" is per target in
+# every lane — a healthy target's box must not dilute a dead one's.
 #
 # THE INVARIANT: a mutation run that left MORE mechanisms unverified than the
 # recorded baseline must not exit 0. The guard beside it in the recipe refuses
@@ -45,6 +51,11 @@ if [ "$#" -ne 2 ]; then
 fi
 baseline=$1
 log=$2
+judge=1
+if [ "$baseline" = "--no-baseline" ]; then
+    judge=0
+    baseline=/dev/null
+fi
 
 for f in "$baseline" "$log"; do
     if [ ! -r "$f" ]; then
@@ -141,7 +152,7 @@ while read -r name btotal bsurv bprov; do
 done < <(grep -vE '^[[:space:]]*(#|$)' "$baseline")
 
 update=0
-[ "${CTXLOOM_MUTATION_BASELINE:-}" = "update" ] && update=1
+[ "$judge" -eq 1 ] && [ "${CTXLOOM_MUTATION_BASELINE:-}" = "update" ] && update=1
 
 failed=0
 declare -A new_total new_surv
@@ -170,6 +181,11 @@ while read -r name mtotal mkilled msurv minvalid; do
         echo "       ooze scored each build failure as a kill. The laboratory cannot build" >&2
         echo "       this tree; read any mutant's output above for the compiler error." >&2
         failed=1
+        continue
+    fi
+
+    if [ "$judge" -eq 0 ]; then
+        notes+=("MEASURED  $name: $msurv survivors of $mtotal")
         continue
     fi
 

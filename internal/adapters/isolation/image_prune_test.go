@@ -55,34 +55,46 @@ func (s *fakeImageStore) rmis() [][]string {
 
 func (s *fakeImageStore) exec(_ context.Context, _ string, args []string) (string, error) {
 	s.calls = append(s.calls, append([]string(nil), args...))
-	switch {
-	case args[0] == "images":
+	switch args[0] {
+	case "images":
 		return s.list(args[len(args)-1]), nil
-	case args[0] == "image" && args[1] == "inspect":
+	case "image": // image inspect <ids...>
 		return s.inspect(args[2:]), nil
-	case args[0] == "ps":
-		var ids []string
-		for c := range s.containers {
-			ids = append(ids, c)
-		}
-		return strings.Join(ids, "\n"), nil
-	case args[0] == "container" && args[1] == "inspect":
-		var ids []string
-		for _, c := range args[4:] {
-			ids = append(ids, "sha256:"+s.containers[c])
-		}
-		return strings.Join(ids, "\n"), nil
-	case args[0] == "system":
+	case "ps":
+		return s.containerIDs(), nil
+	case "container": // container inspect --format {{.Image}} <ids...>
+		return s.containerImages(args[4:]), nil
+	case "system":
 		return s.df(), nil
-	case args[0] == "rmi":
-		for _, ref := range args[1:] {
-			if s.failRmi[ref] {
-				return "", errors.New("exit status 1")
-			}
-		}
-		return "", nil
+	case "rmi":
+		return "", s.rmi(args[1:])
 	}
 	return "", fmt.Errorf("fake store: unscripted argv %v", args)
+}
+
+func (s *fakeImageStore) containerIDs() string {
+	var ids []string
+	for c := range s.containers {
+		ids = append(ids, c)
+	}
+	return strings.Join(ids, "\n")
+}
+
+func (s *fakeImageStore) containerImages(containers []string) string {
+	var ids []string
+	for _, c := range containers {
+		ids = append(ids, "sha256:"+s.containers[c])
+	}
+	return strings.Join(ids, "\n")
+}
+
+func (s *fakeImageStore) rmi(refs []string) error {
+	for _, ref := range refs {
+		if s.failRmi[ref] {
+			return errors.New("exit status 1")
+		}
+	}
+	return nil
 }
 
 func (s *fakeImageStore) list(filter string) string {

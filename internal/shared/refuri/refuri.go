@@ -289,17 +289,7 @@ func (p *Parts) parseExternal(u *url.URL) error {
 	// carries a character that is not validly encoded (a literal space),
 	// EscapedPath discards RawPath and re-escapes the DECODED path, turning
 	// "%40" back into a delimiter "@".
-	repoEsc, bundleEsc, err := resolveDotSegmentsEachSide(writtenPath(u))
-	if err != nil {
-		return err
-	}
-
-	// The version is split off the ESCAPED bundle path, before decoding: an
-	// item written "na%40me" must keep its "@" as data, and decoding first
-	// would make it indistinguishable from the version delimiter. Render
-	// re-encodes "@" in a bundle name for the same reason, which is what makes
-	// parse ∘ render idempotent.
-	bundlePath, version, err := splitVersion(bundleEsc)
+	repoEsc, bundlePath, version, err := resolveDotSegmentsEachSide(writtenPath(u))
 	if err != nil {
 		return err
 	}
@@ -410,13 +400,24 @@ func (p Parts) Render(withVersion bool) string {
 // Resolving the halves independently is also what stops a ".." in the bundle
 // path from climbing OUT of the bundle half and eating the repository path's
 // last segment, which a single whole-string resolution would allow.
-func resolveDotSegmentsEachSide(escPath string) (repo, bundle string, err error) {
+//
+// The "@<ver>" suffix is split off the bundle half BEFORE its dot segments are
+// removed, for the same reason: a version is a git ref name, not a path, and
+// resolved together "x@a/../b" would pop the bundle name and leave bundle "b"
+// with no version — the version choosing which bundle the reference names. The
+// split is on the ESCAPED form (see splitVersion), and the version is returned
+// decoded and otherwise verbatim.
+func resolveDotSegmentsEachSide(escPath string) (repo, bundle, version string, err error) {
 	before, after, found := strings.Cut(escPath, RepoBundleSeparator)
 	if !found {
-		return "", "", fmt.Errorf("%w: missing %q separator between repository path and bundle path",
+		return "", "", "", fmt.Errorf("%w: missing %q separator between repository path and bundle path",
 			ErrSyntax, RepoBundleSeparator)
 	}
-	return removeDotSegments(before), removeDotSegments(after), nil
+	bundleEsc, version, err := splitVersion(after)
+	if err != nil {
+		return "", "", "", err
+	}
+	return removeDotSegments(before), removeDotSegments(bundleEsc), version, nil
 }
 
 // removeDotSegments implements RFC 3986 §5.2.4 over a single path, preserving

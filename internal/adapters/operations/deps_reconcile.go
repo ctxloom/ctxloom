@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -171,7 +172,7 @@ func ReconcileInstalled(ctx context.Context, cfg *config.Config) (ReconcileResul
 
 	var installed []string
 	for _, e := range lockfile.AllEntries() {
-		installed = append(installed, e.Ref)
+		installed = append(installed, string(e.Ref))
 	}
 	if len(installed) == 0 {
 		return ReconcileResult{}, nil
@@ -185,7 +186,7 @@ func ReconcileInstalled(ctx context.Context, cfg *config.Config) (ReconcileResul
 	}
 	items := make([]RemovedItem, 0, len(res.Plan.Gone))
 	for _, ref := range res.Plan.Gone {
-		items = append(items, RemovedItem{Type: remote.ItemTypeBundle, Ref: ref})
+		items = append(items, RemovedItem{Type: remote.ItemTypeBundle, Ref: trust.BundleKey(ref)})
 	}
 	removed, err := RemoveLocalItems(RemoveLocalItemsRequest{
 		Items:       items,

@@ -58,6 +58,11 @@ type Exposure struct {
 	// Ref is the item's identity — the ref the countersignature stores key on.
 	Ref trust.Ref
 
+	// BundleRef is the parsed item reference Ref was mapped from, carried so a
+	// port that keys on the bundle's identity (the retraction record) reads it
+	// straight from the parse rather than re-rendering it through Ref's URL.
+	BundleRef trust.BundleRef
+
 	// RefStr is the canonical reference string Decide parsed Ref out of — the
 	// exact address the caller asked about. It is carried rather than
 	// re-rendered from Ref because rendering is a second construction of the
@@ -466,7 +471,7 @@ func Decide(rep report.Reporter, authorizer Authorizer, read BundleRead, ref str
 		return v
 	}
 	tRef := trust.RefFromBundleRef(br)
-	v := authorizer.Admit(Exposure{Read: read, Ref: tRef, RefStr: ref, Bytes: payload, Form: form})
+	v := authorizer.Admit(Exposure{Read: read, Ref: tRef, BundleRef: br, RefStr: ref, Bytes: payload, Form: form})
 	ReportVerdict(rep, ref, v)
 	return v
 }

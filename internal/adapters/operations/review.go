@@ -536,7 +536,7 @@ func latestApproveEntry(records countersign.Records, ref string, layout signing.
 
 // remoteNameFor resolves a bundle ref's source repo to its registered remote
 // name for the review header ("" when unresolvable — the canonical ref is
-// still shown). Both sides canonicalize through trust.CanonicalRepoURL.
+// still shown). Both sides are compared by remote.SameRepository.
 func remoteNameFor(reg *remote.Registry, bundleRef string) string {
 	if reg == nil {
 		return ""
@@ -545,9 +545,8 @@ func remoteNameFor(reg *remote.Registry, bundleRef string) string {
 	if err != nil || parsed.IsLocal || parsed.URL == "" {
 		return ""
 	}
-	canonical := trust.CanonicalRepoURL(parsed.URL)
 	for _, rem := range reg.List() {
-		if trust.CanonicalRepoURL(rem.URL) == canonical {
+		if remote.SameRepository(rem.URL, parsed.URL) {
 			return rem.Name
 		}
 	}

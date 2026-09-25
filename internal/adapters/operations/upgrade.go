@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
@@ -128,7 +129,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	result.Incomplete = len(unexpanded) > 0
 	incomplete := result.Incomplete
 
-	newActive := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}
+	newActive := &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}}
 	for _, p := range proposed {
 		cur, has := active.GetEntry(p.Type, p.Identity)
 		// A held entry never advances — carry its current pin forward unchanged.
@@ -145,12 +146,12 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 		// gate would have withheld it anyway with a reason.
 		var verified remote.Verified
 		if !has || cur.SHA != p.Hash {
-			v, refusal := verifyAdvance(ctx, cfg, factory, auth, p, cur, downgrades.allows(p.Identity))
+			v, refusal := verifyAdvance(ctx, cfg, factory, auth, p, cur, downgrades.allows(string(p.Identity)))
 			verified = v
 			if refusal != nil && has {
 				newActive.AddEntry(p.Type, p.Identity, cur)
 				result.Refused = append(result.Refused, RefusedAdvance{
-					Identity:    p.Identity,
+					Identity:    string(p.Identity),
 					KeptSHA:     cur.SHA,
 					ProposedSHA: p.Hash,
 					Detail:      refusal.Error(),
@@ -316,7 +317,7 @@ func movePinnedWorktree(ctx context.Context, cfg *config.Config, p PinnedRef) {
 	if p.Type != remote.ItemTypeBundle {
 		return // only a bundle materializes a tree
 	}
-	ref, err := remote.ParseReference(p.Identity)
+	ref, err := remote.ParseReference(string(p.Identity))
 	if err != nil || !ref.IsCanonical() {
 		return
 	}

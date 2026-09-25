@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -204,7 +205,10 @@ func parseCheckRef(refStr string) (*remote.Reference, error) {
 // ref is already validated by parseCheckRef; refStr is carried only for the
 // status, which quotes the reference the user actually typed.
 func detectSingleUpdate(ctx context.Context, fetcher remote.Fetcher, lockfile *remote.Lockfile, ref *remote.Reference, refStr string) (DependencyStatus, error) {
-	canonical := ref.LockKey()
+	canonical, err := ref.LockKey()
+	if err != nil {
+		return DependencyStatus{}, fmt.Errorf("invalid reference %s: %w", refStr, err)
+	}
 	entry, itemType := lookupLockedEntry(lockfile, canonical)
 	if itemType == "" {
 		// An unlocked ref is a bundle — top-level profile distribution was retired,
@@ -226,7 +230,7 @@ func detectSingleUpdate(ctx context.Context, fetcher remote.Fetcher, lockfile *r
 		LatestSHA:  latestSHA,
 		Update: DependencyUpdate{
 			Type:             itemType,
-			Ref:              canonical,
+			Ref:              string(canonical),
 			CurrentSHA:       entry.SHA,
 			LatestSHA:        latestSHA,
 			RequestedVersion: entry.RequestedVersion,
@@ -259,8 +263,8 @@ func fetchIntoClone(ctx context.Context, cache *remote.RepoCache, repoURL string
 
 // lookupLockedEntry finds refStr's bundle lock entry and item type. Returns a
 // zero entry and empty type when not present.
-func lookupLockedEntry(lockfile *remote.Lockfile, refStr string) (remote.LockEntry, remote.ItemType) {
-	if entry, ok := lockfile.GetEntry(remote.ItemTypeBundle, refStr); ok {
+func lookupLockedEntry(lockfile *remote.Lockfile, key trust.BundleKey) (remote.LockEntry, remote.ItemType) {
+	if entry, ok := lockfile.GetEntry(remote.ItemTypeBundle, key); ok {
 		return entry, remote.ItemTypeBundle
 	}
 	return remote.LockEntry{}, ""
@@ -305,7 +309,7 @@ func refreshRemoteRepos(ctx context.Context, cfg *config.Config, lockfile *remot
 		if e.Entry.SHA == "" {
 			continue
 		}
-		ref, err := remote.ParseReference(e.Ref)
+		ref, err := remote.ParseReference(string(e.Ref))
 		if err != nil || ref.URL == "" {
 			continue
 		}
@@ -347,29 +351,29 @@ func detectUpdates(ctx context.Context, cfg *config.Config, auth remote.AuthConf
 		if e.Entry.SelectorKind().IsPin() {
 			continue
 		}
-		ref, err := remote.ParseReference(e.Ref)
+		ref, err := remote.ParseReference(string(e.Ref))
 		if err != nil {
-			unchecked = append(unchecked, UncheckedDependency{Ref: e.Ref, Reason: UncheckedUnparseable, Err: err})
+			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), Reason: UncheckedUnparseable, Err: err})
 			continue
 		}
 		if ref.URL == "" {
-			unchecked = append(unchecked, UncheckedDependency{Ref: e.Ref, Reason: UncheckedNoRepositoryURL})
+			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), Reason: UncheckedNoRepositoryURL})
 			continue
 		}
 		fetcher, err := fetcherFor(ref.URL)
 		if err != nil {
-			unchecked = append(unchecked, UncheckedDependency{Ref: e.Ref, URL: ref.URL, Reason: UncheckedUnreachable, Err: err})
+			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), URL: ref.URL, Reason: UncheckedUnreachable, Err: err})
 			continue
 		}
 		latest, ok, lerr := latestWithinConstraint(ctx, fetcher, ref.URL, e.Entry.RequestedVersion)
 		if lerr != nil {
-			unchecked = append(unchecked, UncheckedDependency{Ref: e.Ref, URL: ref.URL, Constraint: e.Entry.RequestedVersion, Reason: UncheckedUnresolvable, Err: lerr})
+			unchecked = append(unchecked, UncheckedDependency{Ref: string(e.Ref), URL: ref.URL, Constraint: e.Entry.RequestedVersion, Reason: UncheckedUnresolvable, Err: lerr})
 			continue
 		}
 		if !ok || latest == e.Entry.SHA {
 			continue
 		}
-		updates = append(updates, DependencyUpdate{Type: e.Type, Ref: e.Ref, CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion, Kind: e.Entry.SelectorKind(), Version: e.Entry.Version})
+		updates = append(updates, DependencyUpdate{Type: e.Type, Ref: string(e.Ref), CurrentSHA: e.Entry.SHA, LatestSHA: latest, RequestedVersion: e.Entry.RequestedVersion, Kind: e.Entry.SelectorKind(), Version: e.Entry.Version})
 	}
 	return updates, unchecked, skipped
 }

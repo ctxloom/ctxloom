@@ -39,7 +39,14 @@ func SetItemPin(cfg *config.Config, ref string, pinned bool) (bool, error) {
 		return false, fmt.Errorf("load active lockfile: %w", err)
 	}
 	// Only bundles are locked now (top-level profile distribution was retired).
-	canonical := CanonicalizeRemoteRef(cfg, ref, remote.ItemTypeBundle)
+	parsed, err := remote.ParseReference(CanonicalizeRemoteRef(cfg, ref, remote.ItemTypeBundle))
+	if err != nil {
+		return false, nil
+	}
+	canonical, err := parsed.LockKey()
+	if err != nil {
+		return false, nil
+	}
 	entry, ok := active.GetEntry(remote.ItemTypeBundle, canonical)
 	if !ok {
 		return false, nil

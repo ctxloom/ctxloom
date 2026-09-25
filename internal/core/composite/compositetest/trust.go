@@ -17,7 +17,7 @@ type Option func(*ports)
 type ports struct {
 	rejected  func(trust.Ref, []byte) bool
 	approved  func(trust.Ref, []byte, bundles.ContentForm) bool
-	retracted func(trust.Ref) (bool, string)
+	retracted func(trust.BundleRef) (bool, string)
 	observe   func(trust.Ref, []byte)
 	fault     error
 }
@@ -66,7 +66,7 @@ func ApproveAll() Option {
 
 // RetractWhen records a publisher retraction, with its reason, for every ref
 // fn accepts.
-func RetractWhen(fn func(ref trust.Ref) (retracted bool, reason string)) Option {
+func RetractWhen(fn func(ref trust.BundleRef) (retracted bool, reason string)) Option {
 	return func(p *ports) { p.retracted = fn }
 }
 
@@ -97,7 +97,7 @@ func (r records) Fault() error { return r.p.fault }
 
 type retraction struct{ p *ports }
 
-func (r retraction) Retracted(ref trust.Ref) (bool, string) {
+func (r retraction) Retracted(ref trust.BundleRef) (bool, string) {
 	if r.p.retracted == nil {
 		return false, ""
 	}

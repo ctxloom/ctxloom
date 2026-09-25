@@ -77,13 +77,20 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		if active == nil {
 			return remote.LockEntry{}, false
 		}
-		return active.GetEntry(ref.ItemType, ref.LockKey())
+		key, err := ref.LockKey()
+		if err != nil {
+			return remote.LockEntry{}, false
+		}
+		return active.GetEntry(ref.ItemType, key)
 	}
 
 	return func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
-		identity := ref.LockKey()
+		identity, err := ref.LockKey()
+		if err != nil {
+			return "", "", "", false
+		}
 		expr := ref.ContentVersion
-		key := identity + "\x00" + expr
+		key := string(identity) + "\x00" + expr
 		if r, ok := cache[key]; ok {
 			return r.sha, r.version, r.kind, true
 		}

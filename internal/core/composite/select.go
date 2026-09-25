@@ -137,11 +137,11 @@ func fragmentsByTags(cat bundles.Catalog, tags []string) ([]FragmentAsk, error) 
 	}
 	asks := make([]FragmentAsk, 0, len(infos))
 	for _, info := range infos {
-		bundle, err := bundles.CanonicalBundleRef(info.Bundle)
+		name, _, err := bundles.SplitFragmentVersion(info.Bundle + bundles.FragmentSelector + info.Name)
 		if err != nil {
 			continue
 		}
-		asks = append(asks, FragmentAsk{Name: bundle + bundles.FragmentSelector + info.Name})
+		asks = append(asks, FragmentAsk{Name: name})
 	}
 	return asks, nil
 }

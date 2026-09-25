@@ -49,15 +49,15 @@ func lockfileFSOptions(cfg *config.Config) []remote.LockfileOption {
 // but does not match what its publisher signed is the READER's answer, not this
 // function's: it is a fact about bytes, established where the bytes are read.
 func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root trust.TrustRoot, failures map[string]error) []bundles.Reader {
-	var trees []string
+	trees := make([]string, 0, len(lock.Bundles))
 	for canonical := range lock.Bundles {
-		trees = append(trees, canonical)
+		trees = append(trees, string(canonical))
 	}
 	sort.Strings(trees) // deterministic reader order across runs
 
 	var out []bundles.Reader
 	for _, canonical := range trees {
-		reader, err := treeBundleReader(cfg, canonical, lock.Bundles[canonical], root)
+		reader, err := treeBundleReader(cfg, canonical, lock.Bundles[trust.BundleKey(canonical)], root)
 		if err != nil {
 			failures[canonical] = err
 			continue

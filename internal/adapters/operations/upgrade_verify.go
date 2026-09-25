@@ -73,7 +73,7 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 	if p.Type != remote.ItemTypeBundle {
 		return remote.Verified{}, nil
 	}
-	ref, err := remote.ParseReference(p.Identity)
+	ref, err := remote.ParseReference(string(p.Identity))
 	if err != nil || !ref.IsCanonical() {
 		return remote.Verified{}, nil
 	}
@@ -90,7 +90,7 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 	default:
 		return remote.Verified{}, err
 	}
-	if err := remote.AdmitSignedVersion(os.Stderr, p.Identity, prior, v, allowDowngrade); err != nil {
+	if err := remote.AdmitSignedVersion(os.Stderr, string(p.Identity), prior, v, allowDowngrade); err != nil {
 		return remote.Verified{}, err
 	}
 	return v, nil

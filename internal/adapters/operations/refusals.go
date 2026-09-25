@@ -224,7 +224,7 @@ func lockedSHAsByRef(cfg *config.Config) (map[string]string, error) {
 	}
 	out := map[string]string{}
 	for _, e := range lock.AllEntries() {
-		out[e.Ref] = e.Entry.SHA
+		out[string(e.Ref)] = e.Entry.SHA
 	}
 	return out, nil
 }

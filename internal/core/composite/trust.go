@@ -150,7 +150,7 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 	// its own answer (a local ref has no lockfile entry), and a record that
 	// DOES answer for one outranks the locality below — retraction sits above
 	// every allow.
-	if retracted, why := a.retraction.Retracted(e.Ref); retracted {
+	if retracted, why := a.retraction.Retracted(e.BundleRef); retracted {
 		return a.record(e, bundles.Verdict{Reason: bundles.ReasonRetracted, Detail: why})
 	}
 	if reason, ok := localReason(e.Read); ok {

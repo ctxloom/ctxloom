@@ -2,6 +2,7 @@ package operations
 
 import (
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 )
@@ -9,7 +10,7 @@ import (
 // RemovedItem identifies a local item to delete during cleanup.
 type RemovedItem struct {
 	Type remote.ItemType
-	Ref  string
+	Ref  trust.BundleKey
 }
 
 // RemoveLocalItemsRequest is the input for RemoveLocalItems.
@@ -32,7 +33,7 @@ func RemoveLocalItems(req RemoveLocalItemsRequest) (*RemoveLocalItemsResult, err
 	res := &RemoveLocalItemsResult{}
 	for _, item := range req.Items {
 		req.Lockfile.RemoveEntry(item.Type, item.Ref)
-		res.Pruned = append(res.Pruned, item.Ref)
+		res.Pruned = append(res.Pruned, string(item.Ref))
 	}
 	if len(res.Pruned) > 0 {
 		// remote.AllowEmpty: pruning the LAST entry legitimately empties the

@@ -127,8 +127,8 @@ func (u retiredParentUpgrade) rewrite(ref string) (string, bool) {
 // the two are compared as REPOSITORIES — each parsed and normalized by the
 // repo-URL grammar — never as string prefixes.
 func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string, bool) {
-	repo := refuri.NormalizeURL(url)
-	if repo == "" {
+	repo, err := refuri.CanonicalRepoURL(url)
+	if err != nil {
 		return "", false
 	}
 	var match string
@@ -138,7 +138,10 @@ func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string,
 			continue
 		}
 		ref, err := remote.ParseReference(bundle)
-		if err != nil || ref.URL == "" || refuri.NormalizeURL(ref.URL) != repo {
+		if err != nil || ref.URL == "" {
+			continue
+		}
+		if canon, cerr := refuri.CanonicalRepoURL(ref.URL); cerr != nil || canon != repo {
 			continue
 		}
 		if match != "" {
@@ -213,9 +216,11 @@ func mapScalarSeq(root *yaml.Node, key string, fn func(string) (string, bool)) (
 
 // renormalizeStoredRef re-emits an already-canonical reference in normalized
 // stored form, collapsing a legacy schema directory (e.g. "v1/profiles/x" →
-// "profiles/x") so the stored ref equals its canonical identity. The content
-// version pin and item selector are preserved: CanonicalString drops the version
-// (correct for a lockfile key, but a profile document must keep the pin). A
+// "profiles/x"). It re-renders the reference in the grammar it was AUTHORED in
+// — its fetch address, "<url>@bundles/<path>" — rather than as its identity:
+// this pass repairs a retired segment, it does not move a user's document onto
+// the ctxloom+ URI grammar. The content version pin and item selector are
+// preserved. A
 // non-canonical or unparseable ref is returned verbatim, so it is safe to hand
 // any parent ref here — bare local-sibling names and ctxloom:local refs are left
 // untouched.
@@ -228,7 +233,7 @@ func renormalizeStoredRef(ref string) (string, bool) {
 	if err != nil {
 		return ref, false
 	}
-	normalized := parsed.LockKey()
+	normalized := parsed.URL + "@" + remote.ItemTypeBundle.DirName() + "/" + parsed.Path
 	if parsed.ContentVersion != "" {
 		normalized += "@" + parsed.ContentVersion
 	}

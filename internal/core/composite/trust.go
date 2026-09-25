@@ -148,18 +148,8 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 	if a.records.Rejected(e.Ref(), e.Bytes) {
 		return a.record(e, bundles.Verdict{Reason: bundles.ReasonRejected})
 	}
-	if retractable(e.Ref()) {
-		if err := fault(a.retraction); err != nil {
-			return a.record(e, bundles.Verdict{Reason: bundles.ReasonPending,
-				Detail: "retraction state could not be established, so nothing that travelled is trusted: " + err.Error()})
-		}
-	}
-	// Every ref is asked about, not only the retractable ones: the port scopes
-	// its own answer (a local ref has no lockfile entry), and a record that
-	// DOES answer for one outranks the locality below — retraction sits above
-	// every allow.
-	if retracted, why := a.retraction.Retracted(e.BundleRef); retracted {
-		return a.record(e, bundles.Verdict{Reason: bundles.ReasonRetracted, Detail: why})
+	if v, refused := a.retractionVerdict(e); refused {
+		return a.record(e, v)
 	}
 	if reason, ok := localReason(e.Read); ok {
 		return bundles.Verdict{Allow: true, Reason: reason, Detail: admitDetail(e.Read)}
@@ -171,6 +161,25 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonApproved}
 	}
 	return a.record(e, bundles.Verdict{Reason: pendingReason(e.Read), Detail: pendingDetail(e.Ref())})
+}
+
+// retractionVerdict is Admit's retraction step: a refusal verdict and true when
+// the exposure must be withheld on retraction grounds, else false.
+func (a *authorizer) retractionVerdict(e bundles.Exposure) (bundles.Verdict, bool) {
+	if retractable(e.Ref()) {
+		if err := fault(a.retraction); err != nil {
+			return bundles.Verdict{Reason: bundles.ReasonPending,
+				Detail: "retraction state could not be established, so nothing that travelled is trusted: " + err.Error()}, true
+		}
+	}
+	// Every ref is asked about, not only the retractable ones: the port scopes
+	// its own answer (a local ref has no lockfile entry), and a record that
+	// DOES answer for one outranks the locality in Admit — retraction sits
+	// above every allow.
+	if retracted, why := a.retraction.Retracted(e.BundleRef); retracted {
+		return bundles.Verdict{Reason: bundles.ReasonRetracted, Detail: why}, true
+	}
+	return bundles.Verdict{}, false
 }
 
 // fault reads the optional Faulted capability off a port.

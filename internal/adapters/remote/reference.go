@@ -3,6 +3,7 @@ package remote
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
@@ -604,14 +605,36 @@ const WorktreeDirSuffix = ".worktree"
 // sharing one worktree read one tree — whichever was pulled last — so one
 // repository's bytes would be served under another's key, a retraction
 // included. An unaddressable reference has no lock key and so no directory.
+//
+// CONTAINMENT: the result is handed to MkdirAll, a git worktree add and
+// RemoveAll, so it must lie strictly inside the bundle cache root however the
+// Reference was built. validateItemPath guards r.Path only where a reference
+// is PARSED, and the lock key cannot stand in for it: refuri RESOLVES dot
+// segments while minting, and a local name is opaque to it, so "../../x" keys
+// cleanly while the join below would climb out. So the item path is held to
+// the parser's rule here too, and a reference with no remote has no cache
+// directory at all. The remote half is contained by containRemoteName; the two
+// halves are the whole join, and the class gates in
+// reference_containment_test.go assert the result, not either guard.
 func (r *Reference) LocalWorktreePath(baseDir string) (string, error) {
+	if !r.IsCanonical() {
+		return "", fmt.Errorf("%w: %s names no remote repository", ErrNoCacheDirectory, r)
+	}
+	if err := validateItemPath(r.Path); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrNoCacheDirectory, err)
+	}
 	key, err := r.LockKey()
 	if err != nil {
-		return "", fmt.Errorf("no cache directory for %s/%s: %w", r.URL, r.Path, err)
+		return "", fmt.Errorf("%w for %s/%s: %w", ErrNoCacheDirectory, r.URL, r.Path, err)
 	}
 	return filepath.Join(paths.CacheBundlesPath(baseDir), r.LocalRemoteName(), r.Path) +
 		"." + identityDigest(key) + WorktreeDirSuffix, nil
 }
+
+// ErrNoCacheDirectory is returned when a reference has no directory in the
+// bundle cache: it names no remote, its item path could climb out of the
+// cache root, or it has no bundle identity to key one by.
+var ErrNoCacheDirectory = errors.New("no cache directory")
 
 // identityDigest is a short, filesystem-safe, case-insensitive-safe (lowercase
 // hex) digest of a bundle identity. 64 bits keeps a crafted second identity

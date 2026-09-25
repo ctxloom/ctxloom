@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -143,7 +145,9 @@ func TestLocalTreePath_ItemPathNeverEscapesTheCacheRoot(t *testing.T) {
 		}
 	}
 
-	escapes := []string{
+	// Paths the parser refuses (validateItemPath) are refused by the builder
+	// too, typed, whether or not the join would happen to stay inside.
+	refused := []string{
 		"../../../../../../etc",
 		"../../../../../../../../tmp/pwn",
 		"a/../../../../../../../x",
@@ -152,21 +156,37 @@ func TestLocalTreePath_ItemPathNeverEscapesTheCacheRoot(t *testing.T) {
 		"..",
 		".",
 		`..\..\..\x`,
-		"%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/x",
 		"",
 	}
+	// Percent-encoded dots are NOT decoded on the way to the filesystem: they
+	// are literal bytes of a directory name, so they must stay contained.
+	literal := []string{
+		"%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/x",
+		"%2E%2E/x",
+	}
 	for _, url := range []string{"https://github.com/o/r", "file:///srv/x/r", "git@github.com:o/r"} {
-		for _, p := range escapes {
+		for _, p := range refused {
+			t.Run("literal/"+url+"/"+p, func(t *testing.T) {
+				r := &Reference{URL: url, Path: p, ItemType: ItemTypeBundle}
+				_, err := r.LocalWorktreePath(base)
+				require.ErrorIs(t, err, ErrNoCacheDirectory)
+				_, err = r.LocalTreePath(base)
+				require.ErrorIs(t, err, ErrNoCacheDirectory)
+			})
+		}
+		for _, p := range literal {
 			t.Run("literal/"+url+"/"+p, func(t *testing.T) {
 				check(t, &Reference{URL: url, Path: p, ItemType: ItemTypeBundle})
 			})
 		}
 	}
-	// Local references carry the name alone; they have no cache directory,
-	// but must not reach one outside the root either.
-	for _, p := range escapes {
+	// A reference with no remote has no cache directory at all — not even an
+	// ordinary-looking one, which is where a traversal name would be joined.
+	for _, p := range append([]string{"lang/go", "kit"}, refused...) {
 		t.Run("local/"+p, func(t *testing.T) {
-			check(t, &Reference{IsLocal: true, Path: p, ItemType: ItemTypeBundle})
+			r := &Reference{IsLocal: true, Path: p, ItemType: ItemTypeBundle}
+			_, err := r.LocalWorktreePath(base)
+			require.ErrorIs(t, err, ErrNoCacheDirectory)
 		})
 	}
 

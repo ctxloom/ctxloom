@@ -32,6 +32,11 @@ type Endpoint struct {
 	Home *runner.Home
 	// Reporter receives the endpoint's diagnostics; nil discards.
 	Reporter report.Sink
+
+	// serveGate, when set, runs at the head of the serve goroutine — before
+	// http.Server.Serve has registered the listener. Tests hold it to force
+	// Close into that window; see WithServeGate in export_test.go.
+	serveGate func()
 }
 
 // ErrNoHome refuses to serve without the reach-back link: every
@@ -79,6 +84,9 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 	mux.Handle(path, guard(lo.MCP.Credential, policy.AllowedOrigins, mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)))
 	srv := &http.Server{Handler: mux}
 	go func() {
+		if e.serveGate != nil {
+			e.serveGate()
+		}
 		// Serve returns http.ErrServerClosed on a deliberate Close; anything
 		// else is the endpoint dying while the runner carries on, which the
 		// engine then sees as every ctxloom tool failing with a transport
@@ -90,7 +98,15 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 	return delivery.Served{Close: func() error {
 		sctx, cancel := context.WithTimeout(context.Background(), shutdownBudget)
 		defer cancel()
-		return srv.Shutdown(sctx)
+		err := srv.Shutdown(sctx)
+		// Shutdown closes only the listeners srv.Serve has already registered.
+		// Until the goroutine above reaches that point ln is not yet srv's, and
+		// without this close it would outlive Close and hold the address the
+		// next incarnation of the session must bind.
+		if cerr := ln.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) && err == nil {
+			err = cerr
+		}
+		return err
 	}}, nil
 }
 

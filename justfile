@@ -931,6 +931,10 @@ test-acceptance-container: build _ensure-gotmpdir
 # it is in no other gate anyone runs, and it went red unseen four times
 # (sedate-reggae).
 #
+# complexity-check and gen-mcp-schemas-check are here because CI's lint job
+# runs them and no other local gate did: the complexity ratchet drifted for
+# weeks twice, each time green on every local gate and red only in CI.
+#
 #   just merge-gate                 # logs to a fresh tmp dir, printed first
 #   just merge-gate /path/to/logs   # one <leg>.log per leg
 merge-gate LOGDIR="":
@@ -943,7 +947,7 @@ merge-gate LOGDIR="":
     fi
     mkdir -p "$logdir"
     echo "merge-gate: logs in $logdir"
-    legs=(build lint lint-arch gen-docs-check build-cross test-arch test test-integration test-docker-integration test-acceptance)
+    legs=(build lint lint-arch complexity-check gen-docs-check gen-mcp-schemas-check build-cross test-arch test test-integration test-docker-integration test-acceptance)
     failed=()
     for leg in "${legs[@]}"; do
         start=$(date +%s)

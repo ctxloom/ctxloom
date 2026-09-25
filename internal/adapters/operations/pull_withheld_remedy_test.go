@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -44,7 +45,7 @@ func pullRefusal(t *testing.T, mutate func(t *testing.T, fsys afero.Fs)) error {
 // syncFailureFinding syncs one ref through a puller that refuses it with err,
 // runs the startup summary over the result, and returns the single finding it
 // raised — its fix line is what the user is told to do.
-func syncFailureFinding(t *testing.T, err error) strictness.Finding {
+func syncFailureFinding(t *testing.T, err error) report.Finding {
 	t.Helper()
 	item := syncItem(context.Background(), &syncMockPuller{err: err}, treeCanonical, remote.ItemTypeBundle, treeBase, true, nil, nil)
 	require.Equal(t, "failed", item.Status)
@@ -67,8 +68,8 @@ func TestSyncSummary_SupersededManifestFormatPointsAtUpgrade(t *testing.T) {
 	require.ErrorIs(t, err, content.ErrManifestSuperseded, "the pull refusal carries its cause, typed")
 
 	f := syncFailureFinding(t, err)
-	assert.Equal(t, strictness.ClassSync, f.Class)
-	assert.Equal(t, remedyWithheldSuperseded, f.FixIt)
+	assert.Equal(t, report.KindSync, f.Kind)
+	assert.Equal(t, remedyWithheldSuperseded, f.Remedy)
 }
 
 // Every other refusal keeps the sync fix line it had: a marker this build does
@@ -87,8 +88,8 @@ func TestSyncSummary_OtherWithheldCausesKeepTheSyncRemedy(t *testing.T) {
 			assert.NotErrorIs(t, err, content.ErrManifestSuperseded)
 
 			f := syncFailureFinding(t, err)
-			assert.Equal(t, strictness.ClassSync, f.Class)
-			assert.Equal(t, remedySyncFailed, f.FixIt)
+			assert.Equal(t, report.KindSync, f.Kind)
+			assert.Equal(t, remedySyncFailed, f.Remedy)
 		})
 	}
 }

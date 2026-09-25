@@ -367,7 +367,7 @@ func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
 	require.NotEmpty(t, findings, "the refusal is a finding, not a silent drop")
 	var reported string
 	for _, f := range findings {
-		reported += f.Message + "\n"
+		reported += f.Text + "\n"
 	}
 	assert.Contains(t, reported, "does not match what was signed",
 		"the finding must say the content disagrees with the signature, not merely that a read failed")

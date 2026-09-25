@@ -313,7 +313,7 @@ func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, work
 	}
 	contextHash, err := regenerateContext(freshCfg, workDir, contextOpts...)
 	if err != nil {
-		strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
+		strictness.Fail(report.KindApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
 			"regenerate context failed: %v", err)
 		return "", true
 	}
@@ -349,21 +349,7 @@ func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, work
 // only class for which a written-and-stripped context surface is a lie about a
 // verdict rather than a report of one.
 func trustStoreFindingsError(mark strictness.Mark) error {
-	var msgs []string
-	for _, f := range strictness.Since(mark) {
-		if f.Class != strictness.ClassTrust {
-			continue
-		}
-		msg := f.Message
-		if f.FixIt != "" {
-			msg += " (fix: " + f.FixIt + ")"
-		}
-		msgs = append(msgs, msg)
-	}
-	if len(msgs) == 0 {
-		return nil
-	}
-	return fmt.Errorf("refusing to apply hooks or context: %s", strings.Join(msgs, "; "))
+	return findingsListingError(strictness.Mode{}, "refusing to apply hooks or context:", ofKind(strictness.Since(mark), report.KindTrust))
 }
 
 // hookBackendNames resolves an APPLY's backend filter: a named backend is
@@ -507,7 +493,7 @@ func applyHooksToBackends(ctx context.Context, reg engine.Registry, p hookApplyP
 		}
 		took, e := applyHooksToBackend(ctx, reg, backendName, p)
 		if e != nil {
-			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)", "%s", e)
+			strictness.Fail(report.KindApply, "fix the failure, then re-apply (ctxloom manage hooks install)", "%s", e)
 			applyErrors = append(applyErrors, e.Error())
 			continue
 		}

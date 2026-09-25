@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -148,9 +149,9 @@ func assertRefusesUnderDegraded(t *testing.T, because string) {
 	all := strictness.All()
 	require.NotEmpty(t, all, "the site must record a finding at all: "+because)
 
-	var iso []strictness.Finding
+	var iso []report.Finding
 	for _, f := range all {
-		if f.Class == strictness.ClassIsolation {
+		if f.Kind == report.KindIsolation {
 			iso = append(iso, f)
 		}
 	}
@@ -158,13 +159,13 @@ func assertRefusesUnderDegraded(t *testing.T, because string) {
 
 	for _, f := range iso {
 		assert.True(t, f.NonDegradable,
-			"finding must be raised with strictness.FailAlways, not Fail — "+because+": "+f.Message)
-		require.NotEmpty(t, f.FixIt, "a refusal must carry the fix, not just deny: "+f.Message)
+			"finding must be raised with strictness.FailAlways, not Fail — "+because+": "+f.Text)
+		require.NotEmpty(t, f.Remedy, "a refusal must carry the fix, not just deny: "+f.Text)
 		// A non-degradable finding that points at --degraded sends the user
 		// round a loop that ends back at the same refusal. Three fix-it
 		// constants in this package did exactly that before the audit.
-		assert.NotContains(t, f.FixIt, "--degraded",
-			"a non-degradable finding must not offer --degraded as its remedy: "+f.FixIt)
+		assert.NotContains(t, f.Remedy, "--degraded",
+			"a non-degradable finding must not offer --degraded as its remedy: "+f.Remedy)
 	}
 
 	assert.NotEmpty(t, strictness.Mode{Degraded: true}.Actionable(iso),

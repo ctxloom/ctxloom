@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -151,11 +152,11 @@ func treeBundleDir(baseDir string, canonical trust.BundleKey) (string, error) {
 func reportBundleLoadFailures(failures map[trust.BundleKey]error) {
 	for name, err := range failures {
 		if errors.Is(err, bundles.ErrTreeBundleWithheld) {
-			strictness.FailOnce(strictness.ClassTrust, withheldRemedy(err),
+			strictness.FailOnce(report.KindTrust, withheldRemedy(err),
 				"remote bundle %q was installed but withheld: %v", name, err)
 			continue
 		}
-		strictness.FailOnce(strictness.ClassBundle, "ctxloom deps pull (or remove the bundle from its profiles)",
+		strictness.FailOnce(report.KindBundle, "ctxloom deps pull (or remove the bundle from its profiles)",
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 }
@@ -222,13 +223,13 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 		// remotes registered" — the doc comment's nil-return case above — so it
 		// fails loud instead of silently vanishing every lockfile-pinned remote
 		// bundle from assembly/hooks/MCP/commands.
-		strictness.FailOnce(strictness.ClassBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
+		strictness.FailOnce(report.KindBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
 			"failed to open the remotes registry; no remote bundles loaded: %v", err)
 		return nil
 	}
 	lock, err := remote.NewLockfileManager(baseDir, lockfileFSOptions(cfg)...).Load()
 	if err != nil {
-		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom deps pull` to regenerate the lockfile, or fix it by hand",
+		strictness.FailOnce(report.KindBundle, "run `ctxloom deps pull` to regenerate the lockfile, or fix it by hand",
 			"failed to load the remote lockfile; no remote bundles loaded: %v", err)
 		return nil
 	}

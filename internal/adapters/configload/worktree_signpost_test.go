@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -37,11 +38,11 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 		require.Len(t, findings, 1,
 			"a linked worktree with no .ctxloom must record exactly one fatal finding, not silently resolve as a foreign project")
 		f := findings[0]
-		assert.Equal(t, strictness.ClassConfig, f.Class)
-		assert.Contains(t, f.Message, "linked git worktree", "the finding names what happened")
-		assert.Contains(t, f.Message, main, "the finding names the resolved main root")
-		assert.Contains(t, f.FixIt, "run ctxloom from "+main, "fix-it path 1: run from the main worktree")
-		assert.Contains(t, f.FixIt, "ctxloom init", "fix-it path 2: init here to opt out as a deliberately separate project")
+		assert.Equal(t, report.KindConfig, f.Kind)
+		assert.Contains(t, f.Text, "linked git worktree", "the finding names what happened")
+		assert.Contains(t, f.Text, main, "the finding names the resolved main root")
+		assert.Contains(t, f.Remedy, "run ctxloom from "+main, "fix-it path 1: run from the main worktree")
+		assert.Contains(t, f.Remedy, "ctxloom init", "fix-it path 2: init here to opt out as a deliberately separate project")
 	})
 
 	t.Run("finding_is_deduped_across_repeat_loads", func(t *testing.T) {
@@ -109,9 +110,9 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 
 		findings := strictness.Since(mark)
 		require.Len(t, findings, 1)
-		assert.Contains(t, findings[0].Message, "missing or unreadable",
+		assert.Contains(t, findings[0].Text, "missing or unreadable",
 			"a stale gitdir pointer is its own diagnosis, not the generic signpost")
-		assert.Contains(t, findings[0].FixIt, "git worktree prune")
+		assert.Contains(t, findings[0].Remedy, "git worktree prune")
 	})
 
 	t.Run("degraded_mode_records_nothing_and_falls_back", func(t *testing.T) {

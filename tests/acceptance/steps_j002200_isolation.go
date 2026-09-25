@@ -28,7 +28,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
@@ -468,7 +468,7 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		if strings.Contains(out, j002200StartGateFinding) {
 			return fmt.Errorf("the abort came from the container START gate (%q), not the runtime-unreachable gate this row asserts; output:\n%s", j002200StartGateFinding, out)
 		}
-		class := "[" + string(strictness.ClassIsolation) + "]"
+		class := "[" + string(report.KindIsolation) + "]"
 		if !strings.Contains(out, class) {
 			return fmt.Errorf("output does not classify the abort as %s; output:\n%s", class, out)
 		}

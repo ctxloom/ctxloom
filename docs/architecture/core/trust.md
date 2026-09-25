@@ -147,7 +147,7 @@ Step semantics that matter:
   the key is `lockfileKeyForRef` = `RepoURL + "@bundles/" + Bundle` (`trust.go:523`). Retraction is
   *recorded* at sync time by `checkInstalledRetraction` (`internal/adapters/operations/sync.go:554`).
 - **Step 2 fails CLOSED on an unreadable lockfile** (`9492dd16`). An unparseable `lock.yaml`
-  denies via `trust.Deny` + `trust.SourcePending`, recorded as `strictness.FailOnce(ClassTrust)`.
+  denies via `trust.Deny` + `trust.SourcePending`, recorded as `strictness.FailOnce(KindTrust)`.
   **Scoped to remote refs only** — the lockfile records nothing but remote bundle entries, so an
   unreadable one conceals nothing about a local or builtin ref, and withholding those would be
   denying on evidence that does not exist. One predicate, `retractable(ref)` (`trust.go:527`), is

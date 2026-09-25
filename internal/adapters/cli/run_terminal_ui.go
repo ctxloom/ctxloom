@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -39,7 +40,7 @@ type terminalUIIdentity struct {
 // than silently launching with a viewer on the wrong key (or none).
 func validateTerminalUIConfig(cfg *config.Config) {
 	if _, err := termui.ParsePrefixKey(cfg.UIPrefixKey()); err != nil {
-		strictness.Fail(strictness.ClassConfig,
+		strictness.Fail(report.KindConfig,
 			`set ui.prefix_key to a control key (e.g. "ctrl-]") in config.yaml, or pass --degraded to launch anyway`,
 			"invalid ui.prefix_key: %v", err)
 	}

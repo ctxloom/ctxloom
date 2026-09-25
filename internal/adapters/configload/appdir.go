@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -154,7 +155,7 @@ func lastResortAppDir(fs afero.Fs, pwd string) string {
 func worktreeSignpost(fs afero.Fs, dir string) {
 	info, err := projectroot.DetectWorktree(fs, dir)
 	if err != nil {
-		strictness.FailOnce(strictness.ClassConfig,
+		strictness.FailOnce(report.KindConfig,
 			"check permissions on the .git file in this directory",
 			"%s: could not read git worktree metadata: %v", dir, err)
 		return
@@ -163,12 +164,12 @@ func worktreeSignpost(fs afero.Fs, dir string) {
 		return
 	}
 	if !info.MainRootExists {
-		strictness.FailOnce(strictness.ClassConfig,
+		strictness.FailOnce(report.KindConfig,
 			fmt.Sprintf("restore the main worktree at %s, or prune this stale linked worktree (`git worktree prune` from a healthy checkout), or run `ctxloom init` here to make this worktree a deliberately separate project", info.MainRoot),
 			"%s is a linked git worktree, but its main worktree at %s is missing or unreadable", dir, info.MainRoot)
 		return
 	}
-	strictness.FailOnce(strictness.ClassConfig,
+	strictness.FailOnce(report.KindConfig,
 		fmt.Sprintf("run ctxloom from %s, or run `ctxloom init` here to make this worktree a deliberately separate project", info.MainRoot),
 		"this is a linked git worktree of the project at %s (no .ctxloom of its own)", info.MainRoot)
 }

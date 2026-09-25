@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/require"
 )
@@ -64,8 +65,8 @@ func TestPrepareChain_LostContainerBoundaryRaisesIsolationFinding(t *testing.T) 
 
 			found := strictness.Since(mark)
 			require.Len(t, found, 1, "a lost container boundary must raise exactly one finding")
-			require.Equal(t, strictness.ClassIsolation, found[0].Class)
-			require.Contains(t, found[0].Message, "member-a", "the finding must name the agent that lost its sandbox")
+			require.Equal(t, report.KindIsolation, found[0].Kind)
+			require.Contains(t, found[0].Text, "member-a", "the finding must name the agent that lost its sandbox")
 		})
 	}
 }

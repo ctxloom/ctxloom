@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -41,7 +42,7 @@ func TestStartupFindings_IsTheLaunchsLead(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(func() { strictness.Reset() })
 	st := &runState{cfg: cleanProject(t)}
-	strictness.Record(strictness.ClassIsolation, "", "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
+	strictness.Record(report.KindIsolation, "", "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
 
 	lead := st.startupFindings()
 
@@ -59,7 +60,7 @@ func TestStartupFindings_FlagOptsOut(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(func() { strictness.Reset() })
 	st := &runState{cfg: cleanProject(t)}
-	strictness.Record(strictness.ClassConfig, "", "a finding the flag must withhold")
+	strictness.Record(report.KindConfig, "", "a finding the flag must withhold")
 	runNoStartupFindings = true
 	t.Cleanup(func() { runNoStartupFindings = false })
 

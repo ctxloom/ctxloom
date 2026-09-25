@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
@@ -873,7 +874,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 func reportSetupLaunchFailure(err error) error {
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
-	strictness.FailOnce(strictness.ClassConfig,
+	strictness.FailOnce(report.KindConfig,
 		"check the engine's auth/config, then retry `ctxloom init`, or run `ctxloom init prompt` to reconfigure without relaunching",
 		"the setup session failed to launch: %v", err)
 	return App().Strictness.FindingsError(mark)

@@ -9,7 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // noCompanions pins the companion probe to "nothing discovered" so a test
@@ -37,9 +37,9 @@ func cleanProject(t *testing.T) *config.Config {
 // its fix-it — the wording the human already saw on stderr, not a paraphrase.
 func TestStartupFindings_RecordedFindingsBecomeRows(t *testing.T) {
 	cfg := cleanProject(t)
-	recorded := []strictness.Finding{
-		{Class: strictness.ClassConfig, Message: "unknown key `runtme` in config.yaml: ctxloom does not know it, so it is IGNORED", FixIt: "did you mean `runtime`?"},
-		{Class: strictness.ClassIsolation, Message: "container runtime requested but no runtime is reachable; running on the host"},
+	recorded := []report.Finding{
+		{Kind: report.KindConfig, Text: "unknown key `runtme` in config.yaml: ctxloom does not know it, so it is IGNORED", Remedy: "did you mean `runtime`?"},
+		{Kind: report.KindIsolation, Text: "container runtime requested but no runtime is reachable; running on the host"},
 	}
 
 	report := StartupFindings(&App{}, cfg, isolatedHome(t), recorded)
@@ -49,8 +49,8 @@ func TestStartupFindings_RecordedFindingsBecomeRows(t *testing.T) {
 		row := report.Checks[i]
 		assert.Equal(t, StartupFindingsMarker, row.Marker)
 		assert.Equal(t, DoctorWarn, row.Status, "a finding the launch proceeded past is a warn, never info")
-		assert.Contains(t, row.Detail, f.Message, "the finding's own wording must survive")
-		assert.Contains(t, row.Detail, "["+string(f.Class)+"]", "the class tag is how the human's abort listing reads; keep one language")
+		assert.Contains(t, row.Detail, f.Text, "the finding's own wording must survive")
+		assert.Contains(t, row.Detail, "["+string(f.Kind)+"]", "the class tag is how the human's abort listing reads; keep one language")
 	}
 	assert.Contains(t, report.Checks[0].Detail, "fix: did you mean `runtime`?")
 	assert.NotContains(t, report.Checks[1].Detail, "fix:", "a finding with no fix-it must not grow an empty one")

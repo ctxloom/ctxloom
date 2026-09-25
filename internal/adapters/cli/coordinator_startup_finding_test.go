@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -27,12 +28,12 @@ func TestRecordCoordinatorStartupFinding_Degradable(t *testing.T) {
 
 		found := strictness.All()
 		require.Len(t, found, 1, "the fault is still reported — degraded suppresses fatality, not recording")
-		assert.Equal(t, strictness.ClassApply, found[0].Class)
+		assert.Equal(t, report.KindApply, found[0].Kind)
 		assert.False(t, found[0].NonDegradable,
 			"children reach the owner by file spool, so losing the coordinator costs nothing that must stop a launch")
 		assert.Empty(t, strictness.Mode{Degraded: true}.Actionable(found),
 			"and under --degraded it must NOT be actionable: this launch proceeds")
-		assert.Contains(t, found[0].FixIt, "--degraded",
+		assert.Contains(t, found[0].Remedy, "--degraded",
 			"a degradable finding names --degraded as its way out")
 	})
 
@@ -57,10 +58,10 @@ func TestRecordCoordinatorStartupFinding_SecondOwnerIsItsOwnClass(t *testing.T) 
 
 	found := strictness.All()
 	require.Len(t, found, 1)
-	assert.Equal(t, strictness.ClassOwner, found[0].Class, "an owned project is not an apply failure")
-	assert.Contains(t, found[0].Message, coord.ErrStateOwned.Error(), "the refusal names the owned state")
+	assert.Equal(t, report.KindOwner, found[0].Kind, "an owned project is not an apply failure")
+	assert.Contains(t, found[0].Text, coord.ErrStateOwned.Error(), "the refusal names the owned state")
 	assert.False(t, found[0].NonDegradable)
 	assert.Empty(t, strictness.Mode{Degraded: true}.Actionable(found), "--degraded proceeds without delegation")
 	assert.NotEmpty(t, strictness.Mode{}.Actionable(found), "strict mode refuses")
-	assert.Contains(t, found[0].FixIt, coord.OwnerLockFileName, "the remedy points at where the owner's pid is stamped")
+	assert.Contains(t, found[0].Remedy, coord.OwnerLockFileName, "the remedy points at where the owner's pid is stamped")
 }

@@ -17,6 +17,7 @@ import (
 	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -497,10 +498,10 @@ func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T)
 
 	findings := strictness.All()
 	require.Len(t, findings, 1, "a stale image that cannot even be rebuilt from this binary must record exactly one fatal finding")
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "STALE")
+	assert.Equal(t, report.KindIsolation, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "STALE")
 	assert.True(t, findings[0].NonDegradable, "a stale image can start as ROOT: refused in both modes")
-	assert.NotContains(t, findings[0].FixIt, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
+	assert.NotContains(t, findings[0].Remedy, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
 }
 
 // TestComposableBuildSources_EmptyEnginesFailsLoud pins that
@@ -518,8 +519,8 @@ func TestComposableBuildSources_EmptyEnginesFailsLoud(t *testing.T) {
 
 	findings := strictness.All()
 	require.Len(t, findings, 1)
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "no known engine")
+	assert.Equal(t, report.KindIsolation, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "no known engine")
 }
 
 // TestTailLines bounds the failure diagnostics to the last n lines.
@@ -800,8 +801,8 @@ func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
 	findings := strictness.All()
 	require.Len(t, findings, 1,
 		"a present image whose provenance cannot be computed must not pass silently as current")
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.NotContains(t, findings[0].FixIt, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
+	assert.Equal(t, report.KindIsolation, findings[0].Kind)
+	assert.NotContains(t, findings[0].Remedy, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
 }
 
 // TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded pins that a PRESENT
@@ -835,10 +836,10 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1, "a stale image whose rebuild failed is exactly one fatal finding")
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "STALE", "the finding must flag the stale image")
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
+		assert.Contains(t, findings[0].Text, "STALE", "the finding must flag the stale image")
 		assert.True(t, findings[0].NonDegradable, "a stale pre-entrypoint image can run as ROOT")
-		assert.NotContains(t, findings[0].FixIt, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
+		assert.NotContains(t, findings[0].Remedy, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
 	})
 
 	// Renamed and strengthened by the degradation audit. --degraded no longer
@@ -894,15 +895,15 @@ func TestEnsureImage_UserBaseBuildFail_RefusesInBothModes(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1, "only the configured user-base source is a finding; the fallbacks warn")
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "configured base Containerfile",
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
+		assert.Contains(t, findings[0].Text, "configured base Containerfile",
 			"the finding must name the user-configured base that failed")
 		assert.True(t, findings[0].NonDegradable,
 			"a declared base ctxloom cannot use is refused in both modes: it cannot read the Containerfile to know the substitution was safe")
-		assert.Contains(t, findings[0].FixIt, "isolation_base_containerfile")
-		assert.NotContains(t, findings[0].FixIt, "--degraded",
+		assert.Contains(t, findings[0].Remedy, "isolation_base_containerfile")
+		assert.NotContains(t, findings[0].Remedy, "--degraded",
 			"a non-degradable refusal must not offer --degraded as its remedy")
-		assert.Contains(t, findings[0].FixIt, "deliberately",
+		assert.Contains(t, findings[0].Remedy, "deliberately",
 			"it must name the way to ACCEPT ctxloom's own base on purpose — dropping the declaration")
 	})
 

@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -231,7 +232,7 @@ func TestLoadTreeBundle_FileAddedAfterSigningIsWithheld(t *testing.T) {
 
 // withheldFinding runs the startup report over one withheld read and returns
 // the single finding it raised — the fix line is what the user is told to do.
-func withheldFinding(t *testing.T, err error) strictness.Finding {
+func withheldFinding(t *testing.T, err error) report.Finding {
 	t.Helper()
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
@@ -281,8 +282,8 @@ func TestLoadTreeBundle_SupersededManifestFormatIsWithheldAndPointsAtUpgrade(t *
 	assert.ErrorIs(t, err, content.ErrManifestSuperseded, "the withhold carries its cause, typed")
 
 	f := withheldFinding(t, err)
-	assert.Equal(t, strictness.ClassTrust, f.Class)
-	assert.Equal(t, remedyWithheldSuperseded, f.FixIt)
+	assert.Equal(t, report.KindTrust, f.Kind)
+	assert.Equal(t, remedyWithheldSuperseded, f.Remedy)
 }
 
 // Every OTHER withheld cause keeps the tamper remedy: bytes edited after
@@ -308,8 +309,8 @@ func TestLoadTreeBundle_OtherWithheldCausesKeepTheTamperRemedy(t *testing.T) {
 			assert.NotErrorIs(t, err, content.ErrManifestSuperseded)
 
 			f := withheldFinding(t, err)
-			assert.Equal(t, strictness.ClassTrust, f.Class)
-			assert.Equal(t, remedyWithheldTampered, f.FixIt)
+			assert.Equal(t, report.KindTrust, f.Kind)
+			assert.Equal(t, remedyWithheldTampered, f.Remedy)
 		})
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -309,7 +310,7 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
 	route, err := rt.reachRoute(ctx)
 	if err != nil {
-		strictness.FailAlways(strictness.ClassIsolation, noHostReachFixIt, "refusing to run a container that cannot dial home: %v", err)
+		strictness.FailAlways(report.KindIsolation, noHostReachFixIt, "refusing to run a container that cannot dial home: %v", err)
 		return hostRoute{}, err
 	}
 	return route, nil
@@ -975,12 +976,12 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 	}
 	id, err := c.imageIdentityConfig(ctx)
 	if err != nil {
-		strictness.FailAlways(strictness.ClassIsolation, overrideIdentityFixIt,
+		strictness.FailAlways(report.KindIsolation, overrideIdentityFixIt,
 			"refusing to run user-supplied container image %q: its identity contract cannot be verified (%v), so it may start with the wrong identity and write wrongly-owned files into your project", c.image, err)
 		return
 	}
 	if problem := runAsIsIdentityProblem(c.runtime, id); problem != "" {
-		strictness.FailAlways(strictness.ClassIsolation, overrideIdentityFixIt,
+		strictness.FailAlways(report.KindIsolation, overrideIdentityFixIt,
 			"refusing to run user-supplied container image %q: it would start with the WRONG identity on %s: %s — files it writes into the mounted project would not be owned by you (e.g. root-owned)", c.image, runtimeName(c.runtime), problem)
 	}
 }

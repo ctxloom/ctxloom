@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,12 +39,12 @@ func TestLoadAgents_RetiredEscalationKey_IsReported(t *testing.T) {
 
 	findings := strictness.Since(mark)
 	require.Len(t, findings, 1, "an `escalation:` ladder nothing reads must be reported")
-	assert.Equal(t, strictness.ClassMigration, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "coder", "the finding names the agent carrying the dead key")
-	assert.Contains(t, findings[0].Message, "escalation", "and the key itself")
+	assert.Equal(t, report.KindMigration, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "coder", "the finding names the agent carrying the dead key")
+	assert.Contains(t, findings[0].Text, "escalation", "and the key itself")
 	// The REMEDY, not just the complaint: this refusal is the entire user
 	// interface for the failure, so it must name the action that ends it.
-	assert.Contains(t, findings[0].FixIt, "escalation", "the fix-it names what to delete")
+	assert.Contains(t, findings[0].Remedy, "escalation", "the fix-it names what to delete")
 }
 
 // The guarded half. Without it the assertion above could pass because EVERY

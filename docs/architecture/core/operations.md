@@ -259,7 +259,7 @@ Every host-side launch enters through `launch.Resolve`
 | `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. Called from `Cells.Prepare`. |
 | `ResolveBackend` / `resolveOneshotLabel` | `oneshot.go` | Label → (backend, model) for `agent show` and the CLI's up-front `--llm` validation; the resolver maps the label itself. |
 | `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go` | Capability probes over a cell's `isolation.Policy`, for the CLI's container arms until the runner is the one process every cell starts. |
-| `isolationGateErr` | `oneshot.go` | Turns `ClassIsolation` strictness findings into a cell-fatal error unless degraded — the fail-loud isolation gate. |
+| `isolationGateErr` | `oneshot.go` | Turns `KindIsolation` strictness findings into a cell-fatal error unless degraded — the fail-loud isolation gate. |
 
 ## Sessions, feeds and transcripts
 

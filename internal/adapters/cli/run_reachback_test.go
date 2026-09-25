@@ -48,7 +48,7 @@ func TestStartOwnedRun_NilCoordinatorRefusesTheLaunch(t *testing.T) {
 // to make the loader populate PendingUpgrades, so an older-schema file can be
 // offered a rewrite. It is not the place that decides whether the run's context
 // is resolvable -- AssembleContext does that later and fails loud through
-// strictness.ClassRef. So an unresolvable name here must neither abort the
+// report.KindRef. So an unresolvable name here must neither abort the
 // harvest nor stop the remaining profiles from being walked: the only thing a
 // resolve failure can cost is an upgrade prompt for a file that could not be
 // loaded anyway, and reporting it here would double-report a fault the

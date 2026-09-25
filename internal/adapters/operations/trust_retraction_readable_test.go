@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -24,7 +25,7 @@ import (
 // failing open on it inverts the control.
 //
 // The decided posture is FAIL CLOSED, expressed through the machinery the
-// corrupt-APPROVALS-store path already uses (strictness.ClassTrust +
+// corrupt-APPROVALS-store path already uses (report.KindTrust +
 // trust.Deny) — see trust_approvals_readable_test.go, whose four cases these
 // deliberately mirror one-for-one.
 //
@@ -89,7 +90,7 @@ func TestEffectiveTrust_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 
 	found := strictness.Since(mark)
 	require.Len(t, found, 1, "an unreadable lockfile must record exactly one fatal finding")
-	assert.Equal(t, strictness.ClassTrust, found[0].Class,
+	assert.Equal(t, report.KindTrust, found[0].Kind,
 		"unreadable trust state is ClassTrust, the same class the corrupt approvals store uses")
 }
 
@@ -278,13 +279,13 @@ func TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery(t *testing.T) {
 	found := strictness.Since(mark)
 	require.Len(t, found, 1)
 
-	assert.Contains(t, found[0].Message, lockPath, "the message names the exact file to fix")
-	assert.Contains(t, found[0].Message, "retraction", "the message names the reason: retraction state cannot be established")
-	assert.Contains(t, found[0].Message, "withholding", "the message says what it did, in policy terms")
+	assert.Contains(t, found[0].Text, lockPath, "the message names the exact file to fix")
+	assert.Contains(t, found[0].Text, "retraction", "the message names the reason: retraction state cannot be established")
+	assert.Contains(t, found[0].Text, "withholding", "the message says what it did, in policy terms")
 
-	assert.Contains(t, found[0].FixIt, "delete", "the fix-it names the recovery: delete the file")
-	assert.Contains(t, found[0].FixIt, "ctxloom remote lock", "the fix-it names the command that rebuilds it")
-	assert.Contains(t, found[0].FixIt, "intact", "the fix-it reassures that the holds/retractions on disk were preserved, not destroyed")
+	assert.Contains(t, found[0].Remedy, "delete", "the fix-it names the recovery: delete the file")
+	assert.Contains(t, found[0].Remedy, "ctxloom remote lock", "the fix-it names the command that rebuilds it")
+	assert.Contains(t, found[0].Remedy, "intact", "the fix-it reassures that the holds/retractions on disk were preserved, not destroyed")
 }
 
 // TestContentGate_CorruptLockfile_WithholdsRemoteContent is the

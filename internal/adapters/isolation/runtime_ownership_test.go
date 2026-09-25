@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -182,13 +183,13 @@ func TestChainFor_OwnershipMismatch_Fatal(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1)
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, string(RuntimeContainerRootful),
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
+		assert.Contains(t, findings[0].Text, string(RuntimeContainerRootful),
 			"the finding must name the ownership that was demanded, or the user cannot tell which half failed")
-		assert.Contains(t, findings[0].Message, "ownership")
-		assert.Contains(t, findings[0].Message, "container-rootless (docker)",
+		assert.Contains(t, findings[0].Text, "ownership")
+		assert.Contains(t, findings[0].Text, "container-rootless (docker)",
 			"the refusal names the container this host CAN give")
-		assert.Contains(t, findings[0].Message, "ctxloom agent edit <agent> --runtime container-rootless",
+		assert.Contains(t, findings[0].Text, "ctxloom agent edit <agent> --runtime container-rootless",
 			"and the explicit selection that opts into it")
 	})
 
@@ -202,7 +203,7 @@ func TestChainFor_OwnershipMismatch_Fatal(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1)
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
 	})
 
 	t.Run("degraded: still refused, and never satisfied by the other ownership mode", func(t *testing.T) {

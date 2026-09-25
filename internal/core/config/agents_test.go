@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -186,10 +187,10 @@ func TestLoadAgents_RetiredDirectoryIsAFatalFinding(t *testing.T) {
 
 	findings := strictness.Since(mark)
 	require.Len(t, findings, 1, "a directory holding definitions nothing reads must be reported")
-	assert.Equal(t, strictness.ClassMigration, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "finder.yaml", "the finding names the file the user must move")
-	assert.Contains(t, findings[0].Message, agentsDir)
-	assert.Contains(t, findings[0].FixIt, paths.ConfigPath(appPath), "the fix-it names where the binding belongs")
+	assert.Equal(t, report.KindMigration, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "finder.yaml", "the finding names the file the user must move")
+	assert.Contains(t, findings[0].Text, agentsDir)
+	assert.Contains(t, findings[0].Remedy, paths.ConfigPath(appPath), "the fix-it names where the binding belongs")
 }
 
 // TestLoadAgents_AbsentOrEmptyDirectoryIsSilent is the other half: the signpost

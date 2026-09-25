@@ -142,5 +142,5 @@ func TestSettleReach_NoRouteIsAFatalIsolationFinding(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoHostReach)
 	found := strictness.Since(mark)
 	require.Len(t, found, 1)
-	assert.Contains(t, found[0].Message, "cannot dial home")
+	assert.Contains(t, found[0].Text, "cannot dial home")
 }

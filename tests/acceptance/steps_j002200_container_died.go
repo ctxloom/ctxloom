@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/cucumber/godog"
 )
 
@@ -166,7 +166,7 @@ func registerJ002200ContainerDiedSteps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(out, j002200DiedFinding) {
 			return fmt.Errorf("output does not name the transport-start fault (%q); the abort came from a different gate; output:\n%s", j002200DiedFinding, out)
 		}
-		class := "[" + string(strictness.ClassIsolation) + "]"
+		class := "[" + string(report.KindIsolation) + "]"
 		if !strings.Contains(out, class) {
 			return fmt.Errorf("output does not classify the abort as %s, so a caller cannot branch on whether isolation held; output:\n%s", class, out)
 		}

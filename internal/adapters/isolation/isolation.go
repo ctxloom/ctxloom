@@ -30,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -528,7 +529,7 @@ func warnUnknownAxes(a Axes) {
 		clidiag.Warn("ctxloom", "unknown workspace axis %q (known: %s); treating as %q", a.Workspace, strings.Join(WorkspaceNames(), "|"), WorkspaceShared)
 	}
 	if _, err := launch.ParseRuntimeAxis(string(a.Runtime)); err != nil {
-		strictness.FailAlways(strictness.ClassIsolation,
+		strictness.FailAlways(report.KindIsolation,
 			"set the runtime axis to one of "+strings.Join(RuntimeNames(), "|")+" (fix the config/flag typo), or `runtime: host` if this run really should have no sandbox",
 			"%v; refusing to run: an unrecognised runtime would land this session on the HOST without a container boundary (NOT sandboxed), and a typo must not be able to drop it", err)
 	}
@@ -597,10 +598,10 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		// pre-launch). Returning an error here instead would make the caller
 		// degrade DOWN THE CHAIN — the exact host fallback being refused.
 		if axes.WantsWorktree() {
-			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+			strictness.FailAlways(report.KindIsolation, isolationFixIt,
 				"runtime: %s requested but no container runtime is available with that ownership; refusing to keep the worktree on the HOST without the container boundary that was asked for%s%s", axes.Runtime, containerSelectionHint(axes.Runtime), noRuntimeHint())
 		} else {
-			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+			strictness.FailAlways(report.KindIsolation, isolationFixIt,
 				"runtime: %s requested but no container runtime is available with that ownership; refusing to run on the HOST without the container boundary that was asked for%s%s", axes.Runtime, containerSelectionHint(axes.Runtime), noRuntimeHint())
 		}
 	}
@@ -750,7 +751,7 @@ func prepareChain(ctx context.Context, chain []Policy, requested RuntimeAxis, pr
 		// None so the WORKSPACE resolution has an answer to return; what stops
 		// the run is the non-degradable finding, not a missing workspace.
 		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
-			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+			strictness.FailAlways(report.KindIsolation, isolationFixIt,
 				"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v%s", agentID, err, containerSelectionHint(requested))
 			continue
 		}

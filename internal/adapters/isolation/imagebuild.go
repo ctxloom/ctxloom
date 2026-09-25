@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -351,7 +352,7 @@ func composableBuildSources(p engineContainerSpec, opts buildSourcesOptions) []b
 		// it builds, tags, and passes every image gate, then fails every run
 		// with the engine binary simply absent. Fail loud here instead of
 		// silently building a green, empty image.
-		strictness.Fail(strictness.ClassIsolation, noComposableEnginesFixIt,
+		strictness.Fail(report.KindIsolation, noComposableEnginesFixIt,
 			"no known engine-install recipe for engine %q; the agent image would contain no engine at all", engine)
 		return nil
 	}
@@ -816,7 +817,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 			// stale, possibly pre-entrypoint (root-running) image. Route the
 			// same fail-loud finding the parallel "rebuild attempted and
 			// failed" branch below already uses for the identical outcome.
-			strictness.FailAlways(strictness.ClassIsolation, staleRebuildFixIt,
+			strictness.FailAlways(report.KindIsolation, staleRebuildFixIt,
 				"refusing to run container image %q: it is STALE and cannot be rebuilt from this binary (%v), and a stale image predating the identity entrypoint can start as ROOT", c.image, err)
 			// Still nil, NOT an error: an error here makes the caller degrade
 			// down the chain to the HOST, which is the bypass this audit
@@ -844,7 +845,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		// same terms as one that fails to build — "I could not parse it" is not
 		// evidence that it was unimportant. A project with no devcontainer at
 		// all declares nothing and never reaches here.
-		strictness.FailAlways(strictness.ClassIsolation, devcontainerDetectFixIt,
+		strictness.FailAlways(report.KindIsolation, devcontainerDetectFixIt,
 			"refusing to build the agent image without this project's own devcontainer: auto-detection failed (%v), and ctxloom cannot read it to know what it provides", devErr)
 	}
 	lastErr := c.buildFirstWorkingSource(ctx, sources, selfExe, wantProvenance)
@@ -862,7 +863,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		// chain to the unsandboxed HOST, which is strictly worse than the stale
 		// image. The non-degradable finding is what stops the run; the return
 		// value only decides WHICH wrong thing we would otherwise fall to.
-		strictness.FailAlways(strictness.ClassIsolation, staleRebuildFixIt,
+		strictness.FailAlways(report.KindIsolation, staleRebuildFixIt,
 			"refusing to run container image %q: its rebuild failed (%v) and the existing image is STALE (its baked ctxloom/companion binaries or base config are outdated), and a stale image predating the identity entrypoint can start as ROOT", c.image, lastErr)
 		return nil
 	}
@@ -945,10 +946,10 @@ func (c Container) buildFirstWorkingSource(ctx context.Context, sources []buildS
 func recordBuildSourceFailure(src buildSource, err error) {
 	switch {
 	case src.fromUserBase():
-		strictness.FailAlways(strictness.ClassIsolation, userBaseBuildFixIt,
+		strictness.FailAlways(report.KindIsolation, userBaseBuildFixIt,
 			"refusing to build the agent image on a base you did not declare: the configured base Containerfile (%s) failed to build (%v), and ctxloom cannot know what that base provides, so it will not silently substitute another", src.desc, err)
 	case src.fromDevcontainerBase():
-		strictness.FailAlways(strictness.ClassIsolation, devcontainerBaseBuildFixIt,
+		strictness.FailAlways(report.KindIsolation, devcontainerBaseBuildFixIt,
 			"refusing to build the agent image on a base this project did not declare: the auto-detected project devcontainer (%s) failed to build (%v), and substituting another would give this agent a different environment than the one you develop in", src.desc, err)
 	default:
 		clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)

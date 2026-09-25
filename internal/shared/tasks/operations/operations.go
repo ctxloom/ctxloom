@@ -486,7 +486,7 @@ const refusedTagFixIt = "drop or correct the tag (taskloom tags / the project's 
 
 // admitTags is the write-side tag gate on both mutation seams (AddTaskWithTags,
 // TagTask's add list) and taskloom's one entry into the strictness contract:
-// every tag validateTag rejects is a strictness.ClassTask finding — printed as
+// every tag validateTag rejects is a report.KindTask finding — printed as
 // a warning AND recorded, in both modes — and the mode decides what the
 // refusal means for the write:
 //

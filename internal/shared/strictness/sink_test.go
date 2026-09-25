@@ -44,7 +44,7 @@ func TestDiagnosticSink_RendersWhatClidiagRenderedToday(t *testing.T) {
 	clidiag.WarnOnce("ctxloom", "%s", "profile x: unknown key y")
 	clidiag.WarnOnce("ctxloom", "%s", "profile x: unknown key y")
 	clidiag.Warn("ctxloom", "allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", "/p", err)
-	strictness.Fail(strictness.ClassTrust, "make the allowed_signers file readable, or remove it",
+	strictness.Fail(report.KindTrust, "make the allowed_signers file readable, or remove it",
 		"allowed_signers %s exists but cannot be read: %v", "/p", err)
 	legacyFindings := strictness.All()
 	restore()
@@ -63,17 +63,19 @@ func TestDiagnosticSink_RendersWhatClidiagRenderedToday(t *testing.T) {
 	assert.Equal(t, legacy.String(), rendered.String(), "the sink must render byte-for-byte what the sites rendered themselves")
 	assert.Equal(t, legacyFindings, strictness.All(), "a fail-loudly finding must land in the startup ledger exactly as strictness.Fail recorded it")
 
-	// Pinned once, so a change on BOTH sides still shows.
+	// Pinned once, so a change on BOTH sides still shows. A fail-loudly
+	// finding streams its remedy as the fix line; an advisory has none.
 	const today = "ctxloom: warning: engine transcript link: permission denied\n" +
 		"ctxloom: warning: profile x: unknown key y\n" +
 		"ctxloom: warning: allowed_signers /p exists but cannot be read, its keys are NOT trusted this session: permission denied\n" +
-		"ctxloom: warning: allowed_signers /p exists but cannot be read: permission denied\n"
+		"ctxloom: warning: allowed_signers /p exists but cannot be read: permission denied\n" +
+		"  fix: make the allowed_signers file readable, or remove it\n"
 	assert.Equal(t, today, rendered.String())
 	require.Len(t, legacyFindings, 1)
-	assert.Equal(t, strictness.Finding{
-		Class:   strictness.ClassTrust,
-		Message: "allowed_signers /p exists but cannot be read: permission denied",
-		FixIt:   "make the allowed_signers file readable, or remove it",
+	assert.Equal(t, report.Finding{
+		Kind:   report.KindTrust,
+		Text:   "allowed_signers /p exists but cannot be read: permission denied",
+		Remedy: "make the allowed_signers file readable, or remove it",
 	}, legacyFindings[0])
 }
 
@@ -110,7 +112,7 @@ func TestDiagnosticSink_QuietRecordsWithoutRendering(t *testing.T) {
 	strictness.Sink("ctxloom").Report(report.Recordf(report.KindApply, "narrow it", "too big"))
 	assert.Empty(t, rendered.String())
 	require.Len(t, strictness.All(), 1)
-	assert.Equal(t, "too big", strictness.All()[0].Message)
+	assert.Equal(t, "too big", strictness.All()[0].Text)
 }
 
 // A Once finding is one ledger entry per window however many times it is
@@ -155,9 +157,9 @@ func TestSink_DistinctOnceFindingsAreDistinctLedgerEntries(t *testing.T) {
 // one process, one degraded and one strict, judge the same findings
 // differently and neither leaks into the other — however they interleave.
 func TestMode_TwoModesInOneProcessDoNotInterfere(t *testing.T) {
-	found := []strictness.Finding{
-		{Class: strictness.ClassConfig, Message: "ordinary"},
-		{Class: strictness.ClassIsolation, Message: "hard", NonDegradable: true},
+	found := []report.Finding{
+		{Kind: report.KindConfig, Text: "ordinary"},
+		{Kind: report.KindIsolation, Text: "hard", NonDegradable: true},
 	}
 	strict := strictness.Mode{Prog: "ctxloom"}
 	degraded := strictness.Mode{Prog: "taskloom", Degraded: true}
@@ -173,7 +175,7 @@ func TestMode_TwoModesInOneProcessDoNotInterfere(t *testing.T) {
 			defer wg.Done()
 			got := degraded.Actionable(found)
 			if assert.Len(t, got, 1, "degraded mode waives the ordinary finding") {
-				assert.Equal(t, "hard", got[0].Message)
+				assert.Equal(t, "hard", got[0].Text)
 			}
 		}()
 	}
@@ -206,10 +208,10 @@ func TestDiagnosticSink_RendersWhatCoordRenderedToday(t *testing.T) {
 	clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot %s unreadable, falling back to a full replay: %v", "/s/items.snapshot", err)
 	clidiag.WarnOnce("ctxloom", "runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
 	clidiag.WarnOnce("ctxloom", "runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
-	strictness.FailOnce(strictness.ClassConfig,
+	strictness.FailOnce(report.KindConfig,
 		"construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn",
 		"runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake")
-	strictness.Record(strictness.ClassApply, "narrow the relayed tool's request before the 4MiB cap fails it",
+	strictness.Record(report.KindApply, "narrow the relayed tool's request before the 4MiB cap fails it",
 		"host-relay tool %s returned %d bytes (watch: >3MiB)", "search_content", 3_200_000)
 	legacyFindings := strictness.All()
 	restore()
@@ -229,9 +231,10 @@ func TestDiagnosticSink_RendersWhatCoordRenderedToday(t *testing.T) {
 
 	const today = "ctxloom: warning: coordinator: checkpoint snapshot /s/items.snapshot unreadable, falling back to a full replay: unexpected end of JSON input\n" +
 		"ctxloom: warning: runner: spool doorbell dropped (run channel down); harp/out/1 is still on disk and will be delivered by the next sweep\n" +
-		"ctxloom: warning: runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake\n"
+		"ctxloom: warning: runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake\n" +
+		"  fix: construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn\n"
 	assert.Equal(t, today, rendered.String(), "Record is quiet on stderr; FailOnce renders once and ledgers once")
 	require.Len(t, legacyFindings, 2)
-	assert.Equal(t, strictness.ClassConfig, legacyFindings[0].Class)
-	assert.Equal(t, strictness.ClassApply, legacyFindings[1].Class)
+	assert.Equal(t, report.KindConfig, legacyFindings[0].Kind)
+	assert.Equal(t, report.KindApply, legacyFindings[1].Kind)
 }

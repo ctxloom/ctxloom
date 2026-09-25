@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/cucumber/godog"
 )
 
@@ -130,7 +130,7 @@ func j002200AssertStartGateAbort(w *World) error {
 	if strings.Contains(out, j002200RuntimeGateFinding) {
 		return fmt.Errorf("the abort came from the RUNTIME-unreachable gate (%q), not the START gate this row asserts; output:\n%s", j002200RuntimeGateFinding, out)
 	}
-	class := "[" + string(strictness.ClassIsolation) + "]"
+	class := "[" + string(report.KindIsolation) + "]"
 	if !strings.Contains(out, class) {
 		return fmt.Errorf("output does not classify the abort as %s; output:\n%s", class, out)
 	}

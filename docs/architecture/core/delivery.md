@@ -69,7 +69,7 @@ cell, authenticates from `CLAUDE_CODE_OAUTH_TOKEN`, which
 `isolation.ExportStoredTokens` fills from the token `ctxloom auth set-token`
 stored; the session home holds none, and a container gets the var by name.
 A session home no auth var authenticates is refused
-(`isolation.PrepareInstanceHome`, `strictness.ClassIsolation`, FailAlways)
+(`isolation.PrepareInstanceHome`, `report.KindIsolation`, FailAlways)
 naming `ctxloom auth set-token`, the engine's API-key vars and the unsafe
 `engine_home: host`. See [isolation](../engines/isolation.md#credential-delivery).
 

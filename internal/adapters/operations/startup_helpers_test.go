@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -101,8 +102,8 @@ func TestWriteAndRecordSyncSummary_FailuresListEachFailedItem(t *testing.T) {
 	findings := strictness.All()
 	require.Len(t, findings, 2, "each failed sync item records a fatal finding")
 	for _, f := range findings {
-		assert.Equal(t, strictness.ClassSync, f.Class, "a failed sync item is sync-class")
-		assert.NotEmpty(t, f.FixIt, "the finding carries a fix-it hint")
+		assert.Equal(t, report.KindSync, f.Kind, "a failed sync item is sync-class")
+		assert.NotEmpty(t, f.Remedy, "the finding carries a fix-it hint")
 	}
 }
 
@@ -133,8 +134,8 @@ func TestWriteAndRecordSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
 	// partial-success path (installs succeeded, but the missing pinned item is fatal).
 	findings := strictness.All()
 	require.Len(t, findings, 1, "the failed item records a fatal sync finding despite partial success")
-	assert.Equal(t, strictness.ClassSync, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "myorg/broken", "the finding names the failed item")
+	assert.Equal(t, report.KindSync, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "myorg/broken", "the finding names the failed item")
 }
 
 func TestReportCompanions_PresentBinariesLogVersions(t *testing.T) {

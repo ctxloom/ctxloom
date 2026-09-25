@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -396,7 +397,7 @@ func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Conf
 			Cfg:               cfg,
 			RegenerateContext: true,
 		}); err != nil {
-			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
+			strictness.Fail(report.KindApply, "fix the failure, then re-apply (ctxloom manage hooks install)",
 				"failed to apply hooks after sync: %v", err)
 			zap.L().Warn("failed to apply hooks", zap.Error(err))
 		}

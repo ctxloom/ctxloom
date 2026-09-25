@@ -166,7 +166,7 @@ func resolveProfiles(cfg *config.Config, names []string, fromDefaults bool, load
 		resolved, err := pLoader.ResolveProfile(name, nil)
 		if err != nil {
 			if fromDefaults {
-				strictness.Fail(strictness.ClassRef, "fix the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles), or install the missing content (ctxloom deps pull)",
+				strictness.Fail(report.KindRef, "fix the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles), or install the missing content (ctxloom deps pull)",
 					"skipping default profile %s: %v", name, err)
 				continue
 			}
@@ -223,11 +223,11 @@ func voiceFindings(pkg composite.Package) {
 		switch f.Kind {
 		case composite.FindingLoadFailed:
 			if f.Version != "" {
-				strictness.Fail(strictness.ClassRef, "fix the pinned version in the referencing profile, or ctxloom deps pull",
+				strictness.Fail(report.KindRef, "fix the pinned version in the referencing profile, or ctxloom deps pull",
 					"withholding %s@%s: %s", f.Ref, f.Version, f.Message)
 				continue
 			}
-			strictness.Fail(strictness.ClassRef, "fix the fragment ref in the referencing profile, or install its bundle (ctxloom deps pull)",
+			strictness.Fail(report.KindRef, "fix the fragment ref in the referencing profile, or install its bundle (ctxloom deps pull)",
 				"fragment %s failed to load (%s); skipping", f.Ref, f.Message)
 		case composite.FindingSubstitution:
 			clidiag.WarnOnce("ctxloom", "%s (fragment %q)", f.Message, f.Ref)

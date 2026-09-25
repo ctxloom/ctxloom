@@ -3,11 +3,11 @@ package cli
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -155,15 +155,15 @@ func (g *phaseGates) close(p Phase) error {
 }
 
 // formatFindings renders the collected findings block: a header naming the
-// PHASE, the count and the escape hatch, then one "[class] message" + "fix:"
-// pair per finding. Empty when nothing is actionable in the current mode —
+// PHASE, the count and the escape hatch, then strictness.Mode.Listing (one
+// "[kind] text" bullet and its fix line per finding). Empty when nothing is actionable in the current mode —
 // which under --degraded means everything except a NonDegradable finding.
 //
 // The header keeps the stable "ctxloom: aborting " prefix ahead of the phase
 // so a test asking "did this abort at all" can match the prefix and catch
 // every phase. Pinning such a check to one phase's wording is how a negative
 // assertion silently stops catching the phases added after it.
-func formatFindings(mode strictness.Mode, p Phase, findings []strictness.Finding) string {
+func formatFindings(mode strictness.Mode, p Phase, findings report.Findings) string {
 	findings = mode.Actionable(findings)
 	if len(findings) == 0 {
 		return ""
@@ -180,17 +180,9 @@ func formatFindings(mode strictness.Mode, p Phase, findings []strictness.Finding
 			break
 		}
 	}
-	var b strings.Builder
+	header := fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:", p, len(findings))
 	if allNonDegradable {
-		fmt.Fprintf(&b, "ctxloom: aborting %s: %d fatal finding(s); --degraded does NOT bypass these — fix them as described:", p, len(findings))
-	} else {
-		fmt.Fprintf(&b, "ctxloom: aborting %s: %d fatal finding(s); fix them, or rerun with --degraded (env CTXLOOM_DEGRADED=1) to launch anyway:", p, len(findings))
+		header = fmt.Sprintf("ctxloom: aborting %s: %d fatal finding(s); --degraded does NOT bypass these — fix them as described:", p, len(findings))
 	}
-	for _, f := range findings {
-		fmt.Fprintf(&b, "\n  - [%s] %s", f.Class, f.Message)
-		if f.FixIt != "" {
-			fmt.Fprintf(&b, "\n    fix: %s", f.FixIt)
-		}
-	}
-	return b.String()
+	return mode.Listing(header, findings)
 }

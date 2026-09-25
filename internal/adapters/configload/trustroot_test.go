@@ -328,7 +328,7 @@ func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
 // A malformed LINE in an otherwise-good allowed_signers file is deliberately
 // NOT a trust-store finding, and this pins that boundary from both sides.
 //
-// strictness.ClassTrust is documented as "a corrupt/unreadable trust store
+// report.KindTrust is documented as "a corrupt/unreadable trust store
 // (the deny-all posture)" — the store as a whole being unusable. Two branches
 // of parseAllowedSigners are that (an unreadable file, an unparsable file) and
 // both escalate. A skipped line is not: the file opened, parsed, and

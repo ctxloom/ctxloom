@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -38,14 +39,14 @@ func TestRunState_Refused_CellRefusalIsTheFatalAbort(t *testing.T) {
 	resetStrictness(t)
 	var out bytes.Buffer
 	st := refusedFixture(&out, strictness.Mode{})
-	strictness.FailAlways(strictness.ClassIsolation, "start the container runtime", "container-rootless requested but no container runtime is available")
+	strictness.FailAlways(report.KindIsolation, "start the container runtime", "container-rootless requested but no container runtime is available")
 
 	err := st.refused(cellRefusal("container-rootless requested but no container runtime is available"))
 
 	var exitErr *ExitError
 	require.ErrorAs(t, err, &exitErr, "a recorded finding aborts through the gate, not as the resolver's own error")
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
-	assert.Contains(t, out.String(), "["+string(strictness.ClassIsolation)+"]")
+	assert.Contains(t, out.String(), "["+string(report.KindIsolation)+"]")
 	assert.Contains(t, out.String(), "no container runtime is available")
 	assert.Contains(t, out.String(), "--degraded does NOT bypass", "a non-degradable finding says so in the header")
 }
@@ -57,7 +58,7 @@ func TestRunState_Refused_DegradedStillAbortsOnNonDegradable(t *testing.T) {
 	resetStrictness(t)
 	var out bytes.Buffer
 	st := refusedFixture(&out, strictness.Mode{Degraded: true})
-	strictness.FailAlways(strictness.ClassIsolation, "fix", "requested container could not start")
+	strictness.FailAlways(report.KindIsolation, "fix", "requested container could not start")
 
 	err := st.refused(cellRefusal("requested container could not start"))
 
@@ -77,7 +78,7 @@ func TestRunState_Refused_EmptyAssemblyWithAFindingAbortsThroughTheGate(t *testi
 	resetStrictness(t)
 	var out bytes.Buffer
 	st := refusedFixture(&out, strictness.Mode{})
-	strictness.Fail(strictness.ClassBundle, "fix the profile's bundle list", "failed to load bundle \"does-not-exist\"")
+	strictness.Fail(report.KindBundle, "fix the profile's bundle list", "failed to load bundle \"does-not-exist\"")
 	cause := fmt.Errorf("%w: profile set [broken]", launch.ErrContextEmpty)
 
 	err := st.refused(cause)
@@ -104,7 +105,7 @@ func TestRunState_Refused_OtherRefusalsReturnAsTheyCame(t *testing.T) {
 	require.Same(t, empty, st.refused(empty), "no finding recorded: the resolver's own error is the abort")
 	assert.Empty(t, out.String(), "the gate did not report")
 
-	strictness.Fail(strictness.ClassRef, "fix the ref", "failed to load fragment \"no-such-fragment\"")
+	strictness.Fail(report.KindRef, "fix the ref", "failed to load fragment \"no-such-fragment\"")
 	miss := errors.New("no fragments loaded: requested fragments not found: no-such-fragment")
 	require.Same(t, miss, st.refused(miss), "an explicit selection miss is its own error, findings or not")
 	assert.Empty(t, out.String(), "the gate did not report; the resolver's own error is the abort")

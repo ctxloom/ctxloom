@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -108,7 +109,7 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 		clidiag.Fwarn(ew, "ctxloom", "sync completed with %d errors", result.Errors)
 		for _, item := range result.Failed {
 			ew.Printf("ctxloom:   - %s (%s): %s\n", item.Reference, item.Type, item.Error)
-			strictness.Record(strictness.ClassSync, syncFailureRemedy(item.cause),
+			strictness.Record(report.KindSync, syncFailureRemedy(item.cause),
 				"sync: %s (%s) is neither cached nor fetchable: %s", item.Reference, item.Type, item.Error)
 		}
 	}

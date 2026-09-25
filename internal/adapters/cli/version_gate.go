@@ -3,6 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
@@ -72,7 +73,7 @@ func refuseUnstampedBuild(cmd *cobra.Command) error {
 	}
 	// Opened only on the failing path, so a stamped run adds no checkpoint.
 	g := newPhaseGates(cmd.ErrOrStderr(), strictnessMode(cmd))
-	strictness.FailAlways(strictness.ClassConfig, versionStampFixIt,
+	strictness.FailAlways(report.KindConfig, versionStampFixIt,
 		"this binary carries no usable version stamp (%q): it cannot say which build or commit is answering, and nothing downstream can tell it apart from any other ctxloom",
 		version.Version)
 	return g.close(PhaseStartup)

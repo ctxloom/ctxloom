@@ -5,7 +5,7 @@
 a transport-free `RunnerHandle`. It
 owns an **ordered degrade chain whose floor is always the host**, and the rule that
 every drop of an explicitly-requested boundary is *refused* — a
-`strictness.FailAlways(ClassIsolation, …)` finding that aborts in **both** modes,
+`strictness.FailAlways(KindIsolation, …)` finding that aborts in **both** modes,
 never a weaker cell. `--degraded` does not reach these: it means "deliver less",
 not "drop the sandbox". It also owns the agent container image lifecycle and the
 stored engine token.
@@ -49,8 +49,8 @@ flowchart TD
     B -->|"{worktree, host}"| C3["Worktree<br/>'worktree'"]
     B -->|"{none, host}"| C4["None<br/>'none'"]
 
-    C1 -->|"FATAL ClassIsolation if the DEMANDED ownership is unreachable<br/>(never substitutes the other ownership mode)"| C3
-    C2 -->|"FATAL ClassIsolation if the DEMANDED ownership is unreachable<br/>(never substitutes the other ownership mode)"| C4
+    C1 -->|"FATAL KindIsolation if the DEMANDED ownership is unreachable<br/>(never substitutes the other ownership mode)"| C3
+    C2 -->|"FATAL KindIsolation if the DEMANDED ownership is unreachable<br/>(never substitutes the other ownership mode)"| C4
     C3 -->|"warn only"| C4
     C1 -.->|"NEVER skips to"| C4
 
@@ -73,13 +73,13 @@ container tier never degrades *into* a worktree that was not requested, and a
 requested worktree is never dropped because the container failed.
 
 - Container requested with no runtime reachable **that provides the demanded
-  ownership** → `strictness.Fail(ClassIsolation, …)`. `SelectRuntime` picks a
+  ownership** → `strictness.Fail(KindIsolation, …)`. `SelectRuntime` picks a
   container runtime only when it is launchable AND its probed ownership
   (`ownershipAxis`, off the daemon's actual rootless-ness) IS the demanded one; a
   rootful request never lands on a rootless daemon and vice versa. A mismatch
   and "no runtime at all" both return `Host{}` from `SelectRuntime` and take the
   same fatal path — **an ownership mismatch is never a substitution, only ever a
-  fatal `ClassIsolation` finding** (the exit-code-3 fatal-findings path). Neither mode
+  fatal `KindIsolation` finding** (the exit-code-3 fatal-findings path). Neither mode
   falls back to the HOST any more, and neither ever substituted the other
   ownership mode: satisfying a rootful request with a rootless container (or the
   reverse) is the identical substitution wearing a flag, and dropping the
@@ -89,7 +89,7 @@ requested worktree is never dropped because the container failed.
 - A **worktree → None** transition is `clidiag.Warn` only — deliberate.
 - `warnUnknownAxes`: an unknown *workspace* value warns; an unknown *runtime*
   value (including a typo of `container-rootless`/`container-rootful`) is a
-  **fatal** `ClassIsolation` finding. Empty string = unset = host default, no
+  **fatal** `KindIsolation` finding. Empty string = unset = host default, no
   diagnostic.
 - `Prepare` **never returns an error** — the chain always terminates in a
   workspace, because `None.PrepareWorkspace` cannot fail.
@@ -165,7 +165,7 @@ stale and was rebuilt for nothing. A tracked-dirty build still rebuilds, because
 The companion half exists because the image bakes the companions too, and
 keying on ctxloom's version alone let an image holding an OLD companion read as
 fresh until ctxloom's own version happened to move. A companion present on PATH
-that cannot answer `<bin> version --format json` raises a `ClassConfig` finding
+that cannot answer `<bin> version --format json` raises a `KindConfig` finding
 — fatal by default, warn-and-continue under `--degraded` — rather than dropping
 out of the key unnoticed.
 
@@ -275,7 +275,7 @@ container gets it by name; a host cell sharing the login blanks it.
 **Refusal.** A relocated home (`engine_home: session`) that shares no login
 and that none of the engine's auth vars authenticates is refused by
 `isolation.PrepareInstanceHome`
-(a `strictness.ClassIsolation` finding, FailAlways) naming the mint command,
+(a `report.KindIsolation` finding, FailAlways) naming the mint command,
 `ctxloom auth set-token`, the API-key vars and `engine_home: host`.
 
 `containerAuth{mode, envPassthrough}` is resolved per backend.
@@ -424,7 +424,7 @@ fills gaps; it never overrides.
 No credential follows the home. When nothing in the env authenticates claude
 (no stored or exported `CLAUDE_CODE_OAUTH_TOKEN`, no API-key var),
 `isolation.PrepareInstanceHome` reports it and ctxloom records a
-`ClassIsolation` finding and contributes **nothing** — the run aborts at the
+`KindIsolation` finding and contributes **nothing** — the run aborts at the
 choke gate in both modes. Handing the engine a controlled home it cannot
 authenticate in would trade a working run for a mysterious 401; falling back
 to the host's own home would hand the agent the user's real login, so neither
@@ -515,7 +515,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 ## Invariants
 
 1. **Degrade drops one axis at a time** (`chainFor`).
-2. **Every lost container boundary is a refusal** — `strictness.FailAlways(ClassIsolation)` in `chainFor`, and a non-degradable container→non-container transition in `prepareChain`. Aborts in both modes.
+2. **Every lost container boundary is a refusal** — `strictness.FailAlways(KindIsolation)` in `chainFor`, and a non-degradable container→non-container transition in `prepareChain`. Aborts in both modes.
 3. **An ownership mismatch is fatal, never a substitution** — `SelectRuntime` returns `Host{}` (not the other ownership's runtime) when the demanded ownership is unreachable, and the run then refuses rather than landing on the HOST.
 4. **The chain always terminates in a workspace**; `Prepare` never errors.
 5. **Unknown runtime axis is fail-closed; unknown workspace axis warns** (`warnUnknownAxes`).
@@ -523,7 +523,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 7. **`containerAuth`'s zero value fails closed** (`authNone`, no credentials cross).
 8. **No implicit pull** — an absent image is built from a known source or the policy degrades.
 9. **An unverifiable image *identity* fails loud; an unverifiable *label* reads as stale and triggers a rebuild** — opposite directions, both deliberate (`imageIdentityConfig` errors; `imageLabels` returns nil).
-10. **A user-owned (run-as-is) image must satisfy the identity contract** — a ctxloom-governed entrypoint or a non-root user, else `ClassIsolation` (`Container.checkRunAsIsIdentity`).
+10. **A user-owned (run-as-is) image must satisfy the identity contract** — a ctxloom-governed entrypoint or a non-root user, else `KindIsolation` (`Container.checkRunAsIsIdentity`).
 11. **The engine never runs as root in a governed image** — there is no override, in either mode; the build itself fails without a privilege-drop path (`overlayUserGate`).
 12. **The build gates that the engine is runnable**, not merely installed.
 13. **An agent image is content-keyed** — base content and the ONE engine are both in the tag.
@@ -540,16 +540,16 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 **Credential and coverage gaps**
 
 - ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerAuth`) and the launch aborts; `operations.validateContainerAuth` refuses such a binding at write time so the abort is not the first the user hears of it.
-- ~~**A backend in neither `credentialSeedSpecs` nor a curated-home registry gets a worktree with zero engine-global isolation and no finding at all**~~ — **PARTIALLY RESOLVED.** `Worktree.PrepareWorkspace` now records a `strictness.Fail(ClassIsolation)` for any backend that is neither in `credentialSeedSpecs` nor named in `backendsWithNoGlobalState` — closing the gap for every unmapped engine. `backendsWithNoGlobalState` carries exactly one, independently-verified exemption (`mock`, which provably touches no engine-global state), not a silent carve-out; an empty backend (no agent context at all) stays silent by design.
+- ~~**A backend in neither `credentialSeedSpecs` nor a curated-home registry gets a worktree with zero engine-global isolation and no finding at all**~~ — **PARTIALLY RESOLVED.** `Worktree.PrepareWorkspace` now records a `strictness.Fail(KindIsolation)` for any backend that is neither in `credentialSeedSpecs` nor named in `backendsWithNoGlobalState` — closing the gap for every unmapped engine. `backendsWithNoGlobalState` carries exactly one, independently-verified exemption (`mock`, which provably touches no engine-global state), not a silent carve-out; an empty backend (no agent context at all) stays silent by design.
 - **The curated-HOME allowlist** that used to symlink `~/.gitconfig`/`~/.ssh` into a worktree's per-agent home **has been removed along with the whole curated-home mechanism** — `Worktree` now relies solely on `credentialSeedSpecs`' scoped env vars (`Worktree.prepareHomeVarDirs`), which is why `.gitconfig`/`.ssh` identity is left on the *shared* worktree checkout instead of being copied or symlinked per agent. Whether that removal fully retired the class of bug the old allowlist was tracking (over-broad `.ssh` exposure) was not re-verified here.
 - **The worktree reaper's scope is `~/.ctxloom/sessions/*/ephemeral/` only** (`ReapOrphanedWorktrees`); worktrees on the `os.TempDir()` fallback are permanently unreapable, and nothing sweeps the sibling `ctxloom-tmp-*` dirs.
 - **`worktreeWorkspace.Cleanup`'s idempotence guard is `dir` alone**, short-circuiting removal of `configHome` / `scratchDir` if a caller ever reaches it with `dir == ""` but either of those still set.
 
 **Green build, nothing delivered**
 
-- ~~**`composeAgentContainerfile(nil)` renders a complete, buildable, gate-passing image with zero engine layers.**~~ CLOSED 2026-08-25 by the one-image-per-engine split: `composableBuildSources` raises a fatal `ClassIsolation` finding when the engine has no known install recipe, rather than building a green, empty image.
+- ~~**`composeAgentContainerfile(nil)` renders a complete, buildable, gate-passing image with zero engine layers.**~~ CLOSED 2026-08-25 by the one-image-per-engine split: `composableBuildSources` raises a fatal `KindIsolation` finding when the engine has no known install recipe, rather than building a green, empty image.
 - **The staleness gate fails open**: `combineProvenance` returns `""` on unresolvable provenance and `imageStale("")` returns `false`, so any present image runs as-is with no diagnostic.
-- **A stale image that cannot rebuild because `resolveSelfExe` failed launches with no warning and no finding**, while the parallel "rebuild failed" path raises a fatal `ClassIsolation` for the identical outcome. `selfLinuxExe` errors unconditionally off Linux, so this is the **default path on macOS and Windows** dev hosts.
+- **A stale image that cannot rebuild because `resolveSelfExe` failed launches with no warning and no finding**, while the parallel "rebuild failed" path raises a fatal `KindIsolation` for the identical outcome. `selfLinuxExe` errors unconditionally off Linux, so this is the **default path on macOS and Windows** dev hosts.
 - **`overlayContainerfile` emits its client-validation `RUN` only when `validate != ""`**, and the default profile's `validate` is `""` — so `container build <unprofiled> --base-image X` tags an image never checked to contain any engine.
 - **`sessionStateMounts` skips the transcript mount silently when `transcriptStoreRel == ""`**; a missing harp or project id degrades behind `clidiag.WarnOnce` — *once per process*, so in a fan-out only the first member's data loss is announced.
 

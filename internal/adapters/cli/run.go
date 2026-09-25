@@ -31,6 +31,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -274,7 +275,7 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 		SessionHarp: activeHarp,
 	}, harpID, status, "")
 	if err != nil {
-		strictness.Fail(strictness.ClassTask,
+		strictness.Fail(report.KindTask,
 			"check the task harp id (taskloom list), or drop --seed-task to launch without seeding",
 			"seed task %s: %v", harpID, err)
 		return
@@ -757,7 +758,7 @@ func (st *runState) runStartupTasks() {
 		syncCancel()
 		if syncErr != nil {
 			if !errors.Is(syncErr, context.Canceled) {
-				strictness.Fail(strictness.ClassSync, "check the remote/network, or pass --degraded to launch anyway", "sync failed: %v", syncErr)
+				strictness.Fail(report.KindSync, "check the remote/network, or pass --degraded to launch anyway", "sync failed: %v", syncErr)
 			}
 		} else {
 			operations.WriteAndRecordSyncSummary(os.Stderr, result)
@@ -1069,12 +1070,12 @@ func (st *runState) markSessionEnded() {
 // asserted by nothing.
 func recordCoordinatorStartupFinding(cerr error) {
 	if errors.Is(cerr, coord.ErrStateOwned) {
-		strictness.Fail(strictness.ClassOwner,
+		strictness.Fail(report.KindOwner,
 			"end the session that owns this project (its pid is stamped in the state dir's "+coord.OwnerLockFileName+"), or pass --degraded (env CTXLOOM_DEGRADED=1) to launch this one without agent delegation",
 			"a project has one session owner and this one is already owned: %v — this session is refused as a second coordinator; nothing the owner has spawned is affected", cerr)
 		return
 	}
-	strictness.Fail(strictness.ClassApply,
+	strictness.Fail(report.KindApply,
 		"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation",
 		"agent coordinator startup failed: %v — this session cannot delegate; nothing it has already spawned is affected, their mail is a file spool", cerr)
 }

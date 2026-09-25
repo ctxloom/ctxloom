@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -32,7 +33,7 @@ func RunnerStarter(cell PreparedCell, backend, label string, verbosity int, star
 		if rerr := isolation.AwaitContainerRunning(RuntimeForPolicy(cell.Policy), h); rerr != nil {
 			// NON-DEGRADABLE: a boundary that was requested, accepted, and
 			// then died must not launch on the host in either mode.
-			strictness.FailAlways(strictness.ClassIsolation,
+			strictness.FailAlways(report.KindIsolation,
 				"check the container runtime and the agent image can start (`docker logs `/`podman logs ` the named container); this run cannot fall back to the host without silently dropping the boundary it was given",
 				"container %q was started but never reached running state, so the isolation it promised does not exist: %v", h.Name, rerr)
 			return runner, rerr

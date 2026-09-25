@@ -50,4 +50,3 @@ func remedyOf(err error) string {
 	fix, _ := RemedyOf(err)
 	return fix
 }
-

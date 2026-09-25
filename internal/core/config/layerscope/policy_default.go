@@ -20,7 +20,7 @@ func DefaultPolicy() Policy {
 		// in the human-facing report for this change (it is a deliberate,
 		// documented divergence, not an oversight) — in short: (1) none of
 		// the three measured escalation paths touch runtime; (2)
-		// strictness.ClassIsolation ALREADY independently refuses a
+		// report.KindIsolation ALREADY independently refuses a
 		// container-runtime agent on a machine that lacks the runtime, so
 		// ScopeMachine here is redundant with an existing safety net, not a
 		// new one; (3) MEASURED — agentBindingMergeFunc's atomic-replace rule
@@ -34,7 +34,7 @@ func DefaultPolicy() Policy {
 		// shape that makes both llm and runtime:container stick together
 		// outside a one-off --config-set flag. That is a functional
 		// regression far outside this fix's three named targets.
-		{Path: "agents.*.runtime", Scope: ScopeShared, Note: "which context (and posture) this project's roles compose; strictness.ClassIsolation already refuses per-machine when the runtime isn't available"},
+		{Path: "agents.*.runtime", Scope: ScopeShared, Note: "which context (and posture) this project's roles compose; report.KindIsolation already refuses per-machine when the runtime isn't available"},
 		// Shared, and the reasoning is the same as agents.*.llm's: which
 		// approaches EXIST is the engine's answer, so a preference is only
 		// meaningful beside the engine it was validated against. A home config

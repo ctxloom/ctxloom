@@ -13,12 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // loadRefusalFindings loads body as the project config and returns the findings
 // the load raised, with the strictness gate isolated to this test.
-func loadRefusalFindings(t *testing.T, body string) []strictness.Finding {
+func loadRefusalFindings(t *testing.T, body string) []report.Finding {
 	t.Helper()
 	strictness.Reset()
 	t.Cleanup(func() { strictness.Reset() })
@@ -45,11 +46,11 @@ func TestLoad_OlderThanCurrentVersion_IsRefusedWithAnActionableFinding(t *testin
 	found := loadRefusalFindings(t, "version: 5\nllm:\n  defaults:\n    primary: claude-code\n")
 
 	require.Len(t, found, 1, "exactly one finding: %+v", found)
-	assert.Equal(t, strictness.ClassMigration, found[0].Class)
-	assert.Contains(t, found[0].Message, "version: 5", "the finding must quote the version the file declares")
-	assert.Contains(t, found[0].Message, fmt.Sprintf("%d", config.CurrentConfigVersion), "and the version this build requires")
-	assert.Contains(t, found[0].Message, paths.ConfigPath("/project/"+paths.AppDirName), "and name the file")
-	assert.Contains(t, found[0].FixIt, "ctxloom init", "the remedy is re-scaffolding, and the finding must say so")
+	assert.Equal(t, report.KindMigration, found[0].Kind)
+	assert.Contains(t, found[0].Text, "version: 5", "the finding must quote the version the file declares")
+	assert.Contains(t, found[0].Text, fmt.Sprintf("%d", config.CurrentConfigVersion), "and the version this build requires")
+	assert.Contains(t, found[0].Text, paths.ConfigPath("/project/"+paths.AppDirName), "and name the file")
+	assert.Contains(t, found[0].Remedy, "ctxloom init", "the remedy is re-scaffolding, and the finding must say so")
 }
 
 // A document with NO `version:` key is the pre-versioning generation — older
@@ -60,8 +61,8 @@ func TestLoad_UnversionedConfig_IsRefusedAsPreVersioning(t *testing.T) {
 	found := loadRefusalFindings(t, "llm:\n  defaults:\n    primary: claude-code\n")
 
 	require.Len(t, found, 1, "exactly one finding: %+v", found)
-	assert.Equal(t, strictness.ClassMigration, found[0].Class)
-	assert.Contains(t, found[0].Message, "pre-versioning",
+	assert.Equal(t, report.KindMigration, found[0].Kind)
+	assert.Contains(t, found[0].Text, "pre-versioning",
 		"an unversioned document must be named for what it is, not reported as `version: 0`")
 }
 

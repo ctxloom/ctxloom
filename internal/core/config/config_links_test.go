@@ -228,10 +228,10 @@ func TestConfig_LinkGrant_ResolvesLazily(t *testing.T) {
 		"a second question re-uses the resolved set and records nothing more")
 }
 
-func refFindings(fs []strictness.Finding) []strictness.Finding {
-	var out []strictness.Finding
+func refFindings(fs []report.Finding) []report.Finding {
+	var out []report.Finding
 	for _, f := range fs {
-		if f.Class == strictness.ClassRef {
+		if f.Kind == report.KindRef {
 			out = append(out, f)
 		}
 	}

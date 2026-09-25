@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -330,29 +331,38 @@ func RuntimeForPolicy(p isolation.Policy) isolation.Runtime {
 // converting the raise sites without converting this would have changed
 // nothing at all. A class-filtered gate must filter and then defer to
 // Actionable — never short-circuit on the mode.
-func isolationGateErr(mode strictness.Mode, found []strictness.Finding) error {
-	var iso []strictness.Finding
+func isolationGateErr(mode strictness.Mode, found report.Findings) error {
+	return findingsListingError(mode,
+		"isolation: refusing to run this member — an explicitly-requested isolation guarantee could not be satisfied:",
+		mode.Actionable(ofKind(found, report.KindIsolation)))
+}
+
+// ofKind filters found to one Kind, for a gate narrower than FindingsError.
+func ofKind(found report.Findings, kind report.Kind) report.Findings {
+	var out report.Findings
 	for _, f := range found {
-		if f.Class == strictness.ClassIsolation {
-			iso = append(iso, f)
+		if f.Kind == kind {
+			out = append(out, f)
 		}
 	}
-	if iso = mode.Actionable(iso); len(iso) == 0 {
+	return out
+}
+
+// findingsListingError renders found as mode's Listing under header, as an
+// error, or nil when found is empty. Every remedy is in the listing text;
+// the error names the fix structurally (report.Error.Fix, which the terminal
+// envelope carries) only when there is exactly one finding, because one
+// remedy field cannot honestly stand for several. strictness.FindingsError
+// applies the same rule to its own listing.
+func findingsListingError(mode strictness.Mode, header string, found report.Findings) error {
+	if len(found) == 0 {
 		return nil
 	}
-	var b strings.Builder
-	b.WriteString("isolation: refusing to run this member — an explicitly-requested isolation guarantee could not be satisfied")
-	// Each finding carries its own fix; a fix identical to the previous
-	// finding's is not repeated.
-	lastFix := ""
-	for _, f := range iso {
-		fmt.Fprintf(&b, ": %s", f.Message)
-		if f.FixIt != "" && f.FixIt != lastFix {
-			fmt.Fprintf(&b, " (fix: %s)", f.FixIt)
-			lastFix = f.FixIt
-		}
+	e := report.Error{Msg: mode.Listing(header, found)}
+	if len(found) == 1 {
+		e.Fix = found[0].Remedy
 	}
-	return errors.New(b.String())
+	return e
 }
 
 // ResolveBackend maps a config label to its backend type and model. A label that
@@ -393,7 +403,7 @@ func ResolveBackend(reg engine.Registry, cfg *config.Config, label string) (back
 		return label, ""
 	}
 	if !configured && label != "" {
-		strictness.Fail(strictness.ClassConfig,
+		strictness.Fail(report.KindConfig,
 			fmt.Sprintf("add an `llm:` entry for %q in .ctxloom/config.yaml, or name one of the configured labels (%s) or a known engine (%s)",
 				label, knownLLMLabels(cfg), strings.Join(EngineNames(reg), ", ")),
 			"llm label %q names neither a configured `llm:` entry nor a known engine; this run would silently use the built-in default backend %q instead of the engine you named",

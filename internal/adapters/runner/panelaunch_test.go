@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/tmuxhost"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -94,9 +95,9 @@ func TestInteractiveLaunch_WithoutTmuxRefusesLoudlyAndStartsNothing(t *testing.T
 	// rather than this site deciding fatality for itself.
 	found := strictness.All()
 	require.Len(t, found, 1, "the refusal must be recorded, not only printed")
-	assert.Equal(t, strictness.ClassConfig, found[0].Class)
-	assert.Contains(t, strings.ToLower(found[0].Message), "tmux")
-	assert.Contains(t, found[0].FixIt, "install tmux",
+	assert.Equal(t, report.KindConfig, found[0].Kind)
+	assert.Contains(t, strings.ToLower(found[0].Text), "tmux")
+	assert.Contains(t, found[0].Remedy, "install tmux",
 		"the remedy must name the fix, not merely state the fault")
 }
 

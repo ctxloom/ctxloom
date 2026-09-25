@@ -47,9 +47,9 @@
 #
 # TARGET                                   TOTAL  SURVIVED  PROVENANCE
 TestAcceptanceMutation/bundle_sign            31         6  recorded
-TestAcceptanceMutation/trust_cascade         132        51  recorded
+TestAcceptanceMutation/trust_cascade          50        27  measured
 TestAcceptanceMutation/signer_store          138        83  stale
-TestAcceptanceMutation/isolation_axes         43        31  recorded
+TestAcceptanceMutation/isolation_axes         78        53  measured
 TestAcceptanceMutation/remote_registry         -         -  unknown
-TestTrustCascadeGuardMutation                  -         -  unknown
+TestTrustCascadeGuardMutation                  4         0  measured
 TestPackageMutation/isolation                761       110  measured

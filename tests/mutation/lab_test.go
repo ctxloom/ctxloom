@@ -308,31 +308,43 @@ func isSelector(n ast.Node, pkg, name string) bool {
 // top of stack is an argument to a preflightThenRelease call whose result is
 // kept (not a bare statement, not assigned to _).
 func behindPreflight(stack []ast.Node) bool {
+	i := innermostFuncLit(stack)
+	if i < 2 {
+		return false
+	}
+	call, ok := stack[i-1].(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "preflightThenRelease" {
+		return false
+	}
+	return resultKept(stack[i-2])
+}
+
+// innermostFuncLit returns the stack index of the innermost function literal
+// (never index 0, which is the file), or -1 when there is none.
+func innermostFuncLit(stack []ast.Node) int {
 	for i := len(stack) - 1; i > 0; i-- {
-		if _, ok := stack[i].(*ast.FuncLit); !ok {
-			continue
+		if _, ok := stack[i].(*ast.FuncLit); ok {
+			return i
 		}
-		call, ok := stack[i-1].(*ast.CallExpr)
-		if !ok {
-			return false
-		}
-		if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "preflightThenRelease" {
-			return false
-		}
-		if i < 2 {
-			return false
-		}
-		switch parent := stack[i-2].(type) {
-		case *ast.ExprStmt:
-			return false
-		case *ast.AssignStmt:
-			for _, lhs := range parent.Lhs {
-				if id, ok := lhs.(*ast.Ident); ok && id.Name == "_" {
-					return false
-				}
+	}
+	return -1
+}
+
+// resultKept reports whether a call's parent keeps its result: a bare
+// statement discards it, and so does an assignment to _.
+func resultKept(parent ast.Node) bool {
+	switch parent := parent.(type) {
+	case *ast.ExprStmt:
+		return false
+	case *ast.AssignStmt:
+		for _, lhs := range parent.Lhs {
+			if id, ok := lhs.(*ast.Ident); ok && id.Name == "_" {
+				return false
 			}
 		}
-		return true
 	}
-	return false
+	return true
 }

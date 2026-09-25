@@ -151,9 +151,11 @@ build-archlint:
 # own -tags flag is accepted and then ignored, which fails silently in exactly
 # the invisible direction.
 #
-#   PASS 1 is ADDITIVE. No file in the module carries a negated constraint for
-#   any of these tags, so enabling them can only open files up, never close
-#   any. They mirror .golangci.yml's run.build-tags for the same reason.
+#   PASS 1 is ADDITIVE for every tag but treesitter: no file carries a negated
+#   constraint for them, so enabling them can only open files up, never close
+#   any. treesitter is two-sided (compression's code_stub.go is `!treesitter`)
+#   and needs cgo, so it rides on pass 1 alone — the OS passes cross-compile
+#   with cgo off, where its bindings do not build — and pass 2 covers its stub.
 #
 #   PASS 2 reaches the files pass 1's tags HIDE. schemagen and docsgen have
 #   files on BOTH sides of their constraint (cmd/gen-schemas/stub.go is
@@ -169,16 +171,18 @@ build-archlint:
 #   no analyzer coverage at all. Each OS pass repeats pass 1's tags under that
 #   GOOS. Allowlist liveness stays ON: it judges only files the pass analyzed,
 #   so an exemption naming a file this OS cannot see is skipped, not reported.
-#   A file built for none of linux, windows and darwin stays uncovered.
+#   freebsd reaches the `!linux && !darwin && !windows` fallbacks, and openbsd
+#   the one fallback that also excludes freebsd; a file built for none of
+#   these five stays uncovered.
 #
 # Every pass must pass; the recipe fails on the first that does not.
 lint-arch: build-archlint
     #!/usr/bin/env bash
     set -euo pipefail
-    tags=mutation,arch,conformance,docker_integration,acceptance,integration,schemagen,docsgen
-    GOFLAGS=-tags=$tags ./bin/archlint ./...
+    tags=mutation,arch,conformance,docker_integration,acceptance,integration,schemagen,docsgen,coveragegate
+    GOFLAGS=-tags=$tags,treesitter ./bin/archlint ./...
     ARCHLINT_CHECK_ALLOWLISTS=0 ./bin/archlint ./...
-    for goos in windows darwin; do
+    for goos in windows darwin freebsd openbsd; do
         GOOS=$goos GOFLAGS=-tags=$tags ./bin/archlint ./...
     done
 

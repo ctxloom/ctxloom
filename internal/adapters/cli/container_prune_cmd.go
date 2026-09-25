@@ -27,9 +27,14 @@ var containerPruneCmd = &cobra.Command{
 
 Every ctxloom commit (and every change to the admitted companion set) builds
 a new agent image tag, and the old ones are never overwritten, so they pile
-up. An image is ctxloom's only if a ctxloom build LABELLED it with its own
-tag; an image that merely looks like ctxloom-agent-*, or one built FROM a
-ctxloom image under another tag, is reported as unowned and never touched.
+up. Every ctxloom build also applies a one-off ownership tag (own-...) that
+no later build reuses or moves, and labels the image with it. An image is
+ctxloom's only if it still carries that labelled ownership tag, so a build
+whose primary tag a rebuild took over is still found and removed. An image
+that merely looks like ctxloom-agent-*, one built FROM a ctxloom image under
+another tag, or one with no tag left at all is reported as unowned and never
+touched. Removing an image removes every tag it holds, its ownership tag
+included.
 
 An owned image is KEPT when any of these holds:
   - it is the image a configured agent in this project runs (current)

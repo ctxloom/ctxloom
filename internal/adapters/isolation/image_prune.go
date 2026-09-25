@@ -36,14 +36,24 @@ type OwnedImage struct {
 	Slot       string    `json:"slot,omitempty"` // "" for a pre-label image
 	Companions string    `json:"companions,omitempty"`
 	From       string    `json:"from,omitempty"`
-	Created    time.Time `json:"created"`
+	// OwnershipTag is the ctxloom.tag label: the per-build tag ownership is
+	// proved by (ownershipTagFor). "" for a pre-label image.
+	OwnershipTag string    `json:"ownership_tag,omitempty"`
+	Created      time.Time `json:"created"`
 	// Size is the image's UNIQUE-layer bytes as the runtime reports them —
 	// what removing it alone frees — and 0 when the runtime reported none.
 	Size int64 `json:"size"`
 }
 
-// name is the image's display name: its first ref, else its ID.
-func (o OwnedImage) name() string {
+// Name is the image's display name: a ref other than its ownership tag (the
+// primary tag it was built as, while it still holds it), else its ownership
+// tag, else its ID.
+func (o OwnedImage) Name() string {
+	for _, ref := range o.Refs {
+		if ref != o.OwnershipTag {
+			return ref
+		}
+	}
 	if len(o.Refs) > 0 {
 		return o.Refs[0]
 	}
@@ -186,7 +196,8 @@ func PlanImagePrune(ctx context.Context, rt Runtime, opts ImagePruneOptions) (Im
 }
 
 // ApplyImagePrune removes every superseded image in plan, one `rmi` per image
-// naming all its refs (an owned image always has one: ownership is proved by
+// naming all its refs — its ownership tag among them, so no tag is left
+// holding the image (an owned image always has one: ownership is proved by
 // a ref) — never forced, so the runtime
 // still refuses an image something started using since the plan was made. A
 // failure is recorded with the runtime's own words and the sweep continues.
@@ -281,7 +292,7 @@ func inspectImageCandidates(ctx context.Context, rt Runtime, ids []string) ([]Ow
 		}
 		img, ok := ownedImage(r)
 		if !ok {
-			unowned = append(unowned, img.name())
+			unowned = append(unowned, img.Name())
 			continue
 		}
 		owned = append(owned, img)
@@ -308,7 +319,8 @@ func ownedImage(r imageInspectJSON) (OwnedImage, bool) {
 		Created:    r.Created,
 	}
 	if img.Kind != "" {
-		return img, slices.Contains(img.Refs, l[labelImageTag])
+		img.OwnershipTag = l[labelImageTag]
+		return img, slices.Contains(img.Refs, img.OwnershipTag)
 	}
 	if l[provenanceLabel] != "" && l[labelEngine] != "" {
 		img.Kind = ImageComposed // no slot label: rules 1, 2 and 4 only
@@ -378,7 +390,7 @@ func classifyImages(imgs []OwnedImage, referenced map[string]bool, opts ImagePru
 		verdicts[i] = ImageVerdict{Image: img, Keep: keepReason(img, live, referenced, newest, opts)}
 	}
 	keepParents(verdicts)
-	sort.Slice(verdicts, func(i, j int) bool { return verdicts[i].Image.name() < verdicts[j].Image.name() })
+	sort.Slice(verdicts, func(i, j int) bool { return verdicts[i].Image.Name() < verdicts[j].Image.Name() })
 	return verdicts
 }
 

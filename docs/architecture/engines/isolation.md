@@ -485,8 +485,15 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 
 Superseded agent images are reaped only on request (`ctxloom container prune`,
 dry run unless `--apply`). Ownership is proved by the labels a build stamps
-(`imageStamp`, via `Runtime.buildArgs`), never by an image's name, and the keep
-rules live in `classifyImages`. It is never automatic, because worktrees at
+(`imageStamp`, via `Runtime.buildArgs`), never by an image's name: every build
+also applies a per-build ownership tag (`ownershipTagFor`) that no rebuild
+reuses or moves, stamps it as `ctxloom.tag`, and `ownedImage` owns an image
+only while one of its refs equals that label. So a build whose primary tag a
+rebuild took over stays owned and prunable, while an image built FROM a ctxloom
+image inherits the label but not the tag, and stays unowned. The base is handed
+to the agent stage (and named as `ctxloom.from`) by its ownership tag, so a kept
+image keeps exactly the base it was built on. The keep rules live in
+`classifyImages`. It is never automatic, because worktrees at
 different commits share one daemon: an automatic sweep in one would remove an
 image another is between building and running.
 

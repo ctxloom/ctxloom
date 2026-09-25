@@ -121,6 +121,22 @@ func (s *Session) Wait() (int, error) {
 	return s.code, s.waitErr
 }
 
+// ExitErr blocks until the child has been reaped and reports how it exited:
+// nil for status 0, else an error naming the status or the wait failure.
+// Unlike Wait it leaves the master OPEN, so a party that only needs to know
+// the child is gone — the coordinator's dial-home race — cannot discard the
+// bytes the drive has yet to read. Safe to call more than once, concurrently.
+func (s *Session) ExitErr() error {
+	<-s.exited
+	if s.waitErr != nil {
+		return s.waitErr
+	}
+	if s.code != 0 {
+		return fmt.Errorf("runner exited with status %d", s.code)
+	}
+	return nil
+}
+
 // End force-ends the child and leaves the master open: the handle for a
 // party that ends the run while another still reads its output. The child's
 // last bytes stay readable to EIO, and Wait or Kill releases the master.

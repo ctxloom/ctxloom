@@ -132,3 +132,38 @@ func TestComposedIdentity_ReusesWithinAVersionAndSeparatesAcross(t *testing.T) {
 	_, provNone := identity("")
 	assert.Empty(t, provNone, "an unstamped binary disables the staleness check")
 }
+
+// TestComposedIdentity_BuildAndLaunchAgreeAndCompanionSetsCoexist forces the
+// comparison the staleness gate makes: the identity `ctxloom container build`
+// stamps (BuildAgentImage -> composedIdentity) against the one a launch
+// resolves (containerFor's tag, provenanceFor's label).
+//
+// The companion half is what makes the second arm necessary. Which companions
+// are ADMITTED depends on the invoking HOME's trust, so two environments at one
+// commit can legitimately stage different binaries. When only the provenance
+// saw that difference, both resolved ONE tag and each rebuilt over the other's
+// image: a `just container-build-claude` in the real HOME was judged stale by
+// the very next acceptance cell in its sandboxed HOME, and back again.
+func TestComposedIdentity_BuildAndLaunchAgreeAndCompanionSetsCoexist(t *testing.T) {
+	spec := engineContainerSpecFor("claude-code")
+	require.NotNil(t, spec.engineInstall, "claude-code must be composable, or this test proves nothing")
+	rt := fakeRuntime{name: "docker", available: true}
+	img := ImageConfig{NoDevcontainerBase: true}
+
+	withCompanions(t, map[string]string{"taskloom": "v1.0.0", "ltk": "v2.0.0"})
+	builtTag, builtLabel, ok := composedIdentity(spec, "", nil, "claude-code")
+	require.True(t, ok)
+	require.NotEmpty(t, builtLabel, "the staleness gate must be live, or the assertions below prove nothing")
+
+	launch := containerFor(rt, "claude-code", img)
+	assert.Equal(t, builtTag, launch.image, "a launch must look for the tag the build wrote")
+	assert.False(t, imageStale(map[string]string{provenanceLabel: builtLabel}, launch.provenanceFor(nil)),
+		"a launch in the environment that built the image must find it current")
+
+	withCompanions(t, map[string]string{})
+	elsewhere := containerFor(rt, "claude-code", img)
+	assert.NotEqual(t, builtTag, elsewhere.image,
+		"an environment admitting different companions stages a different image, so it must not share the tag and rebuild over it")
+	assert.True(t, imageStale(map[string]string{provenanceLabel: builtLabel}, elsewhere.provenanceFor(nil)),
+		"the provenance must still tell the two companion sets apart")
+}

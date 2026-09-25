@@ -94,6 +94,10 @@ type DoctorCheck struct {
 	Marker string       `json:"marker"`
 	Status DoctorStatus `json:"status"`
 	Detail string       `json:"detail"`
+	// Remedy is the one-line fix for a row that is not the intended state,
+	// when one is known; it travels beside Detail rather than inside it so
+	// every output format carries it as a field.
+	Remedy string `json:"remedy,omitempty" label:"fix"`
 }
 
 // DoctorReport is `ctxloom doctor`'s structured result.
@@ -1578,11 +1582,12 @@ const StartupFindingsMarker = "DOCTOR-CHECK-STARTUP-FINDINGS-x4"
 func StartupFindings(app *App, cfg *config.Config, home string, recorded report.Findings) DoctorReport {
 	var checks []DoctorCheck
 	for _, f := range recorded {
-		detail := "[" + string(f.Kind) + "] " + f.Text
-		if f.Remedy != "" {
-			detail += " (fix: " + f.Remedy + ")"
-		}
-		checks = append(checks, DoctorCheck{Marker: StartupFindingsMarker, Status: DoctorWarn, Detail: detail})
+		checks = append(checks, DoctorCheck{
+			Marker: StartupFindingsMarker,
+			Status: DoctorWarn,
+			Detail: "[" + string(f.Kind) + "] " + f.Text,
+			Remedy: f.Remedy,
+		})
 	}
 	for _, c := range []DoctorCheck{
 		doctorCheckSetupMarker(cfg, nil),

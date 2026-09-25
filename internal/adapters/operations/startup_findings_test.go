@@ -34,7 +34,7 @@ func cleanProject(t *testing.T) *config.Config {
 // TestStartupFindings_RecordedFindingsBecomeRows: every finding the
 // launch itself recorded (a config warning, a degraded isolation axis, a sync
 // failure) is a row in the report, carrying the finding's own message and
-// its fix-it — the wording the human already saw on stderr, not a paraphrase.
+// its remedy — the wording the human already saw on stderr, not a paraphrase.
 func TestStartupFindings_RecordedFindingsBecomeRows(t *testing.T) {
 	cfg := cleanProject(t)
 	recorded := []report.Finding{
@@ -52,8 +52,9 @@ func TestStartupFindings_RecordedFindingsBecomeRows(t *testing.T) {
 		assert.Contains(t, row.Detail, f.Text, "the finding's own wording must survive")
 		assert.Contains(t, row.Detail, "["+string(f.Kind)+"]", "the class tag is how the human's abort listing reads; keep one language")
 	}
-	assert.Contains(t, report.Checks[0].Detail, "fix: did you mean `runtime`?")
-	assert.NotContains(t, report.Checks[1].Detail, "fix:", "a finding with no fix-it must not grow an empty one")
+	assert.Equal(t, "did you mean `runtime`?", report.Checks[0].Remedy, "the remedy travels as its own field, in every format")
+	assert.NotContains(t, report.Checks[0].Detail, "fix:", "the remedy is not spliced into the detail as well")
+	assert.Empty(t, report.Checks[1].Remedy, "a finding with no remedy must not grow an empty one")
 }
 
 // TestStartupFindings_CleanProjectYieldsNothing is the "nothing to

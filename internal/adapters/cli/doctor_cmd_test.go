@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -26,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // writeFakeExecutable creates an executable regular file named name inside
@@ -587,4 +589,22 @@ func TestDoctorStatus_WireValuesAreUnchanged(t *testing.T) {
 	}}))
 	assert.Contains(t, buf.String(), "DOCTOR-CHECK-X [info] d",
 		"the human line must render the status the same way too")
+}
+
+// A doctor row's remedy renders as the one human fix line under its row, and
+// as the "remedy" key in structured output; a row without one grows neither.
+func TestRenderDoctorReport_RemedyIsTheFixLine(t *testing.T) {
+	const fix = "ctxloom deps pull"
+	var buf bytes.Buffer
+	require.NoError(t, renderDoctorReport(&buf, operations.DoctorReport{Checks: []operations.DoctorCheck{
+		{Marker: "DOCTOR-CHECK-X", Status: operations.DoctorWarn, Detail: "d", Remedy: fix},
+		{Marker: "DOCTOR-CHECK-Y", Status: operations.DoctorWarn, Detail: "e"},
+	}}))
+	assert.Contains(t, buf.String(), "DOCTOR-CHECK-X [warn] d"+clifmt.FixLine("    ", fix)+"\n")
+	assert.Contains(t, buf.String(), "DOCTOR-CHECK-Y [warn] e\n")
+	assert.Equal(t, 1, strings.Count(buf.String(), "fix:"))
+
+	data, err := json.Marshal(operations.DoctorCheck{Marker: "M", Status: operations.DoctorWarn, Detail: "d", Remedy: fix})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"marker":"M","status":"warn","detail":"d","remedy":"ctxloom deps pull"}`, string(data))
 }

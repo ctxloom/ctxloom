@@ -1,12 +1,10 @@
 //go:build arch
 
-// The architectural rules run twice: as the TestArch_ gates in this package
-// and as go/analysis analyzers in internal/shared/archlint (the pre-commit
-// hook). Two runners is fine; two DECLARATIONS of what they enforce is not.
-// A rule table copied into both places drifts — one side gains a row the
-// other never sees — and the stale copy keeps enforcing while lying. These
-// gates pin the ruling that each table is declared ONCE, in a package neither
-// runner owns, and that both runners read that declaration.
+// Every architectural rule table is declared ONCE, in a package no reader
+// owns, and each reader takes it from there. A table copied into a reader
+// drifts — one copy gains a row the other never sees — and the stale copy
+// keeps enforcing while lying. These gates pin that ruling: one declaration
+// per table, and every reader of a table reading that declaration.
 package arch
 
 import (
@@ -21,24 +19,30 @@ import (
 	"testing"
 )
 
-// ruleTableNames are the package-level vars that carry an architectural
-// rule set. Each must be declared in exactly one package.
-var ruleTableNames = []string{
-	"LayeringRules",
-	"LedgerDisciplineAllowed",
-	"LockDisciplineAllowed",
-	"WriteDisciplineAllowed",
+// ruleTableReaders maps each package-level var that carries an architectural
+// rule set to the packages that enforce it. Most tables are read by their
+// analyzer alone; a table whose corpus half needs the whole module is read by
+// tests/arch as well.
+var ruleTableReaders = map[string][]string{
+	"LayeringRules":              {"internal/shared/archlint", "tests/arch"},
+	"LedgerDisciplineAllowed":    {"internal/shared/archlint"},
+	"LockDisciplineAllowed":      {"internal/shared/archlint"},
+	"TestWriteDisciplineAllowed": {"internal/shared/archlint"},
+	"WriteDisciplineAllowed":     {"internal/shared/archlint"},
 }
 
-// ruleTableReaders are the two runners; each must read every table from the
-// one package that declares it.
-var ruleTableReaders = []string{
-	"internal/shared/archlint",
-	"tests/arch",
+// ruleTableNames are ruleTableReaders' keys, sorted.
+func ruleTableNames() []string {
+	names := make([]string, 0, len(ruleTableReaders))
+	for name := range ruleTableReaders {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ruleTableTrees are the subtrees the declaration scan covers: where the
-// runners live and where a copy would be declared.
+// readers live and where a copy would be declared.
 var ruleTableTrees = []string{"internal", "tests"}
 
 // ruleTableDecl is one package-level var declaration of a rule-table name,
@@ -50,7 +54,7 @@ type ruleTableDecl struct {
 
 // scanRuleTableDecls parses every Go file (tests included, under every build
 // tag) beneath ruleTableTrees and reports each package-level var whose name
-// is one of ruleTableNames, case-insensitively — a copy named
+// is one of ruleTableNames(), case-insensitively — a copy named
 // layeringRules is a copy.
 func scanRuleTableDecls(t *testing.T) []ruleTableDecl {
 	t.Helper()
@@ -87,7 +91,7 @@ func scanRuleTableDecls(t *testing.T) []ruleTableDecl {
 				}
 				for _, spec := range gd.Specs {
 					for _, name := range spec.(*ast.ValueSpec).Names {
-						for _, table := range ruleTableNames {
+						for _, table := range ruleTableNames() {
 							if strings.EqualFold(name.Name, table) {
 								out = append(out, ruleTableDecl{table: table, dir: dir})
 							}
@@ -102,7 +106,7 @@ func scanRuleTableDecls(t *testing.T) []ruleTableDecl {
 		}
 	}
 	if len(out) == 0 {
-		t.Fatalf("the scan found no declaration of any of %v under %v — the gate is looking at the wrong tree", ruleTableNames, ruleTableTrees)
+		t.Fatalf("the scan found no declaration of any of %v under %v — the gate is looking at the wrong tree", ruleTableNames(), ruleTableTrees)
 	}
 	return out
 }
@@ -132,46 +136,45 @@ func declaringPackages(decls []ruleTableDecl) map[string][]string {
 // exists to forbid; zero means a table was renamed out from under the gate.
 func TestArch_RuleTables_DeclaredOnce(t *testing.T) {
 	byTable := declaringPackages(scanRuleTableDecls(t))
-	for _, table := range ruleTableNames {
+	for _, table := range ruleTableNames() {
 		dirs := byTable[table]
 		switch len(dirs) {
 		case 1:
 		case 0:
-			t.Errorf("%s is declared nowhere under %v — if it was renamed, re-point ruleTableNames", table, ruleTableTrees)
+			t.Errorf("%s is declared nowhere under %v — if it was renamed, re-point ruleTableReaders", table, ruleTableTrees)
 		default:
-			t.Errorf("%s is declared in %d packages (%v) — a rule table is declared once, in a package both runners read",
+			t.Errorf("%s is declared in %d packages (%v) — a rule table is declared once, in a package its readers share",
 				table, len(dirs), dirs)
 		}
 	}
 }
 
-// TestArch_RuleTables_BothRunnersReadTheOneDeclaration fails when either
-// runner does not read a table from the package that declares it. Read here
-// means a selector `<pkg>.<Table>` in the runner's own source, where <pkg> is
-// the declaring package's name — so the analyzer and the test enforce the
-// SAME set by construction, not by two copies that happen to agree today.
-// The declaring package must also be neither runner: a runner that owned
-// the table would make the other one its client, and the ruling was a leaf
-// neither side owns.
-func TestArch_RuleTables_BothRunnersReadTheOneDeclaration(t *testing.T) {
+// TestArch_RuleTables_EveryReaderReadsTheOneDeclaration fails when a reader
+// of a table does not read it from the package that declares it. Read here
+// means a selector `<pkg>.<Table>` in the reader's own source, where <pkg> is
+// the declaring package's name — so every reader enforces the SAME set by
+// construction, not by copies that happen to agree today. The declaring
+// package must also be none of the readers: a reader that owned the table
+// would make the others its clients, and the ruling was a leaf none owns.
+func TestArch_RuleTables_EveryReaderReadsTheOneDeclaration(t *testing.T) {
 	root := moduleRoot(t)
 	byTable := declaringPackages(scanRuleTableDecls(t))
-	for _, table := range ruleTableNames {
+	for _, table := range ruleTableNames() {
 		dirs := byTable[table]
 		if len(dirs) != 1 {
 			// TestArch_RuleTables_DeclaredOnce reports this shape; there is
-			// no single declaration to check the runners against.
-			t.Errorf("%s has %d declaring packages (%v); nothing to check the runners against", table, len(dirs), dirs)
+			// no single declaration to check the readers against.
+			t.Errorf("%s has %d declaring packages (%v); nothing to check the readers against", table, len(dirs), dirs)
 			continue
 		}
 		owner := dirs[0]
-		for _, reader := range ruleTableReaders {
+		for _, reader := range ruleTableReaders[table] {
 			if owner == reader {
-				t.Errorf("%s is declared in runner %s — it belongs in a leaf package neither runner owns", table, owner)
+				t.Errorf("%s is declared in reader %s — it belongs in a leaf package no reader owns", table, owner)
 				continue
 			}
 			if !packageReadsSelector(t, filepath.Join(root, reader), filepath.Base(owner), table) {
-				t.Errorf("%s does not read %s.%s (declared in %s) — both runners must enforce the one declaration",
+				t.Errorf("%s does not read %s.%s (declared in %s) — every reader must enforce the one declaration",
 					reader, filepath.Base(owner), table, owner)
 			}
 		}

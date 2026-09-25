@@ -7,54 +7,46 @@
 // (usually) a parser that decides membership. The owner is normally correct.
 // What fails is ADOPTION — a consumer somewhere reaches the vocabulary without
 // going through the owner, and nothing in the language, the build, or the
-// linter notices, because a string literal is not a call and `T(s)` compiles
-// for any string s. The user-visible result is a typo that resolves to a
+// linter notices. The user-visible result is a typo that resolves to a
 // silently different posture instead of an error.
 //
 // This gate is a DISCOVERY sweep, not a list of known vocabularies. It finds
-// the vocabularies itself (see vocabularies below: any defined string type in
+// the vocabularies itself (see vocabDiscover: any defined string type in
 // internal/ or cmd/ with two or more typed string constants), so a vocabulary
-// added tomorrow is governed the day it is declared. That property is the
-// point: an enumerated gate whose coverage list can silently omit a member is
-// the same defect one level up.
+// added tomorrow is governed the day it is declared.
 //
-// Three rules, each a different way a consumer reaches past the owner:
-//
-//   - RAW CONVERSION (vocabConversionAllowed). `pkg.T(s)` outside T's own
-//     package turns an arbitrary runtime string into a vocabulary value by
-//     assertion. Whatever the owner offers to validate it — a parser, a
-//     membership predicate — was not called, so an unrecognized value becomes
-//     a well-typed value nobody rejected. A conversion of a string LITERAL
-//     that is not one of T's declared members is the same fault with the bad
-//     value written into the source.
+// The family's third rule, RAW CONVERSION (`pkg.T(s)` asserting a string into
+// the type), is archlint's VocabularyAnalyzer: a conversion names its owner,
+// so the import edge carries everything the rule needs. The two rules here
+// cannot be analyzers, because each compares code against code it has no
+// import edge to — which is exactly the finding:
 //
 //   - DUPLICATED MEMBERSHIP TEST (vocabMembershipAllowed). A function outside
 //     the owner that string-compares against two or more of T's members is a
-//     second copy of the membership test. It cannot follow T when a member is
-//     added, renamed, or given an accepted alias — it does not import the
-//     answer, it re-derives it.
+//     second copy of the membership test. It is checked against EVERY
+//     vocabulary in the module, including owners the function never imports:
+//     a consumer that re-spells a vocabulary without importing it is the
+//     worst case, and the one no per-package pass could see.
 //
 //   - PARALLEL LIST (vocabParallelAllowed). Two functions in different
 //     packages testing four or more of the same string literals are two copies
-//     of one list even when nobody ever declared it as a type. This is the
-//     undeclared-vocabulary case, where there is no owner to route through
-//     yet — the finding is that a vocabulary exists and has no single home.
+//     of one list even when nobody ever declared it as a type. Neither
+//     imports the other; there is no owner yet, which is the finding.
 //
-// Detection is purely syntactic (go/ast, no go/types), the same technique
-// write_discipline_test.go and doc_comment_test.go use. Its blind spots are
-// stated at each rule's discovery helper and summarized in the report the
-// gate prints on failure.
+// Narrowing either to what an import edge can reach would cover less while
+// looking equivalent, so they stay whole-module sweeps.
 //
-// This gate is a RATCHET, like write_discipline_test.go: every site the scan
-// found at authoring time is grandfathered into one of the three allowlists
-// with a reason, and none is repaired here. What the gate buys immediately is
-// that the set cannot grow silently, and
+// Detection is purely syntactic (go/ast, no go/types). Its blind spots are
+// stated at each rule's discovery helper.
+//
+// This gate is a RATCHET: every site the scan found at authoring time is
+// grandfathered into one of the allowlists with a reason. What the gate buys
+// immediately is that the set cannot grow silently, and
 // TestArch_VocabularyAdoption_AllowlistsAreLive fails on any entry that has
 // stopped being a violation, so the baseline can only shrink.
 package arch
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -64,6 +56,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/archlint"
 )
 
 // vocabScopes are the subtrees this gate reads: production code only, both
@@ -102,16 +96,11 @@ type vocabulary struct {
 	members map[string]bool
 }
 
-func (v vocabulary) id() string { return v.dir + "." + v.name }
-
-// vocabFile is one parsed production file plus the import-name-to-directory
-// map needed to resolve a qualified identifier (`isolation.WorkspaceAxis`)
-// back to the package that declares it.
+// vocabFile is one parsed production file.
 type vocabFile struct {
-	rel     string // module-relative path
-	dir     string // module-relative directory
-	file    *ast.File
-	imports map[string]string // local package name -> module-relative dir
+	rel  string // module-relative path
+	dir  string // module-relative directory
+	file *ast.File
 }
 
 // vocabStringLit decodes e as a string literal. ok is false for anything that
@@ -160,27 +149,10 @@ func vocabParseFiles(t *testing.T, fset *token.FileSet) []vocabFile {
 				t.Errorf("parse %s: %v", rel, perr)
 				return nil
 			}
-			imports := map[string]string{}
-			for _, is := range f.Imports {
-				ipath, uerr := strconv.Unquote(is.Path.Value)
-				if uerr != nil {
-					continue
-				}
-				dir := localDir(ipath)
-				if dir == "" {
-					continue
-				}
-				name := ipath[strings.LastIndex(ipath, "/")+1:]
-				if is.Name != nil {
-					name = is.Name.Name
-				}
-				imports[name] = dir
-			}
 			out = append(out, vocabFile{
-				rel:     rel,
-				dir:     filepath.ToSlash(filepath.Dir(rel)),
-				file:    f,
-				imports: imports,
+				rel:  rel,
+				dir:  filepath.ToSlash(filepath.Dir(rel)),
+				file: f,
 			})
 			return nil
 		})
@@ -196,8 +168,7 @@ func vocabParseFiles(t *testing.T, fset *token.FileSet) []vocabFile {
 	return out
 }
 
-// vocabDiscover finds every closed vocabulary in the parsed tree, plus the
-// alias map that lets a re-exported name resolve to the declaring package.
+// vocabDiscover finds every closed vocabulary in the parsed tree.
 //
 // A vocabulary is a defined string type whose package declares at least
 // vocabMinMembers typed constants with string-literal values. The type's own
@@ -205,84 +176,55 @@ func vocabParseFiles(t *testing.T, fset *token.FileSet) []vocabFile {
 // typed const block is the load-bearing signal, since that is what makes the
 // members a closed set rather than an open string.
 //
-// Aliases: `type A = pkg.B` re-exports another package's vocabulary under a
-// local name, and a consumer writing `local.A(s)` is converting into pkg.B.
-// The alias map redirects those to the declaring package so a re-export
-// cannot launder a raw conversion.
-//
 // BLIND SPOT: a vocabulary whose members are not written as typed constants —
 // a bare `map[string]T` table, a `[]string` of names, or a parser's switch
 // cases with no consts beside them — is not discovered. Rule PARALLEL LIST is
 // the partial answer for those, since a second copy of such a list still
 // collides with the first.
-func vocabDiscover(files []vocabFile) (map[string]*vocabulary, map[string]string) {
+func vocabDiscover(files []vocabFile) map[string]*vocabulary {
 	vocabs := map[string]*vocabulary{}
-	aliases := map[string]string{}
-
 	for _, vf := range files {
 		for _, decl := range vf.file.Decls {
 			gd, ok := decl.(*ast.GenDecl)
-			if !ok {
+			if !ok || gd.Tok != token.CONST {
 				continue
 			}
-			switch gd.Tok {
-			case token.TYPE:
-				for _, sp := range gd.Specs {
-					ts, ok := sp.(*ast.TypeSpec)
-					if !ok || !ts.Assign.IsValid() {
-						continue // a definition, not an alias
-					}
-					sel, ok := ts.Type.(*ast.SelectorExpr)
-					if !ok {
-						continue
-					}
-					id, ok := sel.X.(*ast.Ident)
-					if !ok {
-						continue
-					}
-					if owner, ok := vf.imports[id.Name]; ok {
-						aliases[vf.dir+"."+ts.Name.Name] = owner + "." + sel.Sel.Name
-					}
+			// A grouped const block repeats its type only on the first spec,
+			// so carry it forward the way the language does.
+			var carried string
+			for _, sp := range gd.Specs {
+				vs, ok := sp.(*ast.ValueSpec)
+				if !ok {
+					continue
 				}
-			case token.CONST:
-				// A grouped const block repeats its type only on the first
-				// spec, so carry it forward the way the language does.
-				var carried string
-				for _, sp := range gd.Specs {
-					vs, ok := sp.(*ast.ValueSpec)
+				if id, ok := vs.Type.(*ast.Ident); ok {
+					carried = id.Name
+				}
+				if carried == "" {
+					continue
+				}
+				for _, val := range vs.Values {
+					lit, ok := vocabStringLit(val)
 					if !ok {
 						continue
 					}
-					if id, ok := vs.Type.(*ast.Ident); ok {
-						carried = id.Name
+					key := vf.dir + "." + carried
+					v := vocabs[key]
+					if v == nil {
+						v = &vocabulary{dir: vf.dir, name: carried, members: map[string]bool{}}
+						vocabs[key] = v
 					}
-					if carried == "" {
-						continue
-					}
-					for _, val := range vs.Values {
-						lit, ok := vocabStringLit(val)
-						if !ok {
-							continue
-						}
-						key := vf.dir + "." + carried
-						v := vocabs[key]
-						if v == nil {
-							v = &vocabulary{dir: vf.dir, name: carried, members: map[string]bool{}}
-							vocabs[key] = v
-						}
-						v.members[lit] = true
-					}
+					v.members[lit] = true
 				}
 			}
 		}
 	}
-
 	for key, v := range vocabs {
 		if len(v.members) < vocabMinMembers {
 			delete(vocabs, key)
 		}
 	}
-	return vocabs, aliases
+	return vocabs
 }
 
 // vocabTestFuncs are the strings.* helpers whose second argument is a value
@@ -372,108 +314,10 @@ func vocabMembershipSites(fset *token.FileSet, files []vocabFile) []membershipSi
 			if len(lits) < 2 {
 				continue
 			}
-			out = append(out, membershipSite{dir: vf.dir, file: vf.rel, sym: funcSymbol(fd), lits: lits})
+			out = append(out, membershipSite{dir: vf.dir, file: vf.rel, sym: archlint.FuncSymbol(fd), lits: lits})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].key() < out[j].key() })
-	return out
-}
-
-// ---------------------------------------------------------------------------
-// Rule: RAW CONVERSION
-// ---------------------------------------------------------------------------
-
-// conversionViolation is one `pkg.T(x)` conversion into a closed vocabulary
-// made from outside T's own package.
-type conversionViolation struct {
-	file  string
-	sym   string
-	line  int
-	vocab string // "internal/adapters/isolation.WorkspaceAxis"
-	lit   string // the offending literal, or "" for a runtime string
-	isLit bool
-}
-
-func (c conversionViolation) key() string { return c.file + "#" + c.sym + "#" + c.vocab }
-
-func (c conversionViolation) what() string {
-	if c.isLit {
-		return fmt.Sprintf("mints %s(%q), which is not one of its declared members", c.vocab, c.lit)
-	}
-	return fmt.Sprintf("converts a runtime string straight into %s", c.vocab)
-}
-
-// vocabScanConversions finds every conversion into a discovered vocabulary
-// made outside the package that declares it.
-//
-// A conversion is recognized syntactically: a one-argument call whose callee
-// is `pkg.T` where pkg resolves through the file's imports to a package
-// declaring vocabulary T. Within a package a type name and a function name
-// cannot collide, so `pkg.T(x)` with T a known type is a conversion and never
-// a call.
-//
-// A conversion of a declared member literal is not a violation: the value is
-// visible in the source and is in the set. The empty literal is likewise not
-// a violation — it is the codebase's "unset, apply the default" sentinel.
-//
-// BLIND SPOT: with no type information the scan cannot tell
-// `T(alreadyTypedValue)` (a no-op re-conversion) from `T(userInput)`, and
-// counts both. It also cannot see a value that enters the vocabulary by
-// assignment or struct literal rather than by conversion, which is how a
-// vocabulary-typed struct field gets filled from a decoded config or wire
-// message.
-func vocabScanConversions(fset *token.FileSet, files []vocabFile, vocabs map[string]*vocabulary, aliases map[string]string) []conversionViolation {
-	var out []conversionViolation
-	for _, vf := range files {
-		for _, decl := range vf.file.Decls {
-			fd, ok := decl.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
-				continue
-			}
-			sym := funcSymbol(fd)
-			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok || len(call.Args) != 1 {
-					return true
-				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				pkgIdent, ok := sel.X.(*ast.Ident)
-				if !ok {
-					return true
-				}
-				ownerDir, ok := vf.imports[pkgIdent.Name]
-				if !ok {
-					return true
-				}
-				id := ownerDir + "." + sel.Sel.Name
-				if target, ok := aliases[id]; ok {
-					id = target
-				}
-				v, ok := vocabs[id]
-				if !ok || v.dir == vf.dir {
-					return true
-				}
-				lit, isLit := vocabStringLit(call.Args[0])
-				if isLit && (lit == "" || v.members[lit]) {
-					return true
-				}
-				out = append(out, conversionViolation{
-					file: vf.rel, sym: sym, line: fset.Position(call.Pos()).Line,
-					vocab: v.id(), lit: lit, isLit: isLit,
-				})
-				return true
-			})
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].file != out[j].file {
-			return out[i].file < out[j].file
-		}
-		return out[i].line < out[j].line
-	})
 	return out
 }
 
@@ -596,13 +440,13 @@ func vocabScanParallel(sites []membershipSite) []parallelViolation {
 // The gates
 // ---------------------------------------------------------------------------
 
-// vocabScan runs the whole discovery once and returns the three violation
+// vocabScan runs the whole discovery once and returns both violation
 // sets, so the gates and the liveness check see identical input.
-func vocabScan(t *testing.T) ([]conversionViolation, []membershipViolation, []parallelViolation) {
+func vocabScan(t *testing.T) ([]membershipViolation, []parallelViolation) {
 	t.Helper()
 	fset := token.NewFileSet()
 	files := vocabParseFiles(t, fset)
-	vocabs, aliases := vocabDiscover(files)
+	vocabs := vocabDiscover(files)
 	// Anti-vacuity: discovery that found no vocabularies would make all three
 	// rules pass by finding nothing to check.
 	if len(vocabs) < 30 {
@@ -612,32 +456,14 @@ func vocabScan(t *testing.T) ([]conversionViolation, []membershipViolation, []pa
 	if len(sites) < 80 {
 		t.Fatalf("found only %d functions testing two or more string literals — discovery is broken, not the tree", len(sites))
 	}
-	return vocabScanConversions(fset, files, vocabs, aliases),
-		vocabScanMembership(sites, vocabs),
+	return vocabScanMembership(sites, vocabs),
 		vocabScanParallel(sites)
-}
-
-// TestArch_VocabularyAdoption_ConversionsGoThroughTheOwner is the RAW
-// CONVERSION gate.
-func TestArch_VocabularyAdoption_ConversionsGoThroughTheOwner(t *testing.T) {
-	conversions, _, _ := vocabScan(t)
-	for _, c := range conversions {
-		if why, ok := vocabConversionAllowed[c.key()]; ok {
-			t.Logf("allowed: %s:%d %s (%s)", c.file, c.line, c.what(), why)
-			continue
-		}
-		t.Errorf("%s:%d in %s %s — a closed vocabulary is entered through the package that owns it "+
-			"(its parser, or a conversion of one of its declared constants), never by asserting a "+
-			"string into the type. If this is a deliberate, reviewed exception, add %q to "+
-			"vocabConversionAllowed in tests/arch/vocabulary_adoption_test.go naming the fix required "+
-			"to remove it.", c.file, c.line, c.sym, c.what(), c.key())
-	}
 }
 
 // TestArch_VocabularyAdoption_MembershipTestsRouteThroughTheOwner is the
 // DUPLICATED MEMBERSHIP TEST gate.
 func TestArch_VocabularyAdoption_MembershipTestsRouteThroughTheOwner(t *testing.T) {
-	_, membership, _ := vocabScan(t)
+	membership, _ := vocabScan(t)
 	for _, m := range membership {
 		if why, ok := vocabMembershipAllowed[m.key()]; ok {
 			t.Logf("allowed: %s:%d %s re-tests %s %v (%s)", m.file, m.line, m.sym, m.vocab, m.shared, why)
@@ -654,7 +480,7 @@ func TestArch_VocabularyAdoption_MembershipTestsRouteThroughTheOwner(t *testing.
 
 // TestArch_VocabularyAdoption_NoParallelLists is the PARALLEL LIST gate.
 func TestArch_VocabularyAdoption_NoParallelLists(t *testing.T) {
-	_, _, parallel := vocabScan(t)
+	_, parallel := vocabScan(t)
 	for _, p := range parallel {
 		if why, ok := vocabParallelAllowed[p.key()]; ok {
 			t.Logf("allowed: %s %v (%s)", p.key(), p.shared, why)
@@ -669,13 +495,11 @@ func TestArch_VocabularyAdoption_NoParallelLists(t *testing.T) {
 }
 
 // TestArch_VocabularyAdoption_AllowlistsAreLive fails when an allowlist entry
-// names a site the scan no longer reports — the same staleness check
-// TestArch_WriteDiscipline_AllowlistIsLive and
-// TestArch_LayeringAllowlist_IsLive run for their own allowlists. A stale
+// names a site the scan no longer reports. A stale
 // exception is worse than none: left in place it silently exempts whatever
 // lands at that key next, and the baseline could never shrink.
 func TestArch_VocabularyAdoption_AllowlistsAreLive(t *testing.T) {
-	conversions, membership, parallel := vocabScan(t)
+	membership, parallel := vocabScan(t)
 
 	live := func(keys []string) map[string]bool {
 		m := make(map[string]bool, len(keys))
@@ -683,10 +507,6 @@ func TestArch_VocabularyAdoption_AllowlistsAreLive(t *testing.T) {
 			m[k] = true
 		}
 		return m
-	}
-	conversionKeys := make([]string, 0, len(conversions))
-	for _, c := range conversions {
-		conversionKeys = append(conversionKeys, c.key())
 	}
 	membershipKeys := make([]string, 0, len(membership))
 	for _, m := range membership {
@@ -702,7 +522,6 @@ func TestArch_VocabularyAdoption_AllowlistsAreLive(t *testing.T) {
 		allowed map[string]string
 		live    map[string]bool
 	}{
-		{"vocabConversionAllowed", vocabConversionAllowed, live(conversionKeys)},
 		{"vocabMembershipAllowed", vocabMembershipAllowed, live(membershipKeys)},
 		{"vocabParallelAllowed", vocabParallelAllowed, live(parallelKeys)},
 	} {
@@ -723,28 +542,6 @@ func TestArch_VocabularyAdoption_AllowlistsAreLive(t *testing.T) {
 // ---------------------------------------------------------------------------
 // The ratchet
 // ---------------------------------------------------------------------------
-
-// vocabConversionAllowed is the RAW CONVERSION rule's shrinking allowlist, in
-// the same shape as archrules.WriteDisciplineAllowed: a
-// durable key ("file.go#Symbol#owner.Vocabulary", where Symbol is
-// "Type.Method" for a method and the bare function name otherwise) mapped to
-// the fix required to remove the entry. Generated MECHANICALLY by running the
-// gate with an empty map and transcribing every reported site.
-var vocabConversionAllowed = map[string]string{
-	"cmd/ltk/check.go#checkFlags.run#internal/ltk/ir.Shell":       "the --shell flag value is asserted into ir.Shell; internal/ltk/ir declares the vocabulary but ships no parser for it — add one and call it here (shellenv.ShellFromPath is the nearest existing membership decision)",
-	"cmd/ltk/evaluate.go#evaluateFlags.run#internal/ltk/ir.Shell": "same --shell assertion as cmd/ltk/check.go; both wait on a parser in internal/ltk/ir",
-
-	"internal/adapters/transcript/history.go#entriesFromRecord#internal/core/agent.SessionEntryType":  "a stored record's string asserted into the entry-type enum; same unchecked-input shape as the grpc side",
-	"internal/adapters/transcript/history.go#entriesFromRecord#internal/core/agent.SessionSystemKind": "a stored record's string asserted into the system-kind enum; same unchecked-input shape as the grpc side",
-
-	"internal/adapters/operations/agents.go#SetAgent#internal/core/agents.DrivingMode":          "a user-set config value asserted into the driving-mode enum; internal/core/agents ships no parser for DrivingMode",
-	"internal/adapters/operations/agents.go#validateAgentAxes#internal/core/agents.DrivingMode": "same DrivingMode assertion inside the routine that is supposed to be VALIDATING the axes",
-
-	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/adapters/signing.Form":  "same signing.Form assertion from the review side",
-	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/core/trust.ContentForm": "a stored string asserted into trust.ContentForm; internal/core/trust ships no parser for it",
-
-	"internal/taskloom/config/config.go#Config.ResolveMode#internal/shared/tasks/paths.Mode": "a config string asserted into paths.Mode; internal/shared/tasks/paths ships no parser for it",
-}
 
 // vocabMembershipAllowed is the DUPLICATED MEMBERSHIP TEST rule's shrinking
 // allowlist, keyed "file.go#Symbol#owner.Vocabulary".

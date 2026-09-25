@@ -6,7 +6,7 @@ References below are by **symbol** (`Type.Method` or bare function name), not `f
 
 ```mermaid
 flowchart TD
-  subgraph prim["primitives — settings_io.go, rmw_lock.go"]
+  subgraph prim["primitives"]
     AWF["AtomicWriteFile(fs, path, data, desc)"]
     WFL["WithFileLock(fs, target, fn)"]
     GFS["GetFS(fs) — nil → OsFs"]
@@ -65,9 +65,9 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 - `claude.claudeInstanceConfig.WriteInstanceConfig` now takes its own `agent.WithFileLock` around the whole load-modify-write cycle, keyed to the generated file itself — not the caller's `isolation.lockInstanceHome`, which locks a *different* path in a *different* lock namespace (`paths.ProjectPathFor` on the instance-home directory vs. `paths.HomePathFor` on the generated file) and silently no-ops for the harpless worktree fallback.
 - `claude.appendFlagDelivery.DeliverContext` now writes its framed `<hash>.sysprompt.md` cache file through `AtomicWriteFile` instead of a raw `afero.WriteFile`.
 
-**The ratchet:** `tests/arch/lock_discipline_test.go` (`TestArch_LockDiscipline_EngineRMWIsLocked`) and `tests/arch/ledger_discipline_test.go` (`TestArch_LedgerDiscipline_ManagedWritersRecordOwnership`) are write-discipline-shaped gates — a name-based heuristic over every function in the `SettingsWriter` packages plus this package, with a reasoned, symbol-keyed allowlist and an `AllowlistIsLive` staleness twin each. They are heuristics, not proofs (see their own doc comments for exactly what they can and cannot see), and each carries a reasoned baseline for the gaps it knows about.
+**The ratchet:** archlint's `LockDisciplineAnalyzer` and `LedgerDisciplineAnalyzer` (run by `just lint-arch`) are write-discipline-shaped rules — a name-based heuristic over every function in the `SettingsWriter` packages plus this package, with a reasoned, symbol-keyed allowlist in `archrules` whose stale entries the analyzer reports. They are heuristics, not proofs (see their own doc comments for exactly what they can and cannot see), and each carries a reasoned baseline for the gaps it knows about.
 
-## Write primitives — `settings_io.go`, `rmw_lock.go`
+## Write primitives
 
 | Symbol | Purpose |
 |---|---|
@@ -94,7 +94,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | Symbol | Purpose |
 |---|---|
 | `PackageFile` | One rendered file in a package: `{Path, Data, Mode}`. Shared vocabulary across every engine's command/skill writer. |
-| `WriteManagedPackageFiles[T]` | Manifest-scoped tree writer: remove the previously-tracked set, render-to-a-temp-sibling-then-swap each file into place, rewrite the `ledger.Surface`-scoped manifest. Carries an empty-render guard (refuses to touch an existing surface when every enabled item rendered zero files). **Not itself wrapped in `WithFileLock`** — a known, deferred gap (it writes into directories shared with the user and with concurrently-firing hooks/applies); its render-to-temp-then-swap shape is also invisible to `lock_discipline_test.go`'s write-signal heuristic, which recognizes `AtomicWriteFile`/`save*` but not this function's own `afero.WriteFile`-into-temp-dir + `fs.Rename` swap. |
+| `WriteManagedPackageFiles[T]` | Manifest-scoped tree writer: remove the previously-tracked set, render-to-a-temp-sibling-then-swap each file into place, rewrite the `ledger.Surface`-scoped manifest. Carries an empty-render guard (refuses to touch an existing surface when every enabled item rendered zero files). **Not itself wrapped in `WithFileLock`** — a known, deferred gap (it writes into directories shared with the user and with concurrently-firing hooks/applies); its render-to-temp-then-swap shape is also invisible to `LockDisciplineAnalyzer`'s write-signal heuristic, which recognizes `AtomicWriteFile`/`save*` but not this function's own `afero.WriteFile`-into-temp-dir + `fs.Rename` swap. |
 | `pruneEmptyDirs` | Best-effort bottom-up empty-directory cleanup; all errors ignored by design. |
 
 ## Command and skill rendering

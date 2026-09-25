@@ -22,11 +22,10 @@ var lockDisciplineScopes = []string{
 // lockDisciplineExemptFiles are the primitives this rule protects usage OF,
 // not usage BY. Scanning them would misattribute their own internal
 // read-then-write shapes to a missing lock the caller is responsible for.
+// Only a file inside lockDisciplineScopes can need an entry; one outside them
+// is never scanned at all.
 var lockDisciplineExemptFiles = map[string]bool{
-	"internal/core/agent/settings_io.go":   true,
-	"internal/core/sessions/filelock.go":   true,
-	"internal/shared/filelock/filelock.go": true,
-	"internal/shared/iox/atomicwrite.go":   true,
+	"internal/core/agent/settings_io.go": true,
 }
 
 var lockReadPattern = regexp.MustCompile(`(?i)^(read|load)`)
@@ -39,6 +38,8 @@ var lockWritePrimitives = map[string]bool{
 	"WriteManagedContext":      true,
 	"WriteManagedPackageFiles": true,
 	"WriteManagedCommandFiles": true,
+	"WriteServers":             true,
+	"RemoveServers":            true,
 }
 
 // LockDisciplineAnalyzer enforces that a read-then-write over an engine's
@@ -50,9 +51,22 @@ var lockWritePrimitives = map[string]bool{
 // read-modify-write that does not take it is a lost-update window.
 //
 // Detection is per-function and name-based: a body that calls something
-// read-shaped AND something write-shaped without calling WithFileLock. A leaf
-// helper invoked from inside its caller's lock closure reads as a violation
-// here, which is why such helpers are named in archrules.LockDisciplineAllowed.
+// read-shaped AND something write-shaped without calling WithFileLock. It is a
+// ratchet, not a proof, and its blind spots are the reason its allowlist
+// entries exist:
+//
+//   - It proves CO-OCCURRENCE, not nesting: a function that calls WithFileLock
+//     but reads or writes outside the locked closure reads as compliant.
+//   - A pure overwrite with no prior read has no read signal and is never a
+//     candidate, although exclusive-ownership files are locked regardless.
+//   - A read or write reached through a helper named outside the read*/load*/
+//     save* convention and the primitive list is invisible. The
+//     render-to-temp-then-swap idiom (afero.WriteFile into a temp tree, then
+//     Rename) is one such shape: agent.WriteManagedPackageFiles writes that
+//     way and this rule never nominates it.
+//   - A leaf helper invoked from inside its caller's lock closure has no lock
+//     call of its own and reads as a violation; such helpers are named in
+//     archrules.LockDisciplineAllowed.
 var LockDisciplineAnalyzer = &analysis.Analyzer{
 	Name: "archlockdiscipline",
 	Doc:  "engine settings read-modify-write must run under sessions.WithFileLock",

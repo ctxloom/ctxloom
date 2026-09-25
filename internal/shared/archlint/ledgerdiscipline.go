@@ -10,8 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
-// ledgerDisciplineScopes and ledgerDisciplineExemptFiles mirror the lock
-// rule's scope exactly: the same engine writers and the same two primitives.
+// ledgerDisciplineScopes and ledgerDisciplineExemptFiles are the lock rule's
+// own: the same engine writers and the same primitives.
 var ledgerDisciplineScopes = lockDisciplineScopes
 
 var ledgerDisciplineExemptFiles = lockDisciplineExemptFiles
@@ -39,7 +39,11 @@ var ledgerMarkerOwnershipCalls = map[string]bool{
 // arrives as the user's own config being eaten.
 //
 // A function that writes AND touches a managed subset must therefore reference
-// one of the three ownership mechanisms.
+// one of the three ownership mechanisms. Like the lock rule it is name-based
+// and per-function, so a writer that delegates its record to a helper it
+// calls — or implements the marker mechanism inline rather than through its
+// exported entry points — reads as a violation; such writers are named in
+// archrules.LedgerDisciplineAllowed.
 var LedgerDisciplineAnalyzer = &analysis.Analyzer{
 	Name: "archledgerdiscipline",
 	Doc:  "writers of a managed config subset must record ownership",

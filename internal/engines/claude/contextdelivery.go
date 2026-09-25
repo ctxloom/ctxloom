@@ -54,10 +54,8 @@ func (d *appendFlagDelivery) Path() string { return d.path }
 // file is written, Path stays "", and a no-op handle is returned.
 //
 // The write itself routes through agent.AtomicWriteFile (unique temp + fsync
-// + rename via iox), not a raw afero.WriteFile — this was the one claude
-// writer still bypassing it (survey D15 / write-discipline baseline entry
-// "contextdelivery.go#appendFlagDelivery.DeliverContext", now removed: see
-// tests/arch/write_discipline_test.go). No agent.WithFileLock wraps this:
+// + rename via iox), not a raw afero.WriteFile, so archlint's write-discipline
+// rule has nothing to exempt here. No agent.WithFileLock wraps this:
 // the deterministic hash name means two concurrent deliveries of identical
 // content write identical bytes (idempotent, no lost update to guard), and
 // two DIFFERENT contents land at two DIFFERENT paths, so there is no

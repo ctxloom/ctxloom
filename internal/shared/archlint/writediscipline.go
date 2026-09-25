@@ -10,8 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
-// writeDisciplineScopes are the subtrees this rule governs: production code
-// only, both the library and the binaries that drive it.
+// writeDisciplineScopes are the subtrees this rule governs: both the library
+// and the binaries that drive it, with their tests.
 var writeDisciplineScopes = []string{"internal", "cmd"}
 
 // writeDisciplineExemptDirs are the packages that ARE the write library, and
@@ -72,8 +72,14 @@ var forbiddenAferoMethodCalls = map[string]bool{
 // that bypasses it is a durability and provenance hole rather than a style
 // preference.
 //
+// Test code is judged too, by a narrower arm: raw AFERO writes in a _test.go
+// file that imports afero must route through the test-support writers, so a
+// fixture never disagrees with production about what "write a file" means.
+// archrules.TestWriteDisciplineAllowed's doc carries why the arm is that
+// narrow.
+//
 // This rule is a RATCHET: every site found at authoring time is grandfathered
-// into archrules.WriteDisciplineAllowed with the fix required to remove it. What it buys
+// into an allowlist with the fix required to remove it. What it buys
 // immediately is that the set cannot grow silently, and an entry that has
 // stopped being a violation is reported so the baseline can only shrink.
 var WriteDisciplineAnalyzer = &analysis.Analyzer{
@@ -82,47 +88,125 @@ var WriteDisciplineAnalyzer = &analysis.Analyzer{
 	Run:  runWriteDiscipline,
 }
 
-func runWriteDiscipline(pass *analysis.Pass) (any, error) {
-	if SkipPass(pass) {
-		return nil, nil
+// packageLevelSymbol keys a write in a package-level var initialiser, which
+// runs at program start inside no function that could be named instead.
+const packageLevelSymbol = "<package-level>"
+
+// aferoImportPath is the import a test file must name to be in the test arm's
+// scope.
+const aferoImportPath = "github.com/spf13/afero"
+
+// writeArm is how one file is judged: which writes count, which allowlist
+// excuses one, and what a violation must do instead.
+type writeArm struct {
+	aferoOnly bool
+	allowed   map[string]string
+	allowName string
+	remedy    string
+}
+
+var (
+	prodWriteArm = writeArm{
+		allowed:   archrules.WriteDisciplineAllowed,
+		allowName: "archrules.WriteDisciplineAllowed",
+		remedy: "route through internal/shared/iox, which is where the atomic write-then-rename " +
+			"sequence and the ownership ledger live",
 	}
+	testWriteArm = writeArm{
+		aferoOnly: true,
+		allowed:   archrules.TestWriteDisciplineAllowed,
+		allowName: "archrules.TestWriteDisciplineAllowed",
+		remedy: "route through testsupport.WriteFile/WriteFileString/SeedTree (or a sanctioned writer " +
+			"such as iox.WriteFileAtomicFs), so a fixture never disagrees with production about what " +
+			"\"write a file\" means",
+	}
+)
+
+func runWriteDiscipline(pass *analysis.Pass) (any, error) {
 	dir := PkgDir(pass)
 	if dir == "" || !archrules.UnderAny(dir, writeDisciplineScopes) || archrules.UnderAny(dir, writeDisciplineExemptDirs) {
 		return nil, nil
 	}
-
 	seen := map[string]bool{}
-	for _, f := range ProdFiles(pass) {
-		rel := FileRel(pass, f)
-		for _, decl := range f.Decls {
-			fd, ok := decl.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
+	for _, f := range OwnedFiles(pass) {
+		checkRawWrites(pass, f, seen)
+	}
+	analyzed := analyzedFiles(pass)
+	reportStaleAllowlist(pass, archrules.WriteDisciplineAllowed, analyzed, seen, "archrules.WriteDisciplineAllowed")
+	reportStaleAllowlist(pass, archrules.TestWriteDisciplineAllowed, analyzed, seen, "archrules.TestWriteDisciplineAllowed")
+	return nil, nil
+}
+
+// writeArmFor picks the arm that judges f; ok is false for a test file the
+// test arm does not cover.
+func writeArmFor(pass *analysis.Pass, f *ast.File) (arm writeArm, ok bool) {
+	if !IsTestFile(pass, f) {
+		return prodWriteArm, true
+	}
+	return testWriteArm, fileImports(f, aferoImportPath)
+}
+
+// checkRawWrites reports every forbidden write in f that its arm does not
+// excuse, recording in seen every key that had one.
+func checkRawWrites(pass *analysis.Pass, f *ast.File, seen map[string]bool) {
+	arm, ok := writeArmFor(pass, f)
+	if !ok {
+		return
+	}
+	rel := FileRel(pass, f)
+	eachWriteSubject(f, func(node ast.Node, sym string) {
+		key := rel + "#" + sym
+		collectRawWrites(node, arm.aferoOnly, func(pos token.Pos, call string) {
+			seen[key] = true
+			if _, ok := arm.allowed[key]; ok {
+				return
+			}
+			pass.Reportf(pos,
+				"%s calls %s directly — raw filesystem writes must %s. If this is a deliberate, reviewed "+
+					"exception, add %q to %s naming the fix required to remove it.",
+				sym, call, arm.remedy, key, arm.allowName)
+		})
+	})
+}
+
+// eachWriteSubject calls fn for every place in f a write can be written: each
+// function body, keyed by its symbol, and each package-level var initialiser,
+// keyed by packageLevelSymbol.
+func eachWriteSubject(f *ast.File, fn func(node ast.Node, sym string)) {
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Body != nil {
+				fn(d.Body, FuncSymbol(d))
+			}
+		case *ast.GenDecl:
+			if d.Tok != token.VAR {
 				continue
 			}
-			sym := FuncSymbol(fd)
-			key := rel + "#" + sym
-			collectRawWrites(fd.Body, func(pos token.Pos, call string) {
-				seen[key] = true
-				if _, ok := archrules.WriteDisciplineAllowed[key]; ok {
-					return
+			for _, spec := range d.Specs {
+				for _, val := range spec.(*ast.ValueSpec).Values {
+					fn(val, packageLevelSymbol)
 				}
-				pass.Reportf(pos,
-					"%s calls %s directly — raw filesystem writes must route through "+
-						"internal/shared/iox, which is where the atomic write-then-rename sequence and the "+
-						"ownership ledger live. If this is a deliberate, reviewed exception, add %q to "+
-						"archrules.WriteDisciplineAllowed naming the fix "+
-						"required to remove it.", sym, call, key)
-			})
+			}
 		}
 	}
-	reportStaleAllowlist(pass, archrules.WriteDisciplineAllowed, analyzedFiles(pass), seen, "archrules.WriteDisciplineAllowed")
-	return nil, nil
+}
+
+// fileImports reports whether f's import declarations name importPath.
+func fileImports(f *ast.File, importPath string) bool {
+	for _, spec := range f.Imports {
+		if p, err := ImportPathOf(spec); err == nil && p == importPath {
+			return true
+		}
+	}
+	return false
 }
 
 // collectRawWrites walks node for calls matching a forbidden write callee,
 // attributing every hit — including inside a nested closure — to the
-// enclosing declaration, whose job it is to fix them.
-func collectRawWrites(node ast.Node, report func(pos token.Pos, call string)) {
+// enclosing subject, whose job it is to fix them. aferoOnly drops the os.*
+// set, for the test arm.
+func collectRawWrites(node ast.Node, aferoOnly bool, report func(pos token.Pos, call string)) {
 	ast.Inspect(node, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -132,36 +216,46 @@ func collectRawWrites(node ast.Node, report func(pos token.Pos, call string)) {
 		if !ok {
 			return true
 		}
-		// Package-qualified calls are checked against their own forbidden-name
-		// sets and never fall through to the afero.Fs receiver heuristic, so
-		// the two checks stay visibly disjoint.
-		if pkgIdent, ok := sel.X.(*ast.Ident); ok {
-			switch pkgIdent.Name {
-			case "os":
-				switch {
-				case forbiddenOSCalls[sel.Sel.Name]:
-					report(call.Pos(), "os."+sel.Sel.Name)
-				case sel.Sel.Name == "OpenFile" && len(call.Args) >= 2 && exprMentionsWriteFlag(call.Args[1]):
-					report(call.Pos(), "os.OpenFile")
-				}
-				return true
-			case "afero":
-				if forbiddenAferoPackageCalls[sel.Sel.Name] {
-					report(call.Pos(), "afero."+sel.Sel.Name)
-				}
-				return true
-			}
-		}
-		if aferoFsMethodCall(sel) {
-			switch {
-			case forbiddenAferoMethodCalls[sel.Sel.Name]:
-				report(call.Pos(), "(afero.Fs)."+sel.Sel.Name)
-			case sel.Sel.Name == "OpenFile" && len(call.Args) >= 2 && exprMentionsWriteFlag(call.Args[1]):
-				report(call.Pos(), "(afero.Fs).OpenFile")
-			}
+		if name := rawWriteCallee(sel, call, aferoOnly); name != "" {
+			report(call.Pos(), name)
 		}
 		return true
 	})
+}
+
+// rawWriteCallee names the forbidden write a call makes, or "" for none.
+//
+// Package-qualified calls are checked against their own forbidden-name sets
+// and never fall through to the afero.Fs receiver heuristic, so the two checks
+// stay visibly disjoint.
+func rawWriteCallee(sel *ast.SelectorExpr, call *ast.CallExpr, aferoOnly bool) string {
+	if pkgIdent, ok := sel.X.(*ast.Ident); ok && (pkgIdent.Name == "os" || pkgIdent.Name == "afero") {
+		return packageWriteCallee(pkgIdent.Name, sel, call, aferoOnly)
+	}
+	name := sel.Sel.Name
+	if aferoFsMethodCall(sel) && (forbiddenAferoMethodCalls[name] || isWriteModeOpen(sel, call)) {
+		return "(afero.Fs)." + name
+	}
+	return ""
+}
+
+// packageWriteCallee is rawWriteCallee's arm for a call qualified by the os or
+// afero package, or "" when that package's call is not a forbidden write.
+func packageWriteCallee(pkg string, sel *ast.SelectorExpr, call *ast.CallExpr, aferoOnly bool) string {
+	name := sel.Sel.Name
+	switch {
+	case pkg == "afero" && forbiddenAferoPackageCalls[name]:
+		return "afero." + name
+	case pkg == "os" && !aferoOnly && (forbiddenOSCalls[name] || isWriteModeOpen(sel, call)):
+		return "os." + name
+	}
+	return ""
+}
+
+// isWriteModeOpen reports whether call is an OpenFile whose flags argument
+// asks for a write.
+func isWriteModeOpen(sel *ast.SelectorExpr, call *ast.CallExpr) bool {
+	return sel.Sel.Name == "OpenFile" && len(call.Args) >= 2 && exprMentionsWriteFlag(call.Args[1])
 }
 
 // isAferoFsLikeName reports whether name looks like it holds an afero.Fs, by

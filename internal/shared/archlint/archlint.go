@@ -60,8 +60,12 @@ func Analyzers() []*analysis.Analyzer {
 // unaffected by where the driver was invoked from, and so a linked worktree
 // (a second checkout of this repo under another path) cannot change the
 // answer.
+//
+// An external test package ("pkg_test") lives in pkg's own directory, so its
+// "_test" suffix is dropped: its files are keyed exactly like the in-package
+// test files beside them.
 func PkgDir(pass *analysis.Pass) string {
-	return LocalDir(pass.Pkg.Path())
+	return LocalDir(strings.TrimSuffix(pass.Pkg.Path(), "_test"))
 }
 
 // SkipPass reports whether this pass is a duplicate or synthetic view of a
@@ -93,6 +97,31 @@ func SkipPass(pass *analysis.Pass) bool {
 	return false
 }
 
+// OwnedFiles returns the files this pass is the ONE owner of, _test.go files
+// included, for a rule that governs test code as well as production code.
+//
+// The driver's three views of a package (see SkipPass) are split so that every
+// file is judged exactly once: the plain package owns its production files;
+// its test variant owns only the _test.go files it adds, because the
+// production files it repeats are the plain pass's; an external "_test"
+// package owns all of its files, which are all tests; and the synthesized
+// ".test" main owns nothing.
+func OwnedFiles(pass *analysis.Pass) []*ast.File {
+	if strings.HasSuffix(pass.Pkg.Path(), ".test") {
+		return nil
+	}
+	var tests []*ast.File
+	for _, f := range pass.Files {
+		if IsTestFile(pass, f) {
+			tests = append(tests, f)
+		}
+	}
+	if len(tests) == 0 {
+		return pass.Files
+	}
+	return tests
+}
+
 // LocalDir turns a module-local import path into the directory it resolves to,
 // or "" for a stdlib or third-party import.
 func LocalDir(importPath string) string {
@@ -114,11 +143,13 @@ func UnderSubtree(dir, subtree string) bool {
 
 // IsTestFile reports whether the file at this position is a _test.go file.
 //
-// Architectural rules govern PRODUCTION code: a test may import an engine
-// package for a fixture, or name a path literal in an assertion, without the
-// architecture having drifted. The driver hands an analyzer the test variant
-// of a package alongside the real one, so every rule here filters explicitly
-// rather than relying on which variant it was handed.
+// Most architectural rules govern PRODUCTION code: a test may import an
+// engine package for a fixture, or name a path literal in an assertion,
+// without the architecture having drifted. The driver hands an analyzer the
+// test variant of a package alongside the real one, so every rule filters
+// explicitly rather than relying on which variant it was handed — through
+// SkipPass and ProdFiles for a production-only rule, through OwnedFiles for
+// one that governs tests too.
 func IsTestFile(pass *analysis.Pass, f *ast.File) bool {
 	return strings.HasSuffix(pass.Fset.Position(f.Pos()).Filename, "_test.go")
 }

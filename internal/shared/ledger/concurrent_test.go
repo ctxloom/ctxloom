@@ -69,10 +69,10 @@ func numberedSurfaces(n int) []Surface {
 // That is NOT a defect in this package. The serialization is real and it
 // lives at the CALLER: every production writer wraps its whole
 // load-modify-save-and-ledger-write cycle in agent.WithFileLock (see
-// claude.ClaudeCodeHookWriter and agent.MCPFileConfig), and tests/arch/lock_discipline_test.go excludes this
-// package from its scan for exactly that reason: "internal/shared/ledger and
-// internal/shared/filelock are the lock/record PRIMITIVES themselves ...
-// their own callers are what must hold the lock."
+// claude.ClaudeCodeHookWriter and agent.MCPFileConfig), and archlint's LockDisciplineAnalyzer leaves this
+// package out of its scope for exactly that reason: the lock and record
+// primitives are not scanned, because their callers are what must hold the
+// lock.
 //
 // This test states both halves so the contract is a fact a reader can check
 // rather than a claim in a comment: unserialized loses, serialized does not.

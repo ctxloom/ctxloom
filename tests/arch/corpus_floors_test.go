@@ -81,6 +81,7 @@ type corpusCounts struct {
 	engineFiles int
 	documented  int
 	vocabulary  int
+	aferoTests  int
 }
 
 // engineScopes are the subtrees the lock- and ledger-discipline rules read.
@@ -90,6 +91,10 @@ var engineScopes = []string{
 	"internal/engines/claude",
 	"internal/core/agent",
 }
+
+// aferoTestScopes are the subtrees whose afero-importing _test.go files the
+// write-discipline rule's test arm reads.
+var aferoTestScopes = []string{"internal", "cmd"}
 
 // walkCorpus reads the module once and counts what the rules depend on seeing.
 func walkCorpus(t *testing.T) corpusCounts {
@@ -107,7 +112,7 @@ func walkCorpus(t *testing.T) corpusCounts {
 			return filepath.SkipDir
 		case d.IsDir():
 			return nil
-		case !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go"):
+		case !strings.HasSuffix(d.Name(), ".go"):
 			return nil
 		}
 		rel, rerr := filepath.Rel(root, p)
@@ -115,6 +120,10 @@ func walkCorpus(t *testing.T) corpusCounts {
 			return rerr
 		}
 		rel = filepath.ToSlash(rel)
+		if strings.HasSuffix(rel, "_test.go") {
+			c.aferoTests += aferoTestCount(t, fset, p, rel)
+			return nil
+		}
 		dir := filepath.ToSlash(filepath.Dir(rel))
 		dirs[dir] = true
 		c.prodFiles++
@@ -141,6 +150,40 @@ func walkCorpus(t *testing.T) corpusCounts {
 	}
 	c.packages = len(dirs)
 	return c
+}
+
+// aferoTestCount is 1 when a _test.go file is in the write-discipline test
+// arm's corpus — under one of aferoTestScopes, importing afero — and 0
+// otherwise.
+func aferoTestCount(t *testing.T, fset *token.FileSet, path, rel string) int {
+	if countsAsAferoTest(t, fset, path, rel) {
+		return 1
+	}
+	return 0
+}
+
+// countsAsAferoTest reports whether a _test.go file is in the write-discipline
+// test arm's corpus.
+func countsAsAferoTest(t *testing.T, fset *token.FileSet, path, rel string) bool {
+	t.Helper()
+	inScope := false
+	for _, scope := range aferoTestScopes {
+		inScope = inScope || strings.HasPrefix(rel, scope+"/")
+	}
+	if !inScope {
+		return false
+	}
+	f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Errorf("parse %s: %v", rel, err)
+		return false
+	}
+	for _, spec := range f.Imports {
+		if spec.Path.Value == `"github.com/spf13/afero"` {
+			return true
+		}
+	}
+	return false
 }
 
 // countDocumented counts the declarations carrying a doc comment, the corpus
@@ -221,6 +264,7 @@ func TestArch_CorpusFloors_TheSweepActuallyReadsTheModule(t *testing.T) {
 		{"production files under the engine scopes", c.engineFiles, 20, "archlockdiscipline, archledgerdiscipline"},
 		{"documented declarations", c.documented, 1000, "archdoccomment"},
 		{"typed string constants", c.vocabulary, 30, "archvocabulary"},
+		{"_test.go files importing afero", c.aferoTests, 100, "archwritediscipline's test arm"},
 	} {
 		if floor.got < floor.min {
 			t.Errorf("the module walk saw only %d %s (floor %d) — the sweep is broken, not the module. "+

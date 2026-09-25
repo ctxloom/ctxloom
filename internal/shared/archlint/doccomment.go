@@ -35,11 +35,10 @@ var DocCommentAnalyzer = &analysis.Analyzer{
 	Run:  runDocComment,
 }
 
+// runDocComment covers test files as well as production ones: a pasted-twice
+// doc misleads a reader of a test exactly as it does a reader of the code.
 func runDocComment(pass *analysis.Pass) (any, error) {
-	if SkipPass(pass) {
-		return nil, nil
-	}
-	for _, f := range pass.Files {
+	for _, f := range OwnedFiles(pass) {
 		for _, decl := range f.Decls {
 			for _, dd := range declDocs(decl) {
 				at := restatedOpening(dd.name, dd.doc)

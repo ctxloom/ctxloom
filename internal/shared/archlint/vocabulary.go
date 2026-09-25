@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"sort"
 	"strconv"
 
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
@@ -26,13 +27,54 @@ const vocabMinMembers = 2
 // CONVERSION rule needs — a `pkg.T(s)` conversion can only be written by a
 // package that imports pkg. The other two rules in this family have no such
 // edge and stay in tests/arch; see VocabularyAnalyzer's doc.
+//
+// Vocabs is sorted by name and each vocabulary's members are sorted: the
+// checker requires a fact to encode deterministically, and a Go map encodes in
+// iteration order.
 type vocabFact struct {
-	Vocabs map[string]map[string]bool
+	Vocabs []vocabEntry
+}
+
+// vocabEntry is one closed vocabulary a package declares.
+type vocabEntry struct {
+	Name    string
+	Members []string
 }
 
 func (*vocabFact) AFact() {}
 
 func (f *vocabFact) String() string { return "closed vocabularies" }
+
+// newVocabFact freezes discovered vocabularies into their deterministic form.
+func newVocabFact(owned map[string]map[string]bool) *vocabFact {
+	fact := &vocabFact{}
+	for name, members := range owned {
+		entry := vocabEntry{Name: name}
+		for m := range members {
+			entry.Members = append(entry.Members, m)
+		}
+		sort.Strings(entry.Members)
+		fact.Vocabs = append(fact.Vocabs, entry)
+	}
+	sort.Slice(fact.Vocabs, func(i, j int) bool { return fact.Vocabs[i].Name < fact.Vocabs[j].Name })
+	return fact
+}
+
+// members returns the named vocabulary's member set, or nil when the package
+// declares no vocabulary by that name.
+func (f *vocabFact) members(name string) map[string]bool {
+	for _, v := range f.Vocabs {
+		if v.Name != name {
+			continue
+		}
+		set := make(map[string]bool, len(v.Members))
+		for _, m := range v.Members {
+			set[m] = true
+		}
+		return set
+	}
+	return nil
+}
 
 // VocabularyAnalyzer enforces that a closed vocabulary is consumed through its
 // owner rather than re-spelled.
@@ -79,7 +121,7 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 
 	// Publish what this package owns, so importers can check against it.
 	if owned := discoverVocabularies(files); len(owned) > 0 {
-		pass.ExportPackageFact(&vocabFact{Vocabs: owned})
+		pass.ExportPackageFact(newVocabFact(owned))
 	}
 
 	// seen records which exemptions actually fired, so the liveness half below
@@ -101,15 +143,7 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 				if !ok || len(call.Args) != 1 {
 					return true
 				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				ident, ok := sel.X.(*ast.Ident)
-				if !ok {
-					return true
-				}
-				owner, members := lookupVocabulary(pass, ident.Name, sel.Sel.Name)
+				owner, typeName, members := conversionTarget(pass, call.Fun)
 				if members == nil || LocalDir(owner) == dir {
 					return true
 				}
@@ -117,7 +151,7 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 				if isLit && (lit == "" || members[lit]) {
 					return true
 				}
-				key := rel + "#" + sym + "#" + LocalDir(owner) + "." + sel.Sel.Name
+				key := rel + "#" + sym + "#" + LocalDir(owner) + "." + typeName
 				if _, ok := vocabConversionAllowed[key]; ok {
 					seen[key] = true
 					return true
@@ -132,7 +166,7 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 						"rejected. Call the owner's parser or compare against its exported constants. If this "+
 						"is a deliberate, reviewed exception, add %q to vocabConversionAllowed in "+
 						"internal/shared/archlint/vocabulary.go naming the fix required to remove it.",
-					sym, what, LocalDir(owner), sel.Sel.Name, key)
+					sym, what, LocalDir(owner), typeName, key)
 				return true
 			})
 		}
@@ -141,65 +175,44 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// lookupVocabulary resolves a qualified identifier to the vocabulary its
-// declaring package published, or nil when it names no vocabulary.
-func lookupVocabulary(pass *analysis.Pass, pkgName, typeName string) (string, map[string]bool) {
-	for _, imported := range pass.Pkg.Imports() {
-		if imported.Name() != pkgName {
-			continue
-		}
-		var fact vocabFact
-		if pass.ImportPackageFact(imported, &fact) {
-			if members, ok := fact.Vocabs[typeName]; ok {
-				return imported.Path(), members
-			}
-		}
-		if path, members := vocabularyThroughAlias(pass, imported, typeName); members != nil {
-			return path, members
-		}
-	}
-	return "", nil
-}
-
-// vocabularyThroughAlias resolves a name that RE-EXPORTS a vocabulary declared
-// elsewhere, e.g. `type RuntimeAxis = launch.RuntimeAxis`.
+// conversionTarget resolves a call's callee to the closed vocabulary it
+// converts into: the declaring package's path, the type's name and its
+// members, or a nil members map when the callee is not a vocabulary type.
 //
-// discoverVocabularies works from string-literal typed constants, so it sees a
-// vocabulary only in the package that DECLARES it. A package that aliases the
-// type and re-exports its constants publishes no fact of its own and declares
-// no literals, so every conversion written through the alias was invisible —
-// `isolation.RuntimeAxis(s)` went unreported while the identical
-// `launch.RuntimeAxis(s)` was caught. An alias is a second NAME for a closed
-// vocabulary, never a second vocabulary, so it must be governed identically.
+// Resolution goes through go/types rather than the spelling at the call site,
+// because the spelling is not the identity. An import renamed at the call
+// site (`vo.Mode(s)`), a dot import (`Mode(s)`) and an alias that re-exports
+// the type from another package (`type Mode = owner.Mode`) all name the same
+// closed vocabulary, and each must be governed exactly like `owner.Mode(s)`.
+// Matching on the qualifier's text would be a second copy of the import
+// resolution the type checker already did — and the renamed import is the
+// case it got wrong.
 //
-// Resolution goes through go/types rather than the AST because that is what
-// knows where a name ultimately comes from; matching on the alias's spelling
-// would be a third place that has to be kept in step by hand.
-func vocabularyThroughAlias(pass *analysis.Pass, imported *types.Package, typeName string) (string, map[string]bool) {
-	obj := imported.Scope().Lookup(typeName)
-	if obj == nil {
-		return "", nil
+// types.Unalias is load-bearing: under gotypesalias=1 (the default since Go
+// 1.23) an alias yields a *types.Alias, not the *types.Named it stands for,
+// so asserting on Named alone would silently match nothing through an alias.
+func conversionTarget(pass *analysis.Pass, fun ast.Expr) (ownerPath, typeName string, members map[string]bool) {
+	tv, ok := pass.TypesInfo.Types[fun]
+	if !ok || !tv.IsType() {
+		return "", "", nil
 	}
-	// types.Unalias is load-bearing: under gotypesalias=1 (the default since
-	// Go 1.23) an alias declaration yields a *types.Alias, not the *types.Named
-	// it stands for, so asserting on Named alone silently matches nothing —
-	// which is exactly the blindness this function exists to remove.
-	named, ok := types.Unalias(obj.Type()).(*types.Named)
+	named, ok := types.Unalias(tv.Type).(*types.Named)
 	if !ok {
-		return "", nil
+		return "", "", nil
 	}
 	origin := named.Obj().Pkg()
-	if origin == nil || origin.Path() == imported.Path() {
-		return "", nil
+	if origin == nil {
+		return "", "", nil
 	}
 	var fact vocabFact
 	if !pass.ImportPackageFact(origin, &fact) {
-		return "", nil
+		return "", "", nil
 	}
-	if members, ok := fact.Vocabs[named.Obj().Name()]; ok {
-		return origin.Path(), members
+	name := named.Obj().Name()
+	if members := fact.members(name); members != nil {
+		return origin.Path(), name, members
 	}
-	return "", nil
+	return "", "", nil
 }
 
 // discoverVocabularies finds this package's closed vocabularies: any defined

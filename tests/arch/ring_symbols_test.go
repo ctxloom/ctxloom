@@ -40,6 +40,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/archlint"
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
@@ -283,7 +284,7 @@ func scanOneMintOneOwner(t *testing.T) []ringSite {
 					if archrules.UnderAny(rf.dir, p.permitted) {
 						continue
 					}
-					out = append(out, ringSite{file: rf.rel, symbol: funcSymbol(fd), what: "(" + funcSymbol(fd) + ") " + p.what, line: rf.fset.Position(call.Pos()).Line})
+					out = append(out, ringSite{file: rf.rel, symbol: archlint.FuncSymbol(fd), what: "(" + archlint.FuncSymbol(fd) + ") " + p.what, line: rf.fset.Position(call.Pos()).Line})
 				}
 				return true
 			})

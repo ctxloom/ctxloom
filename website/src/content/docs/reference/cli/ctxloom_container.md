@@ -35,6 +35,7 @@ ctxloom container [flags]
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom container build](/reference/cli/ctxloom_container_build/)	 - Build the agent container image for a backend
 * [ctxloom container check](/reference/cli/ctxloom_container_check/)	 - Diagnose container capability (runtime, image, shared filesystem)
+* [ctxloom container prune](/reference/cli/ctxloom_container_prune/)	 - Remove superseded ctxloom agent images (a dry run unless --apply)
 * [ctxloom container scaffold](/reference/cli/ctxloom_container_scaffold/)	 - Materialize the editable base Containerfile and wire it into config
 * [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from admitted companions
 

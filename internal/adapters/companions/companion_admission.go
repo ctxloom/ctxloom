@@ -246,22 +246,9 @@ func admitCompanionVerified(bin string, root trust.TrustRoot) (CompanionAdmissio
 				"trust (sign it where it is built: `just sign-binary %s`)", bin, resolved, companionReleaseSuffix, companionSigSuffix, resolved)
 		return newCompanionAdmission(key, false, CompanionAdmissionUnsigned), verifiedCompanion{}
 	}
-	principal, verifyErr := signing.VerifyInNamespace(statement, sig, root, signing.NamespaceCompanion, time.Now())
-	switch {
-	case verifyErr != nil:
-		clidiag.WarnOnce("ctxloom",
-			"companion %q at %s: its signature does not cover its release statement, refusing to execute it: %v",
-			bin, resolved, verifyErr)
-		return newCompanionAdmission(key, false, CompanionAdmissionTampered), verifiedCompanion{}
-	case principal == "":
-		// VerifyInNamespace's "unsigned to you": a well-formed signature by a
-		// key the trust root does not authorize for THIS namespace. A bundle
-		// treats that as reviewable; execution cannot.
-		clidiag.WarnOnce("ctxloom",
-			"companion %q at %s: signed by a key you do not trust to authorize execution, skipping "+
-				"(add its publisher to allowed_signers with namespaces=%q)",
-			bin, resolved, signing.NamespaceCompanion)
-		return newCompanionAdmission(key, false, CompanionAdmissionUntrusted), verifiedCompanion{}
+	principal, refused := companionSigner(bin, resolved, statement, sig, root)
+	if refused != "" {
+		return newCompanionAdmission(key, false, refused), verifiedCompanion{}
 	}
 	rel, perr := parseCompanionRelease(statement)
 	if perr != nil {
@@ -287,6 +274,31 @@ func admitCompanionVerified(bin string, root trust.TrustRoot) (CompanionAdmissio
 	}
 	return newCompanionAdmission(key, true, CompanionAdmissionSigned),
 		verifiedCompanion{name: installed, payload: payload, statement: statement, sig: sig}
+}
+
+// companionSigner verifies the release statement's signature for execution,
+// returning the trusted principal, or the refusal (warned) when the signature
+// does not cover the statement or its key is not trusted to authorize
+// execution.
+func companionSigner(bin, resolved string, statement, sig []byte, root trust.TrustRoot) (string, CompanionAdmissionReason) {
+	principal, verifyErr := signing.VerifyInNamespace(statement, sig, root, signing.NamespaceCompanion, time.Now())
+	switch {
+	case verifyErr != nil:
+		clidiag.WarnOnce("ctxloom",
+			"companion %q at %s: its signature does not cover its release statement, refusing to execute it: %v",
+			bin, resolved, verifyErr)
+		return "", CompanionAdmissionTampered
+	case principal == "":
+		// VerifyInNamespace's "unsigned to you": a well-formed signature by a
+		// key the trust root does not authorize for THIS namespace. A bundle
+		// treats that as reviewable; execution cannot.
+		clidiag.WarnOnce("ctxloom",
+			"companion %q at %s: signed by a key you do not trust to authorize execution, skipping "+
+				"(add its publisher to allowed_signers with namespaces=%q)",
+			bin, resolved, signing.NamespaceCompanion)
+		return "", CompanionAdmissionUntrusted
+	}
+	return principal, ""
 }
 
 // companionSigSuffix is the detached signature's extension — the one

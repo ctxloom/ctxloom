@@ -56,9 +56,9 @@ func parseCompanionRelease(raw []byte) (companionRelease, error) {
 	if lines[0] != companionReleaseMarker+"\n" {
 		return companionRelease{}, fmt.Errorf("%w: first line is %q, this build understands only %q", errCompanionRelease, strings.TrimSuffix(lines[0], "\n"), companionReleaseMarker)
 	}
-	name, ok := strings.CutPrefix(strings.TrimSuffix(lines[1], "\n"), "# name: ")
-	if !ok || name == "" || strings.ContainsAny(name, `/\ `) {
-		return companionRelease{}, fmt.Errorf("%w: second line must be \"# name: <binary file name>\"", errCompanionRelease)
+	name, err := parseReleaseName(lines[1])
+	if err != nil {
+		return companionRelease{}, err
 	}
 	vs, ok := strings.CutPrefix(strings.TrimSuffix(lines[2], "\n"), "# version: ")
 	if !ok {
@@ -77,4 +77,14 @@ func parseCompanionRelease(raw []byte) (companionRelease, error) {
 		return companionRelease{}, fmt.Errorf("%w: not in canonical form (the entry must name %q, two spaces after the hash)", errCompanionRelease, name)
 	}
 	return out, nil
+}
+
+// parseReleaseName reads the statement's name line: a bare binary file name,
+// no path separators or spaces.
+func parseReleaseName(line string) (string, error) {
+	name, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "# name: ")
+	if !ok || name == "" || strings.ContainsAny(name, `/\ `) {
+		return "", fmt.Errorf("%w: second line must be \"# name: <binary file name>\"", errCompanionRelease)
+	}
+	return name, nil
 }

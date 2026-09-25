@@ -344,17 +344,7 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 		// discovery pass.
 		decided = companionAdmission(DiscoverCompanions(), root)
 	}
-	admitted := make([]CompanionAdmission, 0, len(decided)+1)
-	var candidates []bundles.CompanionCandidate
-	for _, a := range decided {
-		if a.Allow {
-			admitted = append(admitted, a)
-			continue
-		}
-		candidates = append(candidates, bundles.CompanionCandidate{
-			Bin: a.Bin, Path: a.Path, Reason: candidateReasonFor(a.Reason),
-		})
-	}
+	admitted, candidates := splitAdmissions(decided)
 	// ctxloom ITSELF, first in the fan-out: admitted by identity (the running
 	// binary needs no consent to run), probed through the same exec as every
 	// other companion so its loadout takes exactly the path theirs does.
@@ -368,36 +358,62 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 		wg.Add(1)
 		go func(i int, bin, path string) {
 			defer wg.Done()
-			raw, err := companionLoadoutOutput(path)
-			if err != nil {
-				// An unknown `loadout` subcommand (a companion that hasn't
-				// adopted the protocol yet) is the ordinary, silent case —
-				// *exec.ExitError with no further wrapping. Anything else
-				// (context.DeadlineExceeded from a wedged companion, or any
-				// other exec failure) previously vanished with NO diagnostic
-				// at all; the run reported success having delivered nothing
-				// from that companion.
-				var exitErr *exec.ExitError
-				if !errors.As(err, &exitErr) {
-					clidiag.Warn("ctxloom", "companion %q: loadout probe failed, withholding: %v", bin, err)
-				}
-				failed[i] = &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
-				return
-			}
-			doc, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
-			if derr != nil {
-				// STRUCTURAL failure — no content was produced at all. Nothing
-				// to hand on, so this half still withholds.
-				clidiag.Warn("ctxloom", "companion %q: unparseable loadout envelope, withholding: %v", bin, derr)
-				failed[i] = &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
-				return
-			}
-			slots[i] = &bundles.CompanionLoadout{Bin: bin, Path: path, Document: doc, Signature: sig, Self: bin == SelfCompanion}
+			slots[i], failed[i] = probeLoadout(bin, path)
 		}(i, adm.Bin, adm.Path)
 	}
 	wg.Wait()
+	return collectProbes(slots, failed, candidates), nil
+}
 
-	out := make([]bundles.CompanionLoadout, 0, len(admitted))
+// splitAdmissions separates the admitted companions from the refused ones,
+// which are kept as catalog candidates (with room for ctxloom itself among
+// the admitted).
+func splitAdmissions(decided []CompanionAdmission) ([]CompanionAdmission, []bundles.CompanionCandidate) {
+	admitted := make([]CompanionAdmission, 0, len(decided)+1)
+	var candidates []bundles.CompanionCandidate
+	for _, a := range decided {
+		if a.Allow {
+			admitted = append(admitted, a)
+			continue
+		}
+		candidates = append(candidates, bundles.CompanionCandidate{
+			Bin: a.Bin, Path: a.Path, Reason: candidateReasonFor(a.Reason),
+		})
+	}
+	return admitted, candidates
+}
+
+// probeLoadout execs one admitted companion's loadout probe: its loadout, or
+// (warned unless it is the ordinary silent case) a probe-failed candidate.
+func probeLoadout(bin, path string) (*bundles.CompanionLoadout, *bundles.CompanionCandidate) {
+	raw, err := companionLoadoutOutput(path)
+	if err != nil {
+		// An unknown `loadout` subcommand (a companion that hasn't
+		// adopted the protocol yet) is the ordinary, silent case —
+		// *exec.ExitError with no further wrapping. Anything else
+		// (context.DeadlineExceeded from a wedged companion, or any
+		// other exec failure) is warned: the run would otherwise report
+		// success having delivered nothing from that companion.
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			clidiag.Warn("ctxloom", "companion %q: loadout probe failed, withholding: %v", bin, err)
+		}
+		return nil, &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
+	}
+	doc, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
+	if derr != nil {
+		// STRUCTURAL failure — no content was produced at all. Nothing
+		// to hand on, so this half still withholds.
+		clidiag.Warn("ctxloom", "companion %q: unparseable loadout envelope, withholding: %v", bin, derr)
+		return nil, &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
+	}
+	return &bundles.CompanionLoadout{Bin: bin, Path: path, Document: doc, Signature: sig, Self: bin == SelfCompanion}, nil
+}
+
+// collectProbes gathers the probes' loadouts, in admission order, and adds
+// each failed probe to the candidates.
+func collectProbes(slots []*bundles.CompanionLoadout, failed []*bundles.CompanionCandidate, candidates []bundles.CompanionCandidate) bundles.CompanionProbe {
+	out := make([]bundles.CompanionLoadout, 0, len(slots))
 	for _, lo := range slots {
 		if lo != nil {
 			out = append(out, *lo)
@@ -408,7 +424,7 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 			candidates = append(candidates, *c)
 		}
 	}
-	return bundles.CompanionProbe{Loadouts: out, Candidates: candidates}, nil
+	return bundles.CompanionProbe{Loadouts: out, Candidates: candidates}
 }
 
 // candidateReasonFor translates a refusal to execute into the reason a catalog

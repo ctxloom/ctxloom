@@ -197,6 +197,24 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       |            |
       | --degraded |
 
+  # The same START gate, reached with BOTH axes requested: Alice wants her own
+  # worktree AND a container around it. Here the container tier is the
+  # worktree-backed one, and the next tier down is a plain HOST worktree — a
+  # real, working workspace. That makes this the one degrade where losing the
+  # container still leaves something that looks like isolation, so it is the
+  # one most tempting to accept quietly. The row above cannot stand in for it:
+  # its chain holds the live-dir container, never the worktree-backed one, so
+  # a boundary check that recognised only the live-dir container would pass
+  # there and let this run land on the host believing it had a sandbox.
+  Scenario Outline: A containerized worktree that cannot start REFUSES rather than keeping the worktree on the host
+    When Alice runs a container-bound agent whose image cannot be produced, with flags "--workspace worktree <flags>"
+    Then the run aborts at the container START gate
+
+    Examples:
+      | flags      |
+      |            |
+      | --degraded |
+
   # THE BOUNDARY THAT WAS ACCEPTED AND THEN LOST, which is a different fault
   # from every gate above and the only one that is NOT degradable.
   #

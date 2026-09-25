@@ -1367,9 +1367,10 @@ message ControlSteer {
 }
 
 message ControlSteerResult {
-  // How the steer landed, from coord's Delivery* vocabulary: completed the
-  // child's parked receive, woke it into a new turn, queued for its next
-  // boundary, or resumed an ended session.
+  // How the steer landed: "new-turn" (an idle child was woken into a new
+  // turn), "queued" (held for the child's next turn boundary, including while
+  // it is paused), or "resumed" (an ended session was relaunched with the
+  // text as its next turn).
   string delivery = 1;
   // The withdraw handle: the id of the durable instruction file, valid
   // until the child takes it.

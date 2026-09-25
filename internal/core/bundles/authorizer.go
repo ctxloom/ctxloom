@@ -55,20 +55,13 @@ type Exposure struct {
 	// unclaimed, and a Authorizer withholds it.
 	Read BundleRead
 
-	// Ref is the item's identity — the ref the countersignature stores key on.
-	Ref trust.Ref
-
-	// BundleRef is the parsed item reference Ref was mapped from, carried so a
-	// port that keys on the bundle's identity (the retraction record) reads it
-	// straight from the parse rather than re-rendering it through Ref's URL.
+	// BundleRef is the item's identity: the ONE field every store keys on.
+	// Countersign (through Ref) and the retraction record (directly) read it,
+	// so they cannot be handed two different identities. It is a field rather
+	// than something re-derived from a string because re-parsing is a second
+	// construction of the identity. A zero BundleRef names no bundle, and a
+	// gating authorizer withholds it as unaddressable.
 	BundleRef trust.BundleRef
-
-	// RefStr is the canonical reference string Decide parsed Ref out of — the
-	// exact address the caller asked about. It is carried rather than
-	// re-rendered from Ref because rendering is a second construction of the
-	// identity, and the two constructions are exactly what a tally, an
-	// advisory and a store must not be able to disagree about.
-	RefStr string
 
 	// Bytes are the EXACT bytes about to be exposed (pre-mustache), NEVER a
 	// hash. A hash can only be compared against a recorded hash, and a recorded
@@ -80,17 +73,21 @@ type Exposure struct {
 	// Form is the LAYOUT form Bytes are in ("raw" | "distilled"). It is the
 	// layout axis ONLY: the composite attestation form a countersignature binds
 	// also names the item's ROLE, and that is derived below the decision from
-	// Ref.Kind — never named here. A call site therefore cannot assert its own
+	// BundleRef.Kind — never named here. A call site therefore cannot assert its own
 	// role, which is what stops a text item's approval from satisfying an
 	// executable's gate over identical bytes.
 	Form ContentForm
 }
 
-// RefString is the canonical reference string this exposure was decided under
-// — RefStr verbatim. It is not re-derived from Ref: a second construction of
-// "the same" identity is how a decision recorded under one address stops
-// governing the other.
-func (e Exposure) RefString() string { return e.RefStr }
+// Ref is the item's identity in the countersignature stores' shape. It is
+// DERIVED from BundleRef, never carried beside it: two carried fields are two
+// identities a literal can set apart, and then a rejection and a retraction
+// are decided about different bundles.
+func (e Exposure) Ref() trust.Ref { return trust.RefFromBundleRef(e.BundleRef) }
+
+// RefString is the canonical reference string of the item — BundleRef
+// rendered, so one item is tallied under one spelling on every surface.
+func (e Exposure) RefString() string { return e.BundleRef.String() }
 
 // Verdict is what a Authorizer decided, and the ONLY vocabulary anything downstream
 // renders. A caller that prints "withheld" without printing Reason is printing
@@ -459,7 +456,7 @@ func Decide(rep report.Reporter, authorizer Authorizer, read BundleRead, ref str
 	// can address. Parsing first would turn every listing path into a new
 	// source of withholds.
 	if !Gates(authorizer) {
-		return authorizer.Admit(Exposure{Read: read, RefStr: ref, Bytes: payload, Form: form})
+		return authorizer.Admit(Exposure{Read: read, Bytes: payload, Form: form})
 	}
 	br, err := trust.ParseBundleRef(ref)
 	if err != nil {
@@ -470,8 +467,7 @@ func Decide(rep report.Reporter, authorizer Authorizer, read BundleRead, ref str
 		}
 		return v
 	}
-	tRef := trust.RefFromBundleRef(br)
-	v := authorizer.Admit(Exposure{Read: read, Ref: tRef, BundleRef: br, RefStr: ref, Bytes: payload, Form: form})
+	v := authorizer.Admit(Exposure{Read: read, BundleRef: br, Bytes: payload, Form: form})
 	ReportVerdict(rep, ref, v)
 	return v
 }

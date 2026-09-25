@@ -78,9 +78,7 @@ func remoteExecutable(t *testing.T) (bundles.Exposure, string) {
 		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 	return bundles.Exposure{
 		Read:      read,
-		Ref:       trust.RefFromBundleRef(br),
 		BundleRef: br,
-		RefStr:    refStr,
 		Bytes:     []byte("#!/bin/sh\necho deploy\n"),
 		Form:      bundles.FormRaw,
 	}, refStr
@@ -111,7 +109,7 @@ func TestNewTrust_WithholdsAnExecutableNoReviewRecordApproves(t *testing.T) {
 func TestNewTrust_AReviewRecordAdmitsTheExecutable(t *testing.T) {
 	e, _ := remoteExecutable(t)
 	records := fakeRecords{approved: func(ref trust.Ref, payload []byte, form bundles.ContentForm) bool {
-		return ref == e.Ref && string(payload) == string(e.Bytes) && form == bundles.FormRaw
+		return ref == e.Ref() && string(payload) == string(e.Bytes) && form == bundles.FormRaw
 	}}
 	tr := mustTrust(t, records, noRetraction())
 
@@ -214,7 +212,7 @@ func invalidlySigned(t *testing.T, refStr string, ctx bundles.TrustCtx, prov bun
 	b := &bundles.Bundle{Name: br.Bundle}
 	read := bundles.NewRead(br.Bundle, b, prov, ctx,
 		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerUntrusted, Detail: "its files no longer match SHA256SUMS"})
-	return bundles.Exposure{Read: read, Ref: trust.RefFromBundleRef(br), BundleRef: br, RefStr: refStr, Bytes: []byte("echo deploy"), Form: bundles.FormRaw}
+	return bundles.Exposure{Read: read, BundleRef: br, Bytes: []byte("echo deploy"), Form: bundles.FormRaw}
 }
 
 // TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmittedAsUnsigned:
@@ -250,7 +248,7 @@ func TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld(t *testi
 
 	assert.False(t, v.Allow, "a signature that does not cover what travelled admits nothing")
 	assert.NotEqual(t, bundles.ReasonStaleLocalSignature, v.Reason, "stale-local is a LOCAL row and never names remote content")
-	assert.Equal(t, []string{e.RefStr}, tr.Withheld())
+	assert.Equal(t, []string{e.RefString()}, tr.Withheld())
 }
 
 // faultedRetraction is a RetractionRecords whose backing lockfile could not be
@@ -274,9 +272,7 @@ func companionFragment(t *testing.T) bundles.Exposure {
 		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 	return bundles.Exposure{
 		Read:      read,
-		Ref:       trust.RefFromBundleRef(br),
 		BundleRef: br,
-		RefStr:    refStr,
 		Bytes:     []byte("Set both isolation axes."),
 		Form:      bundles.FormRaw,
 	}

@@ -441,9 +441,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// human approves it.
 	v := e.authorizer.Admit(bundles.Exposure{
 		Read:      read,
-		Ref:       tRef,
 		BundleRef: br,
-		RefStr:    ref,
 		Bytes:     payload,
 		Form:      bundles.ContentForm(form),
 	})

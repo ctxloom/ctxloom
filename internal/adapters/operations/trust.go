@@ -843,8 +843,7 @@ func (ts *TrustStamper) resolve(br trust.BundleRef, read bundles.BundleRead, pay
 	if ts.gate == nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	ref := trust.RefFromBundleRef(br)
-	v := ts.gate.Admit(bundles.Exposure{Read: read, Ref: ref, BundleRef: br, RefStr: ref.Key(), Bytes: payload, Form: form})
+	v := ts.gate.Admit(bundles.Exposure{Read: read, BundleRef: br, Bytes: payload, Form: form})
 	return resultOf(v)
 }
 

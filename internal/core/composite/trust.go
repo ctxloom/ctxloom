@@ -133,14 +133,22 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 		return a.record(e, bundles.Verdict{Reason: bundles.ReasonUnestablished,
 			Detail: "no reader established this bundle's provenance"})
 	}
+	// Zero-equality, not IsItem: a bundle-level ref (a companion) is a real
+	// identity decided here. Only the identity that was never set is refused —
+	// the same unaddressable withhold Decide gives a ref it cannot parse, since
+	// no rejection, approval or retraction can be keyed on no bundle.
+	if e.BundleRef == (trust.BundleRef{}) {
+		return a.record(e, bundles.Verdict{Reason: bundles.ReasonUnaddressable,
+			Detail: "the exposure names no bundle, so no rule could be keyed on it"})
+	}
 	if err := fault(a.records); err != nil {
 		return a.record(e, bundles.Verdict{Reason: bundles.ReasonPending,
 			Detail: "the approvals store could not be read, so nothing is approved: " + err.Error()})
 	}
-	if a.records.Rejected(e.Ref, e.Bytes) {
+	if a.records.Rejected(e.Ref(), e.Bytes) {
 		return a.record(e, bundles.Verdict{Reason: bundles.ReasonRejected})
 	}
-	if retractable(e.Ref) {
+	if retractable(e.Ref()) {
 		if err := fault(a.retraction); err != nil {
 			return a.record(e, bundles.Verdict{Reason: bundles.ReasonPending,
 				Detail: "retraction state could not be established, so nothing that travelled is trusted: " + err.Error()})
@@ -159,10 +167,10 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 	if signer := e.Read.Bundle.Signer(); signer != "" {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonTrustedSigner}
 	}
-	if a.records.Approved(e.Ref, e.Bytes, e.Form) {
+	if a.records.Approved(e.Ref(), e.Bytes, e.Form) {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonApproved}
 	}
-	return a.record(e, bundles.Verdict{Reason: pendingReason(e.Read), Detail: pendingDetail(e.Ref)})
+	return a.record(e, bundles.Verdict{Reason: pendingReason(e.Read), Detail: pendingDetail(e.Ref())})
 }
 
 // fault reads the optional Faulted capability off a port.

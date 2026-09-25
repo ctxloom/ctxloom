@@ -118,9 +118,7 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	br, _ := req.Ref.AsBundleRef()
 	v := g.Admit(bundles.Exposure{
 		Read:      readOfFacts(req),
-		Ref:       req.Ref,
 		BundleRef: br,
-		RefStr:    req.Ref.Key(),
 		Bytes:     req.Payload,
 		Form:      bundles.ContentForm(req.Form),
 	})

@@ -216,13 +216,15 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 			cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 			fx := newTrustFixture(t)
 
+			br, err := tc.ref.AsBundleRef()
+			require.NoError(t, err)
 			g := &contentGate{cfg: cfg, records: fx.records()}
-			allowed := g.Admit(bundles.Exposure{Read: tc.read, Ref: tc.ref, Bytes: []byte("KEEPER-PAYLOAD"), Form: bundles.FormRaw})
+			allowed := g.Admit(bundles.Exposure{Read: tc.read, BundleRef: br, Bytes: []byte("KEEPER-PAYLOAD"), Form: bundles.FormRaw})
 			require.True(t, allowed.Allow, "sanity: first-party content is exempt from review")
 
 			fx.rejectRef(tc.ref)
 			g2 := &contentGate{cfg: cfg, records: fx.records()}
-			v := g2.Admit(bundles.Exposure{Read: tc.read, Ref: tc.ref, Bytes: []byte("KEEPER-PAYLOAD"), Form: bundles.FormRaw})
+			v := g2.Admit(bundles.Exposure{Read: tc.read, BundleRef: br, Bytes: []byte("KEEPER-PAYLOAD"), Form: bundles.FormRaw})
 
 			assert.False(t, v.Allow, "a human's rejection must reach %s content", tc.name)
 			assert.Equal(t, bundles.ReasonRejected, v.Reason)
@@ -334,12 +336,14 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 func TestAuthorizer_UnclaimedReadWithholds(t *testing.T) {
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
+	br, err := trust.ParseBundleRef("ctxloom+local:kit#fragments/keeper")
+	require.NoError(t, err)
 
 	v := g.Admit(bundles.Exposure{
-		Read:  bundles.BundleRead{},
-		Ref:   trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsLocal: true},
-		Bytes: []byte("KEEPER-PAYLOAD"),
-		Form:  bundles.FormRaw,
+		Read:      bundles.BundleRead{},
+		BundleRef: br,
+		Bytes:     []byte("KEEPER-PAYLOAD"),
+		Form:      bundles.FormRaw,
 	})
 
 	assert.False(t, v.Allow, "an unclaimed read must withhold even for a ref that spells 'local'")

@@ -6,11 +6,12 @@ import (
 )
 
 // ErrorEnvelope is the structured shape RenderError emits for json/yaml/
-// toml. Its single field goes through the same reflective path as any
-// other Result, which is also what gives text/markdown their "Error: msg"
-// human line for free.
+// toml. Its fields go through the same reflective path as any other Result,
+// which is also what gives text/markdown their "Error: msg" human line and,
+// when the error names a fix (see RemedyOf), the "fix: X" line for free.
 type ErrorEnvelope struct {
-	Error string `json:"error"`
+	Error  string `json:"error"`
+	Remedy string `json:"remedy,omitempty" label:"fix"`
 }
 
 // ErrNilError is returned by RenderError when err is nil. A nil error is not a
@@ -24,6 +25,8 @@ var ErrNilError = errors.New("clifmt: RenderError requires a non-nil error")
 // single human line ("Error: <msg>" / "**Error:** <msg>") in text/markdown.
 // Callers use this instead of Render for failures so machine consumers
 // always get a parseable error object instead of a bare stderr string.
+// The envelope's Remedy is RemedyOf(err): a fix raised anywhere in the
+// %w chain reaches every format.
 //
 // A nil err writes nothing and returns ErrNilError: the caller's own
 // "did this fail?" branch is the place that decision belongs, and a caller
@@ -32,5 +35,5 @@ func RenderError(w io.Writer, err error, f Format) error {
 	if err == nil {
 		return ErrNilError
 	}
-	return Render(w, ErrorEnvelope{Error: err.Error()}, f)
+	return Render(w, ErrorEnvelope{Error: err.Error(), Remedy: remedyOf(err)}, f)
 }

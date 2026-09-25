@@ -54,7 +54,7 @@ for f in "$baseline" "$log"; do
 done
 
 # --- what the run measured -------------------------------------------------
-# Emits one "target total killed survived" line per marker, plus a final
+# Emits one "target total killed survived invalid" line per marker, plus a final
 # "#orphans N" counting summary boxes that arrived with no marker to own them
 # (which would mean the harness stopped announcing its targets, and that no
 # measurement in this log can be attributed to anything).
@@ -76,10 +76,13 @@ measured=$(awk '
         sub(/[ \t\r]+$/, "", cur)
         if (!(cur in seen)) {
             seen[cur] = 1; order[++n] = cur; tool[cur] = kind
-            total[cur] = -1; killed[cur] = -1; surv[cur] = -1
+            total[cur] = -1; killed[cur] = -1; surv[cur] = -1; invalid[cur] = 0
         }
         next
     }
+    # The runner prints this for a mutant that DID NOT COMPILE, between the
+    # target marker and its box. ooze scores it as a kill.
+    index(line, "ooze-invalid-mutant:") { if (cur != "") invalid[cur]++; next }
     # ooze: the summary box, one figure per line.
     index(line, "\xe2\x80\xa2 Total:")    { if (cur == "" || tool[cur] != "ooze") orphans++; else total[cur]  = num(line); next }
     index(line, "\xe2\x80\xa2 Killed:")   { if (cur != "" && tool[cur] == "ooze") killed[cur] = num(line); next }
@@ -102,7 +105,7 @@ measured=$(awk '
     END {
         for (i = 1; i <= n; i++) {
             k = order[i]
-            printf "%s %d %d %d\n", k, total[k], killed[k], surv[k]
+            printf "%s %d %d %d %d\n", k, total[k], killed[k], surv[k], invalid[k]
         }
         printf "#orphans %d\n", orphans
     }
@@ -144,7 +147,7 @@ failed=0
 declare -A new_total new_surv
 notes=()
 
-while read -r name mtotal mkilled msurv; do
+while read -r name mtotal mkilled msurv minvalid; do
     [ -n "${name:-}" ] || continue
     if [ "$mtotal" -lt 0 ] || [ "$msurv" -lt 0 ]; then
         echo "error: $name announced itself and produced no summary — it measured NOTHING." >&2
@@ -154,6 +157,18 @@ while read -r name mtotal mkilled msurv; do
     if [ "$mtotal" -eq 0 ]; then
         echo "error: $name produced ZERO mutants. The scoping or the virus matched no code," >&2
         echo "       so a clean report here is about an empty mutant set." >&2
+        failed=1
+        continue
+    fi
+
+    # ooze credits a mutant that did not compile as a kill, so a target none
+    # of whose mutants compiled reports 0 survivors and a perfect score over
+    # nothing — and against any baseline would read as IMPROVED. It is refused
+    # here, before either judging or recording can bank it.
+    if [ "$minvalid" -ge "$mtotal" ]; then
+        echo "error: $name: all $mtotal mutants DID NOT COMPILE — it measured NOTHING." >&2
+        echo "       ooze scored each build failure as a kill. The laboratory cannot build" >&2
+        echo "       this tree; read any mutant's output above for the compiler error." >&2
         failed=1
         continue
     fi

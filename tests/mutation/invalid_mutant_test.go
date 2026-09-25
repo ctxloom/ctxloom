@@ -134,3 +134,38 @@ func TestScoreCorrection_SaysSoWhenThereIsNoSummaryToCorrect(t *testing.T) {
 		t.Errorf("it must still report HOW MANY did not compile; that count is real even when the box is missing.\ngot: %q", got)
 	}
 }
+
+// A run in which EVERY mutant failed to compile measured nothing, whatever the
+// box says. The correction is the one step every lane runs — the unit lane has
+// no ratchet — so it must fail such a run rather than print a corrected zero.
+func TestScoreCorrection_FailsARunWhereNoMutantCompiled(t *testing.T) {
+	root := repoRootFromTest(t)
+	cmd := exec.Command("sh", filepath.Join(root, "tests", "mutation", "score_correction.sh"))
+	cmd.Stdin = strings.NewReader(strings.Repeat("ooze-invalid-mutant: x\n", 3) +
+		"┃ • Total:        3 ┃\n┃ • Killed:       3 ┃\n┃ • Survived:     0 ┃\n")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("exited 0 on a run where no mutant compiled; it measured nothing.\noutput:\n%s", out)
+	}
+	if !strings.Contains(string(out), "measured NOTHING") {
+		t.Errorf("must say the run measured nothing; got:\n%s", out)
+	}
+}
+
+// A multi-target run prints one box per target and the markers of all of
+// them; subtracting every target's invalid mutants from the FIRST box alone
+// invents a number. The correction is over the whole run.
+func TestScoreCorrection_CorrectsAcrossEveryTargetsBox(t *testing.T) {
+	root := repoRootFromTest(t)
+	cmd := exec.Command("sh", filepath.Join(root, "tests", "mutation", "score_correction.sh"))
+	cmd.Stdin = strings.NewReader(
+		"ooze-invalid-mutant: a\n┃ • Total:       10 ┃\n┃ • Killed:       4 ┃\n" +
+			"ooze-invalid-mutant: b\nooze-invalid-mutant: c\n┃ • Total:       20 ┃\n┃ • Killed:      15 ┃\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed on a run with valid mutants: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "valid total:  27") || !strings.Contains(string(out), "real kills:   16") {
+		t.Errorf("want valid total 27 (30-3) and real kills 16 (19-3); got:\n%s", out)
+	}
+}

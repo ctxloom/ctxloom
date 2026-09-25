@@ -229,3 +229,52 @@ func TestSurvivorRatchet_GremlinsZeroMutantsIsAFailure(t *testing.T) {
 		t.Errorf("must say the mutant set was empty; got:\n%s", out)
 	}
 }
+
+// oozeLogWithInvalid is oozeLog with n of the target's mutants marked by the
+// runner as having failed to compile, the way they appear in a real run:
+// between the target's marker and its box.
+func oozeLogWithInvalid(target string, total, killed, survived, invalid int) string {
+	marker := "ooze-target: " + target + "\n"
+	body := strings.TrimPrefix(oozeLog(target, total, killed, survived), marker)
+	return marker + strings.Repeat("ooze-invalid-mutant: ./cmd/ctxloom did not compile\n", invalid) + body
+}
+
+// A run in which NO mutant compiled measured nothing: ooze scored every build
+// failure as a kill, so its box reads 0 survivors and a perfect score. The
+// ratchet must fail it — and above all must not call it an improvement, which
+// is what it did when the laboratory lost its embeds.
+func TestSurvivorRatchet_OozeRunWhereNoMutantCompiledMeasuredNothing(t *testing.T) {
+	code, out, after := runRatchet(t,
+		"TestAcceptanceMutation/x 51 51 measured\n",
+		oozeLogWithInvalid("TestAcceptanceMutation/x", 50, 50, 0, 50))
+	if code != 1 {
+		t.Fatalf("exit %d, want 1 for a run whose every mutant failed to compile; output:\n%s", code, out)
+	}
+	if strings.Contains(out, "IMPROVED") {
+		t.Errorf("a run that measured nothing was reported as an improvement:\n%s", out)
+	}
+	if !strings.Contains(out, "measured NOTHING") {
+		t.Errorf("must say the run measured nothing; got:\n%s", out)
+	}
+
+	// Nor may it be RECORDED: banking 0 survivors from it would turn the next
+	// honest run into a regression.
+	code, out, after = runRatchet(t,
+		"TestAcceptanceMutation/x 51 51 measured\n",
+		oozeLogWithInvalid("TestAcceptanceMutation/x", 50, 50, 0, 50),
+		"CTXLOOM_MUTATION_BASELINE=update")
+	if code != 1 || !strings.Contains(after, "TestAcceptanceMutation/x 51 51 measured") {
+		t.Errorf("update mode recorded a run that measured nothing: exit %d\noutput:\n%s\nbaseline after:\n%s", code, out, after)
+	}
+}
+
+// Some invalid mutants are normal — a mutation can orphan a reference. The
+// survivors among the rest are real, so the target is judged as usual.
+func TestSurvivorRatchet_OozeRunWithSomeInvalidMutantsIsStillJudged(t *testing.T) {
+	code, out, _ := runRatchet(t,
+		"TestAcceptanceMutation/x 43 31 recorded\n",
+		oozeLogWithInvalid("TestAcceptanceMutation/x", 43, 12, 31, 5))
+	if code != 0 || !strings.Contains(out, "HELD  TestAcceptanceMutation/x") {
+		t.Errorf("a target with valid mutants must still be judged: exit %d, output:\n%s", code, out)
+	}
+}

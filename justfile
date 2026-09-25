@@ -1518,7 +1518,8 @@ _mutation-driver RATCHET *ARGS:
     # ooze's box counts a mutant that DID NOT COMPILE as killed: its verdict is
     # the runner's exit code and nothing else, so the compiler is scored as if it
     # were the test suite. The runners mark those; subtract them here so the
-    # number reported is over mutants a test could actually have caught.
+    # number reported is over mutants a test could actually have caught. A run
+    # in which NO mutant compiled measured nothing, and this step fails it.
     # Survivors are untouched by this — an invalid mutant never lands there — so
     # the ratchet and its baselines are unaffected.
     printf '%s\n' "$output" | sh tests/mutation/score_correction.sh

@@ -472,6 +472,16 @@ func (m mutationTarget) release(t *testing.T, extra ...ooze.Option) {
 	t.Logf("test command: %s", testCmd)
 	t.Logf("judge: %s", m.Judge.label())
 
+	// PRE-FLIGHT: the judge must PASS on the unmutated tree, in a laboratory,
+	// before any mutant is judged by it. ooze has no baseline run and reads any
+	// nonzero exit as a kill, so a laboratory that cannot build — or a judge
+	// already red — kills every mutant and reports a perfect score over
+	// nothing. That is not detectable from ooze's summary; it is only
+	// detectable here. It costs one mutant's run.
+	if out, err := preflightJudge(root, testCmd); err != nil {
+		t.Fatalf("pre-flight failed: the judge does not pass on the UNMUTATED tree, so every mutant would be scored as a kill and the run would measure nothing.\n%v\n%s", err, out)
+	}
+
 	// PER-TARGET ATTRIBUTION for the survivor ratchet. ooze's summary box says
 	// what it counted and never which target it counted for, so a run of the
 	// whole table emits several indistinguishable boxes and no baseline can be

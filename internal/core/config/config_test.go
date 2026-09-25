@@ -10,12 +10,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -478,7 +478,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", bundle), mustLocalRef(t, "my-bundle"), composite.Ungated().Authorizer())
+	result := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", bundle), mustLocalRef(t, "my-bundle"), admitall.Authorizer())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -903,7 +903,7 @@ mcp:
 	bundletree.WriteOS(t, v2Dir, "test-bundle", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadMCPFromBundleRef(report.Reporter{}, "test-bundle", loader.Catalog(), composite.Ungated().Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, "test-bundle", loader.Catalog(), admitall.Authorizer())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -914,7 +914,7 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{tmpDir}))
 
 	// Invalid bundle reference
-	result := loadMCPFromBundleRef(report.Reporter{}, "nonexistent-bundle", loader.Catalog(), composite.Ungated().Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, "nonexistent-bundle", loader.Catalog(), admitall.Authorizer())
 	assert.Empty(t, result)
 }
 
@@ -923,7 +923,10 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 // fs path returned nothing, silently dropping its MCP server even though the
 // same bundle's fragment/prompt resolved fine.
 func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
-	const ref = "ctxloom-default/sequential-thinking"
+	// The canonical ref, as operations.bundle_readers hands the repofs reader:
+	// an uncanonical one gives the read no addressable source, and every
+	// executable in it is withheld as unaddressable by any real gate.
+	const ref = "https://example.test/repo@bundles/sequential-thinking"
 	// Pinned remote content reaches the loader through a repofs reader over the
 	// bytes at its pinned revision — the same path the lockfile takes — so the
 	// test cannot mint a provenance no reader would have produced.
@@ -941,7 +944,7 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	require.NoError(t, err)
 	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref, bundles.WithRepoURL("https://example.test/repo")))
 
-	result := loadMCPFromBundleRef(report.Reporter{}, ref, loader.Catalog(), composite.Ungated().Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, ref, loader.Catalog(), admitall.Authorizer())
 	assert.Contains(t, result, "sequential-thinking",
 		"a remote bundle resolved only via the seed must still yield its MCP server")
 	assert.Equal(t, "npx", result["sequential-thinking"].Command)
@@ -973,7 +976,7 @@ hooks:
 	bundletree.WriteOS(t, v2Dir, "with-hooks", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	result := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), admitall.Authorizer(), bundles.LinksUnchecked())
 
 	require.Len(t, result.PostTool, 1)
 	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
@@ -999,7 +1002,7 @@ mcp:
 	bundletree.WriteOS(t, bundlesDir, "no-hooks", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef(report.Reporter{}, "no-hooks", loader.Catalog(), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	result := loadHooksFromBundleRef(report.Reporter{}, "no-hooks", loader.Catalog(), admitall.Authorizer(), bundles.LinksUnchecked())
 
 	assert.Empty(t, result.PostTool)
 	assert.Empty(t, result.PreTool)

@@ -93,13 +93,13 @@ func TestLoader_LoadedContentCarriesBundleAndItem(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, infos, 1)
 
-	prompt, err := ungated(loader, false).GetCommand(infos[0].Name)
+	prompt, err := admitAllPipe(loader, false).GetCommand(infos[0].Name)
 	require.NoError(t, err)
 	assert.Equal(t, canonical, prompt.Bundle)
 	assert.Equal(t, "review", prompt.Item)
 	assert.Equal(t, "aspects/review", prompt.ExportName())
 
-	frag, err := ungated(loader, false).GetFragment(canonical + "#fragments/security")
+	frag, err := admitAllPipe(loader, false).GetFragment(canonical + "#fragments/security")
 	require.NoError(t, err)
 	assert.Equal(t, canonical, frag.Bundle)
 	assert.Equal(t, "security", frag.Item)

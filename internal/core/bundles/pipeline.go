@@ -28,13 +28,13 @@ import (
 //
 //   - "Is this exposure gated" is a property of the PIPELINE, not of the
 //     reader. One Loader serves management, listing and exposure alike;
-//     exposure surfaces wrap it in a gated Pipeline, management surfaces wrap
-//     it in an ungated one.
+//     management and listing read candidates straight off the Loader, and
+//     every delivery wraps it in a Pipeline, which always decides.
 //   - The authorizer can no longer be forgotten by OMISSION. A caller holding a
 //     Loader cannot reach an exposed body at all — Loader's read methods are
 //     named Read* and return candidate sets, and every delivery-shaped Get*
-//     lives here. Not gating requires writing composite.Ungated() out loud; a pipeline
-//     built with a nil authorizer delivers nothing (see Decide).
+//     lives here. A pipeline built with a nil authorizer delivers nothing
+//     (see Decide), and no production authorizer admits everything.
 //
 // FAIL-CLOSED is preserved verbatim and is the Authorizer's own contract: a resolve
 // or store error inside it withholds, and a withheld verdict here means the
@@ -43,8 +43,7 @@ import (
 
 // Pipeline pairs a read stage (a *Loader) with the process stage's two
 // policies: which Authorizer decides admissibility, and which layout form to
-// serve. An ungated authorizer (composite.Ungated) is the management/listing shape, which gates nothing and so
-// still resolves pending content for a human to review, accept or stamp.
+// serve.
 type Pipeline struct {
 	loader     *Loader
 	authorizer Authorizer
@@ -67,8 +66,8 @@ type Pipeline struct {
 }
 
 // NewPipeline builds the process stage over loader. A surface that does not
-// gate passes composite.Ungated().Authorizer(), and one that does not assemble a run passes
-// LinksUnchecked — each a deliberate statement, spelled as a value. A nil
+// assemble a run passes LinksUnchecked — a deliberate statement, spelled as a
+// value. A nil
 // authorizer is an omission, and this pipeline then delivers nothing; a nil
 // links grant is the same omission for every linked item.
 func NewPipeline(loader *Loader, authorizer Authorizer, links LinkGrant, preferDistilled bool) *Pipeline {
@@ -119,8 +118,8 @@ func (p *Pipeline) Withheld() []string {
 }
 
 // admit reports whether these bytes may be delivered, recording the ref when
-// they may not and SURFACING a verdict that admits with a warning. An ungated authorizer
-// admits everything; a nil authorizer delivers nothing.
+// they may not and SURFACING a verdict that admits with a warning. A nil
+// authorizer delivers nothing.
 //
 // The authorizer is handed the EXACT bytes about to be exposed (pre-mustache)
 // rather than a hash: a hash can only be compared against a recorded hash, and a

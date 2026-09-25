@@ -63,7 +63,6 @@ profile a withheld item cost.
 flowchart TB
   classDef s fill:#eef,stroke:#228
   classDef v fill:#fdd,stroke:#a22
-  T["tr.Gates()? Ungated() is refused: ErrUngatedAssembly"]:::v
   P["the process stage: bundles.NewPipeline over LoaderOf(cat), tr.Authorizer(), the link grant derived from Options.MCP, Options.PreferDistilled — or Options.Pipeline, the injected stage"]:::s
   F["fragments, in selection order: load (GetFragment / GetFragmentAtVersion) → hold back a premised one unless named or Options.Static → substitute the variables → ingest ONCE per item (identityKey on the read's trust ref + the bytes)"]:::s
   B["then Options.Builtin, through the same premise rule and the same ingest"]:::s
@@ -71,7 +70,7 @@ flowchart TB
   S["skills: the curated asks (Curated) or the bundles' set — one per item"]:::s
   W["pipe.Withheld() non-empty and !Options.DropWithheld ⇒ ErrItemWithheld"]:::v
   PK["Package{Context{Text, Hash}, Fragments, Premised, Commands, Skills, Hooks, MCP, Links, DenyTools, Statusline, Selection, Loaded, Findings, attestation}"]:::s
-  T --> P --> F --> B --> C --> S --> W --> PK
+  P --> F --> B --> C --> S --> W --> PK
 ```
 
 The context is the ingested fragments joined by the section separator the

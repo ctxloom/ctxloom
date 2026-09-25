@@ -26,9 +26,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 )
 
 const localGoTools = "ctxloom:local@bundles/go-tools"
@@ -81,7 +81,7 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	bundletree.Write(t, fsys, paths.BundlesLayoutRoot(searchRoot, paths.LayoutV2), "go-tools", "version: 1.0.0\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n")
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{searchRoot})).WithVersionResolver(resolver, nil)
 	// AdmitAll: this test resolves versions, not trust, and states so.
-	return bundles.NewPipeline(loader, composite.Ungated().Authorizer(), bundles.LinksUnchecked(), false)
+	return bundles.NewPipeline(loader, admitall.Authorizer(), bundles.LinksUnchecked(), false)
 }
 
 // TestLocalRev_FragmentResolvesHistoricalVersion proves a local fragment ref

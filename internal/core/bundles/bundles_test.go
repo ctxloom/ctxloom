@@ -1154,7 +1154,7 @@ fragments:
 
 	t.Run("simple name lookup", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		content, err := ungated(loader, false).GetFragment("my-frag")
+		content, err := admitAllPipe(loader, false).GetFragment("my-frag")
 		require.NoError(t, err)
 		assert.Contains(t, content.Content, "Fragment content")
 		assert.Contains(t, content.Tags, "bundle-tag")
@@ -1163,14 +1163,14 @@ fragments:
 
 	t.Run("qualified name lookup", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		content, err := ungated(loader, false).GetFragment("test-bundle#fragments/my-frag")
+		content, err := admitAllPipe(loader, false).GetFragment("test-bundle#fragments/my-frag")
 		require.NoError(t, err)
 		assert.Contains(t, content.Content, "Fragment content")
 	})
 
 	t.Run("prefer distilled", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		content, err := ungated(loader, true).GetFragment("my-frag")
+		content, err := admitAllPipe(loader, true).GetFragment("my-frag")
 		require.NoError(t, err)
 		assert.Equal(t, "Distilled version", content.Content)
 		assert.True(t, content.IsDistilled)
@@ -1178,13 +1178,13 @@ fragments:
 
 	t.Run("not found", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		_, err := ungated(loader, false).GetFragment("nonexistent")
+		_, err := admitAllPipe(loader, false).GetFragment("nonexistent")
 		assert.Error(t, err)
 	})
 
 	t.Run("invalid qualified reference", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		_, err := ungated(loader, false).GetFragment("test-bundle#invalid/path")
+		_, err := admitAllPipe(loader, false).GetFragment("test-bundle#invalid/path")
 		assert.Error(t, err)
 	})
 }
@@ -1242,7 +1242,7 @@ fragments:
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-			content, err := ungated(loader, tt.preferDistilled).GetFragment(tt.fragName)
+			content, err := admitAllPipe(loader, tt.preferDistilled).GetFragment(tt.fragName)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantIsDistilled, content.IsDistilled)
 			assert.Equal(t, tt.wantContent, content.Content)
@@ -1274,28 +1274,28 @@ commands:
 
 	t.Run("simple name lookup", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		content, err := ungated(loader, false).GetCommand("my-prompt")
+		content, err := admitAllPipe(loader, false).GetCommand("my-prompt")
 		require.NoError(t, err)
 		assert.Equal(t, "Prompt content", content.Content)
 	})
 
 	t.Run("qualified name lookup", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		content, err := ungated(loader, false).GetCommand("test-bundle#commands/my-prompt")
+		content, err := admitAllPipe(loader, false).GetCommand("test-bundle#commands/my-prompt")
 		require.NoError(t, err)
 		assert.Equal(t, "Prompt content", content.Content)
 	})
 
 	t.Run("prefer distilled", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		content, err := ungated(loader, true).GetCommand("my-prompt")
+		content, err := admitAllPipe(loader, true).GetCommand("my-prompt")
 		require.NoError(t, err)
 		assert.Equal(t, "Distilled prompt", content.Content)
 	})
 
 	t.Run("not found", func(t *testing.T) {
 		loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-		_, err := ungated(loader, false).GetCommand("nonexistent")
+		_, err := admitAllPipe(loader, false).GetCommand("nonexistent")
 		assert.Error(t, err)
 	})
 }
@@ -1366,7 +1366,7 @@ commands:
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-			content, err := ungated(loader, tt.preferDistilled).GetCommand(tt.promptName)
+			content, err := admitAllPipe(loader, tt.preferDistilled).GetCommand(tt.promptName)
 			require.NoError(t, err, "prompt should be found")
 			assert.Equal(t, tt.wantIsDistilled, content.IsDistilled,
 				"IsDistilled mismatch: %s", tt.reason)
@@ -1778,7 +1778,7 @@ func TestLoader_ExpandBundleRefs_WholeBundleVersionFetchFailureSkipped(t *testin
 func TestLoader_GetFragment_LocalCanonicalRefRoundTrips(t *testing.T) {
 	loader := expandRefsFixture(t)
 
-	got, err := ungated(loader, false).GetFragment("ctxloom:local@bundles/test/alpha#fragments/a1")
+	got, err := admitAllPipe(loader, false).GetFragment("ctxloom:local@bundles/test/alpha#fragments/a1")
 	require.NoError(t, err)
 	assert.Equal(t, "ALPHA-ONE", got.Content)
 }
@@ -1939,12 +1939,12 @@ commands:
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
 
-	frag, err := ungated(loader, true).GetFragment("pinned-raw")
+	frag, err := admitAllPipe(loader, true).GetFragment("pinned-raw")
 	require.NoError(t, err)
 	assert.Equal(t, "Original fragment", frag.Content, "no_distill must serve the raw content")
 	assert.False(t, frag.IsDistilled, "the flag must describe the bytes actually served")
 
-	cmd, err := ungated(loader, true).GetCommand("pinned-raw-cmd")
+	cmd, err := admitAllPipe(loader, true).GetCommand("pinned-raw-cmd")
 	require.NoError(t, err)
 	assert.Equal(t, "Original command", cmd.Content, "no_distill must serve the raw content")
 	assert.False(t, cmd.IsDistilled, "the flag must describe the bytes actually served")
@@ -2040,7 +2040,7 @@ func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundleYAML := "version: \"1.0\"\ncommands:\n  c1:\n    content: command body\n    installation: '" + secretish + "'\n"
 	writeTree(t, afero.NewOsFs(), seedBundleRoot(t, tmpDir, paths.LayoutV2), "b", bundleYAML)
-	lc, err := ungated(NewLoader(NewProjectReader(nil, []string{tmpDir})), false).GetCommand("c1")
+	lc, err := admitAllPipe(NewLoader(NewProjectReader(nil, []string{tmpDir})), false).GetCommand("c1")
 	require.NoError(t, err)
 	assert.Equal(t, "command body", lc.Content)
 	assert.Equal(t, secretish, lc.Installation)

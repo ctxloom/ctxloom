@@ -51,11 +51,6 @@ func NewTrust(root TrustRoot, records ReviewRecords, retraction RetractionRecord
 	return Trust{gate: &authorizer{root: root, records: records, retraction: retraction}}, nil
 }
 
-// Ungated is the ONLY way to obtain a Trust that admits everything, and it
-// is opted into BY NAME at the listing and review surfaces that must show
-// pending content to a human. The default everywhere else is WITHHOLD.
-func Ungated() Trust { return Trust{gate: &authorizer{ungated: true}} }
-
 // Gated is a Trust over a gate built elsewhere: the injected-stage seam,
 // for a caller holding a process stage whose gate it did not build here (a
 // test's pipeline over its own authorizer). It gates — Assemble accepts
@@ -74,18 +69,13 @@ func (t Trust) Authorizer() bundles.Authorizer {
 	return t.gate
 }
 
-// Gates reports whether this Trust will actually decide anything: false only
-// for Ungated. A zero Trust gates — its nil authorizer stays on the deciding
-// path and is withheld there.
-func (t Trust) Gates() bool { return t.gate == nil || !t.gate.ungated }
-
 // Root is the generation's trust root, for the surfaces that verify a
 // signature themselves (the readers, companion admission). A Trust that holds
-// no root — zero, Ungated, Gated — answers with trust.NoSigners, which trusts
+// no root — zero or Gated — answers with trust.NoSigners, which trusts
 // no key: a signature checked against a Trust no generation built fails
 // closed instead of dereferencing nil.
 func (t Trust) Root() TrustRoot {
-	if t.gate == nil || t.gate.root == nil {
+	if t.gate == nil {
 		return trust.NoSigners{}
 	}
 	return t.gate.root
@@ -100,7 +90,6 @@ type authorizer struct {
 	root       TrustRoot
 	records    ReviewRecords
 	retraction RetractionRecords
-	ungated    bool
 
 	withheldMu sync.Mutex
 	withheld   map[string]bundles.Verdict
@@ -111,10 +100,6 @@ type authorizer struct {
 	reported map[string]bool
 }
 
-// Ungated implements the capability bundles.Gates keys on: true only for the
-// authorizer Ungated() yields.
-func (a *authorizer) Ungated() bool { return a.ungated }
-
 // Admit implements bundles.Authorizer. The order is the cascade's and it is
 // load-bearing: a human's rejection outranks every allow, a publisher's
 // retraction outranks every allow, locality answers for content the human
@@ -122,9 +107,6 @@ func (a *authorizer) Ungated() bool { return a.ungated }
 // travelled, a human's approval answers for what was reviewed — and an
 // executable nothing justified is WITHHELD until a review record approves it.
 func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
-	if a.ungated {
-		return bundles.Verdict{Allow: true, Reason: bundles.ReasonUngated}
-	}
 	if !e.Read.Claimed() {
 		return a.record(e, bundles.Verdict{Reason: bundles.ReasonUnestablished,
 			Detail: "no reader established this bundle's provenance"})

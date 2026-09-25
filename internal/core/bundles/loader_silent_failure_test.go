@@ -65,7 +65,7 @@ func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
 	l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithReporter(buf)
 
-	got := ungated(l, false).CommandsFromBundleRef("no-such-bundle-cmds")
+	got := admitAllPipe(l, false).CommandsFromBundleRef("no-such-bundle-cmds")
 
 	require.Empty(t, got, "an unloadable bundle still yields no commands")
 	require.Contains(t, buf.String(), "no-such-bundle-cmds",
@@ -80,7 +80,7 @@ func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
 	l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithReporter(buf)
 
-	got := ungated(l, false).SkillsFromBundleRef("no-such-bundle-skills")
+	got := admitAllPipe(l, false).SkillsFromBundleRef("no-such-bundle-skills")
 
 	require.Empty(t, got, "an unloadable bundle still yields no skills")
 	require.Contains(t, buf.String(), "no-such-bundle-skills",
@@ -120,7 +120,7 @@ func TestCommandsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
 
 	// The commands resolver, asked about the identical ref, must neither warn
 	// nor treat it as an error: it legitimately ships no commands.
-	got := ungated(l, false).CommandsFromBundleRef("proj#fragments/config-hierarchy")
+	got := admitAllPipe(l, false).CommandsFromBundleRef("proj#fragments/config-hierarchy")
 	require.Empty(t, got, "an item-scoped ref ships no commands")
 	require.Empty(t, buf.String(),
 		"an item-scoped ref must not warn 'skipping unresolved bundle': the fragment it names "+
@@ -139,7 +139,7 @@ func TestSkillsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
 
 	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithReporter(buf)
 
-	got := ungated(l, false).SkillsFromBundleRef("proj#fragments/config-hierarchy")
+	got := admitAllPipe(l, false).SkillsFromBundleRef("proj#fragments/config-hierarchy")
 	require.Empty(t, got, "an item-scoped ref ships no skills")
 	require.Empty(t, buf.String(), "an item-scoped ref must not warn 'skipping unresolved bundle'")
 }
@@ -160,7 +160,7 @@ func TestCommandsFromBundleRef_CommandSelectorResolvesNotSilent(t *testing.T) {
 
 	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithReporter(buf)
 
-	got := ungated(l, false).CommandsFromBundleRef("proj#commands/deploy")
+	got := admitAllPipe(l, false).CommandsFromBundleRef("proj#commands/deploy")
 
 	require.Len(t, got, 1, "a command selector must resolve to the ONE command it names, not silently to zero")
 	require.Equal(t, "deploy", got[0].Item)
@@ -183,7 +183,7 @@ func TestSkillsFromBundleRef_SkillSelectorResolvesNotSilent(t *testing.T) {
 
 	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithReporter(buf)
 
-	got := ungated(l, false).SkillsFromBundleRef("proj#skills/reviewer")
+	got := admitAllPipe(l, false).SkillsFromBundleRef("proj#skills/reviewer")
 
 	require.Len(t, got, 1, "a skill selector must resolve to the ONE skill it names, not silently to zero")
 	require.Equal(t, "reviewer", got[0].Item)

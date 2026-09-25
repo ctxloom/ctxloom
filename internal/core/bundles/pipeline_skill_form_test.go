@@ -55,7 +55,7 @@ func TestSkillsFromBundleRef_PreferDistilledMaterializesTheDistilledBodyAtTheDes
 	files := writeTwoBodySkillBundle(t, fsys, "/bundles")
 	loader := NewLoader(NewProjectReader(fsys, []string{"/bundles"}))
 
-	got := ungated(loader, true).SkillsFromBundleRef("skill-bundle")
+	got := admitAllPipe(loader, true).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 	byPath := filesByPath(got[0])
 	assert.Equal(t, distilledSkillMD, byPath["SKILL.md"], "the distilled body lands at SKILL.md")
@@ -70,7 +70,7 @@ func TestSkillsFromBundleRef_PreferRawMaterializesTheRawBodyOnly(t *testing.T) {
 	files := writeTwoBodySkillBundle(t, fsys, "/bundles")
 	loader := NewLoader(NewProjectReader(fsys, []string{"/bundles"}))
 
-	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
+	got := admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 	byPath := filesByPath(got[0])
 	assert.Equal(t, files["SKILL.md"], byPath["SKILL.md"])
@@ -86,7 +86,7 @@ func TestSkillsFromBundleRef_PreferDistilledOnAOneBodyPackageServesRaw(t *testin
 	files := writeSkillBundle(t, fsys, "/bundles", "skill-bundle", "humanize", true)
 	loader := NewLoader(NewProjectReader(fsys, []string{"/bundles"}))
 
-	got := ungated(loader, true).SkillsFromBundleRef("skill-bundle")
+	got := admitAllPipe(loader, true).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 	byPath := filesByPath(got[0])
 	assert.Equal(t, files["SKILL.md"], byPath["SKILL.md"])
@@ -98,7 +98,7 @@ func TestGetSkill_AppliesTheSameBodySelection(t *testing.T) {
 	writeTwoBodySkillBundle(t, fsys, "/bundles")
 	loader := NewLoader(NewProjectReader(fsys, []string{"/bundles"}))
 
-	ls, err := ungated(loader, true).GetSkill("skill-bundle#skills/humanize")
+	ls, err := admitAllPipe(loader, true).GetSkill("skill-bundle#skills/humanize")
 	require.NoError(t, err)
 	byPath := filesByPath(ls)
 	assert.Equal(t, distilledSkillMD, byPath["SKILL.md"])

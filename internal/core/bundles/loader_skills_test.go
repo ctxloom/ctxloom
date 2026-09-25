@@ -54,7 +54,7 @@ func TestSkillsFromBundleRef_ResolvesFrontmatterAndFiles(t *testing.T) {
 	files := writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithReporter(ledger())
-	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
+	got := admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1, "one skill resolved from the bundle")
 
 	ls := got[0]
@@ -89,7 +89,7 @@ func TestSkillsFromBundleRef_VendorInvalidFrontmatterStillResolves(t *testing.T)
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "claude-helper", true)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
+	got := admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1, "a vendor-invalid skill still resolves from the bundle")
 	assert.Equal(t, "claude-helper", got[0].Item)
 	assert.Equal(t, "claude-helper", got[0].Frontmatter.Name, "frontmatter travels verbatim")
@@ -105,7 +105,7 @@ func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", false)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
+	got := admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 	assert.JSONEq(t, `{"enabled":false}`, string(got[0].Exports["claude-code"]), "the bundle-authored block is carried through")
 }
@@ -116,7 +116,7 @@ func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 // unconditionally.
 func TestSkillsFromBundleRef_UnknownBundleReturnsNil(t *testing.T) {
 	loader := NewLoader(NewProjectReader(afero.NewMemMapFs(), []string{"/nowhere"}))
-	assert.Nil(t, ungated(loader, false).SkillsFromBundleRef("does-not-exist"))
+	assert.Nil(t, admitAllPipe(loader, false).SkillsFromBundleRef("does-not-exist"))
 }
 
 // =============================================================================
@@ -205,7 +205,7 @@ func TestGetSkill_RefFormFindsSpecificBundle(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	ls, err := ungated(loader, false).GetSkill("skill-bundle#skills/humanize")
+	ls, err := admitAllPipe(loader, false).GetSkill("skill-bundle#skills/humanize")
 	require.NoError(t, err)
 	assert.Equal(t, "skill-bundle/humanize", ls.Name)
 	assert.Equal(t, "Does a thing well.", ls.Frontmatter.Description)
@@ -219,7 +219,7 @@ func TestGetSkill_RefFormUnknownSkillInBundleErrors(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	_, err := ungated(loader, false).GetSkill("skill-bundle#skills/does-not-exist")
+	_, err := admitAllPipe(loader, false).GetSkill("skill-bundle#skills/does-not-exist")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -248,7 +248,7 @@ func TestGetSkill_BareNameSearchesAllBundles(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	ls, err := ungated(loader, false).GetSkill("humanize")
+	ls, err := admitAllPipe(loader, false).GetSkill("humanize")
 	require.NoError(t, err)
 	assert.Equal(t, "skill-bundle/humanize", ls.Name)
 }
@@ -262,7 +262,7 @@ func TestGetSkill_BareNameNotFoundAnywhereReturnsErrSkillNotFound(t *testing.T) 
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	_, err := ungated(loader, false).GetSkill("does-not-exist-anywhere")
+	_, err := admitAllPipe(loader, false).GetSkill("does-not-exist-anywhere")
 	require.True(t, errors.Is(err, errs.ErrSkillNotFound), "got %v, want ErrSkillNotFound", err)
 }
 
@@ -298,7 +298,7 @@ func TestSearchSkill_SkipsBundleWithoutTheSkillAndContinuesToNextBundle(t *testi
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-b", "humanize", true)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	ls, err := ungated(loader, false).GetSkill("humanize")
+	ls, err := admitAllPipe(loader, false).GetSkill("humanize")
 	require.NoError(t, err, "a bundle without the named skill must be skipped, not stop the scan")
 	assert.Equal(t, "bundle-b/humanize", ls.Name)
 }
@@ -332,7 +332,7 @@ func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
+	got := admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 
 	modes := map[string]uint32{}
@@ -365,7 +365,7 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	defer restore()
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithReporter(ledger())
-	assert.Empty(t, ungated(loader, false).SkillsFromBundleRef("skill-bundle"), "an underivable preimage must withhold")
+	assert.Empty(t, admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle"), "an underivable preimage must withhold")
 
 	out := sink.String()
 	assert.Contains(t, out, "ghost", "the withheld skill must be named")
@@ -440,7 +440,7 @@ func TestSkillContent_UmaskCheckoutIsDeliveredNotWithheld(t *testing.T) {
 	defer restore()
 
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
-	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
+	got := admitAllPipe(loader, false).SkillsFromBundleRef("skill-bundle")
 
 	require.Len(t, got, 1, "a umask-shaped checkout must be delivered: its contents verify and its exec bits agree")
 	assert.Empty(t, sink.String(), "and delivered with no warning at all — there is nothing for the author to fix")

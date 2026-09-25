@@ -17,8 +17,8 @@ import (
 // (whose key is trusted to publish), the review records (what a human
 // approved or rejected) and the retraction records (what a publisher
 // withdrew). These tests pin the default the holder can never lose — an
-// executable item nothing positively justified is WITHHELD — and the one
-// spelling of admit-everything, Ungated, which says so in its reason.
+// executable item nothing positively justified is WITHHELD. No Trust admits
+// everything.
 
 // fakeRoot trusts nothing: the holder is not the place a signer decision
 // is made (the readers establish the signer axis), and these tests never
@@ -103,7 +103,6 @@ func TestNewTrust_WithholdsAnExecutableNoReviewRecordApproves(t *testing.T) {
 	assert.Equal(t, bundles.ReasonUnsigned, v.Reason)
 	assert.Contains(t, v.Detail, "no review record", "the withhold names what would admit it")
 	assert.Equal(t, []string{refStr}, withheldRefsOf(tr), "the holder tallies what it withheld, by ref")
-	assert.True(t, tr.Gates())
 }
 
 func TestNewTrust_AReviewRecordAdmitsTheExecutable(t *testing.T) {
@@ -182,22 +181,9 @@ type faultedRecords struct {
 
 func (f faultedRecords) Fault() error { return f.err }
 
-func TestUngated_IsTheOnlySpellingOfAdmitEverything(t *testing.T) {
-	tr := Ungated()
-	e, _ := remoteExecutable(t)
-
-	v := tr.Authorizer().Admit(e)
-
-	assert.False(t, tr.Gates())
-	assert.True(t, v.Allow)
-	assert.Equal(t, bundles.ReasonUngated, v.Reason, "an ungated admit names the absence of a rule")
-	assert.Empty(t, withheldRefsOf(tr))
-}
-
 func TestTrust_ZeroValue_HasNoPermissiveAnswer(t *testing.T) {
 	var zero Trust
 	require.Nil(t, zero.Authorizer(), "a zero Trust holds no gate: the nil authorizer is the spelling bundles.Decide withholds on loudly")
-	assert.True(t, zero.Gates(), "a zero Trust is not an ungated surface; it is a surface that forgot its gate")
 }
 
 // --- the locality rule ------------------------------------------------------
@@ -334,17 +320,13 @@ func TestAdmit_ABundleLevelIdentityIsNotUnaddressable(t *testing.T) {
 // --- surfaces that read the holder rather than the gate ---------------------
 
 // Root answers for every holder, not just the one a generation built: a Trust
-// with no root of its own (zero, Ungated, Gated) must answer trust.NoSigners —
+// with no root of its own (zero, Gated) must answer trust.NoSigners —
 // a root that trusts no key — so a signature checked against it fails closed.
-// The zero and Ungated rows are the missing cases: one holds no gate at all,
-// the other holds a gate with no root in it, and each takes a different arm
-// of the fallback.
 func TestTrust_Root_AHolderWithNoRootOfItsOwnTrustsNoSigner(t *testing.T) {
 	built := mustTrust(t, noRecords(), noRetraction())
 	for name, tr := range map[string]Trust{
-		"zero":    {},
-		"ungated": Ungated(),
-		"gated":   Gated(built.Authorizer()),
+		"zero":  {},
+		"gated": Gated(built.Authorizer()),
 	} {
 		t.Run(name, func(t *testing.T) {
 			assert.IsType(t, trust.NoSigners{}, tr.Root(), "a holder no generation built must trust no key, never answer nil")

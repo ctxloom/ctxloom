@@ -34,11 +34,18 @@ func itemRefs[T any](items []composite.Item[T]) []string {
 	return out
 }
 
-// An Ungated trust is for listing surfaces; it can never assemble.
-func TestAssemble_RefusesAnUngatedTrust(t *testing.T) {
+// A zero Trust holds no gate, and no gate is never an admit: assembling over
+// one withholds every item, so a caller that forgot to bind its Trust
+// delivers nothing. This is what catches an allow-everything default.
+func TestAssemble_ZeroTrustWithholdsEverything(t *testing.T) {
 	cat := corpus(t)
-	_, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), composite.Ungated(), composite.Options{})
-	assert.ErrorIs(t, err, composite.ErrUngatedAssembly)
+	_, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), composite.Trust{}, composite.Options{})
+	require.ErrorIs(t, err, composite.ErrItemWithheld)
+
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), composite.Trust{}, composite.Options{DropWithheld: true})
+	require.NoError(t, err)
+	assert.Empty(t, pkg.Fragments, "a zero Trust admitted a fragment")
+	assert.Empty(t, pkg.Context.Text)
 }
 
 // The context is the selected fragments in selection order, each with the

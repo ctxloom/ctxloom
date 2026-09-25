@@ -40,7 +40,7 @@ func TestBundleQualifiedRef_MissingItemWrapsItsNotFoundSentinel(t *testing.T) {
 	for k, b := range seed {
 		b.Name = k
 	}
-	l := ungated(NewLoader(seedLocal(seed)), false)
+	l := admitAllPipe(NewLoader(seedLocal(seed)), false)
 
 	// The fixture must resolve the PRESENT items, or "not found" below would be
 	// reporting a broken loader rather than a missing item.

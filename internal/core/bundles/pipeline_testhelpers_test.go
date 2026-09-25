@@ -9,29 +9,26 @@ import (
 // policy, so a test that wants either builds the stage that carries it; these
 // two spell the two shapes so the intent of each call site is visible.
 
-// ungated wraps a reader in a pipeline that does NOT gate — the
-// management/listing shape, and the right one for a test that is exercising
-// resolution rather than trust. An ungated authorizer, never nil: nil is a
-// forgotten gate and delivers nothing, which would make every resolution test
-// here fail for a reason that has nothing to do with what it is testing.
 // ledger is the real rendering sink, for a test that asserts on the strictness
 // ledger or the clidiag stream exactly as the binary's user would see them.
 func ledger() report.Sink { return strictness.Sink("ctxloom") }
 
-func ungated(l *Loader, preferDistilled bool) *Pipeline {
+// admitAllPipe wraps a reader in a pipeline whose authorizer admits everything —
+// the right shape for a test exercising resolution rather than trust. Never
+// nil: nil is a forgotten gate and delivers nothing, which would fail every
+// resolution test here for a reason unrelated to what it tests.
+func admitAllPipe(l *Loader, preferDistilled bool) *Pipeline {
 	return NewPipeline(l, admitAllForTest(), LinksUnchecked(), preferDistilled)
 }
 
-// admitAllForTest is this package's double for the authorizer
-// composite.Ungated() yields in production (composite imports bundles, so the
-// real one cannot be named here): it admits everything, says so
-// (ReasonUngated), and declares itself ungated so Gates skips it.
-func admitAllForTest() Authorizer { return admitAll{} }
-
-type admitAll struct{}
-
-func (admitAll) Admit(Exposure) Verdict { return Verdict{Allow: true, Reason: ReasonUngated} }
-func (admitAll) Ungated() bool          { return true }
+// admitAllForTest is this package's TEST-ONLY allow-all authorizer. No
+// production authorizer admits everything; cross-package tests use
+// internal/testsupport/admitall, which this package cannot import (it
+// imports bundles). The allow is an ordinary admit through Decide's full
+// path, ref parse included.
+func admitAllForTest() Authorizer {
+	return authorizerFunc(func(Exposure) Verdict { return admitVerdict() })
+}
 
 // gatedPipe wraps a reader in a pipeline that decides with authorizer — the
 // exposure shape.

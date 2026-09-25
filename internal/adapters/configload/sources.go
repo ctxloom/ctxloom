@@ -259,7 +259,7 @@ func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Read
 // the review records (the user's and the project's countersignature stores)
 // and the retraction records (the lockfile). There is no option to leave one
 // out: a generation with a port missing is refused (composite.NewTrust), and
-// a listing that means "ungated" says so by name (composite.Ungated).
+// no production Trust admits everything.
 func (s *Sources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
 	root := signerFilesOf(cfg).trustStore()
 	fs := cfg.FS()

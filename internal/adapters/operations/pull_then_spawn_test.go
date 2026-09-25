@@ -192,7 +192,6 @@ func TestPullThenSpawn_NextGenerationHoldsThePulledBundleAndItsRetraction(t *tes
 
 	assert.True(t, catalogHas(t, after.Catalog(), repoURL), "the next generation holds the pulled bundle")
 	assert.False(t, catalogHas(t, before.Catalog(), repoURL), "the generation before the pull is unchanged")
-	assert.True(t, after.Trust.Gates(), "the generation's Trust is the real gate, never ungated")
 	verdict := gateVerdict(t, after, repoURL)
 	assert.False(t, verdict.Allow)
 	assert.Equal(t, bundles.ReasonRetracted, verdict.Reason,

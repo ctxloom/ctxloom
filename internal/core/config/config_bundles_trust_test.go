@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 )
 
 // recordingGate denies any ref containing one of denySubstrs and records every
@@ -105,7 +106,7 @@ func TestExtractMCPFromBundle_NilGate_Ungated(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	got := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "tools"), composite.Ungated().Authorizer())
+	got := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "tools"), admitall.Authorizer())
 	assert.Len(t, got, 2, "nil gate must not gate anything")
 }
 

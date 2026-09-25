@@ -139,7 +139,6 @@ func TestOwner_Reload_TrustIsBuiltPerGenerationFromTrustPorts(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, second.Trust.Authorizer().Admit(e).Allow, "generation 2's records approve")
 	assert.False(t, first.Trust.Authorizer().Admit(e).Allow, "the retired generation's trust is unchanged")
-	assert.True(t, second.Trust.Gates(), "a generation's Trust always decides; only a listing names Ungated()")
 }
 
 // remoteExposure is an unsigned command that travelled: admitted by nothing

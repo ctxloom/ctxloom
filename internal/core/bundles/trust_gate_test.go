@@ -233,7 +233,7 @@ func TestLoaderGate_Search_PrefersTrustedSibling(t *testing.T) {
 // TestLoaderGate_NilGate_ExposesEverything proves a gate-free loader (management/
 // listing path) is unaffected: content resolves and nothing is recorded withheld.
 func TestLoaderGate_NilGate_ExposesEverything(t *testing.T) {
-	l := ungated(NewLoader(seedLocal(demoSeed())), true)
+	l := admitAllPipe(NewLoader(seedLocal(demoSeed())), true)
 	if _, err := l.GetFragment("demo#fragments/blocked"); err != nil {
 		t.Fatalf("nil-gate GetFragment must expose: %v", err)
 	}

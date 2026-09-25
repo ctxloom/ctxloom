@@ -249,13 +249,8 @@ func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, p
 // executable trust gate allows. Each hook is keyed on itemRefFor(ref.Base,
 // trust.KindHook, "<event>/<index>") (the SAME identity scheme bundle hooks
 // use, bundles.HookEntry) with
-// its executable-surface hash; a DENY omits it (fail-closed). An ungated
-// authorizer (a listing that named composite.Ungated) admits everything
-// unchanged.
+// its executable-surface hash; a DENY omits it (fail-closed).
 func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Authorizer) wire.HooksConfig {
-	if !bundles.Gates(gate) {
-		return h
-	}
 	keep := func(event string, hooks []wire.Hook) []wire.Hook {
 		var out []wire.Hook
 		for i, hook := range hooks {

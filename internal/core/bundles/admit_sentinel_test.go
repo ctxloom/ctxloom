@@ -12,11 +12,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
-// "Deliberately ungated" and "the gate was forgotten" are two different
-// statements, and until AdmitAll they were spelled the same way: a nil
-// Authorizer. Both admitted. These tests hold the three outcomes apart —
-// a real gate withholds, AdmitAll admits, and a missing gate does NOT admit —
-// by the EFFECT each has on content, not by the spelling at the call site.
+// A real gate withholds what it refuses, and a missing gate does NOT admit.
+// These tests hold the outcomes apart by the EFFECT each has on content.
+// There is no production authorizer that admits everything; the allow-all
+// case below uses the test-only double.
 
 // sentinelSeed is one local bundle holding one fragment, so every assertion
 // below is about whether that one body reaches the caller.
@@ -48,8 +47,8 @@ func TestExposure_RealGate_WithholdsWhatItRefuses(t *testing.T) {
 	}
 }
 
-// TestExposure_AdmitAll_Admits proves the ungated direction: a surface that
-// says AdmitAll out loud serves the body, and records nothing withheld.
+// TestExposure_AdmitAll_Admits proves the admitting direction: an authorizer
+// that admits serves the body, and records nothing withheld.
 func TestExposure_AdmitAll_Admits(t *testing.T) {
 	p := sentinelPipe(admitAllForTest())
 
@@ -103,34 +102,18 @@ func TestDecide_NilAuthorizer_Withholds(t *testing.T) {
 	}
 }
 
-// TestDecide_AdmitAll_AdmitsBeforeParsing pins AdmitAll's parity with the nil
-// it replaces: it answers ABOVE ref parsing, so an unaddressable ref on an
-// ungated surface admits exactly as it always did. Parsing first would turn
-// every management/listing path into a new withhold.
-func TestDecide_AdmitAll_AdmitsBeforeParsing(t *testing.T) {
+// TestDecide_AdmitAll_StillParsesTheRef pins that no authorizer answers
+// above the ref parse: an unaddressable ref withholds even when the
+// authorizer would admit anything, because nothing can key a decision on it.
+func TestDecide_AdmitAll_StillParsesTheRef(t *testing.T) {
 	restore := clidiag.SetSink(&bytes.Buffer{})
 	defer restore()
 
 	v := Decide(report.Reporter{}, admitAllForTest(), BundleRead{}, "not a parseable ref at all", nil, FormRaw)
-	if !v.Allow {
-		t.Fatalf("AdmitAll withheld an unaddressable ref (Reason %v)", v.Reason)
+	if v.Allow {
+		t.Fatal("an allow-all authorizer admitted an unaddressable ref")
 	}
-	if v.Reason != ReasonUngated {
-		t.Errorf("Reason = %v, want ReasonUngated", v.Reason)
-	}
-}
-
-// TestGates_SeparatesDeliberateFromForgotten pins the predicate the gating
-// branches key on: only AdmitAll skips a gate. A nil authorizer is NOT a skip —
-// it falls into Decide, which withholds.
-func TestGates_SeparatesDeliberateFromForgotten(t *testing.T) {
-	if Gates(admitAllForTest()) {
-		t.Error("Gates(admitAllForTest()) = true, want false — AdmitAll decides nothing")
-	}
-	if !Gates(nil) {
-		t.Error("Gates(nil) = false — a forgotten authorizer would skip the gate silently")
-	}
-	if !Gates(blockingGate(nil)) {
-		t.Error("Gates(real authorizer) = false, want true")
+	if v.Reason != ReasonUnaddressable {
+		t.Errorf("Reason = %v, want ReasonUnaddressable", v.Reason)
 	}
 }

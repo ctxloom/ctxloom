@@ -257,6 +257,14 @@ func (w *Writer) Write(msg *Message) (Ref, error) {
 		_ = os.Remove(tmp)
 		return Ref{}, fmt.Errorf("spool: publishing %s: %w", ref, err)
 	}
+	w.syncPublished(final, ref)
+	return ref, nil
+}
+
+// syncPublished fsyncs the directory a published file was renamed into. It
+// runs after the commit point, so a failure is a warning, never an error (see
+// Write).
+func (w *Writer) syncPublished(final string, ref Ref) {
 	dirSync := w.syncDir
 	if dirSync == nil {
 		dirSync = syncDir
@@ -264,7 +272,6 @@ func (w *Writer) Write(msg *Message) (Ref, error) {
 	if err := dirSync(filepath.Dir(final)); err != nil {
 		zap.L().Warn(logDirSyncFailed, zap.Stringer("ref", ref), zap.Error(err))
 	}
-	return ref, nil
 }
 
 // writeAndSync writes data to path and fsyncs the file before returning, so

@@ -204,6 +204,14 @@ test-arch: _require-generated
 # It also tested existence ONLY, so a .pb.go older than its .proto passed.
 _require-generated: proto
 
+# _mutation-prereqs is the one precondition every mutation lane takes. Each lane
+# compiles the tree (ooze in a symlinked laboratory, gremlins in its own copy),
+# and a tree that cannot build makes every mutant fail to compile — scored as a
+# kill, so the run measures nothing. Generated code is gitignored, so a fresh
+# worktree cannot build until it is generated. Generating and compiling here, as
+# just dependencies, stops a broken tree before any mutant is scored.
+_mutation-prereqs: _require-generated build
+
 # ===== Coverage / test-isolation gates =====
 
 # Fail (and clean up) if any test wrote a nested internal/**/.ctxloom into the

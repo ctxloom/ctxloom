@@ -105,6 +105,9 @@ func registerJ002400Steps(ctx *godog.ScenarioContext) {
 			if err := gateContainerRow(w, "J002400 container row", decision, msg); err != nil {
 				return err
 			}
+			if err := requireSuiteImage(w, imageMockAgent, "J002400 container row"); err != nil {
+				return err
+			}
 		}
 
 		if err := w.env.InitGitRepo(); err != nil {

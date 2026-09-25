@@ -25,17 +25,17 @@ const (
 // callWithin runs call and fails the test if it has not returned within
 // testGuard — so a runner with no deadline goes RED here instead of hanging
 // the package until go test's own timeout.
-func callWithin(t *testing.T, what string, call func() error) (error, time.Duration) {
+func callWithin(t *testing.T, what string, call func() error) (time.Duration, error) {
 	t.Helper()
 	done := make(chan error, 1)
 	start := time.Now()
 	go func() { done <- call() }()
 	select {
 	case err := <-done:
-		return err, time.Since(start)
+		return time.Since(start), err
 	case <-time.After(testGuard):
 		t.Fatalf("%s did not return within %s: a command that outlives its %s bound must be killed, not waited on", what, testGuard, testBound)
-		return nil, 0
+		return 0, nil
 	}
 }
 
@@ -44,7 +44,7 @@ func TestExec_ACommandPastItsBoundFailsNamingTheCommandAndTheBound(t *testing.T)
 	h.SetCommandBound(testBound)
 	cmd := exec.Command("sleep", sleepSeconds)
 
-	err, elapsed := callWithin(t, "Exec", func() error { return h.Exec(cmd) })
+	elapsed, err := callWithin(t, "Exec", func() error { return h.Exec(cmd) })
 
 	var de *DeadlineError
 	if !errors.As(err, &de) {
@@ -86,7 +86,7 @@ func TestExec_TheBoundKillsTheWholeProcessGroup(t *testing.T) {
 	// The shell prints its background child's pid, then waits on it.
 	cmd := exec.Command("sh", "-c", "sleep "+sleepSeconds+" & echo $!; wait")
 
-	err, elapsed := callWithin(t, "Exec", func() error { return h.Exec(cmd) })
+	elapsed, err := callWithin(t, "Exec", func() error { return h.Exec(cmd) })
 
 	var de *DeadlineError
 	if !errors.As(err, &de) {
@@ -115,7 +115,7 @@ func TestRunWithStdin_ACommandPastItsBoundFails(t *testing.T) {
 	e := &TestEnvironment{AppBinary: "/bin/sh", ProjectDir: t.TempDir(), HomeDir: t.TempDir()}
 	e.SetCommandBound(testBound)
 
-	err, _ := callWithin(t, "RunWithStdin", func() error {
+	_, err := callWithin(t, "RunWithStdin", func() error {
 		return e.RunWithStdin("not json-rpc\n", "-c", "cat >/dev/null; sleep "+sleepSeconds)
 	})
 

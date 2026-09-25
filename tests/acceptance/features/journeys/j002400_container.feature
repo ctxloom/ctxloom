@@ -66,7 +66,7 @@ Feature: The container runtime axis — can an engine actually land in a contain
   # engine actually ran and reaching the host through the workspace mount. Exit
   # code cannot serve: a containerized run and a run that silently never
   # containerized both exit 0 and both echo the prompt.
-  @container
+  @container @image-mock-agent
   Scenario: A containerized run puts the engine somewhere this host is not
     When Alice runs the mock agent with runtime "host"
     Then the engine left its record, and it ran on this host

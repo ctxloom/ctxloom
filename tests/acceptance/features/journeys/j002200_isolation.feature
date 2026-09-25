@@ -241,7 +241,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # proves the shared-identity property live: a write made from INSIDE the
   # container reaches the HOST at the same path.
   # ===========================================================================
-  @container @reach-back @R5
+  @container @image-mock-agent @reach-back @R5
   Scenario: A containerized engine's write reaches the host through a read-write bind mount
     When Alice runs the container-bound agent in a real container
     Then the engine's in-container write is the same file the host holds

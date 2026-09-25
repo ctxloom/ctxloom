@@ -1273,6 +1273,9 @@ func j001400DeliverInContainer(c context.Context, w *World, root string) error {
 	if err := gateContainerRow(w, "J001400 container delivery row", decision, msg); err != nil {
 		return err
 	}
+	if err := requireSuiteImage(w, imageCell, "J001400 container delivery row"); err != nil {
+		return err
+	}
 
 	// The anti-vacuity guard. If the engine's context file were already there,
 	// every Then below could pass on bytes no container ever wrote.

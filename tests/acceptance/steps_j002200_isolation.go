@@ -384,6 +384,9 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		if err := gateContainerRow(w, "j002200 container shared-identity row", decision, msg); err != nil {
 			return err
 		}
+		if err := requireSuiteImage(w, imageMockAgent, "j002200 container shared-identity row"); err != nil {
+			return err
+		}
 		// The record MUST live inside the project workspace: a containerized
 		// engine can only write where the container can see, and ctxloom mounts
 		// the project at the SAME absolute path — so this host path IS the path

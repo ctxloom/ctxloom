@@ -101,9 +101,8 @@ const AskWireBudget = controlAskBudget + 5*time.Second
 //
 // What this route adds is the KIND — which renders into the delivered turn's
 // provenance header, so the agent sees an instruction rather than an anonymous
-// message — and the returned ID, which §5.6's fallback deliberately drops: here
-// the message is a file that can still be retracted, so the id is a live
-// withdraw handle rather than a reference to something nothing can act on.
+// message — and the returned ID: the message is a file that can still be
+// retracted, so the id is a live withdraw handle.
 func (c *Coordinator) steerViaSpool(sender, harp, text string) (SteerOutcome, error) {
 	msgID, outcome, err := c.steerAsMail(sender, harp, KindSteer, text)
 	if err != nil {
@@ -132,12 +131,11 @@ func (c *Coordinator) WithdrawSteer(by ControlInitiator, harp, messageID string)
 		return errors.New("steer withdraw: a message id is required (it is what ControlSteer returned)")
 	}
 	if !c.spoolDeliverTo(harp) {
-		// Nothing to withdraw FROM: on the plane-2 route the body rides the
-		// request and is parked in a runner's memory, which is precisely the
-		// state the durable steer replaced. Refusing is honest; pretending to
-		// retract is not.
-		return fmt.Errorf("steer withdraw: %q does not take durable steers, so there is nothing to retract "+
-			"(withdrawal exists because the instruction is a file; on the request route the body is not one): %w", harp, ErrNoSuchSteer)
+		// Nothing to withdraw FROM: a run the spool does not deliver to
+		// cannot have been steered (ControlSteer refuses it at the same
+		// predicate), so no steer file for it can exist.
+		return fmt.Errorf("steer withdraw: %q is not delivered by the spool, so no steer to it exists to retract: %w",
+			harp, ErrNoSuchSteer)
 	}
 
 	mapper := c.mapper

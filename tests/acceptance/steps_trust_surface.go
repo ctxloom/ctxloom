@@ -39,6 +39,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
@@ -76,6 +77,10 @@ const (
 	tsHouseStyleSigned = "TS-HOUSE-STYLE-SIGNED-MARKER-3c5d02"
 	tsHouseStyleEdited = "TS-HOUSE-STYLE-EDITED-MARKER-a61e94"
 )
+
+// tsCompanion is the companion Alice's company ships: a ctxloom-companion-*
+// name, so discovery lists it.
+const tsCompanion = "ctxloom-companion-company"
 
 // tsHouseStyle is the bundle Alice authors, signs, and then edits in her own
 // project.
@@ -250,6 +255,43 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 			return c, fmt.Errorf("stop hermetic ssh-agent: %w", err)
 		}
 		return c, nil
+	})
+
+	ctx.Step(`^Alice's company companion is admitted, signed with a key she trusts$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
+			return err
+		}
+		if err := installSetupGuidanceCompanion(w, tsCompanion, "Confirm the company's onboarding steps."); err != nil {
+			return err
+		}
+		// The positive control: the refusal the Then reads is only a refusal
+		// if this same companion is admitted while her config loads.
+		got, err := tsCompanionListed(w)
+		if err != nil {
+			return err
+		}
+		if !got.Allowed || got.Reason != string(companions.CompanionAdmissionSigned) {
+			return fmt.Errorf("with her config readable, %s should be admitted as %q, got allowed=%v reason=%q", tsCompanion, companions.CompanionAdmissionSigned, got.Allowed, got.Reason)
+		}
+		return nil
+	})
+
+	ctx.Step(`^a typo leaves her project config unreadable$`, func(c context.Context) error {
+		return worldFrom(c).env.WriteFile(".ctxloom/config.yaml", "version: [unclosed\n")
+	})
+
+	ctx.Step(`^listing her companions still answers, and refuses the company companion because no signer is trusted until her config loads$`, func(c context.Context) error {
+		w := worldFrom(c)
+		got, err := tsCompanionListed(w)
+		if err != nil {
+			return err
+		}
+		w.docStepMaterialized = strings.TrimSpace(w.env.LastOutput())
+		if got.Allowed || got.Reason != string(companions.CompanionAdmissionUntrusted) {
+			return fmt.Errorf("with her config unreadable, %s should be refused as %q, got allowed=%v reason=%q; output:\n%s", tsCompanion, companions.CompanionAdmissionUntrusted, got.Allowed, got.Reason, w.env.LastOutput())
+		}
+		return nil
 	})
 
 	ctx.Step(`^Alice signs a bundle she authored in her project, then edits its guidance without re-signing it$`, func(c context.Context) error {
@@ -1207,4 +1249,30 @@ func tsAuthorSignAndEdit(w *World) error {
 		return err
 	}
 	return w.env.WriteFile(fragment, j001600FragmentFileBody(tsHouseStyleEdited))
+}
+
+// tsCompanionListing is one row of `ctxloom companion list --format json`.
+type tsCompanionListing struct {
+	Bin     string `json:"bin"`
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason"`
+}
+
+// tsCompanionListed lists Alice's companions and returns tsCompanion's row. The
+// listing must succeed: a companion listing that cannot answer is not an
+// answer about trust.
+func tsCompanionListed(w *World) (tsCompanionListing, error) {
+	if err := runOK(w, "companion", "list", "--format", "json"); err != nil {
+		return tsCompanionListing{}, err
+	}
+	var rows []tsCompanionListing
+	if err := json.Unmarshal([]byte(w.env.LastStdout()), &rows); err != nil {
+		return tsCompanionListing{}, fmt.Errorf("companion list did not print a JSON listing: %w; stdout:\n%s", err, w.env.LastStdout())
+	}
+	for _, r := range rows {
+		if r.Bin == tsCompanion {
+			return r, nil
+		}
+	}
+	return tsCompanionListing{}, fmt.Errorf("companion list does not show %s; stdout:\n%s", tsCompanion, w.env.LastStdout())
 }

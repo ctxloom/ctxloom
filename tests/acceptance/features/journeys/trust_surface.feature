@@ -328,3 +328,12 @@ Feature: The trust surface — what "review" actually controls
     Given Alice signs a bundle she authored in her project, then edits its guidance without re-signing it
     When Alice starts a session
     Then her edited guidance still reaches her assistant, and that bundle alone is flagged to be re-signed
+
+  # The trust ROOT when the config cannot be read. ctxloom still answers,
+  # from a minimal default, and that default trusts no signer: a typo in
+  # config.yaml must not be able to widen who may run on this machine, so a
+  # companion admitted a moment ago is refused until the config loads again.
+  Scenario: A config that cannot be read trusts no signer, and listing companions still answers
+    Given Alice's company companion is admitted, signed with a key she trusts
+    When a typo leaves her project config unreadable
+    Then listing her companions still answers, and refuses the company companion because no signer is trusted until her config loads

@@ -1381,10 +1381,8 @@ sign-bundle REF KEY=SIGN_KEY:
 test-mutation-pkg PKG *ARGS: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
     pkg="$1"; shift
-    TMPDIR="{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
+    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "./$pkg" "$@"
 
 # Install gremlins
 test-mutation-install:
@@ -1403,13 +1401,15 @@ test-mutation-container: _mutation-prereqs
     if docker info 2>/dev/null | grep -q "rootless"; then
         user_flag=()
     fi
-    mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
-    docker run --rm "${user_flag[@]}" \
-        -v "{{TOP}}:/app" \
-        -v "{{mutation_tmp}}:/mutation-tmp" \
-        -e TMPDIR=/mutation-tmp \
-        -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
+    # The run's own temp dir is the mount: mutation_tmp.sh exports it as
+    # TMPDIR to the command, so it is read inside the command, not here.
+    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash -c '
+        exec docker run --rm "$@" \
+            -v "{{TOP}}:/app" \
+            -v "$TMPDIR:/mutation-tmp" \
+            -e TMPDIR=/mutation-tmp \
+            -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
+    ' _ "${user_flag[@]}"
 
 # Mutate one source file per target and drive the CUCUMBER acceptance suite
 # against a binary rebuilt from each mutant (github.com/gtramontina/ooze).
@@ -1469,18 +1469,12 @@ _mutation-driver LANE *ARGS:
     # the same stamp `just build` applies, or every scenario dies at startup and
     # the pre-flight refuses the run.
     export CTXLOOM_VERSION_LDFLAG='{{version_ldflag}}'
-    mkdir -p "{{mutation_tmp}}"
-    # TMPDIR pinned to disk for every tool this driver can release: gremlins
-    # (the package lane) copies the whole module once per worker, and on a
-    # tmpfs /tmp that has emptied 16G — same hazard, same pin, as test-mutation
-    # above. ooze's laboratory is a symlink farm and is indifferent to where it
-    # lands. The sweep matches test-mutation-pkg's.
-    export TMPDIR="{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    # A per-run TMPDIR on disk for every tool this driver can release, from
+    # the same script as every other mutation recipe (see mutation_tmp.sh).
     # Everything past the environment — the run, its refusals, the score
     # correction, and which lane is ratcheted against what — is the driver's,
     # where mutation_driver_test.go can see it.
-    bash tests/mutation/mutation_driver.sh "{{LANE}}" "$@"
+    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" bash tests/mutation/mutation_driver.sh "{{LANE}}" "$@"
 
 # Mutate one source file per target and drive the CUCUMBER acceptance suite
 # against a binary rebuilt from each mutant. Ratcheted against

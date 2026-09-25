@@ -318,3 +318,32 @@ func TestSurvivorRatchet_WithoutABaselineStillRefusesATargetWhereNoMutantCompile
 		t.Errorf("the refusal must name the target that measured nothing; got:\n%s", out)
 	}
 }
+
+// gremlinsLogWithInvalid is gremlinsLog with n mutants marked as having failed
+// to build, where the package lane prints them: after gremlins' tally, before
+// the next target's marker.
+func gremlinsLogWithInvalid(target string, killed, lived, notCovered, invalid int) string {
+	return gremlinsLog(target, killed, lived, notCovered, 0, 0, 0) +
+		strings.Repeat("gremlins-invalid-mutant: ./x.go:1:1: invalid operation\n", invalid)
+}
+
+// gremlins scores a mutant that does not compile as KILLED, exactly as ooze
+// does, so a package none of whose mutants built reads 0 survivors — and would
+// be banked as an improvement. The per-target refusal holds for its targets too.
+func TestSurvivorRatchet_GremlinsTargetWhereNoMutantCompiledMeasuredNothing(t *testing.T) {
+	code, out, _ := runRatchet(t, packageRow+" 4 4 measured\n",
+		gremlinsLogWithInvalid(packageRow, 3, 0, 0, 3))
+	if code != 1 || !strings.Contains(out, packageRow+": all 3 mutants DID NOT COMPILE") {
+		t.Errorf("exit %d: a gremlins target whose every mutant failed to build measured nothing and must be refused by name.\noutput:\n%s", code, out)
+	}
+	if strings.Contains(out, "IMPROVED") {
+		t.Errorf("a run that measured nothing was reported as an improvement:\n%s", out)
+	}
+
+	// Some invalid mutants beside real ones: judged as usual.
+	code, out, _ = runRatchet(t, packageRow+" 6 2 measured\n",
+		gremlinsLogWithInvalid(packageRow, 4, 1, 1, 2))
+	if code != 0 || !strings.Contains(out, "HELD  "+packageRow) {
+		t.Errorf("exit %d: a gremlins target with valid mutants must still be judged.\noutput:\n%s", code, out)
+	}
+}

@@ -202,8 +202,10 @@ install-script-hashes:
 
 # gremlins copies the whole Go module into TMPDIR once per worker. On a tmpfs
 # /tmp that exhausts RAM and wedges the machine (it has emptied a 16G tmpfs
-# here), so every recipe that runs gremlins pins TMPDIR to disk and sweeps the
-# copies afterwards. Shared with the host justfile's other mutation recipes.
+# here), so every recipe that runs a mutation tool runs it through
+# tests/mutation/mutation_tmp.sh, which gives the run its own temp dir under
+# this one and removes it afterwards. Shared with the host justfile's other
+# mutation recipes.
 mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mutation")
 
 # Run mutation tests with gremlins over the whole tree (requires gremlins
@@ -215,9 +217,7 @@ mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mut
 test-mutation *ARGS: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
-    TMPDIR="{{mutation_tmp}}" gremlins unleash "$@"
+    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "$@"
 
 # Diff-only mutation testing against BASE — the per-push/per-PR gate.
 #
@@ -247,9 +247,7 @@ test-mutation-diff BASE: _mutation-prereqs
     fi
     echo "Mutable Go files in diff:"
     printf '  %s\n' $mutable
-    mkdir -p "{{mutation_tmp}}"
-    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
-    TMPDIR="{{mutation_tmp}}" gremlins unleash --diff "$base"
+    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash --diff "$base"
 
 # ===== Documentation site =====
 

@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -103,9 +105,16 @@ func (p packageMutationTarget) release(t *testing.T, root string, out io.Writer)
 	cmd.Dir = root
 	cmd.Stdout = out
 	cmd.Stderr = out
+	invalidDir, err := os.MkdirTemp("", "gremlins-invalid-")
+	if err != nil {
+		t.Fatalf("invalid-mutant record dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(invalidDir) }()
+	cmd.Env = buildFailureEnv(t, root, invalidDir)
 	t.Logf("gremlins unleash ./%s (cwd %s)", p.Pkg, root)
 
 	err = cmd.Run()
+	announceInvalidMutants(t, invalidDir, out)
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:
@@ -113,6 +122,43 @@ func (p packageMutationTarget) release(t *testing.T, root string, out io.Writer)
 		t.Logf("gremlins reports efficacy at or below .gremlins.yaml's threshold for ./%s; the survivor ratchet is this lane's verdict", p.Pkg)
 	default:
 		t.Fatalf("gremlins unleash ./%s: %v", p.Pkg, err)
+	}
+}
+
+// buildFailureEnv is the environment gremlins runs under: its own, plus a
+// -toolexec wrapper on every `go` it runs, which records into invalidDir each
+// mutant whose build failed. gremlins scores those KILLED (see
+// gremlins_toolexec.sh for why nothing else can tell them apart).
+func buildFailureEnv(t *testing.T, root, invalidDir string) []string {
+	t.Helper()
+	wrapper := filepath.Join(root, "tests", "mutation", "gremlins_toolexec.sh")
+	// GOFLAGS is space-separated with no quoting: a path with a space in it
+	// would split into two flags and fail every build, which gremlins would
+	// then score as a kill.
+	if strings.ContainsAny(wrapper, " \t") {
+		t.Fatalf("the toolexec wrapper path %q contains whitespace, which GOFLAGS cannot carry", wrapper)
+	}
+	goflags := strings.TrimSpace(os.Getenv("GOFLAGS") + " -toolexec=" + wrapper)
+	return append(os.Environ(), "GOFLAGS="+goflags, "CTXLOOM_GREMLINS_INVALID_DIR="+invalidDir)
+}
+
+// announceInvalidMutants prints one `gremlins-invalid-mutant:` line per record
+// in invalidDir. They follow the tally on the same stream and precede the next
+// target's marker, which is what attributes them: the survivor ratchet refuses
+// a target none of whose mutants built, and score_correction.sh subtracts them
+// from the kills.
+func announceInvalidMutants(t *testing.T, invalidDir string, out io.Writer) {
+	t.Helper()
+	entries, err := os.ReadDir(invalidDir)
+	if err != nil {
+		t.Fatalf("read invalid-mutant records: %v", err)
+	}
+	for _, e := range entries {
+		rec, err := os.ReadFile(filepath.Join(invalidDir, e.Name()))
+		if err != nil {
+			t.Fatalf("read invalid-mutant record %s: %v", e.Name(), err)
+		}
+		fmt.Fprintf(out, "gremlins-invalid-mutant: %s\n", strings.TrimSpace(string(rec)))
 	}
 }
 

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -25,7 +26,7 @@ func holdFSFixture(t *testing.T) (*config.Config, *remote.LockfileManager) {
 	mgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	require.NoError(t, mgr.Save(&remote.Lockfile{
 		Version: 1,
-		Bundles: map[string]remote.LockEntry{
+		Bundles: map[trust.BundleKey]remote.LockEntry{
 			"r/a": {SHA: "sha1", URL: "https://example.com/r"},
 		},
 	}))

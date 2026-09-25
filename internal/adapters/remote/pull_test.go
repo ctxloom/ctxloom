@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"strings"
 	"testing"
 	"time"
@@ -399,7 +400,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 		// Initialize empty lockfile
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 			WithTreeVerifier(stubTreeVerifier()),
@@ -431,7 +432,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 			WithTreeVerifier(stubTreeVerifier()),
@@ -464,7 +465,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 		const ref = "https://github.com/alice/ctxloom@bundles/security"
-		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
+		seeded := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
 		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
 			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom",
 			Version: "v1.0.0", RequestedVersion: "v1.0.0", Held: true,
@@ -496,7 +497,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 		const ref = "https://github.com/alice/ctxloom@bundles/security"
-		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
+		seeded := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
 		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
 			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Held: true,
 		})
@@ -521,6 +522,6 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 // fails the test on error (helper for the hold-preservation cases above).
 func requireUpdateLockfile(t *testing.T, puller *Puller, ref, sha, requestedVersion string, rem *Remote) {
 	t.Helper()
-	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{}, Verified{})
+	_, err := puller.updateLockfile(lockKeyOf(t, ref), PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{}, Verified{})
 	require.NoError(t, err)
 }

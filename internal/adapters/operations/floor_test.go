@@ -36,18 +36,18 @@ func floorRepo(t *testing.T, firstVersion string) (baseDir, src, ref string, sig
 	lm := remote.NewLockfileManager(baseDir)
 	lock, err := lm.Load()
 	require.NoError(t, err)
-	e, ok := lock.GetEntry(remote.ItemTypeBundle, ref)
+	e, ok := lock.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok)
 	require.Equal(t, first, e.SHA)
 	e.SignedVersion, e.Publisher = firstVersion, "publisher@example.com"
-	lock.AddEntry(remote.ItemTypeBundle, ref, e)
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, ref), e)
 	require.NoError(t, lm.Save(lock))
 	return baseDir, src, ref, signer, first
 }
 
 func floorEntry(t *testing.T, baseDir, ref string) remote.LockEntry {
 	t.Helper()
-	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok)
 	return e
 }

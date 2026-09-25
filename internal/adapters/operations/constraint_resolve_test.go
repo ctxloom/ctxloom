@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func countingFactory(mock remote.Fetcher) (remote.FetcherFactory, *int) {
 
 func activeLock(entry remote.LockEntry) *remote.Lockfile {
 	lf := &remote.Lockfile{
-		Bundles: map[string]remote.LockEntry{},
+		Bundles: map[trust.BundleKey]remote.LockEntry{},
 	}
 	lf.AddEntry(remote.ItemTypeBundle, crIdentity, entry)
 	return lf

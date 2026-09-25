@@ -115,11 +115,11 @@ func TestRefusals_ARecordWhoseKeptPinMovedIsNotReported(t *testing.T) {
 	mgr := remote.NewLockfileManager(r.baseDir)
 	lock, err := mgr.Load()
 	require.NoError(t, err)
-	entry, ok := lock.GetEntry(remote.ItemTypeBundle, r.ref)
+	entry, ok := lock.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, r.ref))
 	require.True(t, ok)
 	require.Equal(t, r.kept, entry.SHA)
 	entry.SHA = "0000000000000000000000000000000000000000"
-	lock.AddEntry(remote.ItemTypeBundle, r.ref, entry)
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, r.ref), entry)
 	require.NoError(t, mgr.Save(lock))
 
 	live, err = LiveRefusedAdvances(r.cfg)
@@ -138,7 +138,7 @@ func TestRefusals_ARecordForAnEntryNoLongerLockedIsNotReported(t *testing.T) {
 	lock, err := mgr.Load()
 	require.NoError(t, err)
 	lock.AddEntry(remote.ItemTypeBundle, "file:///elsewhere@bundles/other", remote.LockEntry{SHA: "abc123", URL: "file:///elsewhere"})
-	lock.RemoveEntry(remote.ItemTypeBundle, r.ref)
+	lock.RemoveEntry(remote.ItemTypeBundle, lockKeyOf(t, r.ref))
 	require.NoError(t, mgr.Save(lock))
 
 	live, err := LiveRefusedAdvances(r.cfg)

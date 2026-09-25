@@ -2,6 +2,7 @@ package operations
 
 import (
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,8 +28,8 @@ func upstreamRefusalProject(t *testing.T, ref, kept, proposed string) *config.Co
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
-	lock := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}
-	lock.AddEntry(remote.ItemTypeBundle, ref, remote.LockEntry{SHA: kept, URL: "file:///team"})
+	lock := &remote.Lockfile{Version: 1, Bundles: map[trust.BundleKey]remote.LockEntry{}}
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, ref), remote.LockEntry{SHA: kept, URL: "file:///team"})
 	require.NoError(t, remote.NewLockfileManager(appDir).Save(lock))
 
 	recPath := paths.RefusedAdvancesPath(appDir)

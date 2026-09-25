@@ -151,7 +151,7 @@ func remoteExposure(t *testing.T) bundles.Exposure {
 	require.NoError(t, err)
 	read := bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
 		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
-	return bundles.Exposure{Read: read, Ref: trust.RefFromBundleRef(br), RefStr: refStr, Bytes: []byte("echo"), Form: bundles.FormRaw}
+	return bundles.Exposure{Read: read, Ref: trust.RefFromBundleRef(br), BundleRef: br, RefStr: refStr, Bytes: []byte("echo"), Form: bundles.FormRaw}
 }
 
 func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {

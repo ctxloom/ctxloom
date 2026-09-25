@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,8 +32,8 @@ func newTestWalker(fetcher remote.Fetcher) *depWalker {
 		resolveHash: func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
 			return ref.ContentVersion, "", "", true
 		},
-		pins:       map[string]PinnedRef{},
-		hashes:     map[string]map[string]struct{}{},
+		pins:       map[trust.BundleKey]PinnedRef{},
+		hashes:     map[trust.BundleKey]map[string]struct{}{},
 		visited:    map[string]struct{}{},
 		unexpanded: map[string]struct{}{},
 	}
@@ -106,13 +107,13 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	// X (from both P and the bundle profile) and the parent bundle akit are pinned.
 	identities := map[string]string{}
 	for _, p := range pins {
-		identities[p.Identity] = p.Hash
+		identities[string(p.Identity)] = p.Hash
 	}
-	assert.Contains(t, identities, urlX+"@bundles/x")
-	assert.Contains(t, identities, urlA+"@bundles/akit")
+	assert.Contains(t, identities, string(lockKeyOf(t, urlX+"@bundles/x")))
+	assert.Contains(t, identities, string(lockKeyOf(t, urlA+"@bundles/akit")))
 
 	require.Len(t, conflicts, 1)
-	assert.Equal(t, urlX+"@bundles/x", conflicts[0].Item)
+	assert.Equal(t, string(lockKeyOf(t, urlX+"@bundles/x")), conflicts[0].Item)
 	assert.Equal(t, []string{"h1111111", "h2222222"}, conflicts[0].Hashes)
 }
 

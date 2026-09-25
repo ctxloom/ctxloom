@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"sort"
 	"testing"
 
@@ -21,7 +22,7 @@ import (
 func TestLockfile_AllEntries_CarriesKeyTypeAndEntry(t *testing.T) {
 	lockfile := &Lockfile{
 		Version: 1,
-		Bundles: map[string]LockEntry{
+		Bundles: map[trust.BundleKey]LockEntry{
 			"alice/go-tools": {SHA: "sha-a", URL: "https://github.com/alice/ctxloom", Held: true},
 			"bob/py-tools":   {SHA: "sha-b", URL: "https://github.com/bob/ctxloom", Retracted: true, RetractedReason: "withdrawn"},
 		},
@@ -30,12 +31,12 @@ func TestLockfile_AllEntries_CarriesKeyTypeAndEntry(t *testing.T) {
 	entries := lockfile.AllEntries()
 	require.Len(t, entries, 2)
 
-	byRef := map[string]LockEntry{}
+	byRef := map[trust.BundleKey]LockEntry{}
 	var refs []string
 	for _, e := range entries {
 		assert.Equal(t, ItemTypeBundle, e.Type, "only bundles are locked")
 		byRef[e.Ref] = e.Entry
-		refs = append(refs, e.Ref)
+		refs = append(refs, string(e.Ref))
 	}
 	sort.Strings(refs)
 	assert.Equal(t, []string{"alice/go-tools", "bob/py-tools"}, refs,
@@ -48,7 +49,7 @@ func TestLockfile_AllEntries_CarriesKeyTypeAndEntry(t *testing.T) {
 }
 
 func TestLockfile_AllEntries_EmptyIsEmpty(t *testing.T) {
-	assert.Empty(t, (&Lockfile{Bundles: map[string]LockEntry{}}).AllEntries())
+	assert.Empty(t, (&Lockfile{Bundles: map[trust.BundleKey]LockEntry{}}).AllEntries())
 }
 
 // The point of the collapse: the element type can now be named, so a caller
@@ -57,9 +58,9 @@ func TestLockfile_AllEntries_ElementTypeIsNameable(t *testing.T) {
 	// This helper is the whole assertion: a function taking one entry cannot
 	// be written at all while the element type is anonymous, which is what
 	// forced every caller to range over the result in place.
-	describe := func(e LockedEntry) (ItemType, string, string) { return e.Type, e.Ref, e.Entry.SHA }
+	describe := func(e LockedEntry) (ItemType, string, string) { return e.Type, string(e.Ref), e.Entry.SHA }
 
-	entries := (&Lockfile{Bundles: map[string]LockEntry{"a/b": {SHA: "s"}}}).AllEntries()
+	entries := (&Lockfile{Bundles: map[trust.BundleKey]LockEntry{"a/b": {SHA: "s"}}}).AllEntries()
 	require.Len(t, entries, 1)
 
 	kind, ref, sha := describe(entries[0])

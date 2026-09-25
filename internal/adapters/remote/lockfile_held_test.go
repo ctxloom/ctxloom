@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestLockfile_SerializesAHoldAsHeld(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	lf := &Lockfile{Version: 1, Bundles: map[string]LockEntry{
+	lf := &Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{
 		"alice/go-tools": {SHA: "abc1234", URL: "https://github.com/alice/ctxloom", Held: true},
 	}}
 	if err := manager.Save(lf); err != nil {
@@ -41,7 +42,7 @@ func TestLockfile_RoundTripsAHold(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	lf := &Lockfile{Version: 1, Bundles: map[string]LockEntry{
+	lf := &Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{
 		"alice/go-tools": {SHA: "abc1234", URL: "https://github.com/alice/ctxloom", Held: true},
 	}}
 	if err := manager.Save(lf); err != nil {

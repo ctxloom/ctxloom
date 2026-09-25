@@ -82,7 +82,9 @@ func lockKeyOf(t *testing.T, ref string) string {
 	t.Helper()
 	parsed, err := remote.ParseReference(ref)
 	require.NoError(t, err, "ref %q", ref)
-	return parsed.LockKey()
+	key, err := parsed.LockKey()
+	require.NoError(t, err, "ref %q", ref)
+	return string(key)
 }
 
 func assertKeyMatchesGrammar(t *testing.T, read BundleRead) {
@@ -101,8 +103,12 @@ func assertLockKeyMatchesKey(t *testing.T, read BundleRead) {
 	t.Helper()
 	parsed, err := remote.ParseReference(read.DisplayName())
 	require.NoError(t, err)
-	lockKey := parsed.LockKey()
-	assert.Equal(t, string(read.Key()), lockKey, "lockfile key of %q", read.DisplayName())
+	lockKey, err := parsed.LockKey()
+	require.NoError(t, err)
+	assert.Equal(t, read.Key(), lockKey, "lockfile key of %q", read.DisplayName())
+	canonicalKey, ok := remote.CanonicalKey(read.DisplayName())
+	require.True(t, ok)
+	assert.Equal(t, string(lockKey), canonicalKey, "CanonicalKey of %q", read.DisplayName())
 
 	lm := remote.NewLockfileManager("/lk", remote.WithLockfileFS(afero.NewMemMapFs()))
 	lock, err := lm.Load()
@@ -114,6 +120,6 @@ func assertLockKeyMatchesKey(t *testing.T, read BundleRead) {
 	require.NoError(t, err)
 	br, err := trust.ParseBundleRef(itemRef)
 	require.NoError(t, err)
-	retracted, _ := remote.NewLockfileRetraction(lm).Retracted(trust.RefFromBundleRef(br))
+	retracted, _ := remote.NewLockfileRetraction(lm).Retracted(br)
 	assert.True(t, retracted, "a retraction recorded under %q is enforced for %q", lockKey, itemRef)
 }

@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"path/filepath"
 	"testing"
 
@@ -101,7 +102,7 @@ func TestInstallTree_RefusesWithoutAnInstallerRatherThanPinningUnreachableConten
 	ref := treeRef(t)
 
 	_, err := p.installTree(t.Context(), ref, PullOptions{}, &fetchedItem{
-		localName: ref.CanonicalString(),
+		localName: lockKeyOf(t, ref.CanonicalString()),
 		treeRoot:  ref.TreeRepoPath(),
 		tree:      map[string]TreeFile{BundleManifestName: {Data: []byte("version: \"1.0.0\"\n")}},
 	}, treeTestSHA)
@@ -124,7 +125,7 @@ func TestInstallTree_CheckoutsTheWorktreeAtThePinnedCommit(t *testing.T) {
 	ref := treeRef(t)
 
 	dir, err := p.installTree(t.Context(), ref, PullOptions{}, &fetchedItem{
-		localName: ref.CanonicalString(),
+		localName: lockKeyOf(t, ref.CanonicalString()),
 		rem:       &Remote{URL: "https://github.com/trent/atelier"},
 		sha:       treeTestSHA,
 		treeRoot:  ref.TreeRepoPath(),
@@ -152,7 +153,7 @@ func TestInstallTree_RefusesWhenTheFoundRootIsNotTheRootReadersResolve(t *testin
 	ref := treeRef(t)
 
 	_, err := p.installTree(t.Context(), ref, PullOptions{}, &fetchedItem{
-		localName: ref.CanonicalString(),
+		localName: lockKeyOf(t, ref.CanonicalString()),
 		rem:       &Remote{URL: "https://github.com/trent/atelier"},
 		sha:       treeTestSHA,
 		treeRoot:  "bundles/v1/atelier",
@@ -168,7 +169,7 @@ func TestInstallTree_RefusesWhenTheFoundRootIsNotTheRootReadersResolve(t *testin
 func TestReadableEntry_RefusesATreeBundleWithAnActionableSentinel(t *testing.T) {
 	name := "https://github.com/trent/atelier@bundles/atelier"
 	r := NewBundleReader(nil, nil, AuthConfig{}, &Lockfile{
-		Bundles: map[string]LockEntry{name: {SHA: treeTestSHA}},
+		Bundles: map[trust.BundleKey]LockEntry{trust.BundleKey(name): {SHA: treeTestSHA}},
 	})
 
 	_, err := r.ReadBundleBytes(t.Context(), name)

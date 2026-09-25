@@ -25,13 +25,13 @@ func TestDropConflicted_LeavesCallerSliceIntact(t *testing.T) {
 
 	keptIDs := make([]string, 0, len(kept))
 	for _, p := range kept {
-		keptIDs = append(keptIDs, p.Identity)
+		keptIDs = append(keptIDs, string(p.Identity))
 	}
 	assert.Equal(t, []string{"b", "c"}, keptIDs, "the conflicted pin is dropped")
 
 	callerIDs := make([]string, 0, len(pins))
 	for _, p := range pins {
-		callerIDs = append(callerIDs, p.Identity)
+		callerIDs = append(callerIDs, string(p.Identity))
 	}
 	assert.Equal(t, []string{"a", "b", "c"}, callerIDs,
 		"the caller's slice must be untouched — the filter owns its own array")

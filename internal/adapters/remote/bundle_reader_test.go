@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -71,7 +72,7 @@ func readerFixture(t *testing.T) (*BundleReader, *treeReaderSpy, *Lockfile) {
 	}
 
 	lock := &Lockfile{
-		Bundles: map[string]LockEntry{
+		Bundles: map[trust.BundleKey]LockEntry{
 			secKey: {
 				SHA: "abc123def",
 				URL: "https://github.com/alice/ctxloom",

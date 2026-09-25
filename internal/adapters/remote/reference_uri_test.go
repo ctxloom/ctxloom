@@ -254,19 +254,17 @@ func TestParseReference_CanonicalURIRejectsTraversal(t *testing.T) {
 	}
 }
 
-// TestCanonicalString_AndLockKey_AreTwoDifferentAddresses pins BOTH strings a
-// Reference renders, as literals, for one bundle of each class it can be.
+// TestCanonicalString_AndLockKey_AreOneIdentity pins BOTH strings a Reference
+// renders, as literals, for one bundle of each class it can be.
 //
-// They are asserted together because the whole point is that they DIFFER:
-// CanonicalString is the identity every API and stored identity carries, and
-// LockKey is the fetch address a lockfile entry is keyed on. A change that
-// collapsed one into the other would either freeze the identity in the
-// pre-canonical spelling or rewrite every lockfile key on disk, and only an
-// assertion over both catches that.
+// They are asserted together because the lockfile key IS the identity, with
+// the version dropped: a pull keys its entry on it and the trust gate looks a
+// publisher's retraction up by it, so a lock key spelled any other way is an
+// entry no retraction lookup reaches.
 //
 // There is no builtin row: a builtin bundle has no source to fetch from, so no
 // Reference can be builtin (see TestParseReference_BuiltinURIIsRefusedNotDowngraded).
-func TestCanonicalString_AndLockKey_AreTwoDifferentAddresses(t *testing.T) {
+func TestCanonicalString_AndLockKey_AreOneIdentity(t *testing.T) {
 	cases := []struct {
 		name         string
 		ref          Reference
@@ -277,52 +275,49 @@ func TestCanonicalString_AndLockKey_AreTwoDifferentAddresses(t *testing.T) {
 			name:         "git",
 			ref:          Reference{URL: "https://github.com/acme/repo", ItemType: ItemTypeBundle, Path: "tooling"},
 			wantIdentity: "ctxloom+git://github.com/acme/repo//bundles/tooling",
-			wantLockKey:  "https://github.com/acme/repo@bundles/tooling",
+			wantLockKey:  "ctxloom+git://github.com/acme/repo//bundles/tooling",
 		},
 		{
 			name:         "git, version-pinned",
 			ref:          Reference{URL: "https://github.com/acme/repo", ItemType: ItemTypeBundle, Path: "lang/go", ContentVersion: "v1.2.3"},
 			wantIdentity: "ctxloom+git://github.com/acme/repo//bundles/lang/go@v1.2.3",
-			wantLockKey:  "https://github.com/acme/repo@bundles/lang/go",
+			wantLockKey:  "ctxloom+git://github.com/acme/repo//bundles/lang/go",
 		},
 		{
 			name:         "file",
 			ref:          Reference{URL: "file:///srv/content", ItemType: ItemTypeBundle, Path: "tooling"},
 			wantIdentity: "ctxloom+file:///srv/content//bundles/tooling",
-			wantLockKey:  "file:///srv/content@bundles/tooling",
+			wantLockKey:  "ctxloom+file:///srv/content//bundles/tooling",
 		},
 		{
 			name:         "local",
 			ref:          Reference{IsLocal: true, ItemType: ItemTypeBundle, Path: "my-tools"},
 			wantIdentity: "ctxloom+local:my-tools",
-			wantLockKey:  "ctxloom:local@bundles/my-tools",
+			wantLockKey:  "ctxloom+local:my-tools",
 		},
 		{
 			name:         "companion",
 			ref:          Reference{URL: CompanionSource, IsCompanion: true, ItemType: ItemTypeBundle, Path: "ltk"},
 			wantIdentity: "ctxloom+companion:ltk",
-			wantLockKey:  "ctxloom:companion@ltk",
+			wantLockKey:  "ctxloom+companion:ltk",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ref := tc.ref
 			assert.Equal(t, tc.wantIdentity, ref.CanonicalString(), "identity")
-			assert.Equal(t, tc.wantLockKey, ref.LockKey(), "fetch address")
-			assert.NotEqual(t, ref.CanonicalString(), ref.LockKey(),
-				"the identity and the fetch address must not collapse into one string")
+			key, err := ref.LockKey()
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantLockKey, string(key), "lockfile key")
 
-			// Both spellings address the same bundle: each parses back to a
-			// reference whose version-less identity is the same string. The
-			// version is dropped on both sides because the fetch address never
-			// carries one — an identity that moved with every commit would key
+			// The key parses back to the same bundle, and a version never
+			// enters it — an identity that moved with every commit would key
 			// every grant to a single revision.
-			fromIdentity, err := ParseReference(ref.CanonicalString())
+			fromLockKey, err := ParseReference(string(key))
 			require.NoError(t, err)
-			fromLockKey, err := ParseReference(ref.LockKey())
+			again, err := fromLockKey.LockKey()
 			require.NoError(t, err)
-			fromIdentity.ContentVersion, fromLockKey.ContentVersion = "", ""
-			assert.Equal(t, fromIdentity.CanonicalString(), fromLockKey.CanonicalString())
+			assert.Equal(t, key, again)
 		})
 	}
 }

@@ -61,7 +61,7 @@ func TestSyncDependencies_FirstInstallLandsActive(t *testing.T) {
 	assert.Equal(t, 1, result.Installed, "the first install lands in the active lockfile")
 
 	active := mustLoadActive(t, baseDir)
-	e, inActive := active.GetEntry(remote.ItemTypeBundle, identity)
+	e, inActive := active.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	require.True(t, inActive, "the pin reaches the active lockfile directly")
 	assert.Equal(t, c1, e.SHA)
 }
@@ -75,7 +75,7 @@ func TestLockDependencies_DefaultLockAppliesFirstInstalls(t *testing.T) {
 	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	assert.Equal(t, "generated", result.Status)
-	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
+	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	require.True(t, ok)
 	assert.Equal(t, c1, e.SHA)
 }
@@ -196,9 +196,9 @@ func TestLockDependencies_TreeFormParentExpandsTheClosure(t *testing.T) {
 		"a tree-form parent must EXPAND, not degrade to an unexpanded subtree")
 
 	active := mustLoadActive(t, baseDir)
-	_, okP := active.GetEntry(remote.ItemTypeBundle, parentBundleID)
+	_, okP := active.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, parentBundleID))
 	require.True(t, okP, "the tree-form parent bundle itself is pinned")
-	_, okB := active.GetEntry(remote.ItemTypeBundle, bundleID)
+	_, okB := active.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, bundleID))
 	require.True(t, okB,
 		"the bundle composed by the parent's profile is discoverable ONLY by reading that profile out of the tree")
 }
@@ -244,9 +244,9 @@ func TestLockDependencies_UnsignedTreeParentIsRefusedNotSilentlyExpanded(t *test
 		"blaming the publisher for a correct bundle is the misdiagnosis this whole path was rebuilt to remove")
 
 	active := mustLoadActive(t, baseDir)
-	_, okP := active.GetEntry(remote.ItemTypeBundle, parentBundleID)
+	_, okP := active.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, parentBundleID))
 	assert.True(t, okP, "the parent bundle is recorded before it is read, so its own pin still lands")
-	_, okB := active.GetEntry(remote.ItemTypeBundle, bundleID)
+	_, okB := active.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, bundleID))
 	assert.False(t, okB,
 		"a bundle reachable ONLY through an unverified parent's profile must not be pinned — admitting it is exactly what the gate exists to prevent")
 }
@@ -266,8 +266,8 @@ func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	active0 := mustLoadActive(t, baseDir)
-	pe0, okP := active0.GetEntry(remote.ItemTypeBundle, parentBundleID)
-	be0, okB := active0.GetEntry(remote.ItemTypeBundle, bundleID)
+	pe0, okP := active0.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, parentBundleID))
+	be0, okB := active0.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, bundleID))
 	require.True(t, okP, "remote parent bundle locked")
 	require.True(t, okB, "bundle discovered through the bundle-profile parent locked")
 
@@ -287,10 +287,10 @@ func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 	assert.Contains(t, stderr, "preserving")
 
 	active1 := mustLoadActive(t, baseDir)
-	pe1, okP := active1.GetEntry(remote.ItemTypeBundle, parentBundleID)
+	pe1, okP := active1.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, parentBundleID))
 	require.True(t, okP)
 	assert.Equal(t, pe0.SHA, pe1.SHA, "the parent bundle itself carries forward from the lock")
-	be1, okB := active1.GetEntry(remote.ItemTypeBundle, bundleID)
+	be1, okB := active1.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, bundleID))
 	require.True(t, okB, "a transient fetch failure must never erase the subtree's lock entries")
 	assert.Equal(t, be0.SHA, be1.SHA)
 }
@@ -315,7 +315,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	ctx := context.Background()
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
-	be0, okB := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, bundleID)
+	be0, okB := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, bundleID))
 	require.True(t, okB, "bundle under the remote parent locked")
 
 	// Advance repo A, then make the parent's repo unreachable.
@@ -336,7 +336,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	// never actually reached.
 	assert.True(t, res.Incomplete, "an unreachable parent must be reported as an incomplete closure")
 
-	be1, okB := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, bundleID)
+	be1, okB := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, bundleID))
 	require.True(t, okB, "the unexpanded subtree's entry survives the rewrite")
 	assert.Equal(t, be0.SHA, be1.SHA)
 }

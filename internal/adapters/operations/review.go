@@ -440,11 +440,12 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// content arrives in the queue looking like ordinary unsigned content and a
 	// human approves it.
 	v := e.authorizer.Admit(bundles.Exposure{
-		Read:   read,
-		Ref:    tRef,
-		RefStr: ref,
-		Bytes:  payload,
-		Form:   bundles.ContentForm(form),
+		Read:      read,
+		Ref:       tRef,
+		BundleRef: br,
+		RefStr:    ref,
+		Bytes:     payload,
+		Form:      bundles.ContentForm(form),
 	})
 	bundles.ReportVerdict(report.To(strictness.Sink("ctxloom")), ref, v)
 	if !v.Reason.NeedsReview() {

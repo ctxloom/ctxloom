@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"os"
 	"path"
 	"path/filepath"
@@ -50,7 +51,7 @@ func stagedTreeFetcher() remote.FetcherFactory {
 }
 
 func treeProbeLock() *remote.Lockfile {
-	return &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+	return &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
 		treeProbeCanonical: {SHA: treeProbeSHA, URL: treeProbeRepoURL},
 	}}
 }

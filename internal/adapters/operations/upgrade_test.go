@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,7 +51,7 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
-	e0, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
+	e0, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	require.True(t, ok, "the bundle is locked")
 	require.Equal(t, c1, e0.SHA)
 
@@ -63,7 +64,7 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	assert.Equal(t, 1, res.Advanced)
 
 	// The active lock now holds the new SHA — no approval step.
-	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
+	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	assert.Equal(t, c2, e1.SHA, "the upgrade advances the active lock directly")
 
 	// The manifest still holds the bare constraint — never rewritten.
@@ -93,7 +94,7 @@ func TestUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, res.Advanced, "a held entry is never advanced by upgrade")
 
-	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
+	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	assert.Equal(t, c1, e1.SHA, "the held entry stays frozen at its locked SHA")
 	assert.True(t, e1.Held, "the hold survives the relock")
 }
@@ -130,8 +131,8 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	require.NoError(t, err)
 
 	active0 := mustLoadActive(t, baseDir)
-	_, okA := active0.GetEntry(remote.ItemTypeBundle, refA)
-	eB0, okB := active0.GetEntry(remote.ItemTypeBundle, refB)
+	_, okA := active0.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, refA))
+	eB0, okB := active0.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, refB))
 	require.True(t, okA, "repo-A bundle locked")
 	require.True(t, okB, "inline-rooted bundle locked")
 	require.Equal(t, b1, eB0.SHA)
@@ -146,7 +147,7 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 
 	// The inline-rooted entry must survive the wholesale rewrite.
 	active1 := mustLoadActive(t, baseDir)
-	eB1, ok := active1.GetEntry(remote.ItemTypeBundle, refB)
+	eB1, ok := active1.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, refB))
 	assert.True(t, ok, "inline-config-rooted entry must survive the active-lock rewrite")
 	assert.Equal(t, b1, eB1.SHA)
 }
@@ -172,7 +173,7 @@ func srcDirOf(ref string) string {
 // the roots' direct repos.
 func TestUnionLockedRepoURLs(t *testing.T) {
 	lock := &remote.Lockfile{
-		Bundles: map[string]remote.LockEntry{
+		Bundles: map[trust.BundleKey]remote.LockEntry{
 			"https://github.com/a/r@bundles/x":  {URL: "https://github.com/a/r"},
 			"https://github.com/b/r@bundles/y":  {URL: "https://github.com/b/r"},
 			"https://github.com/b/r@bundles/y2": {URL: "https://github.com/b/r"}, // same repo, dedup'd

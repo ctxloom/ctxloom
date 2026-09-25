@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 	"time"
 
@@ -28,7 +29,7 @@ func TestResolveRetraction_FailStale(t *testing.T) {
 		t.Helper()
 		fs := afero.NewMemMapFs()
 		lm := NewLockfileManager("/proj/.ctxloom", WithLockfileFS(fs))
-		lf := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
+		lf := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
 		if seed != nil {
 			lf.AddEntry(ItemTypeBundle, localName, *seed)
 		}

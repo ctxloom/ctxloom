@@ -137,7 +137,7 @@ func lockedRefs(t *testing.T, appDir string) []string {
 	require.NoError(t, err)
 	var refs []string
 	for _, e := range lf.AllEntries() {
-		refs = append(refs, e.Ref)
+		refs = append(refs, string(e.Ref))
 	}
 	return refs
 }

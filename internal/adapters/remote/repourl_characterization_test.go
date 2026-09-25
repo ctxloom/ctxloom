@@ -27,7 +27,7 @@ type repoURLCase struct {
 	name string
 	in   string
 
-	identity  string // NormalizeURL      — trust namespace, remotes.yaml, lockfile keys
+	identity  string // storedRepoURL     — the spelling remotes.yaml stores
 	transport string // normalizeCloneURL — the git clone argument
 	cacheDir  string // RepoDirForURL     — clone cache path, "" means "must error"
 	kind      SourceKind
@@ -215,7 +215,7 @@ func TestRepoURL_Characterization(t *testing.T) {
 	cache := NewRepoCache("/base", AuthConfig{})
 	for _, tc := range repoURLCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.identity, NormalizeURL(tc.in), "identity (NormalizeURL)")
+			assert.Equal(t, tc.identity, storedRepoURL(tc.in), "identity (NormalizeURL)")
 			assert.Equal(t, tc.transport, normalizeCloneURL(tc.in), "transport (normalizeCloneURL)")
 
 			dir, err := cache.RepoDirForURL(tc.in)
@@ -248,7 +248,7 @@ func TestRepoURL_IdentityAndTransportAgree(t *testing.T) {
 			continue
 		}
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, NormalizeURL(tc.in), normalizeCloneURL(tc.in),
+			assert.Equal(t, storedRepoURL(tc.in), normalizeCloneURL(tc.in),
 				"identity and transport must name the same repository for %q", tc.in)
 		})
 	}
@@ -328,7 +328,7 @@ func TestRepoURL_NonHTTPPathsAreBytePreserved(t *testing.T) {
 		"git://github.com/owner/repo/",
 		"git://github.com/owner/repo.git",
 	} {
-		assert.Equal(t, in, NormalizeURL(in),
+		assert.Equal(t, in, storedRepoURL(in),
 			"%q names a real repository: folding it would move its trust key and drop any rejection recorded under the old spelling", in)
 		assert.Equal(t, in, normalizeCloneURL(in),
 			"%q is a path on the far side, not a forge URL: git must receive it as written", in)

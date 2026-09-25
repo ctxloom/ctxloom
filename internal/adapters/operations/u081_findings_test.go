@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -363,8 +364,8 @@ func TestRemoveLocalItems_DoesNotRemoveOutsideCache(t *testing.T) {
 	victim := filepath.Join(appDir, "victim.yaml")
 	require.NoError(t, afero.WriteFile(fs, victim, []byte("do not delete me"), 0644))
 
-	ref := "https://x/..@bundles/victim"
-	lf := refLockfile(map[string]remote.LockEntry{ref: {SHA: "abc"}})
+	ref := trust.BundleKey("https://x/..@bundles/victim")
+	lf := refLockfile(map[trust.BundleKey]remote.LockEntry{ref: {SHA: "abc"}})
 	res, err := RemoveLocalItems(RemoveLocalItemsRequest{
 		Items:       []RemovedItem{{Type: remote.ItemTypeBundle, Ref: ref}},
 		Lockfile:    lf,
@@ -374,7 +375,7 @@ func TestRemoveLocalItems_DoesNotRemoveOutsideCache(t *testing.T) {
 	exists, statErr := afero.Exists(fs, victim)
 	require.NoError(t, statErr)
 	assert.True(t, exists, "cleanup must not delete a file outside the bundle cache root")
-	assert.Equal(t, []string{ref}, res.Pruned, "cleanup prunes the lockfile entry and nothing else")
+	assert.Equal(t, []string{string(ref)}, res.Pruned, "cleanup prunes the lockfile entry and nothing else")
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -383,6 +384,6 @@ func ptr[T any](v T) *T { return &v }
 // the now-deleted bundle_refs_test.go (AnalyzeBundleReferences and its test
 // file were deleted, but this helper is still needed by
 // TestRemoveLocalItems_DoesNotRemoveOutsideCache above).
-func refLockfile(bundles map[string]remote.LockEntry) *remote.Lockfile {
+func refLockfile(bundles map[trust.BundleKey]remote.LockEntry) *remote.Lockfile {
 	return &remote.Lockfile{Bundles: bundles}
 }

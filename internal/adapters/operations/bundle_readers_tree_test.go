@@ -335,7 +335,7 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 	c, _, _, _ := stageInstalledTree(t)
 	_, pub := treeTestSigner(t)
 
-	lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{treeCanonical: treeEntry()}}
+	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{treeCanonical: treeEntry()}}
 	other := assert.AnError
 	failures := map[string]error{
 		treeCanonical: remote.ErrTreeBundleUnreadable,
@@ -375,7 +375,7 @@ func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T
 	testsupport.WriteFileString(t, fsys, filepath.Join(brokenDir, bundles.DirectoryFormManifest),
 		"\tnot: valid yaml\n", 0o644)
 
-	lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
 		treeCanonical:   treeEntry(),
 		brokenCanonical: {SHA: "0123456789abcdef", URL: "https://github.com/acme/ctx"},
 	}}

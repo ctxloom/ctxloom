@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +14,7 @@ import (
 
 // depsCheckApp opens the composition over a project whose lockfile holds
 // exactly the given bundle entries.
-func depsCheckApp(t *testing.T, bundles map[string]remote.LockEntry) *App {
+func depsCheckApp(t *testing.T, bundles map[trust.BundleKey]remote.LockEntry) *App {
 	t.Helper()
 	appDir := t.TempDir()
 	if bundles != nil {
@@ -40,7 +41,7 @@ func TestCheckDependencies_NothingInstalled_ReportsNoEntries(t *testing.T) {
 // used to be a `continue` with no diagnostic, which let "All items are up to
 // date!" print with nothing checked.
 func TestCheckDependencies_UnparseableEntryIsUncheckedNotCurrent(t *testing.T) {
-	app := depsCheckApp(t, map[string]remote.LockEntry{
+	app := depsCheckApp(t, map[trust.BundleKey]remote.LockEntry{
 		"::::not-a-valid-reference": {SHA: "somesha", RequestedVersion: "main"},
 	})
 	res, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})
@@ -59,7 +60,7 @@ func TestCheckDependencies_UnparseableEntryIsUncheckedNotCurrent(t *testing.T) {
 // counted so the frontend can say so, never reported as current or as
 // unchecked.
 func TestCheckDependencies_EmptySHAEntriesAreSkippedAndCounted(t *testing.T) {
-	app := depsCheckApp(t, map[string]remote.LockEntry{
+	app := depsCheckApp(t, map[trust.BundleKey]remote.LockEntry{
 		"https://github.com/o/r@bundles/x": {SHA: "", RequestedVersion: "main"},
 	})
 	res, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{})

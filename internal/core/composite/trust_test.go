@@ -48,9 +48,9 @@ func (f fakeRecords) Approved(ref trust.Ref, payload []byte, form bundles.Conten
 	return f.approved(ref, payload, form)
 }
 
-type fakeRetraction func(trust.Ref) (bool, string)
+type fakeRetraction func(trust.BundleRef) (bool, string)
 
-func (f fakeRetraction) Retracted(ref trust.Ref) (bool, string) {
+func (f fakeRetraction) Retracted(ref trust.BundleRef) (bool, string) {
 	if f == nil {
 		return false, ""
 	}
@@ -77,11 +77,12 @@ func remoteExecutable(t *testing.T) (bundles.Exposure, string) {
 	read := bundles.NewRead("tools", b, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
 		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 	return bundles.Exposure{
-		Read:   read,
-		Ref:    trust.RefFromBundleRef(br),
-		RefStr: refStr,
-		Bytes:  []byte("#!/bin/sh\necho deploy\n"),
-		Form:   bundles.FormRaw,
+		Read:      read,
+		Ref:       trust.RefFromBundleRef(br),
+		BundleRef: br,
+		RefStr:    refStr,
+		Bytes:     []byte("#!/bin/sh\necho deploy\n"),
+		Form:      bundles.FormRaw,
 	}, refStr
 }
 
@@ -138,7 +139,7 @@ func TestNewTrust_ARejectionOutranksAnApproval(t *testing.T) {
 func TestNewTrust_ARetractionRefusesTheExecutable(t *testing.T) {
 	e, _ := remoteExecutable(t)
 	records := fakeRecords{approved: func(trust.Ref, []byte, bundles.ContentForm) bool { return true }}
-	retraction := fakeRetraction(func(ref trust.Ref) (bool, string) {
+	retraction := fakeRetraction(func(ref trust.BundleRef) (bool, string) {
 		return ref.Bundle == "tools", "key compromised"
 	})
 	tr := mustTrust(t, records, retraction)
@@ -213,7 +214,7 @@ func invalidlySigned(t *testing.T, refStr string, ctx bundles.TrustCtx, prov bun
 	b := &bundles.Bundle{Name: br.Bundle}
 	read := bundles.NewRead(br.Bundle, b, prov, ctx,
 		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerUntrusted, Detail: "its files no longer match SHA256SUMS"})
-	return bundles.Exposure{Read: read, Ref: trust.RefFromBundleRef(br), RefStr: refStr, Bytes: []byte("echo deploy"), Form: bundles.FormRaw}
+	return bundles.Exposure{Read: read, Ref: trust.RefFromBundleRef(br), BundleRef: br, RefStr: refStr, Bytes: []byte("echo deploy"), Form: bundles.FormRaw}
 }
 
 // TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmittedAsUnsigned:
@@ -272,11 +273,12 @@ func companionFragment(t *testing.T) bundles.Exposure {
 	read := bundles.NewRead("ctxloom:companion@ctxloom", b, bundles.ProvenanceCompanion, bundles.TrustCtxLocal,
 		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 	return bundles.Exposure{
-		Read:   read,
-		Ref:    trust.RefFromBundleRef(br),
-		RefStr: refStr,
-		Bytes:  []byte("Set both isolation axes."),
-		Form:   bundles.FormRaw,
+		Read:      read,
+		Ref:       trust.RefFromBundleRef(br),
+		BundleRef: br,
+		RefStr:    refStr,
+		Bytes:     []byte("Set both isolation axes."),
+		Form:      bundles.FormRaw,
 	}
 }
 

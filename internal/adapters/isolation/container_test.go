@@ -51,6 +51,7 @@ func (fakeRuntime) containerImageArgs(ids ...string) []string {
 func (fakeRuntime) imageRemoveArgs(refs ...string) []string {
 	return ociRuntime{}.imageRemoveArgs(refs...)
 }
+func (fakeRuntime) canonicalRef(ref string) string { return ociRuntime{}.canonicalRef(ref) }
 
 // imageUniqueSizes answers through the docker grammar, so a scripted
 // probeExec (image_prune_test.go) serves it like any other call.

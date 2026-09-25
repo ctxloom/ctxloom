@@ -161,7 +161,7 @@ func fixtureID() string {
 func composedImg(ref, slot, companions string, age time.Duration, from string) storeImage {
 	labels := map[string]string{
 		labelImageKind: string(ImageComposed), labelImageSlot: slot, labelImageCompanions: companions,
-		labelEngine: "mock", provenanceLabel: "p",
+		labelEngine: "mock", provenanceLabel: "p", labelImageTag: ref,
 	}
 	if from != "" {
 		labels[labelImageFrom] = from
@@ -171,7 +171,7 @@ func composedImg(ref, slot, companions string, age time.Duration, from string) s
 
 func baseImg(ref, slot string, age time.Duration) storeImage {
 	return storeImage{id: fixtureID(), refs: []string{ref}, created: pruneNow.Add(-age), unique: "300MB",
-		labels: map[string]string{labelImageKind: string(ImageBase), labelImageSlot: slot}}
+		labels: map[string]string{labelImageKind: string(ImageBase), labelImageSlot: slot, labelImageTag: ref}}
 }
 
 func unlabelledImg(ref string) storeImage {
@@ -179,6 +179,19 @@ func unlabelledImg(ref string) storeImage {
 }
 
 const day = 24 * time.Hour
+
+// derivedImg is img rebuilt by a user FROM it: every label inherited, the
+// tag its own.
+func derivedImg(img storeImage, ref string) storeImage {
+	img.refs = []string{ref}
+	return img
+}
+
+// danglingImg is img with its tag moved to a newer build.
+func danglingImg(img storeImage) storeImage {
+	img.refs = nil
+	return img
+}
 
 // verdictsByRef flattens a plan for assertions.
 func verdictsByRef(p ImagePrunePlan) map[string]KeepReason {
@@ -290,6 +303,15 @@ func TestPlanImagePrune_KeepRules(t *testing.T) {
 			},
 		},
 		{
+			name: "a user image built FROM a ctxloom image inherits its labels but not its tag: skipped, never removed, never newest-in-slot",
+			images: []storeImage{
+				composedImg("ctxloom-agent-mock:v1-cC-S", "S", "C", 5*day, ""),
+				derivedImg(composedImg("ctxloom-agent-mock:v1-cC-S", "S", "C", 3*day, ""), "myorg/agent:mine"),
+			},
+			want:    map[string]KeepReason{"ctxloom-agent-mock:v1-cC-S": KeepNewestInSlot},
+			unowned: []string{"myorg/agent:mine"},
+		},
+		{
 			name: "a pre-label image (provenance+engine, no slot) is owned but never newest-in-slot",
 			images: []storeImage{{
 				id: fixtureID(), refs: []string{"ctxloom-agent-claude-code:old"}, created: pruneNow.Add(-30 * day), unique: "700MB",
@@ -364,16 +386,38 @@ func TestApplyImagePrune_FailureIsRecordedAndOthersProceed(t *testing.T) {
 	assert.Len(t, s.rmis(), 2, "the failure did not stop the sweep")
 }
 
-// TestApplyImagePrune_DanglingRemovedByID: a superseded image left untagged by
-// a rebuild over its tag is removed by ID.
-func TestApplyImagePrune_DanglingRemovedByID(t *testing.T) {
-	old := composedImg("x", "S", "C", 5*day, "")
-	old.refs = nil
+// TestPlanImagePrune_DanglingIsUnowned: an image whose tag was rebuilt onto a
+// newer build has no RepoTag to prove its ctxloom.tag, so it is reported and
+// never removed.
+func TestPlanImagePrune_DanglingIsUnowned(t *testing.T) {
+	old := danglingImg(composedImg("ctxloom-agent-mock:v1-cC-S", "S", "C", 5*day, ""))
 	s := &fakeImageStore{images: []storeImage{old, composedImg("ctxloom-agent-mock:v1-cC-S", "S", "C", 3*day, "")}}
 	plan, rt := planFor(t, s)
+	assert.Equal(t, map[string]KeepReason{"ctxloom-agent-mock:v1-cC-S": KeepNewestInSlot}, verdictsByRef(plan))
+	assert.Equal(t, []string{old.id}, plan.Unowned)
 	ApplyImagePrune(context.Background(), rt, plan)
-	assert.Equal(t, [][]string{{"rmi", old.id}}, s.rmis())
+	assert.Empty(t, s.rmis())
 }
+
+// TestPlanImagePrune_PodmanLocalhostRefsMatch: podman reports a local build
+// as localhost/<tag>; through the runtime's canonicalRef it still matches
+// its ctxloom.tag, so ownership (and Live/From) hold on podman.
+func TestPlanImagePrune_PodmanLocalhostRefsMatch(t *testing.T) {
+	img := composedImg("ctxloom-agent-mock:v1-cC-S", "S", "C", 5*day, "")
+	img.refs = []string{"localhost/ctxloom-agent-mock:v1-cC-S"}
+	s := &fakeImageStore{images: []storeImage{img}}
+	s.install(t)
+	rt := localhostRuntime{fakeRuntime{name: "podman", binary: "fake-podman", available: true}}
+	plan, err := PlanImagePrune(context.Background(), rt, ImagePruneOptions{Live: []string{"ctxloom-agent-mock:v1-cC-S"}, MinAge: day, Now: pruneNow})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]KeepReason{"ctxloom-agent-mock:v1-cC-S": KeepCurrent}, verdictsByRef(plan))
+	assert.Empty(t, plan.Unowned)
+}
+
+// localhostRuntime is the fake with podman's ref canonicalization.
+type localhostRuntime struct{ fakeRuntime }
+
+func (localhostRuntime) canonicalRef(ref string) string { return Podman{}.canonicalRef(ref) }
 
 // TestPlanImagePrune_HostHasNothing: Host runs no probe at all.
 func TestPlanImagePrune_HostHasNothing(t *testing.T) {

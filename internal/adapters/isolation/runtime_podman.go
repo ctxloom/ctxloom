@@ -63,6 +63,10 @@ func (Podman) RemoveArgs(name string) []string { return []string{"rm", "-f", "-t
 
 // daemonNameTemplate: `podman info` has no top-level Name (that template is an
 // execution error) and carries the host name under Host.
+// canonicalRef strips the localhost/ registry podman files an unqualified
+// local build under, so `localhost/ctxloom-agent-x:t` reads as the tag built.
+func (Podman) canonicalRef(ref string) string { return strings.TrimPrefix(ref, "localhost/") }
+
 func (Podman) daemonNameTemplate() string { return "{{.Host.Hostname}}" }
 
 // pastaHostLoopback is the in-container address pasta maps to the host's

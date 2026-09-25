@@ -18,8 +18,9 @@ Find the agent images ctxloom built that nothing uses any more, and — with
 
 Every ctxloom commit (and every change to the admitted companion set) builds
 a new agent image tag, and the old ones are never overwritten, so they pile
-up. An image is ctxloom's only if a ctxloom build LABELLED it; a name that
-merely looks like ctxloom-agent-* is reported as unowned and never touched.
+up. An image is ctxloom's only if a ctxloom build LABELLED it with its own
+tag; an image that merely looks like ctxloom-agent-*, or one built FROM a
+ctxloom image under another tag, is reported as unowned and never touched.
 
 An owned image is KEPT when any of these holds:
   - it is the image a configured agent in this project runs (current)

@@ -136,7 +136,7 @@ func (id agentImageID) stamp(from string) imageStamp {
 	if id.slot == "" {
 		return imageStamp{}
 	}
-	return imageStamp{kind: ImageComposed, slot: id.slot, companions: id.companions, from: from}
+	return imageStamp{kind: ImageComposed, tag: id.ref, slot: id.slot, companions: id.companions, from: from}
 }
 
 // composedIdentity resolves a COMPOSABLE spec's identity (image tag,
@@ -1109,7 +1109,7 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 			return "", fmt.Errorf("base containerfile: %w", err)
 		}
 		tag := baseImageTagFor(content)
-		flags.stamp = baseStamp(content)
+		flags.stamp = baseStamp(tag, content)
 		contextDir := filepath.Dir(abs)
 		if base.context != "" {
 			contextDir = base.context
@@ -1128,14 +1128,14 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 		return "", fmt.Errorf("base build context: %w", err)
 	}
 	tag := baseImageTagFor(base.containerfile)
-	flags.stamp = baseStamp(base.containerfile)
+	flags.stamp = baseStamp(tag, base.containerfile)
 	return tag, runImageBuild(ctx, rt, tag, file, dir, flags, output)
 }
 
 // baseStamp is a stage-1 base's label set: its slot is the content hash its
 // tag is keyed on (baseImageTagFor).
-func baseStamp(content []byte) imageStamp {
-	return imageStamp{kind: ImageBase, slot: baseContentHash(content)}
+func baseStamp(tag string, content []byte) imageStamp {
+	return imageStamp{kind: ImageBase, tag: tag, slot: baseContentHash(content)}
 }
 
 // ImageBuildOptions parameterize an explicit agent-image build

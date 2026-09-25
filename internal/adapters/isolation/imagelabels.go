@@ -21,6 +21,11 @@ const (
 	// two HOMEs at one commit admit different companions and hold different
 	// images, which must not supersede one another.
 	labelImageCompanions = "ctxloom.companions"
+	// labelImageTag is the exact tag the build produced. Labels inherit through
+	// FROM, so a user image built on a ctxloom image carries every label above;
+	// its own tag is the one thing it does not share. An image is owned only
+	// when one of its refs equals this label.
+	labelImageTag = "ctxloom.tag"
 	// labelImageFrom names the base ref a composed image was built FROM, so
 	// pruning keeps the parent of every image it keeps.
 	labelImageFrom = "ctxloom.from"
@@ -46,6 +51,7 @@ const (
 // test build) stays unowned, and pruning never touches it.
 type imageStamp struct {
 	kind       ImageKind
+	tag        string
 	slot       string
 	companions string
 	from       string
@@ -59,6 +65,7 @@ func (s imageStamp) labelArgs() []string {
 	}
 	args := []string{"--label", labelImageKind + "=" + string(s.kind)}
 	for _, kv := range [][2]string{
+		{labelImageTag, s.tag},
 		{labelImageSlot, s.slot},
 		{labelImageCompanions, s.companions},
 		{labelImageFrom, s.from},

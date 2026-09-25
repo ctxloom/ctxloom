@@ -97,6 +97,9 @@ type Runtime interface {
 	// the runtime's own refusal of an in-use image is a safety the prune
 	// relies on.
 	imageRemoveArgs(refs ...string) []string
+	// canonicalRef renders an image ref the way ctxloom tagged it, so a ref
+	// the runtime reports compares equal to the tag a build stamped.
+	canonicalRef(ref string) string
 	// imageUniqueSizes reports each image's unique-layer bytes (what removing
 	// it alone frees), keyed by its 12-hex short ID — the one disk-usage
 	// figure no image listing both runtimes render gives.
@@ -344,6 +347,9 @@ func (ociRuntime) containerListAllArgs() []string {
 func (ociRuntime) containerImageArgs(containers ...string) []string {
 	return append([]string{"container", "inspect", "--format", "{{.Image}}"}, containers...)
 }
+
+// canonicalRef is the identity: docker reports a local tag as built.
+func (ociRuntime) canonicalRef(ref string) string { return ref }
 
 // imageRemoveArgs is a plain, unforced rmi.
 func (ociRuntime) imageRemoveArgs(refs ...string) []string {

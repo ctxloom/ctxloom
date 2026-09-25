@@ -59,6 +59,7 @@ func (Host) imageListArgs(string) []string                         { return nil 
 func (Host) containerListAllArgs() []string                        { return nil }
 func (Host) containerImageArgs(...string) []string                 { return nil }
 func (Host) imageRemoveArgs(...string) []string                    { return nil }
+func (Host) canonicalRef(ref string) string                        { return ref }
 
 // imageUniqueSizes is empty: Host holds no images.
 func (Host) imageUniqueSizes(context.Context) (map[string]int64, error) { return nil, nil }

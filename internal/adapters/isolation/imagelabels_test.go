@@ -39,6 +39,8 @@ func TestBuildFromSource_StampsOwnershipLabels(t *testing.T) {
 	assert.Contains(t, base, "--label ctxloom.slot="+baseContentHash(baseContent))
 	assert.NotContains(t, base, "ctxloom.companions", "a base does not depend on the companion set")
 
+	assert.Contains(t, base, "--label ctxloom.tag="+baseImageTagFor(baseContent), "the base proves ownership by its own tag")
+	assert.Contains(t, agent, "--label ctxloom.tag=ctxloom-agent-mock:v1-cX-abc", "the composed image proves ownership by its own tag")
 	assert.Contains(t, agent, "--label ctxloom.image=composed")
 	assert.Contains(t, agent, "--label ctxloom.slot=abc")
 	assert.Contains(t, agent, "--label ctxloom.companions=cX")

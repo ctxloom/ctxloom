@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -185,17 +186,14 @@ func PlanImagePrune(ctx context.Context, rt Runtime, opts ImagePruneOptions) (Im
 }
 
 // ApplyImagePrune removes every superseded image in plan, one `rmi` per image
-// naming all its refs (its ID when dangling) — never forced, so the runtime
+// naming all its refs (an owned image always has one: ownership is proved by
+// a ref) — never forced, so the runtime
 // still refuses an image something started using since the plan was made. A
 // failure is recorded with the runtime's own words and the sweep continues.
 func ApplyImagePrune(ctx context.Context, rt Runtime, plan ImagePrunePlan) ImagePruneResult {
 	var res ImagePruneResult
 	for _, img := range plan.Superseded() {
-		targets := img.Refs
-		if len(targets) == 0 {
-			targets = []string{img.ID}
-		}
-		if _, err := pruneProbe(ctx, rt, rt.imageRemoveArgs(targets...)); err != nil {
+		if _, err := pruneProbe(ctx, rt, rt.imageRemoveArgs(img.Refs...)); err != nil {
 			res.Failed = append(res.Failed, ImagePruneFailure{Image: img, Err: err})
 			continue
 		}
@@ -278,6 +276,9 @@ func inspectImageCandidates(ctx context.Context, rt Runtime, ids []string) ([]Ow
 	var owned []OwnedImage
 	var unowned []string
 	for _, r := range raw {
+		for i, ref := range r.RepoTags {
+			r.RepoTags[i] = rt.canonicalRef(ref)
+		}
 		img, ok := ownedImage(r)
 		if !ok {
 			unowned = append(unowned, img.name())
@@ -289,7 +290,11 @@ func inspectImageCandidates(ctx context.Context, rt Runtime, ids []string) ([]Ow
 	return owned, unowned, nil
 }
 
-// ownedImage reads one inspected image; ok is the ownership proof.
+// ownedImage reads one inspected image (refs already canonical); ok is the
+// ownership proof. A labelled image must ALSO carry one of its own refs as
+// ctxloom.tag: labels inherit through FROM, a tag does not, so a user image
+// built on a ctxloom image — and a dangling one, which has no ref left to
+// prove — is unowned.
 func ownedImage(r imageInspectJSON) (OwnedImage, bool) {
 	l := r.Config.Labels
 	img := OwnedImage{
@@ -303,7 +308,7 @@ func ownedImage(r imageInspectJSON) (OwnedImage, bool) {
 		Created:    r.Created,
 	}
 	if img.Kind != "" {
-		return img, true
+		return img, slices.Contains(img.Refs, l[labelImageTag])
 	}
 	if l[provenanceLabel] != "" && l[labelEngine] != "" {
 		img.Kind = ImageComposed // no slot label: rules 1, 2 and 4 only

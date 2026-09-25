@@ -178,14 +178,7 @@ func seedRemote(t *testing.T, seeded map[string]*Bundle) []Reader {
 		if b.Name == "" {
 			b.Name = ref
 		}
-		// A seed becomes a TREE, because that is the only form a repofs reader
-		// accepts. Fragments are the only kind any seed has ever carried, and
-		// an unhandled kind FAILS here rather than being dropped: a seed whose
-		// commands silently vanished would make whatever it was seeded for pass
-		// while testing nothing.
-		if len(b.Commands) > 0 || len(b.Skills) > 0 || len(b.MCP) > 0 || len(b.Profiles) > 0 || b.Hooks.HasAny() {
-			t.Fatalf("seedRemote: %q carries a kind this helper does not stage as tree items; teach it that kind rather than losing them", ref)
-		}
+		requireFragmentsOnly(t, ref, b)
 		frags := map[string]string{}
 		for name, f := range b.Fragments {
 			frags[name] = f.Content
@@ -202,6 +195,19 @@ func seedRemote(t *testing.T, seeded map[string]*Bundle) []Reader {
 		readers = append(readers, NewRepoFSReader(repoTree(t, leaf, envelope, frags, nil), ref, WithRepoURL(repoURL)))
 	}
 	return readers
+}
+
+// requireFragmentsOnly fails for a seed carrying any kind but fragments. A
+// seed becomes a TREE, because that is the only form a repofs reader
+// accepts. Fragments are the only kind any seed has ever carried, and an
+// unhandled kind FAILS here rather than being dropped: a seed whose commands
+// silently vanished would make whatever it was seeded for pass while testing
+// nothing.
+func requireFragmentsOnly(t *testing.T, ref string, b *Bundle) {
+	t.Helper()
+	if len(b.Commands) > 0 || len(b.Skills) > 0 || len(b.MCP) > 0 || len(b.Profiles) > 0 || b.Hooks.HasAny() {
+		t.Fatalf("seedRemote: %q carries a kind this helper does not stage as tree items; teach it that kind rather than losing them", ref)
+	}
 }
 
 // loadoutProbe is a CompanionProber over a fixed set of loadouts and no

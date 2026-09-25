@@ -133,27 +133,37 @@ func (c Records) Rejected(ref trust.Ref, payload []byte) bool {
 	// only the ref-level lookups are skipped, never the whole check. Answering
 	// "rejected" here instead would assert a human decision nobody made.
 	refStr, addressable := refLevelAddress(ref)
+	if addressable && c.refRejected(refStr, now) {
+		return true
+	}
+	return c.contentRejected(ref.Kind, payload, now)
+}
+
+// refRejected reports a ref-level rejection of refStr: a verified one in
+// either store, or the degraded, UNSIGNED marker (spec §9.5) — checked ONLY
+// against the user store. An unsigned marker is exactly as authoritative as
+// the deleted trust.yaml design (anything that can write .ctxloom/ can forge
+// one), which is why it is never honored from the PROJECT store: that store
+// is committable and shared, and an unsigned record there would be a
+// forgery primitive with a friendly name.
+func (c Records) refRejected(refStr string, now time.Time) bool {
 	for _, st := range c.bothStores() {
-		if !addressable {
-			break
-		}
 		if _, ok := st.VerifiedRefReject(refStr, c.root, now); ok {
 			return true
 		}
 	}
-	// The degraded, UNSIGNED path (spec §9.5) — checked ONLY against the user
-	// store. An unsigned marker is exactly as authoritative as the deleted
-	// trust.yaml design (anything that can write .ctxloom/ can forge one),
-	// which is why it is never honored from the PROJECT store: that store is
-	// committable and shared, and an unsigned record there would be a
-	// forgery primitive with a friendly name.
-	if addressable && c.user.HasUnsignedRefReject(refStr) {
-		return true
-	}
+	return c.user.HasUnsignedRefReject(refStr)
+}
+
+// contentRejected reports a content rejection of payload under any
+// attestation form kind can be countersigned under: a verified one in either
+// store, or the user store's unsigned marker. An empty payload is never
+// content-rejected.
+func (c Records) contentRejected(kind trust.ItemKind, payload []byte, now time.Time) bool {
 	if len(payload) == 0 {
 		return false
 	}
-	for _, form := range AttestationFormsFor(ref.Kind) {
+	for _, form := range AttestationFormsFor(kind) {
 		for _, st := range c.bothStores() {
 			if _, ok := st.VerifiedContentReject(form, payload, c.root, now); ok {
 				return true

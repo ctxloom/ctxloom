@@ -106,6 +106,17 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | none      |
       | worktree  |
 
+  # The workspace axis is a convenience, and it degrades: a worktree is cut
+  # from a git repository, so where there is none the run goes ahead in the
+  # live project directory rather than refusing. That is the opposite of the
+  # runtime axis below, where a container that cannot be had is a refusal.
+  # Losing a worktree loses no boundary that was promised; losing a container
+  # would.
+  Scenario: Asking for a worktree outside git runs in the live project directory instead of refusing
+    Given Alice's project is not a git repository
+    When Alice runs the mock agent under workspace "worktree" with prompt "no-git-check"
+    Then the run's workdir reflects the "none" workspace axis
+
   # LOCKED — the core boundary claim: two isolated runs never share the
   # workspace they get. Genuinely different prompts (task-one / task-two) so
   # a one-value assertion can't accidentally pass twice.

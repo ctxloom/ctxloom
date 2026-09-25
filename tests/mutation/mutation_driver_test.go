@@ -22,11 +22,19 @@ type driverRun struct {
 	out  string
 	// argv is what the recipe handed `go`, one argument per line.
 	argv string
+	// tmpdir is the TMPDIR the fake tool ran under; mutationTmp is the
+	// recipe's CTXLOOM_MUTATION_TMP.
+	tmpdir, mutationTmp string
 }
 
 // fakeGoDir writes a stand-in `go` that records its arguments, prints the
 // canned run output, and exits with status — the whole of what the driver
-// sees of a real `go test` run.
+// sees of a real `go test` run. A `gremlins` identical to it stands in for the
+// recipes that release gremlins directly.
+//
+// Both also LEAK a test temp dir into their TMPDIR, as a test killed mid-run
+// (a gremlins timeout, an interrupted lane) does — with a read-only directory
+// inside, as a Go module cache leaves, so a plain `rm -rf` cannot remove it.
 func fakeGoDir(t *testing.T, output, status string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -36,10 +44,15 @@ func fakeGoDir(t *testing.T, output, status string) string {
 	script := "#!/bin/sh\n" +
 		"here=$(dirname \"$0\")\n" +
 		"printf '%s\\n' \"$@\" > \"$here/argv\"\n" +
+		"printf '%s' \"${TMPDIR:-}\" > \"$here/tmpdir\"\n" +
+		"leak=\"${TMPDIR:-/tmp}/ctxloom-test-sandbox-$$\"\n" +
+		"mkdir -p \"$leak/mod\" && touch \"$leak/mod/go.mod\" && chmod 0555 \"$leak/mod\"\n" +
 		"cat \"$here/output\"\n" +
 		"exit " + status + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake go: %v", err)
+	for _, tool := range []string{"go", "gremlins"} {
+		if err := os.WriteFile(filepath.Join(dir, tool), []byte(script), 0o755); err != nil {
+			t.Fatalf("write fake %s: %v", tool, err)
+		}
 	}
 	return dir
 }
@@ -48,7 +61,7 @@ func fakeGoDir(t *testing.T, output, status string) string {
 // a private mutation tmpdir, and NO baseline update mode — the acceptance and
 // package lanes ratchet against the repo's real survivor_baseline.txt, and an
 // inherited CTXLOOM_MUTATION_BASELINE=update would let a fake run rewrite it.
-func driverEnv(t *testing.T, fakeDir string) []string {
+func driverEnv(t *testing.T, fakeDir, mutationTmp string) []string {
 	t.Helper()
 	var env []string
 	for _, kv := range os.Environ() {
@@ -61,7 +74,7 @@ func driverEnv(t *testing.T, fakeDir string) []string {
 	}
 	return append(env,
 		"PATH="+fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"CTXLOOM_MUTATION_TMP="+t.TempDir())
+		"CTXLOOM_MUTATION_TMP="+mutationTmp)
 }
 
 // runMutationRecipe runs a public mutation recipe exactly as a human would,
@@ -80,10 +93,13 @@ func runMutationRecipe(t *testing.T, output, status string, recipe ...string) dr
 	// dev container); the wiring under test is what runs AFTER them.
 	args := append([]string{"--no-deps", "--justfile", filepath.Join(root, "justfile"), "--working-directory", root}, recipe...)
 	cmd := exec.Command(just, args...)
-	cmd.Env = driverEnv(t, fake)
+	mutationTmp := t.TempDir()
+	cmd.Env = driverEnv(t, fake, mutationTmp)
 	out, err := cmd.CombinedOutput()
 	argv, _ := os.ReadFile(filepath.Join(fake, "argv"))
-	return driverRun{code: exitCode(t, err, out), out: string(out), argv: string(argv)}
+	tmpdir, _ := os.ReadFile(filepath.Join(fake, "tmpdir"))
+	return driverRun{code: exitCode(t, err, out), out: string(out), argv: string(argv),
+		tmpdir: string(tmpdir), mutationTmp: mutationTmp}
 }
 
 func exitCode(t *testing.T, err error, out []byte) int {
@@ -207,12 +223,50 @@ func TestMutationDriver_RefusesAnUnknownLane(t *testing.T) {
 	fake := fakeGoDir(t, oozeLog("TestAcceptanceMutation/x", 1, 1, 0), "0")
 	cmd := exec.Command("bash", repoInput(t, "tests/mutation/mutation_driver.sh")[0], "no-ratchet")
 	cmd.Dir = root
-	cmd.Env = driverEnv(t, fake)
+	cmd.Env = driverEnv(t, fake, t.TempDir())
 	out, err := cmd.CombinedOutput()
 	if code := exitCode(t, err, out); code != 2 {
 		t.Errorf("exit %d, want 2 (usage) for an unknown lane; output:\n%s", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(fake, "argv")); err == nil {
 		t.Errorf("an unknown lane must be refused BEFORE go test runs")
+	}
+}
+
+// Every recipe that runs a mutation tool gives the run its OWN temp dir under
+// the mutation tmp, and removes it on exit. The tools' test processes put
+// their own temp dirs in TMPDIR, and a test killed mid-run — every gremlins
+// timeout kills one — never cleans up after itself; with TMPDIR at the shared
+// mutation tmp those piled up there run after run, since the sweep only knew
+// gremlins' own copies. (test-mutation-container and test-mutation-diff take
+// the same path; the first needs docker and the second a diff, so they are
+// not driven here.)
+func TestMutationRecipes_LeaveNothingUnderTheMutationTmp(t *testing.T) {
+	recipes := map[string][]string{
+		"driver lane":       {"test-mutation-unit", "-run", "X"},
+		"test-mutation-pkg": {"test-mutation-pkg", "internal/x"},
+		"test-mutation":     {"test-mutation"},
+	}
+	for name, recipe := range recipes {
+		t.Run(name, func(t *testing.T) {
+			r := runMutationRecipe(t, oozeLog("TestUnitMutation/x", 10, 6, 4), "0", recipe...)
+			if !strings.HasPrefix(r.tmpdir, r.mutationTmp+string(os.PathSeparator)) {
+				t.Fatalf("the tool ran with TMPDIR=%q, not a per-run dir under the mutation tmp %q.\noutput:\n%s", r.tmpdir, r.mutationTmp, r.out)
+			}
+			entries, err := os.ReadDir(r.mutationTmp)
+			if err != nil {
+				t.Fatalf("read mutation tmp: %v", err)
+			}
+			for _, e := range entries {
+				t.Errorf("left behind under the mutation tmp: %s", e.Name())
+				// Let t.TempDir's cleanup remove what the recipe did not.
+				_ = filepath.WalkDir(filepath.Join(r.mutationTmp, e.Name()), func(p string, d os.DirEntry, _ error) error {
+					if d != nil && d.IsDir() {
+						_ = os.Chmod(p, 0o755)
+					}
+					return nil
+				})
+			}
+		})
 	}
 }

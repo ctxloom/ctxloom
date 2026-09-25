@@ -96,6 +96,8 @@ _ensure-gotmpdir:
 # per-build image key, so versionator's definition would force an agent-image
 # rebuild on nearly every local build and deliver reuse only to CI.
 version := `if v=$(versionator output version -t "{{Prefix}}{{MajorMinorPatch}}-{{ShortHash}}-{{BuildDateTimeCompact}}" --prefix 2>/dev/null); then v=$(echo "$v" | sed -E 's/([0-9]{8})([0-9]{6})$/\1T\2/'); case "$(git describe --always --dirty 2>/dev/null)" in *-dirty) echo "$v-dirty";; *) echo "$v";; esac; else echo "no version stamp: versionator is not installed or failed. Install it (version pinned in .devcontainer/tool-versions.env; CI uses 'just release-install-tools'), or set CTXLOOM_VERSION_STAMP to a stamp of the form v<major>.<minor>.<patch>-<short-sha>-<YYYYMMDDTHHMMSS>." >&2; echo no-versionator; fi`
+# The -X flag that stamps a ctxloom binary; an unstamped binary refuses to start.
+version_ldflag := "-X github.com/ctxloom/ctxloom/internal/shared/version.Version=" + version
 
 # ===== Version management (versionator) =====
 
@@ -259,7 +261,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -v -ldflags "{{version_ldflag}}" -o ctxloom ./cmd/ctxloom
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.
@@ -1464,6 +1466,10 @@ _mutation-driver RATCHET *ARGS:
     # rides along as an extra package pattern: `go test ./tests/mutation/...
     # no-ratchet` reports `ok` for the real package and a bare FAIL for the
     # pattern that matched nothing, failing the recipe over a passing run.
+    # The laboratory builds its own ctxloom (run_scoped_suite.sh); it must carry
+    # the same stamp `just build` applies, or every scenario dies at startup and
+    # the pre-flight refuses the run.
+    export CTXLOOM_VERSION_LDFLAG='{{version_ldflag}}'
     shift
     mkdir -p "{{mutation_tmp}}"
     # TMPDIR pinned to disk for every tool this driver can release: gremlins
@@ -1827,7 +1833,7 @@ complexity-baseline-update: dev-image
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -ldflags "{{version_ldflag}}" -o ctxloom ./cmd/ctxloom
     exec ./ctxloom {{ARGS}}
 
 # Build, compress, and install all three binaries to ~/go/bin (standard Go
@@ -2031,7 +2037,7 @@ container-build-minimal: _require-generated
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        -ldflags "{{version_ldflag}}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/minimal/Containerfile "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
@@ -2068,7 +2074,7 @@ _container-build-via-cli backend *engines: _require-generated
     bin="./ctxloom-build-tmp-$$"
     trap 'rm -f "$bin"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
+        -ldflags "{{version_ldflag}}" \
         -o "$bin" ./cmd/ctxloom
     args=(container build {{backend}} --no-devcontainer-base)
     if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi

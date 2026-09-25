@@ -139,6 +139,7 @@ var embeddingModule = map[string]string{
 // The acceptance runner must build the unmutated tree in a laboratory whatever
 // the module embeds, without being told where the embeds are.
 func TestRunScopedSuite_BuildsALaboratoryWhateverTheModuleEmbeds(t *testing.T) {
+	t.Setenv("CTXLOOM_VERSION_LDFLAG", "-X main.stamp=lab")
 	src := fakeModule(t, embeddingModule)
 	out, err := preflightJudge(src, "sh tests/mutation/run_scoped_suite.sh")
 	if err != nil {
@@ -147,6 +148,21 @@ func TestRunScopedSuite_BuildsALaboratoryWhateverTheModuleEmbeds(t *testing.T) {
 	}
 	if strings.Contains(out, "ooze-invalid-mutant:") {
 		t.Errorf("the unmutated tree was marked an invalid mutant:\n%s", out)
+	}
+}
+
+// An unstamped ctxloom refuses to start, so a laboratory built without the
+// justfile's stamp fails every scenario — each one scored as a kill. The runner
+// must refuse to build at all rather than produce that binary.
+func TestRunScopedSuite_RefusesToBuildWithoutTheVersionStamp(t *testing.T) {
+	t.Setenv("CTXLOOM_VERSION_LDFLAG", "")
+	src := fakeModule(t, embeddingModule)
+	out, err := preflightJudge(src, "sh tests/mutation/run_scoped_suite.sh")
+	if err == nil {
+		t.Fatalf("the runner built a laboratory with no version stamp; output:\n%s", out)
+	}
+	if !strings.Contains(out, "CTXLOOM_VERSION_LDFLAG") {
+		t.Errorf("the refusal must name the missing CTXLOOM_VERSION_LDFLAG; output:\n%s", out)
 	}
 }
 

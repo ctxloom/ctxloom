@@ -16,9 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -524,4 +526,28 @@ func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *t
 
 	assert.Empty(t, res.WithheldByPremise,
 		"nothing was withheld — the assembly ran static — so the withhold report must be empty. Reporting a withhold here would be a false alarm about content that WAS delivered")
+}
+
+// One materialize reports each withheld item ONCE. The generation's gate
+// tallies every withhold for its whole life, and both AssemblePackage and
+// MaterializeProfile print the advisory from that tally — so a gate that
+// already held an item printed it twice per command (three withheld items
+// were measured as six lines). The item is recorded on the command's own gate
+// before the run, the same way a withhold during assembly records it.
+func TestMaterializeProfile_ReportsEachWithheldItemOnce(t *testing.T) {
+	cfg, target := materializeFixture(t, "ONCE-CONTENT")
+
+	v := bundles.Decide(report.Reporter{}, cfg.ExecutableTrustGate(), execRead(t, ""), gateHookRef, toolingHookPayload(), bundles.FormRaw)
+	require.False(t, v.Allow, "precondition: the unreviewed remote hook is withheld and so tallied on the gate")
+
+	stderr := captureStderr(t, func() {
+		_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
+			Profiles: []string{"reviewer"},
+			Target:   target,
+		})
+		require.NoError(t, err)
+	})
+
+	assert.Equal(t, 1, strings.Count(stderr, gateHookRef),
+		"one materialize must report the withheld item exactly once; stderr:\n%s", stderr)
 }

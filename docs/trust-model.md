@@ -70,9 +70,9 @@ approved or rejected — the `countersign` stores) and the
 `remote.LockfileRetraction`, the lockfile read once when the gate is built). The generation's `Snapshot.Trust` is the one gate every exposure
 and executable surface decides with (`config.Config.ExecutableTrustGate`);
 there is no admit-everything default and no way to install a second gate on
-a generation. The one spelling of "ungated" is `composite.Ungated()`, opted
-into BY NAME at a listing or review surface that must show pending content
-to a human, and it says so in its verdict (`bundles.ReasonUngated`).
+a generation. No production-constructible `composite.Trust` admits
+everything: `composite.NewTrust` refuses a missing port, and a zero Trust's
+nil authorizer is withheld by `bundles.Decide` (`ReasonUngoverned`).
 
 **The gate withholds by default.** An executable item — a command, a skill,
 a hook, an MCP server — that nothing below positively justifies is WITHHELD

@@ -86,9 +86,11 @@ flowchart LR
     classDef sign fill:#efe,stroke:#282
 ```
 
-There is no admit-everything default: a listing that must show pending
-content names `composite.Ungated()`; a surface that forgot its gate holds
-none and withholds. The cascade and its rows are stated normatively in
+There is no admit-everything trust anywhere in production: a surface that
+forgot its gate holds none, and `bundles.Decide` withholds on the nil
+authorizer (`ReasonUngoverned`). The only allow-all authorizer is the
+test-only `internal/testsupport/admitall`, which the `archtestsupport`
+analyzer keeps out of every shipped binary. The cascade and its rows are stated normatively in
 `docs/trust-model.md`; the decision is recorded in ADR 0036.
 
 ## The review walk

@@ -43,9 +43,10 @@ the ONE gate every exposure and executable surface decides with
 justifies is withheld until a review record approves it, and the withhold
 names what would admit it. There is no admit-everything default: a surface
 that forgot its gate holds none, and `bundles.Decide` withholds on a nil
-authorizer and names the defect. The one spelling of "ungated" is
-`composite.Ungated()`, opted into BY NAME at a listing or review surface
-that must show pending content to a human, and it says so in its verdict.
+authorizer and names the defect. No production-constructible Trust admits
+everything; the only allow-all authorizer is the test-only
+`internal/testsupport/admitall`, kept out of shipped binaries by the
+`archtestsupport` analyzer.
 The mutation sites are gone: a generation's Trust is the gate, and nothing
 installs a second one.
 

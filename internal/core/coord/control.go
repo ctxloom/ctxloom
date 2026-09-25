@@ -70,16 +70,16 @@ type SteerOutcome struct {
 // ErrCapabilityUnavailable marks every refusal whose CAUSE is that the target
 // run does not (or no longer does) advertise a capability the request needs.
 //
-// It is typed because §5.6's fallback selection has to key on it: "this run
-// cannot do steer" routes to the mailbox, while "the runner answered an error"
-// or "the request timed out" must not. Matching on a gRPC code alone cannot
-// draw that line — FAILED_PRECONDITION is answered for several reasons — and
-// matching on prose is not a contract.
+// It is typed so a caller can tell "this run cannot take the request at all"
+// from "the runner answered an error" or "the request timed out" — only the
+// first is fixed by choosing another target. Matching on a gRPC code alone
+// cannot draw that line — FAILED_PRECONDITION is answered for several reasons
+// — and matching on prose is not a contract.
 var ErrCapabilityUnavailable = errors.New("the target run does not advertise a capability this request requires")
 
 // capUnavailable is a capability refusal: errors.Is-able against
-// ErrCapabilityUnavailable (so an in-process caller with a fallback routes on
-// the cause, not on the code) with the prose naming the gap and the
+// ErrCapabilityUnavailable (so an in-process caller routes on the cause, not
+// on the code) with the prose naming the gap and the
 // advertisement as its whole message (so the wire adapter's status carries it
 // verbatim under FAILED_PRECONDITION — StatusFromErr's table).
 func capUnavailable(format string, a ...any) error {

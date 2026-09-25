@@ -43,11 +43,6 @@ const (
 	DeliveryNewTurn = "new-turn" // woke an idle child into a new turn
 	DeliveryQueued  = "queued"   // queued for the child's next turn boundary
 	DeliveryResumed = "resumed"  // relaunched an ended session, the text as its next turn
-	// DeliveryRejected is the plane-2 arrival the mailbox route could never
-	// produce: the target was reached, understood the steer, and DECLINED it
-	// (paused, foremost). It exists so a refusal is never printed as a queue —
-	// the mailbox vocabulary had no way to say "it did not land".
-	DeliveryRejected = "rejected"
 )
 
 // Options configures a Coordinator.
@@ -292,6 +287,10 @@ type Coordinator struct {
 	// observable still resolves instead of racing its own registration.
 	// Lazily initialized.
 	asks map[string]*pendingAsk
+	// pausedRuns holds the run ids this coordinator's ControlPause holds at
+	// their runner's gate, keyed by run id so a relaunch (a new run) is never
+	// described as paused. Guarded by mu; lazily initialized.
+	pausedRuns map[string]struct{}
 	// onAskPublished, when set, is called by controlAsk between REGISTERING the
 	// waiter and PUBLISHING the ask — the register-before-publish test seam,
 	// It fires on that side
@@ -1110,6 +1109,8 @@ func deliveryDisposition(state string) (mode, prose string) {
 		return DeliveryNewTurn, "delivering as a new turn"
 	case StateQueued:
 		return DeliveryQueued, "queued: the child has not started yet; it will drain its mailbox after its first turn"
+	case deliveryPaused:
+		return DeliveryQueued, "held: the child is paused; the message waits in its spool and is delivered when it is resumed"
 	default: // executing / parked race
 		return DeliveryQueued, "queued mid-turn: delivered at the child's next turn boundary"
 	}

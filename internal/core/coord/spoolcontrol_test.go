@@ -607,3 +607,80 @@ func TestControlBudgets_AsksWaitThirtyMinutesMechanicalVerbsFailFast(t *testing.
 	assert.Equal(t, 60*time.Second, DefaultRequestTimeout, "pause/resume keep the default request budget")
 	assert.Greater(t, AskWireBudget, controlAskBudget, "the wire must outlast the ask it carries")
 }
+
+// TestSpoolAsk_LateReplyIsDroppedNotMailedOnward pins what a timed-out ask
+// promises its caller: ErrAskTimeout says an answer that still arrives "will
+// be dropped". Review finding F5's failure class is an answer landing where
+// nobody asked for it; a late reply that fell through to ordinary mail would
+// do exactly that — the child's parent (not the asker, who for a human
+// initiator is not a mailbox at all) receives a message quoting an ask it
+// never made, which nothing can place.
+func TestSpoolAsk_LateReplyIsDroppedNotMailedOnward(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, home := awaitCutoverChild(t, c, sp, "first task")
+
+	askIDs := make(chan string, 1)
+	c.onAskPublished = func(id string) { askIDs <- id }
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, err := c.ControlQuestion(ctx, humanInitiator(), out.Harp, "are you still there?")
+	require.ErrorIs(t, err, ErrAskTimeout)
+	askID := <-askIDs
+
+	// Sent as a real agent_send sends it: WITH a kind. A kindless reply is
+	// refused by the sender-vocabulary check once no ask intercepts it, so it
+	// would never reach the parent whatever the ask table did, and this test
+	// would pass for a reason that has nothing to do with the ask.
+	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
+		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
+			ToRole: ParentAddress, Text: "a late answer", InReplyTo: askID,
+			Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
+		}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 0, resp.GetStatus().GetCode())
+	assert.Empty(t, recvBody(t, c, "a late answer", time.Second),
+		"a reply to a timed-out ask must be dropped, as ErrAskTimeout promised, never mailed onward to the child's parent")
+}
+
+// TestSpoolSteer_ToAPausedTargetIsNotReportedAsANewTurn pins the surviving
+// shape of review finding F2's "REJECTED-but-applied" path. The steer is one
+// durable file, so it cannot be refused and applied at once — but it CAN be
+// described wrongly: a paused idle target holds the file at its gate until a
+// resume, and telling the initiator "new-turn" (woke it into a turn) is a
+// report of something that did not happen.
+func TestSpoolSteer_ToAPausedTargetIsNotReportedAsANewTurn(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChild(t, c, sp, "first task")
+
+	// IDLE is the state whose disposition is "new-turn"; a child still inside
+	// its first turn is described as queued whatever the pause says.
+	require.Eventually(t, func() bool {
+		st, _ := c.observeRecipient(out.Harp)
+		return st == StateIdle
+	}, conformanceWait, 10*time.Millisecond, "the child must finish its first turn")
+
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	_, err := c.ControlPause(ctx, humanInitiator(), out.Harp, "human is reviewing")
+	require.NoError(t, err)
+
+	outcome, err := c.ControlSteer(ctx, humanInitiator(), out.Harp, "steer while paused")
+	require.NoError(t, err)
+	assert.Equal(t, DeliveryQueued, outcome.Delivery,
+		"a paused target is not woken: the steer waits at its gate, which is a queue, not a new turn")
+	require.Never(t, func() bool { return countChatText(sp, 0, "steer while paused") > 0 },
+		500*time.Millisecond, 10*time.Millisecond, "the paused run must not take the steer")
+
+	_, err = c.ControlResume(ctx, humanInitiator(), out.Harp)
+	require.NoError(t, err)
+	awaitChatText(t, sp, 0, "steer while paused")
+	state, _ := c.observeRecipient(out.Harp)
+	assert.NotEqual(t, deliveryPaused, state, "a resume must clear the coordinator's record of the pause")
+}

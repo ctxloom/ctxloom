@@ -87,6 +87,17 @@ Feature: Content my company has validated
     Then her assistant no longer receives any content signed by that key
     And that content is held for her review, as if it had never been signed
 
+  # The same revocation, read from what Alice is TOLD. "Awaiting review" is
+  # true of unsigned content too, so it cannot tell her whether the bundle lost
+  # its signature or she lost trust in the signer. The first means a publisher
+  # stopped signing; the second means her own revocation took effect. She is
+  # told which one happened.
+  Scenario: After revoking the company key, Alice is told its content is held because of the key that signed it
+    Given Alice receives several bundles the company signed with its key
+    When Alice revokes her trust in the company key
+    And Alice syncs her project
+    Then Alice is told the content is held because this machine no longer trusts the key that signed it
+
   # LOCKED — the FORGERY PRIMITIVE: a decision written into the COMMITTABLE,
   # team-inherited store must be signed. No key → hard refusal, nothing written.
   # Verified: review.go resolveReviewSigner (spec §9.5, "requires one ... refuses").

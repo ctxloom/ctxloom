@@ -510,6 +510,23 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The withheld advisory "Alice syncs her project" printed (its materialize is
+	// the last run) must give the SIGNER as the reason. The expected sentence is
+	// the reason's own rendering, so the step follows the wording wherever it
+	// is changed; what it pins is WHICH reason was chosen, and "awaiting review"
+	// alone is shared by the unsigned and pending reasons, so it cannot tell
+	// them apart.
+	ctx.Step(`^Alice is told the content is held because this machine no longer trusts the key that signed it$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = strings.TrimSpace(out)
+		want := bundles.ReasonUntrustedSigner.Explain("")
+		if !strings.Contains(out, want) {
+			return fmt.Errorf("sync output does not give the untrusted signing key as the reason content is held (want %q); output:\n%s", want, out)
+		}
+		return nil
+	})
+
 	// --- Scenario 7: FORGERY PRIMITIVE ------------------------------------------
 
 	ctx.Step(`^Alice has no signing key available$`, func(c context.Context) error {

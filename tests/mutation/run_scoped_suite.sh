@@ -8,28 +8,16 @@
 # Two things a bare `WithTestCommand("go build ...")` cannot do, which is
 # why this exists as its own script:
 #
-#  1. go:embed refuses to embed a SYMLINK ("contains no embeddable files" /
-#     "irregular file") — verified empirically. This repo embeds resources/,
-#     container/, cmd/ltk, cmd/taskloom, internal/shared/harp,
-#     internal/adapters/coordgrpc/mcpschema/schemas, and internal/core/config's
-#     allowed_signers. Every embed target must be a REAL file before `go
-#     build`, so this script re-materializes (symlink -> real copy) just
-#     those directories before building — a few hundred files, not the whole
-#     tree, so it stays cheap (measured: well under a second).
+#  1. go:embed refuses to embed a SYMLINK ("cannot embed irregular file"), so
+#     every embedded file must be a REAL file before `go build`.
+#     materialize_embeds.sh derives that set from the module and copies just
+#     those files; it takes the tags this script builds and tests with.
 #  2. The symlinked .git confuses `go build`'s VCS stamping
 #     ("error obtaining VCS status: exit status 128"), so the build must
 #     pass -buildvcs=false.
 set -eu
 
-for d in resources cmd/ltk cmd/taskloom internal/shared/harp container \
-         internal/adapters/coordgrpc/mcpschema/schemas internal/core/config; do
-  [ -d "$d" ] || continue
-  find "$d" -type l | while IFS= read -r f; do
-    tgt=$(readlink -f "$f")
-    rm -f "$f"
-    cp "$tgt" "$f"
-  done
-done
+sh "$(dirname "$0")/materialize_embeds.sh" -tags "treesitter acceptance integration"
 
 # The build output must be a REAL file in the laboratory before `go build`
 # writes it. ./ctxloom is one of the symlinks ooze mints back to the real

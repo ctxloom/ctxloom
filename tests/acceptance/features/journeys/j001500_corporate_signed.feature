@@ -98,6 +98,16 @@ Feature: Content my company has validated
     And Alice syncs her project
     Then Alice is told the content is held because this machine no longer trusts the key that signed it
 
+  # The other side of "only what I allowed": a bundle from OUTSIDE the company,
+  # signed by nobody, is held whole. Alice is told about each held piece on its
+  # own line, in a stable order she can scan. For the MCP server and the hook
+  # she is also told what would let them through; the guidance is text, and its
+  # reason already says everything.
+  Scenario: A bundle nobody signed is held piece by piece, and Alice is told what would admit its executables
+    Given Alice references a bundle nobody signed, shipping guidance, an MCP server and a hook
+    When Alice syncs her project
+    Then Alice is told, item by item and in name order, why each piece of it is held, and what would admit each executable
+
   # LOCKED — the FORGERY PRIMITIVE: a decision written into the COMMITTABLE,
   # team-inherited store must be signed. No key → hard refusal, nothing written.
   # Verified: review.go resolveReviewSigner (spec §9.5, "requires one ... refuses").

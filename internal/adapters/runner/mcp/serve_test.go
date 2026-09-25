@@ -166,10 +166,15 @@ func TestServe_OccupiedPort_IsErrEndpointUnavailable(t *testing.T) {
 }
 
 // TestServe_Close_FreesThePort: the same address is bindable by the next
-// incarnation of the session (the endpoint is stable across resumes).
+// incarnation of the session (the endpoint is stable across resumes). The
+// serve goroutine is held before it hands the listener to the HTTP server, so
+// Close runs in the window where Shutdown does not yet own the listener — the
+// ordering a loaded CI runner produced, forced here on every run.
 func TestServe_Close_FreesThePort(t *testing.T) {
 	lo := loadoutAt(freePort(t))
-	ep := runnermcp.Endpoint{Home: deadHome(t)}
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	ep := runnermcp.WithServeGate(runnermcp.Endpoint{Home: deadHome(t)}, func() { <-release })
 	served, err := ep.Serve(context.Background(), lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 	require.NoError(t, err)
 	require.NoError(t, served.Close())

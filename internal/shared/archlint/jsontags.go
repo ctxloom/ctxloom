@@ -103,26 +103,43 @@ func collectUntaggedFields(t types.Type, seen map[types.Type]bool, missing map[s
 	if _, named := t.(*types.Named); named && ownsJSONEncoding(t) {
 		return
 	}
+	if elem, ok := containerElem(t); ok {
+		collectUntaggedFields(elem, seen, missing)
+		return
+	}
+	if st, ok := t.Underlying().(*types.Struct); ok {
+		collectStructFields(t, st, seen, missing)
+	}
+}
+
+// containerElem is the element type of a pointer, slice, array or map.
+func containerElem(t types.Type) (types.Type, bool) {
 	switch u := t.Underlying().(type) {
 	case *types.Pointer:
-		collectUntaggedFields(u.Elem(), seen, missing)
+		return u.Elem(), true
 	case *types.Slice:
-		collectUntaggedFields(u.Elem(), seen, missing)
+		return u.Elem(), true
 	case *types.Array:
-		collectUntaggedFields(u.Elem(), seen, missing)
+		return u.Elem(), true
 	case *types.Map:
-		collectUntaggedFields(u.Elem(), seen, missing)
-	case *types.Struct:
-		for i := range u.NumFields() {
-			f := u.Field(i)
-			tag := reflect.StructTag(u.Tag(i)).Get("json")
-			if tag == "-" || (!f.Exported() && !f.Embedded()) {
-				continue
-			}
-			if tag == "" && !f.Embedded() {
-				missing[types.TypeString(t, nil)+"."+f.Name()] = true
-			}
-			collectUntaggedFields(f.Type(), seen, missing)
+		return u.Elem(), true
+	}
+	return nil, false
+}
+
+// collectStructFields records st's exported, untagged, non-embedded fields
+// as missing (named by t) and walks every field it does not skip: a "-" tag,
+// or an unexported non-embedded field.
+func collectStructFields(t types.Type, st *types.Struct, seen map[types.Type]bool, missing map[string]bool) {
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		tag := reflect.StructTag(st.Tag(i)).Get("json")
+		if tag == "-" || (!f.Exported() && !f.Embedded()) {
+			continue
 		}
+		if tag == "" && !f.Embedded() {
+			missing[types.TypeString(t, nil)+"."+f.Name()] = true
+		}
+		collectUntaggedFields(f.Type(), seen, missing)
 	}
 }

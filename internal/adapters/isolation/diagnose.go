@@ -106,7 +106,7 @@ func diagnoseStaleness(ctx context.Context, c Container, backend string, sources
 			fmt.Sprintf("agent image %s is a user-owned override (isolation_images): ctxloom runs it as-is and never inspects or rebuilds it, so its staleness is NOT CHECKED here", c.image))
 		return
 	}
-	wantProvenance := c.provenanceFor(devBase)
+	wantProvenance := c.identityFor(devBase).provenance
 	if wantProvenance == "" {
 		d.Guidance = append(d.Guidance,
 			fmt.Sprintf("agent image %s: staleness could not be checked — the expected provenance is unresolvable on this host (the running ctxloom/companion binaries or the base Containerfile could not be read), so a containerized run cannot tell whether this image matches", c.image))

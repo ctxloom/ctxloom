@@ -483,6 +483,13 @@ Two further diagnostics: `Diagnose` backs `ctxloom container check` (read-only,
 never errors by design), and `ReapOrphanedWorktrees` sweeps orphaned ephemeral
 worktrees at startup, leaking rather than destroying anything WIP-bearing.
 
+Superseded agent images are reaped only on request (`ctxloom container prune`,
+dry run unless `--apply`). Ownership is proved by the labels a build stamps
+(`imageStamp`, via `Runtime.buildArgs`), never by an image's name, and the keep
+rules live in `classifyImages`. It is never automatic, because worktrees at
+different commits share one daemon: an automatic sweep in one would remove an
+image another is between building and running.
+
 ## Key exported surface
 
 | Symbol | File | Meaning |
@@ -511,6 +518,7 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 | `Diagnosis` / `Diagnose` | `diagnose.go` | `container check` report |
 | `BuildAgentImage` / `ImageBuildOptions` / `HostProvenanceDigest` | `imagebuild.go` | `container build` / `container provenance` |
 | `ReapOrphanedWorktrees` / `WorktreeReapResult` | `worktree_reap.go` | Startup orphan sweep |
+| `PlanImagePrune` / `ApplyImagePrune` / `LiveImageRef` | `image_prune.go` | `container prune` and the doctor superseded-images check |
 
 ## Invariants
 

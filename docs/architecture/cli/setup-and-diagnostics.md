@@ -51,6 +51,7 @@ flowchart TD
         CT["container tooling list"] --> RTC["runToolingListCmd → renderTooling"]
         CSF["container scaffold"] --> SCB[["operations.ScaffoldContainerBase"]]
         CC["container check &lt;backend&gt;"] --> CD["renderContainerCheck"]
+        CPR["container prune (container_prune_cmd.go)"] --> OCP[["operations.ContainerPrune → ContainerPruneReport"]] --> RCP["renderContainerPrune"]
     end
 
     subgraph doctor["doctor_cmd.go"]

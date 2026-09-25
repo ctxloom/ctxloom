@@ -194,8 +194,8 @@ func containerFor(rt Runtime, backend string, img ImageConfig) Container {
 		return c
 	}
 	devBase, _ := resolveDevBase(c.appRoot, c.noDevcontainerBase, c.devcontainerService)
-	if image, _, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engine); ok {
-		c.image = image
+	if id, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engine); ok {
+		c.image = id.ref
 	}
 	return c
 }
@@ -219,14 +219,17 @@ func (c Container) containerBuildSources(baseOverride string) (sources []buildSo
 	return sources, devBase, err
 }
 
-// provenanceFor resolves this container's provenance label for the given
-// resolved devcontainer base: composedIdentity's engine-aware digest for a
-// COMPOSABLE spec, else the legacy HostProvenanceDigest.
-func (c Container) provenanceFor(devBase *baseStage) string {
-	if _, prov, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engine); ok {
-		return prov
+// identityFor resolves this container's build identity for the given
+// resolved devcontainer base: composedIdentity's engine-aware provenance and
+// slot for a COMPOSABLE spec, else the legacy HostProvenanceDigest with no
+// slot. The tag is always c.image, the one containerFor resolved and every
+// presence check reads.
+func (c Container) identityFor(devBase *baseStage) agentImageID {
+	if id, ok := composedIdentity(c.engineSpec, c.baseContainerfile, devBase, c.engine); ok {
+		id.ref = c.image
+		return id
 	}
-	return HostProvenanceDigest(c.baseContainerfile)
+	return agentImageID{ref: c.image, provenance: HostProvenanceDigest(c.baseContainerfile)}
 }
 
 // Name identifies the policy: the injected base names it — "container" for the
@@ -891,7 +894,7 @@ func (c Container) imagePresent(ctx context.Context) bool {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "")...).Run() == nil
+	return exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs("", c.image)...).Run() == nil
 }
 
 // overrideIdentityRemedy names the ways out when a user-supplied image cannot

@@ -46,7 +46,7 @@ var resolveSelfExe = selfLinuxExe
 // lands on a fresh tag, which is simply absent and therefore built: the tag
 // itself is the base's staleness gate, no separate label check.
 func baseImageTagFor(content []byte) string {
-	return "ctxloom-agent-base:" + baseContentHash(content)
+	return agentImageRepo + "-base:" + baseContentHash(content)
 }
 
 // baseContentHash is the short base-Containerfile content digest shared by the
@@ -102,7 +102,7 @@ func composedImageTagFor(content []byte, engine, versionKey string) string {
 	if versionKey != "" {
 		tag = versionKey + "-" + tag
 	}
-	return "ctxloom-agent-" + engine + ":" + tag
+	return agentImageRepo + "-" + engine + ":" + tag
 }
 
 // baseForIdentity resolves WHICH base stage a spec's local build would use
@@ -121,25 +121,45 @@ func baseForIdentity(baseContainerfile string, devBase *baseStage) *baseStage {
 	return defaultBaseStage()
 }
 
-// composedIdentity resolves a COMPOSABLE spec's (image tag, provenance
-// label) for the given base/engine configuration. ok=false when the spec
-// isn't composable (no known engine fragment) or the resolved base's content
-// can't be read — callers fall back to the spec's static image field and
-// the legacy HostProvenanceDigest.
-func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *baseStage, engine string) (image, provenance string, ok bool) {
+// agentImageID is the identity one agent-image build is made under: the tag
+// it lands on, the provenance label its staleness is judged by, and the slot
+// labels pruning reads. slot and companions are empty for a non-composable
+// spec, whose fixed tag is rebuilt in place and so is neither slotted nor
+// pruned.
+type agentImageID struct {
+	ref, provenance  string
+	slot, companions string
+}
+
+// stamp is the label set a build under this identity carries; from names the
+// base it was built FROM ("" for an overlay onto an external image).
+func (id agentImageID) stamp(from string) imageStamp {
+	if id.slot == "" {
+		return imageStamp{}
+	}
+	return imageStamp{kind: ImageComposed, tag: id.ref, slot: id.slot, companions: id.companions, from: from}
+}
+
+// composedIdentity resolves a COMPOSABLE spec's identity (image tag,
+// provenance label, slot) for the given base/engine configuration. ok=false
+// when the spec isn't composable (no known engine fragment) or the resolved
+// base's content can't be read — callers fall back to the spec's static image
+// field and the legacy HostProvenanceDigest.
+func composedIdentity(p engineContainerSpec, baseContainerfile string, devBase *baseStage, engine string) (agentImageID, bool) {
 	if p.engineInstall == nil {
-		return "", "", false
+		return agentImageID{}, false
 	}
 	content, err := baseForIdentity(baseContainerfile, devBase).content()
 	if err != nil {
-		return "", "", false
+		return agentImageID{}, false
 	}
-	tagKey, provenanceKey := hostImageKeys()
-	image = composedImageTagFor(content, engine, tagKey)
-	if provenanceKey != "" {
-		provenance = provenanceKey + "-" + composedContentHash(content, engine)
+	keys := hostImageKeys()
+	hash := composedContentHash(content, engine)
+	id := agentImageID{ref: composedImageTagFor(content, engine, keys.tag), slot: hash, companions: keys.companions}
+	if keys.provenance != "" {
+		id.provenance = keys.provenance + "-" + hash
 	}
-	return image, provenance, true
+	return id, true
 }
 
 // buildSource is one way to produce the agent image locally: the agent-stage
@@ -505,7 +525,7 @@ func composeAgentContainerfile(engine string) []byte {
 	b.WriteString("ARG CTXLOOM_PROVENANCE=\"\"\n")
 	b.WriteString("LABEL ctxloom.version=\"${CTXLOOM_VERSION}\"\n")
 	b.WriteString("LABEL ctxloom.provenance=\"${CTXLOOM_PROVENANCE}\"\n")
-	b.WriteString("LABEL ctxloom.engine=\"" + engine + "\"\n")
+	b.WriteString("LABEL " + labelEngine + "=\"" + engine + "\"\n")
 	b.WriteString("COPY ctxloom /usr/local/bin/ctxloom\n")
 	b.WriteString("COPY companions/ /usr/local/bin/\n")
 	b.WriteString(companionPathLeads + "\n")
@@ -659,11 +679,17 @@ const provenanceLabel = "ctxloom.provenance"
 // Exported so the build tooling (`ctxloom container provenance`) can stamp a
 // matching label.
 func HostProvenanceDigest(baseContainerfile string) string {
-	_, provenanceKey := hostImageKeys()
-	return combineProvenance(provenanceKey, baseContainerfile)
+	return combineProvenance(hostImageKeys().provenance, baseContainerfile)
 }
 
-// hostImageKeys is the running binary's (tag key, provenance key), shared by
+// imageKeys is the running binary's image keys: the tag key, the provenance
+// key, and the companion digest both end in (also stamped alone as the
+// ctxloom.companions label).
+type imageKeys struct {
+	tag, provenance, companions string
+}
+
+// hostImageKeys is the running binary's image keys (imageKeys), shared by
 // HostProvenanceDigest and composedIdentity. Both are empty only for a binary
 // carrying no usable stamp — which internal/adapters/cli's root gate refuses
 // to run — and that emptiness is ANNOUNCED, because a check that silently
@@ -685,15 +711,18 @@ func HostProvenanceDigest(baseContainerfile string) string {
 // leaking an image, and the provenance takes the build (versionProvenanceKey)
 // so a dirty rebuild is forced. The companion probe runs ONCE for both, so the
 // tag and the label can never describe different companion sets.
-func hostImageKeys() (tagKey, provenanceKey string) {
+func hostImageKeys() imageKeys {
 	build := versionProvenanceKey(binaryVersion)
 	if build == "" {
 		warnProvenanceDisabled(binaryVersion)
-		return "", ""
+		return imageKeys{}
 	}
 	companions := companionVersionKey()
-	return versionCommitKey(binaryVersion) + companionTagSeparator + companions,
-		build + companionKeySeparator + companions
+	return imageKeys{
+		tag:        versionCommitKey(binaryVersion) + companionTagSeparator + companions,
+		provenance: build + companionKeySeparator + companions,
+		companions: companions,
+	}
 }
 
 // combineProvenance suffixes the version key with the base-config content
@@ -802,8 +831,8 @@ func (c Container) ensureImage(ctx context.Context) error {
 func (c Container) runEnsureImage(ctx context.Context) error {
 	sources, devBase, devErr := c.containerBuildSources("")
 	present := c.imagePresent(ctx)
-	wantProvenance := c.provenanceFor(devBase)
-	if c.imageRunsAsIs(ctx, present, sources, wantProvenance) {
+	want := c.identityFor(devBase)
+	if c.imageRunsAsIs(ctx, present, sources, want.provenance) {
 		return nil
 	}
 	if len(sources) == 0 {
@@ -848,7 +877,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		strictness.FailAlways(report.KindIsolation, devcontainerDetectRemedy,
 			"refusing to build the agent image without this project's own devcontainer: auto-detection failed (%v), and ctxloom cannot read it to know what it provides", devErr)
 	}
-	lastErr := c.buildFirstWorkingSource(ctx, sources, selfExe, wantProvenance)
+	lastErr := c.buildFirstWorkingSource(ctx, sources, selfExe, want)
 	if lastErr == nil {
 		return nil
 	}
@@ -897,10 +926,10 @@ func (c Container) imageRunsAsIs(ctx context.Context, present bool, sources []bu
 // A build that reports success but leaves the tag absent counts as a failure —
 // a green build whose image nobody can run is this project's characteristic
 // silent no-op.
-func (c Container) buildFirstWorkingSource(ctx context.Context, sources []buildSource, selfExe, wantProvenance string) error {
+func (c Container) buildFirstWorkingSource(ctx context.Context, sources []buildSource, selfExe string, want agentImageID) error {
 	var lastErr error
 	for _, src := range sources {
-		err := buildFromSource(ctx, c.runtime, c.image, src, selfExe, wantProvenance, false, nil)
+		err := buildFromSource(ctx, c.runtime, want, src, selfExe, false, nil)
 		if err == nil && !c.imagePresent(ctx) {
 			err = fmt.Errorf("image %q is still absent after a build via the %s", c.image, src.desc)
 		}
@@ -978,7 +1007,7 @@ func (c Container) imageLabels(ctx context.Context) map[string]string {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "{{json .Config.Labels}}")...).Output()
+	out, err := exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs("{{json .Config.Labels}}", c.image)...).Output()
 	if err != nil {
 		return nil
 	}
@@ -1003,7 +1032,7 @@ type imageIdentity struct {
 func (c Container) imageIdentityConfig(ctx context.Context) (imageIdentity, error) {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "{{json .Config}}")...).Output()
+	out, err := exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs("{{json .Config}}", c.image)...).Output()
 	if err != nil {
 		return imageIdentity{}, fmt.Errorf("inspect image config: %w", err)
 	}
@@ -1020,17 +1049,18 @@ func (c Container) imageIdentityConfig(ctx context.Context) (imageIdentity, erro
 // running ctxloom binary in its context. `fresh` pulls + skips cache on stages
 // whose FROM is an external image; the agent stage over a just-built local
 // base never --pulls (the tag exists only locally) but still skips cache so
-// the client install re-runs. `provenance` is the PRECOMPUTED provenance
-// label (HostProvenanceDigest for a legacy spec, composedIdentity's
-// engine-aware digest for a composable one) — the caller computes it once so
+// the client install re-runs. `id` is the PRECOMPUTED identity: its
+// provenance (HostProvenanceDigest for a legacy spec, composedIdentity's
+// engine-aware digest for a composable one) is computed once by the caller so
 // the stamped label always equals what the caller's own staleness check used
 // for the same configuration (a mismatch would re-flag the image stale on
-// every run).
-func buildFromSource(ctx context.Context, rt Runtime, image string, src buildSource, selfExe, provenance string, fresh bool, output io.Writer) error {
+// every run), and its slot labels are stamped with the base it FROMs.
+func buildFromSource(ctx context.Context, rt Runtime, id agentImageID, src buildSource, selfExe string, fresh bool, output io.Writer) error {
 	var buildArgs []string
+	var baseTag string
 	if src.base != nil {
-		baseTag, err := buildBaseImage(ctx, rt, src.base, fresh, output)
-		if err != nil {
+		var err error
+		if baseTag, err = buildBaseImage(ctx, rt, src.base, fresh, output); err != nil {
 			return fmt.Errorf("base image (%s): %w", src.base.desc, err)
 		}
 		buildArgs = append(buildArgs, "BASE_IMAGE="+baseTag)
@@ -1038,11 +1068,12 @@ func buildFromSource(ctx context.Context, rt Runtime, image string, src buildSou
 	// Stamp the diagnostic version label and — the staleness signal — the
 	// precomputed provenance digest (empty when unknown — dev seams).
 	buildArgs = append(buildArgs, "CTXLOOM_VERSION="+binaryVersion)
-	buildArgs = append(buildArgs, "CTXLOOM_PROVENANCE="+provenance)
-	return buildImage(ctx, rt, image, src.containerfile, selfExe, buildFlags{
+	buildArgs = append(buildArgs, "CTXLOOM_PROVENANCE="+id.provenance)
+	return buildImage(ctx, rt, id.ref, src.containerfile, selfExe, buildFlags{
 		pull:      fresh && src.base == nil,
 		noCache:   fresh,
 		buildArgs: buildArgs,
+		stamp:     id.stamp(baseTag),
 	}, output)
 }
 
@@ -1079,6 +1110,7 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 			return "", fmt.Errorf("base containerfile: %w", err)
 		}
 		tag := baseImageTagFor(content)
+		flags.stamp = baseStamp(tag, content)
 		contextDir := filepath.Dir(abs)
 		if base.context != "" {
 			contextDir = base.context
@@ -1097,7 +1129,14 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 		return "", fmt.Errorf("base build context: %w", err)
 	}
 	tag := baseImageTagFor(base.containerfile)
+	flags.stamp = baseStamp(tag, base.containerfile)
 	return tag, runImageBuild(ctx, rt, tag, file, dir, flags, output)
+}
+
+// baseStamp is a stage-1 base's label set: its slot is the content hash its
+// tag is keyed on (baseImageTagFor).
+func baseStamp(tag string, content []byte) imageStamp {
+	return imageStamp{kind: ImageBase, tag: tag, slot: baseContentHash(content)}
 }
 
 // ImageBuildOptions parameterize an explicit agent-image build
@@ -1207,14 +1246,14 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 	if err != nil {
 		return "", err
 	}
-	image, provenance, composable := composedIdentity(p, opts.BaseContainerfile, devBase, backend)
+	id, composable := composedIdentity(p, opts.BaseContainerfile, devBase, backend)
 	if !composable {
-		image, provenance = p.image, HostProvenanceDigest(opts.BaseContainerfile)
+		id = agentImageID{ref: p.image, provenance: HostProvenanceDigest(opts.BaseContainerfile)}
 	}
-	if err := buildExplicitFromSources(ctx, rt, image, sources, selfExe, provenance, opts); err != nil {
+	if err := buildExplicitFromSources(ctx, rt, id, sources, selfExe, opts); err != nil {
 		return "", err
 	}
-	return image, nil
+	return id.ref, nil
 }
 
 // buildExplicitFromSources runs `ctxloom container build`'s sources in
@@ -1223,13 +1262,13 @@ func BuildAgentImage(ctx context.Context, backend string, opts ImageBuildOptions
 // The sibling of buildFirstWorkingSource for the EXPLICIT command: this one has
 // no chain to degrade down, so every failure is a plain warning and the last
 // one is returned to the CLI rather than recorded as a strictness finding.
-func buildExplicitFromSources(ctx context.Context, rt Runtime, image string, sources []buildSource, selfExe, provenance string, opts ImageBuildOptions) error {
+func buildExplicitFromSources(ctx context.Context, rt Runtime, id agentImageID, sources []buildSource, selfExe string, opts ImageBuildOptions) error {
 	var lastErr error
 	for _, src := range sources {
 		if opts.Output != nil {
-			fmt.Fprintf(opts.Output, "ctxloom: building %s via the %s (%s)\n", image, src.desc, rt.Name())
+			fmt.Fprintf(opts.Output, "ctxloom: building %s via the %s (%s)\n", id.ref, src.desc, rt.Name())
 		}
-		err := buildFromSource(ctx, rt, image, src, selfExe, provenance, !opts.KeepCache, opts.Output)
+		err := buildFromSource(ctx, rt, id, src, selfExe, !opts.KeepCache, opts.Output)
 		if err == nil {
 			return nil
 		}
@@ -1269,11 +1308,13 @@ func selfLinuxExe() (string, error) {
 // buildFlags are the per-stage `<runtime> build` knobs: --pull (refresh an
 // EXTERNAL base — never set when the FROM is the locally-built base tag, which
 // no registry has), --no-cache (re-run installs → most recent client), and
-// --build-arg values (BASE_IMAGE for agent stages).
+// --build-arg values (BASE_IMAGE for agent stages), and the ownership/slot
+// labels the image carries (imageStamp).
 type buildFlags struct {
 	pull      bool
 	noCache   bool
 	buildArgs []string
+	stamp     imageStamp
 }
 
 // buildImage runs one agent/overlay stage over a temp context holding the
@@ -1301,21 +1342,12 @@ func buildImage(ctx context.Context, rt Runtime, image string, containerfile []b
 	return runImageBuild(ctx, rt, image, file, dir, flags, output)
 }
 
-// runImageBuild executes `<runtime> build -t <image> -f <file> <contextDir>`.
-// output streams the build live when set; otherwise output is captured and
-// surfaced (tail only) on failure. Capped at imageBuildTimeout.
+// runImageBuild executes the runtime's build (Runtime.buildArgs) of file in
+// contextDir, tagged image. output streams the build live when set; otherwise
+// output is captured and surfaced (tail only) on failure. Capped at
+// imageBuildTimeout.
 func runImageBuild(ctx context.Context, rt Runtime, image, file, contextDir string, flags buildFlags, output io.Writer) error {
-	args := []string{"build", "-t", image}
-	if flags.pull {
-		args = append(args, "--pull")
-	}
-	if flags.noCache {
-		args = append(args, "--no-cache")
-	}
-	for _, ba := range flags.buildArgs {
-		args = append(args, "--build-arg", ba)
-	}
-	args = append(args, "-f", file, contextDir)
+	args := rt.buildArgs(image, file, contextDir, flags)
 
 	bctx, cancel := context.WithTimeout(ctx, imageBuildTimeout)
 	defer cancel()

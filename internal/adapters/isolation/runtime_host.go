@@ -52,9 +52,18 @@ func (Host) Enumerate(context.Context, string) ([]ContainerInfo, error) { return
 func (Host) reachRoute(context.Context) (hostRoute, error) { return hostRoute{}, nil }
 
 // The container-CLI grammar is empty: callers gate on Binary() == "" first.
-func (Host) inspectRunningArgs(string) []string        { return nil }
-func (Host) imageInspectArgs(string, string) []string  { return nil }
-func (Host) daemonNameTemplate() string                { return "" }
-func (Host) removeOutcome([]byte, error) removeOutcome { return removeAlreadyGone }
-func (Host) passesPUID() bool                          { return false }
-func (Host) gatewayInspectArgs() []string              { return nil }
+func (Host) inspectRunningArgs(string) []string                    { return nil }
+func (Host) imageInspectArgs(string, ...string) []string           { return nil }
+func (Host) buildArgs(string, string, string, buildFlags) []string { return nil }
+func (Host) imageListArgs(string) []string                         { return nil }
+func (Host) containerListAllArgs() []string                        { return nil }
+func (Host) containerImageArgs(...string) []string                 { return nil }
+func (Host) imageRemoveArgs(...string) []string                    { return nil }
+func (Host) canonicalRef(ref string) string                        { return ref }
+
+// imageUniqueSizes is empty: Host holds no images.
+func (Host) imageUniqueSizes(context.Context) (map[string]int64, error) { return nil, nil }
+func (Host) daemonNameTemplate() string                                 { return "" }
+func (Host) removeOutcome([]byte, error) removeOutcome                  { return removeAlreadyGone }
+func (Host) passesPUID() bool                                           { return false }
+func (Host) gatewayInspectArgs() []string                               { return nil }

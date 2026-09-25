@@ -314,6 +314,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// call) — format debt.
 	"container build":    {skip: "requires a container runtime (docker/podman)", formatDebt: true},
 	"container check":    {skip: "probes for a container runtime on the host"},
+	"container prune":    {skip: "probes the host's container runtimes (honors format via emit(); rendering golden-tested in container_prune_cmd_test.go)"},
 	"container scaffold": {skip: "writes a container scaffold; not exercised here", formatDebt: true},
 
 	// --- skip: side-effecting installers (hooks/statusline/gitignore/mcp registration) ---

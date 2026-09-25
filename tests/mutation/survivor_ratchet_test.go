@@ -278,3 +278,45 @@ func TestSurvivorRatchet_OozeRunWithSomeInvalidMutantsIsStillJudged(t *testing.T
 		t.Errorf("a target with valid mutants must still be judged: exit %d, output:\n%s", code, out)
 	}
 }
+
+// runRatchetWithoutBaseline drives the ratchet as the unratcheted unit lane
+// does: its per-target "measured nothing" refusals, and no baseline judgement.
+func runRatchetWithoutBaseline(t *testing.T, log string) (int, string) {
+	t.Helper()
+	root := repoRootFromTest(t)
+	logPath := filepath.Join(t.TempDir(), "run.log")
+	if err := os.WriteFile(logPath, []byte(log), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	cmd := exec.Command("bash", filepath.Join(root, "tests", "mutation", "survivor_ratchet.sh"), "--no-baseline", logPath)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return 0, string(out)
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("running ratchet: %v\n%s", err, out)
+	}
+	return exitErr.ExitCode(), string(out)
+}
+
+// The unit lane has no baseline, but a target none of whose mutants compiled
+// measured nothing there too — and beside a healthy target it used to pass,
+// because the only check the lane ran compared the whole run's invalid count
+// against the whole run's total.
+func TestSurvivorRatchet_WithoutABaselineStillRefusesATargetWhereNoMutantCompiled(t *testing.T) {
+	healthy := oozeLogWithInvalid("TestUnitMutation/healthy", 10, 6, 4, 0)
+	broken := oozeLogWithInvalid("TestUnitMutation/broken", 3, 3, 0, 3)
+
+	if code, out := runRatchetWithoutBaseline(t, healthy); code != 0 {
+		t.Fatalf("exit %d for a healthy unbaselined target; the unit lane has no rows and must not need any.\noutput:\n%s", code, out)
+	}
+
+	code, out := runRatchetWithoutBaseline(t, broken+healthy)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1: TestUnitMutation/broken measured nothing, and a healthy target beside it must not hide that.\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "TestUnitMutation/broken: all 3 mutants DID NOT COMPILE") {
+		t.Errorf("the refusal must name the target that measured nothing; got:\n%s", out)
+	}
+}

@@ -1434,10 +1434,10 @@ test-mutation-container:
 #   just test-mutation-acceptance -run 'TestAcceptanceMutation/^trust_cascade$'
 #
 # Cost: every mutant is a full build + a ~15-20s scoped suite run (measured
-# ~28s/mutant on this machine); trust_cascade alone is 132 mutants ≈ 63
-# minutes, and the whole table is a multi-hour job that WILL exceed the 120m
-# -timeout below. Nightly/scoped, never a per-PR gate — and run entries one
-# at a time unless you mean to spend the night on it.
+# ~28s/mutant on this machine), so one entry is tens of minutes and the whole
+# table is a multi-hour job that can outrun the driver's -timeout.
+# Nightly/scoped, never a per-PR gate — and run entries one at a time unless
+# you mean to spend the night on it.
 #
 # Scope is enforced inside the test file, built programmatically by walking
 # the repo and ignoring every other .go file — see that file's doc comment for

@@ -49,8 +49,8 @@
 // SCOPE: the mutated unit is a whole FILE — ooze's public API has no way to
 // restrict mutation to a line range within one (only per-FILE
 // inclusion/exclusion via IgnoreSourceFiles). Where an entry's interest is
-// narrower than its file (the trust entry cares about the EffectiveTrust
-// cascade and Reason(), not SetItemTrust/SetBlacklist/TrustStamper), the
+// narrower than its file (the trust entry cares about Admit's cascade, not
+// the Trust constructors or the withheld-ref bookkeeping beside it), the
 // extra mutants are a superset this scoping cannot avoid; they sit in the
 // same file, and their survivors are still reported, so the run's summary
 // has to say which survivors fall inside vs. outside the named mechanism.
@@ -221,19 +221,21 @@ func (u unitJudge) label() string {
 	return "go test -run " + u.Run + " " + u.Pkg
 }
 
-// trustCascadeTarget is the entry with a MEASURED result: 132 mutants, 81
-// killed, 51 survived, score 0.61 (63 minutes). It is named
-// separately because the guard-virus test below and
-// TestGuardNegate_MatchesRealTrustGo both aim at trust.go specifically
-// rather than at whatever happens to be first in the table.
+// trustCascadeTarget is named separately because the guard-virus test below
+// and TestGuardNegate_MatchesRealTrustGo both aim at the cascade file
+// specifically rather than at whatever happens to be first in the table.
 //
-// Its three features claim exhaustive coverage of the EffectiveTrust
-// cascade: approve/deny for every item kind, rejection beating a trusted
-// signer, retraction, and fail-closed pending. A mutant that breaks the
-// cascade and none of these three notice is a hollow SECURITY claim.
+// The file is the one holding the DECISION — (*authorizer).Admit and the
+// helpers it asks (retractionVerdict, localReason, pendingReason) — not
+// operations' TrustStamper, which only adapts Admit's verdict to the CLI.
+//
+// Its three features claim exhaustive coverage of that cascade:
+// approve/deny for every item kind, rejection beating a trusted signer,
+// retraction, and fail-closed pending. A mutant that breaks the cascade and
+// none of these three notice is a hollow SECURITY claim.
 var trustCascadeTarget = mutationTarget{
 	Name:          "trust_cascade",
-	SourceRelPath: "internal/adapters/operations/trust.go",
+	SourceRelPath: "internal/core/composite/trust.go",
 	Judge: acceptanceJudge{Features: []string{
 		"features/journeys/trust_surface.feature",
 		"features/journeys/j001500_corporate_signed.feature",
@@ -501,8 +503,8 @@ func (m mutationTarget) release(t *testing.T, extra ...ooze.Option) {
 // as the mutant test command.
 //
 // COST: every mutant is a full rebuild plus a scoped suite run, measured at
-// ~28s; the trust_cascade entry alone is 132 mutants ≈ 63 minutes. Running
-// the whole table is a multi-hour job. Run one entry with
+// ~28s, so a single entry is tens of minutes and the whole table is a
+// multi-hour job. Run one entry with
 // -run 'TestAcceptanceMutation/^bundle_sign$'.
 //
 // This was TestTrustCascadeMutation, singular, when the harness could only
@@ -519,9 +521,9 @@ func TestAcceptanceMutation(t *testing.T) {
 // security question, and it exists because the stock run above CANNOT.
 //
 // The stock viruses mutate comparisons and arithmetic only. Three of the
-// EffectiveTrust steps — REJECTED, RETRACTED, APPROVED — are plain boolean
+// cascade steps — REJECTED, RETRACTED, APPROVED — are plain boolean
 // guards with no comparison in them, so the stock run emits zero mutants
-// against them (verified: 0 of 114). A green "no survivors in the cascade"
+// against them. A green "no survivors in the cascade"
 // from that run therefore means "the tool never attacked the cascade", not
 // "the cascade is covered" — exactly the kind of comfortable non-measurement
 // this project has been burned by four times.

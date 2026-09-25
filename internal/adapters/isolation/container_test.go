@@ -43,6 +43,9 @@ func (fakeRuntime) inspectRunningArgs(name string) []string {
 func (fakeRuntime) imageInspectArgs(image, format string) []string {
 	return ociRuntime{}.imageInspectArgs(image, format)
 }
+func (fakeRuntime) buildArgs(image, file, contextDir string, flags buildFlags) []string {
+	return ociRuntime{}.buildArgs(image, file, contextDir, flags)
+}
 func (fakeRuntime) daemonNameTemplate() string { return ociRuntime{}.daemonNameTemplate() }
 func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
 	return ociRuntime{}.removeOutcome(stdout, err)

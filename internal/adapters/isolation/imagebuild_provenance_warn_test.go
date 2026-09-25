@@ -39,7 +39,8 @@ func TestHostImageKeys_UnstampedBinaryIsAnnounced(t *testing.T) {
 	clidiag.ResetWarnOnce()
 	t.Cleanup(clidiag.ResetWarnOnce)
 
-	tagKey, provenanceKey := hostImageKeys()
+	keys := hostImageKeys()
+	tagKey, provenanceKey := keys.tag, keys.provenance
 	require.Empty(t, tagKey, "an unstamped binary still yields no tag key")
 	require.Empty(t, provenanceKey, "an unstamped binary still yields no provenance key")
 
@@ -58,7 +59,8 @@ func TestHostImageKeys_StampedBinaryIsQuiet(t *testing.T) {
 	clidiag.ResetWarnOnce()
 	t.Cleanup(clidiag.ResetWarnOnce)
 
-	tagKey, provenanceKey := hostImageKeys()
+	keys := hostImageKeys()
+	tagKey, provenanceKey := keys.tag, keys.provenance
 	require.NotEmpty(t, tagKey, "TestMain's stamp must resolve a tag key")
 	require.NotEmpty(t, provenanceKey, "TestMain's stamp must resolve a provenance key")
 	assert.Empty(t, sink.String(), "a usable stamp must produce no warning")

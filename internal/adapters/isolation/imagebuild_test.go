@@ -551,7 +551,8 @@ func TestEnsureImage_ParallelCallersShareOneBuild(t *testing.T) {
 	// never the legacy HostProvenanceDigest — computed here with the same
 	// nil devBase; the engine is the one ensureImage itself resolves for this Container
 	// (appRoot == "" short-circuits devcontainer auto-detection to nil).
-	_, provenance, ok := composedIdentity(spec, "", nil, "claude-code")
+	id, ok := composedIdentity(spec, "", nil, "claude-code")
+	provenance := id.provenance
 	require.True(t, ok, "precondition: a composable spec always resolves a provenance")
 	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
 	script := filepath.Join(dir, "fake-docker")
@@ -617,7 +618,7 @@ func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
 			containerfile: []byte("ARG BASE_IMAGE\nFROM ${BASE_IMAGE}\n"),
 			base:          &baseStage{desc: "test base", containerfile: []byte(baseContent)},
 		}
-		require.NoError(t, buildFromSource(context.Background(), rt, "ctxloom-agent-basetag-test:latest", src, selfExe, "", false, nil))
+		require.NoError(t, buildFromSource(context.Background(), rt, agentImageID{ref: "ctxloom-agent-basetag-test:latest"}, src, selfExe, false, nil))
 	}
 	build("FROM debian:13\n")
 	build("FROM alpine:3\n")
@@ -1090,7 +1091,8 @@ func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
 
 	dir := t.TempDir()
 	spec := engineContainerSpec{engineInstall: []byte("RUN echo fake-install\n")}
-	_, provenance, ok := composedIdentity(spec, "", nil, "claude-code")
+	id, ok := composedIdentity(spec, "", nil, "claude-code")
+	provenance := id.provenance
 	require.True(t, ok)
 	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, provenance)
 
@@ -1136,7 +1138,8 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 
 	firstContent, err := stage.content()
 	require.NoError(t, err)
-	firstAgentTag, firstProvenance, ok := composedIdentity(spec, path, nil, "claude-code")
+	first, ok := composedIdentity(spec, path, nil, "claude-code")
+	firstAgentTag, firstProvenance := first.ref, first.provenance
 	require.True(t, ok)
 	firstBaseTag := baseImageTagFor(firstContent)
 
@@ -1144,7 +1147,8 @@ func TestBaseContentKeysBothTags(t *testing.T) {
 
 	secondContent, err := stage.content()
 	require.NoError(t, err)
-	secondAgentTag, secondProvenance, ok := composedIdentity(spec, path, nil, "claude-code")
+	second, ok := composedIdentity(spec, path, nil, "claude-code")
+	secondAgentTag, secondProvenance := second.ref, second.provenance
 	require.True(t, ok)
 
 	assert.NotEqual(t, firstBaseTag, baseImageTagFor(secondContent),

@@ -83,6 +83,9 @@ type Runtime interface {
 	// imageInspectArgs builds the argv that inspects image, rendering format
 	// when it is non-empty (a bare inspect answers only "does it exist").
 	imageInspectArgs(image, format string) []string
+	// buildArgs builds the `build` argv tagging image from file in
+	// contextDir, carrying flags (pull, cache, build args, labels).
+	buildArgs(image, file, contextDir string, flags buildFlags) []string
 	// daemonNameTemplate is the `info` Go template naming the daemon's host.
 	daemonNameTemplate() string
 	// removeOutcome reads what this runtime's CLI said about a RemoveArgs run.
@@ -306,6 +309,24 @@ func (ociRuntime) imageInspectArgs(image, format string) []string {
 		args = append(args, "--format", format)
 	}
 	return args
+}
+
+// buildArgs is the docker-CLI-compatible `build`. The labels ride as --label
+// rather than in the Containerfile so a base built from the user's own
+// Containerfile carries them too.
+func (ociRuntime) buildArgs(image, file, contextDir string, flags buildFlags) []string {
+	args := []string{"build", "-t", image}
+	if flags.pull {
+		args = append(args, "--pull")
+	}
+	if flags.noCache {
+		args = append(args, "--no-cache")
+	}
+	for _, ba := range flags.buildArgs {
+		args = append(args, "--build-arg", ba)
+	}
+	args = append(args, flags.stamp.labelArgs()...)
+	return append(args, "-f", file, contextDir)
 }
 
 // daemonNameTemplate is the top-level {{.Name}} field.

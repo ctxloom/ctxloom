@@ -101,7 +101,8 @@ func TestComposedIdentity_ReusesWithinAVersionAndSeparatesAcross(t *testing.T) {
 		orig := binaryVersion
 		SetBinaryVersion(stamp)
 		defer SetBinaryVersion(orig)
-		image, provenance, ok := composedIdentity(spec, "", nil, "claude-code")
+		id, ok := composedIdentity(spec, "", nil, "claude-code")
+		image, provenance := id.ref, id.provenance
 		require.True(t, ok, "a composable spec always resolves an identity")
 		return image, provenance
 	}
@@ -151,19 +152,20 @@ func TestComposedIdentity_BuildAndLaunchAgreeAndCompanionSetsCoexist(t *testing.
 	img := ImageConfig{NoDevcontainerBase: true}
 
 	withCompanions(t, map[string]string{"taskloom": "v1.0.0", "ltk": "v2.0.0"})
-	builtTag, builtLabel, ok := composedIdentity(spec, "", nil, "claude-code")
+	id, ok := composedIdentity(spec, "", nil, "claude-code")
+	builtTag, builtLabel := id.ref, id.provenance
 	require.True(t, ok)
 	require.NotEmpty(t, builtLabel, "the staleness gate must be live, or the assertions below prove nothing")
 
 	launch := containerFor(rt, "claude-code", img)
 	assert.Equal(t, builtTag, launch.image, "a launch must look for the tag the build wrote")
-	assert.False(t, imageStale(map[string]string{provenanceLabel: builtLabel}, launch.provenanceFor(nil)),
+	assert.False(t, imageStale(map[string]string{provenanceLabel: builtLabel}, launch.identityFor(nil).provenance),
 		"a launch in the environment that built the image must find it current")
 
 	withCompanions(t, map[string]string{})
 	elsewhere := containerFor(rt, "claude-code", img)
 	assert.NotEqual(t, builtTag, elsewhere.image,
 		"an environment admitting different companions stages a different image, so it must not share the tag and rebuild over it")
-	assert.True(t, imageStale(map[string]string{provenanceLabel: builtLabel}, elsewhere.provenanceFor(nil)),
+	assert.True(t, imageStale(map[string]string{provenanceLabel: builtLabel}, elsewhere.identityFor(nil).provenance),
 		"the provenance must still tell the two companion sets apart")
 }

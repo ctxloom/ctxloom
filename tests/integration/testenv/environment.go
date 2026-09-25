@@ -899,12 +899,18 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 // the tool result never written. Nothing was wrong with the server; the test
 // client hung up on it, and it did so more often the busier the box was.
 //
-// want == 0 means the input was not JSON-RPC (nothing to count), so this
-// falls back to waiting out the ceiling rather than returning immediately.
+// want == 0 means the input carries no JSON-RPC request (a hook payload, a
+// prompt), so no answer will ever arrive to wait for, and it returns at once:
+// the child reads what was written and then sees EOF, exactly as through a
+// shell pipe. Waiting out the ceiling there bought nothing and cost every
+// such call the whole of mcpStdinGrace.
 func waitForStdinResponses(out *syncBuffer, want int) {
+	if want == 0 {
+		return
+	}
 	deadline := time.Now().Add(mcpStdinGrace)
 	for time.Now().Before(deadline) {
-		if want > 0 && jsonrpcResponseCount(out.String()) >= want {
+		if jsonrpcResponseCount(out.String()) >= want {
 			return
 		}
 		time.Sleep(stdinPollInterval)

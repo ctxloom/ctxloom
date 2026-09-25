@@ -48,11 +48,11 @@ func reportStaleAllowlist(pass *analysis.Pass, allowed map[string]string, analyz
 	}
 }
 
-// analyzedFiles is the set of module-relative production files in this pass,
-// the only files a liveness check is entitled to judge.
+// analyzedFiles is the set of module-relative files this pass owns, the only
+// files a liveness check is entitled to judge.
 func analyzedFiles(pass *analysis.Pass) map[string]bool {
 	out := map[string]bool{}
-	for _, f := range ProdFiles(pass) {
+	for _, f := range OwnedFiles(pass) {
 		out[FileRel(pass, f)] = true
 	}
 	return out

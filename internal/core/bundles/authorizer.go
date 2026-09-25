@@ -204,11 +204,6 @@ const (
 
 	// --- the gate's own state, appended last so no reason above renumbers ---
 
-	// ReasonUngated: nobody gates this surface, and it says so
-	// (composite.Ungated). An ADMIT that names the absence of a rule rather
-	// than claiming one decided, which is what a management or listing path
-	// is honestly doing.
-	ReasonUngated
 	// ReasonUngoverned: the exposure reached the gate with NO authorizer at all.
 	// A fault in the CALLER, not a fact about the content — so it is not
 	// reviewable and no human action clears it. Withheld, because the
@@ -298,8 +293,6 @@ func (r Reason) String() string {
 		return "unaddressable"
 	case ReasonUnestablished:
 		return "unestablished"
-	case ReasonUngated:
-		return "ungated"
 	case ReasonUngoverned:
 		return "ungoverned"
 	default:
@@ -339,7 +332,7 @@ func (r Reason) Explain(detail string) string {
 		return "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content"
 	case ReasonStaleLocalSignature:
 		return withDefault(detail, "its signature no longer covers its bytes — re-sign it")
-	case ReasonUngated, ReasonLocal, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
+	case ReasonLocal, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
 		return "allowed: " + r.String()
 	default:
 		// ReasonUnsigned, ReasonPending, ReasonUnset, and the fail-closed
@@ -427,12 +420,11 @@ type UnaddressableReporter interface {
 // ReportVerdict). A surface that called a Authorizer directly would be one that
 // could forget the last of those.
 //
-// A NIL authorizer withholds, and says so. "I deliberately have no gate" is
-// spelled composite.Ungated() — a value the caller writes, by name — so nil
-// is left meaning the one thing it cannot be a policy for: nobody supplied a
-// gate. Admitting on it would make a forgotten gate indistinguishable from an
-// intended one at every call site, and would resolve the mistake toward
-// exposure.
+// A NIL authorizer withholds, and says so (ReasonUngoverned): nobody supplied
+// a gate, and that is a defect in the caller, never a policy. There is no
+// admit-everything authorizer in production to spell "deliberately ungated"
+// instead, so every surface that reaches here is decided by a real gate or
+// withheld.
 //
 // An UNPARSEABLE ref withholds. An item nothing can address is an item the
 // decision function was never able to key on, and exposing it would be exposing
@@ -453,13 +445,6 @@ func Decide(rep report.Reporter, authorizer Authorizer, read BundleRead, ref str
 		v := Verdict{Reason: ReasonUngoverned}
 		rep.Warnf("withheld %s: %s", ref, v.Reason.Explain(v.Detail))
 		return v
-	}
-	// An ungated surface answers here, above the parse, so a listing behaves
-	// exactly as it did when it was spelled nil — including for a ref nothing
-	// can address. Parsing first would turn every listing path into a new
-	// source of withholds.
-	if !Gates(authorizer) {
-		return authorizer.Admit(Exposure{Read: read, Bytes: payload, Form: form})
 	}
 	br, err := trust.ParseBundleRef(ref)
 	if err != nil {

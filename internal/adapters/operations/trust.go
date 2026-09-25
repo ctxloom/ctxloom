@@ -867,8 +867,6 @@ func resultOf(v bundles.Verdict) EffectiveTrustResult {
 		res.Source = trust.SourceTrustedSigner
 	case bundles.ReasonApproved:
 		res.Source = trust.SourceAccepted
-	case bundles.ReasonUngated:
-		res.Source = trust.SourceLocal
 	}
 	return res
 }

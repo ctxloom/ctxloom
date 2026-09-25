@@ -14,11 +14,11 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport/admitall"
 )
 
 // writeLinkedBundleFixture lays down one bundle whose skill, command and
@@ -152,11 +152,11 @@ func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.
 	}
 	read := bundles.ProjectAuthoredRead("fixture", b)
 
-	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), nil)
+	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), admitall.Authorizer(), nil)
 	assert.Empty(t, hookCommands(got.SessionStart))
 	assert.Equal(t, []string{"free-guard"}, hookCommands(got.PreTool))
 
-	unchecked := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	unchecked := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), admitall.Authorizer(), bundles.LinksUnchecked())
 	assert.Equal(t, []string{"think-warmup"}, hookCommands(unchecked.SessionStart))
 }
 

@@ -73,7 +73,7 @@ func TestLoader_ReporterReceivesTheCatalogDiagnostics(t *testing.T) {
 		var warnings findingLines
 		l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithReporter(&warnings)
 
-		got := ungated(l, false).CommandsFromBundleRef("u031-f14-unresolved-ref")
+		got := admitAllPipe(l, false).CommandsFromBundleRef("u031-f14-unresolved-ref")
 
 		require.Empty(t, got)
 		assert.Contains(t, warnings.String(), "u031-f14-unresolved-ref",

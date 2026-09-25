@@ -72,8 +72,7 @@ func (c *Config) Catalog() bundles.Catalog {
 // (bindTrust). A Config no Owner published — a fixture — holds a ZERO
 // Trust, whose nil authorizer bundles.Decide withholds on and names
 // (ReasonUngoverned): a surface that forgot its gate is a defect, never an
-// admit. A listing surface that means "ungated" binds composite.Ungated()
-// by name.
+// admit.
 func (c *Config) Trust() composite.Trust { return c.trust }
 
 // ExecutableTrustGate returns the authorizer the bundle executable surfaces
@@ -100,8 +99,8 @@ func (c *Config) RequireTrust() (composite.Trust, error) {
 
 // BindTrustForTesting binds tr as this Config's generation gate, exactly as
 // the Owner does before publishing a Snapshot. A fixture that exercises an
-// executable surface states its gate this way — composite.Ungated() by name
-// for a listing, compositetest.Trust over fake ports for a decision.
+// executable surface states its gate this way — compositetest.Trust over
+// fake ports for a decision.
 func (c *Config) BindTrustForTesting(tr composite.Trust) { c.trust = tr }
 
 // mcpNameClaims settles the MCP server-name contest at the BUNDLE-RESOLUTION
@@ -623,16 +622,14 @@ func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.C
 	return extractHooksFromBundle(rep, read, read.SourceRef(), gate, links)
 }
 
-// extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate
-// decides anything (bundles.Gates — the executable trust gate, TR5), each
+// extractHooksFromBundle converts a bundle's hooks to wire.Hooks. Each
 // hook's executable surface is
 // hashed (BundleHook.ComputeContentHash) and run through the cascade keyed on
 // the canonical bundle-reference grammar's item selector over source
 // (bundles.ItemRefFor(src, trust.KindHook, "<event>/<index>")); a DENY omits the
 // hook — a bundle hook is an arbitrary-command executable that must never be
-// applied unevaluated (fail-closed). An ungated caller (management/listing
-// paths) passes bundles.AdmitAll: the preimage is never even built, which is
-// why this branches rather than letting Decide answer. The identity scheme is
+// applied unevaluated (fail-closed). gate is the executable trust gate (TR5);
+// a nil gate withholds every hook (bundles.Decide). The identity scheme is
 // bundles.HookEntry.ID() ("<event>/<index>"), shared with the migration
 // baseline so a baselined hook's ref matches.
 //
@@ -679,37 +676,35 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 		for _, i := range order {
 			h := in[i]
 			id := bundles.HookEntry{Event: event, Index: i}.ID()
-			if bundles.Gates(gate) {
-				// Key by the bundle's source ref (canonical for a remote/cloned
-				// bundle, the local name for a project bundle) — NOT bundle.Name,
-				// whose short form is ambiguous across local and cloned bundles.
-				// This makes the cascade's IsLocal/RepoURL honest (local hooks
-				// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
-				// the gate key with the baseline/grant key (both source).
-				ref, rerr := bundles.ItemRefFor(src, trust.KindHook, id)
-				if rerr != nil {
-					// Fail CLOSED and NAMED: a hook nothing can address is a
-					// hook nothing can decide about, and one such hook costs
-					// itself, never the bundle's other hooks.
-					rep.Failf(report.KindBundle,
-						"fix or re-pull the bundle, or pass --degraded",
-						"bundle hook withheld: %v", rerr)
-					continue
-				}
-				payload, perr := hookPreimage(h)
-				if perr != nil {
-					// Cannot build the preimage → cannot evaluate → withhold. Fail
-					// CLOSED, but never SILENTLY: a hook the user configured would
-					// otherwise vanish from the launched engine with no trace
-					// (U049-F17). Name the ref and the fault.
-					rep.Failf(report.KindBundle,
-						"fix or re-pull the bundle, or pass --degraded",
-						"bundle hook %q withheld: cannot build its trust preimage: %v", ref, perr)
-					continue
-				}
-				if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
-					continue // withheld by the trust gate
-				}
+			// Key by the bundle's source ref (canonical for a remote/cloned
+			// bundle, the local name for a project bundle) — NOT bundle.Name,
+			// whose short form is ambiguous across local and cloned bundles.
+			// This makes the cascade's IsLocal/RepoURL honest (local hooks
+			// auto-trust; a cloned one is judged by WHO SIGNED it) and aligns
+			// the gate key with the baseline/grant key (both source).
+			ref, rerr := bundles.ItemRefFor(src, trust.KindHook, id)
+			if rerr != nil {
+				// Fail CLOSED and NAMED: a hook nothing can address is a
+				// hook nothing can decide about, and one such hook costs
+				// itself, never the bundle's other hooks.
+				rep.Failf(report.KindBundle,
+					"fix or re-pull the bundle, or pass --degraded",
+					"bundle hook withheld: %v", rerr)
+				continue
+			}
+			payload, perr := hookPreimage(h)
+			if perr != nil {
+				// Cannot build the preimage → cannot evaluate → withhold. Fail
+				// CLOSED, but never SILENTLY: a hook the user configured would
+				// otherwise vanish from the launched engine with no trace
+				// (U049-F17). Name the ref and the fault.
+				rep.Failf(report.KindBundle,
+					"fix or re-pull the bundle, or pass --degraded",
+					"bundle hook %q withheld: cannot build its trust preimage: %v", ref, perr)
+				continue
+			}
+			if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
+				continue // withheld by the trust gate
 			}
 			// Trust decided first, so a trust withhold is reported as one;
 			// links are the second question, asked only of a hook trust
@@ -742,46 +737,43 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 	}
 }
 
-// extractMCPFromBundle extracts MCP servers from a loaded bundle. When gate
-// decides anything (bundles.Gates — the executable trust gate, TR5), each
+// extractMCPFromBundle extracts MCP servers from a loaded bundle. Each
 // server's executable surface
 // (Command+Args+Env+Installation) is hashed and run through the cascade keyed
 // on the canonical bundle-reference grammar's item selector over source
 // (bundles.ItemRefFor(src, trust.KindMCP, name)); a DENY omits the server entirely
 // — an arbitrary-command executable must never reach settings unevaluated
-// (fail-closed). An ungated caller (management/listing paths) passes
-// bundles.AdmitAll.
+// (fail-closed). gate is the executable trust gate (TR5); a nil gate
+// withholds every server (bundles.Decide).
 func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
 
 	for name, mcp := range bundle.MCP {
-		if bundles.Gates(gate) {
-			// Key by the source ref (canonical for a cloned bundle, local name for
-			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
-			// gate key matches the baseline/grant key. See extractHooksFromBundle.
-			ref, rerr := bundles.ItemRefFor(src, trust.KindMCP, name)
-			if rerr != nil {
-				// See extractHooksFromBundle: fail closed, named, per item.
-				rep.Failf(report.KindBundle,
-					"fix or re-pull the bundle, or pass --degraded",
-					"bundle MCP server withheld: %v", rerr)
-				continue
-			}
-			payload, perr := mcpPreimage(mcp)
-			if perr != nil {
-				// Cannot build the preimage → cannot evaluate → withhold. Fail
-				// CLOSED, but never SILENTLY: an MCP server the user configured
-				// would otherwise vanish from the launched engine with no trace
-				// (U049-F17). Name the ref and the fault.
-				rep.Failf(report.KindBundle,
-					"fix or re-pull the bundle, or pass --degraded",
-					"bundle MCP server %q withheld: cannot build its trust preimage: %v", ref, perr)
-				continue
-			}
-			if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
-				continue // withheld by the trust gate
-			}
+		// Key by the source ref (canonical for a cloned bundle, local name for
+		// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
+		// gate key matches the baseline/grant key. See extractHooksFromBundle.
+		ref, rerr := bundles.ItemRefFor(src, trust.KindMCP, name)
+		if rerr != nil {
+			// See extractHooksFromBundle: fail closed, named, per item.
+			rep.Failf(report.KindBundle,
+				"fix or re-pull the bundle, or pass --degraded",
+				"bundle MCP server withheld: %v", rerr)
+			continue
+		}
+		payload, perr := mcpPreimage(mcp)
+		if perr != nil {
+			// Cannot build the preimage → cannot evaluate → withhold. Fail
+			// CLOSED, but never SILENTLY: an MCP server the user configured
+			// would otherwise vanish from the launched engine with no trace
+			// (U049-F17). Name the ref and the fault.
+			rep.Failf(report.KindBundle,
+				"fix or re-pull the bundle, or pass --degraded",
+				"bundle MCP server %q withheld: cannot build its trust preimage: %v", ref, perr)
+			continue
+		}
+		if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
+			continue // withheld by the trust gate
 		}
 		srv := mcp.AsWire()
 		srv.Notes = mcp.Notes

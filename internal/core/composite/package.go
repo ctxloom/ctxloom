@@ -11,9 +11,6 @@ import (
 )
 
 var (
-	// ErrUngatedAssembly is Assemble's refusal of an Ungated trust: a listing
-	// surface's trust can never reach delivery.
-	ErrUngatedAssembly = errors.New("composite: a package cannot be assembled over an ungated trust")
 	// ErrItemWithheld is Assemble's refusal when an item the profile set
 	// requires was withheld and Options.DropWithheld did not accept the loss.
 	ErrItemWithheld = errors.New("composite: an item the profile set requires was withheld")
@@ -290,8 +287,7 @@ type Options struct {
 	Versions bundles.BundleVersionResolver
 	// Pipeline is the injected-stage seam: a process stage built elsewhere
 	// (a test's, over its own gate and link grant) that Assemble reads
-	// through instead of building one from cat and tr. tr still decides
-	// the ungated refusal.
+	// through instead of building one from cat and tr.
 	Pipeline *bundles.Pipeline
 	// DropWithheld accepts a withheld required item instead of refusing.
 	DropWithheld bool

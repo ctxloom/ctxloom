@@ -30,7 +30,6 @@ func TestReason_Explain_PinsEverySentence(t *testing.T) {
 		{ReasonPending, review, review + " (d)"},
 		{ReasonUnaddressable, "its ref could not be parsed, so nothing could decide about it", "its ref could not be parsed, so nothing could decide about it"},
 		{ReasonUnestablished, "it reached the gate without established provenance", "it reached the gate without established provenance"},
-		{ReasonUngated, "allowed: " + ReasonUngated.String(), "allowed: " + ReasonUngated.String()},
 		{ReasonUngoverned, "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content", "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content"},
 		{Reason(255), review, review + " (d)"},
 	}

@@ -272,7 +272,7 @@ func TestMultiVersion_NoResolverFailsClosed(t *testing.T) {
 			Content: "default body",
 		},
 	}}}
-	l := ungated(NewLoader(seedLocal(map[string]*Bundle{cqRef: def})), true)
+	l := admitAllPipe(NewLoader(seedLocal(map[string]*Bundle{cqRef: def})), true)
 
 	if _, err := l.GetFragmentAtVersion(cqFrag, "c1"); !errors.Is(err, errs.ErrNoVersionResolver) {
 		t.Errorf("GetFragmentAtVersion without resolver err = %v, want ErrNoVersionResolver", err)

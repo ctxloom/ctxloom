@@ -23,8 +23,8 @@ import (
 const contextSectionSeparator = "\n\n---\n\n"
 
 // Assemble is the ONE constructor from sources. It reads nothing: cat is
-// resolved, profiles loaded, trust built. It refuses an ungated trust and a
-// withheld required item (unless Options.DropWithheld, recorded in the
+// resolved, profiles loaded, trust built. It refuses a withheld required
+// item (unless Options.DropWithheld, recorded in the
 // attestation).
 //
 // The context: every fragment in selection order, loaded through the gated
@@ -37,9 +37,9 @@ const contextSectionSeparator = "\n\n---\n\n"
 // MCP servers, the deny list and the statusline are carried as the caller
 // resolved them.
 func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust, opts Options) (Package, error) {
-	if !tr.Gates() {
-		return Package{}, ErrUngatedAssembly
-	}
+	// No refusal of tr is needed here: no production-constructible Trust
+	// admits everything, and a zero Trust's nil authorizer is withheld on by
+	// bundles.Decide (ReasonUngoverned), so an unbound tr delivers nothing.
 	pipe := opts.Pipeline
 	if pipe == nil {
 		loader := bundles.LoaderOf(cat)

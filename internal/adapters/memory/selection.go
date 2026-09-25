@@ -101,52 +101,71 @@ const maxArtifactPathBytes = 200
 // work rather than a directory listing: the file opened first is usually the
 // one the session was about.
 func collectArtifacts(entries []agent.SessionEntry) ([]Artifact, int) {
-	var order []string
-	byPath := map[string]*Artifact{}
-	truncated := 0
-
+	idx := artifactIndex{byPath: map[string]*Artifact{}}
 	for _, e := range entries {
-		if e.Type != agent.EntryTypeToolUse || len(e.ToolInput) == 0 {
-			continue
-		}
-		var args map[string]json.RawMessage
-		if err := json.Unmarshal(e.ToolInput, &args); err != nil {
-			continue
-		}
-		for key, raw := range args {
-			if !pathArgs[key] {
-				continue
-			}
-			var path string
-			if err := json.Unmarshal(raw, &path); err != nil {
-				continue
-			}
-			path = strings.TrimSpace(path)
-			if path == "" {
-				continue
-			}
-			if len(path) > maxArtifactPathBytes {
-				path = textutil.TruncateBytes(path, maxArtifactPathBytes)
-			}
-			existing, seen := byPath[path]
-			if !seen {
-				if len(order) >= maxArtifacts {
-					truncated++
-					continue
-				}
-				order = append(order, path)
-				byPath[path] = &Artifact{Path: path}
-				existing = byPath[path]
-			}
-			existing.addTool(e.ToolName)
+		for _, path := range toolPaths(e) {
+			idx.add(path, e.ToolName)
 		}
 	}
+	artifacts := make([]Artifact, 0, len(idx.order))
+	for _, p := range idx.order {
+		artifacts = append(artifacts, *idx.byPath[p])
+	}
+	return artifacts, idx.truncated
+}
 
-	artifacts := make([]Artifact, 0, len(order))
-	for _, p := range order {
-		artifacts = append(artifacts, *byPath[p])
+// artifactIndex is collectArtifacts' first-seen, capped record of paths.
+type artifactIndex struct {
+	order     []string
+	byPath    map[string]*Artifact
+	truncated int
+}
+
+// add records tool against path, counting a new path past the cap as
+// truncated rather than recording it.
+func (x *artifactIndex) add(path, tool string) {
+	existing, seen := x.byPath[path]
+	if !seen {
+		if len(x.order) >= maxArtifacts {
+			x.truncated++
+			return
+		}
+		x.order = append(x.order, path)
+		existing = &Artifact{Path: path}
+		x.byPath[path] = existing
 	}
-	return artifacts, truncated
+	existing.addTool(tool)
+}
+
+// toolPaths is the path arguments of one tool call, trimmed and capped in
+// length; nil for any other entry or unreadable arguments.
+func toolPaths(e agent.SessionEntry) []string {
+	if e.Type != agent.EntryTypeToolUse || len(e.ToolInput) == 0 {
+		return nil
+	}
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(e.ToolInput, &args); err != nil {
+		return nil
+	}
+	var paths []string
+	for key, raw := range args {
+		if !pathArgs[key] {
+			continue
+		}
+		var path string
+		if err := json.Unmarshal(raw, &path); err != nil {
+			continue
+		}
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if len(path) > maxArtifactPathBytes {
+			path = textutil.TruncateBytes(path, maxArtifactPathBytes)
+		}
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 // addTool records a tool against this artifact, keeping first-seen order and

@@ -112,3 +112,95 @@ func TestLocalRemoteName_OrdinaryURLsUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// TestLocalTreePath_ItemPathNeverEscapesTheCacheRoot is the item-path half of
+// the class gate above. validateItemPath guards the item path only where a
+// reference is PARSED; a Reference is also a plain struct, and its identity is
+// minted by refuri, which RESOLVES dot segments rather than refusing them. So a
+// Path of "../../x" mints the clean identity of bundle "x" while the path
+// builders join the raw field. The gate is stated over both builders' RESULTS,
+// for a reference however it was built: refused, or contained.
+func TestLocalTreePath_ItemPathNeverEscapesTheCacheRoot(t *testing.T) {
+	base := filepath.Join("/proj", ".ctxloom")
+	root := filepath.Join(base, paths.CacheDir, paths.BundlesDir)
+
+	contained := func(t *testing.T, what, got string) {
+		t.Helper()
+		rel, err := filepath.Rel(root, got)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			t.Fatalf("%s = %q is not strictly inside the bundle cache root %q (rel %q, %v)", what, got, root, rel, err)
+		}
+	}
+	check := func(t *testing.T, r *Reference) {
+		t.Helper()
+		wt, werr := r.LocalWorktreePath(base)
+		tree, terr := r.LocalTreePath(base)
+		if werr == nil {
+			contained(t, "LocalWorktreePath", wt)
+		}
+		if terr == nil {
+			contained(t, "LocalTreePath", tree)
+		}
+	}
+
+	escapes := []string{
+		"../../../../../../etc",
+		"../../../../../../../../tmp/pwn",
+		"a/../../../../../../../x",
+		"/etc/passwd",
+		"/",
+		"..",
+		".",
+		`..\..\..\x`,
+		"%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/x",
+		"",
+	}
+	for _, url := range []string{"https://github.com/o/r", "file:///srv/x/r", "git@github.com:o/r"} {
+		for _, p := range escapes {
+			t.Run("literal/"+url+"/"+p, func(t *testing.T) {
+				check(t, &Reference{URL: url, Path: p, ItemType: ItemTypeBundle})
+			})
+		}
+	}
+	// Local references carry the name alone; they have no cache directory,
+	// but must not reach one outside the root either.
+	for _, p := range escapes {
+		t.Run("local/"+p, func(t *testing.T) {
+			check(t, &Reference{IsLocal: true, Path: p, ItemType: ItemTypeBundle})
+		})
+	}
+
+	// The same escapes through every parser arm: refused at parse, or
+	// contained.
+	parsed := []string{
+		"https://github.com/o/r@bundles/../../../../../x",
+		"https://github.com/o/r@bundles/%2e%2e/%2e%2e/%2e%2e/x",
+		"https://github.com/o/r@bundles//etc/passwd",
+		"file:///srv/x/r@bundles/../../../../x",
+		"git@github.com:o/r@bundles/../../../../x",
+		"ctxloom+git://github.com/o/r//bundles/../../../../../x",
+		"ctxloom+git://github.com/o/r//bundles/%2e%2e/%2e%2e/%2e%2e/%2e%2e/x",
+		"ctxloom+git://github.com/o/r//bundles/%2E%2E/%2E%2E/%2E%2E/x",
+		"ctxloom+file:///srv/x/r//bundles/../../../../x",
+		"ctxloom+file:///../../../..//bundles/x",
+		"ctxloom+file:///%2e%2e/%2e%2e//bundles/x",
+		"ctxloom+git://github.com/%2e%2e/%2e%2e//bundles/x",
+	}
+	for _, s := range parsed {
+		t.Run("parsed/"+s, func(t *testing.T) {
+			r, err := ParseReference(s)
+			if err != nil {
+				return
+			}
+			check(t, r)
+		})
+	}
+
+	// Control: an ordinary nested bundle path still resolves under the root.
+	ok := &Reference{URL: "https://github.com/o/r", Path: "lang/go", ItemType: ItemTypeBundle}
+	tree, err := ok.LocalTreePath(base)
+	if err != nil {
+		t.Fatalf("ordinary nested bundle refused: %v", err)
+	}
+	contained(t, "LocalTreePath(lang/go)", tree)
+}

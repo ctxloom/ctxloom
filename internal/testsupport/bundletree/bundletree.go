@@ -115,35 +115,68 @@ func WriteBundle(t testing.TB, fsys afero.Fs, root, name string, b *bundles.Bund
 }
 
 func write(fsys afero.Fs, root, name string, b *bundles.Bundle, o options) error {
-	ctx := context.Background()
 	envelope := envelopePath(root, name)
-	core := *b
-	core.Path = envelope
-	// A tree's envelope carries no items, so a fixture document that declared
-	// only items would leave an envelope declaring nothing, which ParseBundle
-	// refuses. A fixture that states its own version keeps it.
-	if core.Version == "" {
-		core.Version = "1.0.0"
-	}
-	core.Profiles, core.Hooks, core.Skills = nil, bundles.BundleHooks{}, nil
-	if err := bundles.NewFSStore(fsys, nil).Save(&core); err != nil {
+	if err := saveEnvelope(fsys, envelope, b); err != nil {
 		return err
 	}
-
 	dir := filepath.Dir(envelope)
-	id := filepath.Base(dir)
 	w, err := content.NewTreeStore(fsys, filepath.Dir(dir), content.Provenance{IsLocal: true})
 	if err != nil {
 		return err
 	}
-	put := func(kind trust.ItemKind, item string, s content.Surface) error {
-		return w.Put(ctx, trust.Ref{Bundle: id, Kind: kind, Name: item}, signing.FormRaw, s)
+	tw := treeWriter{ctx: context.Background(), w: w, fsys: fsys, dir: dir, id: filepath.Base(dir)}
+	if err := tw.putProfiles(b); err != nil {
+		return err
 	}
+	if err := tw.putHooks(b); err != nil {
+		return err
+	}
+	return tw.putSkills(b, o)
+}
+
+// saveEnvelope writes b's envelope — its bundle-level fields, none of its
+// items — at envelope.
+//
+// A tree's envelope carries no items, so a fixture document that declared
+// only items would leave an envelope declaring nothing, which ParseBundle
+// refuses. A fixture that states its own version keeps it.
+func saveEnvelope(fsys afero.Fs, envelope string, b *bundles.Bundle) error {
+	core := *b
+	core.Path = envelope
+	if core.Version == "" {
+		core.Version = "1.0.0"
+	}
+	core.Profiles, core.Hooks, core.Skills = nil, bundles.BundleHooks{}, nil
+	return bundles.NewFSStore(fsys, nil).Save(&core)
+}
+
+// treeWriter puts one bundle's items into its tree.
+type treeWriter struct {
+	ctx  context.Context
+	w    *content.TreeStore
+	fsys afero.Fs
+	dir  string
+	id   string
+}
+
+// put writes one item, raw.
+func (tw treeWriter) put(kind trust.ItemKind, item string, s content.Surface) error {
+	return tw.w.Put(tw.ctx, trust.Ref{Bundle: tw.id, Kind: kind, Name: item}, signing.FormRaw, s)
+}
+
+// putProfiles writes b's profiles, in name order.
+func (tw treeWriter) putProfiles(b *bundles.Bundle) error {
 	for _, p := range collections.SortedKeys(b.Profiles) {
-		if err := put(content.KindProfile, p, content.Profile{Name: p, Def: b.Profiles[p]}); err != nil {
+		if err := tw.put(content.KindProfile, p, content.Profile{Name: p, Def: b.Profiles[p]}); err != nil {
 			return fmt.Errorf("profile %q: %w", p, err)
 		}
 	}
+	return nil
+}
+
+// putHooks writes b's hooks, each named and ordered by its position unless
+// it states an order.
+func (tw treeWriter) putHooks(b *bundles.Bundle) error {
 	for _, e := range b.Hooks.Entries() {
 		h := e.Hook
 		order := (e.Index + 1) * content.HookOrderStep
@@ -151,7 +184,7 @@ func write(fsys afero.Fs, root, name string, b *bundles.Bundle, o options) error
 			order = *h.Order
 		}
 		hookName := fmt.Sprintf("hook-%d", e.Index+1)
-		if err := put(trust.KindHook, e.Event+"/"+hookName, content.Hook{
+		if err := tw.put(trust.KindHook, e.Event+"/"+hookName, content.Hook{
 			Event: e.Event, Name: hookName, Order: &order,
 			Matcher: h.Matcher, Type: h.Type, Command: h.Command, Prompt: h.Prompt,
 			Timeout: h.Timeout, Async: h.Async, PreToolFallback: h.PreToolFallback,
@@ -159,6 +192,12 @@ func write(fsys afero.Fs, root, name string, b *bundles.Bundle, o options) error
 			return fmt.Errorf("hook %s[%d]: %w", e.Event, e.Index, err)
 		}
 	}
+	return nil
+}
+
+// putSkills writes every skill b declares or WithSkill states, in name
+// order (declared first, then stated-only).
+func (tw treeWriter) putSkills(b *bundles.Bundle, o options) error {
 	skillNames := collections.SortedKeys(b.Skills)
 	for _, s := range collections.SortedKeys(o.skills) {
 		if _, declared := b.Skills[s]; !declared {
@@ -166,26 +205,32 @@ func write(fsys afero.Fs, root, name string, b *bundles.Bundle, o options) error
 		}
 	}
 	for _, s := range skillNames {
-		sk := b.Skills[s]
-		files, stated := o.skills[s]
-		if !stated {
-			if len(sk.Tags) == 0 && sk.Notes == "" && len(sk.Exports) == 0 {
-				continue
-			}
-			var err error
-			if files, err = skillFiles(fsys, filepath.Join(dir, "skills", s)); err != nil {
-				return fmt.Errorf("skill %q: %w", s, err)
-			}
-		}
-		exports, err := bundles.TreeExports(sk.Exports)
-		if err != nil {
-			return fmt.Errorf("skill %q: %w", s, err)
-		}
-		if err := put(trust.KindSkill, s, content.Skill{Name: s, Tags: sk.Tags, Notes: sk.Notes, Exports: exports, Files: files}); err != nil {
+		if err := tw.putSkill(s, b.Skills[s], o); err != nil {
 			return fmt.Errorf("skill %q: %w", s, err)
 		}
 	}
 	return nil
+}
+
+// putSkill writes one skill: its stated package, else — when b declares it
+// with metadata — the files already in place; a skill with neither is
+// skipped.
+func (tw treeWriter) putSkill(s string, sk bundles.BundleSkill, o options) error {
+	files, stated := o.skills[s]
+	if !stated {
+		if len(sk.Tags) == 0 && sk.Notes == "" && len(sk.Exports) == 0 {
+			return nil
+		}
+		var err error
+		if files, err = skillFiles(tw.fsys, filepath.Join(tw.dir, "skills", s)); err != nil {
+			return err
+		}
+	}
+	exports, err := bundles.TreeExports(sk.Exports)
+	if err != nil {
+		return err
+	}
+	return tw.put(trust.KindSkill, s, content.Skill{Name: s, Tags: sk.Tags, Notes: sk.Notes, Exports: exports, Files: files})
 }
 
 // skillFiles reads the package the fixture already wrote at dir.

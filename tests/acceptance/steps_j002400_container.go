@@ -26,8 +26,6 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
-
-	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 )
 
 // j002400Record is one run's evidence of WHERE the engine executed, read from the
@@ -101,10 +99,8 @@ func registerJ002400Steps(ctx *godog.ScenarioContext) {
 		agentName := "mock"
 		if runtime == "container" {
 			agentName = "mock-container"
-			_, decision, msg := containercell.Select(c, "J002400's containerized-run row")
-			if err := gateContainerRow(w, "J002400 container row", decision, msg); err != nil {
-				return err
-			}
+			// The runtime gate rides the image's: requireSuiteImage replays
+			// the suite's containercell.Select decision for it.
 			if err := requireSuiteImage(w, imageMockAgent, "J002400 container row"); err != nil {
 				return err
 			}

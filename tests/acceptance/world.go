@@ -133,6 +133,16 @@ func (w *World) agent() (*testenv.MCPSession, error) {
 	return s, nil
 }
 
+// expiredCommand takes the error of a command killed for outliving its bound
+// since the last step (testenv.RunHistory.TakeExpired), or nil. Nil-safe: a
+// scenario whose Before hook failed has no World.
+func (w *World) expiredCommand() error {
+	if w == nil {
+		return nil
+	}
+	return w.env.TakeExpired()
+}
+
 // InitializeScenario wires the lifecycle hooks and registers every step. godog
 // calls this once per scenario.
 func InitializeScenario(ctx *godog.ScenarioContext) {
@@ -153,10 +163,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	// by design (exit status is a later step's assertion), and a scenario that
 	// EXPECTS failure would otherwise pass on a command that never finished.
 	ctx.StepContext().After(func(c context.Context, _ *godog.Step, _ godog.StepResultStatus, _ error) (context.Context, error) {
-		if w := worldFrom(c); w != nil {
-			return c, w.env.TakeExpired()
-		}
-		return c, nil
+		return c, worldFrom(c).expiredCommand()
 	})
 
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {

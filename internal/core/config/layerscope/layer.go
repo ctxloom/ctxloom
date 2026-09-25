@@ -63,7 +63,7 @@ func (l Layer) String() string {
 
 // File reports the path a user must edit to set a key at this layer, or "" for
 // the two override layers (env/flag cross no file at all) — what a
-// Violation's FixIt names as the place to move a disallowed value TO, and what
+// Violation's Remedy names as the place to move a disallowed value TO, and what
 // a Violation's Message names as the place the offending value came FROM.
 // appPath is the project's .ctxloom directory; homeAppPath is the user's
 // (empty when unresolvable, in which case LayerHome degrades to "").

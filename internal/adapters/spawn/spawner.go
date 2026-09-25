@@ -231,20 +231,9 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 	if err := agents.ValidateDriving(binding.Driving); err != nil {
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
 	}
-	// The per-engine resume-capability gate. FAILS LOUD (never silently
-	// downgrades to persistent) when `driving: oneshot` names a backend with
-	// no resume-by-key primitive.
-	resumeMode, rmErr := resolveResumeMode(binding.Driving, backend)
-	if rmErr != nil {
-		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, rmErr)
-	}
-	// A backend that is statically resume-capable but NOT yet wired end to
-	// end still fails loud here rather than resolving a coord.ResumeModeOneShot
-	// value the turn loop would silently run conversationally.
-	if resumeMode == coord.ResumeModeOneShot && !oneShotSupportedBackends[backend] {
-		return nil, fmt.Errorf(
-			"agent_run: agent %q: driving: oneshot is not yet available for backend %q in this release; it is resume-capable but ctxloom does not yet tear down/resume THIS engine at turn boundaries",
-			agentName, backend)
+	resumeMode, err := resolveSpawnResumeMode(agentName, binding.Driving, backend)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.admit(backend); err != nil {
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
@@ -264,6 +253,25 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 	// and the launch see the IDENTICAL composed set.
 	plan.MCPServers = s.childMCPServers(plan)
 	return plan, nil
+}
+
+// resolveSpawnResumeMode is the per-engine resume-capability gate. It FAILS
+// LOUD (never silently downgrades to persistent) when `driving: oneshot`
+// names a backend with no resume-by-key primitive — and when the backend is
+// statically resume-capable but NOT yet wired end to end, rather than
+// resolving a coord.ResumeModeOneShot value the turn loop would silently run
+// conversationally.
+func resolveSpawnResumeMode(agentName string, driving agents.DrivingMode, backend string) (coord.ResumeMode, error) {
+	resumeMode, err := resolveResumeMode(driving, backend)
+	if err != nil {
+		return 0, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
+	}
+	if resumeMode == coord.ResumeModeOneShot && !oneShotSupportedBackends[backend] {
+		return 0, fmt.Errorf(
+			"agent_run: agent %q: driving: oneshot is not yet available for backend %q in this release; it is resume-capable but ctxloom does not yet tear down/resume THIS engine at turn boundaries",
+			agentName, backend)
+	}
+	return resumeMode, nil
 }
 
 func (s *spawner) AssignSession(projectDir, backend string) (string, error) {

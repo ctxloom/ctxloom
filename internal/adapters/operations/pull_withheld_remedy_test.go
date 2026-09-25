@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // pullRefusal is what a pull of the staged tree returns once mutate has run
@@ -57,6 +58,18 @@ func syncFailureFinding(t *testing.T, err error) report.Finding {
 	return found[0]
 }
 
+// supersededRemedy is the fix content raises for a retired-format manifest,
+// read back through the renderer rather than restated, so this test binds
+// to the raise site's wording instead of a copy of it.
+func supersededRemedy(t *testing.T) string {
+	t.Helper()
+	_, err := content.ParseManifest([]byte(content.DigestVersionMarker + "\n"))
+	require.ErrorIs(t, err, content.ErrManifestSuperseded)
+	fix, ok := clifmt.RemedyOf(err)
+	require.True(t, ok, "a superseded manifest names its fix")
+	return fix
+}
+
 // A pull that meets a pin signed in the RETIRED manifest format fails exactly
 // as before, but `deps pull` keeps the pin — so retrying it cannot help, and the
 // fix line must name the command that moves the pin.
@@ -69,7 +82,7 @@ func TestSyncSummary_SupersededManifestFormatPointsAtUpgrade(t *testing.T) {
 
 	f := syncFailureFinding(t, err)
 	assert.Equal(t, report.KindSync, f.Kind)
-	assert.Equal(t, remedyWithheldSuperseded, f.Remedy)
+	assert.Equal(t, supersededRemedy(t), f.Remedy)
 }
 
 // Every other refusal keeps the sync fix line it had: a marker this build does

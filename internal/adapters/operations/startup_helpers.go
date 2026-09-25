@@ -2,11 +2,9 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -46,9 +44,6 @@ func SweepOrphanedWorktrees(ctx context.Context, w io.Writer) {
 // presence is the gating signal, the version is reporting (CLAUDE.md fault
 // tolerance). Missing binaries stay silent here: the bundle resolvers emit
 // the one-shot install hint when they skip those entries.
-//
-// Both `ctxloom mcp` startup and `ctxloom run` call this so the surface is
-// the same regardless of how the session was started.
 func ReportCompanions(w io.Writer, prober companions.Prober, root trust.TrustRoot) {
 	// Best-effort reporting on fault-tolerant startup paths; failed writes
 	// are intentionally dropped (captured-but-unchecked via iox.ErrWriter).
@@ -75,8 +70,7 @@ func ReportCompanions(w io.Writer, prober companions.Prober, root trust.TrustRoo
 // SyncDependenciesResult to w AND records each failed item as a fatal sync
 // finding — named for both, for the same reason cli's printAndRecordConfigWarnings
 // was: a caller reaching for a summary writer must see that it also arms the
-// strict startup gate. Both `ctxloom mcp` startup and `ctxloom run` use this so
-// users see the same surface regardless of how sync was triggered.
+// strict startup gate. `ctxloom run`'s startup sync is its caller.
 //
 //   - Successful syncs that installed or updated something get a one-line
 //     status message.
@@ -97,10 +91,9 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 	if result == nil {
 		return
 	}
-	// Best-effort summary. Both `ctxloom mcp` startup and `ctxloom run`
-	// call this on a fault-tolerant path that must never block, so a
-	// failed write to the summary target is intentionally dropped
-	// (captured-but-unchecked via iox.ErrWriter).
+	// Best-effort summary. The startup sync calls this on a fault-tolerant
+	// path that must never block, so a failed write to the summary target is
+	// intentionally dropped (captured-but-unchecked via iox.ErrWriter).
 	ew := iox.NewErrWriter(w)
 	if result.Status != "up_to_date" && result.Installed+result.Updated > 0 {
 		ew.Printf("ctxloom: %s\n", result.Message)
@@ -109,22 +102,8 @@ func WriteAndRecordSyncSummary(w io.Writer, result *SyncDependenciesResult) {
 		clidiag.Fwarn(ew, "ctxloom", "sync completed with %d errors", result.Errors)
 		for _, item := range result.Failed {
 			ew.Printf("ctxloom:   - %s (%s): %s\n", item.Reference, item.Type, item.Error)
-			strictness.Record(report.KindSync, syncFailureRemedy(item.cause),
-				"sync: %s (%s) is neither cached nor fetchable: %s", item.Reference, item.Type, item.Error)
+			strictness.Record(report.KindSync, item.Remedy(),
+				"sync: %s (%s) is not cached and could not be installed: %s", item.Reference, item.Type, item.Error)
 		}
 	}
-}
-
-// remedySyncFailed is the fix line for an item a sync could neither find cached
-// nor fetch.
-const remedySyncFailed = "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile"
-
-// syncFailureRemedy selects the fix line for a failed sync item from its typed
-// cause. A pin signed in the retired manifest format fails every pull the same
-// way, because a pull keeps the pin; only an upgrade moves it.
-func syncFailureRemedy(cause error) string {
-	if errors.Is(cause, content.ErrManifestSuperseded) {
-		return remedyWithheldSuperseded
-	}
-	return remedySyncFailed
 }

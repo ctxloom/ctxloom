@@ -283,7 +283,7 @@ func TestLoadTreeBundle_SupersededManifestFormatIsWithheldAndPointsAtUpgrade(t *
 
 	f := withheldFinding(t, err)
 	assert.Equal(t, report.KindTrust, f.Kind)
-	assert.Equal(t, remedyWithheldSuperseded, f.Remedy)
+	assert.Equal(t, supersededRemedy(t), f.Remedy)
 }
 
 // Every OTHER withheld cause keeps the tamper remedy: bytes edited after

@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // lockfileFSOptions threads the config's injected filesystem into a remote
@@ -161,21 +162,16 @@ func reportBundleLoadFailures(failures map[trust.BundleKey]error) {
 	}
 }
 
-// The fix lines a withheld tree can carry. The withhold itself is decided by
-// the reader; these only choose what to tell the user about it.
-const (
-	remedyWithheldTampered = "re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed"
-	// A pin at a commit signed in the retired format stays withheld for as long
-	// as the pin does, and `deps pull` keeps the pin — so only an upgrade, which
-	// moves it to the publisher's re-signed commit, can fix it.
-	remedyWithheldSuperseded = "ctxloom deps upgrade — the pinned commit predates its publisher's re-sign in the current manifest format, and `deps pull` keeps the pin"
-)
+// remedyWithheldTampered is the fix line for a withheld tree whose refusal
+// names no fix of its own. The withhold itself is decided by the reader; this
+// only chooses what to tell the user about it.
+const remedyWithheldTampered = "re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed"
 
-// withheldRemedy selects the fix line for a withheld tree from the error's
-// typed cause.
+// withheldRemedy is the fix the refusal raised (a retired-format manifest
+// names the upgrade that moves its pin), else the tamper remedy.
 func withheldRemedy(err error) string {
-	if errors.Is(err, content.ErrManifestSuperseded) {
-		return remedyWithheldSuperseded
+	if fix, ok := clifmt.RemedyOf(err); ok {
+		return fix
 	}
 	return remedyWithheldTampered
 }

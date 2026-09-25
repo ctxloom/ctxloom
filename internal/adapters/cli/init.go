@@ -561,7 +561,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 		ApplyHooks: false, // applyInitHooks runs right after
 	})
 	if syncErr != nil {
-		warnDependencyPullFailed(syncErr.Error())
+		warnDependencyPullFailed(syncErr)
 		return
 	}
 	// A sync returns a NIL ERROR for a run in which individual references
@@ -573,7 +573,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 	// `ctxloom deps pull` exits on, so init and the command it stands in for
 	// can never disagree about what counts as a failed pull.
 	if resultErr := pullResultErr(result); resultErr != nil {
-		warnDependencyPullFailed(resultErr.Error())
+		warnDependencyPullFailed(resultErr)
 		return
 	}
 	if result.Installed > 0 {
@@ -584,17 +584,24 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 // warnDependencyPullFailed reports a dependency pull that did not complete
 // during init. It names three things a bare error cannot: that the init itself
 // stands (nothing is rolled back), that the consequence is uninstalled
-// dependencies which assembly will silently skip, and the one command that
+// dependencies which assembly will silently skip, and the fix — the one err
+// names (a misspelt reference, a retired-format pin), else the pull that
 // finishes the job once the remote is reachable.
-func warnDependencyPullFailed(reason string) {
-	clidiag.Warn("ctxloom",
-		"the dependency pull did not complete: %s\n"+
+func warnDependencyPullFailed(err error) {
+	remedy, ok := clifmt.RemedyOf(err)
+	if !ok {
+		remedy = remedyRetryPull
+	}
+	clidiag.WarnRemedy("ctxloom", remedy,
+		"the dependency pull did not complete: %v\n"+
 			"  Everything init wrote is kept — the project is initialized and usable.\n"+
 			"  Its remote dependencies are NOT installed, so context assembly will skip\n"+
-			"  them (`ctxloom doctor` reports this). Once the remote is reachable, run:\n"+
-			"    ctxloom deps pull",
-		reason)
+			"  them (`ctxloom doctor` reports this).",
+		err)
 }
+
+// remedyRetryPull is init's fix for a pull whose failure names none of its own.
+const remedyRetryPull = "ctxloom deps pull, once the remote is reachable"
 
 // The setup launch: the auth probe and the discovery session are TWO
 // launches with TWO minted identities through the one resolver — a

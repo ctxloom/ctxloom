@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // maxSyncPasses bounds the collect→pull fixed-point iteration in
@@ -64,9 +65,30 @@ type SyncItem struct {
 	Status    string `json:"status"` // "installed", "updated", "skipped", "retracted", "failed"
 	Error     string `json:"error,omitempty"`
 	LocalPath string `json:"local_path,omitempty"`
-	// cause is the failure Error was rendered from, kept typed so a reporter
-	// can choose a fix line with errors.Is rather than by matching the text.
+	// cause is the failure Error was rendered from, kept typed so Remedy can
+	// read the fix its raise site named rather than matching the text.
 	cause error
+}
+
+// The fix lines a failed sync item carries when its cause names none of its
+// own (remedySyncFailed), and the one its invalid-reference cause names.
+const (
+	remedySyncFailed       = "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile"
+	remedyInvalidReference = "fix the reference's spelling in its profile, or drop it"
+)
+
+// Remedy is the item's fix line: the fix its cause names (clifmt.RemedyOf),
+// else remedySyncFailed; "" unless the item failed. It is a method, not a
+// field, so the item's JSON shape is unchanged — a structured consumer
+// that wants the fix serialises Remedy() itself.
+func (i SyncItem) Remedy() string {
+	if i.Status != "failed" {
+		return ""
+	}
+	if fix, ok := clifmt.RemedyOf(i.cause); ok {
+		return fix
+	}
+	return remedySyncFailed
 }
 
 // RetractionChecker is the OPTIONAL seam a Puller may satisfy to let sync
@@ -596,7 +618,8 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// Validate the reference before pulling.
 	if _, err := remote.ParseReference(ref); err != nil {
 		item.Status = "failed"
-		item.Error = fmt.Sprintf("invalid reference: %v", err)
+		item.cause = report.Errorf(remedyInvalidReference, "invalid reference: %w", err)
+		item.Error = item.cause.Error()
 		return item
 	}
 

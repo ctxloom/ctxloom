@@ -213,7 +213,18 @@ release statement beside it". The release archives and `install.sh` /
 `install.ps1` ship both files for `taskloom` and `ltk`; a companion you build
 yourself must ship them too.
 
-## 11. Everything else marked breaking
+## 11. A lockfile keyed by the reference as typed is refused
+
+`.ctxloom/lock.yaml` is now keyed by bundle identity (lockfile version 2). A
+lockfile keyed by the reference as it was typed — every lockfile an earlier
+ctxloom wrote — is refused, and until it is rebuilt no remote bundle loads
+(ctxloom warns that it failed to load the remote lockfile). The refusal names
+the file and the remedy: delete `.ctxloom/lock.yaml` and run
+`ctxloom deps pull`, which re-resolves each bundle and writes the new form. If
+the refusal lists holds, re-apply them after the pull; a lockfile with no holds
+rebuilds at the same pinned commits.
+
+## 12. Everything else marked breaking
 
 Grouped by what you would have to change.
 

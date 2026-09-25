@@ -612,12 +612,13 @@ const WorktreeDirSuffix = ".worktree"
 // is PARSED, and the lock key cannot stand in for it: refuri RESOLVES dot
 // segments while minting, and a local name is opaque to it, so "../../x" keys
 // cleanly while the join below would climb out. So the item path is held to
-// the parser's rule here too, and a reference with no remote has no cache
-// directory at all. The remote half is contained by containRemoteName; the two
+// the parser's rule here too, and a reference with no remote name (local,
+// companion, or a URL naming no repository) has no cache directory at all. The remote half is contained by containRemoteName; the two
 // halves are the whole join, and the class gates in
 // reference_containment_test.go assert the result, not either guard.
 func (r *Reference) LocalWorktreePath(baseDir string) (string, error) {
-	if !r.IsCanonical() {
+	remoteName := r.LocalRemoteName()
+	if remoteName == "" {
 		return "", fmt.Errorf("%w: %s names no remote repository", ErrNoCacheDirectory, r)
 	}
 	if err := validateItemPath(r.Path); err != nil {
@@ -627,7 +628,7 @@ func (r *Reference) LocalWorktreePath(baseDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w for %s/%s: %w", ErrNoCacheDirectory, r.URL, r.Path, err)
 	}
-	return filepath.Join(paths.CacheBundlesPath(baseDir), r.LocalRemoteName(), r.Path) +
+	return filepath.Join(paths.CacheBundlesPath(baseDir), remoteName, r.Path) +
 		"." + identityDigest(key) + WorktreeDirSuffix, nil
 }
 
@@ -676,7 +677,7 @@ func (r *Reference) LocalTreePath(baseDir string) (string, error) {
 
 // LocalRemoteName returns a filesystem-safe name for the remote.
 // For canonical URLs, this extracts a meaningful identifier; for URL-less
-// (local) refs it is empty.
+// (local) refs, and for a URL naming no repository, it is empty.
 func (r *Reference) LocalRemoteName() string {
 	return containRemoteName(r.localRemoteName())
 }
@@ -685,9 +686,8 @@ func (r *Reference) LocalRemoteName() string {
 // name. The name is derived from a remote URL, which reaches us from a
 // lockfile, and it is then joined onto the cache root by LocalPath — whose
 // result callers hand to fs.Remove and friends. None of the derivations below
-// strip traversal: httpHostPath's path.Join CLEANS, so "https://x/../.."
-// collapses to "..", and sanitizePath only rewrites "://", ":" and "@". A
-// ".." segment therefore used to escape .ctxloom/cache/bundles entirely.
+// strip traversal: path.Join CLEANS, so a repository path of "/.." joins
+// onto its host as "..", which would escape .ctxloom/cache/bundles entirely.
 //
 // Traversal segments are REWRITTEN rather than dropped so two degenerate
 // remotes cannot silently collide onto one cache directory.
@@ -722,9 +722,13 @@ func (r *Reference) localRemoteName() string {
 	//   https://github.com/owner/repo → github.com/owner/repo
 	//   git@github.com:owner/repo     → github.com/owner/repo
 	//   file:///path/to/repo          → to/repo
+	//
+	// A URL with no repository identity has no name: not a copy of its
+	// spelling, which Registry.ResolveItemRemote would match local names
+	// against as though it were one.
 	repo, err := refuri.ParseRepoIdentity(r.URL)
 	if err != nil {
-		return sanitizePath(r.URL)
+		return ""
 	}
 	switch repo.Class {
 	case refuri.ClassGit:
@@ -736,7 +740,7 @@ func (r *Reference) localRemoteName() string {
 		}
 		return parts[0]
 	}
-	return sanitizePath(r.URL)
+	return ""
 }
 
 // sanitizePath makes a string safe for use in file paths.

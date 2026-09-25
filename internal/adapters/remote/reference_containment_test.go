@@ -180,14 +180,20 @@ func TestLocalTreePath_ItemPathNeverEscapesTheCacheRoot(t *testing.T) {
 			})
 		}
 	}
-	// A reference with no remote has no cache directory at all — not even an
-	// ordinary-looking one, which is where a traversal name would be joined.
+	// A reference with no remote repository has no cache directory at all —
+	// not even an ordinary-looking one, which is where a traversal name would
+	// be joined: a local ref, a companion ref, and a URL naming no repository.
 	for _, p := range append([]string{"lang/go", "kit"}, refused...) {
-		t.Run("local/"+p, func(t *testing.T) {
-			r := &Reference{IsLocal: true, Path: p, ItemType: ItemTypeBundle}
-			_, err := r.LocalWorktreePath(base)
-			require.ErrorIs(t, err, ErrNoCacheDirectory)
-		})
+		for name, r := range map[string]*Reference{
+			"local":      {IsLocal: true, Path: p, ItemType: ItemTypeBundle},
+			"companion":  {IsCompanion: true, URL: CompanionSource, Path: p, ItemType: ItemTypeBundle},
+			"unreadable": {URL: "unknown://weird:url", Path: p, ItemType: ItemTypeBundle},
+		} {
+			t.Run(name+"/"+p, func(t *testing.T) {
+				_, err := r.LocalWorktreePath(base)
+				require.ErrorIs(t, err, ErrNoCacheDirectory)
+			})
+		}
 	}
 
 	// The same escapes through every parser arm: refused at parse, or

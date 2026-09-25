@@ -349,7 +349,7 @@ func maybeRegenerateContext(req ApplyHooksRequest, freshCfg *config.Config, work
 // only class for which a written-and-stripped context surface is a lie about a
 // verdict rather than a report of one.
 func trustStoreFindingsError(mark strictness.Mark) error {
-	return findingsListingError(strictness.Mode{}, "refusing to apply hooks or context:", ofKind(strictness.Since(mark), report.KindTrust))
+	return strictness.Mode{}.ListingError("refusing to apply hooks or context:", ofKind(strictness.Since(mark), report.KindTrust))
 }
 
 // hookBackendNames resolves an APPLY's backend filter: a named backend is

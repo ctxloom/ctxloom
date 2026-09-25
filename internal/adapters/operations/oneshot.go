@@ -332,7 +332,7 @@ func RuntimeForPolicy(p isolation.Policy) isolation.Runtime {
 // nothing at all. A class-filtered gate must filter and then defer to
 // Actionable — never short-circuit on the mode.
 func isolationGateErr(mode strictness.Mode, found report.Findings) error {
-	return findingsListingError(mode,
+	return mode.ListingError(
 		"isolation: refusing to run this member — an explicitly-requested isolation guarantee could not be satisfied:",
 		mode.Actionable(ofKind(found, report.KindIsolation)))
 }
@@ -346,23 +346,6 @@ func ofKind(found report.Findings, kind report.Kind) report.Findings {
 		}
 	}
 	return out
-}
-
-// findingsListingError renders found as mode's Listing under header, as an
-// error, or nil when found is empty. Every remedy is in the listing text;
-// the error names the fix structurally (report.Error.Fix, which the terminal
-// envelope carries) only when there is exactly one finding, because one
-// remedy field cannot honestly stand for several. strictness.FindingsError
-// applies the same rule to its own listing.
-func findingsListingError(mode strictness.Mode, header string, found report.Findings) error {
-	if len(found) == 0 {
-		return nil
-	}
-	e := report.Error{Msg: mode.Listing(header, found)}
-	if len(found) == 1 {
-		e.Fix = found[0].Remedy
-	}
-	return e
 }
 
 // ResolveBackend maps a config label to its backend type and model. A label that

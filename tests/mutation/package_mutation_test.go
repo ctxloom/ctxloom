@@ -70,15 +70,19 @@ var packageMutationTargets = []packageMutationTarget{
 // logged, and the tally goes to the ratchet.
 const gremlinsEfficacyThresholdExit = 10
 
-// release runs gremlins over the entry's package, announcing the target first
-// so the survivor ratchet can attribute the tally that follows. Marker and
+// release runs gremlins over the entry's package in the module at root,
+// announcing the target first so the survivor ratchet can attribute the tally
+// that follows. Marker and
 // tally both go to out — os.Stdout in a real run, which is the stream the
 // ratchet reads; a buffer under test, so a fake run never announces a target
 // into a log the ratchet might be judging.
-func (p packageMutationTarget) release(t *testing.T, out io.Writer) {
+//
+// There is no preflightThenRelease here, and none is needed: gremlins' first
+// act is a coverage run of the package's own tests over the UNMUTATED tree, and
+// any failure there aborts the run with a non-threshold exit before a mutant is
+// made. TestPackageLane_RefusesATreeThatDoesNotBuild holds gremlins to that.
+func (p packageMutationTarget) release(t *testing.T, root string, out io.Writer) {
 	t.Helper()
-
-	root := repoRoot(t)
 
 	gremlins, err := exec.LookPath("gremlins")
 	if err != nil {
@@ -122,7 +126,7 @@ func (p packageMutationTarget) release(t *testing.T, out io.Writer) {
 func TestPackageMutation(t *testing.T) {
 	for _, target := range packageMutationTargets {
 		t.Run(target.Name, func(t *testing.T) {
-			target.release(t, os.Stdout)
+			target.release(t, repoRoot(t), os.Stdout)
 		})
 	}
 }

@@ -302,3 +302,35 @@ func TestNewTrust_AnUnreadableLockfileDoesNotWithholdCompanionContent(t *testing
 	assert.False(t, rv.Allow, "control: remote content under an unreadable lockfile is still withheld")
 	assert.Equal(t, bundles.ReasonPending, rv.Reason)
 }
+
+// An Exposure whose identity was never set is withheld as unaddressable, even
+// when every port would admit it. Any literal that omits BundleRef produces
+// exactly this value, so this one test pins the fail-closed answer for every
+// future literal: nothing can key a rejection or a retraction on no bundle.
+func TestAdmit_AnExposureNamingNoBundleIsWithheld(t *testing.T) {
+	e, _ := remoteExecutable(t)
+	e.BundleRef = trust.BundleRef{}
+	approveAll := fakeRecords{approved: func(trust.Ref, []byte, bundles.ContentForm) bool { return true }}
+	retractAll := fakeRetraction(func(trust.BundleRef) (bool, string) { return true, "withdrawn" })
+
+	for name, x := range map[string]fakeRetraction{"no retraction": noRetraction(), "retract everything": retractAll} {
+		t.Run(name, func(t *testing.T) {
+			v := mustTrust(t, approveAll, x).Authorizer().Admit(e)
+			assert.False(t, v.Allow, "zero identity admitted: %+v", v)
+			assert.Equal(t, bundles.ReasonUnaddressable, v.Reason)
+		})
+	}
+}
+
+// A bundle-level (item-less) identity is still an identity: the zero-identity
+// withhold must not reach it, or companion and bundle-level decisions would
+// stop being made.
+func TestAdmit_ABundleLevelIdentityIsNotUnaddressable(t *testing.T) {
+	e, _ := remoteExecutable(t)
+	br, err := trust.ParseBundleRef("ctxloom+companion:ltk")
+	require.NoError(t, err)
+	e.BundleRef = br
+	approveAll := fakeRecords{approved: func(trust.Ref, []byte, bundles.ContentForm) bool { return true }}
+	v := mustTrust(t, approveAll, noRetraction()).Authorizer().Admit(e)
+	assert.NotEqual(t, bundles.ReasonUnaddressable, v.Reason, "%+v", v)
+}

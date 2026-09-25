@@ -320,11 +320,8 @@ func (r *Registry) Update(name string, edit RemoteEdit) (*Remote, error) {
 
 	newForge := rem.Forge
 	if edit.Forge != nil {
-		if *edit.Forge != "" {
-			if _, known := MergeForges(r.forges)[*edit.Forge]; !known {
-				return nil, fmt.Errorf("unknown forge %q: configure it under forges: or use a built-in (%q, %q)",
-					*edit.Forge, ForgeGitHub, ForgeGitGeneric)
-			}
+		if err := r.checkForgeLabelLocked(*edit.Forge); err != nil {
+			return nil, err
 		}
 		newForge = *edit.Forge
 	}
@@ -368,11 +365,8 @@ func (r *Registry) SetForge(name, label string) error {
 	if !ok {
 		return fmt.Errorf("remote not found: %s", name)
 	}
-	if label != "" {
-		if _, known := MergeForges(r.forges)[label]; !known {
-			return fmt.Errorf("unknown forge %q: configure it under forges: or use a built-in (%q, %q)",
-				label, ForgeGitHub, ForgeGitGeneric)
-		}
+	if err := r.checkForgeLabelLocked(label); err != nil {
+		return err
 	}
 	if rem.Forge == label {
 		return nil
@@ -382,6 +376,20 @@ func (r *Registry) SetForge(name, label string) error {
 	if err := r.save(); err != nil {
 		rem.Forge = prev // rollback
 		return err
+	}
+	return nil
+}
+
+// checkForgeLabelLocked refuses a forge label that names neither a configured
+// nor a built-in forge (must hold lock). The empty label is accepted: it clears
+// a binding, restoring URL-host resolution.
+func (r *Registry) checkForgeLabelLocked(label string) error {
+	if label == "" {
+		return nil
+	}
+	if _, known := MergeForges(r.forges)[label]; !known {
+		return fmt.Errorf("unknown forge %q: configure it under forges: or use a built-in (%q, %q)",
+			label, ForgeGitHub, ForgeGitGeneric)
 	}
 	return nil
 }

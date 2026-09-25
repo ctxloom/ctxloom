@@ -150,14 +150,11 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 	// not an error. It is delivered to by its absolute path: the ownership
 	// record keys every file by path, and a relative one records nothing
 	// anyone could find again.
-	target, err := filepath.Abs(req.Target)
+	target, err := createMaterializeTarget(fs, req.Target)
 	if err != nil {
-		return nil, fmt.Errorf("resolve target dir %s: %w", req.Target, err)
+		return nil, err
 	}
 	req.Target = target
-	if err := fs.MkdirAll(req.Target, 0o755); err != nil {
-		return nil, fmt.Errorf("create target dir %s: %w", req.Target, err)
-	}
 	res := &MaterializeProfileResult{Target: req.Target, Backend: backend, Profiles: req.Profiles}
 
 	// The executable surfaces (bundle MCP / hooks / command exports) decide
@@ -198,21 +195,11 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 	// cannot be pulled later — as a skill the engine's own progressive
 	// disclosure carries it. A collision between two of them is fatal rather
 	// than a silent overwrite — see PremisedFragmentSkills.
-	withheld := make([]PremisedFragment, 0, len(asm.WithheldFragments))
-	for _, w := range asm.WithheldFragments {
-		withheld = append(withheld, PremisedFragment{Ref: w.Name, Premise: w.Premise, Content: w.Content})
-	}
-	fragmentSkills, err := PremisedFragmentSkills(withheld)
+	fragmentSkills, err := withheldFragmentSkillItems(asm)
 	if err != nil {
 		return nil, fmt.Errorf("materialize premised fragments as skills for %v: %w", req.Profiles, err)
 	}
-	for _, sk := range fragmentSkills {
-		skill := composite.Skill{Name: sk.Name, Description: sk.Description}
-		for _, f := range sk.Files {
-			skill.Files = append(skill.Files, engine.SkillFile{Path: f.RelPath, Bytes: f.Content, Size: int64(len(f.Content)), Mode: uint32(f.Mode.Perm())})
-		}
-		pkg.Skills = append(pkg.Skills, composite.Item[composite.Skill]{Ref: "materialize#skill/" + sk.Name, Value: skill})
-	}
+	pkg.Skills = append(pkg.Skills, fragmentSkills...)
 	// Built from what ACTUALLY happened rather than from the capability
 	// flag: fragmentSkills is what was really produced.
 	res.WithheldByPremise = describePremiseWithholds(asm.PremiseIndex, len(fragmentSkills) > 0)
@@ -230,23 +217,66 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 	if !ok {
 		return nil, fmt.Errorf("materialize: no engine kind is composed for %s", backend)
 	}
-	delivered, plan, err := DeliverProject(ctx, fs, kind, pkg, req.Target)
+	deliverMaterialized(ctx, fs, cfg, kind, pkg, res)
+
+	// Surface (content-free) any executable the trust gate withheld.
+	WarnWithheldBy(cfg.ExecutableTrustGate())
+	return res, nil
+}
+
+// deliverMaterialized delivers pkg into res.Target and records what was
+// written and what the engine does not carry. A write failure is a
+// fatal-class strictness finding and a warning on res, not an error: the
+// choke owner decides, and --degraded keeps the partial target.
+func deliverMaterialized(ctx context.Context, fs afero.Fs, cfg *config.Config, kind engine.Engine, pkg composite.Package, res *MaterializeProfileResult) {
+	delivered, plan, err := DeliverProject(ctx, fs, kind, pkg, res.Target)
 	if err != nil {
 		strictness.Fail(strictness.ClassApply,
 			"fix the write failure, then re-run (ctxloom profile materialize)",
-			"materialize %s: %v", backend, err)
+			"materialize %s: %v", res.Backend, err)
 		res.Warnings = append(res.Warnings, err.Error())
 	}
 	for _, k := range delivered.Wrote {
 		res.Wrote = append(res.Wrote, k.String())
 	}
 	if !cfg.ShouldSilenceUnsupported() {
-		res.NotCarried = notCarried(backend, kind, pkg, plan)
+		res.NotCarried = notCarried(res.Backend, kind, pkg, plan)
 	}
+}
 
-	// Surface (content-free) any executable the trust gate withheld.
-	WarnWithheldBy(cfg.ExecutableTrustGate())
-	return res, nil
+// createMaterializeTarget resolves the target dir to its absolute path and
+// creates it.
+func createMaterializeTarget(fs afero.Fs, target string) (string, error) {
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("resolve target dir %s: %w", target, err)
+	}
+	if err := fs.MkdirAll(abs, 0o755); err != nil {
+		return "", fmt.Errorf("create target dir %s: %w", abs, err)
+	}
+	return abs, nil
+}
+
+// withheldFragmentSkillItems packages the assembly's withheld fragments as
+// skill items for the package.
+func withheldFragmentSkillItems(asm *AssembleContextResult) ([]composite.Item[composite.Skill], error) {
+	withheld := make([]PremisedFragment, 0, len(asm.WithheldFragments))
+	for _, w := range asm.WithheldFragments {
+		withheld = append(withheld, PremisedFragment{Ref: w.Name, Premise: w.Premise, Content: w.Content})
+	}
+	fragmentSkills, err := PremisedFragmentSkills(withheld)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]composite.Item[composite.Skill], 0, len(fragmentSkills))
+	for _, sk := range fragmentSkills {
+		skill := composite.Skill{Name: sk.Name, Description: sk.Description}
+		for _, f := range sk.Files {
+			skill.Files = append(skill.Files, engine.SkillFile{Path: f.RelPath, Bytes: f.Content, Size: int64(len(f.Content)), Mode: uint32(f.Mode.Perm())})
+		}
+		items = append(items, composite.Item[composite.Skill]{Ref: "materialize#skill/" + sk.Name, Value: skill})
+	}
+	return items, nil
 }
 
 // describePremiseWithholds turns the assembly's premise index into the result's

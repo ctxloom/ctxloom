@@ -193,31 +193,10 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 
 	switch {
 	case strings.Contains(raw, "://"):
-		r.form = formURL
-		u, err := url.Parse(raw)
-		if err != nil || (u.Host == "" && u.Path == "") {
-			// Unparseable or degenerate ("https://"): keep the raw string and
-			// render it verbatim rather than inventing structure for it.
-			r.form = formVerbatim
-			return r, nil
-		}
-		r.u = u
-		r.host = u.Host
-		r.pathVerbatim = strings.TrimPrefix(u.Path, "/")
-		r.path, r.gitSuffix = trimPathSuffixes(u.Path)
-		return r, nil
+		return parseURLForm(r, raw), nil
 
 	case isSCPForm(raw):
-		user, rest, _ := strings.Cut(raw, "@")
-		host, path, ok := strings.Cut(rest, ":")
-		if !ok || host == "" || path == "" {
-			r.form = formOpaque
-			r.path, r.gitSuffix = strings.TrimSuffix(raw, ".git"), strings.HasSuffix(raw, ".git")
-			return r, nil
-		}
-		r.form, r.user, r.host = formSCP, user, host
-		r.path, r.gitSuffix = trimPathSuffixes(path)
-		return r, nil
+		return parseSCPForm(r, raw), nil
 
 	case strings.Contains(raw, "@"):
 		// An "@" that is neither scp-like nor a sentinel. The old shorthand
@@ -228,15 +207,7 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		return r, nil
 
 	case strings.Contains(raw, "/"):
-		path, hadGit := trimPathSuffixes(raw)
-		r.gitSuffix = hadGit
-		if shorthandFirstSegment(path) {
-			r.form, r.host, r.path = formShorthand, "github.com", path
-		} else {
-			host, rest, _ := strings.Cut(path, "/")
-			r.form, r.host, r.path = formHostPath, host, rest
-		}
-		return r, nil
+		return parsePathForm(r, raw), nil
 
 	default:
 		// A bare host has no path, so a trailing ".git" here is part of the
@@ -248,6 +219,52 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 		r.form, r.host = formBareHost, strings.Trim(raw, "/")
 		return r, nil
 	}
+}
+
+// parseURLForm fills r from a scheme URL. An unparseable or degenerate one
+// ("https://") keeps the raw string, rendered verbatim rather than inventing
+// structure for it.
+func parseURLForm(r RepoURL, raw string) RepoURL {
+	r.form = formURL
+	u, err := url.Parse(raw)
+	if err != nil || (u.Host == "" && u.Path == "") {
+		r.form = formVerbatim
+		return r
+	}
+	r.u = u
+	r.host = u.Host
+	r.pathVerbatim = strings.TrimPrefix(u.Path, "/")
+	r.path, r.gitSuffix = trimPathSuffixes(u.Path)
+	return r
+}
+
+// parseSCPForm fills r from an scp-like "user@host:path"; one missing its
+// host or path is opaque.
+func parseSCPForm(r RepoURL, raw string) RepoURL {
+	user, rest, _ := strings.Cut(raw, "@")
+	host, path, ok := strings.Cut(rest, ":")
+	if !ok || host == "" || path == "" {
+		r.form = formOpaque
+		r.path, r.gitSuffix = strings.TrimSuffix(raw, ".git"), strings.HasSuffix(raw, ".git")
+		return r
+	}
+	r.form, r.user, r.host = formSCP, user, host
+	r.path, r.gitSuffix = trimPathSuffixes(path)
+	return r
+}
+
+// parsePathForm fills r from a slash path: a github shorthand
+// ("owner/repo") or a host-qualified path.
+func parsePathForm(r RepoURL, raw string) RepoURL {
+	path, hadGit := trimPathSuffixes(raw)
+	r.gitSuffix = hadGit
+	if shorthandFirstSegment(path) {
+		r.form, r.host, r.path = formShorthand, "github.com", path
+		return r
+	}
+	host, rest, _ := strings.Cut(path, "/")
+	r.form, r.host, r.path = formHostPath, host, rest
+	return r
 }
 
 // trimPathSuffixes strips surrounding slashes and a trailing ".git", in the

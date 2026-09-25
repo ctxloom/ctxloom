@@ -262,6 +262,24 @@ func relayTyped[In any](home *runner.Home, name string) mcp.ToolHandlerFor[In, m
 // runner-local recv/report), and project the result back with proto names.
 func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name string, leaf bool) (mcp.ToolHandler, error) {
 	switch name {
+	case mcpschema.ToolAgentRecv:
+		return RecvHandler(rep, home, leaf), nil
+	case mcpschema.ToolAgentReport:
+		return reportHandler(rep, home, harp, cwd), nil
+	}
+	if h, ok := requestToolHandler(home, name); ok {
+		return h, nil
+	}
+	if h, ok := controlVerbHandler(home, name); ok {
+		return h, nil
+	}
+	return nil, fmt.Errorf("runner MCP: no handler for generated tool %q — extend coordinationHandler alongside the binding table", name)
+}
+
+// requestToolHandler is the handler for a plane-2 request tool (agent_run,
+// agent_send, agent_stop, roster); false for any other tool.
+func requestToolHandler(home *runner.Home, name string) (mcp.ToolHandler, bool) {
+	switch name {
 	case mcpschema.ToolAgentRun:
 		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var m agentcoordpb.SpawnAgentRequest
@@ -273,7 +291,7 @@ func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name
 				return nil, fmt.Errorf("agent_run: %w", err)
 			}
 			return coordinationResult(resp, resp.GetSpawnAgent())
-		}, nil
+		}, true
 	case mcpschema.ToolAgentSend:
 		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var m agentcoordpb.PeerSendRequest
@@ -285,7 +303,7 @@ func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name
 				return nil, fmt.Errorf("agent_send: %w", err)
 			}
 			return coordinationResult(resp, resp.GetPeerSend())
-		}, nil
+		}, true
 	case mcpschema.ToolAgentStop:
 		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var m agentcoordpb.StopRun
@@ -297,7 +315,7 @@ func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name
 				return nil, fmt.Errorf("agent_stop: %w", err)
 			}
 			return coordinationResult(resp, resp.GetStopRun())
-		}, nil
+		}, true
 	case mcpschema.ToolRoster:
 		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var m agentcoordpb.ListRunsRequest
@@ -309,43 +327,48 @@ func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name
 				return nil, fmt.Errorf("roster: %w", err)
 			}
 			return coordinationResult(resp, resp.GetListRuns())
-		}, nil
-	case mcpschema.ToolAgentRecv:
-		return RecvHandler(rep, home, leaf), nil
-	case mcpschema.ToolAgentReport:
-		return reportHandler(rep, home, harp, cwd), nil
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+// controlVerbHandler is the handler for a control-verb tool (steer, ask,
+// summarize, pause, resume); false for any other tool.
+func controlVerbHandler(home *runner.Home, name string) (mcp.ToolHandler, bool) {
+	switch name {
 	case mcpschema.ToolAgentSteer:
 		return controlToolHandler(home, name,
 			func(m *agentcoordpb.ControlSteer) *agentcoordpb.ControlRun {
 				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Steer{Steer: m}}
 			},
-			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetSteer() }), nil
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetSteer() }), true
 	case mcpschema.ToolAgentAsk:
 		return controlToolHandler(home, name,
 			func(m *agentcoordpb.ControlQuestion) *agentcoordpb.ControlRun {
 				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Question{Question: m}}
 			},
-			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetQuestion() }), nil
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetQuestion() }), true
 	case mcpschema.ToolAgentSummarize:
 		return controlToolHandler(home, name,
 			func(m *agentcoordpb.ControlSummarize) *agentcoordpb.ControlRun {
 				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Summarize{Summarize: m}}
 			},
-			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetSummarize() }), nil
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetSummarize() }), true
 	case mcpschema.ToolAgentPause:
 		return controlToolHandler(home, name,
 			func(m *agentcoordpb.ControlPause) *agentcoordpb.ControlRun {
 				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Pause{Pause: m}}
 			},
-			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetPause() }), nil
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetPause() }), true
 	case mcpschema.ToolAgentResume:
 		return controlToolHandler(home, name,
 			func(m *agentcoordpb.ControlResume) *agentcoordpb.ControlRun {
 				return &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Resume{Resume: m}}
 			},
-			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetResume() }), nil
+			func(r *agentcoordpb.ControlRunResult) proto.Message { return r.GetResume() }), true
 	default:
-		return nil, fmt.Errorf("runner MCP: no handler for generated tool %q — extend coordinationHandler alongside the binding table", name)
+		return nil, false
 	}
 }
 
@@ -524,66 +547,15 @@ func reportHandler(rep report.Reporter, home *runner.Home, harp, cwd string) mcp
 		if err := unmarshalArgs(req, &summary); err != nil {
 			return nil, fmt.Errorf("agent_report: %w", err)
 		}
-		if summary.GetText() == "" {
-			return nil, errors.New("agent_report: text is required (the report body)")
+		if err := validateReportSummary(&summary); err != nil {
+			return nil, err
 		}
-		if summary.GetScope() == agentcoordpb.Summary_SCOPE_UNSPECIFIED {
-			return nil, errors.New("agent_report: scope is required (SCOPE_PROGRESS | SCOPE_CHECKPOINT | SCOPE_FINAL | SCOPE_STEP)")
+		artifacts, stampFailures := stampPlans(ctx, rep, home, stamper)
+		declared, err := publishDeclared(ctx, home, stamper, cwd, summary.GetPublishPaths())
+		if err != nil {
+			return nil, err
 		}
-
-		var artifacts []*agentcoordpb.ArtifactProduced
-		// stampFailures collects everything plan auto-stamping could not
-		// deliver, so the answer can say so. A failure here still must not
-		// block the report — these files are not something the agent asked for
-		// THIS call — but "did not block" was implemented as "did not mention",
-		// and the caller then read journaled:true with an empty artifact list
-		// as a report that simply had no plans to stamp.
-		var stampFailures []string
-
-		// Automatic plan-stamping: session-dir *.plan.md files, best-effort
-		// per file exactly as before E1.
-		cands, cerr := stamper.planCandidates()
-		if cerr != nil {
-			rep.Warnf("agent_report: plan discovery: %v", cerr)
-			stampFailures = append(stampFailures, fmt.Sprintf("plan discovery: %v", cerr))
-		}
-		for _, cand := range cands {
-			a, perr := stamper.publish(ctx, home, cand)
-			if perr != nil {
-				rep.Warnf("agent_report: plan stamp %s: %v", cand.absPath, perr)
-				stampFailures = append(stampFailures, fmt.Sprintf("%s: %v", cand.absPath, perr))
-				continue
-			}
-			if a != nil {
-				artifacts = append(artifacts, a)
-			}
-		}
-
-		// E1c generic publish case: agent-DECLARED files. Unlike plan
-		// auto-discovery, a failure here is FAIL LOUD — the agent explicitly
-		// asked to publish a specific file; silently dropping it would be a
-		// correctness bug, not a degrade-gracefully case.
-		for _, rel := range summary.GetPublishPaths() {
-			abs, perr := resolveCellPath(cwd, rel)
-			if perr != nil {
-				return nil, fmt.Errorf("agent_report: publish_paths %q: %w", rel, perr)
-			}
-			cand := artifactCandidate{
-				artifactID: "file/" + rel,
-				name:       filepath.Base(rel),
-				mediaType:  mimeByExt(rel),
-				kind:       agentcoordpb.ArtifactKind_ARTIFACT_KIND_OTHER,
-				absPath:    abs,
-			}
-			a, perr := stamper.publish(ctx, home, cand)
-			if perr != nil {
-				return nil, fmt.Errorf("agent_report: publish_paths %q: %w", rel, perr)
-			}
-			if a != nil {
-				artifacts = append(artifacts, a)
-			}
-		}
-
+		artifacts = append(artifacts, declared...)
 		for _, a := range artifacts {
 			summary.ArtifactIds = append(summary.ArtifactIds, a.GetArtifactId())
 		}
@@ -592,6 +564,74 @@ func reportHandler(rep report.Reporter, home *runner.Home, harp, cwd string) mcp
 		}
 		return reportResult(artifacts, stampFailures), nil
 	}
+}
+
+// validateReportSummary requires a report body and a scope.
+func validateReportSummary(summary *agentcoordpb.Summary) error {
+	if summary.GetText() == "" {
+		return errors.New("agent_report: text is required (the report body)")
+	}
+	if summary.GetScope() == agentcoordpb.Summary_SCOPE_UNSPECIFIED {
+		return errors.New("agent_report: scope is required (SCOPE_PROGRESS | SCOPE_CHECKPOINT | SCOPE_FINAL | SCOPE_STEP)")
+	}
+	return nil
+}
+
+// stampPlans auto-stamps the session dir's *.plan.md files, best-effort per
+// file, returning what was published and everything it could not deliver.
+// A failure here must not block the report — these files are not something
+// the agent asked for THIS call — but it must be said: a report journaled
+// with an empty artifact list otherwise reads as one that simply had no
+// plans to stamp.
+func stampPlans(ctx context.Context, rep report.Reporter, home *runner.Home, stamper *artifactStamper) ([]*agentcoordpb.ArtifactProduced, []string) {
+	var artifacts []*agentcoordpb.ArtifactProduced
+	var stampFailures []string
+	cands, cerr := stamper.planCandidates()
+	if cerr != nil {
+		rep.Warnf("agent_report: plan discovery: %v", cerr)
+		stampFailures = append(stampFailures, fmt.Sprintf("plan discovery: %v", cerr))
+	}
+	for _, cand := range cands {
+		a, perr := stamper.publish(ctx, home, cand)
+		if perr != nil {
+			rep.Warnf("agent_report: plan stamp %s: %v", cand.absPath, perr)
+			stampFailures = append(stampFailures, fmt.Sprintf("%s: %v", cand.absPath, perr))
+			continue
+		}
+		if a != nil {
+			artifacts = append(artifacts, a)
+		}
+	}
+	return artifacts, stampFailures
+}
+
+// publishDeclared publishes the files the agent DECLARED in publish_paths.
+// Unlike plan auto-discovery, a failure here is FAIL LOUD — the agent
+// explicitly asked to publish a specific file; silently dropping it would be
+// a correctness bug, not a degrade-gracefully case.
+func publishDeclared(ctx context.Context, home *runner.Home, stamper *artifactStamper, cwd string, paths []string) ([]*agentcoordpb.ArtifactProduced, error) {
+	var artifacts []*agentcoordpb.ArtifactProduced
+	for _, rel := range paths {
+		abs, perr := resolveCellPath(cwd, rel)
+		if perr != nil {
+			return nil, fmt.Errorf("agent_report: publish_paths %q: %w", rel, perr)
+		}
+		cand := artifactCandidate{
+			artifactID: "file/" + rel,
+			name:       filepath.Base(rel),
+			mediaType:  mimeByExt(rel),
+			kind:       agentcoordpb.ArtifactKind_ARTIFACT_KIND_OTHER,
+			absPath:    abs,
+		}
+		a, perr := stamper.publish(ctx, home, cand)
+		if perr != nil {
+			return nil, fmt.Errorf("agent_report: publish_paths %q: %w", rel, perr)
+		}
+		if a != nil {
+			artifacts = append(artifacts, a)
+		}
+	}
+	return artifacts, nil
 }
 
 // reportResult projects agent_report's outcome onto the MCP result.

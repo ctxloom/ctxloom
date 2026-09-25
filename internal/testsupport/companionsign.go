@@ -43,7 +43,14 @@ func SignCompanionForTesting(t testing.TB, path, allowedSigners string) {
 	if err != nil {
 		t.Fatalf("wrap the companion signing key: %v", err)
 	}
+	writeSignedRelease(t, path, signer)
+	trustCompanionKey(t, allowedSigners, signer)
+}
 
+// writeSignedRelease writes the binary's release statement beside it, and
+// the statement's companion-namespace signature.
+func writeSignedRelease(t testing.TB, path string, signer ssh.Signer) {
+	t.Helper()
 	binary, err := os.ReadFile(path) //nolint:gosec // a path this test just wrote
 	if err != nil {
 		t.Fatalf("read %s to sign it: %v", path, err)
@@ -59,7 +66,12 @@ func SignCompanionForTesting(t testing.TB, path, allowedSigners string) {
 	if err := iox.WriteFileAtomic(path+".sig", sig, 0o600); err != nil {
 		t.Fatalf("write the signature for %s: %v", path, err)
 	}
+}
 
+// trustCompanionKey appends signer's key to allowedSigners, trusted for the
+// companion namespace only.
+func trustCompanionKey(t testing.TB, allowedSigners string, signer ssh.Signer) {
+	t.Helper()
 	line := fmt.Sprintf("%s namespaces=%q %s %s\n",
 		"fixture-companion@testenv.invalid", signing.NamespaceCompanion,
 		signer.PublicKey().Type(),

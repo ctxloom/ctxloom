@@ -810,15 +810,9 @@ func (h *Home) advanceAck(seq uint64) {
 //     arrived, since nothing here will ever call Recv on its own.
 func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 	h.mu.Lock()
-	if h.consumed[pm.GetMessageId()] || h.turnPending[pm.GetMessageId()] {
+	if h.seenLocked(pm.GetMessageId()) {
 		h.mu.Unlock()
 		return
-	}
-	for _, b := range h.buffer {
-		if b.GetMessageId() == pm.GetMessageId() {
-			h.mu.Unlock()
-			return
-		}
 	}
 	if p := h.park; (p == nil || p.done) && h.turnQ != nil {
 		h.turnPending[pm.GetMessageId()] = true
@@ -831,14 +825,7 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 		return
 	}
 	h.buffer = append(h.buffer, pm)
-	p := h.park
-	var msgs []*agentcoordpb.PeerMessage
-	if p != nil && !p.done {
-		p.done = true
-		h.park = nil
-		msgs = h.buffer
-		h.buffer = nil
-	}
+	p, msgs := h.takeParkLocked()
 	nudge := h.terminalNudge
 	wake := h.wake
 	up := h.ownerUp
@@ -853,8 +840,43 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 	// Nothing claimed it: no parked recv (checked above) and no turn sink
 	// (the branch above this block already ruled that out). A terminal-driven
 	// engine has no structural way to be handed a new turn, so this is its
-	// only notification. A registered wake supersedes the nudge: the two
-	// would each start a turn for the same mail.
+	// only notification.
+	h.notifyOwner(wake, nudge)
+}
+
+// seenLocked reports whether message id was already consumed, is queued as
+// a turn, or sits in the buffer. Caller holds h.mu.
+func (h *Home) seenLocked(id string) bool {
+	if h.consumed[id] || h.turnPending[id] {
+		return true
+	}
+	for _, b := range h.buffer {
+		if b.GetMessageId() == id {
+			return true
+		}
+	}
+	return false
+}
+
+// takeParkLocked completes a live parked recv: it claims the park and the
+// whole buffer, returning both (msgs nil when no recv is parked). Caller
+// holds h.mu and sends msgs on p.ch after unlocking.
+func (h *Home) takeParkLocked() (*homePark, []*agentcoordpb.PeerMessage) {
+	p := h.park
+	if p == nil || p.done {
+		return p, nil
+	}
+	p.done = true
+	h.park = nil
+	msgs := h.buffer
+	h.buffer = nil
+	return p, msgs
+}
+
+// notifyOwner tells the session owner mail arrived: a registered wake
+// supersedes the nudge, since the two would each start a turn for the same
+// mail.
+func (h *Home) notifyOwner(wake engine.Wake, nudge func()) {
 	if wake != nil {
 		go h.fireWake(wake)
 	} else if nudge != nil {
@@ -889,16 +911,7 @@ func (h *Home) fireWake(w engine.Wake) {
 	if harp == "" {
 		return
 	}
-	if pending, err := spool.Pending(m, harp); err != nil || !pending {
-		if err != nil {
-			h.rep.Warnf("runner: cannot tell whether the session owner has mail, so it is not woken: %v", err)
-		}
-		return
-	}
-	if out, err := spool.OutstandingWake(m, harp); err != nil || len(out) > 0 {
-		if err != nil {
-			h.rep.Warnf("runner: cannot list the session owner's outstanding wakes, so it is not woken: %v", err)
-		}
+	if !h.wakeWanted(m, harp) {
 		return
 	}
 	nonce, err := spool.ArmWake(m, harp)
@@ -912,6 +925,25 @@ func (h *Home) fireWake(w engine.Wake) {
 		}
 		h.rep.Warnf("runner: the session owner was not woken; its mail waits for the next prompt: %v", err)
 	}
+}
+
+// wakeWanted reports whether the owner's in/ holds unclaimed mail and no
+// earlier wake is still unanswered. A state it cannot read is warned about
+// and answered no.
+func (h *Home) wakeWanted(m spool.PathMapper, harp string) bool {
+	if pending, err := spool.Pending(m, harp); err != nil || !pending {
+		if err != nil {
+			h.rep.Warnf("runner: cannot tell whether the session owner has mail, so it is not woken: %v", err)
+		}
+		return false
+	}
+	if out, err := spool.OutstandingWake(m, harp); err != nil || len(out) > 0 {
+		if err != nil {
+			h.rep.Warnf("runner: cannot list the session owner's outstanding wakes, so it is not woken: %v", err)
+		}
+		return false
+	}
+	return true
 }
 
 // SetTerminalNudge registers the session-owner's terminal-injection hook: it

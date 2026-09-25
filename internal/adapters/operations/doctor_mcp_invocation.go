@@ -71,37 +71,7 @@ func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorChec
 			Detail: "no project directory to check"}
 	}
 
-	// One list of (what to report it as, where to read it): the
-	// project-relative surfaces resolved against this project root.
-	type mcpSurface struct{ label, path string }
-	rels := doctorMCPInvocationSurfaces(reg)
-	surfaces := make([]mcpSurface, 0, len(rels))
-	for _, rel := range rels {
-		surfaces = append(surfaces, mcpSurface{label: rel, path: filepath.Join(projectDir, rel)})
-	}
-
-	var stale, unreadable []string
-	for _, s := range surfaces {
-		rel := s.label
-		data, err := os.ReadFile(s.path)
-		if err != nil {
-			// An absent surface is the common case (nobody configures five
-			// engines), not a finding.
-			if !os.IsNotExist(err) {
-				unreadable = append(unreadable, fmt.Sprintf("%s (%v)", rel, err))
-			}
-			continue
-		}
-		launches, err := mcpSurfaceLaunchesCtxloom(rel, data)
-		if err != nil {
-			unreadable = append(unreadable, fmt.Sprintf("%s (%v)", rel, err))
-			continue
-		}
-		if launches {
-			stale = append(stale, rel)
-		}
-	}
-
+	stale, unreadable := scanMCPInvocations(reg, projectDir)
 	sort.Strings(stale)
 	sort.Strings(unreadable)
 	switch {
@@ -123,6 +93,32 @@ func doctorCheckMCPInvocation(reg engine.Registry, projectDir string) DoctorChec
 	default:
 		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no materialized MCP entry launches ctxloom as a stdio server (its tools are served by the running session's endpoint)"}
 	}
+}
+
+// scanMCPInvocations reads each project-relative MCP surface under
+// projectDir, returning the ones that still launch ctxloom as a stdio server
+// and the ones that could not be read or parsed.
+func scanMCPInvocations(reg engine.Registry, projectDir string) (stale, unreadable []string) {
+	for _, rel := range doctorMCPInvocationSurfaces(reg) {
+		data, err := os.ReadFile(filepath.Join(projectDir, rel))
+		if err != nil {
+			// An absent surface is the common case (nobody configures five
+			// engines), not a finding.
+			if !os.IsNotExist(err) {
+				unreadable = append(unreadable, fmt.Sprintf("%s (%v)", rel, err))
+			}
+			continue
+		}
+		launches, err := mcpSurfaceLaunchesCtxloom(rel, data)
+		if err != nil {
+			unreadable = append(unreadable, fmt.Sprintf("%s (%v)", rel, err))
+			continue
+		}
+		if launches {
+			stale = append(stale, rel)
+		}
+	}
+	return stale, unreadable
 }
 
 // mcpSurfaceLaunchesCtxloom reports whether rel's bytes carry a ctxloom MCP

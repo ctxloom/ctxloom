@@ -39,18 +39,7 @@ func overLong() string {
 // fetched as the recipient — recovers the WHOLE message, structured included.
 func assertOverflowed(t *testing.T, c *Coordinator, recipient Identity, holder, full string, sent json.RawMessage, delivered string, deliveredStructured json.RawMessage) bool {
 	t.Helper()
-	if !assert.Contains(t, delivered, OverflowMarkerPhrase, "the delivered body must tell the reader to keep reading") ||
-		!assert.Empty(t, deliveredStructured, "an overflowed message's structured companion travels in the artifact, not inline") {
-		return false
-	}
-	i := strings.LastIndex(delivered, "\n[... "+OverflowMarkerPhrase)
-	if !assert.GreaterOrEqual(t, i, 0, "the marker line follows the head") {
-		return false
-	}
-	head := delivered[:i]
-	if !assert.LessOrEqual(t, len(head), MaxInlineBodyBytes, "the inline head is bounded") ||
-		!assert.True(t, strings.HasPrefix(full, head), "the head is a prefix of the original") ||
-		!assert.True(t, utf8.ValidString(head), "the cut never splits a rune") {
+	if !assertOverflowHead(t, full, delivered, deliveredStructured) {
 		return false
 	}
 	agent, id := markerAddress(t, delivered)
@@ -61,18 +50,45 @@ func assertOverflowed(t *testing.T, c *Coordinator, recipient Identity, holder, 
 	if !assert.NoError(t, err, "the recipient must be entitled to the artifact the marker names") {
 		return false
 	}
-	sum := sha256.Sum256(art.Bytes)
+	return assertOverflowArtifact(t, full, sent, id, art.Bytes)
+}
+
+// assertOverflowHead checks the delivered side: the marker is present, no
+// structured companion travels inline, and the head before the marker line is
+// a bounded, rune-clean prefix of the original.
+func assertOverflowHead(t *testing.T, full, delivered string, deliveredStructured json.RawMessage) bool {
+	t.Helper()
+	if !assert.Contains(t, delivered, OverflowMarkerPhrase, "the delivered body must tell the reader to keep reading") ||
+		!assert.Empty(t, deliveredStructured, "an overflowed message's structured companion travels in the artifact, not inline") {
+		return false
+	}
+	i := strings.LastIndex(delivered, "\n[... "+OverflowMarkerPhrase)
+	if !assert.GreaterOrEqual(t, i, 0, "the marker line follows the head") {
+		return false
+	}
+	head := delivered[:i]
+	return assert.LessOrEqual(t, len(head), MaxInlineBodyBytes, "the inline head is bounded") &&
+		assert.True(t, strings.HasPrefix(full, head), "the head is a prefix of the original") &&
+		assert.True(t, utf8.ValidString(head), "the cut never splits a rune")
+}
+
+// assertOverflowArtifact checks the artifact the marker names: its id carries
+// the whole digest, and it recovers the WHOLE message — the body alone, or a
+// JSON envelope with the structured companion.
+func assertOverflowArtifact(t *testing.T, full string, sent json.RawMessage, id string, artBytes []byte) bool {
+	t.Helper()
+	sum := sha256.Sum256(artBytes)
 	if !assert.True(t, strings.HasSuffix(id, hex.EncodeToString(sum[:])), "the id carries the artifact's WHOLE digest, not a prefix") {
 		return false
 	}
 	if len(sent) == 0 {
-		return assert.Equal(t, full, string(art.Bytes), "the artifact is the FULL body")
+		return assert.Equal(t, full, string(artBytes), "the artifact is the FULL body")
 	}
 	var env struct {
 		Body       string          `json:"body"`
 		Structured json.RawMessage `json:"structured"`
 	}
-	if !assert.NoError(t, json.Unmarshal(art.Bytes, &env), "a message with a structured companion overflows as a JSON envelope") {
+	if !assert.NoError(t, json.Unmarshal(artBytes, &env), "a message with a structured companion overflows as a JSON envelope") {
 		return false
 	}
 	return assert.Equal(t, full, env.Body) && assert.JSONEq(t, string(sent), string(env.Structured), "the structured companion is recoverable")

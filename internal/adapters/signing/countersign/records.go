@@ -133,27 +133,37 @@ func (c Records) Rejected(ref trust.Ref, payload []byte) bool {
 	// only the ref-level lookups are skipped, never the whole check. Answering
 	// "rejected" here instead would assert a human decision nobody made.
 	refStr, addressable := refLevelAddress(ref)
+	if addressable && c.refRejected(refStr, now) {
+		return true
+	}
+	return c.contentRejected(ref.Kind, payload, now)
+}
+
+// refRejected reports a ref-level rejection of refStr: a verified one in
+// either store, or the degraded, UNSIGNED marker (spec §9.5) — checked ONLY
+// against the user store. An unsigned marker is exactly as authoritative as
+// the deleted trust.yaml design (anything that can write .ctxloom/ can forge
+// one), which is why it is never honored from the PROJECT store: that store
+// is committable and shared, and an unsigned record there would be a
+// forgery primitive with a friendly name.
+func (c Records) refRejected(refStr string, now time.Time) bool {
 	for _, st := range c.bothStores() {
-		if !addressable {
-			break
-		}
 		if _, ok := st.VerifiedRefReject(refStr, c.root, now); ok {
 			return true
 		}
 	}
-	// The degraded, UNSIGNED path (spec §9.5) — checked ONLY against the user
-	// store. An unsigned marker is exactly as authoritative as the deleted
-	// trust.yaml design (anything that can write .ctxloom/ can forge one),
-	// which is why it is never honored from the PROJECT store: that store is
-	// committable and shared, and an unsigned record there would be a
-	// forgery primitive with a friendly name.
-	if addressable && c.user.HasUnsignedRefReject(refStr) {
-		return true
-	}
+	return c.user.HasUnsignedRefReject(refStr)
+}
+
+// contentRejected reports a content rejection of payload under any
+// attestation form kind can be countersigned under: a verified one in either
+// store, or the user store's unsigned marker. An empty payload is never
+// content-rejected.
+func (c Records) contentRejected(kind trust.ItemKind, payload []byte, now time.Time) bool {
 	if len(payload) == 0 {
 		return false
 	}
-	for _, form := range AttestationFormsFor(ref.Kind) {
+	for _, form := range AttestationFormsFor(kind) {
 		for _, st := range c.bothStores() {
 			if _, ok := st.VerifiedContentReject(form, payload, c.root, now); ok {
 				return true
@@ -237,37 +247,26 @@ func (c Records) Approved(ref trust.Ref, payload []byte, form bundles.ContentFor
 // registry knows and this function does not can be neither approved nor exposed,
 // so extending the registry adds no security surface by construction.
 func AttestationFormFor(kind trust.ItemKind, layout signing.Form) (signing.AttestationForm, error) {
-	switch kind {
-	case trust.KindFragment:
-		switch layout {
-		case signing.FormRaw:
-			return signing.AttestFragmentRaw, nil
-		case signing.FormDistilled:
-			return signing.AttestFragmentDistilled, nil
-		}
-	case trust.KindPrompt:
-		switch layout {
-		case signing.FormRaw:
-			return signing.AttestCommandRaw, nil
-		case signing.FormDistilled:
-			return signing.AttestCommandDistilled, nil
-		}
-	case trust.KindMCP:
-		if layout == signing.FormRaw {
-			return signing.AttestExecMCP, nil
-		}
-	case trust.KindHook:
-		if layout == signing.FormRaw {
-			return signing.AttestExecHook, nil
-		}
-	case trust.KindSkill:
-		if layout == signing.FormRaw {
-			return signing.AttestSkill, nil
-		}
-	default:
+	forms, known := attestationForms[kind]
+	if !known {
 		return signing.AttestNone, fmt.Errorf("no attestation form for item kind %q: it cannot be countersigned", kind)
 	}
-	return signing.AttestNone, fmt.Errorf("no attestation form for item kind %q in form %q", kind, layout)
+	form, ok := forms[layout]
+	if !ok {
+		return signing.AttestNone, fmt.Errorf("no attestation form for item kind %q in form %q", kind, layout)
+	}
+	return form, nil
+}
+
+// attestationForms is AttestationFormFor's table: each countersignable kind,
+// and the attestation form each layout it is signed in maps to. Executable
+// kinds and skills are signed raw only.
+var attestationForms = map[trust.ItemKind]map[signing.Form]signing.AttestationForm{
+	trust.KindFragment: {signing.FormRaw: signing.AttestFragmentRaw, signing.FormDistilled: signing.AttestFragmentDistilled},
+	trust.KindPrompt:   {signing.FormRaw: signing.AttestCommandRaw, signing.FormDistilled: signing.AttestCommandDistilled},
+	trust.KindMCP:      {signing.FormRaw: signing.AttestExecMCP},
+	trust.KindHook:     {signing.FormRaw: signing.AttestExecHook},
+	trust.KindSkill:    {signing.FormRaw: signing.AttestSkill},
 }
 
 // AttestationFormsFor returns every attestation form kind can be countersigned

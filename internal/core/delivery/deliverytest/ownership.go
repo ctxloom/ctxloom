@@ -78,25 +78,9 @@ func (o *Ownership) Apply(_ context.Context, fsys afero.Fs, target string, write
 		return delivery.Result{}, err
 	}
 	if desired == nil {
-		if o.entries[target] != nil {
-			delete(o.entries[target], writer)
-			if len(o.entries[target]) == 0 {
-				delete(o.entries, target)
-				if o.created[target] && existed {
-					delete(o.created, target)
-					return delivery.Result{Changed: true}, fsys.Remove(target)
-				}
-			}
-		}
-		return delivery.Result{}, nil
+		return o.reconcileLocked(fsys, target, writer, existed)
 	}
-	if !existed {
-		o.created[target] = true
-	}
-	if o.entries[target] == nil {
-		o.entries[target] = map[delivery.Writer][]string{}
-	}
-	o.entries[target][writer] = slices.Clone(entries)
+	o.recordLocked(target, writer, entries, existed)
 	if existed && slices.Equal(current, desired) {
 		return delivery.Result{}, nil
 	}
@@ -104,6 +88,36 @@ func (o *Ownership) Apply(_ context.Context, fsys afero.Fs, target string, write
 		return delivery.Result{}, err
 	}
 	return delivery.Result{Changed: true}, iox.WriteFileAtomicFs(fsys, target, desired, 0o644)
+}
+
+// reconcileLocked takes writer's entries out of target; the last writer of a
+// file ctxloom created removes it. Caller holds o.mu.
+func (o *Ownership) reconcileLocked(fsys afero.Fs, target string, writer delivery.Writer, existed bool) (delivery.Result, error) {
+	if o.entries[target] == nil {
+		return delivery.Result{}, nil
+	}
+	delete(o.entries[target], writer)
+	if len(o.entries[target]) > 0 {
+		return delivery.Result{}, nil
+	}
+	delete(o.entries, target)
+	if o.created[target] && existed {
+		delete(o.created, target)
+		return delivery.Result{Changed: true}, fsys.Remove(target)
+	}
+	return delivery.Result{}, nil
+}
+
+// recordLocked records writer's entries in target, marking a file this
+// write creates. Caller holds o.mu.
+func (o *Ownership) recordLocked(target string, writer delivery.Writer, entries []string, existed bool) {
+	if !existed {
+		o.created[target] = true
+	}
+	if o.entries[target] == nil {
+		o.entries[target] = map[delivery.Writer][]string{}
+	}
+	o.entries[target][writer] = slices.Clone(entries)
 }
 
 // Owned is one writer's entries in one target file.

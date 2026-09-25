@@ -171,96 +171,129 @@ var errHooksBesideExisting = errors.New("the engine-home settings.json already c
 // writer. A hook event that already exists is refused: see
 // errHooksBesideExisting.
 func (d desiredSettings) build(doc *hew.Doc, cur hew.Document) (int, error) {
-	recorded := 0
-	set := func(pointer string, v any) error {
-		p, err := hew.ParsePathIn(doc.Format(), pointer)
-		if err != nil {
-			return err
-		}
-		doc.AtPath(p).Set(v)
-		recorded++
-		return nil
-	}
-	// insert inserts one element into the ARRAY at pointer. In hew's JSON
-	// dialect an add addressed at an existing array is an element insert —
-	// appended when no sibling is named — and that, not RFC 6901's "-"
-	// position, is the shape its applier reads; "-" is refused as
-	// inexpressible there.
-	insert := func(pointer string, v any) error {
-		p, err := hew.ParsePathIn(doc.Format(), pointer)
-		if err != nil {
-			return err
-		}
-		doc.AtPath(p).Add(v)
-		recorded++
-		return nil
-	}
+	rec := settingsRecorder{doc: doc}
 	root := cur.Root()
+	if err := d.buildHooks(&rec, root); err != nil {
+		return 0, err
+	}
+	if err := d.buildStatusLine(&rec, root); err != nil {
+		return 0, err
+	}
+	if err := d.buildDeny(&rec, root); err != nil {
+		return 0, err
+	}
+	return rec.recorded, nil
+}
 
-	if len(d.hooks) > 0 {
-		hooks, ok := root.Member(settingsHooksKey)
-		if !ok {
-			if err := set("/"+settingsHooksKey, d.hooks); err != nil {
-				return 0, err
-			}
-		} else {
-			events := make([]string, 0, len(d.hooks))
-			for e := range d.hooks {
-				events = append(events, e)
-			}
-			sort.Strings(events) // stable order: a deterministic record
-			for _, event := range events {
-				if _, ok := hooks.Member(event); ok {
-					return 0, fmt.Errorf("%s: %w", event, errHooksBesideExisting)
-				}
-				if err := set("/"+settingsHooksKey+"/"+escapePointerToken(event), d.hooks[event]); err != nil {
-					return 0, err
-				}
+// settingsRecorder records ops on doc, counting them.
+type settingsRecorder struct {
+	doc      *hew.Doc
+	recorded int
+}
+
+// set records a Set of v at pointer.
+func (r *settingsRecorder) set(pointer string, v any) error {
+	p, err := hew.ParsePathIn(r.doc.Format(), pointer)
+	if err != nil {
+		return err
+	}
+	r.doc.AtPath(p).Set(v)
+	r.recorded++
+	return nil
+}
+
+// insert inserts one element into the ARRAY at pointer. In hew's JSON
+// dialect an add addressed at an existing array is an element insert —
+// appended when no sibling is named — and that, not RFC 6901's "-"
+// position, is the shape its applier reads; "-" is refused as
+// inexpressible there.
+func (r *settingsRecorder) insert(pointer string, v any) error {
+	p, err := hew.ParsePathIn(r.doc.Format(), pointer)
+	if err != nil {
+		return err
+	}
+	r.doc.AtPath(p).Add(v)
+	r.recorded++
+	return nil
+}
+
+// buildHooks adds ctxloom's hooks: the whole container when absent, else one
+// event at a time, in sorted order for a deterministic record, refusing an
+// event the user's file already carries (errHooksBesideExisting).
+func (d desiredSettings) buildHooks(rec *settingsRecorder, root hew.Node) error {
+	if len(d.hooks) == 0 {
+		return nil
+	}
+	hooks, ok := root.Member(settingsHooksKey)
+	if !ok {
+		return rec.set("/"+settingsHooksKey, d.hooks)
+	}
+	events := make([]string, 0, len(d.hooks))
+	for e := range d.hooks {
+		events = append(events, e)
+	}
+	sort.Strings(events) // stable order: a deterministic record
+	for _, event := range events {
+		if _, ok := hooks.Member(event); ok {
+			return fmt.Errorf("%s: %w", event, errHooksBesideExisting)
+		}
+		if err := rec.set("/"+settingsHooksKey+"/"+escapePointerToken(event), d.hooks[event]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildStatusLine adds ctxloom's statusline unless the user's file has one:
+// the user's own statusline wins.
+func (d desiredSettings) buildStatusLine(rec *settingsRecorder, root hew.Node) error {
+	if d.statusLine == nil {
+		return nil
+	}
+	if _, ok := root.Member(settingsStatusLineKey); ok {
+		return nil
+	}
+	return rec.set("/"+settingsStatusLineKey, d.statusLine)
+}
+
+// buildDeny adds ctxloom's deny entries: the permissions container or deny
+// list whole when absent, else each entry the user's list lacks, inserted
+// beside theirs.
+func (d desiredSettings) buildDeny(rec *settingsRecorder, root hew.Node) error {
+	if len(d.deny) == 0 {
+		return nil
+	}
+	perms, ok := root.Member(settingsPermissionsKey)
+	if !ok {
+		return rec.set("/"+settingsPermissionsKey, map[string]any{settingsDenyKey: d.deny})
+	}
+	deny, ok := perms.Member(settingsDenyKey)
+	if !ok {
+		return rec.set("/"+settingsPermissionsKey+"/"+settingsDenyKey, d.deny)
+	}
+	present := scalarSet(deny)
+	for _, tool := range d.deny {
+		if present[tool] {
+			continue
+		}
+		if err := rec.insert("/"+settingsPermissionsKey+"/"+settingsDenyKey, tool); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// scalarSet is the set of scalar values among seq's elements.
+func scalarSet(seq hew.Node) map[string]bool {
+	present := map[string]bool{}
+	for i := 0; i < seq.Len(); i++ {
+		if el, ok := seq.Elem(i); ok {
+			if n := el.Value().Node(); n != nil {
+				present[n.Value] = true
 			}
 		}
 	}
-
-	if d.statusLine != nil {
-		if _, ok := root.Member(settingsStatusLineKey); !ok {
-			if err := set("/"+settingsStatusLineKey, d.statusLine); err != nil {
-				return 0, err
-			}
-		}
-	}
-
-	if len(d.deny) > 0 {
-		perms, ok := root.Member(settingsPermissionsKey)
-		if !ok {
-			if err := set("/"+settingsPermissionsKey, map[string]any{settingsDenyKey: d.deny}); err != nil {
-				return 0, err
-			}
-			return recorded, nil
-		}
-		deny, ok := perms.Member(settingsDenyKey)
-		if !ok {
-			if err := set("/"+settingsPermissionsKey+"/"+settingsDenyKey, d.deny); err != nil {
-				return 0, err
-			}
-			return recorded, nil
-		}
-		present := map[string]bool{}
-		for i := 0; i < deny.Len(); i++ {
-			if el, ok := deny.Elem(i); ok {
-				if n := el.Value().Node(); n != nil {
-					present[n.Value] = true
-				}
-			}
-		}
-		for _, tool := range d.deny {
-			if present[tool] {
-				continue
-			}
-			if err := insert("/"+settingsPermissionsKey+"/"+settingsDenyKey, tool); err != nil {
-				return 0, err
-			}
-		}
-	}
-	return recorded, nil
+	return present
 }
 
 // escapePointerToken applies RFC 6901's token escaping so a member name

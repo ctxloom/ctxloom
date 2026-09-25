@@ -197,17 +197,7 @@ func (in *spoolInbox) receive(ctx context.Context, role, runID string, wait time
 	defer timer.Stop()
 	select {
 	case r := <-p.ch:
-		if r.err != nil {
-			return nil, nil, r.err
-		}
-		// The wake is redeemed here: the call receiving it is, by
-		// construction, still live (mid-select on this very channel), so a
-		// claim made here is a genuine hand-off the next receive's ack can
-		// trust. Woken but beaten to the mail by another claim is a timeout.
-		if msgs, names, ok := in.claim(role); ok {
-			return msgs, names, nil
-		}
-		return nil, nil, ErrRecvTimeout
+		return in.redeemWake(role, r)
 	case <-timer.C:
 		// The timer expiring does not end the CALLER: it is still waiting for
 		// this call's return value, so a delivery that won the race is handed
@@ -218,6 +208,21 @@ func (in *spoolInbox) receive(ctx context.Context, role, runID string, wait time
 		// received — so a delivery that won the race has to be released.
 		return in.abandon(role, p, ctx.Err(), true)
 	}
+}
+
+// redeemWake turns a poll's wake into the receive's answer. The wake is
+// redeemed here: the call receiving it is, by construction, still live
+// (mid-select on this very channel), so a claim made here is a genuine
+// hand-off the next receive's ack can trust. Woken but beaten to the mail by
+// another claim is a timeout.
+func (in *spoolInbox) redeemWake(role string, r pollResult) ([]Message, []string, error) {
+	if r.err != nil {
+		return nil, nil, r.err
+	}
+	if msgs, names, ok := in.claim(role); ok {
+		return msgs, names, nil
+	}
+	return nil, nil, ErrRecvTimeout
 }
 
 // retire takes p down once its own call has claimed msgs (spool names

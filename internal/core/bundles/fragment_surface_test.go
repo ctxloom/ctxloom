@@ -213,37 +213,49 @@ func perturb(t *testing.T, v reflect.Value, name string) {
 	case reflect.Slice:
 		v.Set(reflect.Append(v, reflect.Zero(v.Type().Elem())))
 	case reflect.Pointer:
-		if v.IsNil() {
-			v.Set(reflect.New(v.Type().Elem()))
-			return
-		}
-		fresh := reflect.New(v.Type().Elem())
-		fresh.Elem().Set(v.Elem())
-		perturb(t, fresh.Elem(), name)
-		v.Set(fresh)
+		perturbPointer(t, v, name)
 	case reflect.Map:
-		// Per-engine blocks are presented through the block the frozen
-		// preimage contract canonicalises (CommandSurface.ExportsPayload);
-		// a block for another engine is outside it. Perturb the contract
-		// block, which is what "the exports changed" means to the preimage.
-		if v.Type() == reflect.TypeOf(EngineBlocks(nil)) {
-			copied := EngineBlocks{}
-			for _, k := range v.MapKeys() {
-				copied[k.String()] = v.MapIndex(k).Bytes()
-			}
-			copied[preimageContractEngine] = []byte(`{"enabled":false,"description":"perturbed"}`)
-			v.Set(reflect.ValueOf(copied))
-			return
-		}
-		copied := reflect.MakeMap(v.Type())
-		for _, k := range v.MapKeys() {
-			copied.SetMapIndex(k, v.MapIndex(k))
-		}
-		copied.SetMapIndex(reflect.ValueOf("perturbed").Convert(v.Type().Key()), reflect.Zero(v.Type().Elem()))
-		v.Set(copied)
+		perturbMap(v)
 	default:
 		require.Failf(t, "unhandled field kind", "%s has kind %s; teach perturb how to change it", name, v.Kind())
 	}
+}
+
+// perturbPointer sets a nil pointer to the zero value, and otherwise points
+// at a perturbed copy of what it pointed at.
+func perturbPointer(t *testing.T, v reflect.Value, name string) {
+	t.Helper()
+	if v.IsNil() {
+		v.Set(reflect.New(v.Type().Elem()))
+		return
+	}
+	fresh := reflect.New(v.Type().Elem())
+	fresh.Elem().Set(v.Elem())
+	perturb(t, fresh.Elem(), name)
+	v.Set(fresh)
+}
+
+// perturbMap sets a copy of the map with one more key. Per-engine blocks are
+// presented through the block the frozen preimage contract canonicalises
+// (CommandSurface.ExportsPayload); a block for another engine is outside
+// it. Perturb the contract block, which is what "the exports changed" means
+// to the preimage.
+func perturbMap(v reflect.Value) {
+	if v.Type() == reflect.TypeOf(EngineBlocks(nil)) {
+		copied := EngineBlocks{}
+		for _, k := range v.MapKeys() {
+			copied[k.String()] = v.MapIndex(k).Bytes()
+		}
+		copied[preimageContractEngine] = []byte(`{"enabled":false,"description":"perturbed"}`)
+		v.Set(reflect.ValueOf(copied))
+		return
+	}
+	copied := reflect.MakeMap(v.Type())
+	for _, k := range v.MapKeys() {
+		copied.SetMapIndex(k, v.MapIndex(k))
+	}
+	copied.SetMapIndex(reflect.ValueOf("perturbed").Convert(v.Type().Key()), reflect.Zero(v.Type().Elem()))
+	v.Set(copied)
 }
 
 func equalPreimages(a, b [][]byte) bool {

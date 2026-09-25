@@ -173,16 +173,7 @@ func EvaluateTriggers(ctx context.Context, f LaunchFacts, cfg *config.Config, re
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
 
-	var deferred, other []tasks.Task
-	allByHarp := make(map[string]tasks.Task, len(listRes.Tasks))
-	for _, t := range listRes.Tasks {
-		allByHarp[t.HarpID] = t
-		if t.Status == tasks.StatusDeferred {
-			deferred = append(deferred, t)
-		} else {
-			other = append(other, t)
-		}
-	}
+	deferred, other, allByHarp := partitionDeferred(listRes.Tasks)
 	if len(deferred) == 0 {
 		return &EvaluateTriggersResult{}, nil
 	}
@@ -201,164 +192,247 @@ func EvaluateTriggers(ctx context.Context, f LaunchFacts, cfg *config.Config, re
 	// This costs git reads even on a cache hit, but never a model call — the
 	// cache's entire point is to save the LLM round-trip, not the local I/O.
 	batch := buildBatch(ctx, deferred, other, since, req)
-	deferredByHarp := make(map[string]triggers.TaskInput, len(batch.Tasks))
+	ev := triggerEvaluation{
+		req:            req,
+		batch:          batch,
+		allByHarp:      allByHarp,
+		deferredByHarp: make(map[string]triggers.TaskInput, len(batch.Tasks)),
+		projectID:      listRes.ProjectID,
+		cache:          loadTriggerCache(listRes.ProjectID),
+	}
 	for _, ti := range batch.Tasks {
-		deferredByHarp[ti.HarpID] = ti
+		ev.deferredByHarp[ti.HarpID] = ti
 	}
 
-	gitClient := req.Git
-	if gitClient == nil {
-		gitClient = git.NewExec()
-	}
-
-	cache := loadTriggerCache(listRes.ProjectID)
-	var cachedVerdicts []triggers.Verdict
-	var missInputs []triggers.TaskInput
-	var missTasks []tasks.Task
-	for _, t := range deferred {
-		ti := deferredByHarp[t.HarpID]
-		fp := fingerprintTask(ti, batch.Repo)
-		if !req.Refresh {
-			if entry, ok := cache.Tasks[t.HarpID]; ok && entry.Fingerprint == fp {
-				v := entry.Verdict
-				v.Cached = true
-				cachedVerdicts = append(cachedVerdicts, v)
-				continue
-			}
-		}
-		missInputs = append(missInputs, ti)
-		missTasks = append(missTasks, t)
-	}
-
+	cachedVerdicts, missTasks, missInputs := ev.splitByCache(deferred)
 	result := &EvaluateTriggersResult{
 		Evaluated:   len(deferred),
 		CacheHits:   len(cachedVerdicts),
 		CacheMisses: len(missInputs),
 	}
 
-	freshByHarp := make(map[string]triggers.Verdict, len(missInputs))
+	freshByHarp := map[string]triggers.Verdict{}
 	if len(missInputs) > 0 {
-		label := req.LLMLabel
-		if label == "" {
-			label = cfg.FastLabel()
+		fresh, err := ev.triageMisses(ctx, f, cfg, missTasks, missInputs, result)
+		if err != nil {
+			return nil, err
 		}
-		// The triage is ONE real session on the label; every chunk and the
-		// escalation round are turns on it.
-		run := req.Run
-		if run == nil {
-			triage, err := OneShot(f, req.Hosts, cfg).Label(label).WorkDir(req.RepoDir).Start(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("start triage: %w", err)
-			}
-			defer triage.End()
-			run = triage.Turn
-		}
-
-		chunkSize := req.ChunkSize
-		if chunkSize <= 0 {
-			chunkSize = defaultTriageChunkSize
-		}
-
-		// The batch is split into bounded chunks — one model call per chunk,
-		// run with bounded concurrency — rather than one call for the whole
-		// miss set. See defaultTriageChunkSize for why: a big-enough single
-		// call makes the model silently drop tasks from its JSON response.
-		chunkResults := runTriageChunks(ctx, chunkMissTasks(missTasks, missInputs, chunkSize), batch, run)
-
-		// A verdict is cacheable once it is a GENUINE model answer — anything
-		// the model actually returned this round, including a
-		// needs-investigation it declined to attach queries to. Only
-		// degraded/fallback verdicts are withheld (see below).
-		//
-		// Caching needs-investigation is deliberate: the fingerprint already
-		// pins the evidence, so re-asking on identical evidence buys nothing
-		// but a model call and a re-roll of a nondeterministic answer. This
-		// is what makes "unchanged backlog => ZERO model calls" true rather
-		// than nearly-true. `refresh` is the way to force another look.
-		cacheable := map[string]bool{}
-		var verdicts []triggers.Verdict
-		var degradedWarnings []string
-		omitted := 0
-		for _, cr := range chunkResults {
-			verdicts = append(verdicts, cr.verdicts...)
-			omitted += cr.omitted
-			if cr.degraded {
-				degradedWarnings = append(degradedWarnings, cr.warning)
-				continue
-			}
-			for _, v := range cr.parsed {
-				cacheable[v.HarpID] = true
-			}
-		}
-		result.Degraded = len(degradedWarnings) > 0
-		result.Warning = strings.Join(degradedWarnings, "; ")
-
-		// Escalation runs once, across the WHOLE merged set (not per input
-		// chunk): round-1 chunking is about the input evidence pack size, but
-		// how many tasks land in needs-investigation is independent of which
-		// chunk they came from, and re-chunking on THAT count (bounded the
-		// same way) keeps the round-2 prompt from hitting the identical
-		// failure mode on a backlog with many ambiguous triggers.
-		esc := escalateNeedsInvestigation(ctx, escalationParams{
-			run:            run,
-			gitClient:      gitClient,
-			repoDir:        req.RepoDir,
-			otherByHarp:    allByHarp,
-			deferredByHarp: deferredByHarp,
-			repo:           batch.Repo,
-			otherTasks:     batch.OtherTasks,
-			cacheable:      cacheable,
-			chunkSize:      chunkSize,
-		}, verdicts)
-		verdicts = esc.verdicts
-		result.Omitted = omitted + esc.omitted
-		result.QueriesRejected = esc.queriesRejected
-		result.TasksRefusedEveryQuery = esc.tasksRefusedEveryQuery
-		if esc.degraded {
-			result.Degraded = true
-			if result.Warning != "" {
-				result.Warning += "; " + esc.warning
-			} else {
-				result.Warning = esc.warning
-			}
-		}
-
-		// The outward verdict contract never carries a query request — that's
-		// an internal round-1↔round-2 signal, not something the caller (or a
-		// human reading the result) needs.
-		for i := range verdicts {
-			verdicts[i].Queries = nil
-			v := verdicts[i]
-			freshByHarp[v.HarpID] = v
-			if cacheable[v.HarpID] {
-				stored := v
-				stored.Cached = false
-				cache.Tasks[v.HarpID] = triggerCacheEntry{
-					Fingerprint: fingerprintTask(deferredByHarp[v.HarpID], batch.Repo),
-					Verdict:     stored,
-				}
-			}
-		}
-		saveTriggerCache(listRes.ProjectID, cache)
+		freshByHarp = fresh
 	}
 
-	// Assemble the result in the Deferred tasks' original order — stable
-	// regardless of model response order or which tasks hit the cache.
-	cachedByHarp := make(map[string]triggers.Verdict, len(cachedVerdicts))
-	for _, v := range cachedVerdicts {
-		cachedByHarp[v.HarpID] = v
+	result.Verdicts = verdictsInTaskOrder(deferred, cachedVerdicts, freshByHarp)
+	return result, nil
+}
+
+// partitionDeferred splits the task list into Deferred tasks and the rest,
+// and indexes every task by harp.
+func partitionDeferred(all []tasks.Task) (deferred, other []tasks.Task, byHarp map[string]tasks.Task) {
+	byHarp = make(map[string]tasks.Task, len(all))
+	for _, t := range all {
+		byHarp[t.HarpID] = t
+		if t.Status == tasks.StatusDeferred {
+			deferred = append(deferred, t)
+		} else {
+			other = append(other, t)
+		}
 	}
+	return deferred, other, byHarp
+}
+
+// triggerEvaluation carries the per-call state EvaluateTriggers' stages
+// share: the evidence batch, the task indexes, and the verdict cache the
+// fresh verdicts are written back into.
+type triggerEvaluation struct {
+	req            EvaluateTriggersRequest
+	batch          triggers.Batch
+	allByHarp      map[string]tasks.Task
+	deferredByHarp map[string]triggers.TaskInput
+	projectID      string
+	cache          triggerVerdictCache
+}
+
+// splitByCache answers each Deferred task from the cache when its evidence
+// fingerprint is unchanged (and Refresh is off), and returns the rest as the
+// miss set that needs a model call.
+func (ev *triggerEvaluation) splitByCache(deferred []tasks.Task) (cached []triggers.Verdict, missTasks []tasks.Task, missInputs []triggers.TaskInput) {
 	for _, t := range deferred {
-		if v, ok := cachedByHarp[t.HarpID]; ok {
-			result.Verdicts = append(result.Verdicts, v)
+		ti := ev.deferredByHarp[t.HarpID]
+		if v, ok := ev.cachedVerdict(t.HarpID, fingerprintTask(ti, ev.batch.Repo)); ok {
+			cached = append(cached, v)
 			continue
 		}
-		if v, ok := freshByHarp[t.HarpID]; ok {
-			result.Verdicts = append(result.Verdicts, v)
+		missInputs = append(missInputs, ti)
+		missTasks = append(missTasks, t)
+	}
+	return cached, missTasks, missInputs
+}
+
+// cachedVerdict is the cache hit for harp at fingerprint fp, if one applies.
+func (ev *triggerEvaluation) cachedVerdict(harp, fp string) (triggers.Verdict, bool) {
+	if ev.req.Refresh {
+		return triggers.Verdict{}, false
+	}
+	entry, ok := ev.cache.Tasks[harp]
+	if !ok || entry.Fingerprint != fp {
+		return triggers.Verdict{}, false
+	}
+	v := entry.Verdict
+	v.Cached = true
+	return v, true
+}
+
+// triageMisses asks the model for a verdict on every cache miss, records the
+// degraded/omitted/rejected tallies on result, writes the cacheable verdicts
+// into ev.cache and saves it, and returns the fresh verdicts by harp.
+func (ev *triggerEvaluation) triageMisses(ctx context.Context, f LaunchFacts, cfg *config.Config, missTasks []tasks.Task, missInputs []triggers.TaskInput, result *EvaluateTriggersResult) (map[string]triggers.Verdict, error) {
+	req := ev.req
+	// The triage is ONE real session on the label; every chunk and the
+	// escalation round are turns on it.
+	run := req.Run
+	if run == nil {
+		triage, err := OneShot(f, req.Hosts, cfg).Label(triageLabel(req, cfg)).WorkDir(req.RepoDir).Start(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("start triage: %w", err)
 		}
+		defer triage.End()
+		run = triage.Turn
 	}
 
-	return result, nil
+	chunkSize := req.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = defaultTriageChunkSize
+	}
+
+	// The batch is split into bounded chunks — one model call per chunk,
+	// run with bounded concurrency — rather than one call for the whole
+	// miss set. See defaultTriageChunkSize for why: a big-enough single
+	// call makes the model silently drop tasks from its JSON response.
+	chunkResults := runTriageChunks(ctx, chunkMissTasks(missTasks, missInputs, chunkSize), ev.batch, run)
+	verdicts, cacheable := mergeChunkResults(chunkResults, result)
+
+	// Escalation runs once, across the WHOLE merged set (not per input
+	// chunk): round-1 chunking is about the input evidence pack size, but
+	// how many tasks land in needs-investigation is independent of which
+	// chunk they came from, and re-chunking on THAT count (bounded the
+	// same way) keeps the round-2 prompt from hitting the identical
+	// failure mode on a backlog with many ambiguous triggers.
+	gitClient := req.Git
+	if gitClient == nil {
+		gitClient = git.NewExec()
+	}
+	esc := escalateNeedsInvestigation(ctx, escalationParams{
+		run:            run,
+		gitClient:      gitClient,
+		repoDir:        req.RepoDir,
+		otherByHarp:    ev.allByHarp,
+		deferredByHarp: ev.deferredByHarp,
+		repo:           ev.batch.Repo,
+		otherTasks:     ev.batch.OtherTasks,
+		cacheable:      cacheable,
+		chunkSize:      chunkSize,
+	}, verdicts)
+	result.Omitted += esc.omitted
+	result.QueriesRejected = esc.queriesRejected
+	result.TasksRefusedEveryQuery = esc.tasksRefusedEveryQuery
+	if esc.degraded {
+		result.Degraded = true
+		result.Warning = joinWarning(result.Warning, esc.warning)
+	}
+	fresh := ev.recordFresh(esc.verdicts, cacheable)
+	saveTriggerCache(ev.projectID, ev.cache)
+	return fresh, nil
+}
+
+// triageLabel is the model label the triage session runs on: the request's,
+// else the configured fast label.
+func triageLabel(req EvaluateTriggersRequest, cfg *config.Config) string {
+	if req.LLMLabel != "" {
+		return req.LLMLabel
+	}
+	return cfg.FastLabel()
+}
+
+// mergeChunkResults flattens the round-1 chunk results, records the
+// degraded warnings and omitted count on result, and marks which harps got a
+// cacheable answer.
+//
+// A verdict is cacheable once it is a GENUINE model answer — anything the
+// model actually returned this round, including a needs-investigation it
+// declined to attach queries to. Only degraded/fallback verdicts are
+// withheld. Caching needs-investigation is deliberate: the fingerprint
+// already pins the evidence, so re-asking on identical evidence buys nothing
+// but a model call and a re-roll of a nondeterministic answer. This is what
+// makes "unchanged backlog => ZERO model calls" true rather than
+// nearly-true. `refresh` is the way to force another look.
+func mergeChunkResults(chunkResults []chunkResult, result *EvaluateTriggersResult) ([]triggers.Verdict, map[string]bool) {
+	cacheable := map[string]bool{}
+	var verdicts []triggers.Verdict
+	var degradedWarnings []string
+	for _, cr := range chunkResults {
+		verdicts = append(verdicts, cr.verdicts...)
+		result.Omitted += cr.omitted
+		if cr.degraded {
+			degradedWarnings = append(degradedWarnings, cr.warning)
+			continue
+		}
+		for _, v := range cr.parsed {
+			cacheable[v.HarpID] = true
+		}
+	}
+	result.Degraded = len(degradedWarnings) > 0
+	result.Warning = strings.Join(degradedWarnings, "; ")
+	return verdicts, cacheable
+}
+
+// joinWarning appends next to a "; "-joined warning.
+func joinWarning(prev, next string) string {
+	if prev == "" {
+		return next
+	}
+	return prev + "; " + next
+}
+
+// recordFresh strips the internal query requests from the final verdicts —
+// the outward verdict contract never carries one; it is a round-1↔round-2
+// signal, not something the caller needs — writes every cacheable verdict
+// into ev.cache, and indexes the verdicts by harp.
+func (ev *triggerEvaluation) recordFresh(verdicts []triggers.Verdict, cacheable map[string]bool) map[string]triggers.Verdict {
+	fresh := make(map[string]triggers.Verdict, len(verdicts))
+	for i := range verdicts {
+		verdicts[i].Queries = nil
+		v := verdicts[i]
+		fresh[v.HarpID] = v
+		if cacheable[v.HarpID] {
+			stored := v
+			stored.Cached = false
+			ev.cache.Tasks[v.HarpID] = triggerCacheEntry{
+				Fingerprint: fingerprintTask(ev.deferredByHarp[v.HarpID], ev.batch.Repo),
+				Verdict:     stored,
+			}
+		}
+	}
+	return fresh
+}
+
+// verdictsInTaskOrder assembles the result in the Deferred tasks' original
+// order — stable regardless of model response order or which tasks hit the
+// cache.
+func verdictsInTaskOrder(deferred []tasks.Task, cached []triggers.Verdict, fresh map[string]triggers.Verdict) []triggers.Verdict {
+	cachedByHarp := make(map[string]triggers.Verdict, len(cached))
+	for _, v := range cached {
+		cachedByHarp[v.HarpID] = v
+	}
+	var out []triggers.Verdict
+	for _, t := range deferred {
+		if v, ok := cachedByHarp[t.HarpID]; ok {
+			out = append(out, v)
+			continue
+		}
+		if v, ok := fresh[t.HarpID]; ok {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // buildBatch assembles the pure triggers.Batch from the resolved task lists

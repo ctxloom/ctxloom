@@ -498,22 +498,11 @@ func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, 
 	if err != nil {
 		return false, "", time.Time{}, err
 	}
-	var recorded LockEntry
-	var hasRecorded bool
-	lockfile, lerr := p.lockfileManager.Load()
-	if lerr == nil {
-		recorded, hasRecorded = lockfile.GetEntry(itemType, localName)
+	recorded, hasRecorded := p.recordedEntry(itemType, localName)
+	if isRetracted, why, answered := freshRetraction(verdict, reason, recorded, hasRecorded, pinned); answered {
+		return isRetracted, why, p.now(), nil
 	}
-	samePin := hasRecorded && recorded.SignedVersion == pinned.SignedVersion
-	switch verdict {
-	case RetractionRetracted:
-		return true, reason, p.now(), nil
-	case RetractionClean:
-		if samePin && recorded.Retracted {
-			return true, recorded.RetractedReason, p.now(), nil
-		}
-		return false, "", p.now(), nil
-	case RetractionRollback:
+	if verdict == RetractionRollback {
 		clidiag.Warn("ctxloom", "%s: %s — the repository may have been rolled back; keeping the retraction verdict last recorded for it", localName, reason)
 	}
 
@@ -525,7 +514,41 @@ func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, 
 		return false, "", time.Time{}, nil
 	}
 	entry := recorded
+	p.warnStaleFallback(entry, localName, owner, repo)
+	return entry.Retracted, entry.RetractedReason, entry.RetractionCheckedAt, nil
+}
 
+// recordedEntry is the lockfile's entry for the item; false when there is
+// none or the lockfile cannot be read.
+func (p *Puller) recordedEntry(itemType ItemType, localName trust.BundleKey) (LockEntry, bool) {
+	lockfile, err := p.lockfileManager.Load()
+	if err != nil {
+		return LockEntry{}, false
+	}
+	return lockfile.GetEntry(itemType, localName)
+}
+
+// freshRetraction is the verdict when the check answered: retracted as
+// found, or clean — unless the same pin was already recorded retracted,
+// which a clean re-check never lifts. answered is false for a rollback or
+// an unknown, which fall back to the recorded verdict.
+func freshRetraction(verdict RetractionVerdict, reason string, recorded LockEntry, hasRecorded bool, pinned LockEntry) (retracted bool, why string, answered bool) {
+	switch verdict {
+	case RetractionRetracted:
+		return true, reason, true
+	case RetractionClean:
+		samePin := hasRecorded && recorded.SignedVersion == pinned.SignedVersion
+		if samePin && recorded.Retracted {
+			return true, recorded.RetractedReason, true
+		}
+		return false, "", true
+	}
+	return false, "", false
+}
+
+// warnStaleFallback warns when the recorded verdict being fallen back to is
+// of unknown age or older than the freshness window.
+func (p *Puller) warnStaleFallback(entry LockEntry, localName trust.BundleKey, owner, repo string) {
 	unknownAge := entry.RetractionCheckedAt.IsZero()
 	age := p.now().Sub(entry.RetractionCheckedAt)
 	if unknownAge || age > RetractionStaleAfter {
@@ -547,7 +570,6 @@ func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, 
 				localName, owner, repo, age.Round(time.Hour), RetractionStaleAfter)
 		}
 	}
-	return entry.Retracted, entry.RetractedReason, entry.RetractionCheckedAt, nil
 }
 
 // resolveContentSHA resolves the commit SHA to fetch through the constraint

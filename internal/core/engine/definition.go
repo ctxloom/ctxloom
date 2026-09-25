@@ -84,31 +84,21 @@ var kinds = []present.Kind{present.Context, present.MCP, present.Settings, prese
 // approach returns the typed field for the Kind, nil when not carried. It
 // is the single walk every derived view reads.
 func (d Base) approach(k present.Kind) present.Approach {
+	// A nil typed field converts to a nil present.Approach, so each case is
+	// the field itself.
 	switch k {
 	case present.Context:
-		if d.Context != nil {
-			return d.Context
-		}
+		return d.Context
 	case present.MCP:
-		if d.MCP != nil {
-			return d.MCP
-		}
+		return d.MCP
 	case present.Settings:
-		if d.Settings != nil {
-			return d.Settings
-		}
+		return d.Settings
 	case present.Hooks:
-		if d.Hooks != nil {
-			return d.Hooks
-		}
+		return d.Hooks
 	case present.Commands:
-		if d.Commands != nil {
-			return d.Commands
-		}
+		return d.Commands
 	case present.Skills:
-		if d.Skills != nil {
-			return d.Skills
-		}
+		return d.Skills
 	}
 	return nil
 }
@@ -167,21 +157,11 @@ func (d Base) Delegate(items Items) Delegation {
 		}
 		static[present.Context] = true
 	}
-	if len(items.Commands) > 0 {
-		static[present.Commands] = true
-	}
-	if len(items.Skills) > 0 {
-		static[present.Skills] = true
-	}
-	if len(items.Hooks) > 0 {
-		static[present.Hooks] = true
-	}
-	if len(items.MCP) > 0 || d.Dynamic != nil { // the session endpoint itself is an MCP entry
-		static[present.MCP] = true
-	}
-	if items.Settings {
-		static[present.Settings] = true
-	}
+	static[present.Commands] = len(items.Commands) > 0
+	static[present.Skills] = len(items.Skills) > 0
+	static[present.Hooks] = len(items.Hooks) > 0
+	static[present.MCP] = len(items.MCP) > 0 || d.Dynamic != nil // the session endpoint itself is an MCP entry
+	static[present.Settings] = items.Settings
 	for _, k := range kinds {
 		if static[k] {
 			out.Static = append(out.Static, k)
@@ -196,6 +176,18 @@ func (d Base) Delegate(items Items) Delegation {
 // dynamic approach only on an engine that declares MCP (the endpoint is
 // named through the MCP file). Kinds need no check: the type did it.
 func (d Base) Validate() error {
+	if err := d.validateHeader(); err != nil {
+		return err
+	}
+	if err := d.validateGrammars(); err != nil {
+		return err
+	}
+	return d.validateApproaches()
+}
+
+// validateHeader checks the identity and policy fields: a lowercase name,
+// modes, a decided Distribution, and MCP beside any dynamic approach.
+func (d Base) validateHeader() error {
 	if d.Name == "" || len(d.Modes) == 0 {
 		return fmt.Errorf("%w: name and modes are required", ErrDefinition)
 	}
@@ -208,11 +200,22 @@ func (d Base) Validate() error {
 	if d.Dynamic != nil && d.MCP == nil {
 		return fmt.Errorf("%w: %s: a dynamic approach needs an MCP approach to name the endpoint", ErrDefinition, d.Name)
 	}
+	return nil
+}
+
+// validateGrammars requires a CLI grammar for every mode.
+func (d Base) validateGrammars() error {
 	for _, m := range d.Modes {
 		if _, ok := CLIFor(d.CLI, m); !ok {
 			return fmt.Errorf("%w: %s: mode %v has no CLI grammar", ErrDefinition, d.Name, m)
 		}
 	}
+	return nil
+}
+
+// validateApproaches requires every declared approach, the dynamic one
+// included, to be named and to offer at least one root.
+func (d Base) validateApproaches() error {
 	for _, k := range kinds {
 		a := d.approach(k)
 		if a == nil {
@@ -291,27 +294,39 @@ func (g CLIGrammar) ParseArgv(args []string) (Parsed, error) {
 			out.Positionals = append(out.Positionals, a)
 			continue
 		}
-		name, val, inline := strings.Cut(a, "=")
-		f, ok := declared[name]
-		if !ok {
-			return Parsed{}, fmt.Errorf("%w: %s/%v does not declare flag %q (argv: %s)", ErrArgv, g.Binary, g.Mode, name, strings.Join(args, " "))
+		name, val, next, err := g.readFlag(args, i, declared)
+		if err != nil {
+			return Parsed{}, err
 		}
-		switch {
-		case f.HasValue && !inline:
-			i++
-			if i >= len(args) {
-				return Parsed{}, fmt.Errorf("%w: %s/%v: flag %s declares a value but argv ends after it", ErrArgv, g.Binary, g.Mode, name)
-			}
-			val = args[i]
-		case !f.HasValue && inline:
-			return Parsed{}, fmt.Errorf("%w: %s/%v: flag %s takes no value", ErrArgv, g.Binary, g.Mode, name)
-		}
+		i = next
 		out.Flags[name] = val
 	}
 	if len(out.Positionals) > g.Positional {
 		return Parsed{}, fmt.Errorf("%w: %s/%v declares %d positional(s), argv carries %d", ErrArgv, g.Binary, g.Mode, g.Positional, len(out.Positionals))
 	}
 	return out, nil
+}
+
+// readFlag reads the flag at args[i]: its name, its value (inline after "=",
+// else the next arg when the flag takes one), and the index of the last arg
+// it consumed.
+func (g CLIGrammar) readFlag(args []string, i int, declared map[string]Flag) (name, val string, last int, err error) {
+	name, val, inline := strings.Cut(args[i], "=")
+	f, ok := declared[name]
+	if !ok {
+		return "", "", i, fmt.Errorf("%w: %s/%v does not declare flag %q (argv: %s)", ErrArgv, g.Binary, g.Mode, name, strings.Join(args, " "))
+	}
+	switch {
+	case f.HasValue && !inline:
+		i++
+		if i >= len(args) {
+			return "", "", i, fmt.Errorf("%w: %s/%v: flag %s declares a value but argv ends after it", ErrArgv, g.Binary, g.Mode, name)
+		}
+		val = args[i]
+	case !f.HasValue && inline:
+		return "", "", i, fmt.Errorf("%w: %s/%v: flag %s takes no value", ErrArgv, g.Binary, g.Mode, name)
+	}
+	return name, val, i, nil
 }
 
 // CLIFor selects the grammar for a mode.

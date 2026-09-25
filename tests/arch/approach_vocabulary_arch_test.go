@@ -36,8 +36,35 @@ func TestArch_SharedAgent_NamesNoEngineOnlyApproach(t *testing.T) {
 	if len(names) == 0 {
 		t.Fatal("operations.EngineNames() returned nothing — the registry did not populate")
 	}
+	// Names shared code owns outright: it implements them, so it may name them.
+	sharedOwned := map[string]bool{agent.ApproachUnsafeFile: true, agent.ApproachHook: true}
+	engineOnly := engineOnlyApproaches(approachDeclarers(t, names), sharedOwned)
+	if len(engineOnly) == 0 {
+		t.Skip("no registered engine declares an approach of its own; nothing for this gate to sweep")
+	}
 
-	// Which engines declare each approach name.
+	root := moduleRoot(t)
+	dir := filepath.Join(root, filepath.FromSlash(sharedAgentDir))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		if !isProductionGoFile(e) {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reportEngineOnlyLiterals(t, fset, f, engineOnly)
+	}
+}
+
+// approachDeclarers maps each approach name to the engines that declare it.
+func approachDeclarers(t *testing.T, names []string) map[string]map[string]bool {
+	t.Helper()
 	declaredBy := map[string]map[string]bool{}
 	for _, engine := range names {
 		h, ok := engines.Hosted(engine)
@@ -51,51 +78,46 @@ func TestArch_SharedAgent_NamesNoEngineOnlyApproach(t *testing.T) {
 			declaredBy[n][engine] = true
 		}
 	}
-	// Names shared code owns outright: it implements them, so it may name them.
-	sharedOwned := map[string]bool{agent.ApproachUnsafeFile: true, agent.ApproachHook: true}
+	return declaredBy
+}
 
+// engineOnlyApproaches is the names exactly one engine declares, less the
+// ones shared code owns.
+func engineOnlyApproaches(declaredBy map[string]map[string]bool, sharedOwned map[string]bool) []string {
 	var engineOnly []string
 	for n, engines := range declaredBy {
 		if len(engines) == 1 && !sharedOwned[n] {
 			engineOnly = append(engineOnly, n)
 		}
 	}
-	if len(engineOnly) == 0 {
-		t.Skip("no registered engine declares an approach of its own; nothing for this gate to sweep")
-	}
+	return engineOnly
+}
 
-	root := moduleRoot(t)
-	dir := filepath.Join(root, filepath.FromSlash(sharedAgentDir))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fset := token.NewFileSet()
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
-			continue
-		}
-		path := filepath.Join(dir, e.Name())
-		f, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			lit, ok := n.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			s, err := strconv.Unquote(lit.Value)
-			if err != nil {
-				return true
-			}
-			for _, only := range engineOnly {
-				if s == only {
-					t.Errorf("%s: names %q, an approach only one engine declares — shared code must not name an engine's own approach; the enum is growing back",
-						fset.Position(lit.Pos()), only)
-				}
-			}
+// isProductionGoFile reports whether e is a non-test Go source file.
+func isProductionGoFile(e os.DirEntry) bool {
+	name := e.Name()
+	return !e.IsDir() && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+}
+
+// reportEngineOnlyLiterals fails for every string literal in f that names
+// an engine-only approach.
+func reportEngineOnlyLiterals(t *testing.T, fset *token.FileSet, f *ast.File, engineOnly []string) {
+	t.Helper()
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
 			return true
-		})
-	}
+		}
+		s, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			return true
+		}
+		for _, only := range engineOnly {
+			if s == only {
+				t.Errorf("%s: names %q, an approach only one engine declares — shared code must not name an engine's own approach; the enum is growing back",
+					fset.Position(lit.Pos()), only)
+			}
+		}
+		return true
+	})
 }

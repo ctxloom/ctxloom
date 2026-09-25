@@ -188,21 +188,7 @@ func TestPackageDoc_GeneralPurposeClaimHolds(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if name := d.Name(); name == ".git" || name == "node_modules" {
-				return filepath.SkipDir
-			}
-			// A checkout hosting agent worktrees (.claude/worktrees/agent-*)
-			// carries a full second copy of the tree at a stale commit. Those
-			// copies are machine debris, and counting them INFLATES the floor
-			// asserted below — so the claim would keep passing on a duplicate
-			// long after the package itself had narrowed. Never skip repo
-			// itself: an agent worktree IS a linked worktree and the suite
-			// routinely runs from one, so skipping the root would count
-			// nothing and pass vacuously.
-			if path != repo && IsLinkedWorktreeRoot(path) {
-				return filepath.SkipDir
-			}
-			return nil
+			return skipCountDir(repo, path, d)
 		}
 		if !strings.HasSuffix(path, ".go") {
 			return nil
@@ -214,11 +200,8 @@ func TestPackageDoc_GeneralPurposeClaimHolds(t *testing.T) {
 		if rerr != nil {
 			return rerr
 		}
-		before := sites
-		for _, fn := range []string{"taskstest.Isolate(", "taskstest.ProjectDir(", "taskstest.ChangeDir("} {
-			sites += strings.Count(string(b), fn)
-		}
-		if sites > before {
+		if n := countHelperCalls(b); n > 0 {
+			sites += n
 			files++
 		}
 		return nil
@@ -229,4 +212,31 @@ func TestPackageDoc_GeneralPurposeClaimHolds(t *testing.T) {
 		"the package doc claims well over 50 call sites use this as general-purpose test "+
 			"isolation; found %d across %d files. Either the doc is stale or the package narrowed",
 		sites, files)
+}
+
+// skipCountDir skips .git, node_modules and — below repo — agent worktrees.
+// A checkout hosting agent worktrees (.claude/worktrees/agent-*) carries a
+// full second copy of the tree at a stale commit. Those copies are machine
+// debris, and counting them INFLATES the floor asserted — so the claim would
+// keep passing on a duplicate long after the package itself had narrowed.
+// Never skip repo itself: an agent worktree IS a linked worktree and the
+// suite routinely runs from one, so skipping the root would count nothing
+// and pass vacuously.
+func skipCountDir(repo, path string, d fs.DirEntry) error {
+	if name := d.Name(); name == ".git" || name == "node_modules" {
+		return filepath.SkipDir
+	}
+	if path != repo && IsLinkedWorktreeRoot(path) {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// countHelperCalls counts the taskstest isolation call sites in a source.
+func countHelperCalls(b []byte) int {
+	n := 0
+	for _, fn := range []string{"taskstest.Isolate(", "taskstest.ProjectDir(", "taskstest.ChangeDir("} {
+		n += strings.Count(string(b), fn)
+	}
+	return n
 }

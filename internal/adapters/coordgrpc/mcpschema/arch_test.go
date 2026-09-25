@@ -78,7 +78,7 @@ var handlerScopes = map[string]handlerScope{
 	// and the decoders it calls); the verb never sees a wire field, so the
 	// decoder is where every wire field is read.
 	ToolAgentRun: {
-		funcs: []string{"../codec.go:AgentRequestFromWire"},
+		funcs: []string{"../codec.go:AgentRequestFromWire", "../codec.go:spawnRequestFromWire"},
 	},
 	ToolAgentSend: {
 		funcs: []string{"../codec.go:SendRequestFromWire"},

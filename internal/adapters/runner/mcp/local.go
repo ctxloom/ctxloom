@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -166,29 +167,39 @@ func (s loadoutSurface) searchIndex(in searchContentInput) *operations.SearchCon
 		out.Results = append(out.Results, operations.SearchResult{Type: typ, Name: e.Ref, Source: e.Ref})
 	}
 	out.TotalMatches = len(out.Results)
-	if in.SortBy == "name" || in.SortBy == "type" {
-		sort.Slice(out.Results, func(i, j int) bool {
-			a, b := out.Results[i], out.Results[j]
-			if in.SortBy == "type" && a.Type != b.Type {
-				return a.Type < b.Type
-			}
-			return a.Name < b.Name
-		})
-		if in.SortOrder == "desc" {
-			for i, j := 0, len(out.Results)-1; i < j; i, j = i+1, j-1 {
-				out.Results[i], out.Results[j] = out.Results[j], out.Results[i]
-			}
-		}
+	sortSearchResults(out.Results, in.SortBy, in.SortOrder)
+	out.Results = limitSearchResults(out.Results, in.Limit)
+	out.Count = len(out.Results)
+	return out
+}
+
+// sortSearchResults orders results by name, or by type then name, reversed
+// for "desc"; any other sortBy leaves index order.
+func sortSearchResults(results []operations.SearchResult, sortBy, order string) {
+	if sortBy != "name" && sortBy != "type" {
+		return
 	}
-	limit := in.Limit
+	sort.Slice(results, func(i, j int) bool {
+		a, b := results[i], results[j]
+		if sortBy == "type" && a.Type != b.Type {
+			return a.Type < b.Type
+		}
+		return a.Name < b.Name
+	})
+	if order == "desc" {
+		slices.Reverse(results)
+	}
+}
+
+// limitSearchResults caps results at limit, 50 when unset.
+func limitSearchResults(results []operations.SearchResult, limit int) []operations.SearchResult {
 	if limit <= 0 {
 		limit = 50
 	}
-	if len(out.Results) > limit {
-		out.Results = out.Results[:limit]
+	if len(results) > limit {
+		return results[:limit]
 	}
-	out.Count = len(out.Results)
-	return out
+	return results
 }
 
 // indexKindName is the search_content type vocabulary for a catalog kind.

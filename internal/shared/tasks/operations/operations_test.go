@@ -1732,18 +1732,24 @@ func TestAddTaskWithTags_DegradedSkipsRefusedTagAndWritesRowWithoutIt(t *testing
 	if len(res.Refused) != 1 || !strings.Contains(res.Refused[0], "triage:kind=sparkles") {
 		t.Fatalf("result must report the skipped tag, got %v", res.Refused)
 	}
-	got := storeBytes(t, tc)
-	if !strings.Contains(got, "degraded add") || !strings.Contains(got, `"urgent"`) {
-		t.Fatalf("the row must land with its admitted tag, store holds %q", got)
-	}
-	if strings.Contains(got, "sparkles") {
-		t.Fatalf("degraded must NEVER write the refused tag, store holds %q", got)
-	}
+	assertDegradedStore(t, storeBytes(t, tc))
 	if !strings.Contains(diag.String(), "triage:kind=sparkles") {
 		t.Fatalf("the refusal must be printed even when skipped, got %q", diag.String())
 	}
 	if found := strictness.All(); len(found) != 1 || found[0].Class != strictness.ClassTask {
 		t.Fatalf("degraded suppresses fatality, not recording: got %+v", found)
+	}
+}
+
+// assertDegradedStore checks the degraded add's row landed with its admitted
+// tag and never the refused one.
+func assertDegradedStore(t *testing.T, got string) {
+	t.Helper()
+	if !strings.Contains(got, "degraded add") || !strings.Contains(got, `"urgent"`) {
+		t.Fatalf("the row must land with its admitted tag, store holds %q", got)
+	}
+	if strings.Contains(got, "sparkles") {
+		t.Fatalf("degraded must NEVER write the refused tag, store holds %q", got)
 	}
 }
 

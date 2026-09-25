@@ -173,18 +173,9 @@ func (p *GitPublisher) GetFileSHA(ctx context.Context, _, _, filePath, ref strin
 // branch ref must afterwards point at the new commit — a `git push` that exits
 // 0 and a remote holding the commit are two different facts.
 func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branch, message string, files map[string][]byte) (string, error) {
-	if len(files) == 0 {
-		return "", fmt.Errorf("refusing to publish an empty file set to %s: nothing would be written", branch)
-	}
-	paths := make([]string, 0, len(files))
-	for filePath, content := range files {
-		if len(content) == 0 {
-			return "", fmt.Errorf("refusing to publish 0 bytes for %s: an empty write would replace the remote's content with nothing", filePath)
-		}
-		if err := checkRepoRelPath(filePath); err != nil {
-			return "", err
-		}
-		paths = append(paths, filePath)
+	paths, err := publishablePaths(files, branch)
+	if err != nil {
+		return "", err
 	}
 
 	dir, err := p.workTree(ctx, branch)
@@ -193,16 +184,8 @@ func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branch, me
 	}
 	target := p.branch
 
-	for _, filePath := range paths {
-		full := filepath.Join(dir, filepath.FromSlash(filePath))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return "", fmt.Errorf("publish %s: create its directory in the working clone: %w", filePath, err)
-		}
-		// No AllowEmpty: every content's zero-length case is already refused
-		// above.
-		if err := iox.WriteFileAtomic(full, files[filePath], 0o644); err != nil {
-			return "", fmt.Errorf("publish %s: write it into the working clone: %w", filePath, err)
-		}
+	if err := writeIntoClone(dir, paths, files); err != nil {
+		return "", err
 	}
 
 	dirty, err := p.git.IsDirty(ctx, dir)
@@ -217,10 +200,8 @@ func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branch, me
 	if err != nil {
 		return "", fmt.Errorf("publish %d files: commit: %w", len(paths), err)
 	}
-	for _, filePath := range paths {
-		if !slices.Contains(changed, filePath) {
-			return "", fmt.Errorf("publish %s: commit %s landed but does not contain it (it changed %v); nothing was pushed", filePath, sha, changed)
-		}
+	if err := requireCommitted(paths, changed, sha); err != nil {
+		return "", err
 	}
 	if err := p.git.Push(ctx, dir, gitPublisherRemote, "HEAD:"+branchRef(target)); err != nil {
 		return "", fmt.Errorf("publish %d files: push to %s: %w", len(paths), p.repoURL, err)
@@ -229,6 +210,52 @@ func (p *GitPublisher) CreateOrUpdateFiles(ctx context.Context, _, _, branch, me
 		return "", fmt.Errorf("publish %d files: %w", len(paths), err)
 	}
 	return sha, nil
+}
+
+// publishablePaths is the file set's repo-relative paths, refusing an empty
+// set, an empty file, and a path that is not safely repo-relative.
+func publishablePaths(files map[string][]byte, branch string) ([]string, error) {
+	if len(files) == 0 {
+		return nil, fmt.Errorf("refusing to publish an empty file set to %s: nothing would be written", branch)
+	}
+	paths := make([]string, 0, len(files))
+	for filePath, content := range files {
+		if len(content) == 0 {
+			return nil, fmt.Errorf("refusing to publish 0 bytes for %s: an empty write would replace the remote's content with nothing", filePath)
+		}
+		if err := checkRepoRelPath(filePath); err != nil {
+			return nil, err
+		}
+		paths = append(paths, filePath)
+	}
+	return paths, nil
+}
+
+// writeIntoClone writes each path's content into the working clone at dir.
+func writeIntoClone(dir string, paths []string, files map[string][]byte) error {
+	for _, filePath := range paths {
+		full := filepath.Join(dir, filepath.FromSlash(filePath))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return fmt.Errorf("publish %s: create its directory in the working clone: %w", filePath, err)
+		}
+		// No AllowEmpty: publishablePaths already refused every zero-length
+		// content.
+		if err := iox.WriteFileAtomic(full, files[filePath], 0o644); err != nil {
+			return fmt.Errorf("publish %s: write it into the working clone: %w", filePath, err)
+		}
+	}
+	return nil
+}
+
+// requireCommitted refuses a commit that does not contain every published
+// path, before anything is pushed.
+func requireCommitted(paths, changed []string, sha string) error {
+	for _, filePath := range paths {
+		if !slices.Contains(changed, filePath) {
+			return fmt.Errorf("publish %s: commit %s landed but does not contain it (it changed %v); nothing was pushed", filePath, sha, changed)
+		}
+	}
+	return nil
 }
 
 // unchangedMany handles the republish-of-identical-bytes case: no commit, no

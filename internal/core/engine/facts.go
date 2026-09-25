@@ -127,14 +127,31 @@ func (s SharedLogin) Validate() error {
 // correctly. The zero spec is valid: it declares nothing.
 func (h HomeSpec) Validate() error {
 	if !h.Relocates() {
-		if _, ok := h.Auth.Get(); ok {
-			return errors.New("HomeSpec: token auth with no home var; an engine that relocates nothing declares no auth here")
-		}
-		if _, ok := h.SharedLogin.Get(); ok {
-			return errors.New("HomeSpec: a shared login with no home var; an engine that relocates nothing shares nothing")
-		}
-		return nil
+		return h.validateWithoutHome()
 	}
+	if err := h.validateVars(); err != nil {
+		return err
+	}
+	if err := h.validateAuth(); err != nil {
+		return err
+	}
+	return h.validateSharedLogin()
+}
+
+// validateWithoutHome refuses auth or a shared login on a spec that
+// relocates nothing.
+func (h HomeSpec) validateWithoutHome() error {
+	if _, ok := h.Auth.Get(); ok {
+		return errors.New("HomeSpec: token auth with no home var; an engine that relocates nothing declares no auth here")
+	}
+	if _, ok := h.SharedLogin.Get(); ok {
+		return errors.New("HomeSpec: a shared login with no home var; an engine that relocates nothing shares nothing")
+	}
+	return nil
+}
+
+// validateVars requires every home var to name its var and subdir.
+func (h HomeSpec) validateVars() error {
 	for i, v := range h.Vars {
 		if v.Name == "" {
 			return fmt.Errorf("HomeSpec: Vars[%d].Name is empty", i)
@@ -143,6 +160,11 @@ func (h HomeSpec) Validate() error {
 			return fmt.Errorf("HomeSpec: Vars[%d].Subdir is empty", i)
 		}
 	}
+	return nil
+}
+
+// validateAuth requires Auth decided, and valid when present.
+func (h HomeSpec) validateAuth() error {
 	if !h.Auth.Decided() {
 		return errors.New("HomeSpec: Auth is undeclared; provide token auth or declare it absent with the reason")
 	}
@@ -151,6 +173,11 @@ func (h HomeSpec) Validate() error {
 			return fmt.Errorf("HomeSpec: %w", err)
 		}
 	}
+	return nil
+}
+
+// validateSharedLogin requires SharedLogin decided, and valid when present.
+func (h HomeSpec) validateSharedLogin() error {
 	if !h.SharedLogin.Decided() {
 		return errors.New("HomeSpec: SharedLogin is undeclared; provide the credential-storage var or declare it absent with the reason")
 	}

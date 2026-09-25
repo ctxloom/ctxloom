@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
@@ -139,82 +139,104 @@ func doctorCheckSpoolBacklog() DoctorCheck {
 			Detail: "cannot read sessions dir: " + err.Error()}
 	}
 
-	mapper := spool.NewHomeMapper()
-	now := time.Now()
-	spoolsFound := 0
-	var stuck []string
-	var sweepErrs []string
-	var malformed []string
-	var failed []string
-	failedDirsSeen := 0
-	var oldest time.Duration
-
+	scan := spoolBacklogScan{mapper: spool.NewHomeMapper(), now: time.Now()}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue // a lock file or the retired index, sitting beside the harp dirs
 		}
-		harp := e.Name()
-		root, err := spool.Root(mapper, harp)
-		if err != nil {
-			continue // not a syntactically valid harp id; not this check's job
+		scan.session(e.Name())
+	}
+	return scan.report(sessionsRoot)
+}
+
+// spoolBacklogScan accumulates what doctorCheckSpoolBacklog finds across every
+// session's spool; each finding kind is kept in its own slice because each is
+// worded distinctly in the report.
+type spoolBacklogScan struct {
+	mapper         spool.PathMapper
+	now            time.Time
+	spoolsFound    int
+	stuck          []string
+	sweepErrs      []string
+	malformed      []string
+	failed         []string
+	failedDirsSeen int
+	oldest         time.Duration
+}
+
+// session scans one harp directory's spool, if it has one.
+func (s *spoolBacklogScan) session(harp string) {
+	root, err := spool.Root(s.mapper, harp)
+	if err != nil {
+		return // not a syntactically valid harp id; not this check's job
+	}
+	if _, statErr := os.Stat(root); statErr != nil {
+		return // this session never turned spool delivery on: no spool root at all
+	}
+	s.spoolsFound++
+	for _, dir := range []spool.Dir{spool.DirIn, spool.DirOut} {
+		s.sweepDir(harp, dir)
+	}
+	s.failedDirs(harp, root)
+}
+
+// sweepDir records the stuck and malformed entries of one spool direction.
+func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
+	res, sweepErr := spool.Sweep(s.mapper, harp, dir)
+	if sweepErr != nil {
+		s.sweepErrs = append(s.sweepErrs, fmt.Sprintf("%s/%s: %v", harp, dir, sweepErr))
+		return
+	}
+	for _, entry := range res.Entries {
+		age := s.now.Sub(time.Unix(0, entry.Name.Nanos))
+		if age < doctorSpoolStuckAge {
+			continue
 		}
-		if _, statErr := os.Stat(root); statErr != nil {
-			continue // this session never turned spool delivery on: no spool root at all
+		if age > s.oldest {
+			s.oldest = age
 		}
-		spoolsFound++
-		for _, dir := range []spool.Dir{spool.DirIn, spool.DirOut} {
-			res, sweepErr := spool.Sweep(mapper, harp, dir)
-			if sweepErr != nil {
-				sweepErrs = append(sweepErrs, fmt.Sprintf("%s/%s: %v", harp, dir, sweepErr))
-				continue
-			}
-			for _, entry := range res.Entries {
-				age := now.Sub(time.Unix(0, entry.Name.Nanos))
-				if age < doctorSpoolStuckAge {
+		s.stuck = append(s.stuck, fmt.Sprintf("%s (%s old)", entry.Ref, age.Round(time.Second)))
+	}
+	for _, prob := range res.Problems {
+		s.malformed = append(s.malformed, fmt.Sprintf("%s:%s/%s: %v",
+			harp, dir, filepath.Base(prob.Path), prob.Err))
+	}
+}
+
+// failedDirs lists one session's failed/ directories. They are created
+// lazily, on the first refusal, so a session that never refused a message has
+// none — absence is a normal state this check must not report as a failure,
+// which is why they are read directly with os.ReadDir rather than swept. List
+// only, never rename or delete. BOTH directions are enumerated from
+// spool.FailedDirNames rather than named here: a refused outbound report is
+// exactly as invisible as a refused inbound one if nothing looks at its
+// directory.
+func (s *spoolBacklogScan) failedDirs(harp, root string) {
+	for _, failedName := range spool.FailedDirNames() {
+		failedDir := filepath.Join(root, filepath.FromSlash(string(failedName)))
+		failedEntries, failedErr := os.ReadDir(failedDir)
+		switch {
+		case failedErr == nil:
+			s.failedDirsSeen++
+			for _, fe := range failedEntries {
+				if fe.IsDir() {
 					continue
 				}
-				if age > oldest {
-					oldest = age
-				}
-				stuck = append(stuck, fmt.Sprintf("%s (%s old)", entry.Ref, age.Round(time.Second)))
+				s.failed = append(s.failed, fmt.Sprintf("%s:%s/%s", harp, failedName, fe.Name()))
 			}
-			for _, prob := range res.Problems {
-				malformed = append(malformed, fmt.Sprintf("%s:%s/%s: %v",
-					harp, dir, filepath.Base(prob.Path), prob.Err))
-			}
-		}
-
-		// The failed/ directories are created lazily, on the first refusal,
-		// so a session that never refused a message has none — absence is a
-		// normal state this check must not report as a failure, which is why
-		// they are read directly with os.ReadDir rather than swept. List
-		// only, never rename or delete. BOTH directions are enumerated from
-		// spool.FailedDirNames rather than named here: a refused outbound
-		// report is exactly as invisible as a refused inbound one if nothing
-		// looks at its directory.
-		for _, failedName := range spool.FailedDirNames() {
-			failedDir := filepath.Join(root, filepath.FromSlash(string(failedName)))
-			failedEntries, failedErr := os.ReadDir(failedDir)
-			switch {
-			case failedErr == nil:
-				failedDirsSeen++
-				for _, fe := range failedEntries {
-					if fe.IsDir() {
-						continue
-					}
-					failed = append(failed, fmt.Sprintf("%s:%s/%s", harp, failedName, fe.Name()))
-				}
-			case os.IsNotExist(failedErr):
-				// Normal: a failed/ directory is created lazily on the first
-				// refusal, so a session that has never refused a message has
-				// no such directory at all. Absence must not read as an error.
-			default:
-				sweepErrs = append(sweepErrs, fmt.Sprintf("%s/%s: %v", harp, failedName, failedErr))
-			}
+		case os.IsNotExist(failedErr):
+			// Normal: a failed/ directory is created lazily on the first
+			// refusal, so a session that has never refused a message has
+			// no such directory at all. Absence must not read as an error.
+		default:
+			s.sweepErrs = append(s.sweepErrs, fmt.Sprintf("%s/%s: %v", harp, failedName, failedErr))
 		}
 	}
+}
 
-	if spoolsFound == 0 {
+// report renders the accumulated findings as the check's verdict.
+func (s *spoolBacklogScan) report(sessionsRoot string) DoctorCheck {
+	if s.spoolsFound == 0 {
 		// ZERO BYTES EXAMINED IS NOT A PASS. Returning DoctorOK here reported
 		// success over nothing looked at — the exact defect this check's own
 		// doc says it exists in order not to be. No spool directory under the
@@ -228,72 +250,43 @@ func doctorCheckSpoolBacklog() DoctorCheck {
 				"or this command resolves a different home than the coordinator does " +
 				"(check HOME and any container view)"}
 	}
-	if len(stuck) == 0 && len(sweepErrs) == 0 && len(malformed) == 0 && len(failed) == 0 {
-		detail := fmt.Sprintf(
-			"%d session spool(s) checked, 0 entries stuck unconsumed past %s, 0 malformed entries",
-			spoolsFound, doctorSpoolStuckAge)
-		if failedDirsSeen == 0 {
-			detail += "; no session has a failed/ directory (in/ or out/; created lazily on the first refusal, so its absence is normal)"
-		} else {
-			detail += fmt.Sprintf("; %d failed/ director(ies) checked, all empty", failedDirsSeen)
-		}
-		return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorOK, Detail: detail}
+	if len(s.stuck) == 0 && len(s.sweepErrs) == 0 && len(s.malformed) == 0 && len(s.failed) == 0 {
+		return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorOK, Detail: s.cleanDetail()}
 	}
 
 	var parts []string
-	if len(stuck) > 0 {
-		sort.Strings(stuck)
-		shown := stuck
-		var more int
-		if len(shown) > doctorSpoolStuckMaxNamed {
-			shown = shown[:doctorSpoolStuckMaxNamed]
-			more = len(stuck) - doctorSpoolStuckMaxNamed
-		}
-		list := strings.Join(shown, ", ")
-		if more > 0 {
-			list += fmt.Sprintf(", … +%d more", more)
-		}
+	if len(s.stuck) > 0 {
 		parts = append(parts, fmt.Sprintf(
 			"%d spool entr(ies) sat unconsumed past %s (oldest %s): %s — a report or an instruction may not have been delivered",
-			len(stuck), doctorSpoolStuckAge, oldest.Round(time.Second), list))
+			len(s.stuck), doctorSpoolStuckAge, s.oldest.Round(time.Second), doctorNamedList(s.stuck, doctorSpoolStuckMaxNamed)))
 	}
-	if len(malformed) > 0 {
-		sort.Strings(malformed)
-		shown := malformed
-		var more int
-		if len(shown) > doctorSpoolStuckMaxNamed {
-			shown = shown[:doctorSpoolStuckMaxNamed]
-			more = len(malformed) - doctorSpoolStuckMaxNamed
-		}
-		list := strings.Join(shown, ", ")
-		if more > 0 {
-			list += fmt.Sprintf(", … +%d more", more)
-		}
+	if len(s.malformed) > 0 {
 		parts = append(parts, fmt.Sprintf(
 			"%d spool entr(ies) are malformed (filename does not parse, or content is unreadable/invalid — this is NOT a stuck-but-valid entry, and NOT a recognized message with an unmappable kind): %s",
-			len(malformed), list))
+			len(s.malformed), doctorNamedList(s.malformed, doctorSpoolStuckMaxNamed)))
 	}
-	if len(failed) > 0 {
-		sort.Strings(failed)
-		shown := failed
-		var more int
-		if len(shown) > doctorSpoolStuckMaxNamed {
-			shown = shown[:doctorSpoolStuckMaxNamed]
-			more = len(failed) - doctorSpoolStuckMaxNamed
-		}
-		list := strings.Join(shown, ", ")
-		if more > 0 {
-			list += fmt.Sprintf(", … +%d more", more)
-		}
+	if len(s.failed) > 0 {
 		parts = append(parts, fmt.Sprintf(
 			"%d spool entr(ies) were REFUSED into in/failed/ (parsed as a message but could not be classified or delivered — not stuck-but-valid, not malformed, not a sweep I/O error: ctxloom was GIVEN this message and REFUSED to deliver it, permanently): %s",
-			len(failed), list))
+			len(s.failed), doctorNamedList(s.failed, doctorSpoolStuckMaxNamed)))
 	}
-	if len(sweepErrs) > 0 {
+	if len(s.sweepErrs) > 0 {
 		parts = append(parts, fmt.Sprintf("%d spool director(ies) could not be swept: %s",
-			len(sweepErrs), strings.Join(sweepErrs, "; ")))
+			len(s.sweepErrs), strings.Join(s.sweepErrs, "; ")))
 	}
 	return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorWarn, Detail: strings.Join(parts, "; ")}
+}
+
+// cleanDetail words the all-clear, keeping "no failed/ directory exists" and
+// "failed/ directories exist and are empty" as two different sentences.
+func (s *spoolBacklogScan) cleanDetail() string {
+	detail := fmt.Sprintf(
+		"%d session spool(s) checked, 0 entries stuck unconsumed past %s, 0 malformed entries",
+		s.spoolsFound, doctorSpoolStuckAge)
+	if s.failedDirsSeen == 0 {
+		return detail + "; no session has a failed/ directory (in/ or out/; created lazily on the first refusal, so its absence is normal)"
+	}
+	return detail + fmt.Sprintf("; %d failed/ director(ies) checked, all empty", s.failedDirsSeen)
 }
 
 // doctorSpoolCountersMarker is the DOCTOR-CHECK-* vocabulary entry for a live
@@ -348,20 +341,40 @@ func doctorCheckSpoolCounters(ctx context.Context) DoctorCheck {
 			dead = append(dead, fmt.Sprintf("%s (%v)", ep.URL, err))
 			continue
 		}
-		line := fmt.Sprintf("%s: delivered=%d consumed=%d failed=%d doorbell_dropped=%d doorbell_rejected=%d",
-			ep.URL, stats.GetDelivered(), stats.GetConsumed(), stats.GetFailed(),
-			stats.GetDoorbellDropped(), stats.GetDoorbellRejected())
-		if stats.GetFailed() > 0 {
-			faults++
-			line += " — failed>0: each one is a message that has not arrived"
-		}
-		if stats.GetDoorbellRejected() > 0 {
-			faults++
-			line += " — doorbell_rejected>0: a doorbell ref that did not validate (a broken or hostile sender, not a race)"
-		}
+		line, lineFaults := spoolCountersLine(ep.URL, stats)
+		faults += lineFaults
 		live = append(live, line)
 	}
 
+	status, parts := spoolCountersVerdict(live, dead, faults)
+	if len(problems) > 0 {
+		status = DoctorWarn
+		parts = append(parts, fmt.Sprintf("%d endpoint file(s) could not be read: %s", len(problems), strings.Join(problems, "; ")))
+	}
+	return DoctorCheck{Marker: doctorSpoolCountersMarker, Status: status, Detail: strings.Join(parts, "; ")}
+}
+
+// spoolCountersLine prints one live coordinator's counters by name, flagging
+// each counter whose non-zero value is a fault, and returns how many were.
+func spoolCountersLine(url string, stats *agentcoordpb.SpoolStatsResult) (string, int) {
+	faults := 0
+	line := fmt.Sprintf("%s: delivered=%d consumed=%d failed=%d doorbell_dropped=%d doorbell_rejected=%d",
+		url, stats.GetDelivered(), stats.GetConsumed(), stats.GetFailed(),
+		stats.GetDoorbellDropped(), stats.GetDoorbellRejected())
+	if stats.GetFailed() > 0 {
+		faults++
+		line += " — failed>0: each one is a message that has not arrived"
+	}
+	if stats.GetDoorbellRejected() > 0 {
+		faults++
+		line += " — doorbell_rejected>0: a doorbell ref that did not validate (a broken or hostile sender, not a race)"
+	}
+	return line, faults
+}
+
+// spoolCountersVerdict words the live and not-live endpoints: INFO when none
+// answered, OK when some did cleanly, WARN when any answered with a fault.
+func spoolCountersVerdict(live, dead []string, faults int) (DoctorStatus, []string) {
 	var parts []string
 	status := DoctorInfo
 	if len(live) > 0 {
@@ -380,9 +393,5 @@ func doctorCheckSpoolCounters(ctx context.Context) DoctorCheck {
 			parts = append(parts, fmt.Sprintf("%d not live: %s", len(dead), strings.Join(dead, ", ")))
 		}
 	}
-	if len(problems) > 0 {
-		status = DoctorWarn
-		parts = append(parts, fmt.Sprintf("%d endpoint file(s) could not be read: %s", len(problems), strings.Join(problems, "; ")))
-	}
-	return DoctorCheck{Marker: doctorSpoolCountersMarker, Status: status, Detail: strings.Join(parts, "; ")}
+	return status, parts
 }

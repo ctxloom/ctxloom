@@ -46,67 +46,102 @@ func ownsEncoding(t reflect.Type) bool {
 		pt.Implements(jsonMarshalerType) || pt.Implements(textMarshalerType)
 }
 
+// emptyNilSlicesValue is emptyNilSlices over one value. onPath holds the
+// pointers and maps on the current path, so a cycle is left as-is.
 func emptyNilSlicesValue(v reflect.Value, onPath map[uintptr]bool) reflect.Value {
 	if !v.IsValid() || ownsEncoding(v.Type()) {
 		return v
 	}
 	switch v.Kind() {
 	case reflect.Pointer:
-		if v.IsNil() || onPath[v.Pointer()] {
-			return v
-		}
-		onPath[v.Pointer()] = true
-		defer delete(onPath, v.Pointer())
-		out := reflect.New(v.Type().Elem())
-		out.Elem().Set(emptyNilSlicesValue(v.Elem(), onPath))
-		return out
+		return emptyNilInPointer(v, onPath)
 	case reflect.Interface:
-		if v.IsNil() {
-			return v
-		}
-		out := reflect.New(v.Type()).Elem()
-		out.Set(emptyNilSlicesValue(v.Elem(), onPath))
-		return out
+		return emptyNilInInterface(v, onPath)
 	case reflect.Slice:
-		if v.Type().Elem().Kind() == reflect.Uint8 {
-			return v
-		}
-		if v.IsNil() {
-			return reflect.MakeSlice(v.Type(), 0, 0)
-		}
-		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
-		for i := range v.Len() {
-			out.Index(i).Set(emptyNilSlicesValue(v.Index(i), onPath))
-		}
-		return out
+		return emptyNilInSlice(v, onPath)
 	case reflect.Array:
-		out := reflect.New(v.Type()).Elem()
-		for i := range v.Len() {
-			out.Index(i).Set(emptyNilSlicesValue(v.Index(i), onPath))
-		}
-		return out
+		return emptyNilInArray(v, onPath)
 	case reflect.Map:
-		if v.IsNil() || onPath[v.Pointer()] {
-			return v
-		}
-		onPath[v.Pointer()] = true
-		defer delete(onPath, v.Pointer())
-		out := reflect.MakeMapWithSize(v.Type(), v.Len())
-		iter := v.MapRange()
-		for iter.Next() {
-			out.SetMapIndex(iter.Key(), emptyNilSlicesValue(iter.Value(), onPath))
-		}
-		return out
+		return emptyNilInMap(v, onPath)
 	case reflect.Struct:
-		out := reflect.New(v.Type()).Elem()
-		out.Set(v)
-		for i := range v.NumField() {
-			if f := out.Field(i); f.CanSet() {
-				f.Set(emptyNilSlicesValue(v.Field(i), onPath))
-			}
-		}
-		return out
+		return emptyNilInStruct(v, onPath)
 	default:
 		return v
 	}
+}
+
+// emptyNilInPointer copies what a non-nil, off-path pointer points at.
+func emptyNilInPointer(v reflect.Value, onPath map[uintptr]bool) reflect.Value {
+	if v.IsNil() || onPath[v.Pointer()] {
+		return v
+	}
+	onPath[v.Pointer()] = true
+	defer delete(onPath, v.Pointer())
+	out := reflect.New(v.Type().Elem())
+	out.Elem().Set(emptyNilSlicesValue(v.Elem(), onPath))
+	return out
+}
+
+// emptyNilInInterface rewraps a non-nil interface's dynamic value.
+func emptyNilInInterface(v reflect.Value, onPath map[uintptr]bool) reflect.Value {
+	if v.IsNil() {
+		return v
+	}
+	out := reflect.New(v.Type()).Elem()
+	out.Set(emptyNilSlicesValue(v.Elem(), onPath))
+	return out
+}
+
+// emptyNilInSlice makes a nil slice empty and copies a non-nil one element
+// by element; []byte is left alone (encoding/json writes it as base64).
+func emptyNilInSlice(v reflect.Value, onPath map[uintptr]bool) reflect.Value {
+	if v.Type().Elem().Kind() == reflect.Uint8 {
+		return v
+	}
+	if v.IsNil() {
+		return reflect.MakeSlice(v.Type(), 0, 0)
+	}
+	out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+	for i := range v.Len() {
+		out.Index(i).Set(emptyNilSlicesValue(v.Index(i), onPath))
+	}
+	return out
+}
+
+// emptyNilInArray copies an array element by element.
+func emptyNilInArray(v reflect.Value, onPath map[uintptr]bool) reflect.Value {
+	out := reflect.New(v.Type()).Elem()
+	for i := range v.Len() {
+		out.Index(i).Set(emptyNilSlicesValue(v.Index(i), onPath))
+	}
+	return out
+}
+
+// emptyNilInMap copies a non-nil, off-path map value by value; a nil map
+// stays nil.
+func emptyNilInMap(v reflect.Value, onPath map[uintptr]bool) reflect.Value {
+	if v.IsNil() || onPath[v.Pointer()] {
+		return v
+	}
+	onPath[v.Pointer()] = true
+	defer delete(onPath, v.Pointer())
+	out := reflect.MakeMapWithSize(v.Type(), v.Len())
+	iter := v.MapRange()
+	for iter.Next() {
+		out.SetMapIndex(iter.Key(), emptyNilSlicesValue(iter.Value(), onPath))
+	}
+	return out
+}
+
+// emptyNilInStruct copies a struct, rewriting its settable (exported)
+// fields.
+func emptyNilInStruct(v reflect.Value, onPath map[uintptr]bool) reflect.Value {
+	out := reflect.New(v.Type()).Elem()
+	out.Set(v)
+	for i := range v.NumField() {
+		if f := out.Field(i); f.CanSet() {
+			f.Set(emptyNilSlicesValue(v.Field(i), onPath))
+		}
+	}
+	return out
 }

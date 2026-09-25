@@ -56,6 +56,22 @@ func moduleRoot(t *testing.T) string {
 	}
 }
 
+// skipModuleDir skips, below root, hidden and underscore directories,
+// testdata, vendor and node_modules.
+func skipModuleDir(root, p string, d fs.DirEntry) error {
+	name := d.Name()
+	if p != root && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
+		name == "testdata" || name == "vendor" || name == "node_modules") {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// isNonTestGoFile reports whether name is a non-test Go source file.
+func isNonTestGoFile(name string) bool {
+	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+}
+
 // skippedDir reports the directory names a module sweep does not descend
 // into: VCS and tooling metadata, fixtures the go tool itself excludes, and
 // vendored or installed trees. The dot-dir rule is also what keeps

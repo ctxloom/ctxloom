@@ -112,14 +112,7 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 		return nil, err
 	}
 
-	// The general "not in a project" advisory: only meaningful when THIS call
-	// resolved workDir itself via the cwd/CTXLOOM_ROOT fallback chain
-	// (req.WorkDir empty) — an explicitly injected WorkDir (tests, or a future
-	// caller with its own override) didn't come from that resolution, so
-	// checking the real process cwd against it would be a non sequitur.
-	if req.WorkDir == "" && projectroot.RootFromFallback() {
-		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", workDir)
-	}
+	warnFallbackProjectRoot(req, workDir)
 
 	// The executable surfaces about to be written to backend settings — bundle
 	// MCP servers, bundle hooks, and prompt command-file exports — bypass the
@@ -184,36 +177,9 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	// export) was withheld by the trust gate (content-free).
 	WarnWithheldBy(freshCfg.ExecutableTrustGate())
 
-	// A retraction is printed here as well as returned: the callers that run
-	// this apply at startup (the MCP server) discard the result, and a
-	// managed section that vanishes without a line saying so is the silent
-	// destructive edit the human accepted this behaviour on condition of
-	// never having.
-	for _, line := range retracted {
-		clidiag.Warn("ctxloom", "%s", line)
-	}
+	warnRetractions(retracted)
 
-	// Partial success is success: report which backends took and which
-	// failed rather than collapsing the whole call to an error.
-	//
-	// But TOTAL failure is not partial success. When every backend
-	// the request asked for failed, `applied` is empty and nothing at all was
-	// written — yet the old code still answered Status "partial", Backends []
-	// and a nil error, so `ctxloom manage hooks install` printed
-	// "Hooks partial for: []" and exited 0. That is exactly the silent-no-op
-	// shape (exit 0, success-ish message, zero bytes written). The word
-	// "partial" has to have something on both sides of it.
-	status := "applied"
-	if len(applyErrors) > 0 {
-		status = "partial"
-	}
-	result := &ApplyHooksResult{
-		Status:      status,
-		Backends:    applied,
-		ContextHash: contextHash,
-		Retracted:   retracted,
-		Errors:      applyErrors,
-	}
+	result := newApplyHooksResult(applied, retracted, applyErrors, contextHash)
 	// The same gate again, for a trust fault first recorded AFTER regeneration
 	// — the executable surfaces (bundle MCP servers, bundle hooks, prompt
 	// command exports) run their own EffectiveTrust pass through execGate, so
@@ -223,15 +189,64 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 		return nil, terr
 	}
 
-	if len(applied) == 0 && len(applyErrors) > 0 {
-		result.Status = "failed"
-		// The result is returned alongside the error so a caller that wants
-		// the per-backend detail still has it; every current caller checks
-		// err first and warns or aborts.
-		return result, fmt.Errorf("no backend could be configured: %s", strings.Join(applyErrors, "; "))
-	}
+	// The result is returned alongside a total-failure error so a caller that
+	// wants the per-backend detail still has it; every current caller checks
+	// err first and warns or aborts.
+	return result, markTotalHookFailure(result)
+}
 
-	return result, nil
+// warnFallbackProjectRoot is the general "not in a project" advisory: only
+// meaningful when ApplyHooks resolved workDir itself via the
+// cwd/CTXLOOM_ROOT fallback chain (req.WorkDir empty) — an explicitly
+// injected WorkDir (tests, or a caller with its own override) didn't come from
+// that resolution, so checking the real process cwd against it would be a non
+// sequitur.
+func warnFallbackProjectRoot(req ApplyHooksRequest, workDir string) {
+	if req.WorkDir == "" && projectroot.RootFromFallback() {
+		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", workDir)
+	}
+}
+
+// warnRetractions prints each retracted managed section. A retraction is
+// printed as well as returned: the callers that run the apply at startup (the
+// MCP server) discard the result, and a managed section that vanishes without
+// a line saying so is the silent destructive edit the human accepted this
+// behaviour on condition of never having.
+func warnRetractions(retracted []string) {
+	for _, line := range retracted {
+		clidiag.Warn("ctxloom", "%s", line)
+	}
+}
+
+// newApplyHooksResult reports which backends took and which failed. Partial
+// success is success: a per-backend failure does not collapse the whole call
+// to an error.
+func newApplyHooksResult(applied, retracted, applyErrors []string, contextHash string) *ApplyHooksResult {
+	status := "applied"
+	if len(applyErrors) > 0 {
+		status = "partial"
+	}
+	return &ApplyHooksResult{
+		Status:      status,
+		Backends:    applied,
+		ContextHash: contextHash,
+		Retracted:   retracted,
+		Errors:      applyErrors,
+	}
+}
+
+// markTotalHookFailure turns a result in which every requested backend failed
+// into Status "failed" and an error. TOTAL failure is not partial success:
+// with nothing applied, nothing at all was written, and answering "partial"
+// with Backends [] and a nil error is the silent-no-op shape (exit 0,
+// success-ish message, zero bytes written). The word "partial" has to have
+// something on both sides of it.
+func markTotalHookFailure(result *ApplyHooksResult) error {
+	if len(result.Backends) > 0 || len(result.Errors) == 0 {
+		return nil
+	}
+	result.Status = "failed"
+	return fmt.Errorf("no backend could be configured: %s", strings.Join(result.Errors, "; "))
 }
 
 // resolveHookConfig is the one refusal for a request without a generation.

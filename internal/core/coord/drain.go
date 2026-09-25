@@ -236,6 +236,21 @@ func (c *Coordinator) drainWake() {
 // cause, and the interruption is audited, warned, and reported to the parent.
 func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 	p := d.policy
+	c.drainRequest(d, p)
+	exited, interrupted, parked := c.drainWait(d, bound, p)
+	outcome := DrainOutcome{
+		Exited:      sortedCopy(exited),
+		Interrupted: sortedCopy(interrupted),
+		Parked:      sortedCopy(parked),
+	}
+	c.warnDrainOutcome(p, bound, outcome)
+	d.settle(outcome)
+}
+
+// drainRequest is the REQUEST pass: a parked child gets the policy, a
+// running turn is asked to exit, and a child between turns or never started
+// ends now.
+func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) {
 	for _, ch := range d.tracked {
 		switch c.runState(ch.runID) {
 		case StateParked:
@@ -252,40 +267,19 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 			c.terminateRun(ch.runID, p.endCause, p.endDetail("before it started"))
 		}
 	}
+}
 
+// drainWait is the WAIT and FORCE phases: it re-classifies on every wake
+// until nothing is running, and at the bound forces what still is. exited
+// and parked are the last pass's; interrupted is what was forced, or what
+// Close() overtook.
+func (c *Coordinator) drainWait(d *Drain, bound time.Duration, p drainPolicy) (exited, interrupted, parked []string) {
 	timer := time.NewTimer(bound)
 	defer timer.Stop()
-	var exited, interrupted, parked []string
 	for {
-		// Re-classify the WHOLE tracked set every pass: a child may end,
-		// park, or unpark between passes, and only its state now counts.
-		var running []drainChild
-		exited, parked = nil, nil
-		for _, ch := range d.tracked {
-			switch c.runState(ch.runID) {
-			case StateEnded:
-				exited = append(exited, ch.harp)
-			case StateIdle:
-				// Its boundary raced the REQUEST: it found no mark and parked
-				// idle, and no later boundary will take the mark now. Idle is
-				// between turns, so it ends here; the next pass finds it in
-				// exited.
-				c.terminateRun(ch.runID, p.endCause, p.endDetail("between turns"))
-				running = append(running, ch)
-			case StateParked:
-				if p.parkIsWait {
-					parked = append(parked, ch.harp)
-					continue
-				}
-				// Ended now; the next pass finds it in exited.
-				c.drainPark(ch, p)
-				running = append(running, ch)
-			default:
-				running = append(running, ch)
-			}
-		}
+		running, exited, parked := c.drainClassify(d, p)
 		if len(running) == 0 {
-			break
+			return exited, nil, parked
 		}
 		select {
 		case <-d.wake:
@@ -293,25 +287,60 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 		case <-timer.C:
 			for _, ch := range running {
 				c.drainForce(ch.harp, ch.runID, bound, p)
-				interrupted = append(interrupted, ch.harp)
 			}
+			return exited, drainHarps(running), parked
 		case <-c.baseCtx.Done():
 			// Close() overtook the drain: its attachment sweep kills what is
 			// left. Account for them as what they are about to become.
-			for _, ch := range running {
-				interrupted = append(interrupted, ch.harp)
-			}
+			return exited, drainHarps(running), parked
 		}
-		break
 	}
+}
 
-	outcome := DrainOutcome{
-		Exited:      sortedCopy(exited),
-		Interrupted: sortedCopy(interrupted),
-		Parked:      sortedCopy(parked),
+// drainClassify is one pass over the WHOLE tracked set — a child may end,
+// park, or unpark between passes, and only its state now counts — sorting
+// it into the children still running, the ones that exited, and the ones
+// parked on a human under a park-is-wait policy.
+func (c *Coordinator) drainClassify(d *Drain, p drainPolicy) (running []drainChild, exited, parked []string) {
+	for _, ch := range d.tracked {
+		switch c.runState(ch.runID) {
+		case StateEnded:
+			exited = append(exited, ch.harp)
+		case StateIdle:
+			// Its boundary raced the REQUEST: it found no mark and parked
+			// idle, and no later boundary will take the mark now. Idle is
+			// between turns, so it ends here; the next pass finds it in
+			// exited.
+			c.terminateRun(ch.runID, p.endCause, p.endDetail("between turns"))
+			running = append(running, ch)
+		case StateParked:
+			if p.parkIsWait {
+				parked = append(parked, ch.harp)
+				continue
+			}
+			// Ended now; the next pass finds it in exited.
+			c.drainPark(ch, p)
+			running = append(running, ch)
+		default:
+			running = append(running, ch)
+		}
 	}
-	// Expiry is LOUD, and so is a park: a coordinator that goes quiet about
-	// either is one whose operator finds out in the morning the hard way.
+	return running, exited, parked
+}
+
+// drainHarps is the children's harps, in order.
+func drainHarps(children []drainChild) []string {
+	harps := make([]string, 0, len(children))
+	for _, ch := range children {
+		harps = append(harps, ch.harp)
+	}
+	return harps
+}
+
+// warnDrainOutcome makes expiry LOUD, and a park too: a coordinator that
+// goes quiet about either is one whose operator finds out in the morning the
+// hard way.
+func (c *Coordinator) warnDrainOutcome(p drainPolicy, bound time.Duration, outcome DrainOutcome) {
 	if len(outcome.Interrupted) > 0 {
 		c.rep.Warnf("%s: %d child(ren) still running after %s were interrupted: %s",
 			p.label, len(outcome.Interrupted), bound, strings.Join(outcome.Interrupted, ", "))
@@ -320,7 +349,6 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 		c.rep.Warnf("%s: %d child(ren) are parked on a human and were left waiting (turn open, session lock held): %s",
 			p.label, len(outcome.Parked), strings.Join(outcome.Parked, ", "))
 	}
-	d.settle(outcome)
 }
 
 // drainPark applies the policy to a parked child: a PARK is left exactly as

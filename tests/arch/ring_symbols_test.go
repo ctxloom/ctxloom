@@ -473,20 +473,8 @@ func declaredEnvKeys(t *testing.T, files []ringFile) map[string]bool {
 	keys := map[string]bool{}
 	for _, rf := range files {
 		for _, decl := range rf.f.Decls {
-			gd, ok := decl.(*ast.GenDecl)
-			if !ok || gd.Tok != token.CONST {
-				continue
-			}
-			for _, spec := range gd.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for _, val := range vs.Values {
-					if v, ok := vocabStringLit(val); ok && strings.HasPrefix(v, "CTXLOOM_") {
-						keys[v] = true
-					}
-				}
+			for _, v := range ctxloomConsts(decl) {
+				keys[v] = true
 			}
 		}
 	}
@@ -494,6 +482,27 @@ func declaredEnvKeys(t *testing.T, files []ringFile) map[string]bool {
 		t.Fatalf("no CTXLOOM_* const is declared under %s — envKeysDeclaringDir is stale, not the module clean", envKeysDeclaringDir)
 	}
 	return keys
+}
+
+// ctxloomConsts is the CTXLOOM_* string values of a const declaration.
+func ctxloomConsts(decl ast.Decl) []string {
+	gd, ok := decl.(*ast.GenDecl)
+	if !ok || gd.Tok != token.CONST {
+		return nil
+	}
+	var out []string
+	for _, spec := range gd.Specs {
+		vs, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		for _, val := range vs.Values {
+			if v, ok := vocabStringLit(val); ok && strings.HasPrefix(v, "CTXLOOM_") {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }
 
 // scanEnvLiterals finds, outside envReadHomes, every string literal equal to

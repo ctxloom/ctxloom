@@ -42,51 +42,21 @@ import (
 // (verifiedCompanion.name: the bare name on a normal install, "<name>.exe" on
 // Windows), and the statement's hash covers these bytes exactly, so it admits.
 func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, error) {
-	var names []string
-	admitted := map[string]verifiedCompanion{}
-	for _, bin := range DiscoverCompanions() { // sorted: the digest is stable
-		a, v := admitCompanionVerified(bin, root)
-		if !a.Allow {
-			continue // admitCompanionVerified has already reported why
-		}
-		names = append(names, bin)
-		admitted[bin] = v
-	}
+	names, admitted := admittedCompanions(root)
 	if len(names) == 0 {
 		return "", nil
 	}
-	h := sha256.New()
-	for _, bin := range names {
-		v := admitted[bin]
-		p, r, s := sha256.Sum256(v.payload), sha256.Sum256(v.statement), sha256.Sum256(v.sig)
-		fmt.Fprintf(h, "%s\x00%s\x00%x\x00%x\x00%x\n", bin, v.name, p, r, s)
-	}
-	dir := filepath.Join(storeRoot, hex.EncodeToString(h.Sum(nil)))
+	dir := filepath.Join(storeRoot, pinSetDigest(names, admitted))
 	if pinHolds(dir, admitted) {
 		return dir, nil
 	}
-	if err := os.MkdirAll(storeRoot, 0o755); err != nil {
-		return "", fmt.Errorf("companion pin store: %w", err)
-	}
-	tmp, err := os.MkdirTemp(storeRoot, ".pin-")
+	tmp, err := stagePinDir(storeRoot)
 	if err != nil {
-		return "", fmt.Errorf("companion pin store: %w", err)
+		return "", err
 	}
 	defer os.RemoveAll(tmp) //nolint:errcheck // gone after a successful rename; best-effort otherwise
-	for _, bin := range names {
-		v := admitted[bin]
-		if err := iox.WriteFileAtomic(filepath.Join(tmp, v.name), v.payload, 0o755); err != nil { //nolint:gosec // a companion must be executable
-			return "", fmt.Errorf("pin companion %s: %w", bin, err)
-		}
-		if err := iox.WriteFileAtomic(filepath.Join(tmp, v.name+companionReleaseSuffix), v.statement, 0o644); err != nil { //nolint:gosec // a public statement
-			return "", fmt.Errorf("pin companion %s release statement: %w", bin, err)
-		}
-		if err := iox.WriteFileAtomic(filepath.Join(tmp, v.name+companionSigSuffix), v.sig, 0o644); err != nil { //nolint:gosec // a public signature
-			return "", fmt.Errorf("pin companion %s signature: %w", bin, err)
-		}
-	}
-	if err := os.Chmod(tmp, 0o755); err != nil { //nolint:gosec // a PATH directory
-		return "", fmt.Errorf("companion pin store: %w", err)
+	if err := fillPinDir(tmp, names, admitted); err != nil {
+		return "", err
 	}
 	if err := os.Rename(tmp, dir); err != nil {
 		// A concurrent launch pinned the same set first, or a directory under
@@ -102,6 +72,75 @@ func PinAdmittedCompanions(storeRoot string, root trust.TrustRoot) (string, erro
 		}
 	}
 	return dir, nil
+}
+
+// stagePinDir creates a fresh staging directory under storeRoot.
+func stagePinDir(storeRoot string) (string, error) {
+	if err := os.MkdirAll(storeRoot, 0o755); err != nil {
+		return "", fmt.Errorf("companion pin store: %w", err)
+	}
+	tmp, err := os.MkdirTemp(storeRoot, ".pin-")
+	if err != nil {
+		return "", fmt.Errorf("companion pin store: %w", err)
+	}
+	return tmp, nil
+}
+
+// fillPinDir writes every admitted companion's copy into tmp and opens it as
+// a PATH directory.
+func fillPinDir(tmp string, names []string, admitted map[string]verifiedCompanion) error {
+	for _, bin := range names {
+		if err := writePinCopy(tmp, bin, admitted[bin]); err != nil {
+			return err
+		}
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil { //nolint:gosec // a PATH directory
+		return fmt.Errorf("companion pin store: %w", err)
+	}
+	return nil
+}
+
+// admittedCompanions is every discovered companion that admits, sorted (so
+// the digest is stable), with its verified bytes.
+func admittedCompanions(root trust.TrustRoot) ([]string, map[string]verifiedCompanion) {
+	var names []string
+	admitted := map[string]verifiedCompanion{}
+	for _, bin := range DiscoverCompanions() { // sorted: the digest is stable
+		a, v := admitCompanionVerified(bin, root)
+		if !a.Allow {
+			continue // admitCompanionVerified has already reported why
+		}
+		names = append(names, bin)
+		admitted[bin] = v
+	}
+	return names, admitted
+}
+
+// pinSetDigest names the admitted set: every companion's name and the
+// digests of its payload, statement and signature.
+func pinSetDigest(names []string, admitted map[string]verifiedCompanion) string {
+	h := sha256.New()
+	for _, bin := range names {
+		v := admitted[bin]
+		p, r, s := sha256.Sum256(v.payload), sha256.Sum256(v.statement), sha256.Sum256(v.sig)
+		fmt.Fprintf(h, "%s\x00%s\x00%x\x00%x\x00%x\n", bin, v.name, p, r, s)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// writePinCopy writes one companion's admitted payload, release statement and
+// signature into dir under the name it was admitted as.
+func writePinCopy(dir, bin string, v verifiedCompanion) error {
+	if err := iox.WriteFileAtomic(filepath.Join(dir, v.name), v.payload, 0o755); err != nil { //nolint:gosec // a companion must be executable
+		return fmt.Errorf("pin companion %s: %w", bin, err)
+	}
+	if err := iox.WriteFileAtomic(filepath.Join(dir, v.name+companionReleaseSuffix), v.statement, 0o644); err != nil { //nolint:gosec // a public statement
+		return fmt.Errorf("pin companion %s release statement: %w", bin, err)
+	}
+	if err := iox.WriteFileAtomic(filepath.Join(dir, v.name+companionSigSuffix), v.sig, 0o644); err != nil { //nolint:gosec // a public signature
+		return fmt.Errorf("pin companion %s signature: %w", bin, err)
+	}
+	return nil
 }
 
 // pinHolds reports whether dir already holds exactly the admitted bytes for

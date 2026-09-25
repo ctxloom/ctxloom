@@ -43,15 +43,23 @@ func lockOpens(fd int, wait bool) (int, error) {
 		if err != nil {
 			return n, err
 		}
-		for off := 0; off+unix.SizeofInotifyEvent <= r; {
-			ev := (*unix.InotifyEvent)(unsafe.Pointer(&buf[off]))
-			name := buf[off+unix.SizeofInotifyEvent : off+unix.SizeofInotifyEvent+int(ev.Len)]
-			if ev.Mask&unix.IN_OPEN != 0 && string(bytes.TrimRight(name, "\x00")) == ownedScratchLockName {
-				n++
-			}
-			off += unix.SizeofInotifyEvent + int(ev.Len)
-		}
+		n += countOpens(buf[:r])
 	}
+}
+
+// countOpens counts the IN_OPEN events for the lock file among the inotify
+// events in buf.
+func countOpens(buf []byte) int {
+	n := 0
+	for off := 0; off+unix.SizeofInotifyEvent <= len(buf); {
+		ev := (*unix.InotifyEvent)(unsafe.Pointer(&buf[off]))
+		name := buf[off+unix.SizeofInotifyEvent : off+unix.SizeofInotifyEvent+int(ev.Len)]
+		if ev.Mask&unix.IN_OPEN != 0 && string(bytes.TrimRight(name, "\x00")) == ownedScratchLockName {
+			n++
+		}
+		off += unix.SizeofInotifyEvent + int(ev.Len)
+	}
+	return n
 }
 
 // TestNewOwnedScratch_OwnerOpeningInsideReapersHoldRetries: the owner opens

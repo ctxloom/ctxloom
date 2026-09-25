@@ -169,6 +169,20 @@ type instance struct {
 // whatever a presentation announced on the env channel. The runner lays
 // identity and passthrough on top.
 func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
+	binary := i.s.Label.Binary
+	if binary == "" {
+		binary = "claude"
+	}
+	interactive := i.s.Mode == engine.Interactive
+	ex := engine.Exec{Binary: binary, Args: i.execArgs(presented), Env: i.execEnv(presented), WorkDir: i.s.WorkDir, Interactive: interactive}
+	i.attachPrompt(&ex)
+	return ex, nil
+}
+
+// execArgs is the argv up to the prompt: the label's args, the permission
+// posture, the model, the session name (interactive) or --print, every
+// presentation's args in delivery order, then the resumed native key.
+func (i *instance) execArgs(presented []present.Presentation) []string {
 	args := slices.Clone(i.s.Label.Args)
 	args = append(args, permissionArgs(i.s.Permission, i.s.MCPServers)...)
 	if i.s.Label.Model != "" {
@@ -187,6 +201,13 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	if i.key != "" {
 		args = append(args, flagResume, i.key)
 	}
+	return args
+}
+
+// execEnv is the engine-native env: the relocated home vars, every
+// presentation's env channel, and the classic-screen switch when
+// interactive.
+func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 	env := map[string]string{}
 	for _, h := range i.s.Home {
 		env[h.Var] = h.Path
@@ -194,22 +215,23 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	for _, p := range presented {
 		maps.Copy(env, p.Env)
 	}
-	if interactive {
+	if i.s.Mode == engine.Interactive {
 		env[classicScreenEnv] = "1"
 	}
-	binary := i.s.Label.Binary
-	if binary == "" {
-		binary = "claude"
+	return env
+}
+
+// attachPrompt puts the prompt behind "--" for an interactive run, and on
+// stdin for a print run.
+func (i *instance) attachPrompt(ex *engine.Exec) {
+	if i.s.Prompt == "" {
+		return
 	}
-	ex := engine.Exec{Binary: binary, Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: interactive}
-	if interactive {
-		if i.s.Prompt != "" {
-			ex.Args = append(ex.Args, "--", i.s.Prompt)
-		}
-	} else if i.s.Prompt != "" {
-		ex.StdinPrompt = []byte(i.s.Prompt)
+	if ex.Interactive {
+		ex.Args = append(ex.Args, "--", i.s.Prompt)
+		return
 	}
-	return ex, nil
+	ex.StdinPrompt = []byte(i.s.Prompt)
 }
 
 // Drivers: the stream-json conversation is claude's one structured driver.
@@ -253,14 +275,7 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) []string {
 func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	open := d.inst.c.open
-	if open == nil {
-		open = spawnChatTransport
-	}
-	now := d.inst.c.now
-	if now == nil {
-		now = time.Now
-	}
+	open, now := d.seams()
 	tr, err := open(ctx, ex.Binary, d.argv(ex, in), ex.Env, ex.WorkDir)
 	if err != nil {
 		return engine.TurnResult{}, err
@@ -292,27 +307,61 @@ func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.T
 				res.Answer = strings.Join(answer, "")
 				return res, nil
 			}
-			if ev.Session != nil && ev.Session.SessionID != "" {
-				res.NativeKey = ev.Session.SessionID
-			}
-			if ev.Entry != nil && ev.Entry.Type == agent.EntryTypeAssistant {
-				answer = append(answer, ev.Entry.Content)
-			}
-			if out == nil {
-				continue
-			}
-			payload, err := json.Marshal(ev)
-			if err != nil {
-				return res, fmt.Errorf("claude stream-json event: %w", err)
-			}
-			select {
-			case out <- engine.Event{Kind: ev.Kind(), Payload: payload}:
-			case <-ctx.Done():
+			answer = absorbChatEvent(&res, answer, ev)
+			cancelled, err := relayChatEvent(ctx, out, ev)
+			if cancelled {
 				_ = tr.Close()
 				<-readerDone
-				return res, ctx.Err()
+				return res, err
+			}
+			if err != nil {
+				return res, err
 			}
 		}
+	}
+}
+
+// seams is the transport opener and clock, the real ones unless the
+// instance's constructor injected stand-ins.
+func (d *streamJSONDriver) seams() (chatTransportFunc, func() time.Time) {
+	open := d.inst.c.open
+	if open == nil {
+		open = spawnChatTransport
+	}
+	now := d.inst.c.now
+	if now == nil {
+		now = time.Now
+	}
+	return open, now
+}
+
+// absorbChatEvent records a session event's native key on res and returns
+// answer with an assistant entry's content appended.
+func absorbChatEvent(res *engine.TurnResult, answer []string, ev agent.ChatEvent) []string {
+	if ev.Session != nil && ev.Session.SessionID != "" {
+		res.NativeKey = ev.Session.SessionID
+	}
+	if ev.Entry != nil && ev.Entry.Type == agent.EntryTypeAssistant {
+		answer = append(answer, ev.Entry.Content)
+	}
+	return answer
+}
+
+// relayChatEvent sends ev on out (a nil out relays nothing). cancelled
+// reports that ctx ended while waiting to send, with ctx's error.
+func relayChatEvent(ctx context.Context, out chan<- engine.Event, ev agent.ChatEvent) (cancelled bool, err error) {
+	if out == nil {
+		return false, nil
+	}
+	payload, err := json.Marshal(ev)
+	if err != nil {
+		return false, fmt.Errorf("claude stream-json event: %w", err)
+	}
+	select {
+	case out <- engine.Event{Kind: ev.Kind(), Payload: payload}:
+		return false, nil
+	case <-ctx.Done():
+		return true, ctx.Err()
 	}
 }
 

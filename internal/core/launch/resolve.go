@@ -29,38 +29,18 @@ import (
 // record) → the catalog index → Encode → carry by size → the Launch.
 // Discard tears the cell down.
 func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
-	if src.Identity.Harp == "" {
-		return Launch{}, ErrNoIdentity
-	}
-	if err := src.Identity.Validate(); err != nil {
-		return Launch{}, fmt.Errorf("%w: %v", ErrNoIdentity, err)
+	if err := validateIdentity(src.Identity); err != nil {
+		return Launch{}, err
 	}
 	cfg := deps.Snapshot.Config
 
-	sel, err := selectSource(cfg, src)
+	sel, err := selectWithHome(cfg, src)
 	if err != nil {
 		return Launch{}, err
 	}
-	if sel.homeMode == "" {
-		// A launch with no binding (a profile set, an internal one-shot, a
-		// degraded bare launch) has no engine_home to read: it gets the
-		// default, the session home. The real home is only ever a
-		// binding's explicit selection.
-		sel.homeMode = HomeModeSession
-	}
-	// A selection with no profiles is context-free BY DECLARATION (an
-	// internal one-shot, a binding that composes nothing): nothing is
-	// assembled, so no default can be composed in its place. Naming a
-	// profile set and delivering none of it is never what the caller asked
-	// for: a set that assembled to nothing is a failed assembly, refused.
-	var pkg composite.Package
-	if len(sel.profiles) > 0 || len(sel.fragments) > 0 || len(sel.tags) > 0 {
-		if pkg, err = deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags, WorkDir: src.WorkDir}); err != nil {
-			return Launch{}, err
-		}
-		if strings.TrimSpace(pkg.Context.Text) == "" {
-			return Launch{}, fmt.Errorf("%w: profile set %v (check the profiles' fragments and bundles resolve, or drop the profile to run context-free)", ErrContextEmpty, sel.profiles)
-		}
+	pkg, err := assembleSelection(ctx, deps, src, sel)
+	if err != nil {
+		return Launch{}, err
 	}
 	pkg = pkg.WithLead(src.Extra...)
 	// The binding's delivery preference rides the package as written, so
@@ -68,20 +48,11 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	pkg.Selection.Preference = sel.surfaces
 
 	label := firstNonEmpty(src.Label, sel.llm, pkg.Selection.LLM, cfg.PrimaryLabel())
-	eng, labelCfg, labelPerm, err := selectEngine(deps, cfg, label)
+	eng, labelCfg, labelPerm, err := resolveEngineMode(deps, cfg, src, label)
 	if err != nil {
 		return Launch{}, err
 	}
 	def := eng.Root()
-	if src.Model != "" {
-		labelCfg.Model = src.Model
-	}
-	if alias, ok := def.ModelAliases[labelCfg.Model]; ok {
-		labelCfg.Model = alias
-	}
-	if !slices.Contains(def.Modes, src.Mode) {
-		return Launch{}, fmt.Errorf("%w: %s declares %v, not %v", ErrModeUnsupported, def.Name, def.Modes, src.Mode)
-	}
 
 	declared, axes, err := resolveAxes(cfg, src, sel)
 	if err != nil {
@@ -96,6 +67,102 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 
+	passthrough, cell, err := prepareCell(ctx, deps, src, eng, axes, dirty, sel.homeMode, label)
+	if err != nil {
+		return Launch{}, err
+	}
+	l := Launch{
+		Identity:   src.Identity,
+		Engine:     def.Name,
+		Label:      labelCfg,
+		Mode:       src.Mode,
+		Permission: perm,
+		Declared:   declared,
+		Axes:       axes,
+		Cell:       cell,
+		Home:       cell.Home,
+		Prompt:     src.Prompt,
+		Env:        passthrough,
+	}
+	if err := deliverLaunch(ctx, deps, src, eng, pkg, sel.roots, &l); err != nil {
+		_ = Discard(ctx, Launch{Cell: cell})
+		return Launch{}, err
+	}
+	return l, nil
+}
+
+// validateIdentity refuses a zero or malformed identity, as ErrNoIdentity.
+func validateIdentity(id sessions.Identity) error {
+	if id.Harp == "" {
+		return ErrNoIdentity
+	}
+	if err := id.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrNoIdentity, err)
+	}
+	return nil
+}
+
+// selectWithHome is Select with the home mode settled. A launch with no
+// binding (a profile set, an internal one-shot, a degraded bare launch) has
+// no engine_home to read: it gets the default, the session home. The real
+// home is only ever a binding's explicit selection.
+func selectWithHome(cfg *config.Config, src Source) (selection, error) {
+	sel, err := selectSource(cfg, src)
+	if err != nil {
+		return selection{}, err
+	}
+	if sel.homeMode == "" {
+		sel.homeMode = HomeModeSession
+	}
+	return sel, nil
+}
+
+// assembleSelection is Assemble for the selection. A selection with no
+// profiles is context-free BY DECLARATION (an internal one-shot, a binding
+// that composes nothing): nothing is assembled, so no default can be composed
+// in its place. Naming a profile set and delivering none of it is never what
+// the caller asked for: a set that assembled to nothing is a failed assembly,
+// refused.
+func assembleSelection(ctx context.Context, deps Deps, src Source, sel selection) (composite.Package, error) {
+	var pkg composite.Package
+	if len(sel.profiles) == 0 && len(sel.fragments) == 0 && len(sel.tags) == 0 {
+		return pkg, nil
+	}
+	pkg, err := deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags, WorkDir: src.WorkDir})
+	if err != nil {
+		return composite.Package{}, err
+	}
+	if strings.TrimSpace(pkg.Context.Text) == "" {
+		return composite.Package{}, fmt.Errorf("%w: profile set %v (check the profiles' fragments and bundles resolve, or drop the profile to run context-free)", ErrContextEmpty, sel.profiles)
+	}
+	return pkg, nil
+}
+
+// resolveEngineMode is the engine the label names, its label config with the
+// source's model override and the engine's model aliases applied, and its
+// permission — refused when the engine does not declare the source's mode.
+func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) (engine.Engine, engine.LabelConfig, string, error) {
+	eng, labelCfg, labelPerm, err := selectEngine(deps, cfg, label)
+	if err != nil {
+		return nil, engine.LabelConfig{}, "", err
+	}
+	def := eng.Root()
+	if src.Model != "" {
+		labelCfg.Model = src.Model
+	}
+	if alias, ok := def.ModelAliases[labelCfg.Model]; ok {
+		labelCfg.Model = alias
+	}
+	if !slices.Contains(def.Modes, src.Mode) {
+		return nil, engine.LabelConfig{}, "", fmt.Errorf("%w: %s declares %v, not %v", ErrModeUnsupported, def.Name, def.Modes, src.Mode)
+	}
+	return eng, labelCfg, labelPerm, nil
+}
+
+// prepareCell is Cells.Prepare for the launch, returning the engine
+// passthrough env (the label's env overlaid by the source's) with the cell.
+func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, homeMode HomeMode, label string) (map[string]string, Cell, error) {
+	def := eng.Root()
 	passthrough := map[string]string{}
 	maps.Copy(passthrough, deps.Assembler.LabelEnv(deps.Snapshot, label))
 	maps.Copy(passthrough, src.Env)
@@ -108,73 +175,57 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		ProjectRoot: src.WorkDir,
 		SessionDir:  filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir, src.Identity.Harp),
 		DirtyTree:   dirty,
-		Image:       ImageConfigFor(cfg, def.Name),
+		Image:       ImageConfigFor(deps.Snapshot.Config, def.Name),
 		Host:        deps.Host,
 		Degraded:    src.Degraded,
-		HomeMode:    sel.homeMode,
+		HomeMode:    homeMode,
 		Env:         env,
 	})
 	if err != nil {
-		return Launch{}, err
+		return nil, Cell{}, err
 	}
+	return passthrough, cell, nil
+}
+
+// deliverLaunch fills l's delivery over its prepared cell: Exports, Route
+// (over the cell's roots), the endpoint once per harp (bound on the session
+// record), the catalog index, and the package encoded and carried by size.
+// The caller discards the cell on error.
+func deliverLaunch(ctx context.Context, deps Deps, src Source, eng engine.Engine, pkg composite.Package, roots map[string]string, l *Launch) error {
+	def := eng.Root()
 	exports, err := eng.Exports(pkg.EngineItems(def.Name))
 	if err != nil {
-		_ = Discard(ctx, Launch{Cell: cell})
-		return Launch{}, fmt.Errorf("%s exports: %w", def.Name, err)
+		return fmt.Errorf("%s exports: %w", def.Name, err)
 	}
-	pref, err := preference(def, sel.roots)
+	pref, err := preference(def, roots)
 	if err != nil {
-		_ = Discard(ctx, Launch{Cell: cell})
-		return Launch{}, err
+		return err
 	}
-	plan, err := delivery.Route(itemsOf(pkg, def.Name), def, pref, routableRoots(eng, cell.Paths.Paths()))
+	plan, err := delivery.Route(itemsOf(pkg, def.Name), def, pref, routableRoots(eng, l.Cell.Paths.Paths()))
 	if err != nil {
-		_ = Discard(ctx, Launch{Cell: cell})
-		return Launch{}, err
+		return err
 	}
-	ep, resume, err := endpoint(ctx, deps, src, axes)
+	ep, resume, err := endpoint(ctx, deps, src, l.Axes)
 	if err != nil {
-		_ = Discard(ctx, Launch{Cell: cell})
-		return Launch{}, err
+		return err
 	}
 	if err := deps.Sessions.BindEngine(src.Identity.Harp, string(def.Name)); err != nil {
-		_ = Discard(ctx, Launch{Cell: cell})
-		return Launch{}, err
+		return err
 	}
 	index, err := deps.Assembler.Index(ctx, deps.Snapshot)
 	if err != nil {
-		_ = Discard(ctx, Launch{Cell: cell})
-		return Launch{}, err
+		return err
 	}
 	enc, err := composite.Encode(pkg)
 	if err != nil {
-		_ = Discard(ctx, Launch{Cell: cell})
-		return Launch{}, err
+		return err
 	}
 	carrier, err := carry(ctx, deps, enc)
 	if err != nil {
-		_ = Discard(ctx, Launch{Cell: cell})
-		return Launch{}, err
+		return err
 	}
-	return Launch{
-		Identity:   src.Identity,
-		Engine:     def.Name,
-		Label:      labelCfg,
-		Mode:       src.Mode,
-		Permission: perm,
-		Declared:   declared,
-		Axes:       axes,
-		Cell:       cell,
-		Home:       cell.Home,
-		Package:    carrier,
-		Exports:    exports,
-		Plan:       plan,
-		Index:      index,
-		MCP:        ep,
-		Prompt:     src.Prompt,
-		Resume:     resume,
-		Env:        passthrough,
-	}, nil
+	l.Exports, l.Plan, l.MCP, l.Resume, l.Index, l.Package = exports, plan, ep, resume, index, carrier
+	return nil
 }
 
 // selection is what Select decided from the config and the Source: the
@@ -354,42 +405,62 @@ func floorPermission(rep report.Reporter, src Source, sel selection, label, labe
 	if mode == engine.PermissionNotRequested {
 		mode = engine.PermissionDefault
 	}
-	rungs := []struct{ value, from string }{
+	rungs := []permissionRung{
 		{flag, "the --permissions flag"},
 		{sel.permissions, fmt.Sprintf("agent %q", sel.agent)},
 		{labelPerm, fmt.Sprintf("llm label %q", label)},
 		{cfg.GetPermissions(), "the project config"},
 	}
+	mode, err := firstDeclaredPermission(rep, src.Degraded, rungs, mode)
+	if err != nil {
+		return 0, err
+	}
+	mode = mode.CollapsePlanIfUnenforced(facts.ReadOnlyPlan)
+	return refuseBlockingHeadless(rep, src, sel.agent, mode, facts)
+}
+
+// permissionRung is one declared permission source, and how to name it.
+type permissionRung struct{ value, from string }
+
+// firstDeclaredPermission is the posture the first non-blank rung declares,
+// else fallback. A declaration that does not parse is refused, or under
+// degraded dropped to PermissionFloor with a warning.
+func firstDeclaredPermission(rep report.Reporter, degraded bool, rungs []permissionRung, fallback engine.PermissionMode) (engine.PermissionMode, error) {
 	for _, r := range rungs {
 		if strings.TrimSpace(r.value) == "" {
 			continue
 		}
 		m, ok := engine.ParsePermissionMode(r.value)
-		if !ok {
-			known := strings.Join(engine.PermissionModeNames(), "|")
-			if !src.Degraded {
-				return 0, fmt.Errorf("%w: %q from %s is not a posture (known: %s)", ErrPermissionUnhonoured, r.value, r.from, known)
-			}
-			rep.Warnf("--degraded: permissions %q from %s is not a posture (known: %s), so this run drops to the %s floor", r.value, r.from, known, engine.PermissionFloor)
-			m = engine.PermissionFloor
+		if ok {
+			return m, nil
 		}
-		mode = m
-		break
+		known := strings.Join(engine.PermissionModeNames(), "|")
+		if !degraded {
+			return 0, fmt.Errorf("%w: %q from %s is not a posture (known: %s)", ErrPermissionUnhonoured, r.value, r.from, known)
+		}
+		rep.Warnf("--degraded: permissions %q from %s is not a posture (known: %s), so this run drops to the %s floor", r.value, r.from, known, engine.PermissionFloor)
+		return engine.PermissionFloor, nil
 	}
-	mode = mode.CollapsePlanIfUnenforced(facts.ReadOnlyPlan)
-	if src.Mode == engine.Structured && !mode.SafeHeadless() {
-		if src.Degraded && facts.ReadOnlyPlan {
-			rep.Warnf("--degraded: %q would block on an engine prompt that no human can answer in a headless run, so this run is launched at %s (read-only) instead of refused", mode, engine.PermissionFloor)
-			return engine.PermissionFloor, nil
-		}
-		if src.Degraded {
-			return 0, fmt.Errorf("%w: a headless run has no human to answer an engine prompt and %q would block on one, and --degraded cannot drop it to %s: this engine does not enforce read-only plan, so the only honest postures are %s on an engine that enforces it, or %s",
-				ErrPermissionUnhonoured, mode, engine.PermissionFloor, engine.PermissionPlan, engine.PermissionBypass)
-		}
-		return 0, fmt.Errorf("%w: a headless run has no human to answer an engine prompt and %q would block on one; %s",
-			ErrPermissionUnhonoured, mode, declareHeadlessPosture(sel.agent))
+	return fallback, nil
+}
+
+// refuseBlockingHeadless refuses a Structured run whose posture would block
+// on an engine prompt, or under --degraded drops it to PermissionFloor where
+// the engine enforces plan as read-only. Any other run keeps mode.
+func refuseBlockingHeadless(rep report.Reporter, src Source, agent string, mode engine.PermissionMode, facts engine.PermissionFacts) (engine.PermissionMode, error) {
+	if src.Mode != engine.Structured || mode.SafeHeadless() {
+		return mode, nil
 	}
-	return mode, nil
+	if src.Degraded && facts.ReadOnlyPlan {
+		rep.Warnf("--degraded: %q would block on an engine prompt that no human can answer in a headless run, so this run is launched at %s (read-only) instead of refused", mode, engine.PermissionFloor)
+		return engine.PermissionFloor, nil
+	}
+	if src.Degraded {
+		return 0, fmt.Errorf("%w: a headless run has no human to answer an engine prompt and %q would block on one, and --degraded cannot drop it to %s: this engine does not enforce read-only plan, so the only honest postures are %s on an engine that enforces it, or %s",
+			ErrPermissionUnhonoured, mode, engine.PermissionFloor, engine.PermissionPlan, engine.PermissionBypass)
+	}
+	return 0, fmt.Errorf("%w: a headless run has no human to answer an engine prompt and %q would block on one; %s",
+		ErrPermissionUnhonoured, mode, declareHeadlessPosture(agent))
 }
 
 // declareHeadlessPosture is the remedy a refused headless run is given, at

@@ -101,15 +101,10 @@ func findBundlePrefixRefs(t *testing.T) map[string][]string {
 		if err != nil {
 			return err
 		}
-		name := d.Name()
 		if d.IsDir() {
-			if p != root && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
-				name == "testdata" || name == "vendor" || name == "node_modules") {
-				return filepath.SkipDir
-			}
-			return nil
+			return skipModuleDir(root, p, d)
 		}
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if !isNonTestGoFile(d.Name()) {
 			return nil
 		}
 		f, perr := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)

@@ -103,30 +103,13 @@ func TestWriteFileInPlace_PermAppliesOnCreateOnly(t *testing.T) {
 	defer syscall.Umask(prev)
 
 	dir := t.TempDir()
-
-	// Fixture check: with umask 077 in force the stdlib writer must produce
-	// 0600 from a 0644 request, or the umask never reached the code under
-	// test and the exactness claim below would be vacuous.
-	stdlib := filepath.Join(dir, "stdlib")
-	if err := os.WriteFile(stdlib, []byte("x"), 0o644); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	fi, err := os.Stat(stdlib)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if got := fi.Mode().Perm(); got != 0o600 {
-		t.Fatalf("fixture is not hostile: the umask did not mask os.WriteFile's mode (got %#o)", got)
-	}
+	requireHostileUmask(t, dir)
 
 	created := filepath.Join(dir, "created")
 	if err := WriteFileInPlace(created, TruncateInPlace, []byte("x"), 0o644); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if fi, err = os.Stat(created); err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if got := fi.Mode().Perm(); got != 0o644 {
+	if got := permOf(t, created); got != 0o644 {
 		t.Fatalf("perm on create: got %#o, want %#o exactly; the umask must not narrow it", got, 0o644)
 	}
 
@@ -140,10 +123,31 @@ func TestWriteFileInPlace_PermAppliesOnCreateOnly(t *testing.T) {
 	if err := WriteFileInPlace(existing, TruncateInPlace, []byte("new"), 0o644); err != nil {
 		t.Fatalf("write existing: %v", err)
 	}
-	if fi, err = os.Stat(existing); err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if got := fi.Mode().Perm(); got != 0o600 {
+	if got := permOf(t, existing); got != 0o600 {
 		t.Fatalf("perm on an existing file: got %#o, want it left at %#o", got, 0o600)
 	}
+}
+
+// requireHostileUmask is the fixture check: with umask 077 in force the
+// stdlib writer must produce 0600 from a 0644 request, or the umask never
+// reached the code under test and the exactness claim would be vacuous.
+func requireHostileUmask(t *testing.T, dir string) {
+	t.Helper()
+	stdlib := filepath.Join(dir, "stdlib")
+	if err := os.WriteFile(stdlib, []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if got := permOf(t, stdlib); got != 0o600 {
+		t.Fatalf("fixture is not hostile: the umask did not mask os.WriteFile's mode (got %#o)", got)
+	}
+}
+
+// permOf is path's permission bits.
+func permOf(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	return fi.Mode().Perm()
 }

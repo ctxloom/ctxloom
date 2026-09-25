@@ -157,45 +157,70 @@ func (s SessionState) ephemeralDir() (string, error) {
 // or unsafe harp, or a preparation FAILURE for a known identity, errors so the
 // caller's degrade chain raises the fatal ClassIsolation finding.
 func (c Container) sessionStateMounts() ([]Mount, error) {
-	var mounts []Mount
-	switch {
-	case !safePathSegment(c.state.Harp):
+	if !safePathSegment(c.state.Harp) {
 		return nil, fmt.Errorf("container session-state mounts: session harp %q is not a safe path segment", c.state.Harp)
-	default:
-		layout, err := sessions.HomeLayout()
-		if err != nil {
-			return nil, fmt.Errorf("container session-state mounts: %w", err)
-		}
-		store, err := paths.HarpTranscriptStoreDir(c.state.Harp)
-		if err != nil {
-			return nil, fmt.Errorf("container session-state mounts: %w", err)
-		}
-		// The bind SOURCE must exist before `run`.
-		if err := os.MkdirAll(store, 0o755); err != nil {
-			return nil, fmt.Errorf("container session-state mounts: %w", err)
-		}
-		// transcriptStoreRel is set by every engineContainerSpecFor branch; ""
-		// only reaches here through a hand-built spec, which then simply
-		// has no native store to persist.
-		if c.engineSpec.transcriptStoreRel != "" {
-			mounts = append(mounts, c.runtime.Expose(
-				store,
-				filepath.Join(c.home, c.engineSpec.transcriptStoreRel),
-				false,
-			))
-		}
-		for _, dir := range paths.MountedLocations() {
-			host := filepath.Join(layout.Dir(c.state.Harp), dir)
-			if err := os.MkdirAll(host, 0o755); err != nil {
-				return nil, fmt.Errorf("container session-state mounts: %w", err)
-			}
-			mounts = append(mounts, c.runtime.Expose(
-				host,
-				filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, dir),
-				false,
-			))
-		}
 	}
+	mounts, err := c.harpStateMounts()
+	if err != nil {
+		return nil, err
+	}
+	taskMounts, err := c.taskStoreMounts()
+	if err != nil {
+		return nil, err
+	}
+	mounts = append(mounts, taskMounts...)
+	locks, err := c.locksDirMount()
+	if err != nil {
+		return nil, err
+	}
+	return append(mounts, locks), nil
+}
+
+// harpStateMounts binds the session's native transcript store (when the
+// engine spec names one) and each of its mounted locations, creating every
+// bind source first.
+func (c Container) harpStateMounts() ([]Mount, error) {
+	var mounts []Mount
+	layout, err := sessions.HomeLayout()
+	if err != nil {
+		return nil, fmt.Errorf("container session-state mounts: %w", err)
+	}
+	store, err := paths.HarpTranscriptStoreDir(c.state.Harp)
+	if err != nil {
+		return nil, fmt.Errorf("container session-state mounts: %w", err)
+	}
+	// The bind SOURCE must exist before `run`.
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		return nil, fmt.Errorf("container session-state mounts: %w", err)
+	}
+	// transcriptStoreRel is set by every engineContainerSpecFor branch; ""
+	// only reaches here through a hand-built spec, which then simply
+	// has no native store to persist.
+	if c.engineSpec.transcriptStoreRel != "" {
+		mounts = append(mounts, c.runtime.Expose(
+			store,
+			filepath.Join(c.home, c.engineSpec.transcriptStoreRel),
+			false,
+		))
+	}
+	for _, dir := range paths.MountedLocations() {
+		host := filepath.Join(layout.Dir(c.state.Harp), dir)
+		if err := os.MkdirAll(host, 0o755); err != nil {
+			return nil, fmt.Errorf("container session-state mounts: %w", err)
+		}
+		mounts = append(mounts, c.runtime.Expose(
+			host,
+			filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, dir),
+			false,
+		))
+	}
+	return mounts, nil
+}
+
+// taskStoreMounts binds the project's task log and its lock, or — with no
+// pinned project id — warns and binds nothing.
+func (c Container) taskStoreMounts() ([]Mount, error) {
+	var mounts []Mount
 	if c.state.ProjectID == "" {
 		// Without a pinned project id the in-container taskloom would MINT a
 		// fresh one and write a wrongly-keyed log; better that write dies with
@@ -232,24 +257,28 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 			))
 		}
 	}
-	// The locks-dir mount is unconditional (see the doc above): every
-	// registered engine spec's overlayDirs is non-empty, so every container
-	// this method runs for already has an engine-settings write mount whose
-	// lock needs to cross the boundary. Host-side directory, created before
-	// `run` the same way the other bind sources above are.
+	return mounts, nil
+}
+
+// locksDirMount binds the home locks dir.
+func (c Container) locksDirMount() (Mount, error) {
+	// The locks-dir mount is unconditional (see sessionStateMounts' doc):
+	// every registered engine spec's overlayDirs is non-empty, so every
+	// container this runs for already has an engine-settings write mount
+	// whose lock needs to cross the boundary. Host-side directory, created
+	// before `run` the same way the other bind sources are.
 	locksDir, err := paths.HomeLocksDir()
 	if err != nil {
-		return nil, fmt.Errorf("container lock-dir mount: %w", err)
+		return Mount{}, fmt.Errorf("container lock-dir mount: %w", err)
 	}
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
-		return nil, fmt.Errorf("container lock-dir mount: %w", err)
+		return Mount{}, fmt.Errorf("container lock-dir mount: %w", err)
 	}
-	mounts = append(mounts, c.runtime.Expose(
+	return c.runtime.Expose(
 		locksDir,
 		filepath.Join(c.home, paths.AppDirName, paths.HomeLocksDirName),
 		false,
-	))
-	return mounts, nil
+	), nil
 }
 
 // ensureFile creates path as an empty regular file if it does not exist, and

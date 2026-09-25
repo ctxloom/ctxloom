@@ -28,25 +28,36 @@ func UninvokedSkillMates(delivered []*LoadedSkill, name string, invoked func(str
 		if s == nil || s.Frontmatter.Name != name {
 			continue
 		}
-		ids := LinkIDs(s.Tags)
-		for _, o := range delivered {
-			if o == nil || o == s || o.Bundle != s.Bundle {
-				continue
-			}
-			mate := o.Frontmatter.Name
-			if mate == "" || mate == name || seen[mate] {
-				continue
-			}
-			if !slices.ContainsFunc(LinkIDs(o.Tags), func(id string) bool { return slices.Contains(ids, id) }) {
-				continue
-			}
-			if invoked(mate) {
-				continue
-			}
-			seen[mate] = true
-			mates = append(mates, mate)
-		}
+		mates = appendUninvokedMates(mates, seen, delivered, s, invoked)
 	}
 	sort.Strings(mates)
 	return mates
+}
+
+// appendUninvokedMates appends s's not-yet-invoked skill mates — delivered
+// skills of the same bundle sharing one of its link ids — that seen has not
+// already recorded.
+func appendUninvokedMates(mates []string, seen map[string]bool, delivered []*LoadedSkill, s *LoadedSkill, invoked func(string) bool) []string {
+	ids := LinkIDs(s.Tags)
+	name := s.Frontmatter.Name
+	for _, o := range delivered {
+		if o == nil || o == s || o.Bundle != s.Bundle {
+			continue
+		}
+		mate := o.Frontmatter.Name
+		if mate == "" || mate == name || seen[mate] {
+			continue
+		}
+		if !sharesLinkID(o, ids) || invoked(mate) {
+			continue
+		}
+		seen[mate] = true
+		mates = append(mates, mate)
+	}
+	return mates
+}
+
+// sharesLinkID reports whether o carries any of ids.
+func sharesLinkID(o *LoadedSkill, ids []string) bool {
+	return slices.ContainsFunc(LinkIDs(o.Tags), func(id string) bool { return slices.Contains(ids, id) })
 }

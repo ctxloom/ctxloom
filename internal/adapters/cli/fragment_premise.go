@@ -131,30 +131,13 @@ func runFragmentDraftPremise(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	label := fragmentDraftPremiseLLM
-	if label == "" {
-		label = cfg.PrimaryLabel()
-	}
-	if label == "" {
-		return fmt.Errorf("no LLM label resolves for premise authoring: pass --llm, or set llm.defaults.primary in config.yaml")
-	}
-
-	p := &premiseProposal{Ref: ref, Current: premiseValues{Premise: cur.Premise, Notes: cur.Notes}, Decision: premiseDecisionProposed}
-	if p.Draft, err = runPremisePass(ctx, cfg, label, func(c operations.PremiseAuthorConfig) (*operations.PremiseDraft, error) {
-		return operations.DraftPremise(ctx, c, ref, cur.Content)
-	}); err != nil {
+	label, err := premiseLabel(cfg)
+	if err != nil {
 		return err
 	}
-	if !fragmentDraftPremiseNoCritique {
-		siblings, err := premiseSiblings(cfg, ref)
-		if err != nil {
-			return err
-		}
-		if p.Critique, err = runPremisePass(ctx, cfg, label, func(c operations.PremiseAuthorConfig) (*operations.PremiseCritique, error) {
-			return operations.CritiquePremise(ctx, c, ref, cur.Content, p.Draft, siblings)
-		}); err != nil {
-			return err
-		}
+	p, err := proposePremise(ctx, cfg, label, ref, cur)
+	if err != nil {
+		return err
 	}
 
 	if fragmentDraftPremiseDryRun || !isInteractiveTerminal() {
@@ -166,17 +149,8 @@ func runFragmentDraftPremise(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	renderPremiseProposal(cmd.OutOrStdout(), p)
-	if err := decidePremise(cfg, p); err != nil {
+	if err := decideAndWritePremise(ctx, cmd, cfg, bundleName, itemName, cur.Premise, p); err != nil {
 		return err
-	}
-	if p.Written != nil {
-		if _, err := operations.SetFragmentPremise(ctx, cfg, operations.SetFragmentPremiseRequest{
-			Bundle: bundleName, Name: itemName, Premise: p.Written.Premise, Notes: p.Written.Notes,
-		}); err != nil {
-			return err
-		}
-		p.StaleApprovals = p.Written.Premise != cur.Premise
 	}
 	return emit(cmd, p, func() error {
 		w := cmd.OutOrStdout()
@@ -190,6 +164,64 @@ func runFragmentDraftPremise(cmd *cobra.Command, args []string) error {
 		}
 		return nil
 	})
+}
+
+// premiseLabel is the LLM label premise authoring runs on: --llm, else the
+// configured primary.
+func premiseLabel(cfg *config.Config) (string, error) {
+	label := fragmentDraftPremiseLLM
+	if label == "" {
+		label = cfg.PrimaryLabel()
+	}
+	if label == "" {
+		return "", fmt.Errorf("no LLM label resolves for premise authoring: pass --llm, or set llm.defaults.primary in config.yaml")
+	}
+	return label, nil
+}
+
+// proposePremise drafts a premise for the fragment and, unless
+// --no-critique, critiques the draft against its siblings' premises.
+func proposePremise(ctx context.Context, cfg *config.Config, label, ref string, cur *operations.GetItemResult) (*premiseProposal, error) {
+	p := &premiseProposal{Ref: ref, Current: premiseValues{Premise: cur.Premise, Notes: cur.Notes}, Decision: premiseDecisionProposed}
+	var err error
+	if p.Draft, err = runPremisePass(ctx, cfg, label, func(c operations.PremiseAuthorConfig) (*operations.PremiseDraft, error) {
+		return operations.DraftPremise(ctx, c, ref, cur.Content)
+	}); err != nil {
+		return nil, err
+	}
+	if fragmentDraftPremiseNoCritique {
+		return p, nil
+	}
+	siblings, err := premiseSiblings(cfg, ref)
+	if err != nil {
+		return nil, err
+	}
+	if p.Critique, err = runPremisePass(ctx, cfg, label, func(c operations.PremiseAuthorConfig) (*operations.PremiseCritique, error) {
+		return operations.CritiquePremise(ctx, c, ref, cur.Content, p.Draft, siblings)
+	}); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// decideAndWritePremise shows the proposal, takes the human's decision, and
+// writes an accepted or edited premise, noting when it stales the item's
+// approvals (the premise is signed; notes are not).
+func decideAndWritePremise(ctx context.Context, cmd *cobra.Command, cfg *config.Config, bundleName, itemName, currentPremise string, p *premiseProposal) error {
+	renderPremiseProposal(cmd.OutOrStdout(), p)
+	if err := decidePremise(cfg, p); err != nil {
+		return err
+	}
+	if p.Written == nil {
+		return nil
+	}
+	if _, err := operations.SetFragmentPremise(ctx, cfg, operations.SetFragmentPremiseRequest{
+		Bundle: bundleName, Name: itemName, Premise: p.Written.Premise, Notes: p.Written.Notes,
+	}); err != nil {
+		return err
+	}
+	p.StaleApprovals = p.Written.Premise != currentPremise
+	return nil
 }
 
 // runPremisePass runs one pass on its own fresh session, ended as soon as the

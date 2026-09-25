@@ -1080,8 +1080,14 @@ func doctorCheckLocalTierState(cfg *config.Config, homeDir string) DoctorCheck {
 		fsys = cfg.FS()
 	}
 
-	var missing []string
-	var present []string
+	missing, present := localTierPaths(fsys, appDir, homeDir)
+	return DoctorCheck{Marker: marker, Status: localTierStatus(missing), Detail: localTierDetail(missing, present)}
+}
+
+// localTierPaths sorts the local-tier layout rows into the must-exist paths
+// that are absent (with what their loss costs) and the if-used paths that
+// are present. A row whose existence cannot be read is skipped.
+func localTierPaths(fsys afero.Fs, appDir, homeDir string) (missing, present []string) {
 	for _, entry := range paths.Layout() {
 		if entry.Tier != paths.TierLocal {
 			continue
@@ -1104,11 +1110,23 @@ func doctorCheckLocalTierState(cfg *config.Config, homeDir string) DoctorCheck {
 			missing = append(missing, fmt.Sprintf("%s (%s)", entry.Rel, entry.Lost))
 		}
 	}
-	status := DoctorOK
+	return missing, present
+}
+
+// localTierStatus warns when any must-exist local path is absent.
+func localTierStatus(missing []string) DoctorStatus {
+	if len(missing) > 0 {
+		return DoctorWarn
+	}
+	return DoctorOK
+}
+
+// localTierDetail words the absent paths (sorted in place), then the
+// home-rooted stores in use.
+func localTierDetail(missing, present []string) string {
 	detail := "every local-only state path is present"
 	if len(missing) > 0 {
 		sort.Strings(missing)
-		status = DoctorWarn
 		detail = fmt.Sprintf("%d local-only path(s) absent, and nothing rebuilds them: %s",
 			len(missing), strings.Join(missing, "; "))
 	}
@@ -1116,7 +1134,7 @@ func doctorCheckLocalTierState(cfg *config.Config, homeDir string) DoctorCheck {
 		sort.Strings(present)
 		detail = fmt.Sprintf("%s; %d home-rooted store(s) in use: %s", detail, len(present), strings.Join(present, ", "))
 	}
-	return DoctorCheck{Marker: marker, Status: status, Detail: detail}
+	return detail
 }
 
 // doctorCheckContentTrust names remote bundles whose content is being WITHHELD
@@ -1357,6 +1375,38 @@ func doctorCheckForeignWorktrees(ctx context.Context, g git.Git, workDir string)
 	if err != nil {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "could not list worktrees: " + err.Error()}
 	}
+	foreign := foreignWorktrees(worktrees, workDir)
+	if len(foreign) == 0 {
+		return DoctorCheck{Marker: marker, Status: DoctorOK,
+			Detail: "no worktrees ctxloom did not create outside the sessions root"}
+	}
+
+	// Merged-ness is only claimed when MergedBranches actually answered;
+	// printing "unmerged" unconditionally would be a lie.
+	merged, mergedErr := g.MergedBranches(ctx, workDir, "")
+	mergedSet := make(map[string]bool, len(merged))
+	for _, b := range merged {
+		mergedSet[b] = true
+	}
+
+	var lines []string
+	for _, wt := range foreign {
+		branch := strings.TrimPrefix(wt.Branch, "refs/heads/")
+		lines = append(lines, fmt.Sprintf(
+			"%s (branch %s, %s, %s) — ctxloom will not remove it; run `git worktree remove %s` then `git branch -d %s`",
+			filepath.Base(wt.Path), branch, worktreeMergeState(mergedSet, mergedErr, branch),
+			worktreeDirtyState(ctx, g, wt.Path), wt.Path, branch))
+	}
+	detail := fmt.Sprintf("%d worktree(s) ctxloom did not create: %s", len(foreign), strings.Join(lines, "; "))
+	if mergedErr != nil {
+		detail += fmt.Sprintf(" (could not determine merge state: %s)", mergedErr.Error())
+	}
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail}
+}
+
+// foreignWorktrees is the non-bare worktrees other than workDir itself and
+// anything under the sessions root, sorted by path.
+func foreignWorktrees(worktrees []git.Worktree, workDir string) []git.Worktree {
 	sessionsRoot, _ := paths.HomeSessionsDir() // best-effort; "" excludes nothing extra
 	mainPath := filepath.Clean(workDir)
 	var foreign []git.Worktree
@@ -1373,53 +1423,35 @@ func doctorCheckForeignWorktrees(ctx context.Context, g git.Git, workDir string)
 		}
 		foreign = append(foreign, wt)
 	}
-	if len(foreign) == 0 {
-		return DoctorCheck{Marker: marker, Status: DoctorOK,
-			Detail: "no worktrees ctxloom did not create outside the sessions root"}
-	}
 	sort.Slice(foreign, func(i, j int) bool { return foreign[i].Path < foreign[j].Path })
+	return foreign
+}
 
-	// A merged-ness primitive did not exist anywhere in this codebase before
-	// this check needed one; printing "unmerged" unconditionally would be a
-	// lie, so it is only claimed when MergedBranches actually answered.
-	merged, mergedErr := g.MergedBranches(ctx, workDir, "")
-	mergedSet := make(map[string]bool, len(merged))
-	for _, b := range merged {
-		mergedSet[b] = true
+// worktreeMergeState words branch's merge state, "unknown" when it could not
+// be measured.
+func worktreeMergeState(mergedSet map[string]bool, mergedErr error, branch string) string {
+	switch {
+	case mergedErr != nil:
+		return "merge state unknown"
+	case mergedSet[branch]:
+		return "merged"
+	default:
+		return "unmerged"
 	}
+}
 
-	var lines []string
-	for _, wt := range foreign {
-		branch := strings.TrimPrefix(wt.Branch, "refs/heads/")
-		name := filepath.Base(wt.Path)
-
-		mergeState := "merge state unknown"
-		if mergedErr == nil {
-			if mergedSet[branch] {
-				mergeState = "merged"
-			} else {
-				mergeState = "unmerged"
-			}
-		}
-
-		dirtyState := "dirty state unknown"
-		if dirty, dirtyErr := g.IsDirty(ctx, wt.Path); dirtyErr == nil {
-			if dirty {
-				dirtyState = "dirty"
-			} else {
-				dirtyState = "clean"
-			}
-		}
-
-		lines = append(lines, fmt.Sprintf(
-			"%s (branch %s, %s, %s) — ctxloom will not remove it; run `git worktree remove %s` then `git branch -d %s`",
-			name, branch, mergeState, dirtyState, wt.Path, branch))
+// worktreeDirtyState words path's dirty state, "unknown" when it could not be
+// measured.
+func worktreeDirtyState(ctx context.Context, g git.Git, path string) string {
+	dirty, err := g.IsDirty(ctx, path)
+	switch {
+	case err != nil:
+		return "dirty state unknown"
+	case dirty:
+		return "dirty"
+	default:
+		return "clean"
 	}
-	detail := fmt.Sprintf("%d worktree(s) ctxloom did not create: %s", len(foreign), strings.Join(lines, "; "))
-	if mergedErr != nil {
-		detail += fmt.Sprintf(" (could not determine merge state: %s)", mergedErr.Error())
-	}
-	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail}
 }
 
 // doctorUnderDir reports whether p is root itself or a descendant of it.
@@ -1481,20 +1513,25 @@ func doctorCheckHarpDurability() DoctorCheck {
 		return DoctorCheck{Marker: marker, Status: DoctorOK,
 			Detail: "no authored files sit in a harp directory's unclassified top level"}
 	}
-	sort.Strings(flagged)
-	shown := flagged
-	var more int
-	if len(shown) > doctorHarpDurabilityMaxNamed {
-		shown = shown[:doctorHarpDurabilityMaxNamed]
-		more = len(flagged) - doctorHarpDurabilityMaxNamed
-	}
-	list := strings.Join(shown, ", ")
-	if more > 0 {
-		list += fmt.Sprintf(", … +%d more", more)
-	}
+	list := doctorNamedList(flagged, doctorHarpDurabilityMaxNamed)
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
 		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither %s/ (durable, mounted into containers) nor a disposable member: %s — move each under its session's %s/ directory, where a containerized run keeps it",
 		len(flagged), paths.PersistDirName, list, paths.PersistDirName)}
+}
+
+// doctorNamedList sorts items in place and joins at most maxNamed of them,
+// noting how many more were elided.
+func doctorNamedList(items []string, maxNamed int) string {
+	sort.Strings(items)
+	shown := items
+	if len(shown) > maxNamed {
+		shown = shown[:maxNamed]
+	}
+	list := strings.Join(shown, ", ")
+	if more := len(items) - len(shown); more > 0 {
+		list += fmt.Sprintf(", … +%d more", more)
+	}
+	return list
 }
 
 // doctorIsRemoteBundle reports whether a listing name is a REMOTE bundle — one

@@ -189,7 +189,29 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	const harp = "ugly-icy-squid"
 
 	before := realHomeSnapshot(t, home)
+	instances := sessionInstances(t, workDir, harp)
+	requirePopulatedInstance(t, instances["claude-code"])
 
+	// Drive the real delivery against the instance the contribution just
+	// named — the engine Definition's approaches, under the roots the runner
+	// advises (the project as the workspace, the instance as the engine
+	// home) — so the invariant below is asserted over a launch that actually
+	// delivered rather than one that did nothing.
+	//
+	// NOTE ON REACH: no currently-registered engine keys its hooks, MCP
+	// servers, prompts and skills to its HOME — the engine that did is gone —
+	// so this drives the cwd-keyed path only. A home-keyed engine's delivery
+	// is the fullest home-writing path there is, and until one exists again
+	// this gate does not cover it.
+	deliverIntoInstance(t, workDir, instances["claude-code"])
+
+	assertHomeUnchanged(t, before, realHomeSnapshot(t, home))
+}
+
+// sessionInstances resolves each home-controlled engine's per-session
+// instance home, which a engine_home: session run must be handed.
+func sessionInstances(t *testing.T, workDir, harp string) map[string]string {
+	t.Helper()
 	instances := map[string]string{}
 	for _, backend := range []string{"claude-code"} {
 		res := operations.ResolveInTreeAgentHome(engines.Registry(), operations.InTreeAgentHome{
@@ -208,32 +230,32 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 			instances[backend] = v
 		}
 	}
+	return instances
+}
 
-	// The instances are REAL and populated — otherwise "the host home did not
-	// change" would be trivially true because nothing happened at all.
-	if got := hashTree(t, instances["claude-code"]); got == "<absent>" {
+// requirePopulatedInstance requires claude's instance to be REAL and
+// populated — otherwise "the host home did not change" would be trivially
+// true because nothing happened at all — and to carry no credential: the run
+// authenticates from its env, so the real home's credential must not appear
+// in the instance.
+func requirePopulatedInstance(t *testing.T, instance string) {
+	t.Helper()
+	if got := hashTree(t, instance); got == "<absent>" {
 		t.Fatal("claude's instance was never created; the invariant below would be vacuous")
 	}
-	if _, err := os.Stat(filepath.Join(instances["claude-code"], ".claude.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(instance, ".claude.json")); err != nil {
 		t.Fatalf("claude's instance config was never generated (%v); the preparation must have happened for this gate to mean anything", err)
 	}
-	// Nothing is copied: the run authenticates from its env, so the real
-	// home's credential must not appear in the instance.
-	if _, err := os.Lstat(filepath.Join(instances["claude-code"], ".credentials.json")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(instance, ".credentials.json")); !os.IsNotExist(err) {
 		t.Errorf("a credential file appeared in claude's session home (%v); no credential is ever copied out of the real home", err)
 	}
+}
 
-	// Drive the real delivery against the instance the contribution just
-	// named — the engine Definition's approaches, under the roots the runner
-	// advises (the project as the workspace, the instance as the engine
-	// home) — so the invariant below is asserted over a launch that actually
-	// delivered rather than one that did nothing.
-	//
-	// NOTE ON REACH: no currently-registered engine keys its hooks, MCP
-	// servers, prompts and skills to its HOME — the engine that did is gone —
-	// so this drives the cwd-keyed path only. A home-keyed engine's delivery
-	// is the fullest home-writing path there is, and until one exists again
-	// this gate does not cover it.
+// deliverIntoInstance drives claude's context, MCP and hooks delivery with
+// the project as the workspace and instance as the engine home, and requires
+// it to have landed something.
+func deliverIntoInstance(t *testing.T, workDir, instance string) {
+	t.Helper()
 	eng, err := claude.Build()
 	if err != nil {
 		t.Fatalf("claude engine: %v", err)
@@ -241,7 +263,7 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	def := eng.Root().Definition
 	start := present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: workDir, Engine: workDir},
-		EngineHome:  present.Root{Host: instances["claude-code"], Engine: instances["claude-code"]},
+		EngineHome:  present.Root{Host: instance, Engine: instance},
 	}))
 	managed := launchManaged()
 	if _, err := def.Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("project rules")}, nil); err != nil {
@@ -256,8 +278,11 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	if _, err := os.Stat(filepath.Join(workDir, claude.ConfigDirName)); err != nil {
 		t.Fatalf("claude's delivery landed nothing in the project (%v); the invariant below would be vacuous", err)
 	}
+}
 
-	after := realHomeSnapshot(t, home)
+// assertHomeUnchanged fails for every real-home tree whose hash changed.
+func assertHomeUnchanged(t *testing.T, before, after map[string]string) {
+	t.Helper()
 	for leaf, want := range before {
 		if after[leaf] != want {
 			t.Errorf("ctxloom modified the user's real %s during an in-tree agent launch.\n"+

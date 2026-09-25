@@ -162,14 +162,24 @@ func runCarryCase(t *testing.T, tc carryCase) {
 	if tc.wantBundleSent {
 		assert.Equal(t, bundleBytesBefore, sentBundle, "the published bytes are the local file's bytes, verbatim")
 	}
-	sigPublished := false
-	for path := range pub.files {
+	assert.Equal(t, tc.wantSigPublished, anySigPublished(pub.files), "a .sigs/ entry reached the remote?")
+	assertCarrySource(t, tc, cfg, entriesBefore)
+}
+
+// anySigPublished reports whether any .sigs/ entry reached the remote.
+func anySigPublished(files map[string][]byte) bool {
+	for path := range files {
 		if strings.HasPrefix(path, remoteTreeRoot+"/"+content.SigDirName+"/") {
-			sigPublished = true
+			return true
 		}
 	}
-	assert.Equal(t, tc.wantSigPublished, sigPublished, "a .sigs/ entry reached the remote?")
+	return false
+}
 
+// assertCarrySource checks the local source: re-signed or not while it
+// stands, removed by a completed move, left by a refused one.
+func assertCarrySource(t *testing.T, tc carryCase, cfg *config.Config, entriesBefore []string) {
+	t.Helper()
 	srcInfo, srcErr := os.Stat(localBundlePath(cfg))
 	sourceGone := srcErr != nil || !srcInfo.Mode().IsRegular()
 	if !sourceGone {

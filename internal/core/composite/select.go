@@ -22,106 +22,154 @@ import (
 // first-occurrence order, then bookended: highest priority first,
 // second-highest last, the rest between in that order.
 func Select(resolved []profiles.ResolvedProfile, cat bundles.Catalog, req SelectRequest) (Selection, error) {
-	sel := Selection{
-		Exclusions: map[string]struct{}{},
-		Variables:  map[string]string{},
-		Declared:   map[string][]string{},
+	sl := selector{
+		sel: Selection{
+			Exclusions: map[string]struct{}{},
+			Variables:  map[string]string{},
+			Declared:   map[string][]string{},
+		},
+		cat:    cat,
+		loader: bundles.LoaderOf(cat),
+		seen:   map[string]bool{},
 	}
-	loader := bundles.LoaderOf(cat)
 	if req.Versions != nil {
-		loader.WithVersionResolver(req.Versions, req.VersionRoot)
+		sl.loader.WithVersionResolver(req.Versions, req.VersionRoot)
 	}
-	var asks []FragmentAsk
-	seenBundle := map[string]bool{}
-	seenDeny := map[string]bool{}
-	seenAsk := map[string]bool{}
-
 	for _, p := range resolved {
-		sel.Profiles = append(sel.Profiles, p.Name)
-		for k, v := range p.Variables {
-			sel.Variables[k] = v
-		}
-		if sel.LLM == "" {
-			sel.LLM = p.LLM
-		}
-		for _, tool := range p.DenyTools {
-			if !seenDeny[tool] {
-				seenDeny[tool] = true
-				sel.DenyTools = append(sel.DenyTools, tool)
-			}
-		}
-		for _, server := range p.ExcludeMCP {
-			sel.Exclusions[server] = struct{}{}
-		}
-		for _, ref := range p.Commands {
-			if !seenAsk["command:"+ref] {
-				seenAsk["command:"+ref] = true
-				sel.Commands = append(sel.Commands, ItemAsk{Ref: ref})
-			}
-		}
-		for _, ref := range p.Skills {
-			if !seenAsk["skill:"+ref] {
-				seenAsk["skill:"+ref] = true
-				sel.Skills = append(sel.Skills, ItemAsk{Ref: ref})
-			}
-		}
-		for _, ref := range p.Bundles {
-			if !seenBundle[ref] {
-				seenBundle[ref] = true
-				sel.Bundles = append(sel.Bundles, ref)
-			}
-		}
-		if p.Hooks.HasAny() {
-			sel.Hooks = append(sel.Hooks, ProfileHooks{Profile: p.Name, SourceRef: p.SourceRef, Signer: p.Signer, Hooks: p.Hooks})
-		}
-
-		excluded := bundles.NewExclusions(p.ExcludeFragments)
-		declare := func(ask FragmentAsk) {
-			if excluded.Excludes(ask.Name) {
-				return
-			}
-			asks = append(asks, ask)
-			sel.Declared[p.Name] = append(sel.Declared[p.Name], ask.Name)
-		}
-		tagged, err := fragmentsByTags(cat, p.SelectTags)
-		if err != nil {
-			return Selection{}, fmt.Errorf("composite: profile tags: %w", err)
-		}
-		for _, ask := range tagged {
-			declare(ask)
-		}
-		for _, f := range p.Fragments {
-			name, version, err := bundles.SplitFragmentVersion(f.Name)
-			if err != nil {
-				// Withheld, not fatal: one unaddressable ref must not cost the
-				// profile every other fragment it declares. It reaches the load
-				// step as authored, which reports the gap.
-				name, version = f.Name, ""
-			}
-			declare(FragmentAsk{Name: name, Version: version, Priority: f.Priority})
-		}
-		for _, er := range loader.ExpandBundleRefs(slices.Concat(p.Bundles, p.BundleItems)) {
-			declare(FragmentAsk{Name: er.Name, Version: er.Version})
+		sl.mergeSettings(p)
+		sl.mergeItemAsks(p)
+		if err := sl.declareFragments(p); err != nil {
+			return Selection{}, err
 		}
 	}
-
-	for _, f := range req.Fragments {
-		name := cat.ResolveFragmentAsk(f)
-		sel.Explicit = append(sel.Explicit, name)
-		asks = append(asks, FragmentAsk{Name: name})
+	if err := sl.addCallerAsks(req); err != nil {
+		return Selection{}, err
 	}
-	tagged, err := fragmentsByTags(cat, req.Tags)
+	sl.sel.Fragments = bookend(dedupe(sl.asks))
+	return sl.sel, nil
+}
+
+// selector accumulates Select's result across the profiles, in order.
+type selector struct {
+	sel    Selection
+	cat    bundles.Catalog
+	loader *bundles.Loader
+	asks   []FragmentAsk
+	// seen keys every deduplicated declaration by kind ("deny:", "command:",
+	// "skill:", "bundle:") and value, so each is recorded once, first wins.
+	seen map[string]bool
+}
+
+// addOnce reports whether key is new, recording it.
+func (sl *selector) addOnce(key string) bool {
+	if sl.seen[key] {
+		return false
+	}
+	sl.seen[key] = true
+	return true
+}
+
+// mergeSettings folds p's name, variables (later profiles win), first LLM,
+// denied tools, MCP exclusions and hooks into the selection.
+func (sl *selector) mergeSettings(p profiles.ResolvedProfile) {
+	sl.sel.Profiles = append(sl.sel.Profiles, p.Name)
+	for k, v := range p.Variables {
+		sl.sel.Variables[k] = v
+	}
+	if sl.sel.LLM == "" {
+		sl.sel.LLM = p.LLM
+	}
+	for _, tool := range p.DenyTools {
+		if sl.addOnce("deny:" + tool) {
+			sl.sel.DenyTools = append(sl.sel.DenyTools, tool)
+		}
+	}
+	for _, server := range p.ExcludeMCP {
+		sl.sel.Exclusions[server] = struct{}{}
+	}
+	sl.mergeHooks(p)
+}
+
+// mergeHooks records p's hooks, when it declares any.
+func (sl *selector) mergeHooks(p profiles.ResolvedProfile) {
+	if p.Hooks.HasAny() {
+		sl.sel.Hooks = append(sl.sel.Hooks, ProfileHooks{Profile: p.Name, SourceRef: p.SourceRef, Signer: p.Signer, Hooks: p.Hooks})
+	}
+}
+
+// mergeItemAsks records p's command, skill and bundle asks, each once.
+func (sl *selector) mergeItemAsks(p profiles.ResolvedProfile) {
+	for _, ref := range p.Commands {
+		if sl.addOnce("command:" + ref) {
+			sl.sel.Commands = append(sl.sel.Commands, ItemAsk{Ref: ref})
+		}
+	}
+	for _, ref := range p.Skills {
+		if sl.addOnce("skill:" + ref) {
+			sl.sel.Skills = append(sl.sel.Skills, ItemAsk{Ref: ref})
+		}
+	}
+	for _, ref := range p.Bundles {
+		if sl.addOnce("bundle:" + ref) {
+			sl.sel.Bundles = append(sl.sel.Bundles, ref)
+		}
+	}
+}
+
+// declareFragments asks for p's fragments — its tag matches, its direct
+// fragment asks, then its whole-bundle expansions — each filtered by p's
+// exclusions and recorded as declared by p.
+func (sl *selector) declareFragments(p profiles.ResolvedProfile) error {
+	excluded := bundles.NewExclusions(p.ExcludeFragments)
+	declare := func(ask FragmentAsk) {
+		if excluded.Excludes(ask.Name) {
+			return
+		}
+		sl.asks = append(sl.asks, ask)
+		sl.sel.Declared[p.Name] = append(sl.sel.Declared[p.Name], ask.Name)
+	}
+	tagged, err := fragmentsByTags(sl.cat, p.SelectTags)
 	if err != nil {
-		return Selection{}, fmt.Errorf("composite: tags: %w", err)
+		return fmt.Errorf("composite: profile tags: %w", err)
 	}
-	asks = append(asks, tagged...)
-	sel.Tags = append([]string(nil), req.Tags...)
-	if len(req.Tags) > 0 && len(tagged) == 0 {
-		sel.MissingTags = append([]string(nil), req.Tags...)
+	for _, ask := range tagged {
+		declare(ask)
 	}
+	for _, f := range p.Fragments {
+		name, version, err := bundles.SplitFragmentVersion(f.Name)
+		if err != nil {
+			// Withheld, not fatal: one unaddressable ref must not cost the
+			// profile every other fragment it declares. It reaches the load
+			// step as authored, which reports the gap.
+			name, version = f.Name, ""
+		}
+		declare(FragmentAsk{Name: name, Version: version, Priority: f.Priority})
+	}
+	for _, er := range sl.loader.ExpandBundleRefs(slices.Concat(p.Bundles, p.BundleItems)) {
+		declare(FragmentAsk{Name: er.Name, Version: er.Version})
+	}
+	return nil
+}
 
-	sel.Fragments = bookend(dedupe(asks))
-	return sel, nil
+// addCallerAsks adds the caller's named asks (resolved to their qualified
+// identity, recorded as Explicit) and tag matches, noting the tags that
+// matched nothing.
+func (sl *selector) addCallerAsks(req SelectRequest) error {
+	for _, f := range req.Fragments {
+		name := sl.cat.ResolveFragmentAsk(f)
+		sl.sel.Explicit = append(sl.sel.Explicit, name)
+		sl.asks = append(sl.asks, FragmentAsk{Name: name})
+	}
+	tagged, err := fragmentsByTags(sl.cat, req.Tags)
+	if err != nil {
+		return fmt.Errorf("composite: tags: %w", err)
+	}
+	sl.asks = append(sl.asks, tagged...)
+	sl.sel.Tags = append([]string(nil), req.Tags...)
+	if len(req.Tags) > 0 && len(tagged) == 0 {
+		sl.sel.MissingTags = append([]string(nil), req.Tags...)
+	}
+	return nil
 }
 
 // fragmentsByTags is every fragment in the catalog carrying any of tags, as

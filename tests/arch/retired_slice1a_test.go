@@ -138,56 +138,82 @@ func receiverName(fd *ast.FuncDecl) string {
 	return ""
 }
 
-// declSites returns every file in files that declares d.
+// declSites returns every file in files that declares d, once per
+// declaration.
 func declSites(files map[string]*ast.File, d retiredDecl) []string {
 	var sites []string
 	for rel, f := range files {
 		for _, decl := range f.Decls {
-			switch n := decl.(type) {
-			case *ast.FuncDecl:
-				if d.field || n.Name.Name != d.name || receiverName(n) != d.recv {
-					continue
-				}
+			for range d.matchesIn(decl) {
 				sites = append(sites, rel)
-			case *ast.GenDecl:
-				for _, spec := range n.Specs {
-					switch s := spec.(type) {
-					case *ast.TypeSpec:
-						if d.field {
-							if s.Name.Name != d.recv {
-								continue
-							}
-							st, ok := s.Type.(*ast.StructType)
-							if !ok {
-								continue
-							}
-							for _, fld := range st.Fields.List {
-								for _, id := range fld.Names {
-									if id.Name == d.name {
-										sites = append(sites, rel)
-									}
-								}
-							}
-							continue
-						}
-						if d.recv == "" && s.Name.Name == d.name {
-							sites = append(sites, rel)
-						}
-					case *ast.ValueSpec:
-						if d.field || d.recv != "" {
-							continue
-						}
-						for _, id := range s.Names {
-							if id.Name == d.name {
-								sites = append(sites, rel)
-							}
-						}
-					}
-				}
 			}
 		}
 	}
 	return sites
+}
+
+// matchesIn counts the declarations of d in one top-level declaration.
+func (d retiredDecl) matchesIn(decl ast.Decl) int {
+	switch n := decl.(type) {
+	case *ast.FuncDecl:
+		if d.field || n.Name.Name != d.name || receiverName(n) != d.recv {
+			return 0
+		}
+		return 1
+	case *ast.GenDecl:
+		count := 0
+		for _, spec := range n.Specs {
+			count += d.specMatches(spec)
+		}
+		return count
+	}
+	return 0
+}
+
+// specMatches counts the declarations of d in one type or value spec.
+func (d retiredDecl) specMatches(spec ast.Spec) int {
+	switch s := spec.(type) {
+	case *ast.TypeSpec:
+		if d.field {
+			return d.fieldMatches(s)
+		}
+		if d.recv == "" && s.Name.Name == d.name {
+			return 1
+		}
+	case *ast.ValueSpec:
+		if d.field || d.recv != "" {
+			return 0
+		}
+		return countIdents(s.Names, d.name)
+	}
+	return 0
+}
+
+// fieldMatches counts d's field in s, when s is d's struct.
+func (d retiredDecl) fieldMatches(s *ast.TypeSpec) int {
+	if s.Name.Name != d.recv {
+		return 0
+	}
+	st, ok := s.Type.(*ast.StructType)
+	if !ok {
+		return 0
+	}
+	count := 0
+	for _, fld := range st.Fields.List {
+		count += countIdents(fld.Names, d.name)
+	}
+	return count
+}
+
+// countIdents counts the idents named name.
+func countIdents(ids []*ast.Ident, name string) int {
+	count := 0
+	for _, id := range ids {
+		if id.Name == name {
+			count++
+		}
+	}
+	return count
 }
 
 func (d retiredDecl) String() string {
@@ -259,34 +285,7 @@ func TestArch_Retired_Slice1a_WriteCommandFilesDoesNotSweep(t *testing.T) {
 // longer declares it by name, so neither side of the runner channel can
 // silently repopulate a field the other never reads.
 func TestArch_Retired_Slice1a_StartRunReservesDeadFields(t *testing.T) {
-	body := startRunMessageBody(t)
-	reserved := map[int]bool{}
-	reservedRe := regexp.MustCompile(`^\s*reserved\s+([0-9,\s]+);`)
-	fieldRe := regexp.MustCompile(`^\s*(?:optional\s+|repeated\s+)?[\w.]+\s+(\w+)\s*=\s*(\d+)\s*;`)
-	declared := map[string]int{}
-	for _, line := range body {
-		if m := reservedRe.FindStringSubmatch(line); m != nil {
-			for _, n := range strings.Split(m[1], ",") {
-				n = strings.TrimSpace(n)
-				if n == "" {
-					continue
-				}
-				var v int
-				for _, c := range n {
-					v = v*10 + int(c-'0')
-				}
-				reserved[v] = true
-			}
-			continue
-		}
-		if m := fieldRe.FindStringSubmatch(line); m != nil {
-			var v int
-			for _, c := range m[2] {
-				v = v*10 + int(c-'0')
-			}
-			declared[m[1]] = v
-		}
-	}
+	reserved, declared := parseStartRunFields(startRunMessageBody(t))
 	if len(declared) == 0 {
 		t.Fatal("StartRun parsed to zero fields — the message shape changed, not the wire")
 	}
@@ -298,6 +297,38 @@ func TestArch_Retired_Slice1a_StartRunReservesDeadFields(t *testing.T) {
 			t.Errorf("StartRun still declares %s = %d — nothing on either side reads it; reserve the number instead", name, got)
 		}
 	}
+}
+
+// parseStartRunFields reads the message body's reserved numbers and its
+// declared fields by name.
+func parseStartRunFields(body []string) (map[int]bool, map[string]int) {
+	reserved := map[int]bool{}
+	reservedRe := regexp.MustCompile(`^\s*reserved\s+([0-9,\s]+);`)
+	fieldRe := regexp.MustCompile(`^\s*(?:optional\s+|repeated\s+)?[\w.]+\s+(\w+)\s*=\s*(\d+)\s*;`)
+	declared := map[string]int{}
+	for _, line := range body {
+		if m := reservedRe.FindStringSubmatch(line); m != nil {
+			for _, n := range strings.Split(m[1], ",") {
+				if n = strings.TrimSpace(n); n != "" {
+					reserved[digitsValue(n)] = true
+				}
+			}
+			continue
+		}
+		if m := fieldRe.FindStringSubmatch(line); m != nil {
+			declared[m[1]] = digitsValue(m[2])
+		}
+	}
+	return reserved, declared
+}
+
+// digitsValue is the decimal value of a run of ASCII digits.
+func digitsValue(s string) int {
+	var v int
+	for _, c := range s {
+		v = v*10 + int(c-'0')
+	}
+	return v
 }
 
 // startRunMessageBody returns the lines between `message StartRun {` and its

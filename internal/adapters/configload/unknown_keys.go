@@ -95,40 +95,54 @@ func classifyValidationError(configPath string, validator *schema.ConfigValidato
 		return []config.Warning{{Kind: config.WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)}}
 	}
 
-	var warnings []config.Warning
+	r := unknownKeyReport{configPath: configPath, validator: validator, reported: map[string]bool{}}
 	var other bool
-	reported := map[string]bool{}
 	for _, leaf := range leafCauses(ve) {
-		keys := unknownKeysIn(leaf.Message)
-		if len(keys) == 0 {
-			if !fromBranchAlternative(leaf) {
-				other = true
-			}
+		if r.add(leaf) {
+			other = true
+		}
+	}
+	if len(r.warnings) == 0 || other {
+		r.warnings = append(r.warnings, config.Warning{Kind: config.WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)})
+	}
+	return r.warnings
+}
+
+// unknownKeyReport accumulates one unknown-key warning per (location, key).
+type unknownKeyReport struct {
+	configPath string
+	validator  *schema.ConfigValidator
+	reported   map[string]bool
+	warnings   []config.Warning
+}
+
+// add records the unknown keys a leaf cause names, reporting whether the
+// leaf is some OTHER failure: it names no unknown key and is not merely one
+// anyOf alternative's complaint.
+func (r *unknownKeyReport) add(leaf *jsonschema.ValidationError) (other bool) {
+	keys := unknownKeysIn(leaf.Message)
+	if len(keys) == 0 {
+		return !fromBranchAlternative(leaf)
+	}
+	for _, key := range keys {
+		if fromBranchAlternative(leaf) && keyKnownAt(r.validator, leaf.InstanceLocation, key) {
+			// The key IS declared somewhere in this anyOf; only the
+			// alternatives that do not declare it are complaining. Naming
+			// it "unknown" would report a correct line as a typo — and
+			// then helpfully suggest the key the user already wrote.
 			continue
 		}
-		for _, key := range keys {
-			if fromBranchAlternative(leaf) && keyKnownAt(validator, leaf.InstanceLocation, key) {
-				// The key IS declared somewhere in this anyOf; only the
-				// alternatives that do not declare it are complaining. Naming
-				// it "unknown" would report a correct line as a typo — and
-				// then helpfully suggest the key the user already wrote.
-				continue
-			}
-			id := leaf.InstanceLocation + "\x00" + key
-			if reported[id] {
-				continue
-			}
-			reported[id] = true
-			warnings = append(warnings, config.Warning{
-				Kind: config.WarnKindUnknownKey,
-				Text: unknownKeyMessage(configPath, leaf.InstanceLocation, key, validator),
-			})
+		id := leaf.InstanceLocation + "\x00" + key
+		if r.reported[id] {
+			continue
 		}
+		r.reported[id] = true
+		r.warnings = append(r.warnings, config.Warning{
+			Kind: config.WarnKindUnknownKey,
+			Text: unknownKeyMessage(r.configPath, leaf.InstanceLocation, key, r.validator),
+		})
 	}
-	if len(warnings) == 0 || other {
-		warnings = append(warnings, config.Warning{Kind: config.WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)})
-	}
-	return warnings
+	return false
 }
 
 // keyKnownAt reports whether key is a property the schema declares at

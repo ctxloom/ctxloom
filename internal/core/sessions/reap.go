@@ -200,29 +200,33 @@ func Reap(ctx context.Context, l Layout, locks Locks, p ReapPolicy, triage Triag
 		if !isHarpDir(e) {
 			continue
 		}
-		c, ok := ReapSession(ctx, l, locks, e.Name(), p, triage)
-		if !ok {
-			continue
+		if c, ok := ReapSession(ctx, l, locks, e.Name(), p, triage); ok {
+			rep.tally(c)
 		}
-		switch c.Verdict {
-		case "":
-			rep.Newer++
-			continue
-		case ReapReclaimed:
-			rep.Reclaimed++
-			rep.Bytes += c.Bytes
-		case ReapReclaimable:
-			rep.Bytes += c.Bytes
-		case ReapSpared:
-			rep.Spared++
-		case ReapKept:
-			rep.Kept++
-		default:
-			rep.Skipped++
-		}
-		rep.Candidates = append(rep.Candidates, c)
 	}
 	return rep, nil
+}
+
+// tally counts one candidate by verdict and lists it; a session newer than
+// the bound (no verdict) is counted, not listed.
+func (rep *Report) tally(c ReapCandidate) {
+	switch c.Verdict {
+	case "":
+		rep.Newer++
+		return
+	case ReapReclaimed:
+		rep.Reclaimed++
+		rep.Bytes += c.Bytes
+	case ReapReclaimable:
+		rep.Bytes += c.Bytes
+	case ReapSpared:
+		rep.Spared++
+	case ReapKept:
+		rep.Kept++
+	default:
+		rep.Skipped++
+	}
+	rep.Candidates = append(rep.Candidates, c)
 }
 
 // isHarpDir is the reap's allow-shape: a real DIRECTORY directly under the
@@ -261,85 +265,121 @@ func ReapSession(ctx context.Context, l Layout, locks Locks, name string, p Reap
 	}
 	c.Bytes = m.bytes
 
-	last, err := ActivityTime(l, name)
-	if err != nil {
-		c.Verdict = ReapSkipped
-		c.Reason = fmt.Sprintf("its activity could not be read: %v", err)
+	if !screenAgedUnkept(l, name, p, &c) {
 		return c, true
 	}
-	c.LastActive = last
-	if last.After(p.Cutoff) {
+	members, m, proceed := narrowUndistilled(l, name, p, &c, members, m)
+	if !proceed {
 		return c, true
 	}
-
-	if _, err := os.Lstat(l.KeepMarker(name)); err == nil {
-		c.Verdict = ReapKept
-		c.Reason = fmt.Sprintf("it carries a %s marker", paths.SessionKeepMarkerFileName)
-		return c, true
-	}
-
-	// An undistilled session's transcript is its only record: persist scope
-	// narrows to the default scope's members for it, so a wider scope never
-	// frees less, and the spare is reported whatever the verdict.
-	if p.scope() == paths.Persist && !Distilled(c.Dir) {
-		c.Reason = fmt.Sprintf("its %s/ is spared: it was never distilled, so its transcript is its only record — run `ctxloom session distill %s` first", paths.PersistDirName, name)
-		members = ReapPolicy{}.Members()
-		m = measureMembers(l, name, members)
-		c.Bytes = m.bytes
-		if !m.populated {
-			c.Verdict = ReapSpared
-			return c, true
-		}
-	}
-
 	if m.symlinked != "" {
 		c.Verdict = ReapSkipped
 		c.Reason = fmt.Sprintf("its %s is a symlink, which a reap never follows", m.symlinked)
 		return c, true
 	}
+	return reapLocked(ctx, l, locks, name, p, triage, members, c), true
+}
 
-	// THE LOCK ONLY EVER REFUSES. Dead alone passes; anything else falls
-	// out here rather than falling THROUGH toward a removal by omission.
+// screenAgedUnkept records the session's last activity and reports whether
+// it goes on to the reap: false (with the verdict set) when its activity is
+// unreadable or it carries a keep marker, and false with no verdict when it
+// is newer than the bound.
+func screenAgedUnkept(l Layout, name string, p ReapPolicy, c *ReapCandidate) bool {
+	last, err := ActivityTime(l, name)
+	if err != nil {
+		c.Verdict = ReapSkipped
+		c.Reason = fmt.Sprintf("its activity could not be read: %v", err)
+		return false
+	}
+	c.LastActive = last
+	if last.After(p.Cutoff) {
+		return false
+	}
+	if _, err := os.Lstat(l.KeepMarker(name)); err == nil {
+		c.Verdict = ReapKept
+		c.Reason = fmt.Sprintf("it carries a %s marker", paths.SessionKeepMarkerFileName)
+		return false
+	}
+	return true
+}
+
+// narrowUndistilled narrows a persist-scope reap of an undistilled session
+// to the default scope's members. An undistilled session's transcript is its
+// only record, so a wider scope never frees less, and the spare is reported
+// whatever the verdict. proceed is false (spared) when nothing is left to
+// take.
+func narrowUndistilled(l Layout, name string, p ReapPolicy, c *ReapCandidate, members []paths.HarpMember, m memberMeasure) ([]paths.HarpMember, memberMeasure, bool) {
+	if p.scope() != paths.Persist || Distilled(c.Dir) {
+		return members, m, true
+	}
+	c.Reason = fmt.Sprintf("its %s/ is spared: it was never distilled, so its transcript is its only record — run `ctxloom session distill %s` first", paths.PersistDirName, name)
+	members = ReapPolicy{}.Members()
+	m = measureMembers(l, name, members)
+	c.Bytes = m.bytes
+	if !m.populated {
+		c.Verdict = ReapSpared
+		return members, m, false
+	}
+	return members, m, true
+}
+
+// reapLocked is the session's fate under its lock, held until it returns.
+// THE LOCK ONLY EVER REFUSES. Dead alone passes; anything else falls out
+// here rather than falling THROUGH toward a removal by omission.
+func reapLocked(ctx context.Context, l Layout, locks Locks, name string, p ReapPolicy, triage Triage, members []paths.HarpMember, c ReapCandidate) ReapCandidate {
 	probe, release := locks.Acquire(name)
 	defer release()
 	c.OwnerPID = probe.PID
 	if !probe.Dead {
 		c.Verdict = ReapSkipped
 		c.Reason = probe.Reason
-		return c, true
+		return c
 	}
-
-	if triage != nil {
-		spared, err := triage(ctx, name, probe, p.Apply)
-		if err != nil {
-			c.Verdict = ReapSkipped
-			c.Reason = fmt.Sprintf("it could not be triaged, so its data is left alone: %v", err)
-			return c, true
-		}
-		if spared != "" {
-			c.Verdict = ReapSpared
-			c.Reason = spared
-			return c, true
-		}
+	if triageSpares(ctx, triage, name, probe, p.Apply, &c) {
+		return c
 	}
-
 	if !p.Apply {
 		c.Verdict = ReapReclaimable
-		return c, true
+		return c
 	}
+	return removeReapMembers(l, name, members, c)
+}
+
+// triageSpares runs the triage, when there is one, reporting whether it
+// spared the session's data (or failed, which leaves it alone too).
+func triageSpares(ctx context.Context, triage Triage, name string, probe LockProbe, apply bool, c *ReapCandidate) bool {
+	if triage == nil {
+		return false
+	}
+	spared, err := triage(ctx, name, probe, apply)
+	if err != nil {
+		c.Verdict = ReapSkipped
+		c.Reason = fmt.Sprintf("it could not be triaged, so its data is left alone: %v", err)
+		return true
+	}
+	if spared != "" {
+		c.Verdict = ReapSpared
+		c.Reason = spared
+		return true
+	}
+	return false
+}
+
+// removeReapMembers removes the session's taken members. The lock FILE is
+// deliberately left behind: unlinking it while we hold it would let a
+// session resuming under this harp create and lock a FRESH inode and believe
+// it owns the session we are still deleting — the exact race holding the
+// lock exists to prevent.
+func removeReapMembers(l Layout, name string, members []paths.HarpMember, c ReapCandidate) ReapCandidate {
 	for _, member := range members {
 		if err := os.RemoveAll(l.Member(name, member)); err != nil {
 			c.Verdict = ReapSkipped
 			c.Reason = fmt.Sprintf("its %s could not be removed: %v", member.Rel(), err)
-			return c, true
+			return c
 		}
 	}
-	// The lock FILE is deliberately left behind: unlinking it while we hold
-	// it would let a session resuming under this harp create and lock a
-	// FRESH inode and believe it owns the session we are still deleting —
-	// the exact race holding the lock exists to prevent.
 	c.Verdict = ReapReclaimed
-	return c, true
+	return c
 }
 
 // memberMeasure is what measureMembers learns about the members a policy

@@ -87,24 +87,13 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, re
 	if verify == nil {
 		return RetractionUnknown, "", nil
 	}
-	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
-	if err != nil {
-		return RetractionUnknown, "", nil
-	}
-	root := ref.TreeRepoPath()
-	raw, err := fetcher.FetchFile(ctx, owner, repo, root+"/"+tipManifestName, branch)
-	if err != nil {
-		return RetractionUnknown, "", nil
-	}
-	v, err := verify(raw, tipManifestSignatures(ctx, fetcher, owner, repo, root, branch))
-	if err != nil || v.Publisher == "" || v.Release.Version == nil {
-		return RetractionUnknown, "", nil
-	}
-	if v.Release.Name != path.Base(root) {
+	v, ok := fetchVerifiedTip(ctx, fetcher, owner, repo, ref.TreeRepoPath(), verify)
+	if !ok {
 		return RetractionUnknown, "", nil
 	}
 	var pv *semver.Version
 	if pinned.SignedVersion != "" {
+		var err error
 		pv, err = semver.StrictNewVersion(pinned.SignedVersion)
 		if err != nil {
 			return RetractionUnknown, "", fmt.Errorf("the lockfile records signed_version %q for %s, which is not strict semver: %w", pinned.SignedVersion, ref.String(), err)
@@ -117,6 +106,28 @@ func CheckRetracted(ctx context.Context, fetcher Fetcher, owner, repo string, re
 		return RetractionRetracted, why, nil
 	}
 	return RetractionClean, "", nil
+}
+
+// fetchVerifiedTip reads and verifies the tip manifest for the bundle rooted
+// at root on the default branch. false — Unknown — when it cannot be read,
+// does not verify to a publisher and version, or names another bundle.
+func fetchVerifiedTip(ctx context.Context, fetcher Fetcher, owner, repo, root string, verify ManifestVerifyFunc) (Verified, bool) {
+	branch, err := fetcher.GetDefaultBranch(ctx, owner, repo)
+	if err != nil {
+		return Verified{}, false
+	}
+	raw, err := fetcher.FetchFile(ctx, owner, repo, root+"/"+tipManifestName, branch)
+	if err != nil {
+		return Verified{}, false
+	}
+	v, err := verify(raw, tipManifestSignatures(ctx, fetcher, owner, repo, root, branch))
+	if err != nil || v.Publisher == "" || v.Release.Version == nil {
+		return Verified{}, false
+	}
+	if v.Release.Name != path.Base(root) {
+		return Verified{}, false
+	}
+	return v, true
 }
 
 // tipManifestName is the bundle manifest's file name and its signatures' key

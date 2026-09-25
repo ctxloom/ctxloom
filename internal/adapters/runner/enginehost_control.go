@@ -76,14 +76,8 @@ func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string)
 	// not a slot on the FIFO — so a pause cannot deadlock a resume, and the
 	// mail behind this turn stays unconsumed in the spool where a relaunch
 	// would find it. Bounded by the same two contexts everything else here is.
-	if gate := eh.pauseGate(); gate != nil {
-		select {
-		case <-gate:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-runCtx.Done():
-			return runCtx.Err()
-		}
+	if err := waitGate(ctx, runCtx, eh.pauseGate()); err != nil {
+		return err
 	}
 
 	eh.enqueueMu.Lock()
@@ -92,14 +86,8 @@ func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string)
 	eh.mu.Lock()
 	busy := eh.turnBusy
 	eh.mu.Unlock()
-	if busy != nil {
-		select {
-		case <-busy:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-runCtx.Done():
-			return runCtx.Err()
-		}
+	if err := waitGate(ctx, runCtx, busy); err != nil {
+		return err
 	}
 	// THE OWNER GATE: LET IT FINISH, THEN WAIT. The turn in flight has just
 	// reached its boundary; the next one starts only with the owner present,
@@ -111,14 +99,33 @@ func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string)
 	home := eh.home
 	eh.mu.Unlock()
 	if home != nil {
-		select {
-		case <-home.ownerPresent():
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-runCtx.Done():
-			return runCtx.Err()
+		if err := waitGate(ctx, runCtx, home.ownerPresent()); err != nil {
+			return err
 		}
 	}
+	return eh.startTurn(tag, text)
+}
+
+// waitGate waits for gate to close, bounded by ctx and the run's ctx; a nil
+// gate is open.
+func waitGate(ctx, runCtx context.Context, gate <-chan struct{}) error {
+	if gate == nil {
+		return nil
+	}
+	select {
+	case <-gate:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-runCtx.Done():
+		return runCtx.Err()
+	}
+}
+
+// startTurn hands text to the engine as the next turn — unless the run ended
+// while the caller waited — pushing tag on the attribution FIFO, marking the
+// engine busy, and recording the user turn. Called under the enqueue lock.
+func (eh *EngineHost) startTurn(tag turnTag, text string) error {
 	eh.mu.Lock()
 	if eh.ended {
 		eh.mu.Unlock()

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // The mock's STRUCTURED turn: a deterministic echo, one discrete "process"
@@ -38,22 +39,14 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 	if err != nil {
 		return engine.TurnResult{}, err
 	}
-	tool, hasTool := toolCallIn(in.Prompt)
-	for _, event := range eventsOfTurn(tool, hasTool) {
-		if !d.fires[event] {
-			continue
-		}
-		if err := fireHooks(ctx, ex, hooks, event, tool); err != nil {
-			return engine.TurnResult{}, err
-		}
+	if err := d.fireTurnHooks(ctx, ex, hooks, in.Prompt); err != nil {
+		return engine.TurnResult{}, err
 	}
 	if err := recordTurn(ex, in.Prompt); err != nil {
 		return engine.TurnResult{}, err
 	}
-	if code := Env(ex.Env, EnvExitCode); code != "" {
-		if n, perr := strconv.Atoi(code); perr == nil && n != 0 {
-			return engine.TurnResult{}, fmt.Errorf("mock: the engine process exited %d", n)
-		}
+	if err := exitCodeErr(ex); err != nil {
+		return engine.TurnResult{}, err
 	}
 	if strings.Contains(in.Prompt, "HANG") {
 		// Parks BEFORE the first send, so the stall leaves no session event,
@@ -78,34 +71,71 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 			return ctx.Err()
 		}
 	}
-	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true}}); err != nil {
+	answer := mockAnswer(ex, in.Prompt)
+	if err := sendTurnEvents(send, in.Prompt, answer); err != nil {
 		return engine.TurnResult{}, err
 	}
-	custom, hasCustom := LookupEnv(ex.Env, EnvResponse)
-	failPrefix := Env(ex.Env, EnvFailPrefix) == "1"
-	var answer string
-	if hasCustom {
-		answer = Response(custom, true, "", "", 1, 0, failPrefix)
-	} else {
-		answer = "mock chat: " + in.Prompt
-		if failPrefix {
-			answer = FailPrefix + "\n" + answer
+	return engine.TurnResult{NativeKey: sessionKey, Answer: answer}, nil
+}
+
+// fireTurnHooks fires the delivered hooks for every event the turn passes
+// through that this driver fires.
+func (d driver) fireTurnHooks(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, prompt string) error {
+	tool, hasTool := toolCallIn(prompt)
+	for _, event := range eventsOfTurn(tool, hasTool) {
+		if !d.fires[event] {
+			continue
+		}
+		if err := fireHooks(ctx, ex, hooks, event, tool); err != nil {
+			return err
 		}
 	}
-	if strings.Contains(in.Prompt, "TOOLS") {
-		for _, ev := range toolsTurn(in.Prompt) {
+	return nil
+}
+
+// exitCodeErr is the failure a scripted non-zero exit code stands for.
+func exitCodeErr(ex engine.Exec) error {
+	code := Env(ex.Env, EnvExitCode)
+	if code == "" {
+		return nil
+	}
+	if n, perr := strconv.Atoi(code); perr == nil && n != 0 {
+		return fmt.Errorf("mock: the engine process exited %d", n)
+	}
+	return nil
+}
+
+// mockAnswer is the turn's reply: the scripted response when one is set,
+// else an echo of the prompt, prefixed by the fail marker when asked.
+func mockAnswer(ex engine.Exec, prompt string) string {
+	failPrefix := Env(ex.Env, EnvFailPrefix) == "1"
+	if custom, ok := LookupEnv(ex.Env, EnvResponse); ok {
+		return Response(custom, true, "", "", 1, 0, failPrefix)
+	}
+	answer := "mock chat: " + prompt
+	if failPrefix {
+		answer = FailPrefix + "\n" + answer
+	}
+	return answer
+}
+
+// sendTurnEvents relays the turn: the resumable session, a TOOLS turn's
+// entries, the answer, and the completion.
+func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string) error {
+	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true}}); err != nil {
+		return err
+	}
+	if strings.Contains(prompt, "TOOLS") {
+		for _, ev := range toolsTurn(prompt) {
 			if err := send(ev); err != nil {
-				return engine.TurnResult{}, err
+				return err
 			}
 		}
 	}
 	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: answer}}); err != nil {
-		return engine.TurnResult{}, err
+		return err
 	}
-	if err := send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}); err != nil {
-		return engine.TurnResult{}, err
-	}
-	return engine.TurnResult{NativeKey: sessionKey, Answer: answer}, nil
+	return send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}})
 }
 
 // toolsTurn is the entry vocabulary a TOOLS turn relays before its answer.

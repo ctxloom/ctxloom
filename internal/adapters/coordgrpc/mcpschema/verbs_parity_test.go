@@ -66,53 +66,71 @@ func TestGeneratedSchemas_ProjectTheVerbRequests(t *testing.T) {
 		b, ok := verbBindings[tool.Name]
 		require.True(t, ok, "generated tool %q is bound to no verb: add it to verbBindings", tool.Name)
 		seen[tool.Name] = true
-
-		var in struct {
-			Properties map[string]json.RawMessage `json:"properties"`
-		}
-		require.NoError(t, json.Unmarshal(tool.InputSchema, &in))
-		var props []string
-		for p := range in.Properties {
-			props = append(props, p)
-		}
-		var want []string
-		for p := range b.fields {
-			if b.nested == "" || p == "role" {
-				want = append(want, p)
-			}
-		}
-		if b.nested != "" {
-			want = append(want, b.nested)
-		}
-		want = append(want, b.transportOnly...)
-		sort.Strings(props)
-		sort.Strings(want)
-		assert.Equal(t, want, props, "%s: the schema's properties are not the verb's projection", tool.Name)
-
-		if b.request == nil {
-			continue
-		}
-		rt := reflect.TypeOf(b.request)
-		bound := map[string]bool{}
-		for _, f := range b.fields {
-			bound[f] = true
-		}
-		for _, f := range b.unbound {
-			bound[f] = true
-		}
-		for i := 0; i < rt.NumField(); i++ {
-			f := rt.Field(i).Name
-			if rt == reflect.TypeOf(coord.ControlRequest{}) && f == "Verb" {
-				continue // the tool name IS the verb
-			}
-			assert.True(t, bound[f], "%s: %s.%s reaches no schema property", tool.Name, rt.Name(), f)
-		}
-		for _, f := range b.fields {
-			_, has := rt.FieldByName(f)
-			assert.True(t, has, "%s: binding names %s.%s, which does not exist", tool.Name, rt.Name(), f)
+		assert.Equal(t, b.wantProperties(), schemaProperties(t, tool.InputSchema), "%s: the schema's properties are not the verb's projection", tool.Name)
+		if b.request != nil {
+			assertRequestProjected(t, tool.Name, b)
 		}
 	}
 	for name := range verbBindings {
 		assert.True(t, seen[name], "verbBindings names %q, which no generated schema carries", name)
+	}
+}
+
+// schemaProperties is an input schema's property names, sorted.
+func schemaProperties(t *testing.T, inputSchema json.RawMessage) []string {
+	t.Helper()
+	var in struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(inputSchema, &in))
+	var props []string
+	for p := range in.Properties {
+		props = append(props, p)
+	}
+	sort.Strings(props)
+	return props
+}
+
+// wantProperties is the properties the binding projects, sorted: its bound
+// fields (only role at the top level when the rest nest under one object),
+// the nesting object, and the transport-only properties.
+func (b verbBinding) wantProperties() []string {
+	var want []string
+	for p := range b.fields {
+		if b.nested == "" || p == "role" {
+			want = append(want, p)
+		}
+	}
+	if b.nested != "" {
+		want = append(want, b.nested)
+	}
+	want = append(want, b.transportOnly...)
+	sort.Strings(want)
+	return want
+}
+
+// assertRequestProjected asserts every field of the binding's request type
+// reaches a schema property (a ControlRequest's Verb excepted: the tool name
+// IS the verb), and every field the binding names exists.
+func assertRequestProjected(t *testing.T, toolName string, b verbBinding) {
+	t.Helper()
+	rt := reflect.TypeOf(b.request)
+	bound := map[string]bool{}
+	for _, f := range b.fields {
+		bound[f] = true
+	}
+	for _, f := range b.unbound {
+		bound[f] = true
+	}
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i).Name
+		if rt == reflect.TypeOf(coord.ControlRequest{}) && f == "Verb" {
+			continue // the tool name IS the verb
+		}
+		assert.True(t, bound[f], "%s: %s.%s reaches no schema property", toolName, rt.Name(), f)
+	}
+	for _, f := range b.fields {
+		_, has := rt.FieldByName(f)
+		assert.True(t, has, "%s: binding names %s.%s, which does not exist", toolName, rt.Name(), f)
 	}
 }

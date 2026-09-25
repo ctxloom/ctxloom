@@ -184,52 +184,20 @@ func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.Ses
 	if f.legacy == nil {
 		// No legacy leg to fall back to (a retired scraper, declared on the
 		// engine's descriptor): a failed canonical read is the WHOLE
-		// listing's failure, not "zero sessions". Discarding canonErr
-		// here used to report a confident empty list indistinguishable from a
+		// listing's failure, not "zero sessions". Discarding canonErr here
+		// would report a confident empty list indistinguishable from a
 		// project that genuinely has none.
 		if canonErr != nil {
 			return nil, canonErr
 		}
-		sort.SliceStable(canonMetas, func(i, j int) bool {
-			return canonMetas[i].StartTime.After(canonMetas[j].StartTime)
-		})
+		sortNewestFirst(canonMetas)
 		return canonMetas, nil
 	}
 
-	// One enumeration for the whole dedup set, not one Find per canonical
-	// session. An unreadable store simply covers nothing, exactly as a failing
-	// Find did.
-	covered := make(map[string]bool, len(canonMetas))
-	if f.store != nil && len(canonMetas) > 0 {
-		if all, err := f.store.ListAll(); err == nil {
-			sessionIDByHarp := make(map[string]string, len(all))
-			for _, e := range all {
-				if e.SessionID != "" {
-					sessionIDByHarp[e.HarpName] = e.SessionID
-				}
-			}
-			for _, m := range canonMetas {
-				if sessionID := sessionIDByHarp[m.ID]; sessionID != "" {
-					covered[sessionID] = true
-				}
-			}
-		}
-	}
-
-	legacyMetas, err := f.legacy.ListSessions(ctx)
+	covered := f.coveredSessionIDs(canonMetas)
+	legacyMetas, err := f.legacyListing(ctx, canonMetas, canonErr)
 	if err != nil {
-		if len(canonMetas) == 0 {
-			// Neither leg produced anything: prefer canonical's error when BOTH
-			// failed — it is the primary source now (this file's own doc), so
-			// its failure is the more actionable one to surface.
-			if canonErr != nil {
-				return nil, canonErr
-			}
-			return nil, err
-		}
-		// Canonical still has something to show even though legacy failed —
-		// degrade to canonical-only rather than losing the whole listing.
-		legacyMetas = nil
+		return nil, err
 	}
 
 	out := make([]agent.SessionMeta, 0, len(canonMetas)+len(legacyMetas))
@@ -239,8 +207,59 @@ func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.Ses
 			out = append(out, m)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].StartTime.After(out[j].StartTime)
-	})
+	sortNewestFirst(out)
 	return out, nil
+}
+
+// sortNewestFirst orders sessions by start time, newest first, stably.
+func sortNewestFirst(metas []agent.SessionMeta) {
+	sort.SliceStable(metas, func(i, j int) bool {
+		return metas[i].StartTime.After(metas[j].StartTime)
+	})
+}
+
+// coveredSessionIDs is the backend session ids the canonical sessions'
+// harps are bound to — the legacy entries already listed from canonical.
+// One enumeration for the whole dedup set, not one Find per canonical
+// session; an unreadable store simply covers nothing.
+func (f *CanonicalFallbackSource) coveredSessionIDs(canonMetas []agent.SessionMeta) map[string]bool {
+	covered := make(map[string]bool, len(canonMetas))
+	if f.store == nil || len(canonMetas) == 0 {
+		return covered
+	}
+	all, err := f.store.ListAll()
+	if err != nil {
+		return covered
+	}
+	sessionIDByHarp := make(map[string]string, len(all))
+	for _, e := range all {
+		if e.SessionID != "" {
+			sessionIDByHarp[e.HarpName] = e.SessionID
+		}
+	}
+	for _, m := range canonMetas {
+		if sessionID := sessionIDByHarp[m.ID]; sessionID != "" {
+			covered[sessionID] = true
+		}
+	}
+	return covered
+}
+
+// legacyListing is the legacy leg's sessions. When it fails and canonical
+// has sessions to show, the listing degrades to canonical-only (nil, nil);
+// when neither leg produced anything, the error is canonical's if it failed
+// too — the primary source's failure is the more actionable one — else
+// legacy's.
+func (f *CanonicalFallbackSource) legacyListing(ctx context.Context, canonMetas []agent.SessionMeta, canonErr error) ([]agent.SessionMeta, error) {
+	legacyMetas, err := f.legacy.ListSessions(ctx)
+	if err == nil {
+		return legacyMetas, nil
+	}
+	if len(canonMetas) > 0 {
+		return nil, nil
+	}
+	if canonErr != nil {
+		return nil, canonErr
+	}
+	return nil, err
 }

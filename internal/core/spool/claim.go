@@ -61,25 +61,51 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 	// a message stays in in/, where the operator tooling that reports
 	// malformed spool files looks, rather than being carried into the
 	// in-flight set and re-reported on every turn for the life of the session.
-	unclaimed, err := sweepDir(harp, DirIn, inPath)
-	if err != nil && !os.IsNotExist(err) {
+	unclaimed, err := sweepExisting(harp, DirIn, inPath)
+	if err != nil {
 		return res, fmt.Errorf("spool: claiming from %s: %w", inPath, err)
 	}
 	res.Problems = append(res.Problems, unclaimed.Problems...)
+	if err := moveUnclaimed(m, harp, inPath, claimedPath, unclaimed.Entries); err != nil {
+		return res, err
+	}
+	claimed, err := sweepExisting(harp, ClaimedDirName, claimedPath)
+	if err != nil {
+		return res, fmt.Errorf("spool: reading %s: %w", claimedPath, err)
+	}
+	res.Entries = claimed.Entries
+	res.Problems = append(res.Problems, claimed.Problems...)
+	return res, nil
+}
+
+// sweepExisting is sweepDir, with a directory that was never created
+// sweeping as empty.
+func sweepExisting(harp string, dir Dir, path string) (SweepResult, error) {
+	res, err := sweepDir(harp, dir, path)
+	if err != nil && !os.IsNotExist(err) {
+		return res, err
+	}
+	return res, nil
+}
+
+// moveUnclaimed moves each unclaimed entry into claimed/ — or, when a copy
+// of it was already delivered or is already in flight, into consumed/,
+// acknowledged unseen: the reader is a new process every turn, so the
+// directories are its only memory of what it has handed out. An entry
+// another reader took first is ordinary.
+func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Entry) error {
 	var seen map[string]bool
-	if len(unclaimed.Entries) > 0 {
+	if len(entries) > 0 {
+		var err error
 		if seen, err = identitiesIn(m, harp, DirInConsumed, ClaimedDirName); err != nil {
-			return res, err
+			return err
 		}
 	}
 	consumedPath, err := DirPath(m, harp, DirInConsumed)
 	if err != nil {
-		return res, err
+		return err
 	}
-	for _, e := range unclaimed.Entries {
-		// A copy of something already delivered, or already in flight, is
-		// acknowledged unseen: the reader is a new process every turn, so
-		// the directories are its only memory of what it has handed out.
+	for _, e := range entries {
 		to := claimedPath
 		if id := e.Identity(); seen[id] {
 			to = consumedPath
@@ -87,16 +113,10 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 			seen[id] = true
 		}
 		if err := renameInto(filepath.Join(inPath, e.Ref.Name), filepath.Join(to, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
-			return res, fmt.Errorf("spool: claiming %s: %w", e.Ref, err)
+			return fmt.Errorf("spool: claiming %s: %w", e.Ref, err)
 		}
 	}
-	claimed, err := sweepDir(harp, ClaimedDirName, claimedPath)
-	if err != nil && !os.IsNotExist(err) {
-		return res, fmt.Errorf("spool: reading %s: %w", claimedPath, err)
-	}
-	res.Entries = claimed.Entries
-	res.Problems = append(res.Problems, claimed.Problems...)
-	return res, nil
+	return nil
 }
 
 // Ack acknowledges one claimed message by renaming in/claimed/<name> into

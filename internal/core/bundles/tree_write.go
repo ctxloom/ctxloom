@@ -190,12 +190,8 @@ type treeSave struct {
 // distilled form is deleted first, so a stale distilled file cannot outlive
 // the content it summarised.
 func saveItems[T any](t treeSave, kind trust.ItemKind, cur, next map[string]T, surface func(string, T) (content.Surface, string, error)) error {
-	for _, name := range collections.SortedKeys(cur) {
-		if _, ok := next[name]; !ok {
-			if err := t.w.Delete(t.ctx, trust.Ref{Bundle: t.bundle, Kind: kind, Name: name}); err != nil {
-				return fmt.Errorf("bundles: removing %s %q: %w", kind, name, err)
-			}
-		}
+	if err := deleteDropped(t, kind, cur, next); err != nil {
+		return err
 	}
 	for _, name := range collections.SortedKeys(next) {
 		was, had := cur[name]
@@ -208,20 +204,52 @@ func saveItems[T any](t treeSave, kind trust.ItemKind, cur, next map[string]T, s
 			return err
 		}
 		if had {
-			if _, wasDistilled, _ := surface(name, was); wasDistilled != "" && distilled == "" {
-				if err := t.w.Delete(t.ctx, ref); err != nil {
-					return fmt.Errorf("bundles: clearing %s: %w", ref.Key(), err)
-				}
+			if err := clearStaleDistilled(t, ref, surface, name, was, distilled); err != nil {
+				return err
 			}
 		}
-		if err := t.w.Put(t.ctx, ref, signing.FormRaw, s); err != nil {
-			return fmt.Errorf("bundles: writing %s: %w", ref.Key(), err)
+		if err := t.putItem(ref, s, distilled); err != nil {
+			return err
 		}
-		if distilled != "" {
-			if err := t.w.Put(t.ctx, ref, signing.FormDistilled, s); err != nil {
-				return fmt.Errorf("bundles: writing %s (distilled): %w", ref.Key(), err)
+	}
+	return nil
+}
+
+// deleteDropped deletes every item of kind that cur holds and next does not.
+func deleteDropped[T any](t treeSave, kind trust.ItemKind, cur, next map[string]T) error {
+	for _, name := range collections.SortedKeys(cur) {
+		if _, ok := next[name]; !ok {
+			if err := t.w.Delete(t.ctx, trust.Ref{Bundle: t.bundle, Kind: kind, Name: name}); err != nil {
+				return fmt.Errorf("bundles: removing %s %q: %w", kind, name, err)
 			}
 		}
+	}
+	return nil
+}
+
+// clearStaleDistilled deletes ref first when the item was distilled and its
+// next version is not, so a stale distilled file cannot outlive the content
+// it summarised.
+func clearStaleDistilled[T any](t treeSave, ref trust.Ref, surface func(string, T) (content.Surface, string, error), name string, was T, distilled string) error {
+	if _, wasDistilled, _ := surface(name, was); wasDistilled == "" || distilled != "" {
+		return nil
+	}
+	if err := t.w.Delete(t.ctx, ref); err != nil {
+		return fmt.Errorf("bundles: clearing %s: %w", ref.Key(), err)
+	}
+	return nil
+}
+
+// putItem writes the item's raw form, and its distilled form when it has one.
+func (t treeSave) putItem(ref trust.Ref, s content.Surface, distilled string) error {
+	if err := t.w.Put(t.ctx, ref, signing.FormRaw, s); err != nil {
+		return fmt.Errorf("bundles: writing %s: %w", ref.Key(), err)
+	}
+	if distilled == "" {
+		return nil
+	}
+	if err := t.w.Put(t.ctx, ref, signing.FormDistilled, s); err != nil {
+		return fmt.Errorf("bundles: writing %s (distilled): %w", ref.Key(), err)
 	}
 	return nil
 }
@@ -230,15 +258,9 @@ func saveItems[T any](t treeSave, kind trust.ItemKind, cur, next map[string]T, s
 // changed, and writes it when the tree has none yet. The name a reader derives from the location when the envelope
 // declares none is not a declaration, so it is not written back as one.
 func (s *fsStore) saveTreeEnvelope(ctx context.Context, w *content.TreeStore, id string, b *Bundle) error {
-	onDisk := &Bundle{}
-	exists, err := afero.Exists(s.fs, b.Path)
+	onDisk, exists, err := s.envelopeOnDisk(b.Path)
 	if err != nil {
-		return fmt.Errorf("bundles: checking for %s: %w", b.Path, err)
-	}
-	if exists {
-		if _, onDisk, err = EnvelopeAt(s.fs, b.Path); err != nil {
-			return err
-		}
+		return err
 	}
 	next := *b
 	if onDisk.Name == "" && next.Name == ExtractBundleName(b.Path) {
@@ -259,4 +281,21 @@ func (s *fsStore) saveTreeEnvelope(ctx context.Context, w *content.TreeStore, id
 		return fmt.Errorf("bundles: writing the envelope at %s: %w", b.Path, err)
 	}
 	return nil
+}
+
+// envelopeOnDisk is the envelope already at path (empty when none exists)
+// and whether one does.
+func (s *fsStore) envelopeOnDisk(path string) (*Bundle, bool, error) {
+	exists, err := afero.Exists(s.fs, path)
+	if err != nil {
+		return nil, false, fmt.Errorf("bundles: checking for %s: %w", path, err)
+	}
+	if !exists {
+		return &Bundle{}, false, nil
+	}
+	_, onDisk, err := EnvelopeAt(s.fs, path)
+	if err != nil {
+		return nil, false, err
+	}
+	return onDisk, true, nil
 }

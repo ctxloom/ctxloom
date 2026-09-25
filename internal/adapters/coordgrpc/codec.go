@@ -110,45 +110,74 @@ func EventFromWire(ev *agentcoordpb.AgentEvent) coord.Event {
 		ParentItemID: ev.GetParentItemId(),
 		Traceparent:  ev.GetTraceparent(),
 	}
-	switch p := ev.GetPayload().(type) {
+	e.Payload = payloadFromWire(ev.GetPayload())
+	return e
+}
+
+// payloadFromWire decodes a plane-1 payload by family; nil for none (or one
+// this build does not know).
+func payloadFromWire(payload any) coord.EventPayload {
+	if v, ok := runPayloadFromWire(payload); ok {
+		return v
+	}
+	if v, ok := streamPayloadFromWire(payload); ok {
+		return v
+	}
+	v, _ := sidePayloadFromWire(payload)
+	return v
+}
+
+// runPayloadFromWire decodes the run-lifecycle payloads: run and step
+// boundaries, status, interactions.
+func runPayloadFromWire(payload any) (v coord.EventPayload, ok bool) {
+	switch p := payload.(type) {
 	case *agentcoordpb.AgentEvent_RunStarted:
-		e.Payload = coord.RunStarted{
+		v = coord.RunStarted{
 			Input:       structToMap(p.RunStarted.GetInput()),
 			Agent:       agentIdentityFromWire(p.RunStarted.GetAgent()),
 			Config:      structToMap(p.RunStarted.GetConfig()),
 			ParentRunID: p.RunStarted.GetParentRunId(),
 		}
 	case *agentcoordpb.AgentEvent_StepStarted:
-		e.Payload = coord.StepStarted{StepID: p.StepStarted.GetStepId(), Title: p.StepStarted.GetTitle(), Ordinal: p.StepStarted.GetOrdinal()}
+		v = coord.StepStarted{StepID: p.StepStarted.GetStepId(), Title: p.StepStarted.GetTitle(), Ordinal: p.StepStarted.GetOrdinal()}
 	case *agentcoordpb.AgentEvent_StepCompleted:
-		e.Payload = coord.StepCompleted{StepID: p.StepCompleted.GetStepId(), Outcome: parsed(coord.ParseStepOutcome(p.StepCompleted.GetOutcome().String())), Detail: p.StepCompleted.GetDetail()}
+		v = coord.StepCompleted{StepID: p.StepCompleted.GetStepId(), Outcome: parsed(coord.ParseStepOutcome(p.StepCompleted.GetOutcome().String())), Detail: p.StepCompleted.GetDetail()}
 	case *agentcoordpb.AgentEvent_StatusChanged:
-		e.Payload = coord.StatusChanged{Phase: parsed(coord.ParseRunPhase(p.StatusChanged.GetPhase().String())), Detail: p.StatusChanged.GetDetail()}
+		v = coord.StatusChanged{Phase: parsed(coord.ParseRunPhase(p.StatusChanged.GetPhase().String())), Detail: p.StatusChanged.GetDetail()}
 	case *agentcoordpb.AgentEvent_Interaction:
-		e.Payload = coord.InteractionRecorded{
+		v = coord.InteractionRecorded{
 			RequestID:  p.Interaction.GetRequestId(),
 			Kind:       p.Interaction.GetKind(),
 			Resolution: parsed(coord.ParseInteractionResolution(p.Interaction.GetResolution().String())),
 			Detail:     structToMap(p.Interaction.GetDetail()),
 		}
 	case *agentcoordpb.AgentEvent_RunCompleted:
-		e.Payload = coord.RunCompleted{Result: resultFromWire(p.RunCompleted.GetResult())}
+		v = coord.RunCompleted{Result: resultFromWire(p.RunCompleted.GetResult())}
+	default:
+		return nil, false
+	}
+	return v, true
+}
+
+// streamPayloadFromWire decodes the streamed message and tool-call payloads.
+func streamPayloadFromWire(payload any) (v coord.EventPayload, ok bool) {
+	switch p := payload.(type) {
 	case *agentcoordpb.AgentEvent_MessageStarted:
-		e.Payload = coord.MessageStarted{
+		v = coord.MessageStarted{
 			MessageID: p.MessageStarted.GetMessageId(),
 			Role:      parsed(coord.ParseMessageRole(p.MessageStarted.GetRole().String())),
 			Channel:   parsed(coord.ParseMessageChannel(p.MessageStarted.GetChannel().String())),
 		}
 	case *agentcoordpb.AgentEvent_MessageDelta:
-		e.Payload = coord.MessageDelta{MessageID: p.MessageDelta.GetMessageId(), Text: p.MessageDelta.GetText()}
+		v = coord.MessageDelta{MessageID: p.MessageDelta.GetMessageId(), Text: p.MessageDelta.GetText()}
 	case *agentcoordpb.AgentEvent_MessageCompleted:
-		e.Payload = coord.MessageCompleted{MessageID: p.MessageCompleted.GetMessageId(), FullText: p.MessageCompleted.GetFullText()}
+		v = coord.MessageCompleted{MessageID: p.MessageCompleted.GetMessageId(), FullText: p.MessageCompleted.GetFullText()}
 	case *agentcoordpb.AgentEvent_ToolCallStarted:
-		e.Payload = coord.ToolCallStarted{ToolCallID: p.ToolCallStarted.GetToolCallId(), ToolName: p.ToolCallStarted.GetToolName()}
+		v = coord.ToolCallStarted{ToolCallID: p.ToolCallStarted.GetToolCallId(), ToolName: p.ToolCallStarted.GetToolName()}
 	case *agentcoordpb.AgentEvent_ToolCallArgsDelta:
-		e.Payload = coord.ToolCallArgsDelta{ToolCallID: p.ToolCallArgsDelta.GetToolCallId(), ArgsJSONFragment: p.ToolCallArgsDelta.GetArgsJsonFragment()}
+		v = coord.ToolCallArgsDelta{ToolCallID: p.ToolCallArgsDelta.GetToolCallId(), ArgsJSONFragment: p.ToolCallArgsDelta.GetArgsJsonFragment()}
 	case *agentcoordpb.AgentEvent_ToolCallCompleted:
-		e.Payload = coord.ToolCallCompleted{
+		v = coord.ToolCallCompleted{
 			ToolCallID:  p.ToolCallCompleted.GetToolCallId(),
 			Args:        structToMap(p.ToolCallCompleted.GetArgs()),
 			IsError:     p.ToolCallCompleted.GetIsError(),
@@ -156,22 +185,34 @@ func EventFromWire(ev *agentcoordpb.AgentEvent) coord.Event {
 			ArtifactIDs: p.ToolCallCompleted.GetArtifactIds(),
 			Elapsed:     durationFromWire(p.ToolCallCompleted.GetElapsed()),
 		}
+	default:
+		return nil, false
+	}
+	return v, true
+}
+
+// sidePayloadFromWire decodes the out-of-band payloads: artifacts, summaries,
+// loss markers, raw and custom events.
+func sidePayloadFromWire(payload any) (v coord.EventPayload, ok bool) {
+	switch p := payload.(type) {
 	case *agentcoordpb.AgentEvent_ArtifactProduced:
-		e.Payload = ArtifactProducedFromWire(p.ArtifactProduced)
+		v = ArtifactProducedFromWire(p.ArtifactProduced)
 	case *agentcoordpb.AgentEvent_Summary:
-		e.Payload = SummaryFromWire(p.Summary)
+		v = SummaryFromWire(p.Summary)
 	case *agentcoordpb.AgentEvent_EventsLost:
 		lost := coord.EventsLost{}
 		for _, r := range p.EventsLost.GetLost() {
 			lost.Lost = append(lost.Lost, coord.LostRange{RunID: r.GetRunId(), FirstSeq: r.GetFirstSeq(), LastSeq: r.GetLastSeq()})
 		}
-		e.Payload = lost
+		v = lost
 	case *agentcoordpb.AgentEvent_Raw:
-		e.Payload = coord.RawEvent{Source: p.Raw.GetSource(), Event: structToMap(p.Raw.GetEvent())}
+		v = coord.RawEvent{Source: p.Raw.GetSource(), Event: structToMap(p.Raw.GetEvent())}
 	case *agentcoordpb.AgentEvent_Custom:
-		e.Payload = coord.CustomEvent{Name: p.Custom.GetName(), Value: structToMap(p.Custom.GetValue())}
+		v = coord.CustomEvent{Name: p.Custom.GetName(), Value: structToMap(p.Custom.GetValue())}
+	default:
+		return nil, false
 	}
-	return e
+	return v, true
 }
 
 // EventToWire encodes one plane-1 event.
@@ -185,7 +226,23 @@ func EventToWire(e coord.Event) *agentcoordpb.AgentEvent {
 		ParentItemId: e.ParentItemID,
 		Traceparent:  e.Traceparent,
 	}
-	switch p := e.Payload.(type) {
+	setPayload(ev, e.Payload)
+	return ev
+}
+
+// setPayload encodes a plane-1 payload onto ev by family; a nil (or
+// unknown) payload leaves ev's unset.
+func setPayload(ev *agentcoordpb.AgentEvent, payload coord.EventPayload) {
+	if setRunPayload(ev, payload) || setStreamPayload(ev, payload) {
+		return
+	}
+	setSidePayload(ev, payload)
+}
+
+// setRunPayload encodes the run-lifecycle payloads onto ev, reporting whether
+// payload was one.
+func setRunPayload(ev *agentcoordpb.AgentEvent, payload coord.EventPayload) bool {
+	switch p := payload.(type) {
 	case coord.RunStarted:
 		ev.Payload = &agentcoordpb.AgentEvent_RunStarted{RunStarted: &agentcoordpb.RunStarted{
 			Input: mapToStruct(p.Input), Agent: agentIdentityToWire(p.Agent), Config: mapToStruct(p.Config), ParentRunId: p.ParentRunID,
@@ -209,6 +266,16 @@ func EventToWire(e coord.Event) *agentcoordpb.AgentEvent {
 		}}
 	case coord.RunCompleted:
 		ev.Payload = &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{Result: resultToWire(p.Result)}}
+	default:
+		return false
+	}
+	return true
+}
+
+// setStreamPayload encodes the streamed message and tool-call payloads onto
+// ev, reporting whether payload was one.
+func setStreamPayload(ev *agentcoordpb.AgentEvent, payload coord.EventPayload) bool {
+	switch p := payload.(type) {
 	case coord.MessageStarted:
 		ev.Payload = &agentcoordpb.AgentEvent_MessageStarted{MessageStarted: &agentcoordpb.MessageStarted{
 			MessageId: p.MessageID,
@@ -227,6 +294,16 @@ func EventToWire(e coord.Event) *agentcoordpb.AgentEvent {
 		ev.Payload = &agentcoordpb.AgentEvent_ToolCallCompleted{ToolCallCompleted: &agentcoordpb.ToolCallCompleted{
 			ToolCallId: p.ToolCallID, Args: mapToStruct(p.Args), IsError: p.IsError, ResultText: p.ResultText, ArtifactIds: p.ArtifactIDs, Elapsed: durationToWire(p.Elapsed),
 		}}
+	default:
+		return false
+	}
+	return true
+}
+
+// setSidePayload encodes the out-of-band payloads onto ev, reporting whether
+// payload was one.
+func setSidePayload(ev *agentcoordpb.AgentEvent, payload coord.EventPayload) bool {
+	switch p := payload.(type) {
 	case coord.ArtifactProduced:
 		ev.Payload = &agentcoordpb.AgentEvent_ArtifactProduced{ArtifactProduced: ArtifactProducedToWire(p)}
 	case coord.Summary:
@@ -241,8 +318,10 @@ func EventToWire(e coord.Event) *agentcoordpb.AgentEvent {
 		ev.Payload = &agentcoordpb.AgentEvent_Raw{Raw: &agentcoordpb.RawEvent{Source: p.Source, Event: mapToStruct(p.Event)}}
 	case coord.CustomEvent:
 		ev.Payload = &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: p.Name, Value: mapToStruct(p.Value)}}
+	default:
+		return false
 	}
-	return ev
+	return true
 }
 
 func agentIdentityFromWire(a *agentcoordpb.AgentIdentity) *coord.AgentIdentity {
@@ -517,15 +596,9 @@ func AgentRequestFromWire(req *agentcoordpb.AgentRequest) (coord.AgentRequest, e
 	out := coord.AgentRequest{RequestID: req.GetRequestId(), Timeout: durationFromWire(req.GetTimeout())}
 	switch k := req.GetKind().(type) {
 	case *agentcoordpb.AgentRequest_SpawnAgent:
-		sr := coord.SpawnRequest{Agent: k.SpawnAgent.GetRole()}
-		if in := k.SpawnAgent.GetInput(); in != nil {
-			for key, dst := range map[string]*string{"prompt": &sr.Prompt, "workspace": &sr.Workspace, "dirty_tree_handler": &sr.DirtyTree} {
-				v, err := spawnInputString(in, key)
-				if err != nil {
-					return out, err
-				}
-				*dst = v
-			}
+		sr, err := spawnRequestFromWire(k.SpawnAgent)
+		if err != nil {
+			return out, err
 		}
 		out.Kind = sr
 	case *agentcoordpb.AgentRequest_ListRuns:
@@ -539,17 +612,45 @@ func AgentRequestFromWire(req *agentcoordpb.AgentRequest) (coord.AgentRequest, e
 		}
 		out.Kind = cr
 	case *agentcoordpb.AgentRequest_Host:
-		args, err := protojson.Marshal(k.Host.GetArgs())
+		hr, err := hostRequestFromWire(k.Host)
 		if err != nil {
-			return out, fmt.Errorf("%s: decode args: %v", k.Host.GetTool(), err)
+			return out, err
 		}
-		out.Kind = coord.HostRequest{Tool: k.Host.GetTool(), Args: args}
+		out.Kind = hr
 	case *agentcoordpb.AgentRequest_PeerSend:
 		return out, coord.ErrPeerSendIsLocal
 	default:
 		return out, coord.ErrUnsupportedRequest
 	}
 	return out, nil
+}
+
+// spawnRequestFromWire decodes a spawn: the role names the agent, and the
+// input's prompt, workspace and dirty_tree_handler must each be a string when
+// present.
+func spawnRequestFromWire(sa *agentcoordpb.SpawnAgentRequest) (coord.SpawnRequest, error) {
+	sr := coord.SpawnRequest{Agent: sa.GetRole()}
+	in := sa.GetInput()
+	if in == nil {
+		return sr, nil
+	}
+	for key, dst := range map[string]*string{"prompt": &sr.Prompt, "workspace": &sr.Workspace, "dirty_tree_handler": &sr.DirtyTree} {
+		v, err := spawnInputString(in, key)
+		if err != nil {
+			return coord.SpawnRequest{}, err
+		}
+		*dst = v
+	}
+	return sr, nil
+}
+
+// hostRequestFromWire decodes a host-tool call, its args re-encoded as JSON.
+func hostRequestFromWire(h *agentcoordpb.HostRequest) (coord.HostRequest, error) {
+	args, err := protojson.Marshal(h.GetArgs())
+	if err != nil {
+		return coord.HostRequest{}, fmt.Errorf("%s: decode args: %v", h.GetTool(), err)
+	}
+	return coord.HostRequest{Tool: h.GetTool(), Args: args}, nil
 }
 
 // spawnInputString reads a STRING value out of agent_run's free-form input
@@ -580,36 +681,35 @@ func spawnInputString(in *structpb.Struct, key string) (string, error) {
 func controlRequestFromWire(req *agentcoordpb.ControlRun) (coord.ControlRequest, error) {
 	switch v := req.GetVerb().(type) {
 	case *agentcoordpb.ControlRun_Steer:
-		text := v.Steer.GetText()
-		if err := controlArgs("agent_steer", v.Steer.GetHarp(), "text", &text); err != nil {
-			return coord.ControlRequest{}, err
-		}
-		return coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: v.Steer.GetHarp(), Body: text}, nil
+		return bodyControl("agent_steer", coord.ControlVerbSteer, v.Steer.GetHarp(), "text", v.Steer.GetText())
 	case *agentcoordpb.ControlRun_Question:
-		text := v.Question.GetText()
-		if err := controlArgs("agent_ask", v.Question.GetHarp(), "text", &text); err != nil {
-			return coord.ControlRequest{}, err
-		}
-		return coord.ControlRequest{Verb: coord.ControlVerbQuestion, Harp: v.Question.GetHarp(), Body: text}, nil
+		return bodyControl("agent_ask", coord.ControlVerbQuestion, v.Question.GetHarp(), "text", v.Question.GetText())
 	case *agentcoordpb.ControlRun_Summarize:
-		focus := v.Summarize.GetFocus()
-		if err := controlArgs("agent_summarize", v.Summarize.GetHarp(), "focus", &focus); err != nil {
-			return coord.ControlRequest{}, err
-		}
-		return coord.ControlRequest{Verb: coord.ControlVerbSummarize, Harp: v.Summarize.GetHarp(), Body: focus}, nil
+		return bodyControl("agent_summarize", coord.ControlVerbSummarize, v.Summarize.GetHarp(), "focus", v.Summarize.GetFocus())
 	case *agentcoordpb.ControlRun_Pause:
-		if err := controlArgs("agent_pause", v.Pause.GetHarp(), "", nil); err != nil {
-			return coord.ControlRequest{}, err
-		}
-		return coord.ControlRequest{Verb: coord.ControlVerbPause, Harp: v.Pause.GetHarp(), Body: v.Pause.GetReason()}, nil
+		return bareControl("agent_pause", coord.ControlVerbPause, v.Pause.GetHarp(), v.Pause.GetReason())
 	case *agentcoordpb.ControlRun_Resume:
-		if err := controlArgs("agent_resume", v.Resume.GetHarp(), "", nil); err != nil {
-			return coord.ControlRequest{}, err
-		}
-		return coord.ControlRequest{Verb: coord.ControlVerbResume, Harp: v.Resume.GetHarp()}, nil
+		return bareControl("agent_resume", coord.ControlVerbResume, v.Resume.GetHarp(), "")
 	default:
 		return coord.ControlRequest{}, errors.New("control_run: no verb set — a ControlRun names exactly one of steer, question, summarize, pause, resume")
 	}
+}
+
+// bodyControl is a control verb whose body (bodyField) is required.
+func bodyControl(tool, verb, harp, bodyField, body string) (coord.ControlRequest, error) {
+	if err := controlArgs(tool, harp, bodyField, &body); err != nil {
+		return coord.ControlRequest{}, err
+	}
+	return coord.ControlRequest{Verb: verb, Harp: harp, Body: body}, nil
+}
+
+// bareControl is a control verb that requires only its harp; body is the
+// optional reason it carries.
+func bareControl(tool, verb, harp, body string) (coord.ControlRequest, error) {
+	if err := controlArgs(tool, harp, "", nil); err != nil {
+		return coord.ControlRequest{}, err
+	}
+	return coord.ControlRequest{Verb: verb, Harp: harp, Body: body}, nil
 }
 
 func controlArgs(tool, harp, bodyField string, body *string) error {

@@ -890,21 +890,9 @@ func (st *runState) emitDryRun() error {
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
 		fmt.Println("\n=== Profiles ===")
-		if len(pkg.Selection.Profiles) > 0 {
-			for _, p := range pkg.Selection.Profiles {
-				fmt.Printf("  %s\n", p)
-			}
-		} else {
-			fmt.Println("(no profiles)")
-		}
+		printListOr(pkg.Selection.Profiles, "(no profiles)")
 		fmt.Println("\n=== Fragments Loaded ===")
-		if len(pkg.Loaded) > 0 {
-			for _, f := range pkg.Loaded {
-				fmt.Printf("  %s\n", f)
-			}
-		} else {
-			fmt.Println("(no fragments)")
-		}
+		printListOr(pkg.Loaded, "(no fragments)")
 		printDeliveryRoutes(os.Stdout, payload.Delivery)
 		printEngineHome(os.Stdout, payload.EngineHome)
 		fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)
@@ -914,13 +902,7 @@ func (st *runState) emitDryRun() error {
 			fmt.Println("(no context)")
 		}
 		if runResumeSession != "" && runResumeDistill {
-			fmt.Printf("\n=== Resumed Essence (%s, delivered at session start) ===\n", runResumeSession)
-			if payload.ResumedEssence != "" {
-				fmt.Println(payload.ResumedEssence)
-			}
-			if payload.ResumedEssenceNote != "" {
-				fmt.Println("(" + payload.ResumedEssenceNote + ")")
-			}
+			printResumedEssence(payload)
 		}
 		fmt.Println("\n=== Prompt ===")
 		if st.prompt != "" {
@@ -933,6 +915,29 @@ func (st *runState) emitDryRun() error {
 		fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(st.workDir, agent.SCMContextSubdir))
 		return nil
 	})
+}
+
+// printListOr prints each item indented on its own line, or none when there
+// are no items.
+func printListOr(items []string, none string) {
+	if len(items) == 0 {
+		fmt.Println(none)
+		return
+	}
+	for _, it := range items {
+		fmt.Printf("  %s\n", it)
+	}
+}
+
+// printResumedEssence prints the distilled resume's essence and its note.
+func printResumedEssence(payload dryRunJSON) {
+	fmt.Printf("\n=== Resumed Essence (%s, delivered at session start) ===\n", runResumeSession)
+	if payload.ResumedEssence != "" {
+		fmt.Println(payload.ResumedEssence)
+	}
+	if payload.ResumedEssenceNote != "" {
+		fmt.Println("(" + payload.ResumedEssenceNote + ")")
+	}
 }
 
 // dryCells is the --dry-run cell: the project root on the host and the

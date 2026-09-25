@@ -60,50 +60,65 @@ func resolveConfigLayerPaths(appPath string, source config.ConfigSource) (projec
 // Overrides resolve against the merged files however many exist, INCLUDING
 // none: a fresh project with only env/CLI values set still gets them.
 func (s *Sources) loadLayeredConfig(_ context.Context, b *config.Builder, homeConfigPath, projectConfigPath string, fs afero.Fs, source config.ConfigSource) error {
-	var layers []map[string]any
 	appPath := filepath.Dir(projectConfigPath)
 	homeAppPath := ""
 	if homeConfigPath != "" {
 		homeAppPath = filepath.Dir(homeConfigPath)
 	}
 
-	var homePending, projectPending *config.PendingUpgrade
-	if homeConfigPath != "" {
-		homeValues, pending, err := s.loadConfigLayer(b, layerscope.LayerHome, appPath, homeAppPath, homeConfigPath, fs)
-		if err != nil {
-			return err
-		}
-		homePending = pending
-		if homeValues != nil {
-			layers = append(layers, homeValues)
-		}
-	}
-
-	// The single-file case is the PROJECT layer by default, but not when this
-	// one file genuinely IS home acting alone (the bootstrap fell back to home,
-	// or a pinned appDir named ~/.ctxloom): tagging it LayerProject would strip
-	// every ScopeMachine value from a file that was never a committed project
-	// file. The home==project DEDUP case keeps the ordinary project scope.
-	layer := layerscope.LayerProject
-	if homeConfigPath == "" && source == config.SourceHome {
-		layer = layerscope.LayerHome
-	}
-	projectValues, pending, err := s.loadConfigLayer(b, layer, appPath, homeAppPath, projectConfigPath, fs)
+	homeValues, homePending, err := s.loadHomeLayer(b, appPath, homeAppPath, homeConfigPath, fs)
 	if err != nil {
 		return err
 	}
-	projectPending = pending
-	if projectValues != nil {
-		layers = append(layers, projectValues)
+	layers := appendLayer(nil, homeValues)
+
+	projectValues, projectPending, err := s.loadConfigLayer(b, projectLayerScope(homeConfigPath, source), appPath, homeAppPath, projectConfigPath, fs)
+	if err != nil {
+		return err
 	}
+	layers = appendLayer(layers, projectValues)
 	b.SetPendingUpgrades(projectPending, homePending)
 
-	if len(layers) == 0 && len(s.overrides.Env) == 0 && len(s.overrides.Flags) == 0 {
+	if len(layers) == 0 && s.noOverrides() {
 		// Neither layer exists and nothing overrides: the builder's zero
 		// value, which the shipped default registry then fills.
 		return nil
 	}
 	return s.decodeMergedLayers(b, layers)
+}
+
+// loadHomeLayer is the home layer, when there is a home config to read.
+func (s *Sources) loadHomeLayer(b *config.Builder, appPath, homeAppPath, homeConfigPath string, fs afero.Fs) (map[string]any, *config.PendingUpgrade, error) {
+	if homeConfigPath == "" {
+		return nil, nil, nil
+	}
+	return s.loadConfigLayer(b, layerscope.LayerHome, appPath, homeAppPath, homeConfigPath, fs)
+}
+
+// projectLayerScope is the scope the project-path file is loaded under.
+// The single-file case is the PROJECT layer by default, but not when this
+// one file genuinely IS home acting alone (the bootstrap fell back to home,
+// or a pinned appDir named ~/.ctxloom): tagging it LayerProject would strip
+// every ScopeMachine value from a file that was never a committed project
+// file. The home==project DEDUP case keeps the ordinary project scope.
+func projectLayerScope(homeConfigPath string, source config.ConfigSource) layerscope.Layer {
+	if homeConfigPath == "" && source == config.SourceHome {
+		return layerscope.LayerHome
+	}
+	return layerscope.LayerProject
+}
+
+// appendLayer appends a layer's values when the layer exists.
+func appendLayer(layers []map[string]any, values map[string]any) []map[string]any {
+	if values == nil {
+		return layers
+	}
+	return append(layers, values)
+}
+
+// noOverrides reports whether neither env nor flags override anything.
+func (s *Sources) noOverrides() bool {
+	return len(s.overrides.Env) == 0 && len(s.overrides.Flags) == 0
 }
 
 // splitJoinedErrors unwraps an errors.Join result (or a plain single error)
@@ -170,52 +185,85 @@ func (s *Sources) loadConfigLayer(b *config.Builder, layer layerscope.Layer, app
 		return nil, nil, nil
 	}
 
-	pipeline := upgrade.Pipeline{}
-	if s.canonicalize != nil {
-		shell := b.Shell()
-		pipeline = append(pipeline, profileRefCanonicalizeUpgrade{canonical: func(ref string) string { return s.canonicalize(shell, ref) }})
-	}
-	if upgraded, applied := pipeline.Run(data); len(applied) > 0 {
-		data = upgraded
-		pending = &config.PendingUpgrade{Path: configPath, Data: upgraded, Applied: applied}
-		zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
-	}
+	data, pending = upgradeLayer(s.upgradePipeline(b), data, configPath)
 	// The refusal comes before any judgement of the document: a file that is
 	// not YAML has no version to be below the floor and no keys to validate.
 	var raw map[string]any
 	if perr := yaml.Unmarshal(data, &raw); perr != nil {
 		return nil, nil, fmt.Errorf("%w: %s: %v", ErrUnparsableLayer, configPath, perr)
 	}
-	if v, declared := declaredConfigVersion(data); v < config.CurrentConfigVersion {
-		spelled := "no `version` key, i.e. the pre-versioning generation"
-		if declared {
-			spelled = fmt.Sprintf("`version: %d`", v)
-		}
-		strictness.FailOnce(strictness.ClassMigration,
-			fmt.Sprintf("back up %s, then re-run `ctxloom init` to scaffold a current one and re-apply your settings", configPath),
-			"%s carries %s but this ctxloom requires config schema version %d, and in-place upgrades have been removed — an old config is no longer rewritten on load",
-			configPath, spelled, config.CurrentConfigVersion)
-	}
+	refuseStaleConfigVersion(data, configPath)
+	s.warnInvalidLayer(b, data, configPath)
+	warnLayerDrops(b, layer, raw, appPath, homeAppPath, configPath)
 
-	if s.validator != nil {
-		if verr := s.validator.ValidateBytes(data); verr != nil {
-			for _, w := range classifyValidationError(configPath, s.validator, verr) {
-				b.Warn(w.Kind, "%s", w.Text)
-			}
-			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(verr))
-		}
-	}
+	zap.L().Debug("config_loaded", zap.String("path", configPath))
+	return raw, pending, nil
+}
 
+// upgradePipeline is the in-memory upgrade every layer runs through: the
+// profile-ref canonicalization, when a canonicalizer is composed.
+func (s *Sources) upgradePipeline(b *config.Builder) upgrade.Pipeline {
+	pipeline := upgrade.Pipeline{}
+	if s.canonicalize != nil {
+		shell := b.Shell()
+		pipeline = append(pipeline, profileRefCanonicalizeUpgrade{canonical: func(ref string) string { return s.canonicalize(shell, ref) }})
+	}
+	return pipeline
+}
+
+// upgradeLayer runs the pipeline over a layer's bytes, returning the bytes
+// to judge and, when any upgrade applied, the pending upgrade to record.
+func upgradeLayer(pipeline upgrade.Pipeline, data []byte, configPath string) ([]byte, *config.PendingUpgrade) {
+	upgraded, applied := pipeline.Run(data)
+	if len(applied) == 0 {
+		return data, nil
+	}
+	zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
+	return upgraded, &config.PendingUpgrade{Path: configPath, Data: upgraded, Applied: applied}
+}
+
+// refuseStaleConfigVersion records the migration refusal for a layer whose
+// schema version is below this build's.
+func refuseStaleConfigVersion(data []byte, configPath string) {
+	v, declared := declaredConfigVersion(data)
+	if v >= config.CurrentConfigVersion {
+		return
+	}
+	spelled := "no `version` key, i.e. the pre-versioning generation"
+	if declared {
+		spelled = fmt.Sprintf("`version: %d`", v)
+	}
+	strictness.FailOnce(strictness.ClassMigration,
+		fmt.Sprintf("back up %s, then re-run `ctxloom init` to scaffold a current one and re-apply your settings", configPath),
+		"%s carries %s but this ctxloom requires config schema version %d, and in-place upgrades have been removed — an old config is no longer rewritten on load",
+		configPath, spelled, config.CurrentConfigVersion)
+}
+
+// warnInvalidLayer warns, per classified cause, about a layer the schema
+// validator rejects.
+func (s *Sources) warnInvalidLayer(b *config.Builder, data []byte, configPath string) {
+	if s.validator == nil {
+		return
+	}
+	verr := s.validator.ValidateBytes(data)
+	if verr == nil {
+		return
+	}
+	for _, w := range classifyValidationError(configPath, s.validator, verr) {
+		b.Warn(w.Kind, "%s", w.Text)
+	}
+	zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(verr))
+}
+
+// warnLayerDrops drops (with a warning each) the keys this layer may not set
+// and the agents that name no engine.
+func warnLayerDrops(b *config.Builder, layer layerscope.Layer, raw map[string]any, appPath, homeAppPath, configPath string) {
 	for _, v := range config.DropLayerScopeViolations(layer, raw) {
 		b.Warn(config.WarnKindLayerScope, "%s", v.Message(appPath, homeAppPath))
 		zap.L().Warn("config_layer_scope_warning", zap.String("path", configPath), zap.Strings("key", v.Path))
 	}
-
 	for _, w := range dropEnginelessAgents(configPath, raw) {
 		b.Warn(w.Kind, "%s", w.Text)
 		zap.L().Warn("config_engineless_agent_warning", zap.String("path", configPath), zap.String("warning", w.Text))
 	}
-
-	zap.L().Debug("config_loaded", zap.String("path", configPath))
-	return raw, pending, nil
 }

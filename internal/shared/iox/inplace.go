@@ -94,33 +94,57 @@ const (
 // never the point.
 func WriteFileInPlace(path string, mode InPlaceMode, data []byte, perm os.FileMode, opts ...Option) error {
 	cfg := resolveOptions(opts)
-	flags := os.O_WRONLY | openNoFollow
-	switch mode {
-	case TruncateInPlace:
-		flags |= os.O_TRUNC
-		if len(data) == 0 && !cfg.allowEmpty {
-			if _, err := os.Lstat(path); err == nil {
-				return fmt.Errorf("in-place write %s: refusing to write zero bytes over an existing file", path)
-			}
-		}
-	case AppendInPlace:
-		flags |= os.O_APPEND
-	default:
-		return fmt.Errorf("in-place write %s: no InPlaceMode given; pass iox.TruncateInPlace or iox.AppendInPlace, or use WriteFileAtomic, which is the default for any destination that can be renamed over", path)
+	flags, err := inPlaceFlags(path, mode, data, cfg)
+	if err != nil {
+		return err
 	}
-
 	f, created, err := openInPlace(path, flags, perm)
 	if err != nil {
 		return err
 	}
+	if err := writeSyncClose(f, path, data, perm, created); err != nil {
+		return err
+	}
+	if cfg.durable {
+		dir := filepath.Dir(path)
+		if err := syncDirFn(dir); err != nil {
+			return fmt.Errorf("in-place write %s: sync parent directory %s: %w", path, dir, err)
+		}
+	}
+	return nil
+}
+
+// inPlaceFlags is the open flags for mode, refusing a missing mode and a
+// zero-byte truncation over an existing file (unless AllowEmpty).
+func inPlaceFlags(path string, mode InPlaceMode, data []byte, cfg writeConfig) (int, error) {
+	flags := os.O_WRONLY | openNoFollow
+	switch mode {
+	case TruncateInPlace:
+		if len(data) == 0 && !cfg.allowEmpty {
+			if _, err := os.Lstat(path); err == nil {
+				return 0, fmt.Errorf("in-place write %s: refusing to write zero bytes over an existing file", path)
+			}
+		}
+		return flags | os.O_TRUNC, nil
+	case AppendInPlace:
+		return flags | os.O_APPEND, nil
+	default:
+		return 0, fmt.Errorf("in-place write %s: no InPlaceMode given; pass iox.TruncateInPlace or iox.AppendInPlace, or use WriteFileAtomic, which is the default for any destination that can be renamed over", path)
+	}
+}
+
+// writeSyncClose writes data through f, sets perm on a file this call
+// created, syncs and closes it; f is closed on every path.
+//
+// Only a file this call created gets its mode set; see WriteFileInPlace's
+// doc. fchmod on the descriptor, not Chmod on the path: the path is
+// re-resolved by a path-based chmod and would follow a symlink swapped in
+// behind us, giving back the traversal the open refused.
+func writeSyncClose(f *os.File, path string, data []byte, perm os.FileMode, created bool) error {
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("in-place write %s: write: %w", path, err)
 	}
-	// Only a file this call created gets its mode set; see the doc. fchmod on
-	// the descriptor, not Chmod on the path: the path is re-resolved by a
-	// path-based chmod and would follow a symlink swapped in behind us,
-	// giving back the traversal the open refused.
 	if created {
 		if err := f.Chmod(perm); err != nil {
 			_ = f.Close()
@@ -131,16 +155,7 @@ func WriteFileInPlace(path string, mode InPlaceMode, data []byte, perm os.FileMo
 		_ = f.Close()
 		return fmt.Errorf("in-place write %s: sync: %w", path, err)
 	}
-	if err := closeChecked(f, path); err != nil {
-		return err
-	}
-	if cfg.durable {
-		dir := filepath.Dir(path)
-		if err := syncDirFn(dir); err != nil {
-			return fmt.Errorf("in-place write %s: sync parent directory %s: %w", path, dir, err)
-		}
-	}
-	return nil
+	return closeChecked(f, path)
 }
 
 // openInPlace opens path for writing without ever traversing a symlink, and

@@ -417,10 +417,10 @@ func (m *Manager) BindEngine(harpName, engine string) error {
 //
 // A displacement does not DISCARD the binding it replaces: the old
 // session_id/transcript_path are appended to Entry.Rotations before being
-// overwritten (see its doc comment). An earlier revision clobbered them —
-// the canonical-transcript rebuild then had only the new, empty-at-/clear
-// vendor file to rebuild from, and /recover found nothing even though the
-// pre-clear conversation was still sitting on disk under the old session ID.
+// overwritten (see its doc comment): without them the canonical-transcript
+// rebuild has only the new, empty-at-/clear vendor file to rebuild from, and
+// /recover finds nothing even though the pre-clear conversation is still on
+// disk under the old session ID.
 func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error {
 	// Both empty is a genuine no-op — the ordinary shape of a hook
 	// payload that carried no session identifier at all (session_cmd.go's
@@ -442,25 +442,8 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 			}
 			// A DISPLACEMENT: cur is about to be overwritten by sessionID.
 			// Preserve it in Rotations (oldest first) before that happens —
-			// see Entry.Rotations' doc comment for why. Guard against
-			// duplicating an id already recorded (a defensive belt: nothing
-			// in this rebind path re-visits the same id twice today, but a
-			// duplicate lineage entry would double-convert that segment on
-			// rebuild).
-			alreadyRecorded := false
-			for _, r := range e.Rotations {
-				if r.SessionID == cur {
-					alreadyRecorded = true
-					break
-				}
-			}
-			if !alreadyRecorded {
-				e.Rotations = append(e.Rotations, Rotation{
-					SessionID:      cur,
-					TranscriptPath: e.TranscriptPath,
-					RotatedAt:      time.Now().UTC(),
-				})
-			}
+			// see Entry.Rotations' doc comment for why.
+			e.recordRotation(cur)
 		}
 		if sessionID != "" {
 			e.SessionID = sessionID
@@ -477,6 +460,22 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 			}
 		}
 		return true, nil
+	})
+}
+
+// recordRotation appends the current binding (cur and its transcript) to
+// the lineage, unless cur is already recorded: a duplicate lineage entry
+// would double-convert that segment on rebuild.
+func (e *Entry) recordRotation(cur string) {
+	for _, r := range e.Rotations {
+		if r.SessionID == cur {
+			return
+		}
+	}
+	e.Rotations = append(e.Rotations, Rotation{
+		SessionID:      cur,
+		TranscriptPath: e.TranscriptPath,
+		RotatedAt:      time.Now().UTC(),
 	})
 }
 

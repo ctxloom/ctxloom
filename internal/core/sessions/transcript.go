@@ -72,8 +72,7 @@ func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) (f
 	// at persist/transcripts, so the physical file is harp-addressable by
 	// location (LocateTranscript) and this link would only add a second name
 	// for it inside the same dir.
-	if rel, err := filepath.Rel(dir, transcriptPath); err == nil &&
-		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if transcriptInsideDir(dir, transcriptPath) {
 		return
 	}
 	// A binding whose target is not on disk still gets its link: BindSession
@@ -85,12 +84,34 @@ func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) (f
 		rep.Warnf("engine transcript link: bound transcript %s does not resolve (%v); linking it anyway, but reads through the session dir will fail until it appears", transcriptPath, serr)
 	}
 
+	if !reconcileExistingLink(rep, link, transcriptPath, engine, sessionID) {
+		return found
+	}
+	// Absent: the ordinary first-sighting case for this engine+sessionID.
+	if err := os.Symlink(transcriptPath, link); err != nil {
+		rep.Warnf("engine transcript link: %v", err)
+	}
+	return found
+}
+
+// transcriptInsideDir reports whether transcriptPath lies inside dir.
+func transcriptInsideDir(dir, transcriptPath string) bool {
+	rel, err := filepath.Rel(dir, transcriptPath)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// reconcileExistingLink settles whatever already holds the link's name,
+// reporting whether the name is free for a fresh link: nothing to do when it
+// already points at transcriptPath, an atomic, loudly reported repoint when it
+// holds a different target, and a refusal naming the cause when the name is
+// occupied by something unreadable.
+func reconcileExistingLink(rep report.Reporter, link, transcriptPath, engine, sessionID string) (absent bool) {
 	existing, rlErr := os.Readlink(link)
 	switch {
 	case rlErr == nil && existing == transcriptPath:
 		// Create-once: already correct, nothing to do. The ordinary shape of
 		// a repeat hook firing for the same live binding.
-		return
+		return false
 	case rlErr == nil:
 		// Same name, a DIFFERENT target already there: a session id got
 		// reused for a different transcript file. Replace atomically (the
@@ -98,23 +119,19 @@ func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) (f
 		// loudly; this is not the routine first-sighting path.
 		if err := atomicSymlink(transcriptPath, link); err != nil {
 			rep.Warnf("engine transcript link: %v", err)
-			return
+			return false
 		}
 		rep.Warnf("engine transcript link %s previously pointed at %s, now repointed to %s: session id %q was reused for a different %s transcript", link, existing, transcriptPath, sessionID, engine)
-		return
+		return false
 	case !errors.Is(rlErr, os.ErrNotExist):
 		// Something occupies the name and it is not even a symlink (or is
 		// unreadable for some other reason). Name the real cause here rather
-		// than letting the Symlink call below fail with an opaque EEXIST,
+		// than letting the caller's Symlink fail with an opaque EEXIST,
 		// which describes the symptom and hides the cause.
 		rep.Warnf("engine transcript link: could not inspect existing %s (%v)", link, rlErr)
-		return
+		return false
 	}
-	// Absent: the ordinary first-sighting case for this engine+sessionID.
-	if err := os.Symlink(transcriptPath, link); err != nil {
-		rep.Warnf("engine transcript link: %v", err)
-	}
-	return found
+	return true
 }
 
 // atomicSymlink replaces link with a symlink to target such that link is

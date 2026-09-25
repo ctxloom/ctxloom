@@ -26,17 +26,10 @@ const runtimeOnlyTag = "runtime"
 func fillNonZero(t *testing.T, v reflect.Value, path string, depth int) {
 	t.Helper()
 	require.Lessf(t, depth, 12, "%s: type nesting too deep to fill; extend fillNonZero", path)
+	if fillScalar(v, path) {
+		return
+	}
 	switch v.Kind() {
-	case reflect.String:
-		v.SetString("x-" + path)
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		v.SetInt(7)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v.SetUint(7)
-	case reflect.Float32, reflect.Float64:
-		v.SetFloat(1.5)
-	case reflect.Bool:
-		v.SetBool(true)
 	case reflect.Pointer:
 		p := reflect.New(v.Type().Elem())
 		fillNonZero(t, p.Elem(), path+"*", depth+1)
@@ -65,6 +58,26 @@ func fillNonZero(t *testing.T, v reflect.Value, path string, depth int) {
 	default:
 		require.Failf(t, "unfillable kind", "%s: %s", path, v.Kind())
 	}
+}
+
+// fillScalar sets a scalar kind to a non-zero value, reporting whether v was
+// one.
+func fillScalar(v reflect.Value, path string) bool {
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString("x-" + path)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(7)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v.SetUint(7)
+	case reflect.Float32, reflect.Float64:
+		v.SetFloat(1.5)
+	case reflect.Bool:
+		v.SetBool(true)
+	default:
+		return false
+	}
+	return true
 }
 
 func fullyFilledConfigDoc(t *testing.T) configDoc {

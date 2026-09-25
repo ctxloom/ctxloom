@@ -112,40 +112,59 @@ func foldDurationValue(e ast.Expr) (constant.Value, bool) {
 	case *ast.ParenExpr:
 		return foldDurationValue(v.X)
 	case *ast.BasicLit:
-		if v.Kind != token.INT {
-			return nil, false
-		}
-		n, err := strconv.ParseInt(v.Value, 0, 64)
-		if err != nil {
-			return nil, false
-		}
-		return constant.MakeInt64(n), true
+		return foldIntLit(v)
 	case *ast.SelectorExpr:
-		if id, ok := v.X.(*ast.Ident); ok && id.Name == "time" {
-			if unit, ok := timeUnits[v.Sel.Name]; ok {
-				return constant.MakeInt64(int64(unit)), true
-			}
-		}
-		return nil, false
+		return foldTimeUnit(v)
 	case *ast.CallExpr:
-		// time.Duration(N): a conversion, not a scale.
-		if sel, ok := v.Fun.(*ast.SelectorExpr); ok && len(v.Args) == 1 {
-			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "time" && sel.Sel.Name == "Duration" {
-				return foldDurationValue(v.Args[0])
-			}
-		}
-		return nil, false
+		return foldDurationConversion(v)
 	case *ast.BinaryExpr:
-		x, okX := foldDurationValue(v.X)
-		y, okY := foldDurationValue(v.Y)
-		if !okX || !okY {
-			return nil, false
-		}
-		switch v.Op {
-		case token.MUL, token.ADD, token.SUB:
-			return constant.BinaryOp(x, v.Op, y), true
-		}
+		return foldDurationArith(v)
+	}
+	return nil, false
+}
+
+// foldIntLit folds an integer literal.
+func foldIntLit(v *ast.BasicLit) (constant.Value, bool) {
+	if v.Kind != token.INT {
 		return nil, false
+	}
+	n, err := strconv.ParseInt(v.Value, 0, 64)
+	if err != nil {
+		return nil, false
+	}
+	return constant.MakeInt64(n), true
+}
+
+// foldTimeUnit folds a time.<Unit> selector.
+func foldTimeUnit(v *ast.SelectorExpr) (constant.Value, bool) {
+	if id, ok := v.X.(*ast.Ident); ok && id.Name == "time" {
+		if unit, ok := timeUnits[v.Sel.Name]; ok {
+			return constant.MakeInt64(int64(unit)), true
+		}
+	}
+	return nil, false
+}
+
+// foldDurationConversion folds time.Duration(N): a conversion, not a scale.
+func foldDurationConversion(v *ast.CallExpr) (constant.Value, bool) {
+	if sel, ok := v.Fun.(*ast.SelectorExpr); ok && len(v.Args) == 1 {
+		if id, ok := sel.X.(*ast.Ident); ok && id.Name == "time" && sel.Sel.Name == "Duration" {
+			return foldDurationValue(v.Args[0])
+		}
+	}
+	return nil, false
+}
+
+// foldDurationArith folds a product, sum or difference of foldable operands.
+func foldDurationArith(v *ast.BinaryExpr) (constant.Value, bool) {
+	x, okX := foldDurationValue(v.X)
+	y, okY := foldDurationValue(v.Y)
+	if !okX || !okY {
+		return nil, false
+	}
+	switch v.Op {
+	case token.MUL, token.ADD, token.SUB:
+		return constant.BinaryOp(x, v.Op, y), true
 	}
 	return nil, false
 }

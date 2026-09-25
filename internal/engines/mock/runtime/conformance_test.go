@@ -49,7 +49,16 @@ func buildConformanceFixture(t *testing.T, cli agent.EngineCLI) conformanceFixtu
 		envRoots:  map[string]string{},
 		flagPaths: map[string]string{},
 	}
-	for _, p := range cli.Probes {
+	f.allocateProbeRoots(t, cli.Probes)
+	f.appendFixtureArgv(cli)
+	return f
+}
+
+// allocateProbeRoots gives each env-dir probe's var, and each flag-value
+// probe's flag, its own fresh location.
+func (f *conformanceFixture) allocateProbeRoots(t *testing.T, probes []agent.CLIProbe) {
+	t.Helper()
+	for _, p := range probes {
 		switch p.Scope {
 		case agent.ScopeEnvDir:
 			if _, seen := f.envRoots[p.EnvVar]; !seen {
@@ -61,6 +70,12 @@ func buildConformanceFixture(t *testing.T, cli agent.EngineCLI) conformanceFixtu
 			}
 		}
 	}
+}
+
+// appendFixtureArgv builds the fixture's argv: each probed flag with its
+// path, each other required flag (with a value when it takes one), and the
+// positional prompt when the surface takes one.
+func (f *conformanceFixture) appendFixtureArgv(cli agent.EngineCLI) {
 	for _, fl := range cli.Flags {
 		path, probed := f.flagPaths[fl.Name]
 		switch {
@@ -75,7 +90,6 @@ func buildConformanceFixture(t *testing.T, cli agent.EngineCLI) conformanceFixtu
 	if cli.Prompt == agent.PromptPositional {
 		f.argv = append(f.argv, "the positional prompt")
 	}
-	return f
 }
 
 // expectedReadPath is the test's OWN derivation of where L1 says a probe
@@ -110,21 +124,28 @@ func assertWalkConforms(t *testing.T, cli agent.EngineCLI, f conformanceFixture)
 		t.Fatalf("walk produced %d records for %d declared probes: the walk reads a different set than L1 declares", len(recs), len(cli.Probes))
 	}
 	for i, p := range cli.Probes {
-		rec := recs[i]
-		if rec.Order != i || rec.Kind != string(p.Kind) || rec.Scope != string(p.Scope) || rec.Rel != p.Rel {
-			t.Errorf("probe %d: record (order=%d kind=%s scope=%s rel=%q) does not mirror the declaration (kind=%s scope=%s rel=%q)",
-				i, rec.Order, rec.Kind, rec.Scope, rec.Rel, p.Kind, p.Scope, p.Rel)
-		}
-		if rec.Unresolved {
-			t.Errorf("probe %d (%s/%s): every declared probe has a location on this fixture, yet the walk could not resolve it: %s",
-				i, p.Kind, p.Scope, rec.Note)
-		}
-		if rec.Fallback {
-			t.Errorf("probe %d (%s/%s): env var %s was set, yet the walk fell back to $HOME", i, p.Kind, p.Scope, p.EnvVar)
-		}
-		if want := f.expectedReadPath(p); rec.Path != want {
-			t.Errorf("probe %d (%s/%s): the walk read %q but L1 declares %q", i, p.Kind, p.Scope, rec.Path, want)
-		}
+		assertRecordMirrors(t, f, i, p, recs[i])
+	}
+}
+
+// assertRecordMirrors checks one record against its declaring probe: it
+// mirrors the declaration, resolved without a $HOME fallback, and read
+// where L1 says the probe reads.
+func assertRecordMirrors(t *testing.T, f conformanceFixture, i int, p agent.CLIProbe, rec runtime.ProbeRecord) {
+	t.Helper()
+	if rec.Order != i || rec.Kind != string(p.Kind) || rec.Scope != string(p.Scope) || rec.Rel != p.Rel {
+		t.Errorf("probe %d: record (order=%d kind=%s scope=%s rel=%q) does not mirror the declaration (kind=%s scope=%s rel=%q)",
+			i, rec.Order, rec.Kind, rec.Scope, rec.Rel, p.Kind, p.Scope, p.Rel)
+	}
+	if rec.Unresolved {
+		t.Errorf("probe %d (%s/%s): every declared probe has a location on this fixture, yet the walk could not resolve it: %s",
+			i, p.Kind, p.Scope, rec.Note)
+	}
+	if rec.Fallback {
+		t.Errorf("probe %d (%s/%s): env var %s was set, yet the walk fell back to $HOME", i, p.Kind, p.Scope, p.EnvVar)
+	}
+	if want := f.expectedReadPath(p); rec.Path != want {
+		t.Errorf("probe %d (%s/%s): the walk read %q but L1 declares %q", i, p.Kind, p.Scope, rec.Path, want)
 	}
 }
 

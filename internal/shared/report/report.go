@@ -31,6 +31,7 @@ const (
 	KindTrust     Kind = "trust-store"
 	KindIsolation Kind = "isolation"
 	KindTask      Kind = "task"
+	KindOwner     Kind = "owner"
 )
 
 // Finding is one diagnostic. Text is the whole human message; Remedy is the

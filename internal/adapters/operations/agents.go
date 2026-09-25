@@ -218,8 +218,13 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 	if err := validateAgentEngine(reg, cfg, name, req); err != nil {
 		return err
 	}
-	if err := validateAgentModes(name, req); err != nil {
+	if err := validateAgentRuntime(name, req); err != nil {
 		return err
+	}
+	if req.Driving != nil {
+		if err := agents.ValidateDriving(agents.DrivingMode(*req.Driving)); err != nil {
+			return fmt.Errorf("agent %q: %w", name, err)
+		}
 	}
 	if err := validateAgentApproaches(reg, cfg, name, req); err != nil {
 		return err
@@ -242,17 +247,13 @@ func validateAgentEngine(reg engine.Registry, cfg *config.Config, name string, r
 	return nil
 }
 
-// validateAgentModes refuses an unparseable runtime axis or driving mode.
-func validateAgentModes(name string, req SetAgentRequest) error {
-	if req.Runtime != nil {
-		if _, rterr := launch.ParseRuntimeAxis(*req.Runtime); rterr != nil {
-			return fmt.Errorf("agent %q: %w", name, rterr)
-		}
+// validateAgentRuntime refuses an unparseable runtime axis.
+func validateAgentRuntime(name string, req SetAgentRequest) error {
+	if req.Runtime == nil {
+		return nil
 	}
-	if req.Driving != nil {
-		if err := agents.ValidateDriving(agents.DrivingMode(*req.Driving)); err != nil {
-			return fmt.Errorf("agent %q: %w", name, err)
-		}
+	if _, rterr := launch.ParseRuntimeAxis(*req.Runtime); rterr != nil {
+		return fmt.Errorf("agent %q: %w", name, rterr)
 	}
 	return nil
 }

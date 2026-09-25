@@ -85,29 +85,8 @@ type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (Owne
 // (terminateRun, exactly-once) and the error returned; the caller's deferred
 // runner teardown still runs.
 func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec OwnerRun, start OwnedRunStarter, prompt string) (*RunOutcome, error) {
-	if c.Draining() {
-		return nil, fmt.Errorf("owner run: %w", ErrDraining)
-	}
-	if spec.Launch.Identity.Harp == "" {
-		return nil, errors.New("owner run: a resolved launch with its harp is required (the run reuses the owning session's harp as its role)")
-	}
-	if spec.Launch.Engine == "" {
-		return nil, errors.New("owner run: the launch names no engine")
-	}
-	if start == nil {
-		return nil, errors.New("owner run: a runner starter is required")
-	}
-	// A ONE-SHOT run gets exactly one turn and this prompt is it, so
-	// an empty one can only be a delivery failure upstream — and it used to
-	// sail through: issueStartRun builds Input only `if first != ""`, so the
-	// StartRun went out with a nil Input, round-tripped, and this returned a
-	// populated RunOutcome and nil. A top-level container run with zero
-	// payload and every signal green. A STRUCTURED run is different: it
-	// legitimately opens with no lead and takes its turns via
-	// SendOwnedRunTurn, so it is not refused here.
-	if spec.OneShot && prompt == "" {
-		return nil, errors.New("owner run: a one-shot run needs a prompt — it gets exactly one turn, " +
-			"and an empty first turn delivers nothing at all (check context assembly and the --print/stdin prompt source)")
+	if err := c.ownerRunRefusal(spec, start, prompt); err != nil {
+		return nil, err
 	}
 	// The dial-home IS the run's transport — a runner that could never dial
 	// home has no transport at all, so an unresolvable endpoint is fatal here
@@ -224,6 +203,36 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		Engine:  l.Label.Label,
 		Runtime: runtime,
 	}, nil
+}
+
+// ownerRunRefusal is StartOwnedRun's refusal of a run it must not start: a
+// draining coordinator, or a spec that could never carry a turn.
+func (c *Coordinator) ownerRunRefusal(spec OwnerRun, start OwnedRunStarter, prompt string) error {
+	if c.Draining() {
+		return fmt.Errorf("owner run: %w", ErrDraining)
+	}
+	if spec.Launch.Identity.Harp == "" {
+		return errors.New("owner run: a resolved launch with its harp is required (the run reuses the owning session's harp as its role)")
+	}
+	if spec.Launch.Engine == "" {
+		return errors.New("owner run: the launch names no engine")
+	}
+	if start == nil {
+		return errors.New("owner run: a runner starter is required")
+	}
+	// A ONE-SHOT run gets exactly one turn and this prompt is it, so
+	// an empty one can only be a delivery failure upstream — and it used to
+	// sail through: issueStartRun builds Input only `if first != ""`, so the
+	// StartRun went out with a nil Input, round-tripped, and this returned a
+	// populated RunOutcome and nil. A top-level container run with zero
+	// payload and every signal green. A STRUCTURED run is different: it
+	// legitimately opens with no lead and takes its turns via
+	// SendOwnedRunTurn, so it is not refused here.
+	if spec.OneShot && prompt == "" {
+		return errors.New("owner run: a one-shot run needs a prompt — it gets exactly one turn, " +
+			"and an empty first turn delivers nothing at all (check context assembly and the --print/stdin prompt source)")
+	}
+	return nil
 }
 
 // recordContainerName journals a container-runtime run's resolved container

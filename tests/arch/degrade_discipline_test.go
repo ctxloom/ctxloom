@@ -84,7 +84,6 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -167,15 +166,10 @@ func findDegradeBranches(t *testing.T) map[string][]int {
 		if err != nil {
 			return err
 		}
-		name := d.Name()
 		if d.IsDir() {
-			if p != root && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
-				name == "testdata" || name == "vendor" || name == "node_modules") {
-				return filepath.SkipDir
-			}
-			return nil
+			return skipModuleDir(root, p, d)
 		}
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if !isNonTestGoFile(d.Name()) {
 			return nil
 		}
 		f, perr := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
@@ -188,19 +182,10 @@ func findDegradeBranches(t *testing.T) map[string][]int {
 			return rerr
 		}
 		rel = filepath.ToSlash(rel)
-		ast.Inspect(f, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.CallExpr:
-				if callsDegraded(x) {
-					hits[rel] = append(hits[rel], fset.Position(x.Pos()).Line)
-				}
-			case *ast.SelectorExpr:
-				if readsCompositionMode(x) {
-					hits[rel] = append(hits[rel], fset.Position(x.Pos()).Line)
-				}
-			}
-			return true
-		})
+		hits[rel] = append(hits[rel], degradeBranchLines(fset, f)...)
+		if len(hits[rel]) == 0 {
+			delete(hits, rel)
+		}
 		return nil
 	})
 	require.NoError(t, err)
@@ -208,6 +193,26 @@ func findDegradeBranches(t *testing.T) map[string][]int {
 		sort.Ints(hits[f])
 	}
 	return hits
+}
+
+// degradeBranchLines is the lines in f that call something named "Degraded"
+// or read the composition mode.
+func degradeBranchLines(fset *token.FileSet, f *ast.File) []int {
+	var lines []int
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.CallExpr:
+			if callsDegraded(x) {
+				lines = append(lines, fset.Position(x.Pos()).Line)
+			}
+		case *ast.SelectorExpr:
+			if readsCompositionMode(x) {
+				lines = append(lines, fset.Position(x.Pos()).Line)
+			}
+		}
+		return true
+	})
+	return lines
 }
 
 // callsDegraded reports whether a call's callee is spelled "Degraded", either

@@ -29,40 +29,8 @@ func TestArch_PluginArmRetired(t *testing.T) {
 		modulePath + "/internal/vpio/goplugin",
 		modulePath + "/internal/vpio/dockerexec",
 	}
-
-	list := exec.Command("go", "list", "./...")
-	list.Dir = root
-	out, err := list.Output()
-	if err != nil {
-		t.Fatalf("go list ./...: %v", err)
-	}
-	pkgs := strings.Fields(string(out))
-	if len(pkgs) == 0 {
-		t.Fatal("go list ./... reported nothing — the gate has nothing to check")
-	}
-	for _, pkg := range pkgs {
-		for _, r := range retired {
-			if pkg == r || strings.HasPrefix(pkg, r+"/") {
-				t.Errorf("%s still exists — the plugin arm is retired; the runner is the one unit", pkg)
-			}
-		}
-	}
-
-	deps := exec.Command("go", "list", "-deps", "./cmd/...", "./internal/...")
-	deps.Dir = root
-	out, err = deps.Output()
-	if err != nil {
-		t.Fatalf("go list -deps: %v", err)
-	}
-	linked := strings.Fields(string(out))
-	if len(linked) == 0 {
-		t.Fatal("go list -deps reported nothing — the gate has nothing to check")
-	}
-	for _, dep := range linked {
-		if strings.HasPrefix(dep, "github.com/hashicorp/go-plugin") {
-			t.Errorf("%s is still linked — no process in this module speaks go-plugin", dep)
-		}
-	}
+	reportRetiredPackages(t, goListFields(t, root, "go list ./...", "list", "./..."), retired)
+	reportGoPluginLinked(t, goListFields(t, root, "go list -deps", "list", "-deps", "./cmd/...", "./internal/..."))
 
 	gomod, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil {
@@ -70,5 +38,44 @@ func TestArch_PluginArmRetired(t *testing.T) {
 	}
 	if strings.Contains(string(gomod), "github.com/hashicorp/go-plugin") {
 		t.Error("go.mod still requires github.com/hashicorp/go-plugin — the dependency leaves with the arm")
+	}
+}
+
+// goListFields runs `go <args>` in root and returns its output's fields,
+// fatal (under label) when it fails or reports nothing.
+func goListFields(t *testing.T, root, label string, args ...string) []string {
+	t.Helper()
+	cmd := exec.Command("go", args...)
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%s: %v", label, err)
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		t.Fatalf("%s reported nothing — the gate has nothing to check", label)
+	}
+	return fields
+}
+
+// reportRetiredPackages fails for every package at or under a retired path.
+func reportRetiredPackages(t *testing.T, pkgs, retired []string) {
+	t.Helper()
+	for _, pkg := range pkgs {
+		for _, r := range retired {
+			if pkg == r || strings.HasPrefix(pkg, r+"/") {
+				t.Errorf("%s still exists — the plugin arm is retired; the runner is the one unit", pkg)
+			}
+		}
+	}
+}
+
+// reportGoPluginLinked fails for every linked go-plugin package.
+func reportGoPluginLinked(t *testing.T, linked []string) {
+	t.Helper()
+	for _, dep := range linked {
+		if strings.HasPrefix(dep, "github.com/hashicorp/go-plugin") {
+			t.Errorf("%s is still linked — no process in this module speaks go-plugin", dep)
+		}
 	}
 }

@@ -47,22 +47,7 @@ func scanLaunchConstructions(t *testing.T) []ringSite {
 	walkRingFiles(t, func(rf ringFile) {
 		inLaunch := rf.f.Name.Name == "launch"
 		ast.Inspect(rf.f, func(n ast.Node) bool {
-			var what string
-			var pos ast.Node
-			switch x := n.(type) {
-			case *ast.CompositeLit:
-				if isLaunchType(x.Type, inLaunch) && len(x.Elts) > 0 {
-					what, pos = "builds a launch.Launch by composite literal", x
-				}
-			case *ast.CallExpr:
-				if fn, ok := x.Fun.(*ast.Ident); ok && fn.Name == "new" && len(x.Args) == 1 && isLaunchType(x.Args[0], inLaunch) {
-					what, pos = "builds a launch.Launch with new", x
-				}
-			case *ast.ValueSpec:
-				if x.Type != nil && isLaunchType(x.Type, inLaunch) && len(x.Values) == 0 {
-					what, pos = "declares a launch.Launch variable to fill in", x
-				}
-			}
+			what := launchConstruction(n, inLaunch)
 			if what == "" {
 				return true
 			}
@@ -70,7 +55,7 @@ func scanLaunchConstructions(t *testing.T) []ringSite {
 			if archrules.UnderAny(rf.dir, launchConstructorHomes) {
 				return true
 			}
-			out = append(out, ringSite{file: rf.rel, what: what, line: rf.fset.Position(pos.Pos()).Line})
+			out = append(out, ringSite{file: rf.rel, what: what, line: rf.fset.Position(n.Pos()).Line})
 			return true
 		})
 	})
@@ -78,6 +63,33 @@ func scanLaunchConstructions(t *testing.T) []ringSite {
 		t.Fatal("the walk found no launch.Launch construction anywhere, not even in the resolver — the spelling this rule keys on is stale, not the module clean")
 	}
 	return out
+}
+
+// launchConstruction names how n builds a launch.Launch — by composite
+// literal with fields, by new, or by declaring a variable of the type to
+// fill in — or "" when it builds none.
+func launchConstruction(n ast.Node, inLaunch bool) string {
+	switch x := n.(type) {
+	case *ast.CompositeLit:
+		if isLaunchType(x.Type, inLaunch) && len(x.Elts) > 0 {
+			return "builds a launch.Launch by composite literal"
+		}
+	case *ast.CallExpr:
+		if newsLaunch(x, inLaunch) {
+			return "builds a launch.Launch with new"
+		}
+	case *ast.ValueSpec:
+		if x.Type != nil && isLaunchType(x.Type, inLaunch) && len(x.Values) == 0 {
+			return "declares a launch.Launch variable to fill in"
+		}
+	}
+	return ""
+}
+
+// newsLaunch reports whether call is new(launch.Launch).
+func newsLaunch(call *ast.CallExpr, inLaunch bool) bool {
+	fn, ok := call.Fun.(*ast.Ident)
+	return ok && fn.Name == "new" && len(call.Args) == 1 && isLaunchType(call.Args[0], inLaunch)
 }
 
 // TestArch_OneLaunchConstructor is the gate: outside core/launch and the

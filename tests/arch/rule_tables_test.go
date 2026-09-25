@@ -67,10 +67,7 @@ func scanRuleTableDecls(t *testing.T) []ruleTableDecl {
 				return err
 			}
 			if d.IsDir() {
-				if name := d.Name(); name == "testdata" || strings.HasPrefix(name, ".") {
-					return filepath.SkipDir
-				}
-				return nil
+				return skipScanDir(d)
 			}
 			if !strings.HasSuffix(p, ".go") {
 				return nil
@@ -83,22 +80,7 @@ func scanRuleTableDecls(t *testing.T) []ruleTableDecl {
 			if err != nil {
 				return err
 			}
-			dir := filepath.ToSlash(rel)
-			for _, decl := range f.Decls {
-				gd, ok := decl.(*ast.GenDecl)
-				if !ok || gd.Tok != token.VAR {
-					continue
-				}
-				for _, spec := range gd.Specs {
-					for _, name := range spec.(*ast.ValueSpec).Names {
-						for _, table := range ruleTableNames() {
-							if strings.EqualFold(name.Name, table) {
-								out = append(out, ruleTableDecl{table: table, dir: dir})
-							}
-						}
-					}
-				}
-			}
+			out = append(out, ruleTableDeclsIn(f, filepath.ToSlash(rel))...)
 			return nil
 		})
 		if err != nil {
@@ -107,6 +89,43 @@ func scanRuleTableDecls(t *testing.T) []ruleTableDecl {
 	}
 	if len(out) == 0 {
 		t.Fatalf("the scan found no declaration of any of %v under %v — the gate is looking at the wrong tree", ruleTableNames(), ruleTableTrees)
+	}
+	return out
+}
+
+// skipScanDir skips testdata and hidden directories.
+func skipScanDir(d fs.DirEntry) error {
+	if name := d.Name(); name == "testdata" || strings.HasPrefix(name, ".") {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// ruleTableDeclsIn is every package-level var in f named, case-insensitively,
+// like a rule table.
+func ruleTableDeclsIn(f *ast.File, dir string) []ruleTableDecl {
+	var out []ruleTableDecl
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			for _, name := range spec.(*ast.ValueSpec).Names {
+				out = append(out, matchingRuleTables(name.Name, dir)...)
+			}
+		}
+	}
+	return out
+}
+
+// matchingRuleTables is a decl per rule table name matches.
+func matchingRuleTables(name, dir string) []ruleTableDecl {
+	var out []ruleTableDecl
+	for _, table := range ruleTableNames() {
+		if strings.EqualFold(name, table) {
+			out = append(out, ruleTableDecl{table: table, dir: dir})
+		}
 	}
 	return out
 }

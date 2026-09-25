@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
@@ -54,10 +55,8 @@ const (
 // nil Resize channel simply never fires.
 func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 	w := r.stdout()
-	if promptLen > 0 {
-		if _, err := fmt.Fprintln(w, out.Response); err != nil {
-			return err
-		}
+	if err := echoResponse(w, promptLen, out); err != nil {
+		return err
 	}
 	if r.Stdin == nil {
 		return nil
@@ -66,19 +65,47 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 	if err != nil {
 		return err
 	}
-
-	// ReadString blocks until a line arrives, so reading on its own goroutine
-	// is what lets a resize be reported while nothing is being typed. The
-	// channel is buffered by one so the reader can deposit its EOF and exit
-	// once the peer hangs up after quit; a peer that keeps typing after quit
-	// parks it, which is the documented tty tradeoff (see the vocabulary doc).
-	type readResult struct {
-		line string
-		err  error
+	lines := readLines(r.Stdin)
+	resize := r.Resize
+	for {
+		select {
+		case ws, ok := <-resize:
+			if resize, err = onResize(w, resize, ws, ok); err != nil {
+				return err
+			}
+		case res := <-lines:
+			if done, err := r.handleLine(w, hooks, res); done || err != nil {
+				return err
+			}
+		}
 	}
+}
+
+// echoResponse prints the reply when a prompt was given.
+func echoResponse(w io.Writer, promptLen int, out Outcome) error {
+	if promptLen == 0 {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, out.Response)
+	return err
+}
+
+// readResult is one line the terminal delivered, or the error that ended it.
+type readResult struct {
+	line string
+	err  error
+}
+
+// readLines reads the terminal on its own goroutine. ReadString blocks until
+// a line arrives, so reading on its own goroutine is what lets a resize be
+// reported while nothing is being typed. The channel is buffered by one so
+// the reader can deposit its EOF and exit once the peer hangs up after quit;
+// a peer that keeps typing after quit parks it, which is the documented tty
+// tradeoff (see the vocabulary doc).
+func readLines(in io.Reader) <-chan readResult {
 	lines := make(chan readResult, 1)
 	go func() {
-		br := bufio.NewReader(r.Stdin)
+		br := bufio.NewReader(in)
 		for {
 			line, err := br.ReadString('\n')
 			lines <- readResult{line: line, err: err}
@@ -87,41 +114,45 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 			}
 		}
 	}()
+	return lines
+}
 
-	resize := r.Resize
-	for {
-		select {
-		case ws, ok := <-resize:
-			if !ok {
-				resize = nil // a closed source is silence, not a spin
-				continue
-			}
-			if _, err := fmt.Fprintf(w, "%s%dx%d\n", InteractiveWinsizePrefix, ws.Rows, ws.Cols); err != nil {
-				return err
-			}
-		case res := <-lines:
-			line := strings.TrimRight(res.line, "\r\n")
-			if line == InteractiveQuit {
-				return nil
-			}
-			if line != "" {
-				if strings.TrimSpace(line) != "" {
-					if err := mock.FireHooks(context.Background(), hooks, "turn_start", "", r.Res.Cwd, nil); err != nil {
-						fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
-					}
-				}
-				if _, err := fmt.Fprintf(w, "%s%s\n", InteractiveEchoPrefix, line); err != nil {
-					return err
-				}
-			}
-			if res.err != nil {
-				if res.err == io.EOF {
-					return nil
-				}
-				return fmt.Errorf("reading the terminal: %w", res.err)
+// onResize reports one resize, returning the source to keep reading: nil
+// once it has closed (a closed source is silence, not a spin).
+func onResize(w io.Writer, resize <-chan agent.WindowSize, ws agent.WindowSize, ok bool) (<-chan agent.WindowSize, error) {
+	if !ok {
+		return nil, nil
+	}
+	_, err := fmt.Fprintf(w, "%s%dx%d\n", InteractiveWinsizePrefix, ws.Rows, ws.Cols)
+	return resize, err
+}
+
+// handleLine takes one terminal line: quit ends the session; a non-blank
+// line fires the turn_start hooks (a failing hook is reported, and the
+// session goes on) and is echoed. done is true when the session ends —
+// quit, or the terminal closing.
+func (r *Runtime) handleLine(w io.Writer, hooks wire.UnifiedHooks, res readResult) (done bool, err error) {
+	line := strings.TrimRight(res.line, "\r\n")
+	if line == InteractiveQuit {
+		return true, nil
+	}
+	if line != "" {
+		if strings.TrimSpace(line) != "" {
+			if err := mock.FireHooks(context.Background(), hooks, "turn_start", "", r.Res.Cwd, nil); err != nil {
+				fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
 			}
 		}
+		if _, err := fmt.Fprintf(w, "%s%s\n", InteractiveEchoPrefix, line); err != nil {
+			return true, err
+		}
 	}
+	if res.err == nil {
+		return false, nil
+	}
+	if res.err == io.EOF {
+		return true, nil
+	}
+	return true, fmt.Errorf("reading the terminal: %w", res.err)
 }
 
 // deliveredHooks reads the hook file the mock kind's hooks surface announced

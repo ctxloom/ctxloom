@@ -43,12 +43,14 @@ accepted a new one.
 THIS IS NOT ONLY A LAUNCH CONCERN, and that is the trap. Everything below about
 `strictness` governs findings raised at STARTUP. An ordinary resolution
 function is not a launch check, raises no finding, and reaches none of that
-machinery — which is exactly where silent substitution survives. `ResolveLLM`
-misses on an unknown label and returns the built-in default with no error and
-no warning, so a typo'd `--llm` runs a model the caller did not ask for, at
-exit 0. The doc comment directly above it records fixing that same bug for the
-EMPTY-label case and leaving the unknown-label arm untouched. One arm of one
-conditional was made correct, because nothing declared what a valid label was.
+machinery — which is exactly where silent substitution survives. The `--llm`
+label is the worked example: `config.(*Config).ResolveLLM` falls back to the
+built-in default on a label it does not know, because it has no engine
+registry and cannot tell a typo from a bare engine name. So the finding lives
+one layer up, in `operations.ResolveBackend`, the one place that holds BOTH
+declarations (the configured labels and the registered engines) and can say
+the label names neither. Put the refusal where the declaration is visible, not
+where the lookup happens to miss.
 
 ## `--degraded` always reaches a working LLM
 
@@ -80,17 +82,19 @@ isolation it claimed is not degradable, because the launch IS the exposure.
 
 Report the finding; let `strictness` decide its fatality:
 
-    strictness.FailOnce(strictness.ClassConfig, "<the remedy>", ...)
+    strictness.FailOnce(report.KindConfig, "<the remedy>", ...)
 
-`internal/profiles/profiles.go` already does exactly this for the
-empty-profile cases. `strictness` owns the fatal-vs-warn decision centrally and
-`SetDegraded` flips it process-wide, which is what makes the guarantee above
-hold everywhere at once.
+Core packages may not import `strictness`; they raise the same finding through
+the `report.Reporter` they are handed (`rep.FailOncef(report.KindConfig, ...)`)
+— `internal/core/profiles` does exactly this for the empty-profile cases.
+Fatality is decided in ONE place: the run's `strictness.Mode`, built once at
+the CLI root from `--degraded` / `CTXLOOM_DEGRADED`, is what the startup gate
+consults. That is what makes the guarantee above hold everywhere at once.
 
 Therefore, at the site of a check:
 
-- **Do NOT branch on degraded state.** No `if strictness.Degraded()`, no
-  `strict bool` parameter, no per-call fatality argument. A check that decides
+- **Do NOT branch on degraded state.** No reading `Mode.Degraded` at a check,
+  no `strict bool` parameter, no per-call fatality argument. A check that decides
   its own fatality is a second policy that will disagree with the first.
 - **Do state the REMEDY, not just the complaint.** The refusal is the entire
   user interface for the failure. "invalid profile" is a dead end; "give the

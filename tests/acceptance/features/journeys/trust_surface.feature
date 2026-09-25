@@ -316,3 +316,24 @@ Feature: The trust surface — what "review" actually controls
     Then her session refuses to start, naming the lockfile it could not parse and the remote bundle it therefore never loaded
     And nothing is reported about that bundle's trust, because it was never loaded to be judged
     And the fragment is absent from her assistant's delivered surface
+
+  # The decision table's `local | invalid` row: a signature over LOCAL bytes
+  # that no longer covers them. Locality is the trust boundary for a bundle
+  # Alice controls, so the content is still delivered. The signature is for
+  # what travels, and it has silently stopped vouching for these bytes, so the
+  # author is told to re-sign before she publishes it. The project's own
+  # scaffolded bundle, which she never signed, is the negative half: nothing
+  # about it went stale, and she is not told that it did.
+  Scenario: A bundle Alice signed and then edited is still delivered, and she is told to re-sign it
+    Given Alice signs a bundle she authored in her project, then edits its guidance without re-signing it
+    When Alice starts a session
+    Then her edited guidance still reaches her assistant, and that bundle alone is flagged to be re-signed
+
+  # The trust ROOT when the config cannot be read. ctxloom still answers,
+  # from a minimal default, and that default trusts no signer: a typo in
+  # config.yaml must not be able to widen who may run on this machine, so a
+  # companion admitted a moment ago is refused until the config loads again.
+  Scenario: A config that cannot be read trusts no signer, and listing companions still answers
+    Given Alice's company companion is admitted, signed with a key she trusts
+    When a typo leaves her project config unreadable
+    Then listing her companions still answers, and refuses the company companion because no signer is trusted until her config loads

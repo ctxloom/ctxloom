@@ -106,6 +106,17 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | none      |
       | worktree  |
 
+  # The workspace axis is a convenience, and it degrades: a worktree is cut
+  # from a git repository, so where there is none the run goes ahead in the
+  # live project directory rather than refusing. That is the opposite of the
+  # runtime axis below, where a container that cannot be had is a refusal.
+  # Losing a worktree loses no boundary that was promised; losing a container
+  # would.
+  Scenario: Asking for a worktree outside git runs in the live project directory instead of refusing
+    Given Alice's project is not a git repository
+    When Alice runs the mock agent under workspace "worktree" with prompt "no-git-check"
+    Then the run's workdir reflects the "none" workspace axis
+
   # LOCKED — the core boundary claim: two isolated runs never share the
   # workspace they get. Genuinely different prompts (task-one / task-two) so
   # a one-value assertion can't accidentally pass twice.
@@ -197,6 +208,24 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       |            |
       | --degraded |
 
+  # The same START gate, reached with BOTH axes requested: Alice wants her own
+  # worktree AND a container around it. Here the container tier is the
+  # worktree-backed one, and the next tier down is a plain HOST worktree — a
+  # real, working workspace. That makes this the one degrade where losing the
+  # container still leaves something that looks like isolation, so it is the
+  # one most tempting to accept quietly. The row above cannot stand in for it:
+  # its chain holds the live-dir container, never the worktree-backed one, so
+  # a boundary check that recognised only the live-dir container would pass
+  # there and let this run land on the host believing it had a sandbox.
+  Scenario Outline: A containerized worktree that cannot start REFUSES rather than keeping the worktree on the host
+    When Alice runs a container-bound agent whose image cannot be produced, with flags "--workspace worktree <flags>"
+    Then the run aborts at the container START gate
+
+    Examples:
+      | flags      |
+      |            |
+      | --degraded |
+
   # THE BOUNDARY THAT WAS ACCEPTED AND THEN LOST, which is a different fault
   # from every gate above and the only one that is NOT degradable.
   #
@@ -230,6 +259,15 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | flags      |
       |            |
       | --degraded |
+
+  # The same lost boundary, when the daemon SAYS why it dropped the container.
+  # The container was started with --rm, so by the time Alice looks, it and
+  # its logs are gone; what the daemon wrote while killing it is the only
+  # account of what happened, and she is given it with the refusal.
+  Scenario: A container the daemon kills before it runs is refused with the daemon's own reason
+    When Alice runs a container-bound agent whose container the daemon kills, saying why
+    Then the run aborts because the container never reached running state
+    And Alice is told the daemon's own reason
 
   # ===========================================================================
   # THE CONTAINER HOME AXIS — one read-write bind mount, not a copy.

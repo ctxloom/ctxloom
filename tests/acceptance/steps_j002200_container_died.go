@@ -38,6 +38,11 @@ import (
 //	container inspect -> 1, so {{.State.Running}} never reads "true" and the
 //	                   container is never observed running.
 //
+// J002200_DAEMON_SAYS, when set, is what the daemon writes to stderr as it
+// drops the RUNNER container (the one launched with a "runner" argument). It
+// still exits 0, so the runner's own exit error carries nothing and the
+// stderr tail ctxloom kept is the only copy of the reason.
+//
 // The keepalive's immediate exit is what makes this fast: AwaitContainerRunning
 // races the runner's Wait against a 30s deadline and takes the Wait arm on the
 // first poll rather than burning the deadline.
@@ -72,6 +77,14 @@ case "$1" in
         exit 0
       fi
     done
+    if [ -n "$J002200_DAEMON_SAYS" ]; then
+      for a in "$@"; do
+        if [ "$a" = "runner" ]; then
+          printf '%s\n' "$J002200_DAEMON_SAYS" >&2
+          exit 0
+        fi
+      done
+    fi
     exit 0 ;;
   *) exit 0 ;;
 esac
@@ -133,27 +146,54 @@ func j002200StubDiedRuntime(w *World) error {
 // is how a row ends up asserting whichever gate the host happens to hit.
 const j002200DiedFinding = "never reached running state"
 
+// j002200DaemonReason is what the stub daemon says as it drops the runner
+// container, in the saying-why variant of the died row.
+const j002200DaemonReason = "Error response from daemon: J002200-DAEMON-KILLED-THE-RUNNER"
+
+// j002200RunDiedAgent installs the died daemon and runs the container-bound
+// agent against it; the exit status is the Then steps' to assert.
+func j002200RunDiedAgent(w *World, flags string) error {
+	j002200 := j002200Of(w)
+	if err := j002200StubDiedRuntime(w); err != nil {
+		return err
+	}
+	recPath := filepath.Join(j002200.recordDir, fmt.Sprintf("died-%d.txt", len(j002200.records)))
+	if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j002200HomeConfigYAML(recPath)); err != nil {
+		return err
+	}
+	j002200.lastContainerRecPath = recPath
+	args := []string{"run", "--agent", "mock-container", "--one-shot"}
+	if flags != "" {
+		args = append(args, strings.Fields(flags)...)
+	}
+	args = append(args, "isolation-check")
+	_ = w.env.Run(args...)
+	return nil
+}
+
 func registerJ002200ContainerDiedSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice runs a container-bound agent whose container dies at the daemon, with flags "([^"]*)"$`,
 		func(c context.Context, flags string) error {
-			w := worldFrom(c)
-			j002200 := j002200Of(w)
-			if err := j002200StubDiedRuntime(w); err != nil {
-				return err
-			}
-			recPath := filepath.Join(j002200.recordDir, fmt.Sprintf("died-%d.txt", len(j002200.records)))
-			if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j002200HomeConfigYAML(recPath)); err != nil {
-				return err
-			}
-			j002200.lastContainerRecPath = recPath
-			args := []string{"run", "--agent", "mock-container", "--one-shot"}
-			if flags != "" {
-				args = append(args, strings.Fields(flags)...)
-			}
-			args = append(args, "isolation-check")
-			_ = w.env.Run(args...) // exit status asserted by the Then step
-			return nil
+			return j002200RunDiedAgent(worldFrom(c), flags)
 		})
+
+	ctx.Step(`^Alice runs a container-bound agent whose container the daemon kills, saying why$`, func(c context.Context) error {
+		w := worldFrom(c)
+		w.env.SetEnv("J002200_DAEMON_SAYS", j002200DaemonReason)
+		return j002200RunDiedAgent(w, "")
+	})
+
+	// --rm destroys the container with its logs, so what the daemon said on
+	// the runner's stderr is the only record of why the boundary died.
+	ctx.Step(`^Alice is told the daemon's own reason$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = strings.TrimSpace(out)
+		if !strings.Contains(out, j002200DaemonReason) {
+			return fmt.Errorf("the abort does not carry what the daemon said (%q), and --rm has already destroyed the container's logs; output:\n%s", j002200DaemonReason, out)
+		}
+		return nil
+	})
 
 	ctx.Step(`^the run aborts because the container never reached running state$`, func(c context.Context) error {
 		w := worldFrom(c)

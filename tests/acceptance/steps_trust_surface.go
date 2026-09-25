@@ -32,11 +32,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
@@ -68,7 +71,23 @@ const (
 	// happened to check first.
 	tsDualRawMarker       = "TS-DUALFORM-RAW-MARKER-2f9c81"
 	tsDualDistilledMarker = "TS-DUALFORM-DISTILLED-MARKER-71ac9d"
+
+	// tsHouseStyleSigned/tsHouseStyleEdited are the stale-local-signature
+	// row's fixture: the guidance Alice signed, and her edit of it afterwards.
+	tsHouseStyleSigned = "TS-HOUSE-STYLE-SIGNED-MARKER-3c5d02"
+	tsHouseStyleEdited = "TS-HOUSE-STYLE-EDITED-MARKER-a61e94"
 )
+
+// tsCompanion is the companion Alice's company ships: a ctxloom-companion-*
+// name, so discovery lists it.
+const tsCompanion = "ctxloom-companion-company"
+
+// tsHouseStyle is the bundle Alice authors, signs, and then edits in her own
+// project.
+const tsHouseStyle = "house-style"
+
+// tsResignAdvice captures the bundle a re-sign remedy names.
+var tsResignAdvice = regexp.MustCompile("bundle sign ([A-Za-z0-9._-]+)")
 
 // tsState is this feature's fixture state: the seeded remote's URL, the
 // bundle name inside it, and (signed-fixture only) the trusted principal and
@@ -79,6 +98,9 @@ type tsState struct {
 	url        string
 	bundleName string
 	signer     *testenv.TestSigner
+	// stopAgent stops the hermetic ssh-agent the stale-local-signature row
+	// signs through; nil when no agent was started.
+	stopAgent func() error
 }
 
 func tsOf(w *World) *tsState {
@@ -222,6 +244,83 @@ func tsUpdateAndPull(w *World) error {
 }
 
 func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
+	ctx.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		w := worldFrom(c)
+		if w == nil || w.ts == nil || w.ts.stopAgent == nil {
+			return c, nil
+		}
+		stop := w.ts.stopAgent
+		w.ts.stopAgent = nil
+		if err := stop(); err != nil {
+			return c, fmt.Errorf("stop hermetic ssh-agent: %w", err)
+		}
+		return c, nil
+	})
+
+	ctx.Step(`^Alice's company companion is admitted, signed with a key she trusts$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
+			return err
+		}
+		if err := installSetupGuidanceCompanion(w, tsCompanion, "Confirm the company's onboarding steps."); err != nil {
+			return err
+		}
+		// The positive control: the refusal the Then reads is only a refusal
+		// if this same companion is admitted while her config loads.
+		got, err := tsCompanionListed(w)
+		if err != nil {
+			return err
+		}
+		if !got.Allowed || got.Reason != string(companions.CompanionAdmissionSigned) {
+			return fmt.Errorf("with her config readable, %s should be admitted as %q, got allowed=%v reason=%q", tsCompanion, companions.CompanionAdmissionSigned, got.Allowed, got.Reason)
+		}
+		return nil
+	})
+
+	ctx.Step(`^a typo leaves her project config unreadable$`, func(c context.Context) error {
+		return worldFrom(c).env.WriteFile(".ctxloom/config.yaml", "version: [unclosed\n")
+	})
+
+	ctx.Step(`^listing her companions still answers, and refuses the company companion because no signer is trusted until her config loads$`, func(c context.Context) error {
+		w := worldFrom(c)
+		got, err := tsCompanionListed(w)
+		if err != nil {
+			return err
+		}
+		w.docStepMaterialized = strings.TrimSpace(w.env.LastOutput())
+		if got.Allowed || got.Reason != string(companions.CompanionAdmissionUntrusted) {
+			return fmt.Errorf("with her config unreadable, %s should be refused as %q, got allowed=%v reason=%q; output:\n%s", tsCompanion, companions.CompanionAdmissionUntrusted, got.Allowed, got.Reason, w.env.LastOutput())
+		}
+		return nil
+	})
+
+	ctx.Step(`^Alice signs a bundle she authored in her project, then edits its guidance without re-signing it$`, func(c context.Context) error {
+		return tsAuthorSignAndEdit(worldFrom(c))
+	})
+
+	ctx.Step(`^her edited guidance still reaches her assistant, and that bundle alone is flagged to be re-signed$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = strings.TrimSpace(out)
+		body, err := w.env.ReadFile(filepath.Join("out", "CLAUDE.md"))
+		if err != nil {
+			return fmt.Errorf("read materialized out/CLAUDE.md (materialize output:\n%s): %w", out, err)
+		}
+		if !strings.Contains(body, tsHouseStyleEdited) {
+			return fmt.Errorf("the edited %s guidance did not reach her assistant: a local bundle is delivered whatever its signature says; context:\n%s", tsHouseStyle, body)
+		}
+		var flagged []string
+		for _, m := range tsResignAdvice.FindAllStringSubmatch(out, -1) {
+			if !slices.Contains(flagged, m[1]) {
+				flagged = append(flagged, m[1])
+			}
+		}
+		if !slices.Equal(flagged, []string{tsHouseStyle}) {
+			return fmt.Errorf("bundles flagged to be re-signed = %v, want exactly [%s]: the edited bundle's author must be told, and no bundle she never signed may be; output:\n%s", flagged, tsHouseStyle, out)
+		}
+		return nil
+	})
+
 	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships one of each: a fragment, a command, an MCP server, and a hook$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
@@ -1106,4 +1205,74 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+}
+
+// tsAuthorSignAndEdit is the stale-local-signature row's fixture: Alice's key
+// is live in a hermetic ssh-agent, she authors a bundle in her project, signs
+// it through the real `bundle sign` path, puts it in her profile, and then
+// edits its guidance, leaving the signature over bytes that are gone. The
+// project's scaffolded seed bundle stays unsigned beside it; that is the
+// bundle the row's negative half reads.
+func tsAuthorSignAndEdit(w *World) error {
+	if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
+		return err
+	}
+	signer, err := testenv.GenerateTestSigner()
+	if err != nil {
+		return fmt.Errorf("generate Alice's key: %w", err)
+	}
+	const pubKeyFile, comment = "alice-signer.pub", "alice@example.com"
+	if err := w.env.WriteFile(pubKeyFile, signer.AuthorizedKey(comment)); err != nil {
+		return fmt.Errorf("write Alice's public key: %w", err)
+	}
+	sock, stop, err := testenv.StartSSHAgent(w.env.Root, testenv.SSHAgentIdentity{Signer: signer, Comment: comment})
+	if err != nil {
+		return fmt.Errorf("start hermetic ssh-agent: %w", err)
+	}
+	tsOf(w).stopAgent = stop
+	w.env.SetEnv("SSH_AUTH_SOCK", sock)
+	if err := w.env.GitConfigLocal("user.signingkey", filepath.Join(w.env.ProjectDir, pubKeyFile)); err != nil {
+		return err
+	}
+
+	fragment := treeBundleItemPath(tsHouseStyle, "fragments/guidance.md")
+	if err := w.env.WriteFile(treeBundleManifestPath(tsHouseStyle), tsTreeEnvelope); err != nil {
+		return err
+	}
+	if err := w.env.WriteFile(fragment, j001600FragmentFileBody(tsHouseStyleSigned)); err != nil {
+		return err
+	}
+	if err := runOK(w, "bundle", "sign", tsHouseStyle); err != nil {
+		return err
+	}
+	if err := runOK(w, "profile", "modify", "default", "--add-bundle", tsHouseStyle); err != nil {
+		return err
+	}
+	return w.env.WriteFile(fragment, j001600FragmentFileBody(tsHouseStyleEdited))
+}
+
+// tsCompanionListing is one row of `ctxloom companion list --format json`.
+type tsCompanionListing struct {
+	Bin     string `json:"bin"`
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason"`
+}
+
+// tsCompanionListed lists Alice's companions and returns tsCompanion's row. The
+// listing must succeed: a companion listing that cannot answer is not an
+// answer about trust.
+func tsCompanionListed(w *World) (tsCompanionListing, error) {
+	if err := runOK(w, "companion", "list", "--format", "json"); err != nil {
+		return tsCompanionListing{}, err
+	}
+	var rows []tsCompanionListing
+	if err := json.Unmarshal([]byte(w.env.LastStdout()), &rows); err != nil {
+		return tsCompanionListing{}, fmt.Errorf("companion list did not print a JSON listing: %w; stdout:\n%s", err, w.env.LastStdout())
+	}
+	for _, r := range rows {
+		if r.Bin == tsCompanion {
+			return r, nil
+		}
+	}
+	return tsCompanionListing{}, fmt.Errorf("companion list does not show %s; stdout:\n%s", tsCompanion, w.env.LastStdout())
 }

@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,7 +42,37 @@ const (
 	j001500HookMarker     = "echo J001500-HOOK-EXEC-MARKER"
 	j001500MCPMarker      = "J001500-MCP-EXEC-MARKER"
 	j001500ForgeryMarker  = "J001500-FORGERY-BYSTANDER-MARKER"
+	j001500UnsignedMarker = "J001500-UNSIGNED-OUTSIDE-MARKER"
 )
+
+// The unsigned bundle Alice references from outside the company, by remote and
+// bundle name.
+const (
+	j001500UnsignedRemote = "outside"
+	j001500UnsignedBundle = "outside-tools"
+)
+
+// j001500WithheldLine captures one per-item withheld advisory line
+// (operations.WarnWithheldBy): the ref, possibly empty, and its reason. The
+// reason stops at a double quote because off a terminal each warning is a JSON
+// object, whose closing `"}` would otherwise read as part of the reason.
+var j001500WithheldLine = regexp.MustCompile(`(?m)withheld (\S*): ([^"\n]*)`)
+
+// j001500CheckHeldReason checks one held item's reason against bare, the
+// reason's own rendering with no detail: a fragment's is exactly that, and an
+// executable's extends it with what would admit it.
+func j001500CheckHeldReason(ref, reason, bare string) error {
+	if strings.Contains(ref, "#fragment") {
+		if reason != bare {
+			return fmt.Errorf("the held guidance's reason is %q, want exactly %q: a fragment has nothing to add", reason, bare)
+		}
+		return nil
+	}
+	if !strings.HasPrefix(reason, bare) || reason == bare {
+		return fmt.Errorf("the held executable %s says only %q; it must also say what would admit it", ref, reason)
+	}
+	return nil
+}
 
 // j001500State is this journey's fixture state: the company's signed bundle
 // (signer identity, seeded remote, bundle name), whether Alice has wired it
@@ -506,6 +538,76 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			if !strings.Contains(out, want) {
 				return fmt.Errorf("review --list does not show the formerly-signed content as pending %q; stdout:\n%s", want, out)
 			}
+		}
+		return nil
+	})
+
+	// The withheld advisory "Alice syncs her project" printed (its materialize is
+	// the last run) must give the SIGNER as the reason. The expected sentence is
+	// the reason's own rendering, so the step follows the wording wherever it
+	// is changed; what it pins is WHICH reason was chosen, and "awaiting review"
+	// alone is shared by the unsigned and pending reasons, so it cannot tell
+	// them apart.
+	ctx.Step(`^Alice is told the content is held because this machine no longer trusts the key that signed it$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = strings.TrimSpace(out)
+		want := bundles.ReasonUntrustedSigner.Explain("")
+		if !strings.Contains(out, want) {
+			return fmt.Errorf("sync output does not give the untrusted signing key as the reason content is held (want %q); output:\n%s", want, out)
+		}
+		return nil
+	})
+
+	ctx.Step(`^Alice references a bundle nobody signed, shipping guidance, an MCP server and a hook$`, func(c context.Context) error {
+		w := worldFrom(c)
+		root := treeBundlePath(j001500UnsignedBundle)
+		files := map[string]string{root + "/" + bundles.DirectoryFormManifest: j001500TreeEnvelope}
+		for rel, body := range j001500TreeItems(j001500UnsignedMarker, true) {
+			files[root+"/"+rel] = body
+		}
+		url, err := w.env.SeedRemote(files)
+		if err != nil {
+			return fmt.Errorf("seed unsigned bundle remote: %w", err)
+		}
+		if err := runOK(w, "remote", "create", j001500UnsignedRemote, url, "--forge", "git"); err != nil {
+			return err
+		}
+		if err := runOK(w, "profile", "modify", "default", "--add-bundle", j001500UnsignedRemote+"/"+j001500UnsignedBundle); err != nil {
+			return err
+		}
+		return runOK(w, "deps", "pull")
+	})
+
+	// Reads the per-item withheld advisory the sync's materialize printed. An
+	// executable's line must say more than the bare "awaiting review" sentence
+	// (what would admit it), and the fragment's must not: its reason already
+	// says everything. Both sides are measured against the reason's own
+	// rendering rather than a copy of the detail's wording.
+	ctx.Step(`^Alice is told, item by item and in name order, why each piece of it is held, and what would admit each executable$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = strings.TrimSpace(out)
+		bare := bundles.ReasonPending.Explain("")
+		var refs []string
+		for _, line := range j001500WithheldLine.FindAllStringSubmatch(out, -1) {
+			ref, reason := line[1], line[2]
+			if ref == "" {
+				return fmt.Errorf("a withheld line names no item: %q; output:\n%s", line[0], out)
+			}
+			if !strings.Contains(ref, j001500UnsignedBundle) || slices.Contains(refs, ref) {
+				continue
+			}
+			refs = append(refs, ref)
+			if err := j001500CheckHeldReason(ref, reason, bare); err != nil {
+				return fmt.Errorf("%w; output:\n%s", err, out)
+			}
+		}
+		if len(refs) != 3 {
+			return fmt.Errorf("want a withheld line for each of the unsigned bundle's 3 items, got %d distinct (%v); output:\n%s", len(refs), refs, out)
+		}
+		if !slices.IsSorted(refs) {
+			return fmt.Errorf("withheld items are not listed in name order: %v; output:\n%s", refs, out)
 		}
 		return nil
 	})

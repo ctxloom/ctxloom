@@ -194,6 +194,13 @@ func j002200ParseRecord(body string) (cwd, workDir string) {
 }
 
 func registerJ002200Steps(ctx *godog.ScenarioContext) {
+	// The project stays a ctxloom project (its .ctxloom is untouched); only
+	// the git repository a worktree would be cut from is gone.
+	ctx.Step(`^Alice's project is not a git repository$`, func(c context.Context) error {
+		w := worldFrom(c)
+		return os.RemoveAll(filepath.Join(w.env.ProjectDir, ".git"))
+	})
+
 	ctx.Step(`^Alice has a git-backed project with a mock agent$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j002200 := j002200Of(w)

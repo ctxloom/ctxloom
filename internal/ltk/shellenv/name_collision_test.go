@@ -1,6 +1,7 @@
 package shellenv
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -42,21 +43,7 @@ func TestNoFileImportsBothShellenvPackages(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "vendor", "website":
-				return filepath.SkipDir
-			}
-			// A checkout hosting agent worktrees (.claude/worktrees/agent-*)
-			// carries a full second copy of the module at a stale commit. Its
-			// files are not this module's source, so a collision there would
-			// fail this gate for whoever's checkout happened to be the busy
-			// one. Never skip root: an agent worktree IS a linked worktree and
-			// the suite routinely runs from one, so skipping the root would
-			// scan nothing — the `checked` floor below is what catches that.
-			if path != root && taskstest.IsLinkedWorktreeRoot(path) {
-				return filepath.SkipDir
-			}
-			return nil
+			return skipShellenvScanDir(root, path, d)
 		}
 		if !strings.HasSuffix(path, ".go") {
 			return nil
@@ -66,21 +53,7 @@ func TestNoFileImportsBothShellenvPackages(t *testing.T) {
 			return nil // generated or otherwise unparseable; not this test's business
 		}
 		checked++
-		// A file living INSIDE one of the two packages already has that one
-		// in scope unqualified, so importing the other is the same collision
-		// as importing both from a third package.
-		dir := filepath.ToSlash(filepath.Dir(path))
-		ltk := strings.HasSuffix(dir, "internal/ltk/shellenv")
-		shared := strings.HasSuffix(dir, "internal/shared/shellenv")
-		for _, imp := range f.Imports {
-			switch strings.Trim(imp.Path.Value, `"`) {
-			case ltkShellenv:
-				ltk = true
-			case sharedShellenv:
-				shared = true
-			}
-		}
-		if ltk && shared {
+		if importsBothShellenv(path, f) {
 			offenders++
 			rel, _ := filepath.Rel(root, path)
 			names = append(names, rel)
@@ -101,6 +74,44 @@ func TestNoFileImportsBothShellenvPackages(t *testing.T) {
 		t.Fatalf("these files import both shellenv packages, so one must be aliased and `shellenv.` "+
 			"no longer names one thing — rename a package rather than aliasing: %v", names)
 	}
+}
+
+// skipShellenvScanDir skips .git, node_modules, vendor, website and — below
+// root — agent worktrees. A checkout hosting agent worktrees
+// (.claude/worktrees/agent-*) carries a full second copy of the module at a
+// stale commit. Its files are not this module's source, so a collision
+// there would fail this gate for whoever's checkout happened to be the busy
+// one. Never skip root: an agent worktree IS a linked worktree and the
+// suite routinely runs from one, so skipping the root would scan nothing —
+// the `checked` floor is what catches that.
+func skipShellenvScanDir(root, path string, d fs.DirEntry) error {
+	switch d.Name() {
+	case ".git", "node_modules", "vendor", "website":
+		return filepath.SkipDir
+	}
+	if path != root && taskstest.IsLinkedWorktreeRoot(path) {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// importsBothShellenv reports whether the file at path has both shellenv
+// packages in scope. A file living INSIDE one of the two packages already
+// has that one in scope unqualified, so importing the other is the same
+// collision as importing both from a third package.
+func importsBothShellenv(path string, f *ast.File) bool {
+	dir := filepath.ToSlash(filepath.Dir(path))
+	ltk := strings.HasSuffix(dir, "internal/ltk/shellenv")
+	shared := strings.HasSuffix(dir, "internal/shared/shellenv")
+	for _, imp := range f.Imports {
+		switch strings.Trim(imp.Path.Value, `"`) {
+		case ltkShellenv:
+			ltk = true
+		case sharedShellenv:
+			shared = true
+		}
+	}
+	return ltk && shared
 }
 
 // moduleRoot locates the module root from where the test binary STARTED, not

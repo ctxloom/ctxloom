@@ -212,7 +212,7 @@ mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mut
 # "$@" (not the ARGS interpolation) so a value containing shell metacharacters
 # (e.g. a `|`-alternation regex) reaches gremlins intact instead of being
 # re-parsed by this script's shell — see test-pkg for the failure mode.
-test-mutation *ARGS:
+test-mutation *ARGS: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
@@ -231,7 +231,7 @@ test-mutation *ARGS:
 #     (0 mutants => 0% efficacy), so a docs/workflow/test-only change would
 #     fail the gate for having nothing to test. The exclusion list mirrors
 #     .gremlins.yaml's exclude-files.
-test-mutation-diff BASE:
+test-mutation-diff BASE: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
     base="$1"

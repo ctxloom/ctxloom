@@ -76,7 +76,9 @@ func runMutationRecipe(t *testing.T, output, status string, recipe ...string) dr
 		t.Fatalf("just is not on PATH (%v); these tests drive the real recipes", err)
 	}
 	fake := fakeGoDir(t, output, status)
-	args := append([]string{"--justfile", filepath.Join(root, "justfile"), "--working-directory", root}, recipe...)
+	// --no-deps: the lane recipes depend on _mutation-prereqs (generation + build in the
+	// dev container); the wiring under test is what runs AFTER them.
+	args := append([]string{"--no-deps", "--justfile", filepath.Join(root, "justfile"), "--working-directory", root}, recipe...)
 	cmd := exec.Command(just, args...)
 	cmd.Env = driverEnv(t, fake)
 	out, err := cmd.CombinedOutput()

@@ -1378,7 +1378,7 @@ sign-bundle REF KEY=SIGN_KEY:
 # gremlins appends /... to the target itself; passing it here yields
 # ./pkg/.../... which matches nothing and fails with "no packages to test".
 # "$@" (not {{ARGS}}), same reasoning as test-mutation above.
-test-mutation-pkg PKG *ARGS:
+test-mutation-pkg PKG *ARGS: _mutation-prereqs
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{mutation_tmp}}"
@@ -1396,7 +1396,7 @@ test-mutation-install:
 # dir, never the container's default (which is backed by the host's /tmp). The
 # image tag is pinned to the same gremlins version test-mutation-install builds,
 # so a container run and a host run mutate identically.
-test-mutation-container:
+test-mutation-container: _mutation-prereqs
     #!/usr/bin/env bash
     # See _run for why --user is skipped under rootless docker.
     user_flag=(--user "$(id -u):$(id -g)")
@@ -1485,7 +1485,7 @@ _mutation-driver LANE *ARGS:
 # Mutate one source file per target and drive the CUCUMBER acceptance suite
 # against a binary rebuilt from each mutant. Ratcheted against
 # tests/mutation/survivor_baseline.txt. Nightly/scoped — never a per-PR gate.
-test-mutation-acceptance *ARGS:
+test-mutation-acceptance *ARGS: _mutation-prereqs
     @just _mutation-driver acceptance {{ARGS}}
 
 # Mutate one source file per target and judge every mutant with the SINGLE test
@@ -1498,7 +1498,7 @@ test-mutation-acceptance *ARGS:
 # mutant. Measured ~6s/mutant, and it never writes the source tree.
 #
 #   just test-mutation-unit -run 'TestUnitMutation/^premise_instruction$'
-test-mutation-unit *ARGS:
+test-mutation-unit *ARGS: _mutation-prereqs
     @just _mutation-driver unit {{ARGS}}
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
@@ -1523,7 +1523,7 @@ test-mutation-entry NAME *ARGS:
 # first measurement, or a lower one, with CTXLOOM_MUTATION_BASELINE=update.
 #
 #   just test-mutation-package isolation
-test-mutation-package NAME *ARGS:
+test-mutation-package NAME *ARGS: _mutation-prereqs
     @just _mutation-driver package -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
 
 # List the mutation target table's entry names, with the file each one mutates.

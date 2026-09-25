@@ -96,41 +96,16 @@ var (
 // writer) → Drive. There is no Execute that skips delivery and no way to
 // hold a Launch that Resolve did not make.
 func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
-	if deps.Driver == nil {
-		return Outcome{}, ErrNoDriver
-	}
-	if deps.Kind == nil {
-		return Outcome{}, ErrNoKind
-	}
-	if deps.Static == nil {
-		return Outcome{}, ErrNoStatic
-	}
-	// A container cell's runner is the container's foreground process: its
-	// filesystem is the engine's, so every root is opened at its Engine side.
-	// Rewritten once, here, before anything reads the cell — the engine
-	// session's roots, the static target, and the paths the drive is handed.
-	if l.Cell.Container != nil {
-		l.Cell.Paths = l.Cell.Paths.EngineSide()
-	}
-	hosted := deps.Kind.Root().Name
-	if l.Engine != hosted {
-		return Outcome{}, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, hosted, l.Engine)
-	}
-	inst, err := deps.Kind.Instance(l.Session())
+	l, inst, err := prepareLaunch(deps, l)
 	if err != nil {
 		return Outcome{}, err
-	}
-	if l.Mode == engine.Structured && len(inst.Drivers()) == 0 {
-		return Outcome{}, engine.ErrUnsupported{Engine: hosted, Capability: "drive"}
 	}
 	pkg, err := composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
 	if err != nil {
 		return Outcome{}, err
 	}
-	if deps.Configure != nil && l.Label.Body != nil {
-		if err := deps.Configure(l.Label.Body); err != nil {
-			return Outcome{}, fmt.Errorf("runner: configure %s from label %q: %w", l.Engine, l.Label.Label, err)
-		}
+	if err := configureLabel(deps, l); err != nil {
+		return Outcome{}, err
 	}
 	lo := l.Loadout(pkg)
 	// The ONE rendering of the package for this engine: what the static
@@ -141,27 +116,91 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
-	var closeServed func()
-	if deps.Dynamic != nil {
-		served, err := deps.Dynamic.Serve(ctx, lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
-		if err != nil {
-			return Outcome{}, fmt.Errorf("runner: serve the session's endpoint: %w", err)
-		}
-		closeServed = func() { _ = served.Close() }
+	closeServed, err := serveEndpoint(ctx, deps, lo)
+	if err != nil {
+		return Outcome{}, err
 	}
-	delivered, err := deps.Static.Deliver(ctx, lo, deps.Kind.Root(), l.Target(deps.Records))
+	delivered, err := deliverAndDrive(ctx, deps, l, inst, pkg, lo, inputs)
 	if err != nil {
 		if closeServed != nil {
 			closeServed()
 		}
-		return Outcome{}, fmt.Errorf("runner: deliver the launch: %w", err)
+		return Outcome{}, err
+	}
+	return Outcome{Delivered: delivered, MCPConfig: mcpFileOf(delivered), Close: closeServed}, nil
+}
+
+// prepareLaunch refuses missing deps and a foreign engine, opens a container
+// cell's roots at their Engine side, and binds the session to the engine
+// (whose Instance refusal passes through; a Structured launch needs a
+// driver).
+func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, error) {
+	if deps.Driver == nil {
+		return l, nil, ErrNoDriver
+	}
+	if deps.Kind == nil {
+		return l, nil, ErrNoKind
+	}
+	if deps.Static == nil {
+		return l, nil, ErrNoStatic
+	}
+	// A container cell's runner is the container's foreground process: its
+	// filesystem is the engine's, so every root is opened at its Engine side.
+	// Rewritten once, here, before anything reads the cell — the engine
+	// session's roots, the static target, and the paths the drive is handed.
+	if l.Cell.Container != nil {
+		l.Cell.Paths = l.Cell.Paths.EngineSide()
+	}
+	hosted := deps.Kind.Root().Name
+	if l.Engine != hosted {
+		return l, nil, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, hosted, l.Engine)
+	}
+	inst, err := deps.Kind.Instance(l.Session())
+	if err != nil {
+		return l, nil, err
+	}
+	if l.Mode == engine.Structured && len(inst.Drivers()) == 0 {
+		return l, nil, engine.ErrUnsupported{Engine: hosted, Capability: "drive"}
+	}
+	return l, inst, nil
+}
+
+// configureLabel hands the label's body to the composed Configure, when both
+// exist.
+func configureLabel(deps Deps, l launch.Launch) error {
+	if deps.Configure == nil || l.Label.Body == nil {
+		return nil
+	}
+	if err := deps.Configure(l.Label.Body); err != nil {
+		return fmt.Errorf("runner: configure %s from label %q: %w", l.Engine, l.Label.Label, err)
+	}
+	return nil
+}
+
+// serveEndpoint serves the session's endpoint when a dynamic server is
+// composed, returning its closer (nil when nothing was served).
+func serveEndpoint(ctx context.Context, deps Deps, lo delivery.Loadout) (func(), error) {
+	if deps.Dynamic == nil {
+		return nil, nil
+	}
+	served, err := deps.Dynamic.Serve(ctx, lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
+	if err != nil {
+		return nil, fmt.Errorf("runner: serve the session's endpoint: %w", err)
+	}
+	return func() { _ = served.Close() }, nil
+}
+
+// deliverAndDrive delivers the loadout under the session's writer, composes
+// the engine's exec over what was presented, and drives the first turn. The
+// caller tears the served endpoint down on error.
+func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance, pkg composite.Package, lo delivery.Loadout, inputs delivery.Inputs) (delivery.Delivered, error) {
+	delivered, err := deps.Static.Deliver(ctx, lo, deps.Kind.Root(), l.Target(deps.Records))
+	if err != nil {
+		return delivery.Delivered{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}
 	ex, err := inst.Exec(delivered.Presented)
 	if err != nil {
-		if closeServed != nil {
-			closeServed()
-		}
-		return Outcome{}, fmt.Errorf("runner: compose the engine's exec: %w", err)
+		return delivery.Delivered{}, fmt.Errorf("runner: compose the engine's exec: %w", err)
 	}
 	// The exec's env holds ONLY the engine-native variables; the launch's
 	// engine env — the identity carriers, the label's env, the caller's
@@ -178,12 +217,9 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		Presented:  delivered.Presented,
 	}
 	if err := deps.Driver.Drive(ctx, turn); err != nil {
-		if closeServed != nil {
-			closeServed()
-		}
-		return Outcome{}, err
+		return delivery.Delivered{}, err
 	}
-	return Outcome{Delivered: delivered, MCPConfig: mcpFileOf(delivered), Close: closeServed}, nil
+	return delivered, nil
 }
 
 // mcpFileOf is the host path the MCP kind's presentation names, "" when the

@@ -436,15 +436,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	// many engine processes as it takes turns. It also records the user
 	// turns this host hands the engine — the briefing and any later
 	// coordinator-delivered mail (SetTurnSink).
-	var rec transcript.Recorder
-	if harp := t.Launch.Identity.Harp; harp != "" {
-		r, rerr := transcript.NewRecorder(harp, eh.harness)
-		if rerr != nil {
-			eh.rep.Warnf("transcript capture: open recorder for harp %s (engine %s): %v", harp, eh.harness, rerr)
-		} else {
-			rec = r
-		}
-	}
+	rec := eh.openRunRecorder(t.Launch.Identity.Harp)
 	eh.mu.Lock()
 	eh.rec = rec
 	eh.mu.Unlock()
@@ -484,6 +476,21 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 		eh.finish(home, nil, ctx.Err())
 	})
 	return nil
+}
+
+// openRunRecorder opens harp's canonical transcript recorder; nil for no harp,
+// or (warned) when it cannot be opened — capture is best-effort, the run is
+// not.
+func (eh *EngineHost) openRunRecorder(harp string) transcript.Recorder {
+	if harp == "" {
+		return nil
+	}
+	r, err := transcript.NewRecorder(harp, eh.harness)
+	if err != nil {
+		eh.rep.Warnf("transcript capture: open recorder for harp %s (engine %s): %v", harp, eh.harness, err)
+		return nil
+	}
+	return r
 }
 
 // startRunResult is the StartRun answer for a driven run: the runner process

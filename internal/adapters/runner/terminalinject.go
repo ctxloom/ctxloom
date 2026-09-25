@@ -252,41 +252,8 @@ func (ti *TerminalInjector) run() {
 		})
 		return
 	}
-	deadline := time.Now().Add(ti.maxWait)
-	for {
-		now := time.Now().UnixNano()
-		outIdle := time.Duration(now - ti.lastWrite.Load())
-		inIdle := time.Duration(now - ti.lastInput.Load())
-		// Asked once per pass and reused below, so the decision to break and
-		// the decision to give up cannot disagree about what the gate said.
-		accepting := ti.gate.AcceptingText()
-		if outIdle >= ti.quiet && inIdle >= ti.inputQuiet && accepting {
-			break
-		}
-		if !time.Now().Before(deadline) {
-			// THE DEADLINE WAIVES OUTPUT-QUIET, NEVER INPUT-QUIET AND NEVER
-			// THE INPUT GATE. Waiving
-			// output-quiet is what the maxWait comment describes: an engine
-			// idling noisily must not block the wake forever. Waiving
-			// input-quiet would deliver a frame into a half-typed line and
-			// split it, and the two failures are not comparable — a withheld
-			// wake leaves the mail buffered for the next Recv, while the
-			// human's typed line is unrecoverable. So give up this cycle
-			// instead; nudge re-arms when the next mail arrives, and Recv
-			// collects it regardless.
-			//
-			// The gate belongs in that same class for a stronger reason. A
-			// split line is destroyed input; a wake delivered into a modal
-			// MANUFACTURES input, and the record then shows a ruling the
-			// human never gave. If a deadline could waive it, the guard would
-			// be exactly as good as no guard on any session busy enough to
-			// reach the bound.
-			if inIdle < ti.inputQuiet || !accepting {
-				return
-			}
-			break
-		}
-		time.Sleep(ti.tick)
+	if !ti.waitForQuiet() {
+		return
 	}
 	ti.mu.Lock()
 	inject := ti.inject
@@ -318,6 +285,49 @@ func (ti *TerminalInjector) run() {
 		// whole acknowledgement window — mail arriving meanwhile must still
 		// be able to arm a fresh cycle.
 		go ti.awaitAck(n)
+	}
+}
+
+// waitForQuiet waits until output and input are both quiet and the gate
+// accepts text, polling every tick. At the deadline it proceeds without
+// output-quiet, but reports false — give up this cycle — when input is not
+// quiet or the gate refuses.
+func (ti *TerminalInjector) waitForQuiet() bool {
+	deadline := time.Now().Add(ti.maxWait)
+	for {
+		now := time.Now().UnixNano()
+		outIdle := time.Duration(now - ti.lastWrite.Load())
+		inIdle := time.Duration(now - ti.lastInput.Load())
+		// Asked once per pass and reused below, so the decision to break and
+		// the decision to give up cannot disagree about what the gate said.
+		accepting := ti.gate.AcceptingText()
+		if outIdle >= ti.quiet && inIdle >= ti.inputQuiet && accepting {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			// THE DEADLINE WAIVES OUTPUT-QUIET, NEVER INPUT-QUIET AND NEVER
+			// THE INPUT GATE. Waiving
+			// output-quiet is what the maxWait comment describes: an engine
+			// idling noisily must not block the wake forever. Waiving
+			// input-quiet would deliver a frame into a half-typed line and
+			// split it, and the two failures are not comparable — a withheld
+			// wake leaves the mail buffered for the next Recv, while the
+			// human's typed line is unrecoverable. So give up this cycle
+			// instead; nudge re-arms when the next mail arrives, and Recv
+			// collects it regardless.
+			//
+			// The gate belongs in that same class for a stronger reason. A
+			// split line is destroyed input; a wake delivered into a modal
+			// MANUFACTURES input, and the record then shows a ruling the
+			// human never gave. If a deadline could waive it, the guard would
+			// be exactly as good as no guard on any session busy enough to
+			// reach the bound.
+			if inIdle < ti.inputQuiet || !accepting {
+				return false
+			}
+			return true
+		}
+		time.Sleep(ti.tick)
 	}
 }
 

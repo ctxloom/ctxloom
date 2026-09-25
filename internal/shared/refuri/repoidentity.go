@@ -41,6 +41,14 @@ func ParseRepoIdentity(raw string) (Parts, error) {
 	case formVerbatim, formOpaque:
 		return Parts{}, fmt.Errorf("%w: %q is not a repository URL", ErrSyntax, r.raw)
 	case formURL:
+		// The WRITTEN path, because RepoPath below is the decoded one: "%2F"
+		// decodes to a structural "/", so "a%2Fb" and "a/b" would become one
+		// repository. Parse refuses this escape in a reference for the same
+		// reason; the repository half must not accept what the reference
+		// grammar refuses.
+		if i := indexEncodedSlash(writtenPath(r.u)); i >= 0 {
+			return Parts{}, fmt.Errorf("%w: encoded slash (%%2F) in repository path %q is not addressable", ErrSyntax, r.raw)
+		}
 		if r.u.Scheme == "file" {
 			return repoParts(Parts{Class: ClassFile, RepoPath: r.u.Path})
 		}
@@ -58,6 +66,13 @@ func repoParts(p Parts) (Parts, error) {
 	// Trailing slashes first: rendered before the "//" separator, a trailing
 	// "/" would read as the separator itself.
 	p.RepoPath = strings.TrimRight(p.RepoPath, "/")
+	// A "//" left inside the path is the repo/bundle separator, and the parse
+	// inside Mint would split there: "o//bundles/r" comes back as repository
+	// "o" with no error. Refused here, so it is never re-keyed as another
+	// repository.
+	if strings.Contains(p.RepoPath, RepoBundleSeparator) {
+		return Parts{}, fmt.Errorf("%w: repository path %q contains the %q separator", ErrSyntax, p.RepoPath, RepoBundleSeparator)
+	}
 	p.Bundle = "_"
 	minted, err := Mint(p)
 	if err != nil {

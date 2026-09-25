@@ -5,10 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+
+	"google.golang.org/grpc"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
@@ -86,30 +89,50 @@ func (h *Home) UploadArtifact(ctx context.Context, artifactID, name, mediaType s
 // BEFORE placing the file — a mismatch is a hard failure, the temp file is
 // discarded, and destPath is never touched (E1e).
 func (h *Home) DownloadArtifact(ctx context.Context, agentID, artifactID, destPath string) (shaHex string, size int64, err error) {
+	stream, header, err := h.openDownload(ctx, agentID, artifactID)
+	if err == nil {
+		shaHex, size, err = placeVerified(stream, header.GetSha256(), destPath)
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
+	}
+	return shaHex, size, nil
+}
+
+// openDownload starts the download stream and reads its header frame, which
+// the protocol sends exactly once, first.
+func (h *Home) openDownload(ctx context.Context, agentID, artifactID string) (grpc.ServerStreamingClient[agentcoordpb.ArtifactDownloadFrame], *agentcoordpb.ArtifactDownloadHeader, error) {
 	client := agentcoordpb.NewArtifactTransferServiceClient(h.conn)
 	stream, err := client.DownloadArtifact(ctx, &agentcoordpb.ArtifactDownloadRequest{
 		AgentId:    agentID,
 		ArtifactId: artifactID,
 	})
 	if err != nil {
-		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
+		return nil, nil, err
 	}
 	first, err := stream.Recv()
 	if err != nil {
-		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
+		return nil, nil, err
 	}
 	header := first.GetHeader()
 	if header == nil {
-		return "", 0, fmt.Errorf("download %s/%s: server did not send a header frame first", agentID, artifactID)
+		return nil, nil, errors.New("server did not send a header frame first")
 	}
+	return stream, header, nil
+}
 
+// placeVerified streams the remaining chunks into a same-directory temp file
+// and renames it onto destPath only once the content is non-empty and hashes
+// to want. On any refusal the deferred Remove discards the temp file and
+// destPath is never touched.
+func placeVerified(stream grpc.ServerStreamingClient[agentcoordpb.ArtifactDownloadFrame], want []byte, destPath string) (string, int64, error) {
 	dir := filepath.Dir(destPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
+		return "", 0, err
 	}
 	tmp, err := os.CreateTemp(dir, ".ctxloom-fetch-*")
 	if err != nil {
-		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
+		return "", 0, err
 	}
 	tmpPath := tmp.Name()
 	defer func() {
@@ -117,32 +140,15 @@ func (h *Home) DownloadArtifact(ctx context.Context, agentID, artifactID, destPa
 		_ = os.Remove(tmpPath) // no-op once renamed away
 	}()
 
-	h256 := sha256.New()
-	var n int64
-	for {
-		frame, rerr := stream.Recv()
-		if rerr == io.EOF {
-			break
-		}
-		if rerr != nil {
-			return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, rerr)
-		}
-		chunk := frame.GetChunk()
-		if chunk == nil {
-			return "", 0, fmt.Errorf("download %s/%s: unexpected non-chunk frame after the header", agentID, artifactID)
-		}
-		data := chunk.GetData()
-		if _, werr := tmp.Write(data); werr != nil {
-			return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, werr)
-		}
-		h256.Write(data)
-		n += int64(len(data))
+	sum, n, err := receiveChunks(stream, tmp)
+	if err != nil {
+		return "", 0, err
 	}
 	if err := tmp.Sync(); err != nil {
-		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
+		return "", 0, err
 	}
 	if err := tmp.Close(); err != nil {
-		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
+		return "", 0, err
 	}
 
 	// The upload side now refuses a declared size of 0
@@ -153,18 +159,41 @@ func (h *Home) DownloadArtifact(ctx context.Context, agentID, artifactID, destPa
 	// "artifact" is a receipt for nothing; refuse it here too rather than
 	// writing an empty file to destPath and reporting success.
 	if n == 0 {
-		return "", 0, fmt.Errorf("download %s/%s: the stored artifact is 0 bytes — refusing to place an empty file at %s", agentID, artifactID, destPath)
+		return "", 0, fmt.Errorf("the stored artifact is 0 bytes — refusing to place an empty file at %s", destPath)
 	}
-
-	sum := h256.Sum(nil)
-	if !bytes.Equal(sum, header.GetSha256()) {
-		// E1e: refuse to place a file that does not match its own manifest —
-		// the temp file is cleaned up by the deferred Remove above, destPath
-		// is never touched.
-		return "", 0, fmt.Errorf("download %s/%s: content does not match the manifest sha256 (store corruption?) — refusing to place %s", agentID, artifactID, destPath)
+	// E1e: refuse to place a file that does not match its own manifest.
+	if !bytes.Equal(sum, want) {
+		return "", 0, fmt.Errorf("content does not match the manifest sha256 (store corruption?) — refusing to place %s", destPath)
 	}
 	if err := os.Rename(tmpPath, destPath); err != nil {
-		return "", 0, fmt.Errorf("download %s/%s: place %s: %w", agentID, artifactID, destPath, err)
+		return "", 0, fmt.Errorf("place %s: %w", destPath, err)
 	}
 	return hex.EncodeToString(sum), n, nil
+}
+
+// receiveChunks writes every chunk frame to w until the stream ends,
+// returning the sha256 and length of what was written. Any frame other than
+// a chunk is a protocol violation once the header has been read.
+func receiveChunks(stream grpc.ServerStreamingClient[agentcoordpb.ArtifactDownloadFrame], w io.Writer) ([]byte, int64, error) {
+	h256 := sha256.New()
+	var n int64
+	for {
+		frame, err := stream.Recv()
+		if err == io.EOF {
+			return h256.Sum(nil), n, nil
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		chunk := frame.GetChunk()
+		if chunk == nil {
+			return nil, 0, errors.New("unexpected non-chunk frame after the header")
+		}
+		data := chunk.GetData()
+		if _, err := w.Write(data); err != nil {
+			return nil, 0, err
+		}
+		h256.Write(data)
+		n += int64(len(data))
+	}
 }

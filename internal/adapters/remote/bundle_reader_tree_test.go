@@ -16,7 +16,7 @@ import (
 // a test that derived the expected root with the production helper would agree
 // with any derivation, including a wrong one.
 const (
-	treeReadCanonical = "https://github.com/trent/atelier@bundles/atelier"
+	treeReadCanonical = "ctxloom+git://github.com/trent/atelier//bundles/atelier"
 	treeReadRoot      = ".ctxloom/content/bundles/v2/atelier"
 )
 

@@ -22,7 +22,7 @@ import (
 // recorded, honoring it even when it says RETRACTED, and warning when that
 // verdict is stale.
 func TestResolveRetraction_FailStale(t *testing.T) {
-	const localName = "https://github.com/trent/company@bundles/incident-runbook"
+	const localName = "ctxloom+git://github.com/trent/company//bundles/incident-runbook"
 	ref := &Reference{Path: "incident-runbook", ContentVersion: ""}
 
 	newPuller := func(t *testing.T, now time.Time, seed *LockEntry) *Puller {

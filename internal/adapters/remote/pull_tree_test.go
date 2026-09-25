@@ -207,7 +207,7 @@ func stubTreeVerifier() TreeVerifyFunc {
 // which is the only thing a hold is for. The commit installed and the commit
 // recorded have to be one commit.
 func TestInstallPulledItem_AHoldFreezesTheCHECKOUT_NotJustTheLockfile(t *testing.T) {
-	const localName = "https://github.com/trent/atelier@bundles/atelier"
+	const localName = "ctxloom+git://github.com/trent/atelier//bundles/atelier"
 	const heldSHA = "1111111111111111111111111111111111111111"
 	const advancedSHA = "2222222222222222222222222222222222222222"
 

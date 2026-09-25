@@ -29,12 +29,12 @@ func populatedLockfile() *Lockfile {
 	return &Lockfile{
 		Version: 1,
 		Bundles: map[trust.BundleKey]LockEntry{
-			"https://github.com/alice/repo@bundles/held": {
+			"ctxloom+git://github.com/alice/repo//bundles/held": {
 				SHA:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				URL:  "https://github.com/alice/repo",
 				Held: true,
 			},
-			"https://github.com/bob/repo@bundles/withdrawn": {
+			"ctxloom+git://github.com/bob/repo//bundles/withdrawn": {
 				SHA:             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				URL:             "https://github.com/bob/repo",
 				Retracted:       true,
@@ -79,11 +79,11 @@ func TestSave_RefusedEmptyWritePreservesPinnedAndRetracted(t *testing.T) {
 	reloaded, err := m.Load()
 	require.NoError(t, err)
 
-	held, ok := reloaded.GetEntry(ItemTypeBundle, "https://github.com/alice/repo@bundles/held")
+	held, ok := reloaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/repo//bundles/held")
 	require.True(t, ok, "the held entry survives")
 	assert.True(t, held.Held, "the user's hold survives the refused write")
 
-	withdrawn, ok := reloaded.GetEntry(ItemTypeBundle, "https://github.com/bob/repo@bundles/withdrawn")
+	withdrawn, ok := reloaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/bob/repo//bundles/withdrawn")
 	require.True(t, ok, "the retracted entry survives")
 	assert.True(t, withdrawn.Retracted, "the publisher's retraction survives the refused write")
 	assert.Equal(t, "published by mistake", withdrawn.RetractedReason)
@@ -130,7 +130,7 @@ func TestSave_AllowsPopulatedWrites(t *testing.T) {
 	require.NoError(t, m.Save(populatedLockfile()), "populated over empty")
 
 	grown := populatedLockfile()
-	grown.AddEntry(ItemTypeBundle, "https://github.com/carol/repo@bundles/new", LockEntry{SHA: "cccccccc"})
+	grown.AddEntry(ItemTypeBundle, "ctxloom+git://github.com/carol/repo//bundles/new", LockEntry{SHA: "cccccccc"})
 	require.NoError(t, m.Save(grown), "populated over populated")
 
 	loaded, err := m.Load()

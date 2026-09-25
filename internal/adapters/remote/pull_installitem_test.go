@@ -37,7 +37,7 @@ func newInstallPuller(registry *Registry, fs afero.Fs, mf *mockFetcher, extra ..
 }
 
 func TestInstallPulledItem(t *testing.T) {
-	const bundleKey = "https://github.com/alice/ctxloom@bundles/security"
+	const bundleKey = "ctxloom+git://github.com/alice/ctxloom//bundles/security"
 
 	t.Run("bundle pin lands in the active lockfile", func(t *testing.T) {
 		fs, registry := installItemEnv(t)

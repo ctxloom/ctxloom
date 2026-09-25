@@ -20,7 +20,7 @@ func TestLockfile_SerializesAHoldAsHeld(t *testing.T) {
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	lf := &Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{
-		"alice/go-tools": {SHA: "abc1234", URL: "https://github.com/alice/ctxloom", Held: true},
+		"ctxloom+git://github.com/alice/ctxloom//bundles/go-tools": {SHA: "abc1234", URL: "https://github.com/alice/ctxloom", Held: true},
 	}}
 	if err := manager.Save(lf); err != nil {
 		t.Fatalf("save: %v", err)
@@ -43,7 +43,7 @@ func TestLockfile_RoundTripsAHold(t *testing.T) {
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	lf := &Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{
-		"alice/go-tools": {SHA: "abc1234", URL: "https://github.com/alice/ctxloom", Held: true},
+		"ctxloom+git://github.com/alice/ctxloom//bundles/go-tools": {SHA: "abc1234", URL: "https://github.com/alice/ctxloom", Held: true},
 	}}
 	if err := manager.Save(lf); err != nil {
 		t.Fatalf("save: %v", err)
@@ -53,7 +53,7 @@ func TestLockfile_RoundTripsAHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	entry, ok := loaded.GetEntry(ItemTypeBundle, "alice/go-tools")
+	entry, ok := loaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools")
 	if !ok {
 		t.Fatal("entry not found")
 	}
@@ -72,7 +72,7 @@ func TestLockfile_RefusesTheRetiredPinnedKey(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	legacy := "version: 1\n" +
+	legacy := "version: 2\n" +
 		"bundles:\n" +
 		"  alice/go-tools:\n" +
 		"    sha: abc1234\n" +
@@ -97,9 +97,9 @@ func TestLockfile_LoadsWhenPinnedIsMerelyMentioned(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	mention := "version: 1\n" +
+	mention := "version: 2\n" +
 		"bundles:\n" +
-		"  alice/pinned-tools:\n" +
+		"  ctxloom+git://github.com/alice/ctxloom//bundles/pinned-tools:\n" +
 		"    sha: abc1234\n" +
 		"    url: https://github.com/alice/pinned\n" +
 		"    retracted_reason: the author pinned the wrong commit\n"
@@ -109,7 +109,7 @@ func TestLockfile_LoadsWhenPinnedIsMerelyMentioned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a mere mention must not be read as the retired key: %v", err)
 	}
-	if _, ok := loaded.GetEntry(ItemTypeBundle, "alice/pinned-tools"); !ok {
+	if _, ok := loaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/pinned-tools"); !ok {
 		t.Error("entry not found")
 	}
 }

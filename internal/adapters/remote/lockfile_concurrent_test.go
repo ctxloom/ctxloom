@@ -23,7 +23,7 @@ func TestLockfileManager_ConcurrentSaveNoTornFile(t *testing.T) {
 
 	// Seed so readers racing the first writers still find a complete file.
 	require.NoError(t, mgr.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{
-		"seed": {SHA: "0000000000000000000000000000000000000000", URL: "u"},
+		"ctxloom+git://example.test/r//bundles/seed": {SHA: "0000000000000000000000000000000000000000", URL: "u"},
 	}}))
 
 	const writers = 24
@@ -37,7 +37,7 @@ func TestLockfileManager_ConcurrentSaveNoTornFile(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			lf := &Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{
-				trust.BundleKey(fmt.Sprintf("bundle-%02d", i)): {
+				trust.BundleKey(fmt.Sprintf("ctxloom+git://example.test/r//bundles/bundle-%02d", i)): {
 					SHA: fmt.Sprintf("%040d", i),
 					URL: fmt.Sprintf("https://example.test/repo-%02d", i),
 				},

@@ -36,18 +36,18 @@ func floorRepo(t *testing.T, firstVersion string) (baseDir, src, ref string, sig
 	lm := remote.NewLockfileManager(baseDir)
 	lock, err := lm.Load()
 	require.NoError(t, err)
-	e, ok := lock.GetEntry(remote.ItemTypeBundle, ref)
+	e, ok := lock.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok)
 	require.Equal(t, first, e.SHA)
 	e.SignedVersion, e.Publisher = firstVersion, "publisher@example.com"
-	lock.AddEntry(remote.ItemTypeBundle, ref, e)
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, ref), e)
 	require.NoError(t, lm.Save(lock))
 	return baseDir, src, ref, signer, first
 }
 
 func floorEntry(t *testing.T, baseDir, ref string) remote.LockEntry {
 	t.Helper()
-	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok)
 	return e
 }
@@ -168,10 +168,21 @@ func TestDowngradeSet_IsScopedToNamedRefs(t *testing.T) {
 
 	d, err := newDowngradeSet([]string{"https://example.test/r@bundles/a"})
 	require.NoError(t, err)
-	assert.True(t, d.allows("https://example.test/r@bundles/a"))
-	assert.True(t, d.allows("https://example.test/r@bundles/a@v1.2.0"), "the same ref at a version is the same pin")
-	assert.False(t, d.allows("https://example.test/r@bundles/b"))
+	assert.True(t, d.allowsRef("https://example.test/r@bundles/a"))
+	assert.True(t, d.allowsRef("https://EXAMPLE.test/r/@bundles/a"), "another spelling of the same ref is the same pin")
+	assert.True(t, d.allowsRef("https://example.test/r@bundles/a@v1.2.0"), "the same ref at a version is the same pin")
+	assert.False(t, d.allowsRef("https://example.test/r@bundles/b"))
+	assert.False(t, d.allowsRef("not-a-ref"))
+
+	// The typed half: a lock key is looked up as itself, and a string that is
+	// not a lock key (the typed-as-entered spelling) is not one.
+	ref, err := remote.ParseReference("https://example.test/r@bundles/a")
+	require.NoError(t, err)
+	key, err := ref.LockKey()
+	require.NoError(t, err)
+	assert.True(t, d.allows(key))
+	assert.False(t, d.allows("https://example.test/r@bundles/a"), "a raw spelling is not a lock key")
 
 	var none downgradeSet
-	assert.False(t, none.allows("https://example.test/r@bundles/a"), "no names waives nothing")
+	assert.False(t, none.allowsRef("https://example.test/r@bundles/a"), "no names waives nothing")
 }

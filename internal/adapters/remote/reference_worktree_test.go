@@ -43,8 +43,8 @@ func TestLocalTreePath_NestsTheBundleInsideItsWorktree(t *testing.T) {
 	ref, err := ParseReference("https://github.com/trent/atelier@bundles/atelier")
 	require.NoError(t, err)
 
-	worktree := ref.LocalWorktreePath("/proj/.ctxloom")
-	tree := ref.LocalTreePath("/proj/.ctxloom")
+	worktree := mustWorktreePath(t, ref, "/proj/.ctxloom")
+	tree := mustTreePath(t, ref, "/proj/.ctxloom")
 
 	assert.Equal(t, filepath.Join(worktree, filepath.FromSlash(ref.TreeRepoPath())), tree,
 		"the bundle sits at its repository path inside the worktree")
@@ -65,6 +65,6 @@ func TestLocalWorktreePath_IsNotNamedForTheBundle(t *testing.T) {
 	ref, err := ParseReference("https://github.com/trent/atelier@bundles/atelier")
 	require.NoError(t, err)
 
-	assert.NotEqual(t, "atelier", filepath.Base(ref.LocalWorktreePath("/proj/.ctxloom")),
+	assert.NotEqual(t, "atelier", filepath.Base(mustWorktreePath(t, ref, "/proj/.ctxloom")),
 		"a worktree root sharing the bundle's name shadows the bundle in any name-based search of the cache")
 }

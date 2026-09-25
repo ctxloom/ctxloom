@@ -151,13 +151,13 @@ func TestEffectiveTrust_ValidLockfile_RetractionBehaviorUnchanged(t *testing.T) 
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir()
 	writeLockYAML(t, baseDir, ""+
-		"version: 1\n"+
+		"version: 2\n"+
 		"bundles:\n"+
-		"  https://github.com/acme/repo@bundles/tooling:\n"+
+		"  ctxloom+git://github.com/acme/repo//bundles/tooling:\n"+
 		"    sha: abc123\n"+
 		"    retracted: true\n"+
 		"    retracted_reason: leaked a credential\n"+
-		"  https://github.com/acme/repo@bundles/fine:\n"+
+		"  ctxloom+git://github.com/acme/repo//bundles/fine:\n"+
 		"    sha: def456\n")
 	cfg := testConfigWithSCMPath(baseDir)
 

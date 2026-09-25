@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -43,7 +44,7 @@ func TestLockfileManager_SaveEmptyNonNilStillSucceeds(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
-	require.NoError(t, manager.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}}))
+	require.NoError(t, manager.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}}))
 
 	exists, err := afero.Exists(fs, manager.Path())
 	require.NoError(t, err)

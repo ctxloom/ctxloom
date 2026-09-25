@@ -2,6 +2,7 @@ package remote
 
 import (
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"os"
 	"path/filepath"
 	"sort"
@@ -184,12 +185,14 @@ func (r *Registry) Add(name, repoURL string) error {
 	if _, exists := r.remotes[name]; exists {
 		return fmt.Errorf("remote already exists: %s", name)
 	}
+	if err := requireRepository(repoURL); err != nil {
+		return err
+	}
 
-	// Normalize the URL
-	normalizedURL := NormalizeURL(repoURL)
+	normalizedURL := storedRepoURL(repoURL)
 
 	// Check if any existing remote points to this URL
-	if existingName, found := r.findByURLLocked(normalizedURL); found {
+	if existingName, found := r.findByURLLocked(repoURL); found {
 		return fmt.Errorf("remote '%s' already points to this URL; use 'ctxloom deps pull %s/<path>' instead", existingName, existingName)
 	}
 
@@ -216,15 +219,15 @@ func (r *Registry) GetOrCreateByURL(repoURL string) (*Remote, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	normalizedURL := NormalizeURL(repoURL)
+	if err := requireRepository(repoURL); err != nil {
+		return nil, err
+	}
+	normalizedURL := storedRepoURL(repoURL)
 
 	// Check if any existing remote points to this URL
-	for _, remote := range r.remotes {
-		if remote.URL == normalizedURL {
-			// Return existing remote
-			remoteCopy := *remote
-			return &remoteCopy, nil
-		}
+	if existing, found := r.findByURLLocked(repoURL); found {
+		remoteCopy := *r.remotes[existing]
+		return &remoteCopy, nil
 	}
 
 	// Auto-register using repo name
@@ -305,8 +308,11 @@ func (r *Registry) Update(name string, edit RemoteEdit) (*Remote, error) {
 
 	newURL := rem.URL
 	if edit.URL != nil {
-		normalized := NormalizeURL(*edit.URL)
-		if existing, found := r.findByURLLocked(normalized); found && existing != name {
+		if err := requireRepository(*edit.URL); err != nil {
+			return nil, err
+		}
+		normalized := storedRepoURL(*edit.URL)
+		if existing, found := r.findByURLLocked(*edit.URL); found && existing != name {
 			return nil, fmt.Errorf("remote '%s' already points to this URL", existing)
 		}
 		newURL = normalized
@@ -314,11 +320,8 @@ func (r *Registry) Update(name string, edit RemoteEdit) (*Remote, error) {
 
 	newForge := rem.Forge
 	if edit.Forge != nil {
-		if *edit.Forge != "" {
-			if _, known := MergeForges(r.forges)[*edit.Forge]; !known {
-				return nil, fmt.Errorf("unknown forge %q: configure it under forges: or use a built-in (%q, %q)",
-					*edit.Forge, ForgeGitHub, ForgeGitGeneric)
-			}
+		if err := r.checkForgeLabelLocked(*edit.Forge); err != nil {
+			return nil, err
 		}
 		newForge = *edit.Forge
 	}
@@ -362,11 +365,8 @@ func (r *Registry) SetForge(name, label string) error {
 	if !ok {
 		return fmt.Errorf("remote not found: %s", name)
 	}
-	if label != "" {
-		if _, known := MergeForges(r.forges)[label]; !known {
-			return fmt.Errorf("unknown forge %q: configure it under forges: or use a built-in (%q, %q)",
-				label, ForgeGitHub, ForgeGitGeneric)
-		}
+	if err := r.checkForgeLabelLocked(label); err != nil {
+		return err
 	}
 	if rem.Forge == label {
 		return nil
@@ -380,14 +380,63 @@ func (r *Registry) SetForge(name, label string) error {
 	return nil
 }
 
+// checkForgeLabelLocked refuses a forge label that names neither a configured
+// nor a built-in forge (must hold lock). The empty label is accepted: it clears
+// a binding, restoring URL-host resolution.
+func (r *Registry) checkForgeLabelLocked(label string) error {
+	if label == "" {
+		return nil
+	}
+	if _, known := MergeForges(r.forges)[label]; !known {
+		return fmt.Errorf("unknown forge %q: configure it under forges: or use a built-in (%q, %q)",
+			label, ForgeGitHub, ForgeGitGeneric)
+	}
+	return nil
+}
+
 // findByURLLocked searches for a remote by URL (must hold lock).
-func (r *Registry) findByURLLocked(normalizedURL string) (string, bool) {
+func (r *Registry) findByURLLocked(repoURL string) (string, bool) {
 	for name, remote := range r.remotes {
-		if remote.URL == normalizedURL {
+		if SameRepository(remote.URL, repoURL) {
 			return name, true
 		}
 	}
 	return "", false
+}
+
+// SameRepository reports whether a and b name one repository, compared on
+// refuri.CanonicalRepoURL — the one repo-level canonicalizer — so a remote
+// registered as git@host:o/r and a reference spelled https://Host/o/r/ match
+// here exactly as they key the same lockfile entry. A URL that does not
+// canonicalize names no repository, so it is the same repository as nothing —
+// not even itself; the registry refuses such a URL at the door
+// (requireRepository), so none is ever stored to be compared.
+func SameRepository(a, b string) bool {
+	ca, aerr := refuri.CanonicalRepoURL(a)
+	cb, berr := refuri.CanonicalRepoURL(b)
+	return aerr == nil && berr == nil && ca == cb
+}
+
+// requireRepository refuses a URL that names no repository. Without it an
+// unreadable URL matches no registered remote, and every attempt to register
+// it would add another.
+func requireRepository(repoURL string) error {
+	if _, err := refuri.CanonicalRepoURL(repoURL); err != nil {
+		return fmt.Errorf("remote URL %q names no repository: %w", repoURL, err)
+	}
+	return nil
+}
+
+// storedRepoURL is the spelling a remote's URL is STORED and fetched from: the
+// repo-URL grammar's normalized rendering, which folds scp and shorthand onto
+// https but keeps credentials and a port, because a fetch may need them. It is
+// never compared — SameRepository is.
+func storedRepoURL(raw string) string {
+	parsed, err := refuri.ParseRepoURL(raw)
+	if err != nil {
+		return ""
+	}
+	return parsed.Normalized()
 }
 
 // ResolveItemRemote returns the short remote name an installed item (profile or

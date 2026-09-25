@@ -53,7 +53,7 @@ func seedRemoteFragmentFixture(t *testing.T) (cfg *config.Config, canonicalRef, 
 	lock, err := lm.Load()
 	require.NoError(t, err)
 	canonicalRef = repoURL + "@bundles/tools"
-	lock.AddEntry(remote.ItemTypeBundle, canonicalRef, remote.LockEntry{
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, canonicalRef), remote.LockEntry{
 		SHA: commit.String(), URL: repoURL, FetchedAt: time.Now().UTC(),
 	})
 	require.NoError(t, lm.Save(lock))
@@ -64,7 +64,8 @@ func seedRemoteFragmentFixture(t *testing.T) (cfg *config.Config, canonicalRef, 
 	// read.
 	ref, err := remote.ParseReference(canonicalRef)
 	require.NoError(t, err)
-	installDir := ref.LocalTreePath(appDir)
+	installDir, terr := ref.LocalTreePath(appDir)
+	require.NoError(t, terr)
 	require.NoError(t, os.MkdirAll(installDir, 0o755))
 	src, err := bundles.ParseBundle([]byte(bundleBody))
 	require.NoError(t, err)

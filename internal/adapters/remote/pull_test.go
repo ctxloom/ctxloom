@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"strings"
 	"testing"
 	"time"
@@ -199,14 +200,14 @@ func TestPuller_Pull(t *testing.T) {
 	// was a synthetic "<remote>:name@sha" string.
 	ref, rerr := ParseReference("https://github.com/alice/ctxloom@bundles/security")
 	require.NoError(t, rerr)
-	assert.Equal(t, ref.LocalTreePath("/test"), result.LocalPath)
+	assert.Equal(t, mustTreePath(t, ref, "/test"), result.LocalPath)
 	assert.Equal(t, "abc123def456", result.SHA)
 	assert.NotEmpty(t, result.Content)
 
 	// The lockfile is the only on-disk record of the pin.
 	lock, lerr := lm.Load()
 	require.NoError(t, lerr)
-	entry, ok := lock.GetEntry(ItemTypeBundle, "https://github.com/alice/ctxloom@bundles/security")
+	entry, ok := lock.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/security")
 	require.True(t, ok, "lockfile entry should exist")
 	assert.Equal(t, "abc123def456", entry.SHA)
 }
@@ -283,7 +284,7 @@ func TestPuller_Pull_RejectsEmptyContent(t *testing.T) {
 	// Nothing must have been pinned either.
 	lock, lerr := lm.Load()
 	require.NoError(t, lerr)
-	_, ok := lock.GetEntry(ItemTypeBundle, "https://github.com/alice/ctxloom@bundles/security")
+	_, ok := lock.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/security")
 	assert.False(t, ok, "an empty fetch must not write a lockfile pin")
 }
 
@@ -399,7 +400,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
 		// Initialize empty lockfile
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 			WithTreeVerifier(stubTreeVerifier()),
@@ -408,7 +409,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		hadExisting, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion, false, "", time.Time{}, Verified{})
+		hadExisting, err := puller.updateLockfile("ctxloom+git://github.com/alice/ctxloom//bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123def456", "^1.0", "v1.0.0", SelectorVersion, false, "", time.Time{}, Verified{})
 
 		require.NoError(t, err)
 		assert.False(t, hadExisting, "a brand new entry is not an overwrite")
@@ -416,7 +417,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		// Verify lockfile was updated
 		loaded, err := lm.Load()
 		require.NoError(t, err)
-		entry, ok := loaded.Bundles["https://github.com/alice/ctxloom@bundles/security"]
+		entry, ok := loaded.Bundles["ctxloom+git://github.com/alice/ctxloom//bundles/security"]
 		assert.True(t, ok)
 		assert.Equal(t, "abc123def456", entry.SHA)
 		assert.Equal(t, "^1.0", entry.RequestedVersion)
@@ -431,7 +432,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
-		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
+		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
 			WithTreeVerifier(stubTreeVerifier()),
@@ -440,17 +441,17 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
-		_, err := puller.updateLockfile("https://github.com/alice/ctxloom@bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion, false, "", time.Time{}, Verified{})
+		_, err := puller.updateLockfile("ctxloom+git://github.com/alice/ctxloom//bundles/security", PullOptions{ItemType: ItemTypeBundle}, rem, "abc123", "v1.0.0", "", SelectorVersion, false, "", time.Time{}, Verified{})
 		require.NoError(t, err)
 
-		_, err = puller.updateLockfile("alice/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion, false, "", time.Time{}, Verified{})
+		_, err = puller.updateLockfile("ctxloom+git://github.com/alice/ctxloom//bundles/testing", PullOptions{ItemType: ItemTypeBundle}, rem, "def456", "v2.0.0", "", SelectorVersion, false, "", time.Time{}, Verified{})
 		require.NoError(t, err)
 
 		loaded, err := lm.Load()
 		require.NoError(t, err)
 		assert.Len(t, loaded.Bundles, 2)
-		assert.Contains(t, loaded.Bundles, "https://github.com/alice/ctxloom@bundles/security")
-		assert.Contains(t, loaded.Bundles, "alice/testing")
+		assert.Contains(t, loaded.Bundles, trust.BundleKey("ctxloom+git://github.com/alice/ctxloom//bundles/security"))
+		assert.Contains(t, loaded.Bundles, trust.BundleKey("ctxloom+git://github.com/alice/ctxloom//bundles/testing"))
 	})
 
 	// A blanket re-pull (no explicit version, as in `deps pull --force`) must
@@ -463,9 +464,9 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
-		const ref = "https://github.com/alice/ctxloom@bundles/security"
-		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
-		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
+		const ref = "https://github.com/alice/ctxloom@bundles/security" // as typed; keyed via lockKeyOf
+		seeded := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
+		seeded.AddEntry(ItemTypeBundle, lockKeyOf(t, ref), LockEntry{
 			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom",
 			Version: "v1.0.0", RequestedVersion: "v1.0.0", Held: true,
 		})
@@ -480,7 +481,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		loaded, err := lm.Load()
 		require.NoError(t, err)
-		entry := loaded.Bundles[ref]
+		entry := loaded.Bundles[lockKeyOf(t, ref)]
 		assert.True(t, entry.Held, "hold must survive a blanket re-pull")
 		assert.Equal(t, "pinnedsha", entry.SHA, "frozen SHA must not advance to HEAD")
 		assert.Equal(t, "v1.0.0", entry.Version)
@@ -495,9 +496,9 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		registry, _ := NewRegistry(paths.DefaultRemotesPath(), WithRegistryFS(fs))
 		lm := NewLockfileManager(paths.AppDirName, WithLockfileFS(fs))
 
-		const ref = "https://github.com/alice/ctxloom@bundles/security"
-		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
-		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
+		const ref = "https://github.com/alice/ctxloom@bundles/security" // as typed; keyed via lockKeyOf
+		seeded := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
+		seeded.AddEntry(ItemTypeBundle, lockKeyOf(t, ref), LockEntry{
 			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Held: true,
 		})
 		require.NoError(t, lm.Save(seeded))
@@ -510,7 +511,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 
 		loaded, err := lm.Load()
 		require.NoError(t, err)
-		entry := loaded.Bundles[ref]
+		entry := loaded.Bundles[lockKeyOf(t, ref)]
 		assert.True(t, entry.Held, "hold must survive an explicit move")
 		assert.Equal(t, "v2sha", entry.SHA, "explicit version pull advances the SHA")
 		assert.Equal(t, "v2.0.0", entry.RequestedVersion)
@@ -521,6 +522,6 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 // fails the test on error (helper for the hold-preservation cases above).
 func requireUpdateLockfile(t *testing.T, puller *Puller, ref, sha, requestedVersion string, rem *Remote) {
 	t.Helper()
-	_, err := puller.updateLockfile(ref, PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{}, Verified{})
+	_, err := puller.updateLockfile(lockKeyOf(t, ref), PullOptions{ItemType: ItemTypeBundle}, rem, sha, requestedVersion, "", "", false, "", time.Time{}, Verified{})
 	require.NoError(t, err)
 }

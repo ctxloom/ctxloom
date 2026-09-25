@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// TestCanonicalBundleRefTyped_ReportsWhatItCouldNotMint is the regression guard
+// TestSourceBundleRef_ReportsWhatItCouldNotMint is the regression guard
 // for the failure that caused the U3b-2 revert.
 //
 // A source ref the grammar cannot convert degrades to the zero BundleRef, which
@@ -27,9 +27,9 @@ import (
 // something was logged. "A warning was emitted" is satisfied by any warning,
 // including one about an unrelated bundle; what makes the diagnosis one grep
 // instead of a bisect is that the message names the input that failed.
-func TestCanonicalBundleRefTyped_ReportsWhatItCouldNotMint(t *testing.T) {
+func TestSourceBundleRef_ReportsWhatItCouldNotMint(t *testing.T) {
 	t.Run("the error names the ref and the failure stage", func(t *testing.T) {
-		_, err := canonicalBundleRefTyped("::not a reference::")
+		_, err := sourceBundleRef("::not a reference::")
 		require.Error(t, err, "an unconvertible ref must not be reported as a successful mint")
 
 		// HasPrefix on THIS function's own wrapping, not Contains on the
@@ -52,7 +52,7 @@ func TestCanonicalBundleRefTyped_ReportsWhatItCouldNotMint(t *testing.T) {
 	// revisit.
 
 	t.Run("a mintable ref still returns no error", func(t *testing.T) {
-		br, err := canonicalBundleRefTyped("https://github.com/acme/repo@bundles/tooling")
+		br, err := sourceBundleRef("https://github.com/acme/repo@bundles/tooling")
 		require.NoError(t, err)
 		assert.Equal(t, "ctxloom+git://github.com/acme/repo//bundles/tooling", br.String())
 	})

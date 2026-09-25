@@ -628,7 +628,7 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 		Force:          true,
 		ItemType:       itemType,
 		Stdout:         os.Stderr,
-		AllowDowngrade: downgrades.allows(ref),
+		AllowDowngrade: downgrades.allowsRef(ref),
 	}
 
 	result, err := puller.Pull(ctx, ref, opts)
@@ -897,7 +897,11 @@ func isInstalled(ctx context.Context, ref, baseDir string, bundles remote.Bundle
 	if bundles == nil {
 		return false
 	}
-	if _, rerr := bundles.ReadBundleBytes(ctx, parsedRef.LockKey()); rerr != nil {
+	key, kerr := parsedRef.LockKey()
+	if kerr != nil {
+		return false
+	}
+	if _, rerr := bundles.ReadBundleBytes(ctx, key); rerr != nil {
 		return false
 	}
 	// READABLE IS NOT INSTALLED once a layout MATERIALIZES.
@@ -915,7 +919,11 @@ func isInstalled(ctx context.Context, ref, baseDir string, bundles remote.Bundle
 	// very pull that was refusing. Measured at the flip: 16 materialized trees
 	// loaded, 25 unmaterialized ones failed, and pull called all 42 "skipped".
 	if baseDir != "" {
-		if _, serr := os.Stat(parsedRef.LocalTreePath(baseDir)); serr != nil {
+		tree, terr := parsedRef.LocalTreePath(baseDir)
+		if terr != nil {
+			return false
+		}
+		if _, serr := os.Stat(tree); serr != nil {
 			return false
 		}
 	}

@@ -77,13 +77,35 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		if active == nil {
 			return remote.LockEntry{}, false
 		}
-		return active.GetEntry(ref.ItemType, ref.LockKey())
+		key, err := ref.LockKey()
+		if err != nil {
+			return remote.LockEntry{}, false
+		}
+		return active.GetEntry(ref.ItemType, key)
+	}
+	// lockedSHA is the ref's lock entry, reported only when it pins a SHA.
+	lockedSHA := func(ref *remote.Reference) (remote.LockEntry, bool) {
+		e, ok := lockEntry(ref)
+		return e, ok && e.SHA != ""
+	}
+	// carried is the lock entry to carry forward without resolving: a held
+	// entry always; an unchanged-constraint entry only in lock mode (upgrade
+	// re-resolves it).
+	carried := func(ref *remote.Reference, expr string) (remote.LockEntry, bool) {
+		e, ok := lockedSHA(ref)
+		return e, ok && (e.Held || (!reResolve && e.RequestedVersion == expr))
 	}
 
 	return func(ref *remote.Reference) (string, string, remote.SelectorKind, bool) {
-		identity := ref.LockKey()
 		expr := ref.ContentVersion
-		key := identity + "\x00" + expr
+		identity, err := ref.LockKey()
+		if err != nil {
+			// Said, not swallowed: a ref with no bundle identity is skipped
+			// exactly as an unresolvable one is, and the user is told why.
+			clidiag.Warn("ctxloom", "could not resolve %s@%s; skipping: %v", ref.URL+"@"+remote.ItemTypeBundle.DirName()+"/"+ref.Path, expr, err)
+			return "", "", "", false
+		}
+		key := string(identity) + "\x00" + expr
 		if r, ok := cache[key]; ok {
 			return r.sha, r.version, r.kind, true
 		}
@@ -95,16 +117,10 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 			return sha, version, kind, true
 		}
 
-		// 1. Carry forward a held entry always; an unchanged-constraint entry only
-		//    in lock mode (upgrade re-resolves it). The kind rides along, derived
-		//    for entries locked before it was persisted.
-		if e, ok := lockEntry(ref); ok && e.SHA != "" {
-			if e.Held {
-				return store(e.SHA, e.Version, e.SelectorKind())
-			}
-			if !reResolve && e.RequestedVersion == expr {
-				return store(e.SHA, e.Version, e.SelectorKind())
-			}
+		// 1. Carry forward what the lock already settles (see carried). The kind
+		//    rides along, derived for entries locked before it was persisted.
+		if e, ok := carried(ref, expr); ok {
+			return store(e.SHA, e.Version, e.SelectorKind())
 		}
 		// 2. A bare commit name is already concrete — no clone needed.
 		if remote.LooksLikeCommit(expr) {
@@ -123,7 +139,7 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 			cause = err
 		}
 		// 4. Fault tolerant: keep the last locked SHA, else skip.
-		if e, ok := lockEntry(ref); ok && e.SHA != "" {
+		if e, ok := lockedSHA(ref); ok {
 			return store(e.SHA, e.Version, e.SelectorKind())
 		}
 		failed[key] = true

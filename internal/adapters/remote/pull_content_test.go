@@ -36,14 +36,14 @@ func TestInstallPulledItem_OverwrittenReflectsExistingEntry(t *testing.T) {
 	// ("bundles are distributed as trees"), so a content-only fetchedItem
 	// (the old single-file shape) can no longer drive this path at all.
 	first, err := p.installPulledItem(context.Background(), ref, opts, &fetchedItem{
-		rem: rem, localName: "alice/mybundle", sha: "abc123", treeRoot: ref.TreeRepoPath(),
+		rem: rem, localName: "ctxloom+git://github.com/alice/ctxloom//bundles/mybundle", sha: "abc123", treeRoot: ref.TreeRepoPath(),
 		tree: map[string]TreeFile{"bundle.yaml": {Data: []byte("version: \"1.0.0\"\n")}},
 	})
 	require.NoError(t, err)
 	assert.False(t, first.Overwritten, "the first pull of a new item is not an overwrite")
 
 	second, err := p.installPulledItem(context.Background(), ref, opts, &fetchedItem{
-		rem: rem, localName: "alice/mybundle", sha: "def456", treeRoot: ref.TreeRepoPath(),
+		rem: rem, localName: "ctxloom+git://github.com/alice/ctxloom//bundles/mybundle", sha: "def456", treeRoot: ref.TreeRepoPath(),
 		tree: map[string]TreeFile{"bundle.yaml": {Data: []byte("version: \"2.0.0\"\n")}},
 	})
 	require.NoError(t, err)

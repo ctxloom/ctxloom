@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
@@ -128,7 +129,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	result.Incomplete = len(unexpanded) > 0
 	incomplete := result.Incomplete
 
-	newActive := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}
+	newActive := &remote.Lockfile{Version: remote.LockfileVersion, Bundles: map[trust.BundleKey]remote.LockEntry{}}
 	for _, p := range proposed {
 		cur, has := active.GetEntry(p.Type, p.Identity)
 		// A held entry never advances — carry its current pin forward unchanged.
@@ -150,7 +151,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 			if refusal != nil && has {
 				newActive.AddEntry(p.Type, p.Identity, cur)
 				result.Refused = append(result.Refused, RefusedAdvance{
-					Identity:    p.Identity,
+					Identity:    string(p.Identity),
 					KeptSHA:     cur.SHA,
 					ProposedSHA: p.Hash,
 					Detail:      refusal.Error(),
@@ -316,7 +317,7 @@ func movePinnedWorktree(ctx context.Context, cfg *config.Config, p PinnedRef) {
 	if p.Type != remote.ItemTypeBundle {
 		return // only a bundle materializes a tree
 	}
-	ref, err := remote.ParseReference(p.Identity)
+	ref, err := remote.ParseReference(string(p.Identity))
 	if err != nil || !ref.IsCanonical() {
 		return
 	}
@@ -328,7 +329,11 @@ func movePinnedWorktree(ctx context.Context, cfg *config.Config, p PinnedRef) {
 		return
 	}
 	install := remotetree.WorktreeInstaller(NewRepoCache(cfg))
-	if _, err := install(ctx, ref.URL, p.Hash, ref.TreeRepoPath(), ref.LocalWorktreePath(baseDir)); err != nil {
+	worktree, err := ref.LocalWorktreePath(baseDir)
+	if err == nil {
+		_, err = install(ctx, ref.URL, p.Hash, ref.TreeRepoPath(), worktree)
+	}
+	if err != nil {
 		clidiag.Warn("ctxloom", "%s was upgraded to %s but its cached tree could not be moved to that commit (%v); "+
 			"run `ctxloom deps pull` to re-install it", p.Identity, p.Hash, err)
 	}

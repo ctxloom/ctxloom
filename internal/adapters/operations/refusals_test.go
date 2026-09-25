@@ -63,7 +63,7 @@ func TestRefusals_UpgradeRecordsTheRefusalWhereAnInspectorCanReadIt(t *testing.T
 	require.NoError(t, yaml.Unmarshal(raw, &doc))
 	assert.Equal(t, refusalStoreVersion, doc.Version)
 	require.Len(t, doc.Refusals, 1)
-	assert.Equal(t, r.ref, doc.Refusals[0].Identity, "the record must name WHICH bundle")
+	assert.Equal(t, string(lockKeyOf(t, r.ref)), doc.Refusals[0].Identity, "the record must name WHICH bundle")
 	assert.Equal(t, r.proposed, doc.Refusals[0].ProposedSHA, "the record must name the REVISION that was refused")
 	assert.Equal(t, r.kept, doc.Refusals[0].KeptSHA, "the record must name the pin being kept")
 	assert.Contains(t, doc.Refusals[0].Detail, bundles.ErrTreeBundleWithheld.Error())
@@ -72,7 +72,7 @@ func TestRefusals_UpgradeRecordsTheRefusalWhereAnInspectorCanReadIt(t *testing.T
 	live, err := LiveRefusedAdvances(r.cfg)
 	require.NoError(t, err)
 	require.Len(t, live, 1)
-	assert.Equal(t, r.ref, live[0].Identity)
+	assert.Equal(t, string(lockKeyOf(t, r.ref)), live[0].Identity)
 	assert.Equal(t, r.proposed, live[0].ProposedSHA)
 	assert.Equal(t, r.kept, live[0].KeptSHA)
 }
@@ -115,11 +115,11 @@ func TestRefusals_ARecordWhoseKeptPinMovedIsNotReported(t *testing.T) {
 	mgr := remote.NewLockfileManager(r.baseDir)
 	lock, err := mgr.Load()
 	require.NoError(t, err)
-	entry, ok := lock.GetEntry(remote.ItemTypeBundle, r.ref)
+	entry, ok := lock.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, r.ref))
 	require.True(t, ok)
 	require.Equal(t, r.kept, entry.SHA)
 	entry.SHA = "0000000000000000000000000000000000000000"
-	lock.AddEntry(remote.ItemTypeBundle, r.ref, entry)
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, r.ref), entry)
 	require.NoError(t, mgr.Save(lock))
 
 	live, err = LiveRefusedAdvances(r.cfg)
@@ -137,8 +137,8 @@ func TestRefusals_ARecordForAnEntryNoLongerLockedIsNotReported(t *testing.T) {
 	mgr := remote.NewLockfileManager(r.baseDir)
 	lock, err := mgr.Load()
 	require.NoError(t, err)
-	lock.AddEntry(remote.ItemTypeBundle, "file:///elsewhere@bundles/other", remote.LockEntry{SHA: "abc123", URL: "file:///elsewhere"})
-	lock.RemoveEntry(remote.ItemTypeBundle, r.ref)
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, "file:///elsewhere@bundles/other"), remote.LockEntry{SHA: "abc123", URL: "file:///elsewhere"})
+	lock.RemoveEntry(remote.ItemTypeBundle, lockKeyOf(t, r.ref))
 	require.NoError(t, mgr.Save(lock))
 
 	live, err := LiveRefusedAdvances(r.cfg)
@@ -190,4 +190,35 @@ func TestRefusals_AnUnresolvedProjectRootRefusesRatherThanUsingTheWorkingDirecto
 				"writing must refuse too")
 		})
 	}
+}
+
+// A record written before refusals were keyed by bundle identity names its
+// bundle the way it was typed, so it matches no lock key and the staleness
+// filter would drop it — the advisory silently gone, which is the one outcome
+// this store exists to prevent. It must be reported, named, with the command
+// that clears it, the same way the lockfile refuses its own retired keys.
+func TestRefusals_ARecordKeyedTheRetiredWayIsReportedNotDropped(t *testing.T) {
+	r := newRefusal(t)
+	old := r.ref // the pre-identity lock key: the reference as typed
+	require.NotEqual(t, string(lockKeyOf(t, r.ref)), old, "the fixture's typed ref must differ from its identity, or this proves nothing")
+
+	path := paths.RefusedAdvancesPath(r.baseDir)
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var doc refusalDoc
+	require.NoError(t, yaml.Unmarshal(raw, &doc))
+	require.Len(t, doc.Refusals, 1)
+	doc.Refusals[0].Identity = old
+	out, err := yaml.Marshal(doc)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, out, 0o644))
+
+	_, err = LiveRefusedAdvances(r.cfg)
+	require.ErrorIs(t, err, ErrRefusalKeyFormRetired)
+
+	c := doctorCheckUpstreamSignatures(r.cfg, nil)
+	assert.Equal(t, DoctorWarn, c.Status, c.Detail)
+	assert.Contains(t, c.Detail, old, "the retired record must be NAMED, not dropped")
+	assert.Contains(t, c.Detail, r.proposed, "the refused revision is the fact the record exists to keep")
+	assert.Contains(t, c.Detail, "ctxloom deps upgrade", "the report must name the command that clears it")
 }

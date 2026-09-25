@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -25,8 +26,8 @@ func holdFSFixture(t *testing.T) (*config.Config, *remote.LockfileManager) {
 	mgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	require.NoError(t, mgr.Save(&remote.Lockfile{
 		Version: 1,
-		Bundles: map[string]remote.LockEntry{
-			"r/a": {SHA: "sha1", URL: "https://example.com/r"},
+		Bundles: map[trust.BundleKey]remote.LockEntry{
+			lockKeyOf(t, heldRef): {SHA: "sha1", URL: "https://example.com/r"},
 		},
 	}))
 	return cfg, mgr
@@ -42,7 +43,7 @@ func TestLoadActiveLockfile_ReadsInjectedFS(t *testing.T) {
 	lock, err := LoadActiveLockfile(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, lock)
-	assert.Contains(t, lock.Bundles, "r/a",
+	assert.Contains(t, lock.Bundles, lockKeyOf(t, heldRef),
 		"the active lockfile must come from the config's filesystem, not the OS fs")
 }
 
@@ -53,13 +54,13 @@ func TestLoadActiveLockfile_ReadsInjectedFS(t *testing.T) {
 func TestSetItemPin_PersistsToInjectedFS(t *testing.T) {
 	cfg, mgr := holdFSFixture(t)
 
-	found, err := SetItemPin(cfg, "r/a", true)
+	found, err := SetItemPin(cfg, heldRef, true)
 	require.NoError(t, err)
 	require.True(t, found, "the entry seeded on the injected fs must be found")
 
 	lock, err := mgr.Load()
 	require.NoError(t, err)
-	require.Contains(t, lock.Bundles, "r/a")
-	assert.True(t, lock.Bundles["r/a"].Held,
+	require.Contains(t, lock.Bundles, lockKeyOf(t, heldRef))
+	assert.True(t, lock.Bundles[lockKeyOf(t, heldRef)].Held,
 		"the hold must persist to the injected fs, not the OS fs")
 }

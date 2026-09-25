@@ -8,24 +8,26 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // countingSource is a hand-written BundleByteSource that records every
 // ReadBundleBytes call so cache-hit assertions don't have to reach into
 // the MockFetcher (the cache lives one layer above the fetcher).
 type countingSource struct {
-	bytes map[string][]byte
-	shas  map[string]string
+	bytes map[trust.BundleKey][]byte
+	shas  map[trust.BundleKey]string
 	calls int
 	err   error
 	mu    sync.Mutex
 }
 
-func newCountingSource(entries map[string]string, contents map[string][]byte) *countingSource {
+func newCountingSource(entries map[trust.BundleKey]string, contents map[trust.BundleKey][]byte) *countingSource {
 	return &countingSource{bytes: contents, shas: entries}
 }
 
-func (c *countingSource) ReadBundleBytes(_ context.Context, name string) ([]byte, error) {
+func (c *countingSource) ReadBundleBytes(_ context.Context, name trust.BundleKey) ([]byte, error) {
 	c.mu.Lock()
 	c.calls++
 	c.mu.Unlock()
@@ -39,7 +41,7 @@ func (c *countingSource) ReadBundleBytes(_ context.Context, name string) ([]byte
 	return data, nil
 }
 
-func (c *countingSource) LockEntryFor(name string) (LockEntry, bool) {
+func (c *countingSource) LockEntryFor(name trust.BundleKey) (LockEntry, bool) {
 	sha, ok := c.shas[name]
 	if !ok {
 		return LockEntry{}, false
@@ -47,15 +49,15 @@ func (c *countingSource) LockEntryFor(name string) (LockEntry, bool) {
 	return LockEntry{SHA: sha}, true
 }
 
-func (c *countingSource) ListBundleNames() []string {
-	names := make([]string, 0, len(c.shas))
+func (c *countingSource) ListBundleNames() []trust.BundleKey {
+	names := make([]trust.BundleKey, 0, len(c.shas))
 	for k := range c.shas {
 		names = append(names, k)
 	}
 	return names
 }
 
-func (c *countingSource) HasBundle(name string) bool {
+func (c *countingSource) HasBundle(name trust.BundleKey) bool {
 	_, ok := c.shas[name]
 	return ok
 }
@@ -69,8 +71,8 @@ func (c *countingSource) callCount() int {
 func TestCachingBundleReader(t *testing.T) {
 	t.Run("first read populates cache, subsequent reads short-circuit", func(t *testing.T) {
 		inner := newCountingSource(
-			map[string]string{"a/x": "sha1"},
-			map[string][]byte{"a/x": []byte("body")},
+			map[trust.BundleKey]string{"a/x": "sha1"},
+			map[trust.BundleKey][]byte{"a/x": []byte("body")},
 		)
 		cache := NewCachingBundleReader(inner)
 
@@ -84,8 +86,8 @@ func TestCachingBundleReader(t *testing.T) {
 
 	t.Run("different bundles cache independently", func(t *testing.T) {
 		inner := newCountingSource(
-			map[string]string{"a/x": "sha1", "a/y": "sha2"},
-			map[string][]byte{"a/x": []byte("X"), "a/y": []byte("Y")},
+			map[trust.BundleKey]string{"a/x": "sha1", "a/y": "sha2"},
+			map[trust.BundleKey][]byte{"a/x": []byte("X"), "a/y": []byte("Y")},
 		)
 		cache := NewCachingBundleReader(inner)
 
@@ -98,8 +100,8 @@ func TestCachingBundleReader(t *testing.T) {
 
 	t.Run("SHA change invalidates the cache entry implicitly", func(t *testing.T) {
 		inner := newCountingSource(
-			map[string]string{"a/x": "sha1"},
-			map[string][]byte{"a/x": []byte("old")},
+			map[trust.BundleKey]string{"a/x": "sha1"},
+			map[trust.BundleKey][]byte{"a/x": []byte("old")},
 		)
 		cache := NewCachingBundleReader(inner)
 
@@ -116,8 +118,8 @@ func TestCachingBundleReader(t *testing.T) {
 
 	t.Run("inner errors are not cached", func(t *testing.T) {
 		inner := newCountingSource(
-			map[string]string{"a/x": "sha1"},
-			map[string][]byte{"a/x": []byte("body")},
+			map[trust.BundleKey]string{"a/x": "sha1"},
+			map[trust.BundleKey][]byte{"a/x": []byte("body")},
 		)
 		inner.err = errors.New("boom")
 		cache := NewCachingBundleReader(inner)
@@ -143,8 +145,8 @@ func TestCachingBundleReader(t *testing.T) {
 
 	t.Run("metadata pass-through", func(t *testing.T) {
 		inner := newCountingSource(
-			map[string]string{"a/x": "sha1"},
-			map[string][]byte{"a/x": []byte("body")},
+			map[trust.BundleKey]string{"a/x": "sha1"},
+			map[trust.BundleKey][]byte{"a/x": []byte("body")},
 		)
 		cache := NewCachingBundleReader(inner)
 
@@ -156,7 +158,7 @@ func TestCachingBundleReader(t *testing.T) {
 		assert.Equal(t, "sha1", entry.SHA)
 
 		names := cache.ListBundleNames()
-		assert.ElementsMatch(t, []string{"a/x"}, names)
+		assert.ElementsMatch(t, []trust.BundleKey{"a/x"}, names)
 	})
 
 	t.Run("nil decorator and nil inner are safe", func(t *testing.T) {
@@ -175,8 +177,8 @@ func TestCachingBundleReader(t *testing.T) {
 
 	t.Run("concurrent reads are race-safe and cache-correct", func(t *testing.T) {
 		inner := newCountingSource(
-			map[string]string{"a/x": "sha1"},
-			map[string][]byte{"a/x": []byte("body")},
+			map[trust.BundleKey]string{"a/x": "sha1"},
+			map[trust.BundleKey][]byte{"a/x": []byte("body")},
 		)
 		cache := NewCachingBundleReader(inner)
 
@@ -204,11 +206,11 @@ func TestCachingBundleReader(t *testing.T) {
 // LockEntryFor is documented as returning "(or zero+false)" and only
 // HasBundle/ListBundleNames answer "does this source know name".
 type lockfreeSource struct {
-	bytes map[string][]byte
+	bytes map[trust.BundleKey][]byte
 	calls int
 }
 
-func (s *lockfreeSource) ReadBundleBytes(_ context.Context, name string) ([]byte, error) {
+func (s *lockfreeSource) ReadBundleBytes(_ context.Context, name trust.BundleKey) ([]byte, error) {
 	s.calls++
 	data, ok := s.bytes[name]
 	if !ok {
@@ -217,17 +219,17 @@ func (s *lockfreeSource) ReadBundleBytes(_ context.Context, name string) ([]byte
 	return data, nil
 }
 
-func (s *lockfreeSource) LockEntryFor(string) (LockEntry, bool) { return LockEntry{}, false }
+func (s *lockfreeSource) LockEntryFor(trust.BundleKey) (LockEntry, bool) { return LockEntry{}, false }
 
-func (s *lockfreeSource) ListBundleNames() []string {
-	names := make([]string, 0, len(s.bytes))
+func (s *lockfreeSource) ListBundleNames() []trust.BundleKey {
+	names := make([]trust.BundleKey, 0, len(s.bytes))
 	for k := range s.bytes {
 		names = append(names, k)
 	}
 	return names
 }
 
-func (s *lockfreeSource) HasBundle(name string) bool {
+func (s *lockfreeSource) HasBundle(name trust.BundleKey) bool {
 	_, ok := s.bytes[name]
 	return ok
 }
@@ -242,11 +244,11 @@ func (s *lockfreeSource) HasBundle(name string) bool {
 // Membership is HasBundle's question; the lock entry only supplies a cache key,
 // and with no SHA to key on there is nothing safe to memoize.
 func TestCachingBundleReader_SourceWithoutLockEntries(t *testing.T) {
-	inner := &lockfreeSource{bytes: map[string][]byte{"a/x": []byte("body")}}
+	inner := &lockfreeSource{bytes: map[trust.BundleKey][]byte{"a/x": []byte("body")}}
 	cache := NewCachingBundleReader(inner)
 
 	require.True(t, cache.HasBundle("a/x"))
-	assert.ElementsMatch(t, []string{"a/x"}, cache.ListBundleNames())
+	assert.ElementsMatch(t, []trust.BundleKey{"a/x"}, cache.ListBundleNames())
 
 	data, err := cache.ReadBundleBytes(context.Background(), "a/x")
 	require.NoError(t, err, "wrapping a source must not make it unreadable")

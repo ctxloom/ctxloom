@@ -70,22 +70,3 @@ func IsSelfContainedRef(ref string) bool {
 		return false
 	}
 }
-
-// NormalizeURL renders a repository URL's IDENTITY: one https spelling per
-// repository, whatever transport syntax it was written in. It is the input to
-// trust.CanonicalRepoURL (the trust namespace key), to remotes.yaml lookups
-// and to lockfile keys.
-//
-// The grammar itself lives in ParseRepoURL (repourl.go) — this is the identity
-// renderer over it. It used to be a hand-rolled arm-per-shape function with a
-// sibling, normalizeCloneURL, that had the same arms guarded differently; see
-// repourl.go's header for what that cost.
-//
-// An empty input yields an empty string (it previously yielded "https://").
-func NormalizeURL(repoURL string) string {
-	parsed, err := ParseRepoURL(repoURL)
-	if err != nil {
-		return ""
-	}
-	return parsed.Normalized()
-}

@@ -280,27 +280,20 @@ func (p *Parts) parseExternal(u *url.URL) error {
 		return fmt.Errorf("%w: %sfile takes no host (use %sfile:///<abs-path>)", ErrSyntax, SchemePrefix, SchemePrefix)
 	}
 
-	// EscapedPath, never Path. u.Path is DECODED, and a decoded path can
-	// contain a "//" that was written "%2F%2F" — which would be read as the
-	// repo/bundle separator and silently produce a different, valid-looking
-	// reference. Parse refuses %2F before we get here, so the two can no
-	// longer disagree, but reading the escaped form keeps this function
-	// correct on its own terms rather than by remote assumption.
-	repoEsc, bundleEsc, err := resolveDotSegmentsEachSide(u.EscapedPath())
+	// The path AS WRITTEN, never u.Path. u.Path is DECODED, and a decoded
+	// path can contain a "//" that was written "%2F%2F" — which would be read
+	// as the repo/bundle separator and silently produce a different,
+	// valid-looking reference — or an "@" that was written "%40", which would
+	// be read as the version delimiter. Parse refuses %2F before we get here,
+	// but not %40. Nor is u.EscapedPath() the written form: when the input
+	// carries a character that is not validly encoded (a literal space),
+	// EscapedPath discards RawPath and re-escapes the DECODED path, turning
+	// "%40" back into a delimiter "@".
+	repoEsc, bundlePath, version, err := resolveDotSegmentsEachSide(writtenPath(u))
 	if err != nil {
 		return err
 	}
-
-	// The version is split off the ESCAPED bundle path, before decoding: an
-	// item written "na%40me" must keep its "@" as data, and decoding first
-	// would make it indistinguishable from the version delimiter. Render
-	// re-encodes "@" in a bundle name for the same reason, which is what makes
-	// parse ∘ render idempotent.
-	bundlePath := bundleEsc
-	if at := strings.LastIndex(bundlePath, "@"); at >= 0 {
-		p.Version = bundlePath[at+1:]
-		bundlePath = bundlePath[:at]
-	}
+	p.Version = version
 	if !strings.HasPrefix(bundlePath, BundleMarker) {
 		return fmt.Errorf("%w: bundle path must begin %q after %q", ErrSyntax, BundleMarker, RepoBundleSeparator)
 	}
@@ -332,11 +325,11 @@ func (p *Parts) parseInternal(u *url.URL) error {
 	if u.Host != "" || u.Path != "" {
 		return fmt.Errorf("%w: %s%s takes an opaque name, not a path", ErrSyntax, SchemePrefix, p.Class)
 	}
-	opaque := u.Opaque
-	if at := strings.LastIndex(opaque, "@"); at >= 0 {
-		p.Version = opaque[at+1:]
-		opaque = opaque[:at]
+	opaque, version, err := splitVersion(u.Opaque)
+	if err != nil {
+		return err
 	}
+	p.Version = version
 	name, err := url.PathUnescape(opaque)
 	if err != nil {
 		return fmt.Errorf("%w: name: %v", ErrSyntax, err)
@@ -362,7 +355,7 @@ func (p Parts) Render(withVersion bool) string {
 		u.Host = p.Host
 		bundle := escapeAt(escapePath(p.Bundle))
 		if withVersion && p.Version != "" {
-			bundle += "@" + p.Version
+			bundle += "@" + escapeVersion(p.Version)
 		}
 		esc := escapePath(p.RepoPath) + RepoBundleSeparator + BundleMarker + bundle
 		// Setting RawPath alongside Path keeps url.URL's own consistency check
@@ -378,7 +371,7 @@ func (p Parts) Render(withVersion bool) string {
 	} else {
 		opaque := escapeAt(escapePath(p.Bundle))
 		if withVersion && p.Version != "" {
-			opaque += "@" + p.Version
+			opaque += "@" + escapeVersion(p.Version)
 		}
 		// url.URL emits Opaque VERBATIM — it applies no encoding of its own —
 		// so the escaping above is not belt-and-braces, it is the only
@@ -407,13 +400,24 @@ func (p Parts) Render(withVersion bool) string {
 // Resolving the halves independently is also what stops a ".." in the bundle
 // path from climbing OUT of the bundle half and eating the repository path's
 // last segment, which a single whole-string resolution would allow.
-func resolveDotSegmentsEachSide(escPath string) (repo, bundle string, err error) {
+//
+// The "@<ver>" suffix is split off the bundle half BEFORE its dot segments are
+// removed, for the same reason: a version is a git ref name, not a path, and
+// resolved together "x@a/../b" would pop the bundle name and leave bundle "b"
+// with no version — the version choosing which bundle the reference names. The
+// split is on the ESCAPED form (see splitVersion), and the version is returned
+// decoded and otherwise verbatim.
+func resolveDotSegmentsEachSide(escPath string) (repo, bundle, version string, err error) {
 	before, after, found := strings.Cut(escPath, RepoBundleSeparator)
 	if !found {
-		return "", "", fmt.Errorf("%w: missing %q separator between repository path and bundle path",
+		return "", "", "", fmt.Errorf("%w: missing %q separator between repository path and bundle path",
 			ErrSyntax, RepoBundleSeparator)
 	}
-	return removeDotSegments(before), removeDotSegments(after), nil
+	bundleEsc, version, err := splitVersion(after)
+	if err != nil {
+		return "", "", "", err
+	}
+	return removeDotSegments(before), removeDotSegments(bundleEsc), version, nil
 }
 
 // removeDotSegments implements RFC 3986 §5.2.4 over a single path, preserving
@@ -523,6 +527,42 @@ func ClassForScheme(scheme string) (SourceClass, bool) {
 func escapePath(p string) string {
 	u := url.URL{Path: p}
 	return u.EscapedPath()
+}
+
+// writtenPath returns u's path exactly as the input spelled it. url.Parse
+// keeps the input in RawPath whenever it differs from the default encoding of
+// the decoded Path, and leaves RawPath empty only when the default encoding
+// reproduces the input — so EscapedPath is the written form in that case.
+func writtenPath(u *url.URL) string {
+	if u.RawPath != "" {
+		return u.RawPath
+	}
+	return u.EscapedPath()
+}
+
+// splitVersion splits the "@<ver>" suffix off an ESCAPED path or opaque name
+// and returns the version DECODED, exactly once. The split must happen on the
+// escaped form (an "@" written "%40" is data, not the delimiter); the decode
+// must happen after it, or the version keeps whatever escaping the input or
+// net/url happened to apply — "^1.2" would reach the constraint parser as
+// "%5E1.2", and the typed and escaped spellings would be two versions.
+func splitVersion(esc string) (rest, version string, err error) {
+	at := strings.LastIndex(esc, "@")
+	if at < 0 {
+		return esc, "", nil
+	}
+	version, err = url.PathUnescape(esc[at+1:])
+	if err != nil {
+		return "", "", fmt.Errorf("%w: version: %v", ErrSyntax, err)
+	}
+	return esc[:at], version, nil
+}
+
+// escapeVersion is splitVersion's inverse: the decoded version re-escaped by
+// the same encoder as every other component, with "@" encoded so a version
+// containing one cannot move the delimiter on the next parse.
+func escapeVersion(v string) string {
+	return escapeAt(escapePath(v))
 }
 
 // escapeAt encodes "@" so it cannot be mistaken for the version delimiter when

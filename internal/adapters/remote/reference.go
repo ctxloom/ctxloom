@@ -1,6 +1,9 @@
 package remote
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
@@ -9,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
@@ -336,8 +340,11 @@ func parseFileReference(ref string) (*Reference, error) {
 		return nil, fmt.Errorf("file URL reference missing item path: %s (expected @<type>/<path>)", ref)
 	}
 
-	// Reconstruct file URL without type/path
-	repoURL := "file://" + repoPath
+	// The repository's fetch location, rendered by the one renderer: a
+	// percent-encoded file URL. repoPath is DECODED here, and git decodes a
+	// file:// URL again, so concatenating it raw would hand git a different
+	// directory the moment the path holds an escape.
+	repoURL := refuri.Parts{Class: refuri.ClassFile, RepoPath: repoPath}.FetchURL()
 
 	// Parse the remainder: type/path[@contentVersion]
 	itemType, itemPath, contentVersion, err := parseTypePathVersion(remainder)
@@ -461,117 +468,76 @@ func (r *Reference) String() string {
 	return r.CanonicalString()
 }
 
-// companionRef formats a ctxloom:companion reference as
-// "ctxloom:companion@<bin>" — the flat grammar parseCompanionReference reads
-// back, with no type/path/version tail (see that function's doc).
-func (r *Reference) companionRef() string {
-	return fmt.Sprintf("%s@%s", CompanionSource, r.Path)
-}
-
-// localRef formats a ctxloom:local reference as
-// "ctxloom:local@<type>/<path>[@version]". The version is included when present
-// (unlike the canonical URL form, the local form is fully round-trippable).
-func (r *Reference) localRef() string {
-	typeName := r.ItemType.DirName()
-	if typeName == "" {
-		typeName = "bundles" // default
-	}
-	s := fmt.Sprintf("%s@%s/%s", LocalSource, typeName, r.Path)
-	if r.ContentVersion != "" {
-		s += "@" + r.ContentVersion
-	}
-	return s
-}
-
 // CanonicalString renders this reference as a canonical ctxloom URI
 // (ctxloom+git / ctxloom+file / ctxloom+local / ctxloom+companion), carrying
-// "@<version>" when the reference pins one. This is the reference's IDENTITY:
-// the spelling every API and stored identity outside the lockfile uses, and the
-// one parseCanonicalURIReference reads back.
+// "@<version>" when the reference pins one: BundleRef().String().
 //
-// It is NOT the lockfile key. A lockfile entry addresses a FETCH and is keyed
-// by LockKey, which spells the same bundle the way the lockfile on disk already
-// spells it — see LockKey's own doc for why the two are separate.
-//
-// A reference that cannot be classified into the URI family carries no URL and
-// is not local or companion, which makes it malformed by construction. It
-// renders as its fetch address rather than as an invented URI, and says so.
+// A reference that has no bundle identity is malformed by construction. It is
+// rendered for DIAGNOSTICS only, as the address it was given, and says so — it
+// is never a key: callers that key use BundleRef or LockKey, which error.
 func (r *Reference) CanonicalString() string {
-	p, err := r.canonicalParts()
+	br, err := r.BundleRef()
 	if err != nil {
-		clidiag.Warn("ctxloom", "cannot render %q as a canonical reference (%v); using its fetch address", r.LockKey(), err)
-		return r.LockKey()
+		diag := r.URL + "@" + ItemTypeBundle.DirName() + "/" + r.Path
+		clidiag.Warn("ctxloom", "cannot render %q as a canonical reference (%v)", diag, err)
+		return diag
 	}
-	return p.Render(true)
+	return br.String()
 }
 
-// canonicalParts maps this reference onto the shared URI syntax, minting
-// through refuri so a rendered identity is subject to exactly the rules a
-// parsed one is.
-//
-// ClassGit covers every transport that names a repository by host and path.
-// The transport is not part of a repository's identity — NormalizeURL already
-// folds git@ to https — so ssh://, git:// and https:// converge on one
-// identity, exactly as the trust grammar's own conversion does.
-func (r *Reference) canonicalParts() (refuri.Parts, error) {
+// BundleRef mints this reference's structured bundle reference from its own
+// fields — the source class, the repository the URL names (read by the one
+// repo-level canonicalizer, refuri.ParseRepoIdentity), the bundle path and the
+// content version. It is the ONE place a parsed Reference becomes an identity:
+// the lockfile key, the canonical string, a reader's source ref and the key a
+// retraction is looked up by all come from here, so no two of them can spell
+// one bundle two ways.
+func (r *Reference) BundleRef() (trust.BundleRef, error) {
+	var (
+		br  trust.BundleRef
+		err error
+	)
 	switch {
 	case r.IsLocal:
-		p, err := refuri.Local(r.Path)
-		if err != nil {
-			return refuri.Parts{}, err
-		}
-		p.Version = r.ContentVersion
-		return p, nil
+		br, err = trust.LocalRef(r.Path)
 	case r.IsCompanion:
-		return refuri.Companion(r.Path)
+		br, err = trust.CompanionRef(r.Path)
 	case r.URL == "":
-		return refuri.Parts{}, fmt.Errorf("reference has no source URL")
-	}
-	u, err := url.Parse(r.URL)
-	if err != nil || u.Scheme == "" {
-		// The scp spelling ("git@host:path") is not a URL. The repo-URL
-		// grammar folds it onto the https spelling of the same repository
-		// (refuri.NormalizeURL), so both spellings mint one identity; a URL
-		// url.Parse already reads is left exactly as it was.
-		u, err = url.Parse(refuri.NormalizeURL(r.URL))
-	}
-	if err != nil {
-		return refuri.Parts{}, fmt.Errorf("source URL %q: %w", r.URL, err)
-	}
-	var p refuri.Parts
-	if u.Scheme == "file" {
-		p, err = refuri.File(u.Path, r.Path)
-	} else {
-		p, err = refuri.Git(u.Host, u.Path, r.Path)
+		return trust.BundleRef{}, fmt.Errorf("%w: reference has no source URL", trust.ErrRefSyntax)
+	default:
+		repo, rerr := refuri.ParseRepoIdentity(r.URL)
+		if rerr != nil {
+			return trust.BundleRef{}, fmt.Errorf("unparseable repository URL %q: %w", r.URL, rerr)
+		}
+		switch repo.Class {
+		case refuri.ClassGit:
+			br, err = trust.GitRef(repo.Host, repo.RepoPath, r.Path)
+		case refuri.ClassFile:
+			br, err = trust.FileRef(repo.RepoPath, r.Path)
+		default:
+			return trust.BundleRef{}, fmt.Errorf("%w: source URL %q names no repository", trust.ErrRefSyntax, r.URL)
+		}
 	}
 	if err != nil {
-		return refuri.Parts{}, err
+		return trust.BundleRef{}, err
 	}
-	p.Version = r.ContentVersion
-	return p, nil
+	if r.ContentVersion == "" {
+		return br, nil
+	}
+	return br.WithVersion(r.ContentVersion)
 }
 
-// LockKey renders this reference as the lockfile/fetch address:
-// "<url>@<kind>s/<path>", or the ctxloom:local / ctxloom:companion equivalent.
-//
-// It is deliberately a DIFFERENT string from CanonicalString. A lockfile entry
-// addresses a fetch — which repository, which path — and is keyed on this
-// spelling on disk; an identity addresses content and is a canonical URI.
-// Rendering one from the other would rewrite every lockfile key the moment the
-// identity grammar moved, so the two renderings are separate and each names
-// what it is for.
-func (r *Reference) LockKey() string {
-	if r.IsLocal {
-		return r.localRef()
+// LockKey is the key this reference's lockfile entry is stored under: its
+// version-less bundle identity, BundleRef().BundleIdentity(). The lockfile
+// keys on identity rather than on the address as typed because the trust gate
+// looks a publisher's retraction up by identity, and two spellings of one
+// repository must not be two entries — one of which no lookup reaches.
+func (r *Reference) LockKey() (trust.BundleKey, error) {
+	br, err := r.BundleRef()
+	if err != nil {
+		return "", err
 	}
-	if r.IsCompanion {
-		return r.companionRef()
-	}
-	typeName := r.ItemType.DirName()
-	if typeName == "" {
-		typeName = "bundles" // default
-	}
-	return fmt.Sprintf("%s@%s/%s", r.URL, typeName, r.Path)
+	return br.BundleIdentity(), nil
 }
 
 // IsCanonical reports whether this is a URL-based reference. A reference is
@@ -625,13 +591,58 @@ const WorktreeDirSuffix = ".worktree"
 // to keep in step with the pin, which is what made a moved pin and an
 // unmaterialized tree describable as separate states at all.
 //
-// It sits at <cache>/bundles/<remote>/<path>.worktree. remoteName and r.Path
-// are logical, forward-slash segments while baseDir is an on-disk OS path, so
-// it is built with filepath.Join, which cleans the embedded slashes to the OS
-// separator; and it is built from paths.CacheBundlesPath rather than from the
-// cache/ and bundles/ parts, so a layout change cannot miss it.
-func (r *Reference) LocalWorktreePath(baseDir string) string {
-	return filepath.Join(paths.CacheBundlesPath(baseDir), r.LocalRemoteName(), r.Path) + WorktreeDirSuffix
+// It sits at <cache>/bundles/<remote>/<path>.<digest>.worktree. remoteName
+// and r.Path are logical, forward-slash segments while baseDir is an on-disk
+// OS path, so it is built with filepath.Join, which cleans the embedded
+// slashes to the OS separator; and it is built from paths.CacheBundlesPath
+// rather than from the cache/ and bundles/ parts, so a layout change cannot
+// miss it.
+//
+// The digest is of LockKey, and it is what makes the directory INJECTIVE in the
+// bundle's identity. The readable part is not: LocalRemoteName shortens a file
+// repository to its last two segments, and a case-folding filesystem merges
+// names that differ only in case, though path case is identity. Two lock keys
+// sharing one worktree read one tree — whichever was pulled last — so one
+// repository's bytes would be served under another's key, a retraction
+// included. An unaddressable reference has no lock key and so no directory.
+//
+// CONTAINMENT: the result is handed to MkdirAll, a git worktree add and
+// RemoveAll, so it must lie strictly inside the bundle cache root however the
+// Reference was built. validateItemPath guards r.Path only where a reference
+// is PARSED, and the lock key cannot stand in for it: refuri RESOLVES dot
+// segments while minting, and a local name is opaque to it, so "../../x" keys
+// cleanly while the join below would climb out. So the item path is held to
+// the parser's rule here too, and a reference with no remote name (local,
+// companion, or a URL naming no repository) has no cache directory at all. The remote half is contained by containRemoteName; the two
+// halves are the whole join, and the class gates in
+// reference_containment_test.go assert the result, not either guard.
+func (r *Reference) LocalWorktreePath(baseDir string) (string, error) {
+	remoteName := r.LocalRemoteName()
+	if remoteName == "" {
+		return "", fmt.Errorf("%w: %s names no remote repository", ErrNoCacheDirectory, r)
+	}
+	if err := validateItemPath(r.Path); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrNoCacheDirectory, err)
+	}
+	key, err := r.LockKey()
+	if err != nil {
+		return "", fmt.Errorf("%w for %s/%s: %w", ErrNoCacheDirectory, r.URL, r.Path, err)
+	}
+	return filepath.Join(paths.CacheBundlesPath(baseDir), remoteName, r.Path) +
+		"." + identityDigest(key) + WorktreeDirSuffix, nil
+}
+
+// ErrNoCacheDirectory is returned when a reference has no directory in the
+// bundle cache: it names no remote, its item path could climb out of the
+// cache root, or it has no bundle identity to key one by.
+var ErrNoCacheDirectory = errors.New("no cache directory")
+
+// identityDigest is a short, filesystem-safe, case-insensitive-safe (lowercase
+// hex) digest of a bundle identity. 64 bits keeps a crafted second identity
+// that lands in a victim's directory out of reach.
+func identityDigest(key trust.BundleKey) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:8])
 }
 
 // TreeRepoPath is the repository-relative directory this bundle's tree occupies
@@ -656,13 +667,17 @@ func (r *Reference) TreeRepoPath() string {
 // id — content.validateBundleID requires a single segment, and a nested
 // reference path ("lang/go/testing") is absorbed by the parent rather than
 // smuggled into the id.
-func (r *Reference) LocalTreePath(baseDir string) string {
-	return filepath.Join(r.LocalWorktreePath(baseDir), filepath.FromSlash(r.TreeRepoPath()))
+func (r *Reference) LocalTreePath(baseDir string) (string, error) {
+	worktree, err := r.LocalWorktreePath(baseDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(worktree, filepath.FromSlash(r.TreeRepoPath())), nil
 }
 
 // LocalRemoteName returns a filesystem-safe name for the remote.
 // For canonical URLs, this extracts a meaningful identifier; for URL-less
-// (local) refs it is empty.
+// (local) refs, and for a URL naming no repository, it is empty.
 func (r *Reference) LocalRemoteName() string {
 	return containRemoteName(r.localRemoteName())
 }
@@ -671,9 +686,8 @@ func (r *Reference) LocalRemoteName() string {
 // name. The name is derived from a remote URL, which reaches us from a
 // lockfile, and it is then joined onto the cache root by LocalPath — whose
 // result callers hand to fs.Remove and friends. None of the derivations below
-// strip traversal: httpHostPath's path.Join CLEANS, so "https://x/../.."
-// collapses to "..", and sanitizePath only rewrites "://", ":" and "@". A
-// ".." segment therefore used to escape .ctxloom/cache/bundles entirely.
+// strip traversal: path.Join CLEANS, so a repository path of "/.." joins
+// onto its host as "..", which would escape .ctxloom/cache/bundles entirely.
 //
 // Traversal segments are REWRITTEN rather than dropped so two degenerate
 // remotes cannot silently collide onto one cache directory.
@@ -701,61 +715,32 @@ func (r *Reference) localRemoteName() string {
 		return ""
 	}
 
-	// Extract a meaningful name from the URL:
+	// Derived from the repository's IDENTITY, not its spelling: a pull
+	// installs under the reference as typed and a reader finds the tree again
+	// from the lockfile key, so the two must name one directory however the
+	// repository was spelled (host case, a trailing slash, scp or https).
 	//   https://github.com/owner/repo → github.com/owner/repo
 	//   git@github.com:owner/repo     → github.com/owner/repo
-	//   file:///path/to/repo          → path/to/repo
-	switch {
-	case strings.HasPrefix(r.URL, "https://"), strings.HasPrefix(r.URL, "http://"):
-		return httpHostPath(r.URL)
-	case strings.HasPrefix(r.URL, "git@"):
-		if name, ok := sshHostPath(r.URL); ok {
-			return name
-		}
-	case strings.HasPrefix(r.URL, "file://"):
-		if name, ok := fileLastTwoComponents(r.URL); ok {
-			return name
-		}
-	}
-
-	return sanitizePath(r.URL)
-}
-
-// httpHostPath returns host/path for an http(s) URL, falling back to a
-// sanitized form when the URL won't parse.
-func httpHostPath(rawURL string) string {
-	u, err := url.Parse(rawURL)
+	//   file:///path/to/repo          → to/repo
+	//
+	// A URL with no repository identity has no name: not a copy of its
+	// spelling, which Registry.ResolveItemRemote would match local names
+	// against as though it were one.
+	repo, err := refuri.ParseRepoIdentity(r.URL)
 	if err != nil {
-		return sanitizePath(rawURL)
+		return ""
 	}
-	return path.Join(u.Host, u.Path)
-}
-
-// sshHostPath returns host/path for a git@host:owner/repo URL, reporting ok when
-// it matched the SSH shape.
-func sshHostPath(rawURL string) (string, bool) {
-	re := regexp.MustCompile(`^git@([^:]+):(.+)$`)
-	if matches := re.FindStringSubmatch(rawURL); len(matches) == 3 {
-		return path.Join(matches[1], matches[2]), true
+	switch repo.Class {
+	case refuri.ClassGit:
+		return path.Join(repo.Host, repo.RepoPath)
+	case refuri.ClassFile:
+		parts := strings.Split(strings.Trim(repo.RepoPath, "/"), "/")
+		if len(parts) >= 2 {
+			return path.Join(parts[len(parts)-2], parts[len(parts)-1])
+		}
+		return parts[0]
 	}
-	return "", false
-}
-
-// fileLastTwoComponents returns the last two path components of a file:// URL
-// (for uniqueness), reporting ok when the path had usable components.
-func fileLastTwoComponents(rawURL string) (string, bool) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return sanitizePath(rawURL), true
-	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) >= 2 {
-		return path.Join(parts[len(parts)-2], parts[len(parts)-1]), true
-	}
-	if len(parts) == 1 {
-		return parts[0], true
-	}
-	return "", false
+	return ""
 }
 
 // sanitizePath makes a string safe for use in file paths.

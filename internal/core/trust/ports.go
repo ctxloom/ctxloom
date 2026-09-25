@@ -56,8 +56,11 @@ type (
 	}
 	// RetractionRecords is the LOCAL record of publisher retractions, written
 	// at pull time and read here, so the decision never touches the network.
+	// It is asked with the parsed BundleRef because a pull records the
+	// retraction under the bundle's identity, and any other rendering of the
+	// ref is a second spelling that can miss it.
 	RetractionRecords interface {
-		Retracted(ref Ref) (retracted bool, reason string)
+		Retracted(ref BundleRef) (retracted bool, reason string)
 	}
 )
 

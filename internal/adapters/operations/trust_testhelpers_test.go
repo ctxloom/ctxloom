@@ -113,12 +113,14 @@ type EffectiveTrustRequest struct {
 // withhold (composite's own test) sits above.
 func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTrustResult, error) {
 	g := &contentGate{cfg: cfg, records: req.Records, retraction: req.Retraction, fs: req.FS}
+	// The BundleRef Decide would have parsed; a Ref that cannot convert has
+	// none, exactly as an unaddressable ref would reach the gate.
+	br, _ := req.Ref.AsBundleRef()
 	v := g.Admit(bundles.Exposure{
-		Read:   readOfFacts(req),
-		Ref:    req.Ref,
-		RefStr: req.Ref.Key(),
-		Bytes:  req.Payload,
-		Form:   bundles.ContentForm(req.Form),
+		Read:      readOfFacts(req),
+		BundleRef: br,
+		Bytes:     req.Payload,
+		Form:      bundles.ContentForm(req.Form),
 	})
 	res := resultOf(v)
 	return &res, nil

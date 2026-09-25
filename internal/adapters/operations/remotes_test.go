@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 func TestGetBaseDir_UsesConfigPath(t *testing.T) {
@@ -549,8 +550,9 @@ func TestAddRemote_InvalidURLFormat(t *testing.T) {
 		Fetcher:  fetcher,
 	})
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid URL")
+	require.ErrorIs(t, err, refuri.ErrSyntax, "a URL naming no repository is refused as such")
+	_, gerr := registry.Get("test")
+	assert.Error(t, gerr, "nothing was registered")
 }
 
 func TestAddRemote_ValidationFailed(t *testing.T) {

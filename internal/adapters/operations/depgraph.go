@@ -21,7 +21,7 @@ import (
 // PinnedRef is one resolved dependency in a flattened closure: a manifest
 // reference whose version constraint has been resolved to a concrete commit.
 type PinnedRef struct {
-	Identity   string              // canonical ref without version: "<url>@<kind>/<path>"
+	Identity   trust.BundleKey     // the lockfile key: the bundle identity, version-less
 	Hash       string              // the commit the constraint resolved to
 	URL        string              // repo URL
 	Type       remote.ItemType     // bundle or profile
@@ -33,7 +33,7 @@ type PinnedRef struct {
 // DependencyConflict reports a single item referenced at two or more differing
 // hashes within a profile closure — the error the lock surfaces immediately.
 type DependencyConflict struct {
-	Item   string   // canonical identity ("<url>@<kind>/<path>")
+	Item   string   // the lockfile key: the bundle identity
 	Hashes []string // the differing hashes, sorted
 }
 
@@ -201,8 +201,8 @@ func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remo
 		treeFetch:   remotetree.PullTreeFetcher,
 		trustRoot:   trustRoot,
 		resolveHash: resolve,
-		pins:        map[string]PinnedRef{},
-		hashes:      map[string]map[string]struct{}{},
+		pins:        map[trust.BundleKey]PinnedRef{},
+		hashes:      map[trust.BundleKey]map[string]struct{}{},
 		visited:     map[string]struct{}{},
 		unexpanded:  map[string]struct{}{},
 	}
@@ -241,9 +241,9 @@ type depWalker struct {
 	// nil-means-identity production fallback.
 	resolveHash func(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool)
 
-	pins    map[string]PinnedRef           // identity -> first-seen pin
-	hashes  map[string]map[string]struct{} // identity -> set of hashes (for conflict detection)
-	visited map[string]struct{}            // identity@hash, recursion guard
+	pins    map[trust.BundleKey]PinnedRef           // identity -> first-seen pin
+	hashes  map[trust.BundleKey]map[string]struct{} // identity -> set of hashes (for conflict detection)
+	visited map[string]struct{}                     // identity@hash, recursion guard
 
 	// unexpanded records the identities of remote parent profiles whose content
 	// could not be read or parsed during the walk: their subtrees are MISSING
@@ -300,7 +300,10 @@ func (w *depWalker) record(refStr string, kind remote.ItemType) *remote.Referenc
 	if !ok {
 		return nil // unresolvable — skip rather than pin an empty hash
 	}
-	identity := ref.LockKey()
+	identity, err := ref.LockKey()
+	if err != nil {
+		return nil // no bundle identity — nothing a lockfile entry could key
+	}
 	if w.hashes[identity] == nil {
 		w.hashes[identity] = map[string]struct{}{}
 	}
@@ -378,7 +381,11 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	if !hok {
 		return
 	}
-	guard := rec.LockKey() + refuri.ProfileSelector + profName + "@" + hash
+	recKey, kerr := rec.LockKey()
+	if kerr != nil {
+		return
+	}
+	guard := string(recKey) + refuri.ProfileSelector + profName + "@" + hash
 	if _, seen := w.visited[guard]; seen {
 		return
 	}
@@ -394,12 +401,12 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 		// closure is now INCOMPLETE, so warn and record it; a silent skip here
 		// let a transient fetch failure permanently erase the subtree's lock
 		// entries on the next wholesale rewrite.
-		w.markUnexpanded(rec.LockKey(), ferr)
+		w.markUnexpanded(string(recKey), ferr)
 		return
 	}
 	child, found := b.Profiles[profName]
 	if !found {
-		w.markUnexpanded(rec.LockKey(), fmt.Errorf("bundle has no profile %q", profName))
+		w.markUnexpanded(string(recKey), fmt.Errorf("bundle has no profile %q", profName))
 		return
 	}
 	w.walkProfile(&child, rec.URL, hash)
@@ -422,7 +429,7 @@ func (w *depWalker) result() ([]PinnedRef, []DependencyConflict, []string) {
 			list = append(list, h)
 		}
 		sort.Strings(list)
-		conflicts = append(conflicts, DependencyConflict{Item: identity, Hashes: list})
+		conflicts = append(conflicts, DependencyConflict{Item: string(identity), Hashes: list})
 	}
 	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].Item < conflicts[j].Item })
 

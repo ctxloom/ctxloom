@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/spf13/afero"
@@ -48,12 +49,8 @@ func lockfileFSOptions(cfg *config.Config) []remote.LockfileOption {
 // with its own, so the user is told what actually went wrong. A tree that opens
 // but does not match what its publisher signed is the READER's answer, not this
 // function's: it is a fact about bytes, established where the bytes are read.
-func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root trust.TrustRoot, failures map[string]error) []bundles.Reader {
-	var trees []string
-	for canonical := range lock.Bundles {
-		trees = append(trees, canonical)
-	}
-	sort.Strings(trees) // deterministic reader order across runs
+func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root trust.TrustRoot, failures map[trust.BundleKey]error) []bundles.Reader {
+	trees := slices.Sorted(maps.Keys(lock.Bundles)) // deterministic reader order across runs
 
 	var out []bundles.Reader
 	for _, canonical := range trees {
@@ -93,7 +90,7 @@ func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root trust.Tru
 // repository path is absorbed by the root rather than smuggled into the id.
 // That parent is inside the worktree, because a sparse checkout lays the bundle
 // out at its repository path — see Reference.LocalTreePath.
-func treeBundleReader(cfg *config.Config, canonical string, entry remote.LockEntry, root trust.TrustRoot) (bundles.Reader, error) {
+func treeBundleReader(cfg *config.Config, canonical trust.BundleKey, entry remote.LockEntry, root trust.TrustRoot) (bundles.Reader, error) {
 	if len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
@@ -114,7 +111,7 @@ func treeBundleReader(cfg *config.Config, canonical string, entry remote.LockEnt
 	if err != nil {
 		return nil, fmt.Errorf("the tree installed for %q at %s cannot be opened: %w", canonical, dir, err)
 	}
-	return bundles.NewRepoFSReader(tree, canonical,
+	return bundles.NewRepoFSReader(tree, string(canonical),
 		bundles.WithTrustRoot(root),
 		bundles.WithReaderReporter(cfg.Reporter()),
 		bundles.WithInstalledDir(dir),
@@ -126,15 +123,15 @@ func treeBundleReader(cfg *config.Config, canonical string, entry remote.LockEnt
 // into, from its canonical lockfile key. It goes through the same
 // Reference.LocalTreePath the installer used rather than re-assembling the path,
 // so a layout change cannot make the writer and the reader disagree.
-func treeBundleDir(baseDir, canonical string) (string, error) {
-	ref, err := remote.ParseReference(canonical)
+func treeBundleDir(baseDir string, canonical trust.BundleKey) (string, error) {
+	ref, err := remote.ParseReference(string(canonical))
 	if err != nil {
 		return "", fmt.Errorf("invalid lockfile bundle key %q: %w", canonical, err)
 	}
 	if !ref.IsCanonical() {
 		return "", fmt.Errorf("invalid lockfile bundle key %q: not a canonical ref", canonical)
 	}
-	return ref.LocalTreePath(baseDir), nil
+	return ref.LocalTreePath(baseDir)
 }
 
 // reportBundleLoadFailures records one fatal-class finding per lockfile-active
@@ -151,7 +148,7 @@ func treeBundleDir(baseDir, canonical string) (string, error) {
 // delivery one. This is the only path on which installed remote bytes can be
 // refused for disagreeing with their signature. A fix line that cannot fix the
 // thing it is attached to is worse than no fix line at all.
-func reportBundleLoadFailures(failures map[string]error) {
+func reportBundleLoadFailures(failures map[trust.BundleKey]error) {
 	for name, err := range failures {
 		if errors.Is(err, bundles.ErrTreeBundleWithheld) {
 			strictness.FailOnce(strictness.ClassTrust, withheldRemedy(err),

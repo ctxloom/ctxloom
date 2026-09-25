@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -142,8 +143,8 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 		{"deps pull reconcile", func(t *testing.T) string {
 			var buf bytes.Buffer
 			renderReconcile(&buf, operations.ReconcilePlan{
-				Gone:        []string{h},
-				Unreachable: []operations.UncheckedRemote{{URL: h, Refs: []string{h}, Reason: h}},
+				Gone:        []trust.BundleKey{trust.BundleKey(h)},
+				Unreachable: []operations.UncheckedRemote{{URL: h, Refs: []trust.BundleKey{trust.BundleKey(h)}, Reason: h}},
 			})
 			return buf.String()
 		}},

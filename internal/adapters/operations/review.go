@@ -440,11 +440,10 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// content arrives in the queue looking like ordinary unsigned content and a
 	// human approves it.
 	v := e.authorizer.Admit(bundles.Exposure{
-		Read:   read,
-		Ref:    tRef,
-		RefStr: ref,
-		Bytes:  payload,
-		Form:   bundles.ContentForm(form),
+		Read:      read,
+		BundleRef: br,
+		Bytes:     payload,
+		Form:      bundles.ContentForm(form),
 	})
 	bundles.ReportVerdict(report.To(strictness.Sink("ctxloom")), ref, v)
 	if !v.Reason.NeedsReview() {
@@ -536,7 +535,7 @@ func latestApproveEntry(records countersign.Records, ref string, layout signing.
 
 // remoteNameFor resolves a bundle ref's source repo to its registered remote
 // name for the review header ("" when unresolvable — the canonical ref is
-// still shown). Both sides canonicalize through trust.CanonicalRepoURL.
+// still shown). Both sides are compared by remote.SameRepository.
 func remoteNameFor(reg *remote.Registry, bundleRef string) string {
 	if reg == nil {
 		return ""
@@ -545,9 +544,8 @@ func remoteNameFor(reg *remote.Registry, bundleRef string) string {
 	if err != nil || parsed.IsLocal || parsed.URL == "" {
 		return ""
 	}
-	canonical := trust.CanonicalRepoURL(parsed.URL)
 	for _, rem := range reg.List() {
-		if trust.CanonicalRepoURL(rem.URL) == canonical {
+		if remote.SameRepository(rem.URL, parsed.URL) {
 			return rem.Name
 		}
 	}

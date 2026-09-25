@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"os"
 	"path/filepath"
 	"testing"
@@ -85,7 +86,7 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, string(before), string(after), "the lockfile is byte-identical after the refused upgrade")
 
-	entry, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	entry, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	assert.True(t, ok, "the dependency pin survives")
 	assert.NotEmpty(t, entry.SHA)
 }
@@ -108,17 +109,17 @@ func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	mgr := remote.NewLockfileManager(baseDir)
 	lf, err := mgr.Load()
 	require.NoError(t, err)
-	entry, ok := lf.GetEntry(remote.ItemTypeBundle, ref)
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok)
 	entry.Retracted = true
 	entry.RetractedReason = "withdrawn by the publisher"
-	lf.AddEntry(remote.ItemTypeBundle, ref, entry)
+	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, ref), entry)
 	require.NoError(t, mgr.Save(lf))
 
 	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir), nil)
 	require.Error(t, err)
 
-	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok)
 	assert.True(t, after.Held, "the user's hold survives")
 	assert.True(t, after.Retracted, "the publisher's retraction survives — a wipe would silently un-retract it")
@@ -147,11 +148,11 @@ func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
 	mgr := remote.NewLockfileManager(baseDir)
 	lf, err := mgr.Load()
 	require.NoError(t, err)
-	entry, ok := lf.GetEntry(remote.ItemTypeBundle, identity)
+	entry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	require.True(t, ok)
 	entry.Retracted = true
 	entry.RetractedReason = "withdrawn by the publisher"
-	lf.AddEntry(remote.ItemTypeBundle, identity, entry)
+	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, identity), entry)
 	require.NoError(t, mgr.Save(lf))
 
 	// Advance upstream so the re-resolve is non-empty and genuinely proposes a
@@ -164,7 +165,7 @@ func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Advanced)
 
-	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
+	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, identity))
 	require.True(t, ok)
 	assert.Equal(t, c2, after.SHA, "the SHA still advances")
 	assert.True(t, after.Retracted, "a wholesale re-resolve must not silently un-retract content the publisher withdrew")
@@ -198,7 +199,7 @@ func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 	// be left ALONE — re-stamping LockedAt on a lock that pins nothing records
 	// a check that had nothing to check.
 	require.NoError(t, remote.NewLockfileManager(baseDir).Save(
-		&remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}))
+		&remote.Lockfile{Version: 1, Bundles: map[trust.BundleKey]remote.LockEntry{}}))
 	before, err := os.Stat(lockPath)
 	require.NoError(t, err)
 
@@ -250,8 +251,8 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 
 	// Seed a REAL, populated lock.yaml directly on the OS filesystem — the
 	// wrong place for this call to touch once an FS is injected.
-	osLock := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{
-		"https://github.com/o/r@bundles/demo": {SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", URL: "https://github.com/o/r"},
+	osLock := &remote.Lockfile{Version: 1, Bundles: map[trust.BundleKey]remote.LockEntry{
+		lockKeyOf(t, "https://github.com/o/r@bundles/demo"): {SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", URL: "https://github.com/o/r"},
 	}}
 	require.NoError(t, remote.NewLockfileManager(baseDir).Save(osLock))
 
@@ -269,7 +270,7 @@ func TestUpgrade_HonoursInjectedLockfileFS(t *testing.T) {
 	// The OS-disk lockfile must be untouched: still 1 entry, same SHA.
 	onDisk, err := remote.NewLockfileManager(baseDir).Load()
 	require.NoError(t, err)
-	entry, ok := onDisk.GetEntry(remote.ItemTypeBundle, "https://github.com/o/r@bundles/demo")
+	entry, ok := onDisk.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, "https://github.com/o/r@bundles/demo"))
 	require.True(t, ok, "UpgradeDependencies must not touch the real OS lockfile when an FS is injected")
 	assert.Equal(t, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", entry.SHA)
 

@@ -366,51 +366,25 @@ func (c Catalog) Lookup(ask string) (BundleRead, error) {
 // lockfile ref, "ctxloom:local@bundles/<name>", "ctxloom:companion@<bin>" —
 // to the one read that identity names.
 //
-// These identities are AUTHORED, not legacy: a lockfile addresses a fetch and
-// keys on "<url>@bundles/<path>", and profiles.ResolveProfile stamps
-// remote.CanonicalBundleRef onto every resolved profile's SourceRef. Both
-// reach Loader.Read, so this arm is what keeps a directory profile's hooks and
-// MCP servers resolvable. It is not a migration bridge and does not expire
-// with one.
+// These identities are AUTHORED, not legacy: profiles.ResolveProfile stamps
+// remote.CanonicalBundleRef onto every resolved profile's SourceRef, and both
+// that and a lockfile ref reach Loader.Read, so this arm is what keeps a
+// directory profile's hooks and MCP servers resolvable. It is not a migration
+// bridge and does not expire with one.
 //
-// Every route here is EXACT. It mints the canonical identity first, which is
-// the resolution the readers themselves stamp; only if that misses does it
-// fall back to matching the spellings a listing can show — the ask as written,
-// its canonical identity, and its fetch address — because such an identity
-// addresses one bundle by construction and cannot be a name two bundles
-// share.
+// It is EXACT, and it is one lookup: the ask's lockfile key is its bundle
+// identity, which is the resolution every reader stamps (BundleRead.Key), so
+// however the ask spells its repository it reaches the one read keyed there.
 func (c Catalog) selfContained(ask string) (BundleRead, bool) {
-	if br, err := canonicalBundleRefTyped(ask); err == nil {
-		if read, ok := c.LookupKey(br.BundleIdentity()); ok {
-			return read, true
-		}
+	parsed, err := remote.ParseReference(ask)
+	if err != nil {
+		return BundleRead{}, false
 	}
-	spellings := []string{ask}
-	if key, ok := remote.CanonicalKey(ask); ok && key != ask {
-		spellings = append(spellings, key)
+	key, err := parsed.LockKey()
+	if err != nil {
+		return BundleRead{}, false
 	}
-	// The FETCH address too, because that is the spelling a listing shows for
-	// a lockfile-seeded bundle: a lockfile keys on where content is fetched
-	// from, and the reader stamps that key as the read's display name. Without
-	// it a version-carrying ask would miss a seed that is present, and a
-	// present bundle reported missing is content silently dropped.
-	if parsed, err := remote.ParseReference(ask); err == nil {
-		if key := parsed.LockKey(); key != ask {
-			spellings = append(spellings, key)
-		}
-		parsed.ContentVersion = ""
-		if key := parsed.LockKey(); key != ask {
-			spellings = append(spellings, key)
-		}
-	}
-	for _, spelling := range spellings {
-		for _, read := range c.reads {
-			if read.DisplayName() == spelling {
-				return read, true
-			}
-		}
-	}
-	return BundleRead{}, false
+	return c.LookupKey(key)
 }
 
 // matchingName reports every read a bare NAME could mean: the name a listing

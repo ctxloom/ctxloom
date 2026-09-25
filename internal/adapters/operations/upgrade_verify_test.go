@@ -151,7 +151,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
-	e0, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	e0, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok)
 	require.Equal(t, verified, e0.SHA, "the project starts pinned to the commit whose signature verifies")
 
@@ -164,14 +164,14 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	assert.Equal(t, 0, res.Advanced, "nothing may be counted as advanced")
 
 	require.Len(t, res.Refused, 1, "the refusal must be REPORTED — a silent non-advance reads as 'already up to date'")
-	assert.Equal(t, ref, res.Refused[0].Identity)
+	assert.Equal(t, string(lockKeyOf(t, ref)), res.Refused[0].Identity)
 	assert.Equal(t, verified, res.Refused[0].KeptSHA)
 	assert.Equal(t, edited, res.Refused[0].ProposedSHA)
 	assert.Contains(t, res.Refused[0].Detail, bundles.ErrTreeBundleWithheld.Error())
 
 	// The payload assertion: the lockfile still holds the last verified pin,
 	// whole. Nothing half-wrote.
-	e1, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	e1, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	require.True(t, ok, "the entry must still be there — refusing must not erase the pin")
 	assert.Equal(t, verified, e1.SHA, "the pin stays at the last commit whose signature verified")
 	assert.Equal(t, e0.URL, e1.URL)
@@ -197,7 +197,7 @@ func TestUpgrade_AdvancesOntoReSignedContent(t *testing.T) {
 	assert.Equal(t, 1, res.Advanced, "a properly re-signed republish still advances")
 	assert.Empty(t, res.Refused)
 
-	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	assert.Equal(t, reSigned, e1.SHA)
 }
 
@@ -226,6 +226,6 @@ func TestUpgrade_UnsignedContentStillAdvances(t *testing.T) {
 	assert.Equal(t, 1, res.Advanced, "unsigned content is ordinary and still advances")
 	assert.Empty(t, res.Refused)
 
-	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
+	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, ref))
 	assert.Equal(t, c2, e1.SHA)
 }

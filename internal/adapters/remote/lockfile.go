@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -88,8 +89,8 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 	data, err := afero.ReadFile(m.fs, path)
 	if os.IsNotExist(err) {
 		return &Lockfile{
-			Version: 1,
-			Bundles: make(map[string]LockEntry),
+			Version: LockfileVersion,
+			Bundles: make(map[trust.BundleKey]LockEntry),
 		}, nil
 	}
 	if err != nil {
@@ -129,6 +130,16 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 			path, retiredHoldField, entry, "held", entry)
 	}
 
+	// REFUSE a lockfile keyed the retired way. Its keys spell each bundle as
+	// it was typed, while a retraction is looked up by the bundle's identity,
+	// so an entry keyed any other way is one no lookup reaches — a publisher's
+	// retraction silently not enforced. There is no rekeying on read: a hold
+	// is a decision this read cannot carry across a key it does not trust, so
+	// the user rebuilds the lock and re-applies the holds named here.
+	if held, found := findRetiredKeyForm(data); found {
+		return nil, retiredKeyFormError(path, held)
+	}
+
 	var lockfile Lockfile
 	if err := yaml.Unmarshal(data, &lockfile); err != nil {
 		return nil, fmt.Errorf("failed to parse lockfile: %w", err)
@@ -136,7 +147,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 
 	// Initialize maps if nil
 	if lockfile.Bundles == nil {
-		lockfile.Bundles = make(map[string]LockEntry)
+		lockfile.Bundles = make(map[trust.BundleKey]LockEntry)
 	}
 
 	// Self-heal legacy schema-version residue (ctxloom_version: v1). The field no
@@ -167,6 +178,58 @@ const legacySchemaField = "ctxloom_version"
 // user DECISION, so a file still using this key is refused by name rather than
 // read with the decision dropped.
 const retiredHoldField = "pinned"
+
+// ErrLockKeyFormRetired reports a lockfile Load refused because it predates
+// LockfileVersion or carries a key that is not its own bundle identity.
+var ErrLockKeyFormRetired = errors.New("lockfile uses a retired key form")
+
+// findRetiredKeyForm reports whether data is a lockfile this build must not
+// read — a version below LockfileVersion, or any key k that is not
+// trust.ParseBundleRef(k).BundleIdentity() — and, when it is, the keys of the
+// entries it holds (sorted), so the refusal can list them for re-holding.
+// Unparseable input reports false and leaves the loader's own yaml.Unmarshal
+// to produce the error.
+func findRetiredKeyForm(data []byte) (held []string, found bool) {
+	var doc struct {
+		Version int `yaml:"version"`
+		Bundles map[string]struct {
+			Held bool `yaml:"held"`
+		} `yaml:"bundles"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, false
+	}
+	found = doc.Version < LockfileVersion
+	for key, entry := range doc.Bundles {
+		if !IsBundleIdentity(key) {
+			found = true
+		}
+		if entry.Held {
+			held = append(held, key)
+		}
+	}
+	sort.Strings(held)
+	return held, found
+}
+
+// IsBundleIdentity reports whether key is exactly the bundle identity it
+// parses to — the one test for a key written the retired way, shared by every
+// store keyed by bundle identity so they cannot disagree about what is retired.
+func IsBundleIdentity(key string) bool {
+	br, err := trust.ParseBundleRef(key)
+	return err == nil && string(br.BundleIdentity()) == key
+}
+
+func retiredKeyFormError(path string, held []string) error {
+	fix := "delete it and re-run `ctxloom deps pull` to rebuild it"
+	if len(held) == 0 {
+		return fmt.Errorf("%w: %s is keyed by the reference as typed, not by bundle identity; %s (it records no holds)",
+			ErrLockKeyFormRetired, path, fix)
+	}
+	return fmt.Errorf("%w: %s is keyed by the reference as typed, not by bundle identity; %s, "+
+		"then re-apply the %d hold(s) it records with `ctxloom deps hold <ref>`: %s",
+		ErrLockKeyFormRetired, path, fix, len(held), strings.Join(held, ", "))
+}
 
 // findRetiredHoldField returns the first bundle entry carrying the retired hold
 // key as a FIELD, and whether one was found. Parsing is what separates a key
@@ -283,6 +346,7 @@ func (m *LockfileManager) Save(lockfile *Lockfile, opts ...SaveOption) error {
 		return err
 	}
 	lockfile.LockedAt = time.Now().UTC()
+	lockfile.Version = LockfileVersion
 	return m.write(lockfile)
 }
 
@@ -341,14 +405,14 @@ func (m *LockfileManager) write(lockfile *Lockfile) error {
 
 // AddEntry adds or updates an entry in the lockfile. Only bundles are locked now
 // (top-level profile distribution was retired); a non-bundle itemType is a no-op.
-func (l *Lockfile) AddEntry(itemType ItemType, ref string, entry LockEntry) {
+func (l *Lockfile) AddEntry(itemType ItemType, ref trust.BundleKey, entry LockEntry) {
 	if itemType == ItemTypeBundle {
 		l.Bundles[ref] = entry
 	}
 }
 
 // GetEntry retrieves an entry from the lockfile.
-func (l *Lockfile) GetEntry(itemType ItemType, ref string) (LockEntry, bool) {
+func (l *Lockfile) GetEntry(itemType ItemType, ref trust.BundleKey) (LockEntry, bool) {
 	if itemType != ItemTypeBundle {
 		return LockEntry{}, false
 	}
@@ -357,7 +421,7 @@ func (l *Lockfile) GetEntry(itemType ItemType, ref string) (LockEntry, bool) {
 }
 
 // RemoveEntry removes an entry from the lockfile.
-func (l *Lockfile) RemoveEntry(itemType ItemType, ref string) {
+func (l *Lockfile) RemoveEntry(itemType ItemType, ref trust.BundleKey) {
 	if itemType == ItemTypeBundle {
 		delete(l.Bundles, ref)
 	}
@@ -371,7 +435,7 @@ func (l *Lockfile) RemoveEntry(itemType ItemType, ref string) {
 // variable, passed to a helper or ranged over by anything but its producer.
 type LockedEntry struct {
 	Type  ItemType
-	Ref   string
+	Ref   trust.BundleKey
 	Entry LockEntry
 }
 
@@ -393,22 +457,3 @@ func (l *Lockfile) IsEmpty() bool {
 func (l *Lockfile) Count() int {
 	return len(l.Bundles)
 }
-
-// GetCanonicalURL builds a canonical URL from a lockfile entry.
-// localName may be an exact canonical lockfile key or a short bundle/profile
-// name, which is resolved against the canonical keys by full path or last path
-// segment. Returns the full canonical URL including content version for
-// reproducibility, found=false when no entry matches, or an error when a short
-// name matches more than one entry. Pre-canonical ("remote/path") lockfile
-// keys are not supported; a fresh pull rewrites the lockfile with canonical
-// keys.
-//
-// Format: <url>@<type>/<path>@<content_version>
-//
-// If RequestedVersion is set, uses that; otherwise uses SHA.
-// canonicalURLFor renders an entry's full canonical URL, versioned by the
-// requested constraint when present, else the locked SHA.
-// FindByURL searches for a bundle lockfile entry by repository URL.
-// Returns the local name (key), entry, and whether it was found.
-// FindAllByURL searches for all lockfile entries matching a repository URL.
-// Returns all matching entries with their types and local names.

@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,7 @@ import (
 // a test that derived the expected root with the production helper would agree
 // with any derivation, including a wrong one.
 const (
-	treeReadCanonical = "https://github.com/trent/atelier@bundles/atelier"
+	treeReadCanonical = "ctxloom+git://github.com/trent/atelier//bundles/atelier"
 	treeReadRoot      = ".ctxloom/content/bundles/v2/atelier"
 )
 
@@ -51,7 +52,7 @@ func treeReaderOver(t *testing.T, tcap *treeCapture, sha string) *BundleReader {
 	return NewBundleReader(nil,
 		func(string, AuthConfig) (Fetcher, error) { return NewMockFetcher(), nil },
 		AuthConfig{},
-		&Lockfile{Bundles: map[string]LockEntry{
+		&Lockfile{Bundles: map[trust.BundleKey]LockEntry{
 			treeReadCanonical: {SHA: sha, URL: "https://github.com/trent/atelier"},
 		}},
 		WithReaderTreeFetcher(tcap.fetch),

@@ -48,9 +48,9 @@ func (f fakeRecords) Approved(ref trust.Ref, payload []byte, form bundles.Conten
 	return f.approved(ref, payload, form)
 }
 
-type fakeRetraction func(trust.Ref) (bool, string)
+type fakeRetraction func(trust.BundleRef) (bool, string)
 
-func (f fakeRetraction) Retracted(ref trust.Ref) (bool, string) {
+func (f fakeRetraction) Retracted(ref trust.BundleRef) (bool, string) {
 	if f == nil {
 		return false, ""
 	}
@@ -77,11 +77,10 @@ func remoteExecutable(t *testing.T) (bundles.Exposure, string) {
 	read := bundles.NewRead("tools", b, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
 		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 	return bundles.Exposure{
-		Read:   read,
-		Ref:    trust.RefFromBundleRef(br),
-		RefStr: refStr,
-		Bytes:  []byte("#!/bin/sh\necho deploy\n"),
-		Form:   bundles.FormRaw,
+		Read:      read,
+		BundleRef: br,
+		Bytes:     []byte("#!/bin/sh\necho deploy\n"),
+		Form:      bundles.FormRaw,
 	}, refStr
 }
 
@@ -110,7 +109,7 @@ func TestNewTrust_WithholdsAnExecutableNoReviewRecordApproves(t *testing.T) {
 func TestNewTrust_AReviewRecordAdmitsTheExecutable(t *testing.T) {
 	e, _ := remoteExecutable(t)
 	records := fakeRecords{approved: func(ref trust.Ref, payload []byte, form bundles.ContentForm) bool {
-		return ref == e.Ref && string(payload) == string(e.Bytes) && form == bundles.FormRaw
+		return ref == e.Ref() && string(payload) == string(e.Bytes) && form == bundles.FormRaw
 	}}
 	tr := mustTrust(t, records, noRetraction())
 
@@ -138,7 +137,7 @@ func TestNewTrust_ARejectionOutranksAnApproval(t *testing.T) {
 func TestNewTrust_ARetractionRefusesTheExecutable(t *testing.T) {
 	e, _ := remoteExecutable(t)
 	records := fakeRecords{approved: func(trust.Ref, []byte, bundles.ContentForm) bool { return true }}
-	retraction := fakeRetraction(func(ref trust.Ref) (bool, string) {
+	retraction := fakeRetraction(func(ref trust.BundleRef) (bool, string) {
 		return ref.Bundle == "tools", "key compromised"
 	})
 	tr := mustTrust(t, records, retraction)
@@ -213,7 +212,7 @@ func invalidlySigned(t *testing.T, refStr string, ctx bundles.TrustCtx, prov bun
 	b := &bundles.Bundle{Name: br.Bundle}
 	read := bundles.NewRead(br.Bundle, b, prov, ctx,
 		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerUntrusted, Detail: "its files no longer match SHA256SUMS"})
-	return bundles.Exposure{Read: read, Ref: trust.RefFromBundleRef(br), RefStr: refStr, Bytes: []byte("echo deploy"), Form: bundles.FormRaw}
+	return bundles.Exposure{Read: read, BundleRef: br, Bytes: []byte("echo deploy"), Form: bundles.FormRaw}
 }
 
 // TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmittedAsUnsigned:
@@ -249,7 +248,7 @@ func TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld(t *testi
 
 	assert.False(t, v.Allow, "a signature that does not cover what travelled admits nothing")
 	assert.NotEqual(t, bundles.ReasonStaleLocalSignature, v.Reason, "stale-local is a LOCAL row and never names remote content")
-	assert.Equal(t, []string{e.RefStr}, tr.Withheld())
+	assert.Equal(t, []string{e.RefString()}, tr.Withheld())
 }
 
 // faultedRetraction is a RetractionRecords whose backing lockfile could not be
@@ -272,11 +271,10 @@ func companionFragment(t *testing.T) bundles.Exposure {
 	read := bundles.NewRead("ctxloom:companion@ctxloom", b, bundles.ProvenanceCompanion, bundles.TrustCtxLocal,
 		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
 	return bundles.Exposure{
-		Read:   read,
-		Ref:    trust.RefFromBundleRef(br),
-		RefStr: refStr,
-		Bytes:  []byte("Set both isolation axes."),
-		Form:   bundles.FormRaw,
+		Read:      read,
+		BundleRef: br,
+		Bytes:     []byte("Set both isolation axes."),
+		Form:      bundles.FormRaw,
 	}
 }
 
@@ -299,4 +297,36 @@ func TestNewTrust_AnUnreadableLockfileDoesNotWithholdCompanionContent(t *testing
 	rv := tr.Authorizer().Admit(remote)
 	assert.False(t, rv.Allow, "control: remote content under an unreadable lockfile is still withheld")
 	assert.Equal(t, bundles.ReasonPending, rv.Reason)
+}
+
+// An Exposure whose identity was never set is withheld as unaddressable, even
+// when every port would admit it. Any literal that omits BundleRef produces
+// exactly this value, so this one test pins the fail-closed answer for every
+// future literal: nothing can key a rejection or a retraction on no bundle.
+func TestAdmit_AnExposureNamingNoBundleIsWithheld(t *testing.T) {
+	e, _ := remoteExecutable(t)
+	e.BundleRef = trust.BundleRef{}
+	approveAll := fakeRecords{approved: func(trust.Ref, []byte, bundles.ContentForm) bool { return true }}
+	retractAll := fakeRetraction(func(trust.BundleRef) (bool, string) { return true, "withdrawn" })
+
+	for name, x := range map[string]fakeRetraction{"no retraction": noRetraction(), "retract everything": retractAll} {
+		t.Run(name, func(t *testing.T) {
+			v := mustTrust(t, approveAll, x).Authorizer().Admit(e)
+			assert.False(t, v.Allow, "zero identity admitted: %+v", v)
+			assert.Equal(t, bundles.ReasonUnaddressable, v.Reason)
+		})
+	}
+}
+
+// A bundle-level (item-less) identity is still an identity: the zero-identity
+// withhold must not reach it, or companion and bundle-level decisions would
+// stop being made.
+func TestAdmit_ABundleLevelIdentityIsNotUnaddressable(t *testing.T) {
+	e, _ := remoteExecutable(t)
+	br, err := trust.ParseBundleRef("ctxloom+companion:ltk")
+	require.NoError(t, err)
+	e.BundleRef = br
+	approveAll := fakeRecords{approved: func(trust.Ref, []byte, bundles.ContentForm) bool { return true }}
+	v := mustTrust(t, approveAll, noRetraction()).Authorizer().Admit(e)
+	assert.NotEqual(t, bundles.ReasonUnaddressable, v.Reason, "%+v", v)
 }

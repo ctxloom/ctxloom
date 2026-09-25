@@ -123,7 +123,7 @@ func TestParseOwnerRepo(t *testing.T) {
 	}
 }
 
-func TestNormalizeURL(t *testing.T) {
+func TestStoredRepoURL(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -167,13 +167,13 @@ func TestNormalizeURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, NormalizeURL(tt.input))
+			assert.Equal(t, tt.expected, storedRepoURL(tt.input))
 		})
 	}
 }
 
-// TestNormalizeURL_FinalHTTPSFallbackIsReachable pins the reachability of
-// NormalizeURL's last return — "No scheme, not shorthand, not scp-like: assume
+// TestStoredRepoURL_FinalHTTPSFallbackIsReachable pins the reachability of
+// the repo-URL grammar's last rendering arm — "No scheme, not shorthand, not scp-like: assume
 // an HTTPS host."
 //
 // A prior version of this suite asserted that arm is unreachable. It is not:
@@ -182,23 +182,23 @@ func TestNormalizeURL(t *testing.T) {
 // first clause, that a
 // host-qualified path ("gitlab.com/owner/repo") is stolen by the shorthand arm
 // above and prefixed onto github.com; that half is escalated separately because
-// NormalizeURL feeds trust.CanonicalRepoURL, so changing it changes which trust
-// namespace a repository is consulted under.
+// the same grammar feeds refuri.CanonicalRepoURL, so changing it changes which
+// trust namespace a repository is consulted under.
 //
 // If someone later "removes the unreachable fallback", this goes red.
-func TestNormalizeURL_FinalHTTPSFallbackIsReachable(t *testing.T) {
+func TestStoredRepoURL_FinalHTTPSFallbackIsReachable(t *testing.T) {
 	for _, input := range []string{"gitlab.com", "git.company.internal", "example.com.git"} {
-		got := NormalizeURL(input)
+		got := storedRepoURL(input)
 		assert.True(t, strings.HasPrefix(got, "https://"),
-			"NormalizeURL(%q) = %q: the final https:// fallback is the only arm that can produce this", input, got)
+			"storedRepoURL(%q) = %q: the final https:// fallback is the only arm that can produce this", input, got)
 		assert.NotContains(t, got, "github.com",
-			"NormalizeURL(%q) = %q: a bare host must not be routed through the github shorthand arm", input, got)
+			"storedRepoURL(%q) = %q: a bare host must not be routed through the github shorthand arm", input, got)
 	}
-	assert.Equal(t, "https://gitlab.com", NormalizeURL("gitlab.com"))
+	assert.Equal(t, "https://gitlab.com", storedRepoURL("gitlab.com"))
 	// A bare host is not a path, so there is no ".git" suffix to speak of here:
 	// "example.com.git" is a HOST NAME. It is preserved for the same reason
 	// every other spelling is — nothing here knows it is not a real host.
-	assert.Equal(t, "https://example.com.git", NormalizeURL("example.com.git"))
+	assert.Equal(t, "https://example.com.git", storedRepoURL("example.com.git"))
 }
 
 func TestNewFetcher(t *testing.T) {

@@ -2,6 +2,7 @@ package remote
 
 import (
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"sync"
 	"testing"
 
@@ -21,8 +22,8 @@ func TestLockfileManager_ConcurrentSaveNoTornFile(t *testing.T) {
 	mgr := NewLockfileManager(t.TempDir())
 
 	// Seed so readers racing the first writers still find a complete file.
-	require.NoError(t, mgr.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{
-		"seed": {SHA: "0000000000000000000000000000000000000000", URL: "u"},
+	require.NoError(t, mgr.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{
+		"ctxloom+git://example.test/r//bundles/seed": {SHA: "0000000000000000000000000000000000000000", URL: "u"},
 	}}))
 
 	const writers = 24
@@ -35,8 +36,8 @@ func TestLockfileManager_ConcurrentSaveNoTornFile(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			lf := &Lockfile{Version: 1, Bundles: map[string]LockEntry{
-				fmt.Sprintf("bundle-%02d", i): {
+			lf := &Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{
+				trust.BundleKey(fmt.Sprintf("ctxloom+git://example.test/r//bundles/bundle-%02d", i)): {
 					SHA: fmt.Sprintf("%040d", i),
 					URL: fmt.Sprintf("https://example.test/repo-%02d", i),
 				},

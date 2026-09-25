@@ -122,8 +122,10 @@ func TestRefIngestPointsStripControlChars(t *testing.T) {
 		assert.NotContains(t, got, nl)
 	})
 
-	t.Run("NormalizeURL", func(t *testing.T) {
-		assert.Equal(t, "https://github.com/owner/repo", NormalizeURL("https://github.com/owner/repo"+nl))
+	t.Run("CanonicalRepoURL", func(t *testing.T) {
+		got, err := refuri.CanonicalRepoURL("https://github.com/owner/repo" + nl)
+		require.NoError(t, err)
+		assert.Equal(t, "https://github.com/owner/repo", got)
 	})
 
 	t.Run("CanonicalBundleRef", func(t *testing.T) {

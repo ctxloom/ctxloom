@@ -24,8 +24,6 @@ package trust
 
 import (
 	"fmt"
-	"net/url"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
@@ -262,105 +260,21 @@ func (r Ref) Key() string {
 	return refuri.NormalizeRef(r.Bundle) + "#" + r.Kind.Dir() + "/" + refuri.NormalizeRef(r.Name)
 }
 
-// CanonicalURL returns the canonical repo URL used for keying. Local items key
-// under the fixed ctxloom:local source token so they never collide with a
-// remote and are distinguishable from an unresolved (empty-URL) remote ref.
+// CanonicalURL returns the canonical repo URL (refuri.CanonicalRepoURL) for
+// display. Local items render the fixed ctxloom:local source token so they
+// never collide with a remote and are distinguishable from an unresolved
+// (empty-URL) remote ref. A RepoURL that does not canonicalize renders "": it
+// names no repository, and AsBundleRef refuses the same Ref for the same
+// reason.
 func (r Ref) CanonicalURL() string {
 	if r.IsLocal {
 		return refuri.LocalSource
 	}
-	return CanonicalRepoURL(r.RepoURL)
-}
-
-// CanonicalRepoURL canonicalizes a repository URL so that variant spellings of
-// the same repo collapse to one key — otherwise a rejection keyed on one
-// spelling could be escaped by fetching the same repo under another. This is
-// the ENTIRE defense against that escape: the countersignature store's address
-// is derived from this canonical form (see CountersignRef, which keys on
-// BundleRef.Identity), so any divergence between two spellings is not
-// a near miss, it is a store miss — and for a bundle with a verified publisher
-// signature the escape is not "rejected → pending" but "rejected → ALLOW" at
-// step 5. docs/trust-model.md lists "URL-variant / typosquat escape of a
-// rejection" as an addressed threat; this function is where that claim is
-// either true or false.
-//
-// It builds on refuri.NormalizeURL (unifies scheme, rewrites git@ → https)
-// and then, for http(s) URLs: normalizes http → https, lowercases the host,
-// drops userinfo/query/fragment and trims trailing slashes. Empty input, the
-// ctxloom:local token, and the ctxloom:companion token pass through unchanged.
-//
-// It folds NOTHING ELSE. ".git" suffixes, "www." prefixes and repository-path
-// case are preserved byte-exact, and two spellings are two identities — see
-// ParseBundleRef's doc for the rule and for why the escape this appears to
-// leave open is closed one layer over, by content-hash rejection.
-//
-// Anything ADDED here must be a spelling of the same repository, never a
-// different one: folding two distinct repos onto one key would let a rejection
-// of one silently block — or an approval of one silently allow — the other.
-func CanonicalRepoURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	canon, err := refuri.CanonicalRepoURL(r.RepoURL)
+	if err != nil {
 		return ""
 	}
-	if raw == refuri.LocalSource {
-		return refuri.LocalSource
-	}
-	if raw == refuri.CompanionSource {
-		// A companion loadout's RepoURL is the fixed CompanionSource token
-		// (differentiated by Bundle=<bin>, mirroring how every local bundle
-		// shares refuri.LocalSource) — never a real URL. Without this early
-		// return, refuri.NormalizeURL's "no scheme, no slash" fallback would
-		// mangle it into "https://ctxloom:companion", the same bug the
-		// ctxloom:local case above exists to avoid.
-		return refuri.CompanionSource
-	}
-
-	normalized := refuri.NormalizeURL(raw)
-
-	// PARSE FIRST, then branch on the parsed scheme. The old order
-	// was a HasPrefix check on the raw string, which is case-SENSITIVE: an
-	// uppercase "HTTPS://github.com/acme/repo" skipped host folding, path
-	// folding and slash trimming altogether — every one of them — even though
-	// url.Parse lowercases the scheme for free. Deciding on the parsed value
-	// removes a whole class of "the guard did not recognize its own input".
-	u, err := url.Parse(normalized)
-	if err != nil {
-		return normalized
-	}
-
-	// Only http(s) URLs get host/path folding; other transports (file://,
-	// ssh://, git://) keep their path verbatim, where case may be significant.
-	switch u.Scheme {
-	case "http":
-		// A rejection recorded over https must not be escaped by refetching
-		// the same repo over http. The transport is not part of the repo's
-		// identity, and no forge serves different content on the two.
-		u.Scheme = "https"
-	case "https":
-	default:
-		return normalized
-	}
-
-	// RFC 3986 §6.2.2.1 case normalization: the host is case-INSENSITIVE, so
-	// lowercasing it is conformant and is knowledge we actually have (DNS is
-	// case-insensitive). A "www." prefix is a DISTINCT registered name and is
-	// preserved — see ParseBundleRef's doc for why no spelling is folded.
-	u.Host = strings.ToLower(u.Host)
-
-	// Credentials, query and fragment address a REQUEST, never a repository.
-	// Leaving them in made "…/repo?ref=x" a different trust key from "…/repo".
-	u.User = nil
-	u.RawQuery = ""
-	u.ForceQuery = false
-	u.Fragment = ""
-	u.RawFragment = ""
-
-	// A trailing slash is RFC 3986 §6.2.3 syntax-based normalization, so it is
-	// trimmed. The path's CASE is not: §6.2.2.1 makes every component other
-	// than scheme and host case-sensitive, so it is preserved on every host,
-	// as is a ".git" suffix. See ParseBundleRef's doc.
-	u.Path = strings.TrimRight(u.Path, "/")
-	return u.String()
+	return canon
 }
 
 // AsBundleRef converts r into the canonical bundle-reference grammar
@@ -374,22 +288,16 @@ func CanonicalRepoURL(raw string) string {
 // composition (R5): see bundleref.go's Identity doc for why that join was
 // itself a framing hazard.
 //
-// r.RepoURL is run through CanonicalRepoURL BEFORE it is split into host and
-// repository path, and that pre-clean is load-bearing, not redundant with
-// ParseBundleRef's own rules. CanonicalRepoURL FOLDS case and a "www." prefix
-// on the forges it knows and strips a ".git" suffix unconditionally;
-// ParseBundleRef now REFUSES an unfolded spelling of any of those instead
-// (R2, and the .git/www. refusals added alongside it). A Ref built from one
-// of the transport spellings CanonicalRepoURL unifies (a git@ remote, an
-// http URL) must therefore be normalized before it reaches the grammar, or
-// one repository would key two ways depending on how it was cloned.
-//
-// What it does NOT do is fold a merely non-preferred spelling — a ".git"
-// suffix, a "www." host, repository-path case all survive as distinct
-// identities. A refusal here is not a diagnostic the user ever sees: the
-// caller degrades to an inert, non-colliding address (see countersignRef) and
-// the item is silently WITHHELD from delivery, so refusing an ordinary
-// spelling costs content, not just convenience.
+// r.RepoURL is read by refuri.ParseRepoIdentity, the one repo-level
+// canonicalizer, so a Ref built from any transport spelling of a repository
+// (a git@ remote, an http URL, a trailing slash, mixed host case) converts to
+// the same BundleRef a hand-typed reference to it parses to. It folds nothing
+// that is only PROBABLY the same repository — a ".git" suffix, a "www." host
+// and repository-path case all survive as distinct identities — and a RepoURL
+// it cannot read is an error, never a key minted for the raw string. A refusal
+// here is not a diagnostic the user ever sees: the caller degrades to an
+// inert, non-colliding address (see countersignRef) and the item is silently
+// WITHHELD from delivery.
 func (r Ref) AsBundleRef() (BundleRef, error) {
 	base, err := r.bundleRefBase()
 	if err != nil {
@@ -411,29 +319,22 @@ func (r Ref) bundleRefBase() (BundleRef, error) {
 		return CompanionRef(r.Bundle)
 	}
 
-	canon := CanonicalRepoURL(r.RepoURL)
-	switch canon {
-	case "":
-		return BundleRef{}, fmt.Errorf("%w: empty repository URL", ErrRefSyntax)
-	case refuri.LocalSource:
-		return LocalRef(r.Bundle)
-	case refuri.CompanionSource:
-		return CompanionRef(r.Bundle)
-	}
-
-	branch, err := parseRepoURLBranch(canon)
+	repo, err := refuri.ParseRepoIdentity(r.RepoURL)
 	if err != nil {
 		return BundleRef{}, err
 	}
-	if branch.class == ClassFile {
-		return FileRef(branch.repoPath, r.Bundle)
+	switch repo.Class {
+	case ClassLocal:
+		return LocalRef(r.Bundle)
+	case ClassCompanion:
+		return CompanionRef(r.Bundle)
+	case ClassFile:
+		return FileRef(repo.RepoPath, r.Bundle)
 	}
-	// Every other scheme (https after CanonicalRepoURL's folding, or ssh://,
-	// git://, etc. that it left untouched) addresses a bundle "in a remote
-	// git repository reachable by host" — BundleRef's ClassGit abstracts away
-	// which transport reached it, exactly as CanonicalRepoURL's own identity
-	// does not care which transport a rejection was recorded against.
-	return GitRef(branch.host, branch.repoPath, r.Bundle)
+	// Every other transport (https, ssh://, git://, scp) addresses a bundle "in
+	// a remote git repository reachable by host" — ClassGit abstracts away
+	// which transport reached it.
+	return GitRef(repo.Host, repo.RepoPath, r.Bundle)
 }
 
 // RefFromBundleRef is AsBundleRef's mechanical inverse: it maps a BundleRef's
@@ -442,10 +343,8 @@ func (r Ref) bundleRefBase() (BundleRef, error) {
 // minter), so this is a field mapping, not a validation — no parsing, no I/O.
 //
 // The one direction that is not a bare field copy is ClassGit/ClassFile's
-// Host+RepoPath -> RepoURL, which goes through repoURLBranch.repoURL(), the
-// same class-branch value bundleRefBase computes in the other direction — so
-// the two conversions cannot independently drift on what "file" vs.
-// everything-else means for a repo URL.
+// Host+RepoPath -> RepoURL, which is BundleRef.FetchURL — the one reverse
+// renderer, whose output ParseRepoIdentity reads back to the same fields.
 //
 // A companion's RepoURL is stamped to refuri.CompanionSource rather than left
 // empty: Ref.CanonicalURL has no IsCompanion branch of its own and falls
@@ -461,7 +360,7 @@ func RefFromBundleRef(br BundleRef) Ref {
 		r.IsCompanion = true
 		r.RepoURL = refuri.CompanionSource
 	case ClassGit, ClassFile:
-		r.RepoURL = repoURLBranch{class: br.Class, host: br.Host, repoPath: br.RepoPath}.repoURL()
+		r.RepoURL = br.FetchURL()
 	}
 	return r
 }
@@ -485,46 +384,4 @@ func (r Ref) DisplayRef() (string, error) {
 		return "", fmt.Errorf("cannot address %s#%s/%s: %w", r.Bundle, r.Kind.Dir(), r.Name, err)
 	}
 	return br.String(), nil
-}
-
-// repoURLBranch is the parsed (class, host, repoPath) shape of a
-// canonicalized external (git or file) repo URL — the value both
-// bundleRefBase's forward conversion (Ref.RepoURL -> BundleRef) and
-// RefFromBundleRef's reverse conversion (BundleRef -> Ref.RepoURL) key off,
-// so the one rule that tells the two external classes apart ("file" scheme is
-// ClassFile, everything else is ClassGit) is written once instead of twice.
-type repoURLBranch struct {
-	class    SourceClass
-	host     string
-	repoPath string
-}
-
-// parseRepoURLBranch parses a repo URL already run through CanonicalRepoURL
-// into its class-branch shape. It is bundleRefBase's forward half only —
-// minting the actual BundleRef still needs the bundle name, which this
-// function does not have.
-func parseRepoURLBranch(canon string) (repoURLBranch, error) {
-	u, err := url.Parse(canon)
-	if err != nil {
-		return repoURLBranch{}, fmt.Errorf("%w: %v", ErrRefSyntax, err)
-	}
-	if u.Scheme == "file" {
-		return repoURLBranch{class: ClassFile, repoPath: u.Path}, nil
-	}
-	return repoURLBranch{class: ClassGit, host: u.Host, repoPath: u.Path}, nil
-}
-
-// repoURL renders the branch back into a repo URL string — the exact
-// operation RefFromBundleRef needs to fill Ref.RepoURL from a BundleRef's
-// Host/RepoPath. ClassGit always renders "https://": BundleRef discards the
-// transport a reference was originally minted with (CanonicalRepoURL already
-// folds http to https, and a ssh://, git://, etc. remote reaches GitRef by
-// host+path alone, never by scheme), so "https" is the one stable,
-// re-parseable spelling to name a git remote by — not a claim that the
-// original clone URL used https.
-func (b repoURLBranch) repoURL() string {
-	if b.class == ClassFile {
-		return (&url.URL{Scheme: "file", Path: b.repoPath}).String()
-	}
-	return (&url.URL{Scheme: "https", Host: b.host, Path: b.repoPath}).String()
 }

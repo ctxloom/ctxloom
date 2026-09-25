@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 const (
@@ -19,7 +20,7 @@ const (
 func TestRenderReconcile_NamesEveryRemoval(t *testing.T) {
 	var b testWriter
 
-	renderReconcile(&b, operations.ReconcilePlan{Gone: []string{aliceDemo, corpSecurity}})
+	renderReconcile(&b, operations.ReconcilePlan{Gone: []trust.BundleKey{aliceDemo, corpSecurity}})
 
 	assert.Contains(t, b.String(), "no longer published")
 	assert.Contains(t, b.String(), aliceDemo, "a removal nobody can name is a removal nobody can undo")
@@ -34,7 +35,7 @@ func TestRenderReconcile_SaysWhatItCouldNotCheck(t *testing.T) {
 
 	renderReconcile(&b, operations.ReconcilePlan{Unreachable: []operations.UncheckedRemote{{
 		URL:    "https://github.com/alice/ctxloom",
-		Refs:   []string{aliceDemo},
+		Refs:   []trust.BundleKey{aliceDemo},
 		Reason: "authentication failed",
 	}}})
 	out := b.String()

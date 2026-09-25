@@ -30,7 +30,7 @@ import (
 
 const (
 	treeBase      = "/proj/.ctxloom"
-	treeCanonical = "https://github.com/acme/ctx@bundles/atelier"
+	treeCanonical = "ctxloom+git://github.com/acme/ctx//bundles/atelier"
 )
 
 func treeTestSigner(t *testing.T) (ssh.Signer, ssh.PublicKey) {
@@ -92,7 +92,7 @@ func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, conte
 // readTreeBundle drives the reader the Config builds for one lockfile tree
 // entry, and returns both halves a caller cares about: the bundle document, and
 // the read that carries what its attestation turned out to be.
-func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical string, entry remote.LockEntry, root trust.TrustRoot) (*bundles.Bundle, bundles.BundleRead, error) {
+func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical trust.BundleKey, entry remote.LockEntry, root trust.TrustRoot) (*bundles.Bundle, bundles.BundleRead, error) {
 	t.Helper()
 	reader, err := treeBundleReader(c, canonical, entry, root)
 	if err != nil {
@@ -235,7 +235,7 @@ func withheldFinding(t *testing.T, err error) strictness.Finding {
 	t.Helper()
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
-	reportBundleLoadFailures(map[string]error{treeCanonical: err})
+	reportBundleLoadFailures(map[trust.BundleKey]error{treeCanonical: err})
 	found := strictness.Since(mark)
 	require.Len(t, found, 1)
 	return found[0]
@@ -335,9 +335,9 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 	c, _, _, _ := stageInstalledTree(t)
 	_, pub := treeTestSigner(t)
 
-	lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{treeCanonical: treeEntry()}}
+	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{treeCanonical: treeEntry()}}
 	other := assert.AnError
-	failures := map[string]error{
+	failures := map[trust.BundleKey]error{
 		treeCanonical: remote.ErrTreeBundleUnreadable,
 		"https://github.com/acme/ctx@bundles/other": other,
 	}
@@ -364,7 +364,7 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 // other entry — the same fault-tolerance the retired single-file seed path
 // pinned.
 func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T) {
-	const brokenCanonical = "https://github.com/acme/ctx@bundles/broken"
+	const brokenCanonical = "ctxloom+git://github.com/acme/ctx//bundles/broken"
 	c, _, _, fsys := stageInstalledTree(t)
 	_, pub := treeTestSigner(t)
 
@@ -375,11 +375,11 @@ func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T
 	testsupport.WriteFileString(t, fsys, filepath.Join(brokenDir, bundles.DirectoryFormManifest),
 		"\tnot: valid yaml\n", 0o644)
 
-	lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+	lock := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
 		treeCanonical:   treeEntry(),
 		brokenCanonical: {SHA: "0123456789abcdef", URL: "https://github.com/acme/ctx"},
 	}}
-	failures := map[string]error{}
+	failures := map[trust.BundleKey]error{}
 	root := treeTrustRoot("trent@acme.test", pub)
 
 	readers := treeBundleReaders(c, lock, root, failures)

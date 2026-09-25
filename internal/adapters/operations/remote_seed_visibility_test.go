@@ -71,7 +71,7 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	// addressed by the bundle's canonical IDENTITY, which is what the seed and
 	// every listing carry.
 	profileRef = canonicalRef(t, "ctxloom+file://"+repoDir+"//bundles/tools") + "#profiles/dev"
-	lock.AddEntry(remote.ItemTypeBundle, bundleRef, entry)
+	lock.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, bundleRef), entry)
 	require.NoError(t, lm.Save(lock))
 
 	// Stand in for `deps pull`: install a TRUE TREE at the path
@@ -84,7 +84,8 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	// tree's envelope may legally carry.
 	ref, err := remote.ParseReference(bundleRef)
 	require.NoError(t, err)
-	installDir := ref.LocalTreePath(appDir)
+	installDir, terr := ref.LocalTreePath(appDir)
+	require.NoError(t, terr)
 	require.NoError(t, os.MkdirAll(installDir, 0o755))
 
 	src, err := bundles.ParseBundle([]byte(bundleBody))

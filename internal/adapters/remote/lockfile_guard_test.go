@@ -2,6 +2,7 @@ package remote
 
 import (
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,13 +28,13 @@ import (
 func populatedLockfile() *Lockfile {
 	return &Lockfile{
 		Version: 1,
-		Bundles: map[string]LockEntry{
-			"https://github.com/alice/repo@bundles/held": {
+		Bundles: map[trust.BundleKey]LockEntry{
+			"ctxloom+git://github.com/alice/repo//bundles/held": {
 				SHA:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				URL:  "https://github.com/alice/repo",
 				Held: true,
 			},
-			"https://github.com/bob/repo@bundles/withdrawn": {
+			"ctxloom+git://github.com/bob/repo//bundles/withdrawn": {
 				SHA:             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				URL:             "https://github.com/bob/repo",
 				Retracted:       true,
@@ -57,7 +58,7 @@ func TestSave_RefusesEmptyOverPopulated(t *testing.T) {
 	before, err := os.ReadFile(m.Path())
 	require.NoError(t, err)
 
-	err = m.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}})
+	err = m.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}})
 	require.Error(t, err, "an empty lockfile must not overwrite a populated one")
 	assert.ErrorIs(t, err, ErrLockfileWouldErase)
 	assert.Contains(t, err.Error(), "2", "the refusal names how many entries it protected")
@@ -73,16 +74,16 @@ func TestSave_RefusedEmptyWritePreservesPinnedAndRetracted(t *testing.T) {
 	m := newGuardManager(t)
 	require.NoError(t, m.Save(populatedLockfile()))
 
-	require.Error(t, m.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}}))
+	require.Error(t, m.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}}))
 
 	reloaded, err := m.Load()
 	require.NoError(t, err)
 
-	held, ok := reloaded.GetEntry(ItemTypeBundle, "https://github.com/alice/repo@bundles/held")
+	held, ok := reloaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/repo//bundles/held")
 	require.True(t, ok, "the held entry survives")
 	assert.True(t, held.Held, "the user's hold survives the refused write")
 
-	withdrawn, ok := reloaded.GetEntry(ItemTypeBundle, "https://github.com/bob/repo@bundles/withdrawn")
+	withdrawn, ok := reloaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/bob/repo//bundles/withdrawn")
 	require.True(t, ok, "the retracted entry survives")
 	assert.True(t, withdrawn.Retracted, "the publisher's retraction survives the refused write")
 	assert.Equal(t, "published by mistake", withdrawn.RetractedReason)
@@ -103,21 +104,21 @@ func TestSave_RefusesNilBundlesOverPopulated(t *testing.T) {
 func TestSave_AllowsEmptyWhenNothingIsRecorded(t *testing.T) {
 	// No lockfile on disk at all.
 	m := newGuardManager(t)
-	require.NoError(t, m.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}}),
+	require.NoError(t, m.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}}),
 		"an empty lockfile over no lockfile is a legitimate write")
 	loaded, err := m.Load()
 	require.NoError(t, err)
 	assert.True(t, loaded.IsEmpty())
 
 	// An already-empty lockfile on disk.
-	require.NoError(t, m.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}}),
+	require.NoError(t, m.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}}),
 		"an empty lockfile over an empty lockfile is a legitimate write")
 
 	// A zero-byte file is blank, not corrupt.
 	blank := newGuardManager(t)
 	require.NoError(t, os.MkdirAll(filepath.Dir(blank.Path()), 0o755))
 	require.NoError(t, os.WriteFile(blank.Path(), nil, 0o644))
-	require.NoError(t, blank.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}}),
+	require.NoError(t, blank.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}}),
 		"a zero-byte lockfile records nothing, so an empty write erases nothing")
 }
 
@@ -125,11 +126,11 @@ func TestSave_AllowsEmptyWhenNothingIsRecorded(t *testing.T) {
 // over empty, and first-ever write all still work.
 func TestSave_AllowsPopulatedWrites(t *testing.T) {
 	m := newGuardManager(t)
-	require.NoError(t, m.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}}))
+	require.NoError(t, m.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}}))
 	require.NoError(t, m.Save(populatedLockfile()), "populated over empty")
 
 	grown := populatedLockfile()
-	grown.AddEntry(ItemTypeBundle, "https://github.com/carol/repo@bundles/new", LockEntry{SHA: "cccccccc"})
+	grown.AddEntry(ItemTypeBundle, "ctxloom+git://github.com/carol/repo//bundles/new", LockEntry{SHA: "cccccccc"})
 	require.NoError(t, m.Save(grown), "populated over populated")
 
 	loaded, err := m.Load()
@@ -164,7 +165,7 @@ func TestSave_AllowEmptyStillRefusesCorruptLockfile(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(m.Path()), 0o755))
 	require.NoError(t, os.WriteFile(m.Path(), []byte("\tnot: [yaml\n"), 0o644))
 
-	err := m.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}}, AllowEmpty())
+	err := m.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}}, AllowEmpty())
 	assert.ErrorIs(t, err, ErrLockfileUnreadable)
 }
 
@@ -174,7 +175,7 @@ func TestSave_AllowEmptyPermitsDeliberateErasure(t *testing.T) {
 	m := newGuardManager(t)
 	require.NoError(t, m.Save(populatedLockfile()))
 
-	require.NoError(t, m.Save(&Lockfile{Version: 1, Bundles: map[string]LockEntry{}}, AllowEmpty()),
+	require.NoError(t, m.Save(&Lockfile{Version: 1, Bundles: map[trust.BundleKey]LockEntry{}}, AllowEmpty()),
 		"an explicitly-intended erasure is permitted")
 
 	loaded, err := m.Load()

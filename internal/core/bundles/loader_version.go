@@ -97,7 +97,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// (outdated-recoil).
 	//
 	// sourceRefTyped is stamped alongside sourceRef, through the SAME
-	// canonicalBundleRefTyped bridge repoFSReader.sourceRefTyped uses on a
+	// sourceBundleRef bridge repoFSReader.sourceRefTyped uses on a
 	// ref of this identical canonical shape — never left for newRead's
 	// only-if-empty fallback to reach, because that fallback mints
 	// trust.LocalRef unconditionally and would misclassify every non-local
@@ -106,7 +106,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// is not merely undocumented — the producers that mint an item's ref from
 	// it (fragmentRead, commandRead, the skill loader) would silently
 	// withhold every item this path serves.
-	typed, terr := canonicalBundleRefTyped(canonical)
+	typed, terr := sourceBundleRef(canonical)
 	if terr != nil {
 		warnUnmintableSource(l.cat.rep, canonical, terr)
 	}

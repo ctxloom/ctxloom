@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"testing"
 	"time"
 
@@ -21,14 +22,14 @@ import (
 // recorded, honoring it even when it says RETRACTED, and warning when that
 // verdict is stale.
 func TestResolveRetraction_FailStale(t *testing.T) {
-	const localName = "https://github.com/trent/company@bundles/incident-runbook"
+	const localName = "ctxloom+git://github.com/trent/company//bundles/incident-runbook"
 	ref := &Reference{Path: "incident-runbook", ContentVersion: ""}
 
 	newPuller := func(t *testing.T, now time.Time, seed *LockEntry) *Puller {
 		t.Helper()
 		fs := afero.NewMemMapFs()
 		lm := NewLockfileManager("/proj/.ctxloom", WithLockfileFS(fs))
-		lf := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
+		lf := &Lockfile{Version: 1, Bundles: make(map[trust.BundleKey]LockEntry)}
 		if seed != nil {
 			lf.AddEntry(ItemTypeBundle, localName, *seed)
 		}

@@ -2,6 +2,7 @@
 package remote
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"time"
 )
 
@@ -228,10 +229,15 @@ type LockEntry struct {
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.
 // Only bundles are locked (top-level profile distribution was retired).
 type Lockfile struct {
-	Version  int                  `yaml:"version" json:"version"`
-	LockedAt time.Time            `yaml:"locked_at" json:"locked_at"`
-	Bundles  map[string]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
+	Version  int                           `yaml:"version" json:"version"`
+	LockedAt time.Time                     `yaml:"locked_at" json:"locked_at"`
+	Bundles  map[trust.BundleKey]LockEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 }
+
+// LockfileVersion is the lockfile format this build writes and the only one it
+// reads: entries keyed by bundle identity (Reference.LockKey). Load refuses
+// anything older — see ErrLockKeyFormRetired.
+const LockfileVersion = 2
 
 // ManifestEntry represents an item in the optional manifest.yaml index.
 type ManifestEntry struct {

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"io"
 	"path"
 	"sort"
@@ -135,22 +136,24 @@ func loadDepsListing(ctx context.Context, cfg *config.Config) (*depsListing, err
 	listing := &depsListing{}
 	for _, e := range lockfile.AllEntries() {
 		dep := installedDep{
-			Ref:        e.Ref,
+			Ref:        string(e.Ref),
 			SHA:        e.Entry.SHA,
 			Constraint: e.Entry.RequestedVersion,
 			Held:       e.Entry.Held,
 			URL:        e.Entry.URL,
 		}
-		if parsed, perr := remote.ParseReference(e.Ref); perr == nil {
+		if parsed, perr := remote.ParseReference(string(e.Ref)); perr == nil {
 			dep.Name = path.Base(parsed.Path)
 			if dep.URL == "" {
 				dep.URL = parsed.URL
 			}
 		}
 		if dep.Name == "" {
-			dep.Name = e.Ref
+			dep.Name = string(e.Ref)
 		}
-		dep.Origin = origins[remote.NormalizeURL(dep.URL)]
+		if id, err := refuri.CanonicalRepoURL(dep.URL); err == nil {
+			dep.Origin = origins[id]
+		}
 		listing.Deps = append(listing.Deps, dep)
 	}
 
@@ -166,11 +169,11 @@ func loadDepsListing(ctx context.Context, cfg *config.Config) (*depsListing, err
 	return listing, nil
 }
 
-// registeredOriginsByIdentity maps each registered remote's normalized URL to
-// its name, so a lockfile entry can be labelled with the remote a human knows
-// it by. Keyed on the normalized identity because a remote registered as
-// git@host:o/r.git and a lockfile entry recorded as https://host/o/r are one
-// repository.
+// registeredOriginsByIdentity maps each registered remote's canonical URL
+// (refuri.CanonicalRepoURL) to its name, so a lockfile entry can be labelled
+// with the remote a human knows it by. Keyed on the canonical identity because
+// a remote registered as git@Host:o/r and a lockfile entry recorded as
+// https://host/o/r are one repository.
 func registeredOriginsByIdentity(ctx context.Context, cfg *config.Config) map[string]string {
 	origins := map[string]string{}
 	listed, err := operations.ListRemotes(ctx, cfg, operations.ListRemotesRequest{})
@@ -178,7 +181,7 @@ func registeredOriginsByIdentity(ctx context.Context, cfg *config.Config) map[st
 		return origins
 	}
 	for _, r := range listed.Remotes {
-		if id := remote.NormalizeURL(r.URL); id != "" {
+		if id, err := refuri.CanonicalRepoURL(r.URL); err == nil {
 			origins[id] = r.Name
 		}
 	}

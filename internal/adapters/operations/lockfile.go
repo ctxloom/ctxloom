@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/spf13/afero"
 
@@ -97,17 +98,17 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	//               that check had just recorded.
 	prevEntries := map[string]remote.LockEntry{}
 	for _, e := range prev.AllEntries() {
-		prevEntries[string(e.Type)+"\x00"+e.Ref] = e.Entry
+		prevEntries[string(e.Type)+"\x00"+string(e.Ref)] = e.Entry
 	}
 
 	lockfile := &remote.Lockfile{
-		Version: 1,
-		Bundles: make(map[string]remote.LockEntry),
+		Version: remote.LockfileVersion,
+		Bundles: make(map[trust.BundleKey]remote.LockEntry),
 	}
 	var factory remote.FetcherFactory
 	var auth remote.AuthConfig
 	for _, p := range pins {
-		key := string(p.Type) + "\x00" + p.Identity
+		key := string(p.Type) + "\x00" + string(p.Identity)
 		// RequestedVersion records the manifest constraint so a later relock can
 		// carry this SHA forward while the constraint is unchanged; Version records
 		// the tag a semver constraint chose, for display and satisfaction checks.
@@ -186,7 +187,7 @@ func dropConflicted(pins []PinnedRef, conflicts []DependencyConflict) []PinnedRe
 	}
 	kept := make([]PinnedRef, 0, len(pins))
 	for _, p := range pins {
-		if _, isBad := bad[p.Identity]; !isBad {
+		if _, isBad := bad[string(p.Identity)]; !isBad {
 			kept = append(kept, p)
 		}
 	}

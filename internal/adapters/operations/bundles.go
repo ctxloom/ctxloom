@@ -1088,9 +1088,8 @@ func checkNoSymlinkTraversal(absDir, rel string) error {
 // matchRemoteByURL finds a registry entry whose URL matches the given URL
 // (after normalization). Returns "" if no match.
 func matchRemoteByURL(registry *remote.Registry, url string) string {
-	normalized := remote.NormalizeURL(url)
 	for _, r := range registry.List() {
-		if remote.NormalizeURL(r.URL) == normalized {
+		if remote.SameRepository(r.URL, url) {
 			return r.Name
 		}
 	}

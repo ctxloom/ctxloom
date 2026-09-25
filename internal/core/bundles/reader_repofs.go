@@ -89,10 +89,9 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 }
 
 // sourceRefTyped mints this reader's structured source ref from r.ref, its
-// already-canonical lockfile identity ("<url>@bundles/<path>" or a bare local
-// name), through canonicalBundleRefTyped.
+// lockfile identity, through sourceBundleRef.
 func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
-	br, err := canonicalBundleRefTyped(r.ref)
+	br, err := sourceBundleRef(r.ref)
 	if err != nil {
 		warnUnmintableSource(r.cfg.rep, r.ref, err)
 		return trust.BundleRef{}
@@ -100,41 +99,26 @@ func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
 	return br
 }
 
-// canonicalBundleRefTyped mints the structured trust.BundleRef for a canonical
-// resolution ref of the "<url>@bundles/<path>" / bare-local-name shape —
-// the ONE grammar shared by a pinned tree's own ref (repoFSReader.
-// sourceRefTyped) and a version-pinned read's
-// version-less canonical ref (loader_version.go's bundleAtVersion, whose
-// commit-addressed reads carry the SAME identity as their unpinned twin). It
-// is the SAME Ref -> BundleRef bridge (trust.Ref.AsBundleRef) every other
-// holder of a resolution ref of this shape feeds — reusing that conversion
-// rather than re-deriving host/path from the ref a second, competing way. remote.ParseReference here is not a second
-// parser: it is the one parser this ref's grammar has, the same one
-// loader_version.go's versionRead already calls on a canonical ref of this
-// exact shape.
+// sourceBundleRef is a reader's source ref for ref: remote.Reference.BundleRef,
+// the one place a parsed reference becomes an identity, with any content
+// version dropped — a source ref names the bundle, and a version-pinned read
+// carries the same identity as its unpinned twin (loader_version.go).
 //
 // It returns the ERROR rather than the zero BundleRef alone, and that return is
 // load-bearing. A caller that cannot mint here degrades to an unaddressable ref,
 // and an unaddressable ref is WITHHELD from delivery — so a swallowed failure
-// here is not a missing field, it is content silently vanishing. That is
-// exactly how a universal ".git" refusal in the grammar withheld 402 items
-// while every package test stayed green: six sites discarded this error, so the
-// only surviving evidence was a %#v of a zero struct that named nothing.
-// Callers must report what could not be minted; warnUnmintableSource is the
-// shared way to do it.
-func canonicalBundleRefTyped(canonical string) (trust.BundleRef, error) {
-	parsed, err := remote.ParseReference(canonical)
+// here is not a missing field, it is content silently vanishing. Callers must
+// report what could not be minted; warnUnmintableSource is the shared way to
+// do it.
+func sourceBundleRef(ref string) (trust.BundleRef, error) {
+	parsed, err := remote.ParseReference(ref)
 	if err != nil {
-		return trust.BundleRef{}, fmt.Errorf("parse %q: %w", canonical, err)
+		return trust.BundleRef{}, fmt.Errorf("parse %q: %w", ref, err)
 	}
-	br, err := trust.Ref{
-		RepoURL:     parsed.URL,
-		Bundle:      parsed.Path,
-		IsLocal:     parsed.IsLocal,
-		IsCompanion: parsed.IsCompanion,
-	}.AsBundleRef()
+	parsed.ContentVersion = ""
+	br, err := parsed.BundleRef()
 	if err != nil {
-		return trust.BundleRef{}, fmt.Errorf("convert %q: %w", canonical, err)
+		return trust.BundleRef{}, fmt.Errorf("convert %q: %w", ref, err)
 	}
 	return br, nil
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"io"
 	"os"
 	"strings"
@@ -200,7 +201,7 @@ func NewPuller(registry *Registry, auth AuthConfig, opts ...PullerOption) *Pulle
 // (remote, SHA, on-the-wire content) into the install phase.
 type fetchedItem struct {
 	rem                 *Remote
-	localName           string // lockfile key, "remote/path"
+	localName           trust.BundleKey // lockfile key: the bundle identity
 	sha                 string
 	requestedVersion    string       // user-specified version, "" if they took the default
 	resolvedVersion     string       // concrete tag a semver constraint resolved to, "" otherwise
@@ -271,11 +272,15 @@ func (p *Puller) CheckRetraction(ctx context.Context, refStr string, itemType It
 	if err != nil {
 		return false, "", time.Time{}, fmt.Errorf("invalid remote URL: %w", err)
 	}
+	key, err := ref.LockKey()
+	if err != nil {
+		return false, "", time.Time{}, fmt.Errorf("invalid reference %s: %w", refStr, err)
+	}
 	var pinned LockEntry
 	if lock, lerr := p.lockfileManager.Load(); lerr == nil {
-		pinned, _ = lock.GetEntry(itemType, ref.LockKey())
+		pinned, _ = lock.GetEntry(itemType, key)
 	}
-	return p.resolveRetraction(ctx, fetcher, owner, repo, ref, itemType, ref.LockKey(), pinned)
+	return p.resolveRetraction(ctx, fetcher, owner, repo, ref, itemType, key, pinned)
 }
 
 // RecordRetraction persists retracted/reason onto refStr's EXISTING lockfile
@@ -290,7 +295,10 @@ func (p *Puller) RecordRetraction(itemType ItemType, refStr string, retracted bo
 	if err != nil {
 		return fmt.Errorf("invalid reference: %w", err)
 	}
-	localName := ref.LockKey()
+	localName, err := ref.LockKey()
+	if err != nil {
+		return fmt.Errorf("invalid reference %s: %w", refStr, err)
+	}
 
 	lockfile, err := p.lockfileManager.Load()
 	if err != nil {
@@ -382,7 +390,7 @@ func (p *Puller) fetchItemBytes(ctx context.Context, fetcher Fetcher, owner, rep
 // resolveRemoteTarget maps a reference to its repo URL, remote, and lockfile
 // local-name. Canonical refs auto-register the remote by URL; plain refs look
 // it up in the registry.
-func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remote, localName string, err error) {
+func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remote, localName trust.BundleKey, err error) {
 	if !ref.IsCanonical() {
 		return "", nil, "", fmt.Errorf("not a canonical reference: %s", ref.String())
 	}
@@ -391,8 +399,14 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 	if err != nil {
 		return "", nil, "", fmt.Errorf("failed to register remote: %w", err)
 	}
-	// Lockfile key is the fetch address: which repository, which path.
-	return repoURL, rem, ref.LockKey(), nil
+	// The lockfile key is the bundle's identity — the key a retraction is
+	// looked up by — while repoURL stays the address as typed, which is the
+	// transport the user chose.
+	localName, err = ref.LockKey()
+	if err != nil {
+		return "", nil, "", fmt.Errorf("invalid reference %s: %w", ref.String(), err)
+	}
+	return repoURL, rem, localName, nil
 }
 
 // confirmRetraction checks whether ref is retracted, warns, and (unless
@@ -409,7 +423,7 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 //
 // pinned is the entry about to be recorded: its SignedVersion is the version
 // the publisher's retractions are matched against.
-func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName string, opts PullOptions, pinned LockEntry) (retracted bool, reason string, checkedAt time.Time, err error) {
+func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName trust.BundleKey, opts PullOptions, pinned LockEntry) (retracted bool, reason string, checkedAt time.Time, err error) {
 	// The determination failure is NOT discarded. CheckRetracted's
 	// error slot is useless if the caller drops it: an "I could not determine
 	// this" would otherwise carry on indistinguishably from "clean", which is
@@ -479,7 +493,7 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 //     changing their mind. Only moving the pin (a new entry) resets it.
 //   - ROLLBACK: a signed tip below the pinned version is reported and treated
 //     like Unknown: the recorded verdict stands.
-func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, itemType ItemType, localName string, pinned LockEntry) (retracted bool, reason string, checkedAt time.Time, err error) {
+func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, itemType ItemType, localName trust.BundleKey, pinned LockEntry) (retracted bool, reason string, checkedAt time.Time, err error) {
 	verdict, reason, err := CheckRetracted(ctx, fetcher, owner, repo, ref, pinned, p.manifestVerify)
 	if err != nil {
 		return false, "", time.Time{}, err
@@ -669,7 +683,7 @@ func (p *Puller) admitTree(ctx context.Context, opts PullOptions, item *fetchedI
 	if !ok {
 		return v, nil
 	}
-	if err := AdmitSignedVersion(opts.Stdout, item.localName, prior, v, opts.AllowDowngrade); err != nil {
+	if err := AdmitSignedVersion(opts.Stdout, string(item.localName), prior, v, opts.AllowDowngrade); err != nil {
 		return Verified{}, fmt.Errorf("refusing to install %s at %s: %w", item.localName, item.sha, err)
 	}
 	return v, nil
@@ -701,7 +715,11 @@ func (p *Puller) installTree(ctx context.Context, ref *Reference, opts PullOptio
 			"so a checkout of the found path would land where nothing looks; the publisher must republish it at %s",
 			item.localName, item.treeRoot, want, want)
 	}
-	dir, err := p.treeInstall(ctx, item.rem.URL, sha, item.treeRoot, ref.LocalWorktreePath(baseDir))
+	worktree, err := ref.LocalWorktreePath(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("install %s: %w", item.localName, err)
+	}
+	dir, err := p.treeInstall(ctx, item.rem.URL, sha, item.treeRoot, worktree)
 	if err != nil {
 		return "", fmt.Errorf("install %s at %s: %w", item.localName, sha, err)
 	}
@@ -736,7 +754,7 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 //
 // A hold is only frozen on a BLANKET pull. An explicitly requested version is
 // the user naming a target for this invocation, which a hold does not override.
-func (p *Puller) heldPin(itemType ItemType, localName, requestedVersion string) (LockEntry, bool) {
+func (p *Puller) heldPin(itemType ItemType, localName trust.BundleKey, requestedVersion string) (LockEntry, bool) {
 	if requestedVersion != "" {
 		return LockEntry{}, false
 	}
@@ -767,7 +785,7 @@ func (p *Puller) heldPin(itemType ItemType, localName, requestedVersion string) 
 // hadExisting reports whether localName already had a lockfile entry before
 // this write — the caller (installPulledItem) surfaces it as
 // PullResult.Overwritten.
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time, signed Verified) (hadExisting bool, err error) {
+func (p *Puller) updateLockfile(localName trust.BundleKey, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time, signed Verified) (hadExisting bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileManager
 	lockfile, err := target.Load()

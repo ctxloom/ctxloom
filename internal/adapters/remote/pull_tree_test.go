@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"path/filepath"
 	"testing"
 
@@ -101,7 +102,7 @@ func TestInstallTree_RefusesWithoutAnInstallerRatherThanPinningUnreachableConten
 	ref := treeRef(t)
 
 	_, err := p.installTree(t.Context(), ref, PullOptions{}, &fetchedItem{
-		localName: ref.CanonicalString(),
+		localName: lockKeyOf(t, ref.CanonicalString()),
 		treeRoot:  ref.TreeRepoPath(),
 		tree:      map[string]TreeFile{BundleManifestName: {Data: []byte("version: \"1.0.0\"\n")}},
 	}, treeTestSHA)
@@ -124,7 +125,7 @@ func TestInstallTree_CheckoutsTheWorktreeAtThePinnedCommit(t *testing.T) {
 	ref := treeRef(t)
 
 	dir, err := p.installTree(t.Context(), ref, PullOptions{}, &fetchedItem{
-		localName: ref.CanonicalString(),
+		localName: lockKeyOf(t, ref.CanonicalString()),
 		rem:       &Remote{URL: "https://github.com/trent/atelier"},
 		sha:       treeTestSHA,
 		treeRoot:  ref.TreeRepoPath(),
@@ -134,8 +135,8 @@ func TestInstallTree_CheckoutsTheWorktreeAtThePinnedCommit(t *testing.T) {
 	assert.Equal(t, "https://github.com/trent/atelier", gotURL)
 	assert.Equal(t, treeTestSHA, gotSHA, "the worktree must be detached at the PINNED commit")
 	assert.Equal(t, ref.TreeRepoPath(), gotSubpath, "the checkout must be narrowed to the bundle's repository path")
-	assert.Equal(t, ref.LocalWorktreePath(".ctxloom"), gotWorktree)
-	assert.Equal(t, ref.LocalTreePath(".ctxloom"), dir,
+	assert.Equal(t, mustWorktreePath(t, ref, ".ctxloom"), gotWorktree)
+	assert.Equal(t, mustTreePath(t, ref, ".ctxloom"), dir,
 		"the directory handed back must be the one every reader resolves")
 }
 
@@ -152,7 +153,7 @@ func TestInstallTree_RefusesWhenTheFoundRootIsNotTheRootReadersResolve(t *testin
 	ref := treeRef(t)
 
 	_, err := p.installTree(t.Context(), ref, PullOptions{}, &fetchedItem{
-		localName: ref.CanonicalString(),
+		localName: lockKeyOf(t, ref.CanonicalString()),
 		rem:       &Remote{URL: "https://github.com/trent/atelier"},
 		sha:       treeTestSHA,
 		treeRoot:  "bundles/v1/atelier",
@@ -166,9 +167,9 @@ func TestInstallTree_RefusesWhenTheFoundRootIsNotTheRootReadersResolve(t *testin
 // into a not-found prints a fix ("run deps pull") that cannot fix anything:
 // the pull already succeeded and the bytes are on disk.
 func TestReadableEntry_RefusesATreeBundleWithAnActionableSentinel(t *testing.T) {
-	name := "https://github.com/trent/atelier@bundles/atelier"
+	var name trust.BundleKey = "https://github.com/trent/atelier@bundles/atelier"
 	r := NewBundleReader(nil, nil, AuthConfig{}, &Lockfile{
-		Bundles: map[string]LockEntry{name: {SHA: treeTestSHA}},
+		Bundles: map[trust.BundleKey]LockEntry{name: {SHA: treeTestSHA}},
 	})
 
 	_, err := r.ReadBundleBytes(t.Context(), name)
@@ -206,7 +207,7 @@ func stubTreeVerifier() TreeVerifyFunc {
 // which is the only thing a hold is for. The commit installed and the commit
 // recorded have to be one commit.
 func TestInstallPulledItem_AHoldFreezesTheCHECKOUT_NotJustTheLockfile(t *testing.T) {
-	const localName = "https://github.com/trent/atelier@bundles/atelier"
+	const localName = "ctxloom+git://github.com/trent/atelier//bundles/atelier"
 	const heldSHA = "1111111111111111111111111111111111111111"
 	const advancedSHA = "2222222222222222222222222222222222222222"
 

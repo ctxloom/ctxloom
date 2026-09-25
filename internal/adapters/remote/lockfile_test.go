@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,11 +39,11 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 	// Create lockfile
 	lockfile := &Lockfile{
 		Version: 1,
-		Bundles: make(map[string]LockEntry),
+		Bundles: make(map[trust.BundleKey]LockEntry),
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	lockfile.AddEntry(ItemTypeBundle, "alice/go-tools", LockEntry{
+	lockfile.AddEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools", LockEntry{
 		SHA:       "abc1234def5678",
 		URL:       "https://github.com/alice/ctxloom",
 		FetchedAt: now,
@@ -66,11 +67,11 @@ func TestLockfileManager_SaveAndLoad(t *testing.T) {
 		t.Fatalf("failed to load: %v", err)
 	}
 
-	if loaded.Version != 1 {
-		t.Errorf("Version = %d, want 1", loaded.Version)
+	if loaded.Version != LockfileVersion {
+		t.Errorf("Version = %d, want %d", loaded.Version, LockfileVersion)
 	}
 
-	entry, ok := loaded.GetEntry(ItemTypeBundle, "alice/go-tools")
+	entry, ok := loaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools")
 	if !ok {
 		t.Fatal("entry not found")
 	}
@@ -87,9 +88,9 @@ func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 	path := manager.Path()
 
-	legacy := "version: 1\n" +
+	legacy := "version: 2\n" +
 		"bundles:\n" +
-		"  alice/go-tools:\n" +
+		"  ctxloom+git://github.com/alice/ctxloom//bundles/go-tools:\n" +
 		"    sha: abc1234\n" +
 		"    url: https://github.com/alice/ctxloom\n" +
 		"    ctxloom_version: v1\n"
@@ -99,7 +100,7 @@ func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	entry, ok := loaded.GetEntry(ItemTypeBundle, "alice/go-tools")
+	entry, ok := loaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools")
 	if !ok {
 		t.Fatal("entry not found after self-heal")
 	}
@@ -133,9 +134,9 @@ func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
 	// "ctxloom_version" appears twice — in a bundle key and in free text — but
 	// never as an entry field.
 	original := "# hand-maintained; do not reformat\n" +
-		"version: 1\n" +
+		"version: 2\n" +
 		"bundles:\n" +
-		"  https://github.com/alice/repo@bundles/docs/ctxloom_version:\n" +
+		"  ctxloom+git://github.com/alice/repo//bundles/docs/ctxloom_version:\n" +
 		"    sha: abc1234\n" +
 		"    url: https://github.com/alice/repo\n" +
 		"    retracted_reason: the ctxloom_version field was dropped\n"
@@ -143,7 +144,7 @@ func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
 
 	loaded, err := manager.Load()
 	require.NoError(t, err)
-	_, ok := loaded.GetEntry(ItemTypeBundle, "https://github.com/alice/repo@bundles/docs/ctxloom_version")
+	_, ok := loaded.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/repo//bundles/docs/ctxloom_version")
 	require.True(t, ok, "the entry must still load")
 
 	onDisk, err := afero.ReadFile(fs, path)
@@ -151,44 +152,35 @@ func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
 	assert.Equal(t, original, string(onDisk), "a read that finds no legacy field must not write")
 }
 
-// TestLockfileManager_SavePersistsVersionZero CHARACTERIZES today's behaviour;
-// it does not endorse it.
-//
-// The schema version is a bare literal at three construction sites
-// (remote/lockfile.go's absent-file path, operations/lockfile.go's rebuild and
-// operations/upgrade.go's), while other sites construct a Lockfile with no
-// Version at all — and Save neither stamps nor validates it, so "version: 0"
-// reaches disk as the sole on-disk record of every pin, hold and retraction.
-//
-// What a lockfile with an out-of-range version MEANS to a reader — stamp it,
-// refuse it, or migrate it — is a persisted-format decision, so it is
-// escalated rather than decided here. This test exists so the current answer
-// is written down and so whoever takes that decision sees it go red.
-func TestLockfileManager_SavePersistsVersionZero(t *testing.T) {
+// TestLockfileManager_SaveStampsTheCurrentVersion: Save writes
+// LockfileVersion whatever the caller constructed, because Load refuses any
+// older version (ErrLockKeyFormRetired) — a Save that left "version: 0" on
+// disk would write a lockfile the next Load cannot read.
+func TestLockfileManager_SaveStampsTheCurrentVersion(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
 
 	require.NoError(t, manager.Save(&Lockfile{
-		Bundles: map[string]LockEntry{"https://github.com/a/r@bundles/x": {SHA: "abc1234"}},
+		Bundles: map[trust.BundleKey]LockEntry{"ctxloom+git://github.com/a/r//bundles/x": {SHA: "abc1234"}},
 	}))
 
 	onDisk, err := afero.ReadFile(fs, manager.Path())
 	require.NoError(t, err)
-	assert.Contains(t, string(onDisk), "version: 0")
+	assert.Contains(t, string(onDisk), "version: 2")
 
 	reloaded, err := manager.Load()
 	require.NoError(t, err)
-	assert.Equal(t, 0, reloaded.Version, "and it round-trips back unremarked")
+	assert.Equal(t, LockfileVersion, reloaded.Version, "and it round-trips at the current version")
 }
 
 func TestLockfile_AddEntry(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: make(map[string]LockEntry),
+		Bundles: make(map[trust.BundleKey]LockEntry),
 	}
 
 	entry := LockEntry{SHA: "abc123"}
 
-	lockfile.AddEntry(ItemTypeBundle, "alice/go-tools", entry)
+	lockfile.AddEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools", entry)
 
 	if len(lockfile.Bundles) != 1 {
 		t.Errorf("Bundles count = %d, want 1", len(lockfile.Bundles))
@@ -197,13 +189,13 @@ func TestLockfile_AddEntry(t *testing.T) {
 
 func TestLockfile_GetEntry(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: map[string]LockEntry{
-			"alice/go-tools": {SHA: "abc123"},
+		Bundles: map[trust.BundleKey]LockEntry{
+			"ctxloom+git://github.com/alice/ctxloom//bundles/go-tools": {SHA: "abc123"},
 		},
 	}
 
 	// Existing entry
-	entry, ok := lockfile.GetEntry(ItemTypeBundle, "alice/go-tools")
+	entry, ok := lockfile.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools")
 	if !ok {
 		t.Fatal("expected entry to exist")
 	}
@@ -212,7 +204,7 @@ func TestLockfile_GetEntry(t *testing.T) {
 	}
 
 	// Non-existing entry
-	_, ok = lockfile.GetEntry(ItemTypeBundle, "bob/missing")
+	_, ok = lockfile.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/bob/ctxloom//bundles/missing")
 	if ok {
 		t.Error("expected entry to not exist")
 	}
@@ -220,29 +212,29 @@ func TestLockfile_GetEntry(t *testing.T) {
 
 func TestLockfile_RemoveEntry(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: map[string]LockEntry{
-			"alice/go-tools": {SHA: "abc123"},
-			"bob/testing":    {SHA: "def456"},
+		Bundles: map[trust.BundleKey]LockEntry{
+			"ctxloom+git://github.com/alice/ctxloom//bundles/go-tools": {SHA: "abc123"},
+			"ctxloom+git://github.com/bob/ctxloom//bundles/testing":    {SHA: "def456"},
 		},
 	}
 
-	lockfile.RemoveEntry(ItemTypeBundle, "alice/go-tools")
+	lockfile.RemoveEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools")
 
 	if len(lockfile.Bundles) != 1 {
 		t.Errorf("Bundles count = %d, want 1", len(lockfile.Bundles))
 	}
-	if _, ok := lockfile.GetEntry(ItemTypeBundle, "alice/go-tools"); ok {
+	if _, ok := lockfile.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/alice/ctxloom//bundles/go-tools"); ok {
 		t.Error("entry should have been removed")
 	}
-	if _, ok := lockfile.GetEntry(ItemTypeBundle, "bob/testing"); !ok {
+	if _, ok := lockfile.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/bob/ctxloom//bundles/testing"); !ok {
 		t.Error("other entry should still exist")
 	}
 }
 
 func TestLockfile_AllEntries(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: map[string]LockEntry{
-			"alice/go-tools": {SHA: "abc123"},
+		Bundles: map[trust.BundleKey]LockEntry{
+			"ctxloom+git://github.com/alice/ctxloom//bundles/go-tools": {SHA: "abc123"},
 		},
 	}
 
@@ -271,14 +263,14 @@ func TestLockfile_IsEmpty(t *testing.T) {
 		{
 			name: "empty",
 			lockfile: Lockfile{
-				Bundles: make(map[string]LockEntry),
+				Bundles: make(map[trust.BundleKey]LockEntry),
 			},
 			want: true,
 		},
 		{
 			name: "with bundle",
 			lockfile: Lockfile{
-				Bundles: map[string]LockEntry{"a": {}},
+				Bundles: map[trust.BundleKey]LockEntry{"a": {}},
 			},
 			want: false,
 		},
@@ -295,7 +287,7 @@ func TestLockfile_IsEmpty(t *testing.T) {
 
 func TestLockfile_Count(t *testing.T) {
 	lockfile := Lockfile{
-		Bundles: map[string]LockEntry{"a": {}, "b": {}},
+		Bundles: map[trust.BundleKey]LockEntry{"a": {}, "b": {}},
 	}
 
 	if got := lockfile.Count(); got != 2 {
@@ -330,9 +322,9 @@ func TestWithLockfileFS(t *testing.T) {
 	// Verify the custom FS is used by saving and loading
 	lockfile := &Lockfile{
 		Version: 1,
-		Bundles: make(map[string]LockEntry),
+		Bundles: make(map[trust.BundleKey]LockEntry),
 	}
-	lockfile.AddEntry(ItemTypeBundle, "test/bundle", LockEntry{SHA: "abc123"})
+	lockfile.AddEntry(ItemTypeBundle, "ctxloom+git://example.test/r//bundles/bundle", LockEntry{SHA: "abc123"})
 
 	if err := manager.Save(lockfile); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -362,7 +354,7 @@ func TestLockfileManager_Load_InvalidYAML(t *testing.T) {
 func TestLockfileManager_Load_NilMaps(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// Write a lockfile without a bundles map
-	content := "version: 1\n"
+	content := "version: 2\n"
 	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", content, 0o644)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
@@ -379,7 +371,7 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 
 // A PRESENT-but-EMPTY (or whitespace/comment-only) lock.yaml must
 // not load as a valid, legitimately-empty lockfile — every path that writes a
-// lockfile (Save/write) always marshals at least "version: 1\nbundles: {}\n"
+// lockfile (Save/write) always marshals at least "version: 2\nbundles: {}\n"
 // plus a timestamp, so a genuinely 0-byte file on disk can only mean
 // truncation, a crash mid-write, or a hand-created stub — never a real
 // "nothing pinned yet" project (that case is instead ordinary IsNotExist,
@@ -412,7 +404,7 @@ func TestLockfileManager_Load_ReadError(t *testing.T) {
 	// Create a scenario where the file exists but cannot be read
 	// Use a read-only filesystem with a file that exists
 	baseFs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, baseFs, "/test/"+paths.LockFileName+".yaml", "version: 1\n", 0o000)
+	testsupport.WriteFileString(t, baseFs, "/test/"+paths.LockFileName+".yaml", "version: 2\n", 0o000)
 	fs := afero.NewReadOnlyFs(baseFs)
 
 	manager := NewLockfileManager("/test", WithLockfileFS(fs))
@@ -430,7 +422,7 @@ func TestLockfileManager_Save_SetsLockedAt(t *testing.T) {
 
 	lockfile := &Lockfile{
 		Version: 1,
-		Bundles: make(map[string]LockEntry),
+		Bundles: make(map[trust.BundleKey]LockEntry),
 	}
 
 	before := time.Now().UTC()
@@ -447,11 +439,11 @@ func TestLockfileManager_Save_SetsLockedAt(t *testing.T) {
 
 func TestLockfile_GetEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: make(map[string]LockEntry),
+		Bundles: make(map[trust.BundleKey]LockEntry),
 	}
 
 	// Unknown item type should not find any entry
-	_, ok := lockfile.GetEntry(ItemType("unknown"), "test/bundle")
+	_, ok := lockfile.GetEntry(ItemType("unknown"), "ctxloom+git://example.test/r//bundles/bundle")
 	if ok {
 		t.Error("expected entry not to be found for unknown type")
 	}
@@ -486,11 +478,11 @@ func TestLockfile_OnlyBundlesAreDistributed(t *testing.T) {
 
 func TestLockfile_AddEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: make(map[string]LockEntry),
+		Bundles: make(map[trust.BundleKey]LockEntry),
 	}
 
 	// Unknown type should not add to any map
-	lockfile.AddEntry(ItemType("unknown"), "test/bundle", LockEntry{SHA: "abc123"})
+	lockfile.AddEntry(ItemType("unknown"), "ctxloom+git://example.test/r//bundles/bundle", LockEntry{SHA: "abc123"})
 
 	if len(lockfile.Bundles) != 0 {
 		t.Error("unknown type should not add to bundles")
@@ -499,11 +491,11 @@ func TestLockfile_AddEntry_UnknownType(t *testing.T) {
 
 func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 	lockfile := &Lockfile{
-		Bundles: map[string]LockEntry{"test/bundle": {SHA: "abc123"}},
+		Bundles: map[trust.BundleKey]LockEntry{"ctxloom+git://example.test/r//bundles/bundle": {SHA: "abc123"}},
 	}
 
 	// Unknown type should not remove from any map
-	lockfile.RemoveEntry(ItemType("unknown"), "test/bundle")
+	lockfile.RemoveEntry(ItemType("unknown"), "ctxloom+git://example.test/r//bundles/bundle")
 
 	if len(lockfile.Bundles) != 1 {
 		t.Error("unknown type should not remove from bundles")
@@ -518,10 +510,10 @@ func TestLockfile_RemoveEntry_UnknownType(t *testing.T) {
 // construction, so dropping it silently loses nothing.
 func TestLockfileManager_Load_IgnoresTheRetiredTreeField(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", `version: 1
+	testsupport.WriteFileString(t, fs, "/test/"+paths.LockFileName+".yaml", `version: 2
 locked_at: 2026-01-01T00:00:00Z
 bundles:
-  github.com/acme/tools:
+  ctxloom+git://github.com/acme/tools//bundles/tools:
     sha: abc123
     url: https://github.com/acme/tools
     tree: true
@@ -533,7 +525,7 @@ bundles:
 	if err != nil {
 		t.Fatalf("Load() with a retired tree key: %v — an old lockfile must still parse", err)
 	}
-	entry, ok := lock.GetEntry(ItemTypeBundle, "github.com/acme/tools")
+	entry, ok := lock.GetEntry(ItemTypeBundle, "ctxloom+git://github.com/acme/tools//bundles/tools")
 	if !ok {
 		t.Fatal("the entry carrying the retired key was dropped rather than loaded")
 	}

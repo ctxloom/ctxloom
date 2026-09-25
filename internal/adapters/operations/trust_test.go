@@ -80,10 +80,10 @@ func rejectedByBytes(recorded ...[]byte) func(trust.Ref, []byte) bool {
 // "never retracted", so cascade cases that don't care about retraction can
 // simply omit the field.
 type fakeRetraction struct {
-	retracted func(trust.Ref) (bool, string)
+	retracted func(trust.BundleRef) (bool, string)
 }
 
-func (f fakeRetraction) Retracted(ref trust.Ref) (bool, string) {
+func (f fakeRetraction) Retracted(ref trust.BundleRef) (bool, string) {
 	if f.retracted == nil {
 		return false, ""
 	}
@@ -93,8 +93,8 @@ func (f fakeRetraction) Retracted(ref trust.Ref) (bool, string) {
 // retractedFor builds a fakeRetraction that reports ref as retracted (with
 // reason) whenever bundle/name match, mirroring rejectedByBytes's shape.
 func retractedFor(bundle, name, reason string) fakeRetraction {
-	return fakeRetraction{retracted: func(r trust.Ref) (bool, string) {
-		if r.Bundle == bundle && r.Name == name {
+	return fakeRetraction{retracted: func(r trust.BundleRef) (bool, string) {
+		if r.Bundle == bundle && r.Item == name {
 			return true, reason
 		}
 		return false, ""
@@ -265,13 +265,15 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			// ordering is still exercised directly here, the same way the rejected
 			// block above proves rejection beats local regardless of
 			// whether a real store would ever produce that combination.
-			name:       "retraction ordering beats the local exemption",
-			retraction: fakeRetraction{retracted: func(r trust.Ref) (bool, string) { return r.IsLocal && r.Bundle == "dev", "withdrawn" }},
-			ref:        trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"},
-			payload:    pbytes("x"),
-			form:       rawForm,
-			want:       trust.Deny,
-			source:     trust.SourceRetracted,
+			name: "retraction ordering beats the local exemption",
+			retraction: fakeRetraction{retracted: func(r trust.BundleRef) (bool, string) {
+				return r.Class == trust.ClassLocal && r.Bundle == "dev", "withdrawn"
+			}},
+			ref:     trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"},
+			payload: pbytes("x"),
+			form:    rawForm,
+			want:    trust.Deny,
+			source:  trust.SourceRetracted,
 		},
 
 		// --- trusted signer (step 4) ---
@@ -905,8 +907,8 @@ func (unreadableRecords) Fault() error { return assert.AnError }
 // faultedRetraction is a RetractionRecords whose lockfile could not be read.
 type faultedRetraction struct{ err error }
 
-func (faultedRetraction) Retracted(trust.Ref) (bool, string) { return false, "" }
-func (f faultedRetraction) Fault() error                     { return f.err }
+func (faultedRetraction) Retracted(trust.BundleRef) (bool, string) { return false, "" }
+func (f faultedRetraction) Fault() error                           { return f.err }
 
 // TestEffectiveTrust_LocalExemptionSitsBelowRetraction pins the CASCADE
 // POSITION of the first-party local exemption. The position is not decoration:
@@ -933,7 +935,7 @@ func TestEffectiveTrust_LocalExemptionSitsBelowRetraction(t *testing.T) {
 		Payload:    []byte("local mcp payload"),
 		Form:       rawForm,
 		Records:    fakeRecords{},
-		Retraction: fakeRetraction{retracted: func(trust.Ref) (bool, string) { return true, "withdrawn" }},
+		Retraction: fakeRetraction{retracted: func(trust.BundleRef) (bool, string) { return true, "withdrawn" }},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision)

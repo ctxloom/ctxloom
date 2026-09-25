@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"sort"
 
 	"github.com/spf13/afero"
@@ -63,7 +64,11 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 	// clones. Best-effort: a failure here must not break listing what's present.
 	deleted, _ := bundleListDeletedResolver(cfg).ListDeleted(ctx, remote.ItemTypeBundle)
 	for _, ref := range deleted {
-		name := ref.LockKey()
+		key, err := ref.LockKey()
+		if err != nil {
+			continue
+		}
+		name := string(key)
 		if seen[name] {
 			continue
 		}
@@ -98,7 +103,13 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 		return
 	}
 	for _, info := range infos {
-		entry, ok := lock.Bundles[info.Name]
+		// Keyed through the parser, not a cast: a name that is not a bundle
+		// reference (a project bundle) has no lock entry to stamp.
+		br, perr := trust.ParseBundleRef(info.Name)
+		if perr != nil {
+			continue
+		}
+		entry, ok := lock.Bundles[br.BundleIdentity()]
 		if !ok {
 			continue
 		}

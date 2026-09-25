@@ -779,7 +779,7 @@ func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 	if err != nil {
 		return pending
 	}
-	return ts.resolve(tRef, read, payload, form)
+	return ts.resolve(br, read, payload, form)
 }
 
 // ForHook stamps a bundle hook addressed by its (source, HookEntry) identity,
@@ -813,8 +813,7 @@ func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) Effectiv
 		// mint that failed) — nothing to stamp trust against.
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	tRef := trust.RefFromBundleRef(br)
-	return ts.resolve(tRef, read, payload, bundles.FormRaw)
+	return ts.resolve(br, read, payload, bundles.FormRaw)
 }
 
 // readAsk returns the READ of the bundle a listing ASKED for by name — the
@@ -840,11 +839,11 @@ func (ts *TrustStamper) readAsk(source string) bundles.BundleRead {
 // trust_perkitem_io_test.go). Sharing that too would fix the sample point of
 // retraction state for a whole listing, which is a trust decision, not a
 // caching one.
-func (ts *TrustStamper) resolve(ref trust.Ref, read bundles.BundleRead, payload []byte, form bundles.ContentForm) EffectiveTrustResult {
+func (ts *TrustStamper) resolve(br trust.BundleRef, read bundles.BundleRead, payload []byte, form bundles.ContentForm) EffectiveTrustResult {
 	if ts.gate == nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	v := ts.gate.Admit(bundles.Exposure{Read: read, Ref: ref, RefStr: ref.Key(), Bytes: payload, Form: form})
+	v := ts.gate.Admit(bundles.Exposure{Read: read, BundleRef: br, Bytes: payload, Form: form})
 	return resultOf(v)
 }
 

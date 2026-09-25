@@ -403,10 +403,7 @@ func (c *RepoCache) safeRepoPath(parts ...string) (string, error) {
 // normalizeCloneURL renders a repository URL's TRANSPORT form: the argument
 // `git clone` and `git fetch` receive.
 //
-// It is now the CloneArg renderer over the shared ParseRepoURL grammar. It
-// used to carry its own copy of the shorthand arm, guarded differently from
-// NormalizeURL's — that drift is why the two were consolidated onto one
-// grammar.
+// It is the CloneArg renderer over the shared ParseRepoURL grammar.
 func normalizeCloneURL(repoURL string) string {
 	parsed, err := ParseRepoURL(repoURL)
 	if err != nil {

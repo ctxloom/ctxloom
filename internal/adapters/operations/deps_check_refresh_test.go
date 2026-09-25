@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"os"
 	"path/filepath"
 	"testing"
@@ -118,7 +119,7 @@ func TestRefreshRemoteRepos_SkipsUncheckableEntries(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	cfg := config.NewFixture(config.Fixture{AppDir: appDir})
 
-	lockfile := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
+	lockfile := &remote.Lockfile{Bundles: map[trust.BundleKey]remote.LockEntry{
 		// No SHA: never pulled, so there is nothing to check for updates.
 		"https://github.com/o/unpulled@bundles/x": {SHA: ""},
 		// Unparseable reference: skipped, not fatal.

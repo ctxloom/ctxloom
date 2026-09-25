@@ -10,6 +10,8 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // worktreeFixture builds a real git repository holding two bundles and returns
@@ -327,4 +329,59 @@ func TestEnsureSparseWorktree_RewritesThePatternWhenTheSubpathChanges(t *testing
 	_, serr := os.Stat(filepath.Join(wt, "bundles", "v2", "atelier"))
 	assert.True(t, os.IsNotExist(serr), "the previous subpath still matches, so the pattern was appended rather than rewritten")
 	assert.FileExists(t, filepath.Join(wt, "bundles", "v2", "other", "bundle.yaml"))
+}
+
+// TestEnsureSparseWorktree_AddsTheIdentityNamedWorktreeBesideAnOldOne is the
+// upgrade path for the worktree rename: an existing install already has a
+// worktree registered at the OLD directory (<cache>/bundles/<remote>/<path>
+// .worktree) detached at the pinned commit, and the next read ensures the NEW
+// one (<path>.<digest>.worktree) at that same commit. Git permits any number of
+// detached worktrees at one commit, so the add must succeed, and the old
+// directory is left exactly as it was — it may hold content somebody put there,
+// and nothing here owns deleting it. When the old directory is already gone,
+// its stale registration is pruned by the existing prune in ensureWorktreeAt.
+func TestEnsureSparseWorktree_AddsTheIdentityNamedWorktreeBesideAnOldOne(t *testing.T) {
+	for _, oldDirGone := range []bool{false, true} {
+		name := "old worktree present"
+		if oldDirGone {
+			name = "old worktree deleted behind git's back"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newWorktreeFixture(t)
+			ref := &Reference{URL: f.url, Path: "atelier", ItemType: ItemTypeBundle}
+			f.write(ref.TreeRepoPath()+"/bundle.yaml", "version: \"1.0.0\"\n")
+			sha := f.commit("one")
+
+			base := t.TempDir()
+			oldWT := filepath.Join(paths.CacheBundlesPath(base), ref.LocalRemoteName(), ref.Path) + WorktreeDirSuffix
+			newWT := mustWorktreePath(t, ref, base)
+			require.NotEqual(t, oldWT, newWT)
+
+			_, err := f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, ref.TreeRepoPath(), oldWT)
+			require.NoError(t, err)
+			keep := filepath.Join(oldWT, "notes.txt")
+			require.NoError(t, os.WriteFile(keep, []byte("mine\n"), 0o644))
+			if oldDirGone {
+				require.NoError(t, os.RemoveAll(oldWT))
+			}
+
+			dir, err := f.cache.EnsureSparseWorktree(t.Context(), f.url, sha, ref.TreeRepoPath(), newWT)
+			require.NoError(t, err, "a second detached worktree at the same commit must be addable")
+			assert.Equal(t, mustTreePath(t, ref, base), dir)
+			assert.FileExists(t, filepath.Join(dir, "bundle.yaml"))
+
+			list := f.git("worktree", "list", "--porcelain")
+			assert.Contains(t, list, "worktree "+newWT+"\n")
+			if oldDirGone {
+				assert.NotContains(t, list, "worktree "+oldWT+"\n",
+					"a registration whose directory is gone is pruned")
+				return
+			}
+			assert.Contains(t, list, "worktree "+oldWT+"\n", "the old worktree stays registered")
+			body, rerr := os.ReadFile(keep)
+			require.NoError(t, rerr, "the old worktree's content must be left alone")
+			assert.Equal(t, "mine\n", string(body))
+			assert.FileExists(t, filepath.Join(oldWT, filepath.FromSlash(ref.TreeRepoPath()), "bundle.yaml"))
+		})
+	}
 }

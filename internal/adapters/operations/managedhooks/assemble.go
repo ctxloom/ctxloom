@@ -45,7 +45,7 @@ func itemRefFor(source string, kind trust.ItemKind, item string) (string, error)
 //
 // A canonical URI is parsed as one. Anything else is the assembly pipeline's
 // own identity spelling (remote.CanonicalBundleRef's "ctxloom:local@bundles/
-// <name>", a lockfile's "<url>@bundles/<path>") or a bare local bundle name,
+// <name>", an authored "<url>@bundles/<path>") or a bare local bundle name,
 // resolved through the reference grammar that mints those and bridged onto
 // trust.BundleRef by trust.Ref.AsBundleRef — the same bridge every other
 // holder of such a string uses. It lives here because this is the single

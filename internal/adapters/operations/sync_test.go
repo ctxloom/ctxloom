@@ -53,6 +53,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -435,7 +436,9 @@ func markInstalled(t *testing.T, appDir, ref string) {
 	t.Helper()
 	parsed, err := remote.ParseReference(ref)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(parsed.LocalTreePath(appDir), 0o755))
+	tree, terr := parsed.LocalTreePath(appDir)
+	require.NoError(t, terr)
+	require.NoError(t, os.MkdirAll(tree, 0o755))
 }
 
 // TestSyncDependencies_SkipsExisting verifies incremental sync behavior.
@@ -884,24 +887,33 @@ remotes:
 // content reads back without error, mirroring the production rule that a
 // lockfile entry alone is not enough — the content must be retrievable at the
 // locked address.
+// fakeBundleSource holds its readable bundles as a user types them; a read is
+// asked for by lockfile key, so each is matched on the key it would lock under.
 type fakeBundleSource struct {
 	readable map[string]bool
 }
 
-func (f fakeBundleSource) ReadBundleBytes(_ context.Context, name string) ([]byte, error) {
-	if f.readable[name] {
-		return []byte("version: 1"), nil
+func (f fakeBundleSource) ReadBundleBytes(_ context.Context, name trust.BundleKey) ([]byte, error) {
+	for ref, ok := range f.readable {
+		if !ok {
+			continue
+		}
+		if parsed, err := remote.ParseReference(ref); err == nil {
+			if key, kerr := parsed.LockKey(); kerr == nil && key == name {
+				return []byte("version: 1"), nil
+			}
+		}
 	}
 	return nil, fmt.Errorf("%w: %s", remote.ErrBundleNotInLockfile, name)
 }
 
-func (f fakeBundleSource) LockEntryFor(string) (remote.LockEntry, bool) {
+func (f fakeBundleSource) LockEntryFor(trust.BundleKey) (remote.LockEntry, bool) {
 	return remote.LockEntry{}, false
 }
 
-func (f fakeBundleSource) ListBundleNames() []string { return nil }
+func (f fakeBundleSource) ListBundleNames() []trust.BundleKey { return nil }
 
-func (f fakeBundleSource) HasBundle(name string) bool { return f.readable[name] }
+func (f fakeBundleSource) HasBundle(name trust.BundleKey) bool { return f.readable[string(name)] }
 
 // TestCheckMissingDependencies verifies detection of missing vs installed bundles.
 func TestCheckMissingDependencies(t *testing.T) {

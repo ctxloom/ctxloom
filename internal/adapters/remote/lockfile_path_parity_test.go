@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
@@ -34,7 +35,9 @@ func TestLockfileManagerPath_MatchesPathsLockPath(t *testing.T) {
 // previous format root.
 func TestReferenceLocalWorktreePath_RootedAtCacheBundlesPath(t *testing.T) {
 	r := &Reference{URL: "https://github.com/acme/repo", Path: "lang/go"}
+	key, err := r.LockKey()
+	require.NoError(t, err)
 	assert.Equal(t,
-		paths.CacheBundlesPath("/proj/.ctxloom")+"/"+r.LocalRemoteName()+"/lang/go"+WorktreeDirSuffix,
-		r.LocalWorktreePath("/proj/.ctxloom"))
+		paths.CacheBundlesPath("/proj/.ctxloom")+"/"+r.LocalRemoteName()+"/lang/go."+identityDigest(key)+WorktreeDirSuffix,
+		mustWorktreePath(t, r, "/proj/.ctxloom"))
 }

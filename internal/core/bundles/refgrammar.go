@@ -24,12 +24,6 @@ func SplitCommandVersion(ref string) (canonical, version string, err error) {
 	return remote.SplitPromptVersion(ref)
 }
 
-// CanonicalBundleRef canonicalises a bundle reference: a plain local name to
-// its ctxloom:local form, a remote ref to its version-less canonical URL.
-func CanonicalBundleRef(ref string) (string, error) {
-	return remote.CanonicalBundleRef(ref)
-}
-
 // FragmentSelector is the selector that addresses a fragment within a
 // bundle ("<bundle>#fragments/<name>").
 const FragmentSelector = remote.FragmentSelector

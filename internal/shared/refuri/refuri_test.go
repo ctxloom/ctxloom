@@ -173,3 +173,73 @@ func TestMint_RefusesWhatParseRefuses(t *testing.T) {
 		t.Errorf("got bundle %q version %q, want bundle \"na@me\" and no version", p.Bundle, p.Version)
 	}
 }
+
+// constraintVersions is one expression per construct Masterminds semver's
+// NewConstraint accepts (the grammar remote.resolveSemver resolves against),
+// plus ctxloom's own "kind:" selector prefixes (remote.parseSelector). Every
+// one of them carries at least one character net/url percent-encodes in a
+// path, or a delimiter the grammar must not confuse with structure.
+var constraintVersions = []string{
+	"1.2.3", "=1.2.3", "!=1.2.3", ">1.2", "<2", ">=1.2", "=>1.2", "<=2", "=<2",
+	"~1.2", "~>1.2", "^1.2", "1.x", "1.X", "1.*", "*",
+	">=1.2, <2", ">=1.2 <2", "^1 || ^2", "1.2 - 1.4", "1.2.3-rc.1+build.5",
+	"version:^1.2", "tag:v1.0", "branch:feature/x", "sha:deadbeef",
+}
+
+// TestParse_VersionIsDecodedAndRoundTrips pins the version segment to ONE
+// value however it is spelled: the typed form ("^1.2") and the escaped form
+// ("%5E1.2") must parse to the same Version, the decoded expression, and
+// rendering it must parse back to equal Parts. A version read from the escaped
+// path and never decoded is a different string from the one the user typed,
+// and the resolver hands it to the constraint parser verbatim.
+func TestParse_VersionIsDecodedAndRoundTrips(t *testing.T) {
+	bases := []string{
+		"ctxloom+git://github.com/o/r//bundles/x",
+		"ctxloom+file:///srv/has space/repo//bundles/x",
+		"ctxloom+local:x",
+	}
+	for _, base := range bases {
+		for _, ver := range constraintVersions {
+			typed := base + "@" + ver
+			p, err := Parse(typed)
+			require.NoError(t, err, typed)
+			assert.Equal(t, ver, p.Version, "typed %q", typed)
+
+			escaped := base + "@" + escapePath(ver)
+			pe, err := Parse(escaped)
+			require.NoError(t, err, escaped)
+			assert.Equal(t, p, pe, "escaped spelling %q must parse like %q", escaped, typed)
+
+			back, err := Parse(p.Render(true))
+			require.NoError(t, err, p.Render(true))
+			assert.Equal(t, p, back, "Parse(Render(%q))", typed)
+		}
+
+		// An "@" inside a version can only arrive escaped; decoded, it must be
+		// re-escaped on render or the next parse splits at the wrong "@".
+		p, err := Parse(base + "@branch:a%40b")
+		require.NoError(t, err)
+		assert.Equal(t, "branch:a@b", p.Version)
+		back, err := Parse(p.Render(true))
+		require.NoError(t, err)
+		assert.Equal(t, p, back, "Parse(Render) with an @ in the version")
+	}
+}
+
+// A version is not a path: dot segments inside it must never reach the
+// bundle half. "x@a/../b" is bundle x at branch "a/../b" (a name git itself
+// refuses), never bundle "b" — resolving the ".." across the "@" would let a
+// version string choose which bundle the reference names.
+func TestParse_DotSegmentsInAVersionNeverReachTheBundle(t *testing.T) {
+	for _, ver := range []string{"a/../b", "a/./b", "../b", "a/.."} {
+		raw := "ctxloom+git://github.com/o/r//bundles/x@" + ver
+		p, err := Parse(raw)
+		require.NoError(t, err, raw)
+		assert.Equal(t, "x", p.Bundle, "the version %q moved the bundle name", ver)
+		assert.Equal(t, ver, p.Version, raw)
+
+		back, err := Parse(p.Render(true))
+		require.NoError(t, err, p.Render(true))
+		assert.Equal(t, p, back, "Parse(Render(%q))", raw)
+	}
+}

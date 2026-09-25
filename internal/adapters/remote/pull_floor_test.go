@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/release"
 )
 
-const floorKey = "https://github.com/trent/atelier@bundles/atelier"
+const floorKey = "ctxloom+git://github.com/trent/atelier//bundles/atelier"
 
 // signedAs is a verifier that reports every tree as signed by pub@example.test
 // at version (or unattested when version is "").

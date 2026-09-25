@@ -1104,17 +1104,12 @@ func seedBundleRef(read bundles.BundleRead, src trust.BundleRef) (string, bool) 
 }
 
 // bundleProfileSourceURL returns the source a bundle profile's short same-repo
-// refs resolve against: the repository URL for a git or file bundle, the
-// companion token for a loadout, or the ctxloom:local token for project
-// content and for a read with no typed source.
+// refs resolve against: the bundle's fetch location (trust.BundleRef.FetchURL,
+// the one reverse renderer), or the ctxloom:local token for a read with no
+// typed source.
 func bundleProfileSourceURL(src trust.BundleRef) string {
-	switch src.Class {
-	case trust.ClassGit:
-		return "https://" + src.Host + src.RepoPath
-	case trust.ClassFile:
-		return "file://" + src.RepoPath
-	case trust.ClassCompanion:
-		return refuri.CompanionSource
+	if u := src.FetchURL(); u != "" {
+		return u
 	}
 	return refuri.LocalSource
 }

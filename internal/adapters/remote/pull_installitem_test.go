@@ -37,7 +37,7 @@ func newInstallPuller(registry *Registry, fs afero.Fs, mf *mockFetcher, extra ..
 }
 
 func TestInstallPulledItem(t *testing.T) {
-	const bundleKey = "https://github.com/alice/ctxloom@bundles/security"
+	const bundleKey = "ctxloom+git://github.com/alice/ctxloom//bundles/security"
 
 	t.Run("bundle pin lands in the active lockfile", func(t *testing.T) {
 		fs, registry := installItemEnv(t)
@@ -64,7 +64,7 @@ func TestInstallPulledItem(t *testing.T) {
 		res, err := puller.installPulledItem(context.Background(), ref, opts, item)
 		require.NoError(t, err)
 		assert.False(t, res.Overwritten)
-		assert.Equal(t, ref.LocalTreePath("/test"), res.LocalPath,
+		assert.Equal(t, mustTreePath(t, ref, "/test"), res.LocalPath,
 			"a tree bundle reports the cache path its Reference derives — the directory inside its worktree")
 
 		activeLock, _ := active.Load()

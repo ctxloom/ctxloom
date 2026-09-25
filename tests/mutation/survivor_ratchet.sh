@@ -10,7 +10,7 @@
 # every lane — a healthy target's box must not dilute a dead one's.
 #
 # THE INVARIANT: a mutation run that left MORE mechanisms unverified than the
-# recorded baseline must not exit 0. The guard beside it in the recipe refuses
+# recorded baseline must not exit 0. The guard beside it in mutation_driver.sh refuses
 # a run that produced no score — one that never looked. This one refuses a run
 # that looked and found things worse than they were. Without it the gate
 # cannot fail on a result at all: the harness releases with

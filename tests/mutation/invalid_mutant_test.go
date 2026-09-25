@@ -32,6 +32,32 @@ func repoRootFromTest(t *testing.T) string {
 	}
 }
 
+// repoInput returns the absolute path of each repo-relative file (globs
+// allowed) a SUBPROCESS of this test will read, after reading it here.
+//
+// The read is the point. `go test` caches a passing result keyed on the files
+// the test binary itself opened; a script run through exec.Command is read by
+// bash, not by the binary, so without this an edit to the script — deleting the
+// very check the test pins — is answered with the cached PASS.
+func repoInput(t *testing.T, rel ...string) []string {
+	t.Helper()
+	root := repoRootFromTest(t)
+	var paths []string
+	for _, r := range rel {
+		matches, err := filepath.Glob(filepath.Join(root, r))
+		if err != nil || len(matches) == 0 {
+			t.Fatalf("no repo file matches %s: %v", r, err)
+		}
+		for _, m := range matches {
+			if _, err := os.ReadFile(m); err != nil {
+				t.Fatalf("read %s: %v", m, err)
+			}
+		}
+		paths = append(paths, matches...)
+	}
+	return paths
+}
+
 // A mutant that DOES NOT COMPILE is not a mutant a test caught. ooze scores by
 // the runner's exit code alone, so without the marker the compiler is credited
 // to the test suite and the kill count is inflated by mutants no test ever saw.
@@ -66,8 +92,7 @@ func TestRunUnitJudge_MarksAMutantThatDoesNotCompile(t *testing.T) {
 // its own because it used to live inline in a just recipe, where nothing could
 // reach it — the fix for a truthfulness defect was itself unverified.
 func TestScoreCorrection_SubtractsInvalidMutantsFromTheKillCount(t *testing.T) {
-	root := repoRootFromTest(t)
-	script := filepath.Join(root, "tests", "mutation", "score_correction.sh")
+	script := repoInput(t, "tests/mutation/score_correction.sh")[0]
 
 	run := func(t *testing.T, in string) string {
 		t.Helper()
@@ -113,8 +138,7 @@ func TestScoreCorrection_SubtractsInvalidMutantsFromTheKillCount(t *testing.T) {
 // found would invent one. The upstream no-score guard is what actually fails
 // such a run; this only has to avoid lying about it.
 func TestScoreCorrection_SaysSoWhenThereIsNoSummaryToCorrect(t *testing.T) {
-	root := repoRootFromTest(t)
-	script := filepath.Join(root, "tests", "mutation", "score_correction.sh")
+	script := repoInput(t, "tests/mutation/score_correction.sh")[0]
 
 	cmd := exec.Command("sh", script)
 	cmd.Stdin = strings.NewReader("ooze-invalid-mutant: a\nooze-invalid-mutant: b\nsome output with no box at all\n")
@@ -139,8 +163,7 @@ func TestScoreCorrection_SaysSoWhenThereIsNoSummaryToCorrect(t *testing.T) {
 // them; subtracting every target's invalid mutants from the FIRST box alone
 // invents a number. The correction is over the whole run.
 func TestScoreCorrection_CorrectsAcrossEveryTargetsBox(t *testing.T) {
-	root := repoRootFromTest(t)
-	cmd := exec.Command("sh", filepath.Join(root, "tests", "mutation", "score_correction.sh"))
+	cmd := exec.Command("sh", repoInput(t, "tests/mutation/score_correction.sh")[0])
 	cmd.Stdin = strings.NewReader(
 		"ooze-invalid-mutant: a\n┃ • Total:       10 ┃\n┃ • Killed:       4 ┃\n" +
 			"ooze-invalid-mutant: b\nooze-invalid-mutant: c\n┃ • Total:       20 ┃\n┃ • Killed:      15 ┃\n")

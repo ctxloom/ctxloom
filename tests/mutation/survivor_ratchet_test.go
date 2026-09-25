@@ -17,8 +17,7 @@ import (
 // the baseline's contents afterwards (the update path rewrites it in place).
 func runRatchet(t *testing.T, baseline, log string, env ...string) (int, string, string) {
 	t.Helper()
-	root := repoRootFromTest(t)
-	script := filepath.Join(root, "tests", "mutation", "survivor_ratchet.sh")
+	script := repoInput(t, "tests/mutation/survivor_ratchet.sh")[0]
 
 	dir := t.TempDir()
 	basePath := filepath.Join(dir, "baseline.txt")
@@ -283,12 +282,11 @@ func TestSurvivorRatchet_OozeRunWithSomeInvalidMutantsIsStillJudged(t *testing.T
 // does: its per-target "measured nothing" refusals, and no baseline judgement.
 func runRatchetWithoutBaseline(t *testing.T, log string) (int, string) {
 	t.Helper()
-	root := repoRootFromTest(t)
 	logPath := filepath.Join(t.TempDir(), "run.log")
 	if err := os.WriteFile(logPath, []byte(log), 0o644); err != nil {
 		t.Fatalf("write log: %v", err)
 	}
-	cmd := exec.Command("bash", filepath.Join(root, "tests", "mutation", "survivor_ratchet.sh"), "--no-baseline", logPath)
+	cmd := exec.Command("bash", repoInput(t, "tests/mutation/survivor_ratchet.sh")[0], "--no-baseline", logPath)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return 0, string(out)

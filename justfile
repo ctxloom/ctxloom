@@ -1457,20 +1457,18 @@ test-mutation-container:
 # run producing no score at all. Re-record after coverage work with
 # CTXLOOM_MUTATION_BASELINE=update; the baseline file states what each
 # provenance word licenses.
-_mutation-driver RATCHET *ARGS:
+_mutation-driver LANE *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    # just hands a shebang recipe its parameters as POSITIONAL ARGS, and the go
-    # test invocation below forwards "$@" (not {{ARGS}}, per the reasoning on
-    # test-mutation above). RATCHET is a parameter, so without this shift it
-    # rides along as an extra package pattern: `go test ./tests/mutation/...
-    # no-ratchet` reports `ok` for the real package and a bare FAIL for the
-    # pattern that matched nothing, failing the recipe over a passing run.
+    # just hands a shebang recipe its parameters as POSITIONAL ARGS, and the
+    # driver forwards "$@" to go test (not {{ARGS}}, per the reasoning on
+    # test-mutation above). LANE is a parameter, so without this shift it
+    # rides along as an extra package pattern.
+    shift
     # The laboratory builds its own ctxloom (run_scoped_suite.sh); it must carry
     # the same stamp `just build` applies, or every scenario dies at startup and
     # the pre-flight refuses the run.
     export CTXLOOM_VERSION_LDFLAG='{{version_ldflag}}'
-    shift
     mkdir -p "{{mutation_tmp}}"
     # TMPDIR pinned to disk for every tool this driver can release: gremlins
     # (the package lane) copies the whole module once per worker, and on a
@@ -1478,88 +1476,17 @@ _mutation-driver RATCHET *ARGS:
     # above. ooze's laboratory is a symlink farm and is indifferent to where it
     # lands. The sweep matches test-mutation-pkg's.
     export TMPDIR="{{mutation_tmp}}"
-    trap 'rm -f "{{mutation_tmp}}/.run.$$.log"; rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
-    set +e
-    # -v is LOAD-BEARING, not a debugging convenience. ooze prints its per-mutant
-    # diffs and its summary box to STDOUT, and `go test` swallows a PASSING test's
-    # stdout. The mutation test uses WithMinimumThreshold(0), so it ALWAYS passes —
-    # which means without -v this recipe runs for an hour and emits one line:
-    #   ok  github.com/ctxloom/ctxloom/tests/mutation  339.740s
-    # Measured 2026-08-07: a full bundle_sign entry did exactly that. The first
-    # trust_cascade run only showed its 51 survivors because the guard test was
-    # failing beside it and dragged the package output out; fixing that guard
-    # silenced the gate entirely. See taskloom unwanted-deviate.
-    #
-    # 240m, not 120m: the whole table's mutants run serially and a full run has
-    # measured close to 120m on its own, and a timeout mid-table loses the whole
-    # run's results. Re-measure before lowering it.
-    output=$(go test -trimpath -tags mutation -v -count=1 -timeout 240m ./tests/mutation/... "$@" 2>&1)
-    status=$?
-    set -e
-    printf '%s\n' "$output"
-    if [ "$status" -ne 0 ]; then
-        exit "$status"
-    fi
-    if grep -q '\[no tests to run\]' <<<"$output"; then
-        echo "error: -run matched no tests (typo'd or renamed test name?)" >&2
-        exit 1
-    fi
-    # THE INVARIANT: a mutation run that produced no score has told you nothing,
-    # and must never read as a clean bill of health. Exit 0 here would be the
-    # exact failure this gate replaced (gremlins reporting success over an empty
-    # mutant set).
-    # ooze reports `Score:`; gremlins (the package lane) reports `Test efficacy:`.
-    if ! grep -qE 'Score:|Test efficacy:' <<<"$output"; then
-        echo "error: the run produced no mutation score — it measured NOTHING." >&2
-        echo "       ooze and gremlins print their summaries to stdout; if that is" >&2
-        echo "       missing, either no target was released or the output was" >&2
-        echo "       swallowed. Do not read this as a pass." >&2
-        exit 1
-    fi
-    # Repeat the summary AFTER the -v firehose, so the number is not buried
-    # thousands of scenario lines up.
-    echo
-    echo "=== mutation summary ==="
-    grep -E 'Total:|Killed:|Survived:|Score:|Timed out:|Test efficacy:' <<<"$output" || true
-    # ooze's box counts a mutant that DID NOT COMPILE as killed: its verdict is
-    # the runner's exit code and nothing else, so the compiler is scored as if it
-    # were the test suite. The runners mark those; subtract them here so the
-    # number reported is over mutants a test could actually have caught.
-    # Survivors are untouched by this — an invalid mutant never lands there — so
-    # the ratchet and its baselines are unaffected.
-    printf '%s\n' "$output" | sh tests/mutation/score_correction.sh
-    # THE SECOND HALF OF THE SAME INVARIANT: the guard above refuses a run that
-    # measured nothing; this one refuses a run that measured something WORSE
-    # than what is already recorded. A score alone cannot fail this gate, so
-    # regression is what fails it — per target, because one number for the whole
-    # table lets an improvement in one entry mask a regression in another.
-    # The BASELINE follows the GATE, not the tool. An acceptance run is a
-    # scheduled measurement whose whole point is "did it get worse"; the unit
-    # judge is an authoring-time check you run once and read, for which a
-    # baseline is meaningless — there is no previous run to have regressed from.
-    # The ratchet's per-target "measured nothing" refusals run in BOTH lanes:
-    # a target none of whose mutants compiled is a dead measurement beside
-    # healthy ones in either, and only a per-target count can see it.
-    baseline=--no-baseline
-    if [ "{{RATCHET}}" = "ratchet" ]; then
-        baseline=tests/mutation/survivor_baseline.txt
-    fi
-    runlog="{{mutation_tmp}}/.run.$$.log"
-    printf '%s\n' "$output" > "$runlog"
-    set +e
-    bash tests/mutation/survivor_ratchet.sh "$baseline" "$runlog"
-    ratchet=$?
-    set -e
-    if [ "$ratchet" -ne 0 ]; then
-        exit "$ratchet"
-    fi
-    # Past both guards, so a real score was produced and it did not regress.
+    trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
+    # Everything past the environment — the run, its refusals, the score
+    # correction, and which lane is ratcheted against what — is the driver's,
+    # where mutation_driver_test.go can see it.
+    bash tests/mutation/mutation_driver.sh "{{LANE}}" "$@"
 
 # Mutate one source file per target and drive the CUCUMBER acceptance suite
 # against a binary rebuilt from each mutant. Ratcheted against
 # tests/mutation/survivor_baseline.txt. Nightly/scoped — never a per-PR gate.
 test-mutation-acceptance *ARGS:
-    @just _mutation-driver ratchet {{ARGS}}
+    @just _mutation-driver acceptance {{ARGS}}
 
 # Mutate one source file per target and judge every mutant with the SINGLE test
 # that claims to verify it — the authoring-time check behind "a test does not
@@ -1572,7 +1499,7 @@ test-mutation-acceptance *ARGS:
 #
 #   just test-mutation-unit -run 'TestUnitMutation/^premise_instruction$'
 test-mutation-unit *ARGS:
-    @just _mutation-driver no-ratchet {{ARGS}}
+    @just _mutation-driver unit {{ARGS}}
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
 # Per-entry is the recommended way to run this: the full table is ~111 minutes,
@@ -1597,7 +1524,7 @@ test-mutation-entry NAME *ARGS:
 #
 #   just test-mutation-package isolation
 test-mutation-package NAME *ARGS:
-    @just _mutation-driver ratchet -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
+    @just _mutation-driver package -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
 
 # List the mutation target table's entry names, with the file each one mutates.
 # Reads the table itself, so it cannot drift from the code the way a hand-kept

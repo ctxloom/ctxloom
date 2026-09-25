@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"testing"
 	"time"
 
@@ -28,7 +29,7 @@ func TestContainerPrune_NoRuntimeIsANonDegradableIsolationFinding(t *testing.T) 
 	assert.Empty(t, rep.Runtimes)
 	found := strictness.Since(mark)
 	require.Len(t, found, 1)
-	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
+	assert.Equal(t, report.KindIsolation, found[0].Kind)
 	assert.True(t, found[0].NonDegradable)
 }
 

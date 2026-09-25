@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"testing"
 	"time"
 
@@ -133,7 +134,7 @@ func TestContainerPrune_ExitCodes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stubContainerPrune(t, func(context.Context, *operations.App, operations.ContainerPruneRequest) (operations.ContainerPruneReport, error) {
 				if tc.noRT {
-					strictness.FailAlways(strictness.ClassIsolation, "start one", "container prune: no container runtime is available to prune")
+					strictness.FailAlways(report.KindIsolation, "start one", "container prune: no container runtime is available to prune")
 				}
 				return tc.report, nil
 			})

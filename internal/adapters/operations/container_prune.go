@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"strings"
 	"time"
 
@@ -18,8 +19,8 @@ import (
 // concurrent worktree mid-launch at another commit keeps its image.
 const DefaultImagePruneMinAge = 24 * time.Hour
 
-// noPruneRuntimeFixIt is the remedy when prune has no runtime to ask.
-const noPruneRuntimeFixIt = "start docker or podman (or name one that is running with --runtime)"
+// noPruneRuntimeRemedy is the remedy when prune has no runtime to ask.
+const noPruneRuntimeRemedy = "start docker or podman (or name one that is running with --runtime)"
 
 // PruneAction is what `container prune` did, or would do, with one image.
 type PruneAction string
@@ -111,7 +112,7 @@ func ContainerPrune(ctx context.Context, app *App, req ContainerPruneRequest) (C
 	}
 	runtimes := pruneRuntimes(pruneAvailableRuntimes(), req.Runtime)
 	if len(runtimes) == 0 {
-		strictness.FailAlways(strictness.ClassIsolation, noPruneRuntimeFixIt,
+		strictness.FailAlways(report.KindIsolation, noPruneRuntimeRemedy,
 			"container prune: no container runtime is available to prune")
 		return rep, nil
 	}

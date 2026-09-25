@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -46,30 +47,32 @@ func TestAgentSteerSchema_NamesEveryDeliveryValue(t *testing.T) {
 // here would be the unchecked copy this test exists to replace.
 func coordDeliveryValues(t *testing.T) map[string]string {
 	t.Helper()
-	pkgs, err := parser.ParseDir(token.NewFileSet(), "../../../core/coord", func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	files, err := filepath.Glob("../../../core/coord/*.go")
 	require.NoError(t, err)
 	out := map[string]string{}
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			ast.Inspect(f, func(n ast.Node) bool {
-				vs, ok := n.(*ast.ValueSpec)
-				if !ok {
-					return true
-				}
-				for i, id := range vs.Names {
-					if !id.IsExported() || !strings.HasPrefix(id.Name, "Delivery") || i >= len(vs.Values) {
-						continue
-					}
-					if lit, ok := vs.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-						v, _ := strconv.Unquote(lit.Value)
-						out[id.Name] = v
-					}
-				}
-				return true
-			})
+	fset := token.NewFileSet()
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
 		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		require.NoError(t, err)
+		ast.Inspect(f, func(n ast.Node) bool {
+			vs, ok := n.(*ast.ValueSpec)
+			if !ok {
+				return true
+			}
+			for i, id := range vs.Names {
+				if !id.IsExported() || !strings.HasPrefix(id.Name, "Delivery") || i >= len(vs.Values) {
+					continue
+				}
+				if lit, ok := vs.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					v, _ := strconv.Unquote(lit.Value)
+					out[id.Name] = v
+				}
+			}
+			return true
+		})
 	}
 	return out
 }

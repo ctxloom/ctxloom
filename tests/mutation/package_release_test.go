@@ -115,3 +115,37 @@ func TestPackageLane_RefusesATreeThatDoesNotBuild(t *testing.T) {
 		t.Errorf("gremlins produced a tally over a tree that does not build; output:\n%s", got)
 	}
 }
+
+// A mutant that does not BUILD is not one a test caught: `go test` exits 1 on
+// a build failure and gremlins maps exit 1 to KILLED. This drives the REAL
+// gremlins through the lane's release over a package with two `a + b`
+// mutants — one on ints, which a test kills, and one on strings, whose `a - b`
+// does not compile — and requires exactly one invalid-mutant marker, after the
+// tally, so the ratchet and the score correction attribute it to this target.
+func TestPackageRelease_MarksAMutantThatDoesNotBuild(t *testing.T) {
+	if _, err := exec.LookPath("gremlins"); err != nil {
+		t.Fatalf("gremlins is not on PATH (%v) — `just test-mutation-install`", err)
+	}
+	src := fakeModule(t, map[string]string{
+		"go.mod":          labGoMod,
+		"cat/cat.go":      "package cat\n\nfunc Cat(a, b string) string { return a + b }\n\nfunc Add(a, b int) int { return a + b }\n",
+		"cat/cat_test.go": "package cat\n\nimport \"testing\"\n\nfunc TestCat(t *testing.T) {\n\tif Cat(\"a\", \"b\") != \"ab\" {\n\t\tt.Fatal(\"cat\")\n\t}\n}\n\nfunc TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Fatal(\"add\")\n\t}\n}\n",
+	})
+	t.Setenv("TMPDIR", t.TempDir())
+
+	var out bytes.Buffer
+	if ok := t.Run("cat", func(t *testing.T) { packageMutationTarget{Name: "cat", Pkg: "cat"}.release(t, src, &out) }); !ok {
+		t.Fatalf("release failed; output:\n%s", out.String())
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "Killed: 2, Lived: 0") {
+		t.Fatalf("expected gremlins to score both mutants KILLED (one by a test, one by the compiler); output:\n%s", got)
+	}
+	if n := strings.Count(got, "gremlins-invalid-mutant:"); n != 1 {
+		t.Errorf("want exactly 1 invalid-mutant marker (the string `a - b`), got %d; output:\n%s", n, got)
+	}
+	if tally, marker := strings.Index(got, "Killed: 2"), strings.Index(got, "gremlins-invalid-mutant:"); marker >= 0 && marker < tally {
+		t.Errorf("the marker must follow the tally it corrects; output:\n%s", got)
+	}
+}

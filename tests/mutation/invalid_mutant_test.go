@@ -175,3 +175,105 @@ func TestScoreCorrection_CorrectsAcrossEveryTargetsBox(t *testing.T) {
 		t.Errorf("want valid total 27 (30-3) and real kills 16 (19-3); got:\n%s", out)
 	}
 }
+
+// gremlins has the same defect as ooze by a different route: `go test` exits 1
+// on a build failure, and gremlins maps exit 1 to KILLED (only 2 is NOT
+// VIABLE). The package lane marks those mutants `gremlins-invalid-mutant:`,
+// after the tally, and the correction must subtract them from gremlins' own
+// tally lines — which are not ooze's box — and restate the efficacy it prints,
+// since that percentage is the figure a reader takes away.
+func TestScoreCorrection_CorrectsAGremlinsTally(t *testing.T) {
+	cmd := exec.Command("sh", repoInput(t, "tests/mutation/score_correction.sh")[0])
+	cmd.Stdin = strings.NewReader(
+		gremlinsLog("TestPackageMutation/x", 5, 2, 3, 1, 0, 0) +
+			"gremlins-invalid-mutant: ./x.go:3:42: invalid operation\n" +
+			"gremlins-invalid-mutant: ./x.go:9:1: invalid operation\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("score_correction.sh failed: %v\n%s", err, out)
+	}
+	got := string(out)
+	// Total is every tallied mutant: 5+2+3 on the first line, 1+0+0 on the second.
+	if !strings.Contains(got, "valid total:  9") {
+		t.Errorf("total not corrected: 11 tallied minus 2 that never compiled is 9.\ngot:\n%s", got)
+	}
+	if !strings.Contains(got, "real kills:   3") {
+		t.Errorf("kill count not corrected: 5 reported minus 2 that never compiled is 3.\ngot:\n%s", got)
+	}
+	// gremlins' efficacy is killed/(killed+lived): 5/7 as printed, 3/5 honest.
+	if !strings.Contains(got, "real efficacy: 60.00%") {
+		t.Errorf("gremlins' efficacy not corrected: 3 real kills over 3+2 is 60.00%%.\ngot:\n%s", got)
+	}
+}
+
+// runToolexec drives gremlins_toolexec.sh the way `go` does under
+// -toolexec — wrapper, then the tool's path, then its arguments — with a
+// stand-in tool that prints msg to stderr and exits with status.
+func runToolexec(t *testing.T, invalidDir, tool, status, msg string) (int, string) {
+	t.Helper()
+	wrapper := repoInput(t, "tests/mutation/gremlins_toolexec.sh")[0]
+	bin := filepath.Join(t.TempDir(), tool)
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \""+msg+"\" >&2\nexit "+status+"\n"), 0o755); err != nil {
+		t.Fatalf("write fake %s: %v", tool, err)
+	}
+	cmd := exec.Command("sh", wrapper, bin, "-p", "x")
+	cmd.Env = append(os.Environ(), "CTXLOOM_GREMLINS_INVALID_DIR="+invalidDir)
+	out, err := cmd.CombinedOutput()
+	return exitCode(t, err, out), string(out)
+}
+
+func recorded(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	var got []string
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		got = append(got, string(b))
+	}
+	return got
+}
+
+// The wrapper is how the package lane SEES a build failure: gremlins discards
+// `go test`'s output and keeps only its exit code, so the compiler's own exit
+// status, observed under -toolexec, is the one place "this mutant never ran a
+// test" is still distinguishable. It must record a failed compile or vet ONCE
+// per `go` command (one command is one mutant), ignore every other tool, and
+// hand the tool's exit status and stderr through untouched — gremlins' verdict
+// must not move.
+func TestGremlinsToolexec_RecordsABuildFailureOncePerGoCommand(t *testing.T) {
+	dir := t.TempDir()
+	code, out := runToolexec(t, dir, "compile", "1", "./cat.go:3:42: invalid operation: a - b")
+	if code != 1 || !strings.Contains(out, "invalid operation") {
+		t.Errorf("the compiler's exit status and stderr must pass through: exit %d, output %q", code, out)
+	}
+	// The same `go` command (this test process) compiling a second variant of
+	// the same broken package is still ONE mutant.
+	runToolexec(t, dir, "compile", "1", "./cat.go:3:42: invalid operation: a - b")
+	got := recorded(t, dir)
+	if len(got) != 1 || !strings.Contains(got[0], "cat.go:3:42: invalid operation") {
+		t.Errorf("want exactly one record naming the compiler error; got %q", got)
+	}
+
+	vetDir := t.TempDir()
+	runToolexec(t, vetDir, "vet", "1", "./cat.go:9:5: suspect or: s != a || s != b")
+	if got := recorded(t, vetDir); len(got) != 1 {
+		t.Errorf("a vet failure fails `go test` before any test runs and must be recorded; got %q", got)
+	}
+
+	quiet := t.TempDir()
+	if code, _ := runToolexec(t, quiet, "compile", "0", ""); code != 0 {
+		t.Errorf("a successful compile must exit 0 through the wrapper; got %d", code)
+	}
+	if code, _ := runToolexec(t, quiet, "link", "1", "link failed"); code != 1 {
+		t.Errorf("a failing link must still exit 1 through the wrapper; got %d", code)
+	}
+	if got := recorded(t, quiet); len(got) != 0 {
+		t.Errorf("only a failed compile or vet marks a mutant; got %q", got)
+	}
+}

@@ -65,12 +65,12 @@ type ContainerPruneRuntime struct {
 
 // ContainerPruneImage is one owned image's line.
 type ContainerPruneImage struct {
-	Ref     string                `json:"ref"`
-	Action  PruneAction           `json:"action"`
-	Reason  isolation.KeepReason  `json:"reason"`
-	Created time.Time             `json:"created"`
-	Bytes   int64                 `json:"bytes"`
-	Error   string                `json:"error,omitempty"`
+	Ref     string               `json:"ref"`
+	Action  PruneAction          `json:"action"`
+	Reason  isolation.KeepReason `json:"reason"`
+	Created time.Time            `json:"created"`
+	Bytes   int64                `json:"bytes"`
+	Error   string               `json:"error,omitempty"`
 }
 
 // Failed reports whether anything the sweep set out to do did not happen: a

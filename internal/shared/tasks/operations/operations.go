@@ -369,9 +369,8 @@ func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string
 // value, that existing tag is explicitly untagged first (store.RemoveTags),
 // then the new value is tagged (store.AddTags) — last wins, but the log
 // still records BOTH events, so history is never rewritten. An identical
-// value is left alone (no untag, no-op union). tc.TagSchema == nil (every
-// caller that predates this feature) skips the CurrentTags read and
-// collapse entirely, behaving exactly as before.
+// value is left alone (no untag, no-op union). tc.TagSchema == nil skips the
+// CurrentTags read and the collapse entirely.
 func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, error) {
 	if len(add) == 0 && len(remove) == 0 {
 		return nil, fmt.Errorf("at least one tag to add or remove is required")
@@ -389,51 +388,79 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 		// the write is skipped in full, so the log gains no event and the
 		// caller gets the task as it stands plus the report of what was
 		// skipped — never an error, which would read as a strict refusal.
-		task, cerr := currentTask(store, harpID)
-		if cerr != nil {
-			return nil, fmt.Errorf("add tags: %w", cerr)
-		}
-		return proj.taskResult(store, task, warning, refused), nil
+		return skippedTagResult(store, proj, harpID, warning, refused)
 	}
 	var task tasks.Task
 	if len(add) > 0 {
-		addTags := add
-		var toUntag []string
-		if tc.TagSchema != nil {
-			existing, cerr := store.CurrentTags(harpID)
-			if cerr != nil {
-				return nil, fmt.Errorf("add tags: %w", cerr)
-			}
-			addTags, toUntag = scalarCollapse(tc.TagSchema, existing, add)
-		}
-		// Add BEFORE untag: the log is append-only, so this pair is
-		// necessarily two separate writes, not one atomic operation. If the
-		// add lands and the untag then fails, the task carries a transient
-		// duplicate value on a scalar target — recoverable (lint already
-		// flags it, and a later collapse fixes it). The old ordering did
-		// the untag first: if the add then failed, the task's previous
-		// scalar value was already gone with nothing written to replace
-		// it — an unrecoverable loss.
-		if len(addTags) > 0 {
-			task, err = store.AddTags(harpID, addTags...)
-			if err != nil {
-				return nil, fmt.Errorf("add tags: %w", err)
-			}
-		}
-		if len(toUntag) > 0 {
-			task, err = store.RemoveTags(harpID, toUntag...)
-			if err != nil {
-				return nil, fmt.Errorf("add tags: collapse superseded scalar tag: %w", err)
-			}
+		task, err = addWithCollapse(store, tc.TagSchema, harpID, add)
+		if err != nil {
+			return nil, err
 		}
 	}
-	if len(remove) > 0 {
-		task, err = store.RemoveTags(harpID, remove...)
-		if err != nil {
-			return nil, fmt.Errorf("remove tags: %w", err)
-		}
+	task, err = removeTagsAfter(store, harpID, remove, task)
+	if err != nil {
+		return nil, err
 	}
 	return proj.taskResult(store, task, warning, refused), nil
+}
+
+// skippedTagResult is the task as it stands, with the report of the refused
+// tags, for a write every change of which was skipped.
+func skippedTagResult(store *tasks.Store, proj projectIdentity, harpID, warning string, refused []string) (*TaskResult, error) {
+	task, err := currentTask(store, harpID)
+	if err != nil {
+		return nil, fmt.Errorf("add tags: %w", err)
+	}
+	return proj.taskResult(store, task, warning, refused), nil
+}
+
+// removeTagsAfter removes the tags in remove, returning the task that write
+// left; with nothing to remove, the task stands as after the add.
+func removeTagsAfter(store *tasks.Store, harpID string, remove []string, task tasks.Task) (tasks.Task, error) {
+	if len(remove) == 0 {
+		return task, nil
+	}
+	task, err := store.RemoveTags(harpID, remove...)
+	if err != nil {
+		return task, fmt.Errorf("remove tags: %w", err)
+	}
+	return task, nil
+}
+
+// addWithCollapse tags harpID with add, collapsing each scalar target
+// (schema non-nil) so a new value displaces the existing one. It returns the
+// task as the last write left it (zero when nothing was written).
+//
+// Add BEFORE untag: the log is append-only, so this pair is necessarily two
+// separate writes, not one atomic operation. If the add lands and the untag
+// then fails, the task carries a transient duplicate value on a scalar
+// target — recoverable (lint already flags it, and a later collapse fixes
+// it). Untagging first would risk the opposite: if the add then failed, the
+// task's previous scalar value would be gone with nothing written to replace
+// it — an unrecoverable loss.
+func addWithCollapse(store *tasks.Store, schema *tagschema.Schema, harpID string, add []string) (tasks.Task, error) {
+	var task tasks.Task
+	addTags := add
+	var toUntag []string
+	if schema != nil {
+		existing, err := store.CurrentTags(harpID)
+		if err != nil {
+			return task, fmt.Errorf("add tags: %w", err)
+		}
+		addTags, toUntag = scalarCollapse(schema, existing, add)
+	}
+	var err error
+	if len(addTags) > 0 {
+		if task, err = store.AddTags(harpID, addTags...); err != nil {
+			return task, fmt.Errorf("add tags: %w", err)
+		}
+	}
+	if len(toUntag) > 0 {
+		if task, err = store.RemoveTags(harpID, toUntag...); err != nil {
+			return task, fmt.Errorf("add tags: collapse superseded scalar tag: %w", err)
+		}
+	}
+	return task, nil
 }
 
 // currentTask returns harpID's folded state without appending anything —

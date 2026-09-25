@@ -158,26 +158,36 @@ func canonicalRelease(rel release.Release) (release.Release, error) {
 	if rel.Version == nil {
 		return release.Release{}, fmt.Errorf("%w: release %q has no version", ErrManifestFormat, rel.Name)
 	}
-	out := release.Release{Name: rel.Name, Version: rel.Version, Withdrawn: rel.Withdrawn}
-	out.Retracts = make([]release.Retraction, len(rel.Retracts))
-	copy(out.Retracts, rel.Retracts)
-	for _, r := range out.Retracts {
-		if r.Version == nil {
-			return release.Release{}, fmt.Errorf("%w: a retraction names no version", ErrManifestFormat)
-		}
-		if err := headerField("retraction reason", r.Reason); err != nil {
-			return release.Release{}, err
-		}
-	}
-	sort.SliceStable(out.Retracts, func(i, j int) bool { return out.Retracts[i].Version.LessThan(out.Retracts[j].Version) })
-	for i := 1; i < len(out.Retracts); i++ {
-		if out.Retracts[i].Version.Equal(out.Retracts[i-1].Version) {
-			return release.Release{}, fmt.Errorf("%w: version %s is retracted twice", ErrManifestFormat, out.Retracts[i].Version)
-		}
+	retracts, err := canonicalRetractions(rel.Retracts)
+	if err != nil {
+		return release.Release{}, err
 	}
 	if rel.Withdrawn != "" {
 		if err := headerField("withdrawal reason", rel.Withdrawn); err != nil {
 			return release.Release{}, err
+		}
+	}
+	return release.Release{Name: rel.Name, Version: rel.Version, Withdrawn: rel.Withdrawn, Retracts: retracts}, nil
+}
+
+// canonicalRetractions is a sorted copy of the retractions, refusing one
+// with no version, a reason that cannot sit on one header line, and a
+// version retracted twice.
+func canonicalRetractions(in []release.Retraction) ([]release.Retraction, error) {
+	out := make([]release.Retraction, len(in))
+	copy(out, in)
+	for _, r := range out {
+		if r.Version == nil {
+			return nil, fmt.Errorf("%w: a retraction names no version", ErrManifestFormat)
+		}
+		if err := headerField("retraction reason", r.Reason); err != nil {
+			return nil, err
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Version.LessThan(out[j].Version) })
+	for i := 1; i < len(out); i++ {
+		if out[i].Version.Equal(out[i-1].Version) {
+			return nil, fmt.Errorf("%w: version %s is retracted twice", ErrManifestFormat, out[i].Version)
 		}
 	}
 	return out, nil
@@ -223,39 +233,20 @@ var hexSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // So a trailing space, a CRLF, an out-of-order line or a single-space separator
 // is refused rather than normalised.
 func ParseManifest(raw []byte) (Manifest, error) {
-	lines := strings.SplitAfter(string(raw), "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
+	body, err := manifestLines(raw)
+	if err != nil {
+		return Manifest{}, err
 	}
-	body := make([]string, len(lines))
-	for i, line := range lines {
-		b, ok := strings.CutSuffix(line, "\n")
-		if !ok {
-			return Manifest{}, fmt.Errorf("%w: last line %q is not newline-terminated", ErrManifestFormat, line)
-		}
-		body[i] = b
-	}
-	if len(body) == 0 || body[0] != ManifestVersionMarker {
-		first := ""
-		if len(body) > 0 {
-			first = body[0]
-		}
-		if first == DigestVersionMarker {
-			return Manifest{}, fmt.Errorf("%w: %w: version marker is %q, this build understands only %q", ErrManifestFormat, ErrManifestSuperseded, first, ManifestVersionMarker)
-		}
-		return Manifest{}, fmt.Errorf("%w: version marker is %q, this build understands only %q", ErrManifestFormat, first, ManifestVersionMarker)
+	if err := checkManifestMarker(body); err != nil {
+		return Manifest{}, err
 	}
 	rel, rest, err := parseReleaseHeader(body[1:])
 	if err != nil {
 		return Manifest{}, err
 	}
-	entries := make([]ManifestEntry, 0, len(rest))
-	for _, line := range rest {
-		hash, path, ok := strings.Cut(line, "  ")
-		if !ok {
-			return Manifest{}, fmt.Errorf("%w: line %q is not %q", ErrManifestFormat, line, "<hash><two spaces><path>")
-		}
-		entries = append(entries, ManifestEntry{Path: path, SHA256: hash})
+	entries, err := parseManifestEntries(rest)
+	if err != nil {
+		return Manifest{}, err
 	}
 	m, err := NewManifest(rel, entries)
 	if err != nil {
@@ -265,6 +256,53 @@ func ParseManifest(raw []byte) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("%w: not in canonical form (header in order name, version, retracts sorted by version, withdrawn; entries sorted by path, separated by two spaces, LF-terminated)", ErrManifestFormat)
 	}
 	return m, nil
+}
+
+// manifestLines splits raw into its lines, refusing a last line that is not
+// newline-terminated.
+func manifestLines(raw []byte) ([]string, error) {
+	lines := strings.SplitAfter(string(raw), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	body := make([]string, len(lines))
+	for i, line := range lines {
+		b, ok := strings.CutSuffix(line, "\n")
+		if !ok {
+			return nil, fmt.Errorf("%w: last line %q is not newline-terminated", ErrManifestFormat, line)
+		}
+		body[i] = b
+	}
+	return body, nil
+}
+
+// checkManifestMarker refuses a manifest whose first line is not this
+// build's version marker, naming a superseded digest marker as such.
+func checkManifestMarker(body []string) error {
+	if len(body) > 0 && body[0] == ManifestVersionMarker {
+		return nil
+	}
+	first := ""
+	if len(body) > 0 {
+		first = body[0]
+	}
+	if first == DigestVersionMarker {
+		return fmt.Errorf("%w: %w: version marker is %q, this build understands only %q", ErrManifestFormat, ErrManifestSuperseded, first, ManifestVersionMarker)
+	}
+	return fmt.Errorf("%w: version marker is %q, this build understands only %q", ErrManifestFormat, first, ManifestVersionMarker)
+}
+
+// parseManifestEntries reads each "<hash><two spaces><path>" entry line.
+func parseManifestEntries(lines []string) ([]ManifestEntry, error) {
+	entries := make([]ManifestEntry, 0, len(lines))
+	for _, line := range lines {
+		hash, path, ok := strings.Cut(line, "  ")
+		if !ok {
+			return nil, fmt.Errorf("%w: line %q is not %q", ErrManifestFormat, line, "<hash><two spaces><path>")
+		}
+		entries = append(entries, ManifestEntry{Path: path, SHA256: hash})
+	}
+	return entries, nil
 }
 
 // parseReleaseHeader reads the header lines in their one legal order and

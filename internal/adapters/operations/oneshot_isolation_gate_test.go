@@ -117,6 +117,19 @@ func TestIsolationGateErr(t *testing.T) {
 		assert.Contains(t, err.Error(), isoFinding.FixIt)
 	})
 
+	t.Run("strict + several isolation findings → every finding's fix is shown", func(t *testing.T) {
+		resetStrictness(t)
+		other := strictness.Finding{
+			Class:   strictness.ClassIsolation,
+			Message: "worktree isolation was requested but the workspace could not be created",
+			FixIt:   "commit or stash local changes, or pass --degraded",
+		}
+		err := isolationGateErr(strictness.Mode{}, []strictness.Finding{isoFinding, other})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), isoFinding.FixIt)
+		assert.Contains(t, err.Error(), other.FixIt)
+	})
+
 	t.Run("strict + no findings → nil", func(t *testing.T) {
 		resetStrictness(t)
 		assert.NoError(t, isolationGateErr(strictness.Mode{}, nil))

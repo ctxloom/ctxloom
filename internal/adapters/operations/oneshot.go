@@ -342,11 +342,15 @@ func isolationGateErr(mode strictness.Mode, found []strictness.Finding) error {
 	}
 	var b strings.Builder
 	b.WriteString("isolation: refusing to run this member — an explicitly-requested isolation guarantee could not be satisfied")
+	// Each finding carries its own fix; a fix identical to the previous
+	// finding's is not repeated.
+	lastFix := ""
 	for _, f := range iso {
 		fmt.Fprintf(&b, ": %s", f.Message)
-	}
-	if fix := iso[0].FixIt; fix != "" {
-		fmt.Fprintf(&b, " (fix: %s)", fix)
+		if f.FixIt != "" && f.FixIt != lastFix {
+			fmt.Fprintf(&b, " (fix: %s)", f.FixIt)
+			lastFix = f.FixIt
+		}
 	}
 	return errors.New(b.String())
 }

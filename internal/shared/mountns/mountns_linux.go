@@ -119,11 +119,8 @@ func Supported(ctx context.Context, scratch string) error {
 	source := filepath.Join(dir, "source")
 	target := filepath.Join(dir, "target")
 	const payload = "written-inside-the-namespace"
-	if err := iox.WriteFileInPlace(source, iox.TruncateInPlace, []byte("original"), 0o600); err != nil {
-		return fmt.Errorf("mountns: seed probe source: %w", err)
-	}
-	if err := iox.WriteFileInPlace(target, iox.TruncateInPlace, []byte("placeholder"), 0o600); err != nil {
-		return fmt.Errorf("mountns: seed probe target: %w", err)
+	if err := seedProbeFiles(source, target); err != nil {
+		return err
 	}
 
 	self, err := os.Executable()
@@ -152,6 +149,18 @@ func Supported(ctx context.Context, scratch string) error {
 	}
 	if string(landed) != payload {
 		return fmt.Errorf("%w: an in-place write through the mount did not reach the host file (it still reads %q)", ErrUnsupported, string(landed))
+	}
+	return nil
+}
+
+// seedProbeFiles writes the probe's bind source and target, each with
+// content the probe payload can be told apart from.
+func seedProbeFiles(source, target string) error {
+	if err := iox.WriteFileInPlace(source, iox.TruncateInPlace, []byte("original"), 0o600); err != nil {
+		return fmt.Errorf("mountns: seed probe source: %w", err)
+	}
+	if err := iox.WriteFileInPlace(target, iox.TruncateInPlace, []byte("placeholder"), 0o600); err != nil {
+		return fmt.Errorf("mountns: seed probe target: %w", err)
 	}
 	return nil
 }

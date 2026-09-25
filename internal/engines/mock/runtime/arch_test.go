@@ -82,36 +82,9 @@ func runLimb(t *testing.T, r limbRun) runtime.Report {
 		cli = *r.cli
 	}
 	cwd, home := t.TempDir(), t.TempDir()
-	for rel, body := range r.files {
-		writeFile(t, cwd, rel, []byte(body))
-	}
-	for rel, body := range r.homeFiles {
-		writeFile(t, home, rel, []byte(body))
-	}
-	argv := []string{}
-	if cli.Subcommand != "" {
-		argv = append(argv, cli.Subcommand)
-	}
-	// Every REQUIRED valueless flag the surface declares, so the line the
-	// harness builds is one the real binary would accept. Read off the
-	// declaration rather than hardcoded, so a personality that requires a
-	// different flag is driven correctly without editing this harness.
-	for _, f := range cli.Flags {
-		if f.Required && f.Value == agent.ValueNone {
-			argv = append(argv, f.Name)
-		}
-	}
-	stdin := ""
-	// Deliver the prompt on the channel L1 DECLARES — claude oneshot takes
-	// stdin, another personality may take a trailing positional. A harness that
-	// always used stdin would be testing the wrong limb for half of them.
-	if r.prompt != "" {
-		if cli.Prompt == agent.PromptPositional {
-			argv = append(argv, r.prompt)
-		} else {
-			stdin = r.prompt
-		}
-	}
+	writeFiles(t, cwd, r.files)
+	writeFiles(t, home, r.homeFiles)
+	argv, stdin := limbArgv(cli, r.prompt)
 	parsed, err := cli.ParseArgv(argv)
 	if err != nil {
 		t.Fatalf("parse argv %v: %v", argv, err)
@@ -133,6 +106,41 @@ func runLimb(t *testing.T, r limbRun) runtime.Report {
 		t.Fatalf("extract report: %v\nstderr:\n%s", err, stderr.String())
 	}
 	return rep
+}
+
+// writeFiles writes each file under dir.
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for rel, body := range files {
+		writeFile(t, dir, rel, []byte(body))
+	}
+}
+
+// limbArgv is the launch line and stdin for one limb. It carries every
+// REQUIRED valueless flag the surface declares, so the line the harness
+// builds is one the real binary would accept — read off the declaration
+// rather than hardcoded, so a personality that requires a different flag is
+// driven correctly without editing this harness. The prompt goes on the
+// channel L1 DECLARES — claude oneshot takes stdin, another personality may
+// take a trailing positional; a harness that always used stdin would be
+// testing the wrong limb for half of them.
+func limbArgv(cli agent.EngineCLI, prompt string) (argv []string, stdin string) {
+	argv = []string{}
+	if cli.Subcommand != "" {
+		argv = append(argv, cli.Subcommand)
+	}
+	for _, f := range cli.Flags {
+		if f.Required && f.Value == agent.ValueNone {
+			argv = append(argv, f.Name)
+		}
+	}
+	if prompt == "" {
+		return argv, ""
+	}
+	if cli.Prompt == agent.PromptPositional {
+		return append(argv, prompt), ""
+	}
+	return argv, prompt
 }
 
 func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {

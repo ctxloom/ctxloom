@@ -69,36 +69,47 @@ func TestObservePath_UnreadableEntryIsMarked(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("runs as root: file mode does not deny reads")
 	}
-	dir := t.TempDir()
-	surface := filepath.Join(dir, "commands")
-	if err := os.MkdirAll(surface, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	good := filepath.Join(surface, "good.md")
-	if err := os.WriteFile(good, []byte("readable"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	bad := filepath.Join(surface, "bad.md")
-	if err := os.WriteFile(bad, []byte("secret"), 0o000); err != nil {
-		t.Fatal(err)
-	}
+	surface := plantUnreadableSurface(t)
 
 	rec := observePath(ProbeRecord{}, surface, true)
 	if !rec.Present || !rec.Dir {
 		t.Fatalf("the directory itself is present: %+v", rec)
 	}
-	var badRec *EntryRecord
-	for i := range rec.Entries {
-		if rec.Entries[i].Name == "bad.md" {
-			badRec = &rec.Entries[i]
-		}
-	}
+	badRec := entryNamed(rec.Entries, "bad.md")
 	if badRec == nil {
 		t.Fatalf("an unreadable entry must still be listed: %+v", rec.Entries)
 	}
 	if !badRec.Unreadable {
 		t.Fatalf("an unreadable entry must be marked, not just left with an empty hash: %+v", *badRec)
 	}
+}
+
+// plantUnreadableSurface is a surface directory holding one readable entry
+// and one (bad.md) whose mode denies reads.
+func plantUnreadableSurface(t *testing.T) string {
+	t.Helper()
+	surface := filepath.Join(t.TempDir(), "commands")
+	if err := os.MkdirAll(surface, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surface, "good.md"), []byte("readable"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(surface, "bad.md"), []byte("secret"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	return surface
+}
+
+// entryNamed is the last entry named name, nil when none is.
+func entryNamed(entries []EntryRecord, name string) *EntryRecord {
+	var found *EntryRecord
+	for i := range entries {
+		if entries[i].Name == name {
+			found = &entries[i]
+		}
+	}
+	return found
 }
 
 // TestCanonicalRendering_CarriesUnreadable proves the new state reaches the

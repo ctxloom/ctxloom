@@ -260,7 +260,7 @@ func (s *Sources) warnInvalidLayer(b *config.Builder, data []byte, configPath st
 // and the agents that name no engine.
 func warnLayerDrops(b *config.Builder, layer layerscope.Layer, raw map[string]any, appPath, homeAppPath, configPath string) {
 	for _, v := range config.DropLayerScopeViolations(layer, raw) {
-		b.Warn(config.WarnKindLayerScope, "%s", v.Message(appPath, homeAppPath))
+		b.WarnRemedy(config.WarnKindLayerScope, v.Remedy(appPath, homeAppPath), "%s", v.Message(appPath, homeAppPath))
 		zap.L().Warn("config_layer_scope_warning", zap.String("path", configPath), zap.Strings("key", v.Path))
 	}
 	for _, w := range dropEnginelessAgents(configPath, raw) {

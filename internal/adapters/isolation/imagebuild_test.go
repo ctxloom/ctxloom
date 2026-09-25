@@ -334,14 +334,14 @@ func TestBuildSources_OverrideWithValidateIsSilent(t *testing.T) {
 	assert.Empty(t, buf.String(), "a spec that CAN validate its client warns about nothing")
 }
 
-// TestOverlayUserGate_FailsTheBuildWithAFixIt: a base that cannot grow the
+// TestOverlayUserGate_FailsTheBuildWithARemedy: a base that cannot grow the
 // identity machinery (the ctxloom user, and setpriv or gosu+usermod+groupmod)
 // must FAIL the build with a fix-it — the old all-`|| true` layer shipped an
 // image whose engine then ran as root behind a buried in-container warning,
 // invisible to the launch-failure gate. The install ATTEMPTS stay best-effort
 // (arbitrary bases bring arbitrary package managers); only the VERIFICATION
 // is hard.
-func TestOverlayUserGate_FailsTheBuildWithAFixIt(t *testing.T) {
+func TestOverlayUserGate_FailsTheBuildWithARemedy(t *testing.T) {
 	assert.Contains(t, overlayUserGate, "exit 1", "an unmet contract fails the build")
 	assert.NotContains(t, overlayUserGate, "|| true", "the verification is never swallowed")
 	assert.Contains(t, overlayUserGate, "id ctxloom", "the ctxloom user must exist")

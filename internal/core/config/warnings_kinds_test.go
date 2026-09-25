@@ -52,9 +52,9 @@ func TestWarningKind_AllWarningKindsIsExhaustive(t *testing.T) {
 // The doc on WarningKind promises that every kind is fatal-class in strict
 // mode and the fail-loudly gate depends on it: a kind that mapped to no fatal
 // class would degrade silently on exactly the startup paths that exist to
-// refuse a broken  Each must also carry an actionable fix-it, since the
+// refuse a broken  Each must also carry an actionable remedy, since the
 // abort listing prints one per finding.
-func TestWarningKind_EveryKindIsFatalClassWithAFixIt(t *testing.T) {
+func TestWarningKind_EveryKindIsFatalWithARemedy(t *testing.T) {
 	for _, kind := range allWarningKinds {
 		t.Run(string(kind), func(t *testing.T) {
 			require.NotEmpty(t, string(kind), "a kind's on-the-wire value must not be empty")
@@ -62,7 +62,7 @@ func TestWarningKind_EveryKindIsFatalClassWithAFixIt(t *testing.T) {
 				[]report.Kind{report.KindConfig, report.KindMigration},
 				kind.Kind(),
 				"every warning kind must bucket into a fatal class")
-			assert.NotEmpty(t, kind.FixIt(), "every warning kind must name its fix")
+			assert.NotEmpty(t, kind.Remedy(), "every warning kind must name its fix")
 		})
 	}
 }
@@ -141,4 +141,15 @@ func TestReportWarnings_NoWarningsReportsNothing(t *testing.T) {
 	var sink report.Collector
 	ReportWarnings(&sink, nil)
 	assert.Empty(t, sink.All())
+}
+
+// A warning whose raise site knows a specific fix (a layer-scope violation's
+// exact edit) carries it to the finding; one that does not falls to its
+// kind's generic remedy.
+func TestWarning_FindingCarriesTheSpecificRemedy(t *testing.T) {
+	const specific = "Remove it from /p/config.yaml; set it in /h/config.yaml instead."
+	w := Warning{Kind: WarnKindLayerScope, Text: "dropped", Remedy: specific}
+	assert.Equal(t, specific, w.Finding().Remedy)
+	plain := Warning{Kind: WarnKindRead, Text: "unreadable"}
+	assert.Equal(t, WarnKindRead.Remedy(), plain.Finding().Remedy)
 }

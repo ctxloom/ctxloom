@@ -59,7 +59,13 @@ func (b *Builder) Shell() *Config { return b.cfg }
 // keys exclusively on these, so every "record and continue" in the reader
 // goes through here rather than through a log line nothing can see.
 func (b *Builder) Warn(k WarningKind, format string, args ...any) {
-	b.cfg.warn(k, format, args...)
+	b.cfg.warn(k, "", format, args...)
+}
+
+// WarnRemedy is Warn for a degradation whose raise site knows a fix more
+// specific than its kind's generic one (see Warning.Remedy).
+func (b *Builder) WarnRemedy(k WarningKind, remedy, format string, args ...any) {
+	b.cfg.warn(k, remedy, format, args...)
 }
 
 // SetPendingUpgrades records the project (or sole) layer's and the home
@@ -77,12 +83,12 @@ func (b *Builder) SetPendingUpgrades(project, home *PendingUpgrade) {
 func (b *Builder) Decode(merged map[string]any) {
 	mergedYAML, err := yaml.Marshal(merged)
 	if err != nil {
-		b.cfg.warn(WarnKindParse, "failed to remarshal layered config: %v", err)
+		b.cfg.warn(WarnKindParse, "", "failed to remarshal layered config: %v", err)
 		zap.L().Warn("config_layer_remarshal_warning", zap.Error(err))
 		return
 	}
 	if err := yaml.Unmarshal(mergedYAML, b.cfg); err != nil {
-		b.cfg.warn(WarnKindParse, "failed to parse layered config: %v", err)
+		b.cfg.warn(WarnKindParse, "", "failed to parse layered config: %v", err)
 		zap.L().Warn("config_parse_warning", zap.Error(err))
 	}
 }

@@ -479,10 +479,10 @@ func currentTask(store *tasks.Store, harpID string) (tasks.Task, error) {
 	return tasks.Task{}, fmt.Errorf("task not found: %s", harpID)
 }
 
-// refusedTagFixIt is the remedy every tag refusal carries: the fault is in
+// refusedTagRemedy is the remedy every tag refusal carries: the fault is in
 // the caller's input, and degraded mode is the sanctioned way to land the
 // rest of the write without it.
-const refusedTagFixIt = "drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it"
+const refusedTagRemedy = "drop or correct the tag (taskloom tags / the project's tag_schema), or pass --degraded to write without it"
 
 // admitTags is the write-side tag gate on both mutation seams (AddTaskWithTags,
 // TagTask's add list) and taskloom's one entry into the strictness contract:
@@ -510,7 +510,7 @@ func admitTags(mode strictness.Mode, op string, tags []string, schema *tagschema
 	defer strictness.Close(mark)
 	for _, t := range tags {
 		if verr := validateTag(t, schema); verr != nil {
-			mode.Sink().Report(report.FailOncef(report.KindTask, refusedTagFixIt, "%s: %v", op, verr))
+			mode.Sink().Report(report.FailOncef(report.KindTask, refusedTagRemedy, "%s: %v", op, verr))
 			refused = append(refused, verr.Error())
 			continue
 		}

@@ -310,14 +310,14 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
 	route, err := rt.reachRoute(ctx)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, noHostReachFixIt, "refusing to run a container that cannot dial home: %v", err)
+		strictness.FailAlways(report.KindIsolation, noHostReachRemedy, "refusing to run a container that cannot dial home: %v", err)
 		return hostRoute{}, err
 	}
 	return route, nil
 }
 
-// noHostReachFixIt names the ways a container gets a route to the host.
-const noHostReachFixIt = "give the host a default route, or use a runtime whose containers reach the host privately: a rootless translator with a loopback route (pasta, slirp4netns) or a rootful bridge"
+// noHostReachRemedy names the ways a container gets a route to the host.
+const noHostReachRemedy = "give the host a default route, or use a runtime whose containers reach the host privately: a rootless translator with a loopback route (pasta, slirp4netns) or a rootful bridge"
 
 // WorkspaceListen is the listener ws's runner needs the coordinator to hold
 // beyond its loopback one (zero for every runner that dials loopback).
@@ -894,14 +894,14 @@ func (c Container) imagePresent(ctx context.Context) bool {
 	return exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "")...).Run() == nil
 }
 
-// overrideIdentityFixIt names the ways out when a user-supplied image cannot
+// overrideIdentityRemedy names the ways out when a user-supplied image cannot
 // satisfy the identity contract: make the image entrypoint-governed, or accept
 // the image's own identity via degraded mode.
 // It names no flag on purpose: this finding is non-degradable (see
 // checkRunAsIsIdentity), so offering --degraded would hand the user a remedy
 // that does not work. Both routes here are followable and both end with a run
 // that owns its files correctly.
-const overrideIdentityFixIt = "base the isolation_images override on a ctxloom-built agent image (or install ctxloom-entrypoint as its ENTRYPOINT — see `ctxloom container build`), or drop the isolation_images override so ctxloom builds the agent image itself"
+const overrideIdentityRemedy = "base the isolation_images override on a ctxloom-built agent image (or install ctxloom-entrypoint as its ENTRYPOINT — see `ctxloom container build`), or drop the isolation_images override so ctxloom builds the agent image itself"
 
 // runAsIs reports whether this policy runs a USER-OWNED image as-is (an
 // isolation_images override, or an explicit image on a spec with no local
@@ -976,12 +976,12 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 	}
 	id, err := c.imageIdentityConfig(ctx)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, overrideIdentityFixIt,
+		strictness.FailAlways(report.KindIsolation, overrideIdentityRemedy,
 			"refusing to run user-supplied container image %q: its identity contract cannot be verified (%v), so it may start with the wrong identity and write wrongly-owned files into your project", c.image, err)
 		return
 	}
 	if problem := runAsIsIdentityProblem(c.runtime, id); problem != "" {
-		strictness.FailAlways(report.KindIsolation, overrideIdentityFixIt,
+		strictness.FailAlways(report.KindIsolation, overrideIdentityRemedy,
 			"refusing to run user-supplied container image %q: it would start with the WRONG identity on %s: %s — files it writes into the mounted project would not be owned by you (e.g. root-owned)", c.image, runtimeName(c.runtime), problem)
 	}
 }

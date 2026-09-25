@@ -8,10 +8,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
-// versionStampFixIt is the remedy for an unstamped binary. The refusal is the
+// versionStampRemedy is the remedy for an unstamped binary. The refusal is the
 // entire user interface for this failure, so it names the command that ends
 // the problem rather than describing the complaint again.
-const versionStampFixIt = "build through the task runner: `just build` applies the -X internal/shared/version.Version ldflag that stamps the binary"
+const versionStampRemedy = "build through the task runner: `just build` applies the -X internal/shared/version.Version ldflag that stamps the binary"
 
 // refuseUnstampedBuild aborts before dispatch when this binary carries no
 // usable version stamp.
@@ -73,7 +73,7 @@ func refuseUnstampedBuild(cmd *cobra.Command) error {
 	}
 	// Opened only on the failing path, so a stamped run adds no checkpoint.
 	g := newPhaseGates(cmd.ErrOrStderr(), strictnessMode(cmd))
-	strictness.FailAlways(report.KindConfig, versionStampFixIt,
+	strictness.FailAlways(report.KindConfig, versionStampRemedy,
 		"this binary carries no usable version stamp (%q): it cannot say which build or commit is answering, and nothing downstream can tell it apart from any other ctxloom",
 		version.Version)
 	return g.close(PhaseStartup)

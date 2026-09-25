@@ -128,7 +128,7 @@ func TestPolicy_Check_UnknownKeyProducesNoViolation(t *testing.T) {
 	}
 }
 
-func TestViolation_Message_NamesKeyLayerAndFixIt(t *testing.T) {
+func TestViolation_Message_NamesKeyAndLayer(t *testing.T) {
 	v := Violation{
 		Path:  []string{"agents", "reviewer", "coordinator"},
 		Layer: LayerHome,
@@ -136,37 +136,47 @@ func TestViolation_Message_NamesKeyLayerAndFixIt(t *testing.T) {
 	}
 	msg := v.Message("/proj/.ctxloom", "/home/u/.ctxloom")
 	for _, want := range []string{
-		"home", "agents.reviewer.coordinator", "PROJECT", "a privilege grant",
-		"Dropped", "/home/u/.ctxloom/config.yaml", "/proj/.ctxloom/config.yaml",
+		"home", "agents.reviewer.coordinator", "PROJECT", "a privilege grant", "Dropped",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("Message() = %q, missing %q", msg, want)
 		}
 	}
+	remedy := v.Remedy("/proj/.ctxloom", "/home/u/.ctxloom")
+	for _, want := range []string{"/home/u/.ctxloom/config.yaml", "/proj/.ctxloom/config.yaml"} {
+		if !strings.Contains(remedy, want) {
+			t.Errorf("Remedy() = %q, missing %q", remedy, want)
+		}
+	}
+	// The remedy travels beside the message; splicing it back in would
+	// print it twice wherever the fix line is rendered.
+	if strings.Contains(msg, remedy) {
+		t.Errorf("Message() = %q still inlines the remedy %q", msg, remedy)
+	}
 }
 
-func TestViolation_FixIt_NamesNonFileLayerWhenNoFileAllowed(t *testing.T) {
-	// ScopeInvocation allows only env/flag -- neither is a file, so FixIt must
+func TestViolation_Remedy_NamesNonFileLayerWhenNoFileAllowed(t *testing.T) {
+	// ScopeInvocation allows only env/flag -- neither is a file, so Remedy must
 	// name a LAYER, not fabricate a file path.
 	v := Violation{
 		Path:  []string{"some", "invocation", "key"},
 		Layer: LayerProject,
 		Rule:  Rule{Path: "some.invocation.key", Scope: ScopeInvocation},
 	}
-	fixit := v.FixIt("/proj/.ctxloom", "/home/u/.ctxloom")
+	fixit := v.Remedy("/proj/.ctxloom", "/home/u/.ctxloom")
 	if !strings.Contains(fixit, "env") {
-		t.Errorf("FixIt() = %q, expected it to name the env layer as the allowed channel", fixit)
+		t.Errorf("Remedy() = %q, expected it to name the env layer as the allowed channel", fixit)
 	}
 }
 
-func TestViolation_FixIt_NeverScopeNamesNoLayer(t *testing.T) {
+func TestViolation_Remedy_NeverScopeNamesNoLayer(t *testing.T) {
 	v := Violation{
 		Path:  []string{"dirty_tree_commit_ack"},
 		Layer: LayerEnv,
 		Rule:  Rule{Path: "dirty_tree_commit_ack", Scope: ScopeNever},
 	}
-	fixit := v.FixIt("/proj/.ctxloom", "/home/u/.ctxloom")
+	fixit := v.Remedy("/proj/.ctxloom", "/home/u/.ctxloom")
 	if strings.Contains(fixit, ".ctxloom/config.yaml") {
-		t.Errorf("FixIt() = %q, must not suggest a config file for a Never-scope key", fixit)
+		t.Errorf("Remedy() = %q, must not suggest a config file for a Never-scope key", fixit)
 	}
 }

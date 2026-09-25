@@ -1485,7 +1485,7 @@ _mutation-driver LANE *ARGS:
 # Mutate one source file per target and drive the CUCUMBER acceptance suite
 # against a binary rebuilt from each mutant. Ratcheted against
 # tests/mutation/survivor_baseline.txt. Nightly/scoped — never a per-PR gate.
-test-mutation-acceptance *ARGS:
+test-mutation-acceptance *ARGS: _require-generated
     @just _mutation-driver acceptance {{ARGS}}
 
 # Mutate one source file per target and judge every mutant with the SINGLE test
@@ -1498,7 +1498,7 @@ test-mutation-acceptance *ARGS:
 # mutant. Measured ~6s/mutant, and it never writes the source tree.
 #
 #   just test-mutation-unit -run 'TestUnitMutation/^premise_instruction$'
-test-mutation-unit *ARGS:
+test-mutation-unit *ARGS: _require-generated
     @just _mutation-driver unit {{ARGS}}
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
@@ -1523,7 +1523,7 @@ test-mutation-entry NAME *ARGS:
 # first measurement, or a lower one, with CTXLOOM_MUTATION_BASELINE=update.
 #
 #   just test-mutation-package isolation
-test-mutation-package NAME *ARGS:
+test-mutation-package NAME *ARGS: _require-generated
     @just _mutation-driver package -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
 
 # List the mutation target table's entry names, with the file each one mutates.

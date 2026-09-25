@@ -24,10 +24,11 @@ import (
 // analyzer alone; a table whose corpus half needs the whole module is read by
 // tests/arch as well.
 var ruleTableReaders = map[string][]string{
-	"LayeringRules":           {"internal/shared/archlint", "tests/arch"},
-	"LedgerDisciplineAllowed": {"internal/shared/archlint"},
-	"LockDisciplineAllowed":   {"internal/shared/archlint"},
-	"WriteDisciplineAllowed":  {"internal/shared/archlint", "tests/arch"},
+	"LayeringRules":              {"internal/shared/archlint", "tests/arch"},
+	"LedgerDisciplineAllowed":    {"internal/shared/archlint"},
+	"LockDisciplineAllowed":      {"internal/shared/archlint"},
+	"TestWriteDisciplineAllowed": {"internal/shared/archlint"},
+	"WriteDisciplineAllowed":     {"internal/shared/archlint"},
 }
 
 // ruleTableNames are ruleTableReaders' keys, sorted.

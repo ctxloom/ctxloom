@@ -64,6 +64,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/archlint"
 )
 
 // vocabScopes are the subtrees this gate reads: production code only, both
@@ -372,7 +374,7 @@ func vocabMembershipSites(fset *token.FileSet, files []vocabFile) []membershipSi
 			if len(lits) < 2 {
 				continue
 			}
-			out = append(out, membershipSite{dir: vf.dir, file: vf.rel, sym: funcSymbol(fd), lits: lits})
+			out = append(out, membershipSite{dir: vf.dir, file: vf.rel, sym: archlint.FuncSymbol(fd), lits: lits})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].key() < out[j].key() })
@@ -430,7 +432,7 @@ func vocabScanConversions(fset *token.FileSet, files []vocabFile, vocabs map[str
 			if !ok || fd.Body == nil {
 				continue
 			}
-			sym := funcSymbol(fd)
+			sym := archlint.FuncSymbol(fd)
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok || len(call.Args) != 1 {

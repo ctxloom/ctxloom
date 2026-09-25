@@ -5,8 +5,8 @@ package archrules
 // the entry. It is generated MECHANICALLY — run the gate with an empty map
 // and transcribe what it reports — so the baseline records exactly what the
 // scan sees, and it only ever tightens: a raw filesystem write is migrated
-// to iox and its entry deleted, never added without a reason. Both runners
-// fail an entry the scan no longer reports.
+// to iox and its entry deleted, never added without a reason. The analyzer
+// fails an entry the scan no longer reports.
 var WriteDisciplineAllowed = map[string]string{
 	"internal/core/coord/artifactstore.go#artifactStore.publish":                "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/runner/homeartifacts.go#Home.DownloadArtifact":           "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",

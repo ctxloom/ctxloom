@@ -47,3 +47,11 @@ func TestLockDiscipline_WriteServersAndRemoveServersAreWrites(t *testing.T) {
 func TestLedgerDiscipline_ManagedWriteNeedsARecord(t *testing.T) {
 	run(t, archlint.LedgerDisciplineAnalyzer, "internal/core/agent/ledgerplant", "internal/core/agent")
 }
+
+// TestWriteDiscipline_PackageLevelAndTestFiles plants a raw write in a
+// package-level var initialiser and in a function, and — in test files — the
+// afero writes the test arm governs beside the os.* writes and afero-free
+// files it leaves alone.
+func TestWriteDiscipline_PackageLevelAndTestFiles(t *testing.T) {
+	run(t, archlint.WriteDisciplineAnalyzer, "internal/writeprod", "internal/writetest")
+}

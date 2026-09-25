@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The short "repo/path" form has been eliminated: ParseReference rejects any
@@ -366,8 +367,10 @@ func TestReference_BuildFilePath(t *testing.T) {
 
 func TestReference_LocalWorktreePath(t *testing.T) {
 	ref := Reference{URL: "https://github.com/ctxloom/ctxloom-github", ItemType: ItemTypeBundle, Path: "core-practices"}
-	assert.Equal(t, ".ctxloom/cache/bundles/github.com/ctxloom/ctxloom-github/core-practices"+WorktreeDirSuffix,
-		ref.LocalWorktreePath(".ctxloom"))
+	key, err := ref.LockKey()
+	require.NoError(t, err)
+	assert.Equal(t, ".ctxloom/cache/bundles/github.com/ctxloom/ctxloom-github/core-practices."+identityDigest(key)+WorktreeDirSuffix,
+		mustWorktreePath(t, &ref, ".ctxloom"))
 }
 
 func TestReference_LocalRemoteName(t *testing.T) {

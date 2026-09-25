@@ -1,6 +1,8 @@
 package remote
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"path"
@@ -588,13 +590,35 @@ const WorktreeDirSuffix = ".worktree"
 // to keep in step with the pin, which is what made a moved pin and an
 // unmaterialized tree describable as separate states at all.
 //
-// It sits at <cache>/bundles/<remote>/<path>.worktree. remoteName and r.Path
-// are logical, forward-slash segments while baseDir is an on-disk OS path, so
-// it is built with filepath.Join, which cleans the embedded slashes to the OS
-// separator; and it is built from paths.CacheBundlesPath rather than from the
-// cache/ and bundles/ parts, so a layout change cannot miss it.
-func (r *Reference) LocalWorktreePath(baseDir string) string {
-	return filepath.Join(paths.CacheBundlesPath(baseDir), r.LocalRemoteName(), r.Path) + WorktreeDirSuffix
+// It sits at <cache>/bundles/<remote>/<path>.<digest>.worktree. remoteName
+// and r.Path are logical, forward-slash segments while baseDir is an on-disk
+// OS path, so it is built with filepath.Join, which cleans the embedded
+// slashes to the OS separator; and it is built from paths.CacheBundlesPath
+// rather than from the cache/ and bundles/ parts, so a layout change cannot
+// miss it.
+//
+// The digest is of LockKey, and it is what makes the directory INJECTIVE in the
+// bundle's identity. The readable part is not: LocalRemoteName shortens a file
+// repository to its last two segments, and a case-folding filesystem merges
+// names that differ only in case, though path case is identity. Two lock keys
+// sharing one worktree read one tree — whichever was pulled last — so one
+// repository's bytes would be served under another's key, a retraction
+// included. An unaddressable reference has no lock key and so no directory.
+func (r *Reference) LocalWorktreePath(baseDir string) (string, error) {
+	key, err := r.LockKey()
+	if err != nil {
+		return "", fmt.Errorf("no cache directory for %s/%s: %w", r.URL, r.Path, err)
+	}
+	return filepath.Join(paths.CacheBundlesPath(baseDir), r.LocalRemoteName(), r.Path) +
+		"." + identityDigest(key) + WorktreeDirSuffix, nil
+}
+
+// identityDigest is a short, filesystem-safe, case-insensitive-safe (lowercase
+// hex) digest of a bundle identity. 64 bits keeps a crafted second identity
+// that lands in a victim's directory out of reach.
+func identityDigest(key trust.BundleKey) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:8])
 }
 
 // TreeRepoPath is the repository-relative directory this bundle's tree occupies
@@ -619,8 +643,12 @@ func (r *Reference) TreeRepoPath() string {
 // id — content.validateBundleID requires a single segment, and a nested
 // reference path ("lang/go/testing") is absorbed by the parent rather than
 // smuggled into the id.
-func (r *Reference) LocalTreePath(baseDir string) string {
-	return filepath.Join(r.LocalWorktreePath(baseDir), filepath.FromSlash(r.TreeRepoPath()))
+func (r *Reference) LocalTreePath(baseDir string) (string, error) {
+	worktree, err := r.LocalWorktreePath(baseDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(worktree, filepath.FromSlash(r.TreeRepoPath())), nil
 }
 
 // LocalRemoteName returns a filesystem-safe name for the remote.

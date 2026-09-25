@@ -49,10 +49,24 @@ func TestLocalWorktreePath_AlwaysContainedInCacheRoot(t *testing.T) {
 		"file:///home/u/content-repo",
 	}
 
+	ordinary := map[string]bool{
+		"https://github.com/owner/repo": true,
+		"git@github.com:owner/repo":     true,
+		"file:///home/u/content-repo":   true,
+	}
 	for _, u := range urls {
 		t.Run(u, func(t *testing.T) {
 			r := &Reference{URL: u, Path: "victim"}
-			got := r.LocalWorktreePath(base)
+			got, gerr := r.LocalWorktreePath(base)
+			if gerr != nil {
+				// No directory at all is contained. An ordinary shape must
+				// still resolve, though, or the gate passes by refusing
+				// everything.
+				if ordinary[u] {
+					t.Fatalf("LocalWorktreePath(%q): %v", u, gerr)
+				}
+				return
+			}
 
 			rel, err := filepath.Rel(root, got)
 			if err != nil {

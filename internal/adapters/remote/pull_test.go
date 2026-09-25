@@ -200,7 +200,7 @@ func TestPuller_Pull(t *testing.T) {
 	// was a synthetic "<remote>:name@sha" string.
 	ref, rerr := ParseReference("https://github.com/alice/ctxloom@bundles/security")
 	require.NoError(t, rerr)
-	assert.Equal(t, ref.LocalTreePath("/test"), result.LocalPath)
+	assert.Equal(t, mustTreePath(t, ref, "/test"), result.LocalPath)
 	assert.Equal(t, "abc123def456", result.SHA)
 	assert.NotEmpty(t, result.Content)
 

@@ -329,7 +329,11 @@ func movePinnedWorktree(ctx context.Context, cfg *config.Config, p PinnedRef) {
 		return
 	}
 	install := remotetree.WorktreeInstaller(NewRepoCache(cfg))
-	if _, err := install(ctx, ref.URL, p.Hash, ref.TreeRepoPath(), ref.LocalWorktreePath(baseDir)); err != nil {
+	worktree, err := ref.LocalWorktreePath(baseDir)
+	if err == nil {
+		_, err = install(ctx, ref.URL, p.Hash, ref.TreeRepoPath(), worktree)
+	}
+	if err != nil {
 		clidiag.Warn("ctxloom", "%s was upgraded to %s but its cached tree could not be moved to that commit (%v); "+
 			"run `ctxloom deps pull` to re-install it", p.Identity, p.Hash, err)
 	}

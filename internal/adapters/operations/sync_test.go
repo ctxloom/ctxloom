@@ -435,7 +435,9 @@ func markInstalled(t *testing.T, appDir, ref string) {
 	t.Helper()
 	parsed, err := remote.ParseReference(ref)
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(parsed.LocalTreePath(appDir), 0o755))
+	tree, terr := parsed.LocalTreePath(appDir)
+	require.NoError(t, terr)
+	require.NoError(t, os.MkdirAll(tree, 0o755))
 }
 
 // TestSyncDependencies_SkipsExisting verifies incremental sync behavior.

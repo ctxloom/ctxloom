@@ -135,8 +135,8 @@ func TestInstallTree_CheckoutsTheWorktreeAtThePinnedCommit(t *testing.T) {
 	assert.Equal(t, "https://github.com/trent/atelier", gotURL)
 	assert.Equal(t, treeTestSHA, gotSHA, "the worktree must be detached at the PINNED commit")
 	assert.Equal(t, ref.TreeRepoPath(), gotSubpath, "the checkout must be narrowed to the bundle's repository path")
-	assert.Equal(t, ref.LocalWorktreePath(".ctxloom"), gotWorktree)
-	assert.Equal(t, ref.LocalTreePath(".ctxloom"), dir,
+	assert.Equal(t, mustWorktreePath(t, ref, ".ctxloom"), gotWorktree)
+	assert.Equal(t, mustTreePath(t, ref, ".ctxloom"), dir,
 		"the directory handed back must be the one every reader resolves")
 }
 

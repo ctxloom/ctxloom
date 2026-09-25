@@ -134,7 +134,7 @@ func treeBundleDir(baseDir, canonical string) (string, error) {
 	if !ref.IsCanonical() {
 		return "", fmt.Errorf("invalid lockfile bundle key %q: not a canonical ref", canonical)
 	}
-	return ref.LocalTreePath(baseDir), nil
+	return ref.LocalTreePath(baseDir)
 }
 
 // reportBundleLoadFailures records one fatal-class finding per lockfile-active

@@ -715,7 +715,11 @@ func (p *Puller) installTree(ctx context.Context, ref *Reference, opts PullOptio
 			"so a checkout of the found path would land where nothing looks; the publisher must republish it at %s",
 			item.localName, item.treeRoot, want, want)
 	}
-	dir, err := p.treeInstall(ctx, item.rem.URL, sha, item.treeRoot, ref.LocalWorktreePath(baseDir))
+	worktree, err := ref.LocalWorktreePath(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("install %s: %w", item.localName, err)
+	}
+	dir, err := p.treeInstall(ctx, item.rem.URL, sha, item.treeRoot, worktree)
 	if err != nil {
 		return "", fmt.Errorf("install %s at %s: %w", item.localName, sha, err)
 	}

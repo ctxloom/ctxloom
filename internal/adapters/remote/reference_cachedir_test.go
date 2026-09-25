@@ -5,7 +5,25 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// mustWorktreePath is LocalWorktreePath for a reference the test knows is
+// addressable.
+func mustWorktreePath(t *testing.T, r *Reference, baseDir string) string {
+	t.Helper()
+	dir, err := r.LocalWorktreePath(baseDir)
+	require.NoError(t, err)
+	return dir
+}
+
+// mustTreePath is LocalTreePath for a reference the test knows is addressable.
+func mustTreePath(t *testing.T, r *Reference, baseDir string) string {
+	t.Helper()
+	dir, err := r.LocalTreePath(baseDir)
+	require.NoError(t, err)
+	return dir
+}
 
 // The worktree a bundle is read from must be INJECTIVE in the bundle's
 // identity. Two lock keys sharing one directory read one tree — whichever was
@@ -22,7 +40,7 @@ func TestLocalWorktreePath_DistinctIdentitiesNeverShareADirectory(t *testing.T) 
 	}
 	for _, p := range pairs {
 		a, b := p[0], p[1]
-		da, db := a.LocalWorktreePath("/proj/.ctxloom"), b.LocalWorktreePath("/proj/.ctxloom")
+		da, db := mustWorktreePath(t, &a, "/proj/.ctxloom"), mustWorktreePath(t, &b, "/proj/.ctxloom")
 		assert.False(t, strings.EqualFold(da, db),
 			"%s %s and %s %s share cache dir %q / %q", a.URL, a.Path, b.URL, b.Path, da, db)
 	}
@@ -37,9 +55,9 @@ func TestLocalWorktreePath_OneIdentityOneDirectory(t *testing.T) {
 		"git@github.com:o/r",
 		"http://github.com/o/r",
 	}
-	want := (&Reference{URL: spellings[0], Path: "kit"}).LocalWorktreePath("/proj/.ctxloom")
+	want := mustWorktreePath(t, &Reference{URL: spellings[0], Path: "kit"}, "/proj/.ctxloom")
 	for _, s := range spellings[1:] {
-		got := (&Reference{URL: s, Path: "kit"}).LocalWorktreePath("/proj/.ctxloom")
+		got := mustWorktreePath(t, &Reference{URL: s, Path: "kit"}, "/proj/.ctxloom")
 		assert.Equal(t, want, got, "spelling %q", s)
 	}
 }

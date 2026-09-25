@@ -47,16 +47,8 @@ func ReferencingFiles(t *testing.T, dir, sym string, includeTests bool) []string
 			case *ast.FuncDecl:
 				// The declaration of sym is not a reference to it. Its BODY
 				// still is — a method that calls itself is a real call site.
-				if v.Name != nil && v.Name.Name == sym {
-					if v.Body != nil {
-						ast.Inspect(v.Body, func(b ast.Node) bool {
-							if id, ok := b.(*ast.Ident); ok && id.Name == sym {
-								found = true
-								return false
-							}
-							return true
-						})
-					}
+				if isDeclOf(v, sym) {
+					found = bodyReferences(v.Body, sym)
 					return false
 				}
 			case *ast.SelectorExpr:
@@ -79,4 +71,25 @@ func ReferencingFiles(t *testing.T, dir, sym string, includeTests bool) []string
 	}
 	sort.Strings(out)
 	return out
+}
+
+// isDeclOf reports whether fn declares sym.
+func isDeclOf(fn *ast.FuncDecl, sym string) bool {
+	return fn.Name != nil && fn.Name.Name == sym
+}
+
+// bodyReferences reports whether body names sym; a nil body names nothing.
+func bodyReferences(body *ast.BlockStmt, sym string) bool {
+	if body == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(body, func(b ast.Node) bool {
+		if id, ok := b.(*ast.Ident); ok && id.Name == sym {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }

@@ -160,7 +160,12 @@ func runtimeBindingLine(runtime string) string {
 //
 // SHARED BY P2 AND P3 on purpose: both probes ask the identical question, and a
 // second copy is the hand-copied rule this project pays for most often.
-func probeCellRunDir(family, projectDir, workspace string) (string, error) {
+//
+// run is the cell's own result, and it rides the refusal because this is
+// raised in the assert step BEFORE the step's evidence line prints: without it
+// a zero-checkout red cannot tell "ctxloom refused the isolation and exited"
+// from "it ran and the checkout was reaped" short of paying for another turn.
+func probeCellRunDir(family, projectDir, workspace string, run probeRun) (string, error) {
 	if workspace != "worktree" {
 		return projectDir, nil
 	}
@@ -179,8 +184,8 @@ func probeCellRunDir(family, projectDir, workspace string) (string, error) {
 		found = append(found, path)
 	}
 	if len(found) != 1 {
-		return "", fmt.Errorf("%s: expected exactly ONE per-agent worktree of %s after a workspace=worktree run, found %d %v — zero means ctxloom never created the checkout this axis is defined by, and more than one means this cell cannot tell whose evidence it is about to read",
-			family, projectDir, len(found), found)
+		return "", fmt.Errorf("%s: expected exactly ONE per-agent worktree of %s after a workspace=worktree run, found %d %v — zero means ctxloom never created the checkout this axis is defined by, and more than one means this cell cannot tell whose evidence it is about to read\nrun: exit=%d err=%v\nstdout:\n%s\nstderr:\n%s",
+			family, projectDir, len(found), found, run.ExitCode, run.Err, run.Stdout, run.Stderr)
 	}
 	return found[0], nil
 }

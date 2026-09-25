@@ -331,7 +331,8 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		m := mcpProbeOf(w)
 
-		runDir, err := probeCellRunDir(mcpProbeFamily, w.env.ProjectDir, m.workspace)
+		runDir, err := probeCellRunDir(mcpProbeFamily, w.env.ProjectDir, m.workspace,
+			probeRun{Stdout: m.stdout, Stderr: m.stderr, ExitCode: m.exitCode, Err: m.runErr})
 		if err != nil {
 			return err
 		}

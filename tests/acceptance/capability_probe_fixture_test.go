@@ -83,7 +83,7 @@ func probeRuntimeBuilders(a liveAgent) map[string]func(string) string {
 // wrong directory and the verdict reports "it never ran" about a cell that ran
 // perfectly. All four arms are pinned.
 func TestProbeCellRunDir_NoneRunsTheProjectItself(t *testing.T) {
-	got, err := probeCellRunDir("probe", "/tmp/proj", "none")
+	got, err := probeCellRunDir("probe", "/tmp/proj", "none", probeRun{})
 	if err != nil {
 		t.Fatalf("workspace=none must resolve without consulting git at all: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestProbeCellRunDir_WorktreeResolvesThePerAgentCheckout(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "agent-checkout")
 	runGitForProbe(t, proj, "worktree", "add", "-b", "probe-cell", wt)
 
-	got, err := probeCellRunDir("probe", proj, "worktree")
+	got, err := probeCellRunDir("probe", proj, "worktree", probeRun{})
 	if err != nil {
 		t.Fatalf("a workspace=worktree cell must resolve its per-agent checkout: %v", err)
 	}
@@ -116,8 +116,26 @@ func TestProbeCellRunDir_RefusesWhenNoCheckoutWasCreated(t *testing.T) {
 	proj := t.TempDir()
 	gitInitForProbe(t, proj)
 
-	if _, err := probeCellRunDir("probe", proj, "worktree"); err == nil {
+	if _, err := probeCellRunDir("probe", proj, "worktree", probeRun{}); err == nil {
 		t.Fatal("ZERO worktrees after a workspace=worktree run must be REFUSED, never smoothed into 'then use the project dir': that substitution lets a cell which never got its checkout pass on the host fixture's evidence, which is the axis silently not being tested")
+	}
+}
+
+// The refusal is raised in the ASSERT step, which is the only place a cell's
+// run output is ever printed — so a refusal that dropped it left a red with no
+// way to tell "ctxloom refused the isolation and exited" from "it ran and the
+// checkout was reaped", short of paying for another turn.
+func TestProbeCellRunDir_RefusalCarriesTheRunsOwnEvidence(t *testing.T) {
+	proj := t.TempDir()
+	gitInitForProbe(t, proj)
+	run := probeRun{Stdout: "stdout-marker", Stderr: "stderr-marker", ExitCode: 3, Err: fmt.Errorf("exit status 3")}
+
+	_, err := probeCellRunDir("probe", proj, "worktree", run)
+	if err == nil {
+		t.Fatal("ZERO worktrees must still be refused")
+	}
+	for _, want := range []string{"exit=3", "exit status 3", "stdout-marker", "stderr-marker"} {
+		assert.Contains(t, err.Error(), want, "the refusal must carry the run's own evidence")
 	}
 }
 
@@ -127,7 +145,7 @@ func TestProbeCellRunDir_RefusesWhenAnotherCellLeakedItsCheckout(t *testing.T) {
 	runGitForProbe(t, proj, "worktree", "add", "-b", "cell-one", filepath.Join(t.TempDir(), "one"))
 	runGitForProbe(t, proj, "worktree", "add", "-b", "cell-two", filepath.Join(t.TempDir(), "two"))
 
-	if _, err := probeCellRunDir("probe", proj, "worktree"); err == nil {
+	if _, err := probeCellRunDir("probe", proj, "worktree", probeRun{}); err == nil {
 		t.Fatal("TWO worktrees must be refused: this cell cannot tell whose evidence it is about to read, and picking either one is how a cell passes on a previous cell's stamp")
 	}
 }

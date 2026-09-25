@@ -295,7 +295,8 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// probeCellRunDir. Reading the project's copy for such a cell would find
 		// nothing and report "the hook never fired", the exact false finding this
 		// probe exists to make impossible.
-		runDir, err := probeCellRunDir(hookProbeFamily, w.env.ProjectDir, h.workspace)
+		runDir, err := probeCellRunDir(hookProbeFamily, w.env.ProjectDir, h.workspace,
+			probeRun{Stdout: h.stdout, Stderr: h.stderr, ExitCode: h.exitCode, Err: h.runErr})
 		if err != nil {
 			return err
 		}

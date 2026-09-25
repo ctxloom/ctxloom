@@ -102,7 +102,7 @@ func TestNewTrust_WithholdsAnExecutableNoReviewRecordApproves(t *testing.T) {
 	assert.False(t, v.Allow, "nothing positively justified this command")
 	assert.Equal(t, bundles.ReasonUnsigned, v.Reason)
 	assert.Contains(t, v.Detail, "no review record", "the withhold names what would admit it")
-	assert.Equal(t, []string{refStr}, tr.Withheld(), "the holder tallies what it withheld, by ref")
+	assert.Equal(t, []string{refStr}, withheldRefsOf(tr), "the holder tallies what it withheld, by ref")
 	assert.True(t, tr.Gates())
 }
 
@@ -117,7 +117,7 @@ func TestNewTrust_AReviewRecordAdmitsTheExecutable(t *testing.T) {
 
 	assert.True(t, v.Allow)
 	assert.Equal(t, bundles.ReasonApproved, v.Reason)
-	assert.Empty(t, tr.Withheld())
+	assert.Empty(t, withheldRefsOf(tr))
 }
 
 func TestNewTrust_ARejectionOutranksAnApproval(t *testing.T) {
@@ -191,7 +191,7 @@ func TestUngated_IsTheOnlySpellingOfAdmitEverything(t *testing.T) {
 	assert.False(t, tr.Gates())
 	assert.True(t, v.Allow)
 	assert.Equal(t, bundles.ReasonUngated, v.Reason, "an ungated admit names the absence of a rule")
-	assert.Empty(t, tr.Withheld())
+	assert.Empty(t, withheldRefsOf(tr))
 }
 
 func TestTrust_ZeroValue_HasNoPermissiveAnswer(t *testing.T) {
@@ -232,7 +232,7 @@ func TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmitt
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
 	assert.True(t, bundles.Warns(v), "the verdict carries the warning the surface prints")
 	assert.Contains(t, v.Detail, "ctxloom bundle sign tools", "the author is told how to re-sign")
-	assert.Empty(t, tr.Withheld())
+	assert.Empty(t, withheldRefsOf(tr))
 }
 
 // TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld: the
@@ -248,7 +248,7 @@ func TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld(t *testi
 
 	assert.False(t, v.Allow, "a signature that does not cover what travelled admits nothing")
 	assert.NotEqual(t, bundles.ReasonStaleLocalSignature, v.Reason, "stale-local is a LOCAL row and never names remote content")
-	assert.Equal(t, []string{e.RefString()}, tr.Withheld())
+	assert.Equal(t, []string{e.RefString()}, withheldRefsOf(tr))
 }
 
 // faultedRetraction is a RetractionRecords whose backing lockfile could not be
@@ -329,4 +329,117 @@ func TestAdmit_ABundleLevelIdentityIsNotUnaddressable(t *testing.T) {
 	approveAll := fakeRecords{approved: func(trust.Ref, []byte, bundles.ContentForm) bool { return true }}
 	v := mustTrust(t, approveAll, noRetraction()).Authorizer().Admit(e)
 	assert.NotEqual(t, bundles.ReasonUnaddressable, v.Reason, "%+v", v)
+}
+
+// --- surfaces that read the holder rather than the gate ---------------------
+
+// Root answers for every holder, not just the one a generation built: a Trust
+// with no root of its own (zero, Ungated, Gated) must answer trust.NoSigners —
+// a root that trusts no key — so a signature checked against it fails closed.
+// The zero and Ungated rows are the missing cases: one holds no gate at all,
+// the other holds a gate with no root in it, and each takes a different arm
+// of the fallback.
+func TestTrust_Root_AHolderWithNoRootOfItsOwnTrustsNoSigner(t *testing.T) {
+	built := mustTrust(t, noRecords(), noRetraction())
+	for name, tr := range map[string]Trust{
+		"zero":    {},
+		"ungated": Ungated(),
+		"gated":   Gated(built.Authorizer()),
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.IsType(t, trust.NoSigners{}, tr.Root(), "a holder no generation built must trust no key, never answer nil")
+		})
+	}
+	assert.Equal(t, TrustRoot(fakeRoot{}), built.Root(), "control: a built holder answers with the root it was given")
+}
+
+// retractable decides whether an UNREADABLE lockfile withholds a ref, so each
+// conjunct is a boundary: only content that travelled from a publisher's
+// repository can be retracted. The last two rows are shapes
+// trust.RefFromBundleRef does not produce today — a local ref carrying a URL,
+// and a ref that is neither local nor companion yet names no repository (a
+// class-less BundleRef) — and the predicate must not lean on that: each
+// conjunct refuses on its own.
+func TestRetractable_OnlyContentFromAPublishersRepositoryCanBeRetracted(t *testing.T) {
+	parsed := func(refStr string) trust.Ref {
+		br, err := trust.ParseBundleRef(refStr)
+		require.NoError(t, err)
+		return trust.RefFromBundleRef(br)
+	}
+	for _, tc := range []struct {
+		name string
+		ref  trust.Ref
+		want bool
+	}{
+		{"git", parsed("ctxloom+git://github.com/acme/repo//bundles/tools#prompts/deploy"), true},
+		{"file", parsed("ctxloom+file:///srv/repo//bundles/tools#prompts/deploy"), true},
+		{"local", parsed("ctxloom+local:tools#prompts/deploy"), false},
+		{"companion", parsed("ctxloom+companion:ctxloom#fragments/isolation-axes"), false},
+		{"local carrying a repository url", trust.Ref{Bundle: "tools", IsLocal: true, RepoURL: "https://github.com/acme/repo"}, false},
+		{"names no repository", trust.Ref{Bundle: "tools", Kind: trust.KindPrompt, Name: "deploy"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, retractable(tc.ref))
+		})
+	}
+}
+
+// pendingReason names WHY nothing justified exposure, and each arm is a
+// different remedy the surface prints: sign it, trust its signer, or review
+// it. The untrusted-signer row is the case no other test reaches — remote
+// content signed by a key the root does not trust.
+func TestPendingReason_NamesTheRemedyForRemoteContent(t *testing.T) {
+	read := func(ctx bundles.TrustCtx, sig bundles.Signature, signer bundles.Signer) bundles.BundleRead {
+		return bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, ctx,
+			bundles.SignatureFacts{Signature: sig, Signer: signer})
+	}
+	for _, tc := range []struct {
+		name string
+		read bundles.BundleRead
+		want bundles.Reason
+	}{
+		{"remote unsigned", read(bundles.TrustCtxRemote, bundles.SignatureNone, bundles.SignerNone), bundles.ReasonUnsigned},
+		{"remote signed by an untrusted key", read(bundles.TrustCtxRemote, bundles.SignatureValid, bundles.SignerUntrusted), bundles.ReasonUntrustedSigner},
+		{"remote invalidly signed by an untrusted key", read(bundles.TrustCtxRemote, bundles.SignatureInvalid, bundles.SignerUntrusted), bundles.ReasonUntrustedSigner},
+		{"remote signed by a trusted key", read(bundles.TrustCtxRemote, bundles.SignatureValid, bundles.SignerTrusted), bundles.ReasonPending},
+		{"local unsigned", read(bundles.TrustCtxLocal, bundles.SignatureNone, bundles.SignerNone), bundles.ReasonPending},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, pendingReason(tc.read))
+		})
+	}
+}
+
+// WithheldBy is what the launch surfaces print, one line per withheld item,
+// and its order is part of the contract: sorted by ref, so the advisory is
+// stable run to run. One withheld item cannot show an order; three can.
+func TestWithheldBy_ReturnsEveryWithheldItemSortedByRef(t *testing.T) {
+	tr := mustTrust(t, noRecords(), noRetraction())
+	e, _ := remoteExecutable(t)
+	const base = "ctxloom+git://github.com/acme/repo//bundles/tools#prompts/"
+	for _, item := range []string{"charlie", "alpha", "bravo"} {
+		br, err := trust.ParseBundleRef(base + item)
+		require.NoError(t, err)
+		e.BundleRef = br
+		require.False(t, tr.Authorizer().Admit(e).Allow)
+	}
+
+	got := WithheldBy(tr.Authorizer())
+
+	refs := make([]string, 0, len(got))
+	for _, it := range got {
+		refs = append(refs, it.Ref)
+		assert.Equal(t, bundles.ReasonUnsigned, it.Verdict.Reason, "each item carries the verdict that withheld it")
+	}
+	assert.Equal(t, []string{base + "alpha", base + "bravo", base + "charlie"}, refs)
+}
+
+// withheldRefsOf is the refs WithheldBy reports for the holder's gate — the
+// production read path — in its sorted order.
+func withheldRefsOf(tr Trust) []string {
+	var refs []string
+	for _, it := range WithheldBy(tr.Authorizer()) {
+		refs = append(refs, it.Ref)
+	}
+	return refs
 }

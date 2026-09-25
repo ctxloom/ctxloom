@@ -190,20 +190,9 @@ func LiveRefusedAdvances(cfg *config.Config) ([]RefusalRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	fsys := getFS(cfg.FS())
-	data, err := afero.ReadFile(fsys, path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	var d refusalDoc
-	if uerr := yaml.Unmarshal(data, &d); uerr != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, uerr)
-	}
-	if d.Version != refusalStoreVersion {
-		return nil, fmt.Errorf("%s declares version %d, this build understands %d", path, d.Version, refusalStoreVersion)
+	d, err := readRefusalDoc(getFS(cfg.FS()), path)
+	if d == nil || err != nil {
+		return nil, err
 	}
 	// REFUSED, not filtered. A record keyed the retired way matches no lock
 	// key, so the staleness filter below would drop it as "the pin moved" —
@@ -225,6 +214,26 @@ func LiveRefusedAdvances(cfg *config.Config) ([]RefusalRecord, error) {
 		}
 	}
 	return live, nil
+}
+
+// readRefusalDoc reads and version-checks the refusal store at path. An absent
+// store is (nil, nil): no round has refused anything yet.
+func readRefusalDoc(fsys afero.Fs, path string) (*refusalDoc, error) {
+	data, err := afero.ReadFile(fsys, path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	var d refusalDoc
+	if uerr := yaml.Unmarshal(data, &d); uerr != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, uerr)
+	}
+	if d.Version != refusalStoreVersion {
+		return nil, fmt.Errorf("%s declares version %d, this build understands %d", path, d.Version, refusalStoreVersion)
+	}
+	return &d, nil
 }
 
 // retiredRefusalKeys refuses a store holding any record whose Identity is not

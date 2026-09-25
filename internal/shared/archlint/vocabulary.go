@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"sort"
 	"strconv"
 
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
@@ -26,13 +27,54 @@ const vocabMinMembers = 2
 // CONVERSION rule needs — a `pkg.T(s)` conversion can only be written by a
 // package that imports pkg. The other two rules in this family have no such
 // edge and stay in tests/arch; see VocabularyAnalyzer's doc.
+//
+// Vocabs is sorted by name and each vocabulary's members are sorted: the
+// checker requires a fact to encode deterministically, and a Go map encodes in
+// iteration order.
 type vocabFact struct {
-	Vocabs map[string]map[string]bool
+	Vocabs []vocabEntry
+}
+
+// vocabEntry is one closed vocabulary a package declares.
+type vocabEntry struct {
+	Name    string
+	Members []string
 }
 
 func (*vocabFact) AFact() {}
 
 func (f *vocabFact) String() string { return "closed vocabularies" }
+
+// newVocabFact freezes discovered vocabularies into their deterministic form.
+func newVocabFact(owned map[string]map[string]bool) *vocabFact {
+	fact := &vocabFact{}
+	for name, members := range owned {
+		entry := vocabEntry{Name: name}
+		for m := range members {
+			entry.Members = append(entry.Members, m)
+		}
+		sort.Strings(entry.Members)
+		fact.Vocabs = append(fact.Vocabs, entry)
+	}
+	sort.Slice(fact.Vocabs, func(i, j int) bool { return fact.Vocabs[i].Name < fact.Vocabs[j].Name })
+	return fact
+}
+
+// members returns the named vocabulary's member set, or nil when the package
+// declares no vocabulary by that name.
+func (f *vocabFact) members(name string) map[string]bool {
+	for _, v := range f.Vocabs {
+		if v.Name != name {
+			continue
+		}
+		set := make(map[string]bool, len(v.Members))
+		for _, m := range v.Members {
+			set[m] = true
+		}
+		return set
+	}
+	return nil
+}
 
 // VocabularyAnalyzer enforces that a closed vocabulary is consumed through its
 // owner rather than re-spelled.
@@ -79,7 +121,7 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 
 	// Publish what this package owns, so importers can check against it.
 	if owned := discoverVocabularies(files); len(owned) > 0 {
-		pass.ExportPackageFact(&vocabFact{Vocabs: owned})
+		pass.ExportPackageFact(newVocabFact(owned))
 	}
 
 	// seen records which exemptions actually fired, so the liveness half below
@@ -150,7 +192,7 @@ func lookupVocabulary(pass *analysis.Pass, pkgName, typeName string) (string, ma
 		}
 		var fact vocabFact
 		if pass.ImportPackageFact(imported, &fact) {
-			if members, ok := fact.Vocabs[typeName]; ok {
+			if members := fact.members(typeName); members != nil {
 				return imported.Path(), members
 			}
 		}
@@ -196,7 +238,7 @@ func vocabularyThroughAlias(pass *analysis.Pass, imported *types.Package, typeNa
 	if !pass.ImportPackageFact(origin, &fact) {
 		return "", nil
 	}
-	if members, ok := fact.Vocabs[named.Obj().Name()]; ok {
+	if members := fact.members(named.Obj().Name()); members != nil {
 		return origin.Path(), members
 	}
 	return "", nil

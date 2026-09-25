@@ -55,3 +55,10 @@ func TestLedgerDiscipline_ManagedWriteNeedsARecord(t *testing.T) {
 func TestWriteDiscipline_PackageLevelAndTestFiles(t *testing.T) {
 	run(t, archlint.WriteDisciplineAnalyzer, "internal/writeprod", "internal/writetest")
 }
+
+// TestVocabulary_ConversionFromRawString plants the rule's basic case. It is
+// also what exercises the vocabulary fact across an import edge, which the
+// checker refuses to carry unless its encoding is deterministic.
+func TestVocabulary_ConversionFromRawString(t *testing.T) {
+	run(t, archlint.VocabularyAnalyzer, "internal/vocabplain")
+}

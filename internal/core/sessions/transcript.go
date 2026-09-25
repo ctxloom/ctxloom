@@ -72,8 +72,7 @@ func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) (f
 	// at persist/transcripts, so the physical file is harp-addressable by
 	// location (LocateTranscript) and this link would only add a second name
 	// for it inside the same dir.
-	if rel, err := filepath.Rel(dir, transcriptPath); err == nil &&
-		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if transcriptInsideDir(dir, transcriptPath) {
 		return
 	}
 	// A binding whose target is not on disk still gets its link: BindSession
@@ -85,6 +84,21 @@ func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) (f
 		rep.Warnf("engine transcript link: bound transcript %s does not resolve (%v); linking it anyway, but reads through the session dir will fail until it appears", transcriptPath, serr)
 	}
 
+	placeTranscriptLink(rep, link, transcriptPath, engine, sessionID)
+	return found
+}
+
+// transcriptInsideDir reports whether transcriptPath lies inside dir.
+func transcriptInsideDir(dir, transcriptPath string) bool {
+	rel, err := filepath.Rel(dir, transcriptPath)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// placeTranscriptLink makes link point at transcriptPath: a no-op when it
+// already does, an atomic, loudly reported repoint when the name holds a
+// different target, and a refusal naming the cause when the name is occupied
+// by something unreadable.
+func placeTranscriptLink(rep report.Reporter, link, transcriptPath, engine, sessionID string) {
 	existing, rlErr := os.Readlink(link)
 	switch {
 	case rlErr == nil && existing == transcriptPath:
@@ -114,7 +128,6 @@ func linkEngineTranscript(harpName, engine, sessionID, transcriptPath string) (f
 	if err := os.Symlink(transcriptPath, link); err != nil {
 		rep.Warnf("engine transcript link: %v", err)
 	}
-	return found
 }
 
 // atomicSymlink replaces link with a symlink to target such that link is

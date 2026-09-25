@@ -77,10 +77,10 @@ func TestAcceptance(t *testing.T) {
 		// @wip: a scenario that cannot be honestly greened yet because of a real
 		//   product gap, not a harness gap (see j001500_corporate_signed.feature's
 		//   retraction scenario and the filed task) — excluded from the default run.
-		// @container: needs a reachable docker/podman daemon AND builds an agent
-		//   image on first use (measured at minutes, against a suite that already
-		//   brushes go test's 10m default). It has its own gate,
-		//   `just test-acceptance-container`, which really performs the launch.
+		// @container: needs a reachable docker/podman daemon AND an agent image,
+		//   built before the scenarios run (prepareSuiteImages). It has its own
+		//   gate, `just test-acceptance-container`, which really performs the
+		//   launch.
 		tags = "~@live && ~@network && ~@future && ~@wip && ~@container"
 	}
 	paths := []string{"features"}
@@ -106,6 +106,11 @@ func TestAcceptance(t *testing.T) {
 			TestingT: t,
 		},
 	}
+	declared, err := selectedScenarioTags(suite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareSuiteImages(context.Background(), declared)
 	if suite.Run() != 0 {
 		t.Fatal("acceptance suite failed")
 	}

@@ -1,8 +1,9 @@
 package testenv
 
 import (
-	"bytes"
+	"errors"
 	"os/exec"
+	"time"
 )
 
 // RunHistory is the ordered record of every CLI invocation one ACTOR made,
@@ -23,6 +24,41 @@ import (
 // The zero value is ready to use.
 type RunHistory struct {
 	runs []RunRecord
+	// bound overrides CommandBound when non-zero (SetCommandBound).
+	bound time.Duration
+	// expired is the first command since the last TakeExpired that was
+	// killed for outliving its bound.
+	expired *DeadlineError
+}
+
+// SetCommandBound replaces CommandBound for this history's later commands.
+// A caller whose command is not an ordinary one — an image build, run under
+// its own measured bound — or a test needing a bound far below any real
+// command's sets it; nothing else should.
+func (h *RunHistory) SetCommandBound(d time.Duration) { h.bound = d }
+
+func (h *RunHistory) commandBound() time.Duration {
+	if h.bound > 0 {
+		return h.bound
+	}
+	return CommandBound
+}
+
+// TakeExpired returns the *DeadlineError of a command killed for outliving
+// its bound since the last call, then forgets it — nil if there was none.
+//
+// It exists because a caller may discard a command's error (the CLI step
+// records it and leaves exit status to a later assertion, and a scenario
+// EXPECTING failure would then pass on a command that never finished). The
+// acceptance suite's after-step hook takes it, which fails the step that ran
+// the command whatever that step did with the error.
+func (h *RunHistory) TakeExpired() error {
+	if h.expired == nil {
+		return nil
+	}
+	de := h.expired
+	h.expired = nil
+	return de
 }
 
 // RunRecord captures everything observed about one CLI invocation: the argv,
@@ -42,13 +78,17 @@ type RunRecord struct {
 }
 
 // Exec runs cmd with both streams captured and records the invocation,
-// returning cmd.Run's error. Args are recorded as cmd's own arguments — the
-// binary path is the caller's business, not the invocation's.
+// returning cmd's error — or a *DeadlineError if it outlived its bound
+// (CommandBound unless SetCommandBound says otherwise). Args are recorded as
+// cmd's own arguments — the binary path is the caller's business, not the
+// invocation's.
 func (h *RunHistory) Exec(cmd *exec.Cmd) error {
-	var stdout, stderr bytes.Buffer
+	// syncBuffer, not bytes.Buffer: a run abandoned after its kill (see
+	// DeadlineError.Orphaned) can still be written to while it is read here.
+	var stdout, stderr syncBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := cmd.Run()
+	err := runBounded(cmd, h.commandBound())
 	h.RecordSplit(cmd.Args[1:], stdout.String(), stderr.String(), err)
 	return err
 }
@@ -76,7 +116,18 @@ func (h *RunHistory) Record(args []string, output string, err error) {
 // machine stream on its own (see RunRecord.Stdout). Callers reach it only
 // AFTER cmd.Run()/cmd.Wait() has returned — i.e. after the process has
 // genuinely been started.
+//
+// A *DeadlineError is appended to the recorded stderr, so a step that reports
+// "exited -1; output: ..." names the command and bound that killed it, and it
+// is held for TakeExpired.
 func (h *RunHistory) RecordSplit(args []string, stdout, stderr string, err error) {
+	var de *DeadlineError
+	if errors.As(err, &de) {
+		stderr += "\n" + de.Error() + "\n"
+		if h.expired == nil {
+			h.expired = de
+		}
+	}
 	h.Record(args, stdout+stderr, err)
 	h.runs[len(h.runs)-1].Stdout = stdout
 }

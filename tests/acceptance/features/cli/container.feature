@@ -60,6 +60,7 @@ Feature: container — the images isolated agents run in, and the questions you 
       Then the command fails
       And the output contains "help is not a payload"
 
+  @image-mock-agent
   Rule: Check reports; it never builds, changes or blocks anything
 
     `container check` answers whether `runtime: container` agents can launch
@@ -92,9 +93,10 @@ Feature: container — the images isolated agents run in, and the questions you 
     #
     # shared_fs="ok" is a claim the check can only earn against a PRESENT
     # image (Diagnose only runs the definitive marker probe when one exists;
-    # otherwise it falls back to an advisory heuristic). This Rule's
-    # Background builds one on demand rather than leaving that claim resting
-    # on whatever happens to already be on the machine (dragging-neatness).
+    # otherwise it falls back to an advisory heuristic). The Rule's
+    # @image-mock-agent tag has the suite build one before any scenario runs,
+    # rather than leaving that claim resting on whatever happens to already
+    # be on the machine (dragging-neatness); the Background checks it is there.
     # The subject is "mock", not a vendor engine, because that build costs
     # nothing beyond the base image — see the Background's own comment.
     Background:

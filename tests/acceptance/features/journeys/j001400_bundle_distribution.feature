@@ -438,12 +438,12 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # pinned in internal/core/coord's docker_integration lane by
   # TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath.
   # --------------------------------------------------------------------------
-  # @container: every example below drives runtime=container, so this outline
-  # builds the agent image when absent — minutes, inside a suite bounded by go
-  # test's 10m default. Untagged, it timed out the whole default lane the first
-  # time a binary change orphaned the image tag. It runs in
-  # `just test-acceptance-container`, whose ACCEPTANCE_PATHS names this file.
-  @container
+  # @container: every example below drives runtime=container and needs a
+  # reachable daemon. It runs in `just test-acceptance-container`, whose
+  # ACCEPTANCE_PATHS names this file. @image-cell: the cell image it runs in is
+  # built once before the scenarios start, under its own bound, never inside
+  # a row.
+  @container @image-cell
   Scenario Outline: The published artifacts reach a containerized agent across the process boundary
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     And Alice references the company's "atelier" bundle and pulls it

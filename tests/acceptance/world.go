@@ -19,11 +19,12 @@ import (
 // constructed fresh in a Before hook and torn down in After, so scenarios share
 // nothing.
 type World struct {
-	env   *testenv.TestEnvironment // isolated home+project, CLI exec, file asserts
-	mock  *testenv.MockLM          // deterministic LLM backend (set by fixtures)
-	mcp   *testenv.MCPSession      // mock agent: SDK client session dialed at the standing owner's endpoint (lazy)
-	owner *sessionOwner            // the standing `ctxloom run` whose endpoint the agent session dials — stood explicitly by a scenario, or implicitly by the first tool call (session_owner_fixture.go)
-	tlMCP *testenv.MCPSession      // J002500: taskloom's own MCP server (see steps_j002500_taskloom.go), eager (started explicitly, not lazily)
+	scenario *godog.Scenario          // the running scenario, for the tags a step checks its preconditions against (requireSuiteImage)
+	env      *testenv.TestEnvironment // isolated home+project, CLI exec, file asserts
+	mock     *testenv.MockLM          // deterministic LLM backend (set by fixtures)
+	mcp      *testenv.MCPSession      // mock agent: SDK client session dialed at the standing owner's endpoint (lazy)
+	owner    *sessionOwner            // the standing `ctxloom run` whose endpoint the agent session dials — stood explicitly by a scenario, or implicitly by the first tool call (session_owner_fixture.go)
+	tlMCP    *testenv.MCPSession      // J002500: taskloom's own MCP server (see steps_j002500_taskloom.go), eager (started explicitly, not lazily)
 
 	lastTool     toolOutcome    // last tools/call outcome (see steps_mcp.go)
 	lastInner    map[string]any // unwrapped inner result of lastTool
@@ -132,6 +133,16 @@ func (w *World) agent() (*testenv.MCPSession, error) {
 	return s, nil
 }
 
+// expiredCommand takes the error of a command killed for outliving its bound
+// since the last step (testenv.RunHistory.TakeExpired), or nil. Nil-safe: a
+// scenario whose Before hook failed has no World.
+func (w *World) expiredCommand() error {
+	if w == nil {
+		return nil
+	}
+	return w.env.TakeExpired()
+}
+
 // InitializeScenario wires the lifecycle hooks and registers every step. godog
 // calls this once per scenario.
 func InitializeScenario(ctx *godog.ScenarioContext) {
@@ -143,8 +154,16 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		if err := env.Setup(); err != nil {
 			return ctx, err
 		}
-		w := &World{env: env}
+		w := &World{scenario: sc, env: env}
 		return context.WithValue(ctx, worldKey{}, w), nil
+	})
+
+	// A command killed for outliving testenv.CommandBound fails the step that
+	// ran it, whatever that step did with the error. The CLI step discards it
+	// by design (exit status is a later step's assertion), and a scenario that
+	// EXPECTS failure would otherwise pass on a command that never finished.
+	ctx.StepContext().After(func(c context.Context, _ *godog.Step, _ godog.StepResultStatus, _ error) (context.Context, error) {
+		return c, worldFrom(c).expiredCommand()
 	})
 
 	ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {

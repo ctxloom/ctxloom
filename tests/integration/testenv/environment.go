@@ -850,7 +850,8 @@ func (e *TestEnvironment) GitCommit(message string) error {
 // RunWithStdin executes ctxloom with stdin input and returns the output. Stdin
 // is held open for a short grace period after the write before being closed,
 // so a long-lived stdio server (e.g. `ctxloom mcp`) can dispatch and respond
-// before it sees EOF. See mcpStdinGrace.
+// before it sees EOF. See mcpStdinGrace. Once stdin closes, the command is
+// bounded exactly as Exec bounds one.
 func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	cmd := exec.Command(e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
@@ -871,7 +872,8 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Start(); err != nil {
+	run, err := startBounded(cmd)
+	if err != nil {
 		return err
 	}
 
@@ -879,7 +881,9 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	waitForStdinResponses(&stdout, jsonrpcRequestCount(stdin))
 	_ = stdinPipe.Close()
 
-	err = cmd.Wait()
+	// Bounded from here, after the stdin hold: the hold is the harness's own
+	// ceiling (mcpStdinGrace), not the command's run time.
+	err = run.wait(e.commandBound())
 	e.RecordSplit(args, stdout.String(), stderr.String(), err)
 	return err
 }
@@ -899,12 +903,18 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 // the tool result never written. Nothing was wrong with the server; the test
 // client hung up on it, and it did so more often the busier the box was.
 //
-// want == 0 means the input was not JSON-RPC (nothing to count), so this
-// falls back to waiting out the ceiling rather than returning immediately.
+// want == 0 means the input carries no JSON-RPC request (a hook payload, a
+// prompt), so no answer will ever arrive to wait for, and it returns at once:
+// the child reads what was written and then sees EOF, exactly as through a
+// shell pipe. Waiting out the ceiling there bought nothing and cost every
+// such call the whole of mcpStdinGrace.
 func waitForStdinResponses(out *syncBuffer, want int) {
+	if want == 0 {
+		return
+	}
 	deadline := time.Now().Add(mcpStdinGrace)
 	for time.Now().Before(deadline) {
-		if want > 0 && jsonrpcResponseCount(out.String()) >= want {
+		if jsonrpcResponseCount(out.String()) >= want {
 			return
 		}
 		time.Sleep(stdinPollInterval)

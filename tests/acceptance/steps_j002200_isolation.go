@@ -29,7 +29,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
@@ -380,8 +379,9 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice runs the container-bound agent in a real container$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j002200 := j002200Of(w)
-		_, decision, msg := containercell.Select(c, "j002200's container credential shared-identity row")
-		if err := gateContainerRow(w, "j002200 container shared-identity row", decision, msg); err != nil {
+		// The runtime gate rides the image's: requireSuiteImage replays the
+		// suite's containercell.Select decision for it.
+		if err := requireSuiteImage(w, imageMockAgent, "j002200 container shared-identity row"); err != nil {
 			return err
 		}
 		// The record MUST live inside the project workspace: a containerized

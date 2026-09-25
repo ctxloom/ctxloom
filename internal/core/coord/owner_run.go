@@ -43,18 +43,36 @@ type OwnerRun struct {
 	Rebind     func(ctx context.Context, l launch.Launch) (launch.Launch, error)
 }
 
+// OwnedRunner is the runner an OwnedRunStarter stood up.
+//
+// Kill tears the runner down; StartOwnedRun invokes it if the post-launch
+// handshake fails, and the caller owns it for normal teardown (the host
+// `ctxloom run` defers isolation.RunnerHandle.Kill).
+//
+// Wait blocks until the runner PROCESS exits and reports why; a clean exit is
+// nil. It is the death half of the dial-home race (issueStartRun): without it
+// a runner that exits before dialing home is noticed only when the whole
+// dial-home budget expires. It may be called more than once and concurrently,
+// every call reporting the same exit — StartOwnedRun waits on it while the
+// caller may too (isolation.RunnerHandle.Wait already has this shape). Nil
+// only when there is no process to wait on, which degrades to that budget.
+//
+// ContainerName is isolation.RunnerHandle.Name (fragile-volatile) — "" for a
+// host-runtime starter — and StartOwnedRun journals it onto the run record so
+// it reaches the roster; coord cannot read it off isolation.RunnerHandle
+// directly without importing lm/isolation, which this seam exists to avoid.
+type OwnedRunner struct {
+	Kill          func()
+	Wait          func() error
+	ContainerName string
+}
+
 // OwnedRunStarter launches the runner process for an owner-owned run with the
 // per-run reach-back env stamped on. It mirrors isolation.EngineStarter but
 // takes the spawn env because the run-id + credential trio it must carry is
 // minted INSIDE StartOwnedRun (a pre-bound isolation.EngineStarter cannot know
-// them yet). The returned kill tears the runner down; StartOwnedRun invokes it
-// if the post-launch handshake fails, and the caller owns it for normal
-// teardown (the host `ctxloom run` defers isolation.RunnerHandle.Kill).
-// containerName is isolation.RunnerHandle.Name (fragile-volatile) — "" for a
-// host-runtime starter — and StartOwnedRun journals it onto the run record so
-// it reaches the roster; coord cannot read it off isolation.RunnerHandle
-// directly without importing lm/isolation, which this seam exists to avoid.
-type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill func(), containerName string, err error)
+// them yet).
+type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (OwnedRunner, error)
 
 // StartOwnedRun mints a PARENT-LESS, owner-owned run and drives it onto
 // Transport 2: journal a runEnqueued with ParentHarp = owner.Harp,
@@ -67,29 +85,8 @@ type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill
 // (terminateRun, exactly-once) and the error returned; the caller's deferred
 // runner teardown still runs.
 func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec OwnerRun, start OwnedRunStarter, prompt string) (*RunOutcome, error) {
-	if c.Draining() {
-		return nil, fmt.Errorf("owner run: %w", ErrDraining)
-	}
-	if spec.Launch.Identity.Harp == "" {
-		return nil, errors.New("owner run: a resolved launch with its harp is required (the run reuses the owning session's harp as its role)")
-	}
-	if spec.Launch.Engine == "" {
-		return nil, errors.New("owner run: the launch names no engine")
-	}
-	if start == nil {
-		return nil, errors.New("owner run: a runner starter is required")
-	}
-	// A ONE-SHOT run gets exactly one turn and this prompt is it, so
-	// an empty one can only be a delivery failure upstream — and it used to
-	// sail through: issueStartRun builds Input only `if first != ""`, so the
-	// StartRun went out with a nil Input, round-tripped, and this returned a
-	// populated RunOutcome and nil. A top-level container run with zero
-	// payload and every signal green. A STRUCTURED run is different: it
-	// legitimately opens with no lead and takes its turns via
-	// SendOwnedRunTurn, so it is not refused here.
-	if spec.OneShot && prompt == "" {
-		return nil, errors.New("owner run: a one-shot run needs a prompt — it gets exactly one turn, " +
-			"and an empty first turn delivers nothing at all (check context assembly and the --print/stdin prompt source)")
+	if err := c.ownerRunRefusal(spec, start, prompt); err != nil {
+		return nil, err
 	}
 	// The dial-home IS the run's transport — a runner that could never dial
 	// home has no transport at all, so an unresolvable endpoint is fatal here
@@ -151,7 +148,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.setState(rt, StateExecuting)
 	c.audit("owner_run", owner.Harp, map[string]string{"harp": l.Identity.Harp, "run_id": rt.runID, "backend": string(l.Engine)})
 
-	kill, containerName, err := start(ctx, runnerEnv(rt.runID, token, url))
+	runner, err := start(ctx, runnerEnv(rt.runID, token, url))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the
@@ -162,9 +159,10 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		return nil, err
 	}
 	c.mu.Lock()
-	rt.close = kill
+	rt.close = runner.Kill
+	rt.runnerWait = runner.Wait
 	c.mu.Unlock()
-	c.recordContainerName(rt.runID, containerName)
+	c.recordContainerName(rt.runID, runner.ContainerName)
 
 	// The runner leads the first turn with the package's context ahead of
 	// Launch.Prompt; prompt is what the host asked for this run.
@@ -205,6 +203,36 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		Engine:  l.Label.Label,
 		Runtime: runtime,
 	}, nil
+}
+
+// ownerRunRefusal is StartOwnedRun's refusal of a run it must not start: a
+// draining coordinator, or a spec that could never carry a turn.
+func (c *Coordinator) ownerRunRefusal(spec OwnerRun, start OwnedRunStarter, prompt string) error {
+	if c.Draining() {
+		return fmt.Errorf("owner run: %w", ErrDraining)
+	}
+	if spec.Launch.Identity.Harp == "" {
+		return errors.New("owner run: a resolved launch with its harp is required (the run reuses the owning session's harp as its role)")
+	}
+	if spec.Launch.Engine == "" {
+		return errors.New("owner run: the launch names no engine")
+	}
+	if start == nil {
+		return errors.New("owner run: a runner starter is required")
+	}
+	// A ONE-SHOT run gets exactly one turn and this prompt is it, so
+	// an empty one can only be a delivery failure upstream — and it used to
+	// sail through: issueStartRun builds Input only `if first != ""`, so the
+	// StartRun went out with a nil Input, round-tripped, and this returned a
+	// populated RunOutcome and nil. A top-level container run with zero
+	// payload and every signal green. A STRUCTURED run is different: it
+	// legitimately opens with no lead and takes its turns via
+	// SendOwnedRunTurn, so it is not refused here.
+	if spec.OneShot && prompt == "" {
+		return errors.New("owner run: a one-shot run needs a prompt — it gets exactly one turn, " +
+			"and an empty first turn delivers nothing at all (check context assembly and the --print/stdin prompt source)")
+	}
+	return nil
 }
 
 // recordContainerName journals a container-runtime run's resolved container

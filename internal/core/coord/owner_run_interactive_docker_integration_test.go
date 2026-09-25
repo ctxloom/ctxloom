@@ -78,7 +78,7 @@ func (s *dockerInteractiveStarter) prepare(ctx context.Context, t *testing.T, l 
 	return l
 }
 
-func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
 	pol, ws := s.pol, s.ws
 	// The mock's interactive echo loop is what holds the turn open and
 	// reflects typed input; it reads the knob off the runner's environment.
@@ -89,12 +89,12 @@ func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[strin
 	cmd, name, err := pol.InteractiveRunner(ctx, ownerRunBackend, ws, env)
 	if err != nil {
 		_ = ws.Cleanup()
-		return nil, "", err
+		return coord.OwnedRunner{}, err
 	}
 	sess, err := attach.Start(context.Background(), cmd, name, func(runExited <-chan struct{}) { pol.Remove(name, runExited) })
 	if err != nil {
 		_ = ws.Cleanup()
-		return nil, "", err
+		return coord.OwnedRunner{}, err
 	}
 	go func() { _, _ = io.Copy(&s.out, sess.Master()) }()
 	kill := sync.OnceFunc(func() {
@@ -105,7 +105,7 @@ func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[strin
 	s.session, s.name = sess, name
 	s.cleanups = append(s.cleanups, kill)
 	s.mu.Unlock()
-	return kill, name, nil
+	return coord.OwnedRunner{Kill: kill, Wait: sess.ExitErr, ContainerName: name}, nil
 }
 
 // TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner is the slice-13

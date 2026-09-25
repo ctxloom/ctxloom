@@ -155,3 +155,30 @@ func TestEnd_LeavesTheChildsLastBytesReadable(t *testing.T) {
 	out, _ := io.ReadAll(s.Master()) // ends with EIO once the child is gone
 	require.Contains(t, string(out), "LAST-BYTES-9f3a")
 }
+
+// TestExitErr_ReportsTheExitAndLeavesTheMasterOpen: ExitErr is the
+// coordinator's "is the runner gone, and why" — it must name a non-zero
+// status, answer every caller alike, and leave the child's last bytes on the
+// master for the drive (Wait would have closed it and discarded them).
+func TestExitErr_ReportsTheExitAndLeavesTheMasterOpen(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s, err := Start(ctx, exec.Command("sh", "-c", "echo LAST; exit 3"))
+	require.NoError(t, err)
+	defer s.Kill()
+
+	done := make(chan error, 1)
+	go func() { done <- s.ExitErr() }()
+	var first error
+	select {
+	case first = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ExitErr never returned for a child that exited")
+	}
+	require.ErrorContains(t, first, "status 3")
+	require.Equal(t, first.Error(), s.ExitErr().Error(), "every caller sees the same exit")
+
+	var out strings.Builder
+	_, _ = io.Copy(&out, s.Master())
+	require.Contains(t, out.String(), "LAST", "ExitErr must not close the master")
+}

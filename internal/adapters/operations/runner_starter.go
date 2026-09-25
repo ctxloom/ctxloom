@@ -17,16 +17,17 @@ import (
 // handle the moment the process exists, so a container that failed to reach
 // running is still torn down by its holder.
 func RunnerStarter(cell PreparedCell, backend, label string, verbosity int, started func(*isolation.RunnerHandle)) coord.OwnedRunStarter {
-	return func(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+	return func(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
 		h, err := cell.Policy.StartRunner(ctx, backend, label, verbosity, cell.Workspace, spawnEnv)
 		if err != nil {
-			return nil, "", err
+			return coord.OwnedRunner{}, err
 		}
 		if started != nil {
 			started(h)
 		}
+		runner := coord.OwnedRunner{Kill: h.Kill, Wait: isolation.WaitOf(h), ContainerName: h.Name}
 		if h.Name == "" {
-			return h.Kill, "", nil
+			return runner, nil
 		}
 		if rerr := isolation.AwaitContainerRunning(RuntimeForPolicy(cell.Policy), h); rerr != nil {
 			// NON-DEGRADABLE: a boundary that was requested, accepted, and
@@ -34,8 +35,8 @@ func RunnerStarter(cell PreparedCell, backend, label string, verbosity int, star
 			strictness.FailAlways(strictness.ClassIsolation,
 				"check the container runtime and the agent image can start (`docker logs `/`podman logs ` the named container); this run cannot fall back to the host without silently dropping the boundary it was given",
 				"container %q was started but never reached running state, so the isolation it promised does not exist: %v", h.Name, rerr)
-			return h.Kill, h.Name, rerr
+			return runner, rerr
 		}
-		return h.Kill, h.Name, nil
+		return runner, nil
 	}
 }

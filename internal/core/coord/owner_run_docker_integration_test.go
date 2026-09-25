@@ -99,12 +99,12 @@ func (s *dockerOwnerRunStarter) prepare(ctx context.Context, t *testing.T, l lau
 	return l
 }
 
-func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
 	pol, ws := s.pol, s.ws
 	handle, err := pol.StartRunner(ctx, ownerRunBackend, "fast", 0, ws, spawnEnv)
 	if err != nil {
 		_ = ws.Cleanup()
-		return nil, "", err
+		return coord.OwnedRunner{}, err
 	}
 	kill := sync.OnceFunc(func() {
 		handle.Kill()
@@ -114,7 +114,7 @@ func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]s
 	s.containers = append(s.containers, handle.Name)
 	s.cleanups = append(s.cleanups, kill)
 	s.mu.Unlock()
-	return kill, handle.Name, nil
+	return coord.OwnedRunner{Kill: kill, Wait: isolation.WaitOf(handle), ContainerName: handle.Name}, nil
 }
 
 func (s *dockerOwnerRunStarter) containerNames() []string {

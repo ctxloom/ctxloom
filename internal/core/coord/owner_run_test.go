@@ -45,7 +45,7 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 // executes is refused with delivery.ErrEndpointUnavailable.
 func ownerRunStarterWith(ctx context.Context, sc *scriptedChat, backend, containerName string, refuse func() bool) (OwnedRunStarter, *bool) {
 	started := new(bool)
-	starter := func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
+	starter := func(_ context.Context, spawnEnv map[string]string) (OwnedRunner, error) {
 		*started = true
 		sctx, cancel := context.WithCancel(ctx)
 		host := runnerHooks.NewEngineHost(sctx, nil, backend, spawnEnv[EnvRunID])
@@ -61,10 +61,10 @@ func ownerRunStarterWith(ctx context.Context, sc *scriptedChat, backend, contain
 		})
 		if err != nil {
 			cancel()
-			return nil, "", err
+			return OwnedRunner{}, err
 		}
 		host.BindHome(home)
-		return func() { cancel(); home.Crash() }, containerName, nil
+		return OwnedRunner{Kill: func() { cancel(); home.Crash() }, ContainerName: containerName}, nil
 	}
 	return starter, started
 }
@@ -162,13 +162,13 @@ func TestStartOwnedRun_RunnerEnvIsTheTrioAlone(t *testing.T) {
 	require.True(t, ok)
 
 	var gotEnv map[string]string
-	starter := func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
+	starter := func(_ context.Context, spawnEnv map[string]string) (OwnedRunner, error) {
 		gotEnv = spawnEnv
 		// No real runner needed for this test — it inspects the stamped
 		// env, not the run's live behavior. Fail loud rather than hanging
 		// the coordinator's await-runner budget on a Home that never dials
 		// home.
-		return func() {}, "", errStopBeforeDial
+		return OwnedRunner{Kill: func() {}}, errStopBeforeDial
 	}
 
 	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "hello")

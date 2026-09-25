@@ -58,6 +58,22 @@ const (
 // object, whose closing `"}` would otherwise read as part of the reason.
 var j001500WithheldLine = regexp.MustCompile(`(?m)withheld (\S*): ([^"\n]*)`)
 
+// j001500CheckHeldReason checks one held item's reason against bare, the
+// reason's own rendering with no detail: a fragment's is exactly that, and an
+// executable's extends it with what would admit it.
+func j001500CheckHeldReason(ref, reason, bare string) error {
+	if strings.Contains(ref, "#fragment") {
+		if reason != bare {
+			return fmt.Errorf("the held guidance's reason is %q, want exactly %q: a fragment has nothing to add", reason, bare)
+		}
+		return nil
+	}
+	if !strings.HasPrefix(reason, bare) || reason == bare {
+		return fmt.Errorf("the held executable %s says only %q; it must also say what would admit it", ref, reason)
+	}
+	return nil
+}
+
 // j001500State is this journey's fixture state: the company's signed bundle
 // (signer identity, seeded remote, bundle name), whether Alice has wired it
 // into her project yet, and bookkeeping the later scenarios need (rejected
@@ -583,12 +599,8 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 				continue
 			}
 			refs = append(refs, ref)
-			isFragment := strings.Contains(ref, "#fragment")
-			switch {
-			case isFragment && reason != bare:
-				return fmt.Errorf("the held guidance's reason is %q, want exactly %q: a fragment has nothing to add; output:\n%s", reason, bare, out)
-			case !isFragment && (!strings.HasPrefix(reason, bare) || reason == bare):
-				return fmt.Errorf("the held executable %s says only %q; it must also say what would admit it; output:\n%s", ref, reason, out)
+			if err := j001500CheckHeldReason(ref, reason, bare); err != nil {
+				return fmt.Errorf("%w; output:\n%s", err, out)
 			}
 		}
 		if len(refs) != 3 {

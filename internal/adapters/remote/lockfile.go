@@ -201,7 +201,7 @@ func findRetiredKeyForm(data []byte) (held []string, found bool) {
 	}
 	found = doc.Version < LockfileVersion
 	for key, entry := range doc.Bundles {
-		if !isBundleIdentity(key) {
+		if !IsBundleIdentity(key) {
 			found = true
 		}
 		if entry.Held {
@@ -212,9 +212,10 @@ func findRetiredKeyForm(data []byte) (held []string, found bool) {
 	return held, found
 }
 
-// isBundleIdentity reports whether key is exactly the bundle identity it
-// parses to.
-func isBundleIdentity(key string) bool {
+// IsBundleIdentity reports whether key is exactly the bundle identity it
+// parses to — the one test for a key written the retired way, shared by every
+// store keyed by bundle identity so they cannot disagree about what is retired.
+func IsBundleIdentity(key string) bool {
 	br, err := trust.ParseBundleRef(key)
 	return err == nil && string(br.BundleIdentity()) == key
 }

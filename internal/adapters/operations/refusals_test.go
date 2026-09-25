@@ -191,3 +191,34 @@ func TestRefusals_AnUnresolvedProjectRootRefusesRatherThanUsingTheWorkingDirecto
 		})
 	}
 }
+
+// A record written before refusals were keyed by bundle identity names its
+// bundle the way it was typed, so it matches no lock key and the staleness
+// filter would drop it — the advisory silently gone, which is the one outcome
+// this store exists to prevent. It must be reported, named, with the command
+// that clears it, the same way the lockfile refuses its own retired keys.
+func TestRefusals_ARecordKeyedTheRetiredWayIsReportedNotDropped(t *testing.T) {
+	r := newRefusal(t)
+	old := r.ref // the pre-identity lock key: the reference as typed
+	require.NotEqual(t, string(lockKeyOf(t, r.ref)), old, "the fixture's typed ref must differ from its identity, or this proves nothing")
+
+	path := paths.RefusedAdvancesPath(r.baseDir)
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var doc refusalDoc
+	require.NoError(t, yaml.Unmarshal(raw, &doc))
+	require.Len(t, doc.Refusals, 1)
+	doc.Refusals[0].Identity = old
+	out, err := yaml.Marshal(doc)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, out, 0o644))
+
+	_, err = LiveRefusedAdvances(r.cfg)
+	require.ErrorIs(t, err, ErrRefusalKeyFormRetired)
+
+	c := doctorCheckUpstreamSignatures(r.cfg, nil)
+	assert.Equal(t, DoctorWarn, c.Status, c.Detail)
+	assert.Contains(t, c.Detail, old, "the retired record must be NAMED, not dropped")
+	assert.Contains(t, c.Detail, r.proposed, "the refused revision is the fact the record exists to keep")
+	assert.Contains(t, c.Detail, "ctxloom deps upgrade", "the report must name the command that clears it")
+}

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/afero"
@@ -70,6 +71,11 @@ import (
 // as "nothing was refused" would reproduce exactly the silence it exists to
 // prevent.
 const refusalStoreVersion = 1
+
+// ErrRefusalKeyFormRetired reports a refusal store holding a record whose
+// Identity is not a bundle identity — written before refusals were keyed the
+// way the lockfile is, so no lock key can match it.
+var ErrRefusalKeyFormRetired = errors.New("refusal record uses a retired key form")
 
 // RefusalRecord is one persisted RefusedAdvance: what upgrade declined to move
 // to, what it kept instead, and when.
@@ -199,6 +205,15 @@ func LiveRefusedAdvances(cfg *config.Config) ([]RefusalRecord, error) {
 	if d.Version != refusalStoreVersion {
 		return nil, fmt.Errorf("%s declares version %d, this build understands %d", path, d.Version, refusalStoreVersion)
 	}
+	// REFUSED, not filtered. A record keyed the retired way matches no lock
+	// key, so the staleness filter below would drop it as "the pin moved" —
+	// a fact about an upstream signature gone without a word. The lockfile
+	// refuses its own retired keys (remote.ErrLockKeyFormRetired) for the
+	// same reason; there is no rekeying here either, because the next upgrade
+	// round re-derives every refusal and replaces this file wholesale.
+	if err := retiredRefusalKeys(path, d.Refusals); err != nil {
+		return nil, err
+	}
 	pinned, err := lockedSHAsByRef(cfg)
 	if err != nil {
 		return nil, err
@@ -210,6 +225,24 @@ func LiveRefusedAdvances(cfg *config.Config) ([]RefusalRecord, error) {
 		}
 	}
 	return live, nil
+}
+
+// retiredRefusalKeys refuses a store holding any record whose Identity is not
+// a bundle identity, naming each such record so the facts survive the refusal.
+func retiredRefusalKeys(path string, recs []RefusalRecord) error {
+	var retired []string
+	for _, r := range recs {
+		if !remote.IsBundleIdentity(r.Identity) {
+			retired = append(retired, fmt.Sprintf("%s (refused revision %s, kept %s)", r.Identity, r.ProposedSHA, r.KeptSHA))
+		}
+	}
+	if len(retired) == 0 {
+		return nil
+	}
+	sort.Strings(retired)
+	return fmt.Errorf("%w: %s names %d bundle(s) by the reference as typed, not by bundle identity, so they cannot be checked against the lockfile: %s; "+
+		"re-run `ctxloom deps upgrade` to re-check them and rewrite the record",
+		ErrRefusalKeyFormRetired, path, len(retired), strings.Join(retired, "; "))
 }
 
 // lockedSHAsByRef reads the active lock once and returns ref → pinned SHA.

@@ -338,10 +338,7 @@ func (r Reason) Explain(detail string) string {
 	case ReasonUngoverned:
 		return "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content"
 	case ReasonStaleLocalSignature:
-		if detail != "" {
-			return detail
-		}
-		return "its signature no longer covers its bytes — re-sign it"
+		return withDefault(detail, "its signature no longer covers its bytes — re-sign it")
 	case ReasonUngated, ReasonLocal, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
 		return "allowed: " + r.String()
 	default:
@@ -353,6 +350,14 @@ func (r Reason) Explain(detail string) string {
 		// item (an executable: a review record), so the reader learns the fix.
 		return withDetail("awaiting review — run 'ctxloom review'", detail)
 	}
+}
+
+// withDefault is detail, or fallback when there is none.
+func withDefault(detail, fallback string) string {
+	if detail == "" {
+		return fallback
+	}
+	return detail
 }
 
 // withDetail appends a verdict's detail as a parenthetical; an empty one is

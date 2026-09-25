@@ -25,7 +25,7 @@
   "outputSchema": {
     "properties": {
       "delivery": {
-        "description": "How the steer landed: one of coord's Delivery* constants, which define the values and what each means.",
+        "description": "How the steer landed: \"new-turn\" (an idle child was woken into a new turn), \"queued\" (held for the child's next turn boundary, including while it is paused), or \"resumed\" (an ended session was relaunched with the text as its next turn).",
         "type": "string"
       },
       "message_id": {

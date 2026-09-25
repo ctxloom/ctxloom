@@ -128,11 +128,11 @@ var embeddingModule = map[string]string{
 	"go.mod": labGoMod,
 	"cmd/ctxloom/main.go": "package main\n\nimport (\n\t_ \"embed\"\n\n\t\"lab/internal/deep/nest\"\n)\n\n" +
 		"//go:embed loadout.yaml\nvar loadout string\n\nfunc main() { _ = loadout; _ = nest.FS }\n",
-	"cmd/ctxloom/loadout.yaml":        "x: 1\n",
-	"internal/deep/nest/nest.go":      "package nest\n\nimport \"embed\"\n\n//go:embed all:data\nvar FS embed.FS\n",
-	"internal/deep/nest/data/a.txt":   "a\n",
-	"internal/deep/nest/data/b/c.txt": "c\n",
-	"internal/deep/nest/nest_test.go": "package nest\n\nimport \"testing\"\n\nfunc TestNest(t *testing.T) {\n\tif _, err := FS.ReadFile(\"data/b/c.txt\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n",
+	"cmd/ctxloom/loadout.yaml":            "x: 1\n",
+	"internal/deep/nest/nest.go":          "package nest\n\nimport \"embed\"\n\n//go:embed all:data\nvar FS embed.FS\n",
+	"internal/deep/nest/data/a.txt":       "a\n",
+	"internal/deep/nest/data/b/c.txt":     "c\n",
+	"internal/deep/nest/nest_test.go":     "package nest\n\nimport \"testing\"\n\nfunc TestNest(t *testing.T) {\n\tif _, err := FS.ReadFile(\"data/b/c.txt\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n",
 	"tests/acceptance/acceptance_test.go": "//go:build acceptance\n\npackage acceptance\n\nimport \"testing\"\n\nfunc TestAcceptance(t *testing.T) {}\n",
 }
 

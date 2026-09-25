@@ -244,7 +244,7 @@ func oozeLogWithInvalid(target string, total, killed, survived, invalid int) str
 // ratchet must fail it — and above all must not call it an improvement, which
 // is what it did when the laboratory lost its embeds.
 func TestSurvivorRatchet_OozeRunWhereNoMutantCompiledMeasuredNothing(t *testing.T) {
-	code, out, after := runRatchet(t,
+	code, out, _ := runRatchet(t,
 		"TestAcceptanceMutation/x 51 51 measured\n",
 		oozeLogWithInvalid("TestAcceptanceMutation/x", 50, 50, 0, 50))
 	if code != 1 {
@@ -259,7 +259,7 @@ func TestSurvivorRatchet_OozeRunWhereNoMutantCompiledMeasuredNothing(t *testing.
 
 	// Nor may it be RECORDED: banking 0 survivors from it would turn the next
 	// honest run into a regression.
-	code, out, after = runRatchet(t,
+	code, out, after := runRatchet(t,
 		"TestAcceptanceMutation/x 51 51 measured\n",
 		oozeLogWithInvalid("TestAcceptanceMutation/x", 50, 50, 0, 50),
 		"CTXLOOM_MUTATION_BASELINE=update")

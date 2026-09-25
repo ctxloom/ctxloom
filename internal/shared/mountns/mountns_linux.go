@@ -201,16 +201,9 @@ func RunChildIfRequested() {
 // shim runs inside the new namespaces: make propagation private, bind, then
 // become the real process.
 func shim() error {
-	var binds []Bind
-	if err := json.Unmarshal([]byte(os.Getenv(envBinds)), &binds); err != nil {
-		return fmt.Errorf("decode binds: %w", err)
-	}
-	var argv []string
-	if err := json.Unmarshal([]byte(os.Getenv(envArgv)), &argv); err != nil {
-		return fmt.Errorf("decode argv: %w", err)
-	}
-	if len(argv) == 0 {
-		return errors.New("no argv to exec")
+	binds, argv, err := decodeShimSpec()
+	if err != nil {
+		return err
 	}
 	// UNCONDITIONAL, even though CLONE_NEWUSER was measured to sever
 	// child-to-host propagation on its own: that guarantee comes from the new
@@ -220,17 +213,8 @@ func shim() error {
 	if err := unix.Mount("none", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf("make mount propagation private: %w", err)
 	}
-	for _, b := range binds {
-		if err := unix.Mount(b.Source, b.Target, "", unix.MS_BIND, ""); err != nil {
-			return fmt.Errorf("bind %s onto %s: %w", b.Source, b.Target, err)
-		}
-		if b.ReadOnly {
-			// A read-only bind is a REMOUNT of the bind just made; MS_RDONLY
-			// on the original mount(2) is silently ignored.
-			if err := unix.Mount("", b.Target, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY, ""); err != nil {
-				return fmt.Errorf("make %s read-only: %w", b.Target, err)
-			}
-		}
+	if err := applyBinds(binds); err != nil {
+		return err
 	}
 	env := scrub(os.Environ())
 	if payload := os.Getenv(envProbePut); payload != "" && len(binds) > 0 {
@@ -247,6 +231,40 @@ func shim() error {
 		env = append(env, envReadback+"="+binds[0].Target)
 	}
 	return syscall.Exec(argv[0], argv, env)
+}
+
+// decodeShimSpec reads the binds and argv Command planted for the shim.
+func decodeShimSpec() ([]Bind, []string, error) {
+	var binds []Bind
+	if err := json.Unmarshal([]byte(os.Getenv(envBinds)), &binds); err != nil {
+		return nil, nil, fmt.Errorf("decode binds: %w", err)
+	}
+	var argv []string
+	if err := json.Unmarshal([]byte(os.Getenv(envArgv)), &argv); err != nil {
+		return nil, nil, fmt.Errorf("decode argv: %w", err)
+	}
+	if len(argv) == 0 {
+		return nil, nil, errors.New("no argv to exec")
+	}
+	return binds, argv, nil
+}
+
+// applyBinds makes each bind in order, remounting the read-only ones.
+func applyBinds(binds []Bind) error {
+	for _, b := range binds {
+		if err := unix.Mount(b.Source, b.Target, "", unix.MS_BIND, ""); err != nil {
+			return fmt.Errorf("bind %s onto %s: %w", b.Source, b.Target, err)
+		}
+		if !b.ReadOnly {
+			continue
+		}
+		// A read-only bind is a REMOUNT of the bind just made; MS_RDONLY on
+		// the original mount(2) is silently ignored.
+		if err := unix.Mount("", b.Target, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY, ""); err != nil {
+			return fmt.Errorf("make %s read-only: %w", b.Target, err)
+		}
+	}
+	return nil
 }
 
 // scrub removes every marker this package plants, so the process the shim

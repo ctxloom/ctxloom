@@ -96,6 +96,11 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+	return reviewPending(cmd, cfg, res)
+}
+
+// reviewPending lists res or walks it, per reviewWantsListing.
+func reviewPending(cmd *cobra.Command, cfg *config.Config, res *operations.PendingReviewResult) error {
 	if reviewWantsListing(cmd, reviewListFlag, isInteractiveTerminal()) {
 		return emit(cmd, res, func() error {
 			renderReviewList(cmd.OutOrStdout(), res)
@@ -108,28 +113,9 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 		return nil
 	}
 
-	// Resolve the countersigning key ONCE, up front — before the human has
-	// spent any attention reading items (spec §9.5: "A review session that
-	// cannot record its result is a waste of a human's attention and an
-	// insult besides"). --project hard-requires a key; the personal store
-	// degrades to the unsigned path with an explicit confirmation.
-	discoverer, err := operations.SignerDiscoverer()
-	if err != nil {
+	signer, proceed, err := reviewSignerGate(cmd, cfg, out)
+	if err != nil || !proceed {
 		return err
-	}
-	signer, unsigned, err := resolveReviewSigner(cmd.Context(), discoverer, cfg.SignKey(), reviewProjectFlag)
-	if err != nil {
-		return err
-	}
-	if unsigned && !confirmUnsignedReview(out) {
-		fmt.Fprintln(out, "Run 'ctxloom review' again once a signing key is available (see 'ssh-add').")
-		return nil
-	}
-	if !unsigned {
-		if !warnIfSoftwareKey(out, signer) {
-			fmt.Fprintln(out, "Review cancelled.")
-			return nil
-		}
 	}
 
 	sum, err := operations.ReviewWalk(cmd.Context(), App(), operations.ReviewWalkRequest{
@@ -146,6 +132,33 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 		refreshManagedArtifacts(cmd.Context(), cfg)
 	}
 	return nil
+}
+
+// reviewSignerGate resolves the countersigning key ONCE, up front — before
+// the human has spent any attention reading items (spec §9.5: "A review
+// session that cannot record its result is a waste of a human's attention and
+// an insult besides"). --project hard-requires a key; the personal store
+// degrades to the unsigned path with an explicit confirmation. proceed is
+// false when the human declined the unsigned path or quit at the
+// software-key warning.
+func reviewSignerGate(cmd *cobra.Command, cfg *config.Config, out io.Writer) (signer ssh.Signer, proceed bool, err error) {
+	discoverer, err := operations.SignerDiscoverer()
+	if err != nil {
+		return nil, false, err
+	}
+	signer, unsigned, err := resolveReviewSigner(cmd.Context(), discoverer, cfg.SignKey(), reviewProjectFlag)
+	if err != nil {
+		return nil, false, err
+	}
+	if unsigned && !confirmUnsignedReview(out) {
+		fmt.Fprintln(out, "Run 'ctxloom review' again once a signing key is available (see 'ssh-add').")
+		return nil, false, nil
+	}
+	if !unsigned && !warnIfSoftwareKey(out, signer) {
+		fmt.Fprintln(out, "Review cancelled.")
+		return nil, false, nil
+	}
+	return signer, true, nil
 }
 
 // resolveReviewSigner is `ctxloom review`'s rendering over

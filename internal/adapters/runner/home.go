@@ -42,7 +42,7 @@ type Home struct {
 	conn *grpc.ClientConn
 
 	mu     sync.Mutex
-	stream grpc.BidiStreamingClient[agentcoordpb.AgentFrame, agentcoordpb.CoordinatorFrame]
+	stream runChannelStream
 	sendMu sync.Mutex // serializes stream.Send (single-writer discipline)
 	// everAttached records that the run channel's Hello was ACCEPTED at least
 	// once. It is sticky by design: it separates "we never got through"
@@ -649,9 +649,30 @@ func (h *Home) runChannelLoop() {
 }
 
 func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) error {
-	stream, err := client.RunChannel(h.ctx)
+	stream, err := h.openRunChannel(client)
 	if err != nil {
 		return err
+	}
+	h.attachAndReissue(stream)
+	defer h.detachStream(stream)
+	for {
+		frame, rerr := stream.Recv()
+		if rerr != nil {
+			return rerr
+		}
+		h.handleCoordinatorFrame(frame)
+	}
+}
+
+// runChannelStream is the agent-plane RunChannel as the runner holds it.
+type runChannelStream = grpc.BidiStreamingClient[agentcoordpb.AgentFrame, agentcoordpb.CoordinatorFrame]
+
+// openRunChannel opens a RunChannel and completes the Hello exchange; the
+// stream it returns has been accepted by the coordinator.
+func (h *Home) openRunChannel(client agentcoordpb.CoordinatorServiceClient) (runChannelStream, error) {
+	stream, err := client.RunChannel(h.ctx)
+	if err != nil {
+		return nil, err
 	}
 	h.mu.Lock()
 	resume := h.acked
@@ -662,24 +683,27 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 		ProtocolVersion: 1,
 		Capabilities:    h.helloCapabilities(),
 	}}}); err != nil {
-		return helloSendErr(err, func() error { _, rerr := stream.Recv(); return rerr })
+		return nil, helloSendErr(err, func() error { _, rerr := stream.Recv(); return rerr })
 	}
 	first, err := stream.Recv()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ack := first.GetHelloAck()
 	if ack == nil {
-		return errors.New("first CoordinatorFrame was not a HelloAck")
+		return nil, errors.New("first CoordinatorFrame was not a HelloAck")
 	}
 	if !ack.GetAccepted() {
-		return rejectedHelloError("run channel Hello", ack.GetRejectReason())
+		return nil, rejectedHelloError("run channel Hello", ack.GetRejectReason())
 	}
+	return stream, nil
+}
 
-	// Attach, then REISSUE: unacked events in order, outstanding requests
-	// with their ORIGINAL request_ids, and a fresh park assertion when a
-	// recv is parked (park state is runtime state the coordinator forgot
-	// with the old stream).
+// attachAndReissue adopts stream, then REISSUES: unacked events in order,
+// outstanding requests with their ORIGINAL request_ids, and a fresh park
+// assertion when a recv is parked (park state is runtime state the
+// coordinator forgot with the old stream).
+func (h *Home) attachAndReissue(stream runChannelStream) {
 	h.sendMu.Lock()
 	h.mu.Lock()
 	h.stream = stream
@@ -703,20 +727,14 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	if parked {
 		h.emitCustomEvent(coord.CustomRecvParked, nil)
 	}
+}
 
-	defer func() {
-		h.mu.Lock()
-		if h.stream == stream {
-			h.stream = nil
-		}
-		h.mu.Unlock()
-	}()
-	for {
-		frame, rerr := stream.Recv()
-		if rerr != nil {
-			return rerr
-		}
-		h.handleCoordinatorFrame(frame)
+// detachStream forgets stream unless a newer channel has already replaced it.
+func (h *Home) detachStream(stream runChannelStream) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.stream == stream {
+		h.stream = nil
 	}
 }
 
@@ -1205,13 +1223,27 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 // (at-least-once, deduped on message_id).
 func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.PeerMessage, error) {
 	h.ackReturned()
+	msgs, p, newlyParked := h.takeBufferedOrPark()
+	if msgs != nil {
+		h.recordReturned(msgs)
+		return msgs, nil
+	}
+	if newlyParked {
+		h.emitCustomEvent(coord.CustomRecvParked, nil)
+	}
+	return h.awaitPark(ctx, p, wait)
+}
+
+// takeBufferedOrPark drains the buffer when it holds anything; otherwise it
+// installs a fresh park — preempting an older one — and reports whether the
+// runner was not already parked, which is when the parked event is owed.
+func (h *Home) takeBufferedOrPark() ([]*agentcoordpb.PeerMessage, *homePark, bool) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	if len(h.buffer) > 0 {
 		msgs := h.buffer
 		h.buffer = nil
-		h.mu.Unlock()
-		h.recordReturned(msgs)
-		return msgs, nil
+		return msgs, nil, false
 	}
 	if prev := h.park; prev != nil && !prev.done {
 		// Newest preempts: the older poll completes with the typed error.
@@ -1225,11 +1257,12 @@ func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.Pe
 	if !wasParked {
 		h.noteWaitLocked()
 	}
-	h.mu.Unlock()
-	if !wasParked {
-		h.emitCustomEvent(coord.CustomRecvParked, nil)
-	}
+	return nil, p, !wasParked
+}
 
+// awaitPark waits on p for up to wait, ending on a delivery, a preemption,
+// the timeout, the caller's context, or the Home's own teardown.
+func (h *Home) awaitPark(ctx context.Context, p *homePark, wait time.Duration) ([]*agentcoordpb.PeerMessage, error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {

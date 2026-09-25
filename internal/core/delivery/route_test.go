@@ -77,7 +77,7 @@ func TestRoute_Refuses_ARootTheApproachDoesNotOffer(t *testing.T) {
 	require.ErrorAs(t, err, &u)
 	require.Equal(t, present.Context, u.Kind)
 	require.Equal(t, present.RootProjectRoot, u.Needs)
-	require.NotEmpty(t, u.Remedy)
+	require.NotEmpty(t, u.Remedy())
 }
 
 // TestRoute_Refuses_ARootTheCellLacks: the approach offers only a root the

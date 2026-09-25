@@ -74,17 +74,24 @@ func (e ErrUncarried) Error() string {
 // Unrootable is ErrUnrootable with the remedy: which approach, which root
 // was needed (selected by the binding, or the approach's default) and is
 // either not offered by the approach or absent from the cell, and what the
-// human changes. Delivery REFUSES; it never substitutes another root.
+// human changes (Fix, read through Remedy so the renderer shows it as the
+// error's fix line in every format). Delivery REFUSES; it never substitutes
+// another root.
 type Unrootable struct {
 	Kind     present.Kind
 	Approach string
 	Needs    present.RootKind
-	Remedy   string
+	Fix      string
 }
 
+// Error states what could not be rooted. The remedy is NOT part of it: it
+// travels as Remedy() so it renders once, as the fix, not twice.
 func (u Unrootable) Error() string {
-	return fmt.Sprintf("%v: %s for kind %v needs root %v; %s", ErrUnrootable, u.Approach, u.Kind, u.Needs, u.Remedy)
+	return fmt.Sprintf("%v: %s for kind %v needs root %v", ErrUnrootable, u.Approach, u.Kind, u.Needs)
 }
+
+// Remedy is the change the human makes (report.Remediable).
+func (u Unrootable) Remedy() string { return u.Fix }
 
 // Unwrap makes errors.Is(err, ErrUnrootable) true.
 func (u Unrootable) Unwrap() error { return ErrUnrootable }
@@ -123,11 +130,11 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 		if selected, ok := pref.Root[kind]; ok {
 			if !traits.Offers(selected) {
 				return Plan{}, Unrootable{Kind: kind, Approach: a.Name(), Needs: selected,
-					Remedy: fmt.Sprintf("the binding selects root %v for kind %v but approach %s offers %v; select one of those on the binding", selected, kind, a.Name(), traits.Roots)}
+					Fix: fmt.Sprintf("the binding selects root %v for kind %v but approach %s offers %v; select one of those on the binding", selected, kind, a.Name(), traits.Roots)}
 			}
 			if !HasRoot(roots, selected) {
 				return Plan{}, Unrootable{Kind: kind, Approach: a.Name(), Needs: selected,
-					Remedy: fmt.Sprintf("the binding selects root %v for kind %v but this cell has no such root; select a root the cell provides", selected, kind)}
+					Fix: fmt.Sprintf("the binding selects root %v for kind %v but this cell has no such root; select a root the cell provides", selected, kind)}
 			}
 			item.Root = selected
 			plan.Static = append(plan.Static, item)
@@ -141,7 +148,7 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 		}
 		if item.Root == 0 {
 			return Plan{}, Unrootable{Kind: kind, Approach: a.Name(), Needs: traits.Roots[0],
-				Remedy: fmt.Sprintf("approach %s offers roots %v and this cell has none of them; give the cell a session home or select a root on the binding", a.Name(), traits.Roots)}
+				Fix: fmt.Sprintf("approach %s offers roots %v and this cell has none of them; give the cell a session home or select a root on the binding", a.Name(), traits.Roots)}
 		}
 		plan.Static = append(plan.Static, item)
 	}

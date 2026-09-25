@@ -243,7 +243,7 @@ func TestStatic_UnrootableApproach_RefusesWithRemedy_NeverSubstitutes(t *testing
 	require.True(t, errors.As(err, &u))
 	require.Equal(t, "mcp-config", u.Approach)
 	require.Equal(t, present.RootProjectRoot, u.Needs)
-	require.NotEmpty(t, u.Remedy, "the refusal names what the human changes")
+	require.NotEmpty(t, u.Remedy(), "the refusal names what the human changes")
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/s/home"), "nothing was written anywhere else instead")
 }
 

@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 var initCmd = &cobra.Command{
@@ -864,6 +865,11 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	return nil
 }
 
+// setupLaunchRemedy is the fix for a setup launch whose error names none of
+// its own; a failure that does name one (a delivery refusal, a remediable
+// isolation fault) is more specific and wins.
+const setupLaunchRemedy = "check the engine's auth/config, then retry `ctxloom init`, or run `ctxloom init prompt` to reconfigure without relaunching"
+
 // reportSetupLaunchFailure reports a setup session that failed to resolve or
 // launch: init's own working outcome not happening must not exit clean.
 // Reported through strictness rather than a bespoke degraded check here:
@@ -874,9 +880,11 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 func reportSetupLaunchFailure(err error) error {
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
-	strictness.FailOnce(report.KindConfig,
-		"check the engine's auth/config, then retry `ctxloom init`, or run `ctxloom init prompt` to reconfigure without relaunching",
-		"the setup session failed to launch: %v", err)
+	remedy, ok := clifmt.RemedyOf(err)
+	if !ok {
+		remedy = setupLaunchRemedy
+	}
+	strictness.FailOnce(report.KindConfig, remedy, "the setup session failed to launch: %v", err)
 	return App().Strictness.FindingsError(mark)
 }
 

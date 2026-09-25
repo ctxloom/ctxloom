@@ -85,7 +85,7 @@ func planRootable(items []delivery.StaticItem, surfaces engine.Surfaces, paths p
 		}
 		if !delivery.HasRoot(paths, it.Root) {
 			return delivery.Unrootable{Kind: it.Kind, Approach: it.Approach, Needs: it.Root,
-				Remedy: fmt.Sprintf("the plan roots kind %v under %v and this target has no such root; select a root the target provides on the binding, or deliver to a target that has it", it.Kind, it.Root)}
+				Fix: fmt.Sprintf("the plan roots kind %v under %v and this target has no such root; select a root the target provides on the binding, or deliver to a target that has it", it.Kind, it.Root)}
 		}
 	}
 	return nil

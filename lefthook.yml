@@ -55,12 +55,8 @@ pre-commit:
       # catch. The staleness test is a file comparison, not a rebuild, so it
       # costs nothing on the common path.
       #
-      # TWO PASSES, matching `just lint-arch`. Tags reach the package loader
-      # through GOFLAGS — the driver's own -tags flag is accepted and then
-      # ignored. The first pass carries every tag whose files nothing else
-      # type-checks; the second runs the default build to reach the files
-      # those tags hide (`!schemagen`, `!docsgen`), with allowlist liveness
-      # off, because an exemption naming a file a pass cannot see is not stale.
+      # The passes are scripts/lint-arch-passes.sh — the same script
+      # `just lint-arch` runs, so this hook and CI cannot drift apart.
       #
       # NOT scoped to changed packages, deliberately. The import-closure rule
       # needs the whole graph (a change deep in it alters what an untouched
@@ -79,9 +75,7 @@ pre-commit:
           echo "A stale linter enforces the rules it was built with, not the ones on disk." >&2
           exit 1
         fi
-        GOFLAGS=-tags=mutation,arch,conformance,docker_integration,acceptance,integration,schemagen,docsgen \
-          ./bin/archlint ./...
-        ARCHLINT_CHECK_ALLOWLISTS=0 ./bin/archlint ./...
+        scripts/lint-arch-passes.sh
 
     lint-pins:
       # Pin-direction gate: no pinned version in the INDEX may be older than

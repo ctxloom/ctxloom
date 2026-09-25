@@ -6,7 +6,7 @@ References below are by **symbol** (`Type.Method` or bare function name), not `f
 
 ```mermaid
 flowchart TD
-  subgraph prim["primitives — settings_io.go, rmw_lock.go"]
+  subgraph prim["primitives"]
     AWF["AtomicWriteFile(fs, path, data, desc)"]
     WFL["WithFileLock(fs, target, fn)"]
     GFS["GetFS(fs) — nil → OsFs"]
@@ -67,7 +67,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 **The ratchet:** archlint's `LockDisciplineAnalyzer` and `LedgerDisciplineAnalyzer` (run by `just lint-arch`) are write-discipline-shaped rules — a name-based heuristic over every function in the `SettingsWriter` packages plus this package, with a reasoned, symbol-keyed allowlist in `archrules` whose stale entries the analyzer reports. They are heuristics, not proofs (see their own doc comments for exactly what they can and cannot see), and each carries a reasoned baseline for the gaps it knows about.
 
-## Write primitives — `settings_io.go`, `rmw_lock.go`
+## Write primitives
 
 | Symbol | Purpose |
 |---|---|

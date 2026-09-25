@@ -177,14 +177,7 @@ build-archlint:
 #
 # Every pass must pass; the recipe fails on the first that does not.
 lint-arch: build-archlint
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tags=mutation,arch,conformance,docker_integration,acceptance,integration,schemagen,docsgen,coveragegate
-    GOFLAGS=-tags=$tags,treesitter ./bin/archlint ./...
-    ARCHLINT_CHECK_ALLOWLISTS=0 ./bin/archlint ./...
-    for goos in windows darwin freebsd openbsd; do
-        GOOS=$goos GOFLAGS=-tags=$tags ./bin/archlint ./...
-    done
+    scripts/lint-arch-passes.sh
 
 # Build the ltk companion into bin/ltk — delegated to the ltk module
 # (cmd/ltk/justfile). No codegen prerequisites (pure-Go, no CGO).

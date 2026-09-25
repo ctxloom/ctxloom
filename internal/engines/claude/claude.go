@@ -1153,22 +1153,11 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 			return err
 		}
 		w.removeCtxloomHooks(settings, owned)
-		// The statusline goes by the same rule the write side (ensureStatusLine)
-		// installs it under: ctxloom's recorded claim, or its own canonical
-		// command for a checkout with no record. Keying on the executable token,
-		// as this used to, removed a statusline the USER pointed at the ctxloom
-		// binary — ownership inferred from the file rather than recorded.
 		prevStatus, err := led.Read(ledger.SurfaceStatusLine)
 		if err != nil {
 			return err
 		}
-		if settings.StatusLine != nil {
-			cmd := settings.StatusLine.Command
-			claimed := len(prevStatus) > 0 && prevStatus[0] == agent.ComputeCommandDigest(cmd)
-			if claimed || cmd == ctxloomStatusLineCommand() {
-				settings.StatusLine = nil
-			}
-		}
+		removeOwnedStatusLine(settings, prevStatus)
 		if err := w.saveSettings(settingsPath, settings); err != nil {
 			return err
 		}
@@ -1180,6 +1169,23 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 		}
 		return led.Write(ledger.SurfaceStatusLine, nil)
 	})
+}
+
+// removeOwnedStatusLine clears the statusline when ctxloom owns it, by the
+// same rule the write side (ensureStatusLine) installs it under: ctxloom's
+// recorded claim (prevStatus, the ledger's digest), or its own canonical
+// command for a checkout with no record. Ownership is read from the record,
+// never inferred from the file: a statusline the USER pointed at the ctxloom
+// binary is theirs.
+func removeOwnedStatusLine(settings *claudeCodeSettings, prevStatus []string) {
+	if settings.StatusLine == nil {
+		return
+	}
+	cmd := settings.StatusLine.Command
+	claimed := len(prevStatus) > 0 && prevStatus[0] == agent.ComputeCommandDigest(cmd)
+	if claimed || cmd == ctxloomStatusLineCommand() {
+		settings.StatusLine = nil
+	}
 }
 
 // removeMCPConfig strips ctxloom-marked servers from .mcp.json under projectDir,

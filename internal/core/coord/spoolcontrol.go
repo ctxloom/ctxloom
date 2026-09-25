@@ -222,6 +222,12 @@ type pendingAsk struct {
 	targetHarp string
 	kind       string
 	ch         chan AskAnswer // buffered(1)
+	// expired marks an ask whose asker has left (its budget elapsed). It
+	// stays in the table so the target's late reply is still RECOGNISED —
+	// and consumed and dropped, as ErrAskTimeout promised — instead of
+	// falling through to ordinary mail addressed to a parent that never
+	// asked. Guarded by the Coordinator's mu.
+	expired bool
 }
 
 // ControlQuestion asks a running target a question and waits for its answer.
@@ -273,10 +279,20 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 	}
 	c.asks[askID] = pa
 	c.mu.Unlock()
+	// Every exit but a timeout forgets the ask. A timeout instead leaves it
+	// EXPIRED: the request file outlives the waiter (it is still in the
+	// child's spool, or being worked on), so a reply can still come, and it
+	// must be recognised to be dropped. An expired entry is removed by the
+	// reply that consumes it.
+	timedOut := false
 	defer func() {
 		c.mu.Lock()
 		if c.asks[askID] == pa {
-			delete(c.asks, askID)
+			if timedOut {
+				pa.expired = true
+			} else {
+				delete(c.asks, askID)
+			}
 		}
 		c.mu.Unlock()
 	}()
@@ -312,6 +328,7 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 	case ans := <-pa.ch:
 		return ans, nil
 	case <-ctx.Done():
+		timedOut = true
 		return AskAnswer{}, fmt.Errorf("%w: %s %s (%s) — the request is still in its spool, so an answer may still arrive and will be dropped",
 			ErrAskTimeout, kind, harp, askID)
 	case <-c.baseCtx.Done():
@@ -344,6 +361,9 @@ func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, s
 	if pa == nil || pa.targetHarp != caller.Harp {
 		return "", false, nil
 	}
+	if late, ok := c.dropLateAskReply(caller, inReplyTo, pa); ok {
+		return late, true, nil
+	}
 	if body, structured, err = c.boundBody(caller.Harp, body, structured); err != nil {
 		return "", true, err
 	}
@@ -353,7 +373,11 @@ func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, s
 		return "", false, nil
 	}
 	delete(c.asks, inReplyTo)
+	late := pa.expired
 	c.mu.Unlock()
+	if late { // the budget elapsed while the body was bounded
+		return c.lateAskDisposition(caller, inReplyTo, pa), true, nil
+	}
 
 	c.audit("ask_reply", caller.Harp, map[string]string{"in_reply_to": inReplyTo, "kind": pa.kind})
 	select {
@@ -361,6 +385,27 @@ func (c *Coordinator) resolveAskReply(caller Identity, inReplyTo, body string, s
 	default: // the asker already gave up; the answer has nowhere to land
 	}
 	return fmt.Sprintf("answered the coordinator's %s (%s)", pa.kind, inReplyTo), true, nil
+}
+
+// dropLateAskReply consumes a reply to an EXPIRED ask: ok=true means the
+// reply was the late answer and has been dropped, with the disposition the
+// child is told.
+func (c *Coordinator) dropLateAskReply(caller Identity, inReplyTo string, pa *pendingAsk) (string, bool) {
+	c.mu.Lock()
+	if c.asks[inReplyTo] != pa || !pa.expired {
+		c.mu.Unlock()
+		return "", false
+	}
+	delete(c.asks, inReplyTo)
+	c.mu.Unlock()
+	return c.lateAskDisposition(caller, inReplyTo, pa), true
+}
+
+// lateAskDisposition audits a dropped late reply and words it for the child,
+// which is owed the truth: its answer reached nobody.
+func (c *Coordinator) lateAskDisposition(caller Identity, inReplyTo string, pa *pendingAsk) string {
+	c.audit("ask_reply_late", caller.Harp, map[string]string{"in_reply_to": inReplyTo, "kind": pa.kind})
+	return fmt.Sprintf("the coordinator's %s (%s) had already timed out; this reply was dropped", pa.kind, inReplyTo)
 }
 
 // ---- pause / resume ------------------------------------------------------
@@ -446,5 +491,33 @@ func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, ha
 	if resp.Err != nil {
 		return RunnerResponse{}, fmt.Errorf("%s %s refused: %s", verb, harp, resp.Err.Error())
 	}
+	// The runner owns the gate; this is the coordinator's record of it, which
+	// is what lets a delivery say "held" instead of "woke it into a new turn".
+	// Every pause and resume passes through here, so the record cannot miss
+	// one this coordinator issued.
+	c.setRunPaused(rec.RunID, verb == "pause")
 	return resp, nil
+}
+
+// setRunPaused records (or clears) that runID is held at its runner's gate.
+func (c *Coordinator) setRunPaused(runID string, paused bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !paused {
+		delete(c.pausedRuns, runID)
+		return
+	}
+	if c.pausedRuns == nil {
+		c.pausedRuns = make(map[string]struct{})
+	}
+	c.pausedRuns[runID] = struct{}{}
+}
+
+// runPaused reports whether runID is held at its runner's gate by a pause
+// this coordinator issued.
+func (c *Coordinator) runPaused(runID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.pausedRuns[runID]
+	return ok
 }

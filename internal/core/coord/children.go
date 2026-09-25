@@ -1431,6 +1431,8 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// surviving (runchannel.go); drop this harp's at terminal so they don't
 	// accumulate across the process's lifetime.
 	c.clearReqTrack(rec.Harp)
+	// The pause gate lived in the ended run's runner; the record of it ends here.
+	c.setRunPaused(runID, false)
 
 	// D4: drain BEFORE anything below that can tear the
 	// RunChannel's underlying connection down — closeFn (engine.Kill) closes
@@ -1779,6 +1781,12 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 // that will not happen.
 const deliveryEndedDraining = "ended-draining"
 
+// deliveryPaused is observeRecipient's observation for a recipient whose
+// current run this coordinator has PAUSED (ControlPause): the message waits at
+// the runner's gate until ControlResume, so it is described as queued rather
+// than as the new turn an idle recipient would otherwise be woken into.
+const deliveryPaused = "paused"
+
 // observeRecipient reads the state a delivery to harp is judged by: the
 // harp's current run and its fold state. It is read BEFORE the write, and the
 // disposition the sender is told is THIS observation — a read after the write
@@ -1791,6 +1799,9 @@ func (c *Coordinator) observeRecipient(harp string) (state, runID string) {
 			state, runID = r.State, r.RunID
 		}
 	})
+	if state != StateEnded && c.runPaused(runID) {
+		state = deliveryPaused
+	}
 	return state, runID
 }
 

@@ -76,17 +76,7 @@ var (
 // with args would be an entry with something to launch and nothing to
 // launch it.
 func (s MCPServer) Validate() error {
-	targets := 0
-	if s.Command != "" || len(s.Args) > 0 {
-		targets++
-	}
-	if s.URL != "" {
-		targets++
-	}
-	if s.ServedBy != "" {
-		targets++
-	}
-	switch {
+	switch targets := s.targetCount(); {
 	case targets == 0:
 		return ErrMCPServerNoTarget
 	case targets > 1:
@@ -102,6 +92,27 @@ func (s MCPServer) Validate() error {
 		}
 		return nil
 	}
+	return s.validateURL()
+}
+
+// targetCount is how many of the stdio target (Command or Args), URL and
+// ServedBy are set.
+func (s MCPServer) targetCount() int {
+	targets := 0
+	if s.Command != "" || len(s.Args) > 0 {
+		targets++
+	}
+	if s.URL != "" {
+		targets++
+	}
+	if s.ServedBy != "" {
+		targets++
+	}
+	return targets
+}
+
+// validateURL requires the URL to parse with an http or https scheme.
+func (s MCPServer) validateURL() error {
 	u, err := url.Parse(s.URL)
 	if err != nil {
 		return fmt.Errorf("%w: %q: %w", ErrMCPServerURLScheme, s.URL, err)

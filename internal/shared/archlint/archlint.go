@@ -143,11 +143,13 @@ func UnderSubtree(dir, subtree string) bool {
 
 // IsTestFile reports whether the file at this position is a _test.go file.
 //
-// Architectural rules govern PRODUCTION code: a test may import an engine
-// package for a fixture, or name a path literal in an assertion, without the
-// architecture having drifted. The driver hands an analyzer the test variant
-// of a package alongside the real one, so every rule here filters explicitly
-// rather than relying on which variant it was handed.
+// Most architectural rules govern PRODUCTION code: a test may import an
+// engine package for a fixture, or name a path literal in an assertion,
+// without the architecture having drifted. The driver hands an analyzer the
+// test variant of a package alongside the real one, so every rule filters
+// explicitly rather than relying on which variant it was handed — through
+// SkipPass and ProdFiles for a production-only rule, through OwnedFiles for
+// one that governs tests too.
 func IsTestFile(pass *analysis.Pass, f *ast.File) bool {
 	return strings.HasSuffix(pass.Fset.Position(f.Pos()).Filename, "_test.go")
 }

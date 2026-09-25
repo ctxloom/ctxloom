@@ -218,66 +218,79 @@ func (a *assembly) row(ref, body string) {
 
 // commands: the injected ones, then the curated asks or the bundles' set.
 func (a *assembly) commands() {
-	seen := map[string]bool{}
-	add := func(c Command, ref, signer string, form bundles.ContentForm) {
-		if c.Item != "" && seen[c.Item] {
-			return
-		}
-		if c.Item != "" {
-			seen[c.Item] = true
-		}
-		a.commandItems = append(a.commandItems, Item[Command]{Value: c, Ref: ref, Form: form, Decision: trust.Allow, Signer: signer})
-		a.row(ref, c.Body)
-	}
+	cc := commandCollector{a: a, seen: map[string]bool{}}
 	for _, c := range a.opts.Commands {
-		add(c, c.Name, "", bundles.FormRaw)
-	}
-	fromLoaded := func(lc *bundles.LoadedContent, curated bool) {
-		add(Command{
-			Name:        lc.Name,
-			Bundle:      lc.Bundle,
-			Item:        lc.Item,
-			Tags:        slices.Clone(lc.Tags),
-			Description: lc.Description,
-			Body:        lc.Content,
-			Exports:     blocks(lc.Exports),
-			Curated:     curated,
-		}, lc.TrustRef, lc.Signer, lc.Form)
+		cc.add(c, c.Name, "", bundles.FormRaw)
 	}
 	if len(a.sel.Commands) > 0 {
 		for _, ask := range a.sel.Commands {
-			name, version, err := bundles.SplitCommandVersion(ask.Ref)
-			var lc *bundles.LoadedContent
-			if err == nil {
-				if version == "" {
-					lc, err = a.pipe.GetCommand(ask.Ref)
-				} else {
-					lc, err = a.pipe.GetPromptAtVersion(name, version)
-				}
-			}
+			lc, err := a.curatedCommand(ask.Ref)
 			if err != nil {
 				a.findings = append(a.findings, Finding{Kind: FindingCuratedSkipped, Ref: ask.Ref, Message: err.Error()})
 				continue
 			}
-			fromLoaded(lc, true)
+			cc.fromLoaded(lc, true)
 		}
 		// A companion's commands are unconditional whenever the companion
 		// is present; a curation names bundle commands, never theirs.
-		for _, ref := range companionRefs(a.pipe.Loader().Catalog()) {
-			for _, lc := range a.pipe.CommandsFromBundleRef(ref) {
-				fromLoaded(lc, false)
-			}
-		}
+		cc.fromBundles(companionRefs(a.pipe.Loader().Catalog()))
 		return
 	}
-	for _, ref := range a.sel.Bundles {
-		for _, lc := range a.pipe.CommandsFromBundleRef(ref) {
-			fromLoaded(lc, false)
-		}
+	cc.fromBundles(a.sel.Bundles)
+	cc.fromBundles(companionRefs(a.pipe.Loader().Catalog()))
+}
+
+// curatedCommand loads one curated command ask, at its pinned version when
+// the ref names one.
+func (a *assembly) curatedCommand(ref string) (*bundles.LoadedContent, error) {
+	name, version, err := bundles.SplitCommandVersion(ref)
+	if err != nil {
+		return nil, err
 	}
-	for _, ref := range companionRefs(a.pipe.Loader().Catalog()) {
-		for _, lc := range a.pipe.CommandsFromBundleRef(ref) {
-			fromLoaded(lc, false)
+	if version == "" {
+		return a.pipe.GetCommand(ref)
+	}
+	return a.pipe.GetPromptAtVersion(name, version)
+}
+
+// commandCollector adds commands to the assembly, each bundle item once.
+type commandCollector struct {
+	a    *assembly
+	seen map[string]bool
+}
+
+// add records c and its attestation row, unless its bundle item is already
+// in (a command with no item, an injected one, is always added).
+func (cc *commandCollector) add(c Command, ref, signer string, form bundles.ContentForm) {
+	if c.Item != "" && cc.seen[c.Item] {
+		return
+	}
+	if c.Item != "" {
+		cc.seen[c.Item] = true
+	}
+	cc.a.commandItems = append(cc.a.commandItems, Item[Command]{Value: c, Ref: ref, Form: form, Decision: trust.Allow, Signer: signer})
+	cc.a.row(ref, c.Body)
+}
+
+// fromLoaded adds a loaded bundle command.
+func (cc *commandCollector) fromLoaded(lc *bundles.LoadedContent, curated bool) {
+	cc.add(Command{
+		Name:        lc.Name,
+		Bundle:      lc.Bundle,
+		Item:        lc.Item,
+		Tags:        slices.Clone(lc.Tags),
+		Description: lc.Description,
+		Body:        lc.Content,
+		Exports:     blocks(lc.Exports),
+		Curated:     curated,
+	}, lc.TrustRef, lc.Signer, lc.Form)
+}
+
+// fromBundles adds every command of each bundle ref, uncurated.
+func (cc *commandCollector) fromBundles(refs []string) {
+	for _, ref := range refs {
+		for _, lc := range cc.a.pipe.CommandsFromBundleRef(ref) {
+			cc.fromLoaded(lc, false)
 		}
 	}
 }

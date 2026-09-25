@@ -122,10 +122,10 @@ type SyncDependenciesResult struct {
 // SyncDependencies syncs remote bundles and profiles referenced in config.
 // This is the main entry point for auto-fetch on startup.
 func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest) (*SyncDependenciesResult, error) {
-	reg := app.Engines()
 	if app == nil {
 		return nil, fmt.Errorf("sync: app is required")
 	}
+	reg := app.Engines()
 	cfg, err := app.Config(ctx)
 	if err != nil {
 		return nil, err

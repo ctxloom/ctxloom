@@ -304,6 +304,18 @@ func TestIsRemoteReference(t *testing.T) {
 // SyncDependencies tests
 // ==========================================================================
 
+// TestSyncDependencies_NilAppIsAnError pins the nil-app guard: a missing
+// App is refused with an error, never dereferenced into a panic.
+func TestSyncDependencies_NilAppIsAnError(t *testing.T) {
+	var result *SyncDependenciesResult
+	var err error
+	require.NotPanics(t, func() {
+		result, err = SyncDependencies(context.Background(), nil, SyncDependenciesRequest{FS: afero.NewMemMapFs()})
+	})
+	require.Error(t, err)
+	assert.Nil(t, result)
+}
+
 // TestSyncDependencies_NoRemotes verifies that sync completes cleanly when
 // there are only local bundles. Status is "empty" meaning no work needed.
 func TestSyncDependencies_NoRemotes(t *testing.T) {

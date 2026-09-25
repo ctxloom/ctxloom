@@ -185,6 +185,9 @@ func (r *Registry) Add(name, repoURL string) error {
 	if _, exists := r.remotes[name]; exists {
 		return fmt.Errorf("remote already exists: %s", name)
 	}
+	if err := requireRepository(repoURL); err != nil {
+		return err
+	}
 
 	normalizedURL := storedRepoURL(repoURL)
 
@@ -216,6 +219,9 @@ func (r *Registry) GetOrCreateByURL(repoURL string) (*Remote, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if err := requireRepository(repoURL); err != nil {
+		return nil, err
+	}
 	normalizedURL := storedRepoURL(repoURL)
 
 	// Check if any existing remote points to this URL
@@ -302,6 +308,9 @@ func (r *Registry) Update(name string, edit RemoteEdit) (*Remote, error) {
 
 	newURL := rem.URL
 	if edit.URL != nil {
+		if err := requireRepository(*edit.URL); err != nil {
+			return nil, err
+		}
 		normalized := storedRepoURL(*edit.URL)
 		if existing, found := r.findByURLLocked(*edit.URL); found && existing != name {
 			return nil, fmt.Errorf("remote '%s' already points to this URL", existing)
@@ -391,14 +400,23 @@ func (r *Registry) findByURLLocked(repoURL string) (string, bool) {
 // refuri.CanonicalRepoURL — the one repo-level canonicalizer — so a remote
 // registered as git@host:o/r and a reference spelled https://Host/o/r/ match
 // here exactly as they key the same lockfile entry. A URL that does not
-// canonicalize matches only itself, byte for byte.
+// canonicalize names no repository, so it is the same repository as nothing —
+// not even itself; the registry refuses such a URL at the door
+// (requireRepository), so none is ever stored to be compared.
 func SameRepository(a, b string) bool {
 	ca, aerr := refuri.CanonicalRepoURL(a)
 	cb, berr := refuri.CanonicalRepoURL(b)
-	if aerr != nil || berr != nil {
-		return a == b
+	return aerr == nil && berr == nil && ca == cb
+}
+
+// requireRepository refuses a URL that names no repository. Without it an
+// unreadable URL matches no registered remote, and every attempt to register
+// it would add another.
+func requireRepository(repoURL string) error {
+	if _, err := refuri.CanonicalRepoURL(repoURL); err != nil {
+		return fmt.Errorf("remote URL %q names no repository: %w", repoURL, err)
 	}
-	return ca == cb
+	return nil
 }
 
 // storedRepoURL is the spelling a remote's URL is STORED and fetched from: the

@@ -11,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestWriter_PublishesReadableMessage(t *testing.T) {
@@ -260,4 +263,86 @@ func TestErrorIsInvalid_TypedErrnoOnly(t *testing.T) {
 			require.Equal(t, tc.want, errorIsInvalid(tc.err), "errorIsInvalid(%v)", tc.err)
 		})
 	}
+}
+
+// errForcedDirSync is the failure injected into the post-publish directory
+// fsync; the log record must carry THIS error, not merely some error.
+var errForcedDirSync = errors.New("forced directory fsync failure")
+
+// observeWarnings routes the global logger to an observer for the test.
+func observeWarnings(t *testing.T) *observer.ObservedLogs {
+	t.Helper()
+	core, logs := observer.New(zapcore.WarnLevel)
+	t.Cleanup(zap.ReplaceGlobals(zap.New(core)))
+	return logs
+}
+
+// TestWriter_PostPublishDirSyncFailureWarnsAndSucceeds: once the rename has
+// published the file a reader can deliver it, so a failed directory fsync
+// must not turn into a Write error — the sender would hear "failed" about a
+// delivered message and a retry would duplicate it. It is a warning, and the
+// caller gets the ref.
+func TestWriter_PostPublishDirSyncFailureWarnsAndSucceeds(t *testing.T) {
+	hostHome(t)
+	logs := observeWarnings(t)
+	m := NewHomeMapper()
+	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	require.NoError(t, err)
+	var synced []string
+	w.syncDir = func(path string) error {
+		synced = append(synced, path)
+		return errForcedDirSync
+	}
+
+	ref, err := w.Write(&Message{Kind: "message", Body: "published\n"})
+	require.NoError(t, err, "a failure after the publish must not be reported as a failed write")
+	require.NotEmpty(t, ref.Name, "the caller must get the published ref (its withdraw handle)")
+	require.Len(t, synced, 1, "the forced fsync must actually have run")
+
+	path, err := m.Resolve(ref)
+	require.NoError(t, err)
+	require.FileExists(t, path, "the message is published")
+	require.Equal(t, filepath.Dir(path), synced[0], "the fsync targets the published file's directory")
+
+	entries := logs.FilterMessage(logDirSyncFailed).All()
+	require.Len(t, entries, 1, "the lost durability must leave a warning; records: %v", logs.All())
+	require.Equal(t, zapcore.WarnLevel, entries[0].Level)
+	fields := entries[0].ContextMap()
+	require.Equal(t, ref.String(), fields["ref"], "the warning names the published ref")
+	var loggedErr error
+	for _, f := range entries[0].Context {
+		if f.Key == "error" {
+			loggedErr, _ = f.Interface.(error)
+		}
+	}
+	require.ErrorIs(t, loggedErr, errForcedDirSync, "the warning carries the fsync error")
+}
+
+// TestWriter_PrePublishFailureStillErrorsAndPublishesNothing: before the
+// rename nothing is visible, so a failure there is still a Write error and
+// leaves no file under the final name — and no post-publish warning.
+func TestWriter_PrePublishFailureStillErrorsAndPublishesNothing(t *testing.T) {
+	hostHome(t)
+	logs := observeWarnings(t)
+	m := NewHomeMapper()
+	w, err := NewWriter(m, testHarp, DirIn, "coord")
+	require.NoError(t, err)
+	synced := 0
+	w.syncDir = func(string) error { synced++; return nil }
+
+	root, err := Root(m, testHarp)
+	require.NoError(t, err)
+	// Removing the staging dir forces the staging-file create to fail.
+	require.NoError(t, os.RemoveAll(filepath.Join(root, tmpDirName)))
+
+	ref, err := w.Write(&Message{Kind: "message", Body: "never\n"})
+	require.Error(t, err, "a failure before the publish is a failed write")
+	require.Equal(t, Ref{}, ref)
+	require.Zero(t, synced, "nothing was published, so nothing is fsynced")
+	require.Zero(t, logs.FilterMessage(logDirSyncFailed).Len())
+
+	res, err := Sweep(m, testHarp, DirIn)
+	require.NoError(t, err)
+	require.Empty(t, res.Entries, "nothing may be published")
+	require.Empty(t, res.Problems)
 }

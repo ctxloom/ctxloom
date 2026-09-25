@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // Name is the parsed form of a spool filename:
@@ -109,7 +111,16 @@ type Writer struct {
 	mu   sync.Mutex
 	seq  uint64
 	root string
+
+	// syncDir is the test seam for the post-publish directory fsync; nil
+	// means the real syncDir. It exists so a test can FORCE that fsync to
+	// fail — a real filesystem cannot be made to on demand.
+	syncDir func(path string) error
 }
+
+// logDirSyncFailed is the structured-log message Write emits when the
+// directory fsync after a publish fails.
+const logDirSyncFailed = "spool_publish_dir_sync_failed"
 
 // NewWriter returns a writer for harp's dir (DirIn or DirOut — the
 // consumed/withdrawn directories are reached by rename, never written into
@@ -197,6 +208,15 @@ func (w *Writer) ID() string { return w.id }
 // the target on the same filesystem, so the rename is atomic by construction
 // rather than by luck.
 //
+// The rename is the commit point. Every failure before it returns an error
+// and publishes nothing. A failure of the directory fsync AFTER it is logged
+// as a warning and Write still returns the ref: the file is already published
+// and a reader may already have delivered it, so reporting failure would tell
+// the sender "not sent" about a message that was — and a caller that retries
+// on that error sends a duplicate, while one holding a withdraw handle loses
+// it. The cost is that the caller is not told the rename may not survive a
+// crash.
+//
 // msg is stamped in place with its ID (the filename stem), Created (if unset)
 // and V (if unset), so the caller's copy agrees with the bytes on disk.
 func (w *Writer) Write(msg *Message) (Ref, error) {
@@ -237,8 +257,12 @@ func (w *Writer) Write(msg *Message) (Ref, error) {
 		_ = os.Remove(tmp)
 		return Ref{}, fmt.Errorf("spool: publishing %s: %w", ref, err)
 	}
-	if err := syncDir(filepath.Dir(final)); err != nil {
-		return Ref{}, err
+	dirSync := w.syncDir
+	if dirSync == nil {
+		dirSync = syncDir
+	}
+	if err := dirSync(filepath.Dir(final)); err != nil {
+		zap.L().Warn(logDirSyncFailed, zap.Stringer("ref", ref), zap.Error(err))
 	}
 	return ref, nil
 }

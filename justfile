@@ -1484,9 +1484,9 @@ _mutation-driver RATCHET *ARGS:
     # failing beside it and dragged the package output out; fixing that guard
     # silenced the gate entirely. See taskloom unwanted-deviate.
     #
-    # 240m, not 120m: the four-entry table measured 111 minutes of mutants
-    # (63 + 30 + 12 + 6) plus the guard test, so 120m was already marginal and a
-    # timeout mid-table loses the whole run's results.
+    # 240m, not 120m: the whole table's mutants run serially and a full run has
+    # measured close to 120m on its own, and a timeout mid-table loses the whole
+    # run's results. Re-measure before lowering it.
     output=$(go test -trimpath -tags mutation -v -count=1 -timeout 240m ./tests/mutation/... "$@" 2>&1)
     status=$?
     set -e

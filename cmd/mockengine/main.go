@@ -106,45 +106,10 @@ func surfaceByName(clis []agent.EngineCLI, name string) (agent.EngineCLI, bool) 
 // via the backends resolver, parses the remaining vendor argv against L1, and
 // runs the L2 runtime. It returns a process exit code.
 func run(args []string) int {
-	personality := os.Getenv(envPersonality)
-	surfaceName := os.Getenv(envSurface)
-	vendorArgs := args
-
-	// Consume the mock's own leading flags. They come FIRST because ctxloom
-	// prepends a config `args:` block ahead of the engine flags buildArgs emits,
-	// so a leading --<backend> survives into argv[0..]. Parsing stops at the first
-	// token that is not a mock flag (or at an explicit "--"), and everything
-	// after is the vendor argv.
-consume:
-	for len(vendorArgs) > 0 {
-		switch vendorArgs[0] {
-		case "--personality":
-			if len(vendorArgs) < 2 {
-				fmt.Fprintln(os.Stderr, "mock-engine: --personality needs a value")
-				return 2
-			}
-			personality = vendorArgs[1]
-			vendorArgs = vendorArgs[2:]
-		case "--surface":
-			if len(vendorArgs) < 2 {
-				fmt.Fprintln(os.Stderr, "mock-engine: --surface needs a value")
-				return 2
-			}
-			surfaceName = vendorArgs[1]
-			vendorArgs = vendorArgs[2:]
-		case "--":
-			vendorArgs = vendorArgs[1:]
-			break consume
-		default:
-			name, ok := personalityFromFlag(vendorArgs[0])
-			if !ok {
-				break consume
-			}
-			personality = name
-			vendorArgs = vendorArgs[1:]
-		}
+	personality, surfaceName, vendorArgs, ok := consumeMockFlags(args, os.Getenv(envPersonality), os.Getenv(envSurface))
+	if !ok {
+		return 2
 	}
-
 	if personality == "" {
 		// The hint names the flags that actually work: the registry's own
 		// names, not a spelling this file guessed.
@@ -185,14 +150,8 @@ consume:
 	// refuse rather than answer a different question, and an unset HOME is
 	// ordinary here: this binary runs inside container fixtures under a
 	// vendor's name, and ctxloom rewrites HOME deliberately to isolate engines.
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "mock-engine: cannot determine the working directory, which every cwd-scoped probe resolves against: %v\n", err)
-		return 2
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "mock-engine: cannot determine the home directory, which every home-scoped probe resolves against: %v\n", err)
+	cwd, home, ok := resolveRoots()
+	if !ok {
 		return 2
 	}
 
@@ -218,4 +177,57 @@ consume:
 		rt.Resize = resizeNotifications(os.Stdout)
 	}
 	return rt.Run()
+}
+
+// consumeMockFlags consumes the mock's own leading flags, returning the
+// selected personality and surface (starting from the env's) and the vendor
+// argv after them; false (reported) when a flag is missing its value.
+//
+// They come FIRST because ctxloom prepends a config `args:` block ahead of the
+// engine flags buildArgs emits, so a leading --<backend> survives into
+// argv[0..]. Parsing stops at the first token that is not a mock flag (or at
+// an explicit "--"), and everything after is the vendor argv.
+func consumeMockFlags(args []string, personality, surfaceName string) (string, string, []string, bool) {
+	vendorArgs := args
+	for len(vendorArgs) > 0 {
+		switch vendorArgs[0] {
+		case "--personality", "--surface":
+			if len(vendorArgs) < 2 {
+				fmt.Fprintf(os.Stderr, "mock-engine: %s needs a value\n", vendorArgs[0])
+				return "", "", nil, false
+			}
+			if vendorArgs[0] == "--personality" {
+				personality = vendorArgs[1]
+			} else {
+				surfaceName = vendorArgs[1]
+			}
+			vendorArgs = vendorArgs[2:]
+		case "--":
+			return personality, surfaceName, vendorArgs[1:], true
+		default:
+			name, ok := personalityFromFlag(vendorArgs[0])
+			if !ok {
+				return personality, surfaceName, vendorArgs, true
+			}
+			personality = name
+			vendorArgs = vendorArgs[1:]
+		}
+	}
+	return personality, surfaceName, vendorArgs, true
+}
+
+// resolveRoots is the working and home directories the probes resolve
+// against; false (reported) when either cannot be determined.
+func resolveRoots() (cwd, home string, ok bool) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mock-engine: cannot determine the working directory, which every cwd-scoped probe resolves against: %v\n", err)
+		return "", "", false
+	}
+	home, err = os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mock-engine: cannot determine the home directory, which every home-scoped probe resolves against: %v\n", err)
+		return "", "", false
+	}
+	return cwd, home, true
 }

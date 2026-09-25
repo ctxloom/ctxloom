@@ -69,3 +69,21 @@ func TestVocabulary_ConversionFromRawString(t *testing.T) {
 func TestVocabulary_ConversionsResolveThroughTypes(t *testing.T) {
 	run(t, archlint.VocabularyAnalyzer, "internal/vocabuser")
 }
+
+// TestTestSupport_ImportAndReachability plants a production import of the
+// test-only tree and a shipped binary that reaches it through that package;
+// an import from a _test.go file is not the rule's subject.
+func TestTestSupport_ImportAndReachability(t *testing.T) {
+	run(t, archlint.TestSupportAnalyzer, "internal/tsuser", "internal/tstest", "cmd/tsbin")
+}
+
+// TestSessionBind_UnadmittedCaller plants a BindSession call outside the
+// admitted files.
+func TestSessionBind_UnadmittedCaller(t *testing.T) {
+	run(t, archlint.SessionBindAnalyzer, "internal/bindplant")
+}
+
+// TestReminderFrame_HandBuiltFrame plants a frame tag assembled by hand.
+func TestReminderFrame_HandBuiltFrame(t *testing.T) {
+	run(t, archlint.ReminderFrameAnalyzer, "internal/frameplant")
+}

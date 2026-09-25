@@ -16,12 +16,9 @@
 //   - TestArch_Operations_DoesNotImportEnginePlugins is the layering gate: it
 //     re-catches the confirmed violation the moment a future change
 //     reintroduces a direct internal/adapters/operations -> engine-plugin import
-//     edge (the packages enginePluginImportPaths names), by the same
-//     AST-parse technique TestArch_NonTestPackages_DoNotImportTestSupport
-//     already uses
-//     in this package (production (non-_test.go) imports only, so a test
-//     double importing an engine package for fixture purposes never trips
-//     it).
+//     edge (the packages enginePluginImportPaths names), by parsing
+//     production (non-_test.go) imports only, so a test double importing an
+//     engine package for fixture purposes never trips it.
 //   - TestArch_EngineIdentityRosters_MembersAreRegisteredBackends is the
 //     roster gate: each roster is a legitimately DIFFERENT
 //     purpose-scoped subset of engines (which backend has a vendor-native

@@ -119,8 +119,8 @@ func (o *OneShotSession) starter() coord.OwnedRunStarter {
 	l := o.Launch
 	cell, ok := TransportOf(l.Cell)
 	if !ok {
-		return func(context.Context, map[string]string) (func(), string, error) {
-			return nil, "", errors.New("one-shot: the cell carries no transport handle")
+		return func(context.Context, map[string]string) (coord.OwnedRunner, error) {
+			return coord.OwnedRunner{}, errors.New("one-shot: the cell carries no transport handle")
 		}
 	}
 	return RunnerStarter(cell, string(l.Engine), l.Label.Label, 0, func(h *isolation.RunnerHandle) { o.kill = h.Kill })

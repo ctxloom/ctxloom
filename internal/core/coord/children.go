@@ -195,9 +195,10 @@ type childRt struct {
 	// readiness is a push (awaitRunner parks on a channel the runner's Hello
 	// closes) and carries no "…and it is still alive" signal, so this is the
 	// only thing that can tell a dead runner from a slow one before the
-	// dial-home budget expires. Nil when the spawner captures no process
-	// (test doubles, the owner-run path), which degrades to the timeout.
-	// Set at spawn (runChildViaStartRun), alongside stderrTail.
+	// dial-home budget expires. Nil when the spawner or starter captures no
+	// process (test doubles), which degrades to the timeout. Set at spawn:
+	// runChildViaStartRun (alongside stderrTail) and StartOwnedRun
+	// (OwnedRunner.Wait).
 	runnerWait func() error
 
 	// attached closes once THIS attempt's launch decision is final: the

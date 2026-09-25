@@ -154,13 +154,13 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 	require.True(t, ok)
 
 	var container string
-	start := func(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+	start := func(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
 		handle, err := isolation.StarterForWorkspace(prepared.Policy, prepared.Workspace, claude.EngineName, l.Label.Label, 0, spawnEnv)(ctx)
 		if err != nil {
-			return nil, "", err
+			return coord.OwnedRunner{}, err
 		}
 		container = handle.Name
-		return handle.Kill, handle.Name, nil
+		return coord.OwnedRunner{Kill: handle.Kill, Wait: isolation.WaitOf(handle), ContainerName: handle.Name}, nil
 	}
 	t.Cleanup(func() {
 		if t.Failed() && container != "" {

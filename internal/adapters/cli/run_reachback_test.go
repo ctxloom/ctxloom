@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
@@ -27,7 +28,10 @@ func TestStartOwnedRun_NilCoordinatorRefusesTheLaunch(t *testing.T) {
 	started := false
 	sess, err := startOwnedRun(t.Context(), nil, ownedRunLaunch{
 		Launch: launch.Launch{Identity: sessions.Identity{Harp: "swift-amber-falcon"}, Engine: "claude-code"},
-	}, func(context.Context, map[string]string) (func(), string, error) { started = true; return nil, "", nil })
+	}, func(context.Context, map[string]string) (coord.OwnedRunner, error) {
+		started = true
+		return coord.OwnedRunner{}, nil
+	})
 
 	require.Error(t, err, "no coordinator means no transport — the launch must refuse, not proceed")
 	assert.Nil(t, sess)

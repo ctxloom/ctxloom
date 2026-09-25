@@ -70,33 +70,33 @@ func stampTerminalEnv(env map[string]string) map[string]string {
 // drive has necessarily read the runner's last bytes, and closing the master
 // there discards them. The drive's own teardown releases the master.
 func (st *runState) ptyStarter() coord.OwnedRunStarter {
-	return func(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+	return func(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
 		cmd, name, err := st.policy.InteractiveRunner(ctx, st.backendName, st.ws, spawnEnv)
 		if err != nil {
-			return nil, "", err
+			return coord.OwnedRunner{}, err
 		}
 		// The launch ctx scopes preparation and attach only; teardown has
 		// one door (Kill), so the child must not die with the ctx.
 		if name == "" {
 			s, err := hostpty.Start(context.Background(), cmd)
 			if err != nil {
-				return nil, "", fmt.Errorf("start the runner on a pty: %w", err)
+				return coord.OwnedRunner{}, fmt.Errorf("start the runner on a pty: %w", err)
 			}
 			st.pty = s
-			return s.End, "", nil
+			return coord.OwnedRunner{Kill: s.End, Wait: s.ExitErr}, nil
 		}
 		container, ok := st.policy.(interface {
 			Remove(name string, runExited <-chan struct{})
 		})
 		if !ok {
-			return nil, "", fmt.Errorf("policy %q names container %q but cannot remove one", st.policy.Name(), name)
+			return coord.OwnedRunner{}, fmt.Errorf("policy %q names container %q but cannot remove one", st.policy.Name(), name)
 		}
 		s, err := attach.Start(context.Background(), cmd, name, func(runExited <-chan struct{}) { container.Remove(name, runExited) })
 		if err != nil {
-			return nil, "", fmt.Errorf("attach the container runner on a pty: %w", err)
+			return coord.OwnedRunner{}, fmt.Errorf("attach the container runner on a pty: %w", err)
 		}
 		st.pty = s
-		return s.End, name, nil
+		return coord.OwnedRunner{Kill: s.End, Wait: s.ExitErr, ContainerName: name}, nil
 	}
 }
 

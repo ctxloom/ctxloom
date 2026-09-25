@@ -43,18 +43,36 @@ type OwnerRun struct {
 	Rebind     func(ctx context.Context, l launch.Launch) (launch.Launch, error)
 }
 
+// OwnedRunner is the runner an OwnedRunStarter stood up.
+//
+// Kill tears the runner down; StartOwnedRun invokes it if the post-launch
+// handshake fails, and the caller owns it for normal teardown (the host
+// `ctxloom run` defers isolation.RunnerHandle.Kill).
+//
+// Wait blocks until the runner PROCESS exits and reports why; a clean exit is
+// nil. It is the death half of the dial-home race (issueStartRun): without it
+// a runner that exits before dialing home is noticed only when the whole
+// dial-home budget expires. It may be called more than once and concurrently,
+// every call reporting the same exit — StartOwnedRun waits on it while the
+// caller may too (isolation.RunnerHandle.Wait already has this shape). Nil
+// only when there is no process to wait on, which degrades to that budget.
+//
+// ContainerName is isolation.RunnerHandle.Name (fragile-volatile) — "" for a
+// host-runtime starter — and StartOwnedRun journals it onto the run record so
+// it reaches the roster; coord cannot read it off isolation.RunnerHandle
+// directly without importing lm/isolation, which this seam exists to avoid.
+type OwnedRunner struct {
+	Kill          func()
+	Wait          func() error
+	ContainerName string
+}
+
 // OwnedRunStarter launches the runner process for an owner-owned run with the
 // per-run reach-back env stamped on. It mirrors isolation.EngineStarter but
 // takes the spawn env because the run-id + credential trio it must carry is
 // minted INSIDE StartOwnedRun (a pre-bound isolation.EngineStarter cannot know
-// them yet). The returned kill tears the runner down; StartOwnedRun invokes it
-// if the post-launch handshake fails, and the caller owns it for normal
-// teardown (the host `ctxloom run` defers isolation.RunnerHandle.Kill).
-// containerName is isolation.RunnerHandle.Name (fragile-volatile) — "" for a
-// host-runtime starter — and StartOwnedRun journals it onto the run record so
-// it reaches the roster; coord cannot read it off isolation.RunnerHandle
-// directly without importing lm/isolation, which this seam exists to avoid.
-type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill func(), containerName string, err error)
+// them yet).
+type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (OwnedRunner, error)
 
 // StartOwnedRun mints a PARENT-LESS, owner-owned run and drives it onto
 // Transport 2: journal a runEnqueued with ParentHarp = owner.Harp,
@@ -151,7 +169,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.setState(rt, StateExecuting)
 	c.audit("owner_run", owner.Harp, map[string]string{"harp": l.Identity.Harp, "run_id": rt.runID, "backend": string(l.Engine)})
 
-	kill, containerName, err := start(ctx, runnerEnv(rt.runID, token, url))
+	runner, err := start(ctx, runnerEnv(rt.runID, token, url))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the
@@ -162,9 +180,10 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		return nil, err
 	}
 	c.mu.Lock()
-	rt.close = kill
+	rt.close = runner.Kill
+	rt.runnerWait = runner.Wait
 	c.mu.Unlock()
-	c.recordContainerName(rt.runID, containerName)
+	c.recordContainerName(rt.runID, runner.ContainerName)
 
 	// The runner leads the first turn with the package's context ahead of
 	// Launch.Prompt; prompt is what the host asked for this run.

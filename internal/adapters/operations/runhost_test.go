@@ -58,7 +58,7 @@ type fakeRunHost struct {
 func (h *fakeRunHost) Owner() coord.Identity { return coord.Identity{Harp: "owner-harp"} }
 
 func (h *fakeRunHost) StartOwnedRun(ctx context.Context, _ coord.Identity, spec coord.OwnerRun, start coord.OwnedRunStarter, _ string) (*coord.RunOutcome, error) {
-	if _, _, err := start(ctx, map[string]string{"CTXLOOM_COORD_CRED": "cred"}); err != nil {
+	if _, err := start(ctx, map[string]string{"CTXLOOM_COORD_CRED": "cred"}); err != nil {
 		return nil, err
 	}
 	l := spec.Launch

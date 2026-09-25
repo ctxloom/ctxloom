@@ -31,7 +31,7 @@ func TestStartOwnedRun_LaunchFailureReturnsTheWrappedError(t *testing.T) {
 	require.True(t, ok)
 
 	boom := errors.New("no such image: ctxloom-agent-claude")
-	starter := func(context.Context, map[string]string) (func(), string, error) { return nil, "", boom }
+	starter := func(context.Context, map[string]string) (OwnedRunner, error) { return OwnedRunner{}, boom }
 
 	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "hello")
 
@@ -82,7 +82,9 @@ func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) 
 
 	// Launches "successfully" but never dials home: issueStartRun's awaitRunner
 	// times out and it fails the child itself.
-	starter := func(context.Context, map[string]string) (func(), string, error) { return func() {}, "", nil }
+	starter := func(context.Context, map[string]string) (OwnedRunner, error) {
+		return OwnedRunner{Kill: func() {}}, nil
+	}
 
 	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "hello")
 	if !assert.Error(t, err, "a runner that never dials home must fail the owner run") {
@@ -145,13 +147,13 @@ func TestStartOwnedRun_FlagsAreSetBeforeTheRunnerCanExist(t *testing.T) {
 
 	type snapshot struct{ ownerRun, oneshot, seen bool }
 	var got snapshot
-	starter := func(context.Context, map[string]string) (func(), string, error) {
+	starter := func(context.Context, map[string]string) (OwnedRunner, error) {
 		c.mu.Lock()
 		if rt := c.byHarp[ownerHarp]; rt != nil {
 			got = snapshot{ownerRun: rt.ownerRun, oneshot: rt.oneshot, seen: true}
 		}
 		c.mu.Unlock()
-		return nil, "", errors.New("stop here: the flags have already been observed")
+		return OwnedRunner{}, errors.New("stop here: the flags have already been observed")
 	}
 
 	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), true), starter, "hello")

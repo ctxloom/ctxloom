@@ -118,15 +118,7 @@ func bundleKeySites() map[string]keySite {
 // and a type already recorded is not revisited, which is also what terminates
 // the walk on a recursive schema.
 func collectKeySites(t reflect.Type, path string, out map[string]keySite) {
-	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map {
-		switch t.Kind() {
-		case reflect.Map:
-			path += ".<name>"
-		case reflect.Slice, reflect.Array:
-			path += "[]"
-		}
-		t = t.Elem()
-	}
+	t, path = unwrapContainer(t, path)
 	if t.Kind() != reflect.Struct {
 		return
 	}
@@ -167,6 +159,22 @@ func collectKeySites(t reflect.Type, path string, out map[string]keySite) {
 	}
 	sort.Strings(keys)
 	out[t.String()] = keySite{where: describePath(path), keys: keys}
+}
+
+// unwrapContainer peels pointers, slices, arrays and maps off t down to the
+// element type, extending path the way a document addresses each: a map by
+// ".<name>", a slice or array by "[]".
+func unwrapContainer(t reflect.Type, path string) (reflect.Type, string) {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map {
+		switch t.Kind() {
+		case reflect.Map:
+			path += ".<name>"
+		case reflect.Slice, reflect.Array:
+			path += "[]"
+		}
+		t = t.Elem()
+	}
+	return t, path
 }
 
 // collectInlineKeys is collectKeySites' body for an EMBEDDED, `yaml:",inline"`

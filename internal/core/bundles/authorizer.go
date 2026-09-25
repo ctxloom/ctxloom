@@ -326,15 +326,9 @@ func (r Reason) Explain(detail string) string {
 	case ReasonRejected:
 		return "rejected"
 	case ReasonRetracted:
-		if detail != "" {
-			return "retracted by the publisher (" + detail + ")"
-		}
-		return "retracted by the publisher"
+		return withDetail("retracted by the publisher", detail)
 	case ReasonTampered:
-		if detail != "" {
-			return "its signature does not cover these bytes — withheld as tampered (" + detail + ")"
-		}
-		return "its signature does not cover these bytes — withheld as tampered"
+		return withDetail("its signature does not cover these bytes — withheld as tampered", detail)
 	case ReasonUntrustedSigner:
 		return "signed by a key this machine does not trust to publish — awaiting review — run 'ctxloom review'"
 	case ReasonUnaddressable:
@@ -343,14 +337,12 @@ func (r Reason) Explain(detail string) string {
 		return "it reached the gate without established provenance"
 	case ReasonUngoverned:
 		return "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content"
-	case ReasonUngated:
-		return "allowed: " + r.String()
 	case ReasonStaleLocalSignature:
 		if detail != "" {
 			return detail
 		}
 		return "its signature no longer covers its bytes — re-sign it"
-	case ReasonLocal, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
+	case ReasonUngated, ReasonLocal, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
 		return "allowed: " + r.String()
 	default:
 		// ReasonUnsigned, ReasonPending, ReasonUnset, and the fail-closed
@@ -359,11 +351,17 @@ func (r Reason) Explain(detail string) string {
 		// is load-bearing: tests/acceptance/steps_j000200_setup.go asserts on the
 		// "awaiting review" substring. The detail names what would admit the
 		// item (an executable: a review record), so the reader learns the fix.
-		if detail != "" {
-			return "awaiting review — run 'ctxloom review' (" + detail + ")"
-		}
-		return "awaiting review — run 'ctxloom review'"
+		return withDetail("awaiting review — run 'ctxloom review'", detail)
 	}
+}
+
+// withDetail appends a verdict's detail as a parenthetical; an empty one is
+// dropped.
+func withDetail(sentence, detail string) string {
+	if detail == "" {
+		return sentence
+	}
+	return sentence + " (" + detail + ")"
 }
 
 // ReportVerdict is what a Authorizer deliberately cannot do: emit.

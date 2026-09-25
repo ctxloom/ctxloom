@@ -445,28 +445,7 @@ func renderRunSpec(spec RunSpec) []string {
 	for _, e := range spec.Env {
 		args = append(args, "-e", e)
 	}
-	mounts := spec.Mounts
-	if spec.Trace != nil {
-		// PROBE-ONLY: bind-mount the trace dir OUT so the strace output written
-		// from inside survives the container's `--rm` teardown — no docker cp
-		// race. A separate slice so the spec's own Mounts are never mutated.
-		mounts = append(append([]Mount(nil), mounts...),
-			Mount{Host: spec.Trace.HostDir, Container: spec.Trace.ContainerDir})
-	}
-	for _, m := range mounts {
-		// --mount (not -v host:container[:ro]): the colon-delimited -v grammar is
-		// ambiguous on Windows, where a host path carries a drive-letter colon
-		// (C:\...) that mis-splits. --mount type=bind,source=,target=[,readonly]
-		// is colon-free and renders identically on docker + podman + Linux. Every
-		// mount in this package funnels through here, so this is the single site.
-		// (--mount requires the source to already exist; every Mount.Host in this
-		// package is a path we created or verified before the run, so that holds.)
-		opt := "type=bind,source=" + m.Host + ",target=" + m.Container
-		if m.ReadOnly {
-			opt += ",readonly"
-		}
-		args = append(args, "--mount", opt)
-	}
+	args = append(args, mountArgs(runMounts(spec))...)
 	if spec.WorkDir != "" {
 		args = append(args, "-w", spec.WorkDir)
 	}
@@ -480,6 +459,39 @@ func renderRunSpec(spec RunSpec) []string {
 		command = append(straceWrapPrefix(spec.Trace), spec.Command...)
 	}
 	args = append(args, command...)
+	return args
+}
+
+// runMounts is the spec's mounts, plus — PROBE-ONLY — the trace dir bound
+// OUT so the strace output written from inside survives the container's
+// `--rm` teardown (no docker cp race). A separate slice so the spec's own
+// Mounts are never mutated.
+func runMounts(spec RunSpec) []Mount {
+	if spec.Trace == nil {
+		return spec.Mounts
+	}
+	return append(append([]Mount(nil), spec.Mounts...),
+		Mount{Host: spec.Trace.HostDir, Container: spec.Trace.ContainerDir})
+}
+
+// mountArgs renders each mount as a --mount flag.
+//
+// --mount (not -v host:container[:ro]): the colon-delimited -v grammar is
+// ambiguous on Windows, where a host path carries a drive-letter colon
+// (C:\...) that mis-splits. --mount type=bind,source=,target=[,readonly] is
+// colon-free and renders identically on docker + podman + Linux. Every mount
+// in this package funnels through here, so this is the single site. (--mount
+// requires the source to already exist; every Mount.Host in this package is
+// a path we created or verified before the run, so that holds.)
+func mountArgs(mounts []Mount) []string {
+	var args []string
+	for _, m := range mounts {
+		opt := "type=bind,source=" + m.Host + ",target=" + m.Container
+		if m.ReadOnly {
+			opt += ",readonly"
+		}
+		args = append(args, "--mount", opt)
+	}
 	return args
 }
 

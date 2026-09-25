@@ -4,7 +4,7 @@
 DYNAMIC for an engine (`Route` → `Plan`), and declares the two delivery
 ports and the ONE ownership record. It knows no engine argv, transport or
 config. The static port is implemented by `internal/adapters/fsstatic`,
-the record by `internal/adapters/confpatch` (`Records`), the dynamic port by
+the record by `fsstatic.Records`, the dynamic port by
 the runner's MCP package.
 
 ## The graph
@@ -20,8 +20,8 @@ flowchart TB
     ROUTE["delivery.Route(items, engine root, pref, cell roots) → Plan{Static routes, Dynamic refs, Losses} | ErrUncarried | Unrootable"]:::decide
     LO["delivery.Loadout — launch.Launch.Loadout(pkg): the ONE builder the runner and the local launcher share; delivery.InputsFor(lo) projects it into every kind's typed inputs once"]:::consume
     TGT["delivery.Target{Root (absolute), Ownership, Writer} — Validate refuses the zero value and a relative root; launch.Launch.Target(records) for a session, operations.ProjectTarget for a materialize"]:::decide
-    STATIC["fsstatic.Static.Deliver(lo, surfaces, target): reconcile the writer to EMPTY from the record → per static item: the engine's typed Deliver over an OVERLAY of the target fs → every written file recorded under the writer (Ownership.Apply)"]:::consume
-    REC[("confpatch.Records — ONE record per target file, writer-tagged, home-rooted: a hew reversal for JSON/YAML/TOML (the user's own entries survive), the pre-image for opaque files; a created file leaves with its last writer; drift is refused")]:::store
+    STATIC["fsstatic.Static.Deliver(lo, surfaces, target): PREPARE the record (Ownership.Prepare: owner-only before anything writes through it) → reconcile the writer to EMPTY from the record → per static item: the engine's typed Deliver over an OVERLAY of the target fs → every written file recorded under the writer (Ownership.Apply)"]:::consume
+    REC[("fsstatic.Records — ONE record per target file, writer-tagged, home-rooted: a hew reversal for JSON/YAML/TOML (the user's own entries survive), the pre-image for opaque files; a created file leaves with its last writer; drift is refused")]:::store
     DYN["Dynamic.Serve(lo, ServePolicy) — the runner's MCP package BINDS Launch.MCP"]:::consume
     EMPTY["the EMPTY plan = uninstall for that writer: only what the record names under the target's roots is removed (manage uninstall / hooks uninstall → operations.RemoveProject)"]:::consume
 
@@ -81,6 +81,17 @@ naming `ctxloom auth set-token`, the engine's API-key vars and the unsafe
 | `profile materialize` | the `--target` directory (absolute) | `delivery.ProjectWriter` | `operations.MaterializeProfile` → `operations.DeliverProject` |
 | `manage hooks install` (explicit), the MCP server's startup apply, the post-sync and trust-change refreshes | the project root | `delivery.ProjectWriter` | `operations.ApplyHooks` → `applyHooksToBackend` → `operations.DeliverProject` (`manage install` and `init` no longer call it) |
 | `manage uninstall` / `manage hooks uninstall` | the project root | `delivery.ProjectWriter` | `operations.RemoveHooks` → `operations.RemoveProject` (the empty plan) |
+
+The record store is owner-only before any delivery writes through it, and
+that is a security invariant: records and the approaches' undo records
+beside them keep the values they reverse verbatim. `Static.Deliver` calls
+`delivery.Ownership.Prepare` first, on the real filesystem, because the
+copy-on-write overlay the approaches write through cannot chmod a directory
+that already exists beneath it; `fsstatic.Records.Prepare` tightens the
+store's directory with `confpatch.EnsureRecordDir`. It does not depend on
+when, or whether, a caller opened the store
+(`TestDeliver_PreparesTheRecordDirItself`,
+`TestStatic_PreparesTheRecordOnceBeforeAnyWrite`).
 
 Two writers meet on one project-root file (a session whose binding selected
 the shared root, and a materialize): each keeps its own entries in the one

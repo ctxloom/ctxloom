@@ -56,10 +56,9 @@ type Records struct {
 var _ delivery.Ownership = (*Records)(nil)
 
 // NewRecords opens the record store at dir on fs; dir is created on the
-// first record written. An EXISTING dir is tightened to owner-only here, on
-// the real filesystem and before any delivery: the same directory holds the
-// undo records approaches write through the copy-on-write overlay, which
-// cannot chmod it (see confpatch.EnsureRecordDir).
+// first record written. An EXISTING dir is tightened to owner-only here as
+// well as by Prepare; Prepare is the one a delivery relies on
+// (delivery.Ownership.Prepare says why).
 func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	if recordFS == nil {
 		return nil, errors.New("fsstatic: nil record filesystem")
@@ -67,16 +66,30 @@ func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("fsstatic: empty record directory")
 	}
-	exists, err := afero.DirExists(recordFS, dir)
+	r := &Records{fs: recordFS, dir: dir}
+	if err := r.tighten(); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// Prepare tightens the record dir to owner-only on the real filesystem. The
+// same directory (paths.HomeRecordsDir) holds the undo records engine
+// approaches write through the delivery's copy-on-write overlay, which
+// cannot chmod it (see confpatch.EnsureRecordDir).
+func (r *Records) Prepare(context.Context) error { return r.tighten() }
+
+// tighten brings an EXISTING record dir to owner-only; a missing one is left
+// missing, and the first record written creates it owner-only.
+func (r *Records) tighten() error {
+	exists, err := afero.DirExists(r.fs, r.dir)
 	if err != nil {
-		return nil, fmt.Errorf("fsstatic: stat %s: %w", dir, err)
+		return fmt.Errorf("fsstatic: stat %s: %w", r.dir, err)
 	}
-	if exists {
-		if err := confpatch.EnsureRecordDir(recordFS, dir); err != nil {
-			return nil, err
-		}
+	if !exists {
+		return nil
 	}
-	return &Records{fs: recordFS, dir: dir}, nil
+	return confpatch.EnsureRecordDir(r.fs, r.dir)
 }
 
 // ownershipRecord is one target file's record on disk.

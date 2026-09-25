@@ -322,9 +322,23 @@ type Delivered struct {
 // Ownership is the ONE ownership mechanism: a record per target file naming
 // the entries each writer owns in it. Apply records under the writer;
 // Owned reads one writer's entries; Targets lists the files a writer owns
-// entries in, which is what delivering the EMPTY plan walks. confpatch
+// entries in, which is what delivering the EMPTY plan walks. fsstatic.Records
 // implements it.
 type Ownership interface {
+	// Prepare readies the record's own storage for a delivery about to write
+	// through it. Static.Deliver calls it once, FIRST, before it reverses or
+	// delivers anything, and an error aborts the delivery.
+	//
+	// SECURITY: the record store must be owner-only before any delivery
+	// writes through it. Its records, and the undo records approaches keep
+	// beside them, hold the previous values of the entries they reverse,
+	// which may be anything the user kept in the file. A delivery writes
+	// through a copy-on-write overlay, which cannot chmod a directory that
+	// already exists underneath it, so only Prepare, on the real filesystem,
+	// can tighten a store left loose. A skipped Prepare either leaves the
+	// records readable and tamperable by other users, or fails the delivery
+	// mid-write. Prepare creates nothing a read would not.
+	Prepare(ctx context.Context) error
 	Apply(ctx context.Context, fs afero.Fs, target string, writer Writer, build Build) (Result, error)
 	Owned(target string, writer Writer) ([]string, error)
 	Targets(writer Writer) ([]string, error)

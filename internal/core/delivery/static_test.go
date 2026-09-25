@@ -11,6 +11,7 @@ package delivery_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -174,6 +175,55 @@ func TestStatic_ZeroTarget_Refused(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, eng.Root(), delivery.Target{})
 	require.ErrorIs(t, err, delivery.ErrNoRoot)
+	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
+}
+
+// TestStatic_PreparesTheRecordOnceBeforeAnyWrite: Deliver prepares the
+// ownership record first and once, before it reverses or writes anything, so
+// the record store is owner-only before a delivery writes through it
+// (delivery.Ownership.Prepare).
+func TestStatic_PreparesTheRecordOnceBeforeAnyWrite(t *testing.T) {
+	eng := mock.New()
+	fs := afero.NewMemMapFs()
+	static := fsstatic.New(fs)
+	rec := deliverytest.NewOwnership(fs)
+	target := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: delivery.SessionWriter("harp-1")}
+	lo := loadoutFor(t, eng, sessionRoots)
+
+	for range 2 { // the second delivery reverses the first before writing
+		_, err := static.Deliver(context.Background(), lo, eng.Root(), target)
+		require.NoError(t, err)
+	}
+
+	calls := rec.Calls()
+	require.Greater(t, len(calls), 2, "the delivery must have written through the record")
+	firstApply := slices.Index(calls, deliverytest.CallApply)
+	second := slices.Index(calls[1:], deliverytest.CallPrepare) + 1
+	require.Equal(t, deliverytest.CallPrepare, calls[0])
+	require.Greater(t, second, firstApply, "the first delivery prepares exactly once")
+	require.NotContains(t, calls[firstApply:second], deliverytest.CallPrepare)
+	require.NotContains(t, calls[second+1:], deliverytest.CallPrepare, "the second delivery prepares exactly once")
+	require.Contains(t, calls[second+1:], deliverytest.CallApply)
+}
+
+var errPrepare = errors.New("prepare refused")
+
+// refusingPrepare is a record whose storage cannot be made owner-only.
+type refusingPrepare struct{ *deliverytest.Ownership }
+
+func (refusingPrepare) Prepare(context.Context) error { return errPrepare }
+
+// TestStatic_PrepareFails_NothingIsWritten: a record that cannot be prepared
+// aborts the delivery before anything is reversed or written.
+func TestStatic_PrepareFails_NothingIsWritten(t *testing.T) {
+	eng := mock.New()
+	fs := afero.NewMemMapFs()
+	rec := deliverytest.NewOwnership(fs)
+	target := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: refusingPrepare{rec}, Writer: delivery.SessionWriter("harp-1")}
+
+	_, err := fsstatic.New(fs).Deliver(context.Background(), loadoutFor(t, eng, sessionRoots), eng.Root(), target)
+	require.ErrorIs(t, err, errPrepare)
+	require.Empty(t, rec.Calls(), "nothing is reversed or recorded")
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
 }
 

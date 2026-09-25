@@ -39,8 +39,9 @@ var _ delivery.Static = (*Static)(nil)
 func New(fs afero.Fs) *Static { return &Static{fs: fs} }
 
 // Deliver validates the target, refuses a plan whose items cannot root under
-// it, reverses the writer's previous delivery, then delivers each static
-// item and records what it wrote.
+// it, prepares the ownership record (delivery.Ownership.Prepare: a security
+// invariant, not an optimisation), reverses the writer's previous delivery,
+// then delivers each static item and records what it wrote.
 func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
 	if err := target.Validate(); err != nil {
 		return delivery.Delivered{}, err
@@ -55,6 +56,9 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.B
 			return delivery.Delivered{}, delivery.Unrootable{Kind: it.Kind, Approach: it.Approach, Needs: it.Root,
 				Remedy: fmt.Sprintf("the plan roots kind %v under %v and this target has no such root; select a root the target provides on the binding, or deliver to a target that has it", it.Kind, it.Root)}
 		}
+	}
+	if err := target.Ownership.Prepare(ctx); err != nil {
+		return delivery.Delivered{}, fmt.Errorf("fsstatic: prepare the ownership record for %s: %w", target.Writer, err)
 	}
 	undo := func(ctx context.Context) error { return s.reconcileToEmpty(ctx, target) }
 	if err := s.reconcileToEmpty(ctx, target); err != nil {

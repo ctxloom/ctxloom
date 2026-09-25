@@ -19,6 +19,7 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -241,6 +242,11 @@ const (
 	containerReadyBound = 30 * time.Second
 )
 
+// ErrRunnerExitedCleanly is the cause AwaitContainerRunning reports when the
+// runner process exited 0 before its container was observed running: there is
+// no wait error to wrap, and wrapping the nil printed "%!w(<nil>)".
+var ErrRunnerExitedCleanly = errors.New("runner exited with status 0")
+
 // AwaitContainerRunning blocks until h's container is OBSERVED running.
 //
 // The docker-exec interactive transport hands h.Name straight to a launcher
@@ -275,6 +281,9 @@ func AwaitContainerRunning(rt Runtime, h *RunnerHandle) error {
 			// The runner died before the container came up. Its stderr is the
 			// only copy of the reason: the daemon writes it there and --rm then
 			// destroys the container, so `logs` is already too late.
+			if werr == nil {
+				werr = ErrRunnerExitedCleanly
+			}
 			if s := StderrTailOf(h); s != "" {
 				return fmt.Errorf("runner container %q exited before it was running: %w (stderr: %s)", h.Name, werr, s)
 			}

@@ -628,12 +628,13 @@ func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
 	// Each buildFromSource logs a base build then an agent build.
 	lines := buildInvocations(t, logFile)
 	require.Len(t, lines, 6)
-	var baseTags, fromArgs []string
+	var baseTags, ownerTags, fromArgs []string
 	for i, line := range lines {
 		fields := strings.Fields(line)
-		require.Greater(t, len(fields), 2, "line %d: %s", i, line)
+		require.Greater(t, len(fields), 4, "line %d: %s", i, line)
 		if i%2 == 0 {
 			baseTags = append(baseTags, fields[2])
+			ownerTags = append(ownerTags, fields[4])
 			continue
 		}
 		require.Contains(t, line, "BASE_IMAGE=", "agent build line %d wires the base tag", i)
@@ -642,7 +643,7 @@ func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
 	}
 	for i, tag := range baseTags {
 		assert.Regexp(t, `^ctxloom-agent-base:[0-9a-f]{12}$`, tag)
-		assert.Equal(t, tag, fromArgs[i], "the agent stage FROMs the tag its own flight built")
+		assert.Equal(t, ownerTags[i], fromArgs[i], "the agent stage FROMs the ownership tag its own flight built, which no concurrent rebuild can move")
 	}
 	assert.NotEqual(t, baseTags[0], baseTags[1], "different base content → different tag")
 	assert.Equal(t, baseTags[0], baseTags[2], "identical base content → identical tag")
@@ -654,7 +655,8 @@ func TestBuildFromSource_BaseTagPerConfigContent(t *testing.T) {
 	require.NoError(t, os.WriteFile(userFile, []byte("FROM debian:13\n"), 0o644))
 	tag, err := buildBaseImage(context.Background(), rt, userBaseStage(userFile), false, nil)
 	require.NoError(t, err)
-	assert.Equal(t, baseImageTagFor([]byte("FROM debian:13\n")), tag)
+	assert.True(t, strings.HasPrefix(tag, "ctxloom-agent-base:own-"), "the base is handed on by its ownership tag: %s", tag)
+	assert.Contains(t, tag, baseContentHash([]byte("FROM debian:13\n")))
 	_, err = buildBaseImage(context.Background(), rt, userBaseStage(filepath.Join(t.TempDir(), "missing")), false, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "base containerfile")

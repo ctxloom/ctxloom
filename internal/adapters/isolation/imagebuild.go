@@ -37,8 +37,8 @@ const imageBuildTimeout = 10 * time.Minute
 var resolveSelfExe = selfLinuxExe
 
 // baseImageTagFor derives the local tag the shared base stage builds to from
-// the base Containerfile's CONTENT; the agent stages FROM it via --build-arg
-// BASE_IMAGE. Content-keyed on purpose: concurrent SESSIONS with different
+// the base Containerfile's CONTENT; the agent stages FROM that build's
+// ownership tag (buildBaseImage) via --build-arg BASE_IMAGE. Content-keyed on purpose: concurrent SESSIONS with different
 // isolation_base_containerfile configs build DIFFERENT tags, so one session's
 // agent stage can never FROM a base another session just tagged (a fixed
 // :latest tag was exactly that cross-contamination), while identical content
@@ -137,7 +137,7 @@ func (id agentImageID) stamp(from string) imageStamp {
 	if id.slot == "" {
 		return imageStamp{}
 	}
-	return imageStamp{kind: ImageComposed, tag: id.ref, slot: id.slot, companions: id.companions, from: from}
+	return imageStamp{kind: ImageComposed, tag: ownershipTagFor(id.ref, id.slot), slot: id.slot, companions: id.companions, from: from}
 }
 
 // composedIdentity resolves a COMPOSABLE spec's identity (image tag,
@@ -1045,7 +1045,7 @@ func (c Container) imageIdentityConfig(ctx context.Context) (imageIdentity, erro
 
 // buildFromSource executes one build source: the base stage first when the
 // source has one (tagged by content via buildBaseImage, handed to the agent
-// stage via --build-arg BASE_IMAGE), then the agent/overlay stage with the
+// stage by its ownership tag via --build-arg BASE_IMAGE), then the agent/overlay stage with the
 // running ctxloom binary in its context. `fresh` pulls + skips cache on stages
 // whose FROM is an external image; the agent stage over a just-built local
 // base never --pulls (the tag exists only locally) but still skips cache so
@@ -1086,8 +1086,12 @@ const (
 	imageBuildScratchPrefix = "ctxloom-imgbuild-"
 )
 
-// buildBaseImage builds the stage-1 base image and returns the content-keyed
-// tag it built (baseImageTagFor). A user-provided or auto-detected-devcontainer
+// buildBaseImage builds the stage-1 base image under its content-keyed tag
+// (baseImageTagFor) and returns the build's OWNERSHIP tag (ownershipTagFor),
+// which the agent stage FROMs and names as ctxloom.from: unlike the
+// content-keyed tag, no concurrent or later rebuild can move it, so the agent
+// stage builds on exactly this flight's base and pruning keeps exactly that
+// base as its parent. A user-provided or auto-detected-devcontainer
 // Containerfile builds with ITS OWN context dir (base.context when set — a
 // devcontainer's build.context, or a compose service's build context — else
 // the Containerfile's own directory, so its COPYs resolve) plus any extra
@@ -1115,7 +1119,7 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 		if base.context != "" {
 			contextDir = base.context
 		}
-		return tag, runImageBuild(ctx, rt, tag, abs, contextDir, flags, output)
+		return flags.stamp.tag, runImageBuild(ctx, rt, tag, abs, contextDir, flags, output)
 	}
 
 	scratch, err := newOwnedScratch(os.TempDir(), imageBaseScratchPrefix)
@@ -1130,13 +1134,14 @@ func buildBaseImage(ctx context.Context, rt Runtime, base *baseStage, fresh bool
 	}
 	tag := baseImageTagFor(base.containerfile)
 	flags.stamp = baseStamp(tag, base.containerfile)
-	return tag, runImageBuild(ctx, rt, tag, file, dir, flags, output)
+	return flags.stamp.tag, runImageBuild(ctx, rt, tag, file, dir, flags, output)
 }
 
 // baseStamp is a stage-1 base's label set: its slot is the content hash its
 // tag is keyed on (baseImageTagFor).
 func baseStamp(tag string, content []byte) imageStamp {
-	return imageStamp{kind: ImageBase, tag: tag, slot: baseContentHash(content)}
+	slot := baseContentHash(content)
+	return imageStamp{kind: ImageBase, tag: ownershipTagFor(tag, slot), slot: slot}
 }
 
 // ImageBuildOptions parameterize an explicit agent-image build

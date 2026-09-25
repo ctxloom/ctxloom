@@ -205,7 +205,7 @@ func pruneRuntime(ctx context.Context, rt isolation.Runtime, opts isolation.Imag
 
 // pruneLine renders one verdict as the action taken (or planned).
 func pruneLine(v isolation.ImageVerdict, apply bool, failed map[string]string) ContainerPruneImage {
-	line := ContainerPruneImage{Ref: pruneRef(v.Image), Reason: v.Keep, Created: v.Image.Created, Bytes: v.Image.Size}
+	line := ContainerPruneImage{Ref: v.Image.Name(), Reason: v.Keep, Created: v.Image.Created, Bytes: v.Image.Size}
 	switch {
 	case v.Keep != isolation.Superseded:
 		line.Action = PruneKeep
@@ -217,14 +217,6 @@ func pruneLine(v isolation.ImageVerdict, apply bool, failed map[string]string) C
 		line.Action = PruneRemoved
 	}
 	return line
-}
-
-// pruneRef names an image by its first ref, or its ID when dangling.
-func pruneRef(img isolation.OwnedImage) string {
-	if len(img.Refs) > 0 {
-		return img.Refs[0]
-	}
-	return img.ID
 }
 
 // doctorCheckSupersededImages is the read-only nudge toward `container

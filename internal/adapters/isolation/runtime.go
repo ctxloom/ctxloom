@@ -358,7 +358,8 @@ func (ociRuntime) imageRemoveArgs(refs ...string) []string {
 
 // buildArgs is the docker-CLI-compatible `build`. The labels ride as --label
 // rather than in the Containerfile so a base built from the user's own
-// Containerfile carries them too.
+// Containerfile carries them too. image is tagged FIRST; the stamp's
+// ownership tag follows it.
 func (ociRuntime) buildArgs(image, file, contextDir string, flags buildFlags) []string {
 	args := []string{"build", "-t", image}
 	if flags.pull {
@@ -370,7 +371,7 @@ func (ociRuntime) buildArgs(image, file, contextDir string, flags buildFlags) []
 	for _, ba := range flags.buildArgs {
 		args = append(args, "--build-arg", ba)
 	}
-	args = append(args, flags.stamp.labelArgs()...)
+	args = append(args, flags.stamp.buildArgs()...)
 	return append(args, "-f", file, contextDir)
 }
 

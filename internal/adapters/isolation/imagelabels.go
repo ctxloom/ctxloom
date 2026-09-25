@@ -1,5 +1,12 @@
 package isolation
 
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"strings"
+	"time"
+)
+
 // agentImageRepo is the repository stem every ctxloom-built agent image is
 // tagged under (the base as <stem>-base, a composed image as <stem>-<engine>).
 // It NAMES images; it never proves ownership — a user may call their own image
@@ -21,10 +28,10 @@ const (
 	// two HOMEs at one commit admit different companions and hold different
 	// images, which must not supersede one another.
 	labelImageCompanions = "ctxloom.companions"
-	// labelImageTag is the exact tag the build produced. Labels inherit through
-	// FROM, so a user image built on a ctxloom image carries every label above;
-	// its own tag is the one thing it does not share. An image is owned only
-	// when one of its refs equals this label.
+	// labelImageTag is the build's OWNERSHIP tag (ownershipTagFor). Labels
+	// inherit through FROM, so a user image built on a ctxloom image carries
+	// every label above; the tags a build applies are the one thing it does
+	// not share. An image is owned only when one of its refs equals this label.
 	labelImageTag = "ctxloom.tag"
 	// labelImageFrom names the base ref a composed image was built FROM, so
 	// pruning keeps the parent of every image it keeps.
@@ -50,20 +57,49 @@ const (
 // stamps nothing: an image ctxloom does not slot (a legacy fixed-tag image, a
 // test build) stays unowned, and pruning never touches it.
 type imageStamp struct {
-	kind       ImageKind
+	kind ImageKind
+	// tag is the build's ownership tag (ownershipTagFor): applied as a second
+	// tag AND stamped as ctxloom.tag.
 	tag        string
 	slot       string
 	companions string
 	from       string
 }
 
-// labelArgs renders the stamp as --label flags, omitting empty values so an
-// absent fact stays absent rather than becoming an empty-string label.
-func (s imageStamp) labelArgs() []string {
+// ownershipTagFor mints the per-build ownership tag for a build landing on
+// primary (repo:tag): the same repository, tagged
+// own-<versionCommitKey>-<slot>-<UTC build time>-<random>.
+//
+// It exists because the primary tag MOVES: a rebuild of one slot at one
+// commit lands on the same primary tag and takes it from the previous image,
+// which would then hold no ref equal to a ctxloom.tag naming the primary —
+// unowned, and never pruned. The ownership tag is never reused, so no rebuild
+// moves it and the old build stays provably ctxloom's. The random half is
+// load-bearing, not decoration: worktrees share one daemon, and two builds of
+// one slot within the same second would otherwise mint the same tag and
+// reintroduce the move. The version and slot halves only make the tag
+// readable in `docker images`; ownership never parses them back.
+func ownershipTagFor(primary, slot string) string {
+	repo, _, _ := strings.Cut(primary, ":")
+	var nonce [4]byte
+	_, _ = rand.Read(nonce[:])
+	parts := []string{"own"}
+	for _, p := range []string{versionCommitKey(binaryVersion), slot, time.Now().UTC().Format("20060102T150405"), hex.EncodeToString(nonce[:])} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return repo + ":" + strings.Join(parts, "-")
+}
+
+// buildArgs renders the stamp as the ownership -t plus --label flags,
+// omitting empty values so an absent fact stays absent rather than becoming
+// an empty-string label.
+func (s imageStamp) buildArgs() []string {
 	if s.kind == "" {
 		return nil
 	}
-	args := []string{"--label", labelImageKind + "=" + string(s.kind)}
+	args := []string{"-t", s.tag, "--label", labelImageKind + "=" + string(s.kind)}
 	for _, kv := range [][2]string{
 		{labelImageTag, s.tag},
 		{labelImageSlot, s.slot},

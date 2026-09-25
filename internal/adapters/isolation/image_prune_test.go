@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,7 @@ type fakeImageStore struct {
 	containers map[string]string // container ID -> image ID
 	failRmi    map[string]bool   // ref -> the runtime refuses it
 	calls      [][]string
+	buildAt    time.Time // the Created a scripted build stamps
 }
 
 func (s *fakeImageStore) install(t *testing.T) fakeRuntime {
@@ -68,8 +70,42 @@ func (s *fakeImageStore) exec(_ context.Context, _ string, args []string) (strin
 		return s.df(), nil
 	case "rmi":
 		return "", s.rmi(args[1:])
+	case "build":
+		s.build(args[1:])
+		return "", nil
 	}
 	return "", fmt.Errorf("fake store: unscripted argv %v", args)
+}
+
+// build applies a `build` argv the way the runtime does: a new image carrying
+// every --label, holding every -t tag — each MOVED off whichever older image
+// held it, which is exactly what leaves a rebuilt image without its old tag.
+func (s *fakeImageStore) build(args []string) {
+	img := storeImage{id: fixtureID(), labels: map[string]string{}, created: s.buildAt, unique: "40MB"}
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "-t":
+			img.refs = append(img.refs, args[i+1])
+		case "--label":
+			k, v, _ := strings.Cut(args[i+1], "=")
+			img.labels[k] = v
+		}
+	}
+	for i := range s.images {
+		s.images[i].refs = slices.DeleteFunc(s.images[i].refs, func(r string) bool { return slices.Contains(img.refs, r) })
+	}
+	s.images = append(s.images, img)
+}
+
+// scriptBuild runs one ctxloom composed build of ref, aged age, through the
+// real Runtime.buildArgs grammar and the real stamp, into the store.
+func (s *fakeImageStore) scriptBuild(t *testing.T, rt Runtime, ref string, age time.Duration) storeImage {
+	t.Helper()
+	s.buildAt = pruneNow.Add(-age)
+	id := agentImageID{ref: ref, slot: "S", companions: "C"}
+	_, err := s.exec(context.Background(), "", rt.buildArgs(ref, "Containerfile", "ctx", buildFlags{stamp: id.stamp("")}))
+	require.NoError(t, err)
+	return s.images[len(s.images)-1]
 }
 
 func (s *fakeImageStore) containerIDs() string {
@@ -187,7 +223,7 @@ func derivedImg(img storeImage, ref string) storeImage {
 	return img
 }
 
-// danglingImg is img with its tag moved to a newer build.
+// danglingImg is img with every tag gone.
 func danglingImg(img storeImage) storeImage {
 	img.refs = nil
 	return img
@@ -197,7 +233,7 @@ func danglingImg(img storeImage) storeImage {
 func verdictsByRef(p ImagePrunePlan) map[string]KeepReason {
 	out := map[string]KeepReason{}
 	for _, v := range p.Verdicts {
-		out[v.Image.name()] = v.Keep
+		out[v.Image.Name()] = v.Keep
 	}
 	return out
 }
@@ -356,7 +392,7 @@ func TestApplyImagePrune_RemovesOnlySupersededNeverForced(t *testing.T) {
 
 	res := ApplyImagePrune(context.Background(), rt, plan)
 	require.Len(t, res.Removed, 1)
-	assert.Equal(t, "ctxloom-agent-mock:v1-cC-S", res.Removed[0].name())
+	assert.Equal(t, "ctxloom-agent-mock:v1-cC-S", res.Removed[0].Name())
 	assert.Empty(t, res.Failed)
 	assert.Equal(t, [][]string{{"rmi", "ctxloom-agent-mock:v1-cC-S"}}, s.rmis())
 	for _, c := range s.calls {
@@ -379,16 +415,67 @@ func TestApplyImagePrune_FailureIsRecordedAndOthersProceed(t *testing.T) {
 	plan, rt := planFor(t, s)
 	res := ApplyImagePrune(context.Background(), rt, plan)
 	require.Len(t, res.Failed, 1)
-	assert.Equal(t, "ctxloom-agent-mock:v1-cC-S", res.Failed[0].Image.name())
+	assert.Equal(t, "ctxloom-agent-mock:v1-cC-S", res.Failed[0].Image.Name())
 	assert.Error(t, res.Failed[0].Err)
 	require.Len(t, res.Removed, 1)
-	assert.Equal(t, "ctxloom-agent-mock:v2-cC-S", res.Removed[0].name())
+	assert.Equal(t, "ctxloom-agent-mock:v2-cC-S", res.Removed[0].Name())
 	assert.Len(t, s.rmis(), 2, "the failure did not stop the sweep")
 }
 
-// TestPlanImagePrune_DanglingIsUnowned: an image whose tag was rebuilt onto a
-// newer build has no RepoTag to prove its ctxloom.tag, so it is reported and
-// never removed.
+// verdictsByID keys a plan by image ID, for images whose only ref is an
+// ownership tag the test cannot predict.
+func verdictsByID(p ImagePrunePlan) map[string]KeepReason {
+	out := map[string]KeepReason{}
+	for _, v := range p.Verdicts {
+		out[v.Image.ID] = v.Keep
+	}
+	return out
+}
+
+// TestPlanImagePrune_RebuildMovingPrimaryTagLeavesOldBuildOwned: a rebuild
+// moves the primary tag to the new image, but the old one keeps the
+// ownership tag its own build stamped (and ctxloom.tag names), so it is
+// still owned — superseded, and removed by ALL its refs — rather than an
+// unowned build lingering forever. A user image built FROM it inherits the
+// labels but not the ownership tag, and stays unowned.
+func TestPlanImagePrune_RebuildMovingPrimaryTagLeavesOldBuildOwned(t *testing.T) {
+	s := &fakeImageStore{}
+	rt := s.install(t)
+	const v1, v2 = "ctxloom-agent-mock:v1-cC-S", "ctxloom-agent-mock:v2-cC-S"
+	moved := s.scriptBuild(t, rt, v1, 5*day)
+	older := s.scriptBuild(t, rt, v1, 4*day) // rebuilt over v1: moved loses it
+	newest := s.scriptBuild(t, rt, v2, 3*day)
+	derived := s.images[0]
+	derived.id, derived.refs = fixtureID(), []string{"myorg/agent:mine"}
+	s.images = append(s.images, derived)
+
+	movedTag := s.images[0].labels[labelImageTag]
+	require.Equal(t, []string{movedTag}, s.images[0].refs, "the moved build holds only its ownership tag")
+	require.Len(t, s.images[1].refs, 2, "a build holds its primary and its ownership tag")
+
+	plan, err := PlanImagePrune(context.Background(), rt, ImagePruneOptions{MinAge: day, Now: pruneNow})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]KeepReason{moved.id: Superseded, older.id: Superseded, newest.id: KeepNewestInSlot}, verdictsByID(plan))
+	assert.Equal(t, []string{"myorg/agent:mine"}, plan.Unowned, "a FROM-derived image inherits the labels, not the ownership tag")
+
+	res := ApplyImagePrune(context.Background(), rt, plan)
+	require.Len(t, res.Removed, 2)
+	assert.ElementsMatch(t, [][]string{
+		{"rmi", movedTag},
+		{"rmi", v1, s.images[1].labels[labelImageTag]},
+	}, s.rmis(), "removal names every ref, the ownership tag included")
+	for _, img := range res.Removed {
+		if len(img.Refs) == 1 {
+			assert.Equal(t, img.OwnershipTag, img.Name(), "a moved build is shown by its ownership tag")
+			continue
+		}
+		assert.Equal(t, v1, img.Name(), "an image still holding its primary tag is shown by it, not the ownership tag")
+	}
+}
+
+// TestPlanImagePrune_DanglingIsUnowned: an image with no tag left at all (one
+// built before ownership tags, whose only tag a rebuild moved) has no RepoTag
+// to prove its ctxloom.tag, so it is reported and never removed.
 func TestPlanImagePrune_DanglingIsUnowned(t *testing.T) {
 	old := danglingImg(composedImg("ctxloom-agent-mock:v1-cC-S", "S", "C", 5*day, ""))
 	s := &fakeImageStore{images: []storeImage{old, composedImg("ctxloom-agent-mock:v1-cC-S", "S", "C", 3*day, "")}}

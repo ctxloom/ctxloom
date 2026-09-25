@@ -25,7 +25,7 @@
   "outputSchema": {
     "properties": {
       "delivery": {
-        "description": "How the steer landed, from coord's Delivery* vocabulary: completed the child's parked receive, woke it into a new turn, queued for its next boundary, or resumed an ended session.",
+        "description": "How the steer landed: one of coord's Delivery* constants, which define the values and what each means.",
         "type": "string"
       },
       "message_id": {

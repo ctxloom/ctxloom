@@ -91,9 +91,10 @@ measured=$(awk '
         }
         next
     }
-    # The runner prints this for a mutant that DID NOT COMPILE, between the
-    # target marker and its box. ooze scores it as a kill.
-    index(line, "ooze-invalid-mutant:") { if (cur != "") invalid[cur]++; next }
+    # A mutant that DID NOT COMPILE, which both tools score as a kill. The ooze
+    # runners print this between the target marker and its box, the package
+    # lane after the gremlins tally; either way it follows its own target marker.
+    index(line, "ooze-invalid-mutant:") || index(line, "gremlins-invalid-mutant:") { if (cur != "") invalid[cur]++; next }
     # ooze: the summary box, one figure per line.
     index(line, "\xe2\x80\xa2 Total:")    { if (cur == "" || tool[cur] != "ooze") orphans++; else total[cur]  = num(line); next }
     index(line, "\xe2\x80\xa2 Killed:")   { if (cur != "" && tool[cur] == "ooze") killed[cur] = num(line); next }
@@ -172,14 +173,14 @@ while read -r name mtotal mkilled msurv minvalid; do
         continue
     fi
 
-    # ooze credits a mutant that did not compile as a kill, so a target none
-    # of whose mutants compiled reports 0 survivors and a perfect score over
-    # nothing — and against any baseline would read as IMPROVED. It is refused
-    # here, before either judging or recording can bank it.
+    # Both tools credit a mutant that did not compile as a kill, so a target
+    # none of whose mutants compiled reports 0 survivors and a perfect score
+    # over nothing — and against any baseline would read as IMPROVED. It is
+    # refused here, before either judging or recording can bank it.
     if [ "$minvalid" -ge "$mtotal" ]; then
         echo "error: $name: all $mtotal mutants DID NOT COMPILE — it measured NOTHING." >&2
-        echo "       ooze scored each build failure as a kill. The laboratory cannot build" >&2
-        echo "       this tree; read any mutant's output above for the compiler error." >&2
+        echo "       Each build failure was scored as a kill. The tree cannot be built" >&2
+        echo "       once mutated; the invalid-mutant lines above carry the compiler error." >&2
         failed=1
         continue
     fi

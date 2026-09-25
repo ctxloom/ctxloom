@@ -321,3 +321,16 @@ func TestCanonicalString_AndLockKey_AreOneIdentity(t *testing.T) {
 		})
 	}
 }
+
+// TestParseReference_CanonicalURIVersionReachesTheResolverAsTyped: a range
+// written on a canonical URI ref must arrive at the selector classifier as the
+// user typed it. Read from the escaped path, "^1.2" arrived as "%5E1.2", which
+// semver refuses, so the RANGE was classified as a bare tag/branch name.
+func TestParseReference_CanonicalURIVersionReachesTheResolverAsTyped(t *testing.T) {
+	for _, ver := range []string{"^1.2", "~1.2", ">=1.2, <2", "^1 || ^2", "1.2 - 1.4"} {
+		ref, err := ParseReference("ctxloom+git://github.com/o/r//bundles/x@" + ver)
+		require.NoError(t, err, ver)
+		assert.Equal(t, ver, ref.ContentVersion)
+		assert.Equal(t, SelectorVersion, inferSelectorKind(ref.ContentVersion), ver)
+	}
+}

@@ -80,9 +80,27 @@ type Runtime interface {
 
 	// inspectRunningArgs builds the argv that prints "true" while name runs.
 	inspectRunningArgs(name string) []string
-	// imageInspectArgs builds the argv that inspects image, rendering format
-	// when it is non-empty (a bare inspect answers only "does it exist").
-	imageInspectArgs(image, format string) []string
+	// imageInspectArgs builds the argv that inspects images, rendering format
+	// when it is non-empty (a bare inspect answers only "does it exist", or,
+	// over several images, prints a JSON array of them).
+	imageInspectArgs(format string, images ...string) []string
+	// imageListArgs builds the argv printing the full ID of every image
+	// (dangling included) matching one `--filter` expression.
+	imageListArgs(filter string) []string
+	// containerListAllArgs builds the argv printing the full ID of every
+	// container, running or stopped.
+	containerListAllArgs() []string
+	// containerImageArgs builds the argv printing, one per line, the image ID
+	// each of containers was created from.
+	containerImageArgs(containers ...string) []string
+	// imageRemoveArgs builds the argv removing the named refs. NEVER forced:
+	// the runtime's own refusal of an in-use image is a safety the prune
+	// relies on.
+	imageRemoveArgs(refs ...string) []string
+	// imageUniqueSizes reports each image's unique-layer bytes (what removing
+	// it alone frees), keyed by its 12-hex short ID — the one disk-usage
+	// figure no image listing both runtimes render gives.
+	imageUniqueSizes(ctx context.Context) (map[string]int64, error)
 	// buildArgs builds the `build` argv tagging image from file in
 	// contextDir, carrying flags (pull, cache, build args, labels).
 	buildArgs(image, file, contextDir string, flags buildFlags) []string
@@ -303,12 +321,33 @@ func (ociRuntime) inspectRunningArgs(name string) []string {
 }
 
 // imageInspectArgs is the docker-CLI-compatible image inspect.
-func (ociRuntime) imageInspectArgs(image, format string) []string {
-	args := []string{"image", "inspect", image}
+func (ociRuntime) imageInspectArgs(format string, images ...string) []string {
+	args := append([]string{"image", "inspect"}, images...)
 	if format != "" {
 		args = append(args, "--format", format)
 	}
 	return args
+}
+
+// imageListArgs is the docker-CLI-compatible quiet, untruncated listing.
+func (ociRuntime) imageListArgs(filter string) []string {
+	return []string{"images", "-q", "--no-trunc", "--filter", filter}
+}
+
+// containerListAllArgs lists every container, -a so a STOPPED one — whose
+// image the runtime still refuses to remove — is seen too.
+func (ociRuntime) containerListAllArgs() []string {
+	return []string{"ps", "-a", "-q", "--no-trunc"}
+}
+
+// containerImageArgs reads each container's .Image, the image ID on both CLIs.
+func (ociRuntime) containerImageArgs(containers ...string) []string {
+	return append([]string{"container", "inspect", "--format", "{{.Image}}"}, containers...)
+}
+
+// imageRemoveArgs is a plain, unforced rmi.
+func (ociRuntime) imageRemoveArgs(refs ...string) []string {
+	return append([]string{"rmi"}, refs...)
 }
 
 // buildArgs is the docker-CLI-compatible `build`. The labels ride as --label

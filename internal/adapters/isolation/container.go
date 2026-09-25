@@ -893,7 +893,7 @@ func (c Container) imagePresent(ctx context.Context) bool {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs(c.image, "")...).Run() == nil
+	return exec.CommandContext(cctx, c.runtime.Binary(), c.runtime.imageInspectArgs("", c.image)...).Run() == nil
 }
 
 // overrideIdentityFixIt names the ways out when a user-supplied image cannot

@@ -40,8 +40,20 @@ func (fakeRuntime) gatewayInspectArgs() []string                  { return ociRu
 func (fakeRuntime) inspectRunningArgs(name string) []string {
 	return ociRuntime{}.inspectRunningArgs(name)
 }
-func (fakeRuntime) imageInspectArgs(image, format string) []string {
-	return ociRuntime{}.imageInspectArgs(image, format)
+func (fakeRuntime) imageInspectArgs(format string, images ...string) []string {
+	return ociRuntime{}.imageInspectArgs(format, images...)
+}
+func (fakeRuntime) imageListArgs(filter string) []string { return ociRuntime{}.imageListArgs(filter) }
+func (fakeRuntime) containerListAllArgs() []string        { return ociRuntime{}.containerListAllArgs() }
+func (fakeRuntime) containerImageArgs(ids ...string) []string {
+	return ociRuntime{}.containerImageArgs(ids...)
+}
+func (fakeRuntime) imageRemoveArgs(refs ...string) []string { return ociRuntime{}.imageRemoveArgs(refs...) }
+
+// imageUniqueSizes answers through the docker grammar, so a scripted
+// probeExec (image_prune_test.go) serves it like any other call.
+func (f fakeRuntime) imageUniqueSizes(ctx context.Context) (map[string]int64, error) {
+	return dockerUniqueSizes(ctx, f.binary)
 }
 func (fakeRuntime) buildArgs(image, file, contextDir string, flags buildFlags) []string {
 	return ociRuntime{}.buildArgs(image, file, contextDir, flags)

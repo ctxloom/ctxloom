@@ -62,3 +62,10 @@ func TestWriteDiscipline_PackageLevelAndTestFiles(t *testing.T) {
 func TestVocabulary_ConversionFromRawString(t *testing.T) {
 	run(t, archlint.VocabularyAnalyzer, "internal/vocabplain")
 }
+
+// TestVocabulary_ConversionsResolveThroughTypes plants conversions spelled
+// through a renamed import, a dot import and a re-exporting alias: each names
+// the same vocabulary as its owner's own spelling.
+func TestVocabulary_ConversionsResolveThroughTypes(t *testing.T) {
+	run(t, archlint.VocabularyAnalyzer, "internal/vocabuser")
+}

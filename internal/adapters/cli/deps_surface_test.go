@@ -197,11 +197,11 @@ func TestDepsList_ReadsAnInstalledClosureFromTheLockfile(t *testing.T) {
 	manager := remote.NewLockfileManager(operations.ProjectAppDir(cfg))
 	lockfile, err := manager.Load()
 	require.NoError(t, err)
-	lockfile.AddEntry(remote.ItemTypeBundle, demoRef, remote.LockEntry{
+	lockfile.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, demoRef), remote.LockEntry{
 		SHA: "0123456789abcdef0123456789abcdef01234567",
 		URL: "https://github.com/alice/ctxloom", RequestedVersion: "^1.2",
 	})
-	lockfile.AddEntry(remote.ItemTypeBundle, guardRef, remote.LockEntry{
+	lockfile.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, guardRef), remote.LockEntry{
 		SHA: "fedcba9876543210fedcba9876543210fedcba98",
 		URL: "https://github.com/alice/ctxloom", Held: true,
 	})

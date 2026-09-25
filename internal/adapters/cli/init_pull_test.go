@@ -185,7 +185,7 @@ func TestRunInit_PullsRemoteDependencies(t *testing.T) {
 		require.NoError(t, runInit(initTestCmd(), nil))
 	})
 
-	assert.Contains(t, lockedRefs(t, appDir), ref,
+	assert.Contains(t, lockedRefs(t, appDir), string(lockKeyOf(t, ref)),
 		"init must pin the remote dependency its seeded profile declares")
 	assert.True(t, cachedBundleBytes(t, appDir),
 		"init must fetch the dependency's bytes, not just write a pin over nothing")
@@ -211,7 +211,7 @@ func TestRunInit_RepeatedInitKeepsTheClosureInstalled(t *testing.T) {
 		})
 	}
 
-	assert.Contains(t, lockedRefs(t, appDir), ref,
+	assert.Contains(t, lockedRefs(t, appDir), string(lockKeyOf(t, ref)),
 		"a repeated init must leave the pin in place, not drop it")
 	assert.True(t, cachedBundleBytes(t, appDir), "the payload must still be installed")
 }

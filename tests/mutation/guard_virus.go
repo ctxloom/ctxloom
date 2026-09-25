@@ -64,7 +64,7 @@ var cascadeGuards = map[string]string{
 // cascade are plain boolean guards:
 //
 //	step 1      REJECTED     if records.Rejected(req.Ref, req.Payload)
-//	step 2      RETRACTED    if retracted, reason := retraction.Retracted(req.Ref); retracted
+//	step 2      RETRACTED    if retracted, reason := retraction.Retracted(req.BundleRef); retracted
 //	step 3/4/4b FIRST PARTY  if req.Posture == bundles.TrustCtxLocal
 //	step 6      APPROVED     if records.Approved(req.Ref, req.Payload, req.Form)
 //

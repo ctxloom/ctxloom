@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
@@ -233,7 +234,7 @@ func refuseStaleConfigVersion(data []byte, configPath string) {
 	if declared {
 		spelled = fmt.Sprintf("`version: %d`", v)
 	}
-	strictness.FailOnce(strictness.ClassMigration,
+	strictness.FailOnce(report.KindMigration,
 		fmt.Sprintf("back up %s, then re-run `ctxloom init` to scaffold a current one and re-apply your settings", configPath),
 		"%s carries %s but this ctxloom requires config schema version %d, and in-place upgrades have been removed — an old config is no longer rewritten on load",
 		configPath, spelled, config.CurrentConfigVersion)
@@ -259,7 +260,7 @@ func (s *Sources) warnInvalidLayer(b *config.Builder, data []byte, configPath st
 // and the agents that name no engine.
 func warnLayerDrops(b *config.Builder, layer layerscope.Layer, raw map[string]any, appPath, homeAppPath, configPath string) {
 	for _, v := range config.DropLayerScopeViolations(layer, raw) {
-		b.Warn(config.WarnKindLayerScope, "%s", v.Message(appPath, homeAppPath))
+		b.WarnRemedy(config.WarnKindLayerScope, v.Remedy(appPath, homeAppPath), "%s", v.Message(appPath, homeAppPath))
 		zap.L().Warn("config_layer_scope_warning", zap.String("path", configPath), zap.Strings("key", v.Path))
 	}
 	for _, w := range dropEnginelessAgents(configPath, raw) {

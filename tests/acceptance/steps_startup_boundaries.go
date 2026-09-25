@@ -11,6 +11,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -36,7 +37,7 @@ const bundleFindingRemedy = "ctxloom deps pull"
 // abort report. Derived from the class rather than spelled out, so renaming the
 // class breaks this loudly instead of leaving a string that quietly matches
 // nothing.
-var bundleFindingLabel = "[" + string(strictness.ClassBundle) + "]"
+var bundleFindingLabel = "[" + string(report.KindBundle) + "]"
 
 // The reaper fixture's coordinates. The harp is a plain name — nothing has to
 // resolve it, because the sweep classifies by what is ON DISK (a

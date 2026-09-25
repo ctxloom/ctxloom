@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -87,7 +88,7 @@ func absent(format string, args ...any) AgentHomeResolution {
 	return AgentHomeResolution{Absent: fmt.Sprintf(format, args...)}
 }
 
-// inTreeAgentHomeFixIt is the fix-it on the one finding this file records.
+// inTreeAgentHomeRemedy is the fix-it on the one finding this file records.
 // The engine-specific remedies — its mint command, its auth vars — ride the
 // error the preparation produced (isolation.PrepareInstanceHome); this names
 // the shape: a stored or exported token, or the binding's explicit, unsafe
@@ -96,7 +97,7 @@ func absent(format string, args ...any) AgentHomeResolution {
 // because the only fallback would be the SHARED host home — the one thing
 // the session home exists to keep a run off, and a thing only the binding
 // may select.
-const inTreeAgentHomeFixIt = "store the engine's long-lived token with `ctxloom auth set-token` (or export one of its auth vars), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
+const inTreeAgentHomeRemedy = "store the engine's long-lived token with `ctxloom auth set-token` (or export one of its auth vars), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
 
 // ResolveInTreeAgentHome decides ONE run's controlled engine config home —
 // CLAUDE_CONFIG_DIR and its kin pointed at THIS SESSION's ctxloom-controlled
@@ -171,7 +172,7 @@ func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeRe
 			// thing `engine_home: session` was asked for to prevent. Delivery
 			// never degrades to a shared home: private is the root, and sharing
 			// is only ever something a user selects explicitly.
-			strictness.FailAlways(strictness.ClassIsolation, inTreeAgentHomeFixIt,
+			strictness.FailAlways(report.KindIsolation, inTreeAgentHomeRemedy,
 				"in-tree agent home for %s: %v — refusing to point %s at an unauthenticated %s, and refusing to substitute the SHARED host config home for the per-session one this agent asked for",
 				in.Backend, err, spec.EnvVar, home)
 			return absent("refusing to point %s at an unauthenticated %s: %v", spec.EnvVar, home, err)
@@ -216,7 +217,7 @@ func BindAgentHome(reg engine.Registry, ws isolation.Workspace, in InTreeAgentHo
 		return res
 	}
 	if err := isolation.MountEngineHome(ws, *res.Mount); err != nil {
-		strictness.Fail(strictness.ClassIsolation, inTreeAgentHomeFixIt,
+		strictness.Fail(report.KindIsolation, inTreeAgentHomeRemedy,
 			"in-tree agent home for %s: %v; this run uses the runtime's own config home instead", in.Backend, err)
 		return absent("%v", err)
 	}

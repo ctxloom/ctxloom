@@ -552,8 +552,8 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	noMCPServers(t, newCfg().ResolveBundleMCPServers(nil))
 	found := strictness.Since(mark)
 	require.NotEmpty(t, found, "an unresolvable profile must record a finding, not vanish")
-	assert.Equal(t, strictness.ClassRef, found[0].Class)
-	assert.Contains(t, found[0].Message, "nonexistent")
+	assert.Equal(t, report.KindRef, found[0].Kind)
+	assert.Contains(t, found[0].Text, "nonexistent")
 
 	// The other three resolvers share the defect and must share the fix.
 	// FailOnce dedups per formatted message, so each is checked in its own
@@ -617,8 +617,8 @@ func TestConfig_BundleRefThatFailsToLoadIsReported(t *testing.T) {
 			found := strictness.Since(mark)
 			require.NotEmpty(t, found,
 				"%s: a bundle that failed to load must be reported, not silently contribute nothing", tc.name)
-			assert.Equal(t, strictness.ClassBundle, found[0].Class)
-			assert.Contains(t, found[0].Message, "absent-bundle")
+			assert.Equal(t, report.KindBundle, found[0].Kind)
+			assert.Contains(t, found[0].Text, "absent-bundle")
 		})
 	}
 }

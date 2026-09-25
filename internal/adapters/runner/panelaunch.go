@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/tmuxhost"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -80,7 +81,7 @@ func runInteractiveInPane(ctx context.Context, spec agent.LaunchSpec, stdin io.R
 		// error return is what guarantees NOTHING LAUNCHES either way: under
 		// --degraded the choke will not abort, and the launch still stops here
 		// rather than proceeding into a tmux that is not there.
-		strictness.FailOnce(strictness.ClassConfig, tmuxInstallRemedy,
+		strictness.FailOnce(report.KindConfig, tmuxInstallRemedy,
 			"an interactive agent runs in a tmux pane, and tmux was not found: %v", err)
 		return 1, fmt.Errorf("interactive launch requires tmux: %w", err)
 	}

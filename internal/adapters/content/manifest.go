@@ -15,6 +15,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/release"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ManifestVersionMarker is the first line of a bundle manifest. It is NOT
@@ -276,6 +277,13 @@ func manifestLines(raw []byte) ([]string, error) {
 	return body, nil
 }
 
+// remedySuperseded is the fix a superseded manifest names wherever it
+// surfaces — a pull, a withheld tree. It is raised here, where nothing is
+// known about pins, so it must hold whether or not the publisher has
+// re-signed: a re-pull of the same commit cannot help, only moving the pin
+// can.
+const remedySuperseded = "ctxloom deps upgrade — this commit is signed in the retired manifest format; upgrade moves the pin to the publisher's re-signed commit (if they have not re-signed, they must)"
+
 // checkManifestMarker refuses a manifest whose first line is not this
 // build's version marker, naming a superseded digest marker as such.
 func checkManifestMarker(body []string) error {
@@ -287,7 +295,7 @@ func checkManifestMarker(body []string) error {
 		first = body[0]
 	}
 	if first == DigestVersionMarker {
-		return fmt.Errorf("%w: %w: version marker is %q, this build understands only %q", ErrManifestFormat, ErrManifestSuperseded, first, ManifestVersionMarker)
+		return report.Error{Fix: remedySuperseded, Err: fmt.Errorf("%w: %w: version marker is %q, this build understands only %q", ErrManifestFormat, ErrManifestSuperseded, first, ManifestVersionMarker)}
 	}
 	return fmt.Errorf("%w: version marker is %q, this build understands only %q", ErrManifestFormat, first, ManifestVersionMarker)
 }

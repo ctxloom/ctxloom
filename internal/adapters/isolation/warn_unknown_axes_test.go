@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/require"
 )
@@ -75,8 +76,8 @@ func TestWarnUnknownAxes_UnknownRuntimeIsAFatalIsolationFinding(t *testing.T) {
 
 	found := strictness.Since(mark)
 	require.Len(t, found, 1, "an unrecognised runtime must raise exactly one finding")
-	require.Equal(t, strictness.ClassIsolation, found[0].Class,
+	require.Equal(t, report.KindIsolation, found[0].Kind,
 		"the hazard is landing unsandboxed on the host, which is an isolation class finding")
-	require.Contains(t, strings.ToLower(found[0].Message), "definitely-not-a-runtime",
+	require.Contains(t, strings.ToLower(found[0].Text), "definitely-not-a-runtime",
 		"the finding must name the value the user typed")
 }

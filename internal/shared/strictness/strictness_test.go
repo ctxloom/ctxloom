@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // resetForTest restores pristine strict-mode state and registers cleanup so
@@ -30,16 +31,16 @@ func resetForTest(t *testing.T) {
 func TestFail_StrictCollectsFindings(t *testing.T) {
 	resetForTest(t)
 
-	Fail(ClassConfig, "edit config.yaml", "failed to parse config at %s: %v", "/p/config.yaml", "yaml: bad")
-	Fail(ClassSync, "ctxloom deps pull", "bundle %s unfetchable", "core")
+	Fail(report.KindConfig, "edit config.yaml", "failed to parse config at %s: %v", "/p/config.yaml", "yaml: bad")
+	Fail(report.KindSync, "ctxloom deps pull", "bundle %s unfetchable", "core")
 
 	got := All()
 	require.Len(t, got, 2)
-	assert.Equal(t, ClassConfig, got[0].Class)
-	assert.Equal(t, "failed to parse config at /p/config.yaml: yaml: bad", got[0].Message)
-	assert.Equal(t, "edit config.yaml", got[0].FixIt)
-	assert.Equal(t, ClassSync, got[1].Class)
-	assert.Equal(t, "ctxloom deps pull", got[1].FixIt)
+	assert.Equal(t, report.KindConfig, got[0].Kind)
+	assert.Equal(t, "failed to parse config at /p/config.yaml: yaml: bad", got[0].Text)
+	assert.Equal(t, "edit config.yaml", got[0].Remedy)
+	assert.Equal(t, report.KindSync, got[1].Kind)
+	assert.Equal(t, "ctxloom deps pull", got[1].Remedy)
 }
 
 // Degraded mode suppresses FATALITY, not RECORDING. Fail/FailOnce/Record
@@ -52,9 +53,9 @@ func TestDegraded_RecordsButNeverAborts(t *testing.T) {
 	mark := Checkpoint()
 	degraded := Mode{Degraded: true}
 
-	Fail(ClassConfig, "", "broken config")
-	FailOnce(ClassRef, "", "missing parent")
-	Record(ClassSync, "", "unfetchable")
+	Fail(report.KindConfig, "", "broken config")
+	FailOnce(report.KindRef, "", "missing parent")
+	Record(report.KindSync, "", "unfetchable")
 
 	require.Len(t, All(), 3, "degraded still collects every finding")
 	assert.NoError(t, degraded.FindingsError(mark),
@@ -73,14 +74,14 @@ func TestDegraded_RecordsButNeverAborts(t *testing.T) {
 func TestFailOnce_DedupsRecording(t *testing.T) {
 	resetForTest(t)
 
-	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
-	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
-	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "other")
+	FailOnce(report.KindRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(report.KindRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(report.KindRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "other")
 
 	got := All()
 	require.Len(t, got, 2, "identical FailOnce messages collapse within a window; distinct ones don't")
-	assert.Contains(t, got[0].Message, `parent core`)
-	assert.Contains(t, got[1].Message, `parent other`)
+	assert.Contains(t, got[0].Text, `parent core`)
+	assert.Contains(t, got[1].Text, `parent other`)
 }
 
 // A long-lived, many-session server opens each session under a fresh
@@ -94,18 +95,18 @@ func TestFailOnce_RefiresAcrossCheckpoints(t *testing.T) {
 	resetForTest(t)
 
 	mark1 := Checkpoint()
-	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(report.KindRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
 	require.Len(t, Since(mark1), 1, "first window collects the finding")
 
 	// The session is retried unfixed: a new window, the same FailOnce.
 	mark2 := Checkpoint()
-	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(report.KindRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
 	got := Since(mark2)
 	require.Len(t, got, 1, "the re-fired finding must be visible to the NEW window — otherwise the retried session opens silently on broken context")
-	assert.Contains(t, got[0].Message, "parent core")
+	assert.Contains(t, got[0].Text, "parent core")
 
 	// Within the second window the dedup still collapses repeats.
-	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(report.KindRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
 	assert.Len(t, Since(mark2), 1, "within one window the recording dedup still applies")
 }
 
@@ -118,12 +119,12 @@ func TestFail_EmptyMessageStillSaysWhatBroke(t *testing.T) {
 	resetForTest(t)
 
 	mark := Checkpoint()
-	Fail(ClassConfig, "ctxloom manage config edit", "")
+	Fail(report.KindConfig, "ctxloom manage config edit", "")
 
 	got := Since(mark)
 	require.Len(t, got, 1)
-	assert.NotEmpty(t, strings.TrimSpace(got[0].Message), "a finding must always say something")
-	assert.Contains(t, got[0].Message, string(ClassConfig), "the class is the only detail left to report")
+	assert.NotEmpty(t, strings.TrimSpace(got[0].Text), "a finding must always say something")
+	assert.Contains(t, got[0].Text, string(report.KindConfig), "the class is the only detail left to report")
 
 	err := Mode{}.FindingsError(mark)
 	require.Error(t, err)
@@ -136,14 +137,14 @@ func TestFailOnceAndRecord_BlankMessageStillSayWhatBroke(t *testing.T) {
 	resetForTest(t)
 
 	mark := Checkpoint()
-	FailOnce(ClassRef, "ctxloom deps pull", "")
-	Record(ClassSync, "", "   \n ")
+	FailOnce(report.KindRef, "ctxloom deps pull", "")
+	Record(report.KindSync, "", "   \n ")
 
 	got := Since(mark)
 	require.Len(t, got, 2)
 	for i, f := range got {
-		assert.NotEmpty(t, strings.TrimSpace(f.Message), "finding %d must say something", i)
-		assert.Contains(t, f.Message, string(f.Class))
+		assert.NotEmpty(t, strings.TrimSpace(f.Text), "finding %d must say something", i)
+		assert.Contains(t, f.Text, string(f.Kind))
 	}
 }
 
@@ -152,12 +153,12 @@ func TestFailOnceAndRecord_BlankMessageStillSayWhatBroke(t *testing.T) {
 func TestRecord_CollectsInStrict(t *testing.T) {
 	resetForTest(t)
 
-	Record(ClassSync, "check network", "pinned bundle %s neither cached nor fetchable", "x")
+	Record(report.KindSync, "check network", "pinned bundle %s neither cached nor fetchable", "x")
 
 	got := All()
 	require.Len(t, got, 1)
-	assert.Equal(t, ClassSync, got[0].Class)
-	assert.Equal(t, "pinned bundle x neither cached nor fetchable", got[0].Message)
+	assert.Equal(t, report.KindSync, got[0].Kind)
+	assert.Equal(t, "pinned bundle x neither cached nor fetchable", got[0].Text)
 }
 
 // Checkpoint/Since scope a choke owner's abort decision to its own startup
@@ -166,14 +167,14 @@ func TestRecord_CollectsInStrict(t *testing.T) {
 func TestCheckpointSince_ScopesFindings(t *testing.T) {
 	resetForTest(t)
 
-	Fail(ClassConfig, "", "earlier invocation's finding")
+	Fail(report.KindConfig, "", "earlier invocation's finding")
 	mark := Checkpoint()
 	assert.Empty(t, Since(mark), "fresh checkpoint sees nothing")
 
-	Fail(ClassApply, "", "this invocation's finding")
+	Fail(report.KindApply, "", "this invocation's finding")
 	got := Since(mark)
 	require.Len(t, got, 1)
-	assert.Equal(t, "this invocation's finding", got[0].Message)
+	assert.Equal(t, "this invocation's finding", got[0].Text)
 	assert.Len(t, All(), 2, "All still returns the full history")
 }
 
@@ -181,7 +182,7 @@ func TestCheckpointSince_ScopesFindings(t *testing.T) {
 // nil rather than panicking.
 func TestSince_StaleMarkIsNil(t *testing.T) {
 	resetForTest(t)
-	Fail(ClassConfig, "", "one")
+	Fail(report.KindConfig, "", "one")
 	mark := Checkpoint()
 	Reset()
 	assert.Nil(t, Since(mark))
@@ -203,9 +204,9 @@ func TestFailOnce_PrintDedupIsProcessWideRecordDedupIsPerWindow(t *testing.T) {
 
 	const msg = "u119f07 probe: profile parent not installed"
 	mark1 := Checkpoint()
-	FailOnce(ClassRef, "ctxloom deps pull", "%s", msg)
+	FailOnce(report.KindRef, "ctxloom deps pull", "%s", msg)
 	_ = Checkpoint() // a new window: the retried session
-	FailOnce(ClassRef, "ctxloom deps pull", "%s", msg)
+	FailOnce(report.KindRef, "ctxloom deps pull", "%s", msg)
 
 	assert.Equal(t, 1, strings.Count(out.String(), msg),
 		"the warning LINE is deduped process-wide — it prints at most once whatever the window")
@@ -231,19 +232,19 @@ func TestFailOnce_SameMessageUnderTwoClassesRecordsBothButPrintsOnce(t *testing.
 
 	const msg = "u119f08 probe: could not be satisfied as requested"
 	mark := Checkpoint()
-	FailOnce(ClassIsolation, "ctxloom manage image build", "%s", msg)
-	FailOnce(ClassTask, "check the project task log", "%s", msg)
+	FailOnce(report.KindIsolation, "ctxloom manage image build", "%s", msg)
+	FailOnce(report.KindTask, "check the project task log", "%s", msg)
 
 	assert.Equal(t, 1, strings.Count(out.String(), msg),
 		"clidiag keys on the rendered line and has no class dimension, so the line prints once")
 
-	fixByClass := map[Class]string{}
+	fixByClass := map[report.Kind]string{}
 	for _, f := range Since(mark) {
-		fixByClass[f.Class] = f.FixIt
+		fixByClass[f.Kind] = f.Remedy
 	}
 	require.Len(t, fixByClass, 2, "the class dimension keeps two genuinely different faults apart")
-	assert.Equal(t, "ctxloom manage image build", fixByClass[ClassIsolation])
-	assert.Equal(t, "check the project task log", fixByClass[ClassTask],
+	assert.Equal(t, "ctxloom manage image build", fixByClass[report.KindIsolation])
+	assert.Equal(t, "check the project task log", fixByClass[report.KindTask],
 		"collapsing the keys onto the message alone would lose this fault and its fix-it entirely")
 }
 
@@ -270,7 +271,7 @@ func TestDegradedMode_DoesNotStopRecording(t *testing.T) {
 				case <-stop:
 					return
 				default:
-					Record(ClassSync, "", "racing finding")
+					Record(report.KindSync, "", "racing finding")
 				}
 			}
 		}()
@@ -345,14 +346,14 @@ func TestClose_InnerCloseDoesNotDetachAStillLiveOuterMark(t *testing.T) {
 	func() {
 		inner := Checkpoint()
 		defer Close(inner)
-		Fail(ClassConfig, "", "finding inside the inner bracket")
+		Fail(report.KindConfig, "", "finding inside the inner bracket")
 	}()
-	Fail(ClassApply, "", "finding recorded after the inner Close")
+	Fail(report.KindApply, "", "finding recorded after the inner Close")
 
 	got := Since(outer)
 	require.Len(t, got, 2, "the outer window must still collect after an inner Close")
-	assert.Equal(t, "finding inside the inner bracket", got[0].Message)
-	assert.Equal(t, "finding recorded after the inner Close", got[1].Message)
+	assert.Equal(t, "finding inside the inner bracket", got[0].Text)
+	assert.Equal(t, "finding recorded after the inner Close", got[1].Text)
 }
 
 // The release is still a release: once the LAST bracketing checkpoint closes,
@@ -390,7 +391,7 @@ func TestClose_RepeatedCloseOfTheSameMarkIsOneShot(t *testing.T) {
 	Close(inner)
 	Close(inner)
 	Close(inner)
-	Fail(ClassSync, "", "recorded after three Closes of the inner mark")
+	Fail(report.KindSync, "", "recorded after three Closes of the inner mark")
 
 	assert.Len(t, Since(outer), 1, "repeated Close of one mark must not release the outer bracket")
 	assert.NotPanics(t, func() { Close(Mark{}) }, "a zero Mark stays a no-op")
@@ -411,7 +412,7 @@ func TestConcurrentWindows_NoCrossAttribution(t *testing.T) {
 	aCheckpointed := make(chan struct{})
 	bRecorded := make(chan struct{})
 	aDone := make(chan struct{})
-	var foundA []Finding
+	var foundA report.Findings
 
 	go func() {
 		defer close(aDone)
@@ -422,7 +423,7 @@ func TestConcurrentWindows_NoCrossAttribution(t *testing.T) {
 	}()
 
 	<-aCheckpointed // A's window is open before B does any work
-	Fail(ClassSync, "", "goroutine B's own finding")
+	Fail(report.KindSync, "", "goroutine B's own finding")
 	close(bRecorded)
 	<-aDone
 
@@ -445,7 +446,7 @@ func TestConcurrentWindows_EachSeesOnlyOwnFindings(t *testing.T) {
 	var recorded sync.WaitGroup
 	var done sync.WaitGroup
 	release := make(chan struct{})
-	results := make([][]Finding, n)
+	results := make([]report.Findings, n)
 
 	start.Add(n)
 	recorded.Add(n)
@@ -456,7 +457,7 @@ func TestConcurrentWindows_EachSeesOnlyOwnFindings(t *testing.T) {
 			mark := Checkpoint()
 			start.Done()
 			start.Wait() // maximize the window all goroutines have open at once
-			Fail(ClassSync, "", "finding from goroutine %d", i)
+			Fail(report.KindSync, "", "finding from goroutine %d", i)
 			recorded.Done()
 			recorded.Wait() // every goroutine has now recorded before anyone reads
 			<-release
@@ -468,7 +469,7 @@ func TestConcurrentWindows_EachSeesOnlyOwnFindings(t *testing.T) {
 
 	for i, got := range results {
 		require.Len(t, got, 1, "goroutine %d's window must contain exactly its own finding", i)
-		assert.Equal(t, fmt.Sprintf("finding from goroutine %d", i), got[0].Message)
+		assert.Equal(t, fmt.Sprintf("finding from goroutine %d", i), got[0].Text)
 	}
 }
 
@@ -501,14 +502,14 @@ func TestFailOnce_ConcurrentWindows_DedupDoesNotCrossWindows(t *testing.T) {
 	aRecorded := make(chan struct{})
 	aDone := make(chan struct{})
 	var markA Mark
-	var foundA []Finding
+	var foundA report.Findings
 
 	go func() {
 		defer close(aDone)
 		markA = Checkpoint() // generation 1
 		close(aCheckpointed)
 		<-bCheckpointed // B has now bumped generation to 2 while A's window is still open
-		FailOnce(ClassSync, "", "duplicate message")
+		FailOnce(report.KindSync, "", "duplicate message")
 		close(aRecorded)
 		foundA = Since(markA)
 	}()
@@ -517,7 +518,7 @@ func TestFailOnce_ConcurrentWindows_DedupDoesNotCrossWindows(t *testing.T) {
 	markB := Checkpoint() // generation 2, while A's window is still open
 	close(bCheckpointed)
 	<-aRecorded // A has already recorded, under whatever generation ITS window remembers
-	FailOnce(ClassSync, "", "duplicate message")
+	FailOnce(report.KindSync, "", "duplicate message")
 	foundB := Since(markB)
 	<-aDone
 
@@ -538,14 +539,14 @@ func TestFailAlways_SurvivesDegraded(t *testing.T) {
 	mark := Checkpoint()
 	degraded := Mode{Degraded: true}
 
-	Fail(ClassConfig, "edit the config", "an ordinary degradable fault")
-	FailAlways(ClassIsolation, "start the runtime it claimed", "the launch itself is the harm")
+	Fail(report.KindConfig, "edit the config", "an ordinary degradable fault")
+	FailAlways(report.KindIsolation, "start the runtime it claimed", "the launch itself is the harm")
 
 	require.Len(t, All(), 2, "degraded records both; it is fatality that differs")
 
 	act := degraded.Actionable(Since(mark))
 	require.Len(t, act, 1, "only the non-degradable finding may survive --degraded")
-	assert.Equal(t, ClassIsolation, act[0].Class)
+	assert.Equal(t, report.KindIsolation, act[0].Kind)
 	assert.True(t, act[0].NonDegradable)
 
 	err := degraded.FindingsError(mark)
@@ -560,8 +561,8 @@ func TestFailAlways_SurvivesDegraded(t *testing.T) {
 // in the product to non-degradable faults only.
 func TestActionable_StrictModePassesEverything(t *testing.T) {
 	resetForTest(t)
-	Fail(ClassConfig, "", "degradable")
-	FailAlways(ClassIsolation, "", "non-degradable")
+	Fail(report.KindConfig, "", "degradable")
+	FailAlways(report.KindIsolation, "", "non-degradable")
 
 	assert.Len(t, Mode{}.Actionable(All()), 2, "strict mode acts on every finding")
 }

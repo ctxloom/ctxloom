@@ -22,8 +22,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 var initCmd = &cobra.Command{
@@ -559,7 +561,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 		ApplyHooks: false, // applyInitHooks runs right after
 	})
 	if syncErr != nil {
-		warnDependencyPullFailed(syncErr.Error())
+		warnDependencyPullFailed(syncErr)
 		return
 	}
 	// A sync returns a NIL ERROR for a run in which individual references
@@ -571,7 +573,7 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 	// `ctxloom deps pull` exits on, so init and the command it stands in for
 	// can never disagree about what counts as a failed pull.
 	if resultErr := pullResultErr(result); resultErr != nil {
-		warnDependencyPullFailed(resultErr.Error())
+		warnDependencyPullFailed(resultErr)
 		return
 	}
 	if result.Installed > 0 {
@@ -582,17 +584,24 @@ func pullSeededDependencies(cmd *cobra.Command, appDir string) {
 // warnDependencyPullFailed reports a dependency pull that did not complete
 // during init. It names three things a bare error cannot: that the init itself
 // stands (nothing is rolled back), that the consequence is uninstalled
-// dependencies which assembly will silently skip, and the one command that
+// dependencies which assembly will silently skip, and the fix — the one err
+// names (a misspelt reference, a retired-format pin), else the pull that
 // finishes the job once the remote is reachable.
-func warnDependencyPullFailed(reason string) {
-	clidiag.Warn("ctxloom",
-		"the dependency pull did not complete: %s\n"+
+func warnDependencyPullFailed(err error) {
+	remedy, ok := clifmt.RemedyOf(err)
+	if !ok {
+		remedy = remedyRetryPull
+	}
+	clidiag.WarnRemedy("ctxloom", remedy,
+		"the dependency pull did not complete: %v\n"+
 			"  Everything init wrote is kept — the project is initialized and usable.\n"+
 			"  Its remote dependencies are NOT installed, so context assembly will skip\n"+
-			"  them (`ctxloom doctor` reports this). Once the remote is reachable, run:\n"+
-			"    ctxloom deps pull",
-		reason)
+			"  them (`ctxloom doctor` reports this).",
+		err)
 }
+
+// remedyRetryPull is init's fix for a pull whose failure names none of its own.
+const remedyRetryPull = "ctxloom deps pull, once the remote is reachable"
 
 // The setup launch: the auth probe and the discovery session are TWO
 // launches with TWO minted identities through the one resolver — a
@@ -863,6 +872,11 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	return nil
 }
 
+// setupLaunchRemedy is the fix for a setup launch whose error names none of
+// its own; a failure that does name one (a delivery refusal, a remediable
+// isolation fault) is more specific and wins.
+const setupLaunchRemedy = "check the engine's auth/config, then retry `ctxloom init`, or run `ctxloom init prompt` to reconfigure without relaunching"
+
 // reportSetupLaunchFailure reports a setup session that failed to resolve or
 // launch: init's own working outcome not happening must not exit clean.
 // Reported through strictness rather than a bespoke degraded check here:
@@ -873,9 +887,11 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 func reportSetupLaunchFailure(err error) error {
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
-	strictness.FailOnce(strictness.ClassConfig,
-		"check the engine's auth/config, then retry `ctxloom init`, or run `ctxloom init prompt` to reconfigure without relaunching",
-		"the setup session failed to launch: %v", err)
+	remedy, ok := clifmt.RemedyOf(err)
+	if !ok {
+		remedy = setupLaunchRemedy
+	}
+	strictness.FailOnce(report.KindConfig, remedy, "the setup session failed to launch: %v", err)
 	return App().Strictness.FindingsError(mark)
 }
 

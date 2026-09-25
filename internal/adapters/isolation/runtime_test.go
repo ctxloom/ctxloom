@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -130,9 +131,9 @@ func TestDockerIsRootless_ProbeErrorRoutesAFinding(t *testing.T) {
 	assert.False(t, dockerIsRootless(), "least-damaging default: rootful")
 	found := strictness.All()
 	require.Len(t, found, 1)
-	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
-	assert.Contains(t, found[0].Message, "rootless")
-	assert.Contains(t, found[0].FixIt, "--degraded")
+	assert.Equal(t, report.KindIsolation, found[0].Kind)
+	assert.Contains(t, found[0].Text, "rootless")
+	assert.Contains(t, found[0].Remedy, "--degraded")
 
 	// A successful probe never records: both answers are decisions, not faults.
 	strictness.Reset()

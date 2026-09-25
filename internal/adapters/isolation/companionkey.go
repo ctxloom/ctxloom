@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -72,7 +73,7 @@ func companionVersionKey() string {
 		}
 		version, err := companionVersionProbe(path)
 		if err != nil {
-			strictness.FailOnce(strictness.ClassConfig,
+			strictness.FailOnce(report.KindConfig,
 				"repair or remove "+path+" so `"+name+" version --format json` answers, then re-run",
 				"companion %s (%s) is staged into every agent image but cannot report a version (%v), so the image-staleness key cannot cover it and an image holding an OLD %s would read as fresh",
 				name, path, err, name)

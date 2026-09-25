@@ -14,7 +14,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // pullRefusal is what a pull of the staged tree returns once mutate has run
@@ -44,7 +46,7 @@ func pullRefusal(t *testing.T, mutate func(t *testing.T, fsys afero.Fs)) error {
 // syncFailureFinding syncs one ref through a puller that refuses it with err,
 // runs the startup summary over the result, and returns the single finding it
 // raised — its fix line is what the user is told to do.
-func syncFailureFinding(t *testing.T, err error) strictness.Finding {
+func syncFailureFinding(t *testing.T, err error) report.Finding {
 	t.Helper()
 	item := syncItem(context.Background(), &syncMockPuller{err: err}, treeCanonical, remote.ItemTypeBundle, treeBase, true, nil, nil)
 	require.Equal(t, "failed", item.Status)
@@ -54,6 +56,18 @@ func syncFailureFinding(t *testing.T, err error) strictness.Finding {
 	found := strictness.All()
 	require.Len(t, found, 1)
 	return found[0]
+}
+
+// supersededRemedy is the fix content raises for a retired-format manifest,
+// read back through the renderer rather than restated, so this test binds
+// to the raise site's wording instead of a copy of it.
+func supersededRemedy(t *testing.T) string {
+	t.Helper()
+	_, err := content.ParseManifest([]byte(content.DigestVersionMarker + "\n"))
+	require.ErrorIs(t, err, content.ErrManifestSuperseded)
+	fix, ok := clifmt.RemedyOf(err)
+	require.True(t, ok, "a superseded manifest names its fix")
+	return fix
 }
 
 // A pull that meets a pin signed in the RETIRED manifest format fails exactly
@@ -67,8 +81,8 @@ func TestSyncSummary_SupersededManifestFormatPointsAtUpgrade(t *testing.T) {
 	require.ErrorIs(t, err, content.ErrManifestSuperseded, "the pull refusal carries its cause, typed")
 
 	f := syncFailureFinding(t, err)
-	assert.Equal(t, strictness.ClassSync, f.Class)
-	assert.Equal(t, remedyWithheldSuperseded, f.FixIt)
+	assert.Equal(t, report.KindSync, f.Kind)
+	assert.Equal(t, supersededRemedy(t), f.Remedy)
 }
 
 // Every other refusal keeps the sync fix line it had: a marker this build does
@@ -87,8 +101,8 @@ func TestSyncSummary_OtherWithheldCausesKeepTheSyncRemedy(t *testing.T) {
 			assert.NotErrorIs(t, err, content.ErrManifestSuperseded)
 
 			f := syncFailureFinding(t, err)
-			assert.Equal(t, strictness.ClassSync, f.Class)
-			assert.Equal(t, remedySyncFailed, f.FixIt)
+			assert.Equal(t, report.KindSync, f.Kind)
+			assert.Equal(t, remedySyncFailed, f.Remedy)
 		})
 	}
 }

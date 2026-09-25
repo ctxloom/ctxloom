@@ -132,8 +132,9 @@ func (p Policy) Check(l Layer, values map[string]any) []Violation {
 	return violations
 }
 
-// Message states the key, the layer it was found at, why that layer cannot
-// carry it, and where it belongs instead.
+// Message states the key, the layer it was found at, and why that layer
+// cannot carry it. Where it belongs instead is Remedy, which travels beside
+// the message rather than inside it.
 func (v Violation) Message(appPath, homeAppPath string) string {
 	var b strings.Builder
 	b.WriteString(v.Layer.String())
@@ -146,16 +147,15 @@ func (v Violation) Message(appPath, homeAppPath string) string {
 		b.WriteString(v.Rule.Note)
 		b.WriteString(")")
 	}
-	b.WriteString(". Dropped rather than applied — a setting that looks applied and is not is the worse outcome. ")
-	b.WriteString(v.FixIt(appPath, homeAppPath))
+	b.WriteString(". Dropped rather than applied — a setting that looks applied and is not is the worse outcome.")
 	return b.String()
 }
 
-// FixIt is the edit that clears the violation: remove it from the offending
+// Remedy is the edit that clears the violation: remove it from the offending
 // layer's file (env/flag have none to remove from — those are the two layers
 // this key would need to arrive at a DIFFERENT allowed layer instead), and
 // name at least one allowed layer's file to move it to.
-func (v Violation) FixIt(appPath, homeAppPath string) string {
+func (v Violation) Remedy(appPath, homeAppPath string) string {
 	var b strings.Builder
 	if file := v.Layer.File(appPath, homeAppPath); file != "" {
 		b.WriteString("Remove it from ")

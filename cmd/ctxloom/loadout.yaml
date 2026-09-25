@@ -81,7 +81,7 @@ run:
 
         An ownership mismatch is FATAL, never a substitution. Asking for
         `container-rootful` where only rootless is reachable is a fatal
-        ClassIsolation finding (exit 3), not a quiet downgrade to the other
+        KindIsolation finding (exit 3), not a quiet downgrade to the other
         mode — and `--degraded` falls back to the HOST, never to the other
         ownership mode.
 

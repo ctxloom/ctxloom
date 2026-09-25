@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -103,7 +104,7 @@ func TestSecondOwner_IsRefusedLoudly_AndTheFirstKeepsItsState(t *testing.T) {
 	var exit *exec.ExitError
 	require.True(t, errors.As(runErr, &exit), "the second run must exit non-zero, not %v; output:\n%s", runErr, out)
 	require.Equal(t, strictness.ExitCodeFatalFindings, exit.ExitCode(), "the second run must exit with the fatal-findings code; output:\n%s", out)
-	require.Contains(t, string(out), "["+string(strictness.ClassOwner)+"]", "the refusal must be a typed finding in its own class; output:\n%s", out)
+	require.Contains(t, string(out), "["+string(report.KindOwner)+"]", "the refusal must be a typed finding in its own class; output:\n%s", out)
 	require.Contains(t, string(out), coord.ErrStateOwned.Error(), "the refusal must name the owned state; output:\n%s", out)
 
 	// The loser left the winner alone: same single lock, same pid, journals

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -66,7 +67,7 @@ func mcpBundleYAML(servers ...[2]string) string {
 // happened at all. That is the delivery-substitution path the ruling closes.
 //
 // The ruling: two DIFFERENT source refs claiming one name is a LOUD error —
-// a strictness.ClassBundle finding naming both refs and the contested name —
+// a report.KindBundle finding naming both refs and the contested name —
 // and the later claim is WITHHELD, so the incumbent's server is what the
 // session actually gets.
 func TestResolveBundleMCPServers_ContestedName_IsWithheldLoudly(t *testing.T) {
@@ -97,11 +98,11 @@ func TestResolveBundleMCPServers_ContestedName_IsWithheldLoudly(t *testing.T) {
 
 	findings := strictness.Since(mark)
 	require.Len(t, findings, 1, "a withheld MCP server must be reported, not silently dropped")
-	assert.Equal(t, strictness.ClassBundle, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "shared-server", "the finding names the contested server")
-	assert.Contains(t, findings[0].Message, "bundle-a", "the finding names the ref that claimed it first")
-	assert.Contains(t, findings[0].Message, "bundle-b", "the finding names the ref that was refused")
-	assert.NotEmpty(t, findings[0].FixIt, "a fatal finding must carry the edit that resolves it")
+	assert.Equal(t, report.KindBundle, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "shared-server", "the finding names the contested server")
+	assert.Contains(t, findings[0].Text, "bundle-a", "the finding names the ref that claimed it first")
+	assert.Contains(t, findings[0].Text, "bundle-b", "the finding names the ref that was refused")
+	assert.NotEmpty(t, findings[0].Remedy, "a fatal finding must carry the edit that resolves it")
 }
 
 // TestResolveBundleMCPServers_SameRefTwice_DedupesSilently is the other half of
@@ -152,11 +153,11 @@ func TestResolveBundleMCPServers_ContestSurvivesTheIncumbent(t *testing.T) {
 	findings := strictness.Since(mark)
 	require.Len(t, findings, 2, "each refused contender is reported")
 	for _, f := range findings {
-		assert.Contains(t, f.Message, "bundle-a",
+		assert.Contains(t, f.Text, "bundle-a",
 			"every contest names the ORIGINAL holder, never the previously-refused contender")
 	}
-	assert.Contains(t, findings[0].Message, "bundle-b")
-	assert.Contains(t, findings[1].Message, "bundle-c")
+	assert.Contains(t, findings[0].Text, "bundle-b")
+	assert.Contains(t, findings[1].Text, "bundle-c")
 }
 
 // withCtxloomCompanion binds cfg's generation to a catalog holding the
@@ -209,8 +210,8 @@ func TestResolveBundleMCPServers_BundleCannotShadowCtxloomsOwnServer(t *testing.
 
 	findings := strictness.Since(mark)
 	require.Len(t, findings, 1, "shadowing ctxloom's own server must be reported, not silently allowed")
-	assert.Equal(t, strictness.ClassBundle, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "ctxloom", "the finding names the contested server")
-	assert.Contains(t, findings[0].Message, "ctxloom:companion@ctxloom", "the finding names ctxloom's own loadout as the holder")
-	assert.Contains(t, findings[0].Message, "impostor", "the finding names the bundle that was refused")
+	assert.Equal(t, report.KindBundle, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "ctxloom", "the finding names the contested server")
+	assert.Contains(t, findings[0].Text, "ctxloom:companion@ctxloom", "the finding names ctxloom's own loadout as the holder")
+	assert.Contains(t, findings[0].Text, "impostor", "the finding names the bundle that was refused")
 }

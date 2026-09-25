@@ -67,10 +67,11 @@ func (k WarningKind) Kind() report.Kind {
 	return report.KindConfig
 }
 
-// FixIt names the edit or command that clears a warning of this kind. The
+// Remedy names the edit or command that clears a warning of this kind. The
 // finding's message already carries the config path and the error detail, so
-// this only has to say what to do about it.
-func (k WarningKind) FixIt() string {
+// this only has to say what to do about it. A warning that knows a more
+// specific fix carries it in Warning.Remedy.
+func (k WarningKind) Remedy() string {
 	switch k {
 	case WarnKindRead:
 		return "make the config file readable, or remove it"
@@ -78,13 +79,13 @@ func (k WarningKind) FixIt() string {
 		return "re-add the dropped setting in its new home (ctxloom manage config edit)"
 	case WarnKindUnknownKey:
 		// The message already names the key and (when known) its replacement, so
-		// the fix-it only has to say where to make the edit.
+		// the remedy only has to say where to make the edit.
 		return "remove or rename the key in config.yaml (ctxloom manage config edit)"
 	case WarnKindLayerScope:
-		// The message already carries the specific edit (layerscope.Violation's
-		// own FixIt, inlined by Message) — this is only the short pointer the
-		// startup gate's listing shows alongside it.
-		return "see the finding above for the exact key and where it belongs instead"
+		// A file layer's violation carries its exact edit in Warning.Remedy
+		// (layerscope.Violation.Remedy); this is the remedy for the env/flag
+		// override route, which has no file to edit.
+		return "unset the override (the env var or --config-set entry), or set the key in a config layer that may carry it"
 	case WarnKindEnginelessAgent:
 		return "bind the agent to an llm or to profiles (ctxloom agent edit <name> --llm <label> | --profiles <p,...>), or remove it (ctxloom agent remove <name>)"
 	default: // parse / validate
@@ -92,11 +93,13 @@ func (k WarningKind) FixIt() string {
 	}
 }
 
-// Warning is one non-fatal load-time diagnostic: the degradation text plus the
-// kind the startup gate keys on.
+// Warning is one non-fatal load-time diagnostic: the degradation text, the
+// kind the startup gate keys on, and the remedy when the raise site knows one
+// more specific than its kind's (empty means Kind.Remedy()).
 type Warning struct {
-	Kind WarningKind
-	Text string
+	Kind   WarningKind
+	Text   string
+	Remedy string
 }
 
 // Finding is the warning as the fail-loudly finding a sink renders and
@@ -107,7 +110,11 @@ type Warning struct {
 // The ledger still re-fires it in the next window, so an unfixed config
 // refuses the next session too.
 func (w Warning) Finding() report.Finding {
-	return report.FailOncef(w.Kind.Kind(), w.Kind.FixIt(), "%s", w.Text)
+	remedy := w.Remedy
+	if remedy == "" {
+		remedy = w.Kind.Remedy()
+	}
+	return report.FailOncef(w.Kind.Kind(), remedy, "%s", w.Text)
 }
 
 // ReportWarnings hands every warning a load produced to sink, as Findings.

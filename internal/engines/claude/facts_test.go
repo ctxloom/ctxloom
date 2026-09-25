@@ -67,8 +67,8 @@ func TestContainer_AuthIsEnvOnly(t *testing.T) {
 		"the setup-token var authenticates a container on its own, so it is a trigger")
 	assert.Contains(t, auth.EnvPassthrough, "CLAUDE_CODE_OAUTH_TOKEN", "a trigger that does not cross leaves the container logged out")
 	assert.Contains(t, auth.EnvPassthrough, "ANTHROPIC_BASE_URL")
-	assert.Contains(t, auth.Hint, "claude setup-token")
-	assert.Contains(t, auth.Hint, "ctxloom auth set-token")
+	assert.Contains(t, auth.Remedy, "claude setup-token")
+	assert.Contains(t, auth.Remedy, "ctxloom auth set-token")
 }
 
 // Hooks decodes claude's native payload: the unified event for the native

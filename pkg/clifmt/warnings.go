@@ -14,6 +14,7 @@ import (
 type WarningEnvelope struct {
 	Prog    string `json:"prog"`
 	Warning string `json:"warning"`
+	Remedy  string `json:"remedy,omitempty"`
 }
 
 // EncodeWarning writes env as one compact JSON object followed by a

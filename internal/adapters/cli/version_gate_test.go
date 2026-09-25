@@ -63,7 +63,7 @@ func TestUnstampedBuild_RefusesByDefault(t *testing.T) {
 	require.True(t, errors.As(err, &exitErr), "the refusal must carry an exit status, not just fail: got %#v", err)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "a startup refusal reports the fatal-findings status")
 	assert.NotContains(t, out, versionPayloadMarker, "the command RAN; refusing must stop it before dispatch, not report alongside it")
-	assert.Contains(t, out, versionStampFixIt, "the refusal must state the remedy, not just the complaint")
+	assert.Contains(t, out, versionStampRemedy, "the refusal must state the remedy, not just the complaint")
 }
 
 // TestUnstampedBuild_RefusesEvenUnderDegraded is the other arm, and it is not
@@ -91,7 +91,7 @@ func TestUnstampedBuild_RefusesEvenUnderDegraded(t *testing.T) {
 	require.True(t, errors.As(err, &exitErr), "the refusal must carry an exit status, not just fail: got %#v", err)
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "a non-degradable startup refusal reports the fatal-findings status")
 	assert.NotContains(t, out, versionPayloadMarker, "refusing must stop the command before dispatch, not report alongside it")
-	assert.Contains(t, out, versionStampFixIt, "the refusal must state the remedy, not just the complaint")
+	assert.Contains(t, out, versionStampRemedy, "the refusal must state the remedy, not just the complaint")
 }
 
 // TestStampedBuild_Runs pins the direction that a gate refusing everything

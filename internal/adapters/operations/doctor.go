@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
@@ -93,6 +94,10 @@ type DoctorCheck struct {
 	Marker string       `json:"marker"`
 	Status DoctorStatus `json:"status"`
 	Detail string       `json:"detail"`
+	// Remedy is the one-line fix for a row that is not the intended state,
+	// when one is known; it travels beside Detail rather than inside it so
+	// every output format carries it as a field.
+	Remedy string `json:"remedy,omitempty" label:"fix"`
 }
 
 // DoctorReport is `ctxloom doctor`'s structured result.
@@ -855,7 +860,7 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 		}
 	}
 	// A checkpoint taken immediately around the assembly call captures ONLY
-	// the strictness.ClassRef findings THIS call records — the same
+	// the report.KindRef findings THIS call records — the same
 	// strictness.Fail sites AssembleContext already fires for a configured
 	// default profile that fails to resolve (collectProfileFragments) or a
 	// profile-pushed fragment that fails to load (warnFragmentLoadFailure).
@@ -868,7 +873,7 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 	_, err := AssembleContext(ctx, cfg, AssembleContextRequest{})
 	skippedRefs := 0
 	for _, f := range strictness.Since(mark) {
-		if f.Class == strictness.ClassRef {
+		if f.Kind == report.KindRef {
 			skippedRefs++
 		}
 	}
@@ -1574,14 +1579,15 @@ const StartupFindingsMarker = "DOCTOR-CHECK-STARTUP-FINDINGS-x4"
 // info row is context, not a verdict, and is omitted too. The companions row
 // is the exception that proves the rule: doctor reports it ok even when a
 // companion was withheld, so it is selected on the decision itself.
-func StartupFindings(app *App, cfg *config.Config, home string, recorded []strictness.Finding) DoctorReport {
+func StartupFindings(app *App, cfg *config.Config, home string, recorded report.Findings) DoctorReport {
 	var checks []DoctorCheck
 	for _, f := range recorded {
-		detail := "[" + string(f.Class) + "] " + f.Message
-		if f.FixIt != "" {
-			detail += " (fix: " + f.FixIt + ")"
-		}
-		checks = append(checks, DoctorCheck{Marker: StartupFindingsMarker, Status: DoctorWarn, Detail: detail})
+		checks = append(checks, DoctorCheck{
+			Marker: StartupFindingsMarker,
+			Status: DoctorWarn,
+			Detail: "[" + string(f.Kind) + "] " + f.Text,
+			Remedy: f.Remedy,
+		})
 	}
 	for _, c := range []DoctorCheck{
 		doctorCheckSetupMarker(cfg, nil),

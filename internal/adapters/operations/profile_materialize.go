@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -231,7 +232,7 @@ func MaterializeProfile(ctx context.Context, reg engine.Registry, cfg *config.Co
 func deliverMaterialized(ctx context.Context, fs afero.Fs, cfg *config.Config, kind engine.Engine, pkg composite.Package, res *MaterializeProfileResult) {
 	delivered, plan, err := DeliverProject(ctx, fs, kind, pkg, res.Target)
 	if err != nil {
-		strictness.Fail(strictness.ClassApply,
+		strictness.Fail(report.KindApply,
 			"fix the write failure, then re-run (ctxloom profile materialize)",
 			"materialize %s: %v", res.Backend, err)
 		res.Warnings = append(res.Warnings, err.Error())

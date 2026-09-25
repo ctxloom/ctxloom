@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -100,13 +101,13 @@ func TestCheckRunAsIsIdentity_UngovernedIsAFinding(t *testing.T) {
 
 	found := strictness.Since(mark)
 	require.Len(t, found, 1, "wrong identity that STARTS must be a collected finding")
-	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
-	assert.Contains(t, found[0].Message, "user/own:img")
+	assert.Equal(t, report.KindIsolation, found[0].Kind)
+	assert.Contains(t, found[0].Text, "user/own:img")
 	// Inverted by the degradation audit: this finding is non-degradable, so a
 	// fix-it naming --degraded would be a remedy that does not work.
 	assert.True(t, found[0].NonDegradable, "a wrong-identity image writes root-owned files: refused in both modes")
-	assert.NotContains(t, found[0].FixIt, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
-	assert.Contains(t, found[0].FixIt, "ctxloom container build", "it must name a route that actually fixes the identity")
+	assert.NotContains(t, found[0].Remedy, "--degraded", "a non-degradable refusal must not offer --degraded as its remedy")
+	assert.Contains(t, found[0].Remedy, "ctxloom container build", "it must name a route that actually fixes the identity")
 	assert.Contains(t, stderr, "user/own:img", "the warning streams in strict mode too")
 }
 
@@ -129,8 +130,8 @@ func TestCheckRunAsIsIdentity_UninspectableIsAFinding(t *testing.T) {
 	c.checkRunAsIsIdentity(context.Background())
 	found := strictness.All()
 	require.Len(t, found, 1)
-	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
-	assert.Contains(t, found[0].Message, "cannot be verified")
+	assert.Equal(t, report.KindIsolation, found[0].Kind)
+	assert.Contains(t, found[0].Text, "cannot be verified")
 }
 
 // TestCheckRunAsIsIdentity_DegradedWarnsAndProceeds: --degraded is the one
@@ -184,5 +185,5 @@ func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 
 	found := strictness.Since(mark)
 	require.Len(t, found, 1, "the wrong-identity finding lands inside the prepare window")
-	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
+	assert.Equal(t, report.KindIsolation, found[0].Kind)
 }

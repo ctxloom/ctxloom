@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -29,8 +30,8 @@ func TestValidateTerminalUIConfig_BadKeyIsFatalFinding(t *testing.T) {
 
 	found := strictness.Since(mark)
 	require.Len(t, found, 1, "an invalid prefix key must be a collected startup finding")
-	assert.Equal(t, strictness.ClassConfig, found[0].Class)
-	assert.Contains(t, found[0].Message, "ui.prefix_key")
+	assert.Equal(t, report.KindConfig, found[0].Kind)
+	assert.Contains(t, found[0].Text, "ui.prefix_key")
 }
 
 func TestValidateTerminalUIConfig_DefaultAndValidKeysPass(t *testing.T) {

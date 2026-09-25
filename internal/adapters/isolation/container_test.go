@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
@@ -248,7 +249,7 @@ func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1, "a requested container with no reachable runtime is one fatal finding")
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
 	})
 }
 
@@ -574,14 +575,14 @@ func TestContainer_HarplessRunIsRefused(t *testing.T) {
 			// The hermetic gate records findings of its own (the fake image has
 			// no engine recipe and no ctxloom entrypoint); the one under test is
 			// the one naming the harp refusal.
-			var refusals []strictness.Finding
+			var refusals []report.Finding
 			for _, f := range found {
-				if strings.Contains(f.Message, tc.want.Error()) {
+				if strings.Contains(f.Text, tc.want.Error()) {
 					refusals = append(refusals, f)
 				}
 			}
 			require.Len(t, refusals, 1, "the refusal is a recorded finding, never a silent host run: %v", found)
-			assert.Equal(t, strictness.ClassIsolation, refusals[0].Class)
+			assert.Equal(t, report.KindIsolation, refusals[0].Kind)
 			assert.True(t, refusals[0].NonDegradable, "a requested container boundary is refused in both modes")
 		})
 	}

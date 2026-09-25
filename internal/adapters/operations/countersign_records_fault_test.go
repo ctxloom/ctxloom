@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -74,8 +75,8 @@ func TestEffectiveTrust_UnresolvableUserStore_DeniesAndNamesTheCause(t *testing.
 	require.NotEmpty(t, found, "an unconfigured approvals store is a trust-class fault, not a quiet deny")
 	var trustMsgs string
 	for _, f := range found {
-		if f.Class == strictness.ClassTrust {
-			trustMsgs += f.Message
+		if f.Kind == report.KindTrust {
+			trustMsgs += f.Text
 		}
 	}
 	assert.Contains(t, trustMsgs, want, "the finding must name why the store could not be resolved")

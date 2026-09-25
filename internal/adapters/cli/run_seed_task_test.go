@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -31,7 +32,7 @@ func TestSeedTaskIntoSession_StoreFailureIsAFatalFinding(t *testing.T) {
 
 	findings := strictness.Since(mark)
 	require.NotEmpty(t, findings, "an unhonorable explicit --seed-task must record a finding, not just warn")
-	assert.Equal(t, strictness.ClassTask, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "no-such-task", "the finding must name the task that was asked for")
-	assert.NotEmpty(t, findings[0].FixIt, "a fatal finding must carry a fix-it")
+	assert.Equal(t, report.KindTask, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "no-such-task", "the finding must name the task that was asked for")
+	assert.NotEmpty(t, findings[0].Remedy, "a fatal finding must carry a fix-it")
 }

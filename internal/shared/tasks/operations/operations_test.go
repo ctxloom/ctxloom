@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
@@ -1707,7 +1708,7 @@ func TestAddTaskWithTags_StrictRefusesSchemaRejectedTagAndWritesNothing(t *testi
 		t.Fatalf("the refusal must be printed as a diagnostic, got %q", diag.String())
 	}
 	found := strictness.All()
-	if len(found) != 1 || found[0].Class != strictness.ClassTask {
+	if len(found) != 1 || found[0].Kind != report.KindTask {
 		t.Fatalf("expected exactly one ClassTask finding, got %+v", found)
 	}
 }
@@ -1736,7 +1737,7 @@ func TestAddTaskWithTags_DegradedSkipsRefusedTagAndWritesRowWithoutIt(t *testing
 	if !strings.Contains(diag.String(), "triage:kind=sparkles") {
 		t.Fatalf("the refusal must be printed even when skipped, got %q", diag.String())
 	}
-	if found := strictness.All(); len(found) != 1 || found[0].Class != strictness.ClassTask {
+	if found := strictness.All(); len(found) != 1 || found[0].Kind != report.KindTask {
 		t.Fatalf("degraded suppresses fatality, not recording: got %+v", found)
 	}
 }

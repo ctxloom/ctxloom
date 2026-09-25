@@ -1,6 +1,6 @@
 // Package strictness owns ctxloom's fail-loudly mode. Startup faults are
 // STRICT by default: each instrumented choke calls Fail/FailOnce/Record with a
-// failure class and a fix-it command; the warning line still streams to stderr
+// report.Kind and a remedy; the warning line still streams to stderr
 // exactly as before (so no diagnostic is ever lost, whichever command path
 // fired it), and in strict mode a fatal Finding is additionally collected. The
 // startup choke owners (`ctxloom run`, `ctxloom mcp`) then check
@@ -18,7 +18,6 @@ package strictness
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // prog stamps the warning lines Fail and its siblings print: they are the
@@ -47,91 +47,13 @@ const prog = "ctxloom"
 // isolation.containerRunner.Diagnose, which reads it to say so.
 const ExitCodeFatalFindings = 3
 
-// Class buckets a fatal finding by the per-class strictness table, so the
-// abort listing reads as a diagnosis ("[config] ...", "[sync] ...") rather
-// than an undifferentiated wall of text.
-type Class string
-
-const (
-	// ClassConfig is a present-but-broken config file (unreadable / parse /
-	// schema-invalid). An absent config is fine and never a finding.
-	ClassConfig Class = "config"
-	// ClassMigration is a lossy in-memory schema migration (a setting the
-	// upgrade pipeline had to drop).
-	ClassMigration Class = "migration"
-	// ClassSync is a lockfile-pinned item that is neither in the local cache
-	// nor fetchable. A refresh failure with a complete cache stays a plain
-	// warning in both modes and never reaches this class.
-	ClassSync Class = "sync"
-	// ClassRef is an unresolvable configured reference: a default profile, a
-	// profile parent, or a profile-pushed fragment that fails to load.
-	ClassRef Class = "ref"
-	// ClassApply is a hook/MCP/settings apply failure or a context
-	// regeneration failure (partial apply is no longer success in strict).
-	ClassApply Class = "apply"
-	// ClassBundle is a load/parse failure of a lockfile-active or local
-	// bundle. Builtin (in-binary) bundle failures stay warnings.
-	ClassBundle Class = "bundle"
-	// ClassTrust is a corrupt/unreadable trust store (the deny-all posture).
-	ClassTrust Class = "trust-store"
-	// ClassIsolation is an EXPLICITLY-requested container runtime that cannot be
-	// satisfied AS REQUESTED: no reachable runtime, an unrecognized runtime axis
-	// value (a typo that would silently land on the host), an external plugin
-	// binary that cannot be containerized, the agent image absent/unbuildable, a
-	// stale image whose refresh build failed, a configured base image
-	// (isolation_base_containerfile) that failed to build, shared-fs probe
-	// failed, or no resolvable auth — so the run would otherwise fall back to the
-	// UNSANDBOXED host, or run a STALE/substituted image instead of the one
-	// requested. Only an explicit request — an agent's `runtime:` trait, the
-	// project `runtime:` default, or `--runtime container` — reaches this class;
-	// the ambient host default degrades silently and never lands here.
-	ClassIsolation Class = "isolation"
-	// ClassTask is an EXPLICITLY-requested task-store mutation that could not
-	// be applied — `ctxloom run --seed-task <harp>` against a corrupt,
-	// unreadable, or non-matching project task log, or a taskloom write
-	// carrying a tag its tag-schema refuses (the write-side gate in
-	// internal/shared/tasks/operations). Only an explicit request
-	// reaches this class, mirroring ClassIsolation: ambient task bookkeeping
-	// that nobody asked for stays a plain warning. The point is that a user
-	// who named a task must not be told the launch succeeded while the task
-	// silently stayed untouched.
-	ClassTask Class = "task"
-	// ClassOwner is a second session-owning process claiming a project
-	// another live `ctxloom` already owns (coord.ErrStateOwned). A project
-	// has ONE coordinator, hosted by ONE session; the loser of the owner
-	// claim is refused by name rather than degraded to a rival coordinator
-	// on ephemeral state. Degradable: --degraded launches the second session
-	// WITHOUT agent delegation, never as a second owner.
-	ClassOwner Class = "owner"
-)
-
-// Finding is one collected fatal fault: what broke (Message, already
-// formatted), which class it belongs to, and the command or edit that fixes it.
-type Finding struct {
-	Class   Class
-	Message string
-	FixIt   string
-	// NonDegradable keeps this finding fatal under --degraded as well as in
-	// strict mode. It is declared per FINDING, never per class, because the
-	// class-wide reading is refuted by the code: an ownership mismatch is
-	// ClassIsolation and its sanctioned degraded outcome is a HOST fallback
-	// that launches, while a container that died at the daemon is the same
-	// class and must not launch at all. The discriminator is the doctrine's
-	// own — does LAUNCHING cause the harm? — which is a property of the
-	// specific fault, not of its category.
-	//
-	// The zero value is DEGRADABLE so no existing raise site changes meaning:
-	// non-degradability is opt-in, via FailAlways.
-	NonDegradable bool
-}
-
 var (
 	mu sync.Mutex
 	// findings is the process-wide chronological log — every finding ever
 	// recorded, in record order, across every goroutine. It backs ONLY All()
 	// and Reset(); a Mark never indexes into it (see window below) — that
 	// indirection through ONE shared slice was the concurrency defect.
-	findings []Finding
+	findings report.Findings
 	// generation counts Checkpoint calls. onceRecorded keys FailOnce
 	// recordings by generation+class+message, so the RECORDING dedup is
 	// scoped to one checkpoint window: a long-lived server that opens many
@@ -178,7 +100,7 @@ var (
 type window struct {
 	gid      int64
 	mu       sync.Mutex
-	findings []Finding
+	findings report.Findings
 	// generation is the global generation value captured by the most recent
 	// Checkpoint() call ON THIS GOROUTINE. record's FailOnce
 	// dedup key must scope to the RECORDING goroutine's own checkpoint
@@ -303,7 +225,7 @@ func Checkpoint() Mark {
 // against the old int-typed Mark) means "from the very start" — resolved
 // against the CALLING goroutine's own window, the same meaning index 0 had
 // against the old process-global slice for a caller that never checkpointed.
-func Since(mark Mark) []Finding {
+func Since(mark Mark) report.Findings {
 	w := mark.w
 	if w == nil {
 		w = currentWindow()
@@ -313,7 +235,7 @@ func Since(mark Mark) []Finding {
 	if mark.idx >= len(w.findings) {
 		return nil
 	}
-	out := make([]Finding, len(w.findings)-mark.idx)
+	out := make(report.Findings, len(w.findings)-mark.idx)
 	copy(out, w.findings[mark.idx:])
 	return out
 }
@@ -325,10 +247,10 @@ func Since(mark Mark) []Finding {
 // exists for cross-goroutine test assertions that Since structurally cannot
 // provide. Grows without bound for the life of the process;
 // do not call it from anything long-lived.
-func All() []Finding {
+func All() report.Findings {
 	mu.Lock()
 	defer mu.Unlock()
-	out := make([]Finding, len(findings))
+	out := make(report.Findings, len(findings))
 	copy(out, findings)
 	return out
 }
@@ -385,13 +307,14 @@ func Reset() {
 // Ledger records a fail-loudly report.Finding without rendering it. It is
 // the one entry a rendering sink uses after it has written the text itself:
 // the Finding's Once and NonDegradable carry the record's dedup and
-// --degraded semantics, and its Remedy is the FixIt. An advisory finding
-// (empty Kind) is not a fault and is not recorded.
+// --degraded semantics. An advisory finding (empty Kind) is not a fault and
+// is not recorded.
 func Ledger(f report.Finding) {
 	if !f.Fatal() {
 		return
 	}
-	record(Class(f.Kind), f.Remedy, detailOr(Class(f.Kind), f.Text), f.Once, f.NonDegradable)
+	f.Text = detailOr(f.Kind, f.Text)
+	record(f)
 }
 
 // Sink is the one place a core report.Finding becomes stderr text. The
@@ -399,15 +322,23 @@ func Ledger(f report.Finding) {
 // diagnostic channel; the composition root builds this sink once, with the
 // binary's own name, and hands it down. An advisory renders as the family's
 // "<prog>: warning:" line (or the structured envelope when --format asked
-// for one); a fail-loudly finding renders the same way and is additionally
-// ledgered for the startup gate; a Quiet one is ledgered only.
+// for one); a fail-loudly finding renders the same way, with its remedy as
+// the fix line (or the envelope's remedy), and is additionally ledgered for
+// the startup gate; a Quiet one is ledgered only.
+//
+// The streamed fix is shown even though an abort listing may repeat it:
+// many Fail paths never reach a listing, and for those the stream is the
+// only place the remedy is ever seen.
 func Sink(prog string) report.Sink {
 	return report.SinkFunc(func(f report.Finding) {
+		if f.Fatal() {
+			f.Text = detailOr(f.Kind, f.Text)
+		}
 		if !f.Quiet {
 			if f.Once {
-				clidiag.WarnOnce(prog, "%s", f.Text)
+				clidiag.WarnRemedyOnce(prog, f.Remedy, "%s", f.Text)
 			} else {
-				clidiag.Warn(prog, "%s", f.Text)
+				clidiag.WarnRemedy(prog, f.Remedy, "%s", f.Text)
 			}
 		}
 		Ledger(f)
@@ -426,11 +357,11 @@ type Mode struct {
 
 // Actionable filters found to what this mode's gate must act on: everything
 // in strict mode; under Degraded, only the NonDegradable findings.
-func (m Mode) Actionable(found []Finding) []Finding {
+func (m Mode) Actionable(found report.Findings) report.Findings {
 	if !m.Degraded {
 		return found
 	}
-	var out []Finding
+	var out report.Findings
 	for _, f := range found {
 		if f.NonDegradable {
 			out = append(out, f)
@@ -439,57 +370,77 @@ func (m Mode) Actionable(found []Finding) []Finding {
 	return out
 }
 
+// Listing is the ONE rendering of a findings block: header, then one
+// "[kind] text" bullet per finding, each followed by its clifmt.FixLine.
+// It renders exactly the findings it is given — a gate filters with
+// Actionable (or its own class filter) first — and "" when there are none.
+// Every finding's remedy is printed: a listing that shows only some of them
+// leaves the user to guess the rest.
+func (m Mode) Listing(header string, found report.Findings) string {
+	if len(found) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(header)
+	for _, f := range found {
+		b.WriteString("\n  - [" + string(f.Kind) + "] " + f.Text)
+		b.WriteString(clifmt.FixLine("    ", f.Remedy))
+	}
+	return b.String()
+}
+
+// listingError is Listing as an error for a gate that returns rather than
+// exits, or nil when found is empty. The listing already carries every
+// remedy in its text; the error additionally names the fix structurally
+// (report.Error.Fix, which clifmt.RenderError puts in the envelope) only
+// when there is exactly ONE finding, because a single remedy field cannot
+// honestly stand for several.
+func (m Mode) listingError(header string, found report.Findings) error {
+	if len(found) == 0 {
+		return nil
+	}
+	e := report.Error{Msg: m.Listing(header, found)}
+	if len(found) == 1 {
+		e.Fix = found[0].Remedy
+	}
+	return e
+}
+
 // Sink is the rendering sink for this mode's program (see Sink).
 func (m Mode) Sink() report.Sink { return Sink(m.Prog) }
 
 // FindingsError renders the findings recorded since mark that this mode
-// must act on as one error — "fatal startup findings:" with one line per
-// finding — or nil when nothing actionable was collected. It is the one
+// must act on as one error — "fatal startup findings:" followed by the
+// Listing — or nil when nothing actionable was collected. It is the one
 // owner of the per-call, keeps-running error-render variant (as opposed to
-// a process-exit abort, which prints a richer class-tagged listing and
-// belongs to its own callers), so the adapters that need it share one
-// rendering without importing one another.
+// a process-exit abort, which prints a phase-naming header and belongs to
+// its own callers), so the adapters that need it share one rendering
+// without importing one another.
 func (m Mode) FindingsError(mark Mark) error {
-	found := m.Actionable(Since(mark))
-	if len(found) == 0 {
-		return nil
-	}
-	var b strings.Builder
-	b.WriteString("fatal startup findings:")
-	for _, f := range found {
-		b.WriteString("\n  - " + f.Message)
-		if f.FixIt != "" {
-			b.WriteString(" (fix: " + f.FixIt + ")")
-		}
-	}
-	return errors.New(b.String())
+	return m.listingError("fatal startup findings:", m.Actionable(Since(mark)))
 }
 
 // Fail reports a fatal-class fault at a choke. The warning line streams to
 // stderr in BOTH modes (identical to the clidiag call it replaces, so command
 // paths that never check findings keep today's diagnostics); in strict mode
 // the finding is additionally recorded for the startup choke owner to abort
-// on. fixit names the command or edit that resolves the fault ("" when the
-// message already says).
-func Fail(class Class, fixit, format string, args ...any) {
-	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.Warn(prog, "%s", msg)
-	record(class, fixit, msg, false, false)
+// on. remedy names the command or edit that resolves the fault ("" when the
+// message already says); it streams as the warning's fix line.
+func Fail(kind report.Kind, remedy, format string, args ...any) {
+	Sink(prog).Report(report.Failf(kind, remedy, format, args...))
 }
 
 // FailOnce is Fail with dedup on BOTH halves — but the two dedups have
 // different scopes and are not interchangeable. The warning LINE is deduped
 // process-wide and permanently (clidiag.WarnOnce), keyed on the rendered line.
 // The FINDING is deduped only within the recording goroutine's current
-// checkpoint window, and on class as well as message (see generation's doc):
+// checkpoint window, and on kind as well as text (see generation's doc):
 // a fault re-fired in a LATER window must record again, or a session refused
 // over it and retried unfixed opens silently on broken context. For chokes
 // that re-fire per subsystem (e.g. an unresolvable profile parent hit by
 // every loader build).
-func FailOnce(class Class, fixit, format string, args ...any) {
-	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.WarnOnce(prog, "%s", msg)
-	record(class, fixit, msg, true, false)
+func FailOnce(kind report.Kind, remedy, format string, args ...any) {
+	Sink(prog).Report(report.FailOncef(kind, remedy, format, args...))
 }
 
 // FailAlways is Fail for a fault whose HARM IS THE LAUNCH ITSELF: it records a
@@ -502,22 +453,20 @@ func FailOnce(class Class, fixit, format string, args ...any) {
 // context. A container runtime that cannot provide the isolation it claimed is
 // not, because the launch IS the exposure.
 //
-// Be sure the remedy is honest before using this. A fix-it that offers
+// Be sure the remedy is honest before using this. A remedy that offers
 // --degraded as its way out cannot belong to a NonDegradable finding: the
 // escape hatch it names would not work, and a remedy the caller cannot follow
 // is proof the check is firing outside its own design premise.
-func FailAlways(class Class, fixit, format string, args ...any) {
-	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.Warn(prog, "%s", msg)
-	record(class, fixit, msg, false, true)
+func FailAlways(kind report.Kind, remedy, format string, args ...any) {
+	Sink(prog).Report(report.FailAlwaysf(kind, remedy, format, args...))
 }
 
 // Record collects a finding WITHOUT printing anything — for chokes that
 // already own their (richer) stderr reporting, e.g. the sync summary's
 // per-item failure breakdown. Still collects in degraded mode: degraded
 // suppresses fatality, not recording.
-func Record(class Class, fixit, format string, args ...any) {
-	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), false, false)
+func Record(kind report.Kind, remedy, format string, args ...any) {
+	Sink(prog).Report(report.Recordf(kind, remedy, format, args...))
 }
 
 // RecordOnce is Record with FailOnce's recording dedup: for a choke that owns
@@ -525,29 +474,28 @@ func Record(class Class, fixit, format string, args ...any) {
 // findings are copies of one problem rather than news. A config load is the
 // case that motivated it — memoized, re-consulted from ~80 call sites, and
 // re-reporting the same broken file each time, which turns one bad key into an
-// abort block that lists it N times with N identical fix-its.
+// abort block that lists it N times with N identical remedies.
 //
 // The dedup is scoped exactly as FailOnce's is — to the recording goroutine's
-// current checkpoint window, keyed on class AND message — so a fault that is
+// current checkpoint window, keyed on kind AND text — so a fault that is
 // still unfixed re-fires in the NEXT window. A process-wide dedup here would
 // let a long-lived server refuse one session over a broken config and then open
 // the next one silently on the same config.
-func RecordOnce(class Class, fixit, format string, args ...any) {
-	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), true, false)
+func RecordOnce(kind report.Kind, remedy, format string, args ...any) {
+	Sink(prog).Report(report.RecordOncef(kind, remedy, format, args...))
 }
 
 // detailOr substitutes a statement of what is known for a message that
-// formatted to nothing. Every renderer of a Finding — FindingsError here,
-// cli.formatFindings, operations.isolationGateErr — writes the message into a
-// bullet unconditionally, so a blank message produces a bullet carrying a
-// fix-it and no statement of what broke: a loud failure with an empty payload,
-// which is exactly the shape this package exists to prevent. The class is the
-// only thing still known at that point, so it is what the substitute reports.
-// Applied at all three entry points rather than in record alone, so the
+// formatted to nothing. Every renderer of a Finding writes the text into a
+// bullet unconditionally, so a blank text produces a bullet carrying a fix
+// and no statement of what broke: a loud failure with an empty payload,
+// which is exactly the shape this package exists to prevent. The kind is
+// the only thing still known at that point, so it is what the substitute
+// reports. Applied in Sink before rendering as well as in Ledger, so the
 // streamed warning line and the collected finding always agree.
-func detailOr(class Class, msg string) string {
+func detailOr(kind report.Kind, msg string) string {
 	if strings.TrimSpace(msg) == "" {
-		return fmt.Sprintf("unspecified %s failure: the choke reported no detail", class)
+		return fmt.Sprintf("unspecified %s failure: the choke reported no detail", kind)
 	}
 	return msg
 }
@@ -559,7 +507,7 @@ func detailOr(class Class, msg string) string {
 // BOTH the process-wide log (All()/Reset()'s view) and the CALLING
 // GOROUTINE's own window (Since()'s view) — never any other goroutine's
 // window, which is the per-window ownership fix.
-func record(class Class, fixit, msg string, once, nonDegradable bool) {
+func record(f report.Finding) {
 	// Fetch the recording goroutine's OWN window generation before
 	// taking mu, so the FailOnce dedup key below is scoped to this
 	// goroutine's last-checkpointed generation — never the live global
@@ -571,15 +519,14 @@ func record(class Class, fixit, msg string, once, nonDegradable bool) {
 	w.mu.Unlock()
 
 	mu.Lock()
-	if once {
-		key := fmt.Sprintf("%d\x00%s\x00%s", gen, class, msg)
+	if f.Once {
+		key := fmt.Sprintf("%d\x00%s\x00%s", gen, f.Kind, f.Text)
 		if _, seen := onceRecorded[key]; seen {
 			mu.Unlock()
 			return
 		}
 		onceRecorded[key] = struct{}{}
 	}
-	f := Finding{Class: class, Message: msg, FixIt: fixit, NonDegradable: nonDegradable}
 	findings = append(findings, f)
 	mu.Unlock()
 

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -33,7 +34,7 @@ func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
 
 		var buf bytes.Buffer
 		gates := newPhaseGates(&buf, strictness.Mode{})
-		strictness.Fail(strictness.ClassSync,
+		strictness.Fail(report.KindSync,
 			"check the remote/network, or pass --degraded to launch anyway",
 			"sync failed: %v", "boom")
 
@@ -58,7 +59,7 @@ func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
 
 		var buf bytes.Buffer
 		gates := newPhaseGates(&buf, strictness.Mode{Degraded: true})
-		strictness.Fail(strictness.ClassSync,
+		strictness.Fail(report.KindSync,
 			"check the remote/network, or pass --degraded to launch anyway",
 			"sync failed: %v", "boom")
 
@@ -83,7 +84,7 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 
 		var buf bytes.Buffer
 		gates := newPhaseGates(&buf, strictness.Mode{})
-		strictness.Fail(strictness.ClassIsolation, fixit,
+		strictness.Fail(report.KindIsolation, fixit,
 			"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", "agent-a", "image absent")
 
 		err := gates.close(PhaseWorkspace)
@@ -104,7 +105,7 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 
 		var buf bytes.Buffer
 		gates := newPhaseGates(&buf, strictness.Mode{Degraded: true})
-		strictness.Fail(strictness.ClassIsolation, fixit,
+		strictness.Fail(report.KindIsolation, fixit,
 			"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", "agent-a", "image absent")
 
 		err := gates.close(PhaseWorkspace)
@@ -134,7 +135,7 @@ func TestStartupGates_TileWithoutHole(t *testing.T) {
 	// anything. Under the old hand-anchored scheme this was the hole: a gate
 	// anchored when the next phase STARTED could not see it, and the tiling
 	// that closed the hole was a convention two comments described.
-	strictness.Fail(strictness.ClassTrust, "remove or restore the trust store", "trust store unreadable: boom")
+	strictness.Fail(report.KindTrust, "remove or restore the trust store", "trust store unreadable: boom")
 
 	// The contrast, kept because it is what makes the property non-obvious: a
 	// mark taken AFTER the gap genuinely cannot see the gap finding.
@@ -202,8 +203,8 @@ func TestPhaseGates_NonDegradableSurvivesDegraded(t *testing.T) {
 
 		var buf bytes.Buffer
 		gates := newPhaseGates(&buf, strictness.Mode{Degraded: true})
-		strictness.Fail(strictness.ClassSync, "ordinary remedy", "an ordinary degradable fault")
-		strictness.FailAlways(strictness.ClassIsolation, "start the runtime it promised",
+		strictness.Fail(report.KindSync, "ordinary remedy", "an ordinary degradable fault")
+		strictness.FailAlways(report.KindIsolation, "start the runtime it promised",
 			"container %q was started but never reached running state", "agent-a")
 
 		err := gates.close(PhaseTransportStart)
@@ -225,7 +226,7 @@ func TestPhaseGates_NonDegradableSurvivesDegraded(t *testing.T) {
 
 		var buf bytes.Buffer
 		gates := newPhaseGates(&buf, strictness.Mode{Degraded: true})
-		strictness.Fail(strictness.ClassSync, "ordinary remedy", "an ordinary degradable fault")
+		strictness.Fail(report.KindSync, "ordinary remedy", "an ordinary degradable fault")
 
 		assert.NoError(t, gates.close(PhaseTransportStart), "an ordinary finding still degrades")
 		assert.Empty(t, buf.String())
@@ -249,12 +250,12 @@ func TestPhaseGates_WindowsAreDisjoint(t *testing.T) {
 	var out bytes.Buffer
 	gates := newPhaseGates(&out, strictness.Mode{})
 
-	strictness.Fail(strictness.ClassConfig, "fix the config", "fault ALPHA")
+	strictness.Fail(report.KindConfig, "fix the config", "fault ALPHA")
 	require.Error(t, gates.close(PhaseStartup), "phase 1 aborts on its own finding")
 	require.Contains(t, out.String(), "fault ALPHA")
 
 	out.Reset()
-	strictness.Fail(strictness.ClassSync, "fix the sync", "fault BRAVO")
+	strictness.Fail(report.KindSync, "fix the sync", "fault BRAVO")
 	require.Error(t, gates.close(PhaseWorkspace), "phase 2 aborts on its own finding")
 
 	second := out.String()

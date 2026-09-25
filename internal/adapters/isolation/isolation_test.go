@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -124,10 +125,10 @@ func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1, "a typo'd runtime that would land on the host is fatal")
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "NOT sandboxed", "the finding must flag the silent downgrade")
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
+		assert.Contains(t, findings[0].Text, "NOT sandboxed", "the finding must flag the silent downgrade")
 		assert.True(t, findings[0].NonDegradable, "a typo must not be able to drop the boundary")
-		assert.NotContains(t, findings[0].FixIt, "--degraded",
+		assert.NotContains(t, findings[0].Remedy, "--degraded",
 			"a non-degradable refusal must not offer --degraded as its remedy")
 	})
 
@@ -185,18 +186,18 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1, "a requested container that can't launch is exactly one fatal finding")
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class, "classified so the abort reads [isolation]")
-		assert.Contains(t, findings[0].Message, "NOT be sandboxed", "the message must flag the lost boundary")
+		assert.Equal(t, report.KindIsolation, findings[0].Kind, "classified so the abort reads [isolation]")
+		assert.Contains(t, findings[0].Text, "NOT be sandboxed", "the message must flag the lost boundary")
 		assert.True(t, findings[0].NonDegradable,
 			"dropping a REQUESTED container boundary is refused in both modes: the launch is the exposure")
-		require.NotEmpty(t, findings[0].FixIt, "the finding must carry a fix-it hint")
+		require.NotEmpty(t, findings[0].Remedy, "the finding must carry a fix-it hint")
 		// Inverted deliberately (obstinate-judiciary). The fix-it used to be
 		// required to NAME --degraded; now it is required NOT to. The finding is
 		// non-degradable, so naming the flag would hand the user a remedy that
 		// does not work — a refusal that only relocates the dead end.
-		assert.NotContains(t, findings[0].FixIt, "--degraded",
+		assert.NotContains(t, findings[0].Remedy, "--degraded",
 			"a non-degradable finding must not offer --degraded as the way through")
-		assert.Contains(t, findings[0].FixIt, "runtime: host",
+		assert.Contains(t, findings[0].Remedy, "runtime: host",
 			"it must instead name the deliberate way to ask for an unsandboxed run")
 
 		// The finding lands inside the window a choke owner's post-Prepare gate
@@ -206,7 +207,7 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 		// that gate window, not the exit code.
 		gated := strictness.Since(mark)
 		require.Len(t, gated, 1, "the finding falls inside the choke owner's Since(mark) gate window")
-		assert.Equal(t, strictness.ClassIsolation, gated[0].Class)
+		assert.Equal(t, report.KindIsolation, gated[0].Kind)
 	})
 
 	t.Run("a ContainerWorktree that degrades to a bare worktree is a lost-boundary finding", func(t *testing.T) {
@@ -225,8 +226,8 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1, "dropping the container half of container-worktree is exactly one fatal finding")
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "NOT be sandboxed", "the message must flag the lost boundary")
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
+		assert.Contains(t, findings[0].Text, "NOT be sandboxed", "the message must flag the lost boundary")
 		assert.True(t, findings[0].NonDegradable, "a lost container boundary refuses in both modes")
 	})
 
@@ -257,11 +258,11 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 		prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
 		all := strictness.All()
 		require.Len(t, all, 1)
-		assert.Contains(t, all[0].Message, "container-rootful (podman)",
+		assert.Contains(t, all[0].Text, "container-rootful (podman)",
 			"the refusal names the reachable container other than the one that just failed")
-		assert.Contains(t, all[0].Message, "ctxloom agent edit <agent> --runtime container-rootful",
+		assert.Contains(t, all[0].Text, "ctxloom agent edit <agent> --runtime container-rootful",
 			"and the explicit selection that opts into it")
-		assert.NotContains(t, all[0].Message, "container-rootless (docker)",
+		assert.NotContains(t, all[0].Text, "container-rootless (docker)",
 			"the ownership that just failed to start is not offered back as the way out")
 	})
 
@@ -328,17 +329,17 @@ func TestChainFor_NoRuntime_Fatal(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1, "runtime-unreachable on an explicit container request is exactly one fatal finding")
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "no container runtime is available with that ownership")
-		assert.Contains(t, findings[0].Message, string(RuntimeContainerRootless),
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
+		assert.Contains(t, findings[0].Text, "no container runtime is available with that ownership")
+		assert.Contains(t, findings[0].Text, string(RuntimeContainerRootless),
 			"the finding must name the runtime axis that was actually demanded")
 		assert.True(t, findings[0].NonDegradable,
 			"a requested container that cannot be provided refuses in both modes")
-		assert.NotContains(t, findings[0].FixIt, "--degraded",
+		assert.NotContains(t, findings[0].Remedy, "--degraded",
 			"a non-degradable refusal must not offer --degraded as its remedy")
-		assert.Contains(t, findings[0].Message, "no container runtime is reachable on this host",
+		assert.Contains(t, findings[0].Text, "no container runtime is reachable on this host",
 			"with nothing to select, the refusal says so")
-		assert.Contains(t, findings[0].Message, "install docker or podman",
+		assert.Contains(t, findings[0].Text, "install docker or podman",
 			"and what to install or start")
 	})
 
@@ -352,8 +353,8 @@ func TestChainFor_NoRuntime_Fatal(t *testing.T) {
 
 		findings := strictness.All()
 		require.Len(t, findings, 1)
-		assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-		assert.Contains(t, findings[0].Message, "refusing to keep the worktree", "the message must say the worktree survived")
+		assert.Equal(t, report.KindIsolation, findings[0].Kind)
+		assert.Contains(t, findings[0].Text, "refusing to keep the worktree", "the message must say the worktree survived")
 	})
 
 	// Renamed and inverted by the degradation audit (obstinate-judiciary): the

@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // resetStrictness restores pristine strict-mode state for a test and registers
@@ -91,7 +93,7 @@ func stubPrepareIsolation(t *testing.T, failFor map[string]bool, seen ...*stubSp
 	prev := prepareIsolation
 	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, agentID string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
 		if failFor[agentID] {
-			strictness.Fail(strictness.ClassIsolation,
+			strictness.Fail(report.KindIsolation,
 				"install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",
 				"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): agent image absent", agentID)
 		}
@@ -103,31 +105,33 @@ func stubPrepareIsolation(t *testing.T, failFor map[string]bool, seen ...*stubSp
 // TestIsolationGateErr pins the gate's decision table directly: only strict-mode
 // ClassIsolation findings fail a member; degraded mode and foreign classes pass.
 func TestIsolationGateErr(t *testing.T) {
-	isoFinding := strictness.Finding{
-		Class:   strictness.ClassIsolation,
-		Message: "container isolation was requested but could not start",
-		FixIt:   "start the container runtime, or pass --degraded",
+	isoFinding := report.Finding{
+		Kind:   report.KindIsolation,
+		Text:   "container isolation was requested but could not start",
+		Remedy: "start the container runtime, or pass --degraded",
 	}
 
 	t.Run("strict + isolation finding → member-fatal error with finding and fix", func(t *testing.T) {
 		resetStrictness(t)
-		err := isolationGateErr(strictness.Mode{}, []strictness.Finding{isoFinding})
+		err := isolationGateErr(strictness.Mode{}, []report.Finding{isoFinding})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), isoFinding.Message)
-		assert.Contains(t, err.Error(), isoFinding.FixIt)
+		assert.Contains(t, err.Error(), isoFinding.Text)
+		assert.Contains(t, err.Error(), isoFinding.Remedy)
+		fix, _ := clifmt.RemedyOf(err)
+		assert.Equal(t, isoFinding.Remedy, fix, "a single finding's remedy reaches the error envelope")
 	})
 
 	t.Run("strict + several isolation findings → every finding's fix is shown", func(t *testing.T) {
 		resetStrictness(t)
-		other := strictness.Finding{
-			Class:   strictness.ClassIsolation,
-			Message: "worktree isolation was requested but the workspace could not be created",
-			FixIt:   "commit or stash local changes, or pass --degraded",
+		other := report.Finding{
+			Kind:   report.KindIsolation,
+			Text:   "worktree isolation was requested but the workspace could not be created",
+			Remedy: "commit or stash local changes, or pass --degraded",
 		}
-		err := isolationGateErr(strictness.Mode{}, []strictness.Finding{isoFinding, other})
+		err := isolationGateErr(strictness.Mode{}, []report.Finding{isoFinding, other})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), isoFinding.FixIt)
-		assert.Contains(t, err.Error(), other.FixIt)
+		assert.Contains(t, err.Error(), clifmt.FixLine("    ", isoFinding.Remedy))
+		assert.Contains(t, err.Error(), clifmt.FixLine("    ", other.Remedy))
 	})
 
 	t.Run("strict + no findings → nil", func(t *testing.T) {
@@ -137,13 +141,13 @@ func TestIsolationGateErr(t *testing.T) {
 
 	t.Run("strict + non-isolation findings only → nil (not this gate's class)", func(t *testing.T) {
 		resetStrictness(t)
-		assert.NoError(t, isolationGateErr(strictness.Mode{}, []strictness.Finding{
-			{Class: strictness.ClassSync, Message: "sync failed"},
+		assert.NoError(t, isolationGateErr(strictness.Mode{}, []report.Finding{
+			{Kind: report.KindSync, Text: "sync failed"},
 		}))
 	})
 
 	t.Run("degraded → nil even with findings", func(t *testing.T) {
 		resetStrictness(t)
-		assert.NoError(t, isolationGateErr(strictness.Mode{Degraded: true}, []strictness.Finding{isoFinding}))
+		assert.NoError(t, isolationGateErr(strictness.Mode{Degraded: true}, []report.Finding{isoFinding}))
 	})
 }

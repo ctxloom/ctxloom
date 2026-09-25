@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -36,9 +37,9 @@ func TestExtractHooksFromBundle_PreimageBuildFailure_IsReported(t *testing.T) {
 
 	findings := strictness.Since(mark)
 	require.Len(t, findings, 1, "a withheld hook must be reported, not silently dropped")
-	assert.Equal(t, strictness.ClassBundle, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "remote/tools#hooks/pre_tool/0", "the finding names the withheld hook ref")
-	assert.Contains(t, findings[0].Message, "boom-hook", "the finding surfaces the underlying fault")
+	assert.Equal(t, report.KindBundle, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "remote/tools#hooks/pre_tool/0", "the finding names the withheld hook ref")
+	assert.Contains(t, findings[0].Text, "boom-hook", "the finding surfaces the underlying fault")
 }
 
 // TestExtractMCPFromBundle_PreimageBuildFailure_IsReported is the MCP-server
@@ -62,7 +63,7 @@ func TestExtractMCPFromBundle_PreimageBuildFailure_IsReported(t *testing.T) {
 
 	findings := strictness.Since(mark)
 	require.Len(t, findings, 1, "a withheld MCP server must be reported, not silently dropped")
-	assert.Equal(t, strictness.ClassBundle, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "remote/tools#mcp/alpha", "the finding names the withheld server ref")
-	assert.Contains(t, findings[0].Message, "boom-mcp", "the finding surfaces the underlying fault")
+	assert.Equal(t, report.KindBundle, findings[0].Kind)
+	assert.Contains(t, findings[0].Text, "remote/tools#mcp/alpha", "the finding names the withheld server ref")
+	assert.Contains(t, findings[0].Text, "boom-mcp", "the finding surfaces the underlying fault")
 }

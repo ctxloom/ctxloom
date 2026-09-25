@@ -4,7 +4,7 @@
 //
 // --degraded exists so a broken environment still yields a working agent. It
 // does NOT exist to turn a refusal into a permission. The discriminator that
-// governs every site is the one strictness.Finding.NonDegradable states: does
+// governs every site is the one report.Finding.NonDegradable states: does
 // LAUNCHING cause the harm? If it does, degraded mode must still refuse, and
 // the refusal must carry the fix.
 //
@@ -129,7 +129,7 @@ func TestArch_DegradeDiscipline_EveryBranchIsJustified(t *testing.T) {
 		assert.Failf(t, "unjustified branch on degraded mode",
 			"%s calls Degraded() at line(s) %v, and %s.\n\n"+
 				"Degrading may never damage and may never grant a security bypass. The test is "+
-				"strictness.Finding.NonDegradable's: does LAUNCHING cause the harm? If it does, "+
+				"report.Finding.NonDegradable's: does LAUNCHING cause the harm? If it does, "+
 				"degraded mode must still refuse — do not touch the allowlist, fix the branch.\n\n"+
 				"If launching is genuinely safe, set this file's entry in degradeBranchAllowed to "+
 				"the new count WITH a reason that covers every branch. The reason is the point: it "+

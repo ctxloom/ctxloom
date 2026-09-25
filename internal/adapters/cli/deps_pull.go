@@ -8,7 +8,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 var (
@@ -99,15 +101,26 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 // The failures are printed to stdout by renderPullSummary, so a caller
 // scripting on the EXIT CODE rather than scraping stdout has to be able to see
 // them here.
+//
+// The error names a fix only when every failed item shares one (the usual
+// single-failure case): one remedy field cannot honestly stand for several,
+// and the per-item fix lines renderPullSummary prints carry the rest.
 func pullResultErr(result *operations.SyncDependenciesResult) error {
 	if result.Errors == 0 {
 		return nil
 	}
 	var refs []string
-	for _, item := range result.Failed {
+	fix := ""
+	for i, item := range result.Failed {
 		refs = append(refs, item.Reference)
+		switch r := item.Remedy(); {
+		case i == 0:
+			fix = r
+		case r != fix:
+			fix = ""
+		}
 	}
-	return fmt.Errorf("deps pull: %d failed (%s)", result.Errors, strings.Join(refs, ", "))
+	return report.Error{Msg: fmt.Sprintf("deps pull: %d failed (%s)", result.Errors, strings.Join(refs, ", ")), Fix: fix}
 }
 
 // renderPullSummary prints a completed pull.
@@ -147,7 +160,8 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 	if result.Errors > 0 {
 		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)
 		for _, item := range result.Failed {
-			fmt.Fprintf(w, "    - %s: %s\n", termsafe.Field(item.Reference), termsafe.Sanitize(item.Error, 0, false).Text)
+			fmt.Fprintf(w, "    - %s: %s%s\n", termsafe.Field(item.Reference), termsafe.Sanitize(item.Error, 0, false).Text,
+				clifmt.FixLine("      ", termsafe.Sanitize(item.Remedy(), 0, false).Text))
 		}
 	}
 }

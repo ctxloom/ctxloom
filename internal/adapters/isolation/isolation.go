@@ -30,7 +30,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // THE RULE, stated here because this is the file an author reaches for a
@@ -71,7 +73,7 @@ import (
 // under --degraded" while, ten lines on, --degraded dropped the whole
 // container and ran on the host.
 
-// isolationFixIt is the fix-it hint attached to every requested-container
+// isolationRemedy is the fix-it hint attached to every requested-container
 // finding (ClassIsolation): how to restore the boundary, and how to ask for a
 // host run ON PURPOSE. Shared by the no-runtime site (chainFor) and the
 // image/probe/auth site (prepareChain) so the abort listing reads the same
@@ -81,7 +83,7 @@ import (
 // non-degradably, so naming the flag would hand the user a remedy that does
 // not work — which is worse than naming none. The remedy is to declare the
 // host axis, because that is the request the user actually has to make.
-const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or ask for a host run deliberately with `runtime: host` (the agent's runtime trait via `ctxloom agent edit <agent> --runtime host`, or the project `runtime:` default)"
+const isolationRemedy = "install/build the agent image and start the container runtime (docker/podman), or ask for a host run deliberately with `runtime: host` (the agent's runtime trait via `ctxloom agent edit <agent> --runtime host`, or the project `runtime:` default)"
 
 // Workspace is the per-agent directory a run executes in (the child engine's
 // cwd) plus its teardown. none → the live project dir (noop cleanup); worktree →
@@ -528,7 +530,7 @@ func warnUnknownAxes(a Axes) {
 		clidiag.Warn("ctxloom", "unknown workspace axis %q (known: %s); treating as %q", a.Workspace, strings.Join(WorkspaceNames(), "|"), WorkspaceShared)
 	}
 	if _, err := launch.ParseRuntimeAxis(string(a.Runtime)); err != nil {
-		strictness.FailAlways(strictness.ClassIsolation,
+		strictness.FailAlways(report.KindIsolation,
 			"set the runtime axis to one of "+strings.Join(RuntimeNames(), "|")+" (fix the config/flag typo), or `runtime: host` if this run really should have no sandbox",
 			"%v; refusing to run: an unrecognised runtime would land this session on the HOST without a container boundary (NOT sandboxed), and a typo must not be able to drop it", err)
 	}
@@ -597,10 +599,10 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		// pre-launch). Returning an error here instead would make the caller
 		// degrade DOWN THE CHAIN — the exact host fallback being refused.
 		if axes.WantsWorktree() {
-			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+			strictness.FailAlways(report.KindIsolation, isolationRemedy,
 				"runtime: %s requested but no container runtime is available with that ownership; refusing to keep the worktree on the HOST without the container boundary that was asked for%s%s", axes.Runtime, containerSelectionHint(axes.Runtime), noRuntimeHint())
 		} else {
-			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+			strictness.FailAlways(report.KindIsolation, isolationRemedy,
 				"runtime: %s requested but no container runtime is available with that ownership; refusing to run on the HOST without the container boundary that was asked for%s%s", axes.Runtime, containerSelectionHint(axes.Runtime), noRuntimeHint())
 		}
 	}
@@ -750,7 +752,14 @@ func prepareChain(ctx context.Context, chain []Policy, requested RuntimeAxis, pr
 		// None so the WORKSPACE resolution has an answer to return; what stops
 		// the run is the non-degradable finding, not a missing workspace.
 		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
-			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
+			// A refusal that names its own fix (unresolvable container auth
+			// names the credential to provide) is more specific than the
+			// generic image/runtime remedy, and wins.
+			remedy, ok := clifmt.RemedyOf(err)
+			if !ok {
+				remedy = isolationRemedy
+			}
+			strictness.FailAlways(report.KindIsolation, remedy,
 				"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v%s", agentID, err, containerSelectionHint(requested))
 			continue
 		}

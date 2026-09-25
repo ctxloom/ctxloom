@@ -400,7 +400,7 @@ func (ociRuntime) enumerate(ctx context.Context, binary, namePrefix string) ([]C
 // --degraded means "I accept a thinner run", never "I accept running as root".
 // There is no caller for whom the right answer is root, so there is no flag:
 // an image that cannot drop privileges is a broken image, and the fix is to
-// repair or replace it (see runAsIs/overrideIdentityFixIt). Do not reintroduce
+// repair or replace it (see runAsIs/overrideIdentityRemedy). Do not reintroduce
 // this; TestDegradedNeverBypassesIsolation asserts the argv never carries it.
 func identityEnvArgs() []string {
 	return []string{

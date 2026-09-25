@@ -2,6 +2,7 @@ package remote
 
 import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -58,7 +59,7 @@ func (l *LockfileRetraction) Fault() error {
 	if l == nil || l.unreadable == nil {
 		return nil
 	}
-	strictness.FailOnce(strictness.ClassTrust,
+	strictness.FailOnce(report.KindTrust,
 		"delete "+l.path+" and rebuild it (ctxloom remote lock) — the file is left intact, so its holds and retractions can be read by hand first",
 		"cannot establish retraction state: %s is unreadable (%v) — withholding remote content rather than treating a withdrawn bundle as trustworthy",
 		l.path, l.unreadable)

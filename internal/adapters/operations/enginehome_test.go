@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -342,11 +343,11 @@ func TestResolveInTreeAgentHome_NoTokenFailsLoudAndIsAbsent(t *testing.T) {
 
 	found := strictness.All()
 	require.Len(t, found, 1, "an unauthenticatable controlled home must fail loud")
-	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
+	assert.Equal(t, report.KindIsolation, found[0].Kind)
 	for _, want := range []string{"claude setup-token", "ctxloom auth set-token", "ANTHROPIC_API_KEY", "engine_home: host"} {
-		assert.Contains(t, found[0].Message, want)
+		assert.Contains(t, found[0].Text, want)
 	}
-	assert.Contains(t, found[0].FixIt, "ctxloom auth set-token", "a finding without a fix-it leaves the user stuck")
+	assert.Contains(t, found[0].Remedy, "ctxloom auth set-token", "a finding without a fix-it leaves the user stuck")
 }
 
 // The API-key path: auth rides the environment, so there is nothing to fail

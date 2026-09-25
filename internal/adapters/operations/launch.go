@@ -294,7 +294,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	strictness.Close(mark)
 	if gerr := isolationGateErr(c.mode, found); gerr != nil {
 		_ = cleanup()
-		return launch.Cell{}, fmt.Errorf("%w: %v", launch.ErrRuntimeUnavailable, gerr)
+		return launch.Cell{}, fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, gerr)
 	}
 	if pendingCopy != nil {
 		if err := applyCopySnapshot(ctx, gitClient, ws.Dir(), pendingCopy); err != nil {

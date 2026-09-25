@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -129,7 +130,7 @@ var dockerSecurityOptions = func() (string, error) {
 func dockerIsRootless() bool {
 	out, err := dockerSecurityOptions()
 	if err != nil {
-		strictness.Fail(strictness.ClassIsolation,
+		strictness.Fail(report.KindIsolation,
 			"check `docker info --format '{{.SecurityOptions}}'` against the daemon and retry, or pass --degraded to proceed assuming a rootful daemon",
 			"cannot determine whether the docker daemon is rootless (%v); assuming rootful — if it is actually rootless, files the container writes will land owned by a subordinate uid", err)
 		return false

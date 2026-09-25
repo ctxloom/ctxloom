@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -96,8 +97,8 @@ func TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal(t *testin
 
 	found := strictness.Since(mark)
 	require.Len(t, found, 1)
-	assert.Equal(t, strictness.ClassTrust, found[0].Class)
-	assert.Contains(t, found[0].Message, "approvals store")
+	assert.Equal(t, report.KindTrust, found[0].Kind)
+	assert.Contains(t, found[0].Text, "approvals store")
 }
 
 // TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll is the
@@ -190,7 +191,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 
 	found := strictness.Since(mark)
 	require.NotEmpty(t, found, "a corrupted approvals store reached via the production-injected Records path must record a strictness finding")
-	assert.Equal(t, strictness.ClassTrust, found[0].Class)
+	assert.Equal(t, report.KindTrust, found[0].Kind)
 }
 
 // TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending
@@ -292,5 +293,5 @@ func TestEffectiveTrust_CorruptedRejectSignature_StaysDenied(t *testing.T) {
 
 	found := strictness.Since(mark)
 	require.NotEmpty(t, found, "an unparseable record in the approvals store must record a strictness finding")
-	assert.Equal(t, strictness.ClassTrust, found[0].Class)
+	assert.Equal(t, report.KindTrust, found[0].Kind)
 }

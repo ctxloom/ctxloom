@@ -18,7 +18,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // lockfileFSOptions threads the config's injected filesystem into a remote
@@ -151,30 +153,25 @@ func treeBundleDir(baseDir string, canonical trust.BundleKey) (string, error) {
 func reportBundleLoadFailures(failures map[trust.BundleKey]error) {
 	for name, err := range failures {
 		if errors.Is(err, bundles.ErrTreeBundleWithheld) {
-			strictness.FailOnce(strictness.ClassTrust, withheldRemedy(err),
+			strictness.FailOnce(report.KindTrust, withheldRemedy(err),
 				"remote bundle %q was installed but withheld: %v", name, err)
 			continue
 		}
-		strictness.FailOnce(strictness.ClassBundle, "ctxloom deps pull (or remove the bundle from its profiles)",
+		strictness.FailOnce(report.KindBundle, "ctxloom deps pull (or remove the bundle from its profiles)",
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 }
 
-// The fix lines a withheld tree can carry. The withhold itself is decided by
-// the reader; these only choose what to tell the user about it.
-const (
-	remedyWithheldTampered = "re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed"
-	// A pin at a commit signed in the retired format stays withheld for as long
-	// as the pin does, and `deps pull` keeps the pin — so only an upgrade, which
-	// moves it to the publisher's re-signed commit, can fix it.
-	remedyWithheldSuperseded = "ctxloom deps upgrade — the pinned commit predates its publisher's re-sign in the current manifest format, and `deps pull` keeps the pin"
-)
+// remedyWithheldTampered is the fix line for a withheld tree whose refusal
+// names no fix of its own. The withhold itself is decided by the reader; this
+// only chooses what to tell the user about it.
+const remedyWithheldTampered = "re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed"
 
-// withheldRemedy selects the fix line for a withheld tree from the error's
-// typed cause.
+// withheldRemedy is the fix the refusal raised (a retired-format manifest
+// names the upgrade that moves its pin), else the tamper remedy.
 func withheldRemedy(err error) string {
-	if errors.Is(err, content.ErrManifestSuperseded) {
-		return remedyWithheldSuperseded
+	if fix, ok := clifmt.RemedyOf(err); ok {
+		return fix
 	}
 	return remedyWithheldTampered
 }
@@ -222,13 +219,13 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 		// remotes registered" — the doc comment's nil-return case above — so it
 		// fails loud instead of silently vanishing every lockfile-pinned remote
 		// bundle from assembly/hooks/MCP/commands.
-		strictness.FailOnce(strictness.ClassBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
+		strictness.FailOnce(report.KindBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
 			"failed to open the remotes registry; no remote bundles loaded: %v", err)
 		return nil
 	}
 	lock, err := remote.NewLockfileManager(baseDir, lockfileFSOptions(cfg)...).Load()
 	if err != nil {
-		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom deps pull` to regenerate the lockfile, or fix it by hand",
+		strictness.FailOnce(report.KindBundle, "run `ctxloom deps pull` to regenerate the lockfile, or fix it by hand",
 			"failed to load the remote lockfile; no remote bundles loaded: %v", err)
 		return nil
 	}

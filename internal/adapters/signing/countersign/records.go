@@ -8,6 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -92,7 +93,7 @@ func (c Records) bothStores() []*Store {
 func (c Records) Fault() error {
 	err := c.readable()
 	if err != nil {
-		strictness.FailOnce(strictness.ClassTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
+		strictness.FailOnce(report.KindTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
 			"approvals store unreadable, denying all items: %v", err)
 	}
 	return err

@@ -1191,8 +1191,8 @@ func deepCopyValue(v any) any {
 // this file records one, and the strict-startup gate keys exclusively on this
 // slice, so having one spelling of "record and continue" is what keeps a new
 // degradation from being written as a zap-only line nothing can see.
-func (c *Config) warn(k WarningKind, format string, args ...any) {
-	c.warnings = append(c.warnings, Warning{Kind: k, Text: fmt.Sprintf(format, args...)})
+func (c *Config) warn(k WarningKind, remedy, format string, args ...any) {
+	c.warnings = append(c.warnings, Warning{Kind: k, Text: fmt.Sprintf(format, args...), Remedy: remedy})
 }
 
 // GetBundleDirs returns the project's AUTHORED bundle directories — the

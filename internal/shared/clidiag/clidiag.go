@@ -61,18 +61,19 @@ func SetStructured(on bool) {
 // that records its own errors (e.g. iox.ErrWriter) still observes the
 // failure.
 func Fwarn(w io.Writer, prog, format string, args ...any) {
-	fwarn(w, prog, fmt.Sprintf(format, args...))
+	fwarn(w, prog, fmt.Sprintf(format, args...), "")
 }
 
-// fwarn writes msg (already formatted) to w in whichever wire shape
-// structured mode currently selects. Shared by Fwarn and FwarnOnce so the
-// branch lives in exactly one place.
-func fwarn(w io.Writer, prog, msg string) {
+// fwarn writes msg (already formatted) and its remedy ("" for an advisory)
+// to w in whichever wire shape structured mode currently selects: the text
+// line followed by clifmt.FixLine, or a WarningEnvelope carrying Remedy.
+// Every warn helper funnels here so the branch lives in exactly one place.
+func fwarn(w io.Writer, prog, msg, remedy string) {
 	if structured.Load() {
-		_ = clifmt.EncodeWarning(w, clifmt.WarningEnvelope{Prog: prog, Warning: msg})
+		_ = clifmt.EncodeWarning(w, clifmt.WarningEnvelope{Prog: prog, Warning: msg, Remedy: remedy})
 		return
 	}
-	_, _ = fmt.Fprintf(w, "%s: warning: %s\n", prog, msg)
+	_, _ = fmt.Fprintf(w, "%s: warning: %s%s\n", prog, msg, clifmt.FixLine("  ", remedy))
 }
 
 // sinkEntry is ONE active redirect. A nil w means "the default (os.Stderr)", so
@@ -182,6 +183,12 @@ func Warn(prog, format string, args ...any) {
 	Fwarn(warnSink(), prog, format, args...)
 }
 
+// WarnRemedy is Warn for a warning that names its fix: the text line is
+// followed by clifmt.FixLine, and the structured envelope carries Remedy.
+func WarnRemedy(prog, remedy, format string, args ...any) {
+	fwarn(warnSink(), prog, fmt.Sprintf(format, args...), remedy)
+}
+
 // WarnErrors is the shared seam for turning a partial-failure result (a
 // command that collected per-item errors — e.g. per-backend hook-apply
 // failures — while still doing everything it could) into BOTH a warning per
@@ -228,6 +235,12 @@ var (
 // re-hitting the same unresolvable parent — collapse to a single line
 // instead of spamming startup. Best-effort like Fwarn.
 func FwarnOnce(w io.Writer, prog, format string, args ...any) {
+	fwarnOnce(w, prog, "", format, args...)
+}
+
+// fwarnOnce is FwarnOnce carrying a remedy. The dedup key is the message
+// line alone: one fault is one warning, whichever fix it names.
+func fwarnOnce(w io.Writer, prog, remedy, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	key := Line(prog, format, args...)
 	onceMu.Lock()
@@ -236,7 +249,7 @@ func FwarnOnce(w io.Writer, prog, format string, args ...any) {
 		return
 	}
 	onceSeen[key] = struct{}{}
-	fwarn(w, prog, msg)
+	fwarn(w, prog, msg, remedy)
 }
 
 // WarnOnce prints a "<prog>: warning: <msg>" line to the current sink (stderr
@@ -244,6 +257,11 @@ func FwarnOnce(w io.Writer, prog, format string, args ...any) {
 // content.
 func WarnOnce(prog, format string, args ...any) {
 	FwarnOnce(warnSink(), prog, format, args...)
+}
+
+// WarnRemedyOnce is WarnOnce carrying a remedy (see WarnRemedy).
+func WarnRemedyOnce(prog, remedy, format string, args ...any) {
+	fwarnOnce(warnSink(), prog, remedy, format, args...)
 }
 
 // ResetWarnOnce clears onceSeen, WarnOnce/FwarnOnce's process-wide dedup

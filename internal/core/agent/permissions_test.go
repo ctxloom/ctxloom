@@ -151,8 +151,8 @@ func TestResolveDefault_UnparseableFloorsAndFails(t *testing.T) {
 
 			found := strictness.All()
 			require.Len(t, found, 1, "exactly one fatal finding per unhonourable declaration")
-			assert.Equal(t, strictness.ClassConfig, found[0].Class)
-			assert.NotEmpty(t, found[0].FixIt, "a finding without a fix-it cannot be acted on")
+			assert.Equal(t, report.KindConfig, found[0].Kind)
+			assert.NotEmpty(t, found[0].Remedy, "a finding without a fix-it cannot be acted on")
 		})
 	}
 }

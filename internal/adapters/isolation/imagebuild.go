@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -246,36 +247,36 @@ func (s buildSource) fromDevcontainerBase() bool {
 	return s.base != nil && s.base.kind == baseStageKindDevcontainer
 }
 
-// staleRebuildFixIt is attached to the finding raised when a STALE image's
+// staleRebuildRemedy is attached to the finding raised when a STALE image's
 // refresh build fails and the run would otherwise launch the existing stale
-// image (which, pre-entrypoint, can run as root). userBaseBuildFixIt is
+// image (which, pre-entrypoint, can run as root). userBaseBuildRemedy is
 // attached when an explicitly-configured base Containerfile fails to build;
-// devcontainerBaseBuildFixIt when the auto-detected project devcontainer
-// fails to build; devcontainerDetectFixIt when the devcontainer.json itself
+// devcontainerBaseBuildRemedy when the auto-detected project devcontainer
+// fails to build; devcontainerDetectRemedy when the devcontainer.json itself
 // could not be resolved to a base at all (malformed JSON, an unresolvable
 // dockerComposeFile).
 const (
-	// staleRebuildFixIt names no flag: running the stale image anyway is
+	// staleRebuildRemedy names no flag: running the stale image anyway is
 	// exactly what is being refused (a pre-entrypoint image can start as
 	// ROOT), so --degraded is no longer a way through. `runtime: host` is
 	// offered as the deliberate, stated alternative for a user who would
 	// rather run unsandboxed than fix the image — said out loud instead of
 	// arrived at by a flag that means something else.
-	staleRebuildFixIt = "check the build output above and reinstall/rebuild the agent image (`ctxloom container build`), or ask for a host run deliberately with `runtime: host`"
-	// userBaseBuildFixIt / devcontainerBaseBuildFixIt name no flag. Falling
+	staleRebuildRemedy = "check the build output above and reinstall/rebuild the agent image (`ctxloom container build`), or ask for a host run deliberately with `runtime: host`"
+	// userBaseBuildRemedy / devcontainerBaseBuildRemedy name no flag. Falling
 	// back to another build source is exactly what is being refused, so
 	// --degraded is no longer a way through; each instead offers the way to
 	// accept ctxloom's own base DELIBERATELY, by dropping the declaration.
 	// That is the point of the ruling: the substitution may happen, but only
 	// because the user said so, never because a flag about startup faults
 	// happened to be set.
-	userBaseBuildFixIt         = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or remove that setting to accept ctxloom's own base deliberately"
-	devcontainerBaseBuildFixIt = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or opt out with isolation_devcontainer_base: false to accept ctxloom's own base deliberately"
-	devcontainerDetectFixIt    = "fix the project .devcontainer/devcontainer.json (malformed JSON, or a dockerComposeFile with no resolvable service — set isolation_devcontainer_service), or opt out with isolation_devcontainer_base: false / --no-devcontainer-base"
-	// noComposableEnginesFixIt is attached when the ONE engine an agent image
+	userBaseBuildRemedy         = "fix the configured base Containerfile (isolation_base_containerfile) so it builds, or remove that setting to accept ctxloom's own base deliberately"
+	devcontainerBaseBuildRemedy = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or opt out with isolation_devcontainer_base: false to accept ctxloom's own base deliberately"
+	devcontainerDetectRemedy    = "fix the project .devcontainer/devcontainer.json (malformed JSON, or a dockerComposeFile with no resolvable service — set isolation_devcontainer_service), or opt out with isolation_devcontainer_base: false / --no-devcontainer-base"
+	// noComposableEnginesRemedy is attached when the ONE engine an agent image
 	// is composed for has no install fragment: the image would otherwise
 	// build green with zero engine-install layers and fail every run.
-	noComposableEnginesFixIt = "bind the agent to an engine that declares an official-installer fragment (see `ctxloom container build --help`), or provide a prebuilt image for this engine via isolation_images"
+	noComposableEnginesRemedy = "bind the agent to an engine that declares an official-installer fragment (see `ctxloom container build --help`), or provide a prebuilt image for this engine via isolation_images"
 )
 
 // buildSourcesOptions carries every input buildSources needs to order a
@@ -351,7 +352,7 @@ func composableBuildSources(p engineContainerSpec, opts buildSourcesOptions) []b
 		// it builds, tags, and passes every image gate, then fails every run
 		// with the engine binary simply absent. Fail loud here instead of
 		// silently building a green, empty image.
-		strictness.Fail(strictness.ClassIsolation, noComposableEnginesFixIt,
+		strictness.Fail(report.KindIsolation, noComposableEnginesRemedy,
 			"no known engine-install recipe for engine %q; the agent image would contain no engine at all", engine)
 		return nil
 	}
@@ -816,7 +817,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 			// stale, possibly pre-entrypoint (root-running) image. Route the
 			// same fail-loud finding the parallel "rebuild attempted and
 			// failed" branch below already uses for the identical outcome.
-			strictness.FailAlways(strictness.ClassIsolation, staleRebuildFixIt,
+			strictness.FailAlways(report.KindIsolation, staleRebuildRemedy,
 				"refusing to run container image %q: it is STALE and cannot be rebuilt from this binary (%v), and a stale image predating the identity entrypoint can start as ROOT", c.image, err)
 			// Still nil, NOT an error: an error here makes the caller degrade
 			// down the chain to the HOST, which is the bypass this audit
@@ -844,7 +845,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		// same terms as one that fails to build — "I could not parse it" is not
 		// evidence that it was unimportant. A project with no devcontainer at
 		// all declares nothing and never reaches here.
-		strictness.FailAlways(strictness.ClassIsolation, devcontainerDetectFixIt,
+		strictness.FailAlways(report.KindIsolation, devcontainerDetectRemedy,
 			"refusing to build the agent image without this project's own devcontainer: auto-detection failed (%v), and ctxloom cannot read it to know what it provides", devErr)
 	}
 	lastErr := c.buildFirstWorkingSource(ctx, sources, selfExe, wantProvenance)
@@ -862,7 +863,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		// chain to the unsandboxed HOST, which is strictly worse than the stale
 		// image. The non-degradable finding is what stops the run; the return
 		// value only decides WHICH wrong thing we would otherwise fall to.
-		strictness.FailAlways(strictness.ClassIsolation, staleRebuildFixIt,
+		strictness.FailAlways(report.KindIsolation, staleRebuildRemedy,
 			"refusing to run container image %q: its rebuild failed (%v) and the existing image is STALE (its baked ctxloom/companion binaries or base config are outdated), and a stale image predating the identity entrypoint can start as ROOT", c.image, lastErr)
 		return nil
 	}
@@ -945,10 +946,10 @@ func (c Container) buildFirstWorkingSource(ctx context.Context, sources []buildS
 func recordBuildSourceFailure(src buildSource, err error) {
 	switch {
 	case src.fromUserBase():
-		strictness.FailAlways(strictness.ClassIsolation, userBaseBuildFixIt,
+		strictness.FailAlways(report.KindIsolation, userBaseBuildRemedy,
 			"refusing to build the agent image on a base you did not declare: the configured base Containerfile (%s) failed to build (%v), and ctxloom cannot know what that base provides, so it will not silently substitute another", src.desc, err)
 	case src.fromDevcontainerBase():
-		strictness.FailAlways(strictness.ClassIsolation, devcontainerBaseBuildFixIt,
+		strictness.FailAlways(report.KindIsolation, devcontainerBaseBuildRemedy,
 			"refusing to build the agent image on a base this project did not declare: the auto-detected project devcontainer (%s) failed to build (%v), and substituting another would give this agent a different environment than the one you develop in", src.desc, err)
 	default:
 		clidiag.Warn("ctxloom", "agent image build (%s) failed: %v", src.desc, err)

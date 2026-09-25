@@ -66,6 +66,7 @@ type engineContainerSpec struct {
 	validate           string
 	resolveAuth        func() (containerAuth, bool)
 	authHint           string
+	authRemedy         string
 	overlayDirs        []string
 	transcriptStoreRel string
 }
@@ -136,6 +137,7 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 		image:       defaultContainerImage,
 		resolveAuth: noContainerAuth,
 		authHint:    noContainerAuthHint,
+		authRemedy:  noContainerAuthRemedy,
 		overlayDirs: []string{ctxloomCacheOverlayDir},
 	}
 }
@@ -156,18 +158,23 @@ func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 	if !ok {
 		spec.resolveAuth = noContainerAuth
 		spec.authHint = noContainerAuthHint
+		spec.authRemedy = noContainerAuthRemedy
 		return spec
 	}
 	spec.resolveAuth = func() (containerAuth, bool) { return resolveDeclaredAuth(a) }
 	spec.authHint = a.Hint
+	spec.authRemedy = a.Remedy
 	if a.Vendorless != "" {
 		spec.authHint = "unreachable: a vendorless name's auth never fails to resolve (" + a.Vendorless + ")"
 	}
 	return spec
 }
 
-// noContainerAuthHint is the fail-closed default's degrade diagnostic.
-const noContainerAuthHint = "no container auth is declared for this engine; its descriptor must provide Container.Auth rather than inherit the default"
+// The fail-closed default's degrade diagnostic and its fix.
+const (
+	noContainerAuthHint   = "no container auth is declared for this engine"
+	noContainerAuthRemedy = "declare Container.Auth in the engine's descriptor rather than inherit the default, or run this engine with `runtime: host`"
+)
 
 // HasContainerAuth reports whether backend (a REGISTERED backend name) declares
 // a container-auth plan — i.e. whether a `runtime: container` run of that

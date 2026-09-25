@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 func openFixtureBundle(t *testing.T) (*TreeStore, Bundle) {
@@ -131,6 +133,9 @@ func TestParseManifest_DigestMarkerIsMalformedAndSuperseded(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrManifestFormat, "the refusal itself is unchanged")
 	assert.ErrorIs(t, err, ErrManifestSuperseded)
+	fix, ok := clifmt.RemedyOf(fmt.Errorf("pull: %w", err))
+	assert.True(t, ok, "the superseded refusal names its own fix, wherever it surfaces")
+	assert.Equal(t, remedySuperseded, fix)
 }
 
 func TestBundleManifest_MissingIsItsOwnError(t *testing.T) {

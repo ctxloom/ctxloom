@@ -20,17 +20,69 @@ import (
 type Kind string
 
 // The fail-loudly classes. Each names the subsystem whose choke reported the
-// finding; the startup gate groups and prints them by Kind.
+// finding; the startup gate groups and prints them by Kind, so the abort
+// listing reads as a diagnosis ("[config] ...", "[sync] ...") rather than an
+// undifferentiated wall of text.
 const (
-	KindConfig    Kind = "config"
+	// KindConfig is a present-but-broken config file (unreadable / parse /
+	// schema-invalid). An absent config is fine and never a finding.
+	KindConfig Kind = "config"
+
+	// KindMigration is a lossy in-memory schema migration (a setting the
+	// upgrade pipeline had to drop).
 	KindMigration Kind = "migration"
-	KindSync      Kind = "sync"
-	KindRef       Kind = "ref"
-	KindApply     Kind = "apply"
-	KindBundle    Kind = "bundle"
-	KindTrust     Kind = "trust-store"
+
+	// KindSync is a lockfile-pinned item that is neither in the local cache
+	// nor fetchable. A refresh failure with a complete cache stays a plain
+	// warning in both modes and never reaches this class.
+	KindSync Kind = "sync"
+
+	// KindRef is an unresolvable configured reference: a default profile, a
+	// profile parent, or a profile-pushed fragment that fails to load.
+	KindRef Kind = "ref"
+
+	// KindApply is a hook/MCP/settings apply failure or a context
+	// regeneration failure (partial apply is no longer success in strict).
+	KindApply Kind = "apply"
+
+	// KindBundle is a load/parse failure of a lockfile-active or local
+	// bundle. Builtin (in-binary) bundle failures stay warnings.
+	KindBundle Kind = "bundle"
+
+	// KindTrust is a corrupt/unreadable trust store (the deny-all posture).
+	KindTrust Kind = "trust-store"
+
+	// KindIsolation is an EXPLICITLY-requested container runtime that cannot be
+	// satisfied AS REQUESTED: no reachable runtime, an unrecognized runtime axis
+	// value (a typo that would silently land on the host), an external plugin
+	// binary that cannot be containerized, the agent image absent/unbuildable, a
+	// stale image whose refresh build failed, a configured base image
+	// (isolation_base_containerfile) that failed to build, shared-fs probe
+	// failed, or no resolvable auth — so the run would otherwise fall back to the
+	// UNSANDBOXED host, or run a STALE/substituted image instead of the one
+	// requested. Only an explicit request — an agent's `runtime:` trait, the
+	// project `runtime:` default, or `--runtime container` — reaches this class;
+	// the ambient host default degrades silently and never lands here.
 	KindIsolation Kind = "isolation"
-	KindTask      Kind = "task"
+
+	// KindTask is an EXPLICITLY-requested task-store mutation that could not
+	// be applied — `ctxloom run --seed-task <harp>` against a corrupt,
+	// unreadable, or non-matching project task log, or a taskloom write
+	// carrying a tag its tag-schema refuses (the write-side gate in
+	// internal/shared/tasks/operations). Only an explicit request
+	// reaches this class, mirroring KindIsolation: ambient task bookkeeping
+	// that nobody asked for stays a plain warning. The point is that a user
+	// who named a task must not be told the launch succeeded while the task
+	// silently stayed untouched.
+	KindTask Kind = "task"
+
+	// KindOwner is a second session-owning process claiming a project
+	// another live `ctxloom` already owns (coord.ErrStateOwned). A project
+	// has ONE coordinator, hosted by ONE session; the loser of the owner
+	// claim is refused by name rather than degraded to a rival coordinator
+	// on ephemeral state. Degradable: --degraded launches the second session
+	// WITHOUT agent delegation, never as a second owner.
+	KindOwner Kind = "owner"
 )
 
 // Finding is one diagnostic. Text is the whole human message; Remedy is the
@@ -44,7 +96,14 @@ type Finding struct {
 	// process, for sites that fire per item in a loop.
 	Once bool
 	// NonDegradable keeps a fail-loudly finding actionable under --degraded,
-	// where ordinary ones are waived.
+	// where ordinary ones are waived. It is declared per FINDING, never per
+	// Kind, because the kind-wide reading is refuted by the code: an
+	// ownership mismatch is KindIsolation and its sanctioned degraded outcome
+	// is a HOST fallback that launches, while a container that died at the
+	// daemon is the same kind and must not launch at all. The discriminator
+	// is the doctrine's own — does LAUNCHING cause the harm? — which is a
+	// property of the specific fault, not of its category. The zero value is
+	// degradable: non-degradability is opt-in.
 	NonDegradable bool
 	// Quiet records a fail-loudly finding without rendering it — for a site
 	// whose text is already delivered to the user by another channel.

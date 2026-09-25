@@ -418,38 +418,9 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 
 	targetSessionID := in.SessionID
 	if targetSessionID == "" {
-		// Recover exists to reach what is NOT in the context window, and the
-		// CURRENT session already is — so it is never a target. That is what
-		// makes the HARP, not the index binding, the key here: a /clear rotates
-		// the backend session id but never the harp, and immediately after one
-		// the binding correctly names the live, near-empty post-clear
-		// transcript. Targeting it would "succeed" and recover nothing.
-		//
-		// So the binding is consulted ONLY to learn which id is current and
-		// must be skipped; the harp's own lineage supplies the target.
-		activeEntry, _ := operations.GetSession(s.self.Harp)
-		res := recoverResolution{ActiveHarp: s.self.Harp, OwnerHarp: ownerHarpOf}
-		if activeEntry != nil {
-			res.CurrentID = activeEntry.SessionID
-		}
-		lineage, lerr := operations.HarpTranscripts(s.self.Harp)
-		if lerr != nil {
-			return nil, nil, fmt.Errorf("read harp lineage: %w", lerr)
-		}
-		res.Lineage = lineage
-
-		targetSessionID = res.target()
-		if targetSessionID == "" {
-			source, _, serr := operations.ResolveSessionSource(s.facts.Engines, s.cfg, backendName, workDir)
-			if serr != nil {
-				return nil, nil, serr
-			}
-			sessionsList, serr := source.ListSessions(ctx)
-			if serr != nil {
-				return nil, nil, fmt.Errorf("list sessions: %w", serr)
-			}
-			res.MtimeSessions = sessionsList
-			targetSessionID = res.target()
+		targetSessionID, err = s.resolveRecoverTarget(ctx, backendName, workDir)
+		if err != nil {
+			return nil, nil, err
 		}
 		if targetSessionID == "" {
 			return nil, &loadSessionResult{Loaded: false, Message: fmt.Sprintf(recoverNothingToRecoverMsg, s.self.Harp)}, nil
@@ -462,6 +433,45 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 	// determined: a cached essence from an earlier /clear covers only an
 	// earlier slice.
 	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, policyLive)
+}
+
+// resolveRecoverTarget picks the session recover_session should restore when
+// the caller named none, or "" when nothing honestly can be.
+//
+// Recover exists to reach what is NOT in the context window, and the CURRENT
+// session already is — so it is never a target. That is what makes the HARP,
+// not the index binding, the key here: a /clear rotates the backend session id
+// but never the harp, and immediately after one the binding correctly names
+// the live, near-empty post-clear transcript. Targeting it would "succeed" and
+// recover nothing.
+//
+// So the binding is consulted ONLY to learn which id is current and must be
+// skipped; the harp's own lineage supplies the target, and the backend's
+// positional listing is read only when the lineage yields nothing.
+func (s *ctxServer) resolveRecoverTarget(ctx context.Context, backendName, workDir string) (string, error) {
+	activeEntry, _ := operations.GetSession(s.self.Harp)
+	res := recoverResolution{ActiveHarp: s.self.Harp, OwnerHarp: ownerHarpOf}
+	if activeEntry != nil {
+		res.CurrentID = activeEntry.SessionID
+	}
+	lineage, lerr := operations.HarpTranscripts(s.self.Harp)
+	if lerr != nil {
+		return "", fmt.Errorf("read harp lineage: %w", lerr)
+	}
+	res.Lineage = lineage
+	if target := res.target(); target != "" {
+		return target, nil
+	}
+	source, _, serr := operations.ResolveSessionSource(s.facts.Engines, s.cfg, backendName, workDir)
+	if serr != nil {
+		return "", serr
+	}
+	sessionsList, serr := source.ListSessions(ctx)
+	if serr != nil {
+		return "", fmt.Errorf("list sessions: %w", serr)
+	}
+	res.MtimeSessions = sessionsList
+	return res.target(), nil
 }
 
 // recoverResolution carries everything recover_session needs to choose a

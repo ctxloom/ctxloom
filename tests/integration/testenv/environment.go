@@ -850,7 +850,8 @@ func (e *TestEnvironment) GitCommit(message string) error {
 // RunWithStdin executes ctxloom with stdin input and returns the output. Stdin
 // is held open for a short grace period after the write before being closed,
 // so a long-lived stdio server (e.g. `ctxloom mcp`) can dispatch and respond
-// before it sees EOF. See mcpStdinGrace.
+// before it sees EOF. See mcpStdinGrace. Once stdin closes, the command is
+// bounded exactly as Exec bounds one.
 func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	cmd := exec.Command(e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
@@ -871,7 +872,8 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Start(); err != nil {
+	run, err := startBounded(cmd)
+	if err != nil {
 		return err
 	}
 
@@ -879,7 +881,9 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	waitForStdinResponses(&stdout, jsonrpcRequestCount(stdin))
 	_ = stdinPipe.Close()
 
-	err = cmd.Wait()
+	// Bounded from here, after the stdin hold: the hold is the harness's own
+	// ceiling (mcpStdinGrace), not the command's run time.
+	err = run.wait(e.commandBound())
 	e.RecordSplit(args, stdout.String(), stderr.String(), err)
 	return err
 }

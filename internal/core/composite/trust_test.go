@@ -102,7 +102,7 @@ func TestNewTrust_WithholdsAnExecutableNoReviewRecordApproves(t *testing.T) {
 	assert.False(t, v.Allow, "nothing positively justified this command")
 	assert.Equal(t, bundles.ReasonUnsigned, v.Reason)
 	assert.Contains(t, v.Detail, "no review record", "the withhold names what would admit it")
-	assert.Equal(t, []string{refStr}, tr.Withheld(), "the holder tallies what it withheld, by ref")
+	assert.Equal(t, []string{refStr}, withheldRefsOf(tr), "the holder tallies what it withheld, by ref")
 	assert.True(t, tr.Gates())
 }
 
@@ -117,7 +117,7 @@ func TestNewTrust_AReviewRecordAdmitsTheExecutable(t *testing.T) {
 
 	assert.True(t, v.Allow)
 	assert.Equal(t, bundles.ReasonApproved, v.Reason)
-	assert.Empty(t, tr.Withheld())
+	assert.Empty(t, withheldRefsOf(tr))
 }
 
 func TestNewTrust_ARejectionOutranksAnApproval(t *testing.T) {
@@ -191,7 +191,7 @@ func TestUngated_IsTheOnlySpellingOfAdmitEverything(t *testing.T) {
 	assert.False(t, tr.Gates())
 	assert.True(t, v.Allow)
 	assert.Equal(t, bundles.ReasonUngated, v.Reason, "an ungated admit names the absence of a rule")
-	assert.Empty(t, tr.Withheld())
+	assert.Empty(t, withheldRefsOf(tr))
 }
 
 func TestTrust_ZeroValue_HasNoPermissiveAnswer(t *testing.T) {
@@ -232,7 +232,7 @@ func TestNewTrust_LocalityRule_AProjectLocalBundleWithAnInvalidSignatureIsAdmitt
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
 	assert.True(t, bundles.Warns(v), "the verdict carries the warning the surface prints")
 	assert.Contains(t, v.Detail, "ctxloom bundle sign tools", "the author is told how to re-sign")
-	assert.Empty(t, tr.Withheld())
+	assert.Empty(t, withheldRefsOf(tr))
 }
 
 // TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld: the
@@ -248,7 +248,7 @@ func TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld(t *testi
 
 	assert.False(t, v.Allow, "a signature that does not cover what travelled admits nothing")
 	assert.NotEqual(t, bundles.ReasonStaleLocalSignature, v.Reason, "stale-local is a LOCAL row and never names remote content")
-	assert.Equal(t, []string{e.RefString()}, tr.Withheld())
+	assert.Equal(t, []string{e.RefString()}, withheldRefsOf(tr))
 }
 
 // faultedRetraction is a RetractionRecords whose backing lockfile could not be
@@ -432,4 +432,14 @@ func TestWithheldBy_ReturnsEveryWithheldItemSortedByRef(t *testing.T) {
 		assert.Equal(t, bundles.ReasonUnsigned, it.Verdict.Reason, "each item carries the verdict that withheld it")
 	}
 	assert.Equal(t, []string{base + "alpha", base + "bravo", base + "charlie"}, refs)
+}
+
+// withheldRefsOf is the refs WithheldBy reports for the holder's gate — the
+// production read path — in its sorted order.
+func withheldRefsOf(tr Trust) []string {
+	var refs []string
+	for _, it := range WithheldBy(tr.Authorizer()) {
+		refs = append(refs, it.Ref)
+	}
+	return refs
 }

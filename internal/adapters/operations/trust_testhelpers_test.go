@@ -72,7 +72,13 @@ func (g *contentGate) withheldItems() []composite.WithheldItem {
 	return composite.WithheldBy(g.Authorizer())
 }
 
-func (g *contentGate) withheldRefs() []string { return g.trust().Withheld() }
+func (g *contentGate) withheldRefs() []string {
+	var refs []string
+	for _, it := range g.withheldItems() {
+		refs = append(refs, it.Ref)
+	}
+	return refs
+}
 
 // ExecutableTrustGate is the executable-surface view of a contentGate, as the
 // tests here spell it; NewExecutableTrustGate builds one over cfg's

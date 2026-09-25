@@ -91,15 +91,6 @@ func (t Trust) Root() TrustRoot {
 	return t.gate.root
 }
 
-// Withheld returns the refs this gate withheld, deduplicated and sorted, so
-// a surface can report WHY each was withheld — a withhold is never silent.
-func (t Trust) Withheld() []string {
-	if t.gate == nil {
-		return nil
-	}
-	return t.gate.withheldRefs()
-}
-
 // authorizer is the decision cascade, as a bundles.Authorizer. It is a PURE
 // FUNCTION of the exposure and the ports: nothing here emits — an admit with
 // a warning returns it in Verdict.Detail and the caller says it
@@ -288,20 +279,6 @@ func (a *authorizer) recordRef(ref string, v bundles.Verdict) {
 	}
 	a.withheld[ref] = v
 	a.withheldMu.Unlock()
-}
-
-func (a *authorizer) withheldRefs() []string {
-	a.withheldMu.Lock()
-	defer a.withheldMu.Unlock()
-	if len(a.withheld) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(a.withheld))
-	for ref := range a.withheld {
-		out = append(out, ref)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // WithheldItem pairs a withheld ref with the verdict that withheld it —

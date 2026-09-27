@@ -224,7 +224,9 @@ func TestRun_ClaudeTokenAgentWithNothingStoredIsRefusedUnattended(t *testing.T) 
 // selection.
 func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--permissions", "plan")
+	// auth login: the real home with the human's own login in place. Auth is
+	// per agent, so a host-home binding still declares how it authenticates.
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--auth", "login", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "unicorn-prompt")
@@ -248,5 +250,53 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	assert.Empty(t, got["CLAUDE_CONFIG_DIR"], "a host-home run keeps the real home: claude is told no config dir")
 	for _, d := range sessionDirs(t, env) {
 		assert.Empty(t, findUnder(t, d, ".credentials.json"), "no credential is seeded into a session home the run does not use")
+	}
+}
+
+// credentialSentinel stands in for a stored credential in the exposure
+// audit: a string nothing else produces.
+const credentialSentinel = "sk-ant-oat01-EXPOSURE-SENTINEL-7Q2"
+
+// TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed: a token agent's
+// run reaches its engine with the stored credential and leaves no copy of it
+// anywhere ctxloom writes — its output, its logs and session state under the
+// ctxloom home, the project, the real home, or the temp dir its runner and
+// launchers use. The ONE place it may live is the owner-only store it was
+// read from.
+func TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed(t *testing.T) {
+	env, capture := setupClaudeSessionProject(t)
+	tmp := t.TempDir()
+	env.SetChildEnv("TMPDIR", tmp)
+	require.NoError(t, env.RunWithStdin(credentialSentinel+"\n", "auth", "set", "--mode", "token"))
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	output := env.LastOutput()
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	output += env.LastOutput()
+	_ = env.Run("auth", "status", "--format", "json")
+	output += env.LastOutput()
+
+	require.Equal(t, credentialSentinel, capturedEnv(t, capture)["CLAUDE_CODE_OAUTH_TOKEN"], "fixture: the engine did receive it")
+	assert.NotContains(t, output, credentialSentinel, "no command's output echoes the credential")
+	store := filepath.Join(env.HomeDir, paths.AppDirName, paths.HomeAuthDirName)
+	for _, root := range []string{env.HomeDir, env.ProjectDir, tmp} {
+		require.NoError(t, filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() && p == store {
+				return filepath.SkipDir
+			}
+			if d.IsDir() || !d.Type().IsRegular() {
+				return nil
+			}
+			b, rerr := os.ReadFile(p)
+			if rerr == nil {
+				assert.NotContains(t, string(b), credentialSentinel, "%s holds the credential", p)
+			}
+			return nil
+		}))
 	}
 }

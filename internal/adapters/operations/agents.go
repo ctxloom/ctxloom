@@ -788,14 +788,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
 
-	configHome, cherr := agents.ParseHomeMode(sub.HomeMode)
-	if cherr != nil {
-		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)
-	}
-	authMode, aerr := engine.ParseAuthMode(sub.Auth)
-	if aerr != nil {
-		clidiag.Warn("ctxloom", "agent %q: %v — a launch refuses it", name, aerr)
-	}
+	configHome, authMode := resolvedHomeAndAuth(name, sub)
 
 	// The interactive base an unflagged run resolves to (declared → label →
 	// PROJECT DEFAULT → built-in default), so a blank claude-code posture shows
@@ -829,4 +822,20 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		HomeMode:             configHome,
 		Auth:                 authMode,
 	}, nil
+}
+
+// resolvedHomeAndAuth is the binding's effective engine-home and auth modes
+// as `agent show` reports them. A declaration that does not parse warns and
+// reports the default; the launch itself refuses an unparseable auth.
+func resolvedHomeAndAuth(name string, sub agents.Agent) (agents.HomeMode, engine.AuthMode) {
+	home, err := agents.ParseHomeMode(sub.HomeMode)
+	if err != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, err)
+	}
+	auth, err := engine.ParseAuthMode(sub.Auth)
+	if err != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — a launch refuses it", name, err)
+		auth = engine.AuthToken
+	}
+	return home, auth
 }

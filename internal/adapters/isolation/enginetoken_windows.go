@@ -72,11 +72,25 @@ func ownerOnlyViolation(p string, _ fs.FileInfo) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var grantees []string
+	grantees, why, err := daclGrantees(dacl)
+	if why != "" || err != nil {
+		return why, err
+	}
+	tolerated, err := toleratedSIDs()
+	if err != nil {
+		return "", err
+	}
+	return aclExposure(sid.String(), tolerated, grantees), nil
+}
+
+// daclGrantees are the SIDs dacl's allow ACEs grant, as strings. Deny ACEs
+// narrow access and are skipped; any other ACE type is not interpreted, and
+// why says so.
+func daclGrantees(dacl *windows.ACL) (grantees []string, why string, err error) {
 	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil {
-			return "", fmt.Errorf("read ACE %d: %w", i, err)
+			return nil, "", fmt.Errorf("read ACE %d: %w", i, err)
 		}
 		switch ace.Header.AceType {
 		case windows.ACCESS_DENIED_ACE_TYPE:
@@ -84,14 +98,10 @@ func ownerOnlyViolation(p string, _ fs.FileInfo) (string, error) {
 		case windows.ACCESS_ALLOWED_ACE_TYPE:
 			grantees = append(grantees, aceSID(ace).String())
 		default:
-			return fmt.Sprintf("carries an ACE of type %d that is not checked", ace.Header.AceType), nil
+			return nil, fmt.Sprintf("carries an ACE of type %d that is not checked", ace.Header.AceType), nil
 		}
 	}
-	tolerated, err := toleratedSIDs()
-	if err != nil {
-		return "", err
-	}
-	return aclExposure(sid.String(), tolerated, grantees), nil
+	return grantees, "", nil
 }
 
 // toleratedSIDs are the principals an owner-only ACL may also grant: the

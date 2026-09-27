@@ -89,20 +89,16 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if len(s.Profiles) > 0 {
 			w.Printf("    profiles: %s\n", strings.Join(s.Profiles, ", "))
 		}
-		if s.Runtime != "" {
-			w.Printf("    runtime: %s\n", s.Runtime)
-		}
-		if s.Permissions != "" {
-			w.Printf("    permissions: %s\n", s.Permissions)
-		}
-		if s.Driving != "" {
-			w.Printf("    driving: %s\n", s.Driving)
-		}
-		if s.HomeMode != "" {
-			w.Printf("    engine_home: %s\n", s.HomeMode)
-		}
-		if s.Auth != "" {
-			w.Printf("    auth: %s\n", s.Auth)
+		for _, f := range []struct{ key, value string }{
+			{"runtime", s.Runtime},
+			{"permissions", s.Permissions},
+			{"driving", string(s.Driving)},
+			{"engine_home", s.HomeMode},
+			{"auth", s.Auth},
+		} {
+			if f.value != "" {
+				w.Printf("    %s: %s\n", f.key, f.value)
+			}
 		}
 		if len(s.Escalation) > 0 {
 			w.Printf("    escalation: %d rung(s)\n", len(s.Escalation))

@@ -54,7 +54,8 @@ ctxloom agent create <name> [flags]
 ### Options
 
 ```
-      --engine-home string         Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (host|session; empty = host, the default — a per-session home is opt-in)
+      --auth string                How this agent's engine authenticates: login (your own login, host runs only) | token (the default: a minted token, stored owner-only) | api-key. Validated against the modes the agent's engine supports
+      --engine-home string         Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)
       --llm string                 llm.configs label to bind (overrides the profiles' llm; empty = project default)
       --permissions string         Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
       --profiles strings           Comma-separated profile name(s)/ref(s) to compose

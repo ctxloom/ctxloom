@@ -282,16 +282,19 @@ substitutes a different engine. `ctxloom doctor --deps` reports a missing client
 Install (and authenticate) the CLI for the backend you configured, or point `llm.defaults.primary`
 at one you already have. See [Configuration → LLMs](/guides/configuration/#llms) for the config shape.
 
-ctxloom runs claude in a per-session home that holds no login, so each run authenticates from
-one long-lived token. Mint it once and store it:
+ctxloom runs claude in a per-session home that holds no login. The agent `ctxloom init` sets up
+for `ctxloom run` uses your own login in place. Every other agent authenticates with a
+long-lived token by default, which ctxloom mints at your terminal the first time a run needs it
+and stores owner-only under `~/.ctxloom/auth`. You can also mint it ahead of time, or store an
+API key for an agent that declares `auth: api-key`:
 
 ```bash
-claude setup-token          # prints the token once
-ctxloom auth set-token      # paste it; stored owner-only under ~/.ctxloom/auth
+ctxloom auth mint --mode token     # runs `claude setup-token` and stores the token
+ctxloom auth set --mode api-key    # paste a key; read from stdin, never argv
 ```
 
-An exported `ANTHROPIC_API_KEY` works instead. Without either, a run is refused with the same
-instructions. See [Environment Variables](/reference/environment/#engine-authentication).
+A run with no terminal that needs a token nobody stored is refused and tells you which command
+to run. See [Environment Variables](/reference/environment/#engine-authentication).
 
 ### Signing and publishing (needs SSH)
 

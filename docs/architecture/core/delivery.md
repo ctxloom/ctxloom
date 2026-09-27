@@ -64,14 +64,12 @@ unsafe selection, named beside the project routes in the plan and the
 banner (`cli.unsafeLabels`) — leaves `SurfaceSelection.keepOrReroot` to
 select the project file there.
 
-No credential is delivered. Every claude launch, at any depth and on any
-cell, authenticates from `CLAUDE_CODE_OAUTH_TOKEN`, which
-`isolation.ExportStoredTokens` fills from the token `ctxloom auth set-token`
-stored; the session home holds none, and a container gets the var by name.
-A session home no auth var authenticates is refused
-(`isolation.PrepareInstanceHome`, `report.KindIsolation`, FailAlways)
-naming `ctxloom auth set-token`, the engine's API-key vars and the unsafe
-`engine_home: host`. See [isolation](../engines/isolation.md#credential-delivery).
+No credential is delivered into a home. A launch authenticates from the env
+its agent's `auth:` mode resolves to (`engine.Auth.LaunchEnv`), which the
+cell carries; the session home holds none. A mode whose credential is
+neither exported nor stored is minted at a terminal or, unattended, refused
+naming `ctxloom auth mint`. See
+[isolation](../engines/isolation.md#credential-delivery).
 
 ## Who delivers, and under which writer
 

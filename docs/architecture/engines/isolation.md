@@ -231,57 +231,73 @@ definitive `*sharedFSMismatch` from a transient probe failure.
 
 ## Credential delivery
 
-A ctxloom-launched claude on the HOST, top-level or delegated, shares the
-human's own login in place: `CLAUDE_SECURESTORAGE_CONFIG_DIR` moves only
-claude's credential storage (the file, its write lock, both refresh locks, the
-macOS keychain item name) apart from `CLAUDE_CONFIG_DIR`, so a session-home
-run holds the SAME credential and the SAME lock pair as the human's claude,
-and claude's own locked, compare-and-swap refresh keeps them in step. The
-engine declares the var as `engine.HomeSpec.SharedLogin`;
-`operations.ResolveInTreeAgentHome` sets it on host cells only, to exactly the
-string the launching env's claude resolves (`engine.SharedLogin.Value`: the
-inherited var when set, else the human's `CLAUDE_CONFIG_DIR` byte for byte,
-else `""`, which claude reads as `$HOME/.claude`), and blanks
-`CLAUDE_CODE_OAUTH_TOKEN`, which claude reads ahead of any credential.
-`TestClaudeSecureStorage_FollowsTheVar` (`just test-conformance`) pins that
-the installed claude still honours the var.
+How a run authenticates is its AGENT's choice, declared as `auth:` on the
+binding (`agents.Agent.Auth`) in engine-neutral words: `login`, `token` or
+`api-key` (`engine.AuthMode`). Undeclared is `token`, so the human's own login
+is reached only by name; `ctxloom init` gives the default agent `login`. It is
+purely per agent: top-level, delegated or one-shot alike.
 
-A claude in a CONTAINER authenticates from ONE long-lived token that
-`claude setup-token` mints, carried in `CLAUDE_CODE_OAUTH_TOKEN`. claude reads
-that variable ahead of any credentials file, never refreshes it and never
-writes it to disk. Nothing is copied into a session home, mounted into a
-container, replicated or refreshed by ctxloom.
+What each mode MEANS for a given engine is the engine's own knowledge, behind
+`engine.Auth` on its `HomeSpec`: `Modes` (what it supports; a binding is
+validated against it when written), `LaunchEnv` (the env a run in that mode
+gets) and `Mint` (its own flow for producing a credential). ctxloom's shared
+code never names a vendor variable. For claude (`claudeAuth`), the declared
+mode decides: only that mode's credential reaches claude, a value the human
+exported for THAT mode wins over the stored one, and every other credential
+var is blanked.
 
-Why: an OAuth refresh token is single-use and rotating. Native claude sessions
-stay in step only because they share one credentials file AND one lock beside
-the config dir. A per-session copy has its own config dir and its own lock,
-and a bind mount of the single file pins the inode claude replaces by
-temp-and-rename, so copies went stale and a refresh from one could revoke the
-rest. A token nobody refreshes has no second holder to fall out of step with.
-The reasoning is recorded once, at `isolation.ExportStoredTokens`.
+- `login` (host only): `CLAUDE_SECURESTORAGE_CONFIG_DIR` moves only claude's
+  credential storage (the file, its write lock, both refresh locks, the macOS
+  keychain item name) apart from `CLAUDE_CONFIG_DIR`, so a session-home run
+  holds the SAME credential and lock pair as the human's claude, and claude's
+  own locked refresh keeps them in step. It is set to exactly the string the
+  launching env's claude resolves: the inherited var when set, else the
+  human's `CLAUDE_CONFIG_DIR` byte for byte, else `""` (`$HOME/.claude`).
+  `TestClaudeSecureStorage_FollowsTheVar` (`just test-conformance`) pins that
+  the installed claude still honours the var. A container agent declaring
+  `login` is refused: nothing mounts the human's storage into a container yet.
+- `token`: the long-lived token `claude setup-token` mints, in
+  `CLAUDE_CODE_OAUTH_TOKEN`. claude reads it ahead of any credentials file,
+  never refreshes it and never writes it to disk.
+- `api-key`: `ANTHROPIC_API_KEY`.
 
-**Intake.** `ctxloom auth set-token` reads the token from stdin (a hidden
-prompt on a terminal), never argv, and stores it owner-only through
-`iox.WriteFileAtomic` at `paths.HomeEngineTokenPath` (`~/.ctxloom/auth/<engine>.token`).
-`ctxloom auth status` reports whether one is stored, its mode, and which one
-runs get, never the value.
+The storage var is not blanked for `token` and `api-key`: an env map cannot
+unset a variable, and `""` would point claude at `$HOME/.claude`, the human's
+own credential.
 
-**Injection.** `cli.run` calls `isolation.ExportStoredTokens` once, before any
-command: for each engine declaring `engine.TokenAuth`, it sets the engine's
-`TokenVar` from the stored file when the process env leaves it unset. A token
-the user exported wins. Every launch path inherits this process's env, so a
-container gets it by name; a host cell sharing the login blanks it.
+Why only long-lived credentials are stored: an OAuth refresh token is
+single-use and rotating. Native claude sessions stay in step only because
+they share one credentials file AND one lock beside the config dir. A copy
+has its own lock, went stale, and a refresh from one revoked the rest. A
+credential nobody refreshes has no second holder to fall out of step with.
 
-**Refusal.** A relocated home (`engine_home: session`) that shares no login
-and that none of the engine's auth vars authenticates is refused by
-`isolation.PrepareInstanceHome`
-(a `report.KindIsolation` finding, FailAlways) naming the mint command,
-`ctxloom auth set-token`, the API-key vars and `engine_home: host`.
+**Storage.** `isolation.StoreEngineCredential` writes one owner-only file per
+engine and mode through `iox.WriteFileAtomic` at
+`paths.HomeEngineCredentialPath` (`~/.ctxloom/auth/<engine>.<mode>`); the
+login is never stored. Owner-only is a per-OS twin behind `ownerOnlyViolation`:
+mode `0600` in a `0700` directory on unix; on Windows a protected DACL
+granting the current user, where an existing ACL that also grants SYSTEM and
+Administrators is accepted (`aclExposure`). A read
+(`isolation.StoredCredentials`) refuses a credential others can reach rather
+than use it or treat it as absent. `ctxloom auth status` shows each stored
+mode and who can read it: the mode on unix, the owner-only or exposed verdict
+on Windows. Intake is `ctxloom auth mint` (the engine's `Mint`) or
+`ctxloom auth set` (stdin, never argv).
+
+**Resolution.** `operations.Cells.Prepare` resolves the run's credential env
+(`resolveRunAuth`) BEFORE the cell exists, and carries it in the cell's env,
+never this process's. A host run on the human's real home
+(`engine_home: host`) resolves nothing: it is their own engine, in place. A
+missing credential is minted when the human is at a terminal (the engine's
+`Mint`, then stored) and refused when not, naming `ctxloom auth mint`: an
+unattended run never prompts and never starts logged out.
 
 `containerAuth{mode, envPassthrough}` is resolved per backend.
 `containerAuthMode` is `authNone` (**zero value — least privilege**) or
 `authEnv`. `resolveDeclaredAuth` is trigger-then-refuse: any declared trigger
-set selects passthrough, else the run is refused. `presentEnvKeys` filters an
+set — in the run's resolved credential env first, then the host env — selects
+passthrough, else the run is refused. A var the run's env names is withheld
+from the passthrough, so a credential the mode blanked never crosses. `presentEnvKeys` filters an
 allowlist down to *set* variables only — **names only cross the boundary**.
 
 | Engine | Env trigger | Site |

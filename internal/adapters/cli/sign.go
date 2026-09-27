@@ -36,6 +36,13 @@ the tree, headed by the bundle's name and version, and files your signature
 over that manifest in the bundle's .sigs/ directory. Consumers without ctxloom
 can check the files with 'sha256sum -c SHA256SUMS'.
 
+In a project with a VERSION file at its root (the directory holding
+.ctxloom), that file is the bundle's version: signing first rewrites
+bundle.yaml's version: to match it, and says so. Without a VERSION file the
+version is the one bundle.yaml declares. Either way, a version already signed
+over different files is refused — bump the version (VERSION, where it
+exists) or pass --force to re-sign it deliberately.
+
 ref is a bundle ref or an item ref, in the grammar 'ctxloom bundle trust'
 uses: a plain local bundle name, or the canonical 'ctxloom+local:<name>' URI.
 The signature covers the whole bundle, so an item ref
@@ -116,6 +123,9 @@ type signCmdTarget struct {
 	// ManifestPath is the SHA256SUMS the signature covers: every file in the
 	// tree, not bundle.yaml alone.
 	ManifestPath string `json:"manifest_path,omitempty"`
+	// VersionStamp is set when signing rewrote bundle.yaml's version from
+	// the project's VERSION file.
+	VersionStamp *operations.VersionStamp `json:"version_stamp,omitempty"`
 }
 
 // runSign is the testable body of `ctxloom bundle sign`: cfg and discoverer are
@@ -164,6 +174,7 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 			SignedBy:     discovered.Source,
 			Fingerprint:  discovered.Fingerprint,
 			ManifestPath: res.ManifestPath,
+			VersionStamp: res.VersionStamp,
 		})
 	}
 
@@ -246,6 +257,9 @@ func resolveSignTargets(cfg *config.Config, ref string, all bool) ([]operations.
 func printSignResult(w io.Writer, t signCmdTarget) {
 	if t.ItemNote != "" {
 		fmt.Fprintf(w, "Signing bundle %s (contains %s) — signatures cover whole bundles.\n", t.Bundle, t.ItemNote)
+	}
+	if st := t.VersionStamp; st != nil {
+		fmt.Fprintf(w, "  version %s -> %s in %s (stamped from %s)\n", st.From, st.To, t.BundlePath, st.File)
 	}
 	// Name the MANIFEST, not bundle.yaml: a bundle's content lives in files
 	// beside its envelope, and the signature covers all of them.

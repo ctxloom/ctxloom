@@ -188,8 +188,11 @@ can be signed.
 
 **If you publish bundles**, re-sign them with this release and publish again.
 `bundle sign` now refuses to re-sign a version whose files changed since it
-was last signed. Bump `version:` in the bundle, or pass `--force` if you mean
-to replace that version's signature.
+was last signed. Bump the version, or pass `--force` if you mean to replace
+that version's signature. In a project with a `VERSION` file at its root,
+that file is the version: `bundle sign` rewrites the bundle's `version:` to
+match it before signing and says so, so bump `VERSION`. Without one, bump
+`version:` in the bundle.
 
 **If you consume bundles**, run `ctxloom deps upgrade` once the publisher has
 re-signed. Until then, content whose signature does not verify is not pinned:

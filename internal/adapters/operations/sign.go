@@ -155,6 +155,24 @@ type SignBundleResult struct {
 	ManifestPath string `json:"manifest_path"`
 	// ItemNote carries SignTarget.ItemNote through, for CLI display.
 	ItemNote string `json:"item_note"`
+	// VersionStamp is set when signing rewrote bundle.yaml's version from the
+	// repository's VERSION file; nil when the version was already equal or
+	// the project has no VERSION file.
+	VersionStamp *VersionStamp `json:"version_stamp,omitempty"`
+}
+
+// RepoVersionFile is the file at a project root holding the repository's
+// release version (the one versionator manages). When it exists it is the
+// ONLY authored version: signing stamps it into bundle.yaml, so a
+// hand-maintained copy there cannot drift from the release it ships in.
+const RepoVersionFile = "VERSION"
+
+// VersionStamp records a bundle.yaml version rewritten from RepoVersionFile.
+type VersionStamp struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	// File is the VERSION file the new version was read from.
+	File string `json:"file"`
 }
 
 // SignBundleFile signs a local bundle tree through its ONE signature: it
@@ -171,8 +189,14 @@ type SignBundleResult struct {
 // `guard.yml` by path and produce a perfectly signed bundle in which the
 // guardrail does not exist.
 //
+// In a project with a VERSION file (RepoVersionFile) the signed version is
+// that file's, stamped into bundle.yaml first (see stampRepoVersion).
+//
 // Signing failure is always returned as an error: the operation either
-// produces a verifiable signature or nothing changes on disk.
+// produces a verifiable signature or changes nothing on disk beyond that
+// version stamp. The stamp lands BEFORE the re-sign refusal on purpose:
+// bundle.yaml is covered by the manifest, so the refusal can only judge the
+// content that would actually be signed once bundle.yaml says VERSION.
 func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResult, error) {
 	if req.Signer == nil {
 		return nil, fmt.Errorf("sign %s: no signer supplied", req.Target.BundleName)
@@ -186,19 +210,20 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 	}
 
 	fs := getFS(req.FS)
-	bundle, err := loadBundleForUpdate(bundleStore(cfg, req.Store), cfg, req.Target.BundleName)
+	authored := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(authored, cfg, req.Target.BundleName)
 	if err != nil {
 		return nil, err
+	}
+	versionFrom, stamp, err := stampRepoVersion(fs, cfg, authored, bundle)
+	if err != nil {
+		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
 	}
 
 	manifestPath := bundle.Path
 	dir := filepath.Dir(manifestPath)
-	store, err := content.NewTreeStore(fs, filepath.Dir(dir), content.Provenance{IsLocal: true})
-	if err != nil {
-		return nil, fmt.Errorf("sign %s: open the bundle tree at %s: %w", req.Target.BundleName, dir, err)
-	}
 	ctx := context.Background()
-	tree, err := store.Open(ctx, content.BundleID(filepath.Base(dir)))
+	store, tree, err := openLocalTree(ctx, fs, dir)
 	if err != nil {
 		return nil, fmt.Errorf("sign %s: open the bundle tree at %s: %w", req.Target.BundleName, dir, err)
 	}
@@ -207,7 +232,7 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
 	}
 	if !req.Force {
-		if err := refuseResignedVersion(ctx, tree, rel); err != nil {
+		if err := refuseResignedVersion(ctx, tree, rel, versionFrom); err != nil {
 			return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
 		}
 	}
@@ -220,7 +245,70 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 		SigPath:      filepath.Join(dir, content.SigDirName),
 		ManifestPath: filepath.Join(dir, content.ManifestPath),
 		ItemNote:     req.Target.ItemNote,
+		VersionStamp: stamp,
 	}, nil
+}
+
+// openLocalTree opens the authored bundle tree at dir through a store rooted
+// at its parent — the store attest.SignBundle writes the signature into.
+func openLocalTree(ctx context.Context, fs afero.Fs, dir string) (*content.TreeStore, content.Bundle, error) {
+	store, err := content.NewTreeStore(fs, filepath.Dir(dir), content.Provenance{IsLocal: true})
+	if err != nil {
+		return nil, nil, err
+	}
+	tree, err := store.Open(ctx, content.BundleID(filepath.Base(dir)))
+	if err != nil {
+		return nil, nil, err
+	}
+	return store, tree, nil
+}
+
+// stampRepoVersion makes bundle.yaml's version equal the project's
+// RepoVersionFile, writing it through the bundle store (the same envelope
+// writer `bundle edit --version` uses, which rewrites bundle.yaml and nothing
+// else). It returns the file that governs the version — the VERSION file
+// when there is one, else bundle.yaml — and the stamp when it rewrote one.
+func stampRepoVersion(fs afero.Fs, cfg *config.Config, store bundles.Store, b *bundles.Bundle) (string, *VersionStamp, error) {
+	version, file, err := repoVersion(fs, cfg)
+	if err != nil {
+		return "", nil, err
+	}
+	if file == "" {
+		return bundles.DirectoryFormManifest, nil, nil
+	}
+	if version == b.Version {
+		return file, nil, nil
+	}
+	stamp := &VersionStamp{From: b.Version, To: version, File: file}
+	b.Version = version
+	if err := store.Save(b); err != nil {
+		return "", nil, fmt.Errorf("stamp version %s from %s into %s: %w", version, file, b.Path, err)
+	}
+	return file, stamp, nil
+}
+
+// repoVersion reads the project's RepoVersionFile: its version and path, or
+// ("", "") when the project has none. The project root is the parent of the
+// project's .ctxloom directory (cfg.GetAppRoot) — the root the signed bundle
+// is authored under. A home-sourced config has no project: its root is the
+// user's home, and a VERSION file there belongs to no repository.
+func repoVersion(fs afero.Fs, cfg *config.Config) (version, file string, err error) {
+	if cfg.Source() != config.SourceProject || cfg.GetAppRoot() == "" {
+		return "", "", nil
+	}
+	file = filepath.Join(cfg.GetAppRoot(), RepoVersionFile)
+	raw, err := afero.ReadFile(fs, file)
+	if errors.Is(err, fs2.ErrNotExist) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("read %s: %w", file, err)
+	}
+	version = strings.TrimSpace(string(raw))
+	if _, err := semver.StrictNewVersion(version); err != nil {
+		return "", "", fmt.Errorf("%w: %s holds %q", ErrUnsignableVersion, file, version)
+	}
+	return version, file, nil
 }
 
 // ErrUnsignableVersion refuses to sign a bundle whose bundle.yaml version is
@@ -242,7 +330,10 @@ var ErrVersionAlreadySigned = errors.New("sign: this version was already signed 
 // published?": the tree's own last signature, not a network read of the
 // remote. A manifest this build cannot parse (none yet, or a retired format)
 // records no version, so there is nothing to refuse.
-func refuseResignedVersion(ctx context.Context, tree content.Bundle, rel release.Release) error {
+//
+// versionFrom names the file the version is authored in, which is where the
+// refusal tells the author to bump it.
+func refuseResignedVersion(ctx context.Context, tree content.Bundle, rel release.Release, versionFrom string) error {
 	prior, err := tree.Manifest(ctx)
 	if err != nil {
 		return nil
@@ -259,7 +350,7 @@ func refuseResignedVersion(ctx context.Context, tree content.Bundle, rel release
 		return nil
 	}
 	return fmt.Errorf("%w: %s %s is already signed over other files — bump version: in %s, or pass --force to re-sign %s deliberately",
-		ErrVersionAlreadySigned, rel.Name, rel.Version, bundles.DirectoryFormManifest, rel.Version)
+		ErrVersionAlreadySigned, rel.Name, rel.Version, versionFrom, rel.Version)
 }
 
 // bundleRelease is the release a signature over the bundle named name asserts,

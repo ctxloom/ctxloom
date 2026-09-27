@@ -64,7 +64,7 @@ type engineContainerSpec struct {
 	image              string
 	engineInstall      []byte
 	validate           string
-	resolveAuth        func() (containerAuth, bool)
+	resolveAuth        func(runAuth map[string]string) (containerAuth, bool)
 	authHint           string
 	authRemedy         string
 	overlayDirs        []string
@@ -161,7 +161,7 @@ func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 		spec.authRemedy = noContainerAuthRemedy
 		return spec
 	}
-	spec.resolveAuth = func() (containerAuth, bool) { return resolveDeclaredAuth(a) }
+	spec.resolveAuth = func(runAuth map[string]string) (containerAuth, bool) { return resolveDeclaredAuth(a, runAuth) }
 	spec.authHint = a.Hint
 	spec.authRemedy = a.Remedy
 	if a.Vendorless != "" {

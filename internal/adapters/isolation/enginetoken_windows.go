@@ -12,15 +12,21 @@ import (
 )
 
 // On Windows a file mode is not access control: os.Chmod only toggles the
-// read-only attribute, and the token would be as private as whatever ACL
+// read-only attribute, and a credential would be as private as whatever ACL
 // its directory inherited. The directory therefore gets a PROTECTED DACL
 // (nothing inherited from above) holding one inheritable ACE for the
-// current user. The token file is created inside it by iox.WriteFileAtomic
-// and inherits exactly that ACE; StoreEngineToken then checks the file, so
-// an inheritance that did not happen fails the store.
+// current user. The credential file is created inside it by
+// iox.WriteFileAtomic and inherits exactly that ACE; StoreEngineCredential
+// then checks the file, so an inheritance that did not happen fails the
+// store.
+//
+// Reading tolerates SYSTEM and the Administrators group beside the owner
+// (ruled 2026-09-25): both can take any file on the machine regardless, so
+// an ACL granting them is still owner-only in every sense that matters, and
+// refusing it would refuse the ACLs Windows itself writes by default.
 
-// restrictTokenDir replaces dir's DACL with a protected, owner-only one.
-func restrictTokenDir(dir string) error {
+// restrictCredentialDir replaces dir's DACL with a protected, owner-only one.
+func restrictCredentialDir(dir string) error {
 	sid, err := currentUserSID()
 	if err != nil {
 		return err
@@ -46,9 +52,9 @@ func restrictTokenDir(dir string) error {
 	return nil
 }
 
-// ownerOnlyViolation says why p is open beyond the current user, or "" when
-// every ACE that grants access names the current user. Deny ACEs narrow
-// access and are ignored; any other ACE type is refused rather than
+// ownerOnlyViolation says why p is open beyond the current user and the
+// tolerated principals (toleratedSIDs), or "" when it is not. Deny ACEs
+// narrow access and are ignored; any other ACE type is refused rather than
 // interpreted. No DACL at all means unrestricted access.
 func ownerOnlyViolation(p string, _ fs.FileInfo) (string, error) {
 	sid, err := currentUserSID()
@@ -66,6 +72,7 @@ func ownerOnlyViolation(p string, _ fs.FileInfo) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var grantees []string
 	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(dacl, i, &ace); err != nil {
@@ -75,14 +82,44 @@ func ownerOnlyViolation(p string, _ fs.FileInfo) (string, error) {
 		case windows.ACCESS_DENIED_ACE_TYPE:
 			continue
 		case windows.ACCESS_ALLOWED_ACE_TYPE:
-			if who := aceSID(ace); !who.Equals(sid) {
-				return fmt.Sprintf("grants access to %s", who), nil
-			}
+			grantees = append(grantees, aceSID(ace).String())
 		default:
 			return fmt.Sprintf("carries an ACE of type %d that is not checked", ace.Header.AceType), nil
 		}
 	}
-	return "", nil
+	tolerated, err := toleratedSIDs()
+	if err != nil {
+		return "", err
+	}
+	return aclExposure(sid.String(), tolerated, grantees), nil
+}
+
+// toleratedSIDs are the principals an owner-only ACL may also grant: the
+// machine's SYSTEM account and its Administrators group.
+func toleratedSIDs() ([]string, error) {
+	var out []string
+	for _, k := range []windows.WELL_KNOWN_SID_TYPE{windows.WinLocalSystemSid, windows.WinBuiltinAdministratorsSid} {
+		s, err := windows.CreateWellKnownSid(k)
+		if err != nil {
+			return nil, fmt.Errorf("resolve a well-known SID: %w", err)
+		}
+		out = append(out, s.String())
+	}
+	return out, nil
+}
+
+// describeProtection is what `auth status` shows of a stored credential on
+// Windows, where a mode says nothing: the ACL verdict, owner-only or
+// exposed and to whom (ruled 2026-09-25).
+func describeProtection(p string, info fs.FileInfo) (string, error) {
+	why, err := ownerOnlyViolation(p, info)
+	if err != nil {
+		return "", err
+	}
+	if why == "" {
+		return "owner-only", nil
+	}
+	return "exposed: " + why, nil
 }
 
 // currentUserSID is the SID of the user this process runs as.

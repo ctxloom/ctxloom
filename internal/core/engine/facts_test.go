@@ -1,17 +1,28 @@
 package engine
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// fakeAuth is an Auth with the modes a test names and nothing else.
+type fakeAuth struct{ modes []AuthMode }
+
+func (f fakeAuth) Modes() []AuthMode { return f.modes }
+func (fakeAuth) LaunchEnv(AuthMode, func(string) (string, bool), CredentialReader) (map[string]string, error) {
+	return nil, nil
+}
+func (fakeAuth) Mint(context.Context, AuthMode, Terminal) ([]byte, error) {
+	return nil, ErrMintUnsupported
+}
+
 func validHome() HomeSpec {
 	return HomeSpec{
-		Vars:        []HomeVar{{Name: "X_CONFIG_DIR", Subdir: "x"}},
-		Auth:        Provide(TokenAuth{TokenVar: "X_TOKEN", EnvTriggers: []string{"X_API_KEY"}, MintHint: "x setup-token"}),
-		SharedLogin: Provide(SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"}),
+		Vars: []HomeVar{{Name: "X_CONFIG_DIR", Subdir: "x"}},
+		Auth: Provide[Auth](fakeAuth{modes: []AuthMode{AuthLogin, AuthToken}}),
 	}
 }
 
@@ -26,10 +37,10 @@ func TestHomeSpec_ZeroValue_IsTheNullObject(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// Token auth on a spec that relocates nothing is refused: the auth check
-// guards a relocated home, and there is none.
+// Auth on a spec that relocates nothing is refused: the auth check guards a
+// relocated home, and there is none.
 func TestHomeSpec_Validate_RefusesAuthWithNoVar(t *testing.T) {
-	h := HomeSpec{Auth: Provide(TokenAuth{TokenVar: "X_TOKEN", MintHint: "x setup-token"})}
+	h := HomeSpec{Auth: Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken}})}
 	assert.ErrorContains(t, h.Validate(), "no home var")
 }
 
@@ -50,72 +61,52 @@ func TestHomeSpec_Validate_RefusesEmptyVarFields(t *testing.T) {
 // an engine with a relocatable home MUST say how a run there authenticates.
 func TestHomeSpec_Validate_RefusesUndecidedAuth(t *testing.T) {
 	h := validHome()
-	h.Auth = Declared[TokenAuth]{}
+	h.Auth = Declared[Auth]{}
 	assert.ErrorContains(t, h.Validate(), "Auth")
 }
 
 func TestHomeSpec_Validate_AcceptsAbsentAuth(t *testing.T) {
 	h := validHome()
-	h.Auth = Absent[TokenAuth]("authenticates against no vendor")
+	h.Auth = Absent[Auth]("authenticates against no vendor")
 	assert.NoError(t, h.Validate())
 }
 
-// A token-auth declaration must name the var the engine reads its token from
-// and the command that mints one: the refusal of an unauthenticated run
-// names both.
-func TestHomeSpec_Validate_TokenAuthNamesItsVarAndItsMintCommand(t *testing.T) {
+// An Auth a binding could never select is refused at registration: one with
+// no mode, a nil one, and one naming a mode outside the shared vocabulary.
+func TestHomeSpec_Validate_RefusesAnUnselectableAuth(t *testing.T) {
 	h := validHome()
-	h.Auth = Provide(TokenAuth{MintHint: "x setup-token"})
-	assert.ErrorContains(t, h.Validate(), "TokenVar")
-	h.Auth = Provide(TokenAuth{TokenVar: "X_TOKEN"})
-	assert.ErrorContains(t, h.Validate(), "MintHint")
+	h.Auth = Provide[Auth](fakeAuth{})
+	assert.ErrorContains(t, h.Validate(), "no mode")
+	h.Auth = Provide[Auth](nil)
+	assert.ErrorContains(t, h.Validate(), "nil")
+	h.Auth = Provide[Auth](fakeAuth{modes: []AuthMode{"keychain"}})
+	assert.ErrorContains(t, h.Validate(), `"keychain"`)
 }
 
-// An undecided SharedLogin is refused like an undecided Auth: an engine with
-// a relocatable home must say whether a host run can share the human's login.
-func TestHomeSpec_Validate_RefusesUndecidedSharedLogin(t *testing.T) {
-	h := validHome()
-	h.SharedLogin = Declared[SharedLogin]{}
-	assert.ErrorContains(t, h.Validate(), "SharedLogin")
-	h.SharedLogin = Absent[SharedLogin]("keeps no credential storage of its own")
-	assert.NoError(t, h.Validate())
-}
-
-func TestHomeSpec_Validate_SharedLoginNamesBothVars(t *testing.T) {
-	h := validHome()
-	h.SharedLogin = Provide(SharedLogin{FallbackVar: "X_CONFIG_DIR"})
-	assert.ErrorContains(t, h.Validate(), "Var is empty")
-	h.SharedLogin = Provide(SharedLogin{Var: "X_STORAGE_DIR"})
-	assert.ErrorContains(t, h.Validate(), "FallbackVar")
-}
-
-func TestHomeSpec_Validate_RefusesSharedLoginWithNoVar(t *testing.T) {
-	h := HomeSpec{SharedLogin: Provide(SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"})}
-	assert.ErrorContains(t, h.Validate(), "no home var")
-}
-
-// Value is the string the launching env's own engine resolves its storage
-// from, byte for byte: the storage var when set (even to ""), else the
-// fallback's value, else "".
-func TestSharedLogin_Value_IsWhatTheLaunchingEnvResolves(t *testing.T) {
-	l := SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"}
-	env := func(kv map[string]string) func(string) (string, bool) {
-		return func(k string) (string, bool) { v, ok := kv[k]; return v, ok }
+// Undeclared auth is the token: the default never reaches the human's own
+// login. An unknown spelling is refused, never defaulted.
+func TestParseAuthMode(t *testing.T) {
+	for in, want := range map[string]AuthMode{"": AuthToken, " login ": AuthLogin, "token": AuthToken, "api-key": AuthAPIKey} {
+		got, err := ParseAuthMode(in)
+		require.NoError(t, err, in)
+		assert.Equal(t, want, got, in)
 	}
-	for _, tc := range []struct {
-		name string
-		env  map[string]string
-		want string
-	}{
-		{"neither set is the engine's default", map[string]string{}, ""},
-		{"the fallback verbatim, never cleaned", map[string]string{"X_CONFIG_DIR": "/h/./cfg/"}, "/h/./cfg/"},
-		{"an inherited storage var wins over the fallback", map[string]string{"X_STORAGE_DIR": "/real", "X_CONFIG_DIR": "/session"}, "/real"},
-		{"an inherited empty storage var is kept", map[string]string{"X_STORAGE_DIR": "", "X_CONFIG_DIR": "/session"}, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, l.Value(env(tc.env)))
-		})
-	}
+	_, err := ParseAuthMode("apikey")
+	assert.ErrorContains(t, err, "login, token, api-key")
+}
+
+// The login is the human's and is never stored by ctxloom; every other mode's
+// credential is.
+func TestAuthMode_Stored(t *testing.T) {
+	assert.False(t, AuthLogin.Stored())
+	assert.True(t, AuthToken.Stored())
+	assert.True(t, AuthAPIKey.Stored())
+}
+
+func TestSupportsMode(t *testing.T) {
+	a := fakeAuth{modes: []AuthMode{AuthToken}}
+	assert.True(t, SupportsMode(a, AuthToken))
+	assert.False(t, SupportsMode(a, AuthAPIKey))
 }
 
 func validContainer() ContainerSpec {

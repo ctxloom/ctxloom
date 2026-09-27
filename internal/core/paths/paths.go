@@ -357,13 +357,11 @@ const (
 	// describes.
 	HomeRecordsDirName = "records"
 
-	// HomeAuthDirName holds each engine's stored long-lived token, one
-	// owner-only file per engine (HomeEngineTokenPath). Home-rooted because
-	// the token authenticates the user, not a project.
+	// HomeAuthDirName holds each engine's stored credentials, one
+	// owner-only file per engine and auth mode (HomeEngineCredentialPath).
+	// Home-rooted because a credential authenticates the user, not a
+	// project.
 	HomeAuthDirName = "auth"
-
-	// EngineTokenExt is the extension of a stored engine token file.
-	EngineTokenExt = ".token"
 
 	// EngineTranscriptLinkPrefix names the leaf every per-vendor-log
 	// convenience symlink at a harp dir's ROOT starts with (see
@@ -421,7 +419,7 @@ const (
 	whatDistrustedSigners = "the user distrust record"
 	whatHomeRecords       = "the home records directory"
 	whatCompanionPin      = "the admitted-companion pin"
-	whatEngineToken       = "the stored engine token"
+	whatEngineCredential  = "the stored engine credential"
 )
 
 // homeUnder resolves ~/<AppDirName>/<segments...>, naming what failed in the
@@ -445,11 +443,11 @@ func HomeCompanionPinDir() (string, error) {
 	return homeUnder(whatCompanionPin, CacheDir, CompanionPinCacheDir)
 }
 
-// HomeEngineTokenPath returns ~/.ctxloom/auth/<engine>.token, the owner-only
-// file holding engine's stored long-lived token. A pure path join; the
-// writer creates the directory.
-func HomeEngineTokenPath(engine string) (string, error) {
-	return homeUnder(whatEngineToken, HomeAuthDirName, engine+EngineTokenExt)
+// HomeEngineCredentialPath returns ~/.ctxloom/auth/<engine>.<mode>, the
+// owner-only file holding engine's stored credential for one auth mode. A
+// pure path join; the writer creates the directory.
+func HomeEngineCredentialPath(engine, mode string) (string, error) {
+	return homeUnder(whatEngineCredential, HomeAuthDirName, engine+"."+mode)
 }
 
 func HomeSessionsDir() (string, error) {
@@ -1284,7 +1282,7 @@ func Layout() []Entry {
 		},
 		{
 			Rel: filepath.Join(AppDirName, HomeAuthDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "every stored engine token (ctxloom auth set-token); a run with no token and no API key is refused until one is minted and stored again",
+			Lost: "every stored engine credential (ctxloom auth mint / ctxloom auth set); a run whose agent needs one mints it again at a terminal, and an unattended one is refused until it is",
 		},
 	}
 }

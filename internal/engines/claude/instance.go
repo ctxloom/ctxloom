@@ -35,22 +35,12 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 // Home: CLAUDE_CONFIG_DIR relocates claude's config into a session home,
 // which gets its own .claude.json through claudeInstanceConfig (the account
 // identity and the onboarding answers, carried across by name and nothing
-// else). No credential is placed there. A HOST run shares the human's own
-// login in place through SecureStorageEnv: one credential and one pair of
-// refresh locks with the human's claude, so claude's own locked refresh
-// keeps every holder in step, where the copies it replaced diverged and
-// revoked each other. A container run authenticates from the setup-token in
-// CLAUDE_CODE_OAUTH_TOKEN, which outranks any credentials file, or from an
-// API key, a gateway token or a cloud provider instead.
+// else). No credential is placed there: how a run authenticates is the
+// agent's declared mode, turned into env by claudeAuth.LaunchEnv.
 func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
-		Vars: []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
-		Auth: engine.Provide(engine.TokenAuth{
-			TokenVar:    OAuthTokenEnv,
-			EnvTriggers: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"},
-			MintHint:    "claude setup-token",
-		}),
-		SharedLogin:    engine.Provide(engine.SharedLogin{Var: SecureStorageEnv, FallbackVar: ConfigDirEnv}),
+		Vars:           []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
+		Auth:           engine.Provide[engine.Auth](claudeAuth{binary: "claude"}),
 		InstanceConfig: claudeInstanceConfig{},
 	}
 }
@@ -65,17 +55,17 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 		Auth: engine.Provide(engine.ContainerAuth{
 			// ANTHROPIC_AUTH_TOKEN is a trigger too: a gateway host
 			// authenticates with AUTH_TOKEN+BASE_URL and carries no API key.
-			EnvTriggers: []string{OAuthTokenEnv, "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
+			EnvTriggers: credentialVars,
 			EnvPassthrough: []string{
 				OAuthTokenEnv,
-				"ANTHROPIC_API_KEY",
-				"ANTHROPIC_AUTH_TOKEN",
+				APIKeyEnv,
+				AuthTokenEnv,
 				"ANTHROPIC_BASE_URL",
 				"ANTHROPIC_MODEL",
 				"ANTHROPIC_SMALL_FAST_MODEL",
 			},
-			Hint:   "no " + OAuthTokenEnv + ", ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN to authenticate the in-container engine",
-			Remedy: "run `claude setup-token`, then store what it prints with `ctxloom auth set-token`",
+			Hint:   "no " + OAuthTokenEnv + ", " + APIKeyEnv + " or " + AuthTokenEnv + " to authenticate the in-container engine",
+			Remedy: "run `ctxloom auth mint --mode token` at a terminal, or export " + APIKeyEnv,
 		}),
 		OverlayDirs:        []string{ConfigDirName},
 		TranscriptStoreRel: filepath.Join(ConfigDirName, TranscriptsDirName),

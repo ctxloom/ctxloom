@@ -668,22 +668,16 @@ func printDiscoveryPostureHint(cfg *config.Config) {
 // prove a live, authenticated round trip happened.
 const authPingTask = "Reply with exactly: ok"
 
-// engineAuthFixHint names the fix for a failed auth probe, read off the
-// engine's OWN token-auth declaration (Engine.Home().Auth): the command that
-// mints its token, the command that stores it, and the env vars that
-// authenticate it instead. An engine that declares no token auth — or is not
-// registered at all — gets a generic but actionable fix rather than a blank,
-// since the probe still failed.
+// engineAuthFixHint names the fix for a failed auth probe. An engine that
+// declares auth (Engine.Home().Auth) gets the commands that mint or store
+// its credential; one that declares none — or is not registered at all —
+// gets a generic but actionable fix rather than a blank, since the probe
+// still failed.
 func engineAuthFixHint(engine string) string {
-	a, ok := isolation.TokenAuthFor(engine)
-	if !ok {
+	if _, ok := isolation.AuthFor(engine); !ok {
 		return "authenticate the engine (subscription login or its API-key env var) and try again"
 	}
-	fix := fmt.Sprintf("run `%s` and store what it prints with `ctxloom auth set-token`", a.MintHint)
-	if len(a.EnvTriggers) > 0 {
-		fix += fmt.Sprintf(" (or set %s)", strings.Join(a.EnvTriggers, " or "))
-	}
-	return fix
+	return fmt.Sprintf("run `ctxloom auth mint --engine %s --mode token` at a terminal, or store an API key with `ctxloom auth set --engine %s --mode api-key`", engine, engine)
 }
 
 // authPingHosts is a test seam: nil runs the probe on the command's

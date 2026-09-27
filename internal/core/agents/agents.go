@@ -168,6 +168,16 @@ type Agent struct {
 	// rather than blocking the launch — never onto the real home, which a
 	// typo must not select.
 	HomeMode string `yaml:"engine_home,omitempty"`
+	// Auth is how this agent's engine authenticates, in the engine-neutral
+	// vocabulary (engine.AuthModeNames: login, token, api-key). Purely per
+	// agent: a binding declaring login gets the human's own login whether it
+	// runs top-level, as a delegated child or as a one-shot. Undeclared is
+	// token (engine.ParseAuthMode), so the human's login is only ever reached
+	// by name. Validated against the bound engine's Auth.Modes when WRITTEN
+	// (operations.SetAgent); a credential is never written here, only the
+	// mode — the credential itself is stored owner-only under the ctxloom
+	// home, out of any repository.
+	Auth string `yaml:"auth,omitempty"`
 }
 
 // HomeMode is the EFFECTIVE engine-home policy a declaration parses to: one

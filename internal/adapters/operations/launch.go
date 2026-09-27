@@ -280,8 +280,19 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	if err != nil {
 		return launch.Cell{}, err
 	}
+	// Settled before the cell exists: a container's auth gate reads it, and a
+	// credential that has to be minted is minted before anything is built.
+	authEnv, err := resolveRunAuth(ctx, c.engines, runAuth{
+		Backend:  backend,
+		Mode:     req.Auth,
+		OnHost:   !launch.IsContainerRuntimeAxis(req.Axes.Runtime),
+		HomeMode: homeMode,
+	})
+	if err != nil {
+		return launch.Cell{}, err
+	}
 	mark := strictness.Checkpoint()
-	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env))
+	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env), authEnv)
 	env := isolation.WorkspaceEnv(ws)
 	home := BindAgentHome(c.engines, ws, InTreeAgentHome{
 		Backend:  backend,
@@ -319,6 +330,12 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	if home.Absent == "" {
 		bindCellHome(&cell, &roots, home)
 	}
+	if len(authEnv) > 0 {
+		if cell.Env == nil {
+			cell.Env = map[string]string{}
+		}
+		maps.Copy(cell.Env, authEnv)
+	}
 	placeCellPaths(&cell, roots, policy, home, req.Axes.Runtime)
 	return cell, nil
 }
@@ -345,8 +362,8 @@ func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest
 	return gitClient, outcome.copy, nil
 }
 
-// bindCellHome carries a bound engine home into the cell: its root, its env
-// (also recorded as home bindings), and its login env.
+// bindCellHome carries a bound engine home into the cell: its root and its
+// env (also recorded as home bindings).
 func bindCellHome(cell *launch.Cell, roots *present.Paths, home AgentHomeResolution) {
 	roots.EngineHome = present.Root{Host: home.Root.Host}
 	if cell.Env == nil {
@@ -356,7 +373,6 @@ func bindCellHome(cell *launch.Cell, roots *present.Paths, home AgentHomeResolut
 	for k, v := range home.Env {
 		cell.Home = append(cell.Home, engine.HomeBinding{Var: k, Path: v})
 	}
-	maps.Copy(cell.Env, home.Login)
 }
 
 // placeCellPaths presents the roots as the cell sees them: containerized

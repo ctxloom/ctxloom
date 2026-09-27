@@ -141,6 +141,9 @@ type CellRequest struct {
 	Host        HostFacts
 	Degraded    bool
 	HomeMode    HomeMode
+	// Auth is the agent's effective auth mode, validated against the engine
+	// by the cells adapter, which resolves it to the run's credential env.
+	Auth engine.AuthMode
 	// Env is the run's own environment: the identity carriers the cell's
 	// session state is keyed from and the caller's passthrough.
 	Env map[string]string

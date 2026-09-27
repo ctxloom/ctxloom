@@ -46,14 +46,14 @@ func captureRuntimeAxis(t *testing.T) (*isolation.Axes, *stubEngine) {
 	t.Helper()
 	resetStrictness(t)
 	got := &isolation.Axes{}
-	engine := &stubEngine{out: "ran"}
+	stub := &stubEngine{out: "ran"}
 	prev := prepareIsolation
 	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState, _ engine.LaunchEnv) (isolation.Policy, isolation.Workspace) {
 		*got = axes
 		return stubPolicy{}, stubWorkspace{dir: projectDir}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
-	return got, engine
+	return got, stub
 }
 
 // -----------------------------------------------------------------------------

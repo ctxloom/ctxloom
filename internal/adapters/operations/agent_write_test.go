@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -857,6 +858,8 @@ func TestSetAgent_RefusesARootTheApproachDoesNotOffer(t *testing.T) {
 func TestSetAgent_ValidatesAuthAgainstTheEnginesModes(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 	mgr := managerFor(t, appDir)
+	fakeHostHome(t, "")
+	t.Setenv(claude.APIKeyEnv, "sk-ant-api-fixture") // an api-key agent is written once its key is available
 
 	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 		Name: "coder", LLM: ptr("claude-code"), Profiles: ptr([]string{"default"}), Auth: ptr("api-key"),
@@ -880,7 +883,7 @@ func TestSetAgent_ValidatesAuthAgainstTheEnginesModes(t *testing.T) {
 		_, ok := final.Agent(req.Name)
 		assert.False(t, ok, "a refused write persists nothing")
 	}
-	refused(t, SetAgentRequest{Name: "typo", LLM: ptr("claude-code"), Profiles: ptr([]string{"x"}), Auth: ptr("apikey")}, "apikey", "login, token, api-key")
+	refused(t, SetAgentRequest{Name: "typo", LLM: ptr("claude-code"), Profiles: ptr([]string{"x"}), Auth: ptr("apikey")}, "apikey")
 	refused(t, SetAgentRequest{Name: "noauth", LLM: ptr("mock"), Profiles: ptr([]string{"x"}), Auth: ptr("token")}, "declares no auth")
 }
 
@@ -891,5 +894,5 @@ func TestSetAgent_RefusesAModeTheEngineLacks(t *testing.T) {
 		Name: "fake", LLM: ptr("fake-auth"), Profiles: ptr([]string{"x"}), Auth: ptr("login"),
 	})
 	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
-	assert.Contains(t, err.Error(), "token, api-key", "the refusal names what the engine does support")
+	assert.Contains(t, remedyOf(t, err), "token, api-key", "the remedy names what the engine does support")
 }

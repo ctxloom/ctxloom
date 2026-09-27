@@ -32,6 +32,7 @@ func TestResolveForge_HostCanonicalization(t *testing.T) {
 		{"explicit default port, portless forge", "https://ghe.example:443/o/r", "https://ghe.example", ForgeGitHub, "GHE_TOKEN"},
 		{"portless remote, forge with default port", "https://ghe.example/o/r", "https://ghe.example:443", ForgeGitHub, "GHE_TOKEN"},
 		{"ssh default port, portless https forge", "ssh://git@ghe.example:22/o/r", "https://ghe.example", ForgeGitHub, "GHE_TOKEN"},
+		{"scp-style remote", "git@ghe.example:o/r.git", "https://ghe.example", ForgeGitHub, "GHE_TOKEN"},
 		{"forge on 8443, remote on 8443", "https://ghe.example:8443/o/r", "https://ghe.example:8443", ForgeGitHub, "GHE_TOKEN"},
 		// A different port is a different server (RFC 3986 §6.2.3): it must not
 		// be handed this forge's endpoint or token env.

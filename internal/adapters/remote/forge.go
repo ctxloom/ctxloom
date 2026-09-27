@@ -177,6 +177,12 @@ func forgeHost(raw string) (name, port string) {
 	if raw == "" {
 		return "", ""
 	}
+	// scp-style SSH ("git@host:owner/repo") is a spelling ParseRepoURL accepts,
+	// but url.Parse refuses it (see DetectForge), so its host is read off the
+	// string; the form carries no port.
+	if host, ok := scpLikeHost(raw); ok {
+		raw = "ssh://" + host
+	}
 	if !strings.Contains(raw, "://") {
 		if !strings.Contains(raw, ".") {
 			return "", ""

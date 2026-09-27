@@ -358,7 +358,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 	err := launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 	require.Error(t, err, "a failed ping must fail init loud, not degrade")
 	assert.False(t, launchCalled, "the engine must never be launched after a failed auth ping")
-	assert.Contains(t, err.Error(), "ctxloom auth set-token")
+	assert.Contains(t, err.Error(), "ctxloom auth mint --engine claude-code --mode token")
 }
 
 // TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint: a healthy

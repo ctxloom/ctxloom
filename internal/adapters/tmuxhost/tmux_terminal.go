@@ -151,6 +151,9 @@ type tmuxTerminal struct {
 	outputPath string
 	statusPath string
 	limit      *int // CreateTerminalRequest.OutputByteLimit, retained for every later TerminalOutput call
+	// feed hands the window's launcher its environment; released with the
+	// window, so an environment nobody read never outlives it.
+	feed *envFeed
 
 	// mu guards exitStatus/killed, which a WaitForTerminalExit call (reading)
 	// and a KillTerminal call (writing) can reach concurrently — see kill's
@@ -402,14 +405,15 @@ func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 	for _, e := range spec.Env {
 		env[e.Name] = e.Value
 	}
-	launcher, err := writeLauncher(l.tmpDir, "term-"+name, env, spec.Command, spec.Args)
+	launch, err := writeLauncher(l.tmpDir, "term-"+name, env, spec.Command, spec.Args)
 	if err != nil {
 		return "", err
 	}
 	args = append(args, "sh", "-c", tmuxWindowWrapper,
-		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, "sh", launcher)
+		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, "sh", launch.path)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {
+		launch.feed.release()
 		return "", err
 	}
 
@@ -419,6 +423,7 @@ func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 		outputPath: outputPath,
 		statusPath: statusPath,
 		limit:      spec.OutputLimit,
+		feed:       launch.feed,
 	}
 	l.mu.Lock()
 	l.terms[id] = term
@@ -532,6 +537,7 @@ func windowOutput(t *tmuxTerminal) (string, error) {
 // just exited with a real code. Every terminal-owning editor accepts this.
 func (l *Terminals) killWindow(ctx context.Context, t *tmuxTerminal) {
 	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
+	t.feed.release()
 
 	t.mu.Lock()
 	t.killed = true
@@ -568,6 +574,7 @@ func (l *Terminals) releaseWindow(ctx context.Context, t *tmuxTerminal) {
 	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
 	_ = os.Remove(t.outputPath)
 	_ = os.Remove(t.statusPath)
+	t.feed.release()
 }
 
 // output answers terminal/output: the captured file content (see

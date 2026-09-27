@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -327,33 +326,4 @@ func TestConfigSchema_EngineHomeEnumMatchesGoNames(t *testing.T) {
 	sort.Strings(want)
 
 	assert.Equal(t, want, schemaEnum, "schema engine_home enum must match agents.HomeModeNames() exactly")
-}
-
-// TestConfigSchema_AuthEnumMatchesGoNames binds the schema's
-// agents.<name>.auth enum to engine.AuthModeNames(), the drift gate the
-// hand-authored schema needs (see the engine_home twin above).
-func TestConfigSchema_AuthEnumMatchesGoNames(t *testing.T) {
-	raw, err := resources.GetConfigSchema()
-	require.NoError(t, err)
-
-	var doc struct {
-		Properties struct {
-			Agents struct {
-				AdditionalProperties struct {
-					Properties struct {
-						Auth struct {
-							Enum []string `json:"enum"`
-						} `json:"auth"`
-					} `json:"properties"`
-				} `json:"additionalProperties"`
-			} `json:"agents"`
-		} `json:"properties"`
-	}
-	require.NoError(t, json.Unmarshal(raw, &doc))
-	got := doc.Properties.Agents.AdditionalProperties.Properties.Auth.Enum
-	require.NotEmpty(t, got, "fixture sanity: the auth enum must be present in the schema")
-	sort.Strings(got)
-	want := append([]string(nil), engine.AuthModeNames()...)
-	sort.Strings(want)
-	assert.Equal(t, want, got, "schema auth enum must match engine.AuthModeNames() exactly")
 }

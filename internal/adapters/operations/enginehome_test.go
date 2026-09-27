@@ -253,7 +253,6 @@ func TestResolveInTreeAgentHome_EngineWithoutAHomeSaysWhy(t *testing.T) {
 	assert.Contains(t, res.Absent, "mock", "the reason names the engine")
 }
 
-
 // The instance's SHAPE, spelled out once so a change to the layout cannot pass
 // by agreeing with itself: the session's own directory under the ctxloom home
 // (not the project tree, not cache — it holds engine state nothing

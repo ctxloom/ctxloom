@@ -447,7 +447,13 @@ func HomeCompanionPinDir() (string, error) {
 // owner-only file holding engine's stored credential for one auth mode. A
 // pure path join; the writer creates the directory.
 func HomeEngineCredentialPath(engine, mode string) (string, error) {
-	return homeUnder(whatEngineCredential, HomeAuthDirName, engine+"."+mode)
+	return homeUnder(whatEngineCredential, HomeAuthDirName, EngineCredentialFileName(engine, mode))
+}
+
+// EngineCredentialFileName is the leaf of engine's stored credential for one
+// auth mode inside HomeAuthDirName: <engine>.<mode>.
+func EngineCredentialFileName(engine, mode string) string {
+	return engine + "." + mode
 }
 
 func HomeSessionsDir() (string, error) {

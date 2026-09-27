@@ -830,4 +830,3 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		Auth:                 authMode,
 	}, nil
 }
-

@@ -496,7 +496,7 @@ func TestSeedLiveCredentials_NoStoredTokenIsLoud(t *testing.T) {
 	err := seedLiveCredentials("claude", liveAgents["claude"], t.TempDir(), t.TempDir(), setEnv)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "claude-code.token")
-	assert.Contains(t, err.Error(), "ctxloom auth set-token")
+	assert.Contains(t, err.Error(), "ctxloom auth mint --mode token")
 	assert.Empty(t, got)
 }
 

@@ -88,7 +88,8 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # SHARED-IDENTITY property of ctxloom's read-write host bind mount — the
   # mechanism a container run's session engine home is mounted with. No
   # credential file is mounted into a container: claude there authenticates
-  # from CLAUDE_CODE_OAUTH_TOKEN, forwarded by name.
+  # from the credential its agent's auth mode resolves to, carried in the
+  # launch env.
 
   Background:
     Given Alice has a git-backed project with a mock agent
@@ -274,7 +275,8 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #
   # A container run's session engine home is a read-write bind of the host
   # directory, so what the engine writes there is on the host. Credentials do
-  # not ride it: claude authenticates from the setup-token forwarded by name.
+  # not ride it: claude authenticates from the credential its agent's auth
+  # mode resolves to, carried in the launch env.
   # The @container lane launches the built-in MOCK in a real container and
   # proves the shared-identity property live: a write made from INSIDE the
   # container reaches the HOST at the same path.
@@ -406,11 +408,11 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | claude-code |
 
   # The credential half of the "gets a ctxloom-controlled config home" scenario
-  # above, claude-code only. A HOST claude shares Alice's own login in place
-  # (CLAUDE_SECURESTORAGE_CONFIG_DIR set to what her claude resolves), and the
-  # setup-token is blanked even when one is stored, because claude would read
-  # it ahead of her login. Nothing is copied into the session home: Alice's
-  # own native login is neither read into it nor rewritten.
+  # above, claude-code only. A HOST claude whose agent declares auth: login
+  # shares Alice's own login in place (CLAUDE_SECURESTORAGE_CONFIG_DIR set to
+  # what her claude resolves), and the setup-token is blanked even when one
+  # is stored: the declared mode decides. Nothing is copied into the session
+  # home: Alice's own native login is neither read into it nor rewritten.
   #
   # The instance-side assertions are read from INSIDE the running engine: the
   # spy dumps what it was handed while it runs (whether the token var is
@@ -423,6 +425,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And Alice has a "claude-code" credential fixture on the host
     And Alice has stored a "claude-code" setup-token
     And Alice's agent declares engine_home "session"
+    And Alice's agent declares auth "login"
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the spy "claude-code" process shares Alice's own login in place
     And the spy "claude-code" process was handed no setup-token
@@ -454,14 +457,13 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And the instance's claude config carries the generated trust answer and the account identity, and none of Alice's own registrations or history
     And the host "claude-code" credential file was never modified
 
-  # A host run needs no token: with none stored or exported and no API var it
-  # still proceeds, on Alice's own login shared in place. The refusal of an
-  # unauthenticatable home now belongs to container runs, which cannot reach
-  # her login (isolation.PrepareInstanceHome).
-  Scenario: An in-tree AGENT run with no token proceeds on Alice's own login
+  # A login agent needs no token: with none stored or exported and no API var
+  # it still proceeds, on Alice's own login shared in place.
+  Scenario: An in-tree login agent with no token proceeds on Alice's own login
     Given Alice has a git-backed project
     And Alice has no "claude-code" credentials or API key on the host
     And Alice's agent declares engine_home "session"
+    And Alice's agent declares auth "login"
     When Alice runs the isolated "claude-code" agent under workspace "none"
     Then the run reports no isolation finding
     And the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
@@ -469,8 +471,9 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And the spy "claude-code" process was handed no setup-token
     And the isolated "claude-code" home holds no credential file
 
-  # An API key riding the environment reaches a host run beside the shared
-  # login, and the run is never blocked on a missing token.
+  # An api-key agent's key riding the environment reaches the run: the key the
+  # human exported wins for the mode the agent declared, and the run is never
+  # blocked on a missing token.
   #
   # "PROCEED" is the load-bearing word in this scenario's title, so it is what
   # gets asserted: the run exits 0, the engine really launches, and the
@@ -484,6 +487,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And Alice has no "<engine>" credentials on the host
     And Alice has set the "<engine>" API key in the environment
     And Alice's agent declares engine_home "session"
+    And Alice's agent declares auth "api-key"
     When Alice runs the isolated "<engine>" agent under workspace "worktree"
     Then the run reports no isolation finding
     And the spy "<engine>" process's "<var>" env var points at this session's config-home instance
@@ -503,12 +507,27 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And Alice has a "claude-code" credential fixture on the host
     And Alice has stored a "claude-code" setup-token
     And Alice's agent declares engine_home "session"
+    And Alice's agent declares auth "login"
     When Alice runs the isolated "claude-code" agent under workspace "worktree"
     Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
     And the spy "claude-code" process shares Alice's own login in place
     And the spy "claude-code" process was handed no setup-token
     And the isolated "claude-code" home holds no credential file
     And the host "claude-code" credential file was never modified
+
+  # MINTED WHEN NEEDED, NEVER PROMPTED UNATTENDED (ruled 2026-09-27). An agent
+  # declaring nothing authenticates with a token; with none stored or
+  # exported, a run at a terminal mints one, and a run with no terminal —
+  # this suite's runs have none — is refused before any engine is spawned,
+  # naming the command that mints it. An exported API key does not stand in:
+  # the declared mode decides.
+  Scenario: An unattended token agent with no stored token is refused, naming the mint command
+    Given Alice has a git-backed project
+    And Alice has no "claude-code" credentials or API key on the host
+    And Alice has set the "claude-code" API key in the environment
+    And Alice's agent declares engine_home "session"
+    When Alice runs the isolated "claude-code" agent under workspace "none"
+    Then the run fails without any isolation finding, naming "ctxloom auth mint --engine claude-code --mode token"
 
   # ARGV/STDIN VISIBILITY (U161-F01) — the spy previously dumped only its own
   # environment; it never emitted "$@" and never read stdin, so every argv

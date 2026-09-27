@@ -286,20 +286,17 @@ const refHTTPSPort = "443"
 //     beside its A-label twin as a second identity for one repository;
 //   - an empty port and the https default (refHTTPSPort) are dropped.
 //
-// The name half is CanonicalHost.
+// It is CanonicalAuthority rendered, so a reference and a repository identity
+// cannot disagree about a host.
 func canonicalGitHost(u *url.URL) (string, error) {
-	name, port := u.Hostname(), u.Port()
-	if name == "" {
+	if u.Hostname() == "" {
 		return "", fmt.Errorf("%w: %sgit requires a host", ErrSyntax, SchemePrefix)
 	}
-	name, err := CanonicalHost(name)
+	host, port, err := CanonicalAuthority(u)
 	if err != nil {
 		return "", err
 	}
-	if port == "" || port == refHTTPSPort {
-		return name, nil
-	}
-	return name + ":" + port, nil
+	return joinAuthority(host, port), nil
 }
 
 // CanonicalHost is the one spelling of a host NAME — as url.URL.Hostname

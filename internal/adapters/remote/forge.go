@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
@@ -69,12 +70,10 @@ type ResolvedForge struct {
 // forge instances. Resolution order, highest priority first:
 //
 //  1. explicit remote.Forge label → forges[label]
-//  2. URL host matches a configured forge's base_url
+//  2. URL server (host and port) matches a configured forge's base_url —
+//     see forgeByServer
 //  3. built-in github for github.com (and owner/repo shorthand)
-//  4. generic git for any other host
-//
-// Step 2 scans labels in ascending order, so when several forges share a
-// base_url host the lowest label wins — the same one on every run.
+//  4. generic git for any other server
 //
 // forges may be nil; built-in defaults always apply.
 func resolveForge(remoteURL, forgeLabel string, forges map[string]ForgeConfig) ResolvedForge {
@@ -84,16 +83,9 @@ func resolveForge(remoteURL, forgeLabel string, forges map[string]ForgeConfig) R
 		}
 	}
 
-	host := forgeHost(remoteURL)
-	if host != "" {
-		// Labels in ascending order, not map order: two forges may share a
-		// base_url host, and ranging the map would bind the remote to a
-		// different endpoint and a different token env from run to run.
-		for _, label := range slices.Sorted(maps.Keys(forges)) {
-			fc := forges[label]
-			if bh := forgeHost(fc.BaseURL()); bh != "" && bh == host {
-				return resolvedFromConfig(remoteURL, fc)
-			}
+	if name, port := forgeHost(remoteURL); name != "" {
+		if fc, ok := forgeByServer(name, port, forges); ok {
+			return resolvedFromConfig(remoteURL, fc)
 		}
 	}
 
@@ -136,30 +128,70 @@ func resolvedFromConfig(remoteURL string, fc ForgeConfig) ResolvedForge {
 	}
 }
 
-// forgeHost returns the host of a URL as repository identity spells it
-// (refuri.CanonicalHost), stripping a www. prefix so github.com and
-// www.github.com match. The port is dropped: a forge is matched by host name.
-// Returns "" — which matches no forge — for shorthand owner/repo, unparseable
-// input, or a host CanonicalHost refuses.
-func forgeHost(raw string) string {
+// forgeByServer is the configured forge whose base_url names the server
+// (name, port): the host name AND the port, a different port being a different
+// server (RFC 3986 §6.2.3) that must not be handed this forge's endpoint or
+// token env. Labels are scanned in ascending order, not map order: two forges
+// may share a base_url, and ranging the map would bind the remote to a
+// different endpoint and token env from run to run.
+//
+// A forge naming the host on another port does not match, and says so: the
+// token env it would have supplied is otherwise missing silently, surfacing
+// only as an opaque auth failure at clone time.
+func forgeByServer(name, port string, forges map[string]ForgeConfig) (ForgeConfig, bool) {
+	portMiss := ""
+	for _, label := range slices.Sorted(maps.Keys(forges)) {
+		fc := forges[label]
+		bn, bp := forgeHost(fc.BaseURL())
+		if bn == "" || bn != name {
+			continue
+		}
+		if bp == port {
+			return fc, true
+		}
+		if portMiss == "" {
+			portMiss = label
+		}
+	}
+	if portMiss != "" {
+		clidiag.WarnOnce("ctxloom",
+			"forge %q (base_url %s) names host %s but not port %s — a different port is a different server, so a remote there resolves as generic git without that forge's token_env",
+			portMiss, forges[portMiss].BaseURL(), name, portOrDefault(port))
+	}
+	return ForgeConfig{}, false
+}
+
+func portOrDefault(port string) string {
+	if port == "" {
+		return "(default)"
+	}
+	return port
+}
+
+// forgeHost returns the server a URL addresses, as repository identity spells
+// it (refuri.CanonicalAuthority): the host name, with a www. prefix stripped so
+// github.com and www.github.com match, and the port, "" for the scheme's
+// default. Returns name "" — which matches no forge — for shorthand owner/repo,
+// unparseable input, or a host refuri refuses.
+func forgeHost(raw string) (name, port string) {
 	if raw == "" {
-		return ""
+		return "", ""
 	}
 	if !strings.Contains(raw, "://") {
 		if !strings.Contains(raw, ".") {
-			return ""
+			return "", ""
 		}
 		raw = "https://" + raw
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	host, err := refuri.CanonicalHost(u.Hostname())
+	name, port, err = refuri.CanonicalAuthority(u)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return strings.TrimPrefix(host, "www.")
+	return strings.TrimPrefix(name, "www."), port
 }
 
 // ResolveForgeForURLWith resolves a forge for a bare URL against an explicit

@@ -89,7 +89,7 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 	// and renders as https, but url.Parse refuses it outright — its first
 	// path segment carries a colon — so the host is read off the string.
 	if host, ok := scpLikeHost(repoURL); ok {
-		return forgeForHost(host, "https://"+host)
+		return forgeForHost(&url.URL{Scheme: "https", Host: host}, "https://"+host)
 	}
 
 	u, err := url.Parse(repoURL)
@@ -109,14 +109,14 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 		seg, _, _ := strings.Cut(u.Path, "/")
 		seg = strings.ToLower(seg)
 		if u.Scheme == "" && strings.Contains(seg, ".") {
-			return forgeForHost(seg, "https://"+seg)
+			return forgeForHost(&url.URL{Scheme: "https", Host: seg}, "https://"+seg)
 		}
 		return ForgeGitGeneric, repoURL, nil
 	}
 
 	// Any other host is consumed via the generic git adapter (clone + local
 	// read) against its own endpoint.
-	return forgeForHost(host, fmt.Sprintf("%s://%s", u.Scheme, u.Host))
+	return forgeForHost(u, fmt.Sprintf("%s://%s", u.Scheme, u.Host))
 }
 
 // scpLikeHost returns the host of an scp-style SSH ref ("user@host:owner/repo")
@@ -142,17 +142,19 @@ func scpLikeHost(repoURL string) (string, bool) {
 	return host, true
 }
 
-// forgeForHost maps a resolved host to its adapter: github.com (with or without
-// the www. label) to the GitHub API adapter at the canonical endpoint, every
-// other host to the generic clone-backed adapter at base. The host is compared
-// as repository identity spells it (refuri.CanonicalHost), and a host that
-// refuses is an error, as an unparseable URL is: it names no repository.
-func forgeForHost(host, base string) (ForgeType, string, error) {
-	host, err := refuri.CanonicalHost(host)
+// forgeForHost maps the server u addresses to its adapter: github.com (with or
+// without the www. label, on its scheme's default port) to the GitHub API
+// adapter at the canonical endpoint, every other server — github.com on
+// another port included — to the generic clone-backed adapter at base. The
+// server is compared as repository identity spells it
+// (refuri.CanonicalAuthority), and a host that refuses is an error, as an
+// unparseable URL is: it names no repository.
+func forgeForHost(u *url.URL, base string) (ForgeType, string, error) {
+	host, port, err := refuri.CanonicalAuthority(u)
 	if err != nil {
 		return "", "", fmt.Errorf("invalid URL: %w", err)
 	}
-	if host == "github.com" || host == "www.github.com" {
+	if port == "" && (host == "github.com" || host == "www.github.com") {
 		return ForgeGitHub, "https://github.com", nil
 	}
 	return ForgeGitGeneric, base, nil

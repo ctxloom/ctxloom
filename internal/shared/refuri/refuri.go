@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 // SourceClass names which of the four reference classes a URI belongs to. The
@@ -265,17 +267,57 @@ func Parse(raw string) (Parts, error) {
 	return p, nil
 }
 
+// refHTTPSPort is the default port of the transport a ClassGit reference is
+// fetched over. A reference carries no transport of its own — FetchURL renders
+// it as https — so a port written into one IS an https port, and ":443" names
+// the same server as no port at all (RFC 3986 §6.2.3).
+const refHTTPSPort = "443"
+
+// canonicalGitHost is the one spelling of a ClassGit authority. It folds only
+// what names the same server for certain, and a "www." prefix is NOT among
+// them: that is a distinct host name, preserved like every other spelling this
+// grammar accepts (see Parse's doc).
+//
+//   - case, RFC 3986 §6.2.2.1: a host is case-insensitive;
+//   - an IDN host becomes its A-label (punycode) under IDNA2008/UTS #46's
+//     LOOKUP profile, the mapping a resolver applies before asking DNS, so the
+//     U-label and A-label spellings of one name key once. A host that profile
+//     refuses is an ERROR, never passed through: a verbatim key would sit
+//     beside its A-label twin as a second identity for one repository;
+//   - an empty port and the https default (refHTTPSPort) are dropped.
+//
+// An IP literal is not a DNS name, so IDNA does not apply to it.
+func canonicalGitHost(u *url.URL) (string, error) {
+	name, port := u.Hostname(), u.Port()
+	if name == "" {
+		return "", fmt.Errorf("%w: %sgit requires a host", ErrSyntax, SchemePrefix)
+	}
+	if strings.Contains(name, ":") {
+		name = "[" + strings.ToLower(name) + "]"
+	} else {
+		ascii, err := idna.Lookup.ToASCII(name)
+		if err != nil {
+			return "", fmt.Errorf("%w: host %q is not a valid host name: %v", ErrSyntax, name, err)
+		}
+		name = ascii
+	}
+	if port == "" || port == refHTTPSPort {
+		return name, nil
+	}
+	return name + ":" + port, nil
+}
+
 // parseExternal fills the repo path and bundle for ClassGit / ClassFile.
 func (p *Parts) parseExternal(u *url.URL) error {
 	if p.Class == ClassGit {
 		if u.Host == "" {
 			return fmt.Errorf("%w: %sgit requires a host", ErrSyntax, SchemePrefix)
 		}
-		// RFC 3986 §6.2.2.1: the host is case-INSENSITIVE, so folding its
-		// case is conformant normalization. A "www." prefix is NOT: it is a
-		// distinct host name, preserved byte-exact like every other spelling
-		// this grammar accepts. See Parse's doc.
-		p.Host = strings.ToLower(u.Host)
+		host, err := canonicalGitHost(u)
+		if err != nil {
+			return err
+		}
+		p.Host = host
 	} else if u.Host != "" {
 		return fmt.Errorf("%w: %sfile takes no host (use %sfile:///<abs-path>)", ErrSyntax, SchemePrefix, SchemePrefix)
 	}

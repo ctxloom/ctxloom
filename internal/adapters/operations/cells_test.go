@@ -198,6 +198,9 @@ func TestCellsPrepare_UnattendedWithNoCredentialIsRefused(t *testing.T) {
 	resetStrictness(t)
 	fakeHostHome(t, "")
 	withTerminal(t, engine.Terminal{}, false)
+	// No engine binary is reachable: a regression that tried to mint here
+	// fails on a missing binary instead of starting a real login flow.
+	t.Setenv("PATH", t.TempDir())
 
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()

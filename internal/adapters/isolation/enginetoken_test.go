@@ -2,7 +2,6 @@ package isolation
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,20 +14,22 @@ import (
 const fixtureToken = "sk-ant-oat01-fixture"
 
 // tokenHome points the home at a fresh directory and clears the token var,
-// so a test reads only the store it wrote.
+// so a test reads only the store it wrote. USERPROFILE is where
+// os.UserHomeDir looks on Windows.
 func tokenHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv(claude.OAuthTokenEnv, "")
 	require.NoError(t, os.Unsetenv(claude.OAuthTokenEnv))
 	t.Cleanup(resetTokenSources)
 	return home
 }
 
-// The stored token is owner-only from the moment it exists, in an
-// owner-only directory, and holds the token without the newline a paste
-// carries.
+// The stored token lands at the engine's token path, owner-only by this
+// platform's own check, and holds the token without the newline a paste
+// carries. What owner-only means per platform is asserted beside each twin.
 func TestStoreEngineToken_WritesAnOwnerOnlyFile(t *testing.T) {
 	tokenHome(t)
 	path, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken+"\n"))
@@ -36,13 +37,8 @@ func TestStoreEngineToken_WritesAnOwnerOnlyFile(t *testing.T) {
 	want, err := paths.HomeEngineTokenPath(claude.EngineName)
 	require.NoError(t, err)
 	assert.Equal(t, want, path)
+	require.NoError(t, checkTokenPrivate(path))
 
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-	dir, err := os.Stat(filepath.Dir(path))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o700), dir.Mode().Perm())
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, fixtureToken, string(got))

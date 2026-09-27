@@ -37,6 +37,9 @@ var (
 	// ErrMalformedToken: the input holds more than one word, so it is not
 	// one token (a pasted command, or two lines).
 	ErrMalformedToken = errors.New("input is not a single token")
+	// ErrTokenExposed: the stored token, or the directory holding it, is
+	// open to someone other than its owner, so it is not used.
+	ErrTokenExposed = errors.New("stored token is not owner-only")
 )
 
 const (
@@ -76,6 +79,8 @@ func TokenAuthFor(name string) (engine.TokenAuth, bool) {
 // StoreEngineToken writes token as engine's stored token: owner-only from
 // creation (iox.WriteFileAtomic), in an owner-only directory, surrounding
 // whitespace trimmed. It returns the file's path and never echoes the token.
+// The result is held to the same check ExportStoredTokens applies, and a
+// token that fails it is removed: a store never leaves a readable token.
 func StoreEngineToken(name string, token []byte) (string, error) {
 	if _, ok := TokenAuthFor(name); !ok {
 		return "", fmt.Errorf("%s: %w", name, ErrNoTokenAuth)
@@ -94,13 +99,36 @@ func StoreEngineToken(name string, token []byte) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), tokenDirMode); err != nil {
 		return "", fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 	}
-	if err := os.Chmod(filepath.Dir(path), tokenDirMode); err != nil {
-		return "", fmt.Errorf("restrict %s: %w", filepath.Dir(path), err)
+	if err := restrictTokenDir(filepath.Dir(path)); err != nil {
+		return "", fmt.Errorf("restrict %s to its owner: %w", filepath.Dir(path), err)
 	}
 	if err := iox.WriteFileAtomic(path, tok, tokenFileMode, iox.Durable()); err != nil {
 		return "", err
 	}
+	if err := checkTokenPrivate(path); err != nil {
+		return "", errors.Join(err, os.Remove(path))
+	}
 	return path, nil
+}
+
+// checkTokenPrivate refuses a token whose directory or file is open to
+// anyone but its owner, with ErrTokenExposed naming the path and the fix.
+// A missing path is returned as is (fs.ErrNotExist).
+func checkTokenPrivate(path string) error {
+	for _, p := range []string{filepath.Dir(path), path} {
+		info, err := os.Stat(p)
+		if err != nil {
+			return err
+		}
+		why, err := ownerOnlyViolation(p, info)
+		if err != nil {
+			return fmt.Errorf("check who may read %s: %w", p, err)
+		}
+		if why != "" {
+			return fmt.Errorf("%w: %s %s; re-store the token with `ctxloom auth set-token` to restrict it", ErrTokenExposed, p, why)
+		}
+	}
+	return nil
 }
 
 // ExportStoredTokens sets each engine's token var from its stored token when
@@ -120,10 +148,15 @@ func ExportStoredTokens() error {
 			errs = append(errs, err)
 			continue
 		}
-		raw, err := os.ReadFile(path)
+		err = checkTokenPrivate(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("refuse the stored %s token: %w", name, err))
+			continue
+		}
+		raw, err := os.ReadFile(path)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("read the stored %s token: %w", name, err))
 			continue

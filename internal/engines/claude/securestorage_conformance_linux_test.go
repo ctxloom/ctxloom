@@ -16,7 +16,7 @@ import (
 )
 
 // TestClaudeSecureStorage_FollowsTheVar is the conformance probe for the one
-// fact a HOST run's shared login stands on (Claude.Home's SharedLogin): the
+// fact a HOST run's shared login stands on (claudeAuth.LaunchEnv for auth login): the
 // installed claude takes its credential storage from SecureStorageEnv, apart
 // from ConfigDirEnv. A session-home agent and the human's own claude share
 // one credential and one lock pair only while BOTH refresh locks —

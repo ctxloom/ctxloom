@@ -28,11 +28,16 @@ Each agent declares how its engine authenticates with 'auth:' on its binding
            a year, never refreshed). The default for an agent that declares
            nothing.
   api-key  a pay-per-use key you supply (claude: ANTHROPIC_API_KEY).
+  cloud    a cloud provider or gateway configured in your own shell (claude:
+           Amazon Bedrock, Claude Platform on AWS, Google Vertex, Microsoft
+           Foundry, or ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL). Nothing
+           is stored or minted for it.
 
 The declared mode decides. Only that mode's credential reaches the engine: a
 value you export for THAT mode wins over the stored one, and every other
-credential the engine reads is blanked for the run — including one you
-exported yourself.
+credential the engine reads is removed from the run's environment — including
+one you exported yourself. An invalid mode is refused, naming the modes the
+engine supports.
 
 ctxloom mints a token the first time a run needs one, at your terminal, and
 stores it owner-only under ~/.ctxloom/auth. A run with no terminal (a

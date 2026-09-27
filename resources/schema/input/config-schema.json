@@ -322,11 +322,12 @@
           },
           "auth": {
             "type": "string",
-            "description": "How this agent's engine authenticates, in words every engine shares. \"login\" shares your own login in place (host runs only; a container agent declaring it is refused). \"token\" (the default, also when omitted) is a long-lived token the engine mints: stored owner-only under ~/.ctxloom/auth, minted by ctxloom at a terminal the first time a run needs it (or with `ctxloom auth mint`), and refused with that remedy when an unattended run needs one that is not stored. \"api-key\" is a pay-per-use key stored with `ctxloom auth set` (read from stdin, never argv). A value you export for the declared mode wins over the stored one; every other credential the engine reads is blanked. Purely per agent: top-level, delegated or one-shot alike. The agent names only the mode; a credential never enters this file. Validated when written against the bound engine's supported modes.",
+            "description": "How this agent's engine authenticates, in words every engine shares; purely per agent (top-level, delegated or one-shot, on the session home or the real one). \"login\" shares your own login in place (host runs only; a container agent declaring it is refused). \"token\" (the default, also when omitted) is a long-lived token the engine mints: stored owner-only under ~/.ctxloom/auth, minted by ctxloom at a terminal the first time a run needs it (or with `ctxloom auth mint`), and refused with that remedy when an unattended run needs one that is not stored. \"api-key\" is a pay-per-use key stored with `ctxloom auth set` (read from stdin, never argv). \"cloud\" passes a cloud provider or gateway you configured in your own shell through to the engine (for claude: Amazon Bedrock, Claude Platform on AWS, Google Vertex, Microsoft Foundry, or ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL); nothing is stored or minted for it. Only the declared mode's credential reaches the engine: a value you export for that mode wins over the stored one, and every other credential the engine reads is removed from its environment. The agent names only the mode; a credential never enters this file. An unknown mode, a mode the bound engine does not support, or any mode on an engine without auth is refused at load, when written, and at launch, naming the modes that engine supports.",
             "enum": [
               "login",
               "token",
-              "api-key"
+              "api-key",
+              "cloud"
             ]
           }
         },

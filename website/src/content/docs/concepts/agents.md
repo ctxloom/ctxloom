@@ -90,10 +90,17 @@ agent's `auth:` setting:
   `~/.ctxloom/auth`. A run with no terminal, such as a delegated agent, is
   refused instead and tells you to run `ctxloom auth mint --mode token`.
 - `api-key` uses a key you store with `ctxloom auth set --mode api-key`.
+- `cloud` uses a cloud provider or gateway you have set up in your own shell
+  (for claude: Amazon Bedrock, Google Vertex, Microsoft Foundry, Claude
+  Platform on AWS, or a gateway's `ANTHROPIC_AUTH_TOKEN` and
+  `ANTHROPIC_BASE_URL`). ctxloom stores nothing for it.
 
 Only the declared mode's credential reaches the engine. A value you export
 for that mode wins over the stored one; the engine's other credential
-variables are blanked for the run.
+variables are removed from the run's environment. An invalid choice (an
+unknown mode, or one the agent's engine doesn't support) is refused when you
+write it and when the agent launches, and the error lists the modes that
+engine supports. `auth:` applies on `engine_home: host` too.
 
 Selecting `engine_home: host` is the unsafe choice, because it hands the
 engine your own login and registrations and lets it write them back, and the

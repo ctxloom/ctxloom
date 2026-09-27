@@ -44,16 +44,17 @@ ctxloom command edit my-bundle#commands/review
 
 ## Engine Authentication
 
-Every claude that ctxloom launches, on the host or in a container, top-level or delegated, authenticates in the mode its agent declares (`auth:` — `login`, `token` or `api-key`; undeclared is `token`). Only that mode's credential reaches claude: a value you export for the declared mode wins over the stored one, and the other credential variables below are blanked for the run. Nothing is copied into a session home or mounted into a container.
+Every claude that ctxloom launches, on the host or in a container, top-level or delegated, authenticates in the mode its agent declares (`auth:` — `login`, `token`, `api-key` or `cloud`; undeclared is `token`). Only that mode's credential reaches claude: a value you export for the declared mode wins over the stored one, and the other credential variables below are removed from the run's environment, along with any cloud-provider switch (`CLAUDE_CODE_USE_BEDROCK` and its siblings) for every mode but `cloud`. Nothing is copied into a session home or mounted into a container.
 
 | Variable | Description |
 |----------|-------------|
 | `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Set for an `auth: login` agent on the host, to exactly where your own claude keeps its credential, so the run shares your login and its refresh. Refused for a container agent |
 | `CLAUDE_CODE_OAUTH_TOKEN` | An `auth: token` agent's credential: the long-lived token `claude setup-token` prints. ctxloom mints it at your terminal the first time a run needs it (or with `ctxloom auth mint --mode token`) and keeps it owner-only at `~/.ctxloom/auth/claude-code.token`. A run with no terminal and nothing stored is refused, naming that command |
 | `ANTHROPIC_API_KEY` | An `auth: api-key` agent's credential. Store it with `ctxloom auth set --mode api-key` (read from stdin, never argv); it lives at `~/.ctxloom/auth/claude-code.api-key` |
-| `ANTHROPIC_AUTH_TOKEN` | A gateway bearer. Blanked for every declared mode |
+| `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | A gateway's bearer and endpoint. Passed through for an `auth: cloud` agent; the bearer is removed for every other mode |
+| `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY` and the provider's own variables | An `auth: cloud` agent's configuration, passed through from your shell as claude's provider pages document them. Provider credential files (`~/.aws`, gcloud's application-default credentials) are not carried into a container |
 
-`ctxloom auth status` lists what is stored and who can read it (the file mode on unix, the ACL verdict on Windows), never the value. A binding selecting `engine_home: host` on the host runs claude against your real `~/.claude` in place and ctxloom sets none of these.
+`ctxloom auth status` lists what is stored and who can read it (the file mode on unix, the ACL verdict on Windows), never the value. A binding selecting `engine_home: host` runs claude against your real `~/.claude` in place, still in the mode it declares.
 
 ## Containerized Agents
 

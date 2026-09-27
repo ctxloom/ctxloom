@@ -708,7 +708,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
 		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)")
 	cmd.Flags().StringVar(&agentSetAuth, "auth", "",
-		"How this agent's engine authenticates: login (your own login, host runs only) | token (the default: a minted token, stored owner-only) | api-key. Validated against the modes the agent's engine supports")
+		"How this agent's engine authenticates: login (your own login, host runs only) | token (the default: a minted token, stored owner-only) | api-key | cloud (a provider or gateway configured in your shell). Refused, naming the engine's modes, when the engine does not support it")
 	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = cmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {

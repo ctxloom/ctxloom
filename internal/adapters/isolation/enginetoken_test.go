@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 const fixtureToken = "sk-ant-oat01-fixture"
@@ -57,14 +58,20 @@ func TestStoreEngineCredential_RefusesWhatIsNotOneCredential(t *testing.T) {
 	_, err = StoreEngineCredential("no-such-engine", engine.AuthToken, []byte(fixtureToken))
 	assert.ErrorIs(t, err, ErrNoAuth)
 	_, err = StoreEngineCredential(claude.EngineName, "keychain", []byte(fixtureToken))
-	assert.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
+	assert.ErrorIs(t, err, engine.ErrUnknownAuthMode)
 }
 
-// The login is the human's own and is never stored by ctxloom.
-func TestStoreEngineCredential_RefusesTheLogin(t *testing.T) {
+// The login and a cloud provider's variables are the human's own and are
+// never stored by ctxloom; the refusal's remedy names the modes that are.
+func TestStoreEngineCredential_RefusesTheModesItNeverStores(t *testing.T) {
 	home := tokenHome(t)
-	_, err := StoreEngineCredential(claude.EngineName, engine.AuthLogin, []byte(fixtureToken))
-	require.ErrorIs(t, err, ErrNotStored)
+	for _, mode := range []engine.AuthMode{engine.AuthLogin, engine.AuthCloud} {
+		_, err := StoreEngineCredential(claude.EngineName, mode, []byte(fixtureToken))
+		require.ErrorIs(t, err, ErrNotStored, mode)
+		var r report.Remediable
+		require.ErrorAs(t, err, &r)
+		assert.Contains(t, r.Remedy(), "token, api-key", mode)
+	}
 	assert.NoDirExists(t, home+"/"+paths.AppDirName+"/"+paths.HomeAuthDirName, "nothing is created for a refused store")
 }
 
@@ -137,17 +144,25 @@ func TestACLExposure(t *testing.T) {
 // mode blanked never crosses into the container.
 func TestResolveDeclaredAuth_TheRunsAuthEnvAuthenticatesAndIsAuthoritative(t *testing.T) {
 	tokenHome(t)
-	_, ok := resolveDeclaredAuth(claudeAuth(t), nil)
+	_, ok := resolveDeclaredAuth(claudeAuth(t), noRunAuth)
 	require.False(t, ok, "fixture: nothing authenticates without the run's env")
 
 	t.Setenv(claude.APIKeyEnv, "shell-key")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
-	plan, ok := resolveDeclaredAuth(claudeAuth(t), map[string]string{claude.OAuthTokenEnv: fixtureToken, claude.APIKeyEnv: "", claude.AuthTokenEnv: ""})
+	plan, ok := resolveDeclaredAuth(claudeAuth(t), engine.LaunchEnv{
+		Set:   map[string]string{claude.OAuthTokenEnv: fixtureToken},
+		Unset: []string{claude.APIKeyEnv, claude.AuthTokenEnv},
+	})
 	require.True(t, ok)
-	assert.NotContains(t, plan.envPassthrough, claude.APIKeyEnv, "the mode blanked it; the shell's value stays out")
+	assert.NotContains(t, plan.envPassthrough, claude.APIKeyEnv, "the mode unset it; the shell's value stays out")
 	assert.NotContains(t, plan.envPassthrough, claude.OAuthTokenEnv, "its value rides the launch env, not the passthrough")
 	assert.Contains(t, plan.envPassthrough, "ANTHROPIC_BASE_URL", "a non-credential var still crosses")
 
-	_, ok = resolveDeclaredAuth(claudeAuth(t), map[string]string{claude.OAuthTokenEnv: "", claude.APIKeyEnv: "", claude.AuthTokenEnv: ""})
-	assert.False(t, ok, "a run env that blanks every credential does not authenticate from the shell's export")
+	_, ok = resolveDeclaredAuth(claudeAuth(t), engine.LaunchEnv{Unset: []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv}})
+	assert.False(t, ok, "a run env that unsets every credential does not authenticate from the shell's export")
+
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
+	plan, ok = resolveDeclaredAuth(claudeAuth(t), engine.LaunchEnv{Set: map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1"}, Unset: []string{claude.OAuthTokenEnv, claude.APIKeyEnv}})
+	require.True(t, ok, "a cloud run's provider switch authenticates a container")
+	assert.NotContains(t, plan.envPassthrough, "CLAUDE_CODE_USE_BEDROCK", "its value rides the launch env")
 }

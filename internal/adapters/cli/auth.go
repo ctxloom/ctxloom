@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 const authLong = `Store the credentials ctxloom-launched engines authenticate with.
@@ -148,7 +149,11 @@ func runAuthMint(cmd *cobra.Command, _ []string) error {
 	}
 	secret, err := a.Mint(cmd.Context(), mode, t)
 	if errors.Is(err, engine.ErrMintUnsupported) {
-		return fmt.Errorf("%w; store one you already have with `ctxloom auth set --engine %s --mode %s`", err, name, mode)
+		fix := fmt.Sprintf("store one you already have with `ctxloom auth set --engine %s --mode %s`", name, mode)
+		if !mode.Stored() {
+			fix = fmt.Sprintf("nothing is minted or stored for auth %s: it uses what your own shell or login already holds", mode)
+		}
+		return report.Errorf(fix, "%s auth %s: %w", name, mode, err)
 	}
 	if err != nil {
 		return err

@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 const cliFixtureToken = "sk-ant-oat01-cli-fixture"
@@ -131,7 +132,34 @@ func TestAuthMint_AnUnmintableModeNamesSet(t *testing.T) {
 	withAuthTerminal(t, engine.Terminal{In: strings.NewReader("")}, true)
 	_, err := runRoot(t, "auth", "mint", "--mode", "api-key")
 	require.ErrorIs(t, err, engine.ErrMintUnsupported)
-	assert.Contains(t, err.Error(), "ctxloom auth set --engine claude-code --mode api-key")
+	assert.Contains(t, remedyOf(t, err), "ctxloom auth set --engine claude-code --mode api-key")
+
+	_, err = runRoot(t, "auth", "mint", "--mode", "cloud")
+	require.ErrorIs(t, err, engine.ErrMintUnsupported)
+	assert.Contains(t, remedyOf(t, err), "nothing is minted or stored for auth cloud")
+}
+
+// Every invalid mode is refused by the one check, with a remedy naming the
+// modes this engine supports, read from its Modes().
+func TestAuthCredentialCommands_RefuseAnInvalidModeWithTheEnginesModes(t *testing.T) {
+	authHome(t)
+	_, err := runRoot(t, "auth", "set", "--mode", "apikey")
+	require.ErrorIs(t, err, engine.ErrUnknownAuthMode)
+	a, ok := isolation.AuthFor(claude.EngineName)
+	require.True(t, ok)
+	for _, m := range a.Modes() {
+		assert.Contains(t, remedyOf(t, err), string(m))
+	}
+	rootCmd.SetIn(strings.NewReader("x\n"))
+	_, err = runRoot(t, "auth", "set", "--mode", "cloud")
+	require.ErrorIs(t, err, isolation.ErrNotStored)
+}
+
+func remedyOf(t *testing.T, err error) string {
+	t.Helper()
+	var r report.Remediable
+	require.ErrorAs(t, err, &r)
+	return r.Remedy()
 }
 
 // status on unix: one line per stored-credential mode, the mode bits in

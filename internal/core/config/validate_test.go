@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -110,4 +111,48 @@ func TestOpen_WithEngines_ValidatesEveryGeneration(t *testing.T) {
 	unvalidated, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 	assert.Empty(t, unvalidated.Current().Warnings, "without engines there is nothing to validate against")
+}
+
+// authKind is a stub kind whose Auth supports only the token.
+type authKind struct{ stubKind }
+
+type tokenOnlyAuth struct{}
+
+func (tokenOnlyAuth) Modes() []engine.AuthMode { return []engine.AuthMode{engine.AuthToken} }
+func (tokenOnlyAuth) LaunchEnv(engine.AuthMode, func(string) (string, bool), engine.CredentialReader) (engine.LaunchEnv, error) {
+	return engine.LaunchEnv{}, nil
+}
+func (tokenOnlyAuth) Mint(context.Context, engine.AuthMode, engine.Terminal) ([]byte, error) {
+	return nil, engine.ErrMintUnsupported
+}
+
+func (authKind) Home() engine.HomeSpec {
+	return engine.HomeSpec{Vars: []engine.HomeVar{{Name: "X_HOME", Subdir: "x"}}, Auth: engine.Provide[engine.Auth](tokenOnlyAuth{})}
+}
+
+// Config load runs the same auth check `agent create/edit` and every launch
+// run (engine.CheckAuth): an agent whose own llm names an engine is refused
+// at load for a mode that engine lacks, an unknown mode, or any mode on an
+// engine with no auth — typed, with a remedy.
+func TestConfig_Validate_RefusesAnAgentsInvalidAuthAtLoad(t *testing.T) {
+	reg, err := engine.NewRegistry(
+		authKind{stubKind{engine.Base{Definition: engine.Definition{Name: "withauth", Distribution: engine.DistributionDefault}}}},
+		stubKind{engine.Base{Definition: engine.Definition{Name: "noauth", Distribution: engine.DistributionTestOnly}}},
+	)
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		llm, mode string
+		sentinel  error
+	}{
+		{"withauth", "login", engine.ErrAuthModeUnsupported},
+		{"withauth", "apikey", engine.ErrUnknownAuthMode},
+		{"noauth", "token", engine.ErrEngineHasNoAuth},
+	} {
+		cfg := config.NewFixture(config.Fixture{Agents: map[string]agents.Agent{"a": {Name: "a", LLM: tc.llm, Auth: tc.mode}}})
+		err := cfg.Validate(reg)
+		require.ErrorIs(t, err, tc.sentinel, "%s/%s", tc.llm, tc.mode)
+		assert.Contains(t, err.Error(), "agents.a")
+	}
+	ok := config.NewFixture(config.Fixture{Agents: map[string]agents.Agent{"a": {Name: "a", LLM: "withauth", Auth: "token"}, "b": {Name: "b", LLM: "noauth"}}})
+	require.NoError(t, ok.Validate(reg))
 }

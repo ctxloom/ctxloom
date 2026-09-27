@@ -282,9 +282,14 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	}
 	// Settled before the cell exists: a container's auth gate reads it, and a
 	// credential that has to be minted is minted before anything is built.
+	// Re-parsed like the home mode, so an undeclared mode is the default.
+	authMode, err := engine.ParseAuthMode(string(req.Auth))
+	if err != nil {
+		return launch.Cell{}, err
+	}
 	authEnv, err := resolveRunAuth(ctx, c.engines, runAuth{
 		Backend:  backend,
-		Mode:     req.Auth,
+		Mode:     authMode,
 		OnHost:   !launch.IsContainerRuntimeAxis(req.Axes.Runtime),
 		HomeMode: homeMode,
 	})

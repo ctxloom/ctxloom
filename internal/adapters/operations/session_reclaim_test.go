@@ -319,7 +319,7 @@ func srAddWorktree(t *testing.T, repo, harp, agentID string) string {
 		context.Background(),
 		isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost},
 		"", isolation.ImageConfig{}, repo, agentID,
-		isolation.SessionState{Harp: harp},
+		isolation.SessionState{Harp: harp}, nil,
 	)
 	require.NotNil(t, ws)
 	wtDir := ws.Dir()

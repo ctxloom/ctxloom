@@ -540,6 +540,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   Scenario: The spy captures the real argv and stdin a live engine binary would receive
     Given Alice has a git-backed project
     And Alice has set the "claude-code" API key in the environment
+    And Alice's agent declares auth "api-key"
     When Alice runs the isolated "claude-code" agent under workspace "worktree"
     Then the spy "claude-code" process's ARGV contains "--print"
     And the spy "claude-code" process's STDIN contains "hello"

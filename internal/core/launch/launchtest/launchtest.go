@@ -108,6 +108,11 @@ func EngineHome(s string) AgentOption {
 	return func(d *agentDecl) { d.binding.HomeMode = s }
 }
 
+// Auth sets the binding's `auth:` declaration, unparsed.
+func Auth(s string) AgentOption {
+	return func(d *agentDecl) { d.binding.Auth = s }
+}
+
 // NoStructuredDrive makes the fixture engine declare Interactive only, so a
 // Structured Source is refused at Definition.Modes.
 func NoStructuredDrive() AgentOption {

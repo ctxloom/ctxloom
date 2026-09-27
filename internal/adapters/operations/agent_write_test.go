@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -847,4 +848,48 @@ func TestSetAgent_RefusesARootTheApproachDoesNotOffer(t *testing.T) {
 	require.NoError(t, rerr)
 	_, ok := reloaded.Agent("scout")
 	assert.False(t, ok, "a refused write must not half-apply a binding")
+}
+
+// auth round-trips as the MODE only, and is validated against the engine the
+// write results in: an unknown mode, a mode that engine does not support,
+// and any mode on an engine that declares no auth are refused, and nothing
+// is persisted.
+func TestSetAgent_ValidatesAuthAgainstTheEnginesModes(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	mgr := managerFor(t, appDir)
+
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
+		Name: "coder", LLM: ptr("claude-code"), Profiles: ptr([]string{"default"}), Auth: ptr("api-key"),
+	})
+	require.NoError(t, err)
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := reloaded.Agent("coder")
+	require.True(t, ok)
+	assert.Equal(t, "api-key", sub.Auth)
+
+	refused := func(t *testing.T, req SetAgentRequest, want ...string) {
+		t.Helper()
+		_, err := SetAgent(context.Background(), mgr, reloaded, req)
+		require.Error(t, err)
+		for _, w := range want {
+			assert.Contains(t, err.Error(), w)
+		}
+		final, err := configload.Load(configload.WithAppDir(appDir))
+		require.NoError(t, err)
+		_, ok := final.Agent(req.Name)
+		assert.False(t, ok, "a refused write persists nothing")
+	}
+	refused(t, SetAgentRequest{Name: "typo", LLM: ptr("claude-code"), Profiles: ptr([]string{"x"}), Auth: ptr("apikey")}, "apikey", "login, token, api-key")
+	refused(t, SetAgentRequest{Name: "noauth", LLM: ptr("mock"), Profiles: ptr([]string{"x"}), Auth: ptr("token")}, "declares no auth")
+}
+
+func TestSetAgent_RefusesAModeTheEngineLacks(t *testing.T) {
+	installFakeMint(t)
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name: "fake", LLM: ptr("fake-auth"), Profiles: ptr([]string{"x"}), Auth: ptr("login"),
+	})
+	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
+	assert.Contains(t, err.Error(), "token, api-key", "the refusal names what the engine does support")
 }

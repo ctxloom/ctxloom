@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // ForgeConfig is the discriminator+union envelope for one labeled forge
@@ -134,9 +136,11 @@ func resolvedFromConfig(remoteURL string, fc ForgeConfig) ResolvedForge {
 	}
 }
 
-// forgeHost returns the lowercased host of a URL, stripping a www. prefix so
-// github.com and www.github.com match. Returns "" for shorthand owner/repo
-// or unparseable input.
+// forgeHost returns the host of a URL as repository identity spells it
+// (refuri.CanonicalHost), stripping a www. prefix so github.com and
+// www.github.com match. The port is dropped: a forge is matched by host name.
+// Returns "" — which matches no forge — for shorthand owner/repo, unparseable
+// input, or a host CanonicalHost refuses.
 func forgeHost(raw string) string {
 	if raw == "" {
 		return ""
@@ -151,7 +155,11 @@ func forgeHost(raw string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+	host, err := refuri.CanonicalHost(u.Hostname())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(host, "www.")
 }
 
 // ResolveForgeForURLWith resolves a forge for a bare URL against an explicit

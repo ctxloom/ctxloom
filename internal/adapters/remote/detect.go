@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // NewFetcher creates a Fetcher appropriate for the given URL.
@@ -95,7 +97,7 @@ func DetectForge(repoURL string) (ForgeType, string, error) {
 		return "", "", fmt.Errorf("invalid URL: %w", err)
 	}
 
-	host := strings.ToLower(u.Hostname())
+	host := u.Hostname()
 
 	// No authority component: url.Parse put the whole string in Path, so
 	// joining Scheme and Host yields the literal "://", an endpoint that names
@@ -142,8 +144,14 @@ func scpLikeHost(repoURL string) (string, bool) {
 
 // forgeForHost maps a resolved host to its adapter: github.com (with or without
 // the www. label) to the GitHub API adapter at the canonical endpoint, every
-// other host to the generic clone-backed adapter at base.
+// other host to the generic clone-backed adapter at base. The host is compared
+// as repository identity spells it (refuri.CanonicalHost), and a host that
+// refuses is an error, as an unparseable URL is: it names no repository.
 func forgeForHost(host, base string) (ForgeType, string, error) {
+	host, err := refuri.CanonicalHost(host)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid URL: %w", err)
+	}
 	if host == "github.com" || host == "www.github.com" {
 		return ForgeGitHub, "https://github.com", nil
 	}

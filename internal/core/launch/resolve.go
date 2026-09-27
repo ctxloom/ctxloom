@@ -114,9 +114,6 @@ func selectWithHome(cfg *config.Config, src Source) (selection, error) {
 	if sel.homeMode == "" {
 		sel.homeMode = HomeModeSession
 	}
-	if sel.auth == "" {
-		sel.auth = engine.AuthToken
-	}
 	return sel, nil
 }
 
@@ -254,7 +251,7 @@ type selection struct {
 func selectSource(cfg *config.Config, src Source) (selection, error) {
 	switch {
 	case src.Internal:
-		return selection{}, nil
+		return selection{auth: src.Auth}, nil
 	case src.Agent != "":
 		return bindingSelection(cfg, src.Agent, src.Degraded)
 	case len(src.Profiles) == 0 && len(src.Fragments) == 0 && len(src.Tags) == 0:
@@ -282,13 +279,10 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		}
 		home = HomeModeSession
 	}
-	auth, err := engine.ParseAuthMode(binding.Auth)
-	if err != nil {
-		if !degraded {
-			return selection{}, fmt.Errorf("agent %q: %w", name, err)
-		}
-		auth = engine.AuthToken
-	}
+	// The declared auth travels as written: the cells adapter checks it
+	// against the engine it binds (engine.CheckAuth), the one check config
+	// load and `agent create/edit` also run.
+	auth := engine.AuthMode(strings.TrimSpace(binding.Auth))
 	return selection{
 		agent:       name,
 		profiles:    slices.Clone(binding.Profiles),

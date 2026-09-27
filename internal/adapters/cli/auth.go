@@ -106,16 +106,17 @@ func authTarget() (string, engine.Auth, engine.AuthMode, error) {
 	if name == "" {
 		name = operations.DefaultEngineName(App().Engines())
 	}
-	a, ok := isolation.AuthFor(name)
+	kind, ok := App().Engines().Lookup(engine.Name(name))
 	if !ok {
 		return "", nil, "", fmt.Errorf("%s: %w", name, isolation.ErrNoAuth)
 	}
-	mode, err := engine.ParseAuthMode(authMode)
+	mode, err := engine.CheckAuth(kind.Root().Name, kind.Home().Auth, authMode)
 	if err != nil {
 		return "", nil, "", err
 	}
-	if !engine.SupportsMode(a, mode) {
-		return "", nil, "", fmt.Errorf("%s auth %s: %w", name, mode, engine.ErrAuthModeUnsupported)
+	a, ok := kind.Home().Auth.Get()
+	if !ok {
+		return "", nil, "", fmt.Errorf("%s: %w", name, isolation.ErrNoAuth)
 	}
 	return name, a, mode, nil
 }

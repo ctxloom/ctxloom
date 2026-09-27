@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -319,7 +320,7 @@ func srAddWorktree(t *testing.T, repo, harp, agentID string) string {
 		context.Background(),
 		isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost},
 		"", isolation.ImageConfig{}, repo, agentID,
-		isolation.SessionState{Harp: harp}, nil,
+		isolation.SessionState{Harp: harp}, engine.LaunchEnv{},
 	)
 	require.NotNil(t, ws)
 	wtDir := ws.Dir()

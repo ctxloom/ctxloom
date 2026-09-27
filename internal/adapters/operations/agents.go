@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 
@@ -247,36 +248,44 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 	return validateAgentHomeMode(name, req)
 }
 
-// validateAgentAuth refuses an auth mode outside the shared vocabulary, and
-// one the engine this write results in does not support (its Auth.Modes), so
-// the binding is never written for a credential its engine cannot use. It
-// breaks rather than degrades, like engine_home: a mode silently resolved to
-// another would authenticate as a credential nobody chose.
+// validateAgentAuth runs the one auth check (checkAgentAuth, the same one
+// every launch runs) against the engine and runtime this write results in,
+// then asks the engine whether the credential is available now: a mode whose
+// credential the human must supply (an API key, a cloud provider's
+// variables) is refused until it is, with the engine's own remedy. A missing
+// token is not refused: a run mints it at a terminal. Nothing is persisted
+// on a refusal.
 func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
 	if req.Auth == nil || *req.Auth == "" {
 		return nil
 	}
-	mode, err := engine.ParseAuthMode(*req.Auth)
-	if err != nil {
-		return fmt.Errorf("agent %q: %w", name, err)
-	}
 	backend, _ := ResolveBackend(reg, cfg, resultingAgentEngine(cfg, name, req))
-	kind, ok := reg.Lookup(engine.Name(backend))
-	if !ok {
-		return fmt.Errorf("agent %q: auth %s needs a known engine to check it against; set --llm in the same command", name, mode)
+	if _, ok := reg.Lookup(engine.Name(backend)); !ok {
+		return report.Errorf("set --llm in the same command, so the mode can be checked against the engine it binds",
+			"agent %q: auth %s: %w", name, *req.Auth, errAuthNeedsEngine)
 	}
-	a, ok := kind.Home().Auth.Get()
-	if !ok {
-		return fmt.Errorf("agent %q: engine %q declares no auth (%s), so auth %s cannot be honoured", name, backend, kind.Home().Auth.AbsentReason(), mode)
+	axis, _ := launch.ParseRuntimeAxis(resultingAgentRuntime(cfg, name, req))
+	a, mode, err := checkAgentAuth(reg, backend, engine.AuthMode(*req.Auth), !isolation.IsContainerRuntimeAxis(axis))
+	if err != nil || a == nil {
+		return wrapAgentErr(name, err)
 	}
-	if !engine.SupportsMode(a, mode) {
-		supported := make([]string, 0, len(a.Modes()))
-		for _, m := range a.Modes() {
-			supported = append(supported, string(m))
-		}
-		return fmt.Errorf("agent %q: engine %q: %w: %s (it supports %s)", name, backend, engine.ErrAuthModeUnsupported, mode, strings.Join(supported, ", "))
+	if _, err := a.LaunchEnv(mode, os.LookupEnv, isolation.StoredCredentials(backend)); err != nil && !(errors.Is(err, engine.ErrNoCredential) && mode.Minted()) {
+		return wrapAgentErr(name, err)
 	}
 	return nil
+}
+
+// errAuthNeedsEngine: an auth mode is written with no engine to check it
+// against.
+var errAuthNeedsEngine = errors.New("no known engine to check the auth mode against")
+
+// wrapAgentErr names the agent a refusal is about; its remedy stays
+// reachable through %w, where the renderer reads it.
+func wrapAgentErr(name string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("agent %q: %w", name, err)
 }
 
 // validateAgentEngine refuses a non-empty engine outside AvailableLLMNames.

@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"os"
+	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
@@ -65,7 +66,7 @@ var hostHomeDir = os.UserHomeDir
 // (a fatal ClassIsolation finding down the isolation chain, same as any other
 // unresolvable auth) instead of silently inheriting another engine's
 // credentials into a foreign engine's container.
-func noContainerAuth(map[string]string) (containerAuth, bool) {
+func noContainerAuth(engine.LaunchEnv) (containerAuth, bool) {
 	return containerAuth{mode: authNone}, false
 }
 
@@ -85,26 +86,31 @@ func noContainerAuth(map[string]string) (containerAuth, bool) {
 // every other field.
 //
 // runAuth's VALUES reach the engine through the launch's own env, never the
-// passthrough: a var runAuth names is withheld from the passthrough, so a
-// shell export of a credential the mode blanked never enters the container.
-func resolveDeclaredAuth(a engine.ContainerAuth, runAuth map[string]string) (containerAuth, bool) {
+// passthrough: a var runAuth sets or unsets is withheld from the passthrough,
+// so a shell export of a credential the mode removed never enters the
+// container.
+func resolveDeclaredAuth(a engine.ContainerAuth, runAuth engine.LaunchEnv) (containerAuth, bool) {
 	if a.Vendorless != "" {
 		return containerAuth{mode: authNone}, true
 	}
+	named := func(k string) bool {
+		_, set := runAuth.Set[k]
+		return set || slices.Contains(runAuth.Unset, k)
+	}
 	lookup := func(k string) string {
-		if v, ok := runAuth[k]; ok {
-			return v
+		if named(k) {
+			return runAuth.Set[k]
+		}
+		return os.Getenv(k)
+	}
+	shellOnly := func(k string) string {
+		if named(k) {
+			return ""
 		}
 		return os.Getenv(k)
 	}
 	for _, t := range a.EnvTriggers {
 		if lookup(t) != "" {
-			shellOnly := func(k string) string {
-				if _, ok := runAuth[k]; ok {
-					return ""
-				}
-				return os.Getenv(k)
-			}
 			return containerAuth{mode: authEnv, envPassthrough: presentEnvKeys(shellOnly, a.EnvPassthrough)}, true
 		}
 	}

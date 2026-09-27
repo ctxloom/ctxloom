@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"slices"
 	"net"
 	"os"
 	"path/filepath"
@@ -282,7 +283,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	}
 	// Settled before the cell exists: a container's auth gate reads it, and a
 	// credential that has to be minted is minted before anything is built.
-	authEnv, err := c.runAuthEnv(ctx, req, homeMode)
+	authEnv, err := c.runAuthEnv(ctx, req)
 	if err != nil {
 		return launch.Cell{}, err
 	}
@@ -353,32 +354,27 @@ func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest
 }
 
 // runAuthEnv is the credential env the request's agent authenticates with
-// (resolveRunAuth), its mode re-parsed like the home mode so an undeclared
-// one is the default.
-func (c Cells) runAuthEnv(ctx context.Context, req launch.CellRequest, homeMode agents.HomeMode) (map[string]string, error) {
-	mode, err := engine.ParseAuthMode(string(req.Auth))
-	if err != nil {
-		return nil, err
-	}
+// (resolveRunAuth), from the mode the binding declared.
+func (c Cells) runAuthEnv(ctx context.Context, req launch.CellRequest) (engine.LaunchEnv, error) {
 	return resolveRunAuth(ctx, c.engines, runAuth{
-		Backend:  string(req.Engine.Root().Name),
-		Mode:     mode,
-		OnHost:   !launch.IsContainerRuntimeAxis(req.Axes.Runtime),
-		HomeMode: homeMode,
+		Backend: string(req.Engine.Root().Name),
+		Mode:    req.Auth,
+		OnHost:  !launch.IsContainerRuntimeAxis(req.Axes.Runtime),
 	})
 }
 
-// bindCellAuth lays the run's credential env over the cell's env: it is the
-// engine's own answer for the declared mode and wins over everything else
-// the cell carries.
-func bindCellAuth(cell *launch.Cell, authEnv map[string]string) {
-	if len(authEnv) == 0 {
-		return
+// bindCellAuth lays the run's credential env over the cell's env — the
+// engine's own answer for the declared mode wins over everything else the
+// cell carries — and records what the engine's process must not inherit
+// (launch.Cell.Unset), which the runner removes before it drives the engine.
+func bindCellAuth(cell *launch.Cell, authEnv engine.LaunchEnv) {
+	if len(authEnv.Set) > 0 {
+		if cell.Env == nil {
+			cell.Env = map[string]string{}
+		}
+		maps.Copy(cell.Env, authEnv.Set)
 	}
-	if cell.Env == nil {
-		cell.Env = map[string]string{}
-	}
-	maps.Copy(cell.Env, authEnv)
+	cell.Unset = slices.Clone(authEnv.Unset)
 }
 
 // bindCellHome carries a bound engine home into the cell: its root and its

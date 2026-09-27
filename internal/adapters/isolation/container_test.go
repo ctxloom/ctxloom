@@ -3,6 +3,7 @@ package isolation
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -521,7 +522,7 @@ func hermeticHostContainer(t *testing.T, overlayDirs []string) Container {
 		image:   "ctxloom-agent-hermetic-test:latest",
 		engineSpec: engineContainerSpec{
 			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func(map[string]string) (containerAuth, bool) {
+			resolveAuth: func(engine.LaunchEnv) (containerAuth, bool) {
 				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 			},
 			overlayDirs: overlayDirs,

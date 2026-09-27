@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // An engine's stored credentials: one owner-only file per engine and auth
@@ -63,25 +64,28 @@ func AuthFor(name string) (engine.Auth, bool) {
 // storableAuth is the engine's auth when mode is one it supports AND one
 // ctxloom stores a credential for.
 func storableAuth(name string, mode engine.AuthMode) (engine.Auth, error) {
-	a, ok := AuthFor(name)
+	f, ok := factsFor(name)
 	if !ok {
-		return nil, fmt.Errorf("%s: %w", name, ErrNoAuth)
+		return nil, report.Errorf("name a registered engine with --engine", "%s: %w", name, ErrNoAuth)
 	}
-	if !engine.SupportsMode(a, mode) {
-		return nil, fmt.Errorf("%s %s: %w (it supports %s)", name, mode, engine.ErrAuthModeUnsupported, joinModes(a.Modes()))
+	if _, err := engine.CheckAuth(engine.Name(name), f.Home.Auth, string(mode)); err != nil {
+		return nil, err
+	}
+	a, ok := f.Home.Auth.Get()
+	if !ok {
+		return nil, report.Errorf(fmt.Sprintf("%s authenticates on its own; there is nothing to store", name), "%s: %w", name, ErrNoAuth)
 	}
 	if !mode.Stored() {
-		return nil, fmt.Errorf("%s %s: %w", name, mode, ErrNotStored)
+		var stored []string
+		for _, m := range a.Modes() {
+			if m.Stored() {
+				stored = append(stored, string(m))
+			}
+		}
+		return nil, report.Errorf(fmt.Sprintf("nothing is stored for auth %s: it uses what your own shell or login already holds; the modes of %s ctxloom stores a credential for are: %s", mode, name, strings.Join(stored, ", ")),
+			"%s %s: %w", name, mode, ErrNotStored)
 	}
 	return a, nil
-}
-
-func joinModes(modes []engine.AuthMode) string {
-	s := make([]string, len(modes))
-	for i, m := range modes {
-		s[i] = string(m)
-	}
-	return strings.Join(s, ", ")
 }
 
 // StoreEngineCredential writes secret as engine's stored credential for

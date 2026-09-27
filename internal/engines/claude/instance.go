@@ -40,7 +40,7 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
 		Vars:           []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
-		Auth:           engine.Provide[engine.Auth](claudeAuth{binary: "claude"}),
+		Auth:           engine.Provide[engine.Auth](claudeAuth{binary: "claude", engine: string(c.Name)}),
 		InstanceConfig: claudeInstanceConfig{},
 	}
 }
@@ -55,7 +55,9 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 		Auth: engine.Provide(engine.ContainerAuth{
 			// ANTHROPIC_AUTH_TOKEN is a trigger too: a gateway host
 			// authenticates with AUTH_TOKEN+BASE_URL and carries no API key.
-			EnvTriggers: credentialVars,
+			// A provider switch selects claude's credential by itself (auth
+			// cloud), so it triggers too.
+			EnvTriggers: append(slices.Clone(credentialVars), providerSwitches...),
 			EnvPassthrough: []string{
 				OAuthTokenEnv,
 				APIKeyEnv,

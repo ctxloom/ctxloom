@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -92,7 +93,7 @@ type Container struct {
 	// runAuth is the env the run's auth mode resolved to (engine.Auth.
 	// LaunchEnv), which the auth gate reads ahead of the host env; nil for a
 	// run whose credential is not ctxloom's to resolve. Stamped by Prepare.
-	runAuth    map[string]string
+	runAuth    engine.LaunchEnv
 	binaryPath string // the container's ctxloom path (runs `runner <engine>`)
 	home       string // fresh $HOME inside the container
 	// instanceHome is the fixed in-container root a RELOCATED engine home is

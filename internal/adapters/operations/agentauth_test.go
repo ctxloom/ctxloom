@@ -84,7 +84,7 @@ func TestResolveRunAuth_MintsWhenNeededAtATerminalAndStores(t *testing.T) {
 	term := engine.Terminal{In: bytes.NewBufferString(""), Out: &errOut, Err: &errOut}
 	withTerminal(t, term, true)
 
-	env, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: true, HomeMode: agents.HomeModeSession})
+	env, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: true})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{fakeTokenVar: "minted-secret"}, env)
 	require.Len(t, *seen, 1, "minted once, on the terminal it was handed")
@@ -96,7 +96,7 @@ func TestResolveRunAuth_MintsWhenNeededAtATerminalAndStores(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "minted-secret", string(got), "stored for every later run")
 
-	_, err = resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: false, HomeMode: agents.HomeModeSession})
+	_, err = resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: false})
 	require.NoError(t, err)
 	assert.Len(t, *seen, 1, "a stored credential is read, never minted again")
 }
@@ -108,7 +108,7 @@ func TestResolveRunAuth_UnattendedRefusesNamingTheRemedy(t *testing.T) {
 	reg, seen := installFakeMint(t)
 	withTerminal(t, engine.Terminal{}, false)
 
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: true, HomeMode: agents.HomeModeSession})
+	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: true})
 	require.ErrorIs(t, err, engine.ErrNoCredential)
 	assert.Contains(t, err.Error(), "ctxloom auth mint --engine fake-auth --mode token")
 	assert.Contains(t, err.Error(), "no terminal")
@@ -120,14 +120,14 @@ func TestResolveRunAuth_UnattendedRefusesNamingTheRemedy(t *testing.T) {
 func TestResolveRunAuth_UnmintableModeNamesTheStoreCommand(t *testing.T) {
 	reg, _ := installFakeMint(t)
 	withTerminal(t, engine.Terminal{Err: &bytes.Buffer{}}, true)
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthAPIKey, OnHost: true, HomeMode: agents.HomeModeSession})
+	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthAPIKey, OnHost: true})
 	require.ErrorIs(t, err, engine.ErrMintUnsupported)
 	assert.Contains(t, err.Error(), "ctxloom auth set --engine fake-auth --mode api-key")
 }
 
 func TestResolveRunAuth_RefusesAModeTheEngineLacks(t *testing.T) {
 	reg, _ := installFakeMint(t)
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthLogin, OnHost: true, HomeMode: agents.HomeModeSession})
+	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthLogin, OnHost: true})
 	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
 }
 
@@ -135,12 +135,12 @@ func TestResolveRunAuth_RefusesAModeTheEngineLacks(t *testing.T) {
 // human's real home, which authenticates as their own engine does, in place.
 func TestResolveRunAuth_NothingToResolve(t *testing.T) {
 	reg := enginefixture.Install(t, enginefixture.Kind("no-auth"))
-	env, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "no-auth", Mode: engine.AuthToken, OnHost: true, HomeMode: agents.HomeModeSession})
+	env, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "no-auth", Mode: engine.AuthToken, OnHost: true})
 	require.NoError(t, err)
 	assert.Nil(t, env)
 
 	fakeHostHome(t, "")
-	env, err = resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthToken, OnHost: true, HomeMode: agents.HomeModeHost})
+	env, err = resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthToken, OnHost: true})
 	require.NoError(t, err)
 	assert.Nil(t, env, "the real home in place is the human's own login; nothing is resolved or minted")
 }
@@ -151,7 +151,7 @@ func TestResolveRunAuth_NothingToResolve(t *testing.T) {
 func TestResolveRunAuth_HostLoginSharesTheHumansStorage(t *testing.T) {
 	fakeHostHome(t, tokenFixture)
 	t.Setenv(claude.ConfigDirEnv, "/home/me/./.claude-work/")
-	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthLogin, OnHost: true, HomeMode: agents.HomeModeSession})
+	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthLogin, OnHost: true})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{
 		claude.SecureStorageEnv: "/home/me/./.claude-work/",
@@ -165,7 +165,7 @@ func TestResolveRunAuth_HostLoginSharesTheHumansStorage(t *testing.T) {
 // refused, never launched logged out.
 func TestResolveRunAuth_ContainerLoginIsRefused(t *testing.T) {
 	fakeHostHome(t, "")
-	_, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthLogin, OnHost: false, HomeMode: agents.HomeModeSession})
+	_, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthLogin, OnHost: false})
 	require.ErrorIs(t, err, errLoginNotInContainer)
 }
 
@@ -176,7 +176,7 @@ func TestResolveRunAuth_ClaudeTokenFromTheStore(t *testing.T) {
 	t.Setenv(claude.APIKeyEnv, "sk-ant-api-shell")
 	_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
 	require.NoError(t, err)
-	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthToken, OnHost: false, HomeMode: agents.HomeModeSession})
+	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthToken, OnHost: false})
 	require.NoError(t, err)
 	assert.Equal(t, tokenFixture, env[claude.OAuthTokenEnv])
 	assert.Equal(t, "", env[claude.APIKeyEnv])

@@ -215,6 +215,7 @@ func encodeCell(c launch.Cell) *pb.Cell {
 		Workspace: c.Workspace,
 		Env:       c.Env,
 		Home:      encodeHome(c.Home),
+		UnsetEnv:  c.Unset,
 	}
 	if c.Container != nil {
 		out.Container = &pb.ContainerCell{Runtime: string(c.Container.Runtime), Image: c.Container.Image, Mounts: encodeMounts(c.Container.Mounts), Home: c.Container.Home}
@@ -228,6 +229,7 @@ func decodeCell(w *pb.Cell) (launch.Cell, error) {
 		Workspace: w.GetWorkspace(),
 		Env:       w.GetEnv(),
 		Home:      decodeHome(w.GetHome()),
+		Unset:     w.GetUnsetEnv(),
 	}
 	if c := w.GetContainer(); c != nil {
 		runtime, err := launch.ParseRuntimeAxis(c.GetRuntime())

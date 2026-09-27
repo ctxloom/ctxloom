@@ -705,6 +705,7 @@ func pingHosts() operations.RunHosts {
 func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, engine, workDir string) error {
 	src := operations.InternalSource(engine, "", workDir)
 	src.Permission = agent.PermissionBypass
+	src.Auth = defaultAgentAuth(cfg)
 	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src)
 	if err != nil {
 		return probeFailure(engine, probeFailedToStart, err)
@@ -714,6 +715,20 @@ func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, e
 		return probeFailure(engine, probeDidNotAnswer, err)
 	}
 	return nil
+}
+
+// defaultAgentAuth is the auth mode the default agent declares: the probe
+// checks the credential the session init is about to launch will use (the
+// default agent's own login, as init writes it), so it never mints a token
+// that session would not use.
+func defaultAgentAuth(cfg *config.Config) enginepkg.AuthMode {
+	if cfg == nil {
+		return ""
+	}
+	if a, ok := cfg.Agent(cfg.GetDefaultAgent()); ok {
+		return enginepkg.AuthMode(a.Auth)
+	}
+	return ""
 }
 
 // The probe's two failure points, named for WHAT FAILED rather than for auth.

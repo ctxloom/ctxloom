@@ -34,7 +34,7 @@ func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 func TestHome_DeclaresAuthWithEveryMode(t *testing.T) {
 	a, ok := claudeKind(t).Home().Auth.Get()
 	require.True(t, ok)
-	assert.Equal(t, []engine.AuthMode{engine.AuthLogin, engine.AuthToken, engine.AuthAPIKey}, a.Modes())
+	assert.Equal(t, []engine.AuthMode{engine.AuthLogin, engine.AuthToken, engine.AuthAPIKey, engine.AuthCloud}, a.Modes())
 }
 
 // A container authenticates from the env alone: no credential file is ever
@@ -50,8 +50,8 @@ func TestContainer_AuthIsEnvOnly(t *testing.T) {
 
 	auth, ok := c.Auth.Get()
 	require.True(t, ok)
-	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}, auth.EnvTriggers,
-		"the setup-token var authenticates a container on its own, so it is a trigger")
+	assert.Equal(t, append([]string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}, providerSwitches...), auth.EnvTriggers,
+		"the setup-token var and each cloud provider switch authenticate a container on their own, so they are triggers")
 	assert.Contains(t, auth.EnvPassthrough, "CLAUDE_CODE_OAUTH_TOKEN", "a trigger that does not cross leaves the container logged out")
 	assert.Contains(t, auth.EnvPassthrough, "ANTHROPIC_BASE_URL")
 	assert.Contains(t, auth.Remedy, "ctxloom auth mint --mode token")

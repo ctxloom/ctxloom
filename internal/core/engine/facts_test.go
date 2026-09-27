@@ -6,14 +6,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // fakeAuth is an Auth with the modes a test names and nothing else.
 type fakeAuth struct{ modes []AuthMode }
 
 func (f fakeAuth) Modes() []AuthMode { return f.modes }
-func (fakeAuth) LaunchEnv(AuthMode, func(string) (string, bool), CredentialReader) (map[string]string, error) {
-	return nil, nil
+func (fakeAuth) LaunchEnv(AuthMode, func(string) (string, bool), CredentialReader) (LaunchEnv, error) {
+	return LaunchEnv{}, nil
 }
 func (fakeAuth) Mint(context.Context, AuthMode, Terminal) ([]byte, error) {
 	return nil, ErrMintUnsupported
@@ -84,23 +86,76 @@ func TestHomeSpec_Validate_RefusesAnUnselectableAuth(t *testing.T) {
 }
 
 // Undeclared auth is the token: the default never reaches the human's own
-// login. An unknown spelling is refused, never defaulted.
+// login. An unknown spelling is refused, typed, never defaulted.
 func TestParseAuthMode(t *testing.T) {
-	for in, want := range map[string]AuthMode{"": AuthToken, " login ": AuthLogin, "token": AuthToken, "api-key": AuthAPIKey} {
+	for in, want := range map[string]AuthMode{"": AuthToken, " login ": AuthLogin, "token": AuthToken, "api-key": AuthAPIKey, "cloud": AuthCloud} {
 		got, err := ParseAuthMode(in)
 		require.NoError(t, err, in)
 		assert.Equal(t, want, got, in)
 	}
 	_, err := ParseAuthMode("apikey")
-	assert.ErrorContains(t, err, "login, token, api-key")
+	require.ErrorIs(t, err, ErrUnknownAuthMode)
+	var r report.Remediable
+	require.ErrorAs(t, err, &r)
+	for _, m := range AuthModeNames() {
+		assert.Contains(t, r.Remedy(), m)
+	}
 }
 
-// The login is the human's and is never stored by ctxloom; every other mode's
-// credential is.
-func TestAuthMode_Stored(t *testing.T) {
-	assert.False(t, AuthLogin.Stored())
-	assert.True(t, AuthToken.Stored())
-	assert.True(t, AuthAPIKey.Stored())
+// Only a token and an API key are ctxloom's to store; only the token is the
+// engine's to mint.
+func TestAuthMode_StoredAndMinted(t *testing.T) {
+	for m, want := range map[AuthMode][2]bool{AuthLogin: {false, false}, AuthToken: {true, true}, AuthAPIKey: {true, false}, AuthCloud: {false, false}} {
+		assert.Equal(t, want[0], m.Stored(), "Stored %s", m)
+		assert.Equal(t, want[1], m.Minted(), "Minted %s", m)
+	}
+}
+
+// CheckAuth is the one check of an auth selection. Every invalid selection
+// is refused with its own sentinel and a remedy; where the fix is another
+// mode, the remedy names exactly the modes THIS engine supports, read from
+// its Modes().
+func TestCheckAuth_EveryInvalidSelectionIsTypedWithARemedy(t *testing.T) {
+	withAuth := Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken, AuthCloud}})
+	noAuth := Absent[Auth]("authenticates against no vendor")
+	for _, tc := range []struct {
+		name     string
+		declared Declared[Auth]
+		mode     string
+		sentinel error
+		modes    bool
+	}{
+		{"an unknown spelling", withAuth, "apikey", ErrUnknownAuthMode, true},
+		{"a mode the engine lacks", withAuth, "login", ErrAuthModeUnsupported, true},
+		{"undeclared, and the engine lacks the token default", Provide[Auth](fakeAuth{modes: []AuthMode{AuthCloud}}), "", ErrAuthModeUnsupported, false},
+		{"any mode on an engine with no auth", noAuth, "token", ErrEngineHasNoAuth, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := CheckAuth("x", tc.declared, tc.mode)
+			require.ErrorIs(t, err, tc.sentinel)
+			var r report.Remediable
+			require.ErrorAs(t, err, &r)
+			require.NotEmpty(t, r.Remedy())
+			if a, ok := tc.declared.Get(); ok {
+				for _, m := range a.Modes() {
+					assert.Contains(t, r.Remedy(), string(m), "the remedy names the engine's own modes")
+				}
+			}
+		})
+	}
+}
+
+func TestCheckAuth_ValidSelections(t *testing.T) {
+	withAuth := Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken, AuthCloud}})
+	m, err := CheckAuth("x", withAuth, "")
+	require.NoError(t, err)
+	assert.Equal(t, AuthToken, m, "undeclared is the token")
+	m, err = CheckAuth("x", withAuth, " cloud ")
+	require.NoError(t, err)
+	assert.Equal(t, AuthCloud, m)
+	m, err = CheckAuth("x", Absent[Auth]("none"), "")
+	require.NoError(t, err)
+	assert.Empty(t, m, "an engine with no auth and no declaration has nothing to check")
 }
 
 func TestSupportsMode(t *testing.T) {

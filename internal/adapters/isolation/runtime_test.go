@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os"
 	"strings"
 	"testing"
@@ -63,7 +64,7 @@ func TestRunArgs_AuthSecretValueNotInArgv(t *testing.T) {
 	const secret = "sk-ant-SUPER-SECRET-VALUE"
 	t.Setenv("ANTHROPIC_API_KEY", secret)
 
-	auth, ok := resolveDeclaredAuth(claudeAuth(t), nil)
+	auth, ok := resolveDeclaredAuth(claudeAuth(t), engine.LaunchEnv{})
 	require.True(t, ok, "an ANTHROPIC_API_KEY in the env resolves env passthrough")
 	require.Equal(t, authEnv, auth.mode)
 

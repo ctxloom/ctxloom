@@ -260,11 +260,13 @@ func (c *RepoCache) cloneToken(cloneURL string) string {
 }
 
 // isGitHubDotCom reports whether a clone URL addresses github.com itself, the
-// one host the ambient github credential belongs to. It reuses forgeHost so
-// the comparison is on the parsed hostname: case, a port, and a www. prefix
-// must not decide whether a credential is spent.
+// one server the ambient github credential belongs to. It reuses forgeHost so
+// the comparison is on the server as identity spells it: case, a www. prefix
+// and the scheme's default port do not decide whether a credential is spent,
+// and any other port does — github.com:8443 is not github.com.
 func isGitHubDotCom(cloneURL string) bool {
-	return forgeHost(cloneURL) == "github.com"
+	name, port := forgeHost(cloneURL)
+	return name == "github.com" && port == ""
 }
 
 // runGit invokes the system git binary, capturing stderr into any error and

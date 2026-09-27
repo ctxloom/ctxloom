@@ -58,7 +58,7 @@ flowchart TD
     REFV --> CS["CanonicalString<br/>reference.go:448"]
 
     CSR -->|alias lookup| REG["Registry<br/>registry.go:20<br/>remotes.yaml"]
-    REG --> FORGE["resolveForge / DetectForge<br/>forge.go:73 · detect.go:66"]
+    REG --> FORGE["resolveForge / DetectForge<br/>forge.go · detect.go"]
     FORGE --> RFG["ResolvedForge<br/>Type · APIURL · TokenEnv"]
     RFG --> TOK["ResolvedForge.Token<br/>detect.go:50"]
     AUTH["LoadAuth env<br/>auth.go:10"] --> TOK
@@ -152,13 +152,13 @@ flowchart TD
 
 | Signature | file:line | Contract |
 |---|---|---|
-| `DetectForge(url) (ForgeType, string, error)` | `internal/adapters/remote/detect.go:66` | URL → forge type + base URL. Errors on scp-style SSH input. |
+| `DetectForge(url) (ForgeType, string, error)` | `internal/adapters/remote/detect.go` | URL → forge type + base URL; the server is compared as `refuri.CanonicalAuthority` spells it. Errors on an unparseable URL or a host refuri refuses. |
 | `ParseRepoURL(url) (owner, repo string, err error)` | `internal/adapters/remote/detect.go:93` | URL or `owner/repo` shorthand → owner and repo. |
 | `NormalizeURL(url) string` | `internal/adapters/remote/repourl.go` | `refuri.NormalizeURL` under this package's name: the repo-URL grammar and its identity rendering live in `internal/shared/refuri`, below both this package and `trust`. |
 | `NewFetcher(url, auth) (Fetcher, error)` | `internal/adapters/remote/detect.go:12` | `DetectForge` → GitHub adapter, explicit error for the generic adapter. |
 | `NewForgeFetcher(rf, auth) (Fetcher, error)` | `internal/adapters/remote/detect.go:32` | Build a fetcher against a `ResolvedForge`'s API URL. |
 | `ResolvedForge.Token(auth) string` | `internal/adapters/remote/detect.go:50` | `token_env` env lookup, else `auth.GitHub`. Reads `os.Getenv` directly. |
-| `resolveForge(...)` / `resolvedFromConfig(...)` | `internal/adapters/remote/forge.go:73,102` | Four-step forge resolution (explicit label → host match → detect → default) and `ForgeConfig` → `ResolvedForge`. |
+| `resolveForge(...)` / `resolvedFromConfig(...)` | `internal/adapters/remote/forge.go` | Four-step forge resolution (explicit label → server match on host and port, `forgeByServer` → detect → default) and `ForgeConfig` → `ResolvedForge`. |
 | `MergeForges(user) map[string]ForgeConfig` | `internal/adapters/remote/forge.go:158` | Overlay user forges on `builtinForges` (`forge.go:48`). |
 | `validateForgeConfig(c) error` | `internal/adapters/remote/forge.go:168` | Rejects an unknown adapter `type`. Body keys are not validated. |
 | `ResolveConstraint(ctx, expr, rv) (Resolution, error)` | `internal/adapters/remote/version_constraint.go:237` | The single home of selector→commit policy: classify then dispatch to `resolveBranch` (`:267`), `resolveSemver` (`:315`), `resolveTagSHA` (`:358`) or `resolveNameTagFirst` (`:287`). |

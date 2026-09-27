@@ -42,9 +42,12 @@ ctxloom remote create myteam myorg/ctxloom-team
 ctxloom remote create corp https://gitlab.com/corp/ctxloom
 ```
 
-The forge resolves from the URL host: github.com (and the `owner/repo`
-shorthand) uses the GitHub API adapter; every other host — GitLab, Gitea,
-self-hosted — uses the generic `git` adapter (clone + local read, with your
+The forge resolves from the URL: a `forges:` entry in `remotes.yaml` whose
+`base_url` names the same server (host and port; a scheme's default port may be
+omitted) is used first — a different port is a different server and gets
+neither that forge's endpoint nor its `token_env`. Otherwise github.com (and
+the `owner/repo` shorthand) uses the GitHub API adapter; every other host —
+GitLab, Gitea, self-hosted — uses the generic `git` adapter (clone + local read, with your
 ambient git authentication). Pass `--forge` to override: `github`, `git`, or
 the label of a `forges:` entry in `remotes.yaml` (for example a GitHub
 Enterprise instance).

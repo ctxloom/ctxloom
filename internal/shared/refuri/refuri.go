@@ -286,25 +286,37 @@ const refHTTPSPort = "443"
 //     beside its A-label twin as a second identity for one repository;
 //   - an empty port and the https default (refHTTPSPort) are dropped.
 //
-// An IP literal is not a DNS name, so IDNA does not apply to it.
+// It is CanonicalAuthority rendered, so a reference and a repository identity
+// cannot disagree about a host.
 func canonicalGitHost(u *url.URL) (string, error) {
-	name, port := u.Hostname(), u.Port()
-	if name == "" {
+	if u.Hostname() == "" {
 		return "", fmt.Errorf("%w: %sgit requires a host", ErrSyntax, SchemePrefix)
 	}
+	host, port, err := CanonicalAuthority(u)
+	if err != nil {
+		return "", err
+	}
+	return joinAuthority(host, port), nil
+}
+
+// CanonicalHost is the one spelling of a host NAME — as url.URL.Hostname
+// returns it, without port or brackets — under which repository identity keys.
+// Anything else that compares hosts (forge matching) must compare these, or a
+// remote keyed as one repository binds differently by how its host is written.
+//
+// Case folds (RFC 3986 §6.2.2.1); a DNS name becomes its A-label under the
+// IDNA2008/UTS #46 LOOKUP profile, and a name that profile refuses is an
+// ErrSyntax error; an IPv6 literal is lowercased and bracketed, since IDNA
+// does not apply to an IP literal.
+func CanonicalHost(name string) (string, error) {
 	if strings.Contains(name, ":") {
-		name = "[" + strings.ToLower(name) + "]"
-	} else {
-		ascii, err := idna.Lookup.ToASCII(name)
-		if err != nil {
-			return "", fmt.Errorf("%w: host %q is not a valid host name: %v", ErrSyntax, name, err)
-		}
-		name = ascii
+		return "[" + strings.ToLower(name) + "]", nil
 	}
-	if port == "" || port == refHTTPSPort {
-		return name, nil
+	ascii, err := idna.Lookup.ToASCII(name)
+	if err != nil {
+		return "", fmt.Errorf("%w: host %q is not a valid host name: %v", ErrSyntax, name, err)
 	}
-	return name + ":" + port, nil
+	return ascii, nil
 }
 
 // parseExternal fills the repo path and bundle for ClassGit / ClassFile.

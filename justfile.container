@@ -533,8 +533,14 @@ vet-integration:
     go vet -tags "acceptance integration" ./tests/...
 
 # Lint code, plus the integration-tag rot gate (see vet-integration).
-lint: vet-integration
+lint: vet-integration tidy-check
     golangci-lint run
+
+# go.mod and go.sum must be exactly what `go mod tidy` produces: an untidy module
+# file carries stale sums and wrong direct/indirect markers that nothing else
+# notices.
+tidy-check:
+    go mod tidy -diff
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.

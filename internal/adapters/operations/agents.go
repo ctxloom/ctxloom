@@ -269,10 +269,11 @@ func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req
 	if err != nil || a == nil {
 		return wrapAgentErr(name, err)
 	}
-	if _, err := a.LaunchEnv(mode, os.LookupEnv, isolation.StoredCredentials(backend)); err != nil && !(errors.Is(err, engine.ErrNoCredential) && mode.Minted()) {
-		return wrapAgentErr(name, err)
+	_, err = a.LaunchEnv(mode, os.LookupEnv, isolation.StoredCredentials(backend))
+	if errors.Is(err, engine.ErrNoCredential) && mode.Minted() {
+		return nil // a run mints it
 	}
-	return nil
+	return wrapAgentErr(name, err)
 }
 
 // errAuthNeedsEngine: an auth mode is written with no engine to check it

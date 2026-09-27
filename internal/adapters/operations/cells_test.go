@@ -75,7 +75,7 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		req := claudeKind(t)
 		req.ProjectRoot = workDir
 		req.HomeMode = home
-		req.Auth = engine.AuthLogin
+		req.Auth = string(engine.AuthLogin)
 		req.Axes.Workspace = workspace
 		req.Identity.Harp = harp
 		req.Env = map[string]string{sessions.EnvHarp: harp}
@@ -176,7 +176,7 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 	req := claudeKind(t)
 	req.ProjectRoot = workDir
 	req.HomeMode = launch.HomeModeSession
-	req.Auth = engine.AuthToken
+	req.Auth = string(engine.AuthToken)
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
 	cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
@@ -206,7 +206,7 @@ func TestCellsPrepare_UnattendedWithNoCredentialIsRefused(t *testing.T) {
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()
 	req.HomeMode = launch.HomeModeSession
-	req.Auth = engine.AuthToken
+	req.Auth = string(engine.AuthToken)
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
 	_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)

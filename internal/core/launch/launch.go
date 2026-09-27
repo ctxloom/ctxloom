@@ -141,10 +141,11 @@ type CellRequest struct {
 	Host        HostFacts
 	Degraded    bool
 	HomeMode    HomeMode
-	// Auth is the agent's DECLARED auth mode, as written ("" undeclared):
-	// the cells adapter checks it against the engine (engine.CheckAuth) and
-	// resolves it to the run's credential env.
-	Auth engine.AuthMode
+	// Auth is the agent's DECLARED auth mode, as written ("" undeclared) —
+	// unparsed on purpose: the cells adapter's engine.CheckAuth is the one
+	// check that turns it into an engine.AuthMode, against the engine it
+	// binds, and resolves it to the run's credential env.
+	Auth string
 	// Env is the run's own environment: the identity carriers the cell's
 	// session state is keyed from and the caller's passthrough.
 	Env map[string]string

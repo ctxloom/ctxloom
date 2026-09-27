@@ -721,12 +721,12 @@ func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, e
 // checks the credential the session init is about to launch will use (the
 // default agent's own login, as init writes it), so it never mints a token
 // that session would not use.
-func defaultAgentAuth(cfg *config.Config) enginepkg.AuthMode {
+func defaultAgentAuth(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
 	if a, ok := cfg.Agent(cfg.GetDefaultAgent()); ok {
-		return enginepkg.AuthMode(a.Auth)
+		return a.Auth
 	}
 	return ""
 }

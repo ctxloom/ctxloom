@@ -265,7 +265,7 @@ func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req
 			"agent %q: auth %s: %w", name, *req.Auth, errAuthNeedsEngine)
 	}
 	axis, _ := launch.ParseRuntimeAxis(resultingAgentRuntime(cfg, name, req))
-	a, mode, err := checkAgentAuth(reg, backend, engine.AuthMode(*req.Auth), !isolation.IsContainerRuntimeAxis(axis))
+	a, mode, err := checkAgentAuth(reg, backend, *req.Auth, !isolation.IsContainerRuntimeAxis(axis))
 	if err != nil || a == nil {
 		return wrapAgentErr(name, err)
 	}

@@ -538,12 +538,12 @@ func TestPingEngineAuth_RunsInTheDefaultAgentsAuthMode(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		cfg  config.Fixture
-		want engine.AuthMode
+		want string
 	}{
 		{"the default agent's login", config.Fixture{
 			Agents:       map[string]agents.Agent{"dev": {Name: "dev", LLM: "claude-code", Auth: "login"}},
 			DefaultAgent: "dev",
-		}, engine.AuthLogin},
+		}, string(engine.AuthLogin)},
 		{"no default agent", config.Fixture{}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

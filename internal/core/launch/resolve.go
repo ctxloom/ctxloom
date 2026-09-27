@@ -240,7 +240,7 @@ type selection struct {
 	runtime     string
 	permissions string
 	homeMode    HomeMode
-	auth        engine.AuthMode
+	auth        string
 	surfaces    map[string]string
 	roots       map[string]string
 }
@@ -282,7 +282,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 	// The declared auth travels as written: the cells adapter checks it
 	// against the engine it binds (engine.CheckAuth), the one check config
 	// load and `agent create/edit` also run.
-	auth := engine.AuthMode(strings.TrimSpace(binding.Auth))
+	auth := binding.Auth
 	return selection{
 		agent:       name,
 		profiles:    slices.Clone(binding.Profiles),

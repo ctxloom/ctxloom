@@ -29,7 +29,8 @@ var errLoginNotInContainer = errors.New("auth login shares the human's own login
 // other.
 type runAuth struct {
 	Backend string
-	Mode    engine.AuthMode
+	// Declared is the agent's auth mode as written; checkAgentAuth parses it.
+	Declared string
 	// OnHost is whether the engine runs on the host rather than in a
 	// container.
 	OnHost bool
@@ -54,12 +55,12 @@ var mintMu sync.Mutex
 // an auth selection, run by `agent create/edit` (validateAgentAuth) and by
 // every launch (resolveRunAuth); config load runs engine.CheckAuth itself.
 // A nil Auth with no error is an engine that authenticates on its own.
-func checkAgentAuth(reg engine.Registry, backend string, declared engine.AuthMode, onHost bool) (engine.Auth, engine.AuthMode, error) {
+func checkAgentAuth(reg engine.Registry, backend, declared string, onHost bool) (engine.Auth, engine.AuthMode, error) {
 	kind, ok := reg.Lookup(engine.Name(backend))
 	if !ok {
 		return nil, "", nil
 	}
-	mode, err := engine.CheckAuth(kind.Root().Name, kind.Home().Auth, string(declared))
+	mode, err := engine.CheckAuth(kind.Root().Name, kind.Home().Auth, declared)
 	if err != nil {
 		return nil, "", err
 	}
@@ -95,7 +96,7 @@ func joinAuthModes(modes []engine.AuthMode) string {
 // Every other missing credential is the engine's own refusal, which names
 // what to set or store.
 func resolveRunAuth(ctx context.Context, reg engine.Registry, in runAuth) (engine.LaunchEnv, error) {
-	a, mode, err := checkAgentAuth(reg, in.Backend, in.Mode, in.OnHost)
+	a, mode, err := checkAgentAuth(reg, in.Backend, in.Declared, in.OnHost)
 	if err != nil || a == nil {
 		return engine.LaunchEnv{}, err
 	}

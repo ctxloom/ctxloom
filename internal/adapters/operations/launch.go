@@ -357,9 +357,9 @@ func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest
 // (resolveRunAuth), from the mode the binding declared.
 func (c Cells) runAuthEnv(ctx context.Context, req launch.CellRequest) (engine.LaunchEnv, error) {
 	return resolveRunAuth(ctx, c.engines, runAuth{
-		Backend: string(req.Engine.Root().Name),
-		Mode:    req.Auth,
-		OnHost:  !launch.IsContainerRuntimeAxis(req.Axes.Runtime),
+		Backend:  string(req.Engine.Root().Name),
+		Declared: req.Auth,
+		OnHost:   !launch.IsContainerRuntimeAxis(req.Axes.Runtime),
 	})
 }
 

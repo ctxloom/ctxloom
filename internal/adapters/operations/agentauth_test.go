@@ -85,7 +85,7 @@ func TestResolveRunAuth_MintsWhenNeededAtATerminalAndStores(t *testing.T) {
 	term := engine.Terminal{In: bytes.NewBufferString(""), Out: &errOut, Err: &errOut}
 	withTerminal(t, term, true)
 
-	env, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: true})
+	env, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthToken), OnHost: true})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{fakeTokenVar: "minted-secret"}, env.Set)
 	require.Len(t, *seen, 1, "minted once, on the terminal it was handed")
@@ -97,7 +97,7 @@ func TestResolveRunAuth_MintsWhenNeededAtATerminalAndStores(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "minted-secret", string(got), "stored for every later run")
 
-	_, err = resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: false})
+	_, err = resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthToken), OnHost: false})
 	require.NoError(t, err)
 	assert.Len(t, *seen, 1, "a stored credential is read, never minted again")
 }
@@ -109,7 +109,7 @@ func TestResolveRunAuth_UnattendedRefusesNamingTheRemedy(t *testing.T) {
 	reg, seen := installFakeMint(t)
 	withTerminal(t, engine.Terminal{}, false)
 
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthToken, OnHost: true})
+	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthToken), OnHost: true})
 	require.ErrorIs(t, err, engine.ErrNoCredential)
 	assert.Contains(t, remedyOf(t, err), "ctxloom auth mint --engine fake-auth --mode token")
 	assert.Contains(t, err.Error(), "no terminal")
@@ -121,14 +121,14 @@ func TestResolveRunAuth_UnattendedRefusesNamingTheRemedy(t *testing.T) {
 func TestResolveRunAuth_AnUnmintedModeIsNeverMinted(t *testing.T) {
 	reg, seen := installFakeMint(t)
 	withTerminal(t, engine.Terminal{Err: &bytes.Buffer{}}, true)
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthAPIKey, OnHost: true})
+	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthAPIKey), OnHost: true})
 	require.ErrorIs(t, err, engine.ErrNoCredential)
 	assert.Empty(t, *seen, "Mint is never called for an api-key")
 }
 
 func TestResolveRunAuth_RefusesAModeTheEngineLacks(t *testing.T) {
 	reg, _ := installFakeMint(t)
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Mode: engine.AuthLogin, OnHost: true})
+	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthLogin), OnHost: true})
 	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
 }
 
@@ -146,7 +146,7 @@ func TestResolveRunAuth_NothingToResolve(t *testing.T) {
 func TestResolveRunAuth_HostLoginSharesTheHumansStorage(t *testing.T) {
 	fakeHostHome(t, tokenFixture)
 	t.Setenv(claude.ConfigDirEnv, "/home/me/./.claude-work/")
-	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthLogin, OnHost: true})
+	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthLogin), OnHost: true})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{claude.SecureStorageEnv: "/home/me/./.claude-work/"}, env.Set)
 	assert.Subset(t, env.Unset, []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv})
@@ -156,7 +156,7 @@ func TestResolveRunAuth_HostLoginSharesTheHumansStorage(t *testing.T) {
 // refused, typed, with a remedy naming the modes the engine supports there.
 func TestResolveRunAuth_ContainerLoginIsRefused(t *testing.T) {
 	fakeHostHome(t, "")
-	_, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthLogin, OnHost: false})
+	_, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthLogin), OnHost: false})
 	require.ErrorIs(t, err, errLoginNotInContainer)
 	requireRemedyNamingModes(t, err, engine.AuthLogin)
 }
@@ -168,7 +168,7 @@ func TestResolveRunAuth_ClaudeTokenFromTheStore(t *testing.T) {
 	t.Setenv(claude.APIKeyEnv, "sk-ant-api-shell")
 	_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
 	require.NoError(t, err)
-	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthToken, OnHost: false})
+	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthToken), OnHost: false})
 	require.NoError(t, err)
 	assert.Equal(t, tokenFixture, env.Set[claude.OAuthTokenEnv])
 	assert.Contains(t, env.Unset, claude.APIKeyEnv)
@@ -182,7 +182,7 @@ func TestResolveRunAuth_CloudIsNeverMinted(t *testing.T) {
 	fakeHostHome(t, "")
 	withTerminal(t, engine.Terminal{Err: &bytes.Buffer{}}, true)
 	t.Setenv("PATH", t.TempDir())
-	_, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Mode: engine.AuthCloud, OnHost: true})
+	_, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthCloud), OnHost: true})
 	require.ErrorIs(t, err, engine.ErrNoCredential)
 	requireRemedyNamingModes(t, err, engine.AuthCloud)
 }
@@ -224,7 +224,7 @@ func TestAuthSelection_WriteAndRunRefuseAlike(t *testing.T) {
 				Name: "a", LLM: ptr(tc.llm), Profiles: ptr([]string{"x"}), Auth: ptr(tc.mode),
 			})
 			require.ErrorIs(t, werr, tc.sentinel, "write")
-			_, rerr := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: tc.llm, Mode: engine.AuthMode(tc.mode), OnHost: true})
+			_, rerr := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: tc.llm, Declared: tc.mode, OnHost: true})
 			require.ErrorIs(t, rerr, tc.sentinel, "run")
 			for _, err := range []error{werr, rerr} {
 				var r report.Remediable

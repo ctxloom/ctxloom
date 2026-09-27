@@ -42,9 +42,9 @@ type Source struct {
 	// no shipped binding names these runs; a binding for each retires it.
 	Internal bool
 	// Auth is the declared auth mode an Internal launch runs in (the setup
-	// probe runs in the default agent's); every other launch takes its
-	// binding's. "" is undeclared.
-	Auth engine.AuthMode
+	// probe runs in the default agent's), as written; every other launch
+	// takes its binding's. "" is undeclared.
+	Auth string
 }
 
 // Resume is the resume arm. A non-zero Ref makes Resolve REUSE the session:

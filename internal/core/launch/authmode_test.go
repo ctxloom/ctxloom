@@ -23,18 +23,18 @@ func TestResolve_Auth_TheDeclaredModeReachesTheCellVerbatim(t *testing.T) {
 	cases := []struct {
 		name string
 		src  func(env launchtest.Env) launch.Source
-		want engine.AuthMode
+		want string
 	}{
 		{"a binding that declares nothing", func(env launchtest.Env) launch.Source { return src(env, "silent") }, ""},
-		{"a binding declaring login", func(env launchtest.Env) launch.Source { return src(env, "login") }, engine.AuthLogin},
-		{"a binding declaring cloud", func(env launchtest.Env) launch.Source { return src(env, "cloud") }, engine.AuthCloud},
+		{"a binding declaring login", func(env launchtest.Env) launch.Source { return src(env, "login") }, string(engine.AuthLogin)},
+		{"a binding declaring cloud", func(env launchtest.Env) launch.Source { return src(env, "cloud") }, string(engine.AuthCloud)},
 		{"an unparseable spelling", func(env launchtest.Env) launch.Source { return src(env, "typo") }, "apikey"},
 		{"a launch with no binding (a profile set)", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
 		}, ""},
 		{"an internal one-shot naming a mode", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Internal: true, Auth: engine.AuthLogin, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
-		}, engine.AuthLogin},
+			return launch.Source{Identity: env.Identity, Internal: true, Auth: string(engine.AuthLogin), Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
+		}, string(engine.AuthLogin)},
 		{"an internal one-shot naming none", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Internal: true, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
 		}, ""},

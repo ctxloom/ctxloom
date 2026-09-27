@@ -89,7 +89,7 @@ func startEnvFeed(fifo string, content []byte) (*envFeed, error) {
 	f := &envFeed{fifo: fifo, done: make(chan struct{})}
 	go func() {
 		defer close(f.done)
-		w, err := os.OpenFile(fifo, os.O_WRONLY, 0)
+		w, err := iox.OpenFIFOWriter(fifo)
 		_ = os.Remove(fifo)
 		if err != nil {
 			return

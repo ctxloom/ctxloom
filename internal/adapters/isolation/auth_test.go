@@ -32,7 +32,7 @@ func TestPresentEnvKeys_OnlyKnownSetVars(t *testing.T) {
 func TestResolveDeclaredAuth_SetupTokenAloneCrossesByName(t *testing.T) {
 	clearClaudeAuthEnv(t)
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-secret")
-	plan, ok := resolveDeclaredAuth(claudeAuth(t))
+	plan, ok := resolveDeclaredAuth(claudeAuth(t), nil)
 	require.True(t, ok, "a stored or exported setup-token authenticates the container")
 	assert.Equal(t, authEnv, plan.mode)
 	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN"}, plan.envPassthrough)
@@ -46,12 +46,12 @@ func TestResolveDeclaredAuth_SetupTokenAloneCrossesByName(t *testing.T) {
 // in its place, however many sit in the host home.
 func TestResolveDeclaredAuth_NoAuthVarRefusesAndMountsNothing(t *testing.T) {
 	clearClaudeAuthEnv(t)
-	auth, ok := resolveDeclaredAuth(claudeAuth(t))
+	auth, ok := resolveDeclaredAuth(claudeAuth(t), nil)
 	assert.False(t, ok)
 	assert.Equal(t, authNone, auth.mode)
 
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	auth, ok = resolveDeclaredAuth(claudeAuth(t))
+	auth, ok = resolveDeclaredAuth(claudeAuth(t), nil)
 	require.True(t, ok)
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the auth var crosses by NAME")
@@ -67,7 +67,7 @@ func TestResolveClaudeContainerAuth_AuthTokenAlsoTriggers(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "gw-token")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
 
-	auth, ok := resolveDeclaredAuth(claudeAuth(t))
+	auth, ok := resolveDeclaredAuth(claudeAuth(t), nil)
 	require.True(t, ok, "ANTHROPIC_AUTH_TOKEN alone must trigger env passthrough")
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_AUTH_TOKEN")
@@ -86,7 +86,7 @@ func TestResolveClaudeContainerAuth_TriggersOnAuthVarsNotOtherAnthropicVars(t *t
 	t.Setenv("ANTHROPIC_BASE_URL", "https://x")
 	t.Setenv("ANTHROPIC_MODEL", "claude-x")
 
-	auth, ok := resolveDeclaredAuth(claudeAuth(t))
+	auth, ok := resolveDeclaredAuth(claudeAuth(t), nil)
 	require.False(t, ok, "other ANTHROPIC_* set without an auth var must NOT env-trigger")
 	assert.Equal(t, authNone, auth.mode)
 	assert.Empty(t, auth.envPassthrough, "nothing crosses when no trigger var is set")

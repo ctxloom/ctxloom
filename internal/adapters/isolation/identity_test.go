@@ -176,7 +176,7 @@ func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 	testsupport.Isolate(t)
 	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	c.engineSpec.resolveAuth = func() (containerAuth, bool) { return containerAuth{}, true }
+	c.engineSpec.resolveAuth = func(map[string]string) (containerAuth, bool) { return containerAuth{}, true }
 
 	mark := strictness.Checkpoint()
 	sc, err := c.prepareContainerScratch(context.Background())

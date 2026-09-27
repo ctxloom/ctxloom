@@ -521,7 +521,7 @@ func hermeticHostContainer(t *testing.T, overlayDirs []string) Container {
 		image:   "ctxloom-agent-hermetic-test:latest",
 		engineSpec: engineContainerSpec{
 			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func() (containerAuth, bool) {
+			resolveAuth: func(map[string]string) (containerAuth, bool) {
 				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 			},
 			overlayDirs: overlayDirs,

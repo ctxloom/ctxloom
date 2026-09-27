@@ -18,7 +18,7 @@ import (
 const authLong = `Store the credentials ctxloom-launched engines authenticate with.
 
 Each agent declares how its engine authenticates with 'auth:' on its binding
-(ctxloom agent set <name> --auth <mode>):
+(ctxloom agent edit <name> --auth <mode>):
 
   login    your own login, in place: the same credential and the same
            refresh as your own engine (claude: CLAUDE_SECURESTORAGE_CONFIG_DIR).

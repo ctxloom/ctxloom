@@ -49,6 +49,10 @@ type AgentEntry struct {
 	// (session|host), as written; empty (undeclared) defaults to session at
 	// resolve time — see agents.Agent.HomeMode's doc.
 	HomeMode string `json:"engine_home,omitempty"`
+	// Auth is the agent's declared auth mode (login|token|api-key), as
+	// written; empty (undeclared) is token at resolve time — see
+	// agents.Agent.Auth's doc.
+	Auth string `json:"auth,omitempty"`
 }
 
 // ListAgents returns every locally-defined agent (the `agents:` config key),
@@ -67,6 +71,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Driving:     s.Driving,
 			Escalation:  s.Escalation,
 			HomeMode:    s.HomeMode,
+			Auth:        s.Auth,
 		})
 	}
 	return out
@@ -91,6 +96,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Driving:     sub.Driving,
 		Escalation:  sub.Escalation,
 		HomeMode:    sub.HomeMode,
+		Auth:        sub.Auth,
 	}, nil
 }
 
@@ -141,6 +147,10 @@ type SetAgentRequest struct {
 	// returns an error, nothing is persisted) — the same treatment Surfaces
 	// gets, and for the same reason: see agents.Agent.HomeMode's doc.
 	HomeMode *string `json:"engine_home,omitempty"`
+	// Auth sets the binding's auth mode (login|token|api-key); empty
+	// (undeclared) is token at resolve time. An unknown mode, or one the
+	// engine this write results in does not support, is REJECTED.
+	Auth *string `json:"auth,omitempty"`
 }
 
 // orKeep dereferences an optional request field: nil means "the caller did not
@@ -231,7 +241,42 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 	if err := validateContainerAuth(reg, cfg, name, req); err != nil {
 		return err
 	}
+	if err := validateAgentAuth(reg, cfg, name, req); err != nil {
+		return err
+	}
 	return validateAgentHomeMode(name, req)
+}
+
+// validateAgentAuth refuses an auth mode outside the shared vocabulary, and
+// one the engine this write results in does not support (its Auth.Modes), so
+// the binding is never written for a credential its engine cannot use. It
+// breaks rather than degrades, like engine_home: a mode silently resolved to
+// another would authenticate as a credential nobody chose.
+func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
+	if req.Auth == nil || *req.Auth == "" {
+		return nil
+	}
+	mode, err := engine.ParseAuthMode(*req.Auth)
+	if err != nil {
+		return fmt.Errorf("agent %q: %w", name, err)
+	}
+	backend, _ := ResolveBackend(reg, cfg, resultingAgentEngine(cfg, name, req))
+	kind, ok := reg.Lookup(engine.Name(backend))
+	if !ok {
+		return fmt.Errorf("agent %q: auth %s needs a known engine to check it against; set --llm in the same command", name, mode)
+	}
+	a, ok := kind.Home().Auth.Get()
+	if !ok {
+		return fmt.Errorf("agent %q: engine %q declares no auth (%s), so auth %s cannot be honoured", name, backend, kind.Home().Auth.AbsentReason(), mode)
+	}
+	if !engine.SupportsMode(a, mode) {
+		supported := make([]string, 0, len(a.Modes()))
+		for _, m := range a.Modes() {
+			supported = append(supported, string(m))
+		}
+		return fmt.Errorf("agent %q: engine %q: %w: %s (it supports %s)", name, backend, engine.ErrAuthModeUnsupported, mode, strings.Join(supported, ", "))
+	}
+	return nil
 }
 
 // validateAgentEngine refuses a non-empty engine outside AvailableLLMNames.
@@ -481,6 +526,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
 		entry.HomeMode = orKeep(req.HomeMode, entry.HomeMode)
+		entry.Auth = orKeep(req.Auth, entry.Auth)
 		// Checked against the record the write RESULTS IN, inside the
 		// transaction, for the same reason the surface preference is: a
 		// create with no --llm/--profiles and an edit that clears the last of
@@ -504,6 +550,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 		Driving:     entry.Driving,
 		Escalation:  entry.Escalation,
 		HomeMode:    entry.HomeMode,
+		Auth:        entry.Auth,
 	}, nil
 }
 
@@ -626,6 +673,10 @@ type ResolvedAgent struct {
 	// InTreeAgentHome.HomeMode — a launch with NO binding gets the session
 	// home by the resolver's own default, not by this field's value.
 	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
+	// Auth is the agent's EFFECTIVE auth mode: the declared one, or token
+	// when undeclared (engine.ParseAuthMode). The launch resolver reads the
+	// same declaration off the binding itself.
+	Auth engine.AuthMode `json:"auth,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -699,11 +750,11 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 	// Effective engine: an explicit override (a caller-level --llm) wins over the
 	// binding's declared engine; either then beats the composed profiles' llm,
 	// then the project default — the same precedence run/oneshot use.
-	engine := sub.LLM
+	llmName := sub.LLM
 	if engineOverride != "" {
-		engine = engineOverride
+		llmName = engineOverride
 	}
-	label := resolveOneshotLabel(cfg, engine, ctxResult.ProfileLLM)
+	label := resolveOneshotLabel(cfg, llmName, ctxResult.ProfileLLM)
 	backend, model := ResolveBackend(reg, cfg, label)
 
 	// Effective runtime axis: the agent's own choice wins, else the project's
@@ -741,6 +792,10 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 	if cherr != nil {
 		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)
 	}
+	authMode, aerr := engine.ParseAuthMode(sub.Auth)
+	if aerr != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — a launch refuses it", name, aerr)
+	}
 
 	// The interactive base an unflagged run resolves to (declared → label →
 	// PROJECT DEFAULT → built-in default), so a blank claude-code posture shows
@@ -772,5 +827,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		Escalation:           sub.Escalation,
 		Driving:              sub.Driving,
 		HomeMode:             configHome,
+		Auth:                 authMode,
 	}, nil
 }
+

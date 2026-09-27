@@ -188,7 +188,7 @@ func TestPrepareWorkspace_DegradesOnFSMismatch(t *testing.T) {
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
 	// Auth must resolve for the gate to reach prepareBase/the probe at all
 	// (host state — real ANTHROPIC_* creds — must never gate a hermetic test).
-	c.engineSpec.resolveAuth = func() (containerAuth, bool) {
+	c.engineSpec.resolveAuth = func(map[string]string) (containerAuth, bool) {
 		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 	}
 	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")
@@ -212,7 +212,7 @@ func TestPrepareWorkspace_FSProbeRunFailureIsNotMisreportedAsMismatch(t *testing
 	testsupport.Isolate(t)
 	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "mock").WithImage("img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	c.engineSpec.resolveAuth = func() (containerAuth, bool) {
+	c.engineSpec.resolveAuth = func(map[string]string) (containerAuth, bool) {
 		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 	}
 	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")

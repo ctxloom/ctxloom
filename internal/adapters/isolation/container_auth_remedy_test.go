@@ -19,7 +19,7 @@ func TestPrepareContainerScratch_UnresolvableAuthNamesItsRemedy(t *testing.T) {
 	testsupport.Isolate(t)
 	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	c.engineSpec.resolveAuth = func() (containerAuth, bool) { return containerAuth{}, false }
+	c.engineSpec.resolveAuth = func(map[string]string) (containerAuth, bool) { return containerAuth{}, false }
 	c.engineSpec.authHint = "no TOKEN to authenticate"
 	c.engineSpec.authRemedy = "store a token with ctxloom auth set-token"
 

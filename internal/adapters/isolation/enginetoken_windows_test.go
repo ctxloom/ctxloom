@@ -11,15 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
-// On Windows owner-only is a DACL: the token directory's is protected (it
-// inherits nothing from above) and it and the file grant only the current
-// user.
-func TestStoreEngineToken_AppliesAnOwnerOnlyDACL(t *testing.T) {
+// On Windows owner-only is a DACL: the credential directory's is protected
+// (it inherits nothing from above) and it and the file grant only the
+// current user; status shows the ACL verdict, not a mode.
+func TestStoreEngineCredential_AppliesAnOwnerOnlyDACL(t *testing.T) {
 	tokenHome(t)
-	path, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken))
+	path, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
 	require.NoError(t, err)
 	me, err := currentUserSID()
 	require.NoError(t, err)
@@ -43,10 +44,32 @@ func TestStoreEngineToken_AppliesAnOwnerOnlyDACL(t *testing.T) {
 	control, _, err := sd.Control()
 	require.NoError(t, err)
 	assert.NotZero(t, control&windows.SE_DACL_PROTECTED, "the directory inherits nothing")
+
+	st, err := credentialStatus(claude.EngineName, engine.AuthToken)
+	require.NoError(t, err)
+	assert.Equal(t, "owner-only", st.Protection)
 }
 
-// A token whose file or directory grants anyone else access is refused.
-func TestExportStoredTokens_RefusesATokenOthersCanRead(t *testing.T) {
+// SYSTEM and Administrators beside the owner are tolerated (ruled
+// 2026-09-25): such a credential is read, and status still says owner-only.
+func TestStoredCredentials_ToleratesSystemAndAdministrators(t *testing.T) {
+	tokenHome(t)
+	path, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
+	require.NoError(t, err)
+	grantWellKnownRead(t, path, windows.WinLocalSystemSid)
+	grantWellKnownRead(t, path, windows.WinBuiltinAdministratorsSid)
+
+	got, err := StoredCredentials(claude.EngineName).Read(engine.AuthToken)
+	require.NoError(t, err)
+	assert.Equal(t, fixtureToken, string(got))
+	st, err := credentialStatus(claude.EngineName, engine.AuthToken)
+	require.NoError(t, err)
+	assert.Equal(t, "owner-only", st.Protection)
+}
+
+// A credential whose file or directory grants anyone else access is
+// refused, and status names who.
+func TestStoredCredentials_RefusesACredentialOthersCanRead(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		target func(tokenPath string) string
@@ -56,26 +79,29 @@ func TestExportStoredTokens_RefusesATokenOthersCanRead(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tokenHome(t)
-			path, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken))
+			path, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
 			require.NoError(t, err)
 			loose := tc.target(path)
-			grantEveryoneRead(t, loose)
+			grantWellKnownRead(t, loose, windows.WinWorldSid)
 
-			err = ExportStoredTokens()
-			require.ErrorIs(t, err, ErrTokenExposed)
+			_, err = StoredCredentials(claude.EngineName).Read(engine.AuthToken)
+			require.ErrorIs(t, err, ErrCredentialExposed)
 			assert.Contains(t, err.Error(), loose)
-			_, set := os.LookupEnv(claude.OAuthTokenEnv)
-			assert.False(t, set, "a refused token never reaches the env")
+			if loose == path {
+				st, err := credentialStatus(claude.EngineName, engine.AuthToken)
+				require.NoError(t, err)
+				assert.Contains(t, st.Protection, "exposed: grants access to S-1-1-0")
+			}
 		})
 	}
 }
 
 // When the owner-only ACL cannot be applied the store fails and writes no
-// token. The directory is pre-made with an OWNER RIGHTS ACE granting only
+// credential. The directory is pre-made with an OWNER RIGHTS ACE granting only
 // read and traverse, which withdraws the owner's implicit WRITE_DAC.
-func TestStoreEngineToken_FailsWhenTheACLCannotBeApplied(t *testing.T) {
+func TestStoreEngineCredential_FailsWhenTheACLCannotBeApplied(t *testing.T) {
 	tokenHome(t)
-	path, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken))
+	path, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
 	require.NoError(t, err)
 	require.NoError(t, os.Remove(path))
 	dir := filepath.Dir(path)
@@ -96,17 +122,18 @@ func TestStoreEngineToken_FailsWhenTheACLCannotBeApplied(t *testing.T) {
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		nil, nil, acl, nil))
 
-	_, err = StoreEngineToken(claude.EngineName, []byte(fixtureToken))
+	_, err = StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), dir)
 	_, statErr := os.Stat(path)
-	assert.ErrorIs(t, statErr, os.ErrNotExist, "no token is written when the ACL is not applied")
+	assert.ErrorIs(t, statErr, os.ErrNotExist, "no credential is written when the ACL is not applied")
 }
 
-// grantEveryoneRead adds an Everyone read ACE to p's existing DACL.
-func grantEveryoneRead(t *testing.T, p string) {
+// grantWellKnownRead adds a read ACE for the well-known principal to p's
+// existing DACL.
+func grantWellKnownRead(t *testing.T, p string, who windows.WELL_KNOWN_SID_TYPE) {
 	t.Helper()
-	everyone, err := windows.CreateWellKnownSid(windows.WinWorldSid)
+	sid, err := windows.CreateWellKnownSid(who)
 	require.NoError(t, err)
 	sd, err := windows.GetNamedSecurityInfo(p, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	require.NoError(t, err)
@@ -118,7 +145,7 @@ func grantEveryoneRead(t *testing.T, p string) {
 		Trustee: windows.TRUSTEE{
 			TrusteeForm:  windows.TRUSTEE_IS_SID,
 			TrusteeType:  windows.TRUSTEE_IS_WELL_KNOWN_GROUP,
-			TrusteeValue: windows.TrusteeValueFromSID(everyone),
+			TrusteeValue: windows.TrusteeValueFromSID(sid),
 		},
 	}}, current)
 	require.NoError(t, err)

@@ -231,7 +231,7 @@ func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": false}}
 	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState, _ map[string]string) (isolation.Policy, isolation.Workspace) {
 		return stubPolicy{}, stubWorkspace{dir: projectDir}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
@@ -328,7 +328,7 @@ func TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing
 		UntrackedList:  []string{"untracked.go", "nested/other.go"},
 	}
 	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState, _ map[string]string) (isolation.Policy, isolation.Workspace) {
 		return stubPolicy{}, stubWorkspace{dir: target}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
@@ -372,7 +372,7 @@ func TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 		ApplyPatchErr:  fmt.Errorf("patch does not apply"),
 	}
 	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState, _ map[string]string) (isolation.Policy, isolation.Workspace) {
 		return stubPolicy{}, stubWorkspace{dir: target}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
@@ -404,7 +404,7 @@ func TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 		UntrackedList: []string{"untracked.go"},
 	}
 	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState, _ map[string]string) (isolation.Policy, isolation.Workspace) {
 		return stubPolicy{}, stubWorkspace{dir: target}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })

@@ -63,7 +63,7 @@ func TestRunArgs_AuthSecretValueNotInArgv(t *testing.T) {
 	const secret = "sk-ant-SUPER-SECRET-VALUE"
 	t.Setenv("ANTHROPIC_API_KEY", secret)
 
-	auth, ok := resolveDeclaredAuth(claudeAuth(t))
+	auth, ok := resolveDeclaredAuth(claudeAuth(t), nil)
 	require.True(t, ok, "an ANTHROPIC_API_KEY in the env resolves env passthrough")
 	require.Equal(t, authEnv, auth.mode)
 

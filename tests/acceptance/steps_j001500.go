@@ -595,8 +595,14 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			if ref == "" {
 				return fmt.Errorf("a withheld line names no item: %q; output:\n%s", line[0], out)
 			}
-			if !strings.Contains(ref, j001500UnsignedBundle) || slices.Contains(refs, ref) {
+			if !strings.Contains(ref, j001500UnsignedBundle) {
 				continue
+			}
+			// One command, one gate: the sync reaches the advisory from more
+			// than one site, and each held item is named once across all of
+			// them — a second line for it is noise that buries the first.
+			if slices.Contains(refs, ref) {
+				return fmt.Errorf("withheld item %s is named more than once in one sync; output:\n%s", ref, out)
 			}
 			refs = append(refs, ref)
 			if err := j001500CheckHeldReason(ref, reason, bare); err != nil {

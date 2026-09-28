@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,9 +21,13 @@ import (
 // (killSession), so a grandchild the runner isolated into its own process
 // group is swept up too.
 type HostRunner struct {
-	cmd      *exec.Cmd
-	stderr   *stderrtail.Ring
-	pid      int
+	cmd    *exec.Cmd
+	stderr *stderrtail.Ring
+	pid    int
+	// stop cancels the command's context, which is how Kill asks the runner
+	// to end: exec runs cmd.Cancel (askToStop) and, if the runner is still
+	// there once WaitDelay has passed, SIGKILLs it.
+	stop     context.CancelFunc
 	killOnce sync.Once
 	// reaped blocks for the ONE background Wait this runner's process gets.
 	// A Start()ed process is only released from the process table by Wait,
@@ -33,10 +38,12 @@ type HostRunner struct {
 	reaped func() error
 }
 
-// hostRunnerWaitDelay bounds the gap between the runner process exiting and
-// its stderr pipe closing: the runner puts itself in a fresh session, so a
-// grandchild it spawned can hold that pipe open and wedge Wait — a wedged
-// Wait is an unreaped child.
+// hostRunnerWaitDelay is exec's WaitDelay for the runner, and so bounds two
+// waits. After the runner exits, how long its stderr pipe may stay open: the
+// runner puts itself in a fresh session, so a grandchild it spawned can hold
+// that pipe open and wedge Wait — a wedged Wait is an unreaped child. After
+// Kill asks it to stop, how long the runner gets to run its teardown before
+// it is SIGKILLed.
 const hostRunnerWaitDelay = 10 * time.Second
 
 // StartHostRunner self-execs `ctxloom <args…>` under a fresh session (isolateRunner),
@@ -50,19 +57,27 @@ const hostRunnerWaitDelay = 10 * time.Second
 // would get a healthy-looking *HostRunner for a process that never dials home,
 // and the failure would surface only as the coordinator's readiness timeout.
 func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, error) {
-	cmd, err := hostRunnerCmd(args, spawnEnv)
+	return startHostRunnerWithGrace(args, spawnEnv, hostRunnerWaitDelay)
+}
+
+func startHostRunnerWithGrace(args []string, spawnEnv map[string]string, grace time.Duration) (*HostRunner, error) {
+	ctx, stop := context.WithCancel(context.Background())
+	cmd, err := hostRunnerCmd(ctx, args, spawnEnv)
 	if err != nil {
+		stop()
 		return nil, err
 	}
 	// Fresh session leader so killSession has a safe, scoped teardown boundary.
 	isolateRunner(cmd)
 	ring := stderrtail.New(stderrtail.DefaultBytes)
 	cmd.Stderr = ring
-	cmd.WaitDelay = hostRunnerWaitDelay
+	cmd.Cancel = func() error { return askToStop(cmd.Process) }
+	cmd.WaitDelay = grace
 	if err := cmd.Start(); err != nil {
+		stop()
 		return nil, fmt.Errorf("start host runner: %w", err)
 	}
-	h := &HostRunner{cmd: cmd, stderr: ring, pid: cmd.Process.Pid}
+	h := &HostRunner{cmd: cmd, stderr: ring, pid: cmd.Process.Pid, stop: stop}
 	// Reap in the background, exactly once: Kill signals the process but only
 	// Wait releases it, and nothing in production calls Wait.
 	done := make(chan struct{})
@@ -70,6 +85,7 @@ func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, er
 	go func() {
 		defer close(done)
 		waitErr = cmd.Wait()
+		stop()
 	}()
 	h.reaped = func() error {
 		<-done
@@ -82,25 +98,27 @@ func StartHostRunner(args []string, spawnEnv map[string]string) (*HostRunner, er
 // spawnEnv laid over the process env, and the admitted companions first on
 // PATH (withPinnedPath) so the engine this runner launches resolves a
 // companion's bare name to the bytes admission verified.
-func hostRunnerCmd(args []string, spawnEnv map[string]string) (*exec.Cmd, error) {
+func hostRunnerCmd(ctx context.Context, args []string, spawnEnv map[string]string) (*exec.Cmd, error) {
 	if len(args) == 0 || args[0] == "" {
 		return nil, fmt.Errorf("start host runner: no subcommand in args")
 	}
 	// Resolve the running binary upgrade-safely (selfexec strips a Linux
 	// "(deleted)" suffix after an in-place upgrade), as RunnerCommand does.
-	cmd := exec.Command(selfexec.Path(), args...)
+	cmd := exec.CommandContext(ctx, selfexec.Path(), args...)
 	cmd.Env = withPinnedPath(append(os.Environ(), envPairs(spawnEnv)...))
 	return cmd, nil
 }
 
-// Kill terminates the runner and reaps its whole session (killSession) —
-// idempotent. A raw process kill reaches only the runner's own pid, so the
-// session sweep is what catches a grandchild in a separate process group.
+// Kill stops the runner and reaps its whole session (killSession) —
+// idempotent. It asks first (askToStop) so the runner runs its own teardown
+// — PaneHost.Stop, temp cleanup — and SIGKILLs it only if it is still there
+// after hostRunnerWaitDelay; it returns once the runner has been reaped. The
+// session sweep comes last, for whatever the runner's teardown left or a
+// SIGKILL stranded: a grandchild in a separate process group.
 func (h *HostRunner) Kill() {
 	h.killOnce.Do(func() {
-		if h.cmd.Process != nil {
-			_ = h.cmd.Process.Kill()
-		}
+		h.stop()
+		_ = h.reaped()
 		killSession(h.pid)
 	})
 }

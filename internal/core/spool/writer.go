@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // Name is the parsed form of a spool filename:
@@ -277,7 +279,7 @@ func (w *Writer) syncPublished(final string, ref Ref) {
 // writeAndSync writes data to path and fsyncs the file before returning, so
 // the rename that follows publishes durable bytes rather than a promise.
 func writeAndSync(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePerm)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, owneronly.FileMode)
 	if err != nil {
 		return fmt.Errorf("spool: creating staging file %s: %w", path, err)
 	}

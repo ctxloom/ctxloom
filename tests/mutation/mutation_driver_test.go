@@ -25,12 +25,18 @@ type driverRun struct {
 	// tmpdir is the TMPDIR the fake tool ran under; mutationTmp is the
 	// recipe's CTXLOOM_MUTATION_TMP.
 	tmpdir, mutationTmp string
+	// fake is the directory holding the stand-in tools and what they recorded.
+	fake string
 }
 
 // fakeGoDir writes a stand-in `go` that records its arguments, prints the
 // canned run output, and exits with status — the whole of what the driver
-// sees of a real `go test` run. A `gremlins` identical to it stands in for the
-// recipes that release gremlins directly.
+// sees of a real `go test` run. It stands in for `go test` ONLY: `go run` and
+// `go build` reach the real toolchain, because the gremlins recipes launch
+// their planner (scripts/mutshard) with `go run`. A `gremlins` identical to it
+// stands in for gremlins itself, and additionally copies the config it was
+// handed to config.yaml beside it and, when the test left a report.json there,
+// writes it where --output asks — which is all a caller sees of gremlins.
 //
 // Both also LEAK a test temp dir into their TMPDIR, as a test killed mid-run
 // (a gremlins timeout, an interrupted lane) does — with a read-only directory
@@ -41,8 +47,21 @@ func fakeGoDir(t *testing.T, output, status string) string {
 	if err := os.WriteFile(filepath.Join(dir, "output"), []byte(output), 0o644); err != nil {
 		t.Fatalf("write fake output: %v", err)
 	}
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("go is not on PATH: %v", err)
+	}
 	script := "#!/bin/sh\n" +
 		"here=$(dirname \"$0\")\n" +
+		"case \"$(basename \"$0\") $1\" in 'go run'|'go build') exec '" + realGo + "' \"$@\" ;; esac\n" +
+		"prev=''\n" +
+		"for a in \"$@\"; do\n" +
+		"  case \"$prev\" in\n" +
+		"    --config) cp \"$a\" \"$here/config.yaml\" ;;\n" +
+		"    --output) [ -f \"$here/report.json\" ] && cp \"$here/report.json\" \"$a\" ;;\n" +
+		"  esac\n" +
+		"  prev=$a\n" +
+		"done\n" +
 		"printf '%s\\n' \"$@\" > \"$here/argv\"\n" +
 		"printf '%s' \"${TMPDIR:-}\" > \"$here/tmpdir\"\n" +
 		"leak=\"${TMPDIR:-/tmp}/ctxloom-test-sandbox-$$\"\n" +
@@ -88,14 +107,20 @@ func driverEnv(t *testing.T, fakeDir, mutationTmp string) []string {
 // against a fake `go` that replays output and exits with status.
 func runMutationRecipe(t *testing.T, output, status string, recipe ...string) driverRun {
 	t.Helper()
+	return runRecipeWithFake(t, fakeGoDir(t, output, status), recipe...)
+}
+
+// runRecipeWithFake is runMutationRecipe against a fake the caller built (and
+// may have seeded, e.g. with the report.json the fake gremlins hands back).
+func runRecipeWithFake(t *testing.T, fake string, recipe ...string) driverRun {
+	t.Helper()
 	root := repoRootFromTest(t)
 	// Everything the recipe reads, so an edit to any of it re-runs this test.
-	repoInput(t, "justfile", "build/*.justfile", "tests/mutation/*.sh")
+	repoInput(t, "justfile", "build/*.justfile", "tests/mutation/*.sh", "scripts/mutshard/*.go", ".gremlins.yaml")
 	just, err := exec.LookPath("just")
 	if err != nil {
 		t.Fatalf("just is not on PATH (%v); these tests drive the real recipes", err)
 	}
-	fake := fakeGoDir(t, output, status)
 	// --no-deps: the lane recipes depend on _mutation-prereqs (generation + build in the
 	// dev container); the wiring under test is what runs AFTER them.
 	args := append([]string{"--no-deps", "--justfile", filepath.Join(root, "justfile"), "--working-directory", root}, recipe...)
@@ -106,7 +131,7 @@ func runMutationRecipe(t *testing.T, output, status string, recipe ...string) dr
 	argv, _ := os.ReadFile(filepath.Join(fake, "argv"))
 	tmpdir, _ := os.ReadFile(filepath.Join(fake, "tmpdir"))
 	return driverRun{code: exitCode(t, err, out), out: string(out), argv: string(argv),
-		tmpdir: string(tmpdir), mutationTmp: mutationTmp}
+		tmpdir: string(tmpdir), mutationTmp: mutationTmp, fake: fake}
 }
 
 func exitCode(t *testing.T, err error, out []byte) int {

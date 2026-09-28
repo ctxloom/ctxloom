@@ -126,6 +126,19 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 		assert.True(t, strings.HasPrefix(d.SharedFS, "mismatch:"), "%q", d.SharedFS)
 	})
 
+	t.Run("mount refused, unmounted run ok → mismatch", func(t *testing.T) {
+		stubProbeExec(t, func(markerPath string) (string, error) {
+			if markerPath != "" {
+				return "", errors.New("exit status 125")
+			}
+			return "", nil
+		})
+		d := &Diagnosis{InContainer: true}
+		diagnoseProbe(context.Background(), rt, "img", []string{t.TempDir()}, d)
+		assert.True(t, strings.HasPrefix(d.SharedFS, "mismatch:"), "%q", d.SharedFS)
+		assert.Contains(t, strings.Join(d.Guidance, "\n"), "docker-outside-of-docker")
+	})
+
 	t.Run("shared → ok", func(t *testing.T) {
 		stubProbeExec(t, func(markerPath string) (string, error) {
 			b, err := os.ReadFile(markerPath)

@@ -39,6 +39,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // Dir is the closed set of spool subdirectories a Ref may name. It is a
@@ -73,14 +74,6 @@ const SpoolDirName = paths.SpoolDirName
 // in the target) means a reader never has to know which files to ignore, and
 // a crash leaves debris nowhere a sweep will look.
 const tmpDirName = "tmp"
-
-// dirPerm/filePerm keep the spool owner-only. The trust boundary is the user
-// account (any same-user process can write into these dirs — stated in the
-// design's honest-counter §9.4), and 0700 is what bounds it there.
-const (
-	dirPerm  os.FileMode = 0o700
-	filePerm os.FileMode = 0o600
-)
 
 // allDirs is every Dir, in creation order (parents before children).
 var allDirs = []Dir{DirIn, DirOut, DirInConsumed, DirOutConsumed, DirInWithdrawn}
@@ -398,8 +391,11 @@ func DirPath(m PathMapper, harp string, dir Dir) (string, error) {
 // EnsureDirs creates the whole spool layout for harp in m's view, including
 // the staging directory. It is idempotent, and both sides of a mount may call
 // it: the directories are shared bytes.
+//
+// The root is made owner-only first (ensureRoot), so everything beneath it
+// is created inside that boundary.
 func EnsureDirs(m PathMapper, harp string) error {
-	root, err := Root(m, harp)
+	root, err := ensureRoot(m, harp)
 	if err != nil {
 		return err
 	}
@@ -409,9 +405,28 @@ func EnsureDirs(m PathMapper, harp string) error {
 	}
 	want = append(want, filepath.Join(root, tmpDirName))
 	for _, dir := range want {
-		if err := os.MkdirAll(dir, dirPerm); err != nil {
+		if err := os.MkdirAll(dir, owneronly.DirMode); err != nil {
 			return fmt.Errorf("spool: create %s: %w", dir, err)
 		}
 	}
 	return nil
+}
+
+// ensureRoot creates harp's spool root if it is missing and makes it
+// owner-only, returning it. The root is the spool's one protection boundary:
+// the trust boundary is the user account (any same-user process can write
+// into these dirs — stated in the design's honest-counter §9.4), and an
+// owner-only root is what bounds it there. On unix nobody else can traverse
+// into it whatever the modes below; on Windows its protected DACL is
+// inherited by everything created beneath. It is re-applied on every call,
+// so a root loosened after the fact is tightened by the next writer.
+func ensureRoot(m PathMapper, harp string) (string, error) {
+	root, err := Root(m, harp)
+	if err != nil {
+		return "", err
+	}
+	if err := owneronly.EnsureDir(root); err != nil {
+		return "", fmt.Errorf("spool: restrict %s to its owner: %w", root, err)
+	}
+	return root, nil
 }

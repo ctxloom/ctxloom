@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path"
 	"slices"
 
@@ -86,7 +85,7 @@ func placeHome(l *layout, eng engine.Engine, dir string) {
 // keep a run off, and a thing only the binding may select.
 const sessionHomeRemedy = "fix what kept the session home from being prepared (the error names it), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
 
-// prepareSessionHome creates dir (0700: it holds engine config) and, for an
+// prepareSessionHome creates dir owner-only (it holds engine config) and, for an
 // engine that relocates its home, has the engine prepare it. It reports
 // whether the home is usable. How the run authenticates is settled before
 // this runs (the Spec's Credentials).
@@ -103,8 +102,8 @@ func prepareSessionHome(eng engine.Engine, dir, cwd string) bool {
 			return false
 		}
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		clidiag.Warn("ctxloom", "session home for %s: cannot create %s (%v); this run has no session home", name, dir, err)
+	if err := ensureOwnerOnlyDir(dir); err != nil {
+		clidiag.Warn("ctxloom", "session home for %s: cannot create %s owner-only (%v); this run has no session home", name, dir, err)
 		return false
 	}
 	return true

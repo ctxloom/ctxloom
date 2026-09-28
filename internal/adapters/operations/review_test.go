@@ -566,6 +566,7 @@ func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
 		"skills/ghost/notes.txt": []byte("no SKILL.md here\n"),
 	})
 	var buf strings.Builder
+	freshWarnOnce(t)
 	restore := clidiag.SetSink(&buf)
 	// The loader resolves its readers at construction, so the read — and the
 	// diagnostic it emits — happens inside the capture window.

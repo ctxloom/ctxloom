@@ -3,13 +3,13 @@ package acceptance
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
 // TestProbeConfigYAML_EveryProbeCarriesTheRuntimeAxisOntoTheBinding is the
@@ -96,7 +96,7 @@ func TestProbeCellRunDir_WorktreeResolvesThePerAgentCheckout(t *testing.T) {
 	proj := t.TempDir()
 	gitInitForProbe(t, proj)
 	wt := filepath.Join(t.TempDir(), "agent-checkout")
-	runGitForProbe(t, proj, "worktree", "add", "-b", "probe-cell", wt)
+	taskstest.Git(t, proj, nil, "worktree", "add", "-b", "probe-cell", wt)
 
 	got, err := probeCellRunDir("probe", proj, "worktree", probeRun{})
 	if err != nil {
@@ -142,8 +142,8 @@ func TestProbeCellRunDir_RefusalCarriesTheRunsOwnEvidence(t *testing.T) {
 func TestProbeCellRunDir_RefusesWhenAnotherCellLeakedItsCheckout(t *testing.T) {
 	proj := t.TempDir()
 	gitInitForProbe(t, proj)
-	runGitForProbe(t, proj, "worktree", "add", "-b", "cell-one", filepath.Join(t.TempDir(), "one"))
-	runGitForProbe(t, proj, "worktree", "add", "-b", "cell-two", filepath.Join(t.TempDir(), "two"))
+	taskstest.Git(t, proj, nil, "worktree", "add", "-b", "cell-one", filepath.Join(t.TempDir(), "one"))
+	taskstest.Git(t, proj, nil, "worktree", "add", "-b", "cell-two", filepath.Join(t.TempDir(), "two"))
 
 	if _, err := probeCellRunDir("probe", proj, "worktree", probeRun{}); err == nil {
 		t.Fatal("TWO worktrees must be refused: this cell cannot tell whose evidence it is about to read, and picking either one is how a cell passes on a previous cell's stamp")
@@ -152,21 +152,12 @@ func TestProbeCellRunDir_RefusesWhenAnotherCellLeakedItsCheckout(t *testing.T) {
 
 func gitInitForProbe(t *testing.T, dir string) {
 	t.Helper()
-	runGitForProbe(t, dir, "init")
-	runGitForProbe(t, dir, "config", "user.email", "probe@example.test")
-	runGitForProbe(t, dir, "config", "user.name", "probe")
+	taskstest.Git(t, dir, nil, "init")
+	taskstest.Git(t, dir, nil, "config", "user.email", "probe@example.test")
+	taskstest.Git(t, dir, nil, "config", "user.name", "probe")
 	if err := os.WriteFile(filepath.Join(dir, "seed"), []byte("seed\n"), 0o600); err != nil {
 		t.Fatalf("seeding the probe repo: %v", err)
 	}
-	runGitForProbe(t, dir, "add", "seed")
-	runGitForProbe(t, dir, "commit", "-m", "seed")
-}
-
-func runGitForProbe(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v in %s: %v: %s", args, dir, err, out)
-	}
+	taskstest.Git(t, dir, nil, "add", "seed")
+	taskstest.Git(t, dir, nil, "commit", "-m", "seed")
 }

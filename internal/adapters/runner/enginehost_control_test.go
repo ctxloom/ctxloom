@@ -22,7 +22,7 @@ func TestEnqueueTurn_KeepsTheTagFifoInSendOrder(t *testing.T) {
 	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
-	require.Equal(t, int32(0), eh.Handle(&agentcoordpb.RunnerRequest{
+	require.Equal(t, int32(0), handleBounded(t, eh, &agentcoordpb.RunnerRequest{
 		Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")},
 	}).GetStatus().GetCode())
 

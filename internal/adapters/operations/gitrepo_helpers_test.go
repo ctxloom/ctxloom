@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/require"
@@ -98,14 +99,7 @@ func initTestRepo(t *testing.T) string {
 
 func gitFixtureRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
-		"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com",
+	taskstest.Git(t, dir, append(taskstest.GitIdentity("ctxloom", "ctxloom@example.com"),
 		// Isolate from the developer's/CI's GLOBAL and SYSTEM git config.
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"), args...)
 }

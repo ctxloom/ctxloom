@@ -25,9 +25,8 @@ import (
 // endpoint — the link going down and returning under the test's control.
 type ownerServer struct {
 	agentcoordpb.UnimplementedCoordinatorServiceServer
-	addr   string
-	hellos atomic.Int32
-	srv    *grpc.Server
+	addr string
+	srv  *grpc.Server
 }
 
 func (o *ownerServer) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]) error {
@@ -39,7 +38,6 @@ func (o *ownerServer) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb
 	}}); err != nil {
 		return err
 	}
-	o.hellos.Add(1)
 	for {
 		if _, err := stream.Recv(); err != nil {
 			return err
@@ -103,13 +101,20 @@ func TestHome_OwnerLinkBackInsideTheWindowKeepsTheRunner(t *testing.T) {
 	owner := &ownerServer{}
 	owner.serve(t)
 	h := ownerLossHome(t, owner.url(), window)
-	require.Eventually(t, func() bool { return owner.hellos.Load() == 1 }, conformanceWait, 5*time.Millisecond)
+	awaitOwnerAttached(t, h)
 
 	owner.srv.Stop() // the coordinator dies...
-	owner.serve(t)   // ...and is back on the same endpoint, well inside the window
+	require.Eventually(t, func() bool {
+		select {
+		case <-h.ownerPresent():
+			return false
+		default:
+			return true
+		}
+	}, conformanceWait, 5*time.Millisecond, "the runner never saw its link drop")
+	owner.serve(t) // ...and is back on the same endpoint, well inside the window
 	h.Redial()
-	require.Eventually(t, func() bool { return owner.hellos.Load() == 2 }, conformanceWait, 5*time.Millisecond,
-		"the runner must re-Hello the coordinator that came back")
+	awaitOwnerAttached(t, h) // the runner must re-Hello the coordinator that came back
 
 	// Past the window measured from the FIRST drop — and from the dial, too —
 	// while the link is up: a clock left running by either would fire here.
@@ -197,16 +202,11 @@ func TestMain_OwnerLossWindowOverride(t *testing.T) {
 // must not hold the owner-loss clock. The dial is cut off when the window
 // runs out, and the owner is declared lost on time.
 func TestHome_AHangingDialDoesNotStopTheClock(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	srv := grpc.NewServer()
-	agentcoordpb.RegisterCoordinatorServiceServer(srv, wedgedOwner{})
-	go func() { _ = srv.Serve(ln) }()
-	t.Cleanup(srv.Stop)
+	addr := serveWedged(t, "", wedgedOwner{})
 
 	const window = 300 * time.Millisecond
 	start := time.Now()
-	h := ownerLossHome(t, fmt.Sprintf("http://%s/mcp", ln.Addr().String()), window)
+	h := ownerLossHome(t, fmt.Sprintf("http://%s/mcp", addr), window)
 	select {
 	case <-h.OwnerLost():
 		require.GreaterOrEqual(t, time.Since(start), window)
@@ -215,14 +215,117 @@ func TestHome_AHangingDialDoesNotStopTheClock(t *testing.T) {
 	}
 }
 
-// wedgedOwner takes the RunnerChannel and never answers the Hello.
-type wedgedOwner struct {
-	agentcoordpb.UnimplementedCoordinatorServiceServer
+// awaitOwnerAttached blocks until the RUNNER holds the lifecycle link. The
+// server counting a Hello is not that: it counts after sending the HelloAck,
+// so a stop that lands before the runner reads the ack fails the dial instead
+// of dropping a link — and only a dropped link refills the owner-loss budget.
+// The budget the runner spent idle across that dial stays spent.
+func awaitOwnerAttached(t *testing.T, h *Home) {
+	t.Helper()
+	select {
+	case <-h.ownerPresent():
+	case <-time.After(conformanceWait):
+		t.Fatal("the runner never attached its lifecycle link")
+	}
 }
 
-func (wedgedOwner) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]) error {
+// wedgedOwner takes the RunnerChannel and never answers the Hello. opened, if
+// set, is told each time a dial arrives (without blocking the dial).
+type wedgedOwner struct {
+	agentcoordpb.UnimplementedCoordinatorServiceServer
+	opened chan struct{}
+}
+
+func (w wedgedOwner) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]) error {
+	if w.opened != nil {
+		select {
+		case w.opened <- struct{}{}:
+		default:
+		}
+	}
 	<-stream.Context().Done()
 	return stream.Context().Err()
+}
+
+// serveWedged serves a wedgedOwner on addr ("" = any port) and returns its
+// address.
+func serveWedged(t *testing.T, addr string, w wedgedOwner) string {
+	t.Helper()
+	if addr == "" {
+		addr = "127.0.0.1:0"
+	}
+	ln, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+	srv := grpc.NewServer()
+	agentcoordpb.RegisterCoordinatorServiceServer(srv, w)
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(srv.Stop)
+	return ln.Addr().String()
+}
+
+// TestHome_ATurnStartedMidDialPausesTheClockThen: the clock pauses when a turn
+// starts, even while a dial is in flight — not when the dial gives up. A
+// wedged owner holds the dial the whole budget left; charging all of it would
+// leave nothing after the turn, and the runner would be declared lost the
+// moment the turn ends.
+func TestHome_ATurnStartedMidDialPausesTheClockThen(t *testing.T) {
+	const window = 400 * time.Millisecond
+	addr := serveWedged(t, "", wedgedOwner{})
+	h := ownerLossHome(t, fmt.Sprintf("http://%s/mcp", addr), window)
+
+	time.Sleep(window / 2) // half the window spent waiting, inside the first dial
+	h.setTurning(true)
+	select {
+	case <-h.OwnerLost():
+		t.Fatal("a turn making progress was cut off")
+	case <-time.After(2 * window): // well past that dial's cutoff
+	}
+	ended := time.Now()
+	h.setTurning(false)
+
+	select {
+	case <-h.OwnerLost():
+		require.GreaterOrEqual(t, time.Since(ended), window/4,
+			"about half the window was left when the turn started; the turn's time was charged as waiting")
+	case <-time.After(conformanceWait):
+		t.Fatal("the owner never came back, yet it was never declared lost")
+	}
+}
+
+// TestHome_ATurnEndedMidDialStartsTheClockThen: the mirror — the clock starts
+// when a turn ends, even mid-dial, not when that dial gives up.
+func TestHome_ATurnEndedMidDialStartsTheClockThen(t *testing.T) {
+	const window = 500 * time.Millisecond
+	owner := &ownerServer{}
+	owner.serve(t)
+	h := ownerLossHome(t, owner.url(), window)
+	awaitOwnerAttached(t, h)
+	h.setTurning(true)
+	owner.srv.Stop()
+	opened := make(chan struct{}, 16)
+	serveWedged(t, owner.addr, wedgedOwner{opened: opened})
+
+	// The first dial to arrive may have been in flight since before the wedged
+	// owner was up; the next one starts fresh, so it is known to start here.
+	for range 2 {
+		select {
+		case <-opened:
+		case <-time.After(conformanceWait):
+			t.Fatal("the runner stopped redialling during a turn")
+		}
+	}
+	ended := time.Now()
+	h.setTurning(false)
+
+	select {
+	case <-h.OwnerLost():
+		elapsed := time.Since(ended)
+		require.GreaterOrEqual(t, elapsed, window)
+		require.Less(t, elapsed, window+window/2,
+			"the clock started when the turn ended mid-dial, not when that dial gave up")
+	case <-time.After(conformanceWait):
+		t.Fatal("the owner never came back, yet it was never declared lost")
+	}
 }
 
 // TestHome_ATurnBlockedOnTheCoordinatorIsWaiting: a turn in progress pauses
@@ -235,7 +338,7 @@ func TestHome_ATurnBlockedOnTheCoordinatorIsWaiting(t *testing.T) {
 	owner := &ownerServer{}
 	owner.serve(t)
 	h := ownerLossHome(t, owner.url(), window)
-	require.Eventually(t, func() bool { return owner.hellos.Load() == 1 }, conformanceWait, 5*time.Millisecond)
+	awaitOwnerAttached(t, h)
 	h.setTurning(true)
 	owner.srv.Stop()
 

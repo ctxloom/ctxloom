@@ -1209,12 +1209,13 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
 
 # ===== Mutation testing =====
 
-# `mutation_tmp` and the whole-tree `test-mutation` come from build/ci.justfile
-# (imported at the top of this file AND by justfile.container), alongside the
-# diff-only `test-mutation-diff` that gates every push. They live there because
-# CI runs them: mutation-weekly.yml used to call a bare `gremlins unleash`,
-# which is the same operation WITHOUT the TMPDIR pinning below — the recipe
-# existed here and CI ran past it. The recipes below are host-only and keep
+# `mutation_tmp` and the gremlins recipes — the shard/aggregate pair CI runs,
+# and `test-mutation` / `test-mutation-diff`, which compose that pair on one
+# machine — come from build/ci.justfile (imported at the top of this file AND
+# by justfile.container). They live there because CI runs them:
+# mutation-weekly.yml used to call a bare `gremlins unleash`, which is the same
+# operation WITHOUT the TMPDIR pinning below — the recipe existed here and CI
+# ran past it. The recipes below are host-only and keep
 # using the shared `mutation_tmp`.
 
 # --- content bundle signing ------------------------------------------------

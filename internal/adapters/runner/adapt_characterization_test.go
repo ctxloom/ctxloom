@@ -38,7 +38,7 @@ func TestEngineHost_Adapt_MessageAndToolLifecycle(t *testing.T) {
 	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
-	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 	require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 	// The turn's boundary is the barrier: the host parks once the turn's
 	// process ended and everything it relayed has been adapted.

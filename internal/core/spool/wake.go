@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // A WAKE IS A NONCE ON DISK.
@@ -84,11 +85,12 @@ func wakeDir(m PathMapper, harp string) (string, error) {
 // causes always finds it — a wake fired first and recorded second races its
 // own acknowledgement.
 func ArmWake(m PathMapper, harp string) (string, error) {
-	dir, err := wakeDir(m, harp)
+	root, err := ensureRoot(m, harp)
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, dirPerm); err != nil {
+	dir := filepath.Join(root, filepath.FromSlash(wakeDirName))
+	if err := os.MkdirAll(dir, owneronly.DirMode); err != nil {
 		return "", fmt.Errorf("spool: create %s: %w", dir, err)
 	}
 	b := make([]byte, nonceBytes)
@@ -97,7 +99,7 @@ func ArmWake(m PathMapper, harp string) (string, error) {
 	}
 	nonce := hex.EncodeToString(b)
 	path := filepath.Join(dir, nonce)
-	if err := iox.WriteFileAtomic(path, nil, filePerm, iox.Durable()); err != nil {
+	if err := iox.WriteFileAtomic(path, nil, owneronly.FileMode, iox.Durable()); err != nil {
 		return "", fmt.Errorf("spool: arming wake %s: %w", path, err)
 	}
 	return nonce, nil

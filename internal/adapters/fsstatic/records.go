@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // Records is the ONE ownership record (delivery.Ownership): per target file,
@@ -401,5 +402,5 @@ func (r *Records) save(target string, rec ownershipRecord) error {
 	if err := confpatch.EnsureRecordDir(r.fs, r.dir); err != nil {
 		return err
 	}
-	return iox.WriteFileAtomicFs(r.fs, r.path(target), data, 0o600)
+	return iox.WriteFileAtomicFs(r.fs, r.path(target), data, owneronly.FileMode)
 }

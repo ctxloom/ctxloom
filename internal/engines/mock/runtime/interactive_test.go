@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // claudeInteractive resolves claude's interactive surface off L1, the same way
@@ -99,11 +100,17 @@ func startInteractiveOn(t *testing.T, cli agent.EngineCLI, vendorArgv []string) 
 	return s
 }
 
+// interactiveBound caps every wait on the in-process session. Each exchange
+// with it is a pipe write, a channel send or a poll, and each of those blocks
+// for as long as the session is not listening — forever, once a defect ends
+// or wedges its loop. The bound turns that into a failure the test reports.
+const interactiveBound = 5 * time.Second
+
 // waitFor deadline-polls the captured stdout until it contains want — a
 // bounded short-interval poll, never a bare sleep as the synchronization.
 func (s *interactiveRun) waitFor(t *testing.T, want string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(interactiveBound)
 	for !strings.Contains(s.stdout.String(), want) {
 		if time.Now().After(deadline) {
 			t.Fatalf("stdout never contained %q; stdout:\n%s", want, s.stdout.String())
@@ -117,19 +124,32 @@ func (s *interactiveRun) waitFor(t *testing.T, want string) {
 // point on this surface is that a test can close the turn on purpose.
 func (s *interactiveRun) exitCode(t *testing.T) int {
 	t.Helper()
-	select {
-	case code := <-s.done:
-		return code
-	case <-time.After(5 * time.Second):
-		t.Fatalf("the session did not end; stdout:\n%s", s.stdout.String())
-		return -1
+	return testsupport.Await(t, interactiveBound, s.done, "the session did not end; stdout:\n%s", s.stdout)
+}
+
+// typeLine types one line at the session, bounded: an io.Pipe write returns
+// only once the session reads it, so a session that has stopped reading would
+// otherwise park the test. The abandoned write is released by the cleanup
+// that closes the pipe.
+func (s *interactiveRun) typeLine(t *testing.T, line string) {
+	t.Helper()
+	err := testsupport.Within(t, interactiveBound, func() error {
+		_, err := io.WriteString(s.stdin, line+"\n")
+		return err
+	}, "the session never read %q; stdout:\n%s", line, s.stdout)
+	if err != nil {
+		t.Fatalf("write %q to the mock's stdin: %v", line, err)
 	}
 }
 
-func (s *interactiveRun) typeLine(t *testing.T, line string) {
+// resizeTo delivers one resize, bounded for the same reason typeLine is: the
+// channel is unbuffered, so the send completes only when the session takes it.
+func (s *interactiveRun) resizeTo(t *testing.T, ws agent.WindowSize) {
 	t.Helper()
-	if _, err := io.WriteString(s.stdin, line+"\n"); err != nil {
-		t.Fatalf("write %q to the mock's stdin: %v", line, err)
+	select {
+	case s.resize <- ws:
+	case <-time.After(interactiveBound):
+		t.Fatalf("the session never took resize %dx%d; stdout:\n%s", ws.Rows, ws.Cols, s.stdout.String())
 	}
 }
 
@@ -173,7 +193,7 @@ func TestRuntime_Interactive_EchoesTypedLinesAndReportsResizes(t *testing.T) {
 	s := startInteractive(t, []string{"--name", "harp-x", "hello"})
 	s.typeLine(t, "ping")
 	s.waitFor(t, runtime.InteractiveEchoPrefix+"ping\n")
-	s.resize <- agent.WindowSize{Rows: 30, Cols: 100}
+	s.resizeTo(t, agent.WindowSize{Rows: 30, Cols: 100})
 	s.waitFor(t, runtime.InteractiveWinsizePrefix+"30x100\n")
 	s.typeLine(t, "pong")
 	s.typeLine(t, runtime.InteractiveQuit)

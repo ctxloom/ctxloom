@@ -14,9 +14,10 @@ import (
 // Every other test-mutation* recipe compiles the tree, so it must take
 // _mutation-prereqs: a tree that cannot build scores every mutant as a kill.
 var notMutating = map[string]string{
-	"test-mutation-install": "installs the gremlins binary",
-	"test-mutation-entries": "lists the target tables",
-	"test-mutation-entry":   "delegates to test-mutation-acceptance, which takes the prerequisite",
+	"test-mutation-install":   "installs the gremlins binary",
+	"test-mutation-entries":   "lists the target tables",
+	"test-mutation-entry":     "delegates to test-mutation-acceptance, which takes the prerequisite",
+	"test-mutation-aggregate": "judges the shards' reports; the shards took the prerequisite",
 }
 
 // TestMutationRecipes_AllTakeTheBuildPrerequisite fails when a mutation lane

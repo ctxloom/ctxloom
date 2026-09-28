@@ -303,6 +303,15 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     When Alice runs the container-bound agent in a real container
     Then the engine's in-container write is the same file the host holds
 
+  # The worktree axis inside a container: the per-agent checkout the engine
+  # works in belongs to the session, so session cleanup can sweep it and a
+  # resume can find it again. A checkout parked in the OS temp dir is scratch
+  # nothing accounts for.
+  @container @image-mock-agent
+  Scenario: A containerized worktree run works in a checkout its session owns
+    When Alice runs the container-bound agent in a real container, in a worktree
+    Then the containerized worktree's checkout lives in the session's own scratch
+
   # ===========================================================================
   # PER-ENGINE CONFIG-HOME ISOLATION MATRIX — fills the gap the journey's own
   # top note used to flag as out of hermetic scope. Every scenario below

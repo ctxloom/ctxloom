@@ -3,9 +3,11 @@ package operations
 import (
 	"context"
 	"errors"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,9 +80,14 @@ func TestContainerPruneReport_Failed(t *testing.T) {
 }
 
 func TestFormatImageBytes(t *testing.T) {
-	assert.Equal(t, "999 B", FormatImageBytes(999))
-	assert.Equal(t, "42.1 MB", FormatImageBytes(42_100_000))
-	assert.Equal(t, "13.8 GB", FormatImageBytes(13_840_000_000))
+	for n, want := range map[int64]string{999: "999 B", 42_100_000: "42.1 MB", 13_840_000_000: "13.8 GB"} {
+		// Bounded: FormatImageBytes loops once per decimal unit, and a loop that
+		// stopped shrinking its value would otherwise spin the test binary
+		// instead of failing this test.
+		got := testsupport.Within(t, 5*time.Second, func() string { return FormatImageBytes(n) },
+			"FormatImageBytes(%d) did not return", n)
+		assert.Equal(t, want, got)
+	}
 }
 
 // --- DOCTOR-CHECK-SUPERSEDED-IMAGES-x4 ------------------------------------
@@ -110,7 +117,9 @@ func TestDoctorCheckSupersededImages(t *testing.T) {
 	assert.Equal(t, DoctorOK, clean.Status, clean.Detail)
 	assert.Equal(t, []string{"docker", "podman"}, asked)
 
-	found := doctorCheckSupersededImages(context.Background(), both, plan(map[string]isolation.ImagePrunePlan{"docker": superseded}))
+	found := testsupport.Within(t, 5*time.Second, func() DoctorCheck {
+		return doctorCheckSupersededImages(context.Background(), both, plan(map[string]isolation.ImagePrunePlan{"docker": superseded}))
+	}, "the superseded-images check did not return")
 	assert.Equal(t, DoctorWarn, found.Status)
 	assert.Contains(t, found.Detail, "2 docker")
 	assert.Contains(t, found.Detail, "2.5 GB")

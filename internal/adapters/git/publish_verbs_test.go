@@ -3,11 +3,10 @@ package git
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,16 +27,7 @@ import (
 // TestExecGit_CloneCommitPushRoundTrip.
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
-		"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
+	return taskstest.Git(t, dir, taskstest.GitIdentity("ctxloom", "ctxloom@example.com"), args...)
 }
 
 // bareWithSeed creates a bare repo on branch, seeded with one commit that

@@ -24,5 +24,8 @@ import "syscall"
 // `ctxloom run`, `ctxloom mcp`, a test binary — without each
 // having to know about it.
 func setRunnerPdeathsig(attr *syscall.SysProcAttr) {
+	// The kernel fires this when the spawning THREAD exits, not the process
+	// (golang/go#27505): never spawn from a LockOSThread'd goroutine that
+	// exits still locked, or the runner is signalled while its host lives.
 	attr.Pdeathsig = syscall.SIGTERM
 }

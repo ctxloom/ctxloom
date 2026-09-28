@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/cucumber/godog"
 )
@@ -212,6 +213,12 @@ func registerJ002200ContainerDiedSteps(ctx *godog.ScenarioContext) {
 		}
 		if strings.Contains(out, j002200StartGateFinding) || strings.Contains(out, j002200RuntimeGateFinding) {
 			return fmt.Errorf("the abort came from the image or runtime gate, not the transport-start gate this row asserts; output:\n%s", out)
+		}
+		// How the runner ended is part of the account: this daemon's runner exits
+		// 0, so there is no wait error to wrap, and the refusal must say so
+		// rather than print a wrapped nil.
+		if !strings.Contains(out, isolation.ErrRunnerExitedCleanly.Error()) {
+			return fmt.Errorf("the abort does not say how the runner ended (%q); output:\n%s", isolation.ErrRunnerExitedCleanly, out)
 		}
 		// The EFFECT, not just the message: a container that never ran must not
 		// have produced an engine turn. The mock writes its record only when it

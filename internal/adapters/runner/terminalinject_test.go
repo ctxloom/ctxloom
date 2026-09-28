@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -82,20 +83,26 @@ func readWithin(t *testing.T, r io.Reader, d time.Duration) string {
 // two writes: both would still be drained into one Read and coalesce into a
 // paste. Only the READER can make them two input events, so the split is
 // tested here, on the reader.
+//
+// It runs on synctest's fake clock: the gap is armed inside the first Read,
+// before the frame reaches the test, so a wall clock started on the test's
+// side of that return can only ever see less than the whole gap.
 func TestNudgeReader_SubmitIsADistinctLaterReadEvent(t *testing.T) {
-	realStdin, realStdinW := io.Pipe()
-	t.Cleanup(func() { _ = realStdinW.Close() })
-	r := newNudgeReader(realStdin, new(atomic.Int64))
-	r.submitGap = 60 * time.Millisecond
+	synctest.Test(t, func(t *testing.T) {
+		realStdin, realStdinW := io.Pipe()
+		t.Cleanup(func() { _ = realStdinW.Close() })
+		r := newNudgeReader(realStdin, new(atomic.Int64))
+		r.submitGap = 60 * time.Millisecond
 
-	r.Inject("<frame/>", "\r")
+		r.Inject("<frame/>", "\r")
 
-	assert.Equal(t, "<frame/>", readWithin(t, r, time.Second), "the first read carries the frame and nothing else")
+		assert.Equal(t, "<frame/>", readWithin(t, r, time.Second), "the first read carries the frame and nothing else")
 
-	start := time.Now()
-	assert.Equal(t, "\r", readWithin(t, r, time.Second), "the submit is delivered by a later read")
-	assert.GreaterOrEqual(t, time.Since(start), 40*time.Millisecond,
-		"the submit must be SEPARATED IN TIME from the frame by the paste-coalescing gap; delivering it immediately puts it in the same input burst")
+		start := time.Now()
+		assert.Equal(t, "\r", readWithin(t, r, time.Second), "the submit is delivered by a later read")
+		assert.GreaterOrEqual(t, time.Since(start), r.submitGap,
+			"the submit must be SEPARATED IN TIME from the frame by the paste-coalescing gap; delivering it immediately puts it in the same input burst")
+	})
 }
 
 // TestNudgeReader_EvictionNeverStrandsABareSubmit pins the hazard that makes

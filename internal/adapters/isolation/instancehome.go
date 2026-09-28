@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // InstanceHomeRequest is one preparation of a session's engine home: which
@@ -45,6 +46,14 @@ type InstanceHomeReport struct {
 // Every byte-level edit of a vendor's format happens inside that vendor's
 // package.
 //
+// The home is owner-only (owneronly.EnsureDir) BEFORE the engine writes, so
+// what the engine writes inherits it where the platform's protection is an
+// inherited ACL (Windows), and a home that exists loosened is tightened. The
+// home and every file the engine reports writing are then held to
+// owner-only, and a home that fails it is an error, not a warning: it holds
+// the run's trust answer and account identity, the same exposure the
+// credential store refuses.
+//
 // No credential is placed in the home: a run authenticates from what its
 // agent's auth mode resolves to (engine.Auth.Credentials), settled before the
 // home is prepared.
@@ -71,6 +80,9 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	defer unlock()
 
 	var rep InstanceHomeReport
+	if err := ensureOwnerOnlyDir(req.InstanceHome); err != nil {
+		return rep, fmt.Errorf("instance home for %s: restrict %s to its owner: %w", req.Engine, req.InstanceHome, err)
+	}
 	writer := f.Home.InstanceConfig
 	if writer == nil {
 		return rep, nil
@@ -89,7 +101,13 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	for _, w := range rep.Warnings {
 		clidiag.Warn("ctxloom", "%s instance config: %s", req.Engine, w)
 	}
-	return rep, err
+	if err != nil {
+		return rep, err
+	}
+	if err := owneronly.Check(append([]string{req.InstanceHome}, rep.Generated...)...); err != nil {
+		return rep, fmt.Errorf("instance home for %s: %w", req.Engine, err)
+	}
+	return rep, nil
 }
 
 // lockFileMode and lockDirMode are the modes this instance-home lock's

@@ -92,20 +92,6 @@ func commit(t *testing.T, dir, path, content, subject string) string {
 	return run("rev-parse", "HEAD")
 }
 
-// gitRun runs raw git in dir and returns its trimmed stdout, failing the test
-// on error. For fixture shapes the seam deliberately does NOT produce (e.g. a
-// detached checkout), so a test can still pin how the seam reads them.
-func gitRun(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
 func writeFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

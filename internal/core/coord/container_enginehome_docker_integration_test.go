@@ -117,7 +117,7 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 		},
 		Agents: map[string]agents.Agent{"x": {
 			Name: "x", Profiles: []string{"base"}, Permissions: "bypass",
-			Runtime: string(launch.RuntimeRootless),
+			Runtime: string(containerAxes("docker").Runtime),
 		}},
 		DefaultAgent:    "x",
 		IsolationImages: map[string]string{claude.EngineName: image},

@@ -178,21 +178,29 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	switch {
-	case p.skip != "":
-		_, _ = fmt.Fprintln(stdout, p.skip)
-	case len(rep.Files) == 0:
-		_, _ = fmt.Fprintf(stdout, "shard %d of %d: the plan gives this shard no files\n", sf.shard, sf.shards)
-	default:
-		if rep.Gremlins, err = runGremlins(cfg, p, sf, outDir, launcher, stdout, stderr); err != nil {
-			return err
-		}
+	if rep.Gremlins, err = measureShard(cfg, p, sf, outDir, launcher, stdout, stderr); err != nil {
+		return err
 	}
 	b, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(outDir, fmt.Sprintf("shard-%d.json", sf.shard)), b, 0o644)
+}
+
+// measureShard runs gremlins over the shard's files, or says why there is
+// nothing to run: no work in scope at all, or none the plan gave this shard.
+// Either leaves the report without a gremlins result.
+func measureShard(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, launcher []string, stdout, stderr io.Writer) (json.RawMessage, error) {
+	switch {
+	case p.skip != "":
+		_, _ = fmt.Fprintln(stdout, p.skip)
+		return nil, nil
+	case len(p.shards[sf.shard]) == 0:
+		_, _ = fmt.Fprintf(stdout, "shard %d of %d: the plan gives this shard no files\n", sf.shard, sf.shards)
+		return nil, nil
+	}
+	return runGremlins(cfg, p, sf, outDir, launcher, stdout, stderr)
 }
 
 // runGremlins stages the shard's derived config under outDir, the directory the
@@ -243,13 +251,7 @@ func runGremlins(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, laun
 }
 
 func cmdAggregate(args []string, stdout, stderr io.Writer) error {
-	fs := flag.NewFlagSet("aggregate", flag.ContinueOnError)
-	scopeArg := fs.String("scope", "", `"tree" or "diff:<base>"`)
-	dir := fs.String("reports", "", "directory holding the shards' shard-<K>.json")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	sc, err := parseScope(*scopeArg)
+	sc, dir, err := parseAggregateFlags(args)
 	if err != nil {
 		return err
 	}
@@ -257,19 +259,15 @@ func cmdAggregate(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// Whether there is any work does not depend on the shard count.
-	if p, err := makePlan(".", sc, 1, cfg); err != nil {
+	if idle, err := nothingToMeasure(sc, cfg, stdout); err != nil || idle {
 		return err
-	} else if p.skip != "" {
-		_, _ = fmt.Fprintln(stdout, p.skip)
-		return nil
 	}
-	reports, err := readReports(*dir)
+	reports, err := readReports(dir)
 	if err != nil {
 		return err
 	}
 	if len(reports) == 0 {
-		return fmt.Errorf("%w: no shard-*.json under %q", errMissingShard, *dir)
+		return fmt.Errorf("%w: no shard-*.json under %q", errMissingShard, dir)
 	}
 	p, err := makePlan(".", sc, reports[0].Shards, cfg)
 	if err != nil {
@@ -280,13 +278,50 @@ func cmdAggregate(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	t, verdict := judge(p.shards, st, reports, thresholds{efficacy: cfg.efficacy, mutantCoverage: cfg.mutantCoverage})
-	if verdict == nil || errors.Is(verdict, errEfficacy) || errors.Is(verdict, errMutantCoverage) {
-		_, _ = fmt.Fprintf(stdout, "\nMutation testing, %d shard(s) of %s:\n", len(p.shards), sc)
-		_, _ = fmt.Fprintf(stdout, "Killed: %d, Lived: %d, Not covered: %d\n", t.killed, t.lived, t.notCovered)
-		_, _ = fmt.Fprintf(stdout, "Timed out: %d, Not viable: %d, Skipped: %d\n", t.timedOut, t.notViable, t.skipped)
-		_, _ = fmt.Fprintf(stdout, "Test efficacy: %.2f%%\nMutator coverage: %.2f%%\n", t.efficacy(), t.mutantCoverage())
+	if judged(verdict) {
+		printTally(stdout, len(p.shards), sc, t)
 	}
 	return verdict
+}
+
+func parseAggregateFlags(args []string) (scope, string, error) {
+	fs := flag.NewFlagSet("aggregate", flag.ContinueOnError)
+	scopeArg := fs.String("scope", "", `"tree" or "diff:<base>"`)
+	dir := fs.String("reports", "", "directory holding the shards' shard-<K>.json")
+	if err := fs.Parse(args); err != nil {
+		return scope{}, "", err
+	}
+	sc, err := parseScope(*scopeArg)
+	return sc, *dir, err
+}
+
+// nothingToMeasure reports, and says why, when the scope holds no work — in
+// which case there is no union to judge. Whether there is any work does not
+// depend on the shard count.
+func nothingToMeasure(sc scope, cfg *gremlinsConfig, stdout io.Writer) (bool, error) {
+	p, err := makePlan(".", sc, 1, cfg)
+	if err != nil {
+		return false, err
+	}
+	if p.skip != "" {
+		_, _ = fmt.Fprintln(stdout, p.skip)
+		return true, nil
+	}
+	return false, nil
+}
+
+// judged reports whether the verdict is a judgement of a complete union — a
+// pass or a threshold failure — rather than a refusal to judge at all, whose
+// counts would describe nothing.
+func judged(verdict error) bool {
+	return verdict == nil || errors.Is(verdict, errEfficacy) || errors.Is(verdict, errMutantCoverage)
+}
+
+func printTally(stdout io.Writer, shards int, sc scope, t tally) {
+	_, _ = fmt.Fprintf(stdout, "\nMutation testing, %d shard(s) of %s:\n", shards, sc)
+	_, _ = fmt.Fprintf(stdout, "Killed: %d, Lived: %d, Not covered: %d\n", t.killed, t.lived, t.notCovered)
+	_, _ = fmt.Fprintf(stdout, "Timed out: %d, Not viable: %d, Skipped: %d\n", t.timedOut, t.notViable, t.skipped)
+	_, _ = fmt.Fprintf(stdout, "Test efficacy: %.2f%%\nMutator coverage: %.2f%%\n", t.efficacy(), t.mutantCoverage())
 }
 
 func readReports(dir string) ([]report, error) {

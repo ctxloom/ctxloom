@@ -120,44 +120,66 @@ func exitCode(err error) int {
 // evidence of having looked, and a shard that tested a file it was not given.
 func judge(shards [][]string, st stamp, reports []report, th thresholds) (tally, error) {
 	var total tally
-	byShard := map[int]report{}
-	for _, r := range reports {
-		if r.Shards != len(shards) {
-			return total, fmt.Errorf("%w: shard %d was cut for %d shards, the plan has %d", errStale, r.Shard, r.Shards, len(shards))
-		}
-		if _, dup := byShard[r.Shard]; dup || r.Shard < 0 || r.Shard >= len(shards) {
-			return total, fmt.Errorf("%w: shard %d reported more than once or out of range", errMissingShard, r.Shard)
-		}
-		byShard[r.Shard] = r
+	byShard, err := indexReports(len(shards), reports)
+	if err != nil {
+		return total, err
 	}
 	for k, files := range shards {
 		r, ok := byShard[k]
 		if !ok {
 			return total, fmt.Errorf("%w: no report from shard %d of %d", errMissingShard, k, len(shards))
 		}
-		if r.Scope != st.scope || r.Head != st.head || r.MergeBase != st.mergeBase {
-			return total, fmt.Errorf("%w: shard %d ran %s at %s (merge base %q), the aggregate is judging %s at %s (merge base %q)",
-				errStale, k, r.Scope, r.Head, r.MergeBase, st.scope, st.head, st.mergeBase)
-		}
-		if !reflect.DeepEqual(nonNil(r.Files), nonNil(files)) {
-			return total, fmt.Errorf("%w: shard %d covered %v, the plan gives it %v", errStale, k, r.Files, files)
-		}
-		if len(files) == 0 {
-			continue
-		}
-		t, err := shardTally(k, files, r.Gremlins)
+		t, err := vetShard(k, files, r, st)
 		if err != nil {
 			return total, err
 		}
 		total.add(t)
 	}
-	if th.efficacy > 0 && total.efficacy() <= th.efficacy {
-		return total, fmt.Errorf("%w: %.2f%% <= %.2f%%", errEfficacy, total.efficacy(), th.efficacy)
+	return total, th.assess(total)
+}
+
+// indexReports keys the reports by shard, refusing one cut for another shard
+// count, a duplicate, and an index outside the plan.
+func indexReports(n int, reports []report) (map[int]report, error) {
+	byShard := map[int]report{}
+	for _, r := range reports {
+		if r.Shards != n {
+			return nil, fmt.Errorf("%w: shard %d was cut for %d shards, the plan has %d", errStale, r.Shard, r.Shards, n)
+		}
+		if _, dup := byShard[r.Shard]; dup || r.Shard < 0 || r.Shard >= n {
+			return nil, fmt.Errorf("%w: shard %d reported more than once or out of range", errMissingShard, r.Shard)
+		}
+		byShard[r.Shard] = r
 	}
-	if th.mutantCoverage > 0 && total.mutantCoverage() <= th.mutantCoverage {
-		return total, fmt.Errorf("%w: %.2f%% <= %.2f%%", errMutantCoverage, total.mutantCoverage(), th.mutantCoverage)
+	return byShard, nil
+}
+
+// vetShard holds shard k's report to the plan and the stamp, then tallies it.
+// A shard the plan gave nothing counts nothing.
+func vetShard(k int, files []string, r report, st stamp) (tally, error) {
+	if r.Scope != st.scope || r.Head != st.head || r.MergeBase != st.mergeBase {
+		return tally{}, fmt.Errorf("%w: shard %d ran %s at %s (merge base %q), the aggregate is judging %s at %s (merge base %q)",
+			errStale, k, r.Scope, r.Head, r.MergeBase, st.scope, st.head, st.mergeBase)
 	}
-	return total, nil
+	if !reflect.DeepEqual(nonNil(r.Files), nonNil(files)) {
+		return tally{}, fmt.Errorf("%w: shard %d covered %v, the plan gives it %v", errStale, k, r.Files, files)
+	}
+	if len(files) == 0 {
+		return tally{}, nil
+	}
+	return shardTally(k, files, r.Gremlins)
+}
+
+// assess is gremlins' own judgement of the union (report.assess): failing AT
+// a threshold, not only below it; a zero threshold is not judged.
+func (th thresholds) assess(t tally) error {
+	if th.efficacy > 0 && t.efficacy() <= th.efficacy {
+		return fmt.Errorf("%w: %.2f%% <= %.2f%%", errEfficacy, t.efficacy(), th.efficacy)
+	}
+	if th.mutantCoverage > 0 && t.mutantCoverage() <= th.mutantCoverage {
+		return fmt.Errorf("%w: %.2f%% <= %.2f%%", errMutantCoverage, t.mutantCoverage(), th.mutantCoverage)
+	}
+	return nil
 }
 
 func nonNil(s []string) []string {
@@ -189,27 +211,11 @@ func shardTally(k int, files []string, raw json.RawMessage) (tally, error) {
 	for _, f := range out.Files {
 		for _, m := range f.Mutations {
 			records++
-			switch m.Status {
-			case statusKilled:
-				t.killed++
-			case statusLived:
-				t.lived++
-			case statusNotCovered:
-				t.notCovered++
-			case statusTimedOut:
-				t.timedOut++
-			case statusNotViable:
-				t.notViable++
-			case statusSkipped:
-				t.skipped++
-				continue // outside the diff: not tested, wherever it is
-			case statusRunnable:
-				// A dry run's status; a real run never leaves one.
-				return t, fmt.Errorf("%w: shard %d: %s:%d is RUNNABLE — the run was never executed", errMeasuredNothing, k, f.Filename, m.Line)
-			default:
-				return t, fmt.Errorf("%w: shard %d: unknown status %q at %s:%d", errUnreadable, k, m.Status, f.Filename, m.Line)
+			scored, err := t.count(k, f.Filename, m)
+			if err != nil {
+				return t, err
 			}
-			if !mine[f.Filename] {
+			if scored && !mine[f.Filename] {
 				return t, fmt.Errorf("%w: shard %d scored %s %s:%d", errLeak, k, m.Status, f.Filename, m.Line)
 			}
 		}
@@ -217,9 +223,40 @@ func shardTally(k int, files []string, raw json.RawMessage) (tally, error) {
 	if records == 0 {
 		return t, fmt.Errorf("%w: shard %d's gremlins report holds no mutation at all", errMeasuredNothing, k)
 	}
+	return t, t.agrees(k, out)
+}
+
+// count adds one mutation record to t. scored is false for a SKIPPED record:
+// it is outside the diff, so not tested, wherever it is.
+func (t *tally) count(k int, file string, m gremlinsMutation) (scored bool, err error) {
+	switch m.Status {
+	case statusKilled:
+		t.killed++
+	case statusLived:
+		t.lived++
+	case statusNotCovered:
+		t.notCovered++
+	case statusTimedOut:
+		t.timedOut++
+	case statusNotViable:
+		t.notViable++
+	case statusSkipped:
+		t.skipped++
+		return false, nil
+	case statusRunnable:
+		// A dry run's status; a real run never leaves one.
+		return false, fmt.Errorf("%w: shard %d: %s:%d is RUNNABLE — the run was never executed", errMeasuredNothing, k, file, m.Line)
+	default:
+		return false, fmt.Errorf("%w: shard %d: unknown status %q at %s:%d", errUnreadable, k, m.Status, file, m.Line)
+	}
+	return true, nil
+}
+
+// agrees refuses a report whose mutation records and summary counters differ.
+func (t tally) agrees(k int, out gremlinsOutput) error {
 	if t.killed != out.Killed || t.lived != out.Lived || t.notCovered != out.NotCovered || t.notViable != out.NotViable {
-		return t, fmt.Errorf("%w: shard %d: records say %d/%d/%d/%d killed/lived/not-covered/not-viable, gremlins' counters say %d/%d/%d/%d",
+		return fmt.Errorf("%w: shard %d: records say %d/%d/%d/%d killed/lived/not-covered/not-viable, gremlins' counters say %d/%d/%d/%d",
 			errUnreadable, k, t.killed, t.lived, t.notCovered, t.notViable, out.Killed, out.Lived, out.NotCovered, out.NotViable)
 	}
-	return t, nil
+	return nil
 }

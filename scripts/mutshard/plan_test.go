@@ -61,35 +61,48 @@ func TestAssign_IsADeterministicDisjointCover(t *testing.T) {
 		cands = append(cands, candidate{path: fmt.Sprintf("p%02d/f.go", i), cost: (i * 37) % 23})
 	}
 	for _, n := range []int{1, 2, 3, 8, 57, 80} {
-		got := assign(cands, n)
-		if len(got) != n {
-			t.Fatalf("n=%d: %d shards", n, len(got))
-		}
-		seen := map[string]int{}
-		for k, files := range got {
-			if !sort.StringsAreSorted(files) {
-				t.Errorf("n=%d shard %d not sorted: %v", n, k, files)
+		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
+			got := assign(cands, n)
+			if len(got) != n {
+				t.Fatalf("n=%d: %d shards", n, len(got))
 			}
-			for _, f := range files {
-				if prev, dup := seen[f]; dup {
-					t.Errorf("n=%d: %s in shard %d and %d", n, f, prev, k)
-				}
-				seen[f] = k
+			checkDisjointCover(t, got, len(cands))
+			// Shuffled input, same plan: the order candidates are discovered in
+			// (git's, the filesystem's) must not leak into the assignment.
+			if again := assign(reversed(cands), n); !reflect.DeepEqual(again, got) {
+				t.Errorf("n=%d: assignment depends on input order", n)
 			}
+		})
+	}
+}
+
+// checkDisjointCover asserts every shard is sorted and the shards together
+// hold each of want candidates exactly once.
+func checkDisjointCover(t *testing.T, shards [][]string, want int) {
+	t.Helper()
+	seen := map[string]int{}
+	for k, files := range shards {
+		if !sort.StringsAreSorted(files) {
+			t.Errorf("shard %d not sorted: %v", k, files)
 		}
-		if len(seen) != len(cands) {
-			t.Errorf("n=%d: covered %d of %d candidates", n, len(seen), len(cands))
-		}
-		// Shuffled input, same plan: the order candidates are discovered in
-		// (git's, the filesystem's) must not leak into the assignment.
-		rev := append([]candidate(nil), cands...)
-		for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
-			rev[i], rev[j] = rev[j], rev[i]
-		}
-		if again := assign(rev, n); !reflect.DeepEqual(again, got) {
-			t.Errorf("n=%d: assignment depends on input order", n)
+		for _, f := range files {
+			if prev, dup := seen[f]; dup {
+				t.Errorf("%s in shard %d and %d", f, prev, k)
+			}
+			seen[f] = k
 		}
 	}
+	if len(seen) != want {
+		t.Errorf("covered %d of %d candidates", len(seen), want)
+	}
+}
+
+func reversed(cands []candidate) []candidate {
+	rev := append([]candidate(nil), cands...)
+	for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
+		rev[i], rev[j] = rev[j], rev[i]
+	}
+	return rev
 }
 
 // Longest-first onto the least-loaded shard: the heaviest shard is never more
@@ -163,59 +176,74 @@ func TestShardConfig_ExtendsTheProjectExclusionsAndDefersTheThresholds(t *testin
 	if cfg.efficacy != 80 || cfg.mutantCoverage != 0 {
 		t.Fatalf("thresholds = %v/%v, want 80/0", cfg.efficacy, cfg.mutantCoverage)
 	}
-	out, err := cfg.shardConfig([]string{"internal/b/b.go", "internal/a/a+.go"})
-	if err != nil {
-		t.Fatalf("shardConfig: %v", err)
-	}
-	var doc struct {
-		Silent  bool `yaml:"silent"`
-		Unleash struct {
-			ExcludeFiles       []string `yaml:"exclude-files"`
-			Workers            int      `yaml:"workers"`
-			TimeoutCoefficient int      `yaml:"timeout-coefficient"`
-			Threshold          struct {
-				Efficacy       float64 `yaml:"efficacy"`
-				MutantCoverage float64 `yaml:"mutant-coverage"`
-			} `yaml:"threshold"`
-		} `yaml:"unleash"`
-		Mutants map[string]map[string]bool `yaml:"mutants"`
-	}
-	if err := yaml.Unmarshal(out, &doc); err != nil {
-		t.Fatalf("shard config is not YAML: %v\n%s", err, out)
-	}
+	doc := shardDocFor(t, cfg, []string{"internal/b/b.go", "internal/a/a+.go"})
 	ex := doc.Unleash.ExcludeFiles
-	if len(ex) != 4 || ex[0] != `.*_test\.go$` || ex[1] != `.*\.pb\.go$` || ex[2] != "tests/acceptance/.*" {
+	if len(ex) != 4 || !reflect.DeepEqual(ex[:3], []string{`.*_test\.go$`, `.*\.pb\.go$`, "tests/acceptance/.*"}) {
 		t.Fatalf("exclude-files = %q: the project's list must survive intact, with the shard's rule appended", ex)
 	}
-	if doc.Unleash.Workers != 4 || doc.Unleash.TimeoutCoefficient != 30 || !doc.Mutants["arithmetic-base"]["enabled"] {
+	type settings struct {
+		workers, timeoutCoefficient int
+		arithmeticBase              bool
+	}
+	if got := (settings{doc.Unleash.Workers, doc.Unleash.TimeoutCoefficient, doc.Mutants["arithmetic-base"]["enabled"]}); got != (settings{4, 30, true}) {
 		t.Errorf("settings other than exclusions and thresholds changed: %+v", doc)
 	}
-	if doc.Unleash.Threshold.Efficacy != 0 || doc.Unleash.Threshold.MutantCoverage != 0 {
+	if doc.Unleash.Threshold != (shardThreshold{}) {
 		t.Errorf("a shard must not judge its slice alone: thresholds = %+v", doc.Unleash.Threshold)
 	}
 	shardRule := regexpMust(t, ex[3])
-	for _, p := range []string{"internal/b/b.go", "internal/a/a+.go"} {
-		if !shardRule.MatchString(p) {
-			t.Errorf("shard rule %q does not exclude %s", ex[3], p)
-		}
-	}
-	for _, p := range []string{"internal/b/b.go.orig", "xinternal/b/b.go", "internal/a/aa.go", "internal/c/c.go"} {
-		if shardRule.MatchString(p) {
-			t.Errorf("shard rule %q excludes %s, which is not another shard's file", ex[3], p)
+	for _, c := range []struct {
+		path     string
+		excluded bool
+	}{
+		{"internal/b/b.go", true},
+		{"internal/a/a+.go", true},
+		{"internal/b/b.go.orig", false},
+		{"xinternal/b/b.go", false},
+		{"internal/a/aa.go", false},
+		{"internal/c/c.go", false},
+	} {
+		if got := shardRule.MatchString(c.path); got != c.excluded {
+			t.Errorf("shard rule %q excludes %s = %v, want %v (it must exclude exactly the other shards' files)", ex[3], c.path, got, c.excluded)
 		}
 	}
 
 	// One shard: nothing belongs to anyone else, so no rule is added.
-	solo, err := cfg.shardConfig(nil)
+	if solo := shardDocFor(t, cfg, nil); len(solo.Unleash.ExcludeFiles) != 3 {
+		t.Errorf("single shard exclude-files = %q", solo.Unleash.ExcludeFiles)
+	}
+}
+
+// shardDoc is the part of a shard's derived gremlins config the tests read.
+type shardDoc struct {
+	Silent  bool `yaml:"silent"`
+	Unleash struct {
+		ExcludeFiles       []string       `yaml:"exclude-files"`
+		Workers            int            `yaml:"workers"`
+		TimeoutCoefficient int            `yaml:"timeout-coefficient"`
+		Threshold          shardThreshold `yaml:"threshold"`
+	} `yaml:"unleash"`
+	Mutants map[string]map[string]bool `yaml:"mutants"`
+}
+
+type shardThreshold struct {
+	Efficacy       float64 `yaml:"efficacy"`
+	MutantCoverage float64 `yaml:"mutant-coverage"`
+}
+
+// shardDocFor derives the config for a shard whose peers hold others, and
+// parses it back.
+func shardDocFor(t *testing.T, cfg *gremlinsConfig, others []string) shardDoc {
+	t.Helper()
+	out, err := cfg.shardConfig(others)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("shardConfig: %v", err)
 	}
-	if err := yaml.Unmarshal(solo, &doc); err != nil {
-		t.Fatal(err)
+	var doc shardDoc
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("shard config is not YAML: %v\n%s", err, out)
 	}
-	if len(doc.Unleash.ExcludeFiles) != 3 {
-		t.Errorf("single shard exclude-files = %q", doc.Unleash.ExcludeFiles)
-	}
+	return doc
 }
 
 func git(t *testing.T, dir string, args ...string) {

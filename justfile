@@ -1457,6 +1457,10 @@ test-mutation-container: _mutation-prereqs
 # run producing no score at all. Re-record after coverage work with
 # CTXLOOM_MUTATION_BASELINE=update; the baseline file states what each
 # provenance word licenses.
+# The lanes recurse into it through "{{just_executable()}}" --justfile
+# "{{justfile()}}", never a bare `just`: a bare one resolves the justfile
+# afresh, from JUST_JUSTFILE when the environment sets it, and CI's container
+# jobs set it to justfile.container, which has no mutation lanes.
 _mutation-driver LANE *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1480,7 +1484,7 @@ _mutation-driver LANE *ARGS:
 # against a binary rebuilt from each mutant. Ratcheted against
 # tests/mutation/survivor_baseline.txt. Nightly/scoped — never a per-PR gate.
 test-mutation-acceptance *ARGS: _mutation-prereqs
-    @just _mutation-driver acceptance {{ARGS}}
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver acceptance {{ARGS}}
 
 # Mutate one source file per target and judge every mutant with the SINGLE test
 # that claims to verify it — the authoring-time check behind "a test does not
@@ -1493,7 +1497,7 @@ test-mutation-acceptance *ARGS: _mutation-prereqs
 #
 #   just test-mutation-unit -run 'TestUnitMutation/^premise_instruction$'
 test-mutation-unit *ARGS: _mutation-prereqs
-    @just _mutation-driver unit {{ARGS}}
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver unit {{ARGS}}
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
 # Per-entry is the recommended way to run this: the full table is ~111 minutes,
@@ -1501,7 +1505,7 @@ test-mutation-unit *ARGS: _mutation-prereqs
 #
 #   just test-mutation-entry signer_store
 test-mutation-entry NAME *ARGS:
-    @just test-mutation-acceptance -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
+    @"{{just_executable()}}" --justfile "{{justfile()}}" test-mutation-acceptance -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
 
 # Run ONE standing gremlins PACKAGE target (see `just test-mutation-entries`),
 # ratcheted against tests/mutation/survivor_baseline.txt like the acceptance
@@ -1518,7 +1522,7 @@ test-mutation-entry NAME *ARGS:
 #
 #   just test-mutation-package isolation
 test-mutation-package NAME *ARGS: _mutation-prereqs
-    @just _mutation-driver package -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver package -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
 
 # List the mutation target table's entry names, with the file each one mutates.
 # Reads the table itself, so it cannot drift from the code the way a hand-kept

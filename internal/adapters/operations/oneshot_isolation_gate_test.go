@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -26,21 +27,22 @@ func resetStrictness(t *testing.T) {
 	})
 }
 
-// stubWorkspace is a minimal isolation.Workspace for the prepareIsolation stub.
-type stubWorkspace struct{ dir string }
+// stubEnvironment is a minimal isolation.Environment: a host placement over
+// one directory whose Start hands back an inert handle — so a member that
+// PASSES the gate still never starts a real runner subprocess. seen, when
+// set, records what Start was asked; wait, when set, is the runner's exit.
+type stubEnvironment struct {
+	placement launch.Placement
+	seen      *stubSpawn
+	wait      func() error
+}
 
-func (w stubWorkspace) Dir() string    { return w.dir }
-func (w stubWorkspace) Cleanup() error { return nil }
+// stubEnvAt is a stubEnvironment whose project root is dir, on the host.
+func stubEnvAt(dir string, seen *stubSpawn) stubEnvironment {
+	return stubEnvironment{placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: dir}})}, seen: seen}
+}
 
-// stubPolicy is a minimal isolation.Policy whose StartRunner hands back an
-// inert handle — so a member that PASSES the gate still never starts a real
-// runner subprocess. seen, when set, records what StartRunner was asked.
-// Name reports "none" so runResolvedAgent resolves the SHARED cell, and with
-// it the form that presents the session's surfaces rather than writing its
-// own.
-type stubPolicy struct{ seen *stubSpawn }
-
-// stubSpawn records the runner starts a stubPolicy saw.
+// stubSpawn records the runner starts a stubEnvironment saw.
 type stubSpawn struct {
 	mu       sync.Mutex
 	calls    int
@@ -48,58 +50,50 @@ type stubSpawn struct {
 	spawnEnv map[string]string
 }
 
-func (stubPolicy) Name() string { return isolation.None{}.Name() }
-func (p stubPolicy) ResolveWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
-	return stubWorkspace{dir: projectDir}, nil
-}
-func (stubPolicy) Mount(context.Context, isolation.Workspace) (isolation.MountPlan, error) {
-	return isolation.MountPlan{}, nil
-}
-func (p stubPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (isolation.Workspace, error) {
-	ws, err := p.ResolveWorkspace(ctx, projectDir, agentID)
-	if err != nil {
-		return nil, err
+func (e stubEnvironment) Placement() launch.Placement { return e.placement }
+func (stubEnvironment) Listen() present.Listen        { return present.Listen{} }
+func (e stubEnvironment) Start(_ context.Context, r isolation.RunnerRequest) (*isolation.RunnerHandle, error) {
+	if e.seen != nil {
+		e.seen.mu.Lock()
+		e.seen.calls++
+		e.seen.backend = r.Engine
+		e.seen.spawnEnv = r.Env
+		e.seen.mu.Unlock()
 	}
-	if _, err := p.Mount(ctx, ws); err != nil {
-		return nil, err
+	wait := e.wait
+	if wait == nil {
+		wait = func() error { return nil }
 	}
-	return ws, nil
+	return &isolation.RunnerHandle{Kill: func() {}, Wait: wait}, nil
 }
-func (p stubPolicy) StartRunner(_ context.Context, backend, _ string, _ int, _ isolation.Workspace, spawnEnv map[string]string) (*isolation.RunnerHandle, error) {
-	if p.seen != nil {
-		p.seen.mu.Lock()
-		p.seen.calls++
-		p.seen.backend = backend
-		p.seen.spawnEnv = spawnEnv
-		p.seen.mu.Unlock()
-	}
-	return &isolation.RunnerHandle{Kill: func() {}, Wait: func() error { return nil }}, nil
+func (stubEnvironment) Interactive(context.Context, isolation.RunnerRequest) (isolation.Interactive, error) {
+	return isolation.Interactive{}, nil
 }
-func (stubPolicy) InteractiveRunner(context.Context, string, isolation.Workspace, map[string]string) (*exec.Cmd, string, error) {
-	return nil, "", nil
-}
+func (stubEnvironment) Describe() isolation.Description { return isolation.Description{} }
+func (stubEnvironment) Cleanup() error                  { return nil }
 
-// stubPrepareIsolation swaps runResolvedAgent's isolation.Prepare seam for one
-// that records a fatal ClassIsolation finding for the agentIDs in failFor —
-// simulating exactly what prepareChain/chainFor do when an explicitly-requested
-// container can't be satisfied — and always returns a host workspace (the
-// degrade chain never blocks). Restores the real Prepare on cleanup.
-func stubPrepareIsolation(t *testing.T, failFor map[string]bool, seen ...*stubSpawn) {
+// stubPrepareEnvironment swaps the cells adapter's isolation seam for one
+// that records a fatal ClassIsolation finding for the members (harps) in
+// failFor — simulating exactly what isolation records when an
+// explicitly-requested container can't be satisfied — and always returns a
+// host environment over the request's project (the degrade chain never
+// blocks). Restores the real seam on cleanup.
+func stubPrepareEnvironment(t *testing.T, failFor map[string]bool, seen ...*stubSpawn) {
 	var rec *stubSpawn
 	if len(seen) > 0 {
 		rec = seen[0]
 	}
 	t.Helper()
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, agentID string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		if failFor[agentID] {
+	prev := prepareEnvironment
+	prepareEnvironment = func(_ context.Context, req launch.CellRequest, _ isolation.Spec) (isolation.Environment, error) {
+		if agentID := req.Identity.Harp; failFor[agentID] {
 			strictness.Fail(report.KindIsolation,
 				"install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",
 				"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): agent image absent", agentID)
 		}
-		return stubPolicy{seen: rec}, stubWorkspace{dir: projectDir}
+		return stubEnvAt(req.ProjectRoot, rec), nil
 	}
-	t.Cleanup(func() { prepareIsolation = prev })
+	t.Cleanup(func() { prepareEnvironment = prev })
 }
 
 // TestIsolationGateErr pins the gate's decision table directly: only strict-mode

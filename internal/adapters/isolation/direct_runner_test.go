@@ -45,6 +45,7 @@ func newRunnerTestWorkspace() *containerWorkspace {
 func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", binary: "docker", available: true}, "mock").WithImage("img")
 	cw := newRunnerTestWorkspace()
+	placeRoots(c, cw)
 	spawnEnv := map[string]string{
 		"CTXLOOM_COORD_URL":  "http://host:9000",
 		"CTXLOOM_COORD_CRED": "super-secret-token",

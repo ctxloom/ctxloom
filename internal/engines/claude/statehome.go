@@ -1,8 +1,9 @@
 package claude
 
-// HomeLeaf is the directory INSIDE a ctxloom-provisioned instance home
-// (paths.HarpSessionEngineHomes) that CLAUDE_CONFIG_DIR names. It is ONE constant on
-// purpose: the engine's descriptor declares it as the home var's Subdir, so
-// the seed internal/adapters/isolation writes and the directory the engine is
-// pointed at are the same directory by construction, on every cell.
+// HomeLeaf is claude's declared session-home leaf: the home var's Subdir,
+// and so the last element of the session home launch.SessionHome places
+// (<session>/home/claude), which CLAUDE_CONFIG_DIR names. It is ONE constant
+// on purpose: the descriptor declares it, and the rule that places the home
+// reads it from there, so the directory the instance config is written into
+// and the directory the engine is pointed at are the same by construction.
 const HomeLeaf = "claude"

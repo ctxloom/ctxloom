@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -23,7 +22,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
@@ -261,13 +259,22 @@ func EnvironmentOf(cell launch.Cell) (isolation.Environment, bool) {
 	return env, ok
 }
 
+// environmentSeam is how the cells adapter reaches isolation. The request
+// rides beside the Spec only for a test's stand-in, which keys its answer on
+// the member (the Spec is opaque); isolation is handed the Spec alone.
+type environmentSeam func(ctx context.Context, req launch.CellRequest, s isolation.Spec) (isolation.Environment, error)
+
 // prepareEnvironment and previewEnvironment are the cells adapter's seams
 // onto isolation — package vars so a test hands back a stand-in environment
 // (or simulates a container degrade, which records ClassIsolation findings)
 // without probing the real host's container runtimes.
 var (
-	prepareEnvironment = isolation.Prepare
-	previewEnvironment = isolation.Preview
+	prepareEnvironment environmentSeam = func(ctx context.Context, _ launch.CellRequest, s isolation.Spec) (isolation.Environment, error) {
+		return isolation.Prepare(ctx, s)
+	}
+	previewEnvironment environmentSeam = func(ctx context.Context, _ launch.CellRequest, s isolation.Spec) (isolation.Environment, error) {
+		return isolation.Preview(ctx, s)
+	}
 )
 
 // Prepare implements launch.Cells.
@@ -299,7 +306,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	// the window is this launch's own, so a concurrent launch's findings never
 	// poison it.
 	mark := strictness.Checkpoint()
-	env, err := c.environment(ctx, spec)
+	env, err := c.environment(ctx, req, spec)
 	found := strictness.Since(mark)
 	strictness.Close(mark)
 	if err != nil {
@@ -328,11 +335,11 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 }
 
 // environment is the prepared environment, or the preview's.
-func (c Cells) environment(ctx context.Context, spec isolation.Spec) (isolation.Environment, error) {
+func (c Cells) environment(ctx context.Context, req launch.CellRequest, spec isolation.Spec) (isolation.Environment, error) {
 	if c.preview {
-		return previewEnvironment(ctx, spec)
+		return previewEnvironment(ctx, req, spec)
 	}
-	return prepareEnvironment(ctx, spec)
+	return prepareEnvironment(ctx, req, spec)
 }
 
 // settleDirtyParentTree runs the dirty-tree handler for a delegated worktree

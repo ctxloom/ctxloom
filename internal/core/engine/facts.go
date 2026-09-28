@@ -197,8 +197,10 @@ type InstanceConfigWriter interface {
 }
 
 // InstanceConfigRequest is what the writer is handed: the host user's real
-// home (the ambient values it may copy), the session home it writes under,
-// and the run's working directory.
+// home (the ambient values it may copy), the session home it writes into —
+// the directory the engine's home var names, placed by launch.SessionHome,
+// with no leaf of the writer's own appended — and the run's working
+// directory.
 type InstanceConfigRequest struct {
 	HostHome     string
 	InstanceHome string

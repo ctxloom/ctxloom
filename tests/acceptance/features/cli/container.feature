@@ -99,6 +99,15 @@ Feature: container — the images isolated agents run in, and the questions you 
     # be on the machine (dragging-neatness); the Background checks it is there.
     # The subject is "mock", not a vendor engine, because that build costs
     # nothing beyond the base image — see the Background's own comment.
+    #
+    # Whether this process is in a container is a fact about the MACHINE: CI
+    # runs this suite inside the devcontainer image, where "true" is the
+    # correct report. So the claim is that the report answers with a boolean;
+    # WHICH boolean the markers produce is containerprobe's unit tests' to pin.
+    # shared_fs="ok" is different: it is a precondition this lane REQUIRES of
+    # the machine — a daemon that resolves this process's paths to the same
+    # files. Docker-outside-of-docker does not, unless the directory the
+    # scenarios run in is shared with the daemon at the SAME path.
     Background:
       Given the mock agent image is available for the shared-filesystem probe
 
@@ -112,15 +121,15 @@ Feature: container — the images isolated agents run in, and the questions you 
         """
       Then the command succeeds
       And the output reports "image" matching "<names the backend it checked>"
-      And the output reports "in_container" as "<says whether it is in a container>"
+      And the output reports "in_container" matching "<says whether it is in a container>"
       And the output reports "runtime" matching "<names the runtime>"
       And the output reports "shared_fs" matching "<reports the shared fs>"
       And the project tree is unchanged
 
     Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
       | flags         | names the backend it checked          | says whether it is in a container | names the runtime | reports the shared fs |
-      |               | mock                                  | false                             | \S               | ok                    |
-      | --format json | mock                                  | false                             | \S               | ok                    |
+      |               | mock                                  | ^(true\|false)$                   | \S               | ok                    |
+      | --format json | mock                                  | ^(true\|false)$                   | \S               | ok                    |
       | --format text | Container capability (backend: mock)  | in a container:                   | runtime:          | shared fs:            |
 
     # Named backend vs. resolved default are two different code paths: with no

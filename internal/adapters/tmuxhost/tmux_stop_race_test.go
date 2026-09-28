@@ -41,7 +41,7 @@ import (
 // clean across the same number of invocations).
 func TestHost_StopArmRaceUnderAlreadyCancelledContext(t *testing.T) {
 	const trials = 3000
-	tmpDir := t.TempDir() // shared: no trial's fakeTmuxRunner touches the filesystem
+	tmpDir := t.TempDir() // shared: each trial's launcher files carry its own window name
 
 	var wg sync.WaitGroup
 	wg.Add(trials)
@@ -71,27 +71,24 @@ func TestHost_StopArmRaceUnderAlreadyCancelledContext(t *testing.T) {
 			// kill-window on this trial's window -- so observing that call
 			// is proof disarmStop actually ran, i.e. that this trial
 			// exercised the race window rather than racing this goroutine's
-			// own return.
-			deadline := time.Now().Add(2 * time.Second)
-			for {
-				if args := runner.argsFor("kill-window"); len(args) > 0 {
-					found := false
-					for _, a := range args {
-						if a == h.window {
-							found = true
-							break
-						}
+			// own return. Blocked on, not polled: thousands of trials each
+			// waking every few microseconds starve the very callbacks they
+			// wait for on a small runner.
+			select {
+			case <-runner.seen("kill-window"):
+				args := runner.argsFor("kill-window")
+				found := false
+				for _, a := range args {
+					if a == h.window {
+						found = true
+						break
 					}
-					if !found {
-						t.Errorf("kill-window missing window %s: %v", h.window, args)
-					}
-					return
 				}
-				if time.Now().After(deadline) {
-					t.Errorf("releaseWindow never reached kill-window for %s; the AfterFunc callback did not run", h.window)
-					return
+				if !found {
+					t.Errorf("kill-window missing window %s: %v", h.window, args)
 				}
-				time.Sleep(50 * time.Microsecond)
+			case <-time.After(2 * time.Second):
+				t.Errorf("releaseWindow never reached kill-window for %s; the AfterFunc callback did not run", h.window)
 			}
 		}()
 	}

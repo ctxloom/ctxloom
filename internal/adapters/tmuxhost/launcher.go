@@ -20,7 +20,7 @@ type launcher struct {
 }
 
 // writeLauncher writes a small shell script carrying the launch's ARGV, and
-// hands it the launch's ENVIRONMENT through a FIFO the script sources.
+// hands it the launch's ENVIRONMENT through a FIFO the script reads.
 //
 // It exists because `tmux new-window`'s command line is not an ordinary argv:
 // the client packs it into a fixed-size buffer and refuses anything longer with
@@ -55,7 +55,10 @@ func writeLauncher(dir, name string, env map[string]string, command string, args
 	}
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
-	b.WriteString(". " + shellQuote(fifo) + "\n")
+	// eval of cat, not `.`: macOS's /bin/sh is bash 3.2, whose `.` reads
+	// exactly the file's st_size bytes — zero for a FIFO — so it would
+	// source nothing and the program would start without its environment.
+	b.WriteString("eval \"$(cat " + shellQuote(fifo) + ")\"\n")
 	// exec, so the hosted program REPLACES this shell: the wrapper waits on
 	// the process it started and reports its exit status, and an extra shell
 	// in between would report its own.

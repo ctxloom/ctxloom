@@ -30,6 +30,7 @@ type fakeTmuxRunner struct {
 	// error every time it is called.
 	fail    map[string]error
 	failAll error // if set, every call fails with this error (tmux missing)
+	seenCh  map[string]chan struct{}
 }
 
 func newFakeTmuxRunner() *fakeTmuxRunner {
@@ -39,6 +40,11 @@ func newFakeTmuxRunner() *fakeTmuxRunner {
 func (f *fakeTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, append([]string(nil), args...))
+	if len(args) > 0 {
+		if ch := f.seenLocked(args[0]); !isClosed(ch) {
+			close(ch)
+		}
+	}
 	f.mu.Unlock()
 	if f.failAll != nil {
 		return "", f.failAll
@@ -49,6 +55,35 @@ func (f *fakeTmuxRunner) Run(_ context.Context, args ...string) (string, error) 
 		}
 	}
 	return "", nil
+}
+
+// seen is closed once sub has been called, for a test that must block on a
+// call rather than poll for it.
+func (f *fakeTmuxRunner) seen(sub string) <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.seenLocked(sub)
+}
+
+func (f *fakeTmuxRunner) seenLocked(sub string) chan struct{} {
+	if f.seenCh == nil {
+		f.seenCh = map[string]chan struct{}{}
+	}
+	ch, ok := f.seenCh[sub]
+	if !ok {
+		ch = make(chan struct{})
+		f.seenCh[sub] = ch
+	}
+	return ch
+}
+
+func isClosed(ch chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 func (f *fakeTmuxRunner) calledWith(sub string) bool {

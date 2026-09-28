@@ -23,7 +23,38 @@ func isolateTempDir(t *testing.T) string {
 	t.Setenv("TMPDIR", dir)
 	t.Setenv("TMP", dir)
 	t.Setenv("TEMP", dir)
+	// AwaitTurn deliberately holds its own lock until process exit (see
+	// heldRendezvousLocks), so in a test binary those handles outlive the
+	// test. Windows cannot delete a file with an open handle, so TempDir's
+	// RemoveAll would fail. Cleanups run LIFO: registered after TempDir, this
+	// release runs before the removal.
+	t.Cleanup(releaseHeldRendezvousLocks)
 	return dir
+}
+
+// releaseHeldRendezvousLocks unlocks (and so closes) every lock AwaitTurn is
+// holding for the process lifetime — the in-test stand-in for process exit.
+func releaseHeldRendezvousLocks() {
+	heldRendezvousLocksMu.Lock()
+	defer heldRendezvousLocksMu.Unlock()
+	for _, l := range heldRendezvousLocks {
+		_ = l.Unlock()
+	}
+	heldRendezvousLocks = nil
+}
+
+// assertLockHeld proves the lock at path is held by someone else: a fresh
+// handle cannot take it. Portable — both flock(2) and LockFileEx conflict
+// across separate handles even within one process.
+func assertLockHeld(t *testing.T, path, msg string) {
+	t.Helper()
+	probe := flock.New(path)
+	locked, err := probe.TryLock()
+	require.NoError(t, err)
+	if locked {
+		_ = probe.Unlock()
+	}
+	assert.False(t, locked, msg)
 }
 
 func TestSanitizeSessionID(t *testing.T) {
@@ -179,7 +210,7 @@ func TestAwaitTurn(t *testing.T) {
 		assert.Less(t, time.Since(start), time.Second, "part 1 never waits")
 
 		dir := rendezvousDir(sess)
-		assert.FileExists(t, lockPath(dir, 1), "part 1 acquires its own lock")
+		assertLockHeld(t, lockPath(dir, 1), "part 1 holds its own lock")
 		assert.FileExists(t, markerPath(dir, 1), "part 1 publishes its started marker")
 	})
 
@@ -197,7 +228,7 @@ func TestAwaitTurn(t *testing.T) {
 			"a satisfied predecessor lets part 2 proceed without waiting")
 
 		assert.FileExists(t, markerPath(dir, 2), "part 2 publishes its own marker")
-		assert.FileExists(t, lockPath(dir, 2), "part 2 holds its own lock")
+		assertLockHeld(t, lockPath(dir, 2), "part 2 holds its own lock")
 	})
 }
 
@@ -224,4 +255,22 @@ func TestAwaitTurn_ConcurrentCallsDoNotRaceOnHeldLocks(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// TestIsolateTempDir_ReleasesHeldLocksBeforeRemoval pins the cleanup order the
+// Windows TempDir removal depends on: once a test using isolateTempDir ends,
+// no AwaitTurn lock handle may remain open. Portable — it fails on Linux too if
+// the release is dropped, where the open-handle delete itself would succeed.
+func TestIsolateTempDir_ReleasesHeldLocksBeforeRemoval(t *testing.T) {
+	t.Run("holder", func(t *testing.T) {
+		isolateTempDir(t)
+		AwaitTurn("release-check", 1, 2)
+		heldRendezvousLocksMu.Lock()
+		n := len(heldRendezvousLocks)
+		heldRendezvousLocksMu.Unlock()
+		require.Positive(t, n, "AwaitTurn must hold its own lock during the test")
+	})
+	heldRendezvousLocksMu.Lock()
+	defer heldRendezvousLocksMu.Unlock()
+	assert.Empty(t, heldRendezvousLocks, "isolateTempDir cleanup must release every held lock")
 }

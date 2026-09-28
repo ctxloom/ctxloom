@@ -230,6 +230,13 @@ func probeOneRoot(ctx context.Context, rt Runtime, image, root string) error {
 	})
 	out, err := probeExec(cctx, rt.Binary(), args)
 	if err != nil {
+		if cctx.Err() == nil && runsUnmounted(cctx, rt, image, marker) {
+			// `--mount type=bind` REFUSES a source the daemon cannot see (unlike
+			// `-v`, which auto-creates it empty and lands in the content check
+			// below). The same image running without the mount isolates the
+			// mount as the failing ingredient: a definitive sharing verdict.
+			return &sharedFSMismatch{fmt.Sprintf("mount root %s: the daemon runs the image but cannot bind-mount this path — the filesystem is not shared with the container daemon", root)}
+		}
 		// The probe container did not run to completion: daemon down/cold, image
 		// unreadable, our own timeout, or a cancelled caller ctx. This is NOT a
 		// filesystem-sharing verdict — surface the REAL cause (docker's stderr,
@@ -243,6 +250,21 @@ func probeOneRoot(ctx context.Context, rt Runtime, image, root string) error {
 		return &sharedFSMismatch{fmt.Sprintf("mount root %s: marker content mismatch (daemon read %q) — this path is not shared with the container daemon", root, got)}
 	}
 	return nil
+}
+
+// runsUnmounted reports whether the daemon runs image with no mount at all —
+// the control that tells a refused bind source apart from a daemon or image
+// that cannot run anything. Decided by the run's outcome alone, never by the
+// runtime's error text. A run cut short by its own deadline proves nothing, so
+// the caller skips this when the mounted run's context already expired.
+func runsUnmounted(ctx context.Context, rt Runtime, image, marker string) bool {
+	args := rt.RunArgs(RunSpec{
+		Image:   image,
+		Name:    marker + "-nomount",
+		Command: []string{"cat", "/dev/null"},
+	})
+	_, err := probeExec(ctx, rt.Binary(), args)
+	return err == nil
 }
 
 // probeRunError decorates a probe-run failure with the runtime's stderr when it

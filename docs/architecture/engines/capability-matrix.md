@@ -184,8 +184,8 @@ Full detail in [isolation](isolation.md). Summary:
 
 `composableEngines()` (`internal/adapters/isolation/enginespec.go`) names the engines
 with a container install fragment; an engine absent from
-`engineContainerSpecFor`'s switch gets the default arm, whose auth resolver
-`noContainerAuth` **fails closed**.
+`engineContainerSpecFor`'s declarations gets the default arm, which is
+undeclared and **fails closed** at the container gate.
 
 ## 9. Support status
 

@@ -21,9 +21,11 @@ const authLong = `Store the credentials ctxloom-launched engines authenticate wi
 Each agent declares how its engine authenticates with 'auth:' on its binding
 (ctxloom agent edit <name> --auth <mode>):
 
-  login    your own login, in place: the same credential and the same
+  login    your own login, shared: the same credential and the same
            refresh as your own engine (claude: CLAUDE_SECURESTORAGE_CONFIG_DIR).
-           Host runs only. 'ctxloom init' gives the default agent this mode.
+           In place on the host; a container mounts it (claude: ~/.claude),
+           except on macOS, where it is the Keychain. Refused when missing.
+           'ctxloom init' gives the default agent this mode.
   token    a long-lived token the engine mints (claude: 'claude setup-token',
            a year, never refreshed). The default for an agent that declares
            nothing.

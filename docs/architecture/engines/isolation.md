@@ -246,16 +246,20 @@ through `checkAgentAuth`) all run it, so they cannot disagree. Each refusal is
 typed — `ErrUnknownAuthMode`, `ErrAuthModeUnsupported`, `ErrEngineHasNoAuth` —
 and carries a remedy (`report.Errorf`) naming the modes that engine's
 `Auth.Modes` returns. Whether the credential is available is the engine's own
-answer (`Auth.LaunchEnv` returning `ErrNoCredential` with its remedy); write
+answer (`Auth.Credentials` returning `ErrNoCredential` with its remedy); write
 time asks it too, and tolerates only a missing minted credential, which a run
 mints.
 
 **The engine owns the meaning.** Which variables carry a mode, the precedence
 between them, and minting live behind `engine.Auth` on the engine's
-`HomeSpec`. `LaunchEnv` returns an `engine.LaunchEnv`: `Set` is laid over the
-engine's environment, and every name in `Unset` is REMOVED from it. Removal is
-not an empty value: some variables read `""` as a real default, and some
-switches count as set whatever their value.
+`HomeSpec`. `Credentials` returns an `engine.Credentials`, which names nothing
+about where the run executes: `Env` is laid over the engine's environment,
+every name in `Unset` is REMOVED from it, and `Stores` are the human's own
+credential stores the mode shares (`engine.SharedStore`: the var that points
+the engine at one, the launching env's exact value for it, its place under
+`$HOME`, and whether the run only reads it). Removal is not an empty value:
+some variables read `""` as a real default, and some switches count as set
+whatever their value.
 
 For claude (`claudeAuth`) the declared mode decides, against claude's
 documented precedence (https://code.claude.com/docs/en/authentication,
@@ -265,23 +269,26 @@ documented precedence (https://code.claude.com/docs/en/authentication,
 Each mode sets its own credential (a value the human exported for THAT mode
 wins over the stored one) and unsets whatever would outrank or replace it:
 
-- `login` (host only) sets `CLAUDE_SECURESTORAGE_CONFIG_DIR` to exactly the
-  string the launching env's claude resolves its storage from — the inherited
-  var when set, else the human's `CLAUDE_CONFIG_DIR` byte for byte, else `""`
-  (`$HOME/.claude`). That var moves only claude's credential storage (the
-  file, its write lock, both refresh locks) apart from `CLAUDE_CONFIG_DIR`, so
-  a session-home run holds the SAME credential and lock pair as the human's
-  claude; `TestClaudeSecureStorage_FollowsTheVar` (`just test-conformance`)
-  pins that the installed claude honours it on Linux.
+- `login` shares one read-write store: `CLAUDE_SECURESTORAGE_CONFIG_DIR` with
+  exactly the string the launching env's claude resolves its storage from —
+  the inherited var when set, else the human's `CLAUDE_CONFIG_DIR` byte for
+  byte, else `""` (`$HOME/.claude`). That var moves only claude's credential
+  storage (the file, its write lock, both refresh locks) apart from
+  `CLAUDE_CONFIG_DIR`, so a session-home run holds the SAME credential and
+  lock pair as the human's claude; `TestClaudeSecureStorage_FollowsTheVar`
+  (`just test-conformance`) pins that the installed claude honours it on
+  Linux.
 - `token` sets `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token
   `claude setup-token` mints; claude never refreshes it or writes it to disk.
 - `api-key` sets `ANTHROPIC_API_KEY`.
 - `cloud` passes the provider's own variables through from the shell (the set
   is claude's `cloudVars`, taken from claude's Bedrock, Claude Platform on AWS,
   Google Vertex, Microsoft Foundry and gateway pages), and is refused when no
-  provider switch and no gateway bearer is set. A provider's credential FILES
-  (`~/.aws`, gcloud's application-default credentials) are not variables and
-  do not reach a container.
+  provider switch and no gateway bearer is set. The provider's credential
+  FILES are read-only shared stores, declared only when present in the
+  human's home (`providerStores`: `~/.aws`, the AWS shared config,
+  credentials and SSO cache; `~/.config/gcloud`, gcloud's
+  application-default credentials).
 
 Every mode but `login` unsets `CLAUDE_SECURESTORAGE_CONFIG_DIR`: `""` would be
 `$HOME/.claude`, the human's own credential.
@@ -308,9 +315,25 @@ reaches the terminal with the token itself replaced) or `ctxloom auth set`
 (stdin, never argv).
 
 **Resolution and delivery.** `operations.Cells.Prepare` resolves the run's
-`engine.LaunchEnv` (`resolveRunAuth`) BEFORE the cell exists. `Set` rides the
-cell's env and `Unset` the cell's `Unset` (`launch.Cell.Unset`, the wire's
-`Cell.unset_env`) to the runner, which removes those names from its own
+`engine.Credentials` (`resolveRunAuth`) BEFORE the environment exists, with
+no input about where it will run, and hands them to the environment
+(`isolation.SpecBuilder.Credentials`). A preview resolves none. The
+environment makes each piece true where the engine runs:
+
+- the HOST sets each store's var to its value in place, so the run and the
+  human read the same store;
+- the CONTAINER mounts each store's host directory at its place under the
+  container's `$HOME` (never `$HOME` itself, never the session home;
+  read-only when declared so) through `relocateRoot`, the same helper that
+  produces every presented path with its mount, and sets the var to `""`,
+  which points the engine there;
+- BOTH refuse a declared store whose directory is missing (`stageStores`,
+  wrapping `ErrNoCredential`, remedy naming the directory and `auth: token`):
+  a run that would start logged out fails loudly instead.
+
+`Env` rides the placement's env and `Unset` its `Unset`
+(`launch.Placement.Unset`, the wire's `Cell.unset_env`) to the runner, which
+removes those names from its own
 environment before it drives the engine (`runner.Deps.Unsetenv`, refusing with
 `ErrEngineEnvUnscrubbed` when it cannot). Nothing enters the ctxloom process's
 env. A MINTED credential (`AuthMode.Minted`: the token) that is neither
@@ -322,32 +345,26 @@ starts logged out. Any other missing credential is the engine's own refusal.
 in the coordinator's and runner's memory, in the StartRun message between
 them, and in the engine process's environment. It is never journalled (a run
 fact records `cred_hash` and MCP server names, never an env), never in a
-container's `run` argv (auth crosses by name only), and never in a file an
+container's `run` argv (it reaches the in-container engine through the
+launch's env over the wire), and never in a file an
 interactive launch writes: `tmuxhost.writeLauncher` keeps argv in its script
 but feeds the environment through a FIFO the script sources, unlinked once
 read. `TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed` scans a
 run's output, the ctxloom home outside the store, the project and the run's
 temp dir for a sentinel.
 
-`containerAuth{mode, envPassthrough}` is resolved per backend.
-`containerAuthMode` is `authNone` (**zero value — least privilege**) or
-`authEnv`. `resolveDeclaredAuth` is trigger-then-refuse: any declared trigger
-set — in the run's `engine.LaunchEnv` first, then the host env — selects
-passthrough, else the run is refused. A var the run's env sets or unsets is
-withheld from the passthrough, so a credential the mode removed never
-crosses. `presentEnvKeys` filters an allowlist down to *set* variables only —
-**names only cross the boundary**.
-
-| Engine | Env trigger | Site |
-|---|---|---|
-| claude | its credential vars and cloud-provider switches | claude's descriptor `Container.Auth`, resolved by `resolveDeclaredAuth`. No credential file is mounted |
-| mock | none needed | a `Vendorless` declaration — the one plan that never fails to resolve: mock authenticates against no vendor |
-| **unmapped/empty backend** | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
+A container adds no auth question of its own: `engine.ContainerSpec` says how
+the image is built, and its run authenticates exactly as a host run does.
+Whether an engine may run in a container at all is whether it declares a
+container story (`isolation.HasContainerAuth` / `ContainerAuthEngines`); an
+unmapped or empty backend reaches the default spec, which **fails closed** at
+the container gate (`noContainerHint`).
 
 **`engine_home: host`.** On the host it runs claude against the real
 `~/.claude` in place, with claude's own lock, and copies nothing; the agent's
 declared auth still applies. In a container it means the container's own
-fresh `$HOME`; the real `~/.claude` is never mounted.
+fresh `$HOME`; the real `~/.claude` is mounted only as a `login` agent's
+shared store.
 
 ### On a macOS host
 
@@ -369,18 +386,17 @@ darwin/arm64 and no more. Each claim below is sourced or marked.
 - **`cloud`.** The provider's variables from the human's shell; nothing
   stored.
 - **Refused: a container agent declaring `login`.** The Keychain cannot be
-  mounted into a container. `checkAgentAuth` refuses the combination
-  (`errLoginNotInContainer`) with a remedy naming the modes that engine
-  supports there. Ruled 2026-09-27 (row immobile-constant, fork C1/F7): host
-  and container both refuse a missing login store, and a macOS container with
-  `login` refuses naming the Keychain, remedy `auth: token`. That C1 design is
-  NOT built — the store mount it depends on is carried by its S3 step — so
-  today every container refuses `login`, on every host OS, with the generic
-  remedy.
-- **Where an implementation plugs in.** `engine.Auth` (today's `LaunchEnv`
-  decides the env per mode) and the per-OS store behind
-  `StoreEngineCredential` / `StoredCredentials`; once S3 lands, its
-  credential-store seam. OPEN, not decided, for a macOS container with
+  mounted into a container. claude's darwin build declares its login store
+  with no place under `$HOME` (`loginStoreHomeRel` is `""`), and the
+  container environment refuses any store it cannot place
+  (`errStoreNotADirectory`, wrapping `ErrNoCredential`), naming the Keychain,
+  remedy `auth: token`. The host shares it in place. On Linux the same
+  agent's store is mounted. Both refuse a missing store.
+- **Where an implementation plugs in.** `engine.Auth.Credentials` decides the
+  env and the shared stores per mode; `loginStoreHomeRel` is the per-OS answer
+  to where claude's login lives; the per-OS store behind
+  `StoreEngineCredential` / `StoredCredentials` holds ctxloom's own. OPEN,
+  not decided, for a macOS container with
   `login`: mint a token for container runs of a `login` agent; or export the
   Keychain item into an owner-only file mounted for the run (which reopens
   the copy-and-refresh problem above).
@@ -542,10 +558,10 @@ loops over them.
 Every row above is the engine's OWN declaration (`engine.Descriptor.Container`),
 pushed into `internal/adapters/isolation` at registration; isolation keeps no table.
 
-The default arm's `resolveAuth` is `noContainerAuth`: an engine with no mapping
-gets **no credentials at all** and its containerized run aborts at
-`PrepareWorkspace`'s auth gate. `isolation.HasContainerAuth(backend)` /
-`ContainerAuthEngines()` expose that same table so the refusal can happen
+The default arm is undeclared: an engine with no container declaration has
+its containerized run refused at the container gate
+(`prepareContainerScratch`). `isolation.HasContainerAuth(backend)` /
+`ContainerAuthEngines()` read the same declarations so the refusal can happen
 *earlier*, at configuration time: `operations.validateContainerAuth` (run from
 `validateAgentAxes`, i.e. `agent create`/`agent edit`/`SetAgent`) rejects a
 binding whose resulting `{engine, runtime: container-*}` pair names an engine
@@ -624,7 +640,7 @@ image another is between building and running.
 4. **The chain always terminates in a workspace**; `Prepare` never errors.
 5. **Unknown runtime axis is fail-closed; unknown workspace axis warns** (`warnUnknownAxes`).
 6. **Auth env values never enter argv** — `envPassthrough` carries names only, because `/proc/<pid>/cmdline` is world-readable.
-7. **`containerAuth`'s zero value fails closed** (`authNone`, no credentials cross).
+7. **The default container spec fails closed** (undeclared: the container gate refuses it).
 8. **No implicit pull** — an absent image is built from a known source or the policy degrades.
 9. **An unverifiable image *identity* fails loud; an unverifiable *label* reads as stale and triggers a rebuild** — opposite directions, both deliberate (`imageIdentityConfig` errors; `imageLabels` returns nil).
 10. **A user-owned (run-as-is) image must satisfy the identity contract** — a ctxloom-governed entrypoint or a non-root user, else `KindIsolation` (`Container.checkRunAsIsIdentity`).

@@ -133,14 +133,14 @@ release:
 
 # Validate .goreleaser.yml (delegates to devcontainer)
 release-check: dev-image
-    just _run release-check
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run release-check
 
 # Snapshot-build release artifacts for this platform into dist/ (delegates to
 # devcontainer). goreleaser NEVER runs on the host: the host lacks upx, so a
 # host snapshot emits "-upx" artifacts that are byte-identical to the
 # uncompressed ones — a silent lie about what a release contains.
 release-snapshot: dev-image
-    just _run release-snapshot
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run release-snapshot
 
 # Build the main binary with all features (delegates to devcontainer)
 #
@@ -152,40 +152,40 @@ release-snapshot: dev-image
 # never running the architectural rules at all. Building it on the path everyone
 # already takes is what keeps the gate armed by default rather than on purpose.
 build: dev-image
-    just _run build
-    just _run build-archlint
-    just sign-binary ctxloom
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-archlint
+    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary ctxloom
 
 # Compress binary with UPX (delegates to devcontainer)
 compress: dev-image
-    just _run compress
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run compress
 
 # Build + compress all four binaries in the devcontainer (ctxloom + ltk +
 # taskloom + harp, each UPX-compressed). Delegates to the container `build-compressed`.
 build-compressed: dev-image
-    just _run build-compressed
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-compressed
 
 # Build all four binaries UNCOMPRESSED in the devcontainer (fast-starting
 # local install; UPX is release-only).
 build-all-bins: dev-image
-    just _run build-all-bins
-    just sign-binary ctxloom
-    just sign-binary bin/ltk
-    just sign-binary bin/taskloom
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-all-bins
+    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary ctxloom
+    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary bin/ltk
+    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary bin/taskloom
 
 # Build the ltk companion binary in the devcontainer into bin/ltk, via the ltk
 # module. ltk ships from the unified ctxloom release; main.Version matches
 # `ltk version`.
 build-ltk: dev-image
-    just _run ltk::build
-    just sign-binary bin/ltk
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run ltk::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary bin/ltk
 
 # Build the taskloom companion binary in the devcontainer into bin/taskloom, via
 # the taskloom module. taskloom stamps the lowercase main.version
 # (`taskloom version`).
 build-taskloom: dev-image
-    just _run taskloom::build
-    just sign-binary bin/taskloom
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run taskloom::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary bin/taskloom
 
 # Build the standalone harp ID-generator binary in the devcontainer into
 # bin/harp, via the harp module. harp is independently distributable (plan
@@ -193,7 +193,7 @@ build-taskloom: dev-image
 # its own release artifact (.goreleaser.yml), not as one of the three
 # binaries `install` puts on the host PATH.
 build-harp: dev-image
-    just _run harp::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run harp::build
 
 # Regenerate the committed publish-signature siblings for every in-repo
 # companion loadout (cmd/*/loadout.yaml — ctxloom's own included: it is its
@@ -249,11 +249,11 @@ sign-loadouts key="":
 
 # Validate fragment YAML files (delegates to devcontainer)
 validate: dev-image
-    just _run validate
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run validate
 
 # Generate protobuf code (delegates to devcontainer)
 proto: dev-image
-    just _run proto
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run proto
 
 # List available plugins
 plugin-list:
@@ -317,13 +317,13 @@ test:
     set -uo pipefail
     failed=()
     echo "===== [1/3] default suite (untagged) — just test-default"
-    if ! just test-default; then failed+=("test-default"); fi
+    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-default; then failed+=("test-default"); fi
     echo ""
     echo "===== [2/3] architectural invariants (-tags arch) — just test-arch"
-    if ! just test-arch; then failed+=("test-arch"); fi
+    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-arch; then failed+=("test-arch"); fi
     echo ""
     echo "===== [3/3] cross-agent conformance (-tags conformance) — just test-conformance"
-    if ! just test-conformance; then failed+=("test-conformance"); fi
+    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-conformance; then failed+=("test-conformance"); fi
     echo ""
     if [ "${#failed[@]}" -ne 0 ]; then
         echo "FAILED GROUP(S): ${failed[*]}" >&2
@@ -382,8 +382,8 @@ test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -race -coverprofile="$raw" ./...
-    just _check-no-ctxloom-leak
-    just _filter_coverage "$raw" coverage.out
+    "{{just_executable()}}" --justfile "{{justfile()}}" _check-no-ctxloom-leak
+    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
 
 # Run tests with verbose output
 test-verbose: _ensure-gotmpdir
@@ -425,7 +425,7 @@ cover:
         grep -E '^(FAIL|--- FAIL)|no such file|panic:|cannot ' "$log" | head -30
         exit 1
     fi
-    just _filter_coverage "$raw" coverage.out
+    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
     echo "Coverage (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out | tail -1
 
@@ -436,7 +436,7 @@ cover-func:
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
-    just _filter_coverage "$raw" coverage.out
+    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
     echo "Coverage by function (excluding patterns from .coverignore):"
     go tool cover -func=coverage.out
 
@@ -447,7 +447,7 @@ cover-html:
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -coverprofile="$raw" ./... > /dev/null 2>&1
-    just _filter_coverage "$raw" coverage.out
+    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
     go tool cover -html=coverage.out -o coverage.html
     echo "Coverage report generated: coverage.html"
 
@@ -464,7 +464,7 @@ test-coverage: cover
 # selects nothing fails instead of passing.
 test-conformance:
     go test -trimpath -race -tags conformance ./internal/engines/conformance/...
-    just test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
+    "{{just_executable()}}" --justfile "{{justfile()}}" test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
 
 # Validate ONE vendor-transcript reader in isolation (its own package,
 # already part of `go test ./...`, but named here so a release-monitoring job
@@ -780,7 +780,7 @@ test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
 
 # Build a coverage-instrumented ctxloom.
 build-cover: dev-image
-    just _run build-cover
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-cover
 
 # Run the acceptance suite against a COVERAGE-INSTRUMENTED ctxloom and report
 # what it actually executed.
@@ -1311,7 +1311,7 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
     case "$pkg" in
         *tests/integration*|*tests/acceptance*)
             echo "test-pkg: $pkg execs the ctxloom binary — building it first" >&2
-            just build
+            "{{just_executable()}}" --justfile "{{justfile()}}" build
             ;;
     esac
     set +e
@@ -1480,7 +1480,7 @@ _mutation-driver LANE *ARGS:
 # against a binary rebuilt from each mutant. Ratcheted against
 # tests/mutation/survivor_baseline.txt. Nightly/scoped — never a per-PR gate.
 test-mutation-acceptance *ARGS: _mutation-prereqs
-    @just _mutation-driver acceptance {{ARGS}}
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver acceptance {{ARGS}}
 
 # Mutate one source file per target and judge every mutant with the SINGLE test
 # that claims to verify it — the authoring-time check behind "a test does not
@@ -1493,7 +1493,7 @@ test-mutation-acceptance *ARGS: _mutation-prereqs
 #
 #   just test-mutation-unit -run 'TestUnitMutation/^premise_instruction$'
 test-mutation-unit *ARGS: _mutation-prereqs
-    @just _mutation-driver unit {{ARGS}}
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver unit {{ARGS}}
 
 # Run ONE entry from the mutation target table (see `just test-mutation-entries`).
 # Per-entry is the recommended way to run this: the full table is ~111 minutes,
@@ -1501,7 +1501,7 @@ test-mutation-unit *ARGS: _mutation-prereqs
 #
 #   just test-mutation-entry signer_store
 test-mutation-entry NAME *ARGS:
-    @just test-mutation-acceptance -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
+    @"{{just_executable()}}" --justfile "{{justfile()}}" test-mutation-acceptance -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
 
 # Run ONE standing gremlins PACKAGE target (see `just test-mutation-entries`),
 # ratcheted against tests/mutation/survivor_baseline.txt like the acceptance
@@ -1518,7 +1518,7 @@ test-mutation-entry NAME *ARGS:
 #
 #   just test-mutation-package isolation
 test-mutation-package NAME *ARGS: _mutation-prereqs
-    @just _mutation-driver package -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-driver package -run 'TestPackageMutation/^{{NAME}}$' {{ARGS}}
 
 # List the mutation target table's entry names, with the file each one mutates.
 # Reads the table itself, so it cannot drift from the code the way a hand-kept
@@ -1675,17 +1675,17 @@ fmt:
 
 # Lint code (delegates to devcontainer for the pinned golangci-lint)
 lint: dev-image _require-generated
-    just _run lint
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run lint
 
 # Compile every package for windows and darwin (delegates to devcontainer).
 # Linux-only code compiles for the other OSes only through build-tagged twins,
 # and this is the gate that proves each twin still has its counterpart.
 build-cross: dev-image _require-generated
-    just _run build-cross
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-cross
 
 # Build the architectural linter into bin/archlint (delegates to devcontainer).
 build-archlint: dev-image
-    just _run build-archlint
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-archlint
 
 # Run ctxloom's architectural rules (delegates to devcontainer).
 #
@@ -1693,7 +1693,7 @@ build-archlint: dev-image
 # attributable and CI's golangci-lint baseline is untouched. Wired into
 # lefthook's pre-commit hook against the prebuilt bin/archlint.
 lint-arch: dev-image _require-generated
-    just _run lint-arch
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run lint-arch
 
 # Whole-program dead-code sweep.
 #
@@ -1732,24 +1732,24 @@ deadcode *ARGS="-test":
 #   just complexity internal/adapters/remote
 #   just complexity -C 15 .           (warn on functions over CCN 15)
 complexity *ARGS: dev-image
-    just _run complexity {{ARGS}}
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity {{ARGS}}
 
 # Same per-function analysis as CSV (header prepended) for LLM/tooling ingest.
 # Columns: nloc,ccn,tokens,params,length,location,file,function,long_name,start,end
 complexity-csv *ARGS: dev-image
-    just _run complexity-csv {{ARGS}}
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity-csv {{ARGS}}
 
 # Enforcing gate: fail on any NEW or newly-worsened CCN>10 violation, ratcheted
 # against .complexity-baseline.txt (used by the CI lint job). Pre-existing
 # violations don't fail it; see that file's header and scripts/complexity_gate.py.
 complexity-check: dev-image
-    just _run complexity-check
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity-check
 
 # Deliberately regenerate .complexity-baseline.txt from the current tree.
 # Never run this to make a genuinely new violation "go away" without review —
 # always look at the diff first. See .complexity-baseline.txt's header.
 complexity-baseline-update: dev-image
-    just _run complexity-baseline-update
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run complexity-baseline-update
 
 # Run the CLI locally without installing — builds ./ctxloom (host, no
 # treesitter/CGO) and execs it attached to this terminal, so interactive
@@ -1777,7 +1777,7 @@ install: build-all-bins
     install_signed() {
         local src="$1" name="$2" dest=~/go/bin/"$2"
         cp "$src" "$dest.new"
-        just sign-binary "$dest.new" "{{ SIGN_PUBKEY }}" "$name"
+        "{{just_executable()}}" --justfile "{{justfile()}}" sign-binary "$dest.new" "{{ SIGN_PUBKEY }}" "$name"
         mv -f "$dest.new.release" "$dest.release"
         mv -f "$dest.new.sig" "$dest.sig"
         mv -f "$dest.new" "$dest"
@@ -1816,10 +1816,10 @@ gen-mcp-schemas:
 # since 2026-08-08, so neither drift gate had run in weeks and the breakage was
 # invisible.
 gen-docs-check: dev-image
-    just _run gen-docs-check
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run gen-docs-check
 
 gen-mcp-schemas-check: dev-image
-    just _run gen-mcp-schemas-check
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run gen-mcp-schemas-check
 
 # command tree, the MCP reference from the live tool/resource registrations, and
 # ctxloom's and taskloom's config references from their tracked JSON Schemas. One generator
@@ -2087,7 +2087,7 @@ _run +ARGS:
     #!/usr/bin/env bash
     if [ -n "$DEVCONTAINER" ] || [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
         # Already inside container (devcontainer or CI), use container justfile directly
-        just -f justfile.container {{ARGS}}
+        "{{just_executable()}}" --justfile "{{justfile_directory()}}/justfile.container" {{ARGS}}
     else
         # Run in container with justfile overlay and uid/gid mapping.
         #
@@ -2190,7 +2190,7 @@ _run +ARGS:
         if [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "${SSH_AUTH_SOCK}" ]; then
             sign_mount+=(-v "${SSH_AUTH_SOCK}:/tmp/ssh-agent.sock" -e SSH_AUTH_SOCK=/tmp/ssh-agent.sock)
         fi
-        host_pubkey="$(just --evaluate SIGN_PUBKEY 2>/dev/null || true)"
+        host_pubkey="$("{{just_executable()}}" --justfile "{{justfile()}}" --evaluate SIGN_PUBKEY 2>/dev/null || true)"
         if [ -n "$host_pubkey" ] && [ -f "$host_pubkey" ]; then
             sign_mount+=(-v "$host_pubkey:/tmp/sign_key.pub:ro" -e CTXLOOM_SIGN_PUBKEY=/tmp/sign_key.pub)
         fi
@@ -2209,32 +2209,32 @@ _run +ARGS:
             -v "{{TOP}}/justfile.container:/workspace/justfile:ro" \
             -w /workspace \
             {{devcontainer_image}}:{{devcontainer_tag}} \
-            just {{ARGS}}
+            just --justfile /workspace/justfile {{ARGS}}
     fi
 
 # Build with all CGO features (static, inside devcontainer)
 dev-build: dev-image
-    just _run build
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build
 
 # Build with ONNX support (static, inside devcontainer)
 dev-build-onnx: dev-image
-    just _run build-onnx
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-onnx
 
 # Build with tree-sitter (static, inside devcontainer)
 dev-build-treesitter: dev-image
-    just _run build-treesitter
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-treesitter
 
 # Build with all features (static, inside devcontainer)
 dev-build-full: dev-image
-    just _run build-full
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run build-full
 
 # Run treesitter (CGO) tests inside devcontainer
 dev-test-treesitter: dev-image
-    just _run test-treesitter
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run test-treesitter
 
 # Run any target inside devcontainer
 dev +ARGS: dev-image
-    just _run {{ARGS}}
+    "{{just_executable()}}" --justfile "{{justfile()}}" _run {{ARGS}}
 
 # Shell into devcontainer for debugging
 dev-shell: dev-image

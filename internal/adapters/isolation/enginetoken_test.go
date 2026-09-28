@@ -10,18 +10,16 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 const fixtureToken = "sk-ant-oat01-fixture"
 
-// tokenHome points the home at a fresh directory and clears the token var,
-// so a test reads only the store it wrote.
+// tokenHome isolates the environment (a fresh home, every engine credential
+// var unset), so a test reads only the store it wrote.
 func tokenHome(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(claude.OAuthTokenEnv, "")
-	require.NoError(t, os.Unsetenv(claude.OAuthTokenEnv))
+	home := testsupport.Isolate(t)
 	t.Cleanup(resetTokenSources)
 	return home
 }

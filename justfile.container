@@ -103,13 +103,13 @@ default: build
 # `.github/workflows/ci.yml`'s "Check generated reference docs are current"
 # step regenerates and fails the build on any diff instead.
 build: validate proto gen-schemas
-    just -f justfile.container ctxloom::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build
 
 # Coverage-instrumented ctxloom, to ctxloom-cover. Same codegen prerequisites
 # as `build` — a binary built against stale generated code would report
 # coverage of code that is not what the suite compiled against.
 build-cover: validate proto gen-schemas
-    just -f justfile.container ctxloom::build-cover
+    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build-cover
 
 # Build without CGO - static
 build-static:
@@ -182,38 +182,38 @@ lint-arch: build-archlint
 # Build the ltk companion into bin/ltk — delegated to the ltk module
 # (cmd/ltk/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-ltk:
-    just -f justfile.container ltk::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" ltk::build
 
 # Build the taskloom companion into bin/taskloom — delegated to the taskloom
 # module (cmd/taskloom/justfile). No codegen prerequisites (pure-Go, no CGO).
 build-taskloom:
-    just -f justfile.container taskloom::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" taskloom::build
 
 # Build the standalone harp ID-generator binary into bin/harp — delegated to
 # the harp module (cmd/harp/justfile). No codegen prerequisites (pure-Go, no
 # CGO). Independently distributable (plan WS-7); not one of the three
 # binaries `install` puts on the host PATH.
 build-harp:
-    just -f justfile.container harp::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" harp::build
 
 # Build + compress all four binaries (UPX). Codegen prerequisites run here for
 # ctxloom, then each module's build-compressed builds and UPX-compresses its
 # binary. Used by the host `install`/`build-compressed`.
 build-compressed: validate proto gen-schemas
-    just -f justfile.container ctxloom::build-compressed
-    just -f justfile.container ltk::build-compressed
-    just -f justfile.container taskloom::build-compressed
-    just -f justfile.container harp::build-compressed
+    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build-compressed
+    "{{just_executable()}}" --justfile "{{justfile()}}" ltk::build-compressed
+    "{{just_executable()}}" --justfile "{{justfile()}}" taskloom::build-compressed
+    "{{just_executable()}}" --justfile "{{justfile()}}" harp::build-compressed
 
 # Build all four binaries UNCOMPRESSED (ctxloom + ltk + taskloom + harp).
 # Codegen prereqs run here for ctxloom. Used by the host `install`: UPX LZMA
 # decompression adds ~1.5s/exec, so local installs stay uncompressed; UPX is
 # reserved for release artifacts (see .goreleaser.yml).
 build-all-bins: validate proto gen-schemas
-    just -f justfile.container ctxloom::build
-    just -f justfile.container ltk::build
-    just -f justfile.container taskloom::build
-    just -f justfile.container harp::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" ltk::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" taskloom::build
+    "{{just_executable()}}" --justfile "{{justfile()}}" harp::build
 
 # ===== Release validation (goreleaser, in-container only) =====
 
@@ -313,7 +313,7 @@ compress-all: compress-linux-amd64 compress-linux-arm64 compress-windows-amd64
 # Compress the main ctxloom binary (for local dev) — delegated to the ctxloom
 # module. For all three binaries use `build-compressed`.
 compress:
-    just -f justfile.container ctxloom::compress
+    "{{just_executable()}}" --justfile "{{justfile()}}" ctxloom::compress
 
 # Build and compress all platforms
 release: build-all compress-all
@@ -336,10 +336,10 @@ test:
     set -uo pipefail
     failed=()
     echo "===== [1/2] default suite (untagged) — just test-default"
-    if ! just -f justfile.container test-default; then failed+=("test-default"); fi
+    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-default; then failed+=("test-default"); fi
     echo ""
     echo "===== [2/2] architectural invariants (-tags arch) — just test-arch"
-    if ! just -f justfile.container test-arch; then failed+=("test-arch"); fi
+    if ! "{{just_executable()}}" --justfile "{{justfile()}}" test-arch; then failed+=("test-arch"); fi
     echo ""
     if [ "${#failed[@]}" -ne 0 ]; then
         echo "FAILED GROUP(S): ${failed[*]}" >&2
@@ -371,8 +371,8 @@ test-default:
     raw="$(mktemp coverage.raw.XXXXXX.out)"
     trap 'rm -f "$raw"' EXIT
     go test -trimpath -race -coverprofile="$raw" ./...
-    just -f justfile.container _check-no-ctxloom-leak
-    just -f justfile.container _filter_coverage "$raw" coverage.out
+    "{{just_executable()}}" --justfile "{{justfile()}}" _check-no-ctxloom-leak
+    "{{just_executable()}}" --justfile "{{justfile()}}" _filter_coverage "$raw" coverage.out
 
 # Run tests with the treesitter (CGO) build tag — exercises the code compressor
 test-treesitter:

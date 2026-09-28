@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // Stage 1's session home, over claude's REAL declaration (TestMain installs
@@ -42,29 +43,19 @@ func claudeEngine(t *testing.T) engine.Engine {
 	return k
 }
 
-// fakeHostHome points $HOME at a scratch directory and clears every var that
-// can authenticate claude. When token is non-empty it is exported as the
-// setup-token AND the host gets a native ~/.claude login, so a case can show
-// that login is never copied. No case can read or write the developer's
-// real credentials.
+// fakeHostHome isolates the environment (testsupport.Isolate: a scratch
+// $HOME, every var that can authenticate claude or locate its login unset).
+// When token is non-empty it is exported as the setup-token AND the host gets
+// a native ~/.claude login, so a case can show that login is never copied. No
+// case can read or write the developer's real credentials.
 func fakeHostHome(t *testing.T, token string) string {
 	t.Helper()
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	a, ok := TokenAuthFor(claude.EngineName)
-	require.True(t, ok)
-	for _, v := range append([]string{a.TokenVar}, a.EnvTriggers...) {
-		t.Setenv(v, "")
-	}
-	// UNSET, not empty: the shared login reads whether the launching env
-	// sets these at all (engine.SharedLogin.Value).
-	for _, v := range []string{claude.ConfigDirEnv, claude.SecureStorageEnv} {
-		t.Setenv(v, "")
-		require.NoError(t, os.Unsetenv(v))
-	}
+	home := testsupport.Isolate(t)
 	if token != "" {
+		a, ok := TokenAuthFor(claude.EngineName)
+		require.True(t, ok)
 		t.Setenv(a.TokenVar, token)
 		writeNativeLogin(t, home)
 	}

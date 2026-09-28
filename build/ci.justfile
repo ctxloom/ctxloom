@@ -309,23 +309,46 @@ mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mut
 # for having nothing to test. "Mutable" is gremlins' own file rule plus
 # .gremlins.yaml's exclude-files, read from that file, not restated.
 
+# mutshard builds scripts/mutshard and runs it. Built, not `go run`: `go run`
+# reports every failing exit as 1, and the aggregate's exit code is gremlins'
+# own (10 efficacy, 11 mutant coverage).
+_mutshard := '''
+mutshard() {
+    local bin rc=0
+    bin="$(mktemp -d)"
+    go build -o "$bin/mutshard" ./scripts/mutshard || rc=$?
+    [ "$rc" -ne 0 ] || "$bin/mutshard" "$@" || rc=$?
+    rm -rf "$bin"
+    return "$rc"
+}
+'''
+
 # Print the files shard SHARD (0-based) of SHARDS mutates for SCOPE.
 #   just mutation-shard-plan diff:origin/main 0 8
 mutation-shard-plan SCOPE SHARD SHARDS:
-    go run ./scripts/mutshard plan -scope "$1" -shard "$2" -shards "$3"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_mutshard}}
+    mutshard plan -scope "$1" -shard "$2" -shards "$3"
 
 # Run shard SHARD of SHARDS for SCOPE; writes OUT/shard-SHARD.json for
 # test-mutation-aggregate. Passes whatever gremlins measured: the verdict is the
 # aggregate's.
 test-mutation-shard SCOPE SHARD SHARDS OUT: _mutation-prereqs
-    go run ./scripts/mutshard run -scope "$1" -shard "$2" -shards "$3" -out "$4" -- \
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_mutshard}}
+    mutshard run -scope "$1" -shard "$2" -shards "$3" -out "$4" -- \
         bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins
 
 # Judge the union of the shard reports under REPORTS: refuses a missing,
 # stale or never-looked shard, then applies .gremlins.yaml's thresholds to the
 # summed counts (exit 10/11 as gremlins' own).
 test-mutation-aggregate SCOPE REPORTS:
-    go run ./scripts/mutshard aggregate -scope "$1" -reports "$2"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_mutshard}}
+    mutshard aggregate -scope "$1" -reports "$2"
 
 # The whole module on this machine: one shard of one, then the aggregate.
 # Far too slow to gate a push.

@@ -246,7 +246,14 @@ _test-native goos runner:
         gha_error "test-{{goos}} runs the {{goos}} arm natively; this host's GOOS is $(go env GOOS) (CI runs it on {{runner}})"
         exit 1
     fi
-    mapfile -t pkgs < <(seam_test_pkgs {{goos}})
+    # A read loop, not mapfile: macOS runners ship bash 3.2, which has no
+    # mapfile/readarray. The command substitution (not `< <(...)`) also lets
+    # set -e stop the recipe when the derivation itself fails.
+    list="$(seam_test_pkgs {{goos}})"
+    pkgs=()
+    while IFS= read -r p; do
+        if [ -n "$p" ]; then pkgs+=("$p"); fi
+    done <<<"$list"
     if [ "${#pkgs[@]}" -eq 0 ]; then
         gha_error "seam-test-pkgs {{goos}} selected no packages"
         exit 1

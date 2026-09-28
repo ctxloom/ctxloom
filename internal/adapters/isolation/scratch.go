@@ -11,6 +11,7 @@ import (
 	"github.com/gofrs/flock"
 
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // ownedScratchLockName is the lock file inside every owned scratch dir. The
@@ -22,10 +23,6 @@ import (
 // across PID namespaces sharing one filesystem. The lock conflicts per open
 // handle, so the answer is also right between goroutines of one process.
 const ownedScratchLockName = ".ctxloom-owner.lock"
-
-// ownedScratchLockMode keeps the lock file owner-only: a lock is taken on an
-// open handle, so its readers are exactly who can hold the scratch live.
-const ownedScratchLockMode = 0o600
 
 // ownedScratchAttempts bounds creation retries. A retry happens only when a
 // concurrent reaper took the freshly made dir in the instant between its
@@ -57,6 +54,11 @@ type ownedScratch struct {
 // then creates and locks a fresh one. The dir's name carries prefix, as
 // os.MkdirTemp makes it.
 //
+// The scratch is owner-only (owneronly), lock file included: a lock is taken
+// on an open handle, so whoever can open the lock file can hold the scratch
+// live. It is restricted only once it is held (claim): before that a
+// concurrent reaper may have removed it, and restricting would recreate it.
+//
 // There is an unavoidable instant between creating the dir and locking it, in
 // which a concurrent reaper sees an unlocked dir and takes it. The protocol
 // makes that loss detectable rather than silent: the reaper deletes only while
@@ -78,7 +80,7 @@ func newOwnedScratch(parent, prefix string) (*ownedScratch, error) {
 		}
 		scratchCreated(dir)
 		lockPath := filepath.Join(dir, ownedScratchLockName)
-		f, err := iox.OpenLockFile(lockPath, ownedScratchLockMode)
+		f, err := iox.OpenLockFile(lockPath, owneronly.FileMode)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
@@ -93,11 +95,23 @@ func newOwnedScratch(parent, prefix string) (*ownedScratch, error) {
 			return nil, fmt.Errorf("lock scratch %s: %w", dir, err)
 		}
 		if _, err := os.Lstat(lockPath); err == nil {
-			return &ownedScratch{dir: dir, lock: f}, nil
+			return claim(dir, f)
 		}
 		_ = f.Close()
 	}
 	return nil, fmt.Errorf("scratch under %s: reaped before it could be claimed, %d times", parent, ownedScratchAttempts)
+}
+
+// claim makes a scratch this owner holds locked owner-only. On Windows the
+// lock file, created before the restriction, is brought under it with the
+// rest of the directory.
+func claim(dir string, lock *os.File) (*ownedScratch, error) {
+	s := &ownedScratch{dir: dir, lock: lock}
+	if err := owneronly.EnsureDir(dir); err != nil {
+		s.release()
+		return nil, fmt.Errorf("restrict scratch %s to its owner: %w", dir, err)
+	}
+	return s, nil
 }
 
 // release drops the lock and removes the scratch. Unlocking FIRST is safe
@@ -132,7 +146,7 @@ func reapDeadScratch(parent, prefix string) {
 			continue
 		}
 		dir := filepath.Join(parent, e.Name())
-		fl := flock.New(filepath.Join(dir, ownedScratchLockName), flock.SetPermissions(ownedScratchLockMode))
+		fl := flock.New(filepath.Join(dir, ownedScratchLockName), flock.SetPermissions(owneronly.FileMode))
 		if locked, err := fl.TryLock(); err != nil || !locked {
 			continue
 		}

@@ -62,7 +62,7 @@ ctxloom agent edit <name> [flags]
 ### Options
 
 ```
-      --auth string                How this agent's engine authenticates: login (your own login, host runs only) | token (the default: a minted token, stored owner-only) | api-key | cloud (a provider or gateway configured in your shell). Refused, naming the engine's modes, when the engine does not support it
+      --auth string                How this agent's engine authenticates: login (your own login, shared; a container mounts it, except the macOS Keychain) | token (the default: a minted token, stored owner-only) | api-key | cloud (a provider or gateway configured in your shell). Refused, naming the engine's modes, when the engine does not support it
       --engine-home string         Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)
       --llm string                 llm.configs label to bind (overrides the profiles' llm; empty = project default)
       --permissions string         Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)

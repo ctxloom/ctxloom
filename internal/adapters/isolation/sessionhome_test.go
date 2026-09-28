@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -383,8 +384,14 @@ func TestSessionHome_TrustNamesTheRunCwd(t *testing.T) {
 
 	placeOn(t, s, checkout, hostRelocator{})
 
-	cfg, err := os.ReadFile(filepath.Join(claudeHome(home, harpA), claude.InstanceConfigFileName))
+	raw, err := os.ReadFile(filepath.Join(claudeHome(home, harpA), claude.InstanceConfigFileName))
 	require.NoError(t, err, "the seeded instance config must exist")
-	assert.Contains(t, string(cfg), checkout, "the trust entry names the run's cwd")
-	assert.NotContains(t, string(cfg), s.project+`"`, "the trust entry does not name the project root the run never enters")
+	// Decoded, not substring-matched: JSON escapes a Windows path's
+	// backslashes, so the raw bytes never contain the path as written.
+	var cfg struct {
+		Projects map[string]any `json:"projects"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &cfg))
+	assert.Contains(t, cfg.Projects, filepath.Clean(checkout), "the trust entry names the run's cwd")
+	assert.NotContains(t, cfg.Projects, filepath.Clean(s.project), "the trust entry does not name the project root the run never enters")
 }

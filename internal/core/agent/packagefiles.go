@@ -8,9 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -322,7 +323,7 @@ func WriteManagedPackageFiles[T any](
 		if err := fs.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return fmt.Errorf("write managed package files %s: create %s: %w", dir, filepath.Dir(dst), err)
 		}
-		if err := fs.Rename(src, dst); err != nil {
+		if err := iox.Rename(fs, src, dst); err != nil {
 			return fmt.Errorf("write managed package files %s: swap %s into place: %w", dir, relPath, err)
 		}
 	}

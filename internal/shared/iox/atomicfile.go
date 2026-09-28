@@ -132,7 +132,7 @@ func (a *AtomicFile) Commit() error {
 		_ = a.fs.Remove(a.tmpName)
 		return fmt.Errorf("atomic file %s: set mode %#o on temp file: %w", a.path, a.perm, err)
 	}
-	if err := a.fs.Rename(a.tmpName, a.path); err != nil {
+	if err := Rename(a.fs, a.tmpName, a.path); err != nil {
 		_ = a.fs.Remove(a.tmpName)
 		return fmt.Errorf("atomic file %s: rename temp file into place: %w", a.path, err)
 	}

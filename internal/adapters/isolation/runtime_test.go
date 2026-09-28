@@ -86,7 +86,7 @@ func TestRunArgs_AuthSecretValueNotInArgv(t *testing.T) {
 // entrypoint needs root to usermod.
 func TestDockerRootful_PassesIdentityEnv(t *testing.T) {
 	joined := strings.Join(Docker{rootless: false}.RunArgs(sampleSpec()), " ")
-	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()), "launching uid crosses for the remap")
+	assert.Contains(t, joined, wantPUIDArg(), "launching uid crosses for the remap")
 	assert.Contains(t, joined, fmt.Sprintf("-e PGID=%d", os.Getgid()), "launching gid crosses for the remap")
 	assert.NotContains(t, joined, "--user", "the entrypoint, not --user, sets identity")
 }
@@ -183,7 +183,7 @@ func TestPodmanRootful_DockerCompatibleArgv(t *testing.T) {
 	assert.Equal(t, []string{"run", "--rm", "--name", "ctxloom-iso-m-abc"}, args[:4])
 	assert.NotContains(t, joined, "keep-id")
 	assert.NotContains(t, joined, "--user")
-	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()))
+	assert.Contains(t, joined, wantPUIDArg())
 	assert.Contains(t, joined, "--mount type=bind,source=/home/u/proj,target=/home/u/proj")
 	assert.Equal(t, []string{"rm", "-f", "-t", "0", "c1"}, Podman{}.RemoveArgs("c1"),
 		"podman's rm -f waits its stop timeout before SIGKILL unless told -t 0")
@@ -197,7 +197,7 @@ func TestPodmanRootless_KeepIDAsRoot(t *testing.T) {
 	joined := strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " ")
 	assert.Contains(t, joined, "--userns=keep-id", "launching uid maps to itself")
 	assert.Contains(t, joined, "--user 0:0", "enter as namespaced root for the remap")
-	assert.Contains(t, joined, fmt.Sprintf("-e PUID=%d", os.Getuid()))
+	assert.Contains(t, joined, wantPUIDArg())
 }
 
 // TestRemoveArgs force-removes by name for teardown.

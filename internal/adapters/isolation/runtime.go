@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -181,64 +180,6 @@ type ContainerInfo struct {
 	Labels map[string]string
 }
 
-// pathMapper translates a host filesystem path to the path the SAME resource
-// appears at inside the container's mount namespace. It is the
-// convergence point runtime.go's doc on Expose already anticipated
-// ("Centralizing every delivery-layer mount construction here is what lets a
-// future daemonless runtime remap an exposure without touching each call
-// site"): identical-path (Host==Container) is ONE configuration of this seam
-// — identityMapper, the default — not a hardcoded assumption. An inverse
-// toHost method used to sit on this interface for a future consumer that
-// never arrived (zero production callers, only a test); deleted
-// rather than kept as a speculative hook — add it back with the first real
-// need for the reverse direction.
-//
-// Two non-identity mappers are anticipated (both DEFERRED past this task,
-// which builds only the seam + identity default — see the container-runtime-
-// bugs plan §4/§5):
-//   - Windows: a drive-letter host path (C:\Users\foo\proj) needs a POSIX
-//     in-container target (e.g. /workspace); a real implementation must also
-//     handle the Docker-Desktop `/host_mnt/c/...` SOURCE form. The
-//     linked-worktree case additionally
-//     needs the worktree's `gitdir:` FILE content rewritten (a Windows
-//     absolute path is unresolvable as a mounted POSIX path unchanged) — a
-//     known hard edge, explicitly deferred to sudsy-sip Tier C.
-//   - DooD (docker-outside-of-docker): ctxloom itself runs inside a
-//     container that shares the HOST daemon, so this process's paths are not
-//     the daemon's paths; a mapper derived from /proc/self/mountinfo or
-//     `docker inspect <self>` would translate them (snug-dawn, optional/
-//     deferred — the shared-fs probe already detects and degrades this case
-//     loudly rather than mounting the wrong path).
-type pathMapper interface {
-	// toContainer maps a host path to the in-container path the SAME resource
-	// should be mounted/reached at. It fails for a host path it cannot route
-	// (a DooD mapper for a path outside every daemon-visible mount, a Windows
-	// mapper for a path on no mapped drive); the container relocator reports
-	// that as present.ErrUnreachableRoot naming the root.
-	toContainer(hostPath string) (string, error)
-}
-
-// identityMapper is the default pathMapper: Host==Container, unconditionally.
-// Every Docker/Podman/Host construction path uses it today (directly or via
-// the nil-mapper fallback in withMapper/runtimeMapper), so the seam changes
-// NOTHING for the supported topology — every identical-path mount this
-// package builds is byte-for-byte what a hardcoded mount{Host: p, Container:
-// p} literal produced before this seam existed.
-type identityMapper struct{}
-
-func (identityMapper) toContainer(hostPath string) (string, error) { return hostPath, nil }
-
-// runtimeMapper returns m if non-nil, else identityMapper{} — the nil-safe
-// getter every Runtime's mapper() implements, so a runtime constructed
-// without an explicit mapper (every call site today) is identity, not a nil-
-// pointer hazard.
-func runtimeMapper(m pathMapper) pathMapper {
-	if m == nil {
-		return identityMapper{}
-	}
-	return m
-}
-
 // RunSpec is the runtime-agnostic description of one runner container: which
 // image to run, the in-container argv, the identical-path project mount and
 // the workspace's mounts, a fresh HOME, and the run's env. A Runtime renders
@@ -279,10 +220,9 @@ type mount struct {
 // rootless-specific run-arg head (identityEnvArgs stays shared, called from each
 // head). The rootless flag itself stays on the concrete types: it is consulted
 // solely by that per-type head, so the base never needs it.
-// pathMap, when set, is this runtime's non-identity pathMapper (the pathMapper
-// seam) — nil (the zero value, every construction path today) is identity via
-// runtimeMapper. No constructor in this package sets it yet; it is the
-// injection point a future Windows/DooD-aware SelectRuntime would populate.
+// pathMap overrides the host OS's mapper; nil (every production value) is
+// hostMapper via runtimeMapper. Only tests set it, to run the mount sites
+// under a mapper that is not identity on the host they run on.
 type ociRuntime struct{ pathMap pathMapper }
 
 // RemoveArgs force-removes the container: SIGKILL, then rm. A racing --rm
@@ -409,7 +349,7 @@ func exposeThrough(m pathMapper, hostPath string, readOnly bool) (mount, error) 
 	return mount{Host: hostPath, Container: target, ReadOnly: readOnly}, nil
 }
 
-// mapper returns this runtime's pathMapper (identity when unset).
+// mapper returns this runtime's pathMapper (the host OS's when unset).
 func (rt ociRuntime) mapper() pathMapper { return runtimeMapper(rt.pathMap) }
 
 // enumerate is the shared Docker/Podman Enumerate body: `<binary> ps --filter
@@ -450,8 +390,8 @@ func (ociRuntime) enumerate(ctx context.Context, binary, namePrefix string) ([]C
 }
 
 // identityEnvArgs renders the PUID/PGID env that tells the agent image's
-// entrypoint to remap its generic ctxloom user to the launching uid/gid and
-// drop privileges to it.
+// entrypoint to remap its generic ctxloom user to runIdentity's uid/gid (the
+// launching user on a POSIX host) and drop privileges to it.
 // CTXLOOM_ALLOW_ROOT IS DELIBERATELY NEVER PASSED. It used to be appended here
 // under strictness.Degraded(), and that was a security bypass wearing a
 // convenience flag: the agent image's entrypoint REFUSES to run the engine as
@@ -466,9 +406,10 @@ func (ociRuntime) enumerate(ctx context.Context, binary, namePrefix string) ([]C
 // repair or replace it (see runAsIs/overrideIdentityRemedy). Do not reintroduce
 // this; TestDegradedNeverBypassesIsolation asserts the argv never carries it.
 func identityEnvArgs() []string {
+	uid, gid := runIdentity()
 	return []string{
-		"-e", fmt.Sprintf("PUID=%d", os.Getuid()),
-		"-e", fmt.Sprintf("PGID=%d", os.Getgid()),
+		"-e", fmt.Sprintf("PUID=%d", uid),
+		"-e", fmt.Sprintf("PGID=%d", gid),
 	}
 }
 

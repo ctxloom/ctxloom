@@ -96,13 +96,13 @@ func (p Podman) networkArgs() []string {
 	return nil
 }
 
-// reachRoute: host.containers.internal in Podman Machine; a rootless
-// translator's loopback route (networkArgs); rootful podman's netavark bridge
-// gateway; else the public fallback.
+// reachRoute: a podman machine's own route to this host (podmanMachineRoute,
+// per host OS); a rootless translator's loopback route (networkArgs); rootful
+// podman's netavark bridge gateway; else the public fallback.
 func (p Podman) reachRoute(ctx context.Context) (hostRoute, error) {
 	switch {
 	case platform.ContainersInVM:
-		return hostRoute{dial: "host.containers.internal"}, nil
+		return podmanMachineRoute()
 	case p.rootless && p.rootlessNet == "pasta":
 		return hostRoute{dial: pastaHostLoopback}, nil
 	case p.rootless && p.rootlessNet == "slirp4netns":

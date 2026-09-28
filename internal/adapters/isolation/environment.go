@@ -91,7 +91,7 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), r.sharesLogin())
 	pl, roots, err := r.relocate(l)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy, "refusing to run in an environment that cannot present every root: %v", err)
+		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to run in an environment that cannot present every root: %v", err)
 		_ = ws.Cleanup()
 		return nil, err
 	}
@@ -104,7 +104,14 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 }
 
 // unreachableRootRemedy names the fix for a root the runtime cannot route.
-const unreachableRootRemedy = "move the project and the ctxloom home onto a filesystem the container runtime can mount (the daemon must see the same paths), or run with `runtime: host`"
+// A share path gets its own: the usual one is a project kept inside a WSL
+// distro, which the Linux build run in that distro reaches natively.
+func unreachableRootRemedy(err error) string {
+	if errors.Is(err, errUNCPath) {
+		return "run ctxloom's Linux build inside the WSL distro that holds the project (or move the project onto a local drive), or run with `runtime: host`"
+	}
+	return "move the project and the ctxloom home onto a filesystem the container runtime can mount (the daemon must see the same paths), or run with `runtime: host`"
+}
 
 // Preview is Prepare's relocation with no effects on disk: no checkout, no
 // scratch, no session home created. A container preview PROBES the runtime
@@ -118,7 +125,7 @@ func Preview(ctx context.Context, s Spec) (Environment, error) {
 	l := previewLayout(s, r.sharesLogin())
 	pl, _, err := r.relocate(l)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy, "refusing to preview an environment that cannot present every root: %v", err)
+		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to preview an environment that cannot present every root: %v", err)
 		return nil, err
 	}
 	listen, desc := p.preview(ctx)

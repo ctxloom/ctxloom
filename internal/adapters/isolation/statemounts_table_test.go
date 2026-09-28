@@ -100,7 +100,7 @@ func TestSessionStateMounts_CarryTheSpool_R3(t *testing.T) {
 
 	rel, err := filepath.Rel(carried.Host, hostSpool)
 	require.NoError(t, err)
-	containerSpool := filepath.Join(carried.Container, rel)
+	containerSpool := path.Join(carried.Container, filepath.ToSlash(rel))
 	assert.Equal(t,
 		path.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, paths.PersistDirName, paths.SpoolDirName),
 		containerSpool,

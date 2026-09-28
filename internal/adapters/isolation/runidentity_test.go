@@ -15,6 +15,13 @@ func wantPUIDArg() string {
 	return fmt.Sprintf("-e PUID=%d", uid)
 }
 
+// wantPGIDArg is the PGID flag a run on this host carries — from the same
+// seam, since os.Getgid is -1 on a host with no POSIX gid.
+func wantPGIDArg() string {
+	_, gid := runIdentity()
+	return fmt.Sprintf("-e PGID=%d", gid)
+}
+
 // imageUserID is what the baked user layer spells out, so the fallback
 // identity and the image cannot drift apart.
 func TestImageUserID_IsTheBakedUser(t *testing.T) {

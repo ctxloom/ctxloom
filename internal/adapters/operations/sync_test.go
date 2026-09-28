@@ -161,10 +161,7 @@ func TestCollectRemoteReferences(t *testing.T) {
 	// Create the profiles directory
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, err := collectRemoteReferences(cfg, nil)
-	if err != nil {
-		t.Fatalf("collectRemoteReferences failed: %v", err)
-	}
+	bundles := collectRemoteReferences(cfg, nil)
 
 	// Two remote bundle refs plus the bundle behind the bundle-profile parent.
 	if len(bundles) != 3 {
@@ -191,20 +188,14 @@ func TestCollectRemoteReferences_DefaultProfilesAreRoots(t *testing.T) {
 	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, err := collectRemoteReferences(cfg, nil)
-	if err != nil {
-		t.Fatalf("collectRemoteReferences failed: %v", err)
-	}
+	bundles := collectRemoteReferences(cfg, nil)
 	if len(bundles) != 1 || bundles[0] != seededDefaultBundle {
 		t.Errorf("expected default bundle %q as the sole root, got %v", seededDefaultBundle, bundles)
 	}
 
 	// An explicit profile filter scopes the sync to those profiles only —
 	// config defaults must not leak into a targeted sync.
-	bundles, err = collectRemoteReferences(cfg, []string{"go-dev"})
-	if err != nil {
-		t.Fatalf("collectRemoteReferences (filtered) failed: %v", err)
-	}
+	bundles = collectRemoteReferences(cfg, []string{"go-dev"})
 	if len(bundles) != 0 {
 		t.Errorf("expected no roots for a targeted sync, got %v", bundles)
 	}
@@ -230,10 +221,7 @@ func TestCollectRemoteReferences_RetiredProfileRefsSkipped(t *testing.T) {
 	}, config.Fixture{})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, err := collectRemoteReferences(cfg, nil)
-	if err != nil {
-		t.Fatalf("collectRemoteReferences failed: %v", err)
-	}
+	bundles := collectRemoteReferences(cfg, nil)
 	if len(bundles) != 1 || bundles[0] != validBundle {
 		t.Errorf("expected only %q collected, got %v", validBundle, bundles)
 	}
@@ -252,10 +240,7 @@ func TestCollectRemoteReferences_RetiredDefaultProfileSkipped(t *testing.T) {
 	})
 	_ = fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755)
 
-	bundles, err := collectRemoteReferences(cfg, nil)
-	if err != nil {
-		t.Fatalf("collectRemoteReferences failed: %v", err)
-	}
+	bundles := collectRemoteReferences(cfg, nil)
 	if len(bundles) != 0 {
 		t.Errorf("expected no roots from a retired default ref, got %v", bundles)
 	}
@@ -1174,54 +1159,6 @@ func TestSyncOnStartup(t *testing.T) {
 	}
 }
 
-// TestCollectProfileReferences_CollectsBundlesAndParents tests collecting refs
-// from a profile that exists.
-func TestCollectProfileReferences_CollectsBundlesAndParents(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
-		"dev": {
-			Bundles: []string{"golang", "python"},
-			Parents: []string{"base-config"},
-		},
-	}, config.Fixture{})
-
-	bundles, profiles := collectProfileReferences(cfg, "dev")
-	if len(bundles) != 2 || bundles[0] != "golang" || bundles[1] != "python" {
-		t.Errorf("got bundles %v, want [golang python]", bundles)
-	}
-	if len(profiles) != 1 || profiles[0] != "base-config" {
-		t.Errorf("got profiles %v, want [base-config]", profiles)
-	}
-}
-
-func TestCollectProfileReferences_NotFound(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
-	// No profile loader configured
-
-	bundles, profiles := collectProfileReferences(cfg, "nonexistent")
-	if len(bundles) != 0 || len(profiles) != 0 {
-		t.Errorf("expected empty slices for nonexistent profile, got bundles=%v profiles=%v", bundles, profiles)
-	}
-}
-
-func TestCollectProfileReferences_DirectoryProfile(t *testing.T) {
-	// A profile name that resolves to no file at all: the loader is the only
-	// lookup there is now that the inline map is retired, so an unknown name
-	// must yield empty slices rather than an error or a panic.
-
-	cfg := gatedFixture(config.Fixture{
-		AppPaths: []string{"/nonexistent"},
-	})
-
-	// This should call GetProfileLoader and try to load from directory
-	// Since the directory doesn't exist, it will return empty slices
-	bundles, profiles := collectProfileReferences(cfg, "dev")
-
-	// Verify the function returns empty slices when profile not found
-	assert.Nil(t, bundles)
-	assert.Nil(t, profiles)
-}
-
 // TestAddSyncItem_InstalledStatus tests adding an installed item.
 func TestAddSyncItem_InstalledStatus(t *testing.T) {
 	result := &SyncDependenciesResult{}
@@ -1314,7 +1251,7 @@ func TestAddSyncItem_UnknownStatusIsNotSilentlyDropped(t *testing.T) {
 	assert.Equal(t, 1, result.Errors)
 }
 
-func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
+func TestCollectRemoteReferences_NestedLocalProfiles(t *testing.T) {
 	// Test that remote dependencies in nested local profile parents are discovered
 	fs := afero.NewMemMapFs()
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
@@ -1330,10 +1267,7 @@ func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	bundleSet := collections.NewSet[string]()
-	visited := collections.NewSet[string]()
-
-	collectProfileReferencesRecursive(cfg, "driftway", bundleSet, visited)
+	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"driftway"})...)
 
 	// Should find the remote bundle from the nested local parent
 	// The refs are CANONICALIZED as the profile loads — the legacy "v1"
@@ -1354,7 +1288,7 @@ func TestCollectProfileReferencesRecursive_NestedLocalProfiles(t *testing.T) {
 		"should not include local bundles")
 }
 
-func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
+func TestCollectRemoteReferences_ProfilePrefixStripped(t *testing.T) {
 	// Test that "profile:" prefix is properly stripped when following local parents
 	fs := afero.NewMemMapFs()
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
@@ -1366,17 +1300,14 @@ func TestCollectProfileReferencesRecursive_ProfilePrefixStripped(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	bundleSet := collections.NewSet[string]()
-	visited := collections.NewSet[string]()
-
-	collectProfileReferencesRecursive(cfg, "top", bundleSet, visited)
+	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"top"})...)
 
 	// Should find the remote bundle from nested/profile
 	assert.True(t, bundleSet.Has("https://github.com/test/forge@bundles/remote-bundle"),
 		"should find remote bundle after stripping profile: prefix")
 }
 
-func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
+func TestCollectRemoteReferences_CircularDependency(t *testing.T) {
 	// Test that circular dependencies don't cause infinite loops
 	fs := afero.NewMemMapFs()
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
@@ -1389,11 +1320,8 @@ func TestCollectProfileReferencesRecursive_CircularDependency(t *testing.T) {
 		},
 	}, config.Fixture{})
 
-	bundleSet := collections.NewSet[string]()
-	visited := collections.NewSet[string]()
-
 	// Should not panic or infinite loop
-	collectProfileReferencesRecursive(cfg, "profile-a", bundleSet, visited)
+	bundleSet := collections.NewSetFrom(collectRemoteReferences(cfg, []string{"profile-a"})...)
 
 	// Should still find the bundle
 	assert.True(t, bundleSet.Has("https://github.com/test/forge@bundles/bundle"))

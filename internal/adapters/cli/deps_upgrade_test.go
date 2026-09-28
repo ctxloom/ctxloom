@@ -61,3 +61,15 @@ func TestRemoteUpgrade_NothingDeclaredIsNotReportedAsUpToDate(t *testing.T) {
 	assert.NotContains(t, out, msgEverythingUpToDate,
 		"'up to date' claims a check that had nothing to check")
 }
+
+// A removal is named, by identity, one line each: the lock is rewritten
+// wholesale, and an unnamed removal reads as a pin that never existed.
+func TestRemoteUpgrade_ReportsEachRemovedPinByName(t *testing.T) {
+	out := captureStdout(t, func() {
+		reportRemovedPins([]string{"ctxloom+git://github.com/o/r//bundles/a", "ctxloom+git://github.com/o/r//bundles/b"})
+	})
+	assert.Equal(t,
+		"Removed ctxloom+git://github.com/o/r//bundles/a from the lockfile: nothing this project composes depends on it any more.\n"+
+			"Removed ctxloom+git://github.com/o/r//bundles/b from the lockfile: nothing this project composes depends on it any more.\n",
+		out)
+}

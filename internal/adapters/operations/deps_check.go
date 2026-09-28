@@ -114,8 +114,9 @@ func (s DependencyStatus) UpToDate() bool {
 	return s.CurrentSHA != "" && s.CurrentSHA == s.LatestSHA
 }
 
-// CheckDependenciesResult is what the check found. Entries is how many the
-// lockfile holds (0: nothing is installed, so there was nothing to check).
+// CheckDependenciesResult is what the check found. Entries is how many
+// lockfile entries were checked: those the project closure reaches, or every
+// entry when the closure cannot be known (see closureLock). 0: nothing to check.
 // Single is set when the request named one reference; the closure fields
 // are then zero.
 type CheckDependenciesResult struct {
@@ -279,6 +280,7 @@ func checkAllDependencies(ctx context.Context, cfg *config.Config, cfgErr error,
 	if lockfile.IsEmpty() {
 		return res, nil
 	}
+	lockfile = closureLock(ctx, cfg, cfgErr, lockfile)
 	res.Entries = len(lockfile.AllEntries())
 
 	// Refresh every unique remote once (one git fetch per repo, not two per
@@ -294,6 +296,28 @@ func checkAllDependencies(ctx context.Context, cfg *config.Config, cfgErr error,
 		}
 	}
 	return res, nil
+}
+
+// closureLock narrows lockfile to the entries the project closure reaches —
+// the closure upgrade re-resolves — so check never offers an update for an
+// entry upgrade would remove. The lockfile comes back whole when the closure
+// cannot be known: the config did not load (the fallback composes nothing), or
+// part of the closure was unreachable (an entry under it may still be live).
+func closureLock(ctx context.Context, cfg *config.Config, cfgErr error, lockfile *remote.Lockfile) *remote.Lockfile {
+	if cfgErr != nil {
+		return lockfile
+	}
+	pins, _, unexpanded := FlattenDependencies(ctx, cfg, nil)
+	if len(unexpanded) > 0 {
+		return lockfile
+	}
+	narrowed := &remote.Lockfile{Version: lockfile.Version, Bundles: map[trust.BundleKey]remote.LockEntry{}}
+	for _, p := range pins {
+		if e, ok := lockfile.GetEntry(p.Type, p.Identity); ok {
+			narrowed.AddEntry(p.Type, p.Identity, e)
+		}
+	}
+	return narrowed
 }
 
 // refreshRemoteRepos fetches each unique remote git repo once so subsequent ref

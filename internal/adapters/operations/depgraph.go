@@ -112,9 +112,17 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) ([]
 // profiles (the init-seeded default, or home-config defaults — closure roots
 // even though no local profile names them; the walker resolves remote parents
 // from the clone cache directly, so this works on the very first lock before any
-// lockfile entry exists). Lock AND upgrade must share this set: a wholesale lock
-// rewrite built from a narrower set silently erases every entry rooted only in a
-// config-default profile.
+// lockfile entry exists). Lock, upgrade, pull and check all take their roots
+// from here: a wholesale lock rewrite built from a narrower set silently erases
+// every entry rooted only in a config-default profile, and a broader one pins
+// what the project never composes.
+//
+// A profile SHIPPED inside a bundle (IsSeededPath) is never a root. The loader
+// lists one for every bundle whose tree is installed, so rooting on them made
+// the closure feed on the lockfile itself — a bundle's unused profiles pinned
+// their own dependencies, and only while that bundle's tree was cached. A
+// shipped profile belongs to the closure only when something composes it, and
+// the walk reaches it through that parent edge.
 func closureRoots(cfg *config.Config, loader *profiles.Loader) ([]*profiles.Profile, []string) {
 	var names []string
 	ps, err := loader.List()
@@ -130,6 +138,9 @@ func closureRoots(cfg *config.Config, loader *profiles.Loader) ([]*profiles.Prof
 		unexpanded = append(unexpanded, "<directory-profiles>")
 	}
 	for _, p := range ps {
+		if profiles.IsSeededPath(p.Path) {
+			continue
+		}
 		names = append(names, p.Name)
 	}
 	roots, rootsUnexpanded := namedRoots(cfg, loader, names)

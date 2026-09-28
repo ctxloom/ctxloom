@@ -290,6 +290,24 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output contains "Advanced"
 
+    # Upgrade rewrites the lock wholesale from the closure, so an entry the
+    # project stopped composing disappears in that write. Unnamed, a removal
+    # reads as a pin that never existed.
+    Scenario: An upgrade names each dependency it drops from the lock
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And a git remote "other" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --bundle origin/demo --bundle other/demo"
+      And I run "ctxloom deps pull"
+      And I run "ctxloom profile modify dev --remove-bundle other/demo"
+      When Alice advances her pins to the newest commit:
+        """
+        ctxloom deps upgrade
+        """
+      Then the command succeeds
+      And the output contains "from the lockfile: nothing this project composes depends on it any more."
+
     # `deps pull` is offline by design: it cannot observe whether upstream has
     # moved, so it must not assert that it has. The entry was advanced one
     # command ago; telling the user to advance it again is advice the tool has

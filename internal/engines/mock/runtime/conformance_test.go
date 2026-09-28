@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -192,7 +193,20 @@ func assertPromptChannelConforms(t *testing.T, cli agent.EngineCLI, f conformanc
 		Stdout:    &stdout,
 		Stderr:    &stderr,
 	}
-	_ = rt.Run() // the exit code is the wire adapter's business, not this test's
+	// The exit code is the wire adapter's business, not this test's. The run is
+	// bounded: on the interactive surface a finite stdin ends the session only
+	// because the loop honours EOF, and a loop that stopped honouring it would
+	// otherwise park this test instead of failing it.
+	ran := make(chan struct{})
+	go func() {
+		defer close(ran)
+		_ = rt.Run()
+	}()
+	select {
+	case <-ran:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the %s surface did not return on a finite stdin", cli.Surface)
+	}
 	rep, err := runtime.ExtractReport(stderr.String())
 	if err != nil {
 		t.Fatalf("extract report: %v\nstderr:\n%s", err, stderr.String())

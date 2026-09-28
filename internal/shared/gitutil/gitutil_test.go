@@ -235,16 +235,6 @@ func TestStartPathResolution_FileResolvesToItsDirectory(t *testing.T) {
 	assert.Equal(t, fromDir, fromFile)
 }
 
-// gitInRepo runs a git command in dir, failing the test on error.
-func gitInRepo(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
-
 // urls[0] is not an arbitrary pick out of N. go-git populates RemoteConfig.URLs
 // as the remote's `url` entries followed by its `pushurl` entries, and
 // documents the first as the one fetch uses — so element zero is the FETCH
@@ -257,9 +247,9 @@ func TestGetRemoteURL_ReturnsTheFetchURLNotThePushURL(t *testing.T) {
 		t.Skip("git not on PATH; this pin needs real git config semantics")
 	}
 	repo := t.TempDir()
-	gitInRepo(t, repo, "init", "-q")
-	gitInRepo(t, repo, "remote", "add", "origin", "https://fetch.example.com/repo.git")
-	gitInRepo(t, repo, "remote", "set-url", "--push", "origin", "https://push.example.com/repo.git")
+	taskstest.Git(t, repo, nil, "init", "-q")
+	taskstest.Git(t, repo, nil, "remote", "add", "origin", "https://fetch.example.com/repo.git")
+	taskstest.Git(t, repo, nil, "remote", "set-url", "--push", "origin", "https://push.example.com/repo.git")
 
 	// The fixture is only hostile if git really did record a distinct pushurl.
 	cfg, err := os.ReadFile(filepath.Join(repo, ".git", "config"))
@@ -278,9 +268,9 @@ func TestGetRemoteURL_MultipleFetchURLsReturnsTheFirst(t *testing.T) {
 		t.Skip("git not on PATH; this pin needs real git config semantics")
 	}
 	repo := t.TempDir()
-	gitInRepo(t, repo, "init", "-q")
-	gitInRepo(t, repo, "remote", "add", "origin", "https://first.example.com/repo.git")
-	gitInRepo(t, repo, "remote", "set-url", "--add", "origin", "https://second.example.com/repo.git")
+	taskstest.Git(t, repo, nil, "init", "-q")
+	taskstest.Git(t, repo, nil, "remote", "add", "origin", "https://first.example.com/repo.git")
+	taskstest.Git(t, repo, nil, "remote", "set-url", "--add", "origin", "https://second.example.com/repo.git")
 
 	cfg, err := os.ReadFile(filepath.Join(repo, ".git", "config"))
 	require.NoError(t, err)

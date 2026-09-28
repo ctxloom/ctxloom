@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +64,7 @@ func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
 	assert.NoDirExists(t, wtDir, "the worktree dir is gone after cleanup")
 
 	// `git worktree list` has no leftover pointing at our path.
-	out := gitOut(t, repo, "worktree", "list", "--porcelain")
+	out := gitRun(t, repo, "worktree", "list", "--porcelain")
 	assert.NotContains(t, out, wtDir, "no leftover worktree after WIP-safe teardown")
 }
 
@@ -154,13 +155,13 @@ func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T
 	require.NoError(t, os.Remove(filepath.Join(wtDir, "CLAUDE.md")))
 
 	// Without skipTrackedConfig covering CLAUDE.md, this would show " D CLAUDE.md".
-	status := gitOut(t, wtDir, "status", "--porcelain")
+	status := gitRun(t, wtDir, "status", "--porcelain")
 	assert.Empty(t, strings.TrimSpace(status), "skip-worktree must hide the managed-context deletion, or the WIP guard reads it as real work")
 
 	require.NoError(t, ws.Cleanup(), "cleanup never errors")
 	assert.NoDirExists(t, wtDir, "the worktree is reaped: the managed-context deletion is ctxloom's own artifact, not user WIP")
 
-	out := gitOut(t, repo, "worktree", "list", "--porcelain")
+	out := gitRun(t, repo, "worktree", "list", "--porcelain")
 	assert.NotContains(t, out, wtDir, "no leftover worktree registration after teardown")
 }
 
@@ -216,34 +217,25 @@ func initRealRepo(t *testing.T) string {
 	return dir
 }
 
-// gitRun runs a git command in dir with a stable identity, failing the test on
-// error.
-func gitRun(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	if out, err := gitCmd(dir, args...).CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
+// gitFixtureEnv is a stable identity, isolated from the developer's / CI's
+// GLOBAL and SYSTEM git config: a global commit.gpgsign, core.hooksPath, or
+// init.templateDir would otherwise leak in and corrupt these real-git
+// init/commit/worktree operations (this file is UN-tagged, so it also runs
+// under `just test`).
+var gitFixtureEnv = append(taskstest.GitIdentity("ctxloom", "ctxloom@example.com"),
+	"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 
-// gitOut runs a git command in dir and returns its combined output.
-func gitOut(t *testing.T, dir string, args ...string) string {
+// gitRun runs a git command in dir under gitFixtureEnv, failing the test on
+// error, and returns its trimmed combined output.
+func gitRun(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := gitCmd(dir, args...).CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
-	return string(out)
+	return taskstest.Git(t, dir, gitFixtureEnv, args...)
 }
 
 func gitCmd(dir string, args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
-		"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com",
-		// Isolate from the developer's / CI's GLOBAL and SYSTEM git config: a
-		// global commit.gpgsign, core.hooksPath, or init.templateDir would
-		// otherwise leak in and corrupt these real-git init/commit/worktree
-		// operations (this file is UN-tagged, so it also runs under `just test`).
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	cmd.Env = append(os.Environ(), gitFixtureEnv...)
 	return cmd
 }
 
@@ -276,8 +268,8 @@ func TestGitIdentity_HostileAgentIDStillCommitsCleanly(t *testing.T) {
 		"the fixture must actually carry the delimiters the row is about")
 
 	require.NoError(t, os.WriteFile(filepath.Join(repo, "work.txt"), []byte("agent work"), 0o644))
-	gitRunAsIdentity(t, repo, name, email, "add", "work.txt")
-	gitRunAsIdentity(t, repo, name, email, "commit", "-m", "agent commit")
+	taskstest.Git(t, repo, gitIdentTestEnv(name, email), "add", "work.txt")
+	taskstest.Git(t, repo, gitIdentTestEnv(name, email), "commit", "-m", "agent commit")
 
 	got := strings.TrimRight(gitOutAsIdentity(t, repo, name, email, "log", "-1", "--format=%an%n%ae"), "\n")
 	lines := strings.Split(got, "\n")
@@ -289,41 +281,22 @@ func TestGitIdentity_HostileAgentIDStillCommitsCleanly(t *testing.T) {
 	assert.Equal(t, email, lines[1], "the email was already sanitized by gitIdentity itself")
 }
 
-// gitIdentTestEnv builds a git child environment carrying exactly the identity
-// under test. It strips any inherited GIT_AUTHOR_*/GIT_COMMITTER_* rather than
-// appending over them: this suite runs inside per-agent worktrees that export
-// those very vars, and duplicate keys are resolved by libc, not by us.
+// gitIdentTestEnv is the git env overrides carrying exactly the identity under
+// test. This suite runs inside per-agent worktrees that export those very
+// GIT_AUTHOR_*/GIT_COMMITTER_* vars; appending over them is exact because
+// os/exec keeps the LAST value of a duplicated key.
 func gitIdentTestEnv(name, email string) []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		switch key, _, _ := strings.Cut(kv, "="); key {
-		case "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL":
-			continue
-		default:
-			env = append(env, kv)
-		}
-	}
-	return append(env,
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
-		"GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+email,
-		"GIT_COMMITTER_NAME="+name, "GIT_COMMITTER_EMAIL="+email)
+	return append(taskstest.GitIdentity(name, email),
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 }
 
-func gitRunAsIdentity(t *testing.T, dir, name, email string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = gitIdentTestEnv(name, email)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
-
+// gitOutAsIdentity reads STDOUT only, unlike taskstest.Git's combined output:
+// the ident it parses must not pick up a git warning on stderr.
 func gitOutAsIdentity(t *testing.T, dir, name, email string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = gitIdentTestEnv(name, email)
+	cmd.Env = append(os.Environ(), gitIdentTestEnv(name, email)...)
 	out, err := cmd.Output()
 	require.NoError(t, err, "git %v", args)
 	return string(out)

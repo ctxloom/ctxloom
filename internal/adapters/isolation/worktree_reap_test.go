@@ -75,7 +75,7 @@ func TestReapOrphanedWorktrees_ReapsCleanOrphan(t *testing.T) {
 
 	assert.NoDirExists(t, wtDir, "the orphaned checkout is removed")
 
-	out := gitOut(t, repo, "worktree", "list", "--porcelain")
+	out := gitRun(t, repo, "worktree", "list", "--porcelain")
 	assert.NotContains(t, out, wtDir, "no leftover worktree registration after the sweep")
 }
 

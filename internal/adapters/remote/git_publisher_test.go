@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
@@ -40,17 +41,6 @@ func gitEnv(t *testing.T) {
 	t.Setenv("GIT_COMMITTER_EMAIL", "test@ctxloom.invalid")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
-}
-
-// gitRun runs a git command in dir and returns its trimmed stdout, failing the
-// test on any error (with git's own output attached).
-func gitRun(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "git %s: %s", strings.Join(args, " "), out)
-	return strings.TrimSpace(string(out))
 }
 
 // gitFails runs a git command expected to FAIL, returning its output. Used to
@@ -72,16 +62,16 @@ func bareRemote(t *testing.T, branch string) (url, bare string) {
 	t.Helper()
 	root := t.TempDir()
 	bare = filepath.Join(root, "bundles.git")
-	gitRun(t, root, "init", "--bare", "-b", branch, bare)
+	taskstest.Git(t, root, nil, "init", "--bare", "-b", branch, bare)
 
 	seed := filepath.Join(root, "seed")
 	require.NoError(t, os.MkdirAll(seed, 0o755))
-	gitRun(t, seed, "init", "-b", branch)
+	taskstest.Git(t, seed, nil, "init", "-b", branch)
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "README.md"), []byte("seed\n"), 0o644))
-	gitRun(t, seed, "add", "-A")
-	gitRun(t, seed, "commit", "-m", "seed")
-	gitRun(t, seed, "remote", "add", "origin", bare)
-	gitRun(t, seed, "push", "origin", branch)
+	taskstest.Git(t, seed, nil, "add", "-A")
+	taskstest.Git(t, seed, nil, "commit", "-m", "seed")
+	taskstest.Git(t, seed, nil, "remote", "add", "origin", bare)
+	taskstest.Git(t, seed, nil, "push", "origin", branch)
 
 	return "file://" + bare, bare
 }
@@ -125,7 +115,7 @@ const mybundleEnvelope = mybundleRemotePath + "/bundle.yaml"
 // destination's own view, not the publisher's.
 func (f *publishFixture) remoteFile(t *testing.T, branch, path string) string {
 	t.Helper()
-	return gitRun(t, f.bare, "show", branch+":"+path)
+	return taskstest.Git(t, f.bare, nil, "show", branch+":"+path)
 }
 
 func TestGitPublisher_PublishLandsInTheBareRepository(t *testing.T) {
@@ -140,12 +130,12 @@ func TestGitPublisher_PublishLandsInTheBareRepository(t *testing.T) {
 		"the remote must hold the local file's bytes verbatim")
 
 	// The reported SHA is a real commit on the remote's branch.
-	assert.Equal(t, gitRun(t, f.bare, "rev-parse", "main"), result.SHA,
+	assert.Equal(t, taskstest.Git(t, f.bare, nil, "rev-parse", "main"), result.SHA,
 		"the reported commit must be the one the remote branch now points at")
 	assert.Equal(t, mybundleRemotePath, result.Path)
 
 	// The commit carries the caller's subject.
-	assert.Contains(t, gitRun(t, f.bare, "log", "-1", "--pretty=%s", "main"), "Add bundle mybundle")
+	assert.Contains(t, taskstest.Git(t, f.bare, nil, "log", "-1", "--pretty=%s", "main"), "Add bundle mybundle")
 }
 
 // TestGitPublisher_PublishTreeLandsAsOneCommit is
@@ -158,7 +148,7 @@ func TestGitPublisher_PublishLandsInTheBareRepository(t *testing.T) {
 // arrived, and one commit makes that impossible rather than merely unlikely.
 func TestGitPublisher_PublishTreeLandsAsOneCommit(t *testing.T) {
 	f := newPublishFixture(t, "main")
-	beforeCount := gitRun(t, f.bare, "rev-list", "--count", "main")
+	beforeCount := taskstest.Git(t, f.bare, nil, "rev-list", "--count", "main")
 
 	const root = ".ctxloom/content/bundles/v1/atelier"
 	files := map[string][]byte{
@@ -180,7 +170,7 @@ func TestGitPublisher_PublishTreeLandsAsOneCommit(t *testing.T) {
 	assert.Equal(t, "# greet\n\nSay hello.",
 		f.remoteFile(t, "main", root+"/skills/greet/SKILL.md"))
 
-	afterCount := gitRun(t, f.bare, "rev-list", "--count", "main")
+	afterCount := taskstest.Git(t, f.bare, nil, "rev-list", "--count", "main")
 	before, err1 := strconv.Atoi(beforeCount)
 	after, err2 := strconv.Atoi(afterCount)
 	require.NoError(t, err1)
@@ -188,7 +178,7 @@ func TestGitPublisher_PublishTreeLandsAsOneCommit(t *testing.T) {
 	assert.Equal(t, before+1, after,
 		"the whole tree must land as exactly ONE new commit, not one per file")
 
-	assert.Equal(t, gitRun(t, f.bare, "rev-parse", "main"), result.SHA,
+	assert.Equal(t, taskstest.Git(t, f.bare, nil, "rev-parse", "main"), result.SHA,
 		"the reported commit is the one the remote branch now points at")
 	assert.Equal(t, root, result.Path)
 }
@@ -222,7 +212,7 @@ func TestGitPublisher_IdenticalRepublishIsANoOpNotAnError(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, first.SHA, second.SHA, "no new commit exists, so none may be reported")
-	assert.Equal(t, first.SHA, gitRun(t, f.bare, "rev-parse", "main"))
+	assert.Equal(t, first.SHA, taskstest.Git(t, f.bare, nil, "rev-parse", "main"))
 	assert.Equal(t, "description: same", f.remoteFile(t, "main", mybundleEnvelope))
 }
 
@@ -235,7 +225,7 @@ func TestGitPublisher_UnpinnedBranchUsesTheRemotesDefault(t *testing.T) {
 	result, err := f.publishEnvelope(t, "description: on trunk\n", PublishOptions{})
 	require.NoError(t, err)
 
-	assert.Equal(t, gitRun(t, f.bare, "rev-parse", "trunk"), result.SHA)
+	assert.Equal(t, taskstest.Git(t, f.bare, nil, "rev-parse", "trunk"), result.SHA)
 	assert.Equal(t, "description: on trunk", f.remoteFile(t, "trunk", mybundleEnvelope))
 	gitFails(t, f.bare, "rev-parse", "--verify", "refs/heads/main")
 }
@@ -251,7 +241,7 @@ func TestGitPublisher_PullRequestRefusedBeforeAnythingIsWritten(t *testing.T) {
 	assert.Contains(t, err.Error(), "pull request")
 
 	// Nothing landed anywhere: one branch, one commit, no bundle.
-	assert.Equal(t, "refs/heads/main", gitRun(t, f.bare, "for-each-ref", "--format=%(refname)", "refs/heads/"),
+	assert.Equal(t, "refs/heads/main", taskstest.Git(t, f.bare, nil, "for-each-ref", "--format=%(refname)", "refs/heads/"),
 		"a refused PR publish must not create a branch")
 	gitFails(t, f.bare, "show", "main:"+mybundleEnvelope)
 }

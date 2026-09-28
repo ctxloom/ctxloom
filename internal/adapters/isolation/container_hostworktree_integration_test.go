@@ -117,6 +117,6 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	// still attached to its main repo.
 	require.NoError(t, ws.Cleanup())
 	assert.DirExists(t, wtDir, "the host base's Cleanup never removes the live project dir")
-	list := gitOut(t, repo, "worktree", "list", "--porcelain")
+	list := gitRun(t, repo, "worktree", "list", "--porcelain")
 	assert.Contains(t, list, wtDir, "the out-of-repo worktree is untouched by the host-base teardown")
 }

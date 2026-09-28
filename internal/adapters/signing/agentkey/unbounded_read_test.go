@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -29,13 +30,13 @@ func TestGitSigningKey_RepoLocalConfigNamesTheFileRead(t *testing.T) {
 
 	signer, line := newTestIdentity(t, "repo-local")
 	repo := t.TempDir()
-	runGit(t, repo, "init", "-q")
+	taskstest.Git(t, repo, nil, "init", "-q")
 
 	// Written with plain `git config`, i.e. into <repo>/.git/config — nothing
 	// global, nothing the user of the repository ever typed.
 	pubPath := filepath.Join(repo, "planted.pub")
 	require.NoError(t, os.WriteFile(pubPath, []byte(line), 0o600))
-	runGit(t, repo, "config", "user.signingkey", pubPath)
+	taskstest.Git(t, repo, nil, "config", "user.signingkey", pubPath)
 
 	raw, err := os.ReadFile(filepath.Join(repo, ".git", "config"))
 	require.NoError(t, err)

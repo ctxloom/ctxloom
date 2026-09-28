@@ -43,7 +43,7 @@ import (
 // report however often it fires) and once restored (must stay clean).
 func TestCreate_StopArmRaceUnderAlreadyCancelledContext(t *testing.T) {
 	const trials = 2000
-	tmpDir := t.TempDir() // shared: no trial's fakeTmuxRunner touches the filesystem
+	tmpDir := t.TempDir() // shared: each trial's launcher files carry its own window name
 
 	var wg sync.WaitGroup
 	wg.Add(trials)
@@ -72,25 +72,23 @@ func TestCreate_StopArmRaceUnderAlreadyCancelledContext(t *testing.T) {
 			// releaseWindow is disarmStop, and it then issues kill-window for
 			// this trial's window -- so observing that call is proof the
 			// callback actually ran, i.e. that this trial exercised the race
-			// window rather than racing this goroutine's own return.
-			deadline := time.Now().Add(2 * time.Second)
-			for {
-				if args := runner.argsFor("kill-window"); len(args) > 0 {
-					// tmux targets the window as "<session>:<window>", so the
-					// id is the suffix rather than the whole argument.
-					for _, a := range args {
-						if a == string(id) || strings.HasSuffix(a, ":"+string(id)) {
-							return
-						}
+			// window rather than racing this goroutine's own return. Blocked
+			// on, not polled: thousands of trials each waking every few
+			// microseconds starve the very callbacks they wait for on a small
+			// runner.
+			select {
+			case <-runner.seen("kill-window"):
+				// tmux targets the window as "<session>:<window>", so the id
+				// is the suffix rather than the whole argument.
+				args := runner.argsFor("kill-window")
+				for _, a := range args {
+					if a == string(id) || strings.HasSuffix(a, ":"+string(id)) {
+						return
 					}
-					t.Errorf("kill-window missing window %s: %v", id, args)
-					return
 				}
-				if time.Now().After(deadline) {
-					t.Errorf("Release never reached kill-window for %s; the AfterFunc callback did not run", id)
-					return
-				}
-				time.Sleep(50 * time.Microsecond)
+				t.Errorf("kill-window missing window %s: %v", id, args)
+			case <-time.After(2 * time.Second):
+				t.Errorf("Release never reached kill-window for %s; the AfterFunc callback did not run", id)
 			}
 		}()
 	}

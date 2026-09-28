@@ -287,24 +287,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	if err != nil {
 		return launch.Cell{}, err
 	}
-	// The resolver settled the home mode from the binding's declaration;
-	// re-parsed here through the vocabulary's own parser so the cell never
-	// asserts a spelling it did not check.
-	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
-	if err != nil {
-		return launch.Cell{}, err
-	}
-	creds, err := c.runCredentials(ctx, req)
-	if err != nil {
-		return launch.Cell{}, err
-	}
-	spec, err := isolation.NewSpec(req.Axes, req.Engine).
-		Project(req.ProjectRoot).
-		Session(harp, req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
-		Image(req.Image).
-		Home(homeMode).
-		Credentials(creds).
-		Build()
+	spec, err := c.spec(ctx, req, harp)
 	if err != nil {
 		return launch.Cell{}, err
 	}
@@ -348,6 +331,29 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		Cleanup:   env.Cleanup,
 		Handle:    env,
 	}, nil
+}
+
+// spec is the isolation Spec the request's cell is prepared from, with the
+// credentials its agent authenticates with.
+func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (isolation.Spec, error) {
+	// The resolver settled the home mode from the binding's declaration;
+	// re-parsed here through the vocabulary's own parser so the cell never
+	// asserts a spelling it did not check.
+	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
+	if err != nil {
+		return isolation.Spec{}, err
+	}
+	creds, err := c.runCredentials(ctx, req)
+	if err != nil {
+		return isolation.Spec{}, err
+	}
+	return isolation.NewSpec(req.Axes, req.Engine).
+		Project(req.ProjectRoot).
+		Session(harp, req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
+		Image(req.Image).
+		Home(homeMode).
+		Credentials(creds).
+		Build()
 }
 
 // runCredentials is what the request's agent authenticates with

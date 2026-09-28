@@ -58,7 +58,7 @@ func TestClaudeContext_GetContextFilePath_WithHash(t *testing.T) {
 
 	path := context.GetContextFilePath()
 	assert.NotEmpty(t, path)
-	assert.Contains(t, path, agent.SCMContextSubdir)
+	assert.Contains(t, path, filepath.FromSlash(agent.SCMContextSubdir), "the path is joined with the host separator")
 	assert.Contains(t, path, ".md")
 }
 

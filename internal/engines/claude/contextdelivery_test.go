@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // fakePlacement is a local placement test-double: Dir() returns a fixed
@@ -99,7 +100,7 @@ func TestAppendFlagDelivery_DeliverContext_PreservesExistingMode(t *testing.T) {
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(),
+	fileperm.Equal(t, 0o640, info.Mode(),
 		"AtomicWriteFile preserves an existing file's mode across the rewrite; a raw afero.WriteFile(...,0o644) would reset it")
 }
 

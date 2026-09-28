@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // realisticHostClaudeJSON stands in for a live user's ~/.claude.json. On a real
@@ -261,7 +262,7 @@ func TestWriteInstanceConfig_OwnerOnly(t *testing.T) {
 
 	info, err := os.Stat(filepath.Join(instance, InstanceConfigFileName))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	fileperm.Equal(t, 0o600, info.Mode())
 }
 
 // TestWriteInstanceConfig_SecondRunPreservesWhatClaudeWrote: two runs share ONE

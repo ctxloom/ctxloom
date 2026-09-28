@@ -65,8 +65,10 @@ func argvMatrix(t *testing.T) []argvLine {
 						Presented:   l.presented,
 					}
 					args := backend.buildArgs(req)
+					// ToSlash: the golden is one file for every OS, and the
+					// paths under home are joined with the host's separator.
 					for i, a := range args {
-						args[i] = strings.ReplaceAll(a, home, "<HOME>")
+						args[i] = filepath.ToSlash(strings.ReplaceAll(a, home, "<HOME>"))
 					}
 					lines = append(lines, argvLine{key: fmt.Sprintf("%s/%s/%s/model=%q", l.name, mode, perm, model), mode: mode, args: args})
 				}

@@ -30,8 +30,7 @@ func PluginChildrenOf(ppid int) []int {
 	}
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		// No /proc (e.g. darwin) — best-effort no-op, same honest gap as
-		// internal/lm/grpc's killSession.
+		// No /proc (e.g. darwin): nothing to enumerate from here.
 		return nil
 	}
 	var pids []int
@@ -52,8 +51,7 @@ func PluginChildrenOf(ppid int) []int {
 }
 
 // procPPID reads a process's parent pid from /proc/<pid>/stat (field 4;
-// proc(5)). Mirrors internal/lm/grpc/procsession_unix.go's procSessionID —
-// the comm field can itself contain parens, so fields after it are located
+// proc(5)). Mirrors isolation's procSessionID — the comm field can itself contain parens, so fields after it are located
 // from the LAST ')'.
 func procPPID(pid int) int {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
@@ -66,8 +64,7 @@ func procPPID(pid int) int {
 	}
 	// After the comm field, this 0-based slice is: state[0] ppid[1] pgrp[2]
 	// session[3] — index 0 is the state CHAR ("S", "R", ...), not ppid; ppid
-	// is index 1. (Matches internal/lm/grpc/procsession_unix.go's
-	// procSessionID, which reads session at its correct index, [3].)
+	// is index 1. (isolation's procSessionID reads session at its index, [3].)
 	fields := strings.Fields(string(data[i+2:]))
 	if len(fields) < 2 {
 		return -1

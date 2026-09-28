@@ -3,9 +3,11 @@
 package isolation
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"syscall"
 	"testing"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/parentwatch"
 	"github.com/ctxloom/ctxloom/internal/testsupport/procalive"
 )
 
@@ -105,19 +108,20 @@ func TestKillSession_ReapsOrphanedGrandchild(t *testing.T) {
 }
 
 // TestHelperRunnerHost is not a real test — it is the re-exec target
-// TestIsolateRunner_RunnerDiesWithItsHost spawns via os.Args[0] (the same
+// assertRunnerDiesWithItsHost spawns via os.Args[0] (the same
 // TestHelperProcess idiom as TestHelperKillSessionRunner above). It plays
 // the part of the ctxloom HOST process — the `ctxloom run` / `ctxloom mcp`
-// that self-execs `ctxloom llm serve <backend>` — spawning ONE child with
-// exactly the production runner attributes (isolateRunner, what
-// dialLLMConnection and StartHostRunner apply), recording its pid, then
-// blocking as a live host would.
+// that self-execs its runner — spawning ONE child, the argv after the pid
+// file, with exactly the production runner attributes (isolateRunner, what
+// StartHostRunner applies), recording its pid, then blocking as a live host
+// would.
 func TestHelperRunnerHost(t *testing.T) {
 	if os.Getenv("CTXLOOM_GRPC_HOST_HELPER") != "1" {
 		return
 	}
-	pidFile := os.Args[len(os.Args)-1]
-	runner := exec.Command("sleep", "100")
+	args := os.Args[slices.Index(os.Args, "--")+1:]
+	pidFile, argv := args[0], args[1:]
+	runner := exec.Command(argv[0], argv[1:]...)
 	isolateRunner(runner)
 	if err := runner.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "helper: start runner:", err)
@@ -130,31 +134,75 @@ func TestHelperRunnerHost(t *testing.T) {
 	time.Sleep(100 * time.Second)
 }
 
+// TestHelperWatchingRunner is not a real test — it is the runner
+// TestIsolateRunner_RunnerDiesWithItsHost hands the host helper: our own
+// binary, arming the in-child parent watch exactly as runRunner does, then
+// living until that watch fires.
+func TestHelperWatchingRunner(t *testing.T) {
+	armedFile := os.Getenv("CTXLOOM_WATCHING_RUNNER_ARMED")
+	if armedFile == "" {
+		return
+	}
+	ctx, cancel, err := parentwatch.WithParent(context.Background())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "helper: arm parent watch:", err)
+		os.Exit(1)
+	}
+	defer cancel()
+	if err := os.WriteFile(armedFile, []byte("armed"), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, "helper: write armed file:", err)
+		os.Exit(1)
+	}
+	select {
+	case <-ctx.Done():
+		os.Exit(0)
+	case <-time.After(100 * time.Second):
+		os.Exit(1)
+	}
+}
+
 // TestIsolateRunner_RunnerDiesWithItsHost is the regression test for the
 // leaked-runner defect: `ctxloom llm serve mock --label mock` processes have
 // been found reparented to init, some running unattended for over 36 hours,
 // across checkouts including deleted git worktrees — a recurring failure
 // mode, not a one-off.
 //
+// The runner here is our own binary arming parentwatch.WithParent, as the
+// production runner does, so this passes on every unix: through
+// PR_SET_PDEATHSIG on Linux, through the kqueue watch on darwin/BSD. The
+// foreign-binary case, which only the kernel attribute can cover, is
+// TestIsolateRunner_ForeignRunnerDiesWithItsHost (Linux-only).
+func TestIsolateRunner_RunnerDiesWithItsHost(t *testing.T) {
+	// The runner reports that its watch is armed, so a helper that never got
+	// that far (and exited on its own) cannot pass for one the watch ended.
+	armed := t.TempDir() + "/armed"
+	t.Setenv("CTXLOOM_WATCHING_RUNNER_ARMED", armed)
+	assertRunnerDiesWithItsHost(t, armed, os.Args[0], "-test.run=^TestHelperWatchingRunner$")
+}
+
+// assertRunnerDiesWithItsHost starts a host that spawns runnerArgv under
+// isolateRunner, then SIGKILLs the host and requires the runner gone. A
+// non-empty armedFile is one the runner writes once it is ready to be
+// judged; the host is not killed before it exists.
+//
 // The host dies WITHOUT running its own teardown — a SIGKILL here, which is
 // equally `go test -timeout`'s escalation, an OOM kill, a killed shell that
 // took its whole process group with it, a panic that skipped every defer, or
 // a cobra path that called os.Exit. HostRunner.Kill/killSession live INSIDE
-// that host process and cannot run once it is gone, and the runner has no
-// independent way to notice: isolateRunner has deliberately put it in its
-// own session, out of reach of any group signal.
-// Nothing else is watching. The kernel is the only party that still knows
-// the relationship after the host is gone, which is why the fix is
-// PR_SET_PDEATHSIG rather than more userspace bookkeeping.
+// that host process and cannot run once it is gone, and isolateRunner has
+// deliberately put the runner in its own session, out of reach of any group
+// signal. Only the kernel (Pdeathsig) or the runner itself (parentwatch)
+// still knows the relationship.
 //
 // Asserts ABSENCE from the process table, not that some cleanup func
 // returned: a teardown that reports success while the process keeps running
 // is precisely this defect.
-func TestIsolateRunner_RunnerDiesWithItsHost(t *testing.T) {
+func assertRunnerDiesWithItsHost(t *testing.T, armedFile string, runnerArgv ...string) {
+	t.Helper()
 	dir := t.TempDir()
 	pidFile := dir + "/runner.pid"
 
-	host := exec.Command(os.Args[0], "-test.run=TestHelperRunnerHost", "--", pidFile)
+	host := exec.Command(os.Args[0], append([]string{"-test.run=^TestHelperRunnerHost$", "--", pidFile}, runnerArgv...)...)
 	host.Env = append(os.Environ(), "CTXLOOM_GRPC_HOST_HELPER=1")
 	require.NoError(t, host.Start())
 	hostPID := host.Process.Pid
@@ -172,6 +220,9 @@ func TestIsolateRunner_RunnerDiesWithItsHost(t *testing.T) {
 	// reach other people's fixtures (and, with pkill -f, the killing shell).
 	t.Cleanup(func() { _ = syscall.Kill(runnerPID, syscall.SIGKILL) })
 
+	if armedFile != "" {
+		waitForFile(t, armedFile, 5*time.Second)
+	}
 	require.Eventually(t, func() bool { return processAlive(runnerPID) }, time.Second, 10*time.Millisecond,
 		"the runner must actually be running before we can prove anything about reaping it")
 

@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,7 @@ func TestHostRunnerEnv_AdmittedCompanionsLeadPath(t *testing.T) {
 	writeCompanion(t, shadow, "taskloom", "#!/bin/sh\necho SHADOW\n")
 	t.Setenv("PATH", shadow+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	plain, err := hostRunnerCmd([]string{"runner", "claude"}, map[string]string{"K": "V"})
+	plain, err := hostRunnerCmd(context.Background(), []string{"runner", "claude"}, map[string]string{"K": "V"})
 	require.NoError(t, err)
 	for label, env := range map[string][]string{
 		"pty":   RunnerCommand("claude", nil).Env,

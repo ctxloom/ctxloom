@@ -174,6 +174,9 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	rep := report{Scope: st.scope, Head: st.head, MergeBase: st.mergeBase, Shard: sf.shard, Shards: sf.shards, Files: nonNil(p.shards[sf.shard])}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return err
+	}
 
 	switch {
 	case p.skip != "":
@@ -181,12 +184,9 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 	case len(rep.Files) == 0:
 		_, _ = fmt.Fprintf(stdout, "shard %d of %d: the plan gives this shard no files\n", sf.shard, sf.shards)
 	default:
-		if rep.Gremlins, err = runGremlins(cfg, p, sf, launcher, stdout, stderr); err != nil {
+		if rep.Gremlins, err = runGremlins(cfg, p, sf, outDir, launcher, stdout, stderr); err != nil {
 			return err
 		}
-	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return err
 	}
 	b, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
@@ -195,14 +195,17 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 	return os.WriteFile(filepath.Join(outDir, fmt.Sprintf("shard-%d.json", sf.shard)), b, 0o644)
 }
 
-func runGremlins(cfg *gremlinsConfig, p plan, sf shardFlags, launcher []string, stdout, stderr io.Writer) (json.RawMessage, error) {
+// runGremlins stages the shard's derived config under outDir, the directory the
+// caller named: a tool here is handed its paths, never reads the process's temp
+// root (TestArch_EnvLiteralsOnce).
+func runGremlins(cfg *gremlinsConfig, p plan, sf shardFlags, outDir string, launcher []string, stdout, stderr io.Writer) (json.RawMessage, error) {
 	var others []string
 	for k, files := range p.shards {
 		if k != sf.shard {
 			others = append(others, files...)
 		}
 	}
-	tmp, err := os.MkdirTemp("", "mutshard-")
+	tmp, err := os.MkdirTemp(outDir, ".mutshard-")
 	if err != nil {
 		return nil, err
 	}

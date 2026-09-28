@@ -21,6 +21,13 @@ the tree, headed by the bundle's name and version, and files your signature
 over that manifest in the bundle's .sigs/ directory. Consumers without ctxloom
 can check the files with 'sha256sum -c SHA256SUMS'.
 
+In a project with a VERSION file at its root (the directory holding
+.ctxloom), that file is the bundle's version: signing first rewrites
+bundle.yaml's version: to match it, and says so. Without a VERSION file the
+version is the one bundle.yaml declares. Either way, a version already signed
+over different files is refused — bump the version (VERSION, where it
+exists) or pass --force to re-sign it deliberately.
+
 ref is a bundle ref or an item ref, in the grammar 'ctxloom bundle trust'
 uses: a plain local bundle name, or the canonical 'ctxloom+local:<name>' URI.
 The signature covers the whole bundle, so an item ref

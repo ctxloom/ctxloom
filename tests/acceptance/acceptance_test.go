@@ -80,8 +80,16 @@ func TestAcceptance(t *testing.T) {
 		// @container: needs a reachable docker/podman daemon AND an agent image,
 		//   built before the scenarios run (prepareSuiteImages). It has its own
 		//   gate, `just test-acceptance-container`, which really performs the
-		//   launch.
-		tags = "~@live && ~@network && ~@future && ~@wip && ~@container"
+		//   launch. ACCEPTANCE_INCLUDE_CONTAINER=1 keeps them IN this lane: a
+		//   caller that must judge the hermetic AND container scenarios of the
+		//   same features in one run (the mutation harness's acceptanceJudge)
+		//   adds them here rather than hand-copying the exclusions above into an
+		//   ACCEPTANCE_TAGS of its own, which would drift from this one — and
+		//   staying hermetic keeps a declined container step fatal.
+		tags = "~@live && ~@network && ~@future && ~@wip"
+		if os.Getenv("ACCEPTANCE_INCLUDE_CONTAINER") != "1" {
+			tags += " && ~@container"
+		}
 	}
 	paths := []string{"features"}
 	// ACCEPTANCE_PATHS narrows the run to specific feature files for fast local

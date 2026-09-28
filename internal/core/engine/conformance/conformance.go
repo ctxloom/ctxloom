@@ -37,6 +37,7 @@ func Run(t *testing.T, eng engine.Engine) {
 	require.Equal(t, def.Name, eng.Root().Name, "the Definition is a value, equal on every call")
 	require.Equal(t, def.Modes, eng.Root().Modes)
 	checkDerivedViews(t, def)
+	checkContainerArgv(t, def)
 
 	// The instance half.
 	checkEngineFacts(t, eng, def)
@@ -84,6 +85,43 @@ func checkDerivedViews(t *testing.T, def engine.Base) {
 	}
 }
 
+// checkContainerArgv delivers every kind at its default root into a cell
+// whose roots are relocated, as a container relocates them, and requires
+// every path the engine is told on argv to be the ENGINE side: a host path
+// there names a directory the engine cannot open. It is not vacuous — some
+// argv value must name a relocated root, or the check proved nothing.
+func checkContainerArgv(t *testing.T, def engine.Base) {
+	t.Helper()
+	dir := t.TempDir()
+	host := present.Paths{
+		ProjectRoot: present.Root{Host: filepath.Join(dir, "project")},
+		SessionHome: present.Root{Host: filepath.Join(dir, "home")},
+	}
+	fs := afero.NewOsFs()
+	for _, r := range []present.Root{host.ProjectRoot, host.SessionHome} {
+		require.NoError(t, fs.MkdirAll(r.Host, 0o700))
+	}
+	mapped := present.Containerize{ProjectRoot: "/conformance-engine/project", SessionHome: "/conformance-engine/home"}.Apply(host)
+	start := present.New(mapped)
+	engineSide := 0
+	for _, k := range def.Static() {
+		a := def.Surfaces()[k]
+		d, err := deliverMinimal(def, k, start, a.Traits().Roots[0], fs)
+		require.NoError(t, err, "deliver %v through %s", k, a.Name())
+		for _, arg := range d.Presented.Args {
+			for _, r := range []present.Root{host.ProjectRoot, host.SessionHome} {
+				require.False(t, present.Under(arg, r.Host), "%v announces the HOST path %q on argv; the engine opens the engine side", k, arg)
+			}
+			for _, r := range []present.Root{mapped.Paths().ProjectRoot, mapped.Paths().SessionHome} {
+				if present.Under(arg, r.Engine) {
+					engineSide++
+				}
+			}
+		}
+	}
+	require.Positive(t, engineSide, "no argv value names a relocated root, so this check proved nothing")
+}
+
 // checkEngineFacts asserts the engine-level instance facts: Home validates,
 // Container is a real spec or ErrUnsupported naming the engine, Hooks is
 // never nil, and an interactive engine decides its wake.
@@ -126,7 +164,7 @@ func checkModeInstance(t *testing.T, eng engine.Engine, def engine.Base, m engin
 	require.Equal(t, m == engine.Interactive, ex.Interactive, "a pty exactly for the interactive mode")
 	for _, v := range eng.Home().Vars {
 		require.Contains(t, ex.Env, v.Name, "home var %s is declared but Exec does not set it", v.Name)
-		require.True(t, present.Under(ex.Env[v.Name], sess.Roots.EngineHome.Engine),
+		require.True(t, present.Under(ex.Env[v.Name], sess.Roots.SessionHome.Engine),
 			"home var %s = %q is not under the session home the engine was handed", v.Name, ex.Env[v.Name])
 	}
 	if m == engine.Structured {
@@ -136,8 +174,8 @@ func checkModeInstance(t *testing.T, eng engine.Engine, def engine.Base, m engin
 
 // SessionFor builds the engine-facing Session a test hands to Instance: a
 // throwaway identity, the mode asked for, the engine's declared host
-// default posture, roots under a temp dir (the project root, the session
-// home and ctxloom's home, host side equal to engine side), and each home
+// default posture, roots under a temp dir (the project root and the session
+// home, host side equal to engine side), and each home
 // var the engine declares bound under the session home.
 func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Session {
 	t.Helper()
@@ -151,9 +189,7 @@ func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Sessio
 		Permission: def.Permissions.HostDefault,
 		Roots: present.Paths{
 			ProjectRoot: present.Root{Host: filepath.Join(dir, "project"), Engine: filepath.Join(dir, "project")},
-			EngineHome:  present.Root{Host: home, Engine: home},
-			CtxloomHome: present.Root{Host: filepath.Join(dir, "ctxloom"), Engine: filepath.Join(dir, "ctxloom")},
-			Scratch:     present.Root{Host: home, Engine: home},
+			SessionHome: present.Root{Host: home, Engine: home},
 		},
 		WorkDir: filepath.Join(dir, "project"),
 		Prompt:  "conformance",
@@ -172,7 +208,7 @@ func PresentAll(t *testing.T, eng engine.Engine, s engine.Session) []present.Pre
 	t.Helper()
 	def := eng.Root()
 	fs := afero.NewOsFs()
-	for _, r := range []present.Root{s.Roots.ProjectRoot, s.Roots.EngineHome, s.Roots.Scratch} {
+	for _, r := range []present.Root{s.Roots.ProjectRoot, s.Roots.SessionHome} {
 		if r.Host != "" {
 			require.NoError(t, fs.MkdirAll(r.Host, 0o700))
 		}
@@ -233,8 +269,7 @@ func RouteFor(t *testing.T, pkg composite.Package, eng engine.Engine) (delivery.
 	dir := t.TempDir()
 	roots := present.Paths{
 		ProjectRoot: present.Root{Host: filepath.Join(dir, "project"), Engine: filepath.Join(dir, "project")},
-		EngineHome:  present.Root{Host: filepath.Join(dir, "home"), Engine: filepath.Join(dir, "home")},
-		Scratch:     present.Root{Host: filepath.Join(dir, "home"), Engine: filepath.Join(dir, "home")},
+		SessionHome: present.Root{Host: filepath.Join(dir, "home"), Engine: filepath.Join(dir, "home")},
 	}
 	return delivery.Route(pkg.EngineItems(eng.Root().Name), eng.Root(), delivery.Preference{}, roots)
 }

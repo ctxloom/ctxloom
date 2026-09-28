@@ -243,12 +243,12 @@ func decodeCell(w *pb.Cell) (launch.Cell, error) {
 
 func encodePaths(p present.Paths) *pb.Paths {
 	root := func(r present.Root) *pb.Root { return &pb.Root{Host: r.Host, Engine: r.Engine} }
-	return &pb.Paths{ProjectRoot: root(p.ProjectRoot), EngineHome: root(p.EngineHome), CtxloomHome: root(p.CtxloomHome), Scratch: root(p.Scratch)}
+	return &pb.Paths{ProjectRoot: root(p.ProjectRoot), SessionHome: root(p.SessionHome)}
 }
 
 func decodePaths(w *pb.Paths) present.Paths {
 	root := func(r *pb.Root) present.Root { return present.Root{Host: r.GetHost(), Engine: r.GetEngine()} }
-	return present.Paths{ProjectRoot: root(w.GetProjectRoot()), EngineHome: root(w.GetEngineHome()), CtxloomHome: root(w.GetCtxloomHome()), Scratch: root(w.GetScratch())}
+	return present.Paths{ProjectRoot: root(w.GetProjectRoot()), SessionHome: root(w.GetSessionHome())}
 }
 
 func encodeMounts(ms []present.Mount) []*pb.Mount {

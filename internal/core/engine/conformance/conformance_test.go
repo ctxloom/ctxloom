@@ -207,7 +207,7 @@ func TestConformance_HomeVars_RootUnderTheSessionHome(t *testing.T) {
 	require.NoError(t, err)
 	for _, v := range home.Vars {
 		require.Contains(t, ex.Env, v.Name)
-		require.True(t, present.Under(ex.Env[v.Name], s.Roots.EngineHome.Engine),
+		require.True(t, present.Under(ex.Env[v.Name], s.Roots.SessionHome.Engine),
 			"home var %s = %q is not under the session home the engine was handed", v.Name, ex.Env[v.Name])
 	}
 }

@@ -26,7 +26,7 @@ import (
 func twoDistinguishableRoots(projectRoot, engineHome string) present.Start {
 	return present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: projectRoot},
-		EngineHome:  present.Root{Host: engineHome},
+		SessionHome: present.Root{Host: engineHome},
 	}))
 }
 
@@ -116,26 +116,22 @@ func mockPresentNamed(t *testing.T, kind agent.SurfaceKind, name string, start p
 	return a.Present(start)
 }
 
-// TestMockDefaultForm_RootsUnderScratch_NotProjectRootOrEngineHome pins the
-// ruling on the launch arm: every surface's DEFAULT form is MockSessionFile,
-// which presents beneath the run's Scratch — not the project root, not the
-// engine home — and presents nothing rootable when no Scratch was advised.
-func TestMockDefaultForm_RootsUnderScratch_NotProjectRootOrEngineHome(t *testing.T) {
+// TestMockDefaultForm_RootsUnderSessionHome_NotProjectRoot pins the ruling
+// on the launch arm: every surface's DEFAULT form is MockSessionFile, which
+// presents beneath the run's session home — not the project root — and
+// presents nothing rootable when no session home was advised.
+func TestMockDefaultForm_RootsUnderSessionHome_NotProjectRoot(t *testing.T) {
 	decl := New().(Mock).Declaration()
-	start := present.New(present.OnHost(present.Paths{
-		ProjectRoot: present.Root{Host: "/proj"},
-		EngineHome:  present.Root{Host: "/elsewhere/home"},
-		Scratch:     present.Root{Host: "/sessions/harp/ephemeral"},
-	}))
+	start := twoDistinguishableRoots("/proj", "/sessions/harp/home/mock")
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		def, ok := decl.Default(kind)
 		require.True(t, ok)
 		assert.Equal(t, MockSessionFile, def, "kind %v", kind)
 		got := mockPresentNamed(t, kind, def, start)
-		assert.Equal(t, filepath.Join("/sessions/harp/ephemeral", filepath.FromSlash(mockRel[kind])), got.HostPath, "kind %v", kind)
+		assert.Equal(t, filepath.Join("/sessions/harp/home/mock", filepath.FromSlash(mockRel[kind])), got.HostPath, "kind %v", kind)
 	}
-	unrooted := mockPresentNamed(t, agent.SurfaceContext, MockSessionFile, twoDistinguishableRoots("/proj", "/elsewhere/home"))
-	assert.False(t, filepath.IsAbs(unrooted.HostPath), "with no Scratch advised the session form is not rootable: %q", unrooted.HostPath)
+	unrooted := mockPresentNamed(t, agent.SurfaceContext, MockSessionFile, present.ProjectOnHost("/proj"))
+	assert.False(t, filepath.IsAbs(unrooted.HostPath), "with no session home advised the session form is not rootable: %q", unrooted.HostPath)
 }
 
 // TestMockDeclaration_UnsupportedApproach_IsRefused pins the branch Build

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
@@ -128,6 +129,30 @@ const (
 	HomeModeHost    HomeMode = "host"
 	HomeModeSession HomeMode = "session"
 )
+
+// SessionHome is the ONE rule placing a session's home for an engine:
+// <sessionDir>/home/<leaf>, where the leaf is the engine's declared home
+// subdir when it relocates one and its name when it relocates nothing. Every
+// engine gets one, the non-relocating ones included, so a session-private
+// delivery always has a root that is not the project. ok is false for
+// agents.HomeModeHost — that binding runs the engine on the home its runtime
+// gives it, which is not ours to deliver into — and for a run with no session
+// dir, which has nowhere to put one. The zero HomeMode is the parser's
+// default, the session.
+//
+// The leaf is the DECLARED subdir rather than the engine name because the
+// engine's own home var points at <session home>/<subdir> (engine.HomeVar);
+// naming the directory any other way would split the root from the var.
+func SessionHome(sessionDir string, eng engine.Engine, m agents.HomeMode) (dir string, ok bool) {
+	if m == agents.HomeModeHost || sessionDir == "" {
+		return "", false
+	}
+	leaf := string(eng.Root().Name)
+	if home := eng.Home(); home.Relocates() {
+		leaf = home.Vars[0].Subdir
+	}
+	return filepath.Join(sessionDir, paths.SessionEngineHomesDirName, leaf), true
+}
 
 // CellRequest is what the cells adapter is asked for.
 type CellRequest struct {

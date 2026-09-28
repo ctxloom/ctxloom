@@ -438,10 +438,10 @@ message Cell {
 
 // Paths is present.Paths: every root a presentation builds from.
 message Paths {
+  reserved 3, 4;
+  reserved "ctxloom_home", "scratch";
   Root project_root = 1;
-  Root engine_home = 2;
-  Root ctxloom_home = 3;
-  Root scratch = 4;
+  Root session_home = 2;
 }
 
 // Root is present.Root: where the bytes live and what the engine is told.

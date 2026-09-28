@@ -17,13 +17,13 @@ import (
 func TestOnHost_EveryRootIsItsOwnEngineSide(t *testing.T) {
 	m := OnHost(Paths{
 		ProjectRoot: Root{Host: "/host/project"},
-		EngineHome:  Root{Host: "/host/home"},
+		SessionHome: Root{Host: "/host/home"},
 	})
 	if got := m.Paths().ProjectRoot; got.Engine != got.Host {
 		t.Fatalf("ProjectRoot: Engine %q must equal Host %q", got.Engine, got.Host)
 	}
-	if got := m.Paths().EngineHome; got.Engine != got.Host {
-		t.Fatalf("EngineHome: Engine %q must equal Host %q", got.Engine, got.Host)
+	if got := m.Paths().SessionHome; got.Engine != got.Host {
+		t.Fatalf("SessionHome: Engine %q must equal Host %q", got.Engine, got.Host)
 	}
 	if len(m.Mounts()) != 0 {
 		t.Fatalf("host transport must record no mounts: %v", m.Mounts())
@@ -32,21 +32,15 @@ func TestOnHost_EveryRootIsItsOwnEngineSide(t *testing.T) {
 
 // TestProjectOnHost_RootsOnlyTheProjectOnBothSides: the at-rest entry advises
 // exactly one root — the project, Engine equal to Host — and leaves every
-// other root unresolved, so a composition that reaches for scratch or a home
+// other root unresolved, so a composition that reaches for the session home
 // through it gets the loud zero root rather than a fabricated one.
 func TestProjectOnHost_RootsOnlyTheProjectOnBothSides(t *testing.T) {
 	s := ProjectOnHost("/host/project")
 	if got := s.Paths().ProjectRoot; got != (Root{Host: "/host/project", Engine: "/host/project"}) {
 		t.Fatalf("ProjectRoot must be the dir on both sides, got %+v", got)
 	}
-	for name, got := range map[string]Root{
-		"EngineHome":  s.Paths().EngineHome,
-		"CtxloomHome": s.Paths().CtxloomHome,
-		"Scratch":     s.Paths().Scratch,
-	} {
-		if got != (Root{}) {
-			t.Fatalf("%s must stay unresolved, got %+v", name, got)
-		}
+	if got := s.Paths().SessionHome; got != (Root{}) {
+		t.Fatalf("SessionHome must stay unresolved, got %+v", got)
 	}
 	if got := s.UnderProjectRoot("CLAUDE.md").Build().HostPath; got != filepath.Join("/host/project", "CLAUDE.md") {
 		t.Fatalf("a composition under the project root must land beneath the dir, got %q", got)
@@ -57,7 +51,7 @@ func TestProjectOnHost_RootsOnlyTheProjectOnBothSides(t *testing.T) {
 // == "") must not be given a fabricated engine side.
 func TestOnHost_UnresolvedRootStaysZero(t *testing.T) {
 	m := OnHost(Paths{ProjectRoot: Root{Host: "/host/project"}})
-	if got := m.Paths().Scratch; got != (Root{}) {
+	if got := m.Paths().SessionHome; got != (Root{}) {
 		t.Fatalf("an unresolved root must stay the zero value, got %+v", got)
 	}
 }
@@ -67,10 +61,10 @@ func TestOnHost_UnresolvedRootStaysZero(t *testing.T) {
 // makes the move true is recorded — the container CHOSE the target; nothing
 // was asked of an engine to discover whether it could.
 func TestContainerize_ConfiguredTarget_RewritesEngineAndMounts(t *testing.T) {
-	m := Containerize{EngineHome: "/container/home"}.Apply(Paths{
-		EngineHome: Root{Host: "/host/cfg0"},
+	m := Containerize{SessionHome: "/container/home"}.Apply(Paths{
+		SessionHome: Root{Host: "/host/cfg0"},
 	})
-	got := m.Paths().EngineHome
+	got := m.Paths().SessionHome
 	if got.Engine != "/container/home" {
 		t.Fatalf("Engine = %q, want the configured target", got.Engine)
 	}
@@ -102,7 +96,7 @@ func TestContainerize_NoConfiguredTarget_MountsAtTheSamePath(t *testing.T) {
 // resolved has nothing to mount — mounting "" would be a container binding
 // nothing meaningful, not a harmless no-op.
 func TestContainerize_UnresolvedRoot_ContributesNoMount(t *testing.T) {
-	m := Containerize{Scratch: "/container/scratch"}.Apply(Paths{
+	m := Containerize{SessionHome: "/container/scratch"}.Apply(Paths{
 		ProjectRoot: Root{Host: "/host/project"},
 	})
 	for _, mnt := range m.Mounts() {
@@ -110,8 +104,8 @@ func TestContainerize_UnresolvedRoot_ContributesNoMount(t *testing.T) {
 			t.Fatalf("an unresolved root must not appear in Mounts: %v", m.Mounts())
 		}
 	}
-	if got := m.Paths().Scratch; got != (Root{}) {
-		t.Fatalf("Scratch must stay the zero value: %+v", got)
+	if got := m.Paths().SessionHome; got != (Root{}) {
+		t.Fatalf("SessionHome must stay the zero value: %+v", got)
 	}
 }
 
@@ -122,28 +116,28 @@ func TestContainerize_UnresolvedRoot_ContributesNoMount(t *testing.T) {
 // and a HostPath still naming the host side there writes into a directory
 // nothing mounts.
 func TestEngineSide_AWriterBesideTheEngineWritesWhereTheEngineReads(t *testing.T) {
-	advised := Containerize{EngineHome: "/ctxloom/home/claude"}.Apply(Paths{
+	advised := Containerize{SessionHome: "/ctxloom/home/claude"}.Apply(Paths{
 		ProjectRoot: Root{Host: "/host/project"},
-		EngineHome:  Root{Host: "/host/sessions/h/home/claude"},
+		SessionHome: Root{Host: "/host/sessions/h/home/claude"},
 	})
 	inside := advised.EngineSide()
 
 	want := Paths{
 		ProjectRoot: Root{Host: "/host/project", Engine: "/host/project"},
-		EngineHome:  Root{Host: "/ctxloom/home/claude", Engine: "/ctxloom/home/claude"},
+		SessionHome: Root{Host: "/ctxloom/home/claude", Engine: "/ctxloom/home/claude"},
 	}
 	if got := inside.Paths(); got != want {
 		t.Fatalf("EngineSide roots:\n got %+v\nwant %+v", got, want)
 	}
-	p := New(inside).UnderEngineHome("settings.json").Build()
+	p := New(inside).UnderSessionHome("settings.json").Build()
 	if p.HostPath != "/ctxloom/home/claude/settings.json" || p.HostPath != p.EnginePath {
 		t.Fatalf("a presentation composed engine-side must write where the engine reads: %+v", p)
 	}
 	if got, want := len(inside.Mounts()), len(advised.Mounts()); got != want {
 		t.Fatalf("EngineSide must keep the run's mount record: got %d mounts, want %d", got, want)
 	}
-	if advised.Paths().EngineHome.Host != "/host/sessions/h/home/claude" {
-		t.Fatalf("EngineSide must not write back into the Mapped it read: %+v", advised.Paths().EngineHome)
+	if advised.Paths().SessionHome.Host != "/host/sessions/h/home/claude" {
+		t.Fatalf("EngineSide must not write back into the Mapped it read: %+v", advised.Paths().SessionHome)
 	}
 }
 
@@ -190,8 +184,8 @@ func TestHostComposition_ArgvNamesTheHostPath(t *testing.T) {
 // under, not the specific file, and does so from the resolved Engine side —
 // unmapped here, so it is the host value.
 func TestRelocatedHome_AnnounceEnvNamesTheRoot(t *testing.T) {
-	got := New(OnHost(Paths{EngineHome: Root{Host: "/scratch/cfg0"}})).
-		UnderEngineHome("settings.json").
+	got := New(OnHost(Paths{SessionHome: Root{Host: "/scratch/cfg0"}})).
+		UnderSessionHome("settings.json").
 		AnnounceEnv("CLAUDE_CONFIG_DIR").
 		Build()
 
@@ -211,10 +205,10 @@ func TestRelocatedHome_AnnounceEnvNamesTheRoot(t *testing.T) {
 // nested rel, the file's position relative to the root must survive the
 // remap — the root moves, the file's place within it does not.
 func TestNestedRel_EnginePathKeepsItsPositionBeneathTheMountTarget(t *testing.T) {
-	m := Containerize{EngineHome: "/container/home"}.Apply(Paths{
-		EngineHome: Root{Host: "/scratch/cfg0"},
+	m := Containerize{SessionHome: "/container/home"}.Apply(Paths{
+		SessionHome: Root{Host: "/scratch/cfg0"},
 	})
-	got := New(m).UnderEngineHome("sub/config.toml").AnnounceEnv("CODEX_HOME").Build()
+	got := New(m).UnderSessionHome("sub/config.toml").AnnounceEnv("CODEX_HOME").Build()
 
 	if got.EnginePath != "/container/home/sub/config.toml" {
 		t.Fatalf("engine path must keep its position beneath the home: got %q", got.EnginePath)
@@ -235,10 +229,10 @@ func TestNestedRel_EnginePathKeepsItsPositionBeneathTheMountTarget(t *testing.T)
 // filepath.FromSlash laundering the assertion the way the prior version's
 // tests did.
 func TestEnginePath_UsesForwardSlashesRegardlessOfHostSeparator(t *testing.T) {
-	m := Containerize{Scratch: "/container/scratch"}.Apply(Paths{
-		Scratch: Root{Host: filepath.Join("host", "scratch", "run1")},
+	m := Containerize{SessionHome: "/container/scratch"}.Apply(Paths{
+		SessionHome: Root{Host: filepath.Join("host", "scratch", "run1")},
 	})
-	got := New(m).UnderScratch("sub/deep/file.txt").Build()
+	got := New(m).UnderSessionHome("sub/deep/file.txt").Build()
 
 	if got.EnginePath != "/container/scratch/sub/deep/file.txt" {
 		t.Fatalf("engine path must be forward-slash-joined: got %q", got.EnginePath)
@@ -253,8 +247,8 @@ func TestEnginePath_UsesForwardSlashesRegardlessOfHostSeparator(t *testing.T) {
 // missing defensive copy hide, since writing into a freshly-allocated map or
 // a nil-backed append can never alias anything.
 func TestMappingDoesNotWriteBackIntoTheCompositionItRead(t *testing.T) {
-	base := New(OnHost(Paths{EngineHome: Root{Host: "/scratch/cfg0"}})).
-		UnderEngineHome("config.toml").
+	base := New(OnHost(Paths{SessionHome: Root{Host: "/scratch/cfg0"}})).
+		UnderSessionHome("config.toml").
 		AnnounceEnv("CODEX_HOME").
 		AnnounceFlag("--config")
 
@@ -284,9 +278,9 @@ func TestMappingDoesNotWriteBackIntoTheCompositionItRead(t *testing.T) {
 // the runtime reads it, not the engine.
 func TestContainerized_NothingTheEngineReadsNamesAHostPath(t *testing.T) {
 	const home = "/scratch/cfg0"
-	m := Containerize{EngineHome: "/container/home"}.Apply(Paths{EngineHome: Root{Host: home}})
+	m := Containerize{SessionHome: "/container/home"}.Apply(Paths{SessionHome: Root{Host: home}})
 	got := New(m).
-		UnderEngineHome("sub/config.toml").
+		UnderSessionHome("sub/config.toml").
 		AnnounceEnv("CODEX_HOME").
 		AnnounceFlag("--config").
 		Build()
@@ -314,7 +308,7 @@ func TestContainerized_NothingTheEngineReadsNamesAHostPath(t *testing.T) {
 // proof the redesign works: under the OLD chain, mounting had to precede
 // naming a flag (WithContainerMount lived on Rooted, WithFlag's result
 // Flagged had no WithContainerMount), so a presenter that only ever named a
-// flag — claude's --append-system-prompt-file, a scratch file named on argv
+// flag — claude's --append-system-prompt-file, a session file named on argv
 // and never on the environment — could not be containerized AT ALL: it had
 // no channel a container could discover a lever through. Here containerizing
 // is a property of Paths, decided and finished before this presenter is
@@ -322,13 +316,13 @@ func TestContainerized_NothingTheEngineReadsNamesAHostPath(t *testing.T) {
 // unchanged here too.
 func TestProof_FlagNamingPresenter_CanBeContainerized(t *testing.T) {
 	appendSystemPromptPresenter := func(s Start) Presentation {
-		return s.UnderScratch("system-prompt.md").
+		return s.UnderSessionHome("system-prompt.md").
 			AnnounceFlag("--append-system-prompt-file").
 			Build()
 	}
 
-	mapped := Containerize{Scratch: "/container/scratch"}.Apply(Paths{
-		Scratch: Root{Host: filepath.Join("host", "scratch", "run1")},
+	mapped := Containerize{SessionHome: "/container/scratch"}.Apply(Paths{
+		SessionHome: Root{Host: filepath.Join("host", "scratch", "run1")},
 	})
 	got := appendSystemPromptPresenter(New(mapped))
 
@@ -342,7 +336,7 @@ func TestProof_FlagNamingPresenter_CanBeContainerized(t *testing.T) {
 		t.Fatalf("argv named the HOST path; the engine cannot open it: %q", got.Args[1])
 	}
 	if len(mapped.Mounts()) != 1 || mapped.Mounts()[0].TargetDir != "/container/scratch" {
-		t.Fatalf("the scratch root must be mounted at the configured target: %v", mapped.Mounts())
+		t.Fatalf("the session home must be mounted at the configured target: %v", mapped.Mounts())
 	}
 }
 
@@ -373,33 +367,6 @@ func TestProof_PresenterDoesNotBranchOnContainerization(t *testing.T) {
 	}
 }
 
-// --- proof case 2: served delivery composes as advice ----------------------
-
-// TestProof_Served_ComposesAsAdvice: a served endpoint is a Root exactly like
-// a file-backed one, so it travels through the SAME Containerize/OnHost
-// advice with no served-specific case anywhere in that advice — Containerize
-// has never heard of Served and does not need to. Proving this needs no
-// escape hatch: the endpoint is read straight off the SAME Mapped a
-// file-backed presenter would also read from.
-func TestProof_Served_ComposesAsAdvice(t *testing.T) {
-	unmapped := New(OnHost(Paths{Scratch: Root{Host: "/host/scratch/mcp.sock"}}))
-	got := unmapped.Served(unmapped.Paths().Scratch, "MCP_ENDPOINT")
-	if got.Env["MCP_ENDPOINT"] != "/host/scratch/mcp.sock" {
-		t.Fatalf("uncontainerized endpoint: %v", got.Env)
-	}
-	if got.HostPath != "" {
-		t.Fatalf("Served must contribute no HostPath: %q", got.HostPath)
-	}
-
-	mapped := New(Containerize{Scratch: "/container/scratch"}.Apply(Paths{
-		Scratch: Root{Host: "/host/scratch/mcp.sock"},
-	}))
-	containerized := mapped.Served(mapped.Paths().Scratch, "MCP_ENDPOINT")
-	if containerized.Env["MCP_ENDPOINT"] != "/container/scratch" {
-		t.Fatalf("containerized endpoint must be the advised Engine side: %v", containerized.Env)
-	}
-}
-
 // --- illegal orders ----------------------------------------------------
 
 // TestIllegalOrdersDoNotCOMPILE is the claim typestate exists to make: each
@@ -417,8 +384,6 @@ func TestIllegalOrdersDoNotCOMPILE(t *testing.T) {
 			`AnnounceFlag("--settings")`,
 		"re_root_an_already_rooted_composition": `_ = New(OnHost(Paths{ProjectRoot: Root{Host: "/p"}})).` +
 			`UnderProjectRoot("a").UnderProjectRoot("b")`,
-		"served_result_cannot_be_further_composed": `_ = New(OnHost(Paths{Scratch: Root{Host: "/s"}})).` +
-			`Served(Root{Host: "/s"}, "V").AnnounceFlag("--x")`,
 	}
 
 	sources, err := filepath.Glob("*.go")

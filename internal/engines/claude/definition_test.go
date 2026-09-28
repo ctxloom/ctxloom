@@ -22,7 +22,7 @@ func hostStart(t *testing.T) (present.Start, string, string) {
 	project, home := t.TempDir(), t.TempDir()
 	return present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: project, Engine: project},
-		EngineHome:  present.Root{Host: home, Engine: home},
+		SessionHome: present.Root{Host: home, Engine: home},
 	})), project, home
 }
 
@@ -241,9 +241,9 @@ func TestDeliverCommandsAndSkills_SessionHomeRefusesAnUnrootedRun(t *testing.T) 
 	project := t.TempDir()
 	start := present.New(present.OnHost(present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}}))
 	_, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true}}}, nil)
-	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	_, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("x")}}}}}, nil)
-	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	home, _ := os.UserHomeDir()
 	require.NoDirExists(t, filepath.Join(home, ConfigDirName), "the real home is never written")
 }

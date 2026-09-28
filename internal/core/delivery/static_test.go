@@ -3,7 +3,7 @@ package delivery_test
 // Part 4.2 test B — the delivery interface. Adapted from the decided
 // architecture's body where this module's landed signatures differ from the
 // design module's: Route takes engine.Items (pkg.EngineItems), the fixture
-// helpers take bodies, the session home is present.Paths.Scratch, and a plan
+// helpers take bodies, the session home is present.Paths.SessionHome, and a plan
 // is routed over the roots of the target it is delivered to (Route refuses
 // a root the cell lacks, so the unrootable case is a plan routed over a
 // project root and delivered to a target without one).
@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	sessionRoots = present.Paths{Scratch: present.Root{Host: "/s/home", Engine: "/s/home"}}
+	sessionRoots = present.Paths{SessionHome: present.Root{Host: "/s/home", Engine: "/s/home"}}
 	projectRoots = present.Paths{ProjectRoot: present.Root{Host: "/p", Engine: "/p"}}
 	tasks        = wire.MCPServer{Command: "tasks"}
 )
@@ -66,7 +66,7 @@ func TestRoute_UncarriedKind_RefusesUnlessAccepted(t *testing.T) {
 func TestRoute_SelectedRootNotOffered_IsRefused_NeverTheDefault(t *testing.T) {
 	eng := mock.New() // no mock approach offers the work dir
 	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
-	_, err := delivery.Route(items(pkg, eng), eng.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootWorkDir}}, present.Paths{ProjectRoot: present.Root{Host: "/p", Engine: "/p"}, Scratch: present.Root{Host: "/s", Engine: "/s"}})
+	_, err := delivery.Route(items(pkg, eng), eng.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootWorkDir}}, present.Paths{ProjectRoot: present.Root{Host: "/p", Engine: "/p"}, SessionHome: present.Root{Host: "/s", Engine: "/s"}})
 	require.ErrorIs(t, err, delivery.ErrUnrootable)
 	var u delivery.Unrootable
 	require.True(t, errors.As(err, &u))
@@ -254,7 +254,7 @@ func TestStatic_UnrootableApproach_RefusesWithRemedy_NeverSubstitutes(t *testing
 func TestStatic_SharedRootIsASelection_NotAFallback(t *testing.T) {
 	eng := mock.New()
 	pkg := compositetest.Fixture(t, compositetest.WithMCP("tasks", tasks))
-	plan, err := delivery.Route(items(pkg, eng), eng.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.MCP: present.RootProjectRoot}}, present.Paths{ProjectRoot: present.Root{Host: "/p", Engine: "/p"}, Scratch: present.Root{Host: "/s", Engine: "/s"}})
+	plan, err := delivery.Route(items(pkg, eng), eng.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.MCP: present.RootProjectRoot}}, present.Paths{ProjectRoot: present.Root{Host: "/p", Engine: "/p"}, SessionHome: present.Root{Host: "/s", Engine: "/s"}})
 	require.NoError(t, err)
 	require.Equal(t, present.RootProjectRoot, plan.Static[0].Root)
 	fs := afero.NewMemMapFs()

@@ -20,8 +20,9 @@ import (
 //
 // It folds what is provably the same repository and nothing else. The
 // transport is not identity (scp, http, ssh:// and git:// all reach ClassGit),
-// and neither are credentials, a query, a fragment, host case or a trailing
-// slash. A ".git" suffix, a "www." prefix and repository-path case ARE
+// and neither are credentials, a query, a fragment, host case, a trailing
+// slash, a port the scheme defines as its default, or whether an IDN host is
+// spelled as its U-label or A-label. A ".git" suffix, a "www." prefix and repository-path case ARE
 // identity and are preserved — see Parse's doc for why folding them on a guess
 // would let a rejection of one repository govern another.
 //
@@ -52,10 +53,58 @@ func ParseRepoIdentity(raw string) (Parts, error) {
 		if r.u.Scheme == "file" {
 			return repoParts(Parts{Class: ClassFile, RepoPath: r.u.Path})
 		}
-		return repoParts(Parts{Class: ClassGit, Host: r.u.Host, RepoPath: r.u.Path})
+		host, port, err := CanonicalAuthority(r.u)
+		if err != nil {
+			return Parts{}, err
+		}
+		return repoParts(Parts{Class: ClassGit, Host: joinAuthority(host, port), RepoPath: r.u.Path})
 	default:
 		return repoParts(Parts{Class: ClassGit, Host: r.host, RepoPath: "/" + r.identityPath()})
 	}
+}
+
+// schemeDefaultPort is the port each repository scheme DEFINES as its
+// default. Only a written port equal to its own scheme's default is dropped
+// (RFC 3986 §6.2.3): "https://h:22" is not "https://h", and a scheme absent
+// here has no default to fold.
+var schemeDefaultPort = map[string]string{
+	"https":   "443",
+	"http":    "80",
+	"ssh":     "22",
+	"git+ssh": "22",
+	"ssh+git": "22",
+	"git":     "9418",
+}
+
+// CanonicalAuthority is u's authority as repository identity keys it: the
+// host name under CanonicalHost, and the port — "" when u writes none, when
+// it is the default u's scheme defines, or when it is refHTTPSPort. That last
+// fold is because transport is not identity: every ClassGit repository is
+// rendered and fetched over https, so a port left in an identity IS an https
+// port, and ":443" names the same server as none.
+//
+// Anything that decides "is this the same server" for a repository (forge
+// matching included) must compare these, or one repository binds differently
+// by how its URL happens to be written.
+func CanonicalAuthority(u *url.URL) (host, port string, err error) {
+	host, err = CanonicalHost(u.Hostname())
+	if err != nil {
+		return "", "", err
+	}
+	port = u.Port()
+	if port == schemeDefaultPort[u.Scheme] || port == refHTTPSPort {
+		port = ""
+	}
+	return host, port, nil
+}
+
+// joinAuthority renders a CanonicalAuthority pair; host is already bracketed
+// when it is an IPv6 literal.
+func joinAuthority(host, port string) string {
+	if port == "" {
+		return host
+	}
+	return host + ":" + port
 }
 
 // repoParts holds a repository half to the reference grammar's own rules

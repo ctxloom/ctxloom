@@ -6,7 +6,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -105,14 +107,18 @@ func inTreeAgentHomeFor(reg engine.Registry, name, harp string) (InTreeAgentHome
 	if !home.Relocates() || harp == "" {
 		return InTreeAgentHomeSpec{}, false
 	}
-	// The error is harp validation (paths.HarpSessionEngineHomes): an instance
-	// cannot be named without a valid session, which is what keeps a durable
+	// The error is harp validation (paths.HarpDir): an instance cannot be
+	// named without a valid session, which is what keeps a durable
 	// project-wide home from regrowing.
-	root, err := paths.HarpSessionEngineHomes(harp)
+	sessionDir, err := paths.HarpDir(harp)
 	if err != nil {
 		clidiag.Warn("ctxloom", "cannot resolve a per-session config home for %s in session %q (%v); this run uses the engine's own host config home instead", name, harp, err)
 		return InTreeAgentHomeSpec{}, false
 	}
+	dir, _ := launch.SessionHome(sessionDir, kind, agents.HomeModeSession)
+	// The engine's instance-config writer takes the homes CONTAINER and
+	// appends its own leaf, so it is handed the session home's parent.
+	root := filepath.Dir(dir)
 	// ONE var, assumed explicitly: no engine declares more than one today,
 	// so Vars[0] is the var. An engine that splits config and data across
 	// several vars needs this spec to become a set (one EnvVar/Subdir per
@@ -121,7 +127,7 @@ func inTreeAgentHomeFor(reg engine.Registry, name, harp string) (InTreeAgentHome
 	engine := name
 	return InTreeAgentHomeSpec{
 		EnvVar: v.Name,
-		Dir:    filepath.Join(root, v.Subdir),
+		Dir:    dir,
 		Subdir: v.Subdir,
 		Prepare: func(cwd string) error {
 			return prepareInstanceHome(engine, root, cwd)

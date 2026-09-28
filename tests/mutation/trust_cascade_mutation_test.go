@@ -71,12 +71,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/gtramontina/ooze"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
@@ -141,20 +143,45 @@ type judge interface {
 // acceptanceJudge rebuilds ctxloom from the mutant and runs the acceptance
 // features that claim to cover the mutated file. Features are ACCEPTANCE_PATHS
 // entries relative to tests/acceptance, which is run_scoped_suite.sh's cwd.
+//
+// The TAG SELECTION is the suite's hermetic default, which excludes
+// @container. WithContainer keeps the @container scenarios of Features in the
+// run: without it, a mutant that only a real container launch can notice
+// survives by construction, because no scenario that could kill it is
+// selected. It is opt-in per entry because it makes the MEASURING HOST need a
+// reachable container runtime and costs an image build per mutant.
 type acceptanceJudge struct {
-	Features []string
+	Features      []string
+	WithContainer bool
 }
 
 func (a acceptanceJudge) testCommand() string {
 	return "sh " + filepath.ToSlash(filepath.Join("tests", "mutation", "run_scoped_suite.sh"))
 }
 
-// prepare sets ACCEPTANCE_PATHS here rather than inside run_scoped_suite.sh so
-// the scope decision stays in this reviewable Go file; cmdtestrunner.Test
-// forwards os.Environ() to every mutant's subprocess.
+// prepare sets the scope here rather than inside run_scoped_suite.sh so the
+// scope decision stays in this reviewable Go file; cmdtestrunner.Test forwards
+// os.Environ() to every mutant's subprocess, and runInLab does the same for the
+// pre-flight, so both run exactly this selection.
+//
+// Every selection variable is SET, never left to the caller's shell: an
+// ACCEPTANCE_TAGS or ACCEPTANCE_INCLUDE_CONTAINER exported for some other lane
+// would otherwise silently become this entry's selection.
+//
+// WithContainer also demands a runtime (dockergate.EnvRequireDocker): without
+// one the @container scenario would decline rather than fail, and the
+// pre-flight must name the missing runtime instead of the run measuring
+// nothing about the container path.
 func (a acceptanceJudge) prepare(t *testing.T) {
 	t.Helper()
 	t.Setenv("ACCEPTANCE_PATHS", strings.Join(a.Features, ","))
+	t.Setenv("ACCEPTANCE_TAGS", "")
+	include := ""
+	if a.WithContainer {
+		include = "1"
+		t.Setenv(dockergate.EnvRequireDocker, "1")
+	}
+	t.Setenv("ACCEPTANCE_INCLUDE_CONTAINER", include)
 }
 
 // validate catches the acceptance judge's two silent failures: no features at
@@ -175,10 +202,35 @@ func (a acceptanceJudge) validate(t *testing.T, root string) {
 			t.Errorf("feature %q does not exist at %s: %v — the suite would run zero scenarios and every mutant would survive", feature, path, err)
 		}
 	}
+	if a.WithContainer && !anyFeatureTagged(root, a.Features, "@container") {
+		t.Errorf("WithContainer is set but none of %v carries a @container scenario — the container selection would add nothing", a.Features)
+	}
+}
+
+// anyFeatureTagged reports whether any feature file (relative to
+// tests/acceptance) has a TAG LINE carrying tag. Only lines that start with
+// '@' count: a comment that merely mentions the tag selects nothing.
+func anyFeatureTagged(root string, features []string, tag string) bool {
+	for _, feature := range features {
+		b, err := os.ReadFile(filepath.Join(root, "tests", "acceptance", filepath.FromSlash(feature)))
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if fields := strings.Fields(line); len(fields) > 0 && strings.HasPrefix(fields[0], "@") && slices.Contains(fields, tag) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (a acceptanceJudge) label() string {
-	return "acceptance features: " + strings.Join(a.Features, ", ")
+	l := "acceptance features: " + strings.Join(a.Features, ", ")
+	if a.WithContainer {
+		l += " — INCLUDING their @container scenarios, so this host needs a reachable container runtime (" + dockergate.EnvRequireDocker + "=1 makes its absence a failure)"
+	}
+	return l
 }
 
 // unitJudge runs exactly one test. Run should address a single test, or the
@@ -320,15 +372,24 @@ var mutationTargets = []mutationTarget{
 		// isolation_probe.feature is deliberately NOT listed: it is @live,
 		// so the default tag filter (~@live) drops every scenario in it and
 		// naming it would add a feature file that contributes zero
-		// executed steps. All 15 of j002200's scenarios do run by default.
+		// executed steps.
 		//
-		// Expect survivors in this file's container-image and mount
-		// plumbing: the suite drives a recording spy, not a real engine or
-		// a container runtime. That is a true statement about the
-		// acceptance suite's reach, which is the measurement.
+		// WithContainer: the container-only guards in this file are reachable
+		// only by j002200's @container scenario, which really launches the
+		// mock engine in a container. Under the default filter that scenario
+		// is excluded, so those guards survived by construction rather than
+		// by any gap in what the feature verifies.
+		//
+		// Expect survivors elsewhere in the container-image and mount
+		// plumbing: the other scenarios drive a recording spy, not a real
+		// engine. That is a true statement about the acceptance suite's
+		// reach, which is the measurement.
 		Name:          "isolation_axes",
 		SourceRelPath: "internal/adapters/isolation/isolation.go",
-		Judge:         acceptanceJudge{Features: []string{"features/journeys/j002200_isolation.feature"}},
+		Judge: acceptanceJudge{
+			Features:      []string{"features/journeys/j002200_isolation.feature"},
+			WithContainer: true,
+		},
 	},
 	{
 		// The remote REGISTRY: Add, Update, Remove, Get, List, SetDefault,
@@ -507,7 +568,7 @@ func (m mutationTarget) release(t *testing.T, extra ...ooze.Option) {
 		ooze.Release(t, append(opts, extra...)...)
 	})
 	if err != nil {
-		t.Fatalf("pre-flight failed: the judge does not pass on the UNMUTATED tree, so every mutant would be scored as a kill and the run would measure nothing.\n%v", err)
+		t.Fatalf("pre-flight failed: the judge (%s) does not pass on the UNMUTATED tree, so every mutant would be scored as a kill and the run would measure nothing.\n%v", m.Judge.label(), err)
 	}
 }
 

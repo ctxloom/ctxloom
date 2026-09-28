@@ -156,14 +156,14 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 }
 
 // HasRoot reports whether the cell resolved the root a RootKind names: the
-// session home is the run's scratch root; the project root and the work
+// session home is the cell's SessionHome; the project root and the work
 // dir are the cell's project root (inside the cell the workspace IS the
 // project root). Route reads it to plan and the static adapter to re-check
 // a plan against the target it was handed.
 func HasRoot(roots present.Paths, r present.RootKind) bool {
 	switch r {
 	case present.RootSessionHome:
-		return roots.Scratch.Host != ""
+		return roots.SessionHome.Host != ""
 	case present.RootProjectRoot, present.RootWorkDir:
 		return roots.ProjectRoot.Host != ""
 	}
@@ -292,10 +292,10 @@ type Target struct {
 // root would record nothing anyone could find again.
 func (t Target) Validate() error {
 	p := t.Root.Paths()
-	if (p.Scratch.Host == "" && p.EngineHome.Host == "" && p.ProjectRoot.Host == "") || t.Ownership == nil || t.Writer == "" {
+	if (p.SessionHome.Host == "" && p.ProjectRoot.Host == "") || t.Ownership == nil || t.Writer == "" {
 		return ErrNoRoot
 	}
-	for _, root := range []string{p.Scratch.Host, p.EngineHome.Host, p.ProjectRoot.Host} {
+	for _, root := range []string{p.SessionHome.Host, p.ProjectRoot.Host} {
 		if root != "" && !filepath.IsAbs(root) {
 			return fmt.Errorf("%w: root %q is not absolute", ErrNoRoot, root)
 		}

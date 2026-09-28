@@ -278,3 +278,19 @@ func TestRunSign_JSONSignedIsAlwaysAnArray(t *testing.T) {
 		assert.Empty(t, out.String(), "a failed run emits no result document")
 	})
 }
+
+// In a project with a VERSION file, sign stamps it into bundle.yaml and says
+// so in one line.
+func TestRunSign_ReportsTheVersionStampedFromVERSION(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, ".ctxloom")
+	require.NoError(t, afero.NewOsFs().MkdirAll(authoredV1(appDir), 0o755))
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}, AppDir: appDir, AppRoot: root, Source: config.SourceProject})
+	require.NoError(t, os.WriteFile(filepath.Join(root, "VERSION"), []byte("1.2.3\n"), 0o644))
+	dir := createDirFormBundle(t, cfg, "my-tools")
+
+	discoverer, _ := discovererWithSoleAgentIdentity(t)
+	cmd, out := testCmd()
+	require.NoError(t, runSign(cmd, cfg, discoverer, "my-tools", false, ""))
+	assert.Contains(t, out.String(), "version 1.0.0 -> 1.2.3 in "+filepath.Join(dir, bundles.DirectoryFormManifest)+" (stamped from "+filepath.Join(root, "VERSION")+")")
+}

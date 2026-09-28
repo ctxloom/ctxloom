@@ -68,7 +68,7 @@ A reference's `@version` is a **constraint** — a semver range (`@^1.2`), a bra
 
 A remote binds to a **forge** — the adapter ctxloom uses to read and publish. `github` is the rich adapter over the GitHub REST API (file reads, ref resolution, repo search, PR publish; serves github.com and GitHub Enterprise). `git` is the generic adapter that clones over HTTPS/SSH and reads the working copy — it works against any git host (GitLab, Gitea, Bitbucket, self-hosted) for consumption, with ambient git auth, but has no API search or PR publish.
 
-Without `--forge`, the forge resolves from the URL host: github.com uses `github`, every other host uses `git`. Pass `--forge` to override with `github`, `git`, or a `forges:` label configured in `remotes.yaml` (e.g. a GitHub Enterprise instance with its own `base_url`/`token_env`).
+Without `--forge`, the forge resolves from the URL: a `forges:` entry whose `base_url` names the same server — host and port, where a scheme's default port may be written or left out — is used first; otherwise github.com uses `github` and every other host uses `git`. A different port is a different server: a remote on `ghe.example.com:8443` does not match a forge configured as `https://ghe.example.com`, so it gets neither that forge's endpoint nor its `token_env`, and ctxloom warns about the mismatch. Pass `--forge` to override with `github`, `git`, or a `forges:` label configured in `remotes.yaml` (e.g. a GitHub Enterprise instance with its own `base_url`/`token_env`).
 
 | URL format | Example |
 |------------|---------|

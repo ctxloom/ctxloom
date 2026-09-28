@@ -39,7 +39,7 @@ func root(t *testing.T, name engine.Name, dynamic bool, roots ...present.RootKin
 }
 
 func hostRoots(project, session string) present.Paths {
-	return present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, Scratch: present.Root{Host: session, Engine: session}}
+	return present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, SessionHome: present.Root{Host: session, Engine: session}}
 }
 
 // TestRoute_CarriedKind_LandsAtTheBindingsRoot: arm 1a — the binding selected

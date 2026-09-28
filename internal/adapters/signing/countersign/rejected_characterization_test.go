@@ -83,3 +83,38 @@ func TestRecords_Rejected_PinsEveryRejectionPath(t *testing.T) {
 		})
 	}
 }
+
+// TestRecords_Rejected_HoldsAcrossProvablyEqualRepoSpellings: a ref-level
+// rejection recorded under one spelling of a repository holds under every
+// spelling that PROVABLY names the same one — a scheme-default port, an IDN
+// host as U-label or A-label — and under no spelling that is merely probably
+// the same (a non-default port, a ".git" suffix, repository-path case). A
+// rejection that a respelled remote escapes is no rejection.
+func TestRecords_Rejected_HoldsAcrossProvablyEqualRepoSpellings(t *testing.T) {
+	signer, pub := testSigner(t)
+	root := rootTrusting("lead@team.example", pub, signing.NamespaceReject)
+	at := func(repo string) trust.Ref {
+		return trust.Ref{RepoURL: repo, Bundle: "tooling", Kind: trust.KindFragment, Name: "x"}
+	}
+	cases := []struct {
+		name, recorded, asked string
+		want                  bool
+	}{
+		{"https default port vs ssh default port, U-label vs A-label", "https://bücher.example:443/acme/repo", "ssh://git@xn--bcher-kva.example:22/acme/repo", true},
+		{"scp A-label vs https mixed-case U-label", "git@xn--bcher-kva.example:acme/repo", "https://BÜCHER.example/acme/repo", true},
+		{"https vs git default port", "https://host.example/acme/repo", "git://host.example:9418/acme/repo", true},
+		{"non-default port is another repository", "https://host.example/acme/repo", "https://host.example:8443/acme/repo", false},
+		{".git suffix is another repository", "https://host.example/acme/repo", "https://host.example/acme/repo.git", false},
+		{"path case is another repository", "https://host.example/acme/repo", "https://host.example/Acme/Repo", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			refStr, err := CountersignRef(at(tc.recorded))
+			require.NoError(t, err)
+			user := NewStore("/user", afero.NewMemMapFs())
+			require.NoError(t, user.WriteRefReject(refStr, signer))
+			c := Records{user: user, project: NewStore("/project", afero.NewMemMapFs()), root: root}
+			assert.Equal(t, tc.want, c.Rejected(at(tc.asked), []byte("body")))
+		})
+	}
+}

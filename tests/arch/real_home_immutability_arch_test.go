@@ -263,7 +263,7 @@ func deliverIntoInstance(t *testing.T, workDir, instance string) {
 	def := eng.Root().Definition
 	start := present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: workDir, Engine: workDir},
-		EngineHome:  present.Root{Host: instance, Engine: instance},
+		SessionHome: present.Root{Host: instance, Engine: instance},
 	}))
 	managed := launchManaged()
 	if _, err := def.Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("project rules")}, nil); err != nil {

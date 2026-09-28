@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 // SourceClass names which of the four reference classes a URI belongs to. The
@@ -265,17 +267,69 @@ func Parse(raw string) (Parts, error) {
 	return p, nil
 }
 
+// refHTTPSPort is the default port of the transport a ClassGit reference is
+// fetched over. A reference carries no transport of its own — FetchURL renders
+// it as https — so a port written into one IS an https port, and ":443" names
+// the same server as no port at all (RFC 3986 §6.2.3).
+const refHTTPSPort = "443"
+
+// canonicalGitHost is the one spelling of a ClassGit authority. It folds only
+// what names the same server for certain, and a "www." prefix is NOT among
+// them: that is a distinct host name, preserved like every other spelling this
+// grammar accepts (see Parse's doc).
+//
+//   - case, RFC 3986 §6.2.2.1: a host is case-insensitive;
+//   - an IDN host becomes its A-label (punycode) under IDNA2008/UTS #46's
+//     LOOKUP profile, the mapping a resolver applies before asking DNS, so the
+//     U-label and A-label spellings of one name key once. A host that profile
+//     refuses is an ERROR, never passed through: a verbatim key would sit
+//     beside its A-label twin as a second identity for one repository;
+//   - an empty port and the https default (refHTTPSPort) are dropped.
+//
+// It is CanonicalAuthority rendered, so a reference and a repository identity
+// cannot disagree about a host.
+func canonicalGitHost(u *url.URL) (string, error) {
+	if u.Hostname() == "" {
+		return "", fmt.Errorf("%w: %sgit requires a host", ErrSyntax, SchemePrefix)
+	}
+	host, port, err := CanonicalAuthority(u)
+	if err != nil {
+		return "", err
+	}
+	return joinAuthority(host, port), nil
+}
+
+// CanonicalHost is the one spelling of a host NAME — as url.URL.Hostname
+// returns it, without port or brackets — under which repository identity keys.
+// Anything else that compares hosts (forge matching) must compare these, or a
+// remote keyed as one repository binds differently by how its host is written.
+//
+// Case folds (RFC 3986 §6.2.2.1); a DNS name becomes its A-label under the
+// IDNA2008/UTS #46 LOOKUP profile, and a name that profile refuses is an
+// ErrSyntax error; an IPv6 literal is lowercased and bracketed, since IDNA
+// does not apply to an IP literal.
+func CanonicalHost(name string) (string, error) {
+	if strings.Contains(name, ":") {
+		return "[" + strings.ToLower(name) + "]", nil
+	}
+	ascii, err := idna.Lookup.ToASCII(name)
+	if err != nil {
+		return "", fmt.Errorf("%w: host %q is not a valid host name: %v", ErrSyntax, name, err)
+	}
+	return ascii, nil
+}
+
 // parseExternal fills the repo path and bundle for ClassGit / ClassFile.
 func (p *Parts) parseExternal(u *url.URL) error {
 	if p.Class == ClassGit {
 		if u.Host == "" {
 			return fmt.Errorf("%w: %sgit requires a host", ErrSyntax, SchemePrefix)
 		}
-		// RFC 3986 §6.2.2.1: the host is case-INSENSITIVE, so folding its
-		// case is conformant normalization. A "www." prefix is NOT: it is a
-		// distinct host name, preserved byte-exact like every other spelling
-		// this grammar accepts. See Parse's doc.
-		p.Host = strings.ToLower(u.Host)
+		host, err := canonicalGitHost(u)
+		if err != nil {
+			return err
+		}
+		p.Host = host
 	} else if u.Host != "" {
 		return fmt.Errorf("%w: %sfile takes no host (use %sfile:///<abs-path>)", ErrSyntax, SchemePrefix, SchemePrefix)
 	}

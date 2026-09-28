@@ -202,7 +202,7 @@ func deliverLaunch(ctx context.Context, deps Deps, src Source, eng engine.Engine
 	if err != nil {
 		return err
 	}
-	plan, err := delivery.Route(itemsOf(pkg, def.Name), def, pref, routableRoots(eng, l.Cell.Paths.Paths()))
+	plan, err := delivery.Route(itemsOf(pkg, def.Name), def, pref, l.Cell.Paths.Paths())
 	if err != nil {
 		return err
 	}
@@ -507,21 +507,6 @@ func itemsOf(pkg composite.Package, name engine.Name) engine.Items {
 		items.Fragments = append([]engine.FragmentItem{{Ref: "context", Body: []byte(pkg.Context.Text)}}, items.Fragments...)
 	}
 	return items
-}
-
-// routableRoots is the cell's roots as the router sees them. An engine that
-// declares a relocatable home delivers its session-home kinds BENEATH that
-// home (its own config dir, where it discovers them natively); a run that
-// advises no engine home — a binding that selected the host home, whose
-// real home is the engine's own and not ours to deliver into — therefore
-// has no session home to route into, whatever scratch root the cell holds.
-// An engine with no relocatable home (the mock) keeps the scratch root as
-// its session home.
-func routableRoots(eng engine.Engine, roots present.Paths) present.Paths {
-	if eng.Home().Relocates() && roots.EngineHome.Host == "" {
-		roots.Scratch = present.Root{}
-	}
-	return roots
 }
 
 // carry is the size conditional: measure, then Inline at or under InlineMax,

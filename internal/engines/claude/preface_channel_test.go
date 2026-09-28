@@ -53,7 +53,7 @@ func TestDelivery_PrefaceItemsRideTheEndpoint_EveryOtherItemIsAFile(t *testing.T
 	project, home := filepath.Join(dir, "project"), filepath.Join(dir, "home")
 	require.NoError(t, os.MkdirAll(project, 0o755))
 	require.NoError(t, os.MkdirAll(home, 0o755))
-	roots := present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, EngineHome: present.Root{Host: home, Engine: home}, Scratch: present.Root{Host: home, Engine: home}}
+	roots := present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, SessionHome: present.Root{Host: home, Engine: home}}
 	plan, err := delivery.Route(items, root, delivery.Preference{}, roots)
 	require.NoError(t, err)
 	require.Equal(t, []string{"b#fragment/when-go"}, plan.Dynamic, "the preface item, and only it, rides the endpoint")

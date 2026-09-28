@@ -88,12 +88,12 @@ func TestLaunchDiscovery_LaunchesTheInterviewInItsOwnSessionHome(t *testing.T) {
 	// The session home lives under ctxloom's sessions dir for THIS harp and
 	// nowhere near the project; the project is the session's workspace.
 	sessionDir := filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir, captured.Identity.Harp)
-	scratch := captured.Cell.Paths.Paths().Scratch.Host
-	require.NotEmpty(t, scratch, "the cell must resolve a session home")
-	assert.True(t, scratch == sessionDir || strings.HasPrefix(scratch, sessionDir+string(filepath.Separator)),
-		"session home %q must be under the session's own dir %q", scratch, sessionDir)
-	assert.False(t, strings.HasPrefix(scratch, project+string(filepath.Separator)),
-		"session home %q must not be inside the project %q", scratch, project)
+	home := captured.Cell.Paths.Paths().SessionHome.Host
+	require.NotEmpty(t, home, "the cell must resolve a session home")
+	assert.True(t, strings.HasPrefix(home, sessionDir+string(filepath.Separator)),
+		"session home %q must be under the session's own dir %q", home, sessionDir)
+	assert.False(t, strings.HasPrefix(home, project+string(filepath.Separator)),
+		"session home %q must not be inside the project %q", home, project)
 	assert.Equal(t, project, captured.Cell.Workspace, "the interview works in the project")
 
 	// The interview is context-free BY DECLARATION (an internal source: the

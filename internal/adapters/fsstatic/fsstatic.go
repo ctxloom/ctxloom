@@ -248,7 +248,7 @@ func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) erro
 // rootsOf are the target's resolved roots, in the order a written file is
 // attributed to them.
 func rootsOf(paths present.Paths) []string {
-	return []string{paths.Scratch.Host, paths.EngineHome.Host, paths.ProjectRoot.Host}
+	return []string{paths.SessionHome.Host, paths.ProjectRoot.Host}
 }
 
 // underARoot reports whether path lies under one of the target's roots.

@@ -60,7 +60,7 @@ func settingsJSON(t *testing.T, v any) []byte {
 func recordStart() present.Start {
 	return present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: "/proj"},
-		EngineHome:  present.Root{Host: recordHome},
+		SessionHome: present.Root{Host: recordHome},
 	}))
 }
 
@@ -210,7 +210,7 @@ func firstLine(b []byte) string {
 
 // A record delivery on a run whose engine home was never advised — a
 // binding that selected the real host home — is REFUSED with
-// ErrUnrootedEngineHome. Nothing is written anywhere: not a relative
+// ErrUnrootedSessionHome. Nothing is written anywhere: not a relative
 // "settings.json", not the user's real ~/.claude, and no record.
 func TestSettingsRecord_Deliver_RefusesAnUnresolvedEngineHome(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -220,7 +220,7 @@ func TestSettingsRecord_Deliver_RefusesAnUnresolvedEngineHome(t *testing.T) {
 	require.True(t, ok)
 
 	d, err := a.Deliver(present.ProjectOnHost("/proj"))
-	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	assert.Nil(t, d)
 
 	var written []string

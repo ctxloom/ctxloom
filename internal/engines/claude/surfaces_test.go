@@ -20,16 +20,14 @@ import (
 // fakePlacement (contextdelivery_test.go) and mcpServersOf (surfacedelivery_test.go)
 // are reused here — same package.
 
-// runRoots advises a run rooted at project with its out-of-cwd scratch at
-// scratch and its relocated engine home at engineHome, on the host — the
-// roots claude's well-known, settings-out-of-cwd and private-root approaches
-// read respectively. Tests advise DISTINCT dirs so an assertion on one root
-// cannot be satisfied by a write to another.
-func runRoots(project, scratch, engineHome string) present.Start {
+// runRoots advises a run rooted at project with its session home at
+// sessionHome, on the host — the roots claude's well-known and private-root
+// approaches read respectively. Tests advise DISTINCT dirs so an assertion on
+// one root cannot be satisfied by a write to another.
+func runRoots(project, sessionHome string) present.Start {
 	return present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: project},
-		Scratch:     present.Root{Host: scratch},
-		EngineHome:  present.Root{Host: engineHome},
+		SessionHome: present.Root{Host: sessionHome},
 	}))
 }
 
@@ -162,10 +160,10 @@ func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 // — and does NOT touch the well-known CLAUDE.md. Every cell reaches this form;
 // there is no second one for a cell to pick instead.
 func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
-	cwd, scratch, home := t.TempDir(), t.TempDir(), t.TempDir()
+	cwd, home := t.TempDir(), t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Context.Deliver(runRoots(cwd, scratch, home))
+	handle, err := s.Context.Deliver(runRoots(cwd, home))
 	require.NoError(t, err)
 
 	path := s.Context.Path()
@@ -178,11 +176,9 @@ func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, agent.FrameProjectContext(sampleInputs().Context), string(data))
 
-	// Neither the cwd nor the scratch receives anything: no CLAUDE.md, and no
-	// framed file where Scratch would have put it.
+	// The cwd receives nothing, and the home holds no CLAUDE.md.
 	assert.NoFileExists(t, filepath.Join(cwd, "CLAUDE.md"))
 	assert.NoFileExists(t, filepath.Join(home, "CLAUDE.md"))
-	assert.Empty(t, dirEntries(t, scratch), "the private root is the engine home, not Scratch")
 
 	require.NoError(t, handle.Cleanup())
 	assert.NoFileExists(t, path)
@@ -212,19 +208,17 @@ func TestMCPSurface_DeliverWritesMCPJSON(t *testing.T) {
 // The DEFAULT mcp approach writes .mcp.json beneath the private root and
 // exposes that path for --mcp-config; the shared cwd is left untouched.
 func TestMCPSurface_DeliverWritesPrivateConfig(t *testing.T) {
-	cwd := t.TempDir()     // the "shared cwd" — must stay clean
-	scratch := t.TempDir() // the run's scratch — not this approach's root
-	home := t.TempDir()    // the relocated engine home — the private root
+	cwd := t.TempDir()  // the "shared cwd" — must stay clean
+	home := t.TempDir() // the session home — the private root
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.MCP.Deliver(runRoots(cwd, scratch, home))
+	handle, err := s.MCP.Deliver(runRoots(cwd, home))
 	require.NoError(t, err)
 
 	assert.Equal(t, filepath.Join(home, ".mcp.json"), s.MCP.Path(),
 		"Path() is the private .mcp.json for --mcp-config, beneath the engine home")
 	require.FileExists(t, s.MCP.Path())
 	assert.NoFileExists(t, filepath.Join(cwd, ".mcp.json"), "the shared cwd is never written")
-	assert.NoFileExists(t, filepath.Join(scratch, ".mcp.json"), "the private root is the engine home, not Scratch")
 
 	servers := mcpServersOf(t, home)
 	assert.Contains(t, servers, AppMCPServerName)
@@ -248,14 +242,13 @@ func TestMCPSurface_DeliverWritesPrivateConfig(t *testing.T) {
 // is precisely what made the defect invisible.
 func TestMCPSurface_DeliverMaterializesConfigWithNoServers(t *testing.T) {
 	cwd := t.TempDir()
-	scratch := t.TempDir()
 	home := t.TempDir()
 
 	in := sampleInputs()
 	in.BundleMCP = nil
 	s := newSurfaces(in, nil)
 
-	handle, err := s.MCP.Deliver(runRoots(cwd, scratch, home))
+	handle, err := s.MCP.Deliver(runRoots(cwd, home))
 	require.NoError(t, err)
 
 	assert.Equal(t, filepath.Join(home, ".mcp.json"), s.MCP.Path(),
@@ -294,17 +287,17 @@ func TestSettingsSurface_DeliverWritesSettingsJSON(t *testing.T) {
 	assert.NotContains(t, settings, "hooks", "cleanup reverts ctxloom hooks")
 }
 
-// settings DeliverIsolated writes .claude/settings.json into the OUT-OF-CWD
-// placement and exposes that path for --settings.
+// settings DeliverIsolated writes .claude/settings.json beneath the session
+// home and exposes that path for --settings.
 func TestSettingsSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
 	cwd := t.TempDir()
-	isolated := t.TempDir()
+	home := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Settings.DeliverIsolated(runRoots(cwd, isolated, t.TempDir()))
+	handle, err := s.Settings.DeliverIsolated(runRoots(cwd, home))
 	require.NoError(t, err)
 
-	assert.Equal(t, filepath.Join(isolated, ".claude", "settings.json"), s.Settings.Path(),
+	assert.Equal(t, filepath.Join(home, ".claude", "settings.json"), s.Settings.Path(),
 		"Path() is the out-of-cwd settings.json for --settings")
 	require.FileExists(t, s.Settings.Path())
 	assert.NoFileExists(t, filepath.Join(cwd, ".claude", "settings.json"), "the shared cwd is never written")
@@ -529,7 +522,7 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 			// Every root advised: a default approach may root under any of
 			// them, and one that roots privately REFUSES an unadvised root
 			// rather than falling back to the project file.
-			start := runRoots(dir, dir, t.TempDir())
+			start := runRoots(dir, t.TempDir())
 			_, err := a.Deliver(start)
 			require.NoError(t, err)
 
@@ -559,16 +552,16 @@ func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
 // TestPrivateRootApproaches_RefuseWithoutAnEngineHome is feeble-sway's
 // no-fallback condition at the seam. An approach whose ONLY form lands beneath
 // the private root, handed a run that advises none, refuses with
-// ErrUnrootedEngineHome: it writes neither the project file nor anything
-// beneath Scratch, and records no path for a launch flag to name. The tempting
+// ErrUnrootedSessionHome: it writes neither the project file nor anything
+// else, and records no path for a launch flag to name. The tempting
 // substitutions — CLAUDE.md for the system prompt, the project .mcp.json for
-// the private one, Scratch for the home — are each a different product
+// the private one — are each a different product
 // behaviour under a different name, and the surface is the wrong place to
 // pick one.
 func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
-	project, scratch := t.TempDir(), t.TempDir()
+	project := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
-	noHome := runRoots(project, scratch, "")
+	noHome := runRoots(project, "")
 
 	for _, tc := range []struct {
 		name    string
@@ -580,11 +573,10 @@ func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handle, err := tc.deliver(noHome)
-			require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+			require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 			assert.Nil(t, handle, "a refusal holds no cleanup handle: nothing was written")
 			assert.Empty(t, tc.path(), "a refusal records no path — no flag may name it")
 			assert.Empty(t, dirEntries(t, project), "no fallback to the project file")
-			assert.Empty(t, dirEntries(t, scratch), "no fallback to Scratch")
 		})
 	}
 }
@@ -596,11 +588,11 @@ func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
 // process happens to be. An empty bundle is still "nothing to present": the
 // root is never consulted for a surface with no bytes.
 func TestMCPConfig_PresentExisting_RefusesWithoutAnEngineHome(t *testing.T) {
-	noHome := runRoots(t.TempDir(), t.TempDir(), "")
+	noHome := runRoots(t.TempDir(), "")
 
 	s := newSurfaces(sampleInputs(), nil)
 	p, err := s.MCP.PresentExisting(noHome)
-	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	assert.Empty(t, p)
 	assert.Empty(t, s.MCP.Path())
 

@@ -180,12 +180,12 @@ func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeRe
 	if in.ContainerHome != "" {
 		// A container path, so joined with forward slashes whatever the
 		// host's separator (present.Containerize's own rule for Engine).
-		advice = present.Containerize{EngineHome: path.Join(in.ContainerHome, spec.Subdir)}
+		advice = present.Containerize{SessionHome: path.Join(in.ContainerHome, spec.Subdir)}
 	}
-	paths, mounts := advice.ApplyPaths(present.Paths{EngineHome: present.Root{Host: home}})
+	paths, mounts := advice.ApplyPaths(present.Paths{SessionHome: present.Root{Host: home}})
 	res := AgentHomeResolution{
-		Root: paths.EngineHome,
-		Env:  map[string]string{spec.EnvVar: paths.EngineHome.Engine},
+		Root: paths.SessionHome,
+		Env:  map[string]string{spec.EnvVar: paths.SessionHome.Engine},
 	}
 	if len(mounts) > 0 {
 		m := mounts[0]

@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +34,7 @@ type Fake struct {
 	// IgnoredContent maps a worktree path to whether HasIgnoredContent
 	// reports it as holding gitignored/excluded files.
 	IgnoredContent map[string]bool
-	// CommonDirValue is what CommonDir returns (empty → "<dir>/.git").
+	// CommonDirValue is what CommonDir returns (empty → <dir>/.git).
 	CommonDirValue string
 	// CommonDirErr, when set, is returned by CommonDir instead of
 	// CommonDirValue. A caller that resolves the common dir to build a
@@ -144,7 +145,8 @@ func (f *Fake) IsRepo(dir string) bool {
 	return f.Repos[dir]
 }
 
-// CommonDir returns CommonDirValue, or "<dir>/.git" when unset.
+// CommonDir returns CommonDirValue, or <dir>/.git in host form when unset —
+// host form because execGit.CommonDir cleans what git prints.
 func (f *Fake) CommonDir(_ context.Context, dir string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -154,7 +156,7 @@ func (f *Fake) CommonDir(_ context.Context, dir string) (string, error) {
 	if f.CommonDirValue != "" {
 		return f.CommonDirValue, nil
 	}
-	return dir + "/.git", nil
+	return filepath.Join(dir, ".git"), nil
 }
 
 // WorktreeAdd records the add and (unless AddErr is set) appends the new

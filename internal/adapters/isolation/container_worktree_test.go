@@ -37,7 +37,7 @@ func TestContainerWorktree_GitdirMountRoutesThroughMapper(t *testing.T) {
 }
 
 // TestContainerWorktree_RunSpecMountsWorktreeAndGitdir proves the run spec the
-// container launcher builds carries BOTH the identical-path WORKTREE mount (cwd)
+// container launcher builds carries BOTH the mapped WORKTREE mount (cwd)
 // and the .git gitdir mirror — the two mounts that make git resolve inside the
 // container over the member's own checkout.
 func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
@@ -53,9 +53,9 @@ func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
 	// worktree, the workspace's mounts carrying the gitdir mirror.
 	spec := runnerSpecFor(Docker{}, "mock", worktreeDir, nil, []mount{gitMount})
 
-	assert.Equal(t, worktreeDir, spec.WorkDir, "cwd is the member's worktree, not the live project")
-	assert.Contains(t, spec.Mounts, mount{Host: worktreeDir, Container: worktreeDir},
-		"the worktree is bind-mounted identical-path as cwd")
+	assert.Equal(t, mapped(t, Docker{}, worktreeDir), spec.WorkDir, "cwd is the member's worktree, not the live project")
+	assert.Contains(t, spec.Mounts, exposedMapped(t, Docker{}, worktreeDir, false),
+		"the worktree is bind-mounted at its mapped path as cwd")
 	assert.Contains(t, spec.Mounts, gitMount,
 		"the .git gitdir mirror is mounted so git resolves inside the container")
 }

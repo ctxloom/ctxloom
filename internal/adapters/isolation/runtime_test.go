@@ -363,7 +363,7 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 	assert.Equal(t, defaultContainerHome, NewContainerFor(rt, "mock").WithImage("img").home)
 	assert.Equal(t, defaultContainerHome, containerFor(rt, "claude-code", ImageConfig{}).home)
 
-	spec := runnerSpecFor(Docker{}, "claude-code", "/proj", nil, nil)
+	spec := runnerSpecFor(Docker{}, "claude-code", t.TempDir(), nil, nil)
 	require.Equal(t, defaultContainerHome, spec.Home)
 	assert.Contains(t, strings.Join(renderRunSpec(spec), " "), "-e HOME="+defaultContainerHome,
 		"a spec carrying a home must render the fresh-HOME env flag")

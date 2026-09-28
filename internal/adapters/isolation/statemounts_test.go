@@ -211,7 +211,7 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
-	spec := runnerSpecFor(Docker{}, "claude-code", "/proj", nil, mounts)
+	spec := runnerSpecFor(Docker{}, "claude-code", t.TempDir(), nil, mounts)
 	argv := strings.Join(Docker{}.RunArgs(spec), " ")
 
 	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")

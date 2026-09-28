@@ -27,10 +27,10 @@ import (
 // took every profile a locked bundle ships as a root would say otherwise, and
 // would say so only while kit's tree happened to be installed.
 type shippedProfileProject struct {
-	appDir, repoDir     string
-	kitRef, containRef  string
-	kitKey, containKey  string
-	app                 *App
+	appDir, repoDir    string
+	kitRef, containRef string
+	kitKey, containKey string
+	app                *App
 }
 
 func newShippedProfileProject(t *testing.T) *shippedProfileProject {
@@ -203,4 +203,39 @@ func TestPull_MissingTreeReinstallsAtLockedSHA(t *testing.T) {
 	require.NoError(t, err)
 	_, statErr := os.Stat(dir)
 	assert.NoError(t, statErr, "the missing tree is reinstalled")
+}
+
+// The lock rebuild a pull runs after installing drops entries outside the
+// closure like upgrade does — and says which.
+func TestPull_LockRebuildNamesDroppedEntries(t *testing.T) {
+	p := newShippedProfileProject(t)
+	p.pull(t)
+
+	lf := p.lock(t)
+	kitEntry, ok := lf.GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	require.True(t, ok)
+	lf.AddEntry(remote.ItemTypeBundle, lockKeyOf(t, p.containRef), remote.LockEntry{SHA: kitEntry.SHA, URL: kitEntry.URL, FetchedAt: time.Now().UTC()})
+	require.NoError(t, remote.NewLockfileManager(p.appDir).Save(lf))
+	// Something must install for the rebuild to run.
+	p.removeTree(t, p.kitRef)
+	p.cfg(t)
+
+	res := p.pull(t)
+	assert.Equal(t, []string{p.containKey}, res.Removed)
+	assert.Equal(t, []string{p.kitKey}, p.lockedKeys(t))
+}
+
+// `deps pull --force` is the one pull that re-resolves an existing pin.
+func TestPull_ForceReresolvesExistingPin(t *testing.T) {
+	p := newShippedProfileProject(t)
+	p.pull(t)
+
+	moved := addFileToLocalRepo(t, p.repoDir, "README.md", "moved on\n")
+	res, err := SyncDependencies(context.Background(), p.app, SyncDependenciesRequest{Lock: true, Force: true})
+	require.NoError(t, err)
+	require.Empty(t, res.Failed)
+
+	after, ok := p.lock(t).GetEntry(remote.ItemTypeBundle, lockKeyOf(t, p.kitRef))
+	require.True(t, ok)
+	assert.Equal(t, moved, after.SHA)
 }

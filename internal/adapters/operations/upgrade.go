@@ -3,8 +3,8 @@ package operations
 import (
 	"context"
 	"errors"
-	"sort"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"sort"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"

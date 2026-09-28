@@ -136,11 +136,14 @@ type SyncDependenciesResult struct {
 	// learned from a fresh pull or re-checked on an already-installed ref.
 	Retracted []SyncItem `json:"retracted,omitempty"`
 	Failed    []SyncItem `json:"failed,omitempty"`
-	Total     int        `json:"total"`
-	Installed int        `json:"installed"`
-	Updated   int        `json:"updated"`
-	Errors    int        `json:"errors"`
-	Message   string     `json:"message,omitempty"`
+	// Removed names the lockfile entries the post-pull lock rebuild dropped
+	// because nothing the project composes reaches them any more.
+	Removed   []string `json:"removed,omitempty"`
+	Total     int      `json:"total"`
+	Installed int      `json:"installed"`
+	Updated   int      `json:"updated"`
+	Errors    int      `json:"errors"`
+	Message   string   `json:"message,omitempty"`
 }
 
 // SyncDependencies syncs remote bundles and profiles referenced in config.
@@ -395,9 +398,12 @@ func runSyncPostSteps(ctx context.Context, reg engine.Registry, cfg *config.Conf
 		// The puller already wrote the lockfile inline during this sync, so the
 		// lock step only needs to surface it — SkipSync avoids a redundant
 		// second sync pass.
-		if _, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs}); err != nil {
+		lockRes, err := syncLockStep(ctx, cfg, LockDependenciesRequest{FS: fs})
+		if err != nil {
 			clidiag.Warn("ctxloom", "failed to generate lockfile after sync: %v", err)
 			zap.L().Warn("failed to generate lockfile", zap.Error(err))
+		} else if lockRes != nil {
+			result.Removed = lockRes.Removed
 		}
 	}
 

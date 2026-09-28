@@ -34,6 +34,9 @@ type LockDependenciesResult struct {
 	Path      string `json:"path,omitempty"`
 	ItemCount int    `json:"item_count,omitempty"`
 	Message   string `json:"message,omitempty"`
+	// Removed names, sorted, the previous entries the rebuilt closure no
+	// longer reaches — dropped by the wholesale write.
+	Removed []string `json:"removed,omitempty"`
 }
 
 // LockDependencies builds lock.yaml from the flattened transitive closure of
@@ -137,6 +140,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		Status:    "generated",
 		Path:      lockManager.Path(),
 		ItemCount: len(lockfile.AllEntries()),
+		Removed:   droppedEntries(prev, lockfile),
 	}, nil
 }
 

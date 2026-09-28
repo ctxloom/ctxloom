@@ -119,3 +119,15 @@ func TestRenderRemoteList_MarksTheDefault(t *testing.T) {
 	assert.Regexp(t, `other\s+https://example\.test/b\n`, got)
 	assert.Equal(t, 1, strings.Count(got, "(default)"), "exactly one remote is the default")
 }
+
+// Each entry the post-pull lock rebuild dropped is named.
+func TestRenderPullSummary_NamesRemovedEntries(t *testing.T) {
+	var out bytes.Buffer
+	renderPullSummary(&out, &operations.SyncDependenciesResult{
+		Total:     1,
+		Installed: 1,
+		Removed:   []string{"ctxloom+git://github.com/o/r//bundles/gone"},
+	})
+	assert.Contains(t, out.String(),
+		"  Removed ctxloom+git://github.com/o/r//bundles/gone from the lockfile: nothing this project composes depends on it any more.\n")
+}

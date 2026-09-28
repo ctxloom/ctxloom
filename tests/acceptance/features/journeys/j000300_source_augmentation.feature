@@ -32,6 +32,19 @@ Feature: Companions shape how a project is set up
     And it includes the company's onboarding steps
     And it includes her personal setup preferences
 
+  # The switch is the negative half, and it only means something beside the
+  # scenario above: the SAME two companions, installed the same way, reach the
+  # prompt there and must not here. The built-in guidance is asserted too, so
+  # a launch that delivered no prompt at all cannot pass as "companions off".
+  Scenario: Switching companions off for one setup keeps their guidance out of the interview
+    Given her company ships a companion whose loadout declares the company's onboarding steps
+    And her own tooling ships a companion whose loadout declares her setup preferences
+    And both companions are installed, each signed with its publisher's key
+    When Alice runs the ctxloom setup with companions switched off
+    Then the interview prompt the mock engine receives includes ctxloom's built-in setup guidance
+    And it does not include the company's onboarding steps
+    And it does not include her personal setup preferences
+
   # The @live twin: a REAL assistant reflects the composed guidance. The
   # hermetic row above proves the prompt was DELIVERED; only this one proves a
   # model actually read it.

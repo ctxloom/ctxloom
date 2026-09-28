@@ -55,6 +55,10 @@ func TestRuntimeAxis_ConfigFileControl(t *testing.T) {
 				// engine label: the axis under test is what varies.
 				fmt.Sprintf("version: %d\nagents:\n  probe:\n    llm: claude-code\n    runtime: %s\n", config.CurrentConfigVersion, tc.runtime)))
 
+			// The valid row's exit 0 must not depend on the machine: a
+			// container-rootless axis is refused (exit 3) wherever no rootless
+			// runtime is reachable, which is a different claim from this one.
+			require.NoError(t, env.StubRootlessContainerRuntime())
 			_ = env.Run("run", "--agent", "probe", "--dry-run", "hi")
 			exit := env.LastExitCode()
 

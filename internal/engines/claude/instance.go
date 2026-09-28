@@ -50,8 +50,8 @@ func (c Claude) Home() engine.HomeSpec {
 // which fetches the most recent claude, is the build source.
 func (c Claude) Container() (engine.ContainerSpec, error) {
 	return engine.ContainerSpec{
-		Install:         installFragment,
-		ValidateCommand: "claude --version",
+		Install:            installFragment,
+		ValidateCommand:    "claude --version",
 		OverlayDirs:        []string{ConfigDirName},
 		TranscriptStoreRel: filepath.Join(ConfigDirName, TranscriptsDirName),
 	}, nil

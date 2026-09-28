@@ -134,7 +134,6 @@ func TestClaudeAuth_Credentials_NonLoginUnsetsTheStorageVar(t *testing.T) {
 // only what is set — and removes the stored modes' credentials and the
 // login's storage.
 func TestClaudeAuth_Credentials_CloudPassesTheProviderThrough(t *testing.T) {
-	fakeHome(t)
 	bedrock := map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1", "AWS_PROFILE": "work", "UNRELATED": "x"}
 	for k, v := range everyCredentialExported {
 		if _, ok := bedrock[k]; !ok && k != AuthTokenEnv {
@@ -150,16 +149,16 @@ func TestClaudeAuth_Credentials_CloudPassesTheProviderThrough(t *testing.T) {
 	got, err = testAuth().Credentials(engine.AuthCloud, shellOf(gateway), memStore{})
 	require.NoError(t, err)
 	assert.Equal(t, gateway, got.Env, "a gateway's bearer and base URL select cloud on their own")
-	assert.Empty(t, got.Stores, "a home with no provider login shares nothing")
+	assert.Empty(t, got.Stores, "a launching env with no home shares nothing")
 }
 
 // cloud shares each provider credential directory the human HAS, read-only
 // and at its place under $HOME — and declares none that is missing, since a
 // declared store that is missing refuses the run.
 func TestClaudeAuth_Credentials_CloudSharesTheProviderDirsThatExist(t *testing.T) {
-	home := fakeHome(t)
+	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".config", "gcloud"), 0o700))
-	vertex := shellOf(map[string]string{"CLAUDE_CODE_USE_VERTEX": "1"})
+	vertex := shellOf(map[string]string{"CLAUDE_CODE_USE_VERTEX": "1", "HOME": home})
 
 	got, err := testAuth().Credentials(engine.AuthCloud, vertex, memStore{})
 	require.NoError(t, err)
@@ -183,15 +182,6 @@ func TestClaudeAuth_Credentials_StoredModesShareNoStore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, got.Stores, mode)
 	}
-}
-
-// fakeHome points the user's home at a fresh temp dir for one test.
-func fakeHome(t *testing.T) string {
-	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	return home
 }
 
 // Every refusal is typed and carries a remedy naming what to do: the

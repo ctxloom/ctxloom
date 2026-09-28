@@ -197,16 +197,17 @@ func (c claudeAuth) cloudCredentials(shell func(string) (string, bool)) (engine.
 				strings.Join(providerSwitches, ", "), AuthTokenEnv, "ANTHROPIC_BASE_URL", c.engine, strings.Join(others, ", ")),
 			"%s cloud: none of %s is set: %w", c.engine, strings.Join(append(slices.Clone(providerSwitches), AuthTokenEnv), ", "), engine.ErrNoCredential)
 	}
-	return engine.Credentials{Env: set, Unset: []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}, Stores: existingProviderStores()}, nil
+	return engine.Credentials{Env: set, Unset: []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}, Stores: existingProviderStores(shell)}, nil
 }
 
-// existingProviderStores are the providerStores present in the human's
-// home: only a directory that exists is declared, since a declared store
-// that is missing refuses the run and a provider login the human never made
-// is not a missing one.
-func existingProviderStores() []engine.SharedStore {
-	home, err := os.UserHomeDir()
-	if err != nil {
+// existingProviderStores are the providerStores present in the launching
+// env's home: only a directory that exists is declared, since a declared
+// store that is missing refuses the run and a provider login the human never
+// made is not a missing one. The home is the launching env's HOME, where the
+// provider SDKs look; none is declared without one.
+func existingProviderStores(shell func(string) (string, bool)) []engine.SharedStore {
+	home, _ := shell("HOME")
+	if home == "" {
 		return nil
 	}
 	var out []engine.SharedStore

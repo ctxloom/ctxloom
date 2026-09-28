@@ -462,6 +462,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   Scenario: An in-tree login agent with no token proceeds on Alice's own login
     Given Alice has a git-backed project
     And Alice has no "claude-code" credentials or API key on the host
+    And Alice has a "claude-code" credential fixture on the host
     And Alice's agent declares engine_home "session"
     And Alice's agent declares auth "login"
     When Alice runs the isolated "claude-code" agent under workspace "none"
@@ -470,6 +471,19 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And the spy "claude-code" process shares Alice's own login in place
     And the spy "claude-code" process was handed no setup-token
     And the isolated "claude-code" home holds no credential file
+
+  # ...but it needs the login. With no claude login on this host at all, a
+  # login agent is refused before any engine is spawned, naming what to do,
+  # rather than started logged out (ruled 2026-09-27, C1/F7: the host and the
+  # container refuse alike).
+  Scenario: A login agent with no login on the host is refused, naming auth token
+    Given Alice has a git-backed project
+    And Alice has no "claude-code" credentials or API key on the host
+    And Alice has no "claude-code" credentials on the host
+    And Alice's agent declares engine_home "session"
+    And Alice's agent declares auth "login"
+    When Alice runs the isolated "claude-code" agent under workspace "none"
+    Then the run fails without any isolation finding, naming "auth: token"
 
   # An api-key agent's key riding the environment reaches the run: the key the
   # human exported wins for the mode the agent declared, and the run is never

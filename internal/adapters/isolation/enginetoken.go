@@ -88,6 +88,12 @@ func storableAuth(name string, mode engine.AuthMode) (engine.Auth, error) {
 	return a, nil
 }
 
+// restrictDir is restrictCredentialDir, indirected so a test can make it
+// fail: no ACL a test can write stops an elevated Windows administrator (the
+// account CI runs as) from replacing a DACL, so the failure has no honest
+// on-disk fixture there.
+var restrictDir = restrictCredentialDir
+
 // StoreEngineCredential writes secret as engine's stored credential for
 // mode: owner-only from creation (iox.WriteFileAtomic), in an owner-only
 // directory, surrounding whitespace trimmed. It returns the file's path and
@@ -113,7 +119,7 @@ func StoreEngineCredential(name string, mode engine.AuthMode, secret []byte) (st
 	if err := os.MkdirAll(dir, credentialDirMode); err != nil {
 		return "", fmt.Errorf("create %s: %w", dir, err)
 	}
-	if err := restrictCredentialDir(dir); err != nil {
+	if err := restrictDir(dir); err != nil {
 		return "", fmt.Errorf("restrict %s to its owner: %w", dir, err)
 	}
 	if err := iox.WriteFileAtomic(path, s, credentialFileMode, iox.Durable()); err != nil {

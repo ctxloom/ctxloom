@@ -3,7 +3,6 @@
 package isolation
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -94,39 +93,6 @@ func TestStoredCredentials_RefusesACredentialOthersCanRead(t *testing.T) {
 			}
 		})
 	}
-}
-
-// When the owner-only ACL cannot be applied the store fails and writes no
-// credential. The directory is pre-made with an OWNER RIGHTS ACE granting only
-// read and traverse, which withdraws the owner's implicit WRITE_DAC.
-func TestStoreEngineCredential_FailsWhenTheACLCannotBeApplied(t *testing.T) {
-	tokenHome(t)
-	path, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
-	require.NoError(t, err)
-	require.NoError(t, os.Remove(path))
-	dir := filepath.Dir(path)
-
-	ownerRights, err := windows.CreateWellKnownSid(windows.WinCreatorOwnerRightsSid)
-	require.NoError(t, err)
-	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
-		AccessPermissions: windows.FILE_GENERIC_READ | windows.FILE_TRAVERSE,
-		AccessMode:        windows.SET_ACCESS,
-		Trustee: windows.TRUSTEE{
-			TrusteeForm:  windows.TRUSTEE_IS_SID,
-			TrusteeType:  windows.TRUSTEE_IS_WELL_KNOWN_GROUP,
-			TrusteeValue: windows.TrusteeValueFromSID(ownerRights),
-		},
-	}}, nil)
-	require.NoError(t, err)
-	require.NoError(t, windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		nil, nil, acl, nil))
-
-	_, err = StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), dir)
-	_, statErr := os.Stat(path)
-	assert.ErrorIs(t, statErr, os.ErrNotExist, "no credential is written when the ACL is not applied")
 }
 
 // grantWellKnownRead adds a read ACE for the well-known principal to p's

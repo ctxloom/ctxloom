@@ -1,7 +1,9 @@
 package isolation
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,6 +30,23 @@ func tokenHome(t *testing.T) string {
 		require.NoError(t, os.Unsetenv(v))
 	}
 	return home
+}
+
+// When the directory cannot be restricted to its owner the store fails,
+// naming the directory, and writes no credential.
+func TestStoreEngineCredential_FailsWhenTheDirCannotBeRestricted(t *testing.T) {
+	tokenHome(t)
+	refused := errors.New("restriction refused")
+	prev := restrictDir
+	restrictDir = func(string) error { return refused }
+	t.Cleanup(func() { restrictDir = prev })
+
+	_, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
+	require.ErrorIs(t, err, refused)
+	path, perr := paths.HomeEngineCredentialPath(claude.EngineName, string(engine.AuthToken))
+	require.NoError(t, perr)
+	assert.Contains(t, err.Error(), filepath.Dir(path))
+	assert.NoFileExists(t, path, "no credential is written when the directory is not restricted")
 }
 
 // A stored credential lands at the engine's per-mode path, owner-only by

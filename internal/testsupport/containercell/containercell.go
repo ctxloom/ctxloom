@@ -442,8 +442,8 @@ func (r Runtime) buildImage(ctx context.Context, tag, binaryPath string, withPro
 const probeCatPath = "/bin/cat"
 
 // probeCatSource is the whole of that cat: read the named file, write it to
-// stdout, and fail loudly otherwise. It is deliberately NOT a general cat — the
-// only caller is isolation.probeOneRoot's `cat /probe/marker`, and a stand-in
+// stdout, and fail loudly otherwise. It is deliberately NOT a general cat — its
+// callers are isolation.probeOneRoot's single-file probe runs, and a stand-in
 // that silently printed nothing for a missing file would turn a real sharing
 // mismatch into an empty read the probe already treats as the
 // docker-outside-of-docker signature, i.e. the right verdict for the wrong

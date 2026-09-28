@@ -293,46 +293,58 @@ install-script-hashes:
 # mutation recipes.
 mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mutation")
 
-# Run mutation tests with gremlins over the whole tree (requires gremlins
-# installed). This is what the weekly cron runs; it is far too slow to gate a
-# push.
-# "$@" (not the ARGS interpolation) so a value containing shell metacharacters
-# (e.g. a `|`-alternation regex) reaches gremlins intact instead of being
-# re-parsed by this script's shell — see test-pkg for the failure mode.
-test-mutation *ARGS: _mutation-prereqs
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "$@"
+# gremlins mutation testing, SHARDED: one run split into disjoint slices that
+# run on separate machines (.github/workflows/mutation.yml), then judged as
+# ONE run. SCOPE is `tree` (the whole module; the weekly cron) or `diff:<base>`
+# (the changeset against base, gremlins --diff; every push and PR).
+#
+# Why a shard is still the unsharded run, and why only the aggregate judges:
+# the doc comment on scripts/mutshard/main.go. The shard count is not stated
+# here — the plan takes it as an argument, so a slice is always named as
+# "K of N" and the aggregate reads N back from the reports.
+#
+# Skipped, never red: a diff with no usable base (a first push, or the
+# all-zeroes SHA GitHub sends for a branch creation), and a scope with no
+# mutable Go — gremlins scores an empty changeset 0% and would fail the gate
+# for having nothing to test. "Mutable" is gremlins' own file rule plus
+# .gremlins.yaml's exclude-files, read from that file, not restated.
 
-# Diff-only mutation testing against BASE — the per-push/per-PR gate.
-#
-# Runs on both PR and push so a green PR ran the same check that gates the
-# release on main; the whole-codebase run is the weekly cron instead.
-#
-# Two skips, both of which would otherwise be spurious RED:
-#   - no usable base (first push to a new branch, or the all-zeroes SHA GitHub
-#     sends for a branch creation) — there is nothing to diff against;
-#   - a diff with no mutable Go. gremlins exits 10 on an empty changeset
-#     (0 mutants => 0% efficacy), so a docs/workflow/test-only change would
-#     fail the gate for having nothing to test. The exclusion list mirrors
-#     .gremlins.yaml's exclude-files.
+# Print the files shard SHARD (0-based) of SHARDS mutates for SCOPE.
+#   just mutation-shard-plan diff:origin/main 0 8
+mutation-shard-plan SCOPE SHARD SHARDS:
+    go run ./scripts/mutshard plan -scope "$1" -shard "$2" -shards "$3"
+
+# Run shard SHARD of SHARDS for SCOPE; writes OUT/shard-SHARD.json for
+# test-mutation-aggregate. Passes whatever gremlins measured: the verdict is the
+# aggregate's.
+test-mutation-shard SCOPE SHARD SHARDS OUT: _mutation-prereqs
+    go run ./scripts/mutshard run -scope "$1" -shard "$2" -shards "$3" -out "$4" -- \
+        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins
+
+# Judge the union of the shard reports under REPORTS: refuses a missing,
+# stale or never-looked shard, then applies .gremlins.yaml's thresholds to the
+# summed counts (exit 10/11 as gremlins' own).
+test-mutation-aggregate SCOPE REPORTS:
+    go run ./scripts/mutshard aggregate -scope "$1" -reports "$2"
+
+# The whole module on this machine: one shard of one, then the aggregate.
+# Far too slow to gate a push.
+test-mutation: _mutation-prereqs
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-unsharded tree
+
+# The changeset against BASE on this machine — the per-push gate, unsharded.
 test-mutation-diff BASE: _mutation-prereqs
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-unsharded "diff:$1"
+
+# --no-deps: the public recipe above already ran _mutation-prereqs.
+_mutation-unsharded SCOPE:
     #!/usr/bin/env bash
     set -euo pipefail
-    base="$1"
-    if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-        echo "No base commit to diff against — skipping mutation testing."
-        exit 0
-    fi
-    mutable="$(git diff --name-only "$base"...HEAD -- '*.go' \
-        | grep -vE '(_test\.go$|\.pb\.go$|/mock_[^/]*\.go$|(^|/)testdata/|(^|/)tests/integration/)' || true)"
-    if [ -z "$mutable" ]; then
-        echo "No mutable Go files changed vs $base — skipping mutation testing."
-        exit 0
-    fi
-    echo "Mutable Go files in diff:"
-    printf '  %s\n' $mutable
-    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash --diff "$base"
+    reports="$(mktemp -d)"
+    trap 'rm -rf "$reports"' EXIT
+    just=("{{just_executable()}}" --justfile "{{justfile()}}" --no-deps)
+    "${just[@]}" test-mutation-shard "$1" 0 1 "$reports"
+    "${just[@]}" test-mutation-aggregate "$1" "$reports"
 
 # ===== Documentation site =====
 

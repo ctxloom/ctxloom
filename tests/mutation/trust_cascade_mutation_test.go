@@ -376,8 +376,8 @@ var mutationTargets = []mutationTarget{
 		//
 		// WithContainer: the container-only guards in this file are reachable
 		// only by j002200's @container scenario, which really launches the
-		// mock engine in a container. Under the default filter that scenario
-		// is excluded, so those guards survived by construction rather than
+		// mock engine in a container. The default filter excludes it, and
+		// without it those guards would survive by construction rather than
 		// by any gap in what the feature verifies.
 		//
 		// Expect survivors elsewhere in the container-image and mount

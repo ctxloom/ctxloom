@@ -405,14 +405,14 @@ func TestSurfaces_SharedCwdSafetyAndLaunchOnly(t *testing.T) {
 	s := newSurfaces(sampleInputs(), nil)
 	launchOnly := func(a agent.Approach) bool { _, ok := a.(agent.LaunchOnly); return ok }
 
-	assert.False(t, agent.SafeInSharedCwd(s.Native), "context unsafe-file: honoured natively, never converted")
-	assert.True(t, agent.SafeInSharedCwd(s.Context), "the system prompt stays out of the workspace")
-	assert.True(t, agent.SafeInSharedCwd(s.Hook), "a rider writes no bytes of its own")
-	assert.True(t, agent.SafeInSharedCwd(s.MCP), "the private mcp config stays out of the workspace")
-	assert.False(t, agent.SafeInSharedCwd(s.MCPUnsafe), "mcp:unsafe-file is the project file — honoured, and warned")
-	assert.False(t, agent.SafeInSharedCwd(s.Settings), "settings writes the project's .claude/settings.json: honoured, and warned")
-	assert.False(t, agent.SafeInSharedCwd(s.Commands))
-	assert.False(t, agent.SafeInSharedCwd(s.Skills))
+	assert.True(t, agent.PresentsUnderProjectRoot(s.Native), "context unsafe-file: honoured natively, never converted")
+	assert.False(t, agent.PresentsUnderProjectRoot(s.Context), "the system prompt stays out of the workspace")
+	assert.False(t, agent.PresentsUnderProjectRoot(s.Hook), "a rider writes no bytes of its own")
+	assert.False(t, agent.PresentsUnderProjectRoot(s.MCP), "the private mcp config stays out of the workspace")
+	assert.True(t, agent.PresentsUnderProjectRoot(s.MCPUnsafe), "mcp:unsafe-file is the project file — honoured, and warned")
+	assert.True(t, agent.PresentsUnderProjectRoot(s.Settings), "settings writes the project's .claude/settings.json: honoured, and warned")
+	assert.True(t, agent.PresentsUnderProjectRoot(s.Commands))
+	assert.True(t, agent.PresentsUnderProjectRoot(s.Skills))
 
 	// The system prompt's safety is STRUCTURAL, not a conversion a cell opts
 	// into: its presentation is outside the project root, so the property holds

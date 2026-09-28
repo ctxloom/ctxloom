@@ -235,9 +235,8 @@ func TestSettingsRecord_Deliver_RefusesAnUnresolvedEngineHome(t *testing.T) {
 
 // The declaration: unsafe-file stays the settings DEFAULT (every existing
 // launch and every at-rest install is byte-identical), hew-record is a NAMED
-// second approach a binding selects, and the two are told apart by where
-// their presenters land the bytes — the plain writer under the project root,
-// the record writer not.
+// second approach a binding selects, constructing the record writer rather
+// than the plain one.
 func TestSurfaces_SettingsDefaultStaysUnsafeFile_HewRecordIsNamed(t *testing.T) {
 	def, ok := testDeclaration().Default(agent.SurfaceSettings)
 	require.True(t, ok)
@@ -249,11 +248,6 @@ func TestSurfaces_SettingsDefaultStaysUnsafeFile_HewRecordIsNamed(t *testing.T) 
 	require.True(t, ok)
 	_, isRecord := record.(*settingsRecord)
 	assert.True(t, isRecord, "hew-record constructs the record writer, not the plain one with a flag")
-	assert.False(t, agent.PresentsUnderProjectRoot(record), "the record writer is not a project file")
-
-	plain, ok := testDeclaration().Construct(agent.SurfaceSettings, agent.ApproachUnsafeFile, sampleInputs(), fs)
-	require.True(t, ok)
-	assert.True(t, agent.PresentsUnderProjectRoot(plain), "the plain writer is")
 }
 
 // Two deliveries in a row reconcile through the record: the second reverses

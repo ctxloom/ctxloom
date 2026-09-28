@@ -472,12 +472,13 @@ func TestRunCharacterization_NonGitRootWarnsButProceeds(t *testing.T) {
 // A --dry-run composes the SAME package a run would, and its composition
 // findings keep their severity (ruled 2026-09-19: the preview refuses like a
 // run). A profile naming a bundle that does not load is
-// reportBundleRefLoadFailure's fatal finding, so the preview is refused
-// exactly as the run would be: exit 3, the finding listed, nothing rendered
-// past the gate. --degraded previews past it, warning, as it would launch
+// reportBundleRefLoadFailure's fatal finding, so the preview exits exactly as
+// the run would: exit 3, the finding listed. It does not stop AT the finding
+// (ruled 2026-09-27): the plan it could compute is rendered first, and the
+// listing follows it. --degraded previews past it, warning, as it would launch
 // past it — the profile also selects a fragment that DOES resolve, so the
-// degraded preview has context to render; a set that assembles to nothing is
-// refused in every mode.
+// preview has context to render; a set that assembles to nothing is refused
+// in every mode.
 func TestRunCharacterization_DryRunRefusesAMissingBundleLikeARun(t *testing.T) {
 	dir := runCLIFixture(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "profiles", "broken.yaml"),
@@ -490,7 +491,8 @@ func TestRunCharacterization_DryRunRefusesAMissingBundleLikeARun(t *testing.T) {
 	require.ErrorAs(t, res.err, &exitErr, "the refusal carries the fatal-findings exit status")
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 	assert.Contains(t, res.all(), `failed to load bundle "does-not-exist"`, "the finding is listed")
-	assert.NotContains(t, res.all(), "=== LLM ===", "nothing is rendered past the gate")
+	assert.Contains(t, res.out+res.stdout, "=== LLM ===", "the plan is rendered despite the fatal finding")
+	assert.Contains(t, res.stderr, "ctxloom: aborting startup", "the findings listing is the gate's, on stderr")
 
 	// The finding renders once per process; the second invocation must
 	// render it again to be read.

@@ -139,6 +139,11 @@ func newPhaseGates(w io.Writer, mode strictness.Mode) *phaseGates {
 	return &phaseGates{w: w, mark: strictness.Checkpoint(), mode: mode}
 }
 
+// pending is every finding the current window has collected so far, fatal or
+// not, without closing it: what a caller shows beside its own output before
+// the gate decides.
+func (g *phaseGates) pending() report.Findings { return strictness.Since(g.mark) }
+
 // close ends the current window, reporting and aborting on anything actionable
 // it collected, then opens the next. The next window is opened even when this
 // one aborts: the caller may ignore the error (a degraded run does), and the

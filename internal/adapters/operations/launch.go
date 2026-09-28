@@ -247,7 +247,9 @@ type Cells struct {
 // PreviewCells is the --dry-run cells adapter: the same relocation a run
 // gets, over an environment that creates nothing and starts nothing, so a
 // preview routes over the roots a real cell would present — and a container
-// preview shows the runtime and reach the run would get (Q5).
+// preview shows the runtime and reach the run would get (Q5). It refuses
+// nothing: what a run's cell would refuse on is left recorded for the
+// caller's gate.
 func PreviewCells(f LaunchFacts) launch.Cells {
 	return Cells{mode: f.Mode, engines: f.Engines, preview: true}
 }
@@ -273,7 +275,7 @@ var (
 		return isolation.Prepare(ctx, s)
 	}
 	previewEnvironment environmentSeam = func(ctx context.Context, _ launch.CellRequest, s isolation.Spec) (isolation.Environment, error) {
-		return isolation.Preview(ctx, s)
+		return isolation.Preview(ctx, s), nil
 	}
 )
 
@@ -304,7 +306,9 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	// The fail-loudly cell gate: a container degrade, an unpreparable session
 	// home and an unpresentable root each record a ClassIsolation finding;
 	// the window is this launch's own, so a concurrent launch's findings never
-	// poison it.
+	// poison it. A preview refuses nothing here: it continues past every
+	// finding, which stays on the ledger for the dry run's own gate to list
+	// after the plan.
 	mark := strictness.Checkpoint()
 	env, err := c.environment(ctx, req, spec)
 	found := strictness.Since(mark)
@@ -312,7 +316,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	if err != nil {
 		return launch.Cell{}, fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, err)
 	}
-	if gerr := isolationGateErr(c.mode, found); gerr != nil {
+	if gerr := isolationGateErr(c.mode, found); gerr != nil && !c.preview {
 		_ = env.Cleanup()
 		return launch.Cell{}, fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, gerr)
 	}

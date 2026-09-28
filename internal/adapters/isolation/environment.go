@@ -68,6 +68,16 @@ type Interactive struct {
 // runtime it runs under and how its runner reaches home.
 type Description struct{ Workspace, Runtime, Reach string }
 
+// RuntimeUnavailable and ReachUnknown are what a preview describes where the
+// run would refuse: no runtime with the requested ownership is reachable, or
+// the probe for a route home failed. Naming them, rather than the host the
+// degrade chain falls back to or the loopback a route-less probe defaults
+// to, is what keeps a preview from showing an outcome no run would get.
+const (
+	RuntimeUnavailable = "unavailable"
+	ReachUnknown       = "unknown"
+)
+
 // ErrPreviewEnvironment is a launch asked of a preview: a preview relocates
 // and probes, and never starts anything.
 var ErrPreviewEnvironment = errors.New("isolation: a preview environment cannot start a runner")
@@ -91,7 +101,7 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), r.sharesLogin())
 	pl, roots, err := r.relocate(l)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy, "refusing to run in an environment that cannot present every root: %v", err)
+		refuseUnpresentable(err)
 		_ = ws.Cleanup()
 		return nil, err
 	}
@@ -106,23 +116,42 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 // unreachableRootRemedy names the fix for a root the runtime cannot route.
 const unreachableRootRemedy = "move the project and the ctxloom home onto a filesystem the container runtime can mount (the daemon must see the same paths), or run with `runtime: host`"
 
+// refuseUnpresentable records the refusal of an environment that cannot
+// present every root: the finding Prepare refuses on, and the one Preview
+// reports where the run would.
+func refuseUnpresentable(err error) {
+	strictness.FailAlways(report.KindIsolation, unreachableRootRemedy, "refusing to run in an environment that cannot present every root: %v", err)
+}
+
 // Preview is Prepare's relocation with no effects on disk: no checkout, no
 // scratch, no session home created. A container preview PROBES the runtime
 // read-only — its selection (info) and its route home (network inspect) — so
-// Describe and Listen show the real runtime and reach, and a runtime a run
-// would refuse is refused here too. Start and Interactive return
-// ErrPreviewEnvironment; Cleanup is a no-op.
-func Preview(ctx context.Context, s Spec) (Environment, error) {
+// Describe and Listen show the real runtime and reach. Start and Interactive
+// return ErrPreviewEnvironment; Cleanup is a no-op.
+//
+// A preview does NOT stop at the first problem. Every refusal a run would hit
+// is recorded as the finding the run raises — through the same call, not a
+// copy — for the caller's gate, and the preview carries on with the outcome it
+// can still compute: a root no runtime routes is marked unreachable (a Host
+// side and no Engine side, never a guessed path), an unreachable runtime is
+// described as RuntimeUnavailable and an unprobed route as ReachUnknown.
+func Preview(ctx context.Context, s Spec) Environment {
 	p := chainFor(s.axes, s.backend(), s.img)[0]
+	if s.axes.WantsContainer() && !IsContainerPolicyName(p.Name()) {
+		// chainFor recorded the refusal. p is the host fallback the run
+		// refuses to take, so only its workspace axis is shown: no runtime
+		// routes any root.
+		_, desc := p.preview(ctx)
+		desc.Runtime, desc.Reach = RuntimeUnavailable, ReachUnknown
+		return previewEnvironment{placement: unrouted(previewLayout(s, false)), desc: desc}
+	}
 	r := p.relocator()
-	l := previewLayout(s, r.sharesLogin())
-	pl, _, err := r.relocate(l)
+	pl, _, err := r.relocate(previewLayout(s, r.sharesLogin()))
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy, "refusing to preview an environment that cannot present every root: %v", err)
-		return nil, err
+		refuseUnpresentable(err)
 	}
 	listen, desc := p.preview(ctx)
-	return previewEnvironment{placement: pl, listen: listen, desc: desc}, nil
+	return previewEnvironment{placement: pl, listen: listen, desc: desc}
 }
 
 // previewEnvironment is Preview's result: the outcome, and nothing to start.

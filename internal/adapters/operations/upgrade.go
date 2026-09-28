@@ -35,6 +35,11 @@ type UpgradeResult struct {
 	// proposed commit failed publisher verification. Non-empty means the human
 	// must be told: the lockfile deliberately did not change.
 	Refused []RefusedAdvance `json:"refused"`
+	// Removed names, sorted, the lockfile entries this round dropped because
+	// the closure no longer reaches them. The lock is rewritten wholesale, so
+	// without this a removal is indistinguishable from never having been
+	// pinned.
+	Removed []string `json:"removed,omitempty"`
 }
 
 // UpgradeDependencies re-resolves the project's dependency closure to the newest

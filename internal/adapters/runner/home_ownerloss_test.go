@@ -25,9 +25,8 @@ import (
 // endpoint — the link going down and returning under the test's control.
 type ownerServer struct {
 	agentcoordpb.UnimplementedCoordinatorServiceServer
-	addr   string
-	hellos atomic.Int32
-	srv    *grpc.Server
+	addr string
+	srv  *grpc.Server
 }
 
 func (o *ownerServer) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]) error {
@@ -39,7 +38,6 @@ func (o *ownerServer) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb
 	}}); err != nil {
 		return err
 	}
-	o.hellos.Add(1)
 	for {
 		if _, err := stream.Recv(); err != nil {
 			return err
@@ -103,13 +101,20 @@ func TestHome_OwnerLinkBackInsideTheWindowKeepsTheRunner(t *testing.T) {
 	owner := &ownerServer{}
 	owner.serve(t)
 	h := ownerLossHome(t, owner.url(), window)
-	require.Eventually(t, func() bool { return owner.hellos.Load() == 1 }, conformanceWait, 5*time.Millisecond)
+	awaitOwnerAttached(t, h)
 
 	owner.srv.Stop() // the coordinator dies...
-	owner.serve(t)   // ...and is back on the same endpoint, well inside the window
+	require.Eventually(t, func() bool {
+		select {
+		case <-h.ownerPresent():
+			return false
+		default:
+			return true
+		}
+	}, conformanceWait, 5*time.Millisecond, "the runner never saw its link drop")
+	owner.serve(t) // ...and is back on the same endpoint, well inside the window
 	h.Redial()
-	require.Eventually(t, func() bool { return owner.hellos.Load() == 2 }, conformanceWait, 5*time.Millisecond,
-		"the runner must re-Hello the coordinator that came back")
+	awaitOwnerAttached(t, h) // the runner must re-Hello the coordinator that came back
 
 	// Past the window measured from the FIRST drop — and from the dial, too —
 	// while the link is up: a clock left running by either would fire here.

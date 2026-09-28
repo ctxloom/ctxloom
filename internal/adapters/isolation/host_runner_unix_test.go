@@ -26,7 +26,7 @@ func TestHelperStoppableRunner(t *testing.T) {
 	if !ok {
 		return
 	}
-	var ctx context.Context = context.Background()
+	ctx := context.Background()
 	if mode == "wedged" {
 		signal.Ignore(syscall.SIGTERM)
 	} else {

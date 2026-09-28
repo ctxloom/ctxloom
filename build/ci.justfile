@@ -199,9 +199,15 @@ seam_test_pkgs() {
     local mod pkg dep dir target linux_files
     mod="$(go list -m)"
     linux_files="$(GOOS=linux go list -e -f "$files" ./... | sort)"
+    # A package can qualify through another native GOOS's file yet have no
+    # file at all for this one (a unix-only package with a darwin twin);
+    # `go test` then fails "build constraints exclude all Go files".
+    local buildable
+    buildable="$(GOOS="$goos" go list -e -f '{{if or .GoFiles .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)"
     for pkg in $(for target in $native; do
                      comm -23 <(GOOS="$target" go list -e -f "$files" ./... | sort) <(printf '%s\n' "$linux_files")
                  done | cut -d' ' -f1 | sort -u); do
+        grep -qxF "$pkg" <<<"$buildable" || continue
         for dep in $(GOOS="$goos" go list -e -deps -test -f "$own" "$pkg"); do
             dir="${dep#"$mod"}"; dir=".${dir}"
             if compgen -G "$dir/*.proto" >/dev/null; then

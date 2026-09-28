@@ -84,9 +84,13 @@ The record store is owner-only before any delivery writes through it, and
 that is a security invariant: records and the approaches' undo records
 beside them keep the values they reverse verbatim. `Static.Deliver` calls
 `delivery.Ownership.Prepare` first, on the real filesystem, because the
-copy-on-write overlay the approaches write through cannot chmod a directory
-that already exists beneath it; `fsstatic.Records.Prepare` tightens the
-store's directory with `confpatch.EnsureRecordDir`. It does not depend on
+copy-on-write overlay the approaches write through cannot change the
+protection of a directory that already exists beneath it, so
+`confpatch.EnsureRecordDir` only creates through it; Prepare is the one
+place the protection is applied. `fsstatic.Records.Prepare` makes the
+store's directory owner-only with `confpatch.EnsureRecordDir` on the real
+filesystem, which goes through the per-OS `owneronly` seam (a mode on unix,
+an owner-only DACL on Windows). It does not depend on
 when, or whether, a caller opened the store
 (`TestDeliver_PreparesTheRecordDirItself`,
 `TestStatic_PreparesTheRecordOnceBeforeAnyWrite`).

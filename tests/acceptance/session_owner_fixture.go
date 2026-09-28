@@ -120,9 +120,25 @@ func (w *World) standSessionOwnerSelecting(bin string, selection []string, extra
 		return fmt.Errorf("session owner: never echoed %q within %s — the owner is not standing; output:\n%s", sessionOwnerSentinel, sessionOwnerReadyTimeout, sess.Output())
 	}
 
-	after, err := harpDirs(w.env.HomeDir)
+	owner.harp, err = mintedHarp(w.env.HomeDir, before, sess)
 	if err != nil {
 		return err
+	}
+	owner.endpoint, err = readSessionEndpoint(w.env.HomeDir, owner.harp)
+	if err != nil {
+		return fmt.Errorf("session owner: %w; output:\n%s", err, sess.Output())
+	}
+	w.env.SetChildEnv("CTXLOOM_SESSION_HARP", owner.harp)
+	return nil
+}
+
+// mintedHarp returns the one harp directory under home that is not in
+// before — the session the owner's launch minted — or an error naming what
+// was found instead.
+func mintedHarp(home string, before map[string]bool, sess *testenv.PTYSession) (string, error) {
+	after, err := harpDirs(home)
+	if err != nil {
+		return "", err
 	}
 	var minted []string
 	for h := range after {
@@ -131,15 +147,9 @@ func (w *World) standSessionOwnerSelecting(bin string, selection []string, extra
 		}
 	}
 	if len(minted) != 1 {
-		return fmt.Errorf("session owner: expected the run to mint exactly one session, found %v; output:\n%s", minted, sess.Output())
+		return "", fmt.Errorf("session owner: expected the run to mint exactly one session, found %v; output:\n%s", minted, sess.Output())
 	}
-	owner.harp = minted[0]
-	owner.endpoint, err = readSessionEndpoint(w.env.HomeDir, owner.harp)
-	if err != nil {
-		return fmt.Errorf("session owner: %w; output:\n%s", err, sess.Output())
-	}
-	w.env.SetChildEnv("CTXLOOM_SESSION_HARP", owner.harp)
-	return nil
+	return minted[0], nil
 }
 
 // readSessionEndpoint reads the endpoint the launch bound on the session

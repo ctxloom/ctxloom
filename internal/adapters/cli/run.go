@@ -85,11 +85,14 @@ type dryRunJSON struct {
 	Workspace string   `json:"workspace,omitempty"`
 	Runtime   string   `json:"runtime,omitempty"`
 	Resolved  axesJSON `json:"resolved"`
-	LLM       string   `json:"llm"`
-	Backend   string   `json:"backend"`
-	Profiles  []string `json:"profiles"`
-	Fragments []string `json:"fragments"`
-	Context   string   `json:"context"`
+	// Environment is what the preview PROBED for Resolved: the runtime the
+	// run would get and how its runner reaches home.
+	Environment *environmentJSON `json:"environment,omitempty"`
+	LLM         string           `json:"llm"`
+	Backend     string           `json:"backend"`
+	Profiles    []string         `json:"profiles"`
+	Fragments   []string         `json:"fragments"`
+	Context     string           `json:"context"`
 	// ResumedEssence is what a --session --distill launch delivers through
 	// its SessionStart hook rather than through Context: the harp's
 	// distilled essence (distilledResumePreview). ResumedEssenceNote says
@@ -107,6 +110,27 @@ type dryRunJSON struct {
 	// authoritative estimate instead of re-deriving its own chars/token guess.
 	Tokens int    `json:"tokens"`
 	Prompt string `json:"prompt,omitempty"`
+	// Findings is every finding the preview collected, in record order; the
+	// fatal ones are what the startup gate refuses on after the plan.
+	Findings []findingJSON `json:"findings"`
+}
+
+// findingJSON is one collected finding on the wire. Fatal is whether this
+// mode's gate refuses on it (strictness.Mode.Fatal); the rest were warnings.
+type findingJSON struct {
+	Kind   string `json:"kind"`
+	Text   string `json:"text"`
+	Remedy string `json:"remedy,omitempty" label:"fix"`
+	Fatal  bool   `json:"fatal"`
+}
+
+// findingsOf is found on the wire under mode.
+func findingsOf(mode strictness.Mode, found report.Findings) []findingJSON {
+	out := make([]findingJSON, 0, len(found))
+	for _, f := range found {
+		out = append(out, findingJSON{Kind: string(f.Kind), Text: f.Text, Remedy: f.Remedy, Fatal: mode.Fatal(f)})
+	}
+	return out
 }
 
 // axesJSON is one isolation-axis pair on the wire.
@@ -418,6 +442,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err := st.loadConfig(); err != nil {
 		return err
 	}
+	// An invalid ui.prefix_key is a broken-config finding like any other:
+	// recorded with the config load so the startup gate aborts on it before
+	// launch (a viewer on a key the user didn't configure is a wrong-context
+	// session's cousin).
+	validateTerminalUIConfig(st.cfg)
 	if runLLM != "" {
 		if _, err := validateExplicitLLM(st.cfg, runLLM); err != nil {
 			return err
@@ -787,11 +816,6 @@ func (st *runState) runStartupTasks() {
 // It also anchors gate 2, immediately after gate 1 passes, so the two windows
 // tile.
 func (st *runState) gateStartup() error {
-	// An invalid ui.prefix_key is a broken-config finding like any other:
-	// recorded here so the gate below aborts before launch (a viewer on a
-	// key the user didn't configure is a wrong-context session's cousin).
-	validateTerminalUIConfig(st.cfg)
-
 	// close() opens the workspace window as it closes the startup one, so the
 	// two abut with no ungated instant between them.
 	return st.gates.close(PhaseStartup)
@@ -829,6 +853,12 @@ func (st *runState) refused(err error) error {
 // The SAME resolver runs, over stateless ports: an in-memory session store,
 // a cell that is the project root itself. Nothing is written and nothing is
 // started. It is the last thing a --dry-run does.
+//
+// A preview does not stop at the first problem: it renders the plan it could
+// compute, carrying every finding collected so far, and only THEN closes the
+// startup gate — which lists the fatal ones with their fixes and exits
+// non-zero exactly where a run would refuse. Only a launch that could not be
+// resolved at all is refused before a plan exists.
 func (st *runState) emitDryRun() error {
 	src, err := st.source()
 	if err != nil {
@@ -846,9 +876,6 @@ func (st *runState) emitDryRun() error {
 	if err != nil {
 		return st.refused(err)
 	}
-	if err := st.gateStartup(); err != nil {
-		return err
-	}
 	pkg, err := launch.Open(st.ctx, deps, l)
 	if err != nil {
 		return err
@@ -863,34 +890,46 @@ func (st *runState) emitDryRun() error {
 		})
 	}
 	payload := dryRunJSON{
-		Agent:      runAgent,
-		Workspace:  string(l.Declared.Workspace),
-		Runtime:    string(l.Declared.Runtime),
-		Resolved:   axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
-		LLM:        l.Label.Label,
-		Backend:    string(l.Engine),
-		Profiles:   pkg.Selection.Profiles,
-		Fragments:  pkg.Loaded,
-		Context:    context,
-		Delivery:   deliveryRoutes(l.Plan),
-		EngineHome: engineHomeRoute(l.Cell.HomeMode),
-		Tokens:     tokens.Estimate(context),
-		Prompt:     st.prompt,
+		Agent:       runAgent,
+		Workspace:   string(l.Declared.Workspace),
+		Runtime:     string(l.Declared.Runtime),
+		Resolved:    axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
+		Environment: probedEnvironment(l.Cell),
+		LLM:         l.Label.Label,
+		Backend:     string(l.Engine),
+		Profiles:    pkg.Selection.Profiles,
+		Fragments:   pkg.Loaded,
+		Context:     context,
+		Delivery:    deliveryRoutes(l.Plan),
+		EngineHome:  engineHomeRoute(l.Cell.HomeMode),
+		Tokens:      tokens.Estimate(context),
+		Prompt:      st.prompt,
 	}
 	if runResumeSession != "" && runResumeDistill {
 		payload.ResumedEssence, payload.ResumedEssenceNote = distilledResumePreview(runResumeSession, resumeEssenceStale)
 	}
+	payload.Findings = findingsOf(st.gates.mode, st.gates.pending())
+	if err := st.printDryRun(l, payload); err != nil {
+		return err
+	}
+	return st.gateStartup()
+}
+
+// printDryRun emits the dry run's plan in the requested format.
+func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
+	context := payload.Context
 	return emit(st.cmd, payload, func() error {
 		if runAgent != "" {
 			fmt.Println("=== Agent ===")
 			fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, l.Axes.Workspace, l.Axes.Runtime)
 		}
+		printEnvironment(os.Stdout, payload.Environment)
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
 		fmt.Println("\n=== Profiles ===")
-		printListOr(pkg.Selection.Profiles, "(no profiles)")
+		printListOr(payload.Profiles, "(no profiles)")
 		fmt.Println("\n=== Fragments Loaded ===")
-		printListOr(pkg.Loaded, "(no fragments)")
+		printListOr(payload.Fragments, "(no fragments)")
 		printDeliveryRoutes(os.Stdout, payload.Delivery)
 		printEngineHome(os.Stdout, payload.EngineHome)
 		fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)
@@ -913,6 +952,35 @@ func (st *runState) emitDryRun() error {
 		fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(st.workDir, agent.SCMContextSubdir))
 		return nil
 	})
+}
+
+// environmentJSON is the probed environment on the wire, as
+// isolation.Environment.Describe names it. Where the run would refuse it reads
+// isolation.RuntimeUnavailable / isolation.ReachUnknown rather than the
+// fallback a refused run never gets.
+type environmentJSON struct {
+	Runtime string `json:"runtime"`
+	Reach   string `json:"reach"`
+}
+
+// probedEnvironment describes the environment the preview cell prepared; nil
+// for a cell the cells adapter did not make.
+func probedEnvironment(cell launch.Cell) *environmentJSON {
+	env, ok := operations.EnvironmentOf(cell)
+	if !ok {
+		return nil
+	}
+	d := env.Describe()
+	return &environmentJSON{Runtime: d.Runtime, Reach: d.Reach}
+}
+
+// printEnvironment renders the probed environment as the dry-run's text form.
+func printEnvironment(w io.Writer, e *environmentJSON) {
+	if e == nil {
+		return
+	}
+	fmt.Fprintln(w, "=== Environment ===")
+	fmt.Fprintf(w, "runtime: %s, reach: %s\n", e.Runtime, e.Reach)
 }
 
 // printListOr prints each item indented on its own line, or none when there

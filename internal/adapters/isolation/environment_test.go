@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os/exec"
 	"path/filepath"
@@ -107,13 +108,12 @@ func TestPreview_CreatesNothingOnDisk(t *testing.T) {
 			project := gitRepo(t)
 			before := treeOf(t, home, project)
 
-			env, err := Preview(context.Background(), envSpec(t, axes, claudeEngine(t), home, project))
-			require.NoError(t, err)
+			env := Preview(context.Background(), envSpec(t, axes, claudeEngine(t), home, project))
 
 			assert.Equal(t, before, treeOf(t, home, project), "a preview wrote to disk")
 			assert.Equal(t, claudeHome(home, harpA), env.Placement().Paths.Paths().SessionHome.Host,
 				"the preview still shows the session home the run WOULD create")
-			_, err = env.Start(context.Background(), RunnerRequest{Engine: "claude-code"})
+			_, err := env.Start(context.Background(), RunnerRequest{Engine: "claude-code"})
 			assert.ErrorIs(t, err, ErrPreviewEnvironment)
 			_, err = env.Interactive(context.Background(), RunnerRequest{Engine: "claude-code"})
 			assert.ErrorIs(t, err, ErrPreviewEnvironment)
@@ -126,49 +126,98 @@ func TestPreview_CreatesNothingOnDisk(t *testing.T) {
 func TestPreview_ContainerDescribesTheProbedRuntime(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	withFakeContainerRuntime(t, containerRuntime)
-	env, err := Preview(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, t.TempDir()))
-	require.NoError(t, err)
+	env := Preview(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, t.TempDir()))
 	assert.Equal(t, Description{Workspace: string(WorkspaceShared), Runtime: "docker", Reach: "loopback"}, env.Describe())
 }
 
-// S0 / the SCRATCH ruling: a non-relocating engine in a container gets its
-// session home, created on the host and mounted as the container's $HOME —
-// and the runner is started with exactly that mount and that HOME.
-func TestPrepare_NonRelocatingEngineInAContainerHasItsHomeAtHOME(t *testing.T) {
-	home := fakeHostHome(t, "")
-	withFakeContainerRuntime(t, containerRuntime)
-	eng := mock.New(mock.WithContainer())
-	stageEngineFacts(t, string(mock.Name), func(f *EngineFacts) { *f = FactsOf(eng) })
+// errNoHomeRoute is a runtime with no route home, as settleReach refuses.
+var errNoHomeRoute = errors.New("no default route to the host")
 
-	env := prepared(t, envSpec(t, containerAxes, eng, home, t.TempDir()))
-	sessionHome := env.Placement().Paths.Paths().SessionHome
-	assert.Equal(t, filepath.Join(sessionDir(home, harpA), "home", string(mock.Name)), sessionHome.Host)
-	assert.Equal(t, defaultContainerHome, sessionHome.Engine)
-	assert.DirExists(t, sessionHome.Host)
+// homelessRuntime is a mapperRuntime over an unroutableMapper with no route home either: two
+// independent problems a run would refuse on, one at relocation and one at
+// the reach probe.
+type homelessRuntime struct{ mapperRuntime }
 
-	ce, ok := env.(*containerEnvironment)
-	require.True(t, ok, "a container axis with a reachable runtime prepares the container environment")
-	spec := ce.c.buildRunnerSpec(string(mock.Name), "name", ce.cw, nil)
-	assert.Equal(t, defaultContainerHome, spec.Home)
-	assert.Contains(t, spec.Mounts, mount{Host: sessionHome.Host, Container: defaultContainerHome})
+func (homelessRuntime) reachRoute(context.Context) (hostRoute, error) {
+	return hostRoute{}, errNoHomeRoute
 }
 
-// S0: a root the runtime cannot route is refused at Prepare with
-// present.ErrUnreachableRoot, recorded as a non-degradable finding, and the
-// workspace it prepared is torn down.
-func TestPrepare_UnreachableRootIsRefused(t *testing.T) {
+// The preview does NOT stop at the first problem: an unroutable root and a
+// runtime with no route home are BOTH recorded — each as the finding the real
+// run raises — and the preview still returns its best-effort outcome: the
+// unroutable root marked unreachable (no Engine side, never a guessed path)
+// and the reach unknown.
+func TestPreview_ReportsEveryProblemAndContinues(t *testing.T) {
+	home := fakeHostHome(t, tokenFixture)
+	project := t.TempDir()
+	withFakeContainerRuntime(t, homelessRuntime{mapperRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}}})
+
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	env := Preview(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, project))
+	found := strictness.Since(mark)
+
+	texts := make([]string, 0, len(found))
+	for _, f := range found {
+		assert.True(t, f.NonDegradable, "a finding the run refuses on is non-degradable in the preview too: %s", f.Text)
+		assert.NotEmpty(t, f.Remedy, "every finding names its fix: %s", f.Text)
+		texts = append(texts, f.Text)
+	}
+	require.Len(t, found, 2, "both problems, not the first: %q", texts)
+	assert.Contains(t, found[0].Text, project, "the unroutable root, by name")
+	assert.Contains(t, found[1].Text, errNoHomeRoute.Error(), "the missing route home")
+
+	root := env.Placement().Paths.Paths().ProjectRoot
+	assert.Equal(t, present.Root{Host: project}, root, "an unreachable root has no Engine side — never a guessed path")
+	assert.Equal(t, "docker", env.Describe().Runtime)
+	assert.Equal(t, ReachUnknown, env.Describe().Reach)
+}
+
+// A container requested with no runtime reachable: the preview records the
+// run's refusal and describes the runtime as unavailable — never as the host
+// the degrade chain would fall back to — with every root unreachable and the
+// reach unknown.
+func TestPreview_NoRuntimeDescribesTheRuntimeUnavailable(t *testing.T) {
+	home := fakeHostHome(t, tokenFixture)
+	project := t.TempDir()
+	withFakeContainerRuntime(t, Host{})
+
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	env := Preview(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, project))
+	found := strictness.Since(mark)
+
+	require.Len(t, found, 1)
+	assert.True(t, found[0].NonDegradable)
+	assert.Equal(t, Description{Workspace: string(WorkspaceShared), Runtime: RuntimeUnavailable, Reach: ReachUnknown}, env.Describe())
+	paths := env.Placement().Paths.Paths()
+	assert.Equal(t, present.Root{Host: project}, paths.ProjectRoot, "no runtime routes the project: no Engine side")
+	assert.Equal(t, present.Root{Host: claudeHome(home, harpA)}, paths.SessionHome, "nor the session home")
+	assert.NotContains(t, env.Placement().Env, claude.ConfigDirEnv, "no home var names a path nothing presents")
+}
+
+// Prepare is unchanged by the preview's accumulation: the relocator now
+// hands back a partial Placement beside its error, and Prepare must still
+// REFUSE on it — an error, no environment, the one refusal finding — rather
+// than run on the roots that did route.
+func TestPrepare_StillRefusesAPartialRelocation(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := t.TempDir()
 	withFakeContainerRuntime(t, mapperRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}})
 
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
 	env, err := Prepare(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, project))
 	require.ErrorIs(t, err, present.ErrUnreachableRoot)
-	assert.Nil(t, env)
-	found := strictness.All()
-	require.NotEmpty(t, found)
-	assert.True(t, found[len(found)-1].NonDegradable, "an unpresentable root is not a thinner run")
-	matches, _ := filepath.Glob(filepath.Join(sessionDir(home, harpA), "*", "ctxloom-iso-*"))
-	assert.Empty(t, matches, "the refused environment's scratch was torn down")
+	assert.Nil(t, env, "no environment over a partial relocation")
+	var refusals int
+	for _, f := range strictness.Since(mark) {
+		if f.Remedy == unreachableRootRemedy(errNoRoute) {
+			refusals++
+			assert.True(t, f.NonDegradable)
+		}
+	}
+	assert.Equal(t, 1, refusals, "one relocation refusal")
 }
 
 // uncMapper refuses every path the way driveLetterMapper refuses a share.

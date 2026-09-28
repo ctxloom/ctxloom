@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -384,3 +385,34 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 type listening struct{ stubEnvironment }
 
 func (listening) Listen() present.Listen { return present.Listen{Addr: "10.0.0.1"} }
+
+// A PREVIEW cell refuses nothing: the isolation findings a run's cell gate
+// refuses on stay on the ledger for the dry run's own gate, which lists them
+// after the plan, and the preview carries on with the environment's
+// best-effort outcome. The real cell, over the same findings, refuses.
+func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
+	resetStrictness(t)
+	t.Setenv("HOME", t.TempDir())
+	refusing := func(context.Context, launch.CellRequest, isolation.Spec) (isolation.Environment, error) {
+		strictness.FailAlways(report.KindIsolation, "the fix", "the requested boundary cannot be provided")
+		return stubEnvironment{}, nil
+	}
+	prevPrepare, prevPreview := prepareEnvironment, previewEnvironment
+	prepareEnvironment, previewEnvironment = refusing, refusing
+	t.Cleanup(func() { prepareEnvironment, previewEnvironment = prevPrepare, prevPreview })
+	req := claudeKind(t)
+	req.ProjectRoot = t.TempDir()
+	req.SessionDir = harpDir(t, "test-harp")
+	cells := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}
+
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	preview := cells
+	preview.preview = true
+	_, err := preview.Prepare(context.Background(), req)
+	require.NoError(t, err, "a preview carries on past a refusal")
+	require.Len(t, strictness.Since(mark), 1, "the finding stays on the ledger for the dry run's gate")
+
+	_, err = cells.Prepare(context.Background(), req)
+	require.ErrorIs(t, err, launch.ErrRuntimeUnavailable, "a run refuses on the same finding")
+}

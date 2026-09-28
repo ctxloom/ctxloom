@@ -96,19 +96,6 @@ func (e *TestEnvironment) SeedSignedTreeRemote(root, bundleID, envelope string, 
 	return e.SeedRemote(files)
 }
 
-// AdvanceSignedTreeRemote is SeedSignedTreeRemote's AdvanceRemote counterpart:
-// a fresh signature over a REVISED tree, pushed as a second commit.
-//
-// Unlike AdvanceRemote (which only ever overlays the files it is given, so a
-// path omitted from one round simply survives untouched from a previous one),
-// this REPLACES the bundle's entire directory — the same "destination
-// REPLACED, not merged" contract a pinned git worktree gives a real
-// pulled tree. It has to: a caller renaming an item (e.g. GAP A's
-// fragment-rename fixture) hands items a NEW path and expects the OLD one
-// gone, and the signed manifest attest.SignBundle just produced only ever
-// covers what is IN items — leaving the old file behind would publish it
-// unsigned and UNCLAIMED, which attest.VerifyBundle reports as tampering on
-// the very next pull.
 // SeedSignedLocalTree writes a tree-form bundle named bundleID under the
 // project's own bundles root, signed through its ONE signature (the
 // SHA256SUMS manifest and its .sigs/ entry) when signer is non-nil, and
@@ -138,50 +125,40 @@ func (e *TestEnvironment) SeedSignedLocalTree(bundleID, envelope string, items m
 	return nil
 }
 
+// AdvanceSignedTreeRemote is SeedSignedTreeRemote's AdvanceRemote counterpart:
+// a fresh signature over a REVISED tree, pushed as a second commit.
+//
+// Unlike AdvanceRemote (which only ever overlays the files it is given, so a
+// path omitted from one round simply survives untouched from a previous one),
+// this REPLACES the bundle's entire directory — the same "destination
+// REPLACED, not merged" contract a pinned git worktree gives a real
+// pulled tree. It has to: a caller renaming an item (e.g. GAP A's
+// fragment-rename fixture) hands items a NEW path and expects the OLD one
+// gone, and the signed manifest attest.SignBundle just produced only ever
+// covers what is IN items — leaving the old file behind would publish it
+// unsigned and UNCLAIMED, which attest.VerifyBundle reports as tampering on
+// the very next pull.
 func (e *TestEnvironment) AdvanceSignedTreeRemote(bareDir, root, bundleID, envelope string, items map[string]string, signer *TestSigner) error {
 	files, err := signTreeFiles(e.Root, root, bundleID, envelope, items, signer)
 	if err != nil {
 		return err
 	}
 
-	work, err := os.MkdirTemp(e.Root, "advance-tree-*")
+	work, err := cloneRemoteWork(e.Root, bareDir, "advance-tree-*")
 	if err != nil {
 		return err
-	}
-	if err := runGitE("", "clone", bareDir, work); err != nil {
-		return err
-	}
-	for _, s := range [][]string{
-		{"config", "user.email", "test@example.com"},
-		{"config", "user.name", "Test User"},
-		{"config", "commit.gpgsign", "false"},
-	} {
-		if err := runGitE(work, s...); err != nil {
-			return err
-		}
 	}
 	if err := os.RemoveAll(filepath.Join(work, filepath.FromSlash(root))); err != nil {
 		return fmt.Errorf("clear the previous %s tree: %w", root, err)
 	}
-	for rel, content := range files {
-		full := filepath.Join(work, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			return err
-		}
+	if err := writeFilesUnder(work, files); err != nil {
+		return err
 	}
-	for _, s := range [][]string{
+	return runGitSteps(work, [][]string{
 		{"add", "-A"},
 		{"commit", "-m", "advance"},
 		{"push", "origin", "main"},
-	} {
-		if err := runGitE(work, s...); err != nil {
-			return err
-		}
-	}
-	return nil
+	})
 }
 
 // signTreeFiles is SeedSignedTreeRemote/AdvanceSignedTreeRemote's shared
@@ -194,20 +171,8 @@ func signTreeFiles(workRoot, root, bundleID, envelope string, items map[string]s
 		return nil, err
 	}
 	bundleDir := filepath.Join(work, bundleID)
-	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+	if err := writeUnsignedTree(bundleDir, envelope, items); err != nil {
 		return nil, err
-	}
-	if err := os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte(envelope), 0o644); err != nil {
-		return nil, fmt.Errorf("write bundle.yaml: %w", err)
-	}
-	for rel, body := range items {
-		full := filepath.Join(bundleDir, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return nil, fmt.Errorf("mkdir for %s: %w", rel, err)
-		}
-		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
-			return nil, fmt.Errorf("write %s: %w", rel, err)
-		}
 	}
 
 	ctx := context.Background()
@@ -250,6 +215,27 @@ func signTreeFiles(workRoot, root, bundleID, envelope string, items map[string]s
 		return nil, fmt.Errorf("collect signed tree %s: %w", bundleDir, walkErr)
 	}
 	return files, nil
+}
+
+// writeUnsignedTree writes a tree-form bundle — its bundle.yaml envelope and
+// each item at its slash-separated path — into bundleDir.
+func writeUnsignedTree(bundleDir, envelope string, items map[string]string) error {
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte(envelope), 0o644); err != nil {
+		return fmt.Errorf("write bundle.yaml: %w", err)
+	}
+	for rel, body := range items {
+		full := filepath.Join(bundleDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return fmt.Errorf("mkdir for %s: %w", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", rel, err)
+		}
+	}
+	return nil
 }
 
 // TrustSigner writes an allowed_signers entry trusting signer's public key for

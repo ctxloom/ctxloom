@@ -175,6 +175,23 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       |            |
       | --degraded |
 
+  # The PREVIEW of the same refusal (ruled 2026-09-27): a dry run does not
+  # stop at it. It renders the plan it could compute, lists the finding with
+  # its fix after it, and exits exactly as the run would — the same abort,
+  # the same gate, whatever the output format. The JSON row reads the finding
+  # off the plan's own findings array, with its remedy. Both rows read the
+  # probed environment off the plan: runtime unavailable, reach unknown —
+  # never the host the refused run does not fall back to.
+  Scenario Outline: Previewing a container with no runtime shows the plan, then refuses as the run would
+    When Alice previews the container-bound agent with flags "<flags>"
+    Then the run aborts with an isolation finding
+    And the preview rendered its plan and the refusal's fix
+
+    Examples:
+      | flags         |
+      |               |
+      | --format json |
+
   # LOCKED — isolation.prepareChain's container-to-host DOWNGRADE: the sibling
   # gate the row above deliberately EXCLUDES. There a container is never
   # selected (no runtime); here one IS selected and then fails to START.

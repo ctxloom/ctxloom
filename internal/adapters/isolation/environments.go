@@ -137,11 +137,14 @@ func (c Container) environment(ws workspace, pl launch.Placement, roots []mount)
 }
 
 // preview probes the route home (network inspect) the way resolveWorkspace
-// does, refusing what a run would refuse.
+// does, recording what a run would refuse; a failed probe leaves the reach
+// unknown.
 func (c Container) preview(ctx context.Context) (present.Listen, Description) {
 	route, err := settleReach(ctx, c.runtime)
 	if err != nil {
-		return present.Listen{}, c.describe(hostRoute{})
+		desc := c.describe(hostRoute{})
+		desc.Reach = ReachUnknown
+		return present.Listen{}, desc
 	}
 	return route.listen, c.describe(route)
 }

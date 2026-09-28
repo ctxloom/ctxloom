@@ -717,33 +717,9 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
 			var seen []string
 			for {
-				if err := callTool(c, "agent_recv", map[string]any{"wait": 12}); err != nil {
-					return fmt.Errorf("j002300: agent_recv transport error while waiting for %q: %w", name, err)
-				}
-				if isErr, _ := w.lastTool.IsError(); !isErr {
-					msgs, merr := j002300Messages(w)
-					if merr != nil {
-						return merr
-					}
-					var failed []string
-					for _, m := range msgs {
-						if from, _ := m[recvFromAgentIDField].(string); from != harp {
-							continue
-						}
-						body, _ := m[recvTextField].(string)
-						seen = append(seen, body)
-						if strings.Contains(body, want) {
-							w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", name, harp, body)
-							return nil
-						}
-						if k, _ := m["kind"].(string); k == errKind.String() {
-							failed = append(failed, body)
-						}
-					}
-					if len(failed) > 0 {
-						return fmt.Errorf("j002300: %q reported a %s message instead of a body containing %q — harp %s:\n%s",
-							name, kindLabel(coord.KindError), want, harp, strings.Join(failed, "\n---\n"))
-					}
+				done, err := j002300RecvOnce(c, w, name, harp, want, errKind.String(), &seen)
+				if err != nil || done {
+					return err
 				}
 				if time.Now().After(deadline) {
 					return fmt.Errorf("j002300: %q never sent its coordinator a body containing %q within %ds — %d message(s) arrived from harp %s:\n%s",
@@ -788,6 +764,44 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			}
 			return nil
 		})
+}
+
+// j002300RecvOnce makes one agent_recv call and scans the batch for messages
+// from harp, appending each body to seen. It reports done when a body
+// contains want, and fails at once — with that message's text — when harp
+// sent an errKind message instead. A tool-level error result is not a
+// failure: the caller keeps polling until its budget runs out.
+func j002300RecvOnce(c context.Context, w *World, name, harp, want, errKind string, seen *[]string) (bool, error) {
+	if err := callTool(c, "agent_recv", map[string]any{"wait": 12}); err != nil {
+		return false, fmt.Errorf("j002300: agent_recv transport error while waiting for %q: %w", name, err)
+	}
+	if isErr, _ := w.lastTool.IsError(); isErr {
+		return false, nil
+	}
+	msgs, merr := j002300Messages(w)
+	if merr != nil {
+		return false, merr
+	}
+	var failed []string
+	for _, m := range msgs {
+		if from, _ := m[recvFromAgentIDField].(string); from != harp {
+			continue
+		}
+		body, _ := m[recvTextField].(string)
+		*seen = append(*seen, body)
+		if strings.Contains(body, want) {
+			w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", name, harp, body)
+			return true, nil
+		}
+		if k, _ := m["kind"].(string); k == errKind {
+			failed = append(failed, body)
+		}
+	}
+	if len(failed) > 0 {
+		return false, fmt.Errorf("j002300: %q reported a %s message instead of a body containing %q — harp %s:\n%s",
+			name, kindLabel(coord.KindError), want, harp, strings.Join(failed, "\n---\n"))
+	}
+	return false, nil
 }
 
 // j002300Messages unwraps an agent_recv result's "messages" array (@live only —

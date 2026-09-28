@@ -43,16 +43,7 @@ func TestMutationTargets_TableIsWellFormed(t *testing.T) {
 	seenName := map[string]bool{}
 	seenPath := map[string]bool{}
 	for _, target := range allTargets() {
-		if target.Name == "" {
-			t.Errorf("entry for %q has no Name — its subtest could not be addressed by -run", target.SourceRelPath)
-		}
-		if strings.ContainsAny(target.Name, "/ \t") {
-			t.Errorf("entry name %q contains a slash or space — -run's grammar is slash-separated and would not address it", target.Name)
-		}
-		if seenName[target.Name] {
-			t.Errorf("duplicate entry name %q — t.Run would suffix one of them and -run could not address it", target.Name)
-		}
-		seenName[target.Name] = true
+		checkTargetName(t, seenName, target.Name, target.SourceRelPath)
 
 		if seenPath[target.SourceRelPath] {
 			t.Errorf("duplicate target file %q — that is the same multi-hour run twice", target.SourceRelPath)
@@ -235,18 +226,9 @@ func TestPackageMutationTargets_TableIsWellFormed(t *testing.T) {
 	seenName := map[string]bool{}
 	seenPkg := map[string]bool{}
 	for _, target := range packageMutationTargets {
-		if target.Name == "" {
-			t.Errorf("entry for %q has no Name — its subtest could not be addressed by -run", target.Pkg)
-		}
-		if strings.ContainsAny(target.Name, "/ \t") {
-			t.Errorf("entry name %q contains a slash or space — -run's grammar is slash-separated and would not address it", target.Name)
-		}
-		if seenName[target.Name] {
-			t.Errorf("duplicate entry name %q — t.Run would suffix one of them and -run could not address it", target.Name)
-		}
-		seenName[target.Name] = true
+		checkTargetName(t, seenName, target.Name, target.Pkg)
 
-		if target.Pkg == "" || strings.HasPrefix(target.Pkg, "./") || strings.HasPrefix(target.Pkg, "/") || strings.HasSuffix(target.Pkg, "/") || strings.Contains(target.Pkg, "\\") {
+		if !isBareModulePath(target.Pkg) {
 			t.Errorf("entry %q: Pkg %q must be a bare slash-separated path relative to the module root (no ./, no trailing /, not absolute)", target.Name, target.Pkg)
 		}
 		if seenPkg[target.Pkg] {
@@ -254,6 +236,34 @@ func TestPackageMutationTargets_TableIsWellFormed(t *testing.T) {
 		}
 		seenPkg[target.Pkg] = true
 	}
+}
+
+// checkTargetName reports a table entry whose Name could not be addressed by
+// -run — empty, containing a slash or space, or already in seen — and records
+// it in seen. owner identifies an unnamed entry in the message.
+func checkTargetName(t *testing.T, seen map[string]bool, name, owner string) {
+	t.Helper()
+	if name == "" {
+		t.Errorf("entry for %q has no Name — its subtest could not be addressed by -run", owner)
+	}
+	if strings.ContainsAny(name, "/ \t") {
+		t.Errorf("entry name %q contains a slash or space — -run's grammar is slash-separated and would not address it", name)
+	}
+	if seen[name] {
+		t.Errorf("duplicate entry name %q — t.Run would suffix one of them and -run could not address it", name)
+	}
+	seen[name] = true
+}
+
+// isBareModulePath reports whether pkg is a non-empty slash-separated path
+// relative to the module root: no leading "./" or "/", no trailing "/", no
+// backslash.
+func isBareModulePath(pkg string) bool {
+	return pkg != "" &&
+		!strings.HasPrefix(pkg, "./") &&
+		!strings.HasPrefix(pkg, "/") &&
+		!strings.HasSuffix(pkg, "/") &&
+		!strings.Contains(pkg, "\\")
 }
 
 // TestPackageMutationTargets_PackagesExist checks that every Pkg is a real

@@ -31,35 +31,21 @@ func (e *TestEnvironment) SeedRemote(files map[string]string) (string, error) {
 			return "", err
 		}
 	}
-	for _, s := range [][]string{
-		{"config", "user.email", "test@example.com"},
-		{"config", "user.name", "Test User"},
-		{"config", "commit.gpgsign", "false"},
-	} {
-		if err := runGitE(work, s...); err != nil {
-			return "", err
-		}
+	if err := runGitSteps(work, gitCommitIdentity); err != nil {
+		return "", err
 	}
 
-	for rel, content := range files {
-		full := filepath.Join(work, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return "", err
-		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			return "", err
-		}
+	if err := writeFilesUnder(work, files); err != nil {
+		return "", err
 	}
 
-	for _, s := range [][]string{
+	if err := runGitSteps(work, [][]string{
 		{"add", "-A"},
 		{"commit", "-m", "seed"},
 		{"remote", "add", "origin", bare},
 		{"push", "origin", "main"},
-	} {
-		if err := runGitE(work, s...); err != nil {
-			return "", err
-		}
+	}); err != nil {
+		return "", err
 	}
 	if err := runGitE(bare, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
 		return "", err
@@ -73,41 +59,18 @@ func (e *TestEnvironment) SeedRemote(files map[string]string) (string, error) {
 // `remote sync` detects and stages for review. bareDir is the bare repository
 // path (the SeedRemote URL with the file:// prefix stripped).
 func (e *TestEnvironment) AdvanceRemote(bareDir string, files map[string]string) error {
-	work, err := os.MkdirTemp(e.Root, "advance-*")
+	work, err := cloneRemoteWork(e.Root, bareDir, "advance-*")
 	if err != nil {
 		return err
 	}
-	if err := runGitE("", "clone", bareDir, work); err != nil {
+	if err := writeFilesUnder(work, files); err != nil {
 		return err
 	}
-	for _, s := range [][]string{
-		{"config", "user.email", "test@example.com"},
-		{"config", "user.name", "Test User"},
-		{"config", "commit.gpgsign", "false"},
-	} {
-		if err := runGitE(work, s...); err != nil {
-			return err
-		}
-	}
-	for rel, content := range files {
-		full := filepath.Join(work, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			return err
-		}
-	}
-	for _, s := range [][]string{
+	return runGitSteps(work, [][]string{
 		{"add", "-A"},
 		{"commit", "-m", "advance"},
 		{"push", "origin", "main"},
-	} {
-		if err := runGitE(work, s...); err != nil {
-			return err
-		}
-	}
-	return nil
+	})
 }
 
 // UnpublishFromRemote pushes a commit to bareDir that DELETES the given
@@ -116,21 +79,9 @@ func (e *TestEnvironment) AdvanceRemote(bareDir string, files map[string]string)
 // produce the state a reconcile has to treat as authority — a remote that is
 // perfectly reachable and genuinely no longer serves a bundle.
 func (e *TestEnvironment) UnpublishFromRemote(bareDir string, paths ...string) error {
-	work, err := os.MkdirTemp(e.Root, "unpublish-*")
+	work, err := cloneRemoteWork(e.Root, bareDir, "unpublish-*")
 	if err != nil {
 		return err
-	}
-	if err := runGitE("", "clone", bareDir, work); err != nil {
-		return err
-	}
-	for _, s := range [][]string{
-		{"config", "user.email", "test@example.com"},
-		{"config", "user.name", "Test User"},
-		{"config", "commit.gpgsign", "false"},
-	} {
-		if err := runGitE(work, s...); err != nil {
-			return err
-		}
 	}
 	for _, rel := range paths {
 		full := filepath.Join(work, filepath.FromSlash(rel))
@@ -138,16 +89,11 @@ func (e *TestEnvironment) UnpublishFromRemote(bareDir string, paths ...string) e
 			return fmt.Errorf("unpublish %s: %w", rel, err)
 		}
 	}
-	for _, s := range [][]string{
+	return runGitSteps(work, [][]string{
 		{"add", "-A"},
 		{"commit", "-m", "unpublish"},
 		{"push", "origin", "main"},
-	} {
-		if err := runGitE(work, s...); err != nil {
-			return err
-		}
-	}
-	return nil
+	})
 }
 
 // BreakRemote renames a bare repository out from under its file:// URL and
@@ -228,6 +174,56 @@ func gitOutput(dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, stderr.String())
 	}
 	return string(out), nil
+}
+
+// gitCommitIdentity configures a scratch clone to commit as a fixed test
+// identity, unsigned, independent of the developer's own git config.
+var gitCommitIdentity = [][]string{
+	{"config", "user.email", "test@example.com"},
+	{"config", "user.name", "Test User"},
+	{"config", "commit.gpgsign", "false"},
+}
+
+// runGitSteps runs each git invocation in dir in order, stopping at the first
+// failure.
+func runGitSteps(dir string, steps [][]string) error {
+	for _, s := range steps {
+		if err := runGitE(dir, s...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cloneRemoteWork clones bareDir into a fresh temp dir under root (named by
+// pattern) configured with gitCommitIdentity, ready to commit and push.
+func cloneRemoteWork(root, bareDir, pattern string) (string, error) {
+	work, err := os.MkdirTemp(root, pattern)
+	if err != nil {
+		return "", err
+	}
+	if err := runGitE("", "clone", bareDir, work); err != nil {
+		return "", err
+	}
+	if err := runGitSteps(work, gitCommitIdentity); err != nil {
+		return "", err
+	}
+	return work, nil
+}
+
+// writeFilesUnder writes each slash-separated relative path in files under
+// dir, creating parent directories as needed.
+func writeFilesUnder(dir string, files map[string]string) error {
+	for rel, content := range files {
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runGitE(dir string, args ...string) error {

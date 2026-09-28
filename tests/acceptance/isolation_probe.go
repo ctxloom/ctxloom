@@ -782,25 +782,8 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath) (*
 	if err != nil {
 		return nil, err
 	}
-	if authPath == probeAuthSeeded {
-		// DELIBERATELY still a COPY, not the mapping the @live gates now use
-		// (seedLiveCredentials, erased-collar): this probe's whole
-		// measurement is a before/after census of a STAND-IN host home,
-		// watching what production's own seeding and the engine leak into
-		// it. Mapping would point that census at the developer's REAL
-		// ~/.claude / ~/.codex and destroy the thing being measured. The
-		// consequence is that a codex isolation-probe row still carries
-		// jovial-employee's refresh-token-consumption hazard — flagged for
-		// the human, not silently resolved here.
-		//
-		// probeDecideAuthPath already confirmed (via its own dry copy) that
-		// a host credential file exists; a zero-files-copied error here
-		// means the real copy disagreed with that dry probe (a race, a
-		// permission change) — an anomaly worth failing loud on rather than
-		// silently proceeding with an empty isolated credential dir.
-		if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
-			return nil, fmt.Errorf("isolation probe: seeding %s credentials: %w", backendType, err)
-		}
+	if err := probeSeedCreds(w, a, backendType, authPath); err != nil {
+		return nil, err
 	}
 
 	before, err := probeCensus(w.env.HomeDir, roots)
@@ -837,11 +820,7 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath) (*
 	res.Scratch = <-scratchCh
 
 	res.Output = stdout.String() + stderr.String()
-	if exitErr, ok := runErr.(*exec.ExitError); ok {
-		res.ExitCode = exitErr.ExitCode()
-	} else if runErr != nil {
-		res.ExitCode = -1
-	}
+	res.ExitCode = probeExitCode(runErr)
 
 	after, err := probeCensus(w.env.HomeDir, roots)
 	if err != nil {
@@ -850,6 +829,42 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath) (*
 	res.HostDiff = probeCensusDiff(before, after)
 
 	return res, nil
+}
+
+// probeSeedCreds seeds a's host credentials into the isolated home when the
+// cell runs on the seeded auth path; any other path seeds nothing.
+func probeSeedCreds(w *World, a liveAgent, backendType string, authPath probeAuthPath) error {
+	if authPath != probeAuthSeeded {
+		return nil
+	}
+	// DELIBERATELY still a COPY, not the mapping the @live gates now use
+	// (seedLiveCredentials, erased-collar): this probe's whole
+	// measurement is a before/after census of a STAND-IN host home,
+	// watching what production's own seeding and the engine leak into
+	// it. Mapping would point that census at the developer's REAL
+	// ~/.claude / ~/.codex and destroy the thing being measured. The
+	// consequence is that a codex isolation-probe row still carries
+	// jovial-employee's refresh-token-consumption hazard — flagged for
+	// the human, not silently resolved here.
+	//
+	// probeDecideAuthPath already confirmed (via its own dry copy) that
+	// a host credential file exists; a zero-files-copied error here
+	// means the real copy disagreed with that dry probe (a race, a
+	// permission change) — an anomaly worth failing loud on rather than
+	// silently proceeding with an empty isolated credential dir.
+	if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
+		return fmt.Errorf("isolation probe: seeding %s credentials: %w", backendType, err)
+	}
+	return nil
+}
+
+// probeExitCode is the exit code a probe result records for runErr: 0 on
+// success, otherwise exitCodeOf's reading.
+func probeExitCode(runErr error) int {
+	if runErr == nil {
+		return 0
+	}
+	return exitCodeOf(runErr)
 }
 
 // runProbeContainer drives one live container-axis cell end to end: decide
@@ -931,11 +946,7 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 	res.Container = <-diffCh
 
 	res.Output = stdout.String() + stderr.String()
-	if exitErr, ok := runErr.(*exec.ExitError); ok {
-		res.ExitCode = exitErr.ExitCode()
-	} else if runErr != nil {
-		res.ExitCode = -1
-	}
+	res.ExitCode = probeExitCode(runErr)
 
 	res.ContainerHome = "/home/ctxloom" // defaultContainerHome, internal/adapters/isolation/container.go
 	res.Unexpected = probeContainerUnexpected(res.Container.Diff, res.ContainerHome)

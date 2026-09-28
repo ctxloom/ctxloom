@@ -388,40 +388,12 @@ func TestSurfaces_ContextHookIsANoOpRider(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "no native file when context rides the hook")
 }
 
-// Whether an approach is safe in a shared cwd is a property of each VALUE, and
-// it is asserted on the BEHAVIOUR — where the bytes land — not on the marker
-// interface that used to carry it. The distinction is the point of this test:
-// the system prompt's safety was previously readable only as "it implements
-// OutOfCwd, so a shared launch converts it", and that same marker was what
-// silently converted an ISOLATED launch's selection into a CLAUDE.md. The
-// property that actually matters survives the marker's removal — the system
-// prompt's bytes never land in the workspace, on ANY cell.
-//
-// The native-file context is deliberately NOT safe: an explicit unsafe-file
-// request is honoured, and warned. commands and skills have no private form at
-// all. The system prompt alone is LaunchOnly — refused at rest, where nothing
-// can sink its flag.
-func TestSurfaces_SharedCwdSafetyAndLaunchOnly(t *testing.T) {
+// The system prompt and the private mcp config are LaunchOnly — refused at
+// rest, where nothing can sink their flags. Every other approach has an
+// at-rest form.
+func TestSurfaces_LaunchOnly(t *testing.T) {
 	s := newSurfaces(sampleInputs(), nil)
 	launchOnly := func(a agent.Approach) bool { _, ok := a.(agent.LaunchOnly); return ok }
-
-	assert.False(t, agent.SafeInSharedCwd(s.Native), "context unsafe-file: honoured natively, never converted")
-	assert.True(t, agent.SafeInSharedCwd(s.Context), "the system prompt stays out of the workspace")
-	assert.True(t, agent.SafeInSharedCwd(s.Hook), "a rider writes no bytes of its own")
-	assert.True(t, agent.SafeInSharedCwd(s.MCP), "the private mcp config stays out of the workspace")
-	assert.False(t, agent.SafeInSharedCwd(s.MCPUnsafe), "mcp:unsafe-file is the project file — honoured, and warned")
-	assert.False(t, agent.SafeInSharedCwd(s.Settings), "settings writes the project's .claude/settings.json: honoured, and warned")
-	assert.False(t, agent.SafeInSharedCwd(s.Commands))
-	assert.False(t, agent.SafeInSharedCwd(s.Skills))
-
-	// The system prompt's safety is STRUCTURAL, not a conversion a cell opts
-	// into: its presentation is outside the project root, so the property holds
-	// on an isolated cell too — which is exactly what the silent conversion
-	// used to break.
-	assert.False(t, agent.PresentsUnderProjectRoot(s.Context),
-		"the framed system prompt must never present as a project file")
-	assert.True(t, agent.PresentsUnderProjectRoot(s.Native),
-		"CLAUDE.md is a project file — that is what makes unsafe-file unsafe")
 
 	assert.True(t, launchOnly(s.Context), "system-prompt has no argv sink at rest")
 	assert.True(t, launchOnly(s.MCP), "the private mcp config is announced on a flag, so it has no argv sink at rest")

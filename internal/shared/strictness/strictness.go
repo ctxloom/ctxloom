@@ -355,15 +355,18 @@ type Mode struct {
 	Degraded bool
 }
 
-// Actionable filters found to what this mode's gate must act on: everything
-// in strict mode; under Degraded, only the NonDegradable findings.
+// Fatal reports whether this mode's gate acts on f: every finding in strict
+// mode; under Degraded, only a NonDegradable one.
+func (m Mode) Fatal(f report.Finding) bool { return !m.Degraded || f.NonDegradable }
+
+// Actionable filters found to what this mode's gate must act on (Fatal).
 func (m Mode) Actionable(found report.Findings) report.Findings {
 	if !m.Degraded {
 		return found
 	}
 	var out report.Findings
 	for _, f := range found {
-		if f.NonDegradable {
+		if m.Fatal(f) {
 			out = append(out, f)
 		}
 	}

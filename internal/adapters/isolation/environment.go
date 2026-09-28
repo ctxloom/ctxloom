@@ -69,6 +69,16 @@ type Interactive struct {
 // runtime it runs under and how its runner reaches home.
 type Description struct{ Workspace, Runtime, Reach string }
 
+// RuntimeUnavailable and ReachUnknown are what a preview describes where the
+// run would refuse: no runtime with the requested ownership is reachable, or
+// the probe for a route home failed. Naming them, rather than the host the
+// degrade chain falls back to or the loopback a route-less probe defaults
+// to, is what keeps a preview from showing an outcome no run would get.
+const (
+	RuntimeUnavailable = "unavailable"
+	ReachUnknown       = "unknown"
+)
+
 // ErrPreviewEnvironment is a launch asked of a preview: a preview relocates
 // and probes, and never starts anything.
 var ErrPreviewEnvironment = errors.New("isolation: a preview environment cannot start a runner")
@@ -102,14 +112,14 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	// have degraded to one that can satisfy it.
 	head := chain[0].relocator()
 	if _, _, err := head.relocate(previewLayout(s, stores)); errors.Is(err, present.ErrUnreachableRoot) {
-		return nil, refuseUnreachable("run in", err)
+		return nil, refuseUnreachable(err)
 	}
 	p, ws := prepareChain(ctx, chain, s.axes.Runtime, s.project, s.harp)
 	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores)
 	pl, roots, err := p.relocator().relocate(l)
 	if err != nil {
 		_ = ws.Cleanup()
-		return nil, refuseUnreachable("run in", err)
+		return nil, refuseUnreachable(err)
 	}
 	env, err := p.environment(ws, pl, roots)
 	if err != nil {
@@ -130,34 +140,62 @@ func unreachableRootRemedy(err error) string {
 }
 
 // refuseUnreachable records err as the non-degradable finding it is when it
-// is a root the environment cannot present, and returns it. Any other
-// relocation refusal (a credential store no container can reach) carries its
-// own remedy on the error.
-func refuseUnreachable(what string, err error) error {
+// is a root the environment cannot present, and returns it: the finding
+// Prepare refuses on, and the one Preview reports where the run would. Any
+// other relocation refusal (a credential store no container can reach)
+// carries its own remedy on the error.
+func refuseUnreachable(err error) error {
 	if errors.Is(err, present.ErrUnreachableRoot) {
-		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to %s an environment that cannot present every root: %v", what, err)
+		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to run in an environment that cannot present every root: %v", err)
 	}
 	return err
+}
+
+// recordRefusal records, for a preview, a refusal the run returns as an
+// error rather than a finding (a credential store it cannot have), so the
+// dry run's gate lists it beside the rest.
+func recordRefusal(err error) {
+	if errors.Is(err, present.ErrUnreachableRoot) {
+		refuseUnreachable(err)
+		return
+	}
+	remedy, _ := clifmt.RemedyOf(err)
+	strictness.FailAlways(report.KindIsolation, remedy, "refusing to run: %v", err)
 }
 
 // Preview is Prepare's relocation with no effects on disk: no checkout, no
 // scratch, no session home created. A container preview PROBES the runtime
 // read-only — its selection (info) and its route home (network inspect) — so
-// Describe and Listen show the real runtime and reach, and a runtime a run
-// would refuse is refused here too. Start and Interactive return
-// ErrPreviewEnvironment; Cleanup is a no-op.
-func Preview(ctx context.Context, s Spec) (Environment, error) {
+// Describe and Listen show the real runtime and reach. Start and Interactive
+// return ErrPreviewEnvironment; Cleanup is a no-op.
+//
+// A preview does NOT stop at the first problem. Every refusal a run would hit
+// is recorded as the finding the run raises — through the same call, not a
+// copy — for the caller's gate, and the preview carries on with the outcome it
+// can still compute: a root no runtime routes is marked unreachable (a Host
+// side and no Engine side, never a guessed path), an unreachable runtime is
+// described as RuntimeUnavailable and an unprobed route as ReachUnknown. A
+// credential store the run would refuse is recorded too, and left out.
+func Preview(ctx context.Context, s Spec) Environment {
 	stores, err := stageStores(s.backend(), s.creds.Stores)
 	if err != nil {
-		return nil, err
+		recordRefusal(err)
 	}
 	p := chainFor(s.axes, s.backend(), s.img)[0]
+	if s.axes.WantsContainer() && !IsContainerPolicyName(p.Name()) {
+		// chainFor recorded the refusal. p is the host fallback the run
+		// refuses to take, so only its workspace axis is shown: no runtime
+		// routes any root.
+		_, desc := p.preview(ctx)
+		desc.Runtime, desc.Reach = RuntimeUnavailable, ReachUnknown
+		return previewEnvironment{placement: unrouted(previewLayout(s, stores)), desc: desc}
+	}
 	pl, _, err := p.relocator().relocate(previewLayout(s, stores))
 	if err != nil {
-		return nil, refuseUnreachable("preview", err)
+		recordRefusal(err)
 	}
 	listen, desc := p.preview(ctx)
-	return previewEnvironment{placement: pl, listen: listen, desc: desc}, nil
+	return previewEnvironment{placement: pl, listen: listen, desc: desc}
 }
 
 // previewEnvironment is Preview's result: the outcome, and nothing to start.

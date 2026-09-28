@@ -19,6 +19,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -193,6 +194,48 @@ func j002200ParseRecord(body string) (cwd, workDir string) {
 	return cwd, workDir
 }
 
+// j002200RunContainerBound runs the container-bound agent in mode (a run
+// or a preview) with flags, where the requested container CANNOT launch.
+//
+// THIS ROW ONLY MEANS ANYTHING WHERE THE REQUESTED CONTAINER CANNOT LAUNCH —
+// it asserts the fail-loud/degrade contract for exactly that case, and where a
+// container CAN start the correct behaviour is to start it. So the row
+// MANUFACTURES the cannot-launch condition instead of waiting for a machine
+// that happens to have it: PATH is rebuilt to hold no container runtime, which
+// is the real, unstubbed reason isolation.SelectRuntime returns Host (it
+// reaches docker/podman through exec.LookPath, same as the harness does).
+//
+// Do not restore a "skip where a runtime is reachable" guard here. That guard
+// made the row unrunnable on every developer box and on CI, while godog
+// counted the all-skipped scenario as PASSED. Worse, the green it replaced was
+// itself false: the mock backend had no container-auth profile, so
+// resolveAuth failed closed and THAT produced the exit 3 — the row asserted
+// the runtime gate while riding the auth gate. Masking PATH is what puts the
+// assertion back on the gate it names.
+func j002200RunContainerBound(w *World, mode, flags string) error {
+	j002200 := j002200Of(w)
+	if err := j002200MaskContainerRuntime(w); err != nil {
+		return err
+	}
+	// Fresh record path per invocation, same as the workspace-axis "mock
+	// agent" step -- the mock engine writes cwd=/workdir= to this file
+	// regardless of whether it ends up running in a container or (degraded)
+	// on the host, which is what lets "the run runs on the host" actually
+	// check WHERE it ran rather than only that it exited 0.
+	recPath := filepath.Join(j002200.recordDir, fmt.Sprintf("record-%d.txt", len(j002200.records)))
+	if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j002200HomeConfigYAML(recPath)); err != nil {
+		return err
+	}
+	j002200.lastContainerRecPath = recPath
+	args := []string{"run", "--agent", "mock-container", mode}
+	if flags != "" {
+		args = append(args, strings.Fields(flags)...)
+	}
+	args = append(args, "isolation-check")
+	_ = w.env.Run(args...) // exit status asserted by the Then step
+	return nil
+}
+
 func registerJ002200Steps(ctx *godog.ScenarioContext) {
 	// The project stays a ctxloom project (its .ctxloom is untouched); only
 	// the git repository a worktree would be cut from is gone.
@@ -337,44 +380,38 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^Alice runs the container-bound agent with flags "([^"]*)"$`, func(c context.Context, flags string) error {
+		return j002200RunContainerBound(worldFrom(c), "--one-shot", flags)
+	})
+
+	ctx.Step(`^Alice previews the container-bound agent with flags "([^"]*)"$`, func(c context.Context, flags string) error {
+		return j002200RunContainerBound(worldFrom(c), "--dry-run", flags)
+	})
+
+	ctx.Step(`^the preview rendered its plan and the refusal's fix$`, func(c context.Context) error {
 		w := worldFrom(c)
-		j002200 := j002200Of(w)
-		// THIS ROW ONLY MEANS ANYTHING WHERE THE REQUESTED CONTAINER CANNOT
-		// LAUNCH — it asserts the fail-loud/degrade contract for exactly that
-		// case, and where a container CAN start the correct behaviour is to
-		// start it. So the row MANUFACTURES the cannot-launch condition instead
-		// of waiting for a machine that happens to have it: PATH is rebuilt to
-		// hold no container runtime, which is the real, unstubbed reason
-		// isolation.SelectRuntime returns Host (it reaches docker/podman
-		// through exec.LookPath, same as the harness does).
-		//
-		// Do not restore a "skip where a runtime is reachable" guard here. That
-		// guard made the row unrunnable on every developer box and on CI, while
-		// godog counted the all-skipped scenario as PASSED. Worse, the green it
-		// replaced was itself false: the mock backend had no container-auth
-		// profile, so resolveAuth failed closed and THAT produced the exit 3 —
-		// the row asserted the runtime gate while riding the auth gate. Masking
-		// PATH is what puts the assertion back on the gate it names.
-		if err := j002200MaskContainerRuntime(w); err != nil {
-			return err
+		stdout := w.env.LastStdout()
+		w.docStepMaterialized = strings.TrimSpace(stdout)
+		var payload struct {
+			Resolved struct{ Runtime string } `json:"resolved"`
+			Findings []struct {
+				Text   string `json:"text"`
+				Remedy string `json:"remedy"`
+				Fatal  bool   `json:"fatal"`
+			} `json:"findings"`
 		}
-		// Fresh record path per invocation, same as the workspace-axis "mock
-		// agent" step above -- the mock engine writes cwd=/workdir= to this
-		// file regardless of whether it ends up running in a container or
-		// (degraded) on the host, which is what lets "the run runs on the
-		// host" actually check WHERE it ran rather than only that it exited 0.
-		recPath := filepath.Join(j002200.recordDir, fmt.Sprintf("record-%d.txt", len(j002200.records)))
-		if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j002200HomeConfigYAML(recPath)); err != nil {
-			return err
+		if json.Unmarshal([]byte(stdout), &payload) != nil {
+			// The text form: the plan's own sections are on stdout.
+			if !strings.Contains(stdout, "=== Assembled Context") {
+				return fmt.Errorf("the preview rendered no plan before refusing; stdout:\n%s", stdout)
+			}
+			return nil
 		}
-		j002200.lastContainerRecPath = recPath
-		args := []string{"run", "--agent", "mock-container", "--one-shot"}
-		if flags != "" {
-			args = append(args, strings.Fields(flags)...)
+		for _, f := range payload.Findings {
+			if strings.Contains(f.Text, j002200RuntimeGateFinding) && f.Fatal && f.Remedy != "" {
+				return nil
+			}
 		}
-		args = append(args, "isolation-check")
-		_ = w.env.Run(args...) // exit status asserted by the Then step below
-		return nil
+		return fmt.Errorf("the preview's JSON carries no fatal runtime-gate finding with its fix; stdout:\n%s", stdout)
 	})
 
 	// The POSITIVE container-launch row (unripe-juiciness). Unlike the fail-loud

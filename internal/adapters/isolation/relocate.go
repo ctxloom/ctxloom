@@ -43,7 +43,9 @@ type relocator interface {
 	// is in place (the host), which is what a shared login needs.
 	sharesLogin() bool
 	// relocate returns the Placement and, for a relocating environment, the
-	// mounts that make each presented root true — produced together.
+	// mounts that make each presented root true — produced together. A root
+	// it cannot present is an error naming EVERY such root, beside the
+	// Placement with each of them unreachable (no Engine side) and no mounts.
 	relocate(l layout) (launch.Placement, []mount, error)
 }
 
@@ -184,9 +186,17 @@ type containerRelocator struct {
 func (containerRelocator) sharesLogin() bool { return false }
 
 func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error) {
+	var refused error
+	refuse := func(root string, err error) {
+		err = fmt.Errorf("%s: %w", root, err)
+		if refused != nil {
+			err = fmt.Errorf("%w; %w", refused, err)
+		}
+		refused = err
+	}
 	project, err := relocateRoot(r.rt, l.cwd, "")
 	if err != nil {
-		return launch.Placement{}, nil, fmt.Errorf("project root: %w", err)
+		refuse("project root", err)
 	}
 	paths := present.Paths{ProjectRoot: project.root}
 	mounts := []mount{project.mount}
@@ -199,12 +209,21 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 		}
 		home, err := relocateRoot(r.rt, l.sessionHome, target)
 		if err != nil {
-			return launch.Placement{}, nil, fmt.Errorf("session home: %w", err)
+			refuse("session home", err)
 		}
 		paths.SessionHome = home.root
 		mounts = append(mounts, home.mount)
 	}
+	if refused != nil {
+		return placementOf(paths, l, nil), nil, refused
+	}
 	return placementOf(paths, l, nil), mounts, nil
+}
+
+// unrouted is the Placement of a layout no runtime routes: every root
+// unreachable, so nothing is presented and no home var names a path.
+func unrouted(l layout) launch.Placement {
+	return placementOf(present.Paths{ProjectRoot: present.Root{Host: l.cwd}, SessionHome: present.Root{Host: l.sessionHome}}, l, nil)
 }
 
 // relocated is one root as the container presents it, and its mount.
@@ -218,11 +237,12 @@ type relocated struct {
 // produced together, so a presented root cannot exist without its mount.
 // target "" places the root where the runtime's mapper routes it; a fixed
 // target (the instance home, $HOME) still has its host side routed, so a
-// source the runtime cannot reach fails here rather than at the daemon.
+// source the runtime cannot reach fails here rather than at the daemon,
+// returning the root unreachable: its Host side, no Engine side, no mount.
 func relocateRoot(rt Runtime, host, target string) (relocated, error) {
 	routed, err := rt.mapper().toContainer(host)
 	if err != nil {
-		return relocated{}, fmt.Errorf("%w: %s: %w", present.ErrUnreachableRoot, host, err)
+		return relocated{root: present.Root{Host: host}}, fmt.Errorf("%w: %s: %w", present.ErrUnreachableRoot, host, err)
 	}
 	if target == "" {
 		target = routed

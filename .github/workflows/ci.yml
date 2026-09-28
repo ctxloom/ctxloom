@@ -227,6 +227,40 @@ jobs:
       - name: Check generated MCP tool schemas are current
         run: just gen-mcp-schemas-check
 
+  # The Windows arm of every per-platform seam: the files a linux run never
+  # compiles, run natively. On the runner host, not the devcontainer image,
+  # which is Linux. No `needs:` — it shares nothing with the container jobs, so
+  # it runs alongside them.
+  windows:
+    name: Windows platform tests
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The host justfile delegates into docker; this one runs the toolchain
+      # directly, which is what this runner has.
+      JUST_JUSTFILE: justfile.container
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-just
+
+      - name: Resolve pinned Go version
+        id: go_version
+        run: just ci-go-version
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go_version.outputs.version }}
+          cache-dependency-path: go.sum
+
+      - name: Windows platform tests
+        run: just test-windows
+
   build-and-integration:
     name: Build & Integration Tests
     runs-on: ubuntu-latest

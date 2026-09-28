@@ -1677,7 +1677,8 @@ fmt:
 lint: dev-image _require-generated
     just _run lint
 
-# Compile every package for windows and darwin (delegates to devcontainer).
+# Compile every package for windows and darwin, and vet every test file for
+# windows (delegates to devcontainer).
 # Linux-only code compiles for the other OSes only through build-tagged twins,
 # and this is the gate that proves each twin still has its counterpart.
 build-cross: dev-image _require-generated

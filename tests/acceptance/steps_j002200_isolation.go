@@ -237,6 +237,29 @@ func j002200RunContainerBound(w *World, mode, flags string) error {
 	return nil
 }
 
+// j002200Environment is the dry-run plan's probed environment on the wire.
+type j002200Environment struct {
+	Runtime string `json:"runtime"`
+	Reach   string `json:"reach"`
+}
+
+// j002200RefusedEnvironment is what a preview with no runtime must describe:
+// the refusal, never the host fallback the run does not take.
+var j002200RefusedEnvironment = j002200Environment{Runtime: isolation.RuntimeUnavailable, Reach: isolation.ReachUnknown}
+
+// j002200PreviewText checks the text form of a refused preview: the plan's
+// own sections are on stdout, with the probed environment naming the refusal.
+func j002200PreviewText(stdout string) error {
+	if !strings.Contains(stdout, "=== Assembled Context") {
+		return fmt.Errorf("the preview rendered no plan before refusing; stdout:\n%s", stdout)
+	}
+	want := fmt.Sprintf("runtime: %s, reach: %s", j002200RefusedEnvironment.Runtime, j002200RefusedEnvironment.Reach)
+	if !strings.Contains(stdout, want) {
+		return fmt.Errorf("the preview's plan does not show the environment as %q; stdout:\n%s", want, stdout)
+	}
+	return nil
+}
+
 func registerJ002200Steps(ctx *godog.ScenarioContext) {
 	// The project stays a ctxloom project (its .ctxloom is untouched); only
 	// the git repository a worktree would be cut from is gone.
@@ -394,30 +417,18 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		w.docStepMaterialized = strings.TrimSpace(stdout)
 		var payload struct {
 			Resolved    struct{ Runtime string } `json:"resolved"`
-			Environment *struct {
-				Runtime string `json:"runtime"`
-				Reach   string `json:"reach"`
-			} `json:"environment"`
-			Findings []struct {
+			Environment j002200Environment       `json:"environment"`
+			Findings    []struct {
 				Text   string `json:"text"`
 				Remedy string `json:"remedy"`
 				Fatal  bool   `json:"fatal"`
 			} `json:"findings"`
 		}
 		if json.Unmarshal([]byte(stdout), &payload) != nil {
-			// The text form: the plan's own sections are on stdout.
-			if !strings.Contains(stdout, "=== Assembled Context") {
-				return fmt.Errorf("the preview rendered no plan before refusing; stdout:\n%s", stdout)
-			}
-			// The probed environment names the refusal, never the host
-			// fallback the run would not take.
-			if want := fmt.Sprintf("runtime: %s, reach: %s", isolation.RuntimeUnavailable, isolation.ReachUnknown); !strings.Contains(stdout, want) {
-				return fmt.Errorf("the preview's plan does not show the environment as %q; stdout:\n%s", want, stdout)
-			}
-			return nil
+			return j002200PreviewText(stdout)
 		}
-		if env := payload.Environment; env == nil || env.Runtime != isolation.RuntimeUnavailable || env.Reach != isolation.ReachUnknown {
-			return fmt.Errorf("the preview's JSON does not describe the environment as runtime %q, reach %q; stdout:\n%s", isolation.RuntimeUnavailable, isolation.ReachUnknown, stdout)
+		if payload.Environment != j002200RefusedEnvironment {
+			return fmt.Errorf("the preview's JSON describes the environment as %+v, want %+v; stdout:\n%s", payload.Environment, j002200RefusedEnvironment, stdout)
 		}
 		for _, f := range payload.Findings {
 			if strings.Contains(f.Text, j002200RuntimeGateFinding) && f.Fatal && f.Remedy != "" {

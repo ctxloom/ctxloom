@@ -1,7 +1,3 @@
-//go:build !windows
-
-// Container isolation has no Windows host support: nothing maps a Windows host path into the Linux container.
-
 package isolation
 
 import (
@@ -30,7 +26,7 @@ func TestInteractiveRunner_Container_IsTheForegroundRunnerOnATTY(t *testing.T) {
 	cmd, name, err := c.interactiveRunner(context.Background(), "mock", cw, spawnEnv)
 	require.NoError(t, err)
 	require.NotEmpty(t, name, "the container is named so teardown can target it")
-	assert.Equal(t, "docker", filepath.Base(cmd.Path))
+	assert.Equal(t, "docker", strings.TrimSuffix(filepath.Base(cmd.Path), ".exe"), "the runtime binary, however PATH resolved it")
 	argv := strings.Join(cmd.Args, " ")
 	assert.Contains(t, argv, " run ")
 	assert.Contains(t, argv, "--name "+name)

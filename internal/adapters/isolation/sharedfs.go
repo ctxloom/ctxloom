@@ -134,7 +134,7 @@ func mountProbeRoots(dir, scratchRoot string, mounts []mount) []string {
 
 // sharedFSProbe verifies the runtime's DAEMON shares this process's
 // filesystem namespace with EVERY real mount root a container run needs —
-// the invariant every identical-path bind mount in this package rests on. For
+// the invariant every bind mount in this package rests on. For
 // each root it writes a unique marker file into a scratch subdirectory
 // created INSIDE that root (never a synthetic directory elsewhere — a
 // Docker Desktop custom file-sharing list grants sharing per host path, so

@@ -534,6 +534,12 @@ func composeAgentContainerfile(engine string) []byte {
 	return []byte(b.String())
 }
 
+// imageUserID is the uid and gid overlayUserLayer bakes for the ctxloom user
+// (and the shipped entrypoint names): the identity a run falls back to where
+// the host has no POSIX user to remap it to (runIdentity). A test pins it
+// to the layer's text, which spells it out literally.
+const imageUserID = 1000
+
 // overlayUserLayer creates the generic ctxloom user (1000:1000, remapped at
 // container start via PUID/PGID) on a base ctxloom does not author: useradd
 // with an adduser (busybox/alpine) fallback, gosu install attempted only where

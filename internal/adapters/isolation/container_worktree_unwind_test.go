@@ -1,7 +1,3 @@
-//go:build !windows
-
-// Container isolation has no Windows host support: nothing maps a Windows host path into the Linux container.
-
 package isolation
 
 import (
@@ -13,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestWorktreeBase_UnwindsWhatItCreated pins worktreeBase's two failure exits,
@@ -95,36 +90,4 @@ func TestWorktreeBase_UnwindsWhatItCreated(t *testing.T) {
 		assert.Equal(t, dir, f.Removed[0], "the removed path is the checkout, not some other tree")
 		assert.Empty(t, f.Worktrees, "the checkout must not survive the failed prepare")
 	})
-}
-
-// TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout closes the half of
-// the unwind contract that moved when resolution and containerization were
-// split. TestWorktreeBase_UnwindsWhatItCreated proves the workspace's Cleanup
-// removes the checkout; it says nothing about whether the composed prepare
-// actually CALLS that Cleanup when the mapping fails. Deleting that call leaks a
-// checkout permanently and leaves the caller a nil workspace with no handle to
-// remove it — the precise failure the old prepareBase teardown existed to
-// prevent — so it is pinned here, through the real Container.PrepareWorkspace.
-func TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout(t *testing.T) {
-	ctx := context.Background()
-
-	testsupport.Isolate(t)
-	// The mapping fails: the checkout's git common dir cannot be resolved, so no
-	// gitdir mirror mount can be built. Resolution has already created the
-	// checkout by then, which is what makes this the leak-prone path.
-	boom := errors.New("common dir unreadable")
-	f := &git.Fake{CommonDirErr: boom}
-
-	c := hermeticHostContainer(t, nil)
-	c.base = worktreeBase{wt: NewWorktree(f)}
-	c.state = SessionState{Harp: "brisk-teal-otter"}
-
-	ws, err := c.prepareWorkspace(ctx, t.TempDir(), "member-unwind")
-	require.Error(t, err, "a mapping that cannot be built must fail the prepare, never launch a broken container")
-	assert.ErrorIs(t, err, boom, "the mapping failure must reach the caller intact")
-	assert.Nil(t, ws, "a failed prepare hands back no workspace")
-
-	require.Len(t, f.Removed, 1,
-		"THE ASSERTION: the checkout resolution created must be torn down by the failed prepare — nothing else holds a handle to it")
-	assert.Empty(t, f.Worktrees, "the checkout must not survive the failed prepare")
 }

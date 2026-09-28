@@ -137,9 +137,8 @@ func (s *dockerOwnerRunStarter) containerNames() []string {
 func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned top-level container integration test")
 	coord.ResetStrictness(t)
-	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
-	// mock's container-auth declaration (Vendorless) resolves
-	// unconditionally because mock authenticates against no vendor. Needing a
+	// NO credential is set on purpose: this run's engine is mock, which
+	// declares no Auth because it authenticates against no vendor. Needing a
 	// borrowed Anthropic key here would mean auth was being keyed on something
 	// other than the engine.
 
@@ -246,9 +245,8 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned oneshot container integration test")
 	coord.ResetStrictness(t)
-	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
-	// mock's container-auth declaration (Vendorless) resolves
-	// unconditionally because mock authenticates against no vendor. Needing a
+	// NO credential is set on purpose: this run's engine is mock, which
+	// declares no Auth because it authenticates against no vendor. Needing a
 	// borrowed Anthropic key here would mean auth was being keyed on something
 	// other than the engine.
 

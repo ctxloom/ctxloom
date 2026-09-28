@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -263,4 +264,33 @@ func placeRoots(c Container, cw *containerWorkspace) {
 	if _, err := c.environment(cw, pl, roots); err != nil {
 		panic(err)
 	}
+}
+
+// stubPrimary fixes the fallback route's address source.
+func stubPrimary(t *testing.T, ip string) {
+	t.Helper()
+	orig := primaryOutboundIP
+	primaryOutboundIP = func() string { return ip }
+	t.Cleanup(func() { primaryOutboundIP = orig })
+}
+
+// stubGateway answers every gateway inspect with out/err, recording the argv.
+func stubGateway(t *testing.T, out string, err error) *[]string {
+	t.Helper()
+	var got []string
+	orig := probeExec
+	probeExec = func(_ context.Context, bin string, args []string) (string, error) {
+		got = append([]string{bin}, args...)
+		return out, err
+	}
+	t.Cleanup(func() { probeExec = orig })
+	return &got
+}
+
+// pointHomeAt repoints the user's home at dir for the rest of the test: HOME
+// and USERPROFILE together, since os.UserHomeDir reads the latter on Windows.
+func pointHomeAt(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 }

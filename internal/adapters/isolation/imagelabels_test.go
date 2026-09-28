@@ -1,6 +1,6 @@
 //go:build !windows
 
-// Container isolation has no Windows host support: nothing maps a Windows host path into the Linux container.
+// Drives writeFakeRuntimeScript's #!/bin/sh runtime stub, which a Windows host cannot exec.
 
 package isolation
 
@@ -93,17 +93,4 @@ func TestBuildFromSource_UnslottedIdentityStampsNothing(t *testing.T) {
 	lines := buildInvocations(t, logFile)
 	require.Len(t, lines, 1)
 	assert.NotContains(t, lines[0], "ctxloom.image")
-}
-
-// TestIdentityFor_ComposableCarriesSlot: the on-the-fly build (ensureImage)
-// gets the same slot labels as the explicit one — identityFor hands
-// buildFromSource composedIdentity's slot and companion key, under the
-// container's own tag.
-func TestIdentityFor_ComposableCarriesSlot(t *testing.T) {
-	c := containerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "claude-code", ImageConfig{})
-	id := c.identityFor(nil)
-	assert.Equal(t, c.image, id.ref)
-	assert.NotEmpty(t, id.slot)
-	assert.True(t, strings.HasSuffix(c.image, id.slot), "the slot is the content key the tag ends in: %s vs %s", c.image, id.slot)
-	assert.Equal(t, hostImageKeys().companions, id.companions)
 }

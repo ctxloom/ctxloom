@@ -69,6 +69,10 @@ func (Podman) canonicalRef(ref string) string { return strings.TrimPrefix(ref, "
 
 func (Podman) daemonNameTemplate() string { return "{{.Host.Hostname}}" }
 
+// podmanWSLReach is why a WSL podman machine's run takes the public route,
+// and what to do if that route is blocked.
+const podmanWSLReach = "podman machine on WSL routes host.containers.internal to the machine VM, not this host; the coordinator listens on this host's primary address instead — allow it through Windows Firewall if the runner cannot connect, or use Docker Desktop"
+
 // pastaHostLoopback is the in-container address pasta maps to the host's
 // loopback for our runners. Beside podman's own pasta addresses (169.254.1.1
 // DNS, 169.254.1.2 host.containers.internal), which do not reach loopback.
@@ -96,11 +100,17 @@ func (p Podman) networkArgs() []string {
 	return nil
 }
 
-// reachRoute: host.containers.internal in Podman Machine; a rootless
-// translator's loopback route (networkArgs); rootful podman's netavark bridge
-// gateway; else the public fallback.
+// reachRoute: host.containers.internal in a podman machine, except under WSL
+// (machineVMIsWSL); a rootless translator's loopback route (networkArgs);
+// rootful podman's netavark bridge gateway; else the public fallback.
 func (p Podman) reachRoute(ctx context.Context) (hostRoute, error) {
 	switch {
+	case platform.ContainersInVM && machineVMIsWSL:
+		// Under WSL host.containers.internal lands in the machine VM, and a
+		// connection to a listener on this host times out (podman issues
+		// #14933, #25152). This host's own primary address is the route those
+		// reports show working, taken explicitly — public, and warned.
+		return publicRoute(podmanWSLReach)
 	case platform.ContainersInVM:
 		return hostRoute{dial: "host.containers.internal"}, nil
 	case p.rootless && p.rootlessNet == "pasta":

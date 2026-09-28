@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -314,6 +315,12 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	env, err := c.environment(ctx, req, spec)
 	found := strictness.Since(mark)
 	strictness.Close(mark)
+	if errors.Is(err, engine.ErrNoCredential) {
+		// A credential store the run cannot have (missing, or one no
+		// container can reach) is the credential's refusal, with its own
+		// remedy; the runtime is not what failed.
+		return launch.Cell{}, err
+	}
 	if err != nil {
 		return launch.Cell{}, fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, err)
 	}

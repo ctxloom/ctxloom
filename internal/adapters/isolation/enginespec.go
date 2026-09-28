@@ -138,7 +138,7 @@ func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 		engineInstall:      c.Install,
 		validate:           c.ValidateCommand,
 		overlayDirs:        append(append([]string{}, c.OverlayDirs...), ctxloomCacheOverlayDir),
-		transcriptStoreRel: filepath.FromSlash(c.TranscriptStoreRel),
+		transcriptStoreRel: c.TranscriptStoreRel,
 		declared:           true,
 	}
 	return spec

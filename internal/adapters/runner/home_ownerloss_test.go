@@ -215,6 +215,20 @@ func TestHome_AHangingDialDoesNotStopTheClock(t *testing.T) {
 	}
 }
 
+// awaitOwnerAttached blocks until the RUNNER holds the lifecycle link. The
+// server counting a Hello is not that: it counts after sending the HelloAck,
+// so a stop that lands before the runner reads the ack fails the dial instead
+// of dropping a link — and only a dropped link refills the owner-loss budget.
+// The budget the runner spent idle across that dial stays spent.
+func awaitOwnerAttached(t *testing.T, h *Home) {
+	t.Helper()
+	select {
+	case <-h.ownerPresent():
+	case <-time.After(conformanceWait):
+		t.Fatal("the runner never attached its lifecycle link")
+	}
+}
+
 // wedgedOwner takes the RunnerChannel and never answers the Hello.
 type wedgedOwner struct {
 	agentcoordpb.UnimplementedCoordinatorServiceServer
@@ -235,7 +249,7 @@ func TestHome_ATurnBlockedOnTheCoordinatorIsWaiting(t *testing.T) {
 	owner := &ownerServer{}
 	owner.serve(t)
 	h := ownerLossHome(t, owner.url(), window)
-	require.Eventually(t, func() bool { return owner.hellos.Load() == 1 }, conformanceWait, 5*time.Millisecond)
+	awaitOwnerAttached(t, h)
 	h.setTurning(true)
 	owner.srv.Stop()
 

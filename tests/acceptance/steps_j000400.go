@@ -184,43 +184,9 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 			// for it, so a reader can tell a declared absence from a bug.
 			want := []string{"mcp", "hooks", "commands"}
 			if !formatAskedFor(w).Structured() {
-				if !strings.Contains(out, "NOT carried") {
-					return fmt.Errorf("the %s materialize report does not list the undelivered surfaces at all; report:\n%s", engine, out)
-				}
-				for _, surface := range want {
-					if !strings.Contains(out, surface) {
-						return fmt.Errorf("the %s materialize report does not name %s among the surfaces it did not carry; report:\n%s", engine, surface, out)
-					}
-				}
-				return nil
+				return assertTextReportNamesNotCarried(engine, out, want)
 			}
-			losses, err := lastOutputJSONArray(w, "not_carried")
-			if err != nil {
-				return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
-			}
-			named := map[string]bool{}
-			for _, loss := range losses {
-				surface, err := jsonAtPath(loss, "surface")
-				if err != nil {
-					continue
-				}
-				reason, err := jsonAtPath(loss, "reason")
-				if err != nil {
-					return fmt.Errorf("a not_carried entry states no reason; stdout:\n%s", w.env.LastStdout())
-				}
-				if got, ok := jsonScalar(reason); !ok || strings.TrimSpace(got) == "" {
-					return fmt.Errorf("a not_carried entry states an empty reason; stdout:\n%s", w.env.LastStdout())
-				}
-				if got, ok := jsonScalar(surface); ok {
-					named[got] = true
-				}
-			}
-			for _, surface := range want {
-				if !named[surface] {
-					return fmt.Errorf("the %s materialize JSON report's not_carried array does not name %q; stdout:\n%s", engine, surface, w.env.LastStdout())
-				}
-			}
-			return nil
+			return assertJSONReportNamesNotCarried(w, engine, want)
 		})
 
 	// The other half of the same finding, and the one that is @wip: the loss
@@ -735,4 +701,60 @@ func j000400AssertCommand(w *World, engine string) error {
 		return fmt.Errorf("j000400: unknown engine %q", engine)
 	}
 	return j000400FileContains(w, rel, j000400CommandMarker)
+}
+
+// assertTextReportNamesNotCarried checks a text-format materialize report
+// lists its undelivered surfaces and names each of want among them.
+func assertTextReportNamesNotCarried(engine, out string, want []string) error {
+	if !strings.Contains(out, "NOT carried") {
+		return fmt.Errorf("the %s materialize report does not list the undelivered surfaces at all; report:\n%s", engine, out)
+	}
+	for _, surface := range want {
+		if !strings.Contains(out, surface) {
+			return fmt.Errorf("the %s materialize report does not name %s among the surfaces it did not carry; report:\n%s", engine, surface, out)
+		}
+	}
+	return nil
+}
+
+// assertJSONReportNamesNotCarried checks the JSON materialize report's
+// not_carried array names each of want, every entry with a non-empty reason.
+func assertJSONReportNamesNotCarried(w *World, engine string, want []string) error {
+	losses, err := lastOutputJSONArray(w, "not_carried")
+	if err != nil {
+		return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
+	}
+	named, err := notCarriedSurfaces(w, losses)
+	if err != nil {
+		return err
+	}
+	for _, surface := range want {
+		if !named[surface] {
+			return fmt.Errorf("the %s materialize JSON report's not_carried array does not name %q; stdout:\n%s", engine, surface, w.env.LastStdout())
+		}
+	}
+	return nil
+}
+
+// notCarriedSurfaces returns the surfaces the not_carried entries name,
+// refusing any entry whose reason is missing or empty.
+func notCarriedSurfaces(w *World, losses []any) (map[string]bool, error) {
+	named := map[string]bool{}
+	for _, loss := range losses {
+		surface, err := jsonAtPath(loss, "surface")
+		if err != nil {
+			continue
+		}
+		reason, err := jsonAtPath(loss, "reason")
+		if err != nil {
+			return nil, fmt.Errorf("a not_carried entry states no reason; stdout:\n%s", w.env.LastStdout())
+		}
+		if got, ok := jsonScalar(reason); !ok || strings.TrimSpace(got) == "" {
+			return nil, fmt.Errorf("a not_carried entry states an empty reason; stdout:\n%s", w.env.LastStdout())
+		}
+		if got, ok := jsonScalar(surface); ok {
+			named[got] = true
+		}
+	}
+	return named, nil
 }

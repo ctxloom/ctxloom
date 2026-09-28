@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // gitdirPrefix opens a gitfile: a `.git` FILE whose content names the real
@@ -50,10 +52,10 @@ func gitPointerMounts(rt Runtime, dir, scratchRoot string) ([]mount, error) {
 	}
 	pointerFile := filepath.Join(scratchRoot, "git-pointer")
 	backFile := filepath.Join(scratchRoot, "git-backpointer")
-	if err := os.WriteFile(pointerFile, []byte(gitdirPrefix+mappedAdmin+"\n"), 0o644); err != nil {
+	if err := iox.WriteFileAtomic(pointerFile, []byte(gitdirPrefix+mappedAdmin+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("git pointer: %w", err)
 	}
-	if err := os.WriteFile(backFile, []byte(targets[0]+"\n"), 0o644); err != nil {
+	if err := iox.WriteFileAtomic(backFile, []byte(targets[0]+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("git back-pointer: %w", err)
 	}
 	return []mount{rt.expose(pointerFile, targets[0], true), rt.expose(backFile, targets[1], true)}, nil

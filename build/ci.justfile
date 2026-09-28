@@ -157,7 +157,7 @@ tool-version-args:
     fi
 
 # Print the pinned Go version, for runners outside the devcontainer image (ci.yml's
-# windows job feeds it to actions/setup-go). Read from the file the image reads,
+# native-OS jobs feed it to actions/setup-go). Read from the file the image reads,
 # not go.mod: go.mod's `go` line is the language floor, not the toolchain pin.
 # Under Actions it also sets the step output `version`.
 ci-go-version:
@@ -172,22 +172,37 @@ ci-go-version:
     echo "$v"
     if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "version=$v" >> "$GITHUB_OUTPUT"; fi
 
-# windows_test_pkgs prints the packages with a Windows arm: every package with a
-# file (test or not) that GOOS=windows compiles and GOOS=linux does not, so a
-# new per-OS twin joins the Windows run with nothing to register. A package
-# whose test build reaches a .proto package is left out, loudly: its .pb.go is
-# generated, and the Windows runner has no buf/protoc to generate it.
-_windows_test_pkgs := '''
-windows_test_pkgs() {
+# seam_test_pkgs GOOS prints the packages with a platform seam: every package
+# with a file (test or not) that some native GOOS compiles and GOOS=linux does
+# not, so a new per-OS twin joins every OS run with nothing to register.
+#
+# One list for every OS, not one per OS: a seam has an arm per OS, and the arm
+# a given OS takes is often a file linux compiles too (a _windows.go file's
+# _unix.go twin also builds for darwin). Comparing only GOOS against linux
+# would skip exactly those arms — darwin would never run the unix twin of a
+# Windows seam on its own kernel, and windows would never run the non-darwin
+# twin of a darwin seam.
+#
+# A package whose GOOS test build reaches a .proto package is left out, loudly:
+# its .pb.go is generated, and the native runners have no buf/protoc to
+# generate it.
+_seam_test_pkgs := '''
+seam_test_pkgs() {
+    local goos="$1"
     local files='{{range .GoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}'
     # Import paths, not .Dir: on Windows .Dir has backslashes, which a glob
     # reads as escapes.
     local own='{{if .Module}}{{if .Module.Main}}{{.ImportPath}}{{end}}{{end}}'
-    local mod pkg dep dir
+    # The GOOSes CI runs natively besides linux: each has a job in ci.yml
+    # running `just test-<goos>`.
+    local native='windows darwin'
+    local mod pkg dep dir target linux_files
     mod="$(go list -m)"
-    for pkg in $(comm -23 <(GOOS=windows go list -e -f "$files" ./... | sort) \
-                          <(GOOS=linux go list -e -f "$files" ./... | sort) | cut -d' ' -f1 | sort -u); do
-        for dep in $(GOOS=windows go list -e -deps -test -f "$own" "$pkg"); do
+    linux_files="$(GOOS=linux go list -e -f "$files" ./... | sort)"
+    for pkg in $(for target in $native; do
+                     comm -23 <(GOOS="$target" go list -e -f "$files" ./... | sort) <(printf '%s\n' "$linux_files")
+                 done | cut -d' ' -f1 | sort -u); do
+        for dep in $(GOOS="$goos" go list -e -deps -test -f "$own" "$pkg"); do
             dir="${dep#"$mod"}"; dir=".${dir}"
             if compgen -G "$dir/*.proto" >/dev/null; then
                 echo "skip: $pkg (its test build needs generated code from ${dep#"$mod/"})" >&2
@@ -199,32 +214,41 @@ windows_test_pkgs() {
 }
 '''
 
-# Print the packages test-windows runs. Runs on any host: the derivation asks
-# go list about each GOOS, so it is the same list everywhere.
-windows-test-pkgs:
+# Print the packages test-<goos> runs (goos: windows or darwin). Runs on any
+# host: the derivation asks go list about each GOOS, so it is the same list
+# everywhere.
+seam-test-pkgs goos:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{_windows_test_pkgs}}
-    windows_test_pkgs
+    {{_seam_test_pkgs}}
+    seam_test_pkgs {{goos}}
 
-# Run every package with a Windows arm (windows-test-pkgs) natively on a
-# Windows host: the half of each per-OS seam a linux run never compiles, let
-# alone runs. No -race: the race detector needs cgo and a C toolchain on
-# Windows, and the portable tests already run under -race on linux.
+# Run every package with a platform seam (seam-test-pkgs) natively on a Windows
+# host. No -race: the race detector needs cgo and a C toolchain on Windows, and
+# the portable tests already run under -race on linux.
+test-windows: (_test-native "windows" "windows-latest")
+
+# Run every package with a platform seam (seam-test-pkgs) natively on a macOS
+# host. Hosted macOS runners have no container runtime: the container tests
+# that run are the ones driven by an in-process fake; the real-daemon ones are
+# behind the docker_integration build tag and never compile here.
+test-darwin: (_test-native "darwin" "macos-latest")
+
+# The half of each per-OS seam a linux run never compiles, let alone runs.
 # -count=1 so a cache-restored green cannot stand in for a run, and it refuses
 # to pass having run no test at all.
-test-windows:
+_test-native goos runner:
     #!/usr/bin/env bash
     set -euo pipefail
     {{_gha_error}}
-    {{_windows_test_pkgs}}
-    if [ "$(go env GOOS)" != windows ]; then
-        gha_error "test-windows runs the Windows arm natively; this host's GOOS is $(go env GOOS) (CI runs it on windows-latest)"
+    {{_seam_test_pkgs}}
+    if [ "$(go env GOOS)" != {{goos}} ]; then
+        gha_error "test-{{goos}} runs the {{goos}} arm natively; this host's GOOS is $(go env GOOS) (CI runs it on {{runner}})"
         exit 1
     fi
-    mapfile -t pkgs < <(windows_test_pkgs)
+    mapfile -t pkgs < <(seam_test_pkgs {{goos}})
     if [ "${#pkgs[@]}" -eq 0 ]; then
-        gha_error "windows-test-pkgs selected no packages"
+        gha_error "seam-test-pkgs {{goos}} selected no packages"
         exit 1
     fi
     set +e
@@ -233,11 +257,11 @@ test-windows:
     grep -E '^(--- FAIL|FAIL|ok )' <<<"$out" || true
     if [ "$st" -ne 0 ]; then
         printf '%s\n' "$out" >&2
-        gha_error "test-windows failed"
+        gha_error "test-{{goos}} failed"
         exit "$st"
     fi
     if ! grep -qE '^--- PASS: ' <<<"$out"; then
-        gha_error "test-windows ran no test in ${pkgs[*]}"
+        gha_error "test-{{goos}} ran no test in ${pkgs[*]}"
         exit 1
     fi
 

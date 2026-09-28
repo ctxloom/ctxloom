@@ -261,6 +261,36 @@ jobs:
       - name: Windows platform tests
         run: just test-windows
 
+  macos:
+    name: macOS platform tests
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The host justfile delegates into docker; this one runs the toolchain
+      # directly, which is what this runner has.
+      JUST_JUSTFILE: justfile.container
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-just
+
+      - name: Resolve pinned Go version
+        id: go_version
+        run: just ci-go-version
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go_version.outputs.version }}
+          cache-dependency-path: go.sum
+
+      - name: macOS platform tests
+        run: just test-darwin
+
   build-and-integration:
     name: Build & Integration Tests
     runs-on: ubuntu-latest

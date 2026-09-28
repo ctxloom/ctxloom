@@ -305,21 +305,41 @@ func workflowJob(t *testing.T, workflowPath, name string) string {
 	return job
 }
 
-// TestCIWorkflowWindowsJobDerivesGoFromToolVersionsEnv asserts ci.yml's
-// windows job — the one job that installs Go itself, since it cannot run the
-// Linux devcontainer image — takes the Go version from tool-versions.env,
-// the file the image's Go comes from. Two hops, like the build-container
-// test: the job runs `just ci-go-version` and feeds its output to setup-go,
-// and that recipe reads GO_VERSION from the file.
-func TestCIWorkflowWindowsJobDerivesGoFromToolVersionsEnv(t *testing.T) {
-	job := workflowJob(t, ciWorkflowPath, "windows")
-
-	assertInvokes(t, ciWorkflowPath, job, "ci-go-version")
-	if !strings.Contains(job, "actions/setup-go") {
-		t.Fatalf("ci.yml's windows job no longer uses actions/setup-go — this test needs updating for whatever replaced it")
+// workflowJobsUsing returns the names of the jobs in a workflow's `jobs:`
+// section whose text mentions needle.
+func workflowJobsUsing(t *testing.T, workflowPath, needle string) []string {
+	t.Helper()
+	content := readFile(t, workflowPath)
+	jobs := regexp.MustCompile(`(?m)^jobs:\s*$`).FindStringIndex(content)
+	if jobs == nil {
+		t.Fatalf("%s: no jobs: section", workflowPath)
 	}
-	if !regexp.MustCompile(`go-version:\s*\$\{\{\s*steps\.go_version\.outputs\.version\s*\}\}`).MatchString(job) {
-		t.Errorf("ci.yml's windows job does not feed the `ci-go-version` step output to setup-go's go-version — the recipe would run and its output be discarded")
+	var names []string
+	for _, m := range regexp.MustCompile(`(?m)^  ([a-zA-Z][\w-]*):\s*$`).FindAllStringSubmatch(content[jobs[1]:], -1) {
+		if strings.Contains(workflowJob(t, workflowPath, m[1]), needle) {
+			names = append(names, m[1])
+		}
+	}
+	return names
+}
+
+// TestCIWorkflowNativeJobsDeriveGoFromToolVersionsEnv asserts every ci.yml
+// job that installs Go itself — the native-OS jobs, which cannot run the Linux
+// devcontainer image — takes the Go version from tool-versions.env, the file
+// the image's Go comes from. Two hops, like the build-container test: the job
+// runs `just ci-go-version` and feeds its output to setup-go, and that recipe
+// reads GO_VERSION from the file.
+func TestCIWorkflowNativeJobsDeriveGoFromToolVersionsEnv(t *testing.T) {
+	jobs := workflowJobsUsing(t, ciWorkflowPath, "actions/setup-go")
+	if len(jobs) == 0 {
+		t.Fatalf("no ci.yml job uses actions/setup-go — this test needs updating for whatever replaced it")
+	}
+	for _, name := range jobs {
+		job := workflowJob(t, ciWorkflowPath, name)
+		assertInvokes(t, ciWorkflowPath, job, "ci-go-version")
+		if !regexp.MustCompile(`go-version:\s*\$\{\{\s*steps\.go_version\.outputs\.version\s*\}\}`).MatchString(job) {
+			t.Errorf("ci.yml's %s job does not feed the `ci-go-version` step output to setup-go's go-version — the recipe would run and its output be discarded", name)
+		}
 	}
 
 	// An assignment from a command reading GO_VERSION out of the file: a bare

@@ -280,15 +280,16 @@ build-darwin-arm64:
         -o ctxloom-darwin-arm64 ./cmd/ctxloom
 
 # Compile every non-test package for the non-Linux targets, discarding the
-# output, and type-check every test file for Windows (vet). The per-platform
+# output, and type-check every test file for them (vet). The per-platform
 # build-* targets above compile only the main package and nothing runs them
-# routinely, which is how a Windows build break went unnoticed; the vet line
-# is what catches a Windows-only test that no longer compiles before the
-# Windows CI job (test-windows) has to.
+# routinely, which is how a Windows build break went unnoticed; the vet lines
+# are what catch a per-OS test that no longer compiles before that OS's CI job
+# (test-<goos>) has to.
 build-cross:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build {{buildvcs}} ./...
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build {{buildvcs}} ./...
+    GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./...
 
 # Build all platforms
 build-all: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-darwin-amd64 build-darwin-arm64

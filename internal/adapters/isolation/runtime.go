@@ -182,13 +182,13 @@ type ContainerInfo struct {
 }
 
 // RunSpec is the runtime-agnostic description of one runner container: which
-// image to run, the in-container argv, the identical-path project mount and
+// image to run, the in-container argv, the project mount and
 // the workspace's mounts, a fresh HOME, and the run's env. A Runtime renders
 // it into its own `run` argv.
 type RunSpec struct {
 	Image   string   // image reference to run
 	Name    string   // --name, so teardown can target this exact container
-	WorkDir string   // -w and the identical-path project bind-mount target
+	WorkDir string   // -w: the project's in-container path
 	Home    string   // fresh $HOME inside the container (engine global state isolated)
 	Command []string // in-container argv (the container's ctxloom + its subcommand)
 	Env     []string // -e KEY=VAL, or a bare -e NAME forwarded from the run process's env

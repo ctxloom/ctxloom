@@ -73,4 +73,11 @@ func registerContainerImageSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the mock agent image is available for the shared-filesystem probe$`, func(c context.Context) error {
 		return requireSuiteImage(worldFrom(c), imageMockAgent, mockAgentImageWhat)
 	})
+
+	// The machine-independent "no runtime here": PATH is rebuilt so neither
+	// docker nor podman resolves, through the same mask J002200's fail-loud
+	// row uses, which refuses to proceed if one still does.
+	ctx.Step(`^no container runtime is installed$`, func(c context.Context) error {
+		return j002200MaskContainerRuntime(worldFrom(c))
+	})
 }

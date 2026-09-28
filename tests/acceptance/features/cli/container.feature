@@ -1,7 +1,7 @@
 @doc
 Feature: container — the images isolated agents run in, and the questions you can ask without one
 
-  Covers: `ctxloom container check`, `container scaffold`, `container tooling
+  Covers: `ctxloom container check`, `container scaffold`, `container prune`, `container tooling
   list`, the bare `ctxloom container tooling` form, and the bare `ctxloom
   container` namespace itself.
 
@@ -351,3 +351,28 @@ Feature: container — the images isolated agents run in, and the questions you 
       And the output is valid JSON
       And the output contains "instructions"
       And the output contains "TOOLING-DECL-TOOLED"
+
+  Rule: Prune plans before it removes, and says so when there is nothing to prune with
+
+    `container prune` sweeps the superseded agent images ctxloom built — a dry
+    run unless `--apply`. What is specifiable without a container runtime is
+    its two refusals: a `--runtime` that names no runtime ctxloom knows, and a
+    machine with no runtime at all. The second is its own documented exit
+    status (3), distinct from "a removal failed" (1): a caller scripting prune
+    has to be able to tell "could not look" from "looked and failed", and a
+    0 here would report a clean sweep of images nobody could see.
+
+    Scenario: A --runtime ctxloom does not know is refused, naming the ones it does
+      Given an initialized ctxloom project
+      When I run "ctxloom container prune --runtime rkt"
+      Then the command fails
+      And the output contains "unknown container runtime"
+      And the output contains "rkt"
+      And the output contains "docker"
+
+    Scenario: With no container runtime on this machine, prune exits 3 rather than reporting a clean sweep
+      Given an initialized ctxloom project
+      And no container runtime is installed
+      When I run "ctxloom container prune"
+      Then the command exits with code 3
+      And the output contains "no container runtime is available to prune"

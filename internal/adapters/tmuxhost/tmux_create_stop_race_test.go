@@ -6,6 +6,7 @@ package tmuxhost
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -45,6 +46,14 @@ func TestCreate_StopArmRaceUnderAlreadyCancelledContext(t *testing.T) {
 	const trials = 2000
 	tmpDir := t.TempDir() // shared: each trial's launcher files carry its own window name
 
+	type trial struct {
+		runner *fakeTmuxRunner
+		id     TerminalID
+	}
+	started := make([]trial, trials)
+
+	// Phase 1: every Create runs concurrently, so each AfterFunc callback
+	// still fires inside the scheduling churn that exposes the race window.
 	var wg sync.WaitGroup
 	wg.Add(trials)
 	for i := 0; i < trials; i++ {
@@ -65,32 +74,35 @@ func TestCreate_StopArmRaceUnderAlreadyCancelledContext(t *testing.T) {
 				t.Errorf("Create: %v", err)
 				return
 			}
-
-			// The AfterFunc callback (Release -> releaseWindow) fires in its
-			// own goroutine the moment Create registers it, concurrently with
-			// Create's remaining bookkeeping. Its first act inside
-			// releaseWindow is disarmStop, and it then issues kill-window for
-			// this trial's window -- so observing that call is proof the
-			// callback actually ran, i.e. that this trial exercised the race
-			// window rather than racing this goroutine's own return. Blocked
-			// on, not polled: thousands of trials each waking every few
-			// microseconds starve the very callbacks they wait for on a small
-			// runner.
-			select {
-			case <-runner.seen("kill-window"):
-				// tmux targets the window as "<session>:<window>", so the id
-				// is the suffix rather than the whole argument.
-				args := runner.argsFor("kill-window")
-				for _, a := range args {
-					if a == string(id) || strings.HasSuffix(a, ":"+string(id)) {
-						return
-					}
-				}
-				t.Errorf("kill-window missing window %s: %v", id, args)
-			case <-time.After(2 * time.Second):
-				t.Errorf("Release never reached kill-window for %s; the AfterFunc callback did not run", id)
-			}
+			started[i] = trial{runner, id}
 		}()
 	}
 	wg.Wait()
+
+	// Phase 2: the callback (Release -> releaseWindow) disarms the stop and
+	// then issues kill-window for its trial's window -- so observing that call
+	// is proof the callback ran, i.e. the trial exercised the race window. The
+	// deadline starts only once EVERY Create has returned: a per-trial clock
+	// started at that trial's own return charges it for its siblings' setup
+	// I/O, and on a starved single-CPU runner that alone exceeds the bound.
+	deadline, stop := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stop()
+	for _, tr := range started {
+		if tr.runner == nil {
+			continue // Create failed; already reported
+		}
+		select {
+		case <-tr.runner.seen("kill-window"):
+			// tmux targets the window as "<session>:<window>", so the id
+			// is the suffix rather than the whole argument.
+			args := tr.runner.argsFor("kill-window")
+			if !slices.ContainsFunc(args, func(a string) bool {
+				return a == string(tr.id) || strings.HasSuffix(a, ":"+string(tr.id))
+			}) {
+				t.Errorf("kill-window missing window %s: %v", tr.id, args)
+			}
+		case <-deadline.Done():
+			t.Errorf("Release never reached kill-window for %s; the AfterFunc callback did not run", tr.id)
+		}
+	}
 }

@@ -29,8 +29,10 @@ func TestEnvKeys_CoverEveryEngineDeclaredVar(t *testing.T) {
 	}
 	for _, name := range reg.Names(nil) {
 		e, _ := reg.Lookup(name)
+		seen := map[string]bool{}
 		for _, v := range engineDeclaredEnv(t, e) {
-			if !known[v] {
+			if !known[v] && !seen[v] {
+				seen[v] = true
 				t.Errorf("engine %s declares %s but testsupport.EnvKeys does not list it, so Isolate leaks it from the host session", name, v)
 			}
 		}

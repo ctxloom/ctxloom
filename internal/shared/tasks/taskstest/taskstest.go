@@ -121,9 +121,25 @@ var EnvKeys = []string{
 	"EDITOR",
 	"VISUAL",
 	"PAGER",
+	// Engine config-home and credential vars, which a developer running tests
+	// inside a live engine session has set and a CI box does not: a test once
+	// passed locally only because CLAUDE_CONFIG_DIR leaked in. The shared tree
+	// cannot import the engines that declare these, so they are listed by
+	// hand; internal/engines.TestEnvKeys_CoverEveryEngineDeclaredVar derives
+	// every var the shipped engines declare and fails on any missing here.
+	"CLAUDE_CONFIG_DIR",
+	"CLAUDE_SECURESTORAGE_CONFIG_DIR",
+	"CLAUDE_CODE_OAUTH_TOKEN",
+	"CLAUDE_CODE_USE_BEDROCK",
+	"CLAUDE_CODE_USE_VERTEX",
+	"ANTHROPIC_API_KEY",
+	"ANTHROPIC_AUTH_TOKEN",
+	"ANTHROPIC_BASE_URL",
+	"ANTHROPIC_MODEL",
+	"ANTHROPIC_SMALL_FAST_MODEL",
 }
 
-// Isolate roots HOME at a fresh temp dir and clears every EnvKeys variable for
+// Isolate roots HOME at a fresh temp dir and unsets every EnvKeys variable for
 // the duration of the test, returning the temp home. Because it uses t.Setenv
 // (which restores prior values on cleanup and rejects t.Parallel), the calling
 // test must not be parallel.
@@ -176,8 +192,16 @@ func isolateEnv(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home) // Windows home, for os.UserHomeDir parity
+	// UNSET, not set-empty: a CI box has these absent, and for several of
+	// them absent and empty mean different things (an empty
+	// CLAUDE_SECURESTORAGE_CONFIG_DIR is HOME/.claude; an absent one falls
+	// back to the config dir). t.Setenv first registers the restore and the
+	// no-parallel guard; the Unsetenv then removes the var for the test.
 	for _, k := range EnvKeys {
 		t.Setenv(k, "")
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatalf("unset %s: %v", k, err)
+		}
 	}
 	return home
 }

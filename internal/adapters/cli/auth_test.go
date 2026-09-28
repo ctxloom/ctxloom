@@ -13,15 +13,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 const cliFixtureToken = "sk-ant-oat01-cli-fixture"
 
 func authHome(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv(claude.OAuthTokenEnv, "")
-	require.NoError(t, os.Unsetenv(claude.OAuthTokenEnv))
+	testsupport.Isolate(t)
 }
 
 // set-token reads the token from stdin, stores it owner-only, and never

@@ -116,6 +116,10 @@ func j002200HomeConfigYAML(recordFile string) string {
 `, recordFile)
 }
 
+// j002200CheckoutRecord is the container-worktree row's record file, named
+// RELATIVELY so the engine writes it into its own per-agent checkout.
+const j002200CheckoutRecord = "j002200-checkout-record.txt"
+
 // The two ClassIsolation findings a requested-but-unsatisfied container can
 // produce. They come from DIFFERENT gates and the fail-loud row is about
 // exactly one of them, so it reads them apart rather than matching whichever
@@ -510,6 +514,65 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		// pinned in auth_test.go, and a real claude refreshing in place is the
 		// @live isolation probe. See this scenario's feature-file note.
 		w.docStepMaterialized = fmt.Sprintf("in-container write (hostname=%s, this host=%s) read at host path %s — same file both sides via a read-write bind mount, not a copy", rec.Hostname, host, j002200.lastContainerRecPath)
+		return nil
+	})
+
+	// The container-WORKTREE half of the positive launch row. The record path
+	// is RELATIVE, so the engine writes it into its own cwd — the per-agent
+	// checkout, bind-mounted from the host — and that untracked file makes the
+	// checkout dirty, so the WIP-safe teardown leaves it standing for the Then
+	// step to find.
+	ctx.Step(`^Alice runs the container-bound agent in a real container, in a worktree$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := requireSuiteImage(w, imageMockAgent, "j002200 container-worktree session-home row"); err != nil {
+			return err
+		}
+		if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j002200HomeConfigYAML(j002200CheckoutRecord)); err != nil {
+			return err
+		}
+		_ = w.env.Run("run", "--agent", "mock-container", "--workspace", "worktree", "--one-shot", "credential-mount-check")
+		if code := w.env.LastExitCode(); code != 0 {
+			return fmt.Errorf("containerized worktree mock run exited %d; output:\n%s", code, w.env.LastOutput())
+		}
+		return nil
+	})
+
+	// A checkout the session does not own is scratch nothing accounts for:
+	// session cleanup cannot sweep it, and a resume cannot find it again
+	// (Worktree.checkoutPath is deterministic only under the session's
+	// ephemeral dir). So the checkout must be homed there, under Alice's
+	// ctxloom home — never the OS temp dir.
+	ctx.Step(`^the containerized worktree's checkout lives in the session's own scratch$`, func(c context.Context) error {
+		w := worldFrom(c)
+		var found []string
+		_ = filepath.WalkDir(w.env.HomeDir, func(path string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && d.Name() == j002200CheckoutRecord {
+				found = append(found, path)
+			}
+			return nil
+		})
+		if len(found) != 1 {
+			return fmt.Errorf("want exactly one containerized-worktree record under Alice's home %s, found %v — the checkout was not homed in the session's scratch", w.env.HomeDir, found)
+		}
+		checkout := filepath.Dir(found[0])
+		if !strings.Contains(checkout, string(filepath.Separator)+"ephemeral"+string(filepath.Separator)) {
+			return fmt.Errorf("the checkout %s is under Alice's home but not in a session's ephemeral scratch", checkout)
+		}
+		body, err := os.ReadFile(found[0])
+		if err != nil {
+			return err
+		}
+		host, err := os.Hostname()
+		if err != nil {
+			return err
+		}
+		if rec := j002400ParseRecord(string(body)); rec.Hostname == "" || rec.Hostname == host {
+			return fmt.Errorf("the record was not written from inside a container (hostname %q, this host %q):\n%s", rec.Hostname, host, body)
+		}
+		if !strings.Contains(string(body), "workdir="+checkout+"\n") {
+			return fmt.Errorf("the engine's workspace is not the checkout its record landed in (%s):\n%s", checkout, body)
+		}
+		w.docStepMaterialized = fmt.Sprintf("containerized worktree checkout: %s", checkout)
 		return nil
 	})
 

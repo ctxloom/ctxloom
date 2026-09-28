@@ -266,3 +266,149 @@ _filter_coverage INPUT OUTPUT:
 # CTXLOOM_ALLOW_PIN_DOWNGRADE, which the gate echoes for the commit's reviewer.
 lint-pins:
     ./scripts/lint-pins
+
+# ===== Suites CI runs through justfile.container =====
+#
+# Shared for the reason at the top of this file: ci.yml calls these by bare
+# name under JUST_JUSTFILE=justfile.container, and a recipe that exists only in
+# the host justfile fails that step with "Justfile does not contain recipe".
+# Nested calls name {{justfile()}} (the ROOT justfile) because just does not
+# pass --justfile to a child `just`, so a bare one would resolve the host file.
+# The root is justfile_directory(), not git: in a worktree mounted into the
+# devcontainer, git cannot resolve the toplevel (see build/common.justfile).
+
+# The test suites build a ~30MB taskloom binary of their own
+# (testenv.TaskloomBinary for acceptance, tasksBinary for tests/taskloom) and
+# both site it under GOTMPDIR — because on a tmpfs /tmp the linker's mmap of
+# that output ENOSPCs under the suite's parallel builds. GOTMPDIR was UNSET
+# here, so MkdirTemp fell back to os.TempDir() = the exact tmpfs those helpers
+# were trying to avoid: the intent was written into the code and never wired
+# up. Default it to disk so a future leak (or just a big parallel run) cannot
+# kill the tmpfs. `go build` honors it for its own intermediates too. Same
+# shape and same reason as `mutation_tmp` in build/ci.justfile.
+#
+# Recipes that use it depend on _ensure-gotmpdir: Go does NOT create GOTMPDIR
+# on demand — with the directory missing, every go invocation dies with
+# "creating work dir: ... no such file or directory" (see clean-caches, which
+# learned that the hard way).
+go_tmp := env_var_or_default("CTXLOOM_GOTMPDIR", "/var/tmp/ctxloom-gotmp")
+
+# Create the GOTMPDIR above. Cheap, idempotent, and a dependency rather than a
+# global export so a missing directory can never break a recipe that never
+# asked for it.
+_ensure-gotmpdir:
+    @mkdir -p "{{go_tmp}}"
+
+# Ensure the covdata tool is present for multi-package coverage merges.
+# Go 1.25 dropped covdata (and other secondary tools) from the prebuilt
+# distribution — they're built on demand from src/cmd. But `go test
+# -coverprofile ./...` merges coverage for test-less packages by invoking
+# covdata out of GOTOOLDIR, and an auto-downloaded toolchain's GOTOOLDIR is
+# read-only with no covdata, so the merge fails with `no such tool "covdata"`.
+# Build the version-matched covdata into GOTOOLDIR once (idempotent).
+_ensure-covdata:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tooldir="$(go env GOTOOLDIR)"
+    if [ -x "$tooldir/covdata" ]; then exit 0; fi
+    chmod u+w "$tooldir" 2>/dev/null || true
+    go build -o "$tooldir/covdata" cmd/covdata
+    echo "ctxloom: built version-matched covdata into $tooldir/"
+
+# Run the cross-agent equity conformance suite (every registered backend through
+# the shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
+# default `go test ./...`; run it explicitly here.
+#
+# Then the installed claude's secure-storage probe: a host run shares the
+# human's login only while claude still takes its credential and both refresh
+# locks from CLAUDE_SECURESTORAGE_CONFIG_DIR. Through test-pkg, so a -run that
+# selects nothing fails instead of passing.
+test-conformance:
+    go test -trimpath -race -tags conformance ./internal/engines/conformance/...
+    just -f {{justfile()}} test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
+
+# Run the acceptance suite against a COVERAGE-INSTRUMENTED ctxloom and report
+# what it actually executed.
+#
+# WHY THIS EXISTS, and what it is NOT for. completeness_test.go answers
+# "was this leaf REACHED?" from testenv.RecordedInvocations() — the argv the
+# suite actually started, resolved to a leaf by cobra's own root.Find(). That
+# gate is correct and stays: it keeps flag-level credit (`--engine <name>`
+# is a separate row), works in both lanes, and cannot be fooled by a mention.
+#
+# What it cannot answer is "how MUCH of that leaf ran". A leaf invoked once
+# with no flags is fully credited. This lane answers that second question, and
+# only that one — it is a DEPTH signal, never the reach gate.
+#
+# Coverage is measurable here at all only because the suite drives ctxloom as a
+# SUBPROCESS and `go test -coverprofile` cannot follow an exec.
+#
+# DO NOT repoint the reach gate at this data. Measured: a SIGKILLed process
+# never flushes its counters, and the harness hard-kills servers — `mcp serve`
+# reads 0.0% while running in every @mcp scenario (taskloom unsure-cadet).
+#
+# `go build -cover` + GOCOVERDIR (Go 1.20+) can: the instrumented binary
+# writes counters at exit, once per exec, and covdata merges them. That is the
+# standard mechanism for exactly this problem, and this repo already built
+# half of it — `_ensure-covdata` installs a version-matched covdata into
+# GOTOOLDIR. Only the instrumentation was missing.
+#
+# GOCOVERDIR reaches the binary because testenv's isolatedEnv() starts from
+# os.Environ() and scrubSessionEnv only strips CTXLOOM session keys. The dir
+# must EXIST before the first exec or the runtime has nowhere to write.
+#
+# This is deliberately NOT the commit gate: an instrumented binary is slower
+# and writes a file per exec, and the suite execs ctxloom thousands of times.
+# Run it to get a number, not on every push.
+test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
+    #!/usr/bin/env bash
+    set -euo pipefail
+    covdir="{{go_tmp}}/acceptance-cover"
+    coverbin="{{justfile_directory()}}/.coverbin"
+    rm -rf "$covdir"; mkdir -p "$covdir"
+    # -count=1 so nothing is served from the test cache: a cached PASS runs no
+    # binary and would produce an empty, silently wrong coverage set.
+    set +e
+    # The instrumented binary is NAMED ctxloom and its directory leads PATH, so
+    # the product resolves itself exactly as in a normal run. Point CTXLOOM_BINARY
+    # at a differently-named twin instead and ctxloom writes its self-referencing
+    # hooks as absolute paths rather than the bare name — different bytes, so a
+    # different program measured. See cmd/ctxloom/justfile's build-cover.
+    # -timeout 30m for the same reason test-acceptance carries it, only more so:
+    # this lane runs the SAME 515 scenarios through a coverage-instrumented
+    # binary, so it is strictly slower than the 1200s the plain suite measured.
+    # Under go test's 600s default this lane died mid-suite and still emitted a
+    # profile — a TRUNCATED one, which is worse than none: every leaf and flag
+    # the run never reached reads as "not exercised", so a gate seeded from it
+    # bakes in exemptions for code that is in fact covered.
+    PATH="$coverbin:$PATH" GOTMPDIR="{{go_tmp}}" GOCOVERDIR="$covdir" \
+        CTXLOOM_BINARY="$coverbin/ctxloom" \
+        go test -trimpath -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    status=$?
+    set -e
+    files=$(find "$covdir" -name 'covcounters.*' | wc -l)
+    if [ "$files" -eq 0 ]; then
+        echo "error: the suite produced NO coverage counters — the instrumented" >&2
+        echo "       binary never ran. A coverage report of nothing must not read" >&2
+        echo "       as a clean result." >&2
+        exit 1
+    fi
+    echo
+    echo "=== coverage from $files instrumented runs ==="
+    go tool covdata percent -i="$covdir"
+    echo
+    echo "(per-function: go tool covdata func -i=$covdir)"
+
+    # The completeness gate, over data rather than over the suite's own account
+    # of itself. It runs as a SECOND `go test` invocation because coverage is
+    # complete only once every exec has flushed — an in-suite check would be
+    # reading a half-written profile. It stays a Go test rather than a shell
+    # comparison so it is discoverable where the other gates are.
+    profile="$covdir/profile.txt"
+    go tool covdata textfmt -i="$covdir" -o="$profile"
+    echo
+    echo "=== every CLI leaf's RunE ran, and every Changed() flag was passed? ==="
+    CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{go_tmp}}" \
+        go test -trimpath -v -tags "acceptance integration coveragegate" -count=1 \
+        -run 'TestCLICoverage_' ./tests/acceptance/... || status=1
+    exit "$status"

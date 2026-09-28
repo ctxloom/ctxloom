@@ -367,9 +367,8 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	t.Helper()
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container-progress integration test")
 	coord.ResetStrictness(t)
-	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
-	// mock's container-auth declaration (Vendorless) resolves
-	// unconditionally because mock authenticates against no vendor. Needing a
+	// NO credential is set on purpose: this run's engine is mock, which
+	// declares no Auth because it authenticates against no vendor. Needing a
 	// borrowed Anthropic key here would mean auth was being keyed on something
 	// other than the engine.
 

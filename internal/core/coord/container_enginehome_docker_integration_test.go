@@ -102,9 +102,9 @@ func (engineHomeAssembler) LabelEnv(*config.Snapshot, string) map[string]string 
 func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container engine-home delivery integration test")
 	coord.ResetStrictness(t)
-	// claude-code's container auth and its session-home seed both accept an
-	// env token; the mock in claude's place never reads it.
-	t.Setenv("ANTHROPIC_API_KEY", "itest-not-a-key")
+	// The agent declares no auth, so it runs in token mode, and an exported
+	// token wins over the store; the mock in claude's place never reads it.
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "itest-not-a-token")
 
 	image := buildClaudeShimImage(t)
 	projectDir := testsupport.ProjectDir(t)

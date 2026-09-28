@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // The owner's reader is a SUBPROCESS PER TURN (the turn-start hook), so its
@@ -208,7 +210,7 @@ func TestClaim_ReportsAnUnreadableFileAsAProblemAndLeavesItInPlace(t *testing.T)
 	inDir, err := DirPath(m, testHarp, DirIn)
 	require.NoError(t, err)
 	junk := filepath.Join(inDir, "00000000000000000000000.00000001.coord.md")
-	require.NoError(t, os.WriteFile(junk, []byte("no frontmatter at all\n"), filePerm))
+	require.NoError(t, os.WriteFile(junk, []byte("no frontmatter at all\n"), owneronly.FileMode))
 
 	res, err := Claim(m, testHarp)
 	require.NoError(t, err)

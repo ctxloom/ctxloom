@@ -37,6 +37,7 @@ func Run(t *testing.T, eng engine.Engine) {
 	require.Equal(t, def.Name, eng.Root().Name, "the Definition is a value, equal on every call")
 	require.Equal(t, def.Modes, eng.Root().Modes)
 	checkDerivedViews(t, def)
+	checkContainerArgv(t, def)
 
 	// The instance half.
 	checkEngineFacts(t, eng, def)
@@ -82,6 +83,43 @@ func checkDerivedViews(t *testing.T, def engine.Base) {
 		require.True(t, ok, "engine declares Mode %v but no CLI grammar for it", m)
 		require.NotEmpty(t, g.Binary, "the %v grammar names no binary", m)
 	}
+}
+
+// checkContainerArgv delivers every kind at its default root into a cell
+// whose roots are relocated, as a container relocates them, and requires
+// every path the engine is told on argv to be the ENGINE side: a host path
+// there names a directory the engine cannot open. It is not vacuous — some
+// argv value must name a relocated root, or the check proved nothing.
+func checkContainerArgv(t *testing.T, def engine.Base) {
+	t.Helper()
+	dir := t.TempDir()
+	host := present.Paths{
+		ProjectRoot: present.Root{Host: filepath.Join(dir, "project")},
+		SessionHome: present.Root{Host: filepath.Join(dir, "home")},
+	}
+	fs := afero.NewOsFs()
+	for _, r := range []present.Root{host.ProjectRoot, host.SessionHome} {
+		require.NoError(t, fs.MkdirAll(r.Host, 0o700))
+	}
+	mapped := present.Containerize{ProjectRoot: "/conformance-engine/project", SessionHome: "/conformance-engine/home"}.Apply(host)
+	start := present.New(mapped)
+	engineSide := 0
+	for _, k := range def.Static() {
+		a := def.Surfaces()[k]
+		d, err := deliverMinimal(def, k, start, a.Traits().Roots[0], fs)
+		require.NoError(t, err, "deliver %v through %s", k, a.Name())
+		for _, arg := range d.Presented.Args {
+			for _, r := range []present.Root{host.ProjectRoot, host.SessionHome} {
+				require.False(t, present.Under(arg, r.Host), "%v announces the HOST path %q on argv; the engine opens the engine side", k, arg)
+			}
+			for _, r := range []present.Root{mapped.Paths().ProjectRoot, mapped.Paths().SessionHome} {
+				if present.Under(arg, r.Engine) {
+					engineSide++
+				}
+			}
+		}
+	}
+	require.Positive(t, engineSide, "no argv value names a relocated root, so this check proved nothing")
 }
 
 // checkEngineFacts asserts the engine-level instance facts: Home validates,

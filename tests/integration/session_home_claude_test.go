@@ -224,6 +224,7 @@ func TestRun_ClaudeTokenAgentWithNothingStoredIsRefusedUnattended(t *testing.T) 
 // selection.
 func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
+	writeHostClaudeCredential(t, env)
 	// auth login: the real home with the human's own login in place. Auth is
 	// per agent, so a host-home binding still declares how it authenticates.
 	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--auth", "login", "--permissions", "plan")
@@ -251,6 +252,23 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	for _, d := range sessionDirs(t, env) {
 		assert.Empty(t, findUnder(t, d, ".credentials.json"), "no credential is seeded into a session home the run does not use")
 	}
+}
+
+// TestRun_ClaudeLoginAgentWithNoLoginIsRefused: a login agent whose human
+// has no claude login on this host (no ~/.claude) is refused before the
+// engine starts, naming the missing directory and `auth: token`, rather than
+// started logged out.
+func TestRun_ClaudeLoginAgentWithNoLoginIsRefused(t *testing.T) {
+	env, capture := setupClaudeSessionProject(t)
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--auth", "login", "--permissions", "plan")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+
+	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
+	require.NotEqual(t, 0, env.LastExitCode(), env.LastOutput())
+	assert.Contains(t, env.LastOutput(), filepath.Join(env.HomeDir, ".claude"), "the remedy names the missing store")
+	assert.Contains(t, env.LastOutput(), "auth: token")
+	assert.NotContains(t, env.LastOutput(), "runtime is not available", "a missing login is not a runtime failure")
+	assert.NoFileExists(t, capture+".env", "the engine never started")
 }
 
 // credentialSentinel stands in for a stored credential in the exposure

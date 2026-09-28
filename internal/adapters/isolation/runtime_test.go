@@ -83,7 +83,7 @@ func TestRunArgs_AuthSecretValueNotInArgv(t *testing.T) {
 func TestDockerRootful_PassesIdentityEnv(t *testing.T) {
 	joined := strings.Join(Docker{rootless: false}.RunArgs(sampleSpec()), " ")
 	assert.Contains(t, joined, wantPUIDArg(), "launching uid crosses for the remap")
-	assert.Contains(t, joined, fmt.Sprintf("-e PGID=%d", os.Getgid()), "launching gid crosses for the remap")
+	assert.Contains(t, joined, wantPGIDArg(), "launching gid crosses for the remap")
 	assert.NotContains(t, joined, "--user", "the entrypoint, not --user, sets identity")
 }
 

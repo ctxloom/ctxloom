@@ -72,13 +72,9 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	probeDir := t.TempDir()
 	buildProbe(t, filepath.Join(probeDir, containerProbeName))
 
-	// The fixture home lives OUTSIDE the checkout, on a real filesystem —
-	// see crossMountFixtureRoot for both halves of that requirement. It used
-	// to be created in the repo root, which put container-written state inside
-	// the source tree: `just test`'s _check-no-ctxloom-leak scans the checkout
-	// for exactly that shape, and residue there confuses worktree-safe WIP
-	// detection even while .gitignore keeps `git status` clean.
-	fixture, err := os.MkdirTemp(crossMountFixtureRoot(), "ctxloom-spool-xmount-")
+	// The fixture home lives outside the checkout, on a real filesystem the
+	// daemon can see — dockergate.BindFixtureRoot names all three constraints.
+	fixture, err := os.MkdirTemp(dockergate.BindFixtureRoot(), "ctxloom-spool-xmount-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// Loud on purpose: leftover fixture dirs are machine debris that a

@@ -63,7 +63,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 		t.Skip("git not on PATH; skipping the worktree isolation-env integration test")
 	}
 	resetStrictness(t)
-	t.Setenv("HOME", t.TempDir())
+	fakeHostHome(t, "")
 	t.Setenv(claude.OAuthTokenEnv, tokenFixture) // the token agent's credential, exported
 	repo := initIsolationTestRepo(t)
 	req := claudeKind(t)
@@ -109,8 +109,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 
 	t.Run("a binding that declares engine_home: session gets the controlled home", func(t *testing.T) {
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test") // authenticates without a host credential fixture
+		fakeHostHome(t, "login") // the login agent's shared store, present on the host
 		workDir := t.TempDir()
 		cell := prepare(t, workDir, launch.HomeModeSession, launch.WorkspaceNone, "test-harp")
 
@@ -127,8 +126,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 
 	t.Run("a binding selecting engine_home: host keeps the real host home", func(t *testing.T) {
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+		fakeHostHome(t, "login")
 		workDir := t.TempDir()
 		cell := prepare(t, workDir, launch.HomeModeHost, launch.WorkspaceNone, "test-harp")
 
@@ -139,8 +137,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 
 	t.Run("two sessions in one checkout get two instances", func(t *testing.T) {
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+		fakeHostHome(t, "login")
 		workDir := t.TempDir()
 		homes := map[string]string{}
 		for _, harp := range []string{"ugly-icy-squid", "brave-warm-otter"} {
@@ -158,8 +155,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 			t.Skip("git not on PATH; skipping the worktree cell case")
 		}
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+		fakeHostHome(t, "login")
 		repo := initIsolationTestRepo(t)
 		cell := prepare(t, repo, launch.HomeModeSession, launch.WorkspaceWorktree, "test-harp")
 
@@ -314,7 +310,7 @@ func TestCellsPrepare_AnEngineThatRelocatesNothingGetsTheRulesSessionHome(t *tes
 	require.False(t, eng.Home().Relocates(), "the case needs an engine that relocates nothing")
 	for _, mode := range []launch.HomeMode{launch.HomeModeSession, launch.HomeModeHost} {
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
+		fakeHostHome(t, "")
 		req := claudeKind(t)
 		req.Engine = eng
 		req.HomeMode = mode

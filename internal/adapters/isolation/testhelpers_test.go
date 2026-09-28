@@ -274,6 +274,20 @@ func stubPrimary(t *testing.T, ip string) {
 	t.Cleanup(func() { primaryOutboundIP = orig })
 }
 
+// stubLocal answers every "is this address one of the host's own" check with
+// local/err, recording the address asked about.
+func stubLocal(t *testing.T, local bool, err error) *string {
+	t.Helper()
+	var asked string
+	orig := isLocalAddr
+	isLocalAddr = func(ip string) (bool, error) {
+		asked = ip
+		return local, err
+	}
+	t.Cleanup(func() { isLocalAddr = orig })
+	return &asked
+}
+
 // stubGateway answers every gateway inspect with out/err, recording the argv.
 func stubGateway(t *testing.T, out string, err error) *[]string {
 	t.Helper()

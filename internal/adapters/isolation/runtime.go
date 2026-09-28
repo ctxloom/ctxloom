@@ -136,6 +136,15 @@ var ErrNoHostReach = errors.New("isolation: a container of this runtime has no a
 // tests decide it without the host's routing table.
 var primaryOutboundIP = hostnet.PrimaryOutboundIP
 
+// isLocalAddr decides whether a bridge gateway is one of this host's own
+// addresses; a package var so tests decide it without the host's interfaces.
+var isLocalAddr = hostnet.IsLocalAddr
+
+// errBridgeNotLocal refuses a bridge gateway this process cannot listen on:
+// the daemon's host owns it, and this process runs in another network
+// namespace — a container driving the host's daemon through its socket.
+var errBridgeNotLocal = errors.New("isolation: the container runtime's bridge gateway is not an address of this host")
+
 // publicRoute is the last preference: the host's primary outbound address,
 // listened on and reachable beyond this host. why names the runtime mode's
 // missing private route for the one-time warning.
@@ -150,11 +159,20 @@ func publicRoute(why string) (hostRoute, error) {
 // bridgeRoute is the rootful preference: the default bridge network's
 // host-side gateway, a private address only the host and its containers
 // share. Falls back to publicRoute when the runtime reports none that parses.
+// A gateway that is not this host's own address is refused here, before the
+// coordinator is told to listen on an address it can never bind.
 func bridgeRoute(ctx context.Context, rt Runtime) (hostRoute, error) {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := probeExec(cctx, rt.Binary(), rt.gatewayInspectArgs())
 	if ip := strings.TrimSpace(out); err == nil && net.ParseIP(ip) != nil {
+		local, lerr := isLocalAddr(ip)
+		switch {
+		case lerr != nil:
+			return hostRoute{}, fmt.Errorf("%w: cannot list this host's addresses to confirm %s's bridge gateway %s is one of them: %w", ErrNoHostReach, rt.Name(), ip, lerr)
+		case !local:
+			return hostRoute{}, fmt.Errorf("%w: %s reports bridge gateway %s, which no interface of this host carries", errBridgeNotLocal, rt.Name(), ip)
+		}
 		return hostRoute{dial: ip, listen: present.Listen{Addr: ip}}, nil
 	}
 	return publicRoute(fmt.Sprintf("%s reports no bridge gateway on the host to listen on (%v)", rt.Name(), err))

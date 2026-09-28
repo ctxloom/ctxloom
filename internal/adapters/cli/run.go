@@ -85,11 +85,14 @@ type dryRunJSON struct {
 	Workspace string   `json:"workspace,omitempty"`
 	Runtime   string   `json:"runtime,omitempty"`
 	Resolved  axesJSON `json:"resolved"`
-	LLM       string   `json:"llm"`
-	Backend   string   `json:"backend"`
-	Profiles  []string `json:"profiles"`
-	Fragments []string `json:"fragments"`
-	Context   string   `json:"context"`
+	// Environment is what the preview PROBED for Resolved: the runtime the
+	// run would get and how its runner reaches home.
+	Environment *environmentJSON `json:"environment,omitempty"`
+	LLM         string           `json:"llm"`
+	Backend     string           `json:"backend"`
+	Profiles    []string         `json:"profiles"`
+	Fragments   []string         `json:"fragments"`
+	Context     string           `json:"context"`
 	// ResumedEssence is what a --session --distill launch delivers through
 	// its SessionStart hook rather than through Context: the harp's
 	// distilled essence (distilledResumePreview). ResumedEssenceNote says
@@ -887,19 +890,20 @@ func (st *runState) emitDryRun() error {
 		})
 	}
 	payload := dryRunJSON{
-		Agent:      runAgent,
-		Workspace:  string(l.Declared.Workspace),
-		Runtime:    string(l.Declared.Runtime),
-		Resolved:   axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
-		LLM:        l.Label.Label,
-		Backend:    string(l.Engine),
-		Profiles:   pkg.Selection.Profiles,
-		Fragments:  pkg.Loaded,
-		Context:    context,
-		Delivery:   deliveryRoutes(l.Plan),
-		EngineHome: engineHomeRoute(l.Cell.HomeMode),
-		Tokens:     tokens.Estimate(context),
-		Prompt:     st.prompt,
+		Agent:       runAgent,
+		Workspace:   string(l.Declared.Workspace),
+		Runtime:     string(l.Declared.Runtime),
+		Resolved:    axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
+		Environment: probedEnvironment(l.Cell),
+		LLM:         l.Label.Label,
+		Backend:     string(l.Engine),
+		Profiles:    pkg.Selection.Profiles,
+		Fragments:   pkg.Loaded,
+		Context:     context,
+		Delivery:    deliveryRoutes(l.Plan),
+		EngineHome:  engineHomeRoute(l.Cell.HomeMode),
+		Tokens:      tokens.Estimate(context),
+		Prompt:      st.prompt,
 	}
 	if runResumeSession != "" && runResumeDistill {
 		payload.ResumedEssence, payload.ResumedEssenceNote = distilledResumePreview(runResumeSession, resumeEssenceStale)
@@ -919,6 +923,7 @@ func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
 			fmt.Println("=== Agent ===")
 			fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, l.Axes.Workspace, l.Axes.Runtime)
 		}
+		printEnvironment(os.Stdout, payload.Environment)
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
 		fmt.Println("\n=== Profiles ===")
@@ -947,6 +952,35 @@ func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
 		fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(st.workDir, agent.SCMContextSubdir))
 		return nil
 	})
+}
+
+// environmentJSON is the probed environment on the wire, as
+// isolation.Environment.Describe names it. Where the run would refuse it reads
+// isolation.RuntimeUnavailable / isolation.ReachUnknown rather than the
+// fallback a refused run never gets.
+type environmentJSON struct {
+	Runtime string `json:"runtime"`
+	Reach   string `json:"reach"`
+}
+
+// probedEnvironment describes the environment the preview cell prepared; nil
+// for a cell the cells adapter did not make.
+func probedEnvironment(cell launch.Cell) *environmentJSON {
+	env, ok := operations.EnvironmentOf(cell)
+	if !ok {
+		return nil
+	}
+	d := env.Describe()
+	return &environmentJSON{Runtime: d.Runtime, Reach: d.Reach}
+}
+
+// printEnvironment renders the probed environment as the dry-run's text form.
+func printEnvironment(w io.Writer, e *environmentJSON) {
+	if e == nil {
+		return
+	}
+	fmt.Fprintln(w, "=== Environment ===")
+	fmt.Fprintf(w, "runtime: %s, reach: %s\n", e.Runtime, e.Reach)
 }
 
 // printListOr prints each item indented on its own line, or none when there

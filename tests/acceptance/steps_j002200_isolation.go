@@ -29,6 +29,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -392,7 +393,11 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		stdout := w.env.LastStdout()
 		w.docStepMaterialized = strings.TrimSpace(stdout)
 		var payload struct {
-			Resolved struct{ Runtime string } `json:"resolved"`
+			Resolved    struct{ Runtime string } `json:"resolved"`
+			Environment *struct {
+				Runtime string `json:"runtime"`
+				Reach   string `json:"reach"`
+			} `json:"environment"`
 			Findings []struct {
 				Text   string `json:"text"`
 				Remedy string `json:"remedy"`
@@ -404,7 +409,15 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 			if !strings.Contains(stdout, "=== Assembled Context") {
 				return fmt.Errorf("the preview rendered no plan before refusing; stdout:\n%s", stdout)
 			}
+			// The probed environment names the refusal, never the host
+			// fallback the run would not take.
+			if want := fmt.Sprintf("runtime: %s, reach: %s", isolation.RuntimeUnavailable, isolation.ReachUnknown); !strings.Contains(stdout, want) {
+				return fmt.Errorf("the preview's plan does not show the environment as %q; stdout:\n%s", want, stdout)
+			}
 			return nil
+		}
+		if env := payload.Environment; env == nil || env.Runtime != isolation.RuntimeUnavailable || env.Reach != isolation.ReachUnknown {
+			return fmt.Errorf("the preview's JSON does not describe the environment as runtime %q, reach %q; stdout:\n%s", isolation.RuntimeUnavailable, isolation.ReachUnknown, stdout)
 		}
 		for _, f := range payload.Findings {
 			if strings.Contains(f.Text, j002200RuntimeGateFinding) && f.Fatal && f.Remedy != "" {

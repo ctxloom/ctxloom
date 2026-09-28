@@ -228,11 +228,17 @@ func TestSpecBuilder_FirstErrorWins(t *testing.T) {
 }
 
 // gitRepo is a real repository with one commit, for a worktree to check out.
+// Automatic maintenance is off: the commit would otherwise detach a
+// `git maintenance run --auto` whose lock files come and go under the
+// repository after this returns, and a before/after tree comparison would
+// see them.
 func gitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init", "-q"},
+		{"config", "maintenance.auto", "false"},
+		{"config", "gc.auto", "0"},
 		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"},
 	} {
 		cmd := exec.Command("git", args...)

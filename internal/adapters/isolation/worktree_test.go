@@ -478,7 +478,7 @@ func TestWorktree_UnsafeHarpIsReported(t *testing.T) {
 		t.Cleanup(func() { _ = ws.Cleanup() })
 
 		assert.Contains(t, stderr, badHarp, "the warning names the harp it refused to use")
-		assert.True(t, strings.HasPrefix(ws.Dir(), os.TempDir()+string(os.PathSeparator)),
+		assert.True(t, strings.HasPrefix(ws.Dir(), filepath.Clean(os.TempDir())+string(os.PathSeparator)),
 			"the fallback itself is unchanged: scratch %q lands in the OS temp dir", ws.Dir())
 	})
 

@@ -79,6 +79,9 @@ func TestReachRoute_GatewayInspectIsTheRuntimes(t *testing.T) {
 // TestReachRoute_NoRouteAtAll: no private route and no default route is
 // ErrNoHostReach, never an empty route that would ship a URL nothing answers.
 func TestReachRoute_NoRouteAtAll(t *testing.T) {
+	if platform.ContainersInVM {
+		t.Skip("in a VM every runtime answers its alias; no route is a shared-kernel outcome")
+	}
 	stubPrimary(t, "")
 	stubGateway(t, "", errors.New("no such network"))
 	_, err := Docker{rootless: true}.reachRoute(context.Background())
@@ -118,12 +121,18 @@ func TestRemintReach(t *testing.T) {
 // TestSettleReach_NoRouteIsAFatalIsolationFinding: a container that could
 // never dial home is refused at the workspace gate (ResolveWorkspace).
 func TestSettleReach_NoRouteIsAFatalIsolationFinding(t *testing.T) {
-	stubPrimary(t, "")
-	stubGateway(t, "", errors.New("no such network"))
 	mark := strictness.Checkpoint()
-	_, err := settleReach(context.Background(), Docker{rootless: true})
+	_, err := settleReach(context.Background(), noRouteRuntime{})
 	require.ErrorIs(t, err, ErrNoHostReach)
 	found := strictness.Since(mark)
 	require.Len(t, found, 1)
 	assert.Contains(t, found[0].Text, "cannot dial home")
+}
+
+// noRouteRuntime is a runtime whose containers have no route home, on any
+// host: the gate's refusal, apart from how a real runtime reaches it.
+type noRouteRuntime struct{ fakeRuntime }
+
+func (noRouteRuntime) reachRoute(context.Context) (hostRoute, error) {
+	return hostRoute{}, ErrNoHostReach
 }

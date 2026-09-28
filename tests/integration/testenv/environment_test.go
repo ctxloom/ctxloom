@@ -164,3 +164,44 @@ func TestFindAppBinary_AppliesTheFreshnessVerdictToWhateverItResolved(t *testing
 		}
 	})
 }
+
+// ── ambient-session scrub ─────────────────────────────────────────────────
+
+// childEnvValue returns the value env carries for key, and whether it carries
+// one at all.
+func childEnvValue(env []string, key string) (string, bool) {
+	for _, kv := range env {
+		if k, v, _ := strings.Cut(kv, "="); k == key {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// TestIsolatedEnv_ScrubsAmbientButKeepsWhatTheScenarioSet pins both halves of
+// the scrub. A scrubbed key the HOST exported must not reach the child. The
+// same kind of key set on purpose through SetEnv must reach it, because a
+// value the scenario chose can never be the ambient one. An API-key scenario
+// that exports the key has to reach the engine with it.
+func TestIsolatedEnv_ScrubsAmbientButKeepsWhatTheScenarioSet(t *testing.T) {
+	const ambient, chosen = "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"
+	for _, k := range []string{ambient, chosen} {
+		if !sessionEnvKeys[k] {
+			t.Fatalf("%s is not a scrubbed key, so this test proves nothing about the scrub", k)
+		}
+	}
+	t.Setenv(ambient, "host-leak")
+	t.Setenv(chosen, "host-leak")
+
+	e := &TestEnvironment{HomeDir: t.TempDir(), originalEnv: map[string]string{}}
+	t.Cleanup(func() { _ = e.Cleanup() })
+	e.SetEnv(chosen, "scenario-chosen")
+
+	env := e.isolatedEnv()
+	if v, ok := childEnvValue(env, ambient); ok {
+		t.Errorf("ambient %s reached the child as %q; the scrub must drop it", ambient, v)
+	}
+	if v, ok := childEnvValue(env, chosen); !ok || v != "scenario-chosen" {
+		t.Errorf("scenario-set %s reached the child as %q (present=%v), want %q", chosen, v, ok, "scenario-chosen")
+	}
+}

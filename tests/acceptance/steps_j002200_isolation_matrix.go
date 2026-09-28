@@ -748,9 +748,9 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		// Explicit empty-set, not a bare assumption of absence: the acceptance
-		// binary inherits the developer's own shell env (isolatedEnv only
-		// replaces HOME/XDG_*), so a locally-exported ANTHROPIC_API_KEY (etc.)
-		// would otherwise silently flip this scenario's premise.
+		// binary inherits the developer's own shell env, and isolatedEnv's
+		// scrub covers only testsupport.EnvKeys, so a locally-exported key it
+		// does not list would otherwise silently flip this scenario's premise.
 		for _, key := range keys {
 			w.env.SetEnv(key, "")
 		}

@@ -57,8 +57,8 @@ type TestEnvironment struct {
 	originalEnv map[string]string
 
 	// childEnv holds variables forced onto every spawned ctxloom process
-	// AFTER the ambient-session scrub. See SetChildEnv for why SetEnv cannot
-	// serve this purpose.
+	// AFTER the ambient-session scrub, by SetChildEnv, and by SetEnv for a
+	// scrubbed key.
 	childEnv map[string]string
 
 	// RunHistory is the ordered record of every CLI invocation Run /
@@ -528,14 +528,27 @@ func (e *TestEnvironment) storeAndSetEnv(key, value string) {
 // explicit env (e.g. the self-invoked `ctxloom llm serve <backend>` plugin
 // subprocess, which inherits its parent's environment when dialLLMConnection
 // is given no per-spawn env) — a variable it will see.
+//
+// A SCRUBBED key (testsupport.EnvKeys) is also forced onto the child through
+// SetChildEnv, because isolatedEnv drops those from os.Environ(). Without that,
+// a key a scenario set on purpose (an API-key scenario exporting
+// ANTHROPIC_API_KEY) would be dropped as if it were the host's. The scrub
+// exists for AMBIENT values, and a value the scenario chose cannot be ambient.
+// Only scrubbed keys: childEnv is a snapshot that outranks os.Environ(), so
+// forcing an unscrubbed key such as PATH would override the later prepends
+// that InstallFakeCompanion and the runtime stubs make via storeAndSetEnv.
 func (e *TestEnvironment) SetEnv(key, value string) {
 	e.storeAndSetEnv(key, value)
+	if sessionEnvKeys[key] {
+		e.SetChildEnv(key, value)
+	}
 }
 
 // SetChildEnv forces key=value onto every ctxloom process this environment
-// spawns, overriding the ambient-session scrub.
+// spawns, overriding the ambient-session scrub, WITHOUT setting it on this
+// test process (SetEnv does both for a scrubbed key).
 //
-// SetEnv cannot do this. isolatedEnv drops every testsupport.EnvKeys variable
+// isolatedEnv drops every testsupport.EnvKeys variable
 // — CTXLOOM_SESSION_HARP, CTXLOOM_PROJECT_ID and the rest — before handing the
 // child its environment, so that a suite run from inside a real ctxloom
 // session never inherits that session's identity. That scrub is correct and

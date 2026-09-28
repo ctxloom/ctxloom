@@ -156,6 +156,91 @@ tool-version-args:
         } >> "$GITHUB_OUTPUT"
     fi
 
+# Print the pinned Go version, for runners outside the devcontainer image (ci.yml's
+# windows job feeds it to actions/setup-go). Read from the file the image reads,
+# not go.mod: go.mod's `go` line is the language floor, not the toolchain pin.
+# Under Actions it also sets the step output `version`.
+ci-go-version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_gha_error}}
+    v="$(grep -E '^GO_VERSION=' .devcontainer/tool-versions.env | cut -d= -f2-)"
+    if [ -z "$v" ]; then
+        gha_error "GO_VERSION not found in .devcontainer/tool-versions.env"
+        exit 1
+    fi
+    echo "$v"
+    if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "version=$v" >> "$GITHUB_OUTPUT"; fi
+
+# windows_test_pkgs prints the packages with a Windows arm: every package with a
+# file (test or not) that GOOS=windows compiles and GOOS=linux does not, so a
+# new per-OS twin joins the Windows run with nothing to register. A package
+# whose test build reaches a .proto package is left out, loudly: its .pb.go is
+# generated, and the Windows runner has no buf/protoc to generate it.
+_windows_test_pkgs := '''
+windows_test_pkgs() {
+    local files='{{range .GoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}'
+    # Import paths, not .Dir: on Windows .Dir has backslashes, which a glob
+    # reads as escapes.
+    local own='{{if .Module}}{{if .Module.Main}}{{.ImportPath}}{{end}}{{end}}'
+    local mod pkg dep dir
+    mod="$(go list -m)"
+    for pkg in $(comm -23 <(GOOS=windows go list -e -f "$files" ./... | sort) \
+                          <(GOOS=linux go list -e -f "$files" ./... | sort) | cut -d' ' -f1 | sort -u); do
+        for dep in $(GOOS=windows go list -e -deps -test -f "$own" "$pkg"); do
+            dir="${dep#"$mod"}"; dir=".${dir}"
+            if compgen -G "$dir/*.proto" >/dev/null; then
+                echo "skip: $pkg (its test build needs generated code from ${dep#"$mod/"})" >&2
+                continue 2
+            fi
+        done
+        echo "$pkg"
+    done
+}
+'''
+
+# Print the packages test-windows runs. Runs on any host: the derivation asks
+# go list about each GOOS, so it is the same list everywhere.
+windows-test-pkgs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_windows_test_pkgs}}
+    windows_test_pkgs
+
+# Run every package with a Windows arm (windows-test-pkgs) natively on a
+# Windows host: the half of each per-OS seam a linux run never compiles, let
+# alone runs. No -race: the race detector needs cgo and a C toolchain on
+# Windows, and the portable tests already run under -race on linux.
+# -count=1 so a cache-restored green cannot stand in for a run, and it refuses
+# to pass having run no test at all.
+test-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_gha_error}}
+    {{_windows_test_pkgs}}
+    if [ "$(go env GOOS)" != windows ]; then
+        gha_error "test-windows runs the Windows arm natively; this host's GOOS is $(go env GOOS) (CI runs it on windows-latest)"
+        exit 1
+    fi
+    mapfile -t pkgs < <(windows_test_pkgs)
+    if [ "${#pkgs[@]}" -eq 0 ]; then
+        gha_error "windows-test-pkgs selected no packages"
+        exit 1
+    fi
+    set +e
+    out="$(go test -count=1 -v "${pkgs[@]}" 2>&1)"; st=$?
+    set -e
+    grep -E '^(--- FAIL|FAIL|ok )' <<<"$out" || true
+    if [ "$st" -ne 0 ]; then
+        printf '%s\n' "$out" >&2
+        gha_error "test-windows failed"
+        exit "$st"
+    fi
+    if ! grep -qE '^--- PASS: ' <<<"$out"; then
+        gha_error "test-windows ran no test in ${pkgs[*]}"
+        exit 1
+    fi
+
 # Install the codegen/build tools release-completer.yml needs, at the versions
 # .devcontainer/tool-versions.env pins.
 #

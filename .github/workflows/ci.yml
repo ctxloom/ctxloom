@@ -270,6 +270,14 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      # The job reaches the RUNNER's docker daemon through its mounted socket
+      # (docker-outside-of-docker), and that daemon resolves a bind-mount
+      # source against the runner's filesystem, not this container's. Tests
+      # create everything they mount under /tmp; sharing it at the SAME path is
+      # what makes those sources exist for the daemon. Without it the product's
+      # shared-filesystem probe correctly reports that nothing can be mounted.
+      volumes:
+        - /tmp:/tmp
     env:
       JUST_JUSTFILE: justfile.container
 
@@ -331,6 +339,14 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      # The job reaches the RUNNER's docker daemon through its mounted socket
+      # (docker-outside-of-docker), and that daemon resolves a bind-mount
+      # source against the runner's filesystem, not this container's. Tests
+      # create everything they mount under /tmp; sharing it at the SAME path is
+      # what makes those sources exist for the daemon. Without it the product's
+      # shared-filesystem probe correctly reports that nothing can be mounted.
+      volumes:
+        - /tmp:/tmp
     env:
       JUST_JUSTFILE: justfile.container
 

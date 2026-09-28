@@ -184,6 +184,21 @@ func TestContainerSpec_Validate_RefusesInstallWithoutValidate(t *testing.T) {
 	assert.ErrorContains(t, c.Validate(), "ValidateCommand")
 }
 
+// TranscriptStoreRel names a path inside the Linux container, so it is a clean
+// relative slash path whatever the host separator: a filepath-built value
+// carries `\` on a Windows host and lands the transcript mount at a literal
+// backslash-named directory.
+func TestContainerSpec_Validate_RefusesANonSlashTranscriptStore(t *testing.T) {
+	for _, rel := range []string{`.x\projects`, "/root/.x/projects", "../.x/projects", ".x//projects", ".x/projects/"} {
+		c := validContainer()
+		c.TranscriptStoreRel = rel
+		assert.ErrorContains(t, c.Validate(), "TranscriptStoreRel", rel)
+	}
+	c := validContainer()
+	c.TranscriptStoreRel = ""
+	assert.NoError(t, c.Validate(), "an engine that keeps no transcripts declares none")
+}
+
 // HostDir is where a shared store lives on the host: the launching env's own
 // value when it names one, else the store's place under the home; a store
 // that is no directory (an OS keychain) has none.

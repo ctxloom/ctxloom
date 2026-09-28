@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"path/filepath"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -53,7 +53,7 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 		Install:            installFragment,
 		ValidateCommand:    "claude --version",
 		OverlayDirs:        []string{ConfigDirName},
-		TranscriptStoreRel: filepath.Join(ConfigDirName, TranscriptsDirName),
+		TranscriptStoreRel: path.Join(ConfigDirName, TranscriptsDirName),
 	}, nil
 }
 

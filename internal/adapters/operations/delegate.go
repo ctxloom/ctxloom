@@ -37,16 +37,12 @@ type EngineProcess struct {
 	Wait func() error
 }
 
-// EngineStarter is StartEngine's runner-start seam: one launch closure,
-// readiness being the coordinator's awaitRunner. A test supplies its own in
-// place of the cell's environment.
-type EngineStarter func(ctx context.Context) (*isolation.RunnerHandle, error)
-
 // StartEngine starts the runner process for a resolved launch in its cell's
 // environment, with the reach-back trio on the RUNNER's env — never the
-// engine's. A caller-supplied starter replaces the environment (test seam).
+// engine's. A caller-supplied starter — one launch closure, readiness being
+// the coordinator's awaitRunner — replaces the environment (test seam).
 // A returned process is up; its dial-home is awaited by the coordinator.
-func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]string, verbosity int, starter EngineStarter) (*EngineProcess, error) {
+func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]string, verbosity int, starter func(context.Context) (*isolation.RunnerHandle, error)) (*EngineProcess, error) {
 	if starter == nil {
 		env, ok := EnvironmentOf(l.Cell)
 		if !ok {

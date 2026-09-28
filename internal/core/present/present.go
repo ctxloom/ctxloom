@@ -8,14 +8,15 @@
 //	CHANNEL   HOW the engine reaches it — the path, argv, the environment,
 //	          container mounts.
 //
-// The path rewrite happens BEFORE any presenter runs, as PRE-ADVICE over a
-// Paths object: two independent axes (workspace, runtime) each rewrite one
-// half of every root — Host or Engine — and the runtime axis alone emits
-// Mounts. A presenter then composes against the ALREADY-rewritten roots and
-// never touches containerization at all, so a presenter that only names a
-// flag on argv is exactly as containerizable as one that also names an
-// environment variable: neither one performs the rewrite, so neither one
-// needs a lever to do it with.
+// The path rewrite happens BEFORE any presenter runs: the run's environment
+// (isolation) relocates every root once, producing a Mapped whose Host and
+// Engine sides are both settled, together with whatever mounts make the
+// Engine side true — mounts this package never sees. A presenter then
+// composes against the ALREADY-relocated roots and never touches
+// containerization at all, so a presenter that only names a flag on argv is
+// exactly as containerizable as one that also names an environment variable:
+// neither one performs the rewrite, so neither one needs a lever to do it
+// with.
 //
 // A presentation is COMPOSED, never selected from a set, and the type a layer
 // returns offers only the layers that may legally follow it. An illegal ORDER
@@ -40,12 +41,9 @@ import (
 // Root is one directory named on two sides: Host is where its bytes live as
 // the WRITER sees them — what a writer opens and, on the originator, what the
 // runtime bind-mounts FROM. Engine is what the engine is told — the path it
-// opens, or a variable's value, or a mount target. The two axes that rewrite
-// a Root are independent and touch different halves: a workspace advice
-// (worktree materialization) rewrites Host, and a runtime advice
-// (containerization) rewrites Engine and records a Mount. Uncontainerized,
-// Engine equals Host; for a writer that shares the engine's filesystem, see
-// Mapped.EngineSide.
+// opens, or a variable's value, or a mount target. Where the engine runs in
+// place, Engine equals Host; for a writer that shares the engine's
+// filesystem, see Mapped.EngineSide.
 type Root struct{ Host, Engine string }
 
 // ErrUnreachableRoot is a root the environment cannot present to the engine:
@@ -71,45 +69,13 @@ type Paths struct {
 	SessionHome Root
 }
 
-// Mount makes HostDir visible to the engine at TargetDir.
-type Mount struct{ HostDir, TargetDir string }
-
-// PathsAdvice rewrites every root in a Paths and reports what a container
-// runtime must mount to make the rewrite true. It is applied EXACTLY ONCE,
-// to the whole Paths, before any presenter runs — never per-surface, and
-// never asked of a presenter or an engine.
-type PathsAdvice interface {
-	ApplyPaths(Paths) (Paths, []Mount)
-}
-
-// Host is the identity advice: Engine equals Host on every root, and nothing
-// is mounted. It is the host transport — not a special case a call site
-// branches to, but the same PathsAdvice vocabulary as Containerize, so a run
-// that never containerizes still composes through the identical pipeline.
-type Host struct{}
-
-var _ PathsAdvice = Host{}
-
-// ApplyPaths implements PathsAdvice with the identity rewrite.
-func (Host) ApplyPaths(p Paths) (Paths, []Mount) {
-	return Paths{
-		ProjectRoot: identity(p.ProjectRoot),
-		SessionHome: identity(p.SessionHome),
-	}, nil
-}
-
-func identity(r Root) Root {
-	return Root{Host: r.Host, Engine: r.Host}
-}
-
-// OnHost applies the identity advice directly — for a call site that already
-// knows it is uncontainerized and has no PathsAdvice value of its own to
-// hold. It exists so that call site never has to special-case "not
-// containerized": it calls OnHost exactly where a containerized run would
-// call Containerize{...}.Apply, and gets the same Mapped shape back.
+// OnHost presents p in place — Engine equals Host on every root — for a
+// caller at rest or probing the host (ProjectOnHost, an agent probe, the
+// conformance suite, an engine's own forms). No launch path calls it: a
+// launch's roots are an Environment's Placement.
 func OnHost(p Paths) Mapped {
-	paths, mounts := Host{}.ApplyPaths(p)
-	return Mapped{paths: paths, mounts: mounts}
+	inPlace := func(r Root) Root { return Root{Host: r.Host, Engine: r.Host} }
+	return Mapped{paths: Paths{ProjectRoot: inPlace(p.ProjectRoot), SessionHome: inPlace(p.SessionHome)}}
 }
 
 // ProjectOnHost advises a run that has exactly ONE root — the project
@@ -123,103 +89,33 @@ func ProjectOnHost(dir string) Start {
 	return New(OnHost(Paths{ProjectRoot: Root{Host: dir}}))
 }
 
-// Containerize is the runtime advice: it rewrites Engine on every root that
-// has a target and mounts the root to make that true.
-//
-// A root with no configured target is mounted AT ITS OWN HOST PATH — the
-// engine fixed that location and has no variable through which it could be
-// told a different one, so the only mount that leaves it reachable is one at
-// the same path it always looks at. This was previously discovered per
-// composition by asking whether the rooting advice implemented a channel
-// interface; here it is a static decision made once, for the whole run,
-// by whoever configures Containerize — containerization never interrogates
-// a presenter or an engine to make it.
-//
-// A zero-value root (Host == "") is left alone and contributes no mount: it
-// names a root this run never resolved, so there is nothing to mount.
-type Containerize struct {
-	// ProjectRoot and SessionHome are the directories each root becomes
-	// visible at inside the container. Empty means "mount at the same path
-	// the host used."
-	ProjectRoot, SessionHome string
+// Advised is a Mapped from roots whose both sides are already settled: an
+// environment's relocation (isolation, the only place a path is rewritten),
+// the wire codec rebuilding what the originator sent, and a composition that
+// re-roots an already-advised Mapped. It rewrites nothing itself.
+func Advised(paths Paths) Mapped {
+	return Mapped{paths: paths}
 }
 
-var _ PathsAdvice = Containerize{}
-
-// ApplyPaths implements PathsAdvice.
-func (c Containerize) ApplyPaths(p Paths) (Paths, []Mount) {
-	var mounts []Mount
-	remap := func(r Root, target string) Root {
-		if r.Host == "" {
-			return r
-		}
-		if target == "" {
-			target = r.Host
-		}
-		mounts = append(mounts, Mount{HostDir: r.Host, TargetDir: target})
-		return Root{Host: r.Host, Engine: target}
-	}
-	// remap APPENDS to mounts, and mounts is also a result operand. Go
-	// specifies left-to-right order only among the CALLS in a statement's
-	// operands; when a plain variable operand is read relative to those calls
-	// is unspecified, so `return Paths{remap(...), ...}, mounts` may return
-	// the pre-append mounts. Settling the composite literal in its own
-	// statement first makes the appends complete before mounts is read.
-	out := Paths{
-		ProjectRoot: remap(p.ProjectRoot, c.ProjectRoot),
-		SessionHome: remap(p.SessionHome, c.SessionHome),
-	}
-	return out, mounts
-}
-
-// Apply runs the advice and bundles the result with the mounts it recorded.
-func (c Containerize) Apply(p Paths) Mapped {
-	paths, mounts := c.ApplyPaths(p)
-	return Mapped{paths: paths, mounts: mounts}
-}
-
-// Advised rebuilds a Mapped from an advised Paths and the mounts that made
-// it true. It is the wire codec's constructor and nobody else's: the advice
-// was applied exactly once on the originator, and the runner receives its
-// RESULT — both sides of every root and the mount list — rather than
-// applying any advice of its own.
-func Advised(paths Paths, mounts []Mount) Mapped {
-	return Mapped{paths: paths, mounts: mounts}
-}
-
-// Mapped is a Paths that has been advised: every root's Engine side is
-// settled, and every mount a container runtime must honour to make that true
-// has been recorded. It is the ONLY thing New accepts, so a raw Paths cannot
-// reach a presenter — the rewrite is not optional and not repeatable per
-// surface.
+// Mapped is a Paths whose every root has both sides settled. It is the ONLY
+// thing New accepts, so a raw Paths cannot reach a presenter — the rewrite
+// is not optional and not repeatable per surface.
 type Mapped struct {
-	paths  Paths
-	mounts []Mount
+	paths Paths
 }
 
 // Paths returns the advised roots.
 func (m Mapped) Paths() Paths { return m.paths }
 
-// Mounts returns every mount the advice that produced this Mapped recorded.
-// It is a property of the WHOLE RUN, not of any one presentation: a runtime
-// reads it once, when it launches, rather than once per surface.
-func (m Mapped) Mounts() []Mount { return m.mounts }
-
 // EngineSide is this Mapped as seen by a writer that shares the ENGINE's
-// filesystem — the runner that is a container's foreground process: every
-// root's Host becomes its Engine side, because the host side of a relocated
-// root is not mounted where that writer runs. Mounts are kept as the run's
-// record; nothing beside the engine binds them.
+// filesystem — the runner, wherever it runs: every root's Host becomes its
+// Engine side, because the host side of a relocated root is not mounted
+// where that writer runs. On the host the two sides are equal, so it is the
+// identity there.
 func (m Mapped) EngineSide() Mapped {
 	side := func(r Root) Root { return Root{Host: r.Engine, Engine: r.Engine} }
 	p := m.paths
-	return Mapped{
-		paths: Paths{
-			ProjectRoot: side(p.ProjectRoot),
-			SessionHome: side(p.SessionHome),
-		},
-		mounts: m.mounts,
-	}
+	return Mapped{paths: Paths{ProjectRoot: side(p.ProjectRoot), SessionHome: side(p.SessionHome)}}
 }
 
 // Presentation is the RESULT, built up by the chain. Never selected from a

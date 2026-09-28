@@ -150,7 +150,7 @@ func placementOf(paths present.Paths, l layout, extra map[string]string) launch.
 		home = append(home, engine.HomeBinding{Var: l.homeVar.Name, Path: paths.SessionHome.Engine})
 	}
 	maps.Copy(env, extra)
-	return launch.Placement{Paths: present.Advised(paths, nil), Env: env, Home: home}
+	return launch.Placement{Paths: present.Advised(paths), Env: env, Home: home}
 }
 
 // hostRelocator presents every root in place: the engine opens the host

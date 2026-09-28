@@ -101,7 +101,10 @@ func checkContainerArgv(t *testing.T, def engine.Base) {
 	for _, r := range []present.Root{host.ProjectRoot, host.SessionHome} {
 		require.NoError(t, fs.MkdirAll(r.Host, 0o700))
 	}
-	mapped := present.Containerize{ProjectRoot: "/conformance-engine/project", SessionHome: "/conformance-engine/home"}.Apply(host)
+	mapped := present.Advised(present.Paths{
+		ProjectRoot: present.Root{Host: host.ProjectRoot.Host, Engine: "/conformance-engine/project"},
+		SessionHome: present.Root{Host: host.SessionHome.Host, Engine: "/conformance-engine/home"},
+	})
 	start := present.New(mapped)
 	engineSide := 0
 	for _, k := range def.Static() {

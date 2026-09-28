@@ -133,9 +133,9 @@ type previewEnvironment struct {
 }
 
 func (e previewEnvironment) Placement() launch.Placement { return e.placement }
-func (e previewEnvironment) Listen() present.Listen       { return e.listen }
-func (e previewEnvironment) Describe() Description        { return e.desc }
-func (previewEnvironment) Cleanup() error                 { return nil }
+func (e previewEnvironment) Listen() present.Listen      { return e.listen }
+func (e previewEnvironment) Describe() Description       { return e.desc }
+func (previewEnvironment) Cleanup() error                { return nil }
 
 func (previewEnvironment) Start(context.Context, RunnerRequest) (*RunnerHandle, error) {
 	return nil, ErrPreviewEnvironment

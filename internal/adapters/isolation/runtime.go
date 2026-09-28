@@ -239,7 +239,6 @@ func runtimeMapper(m pathMapper) pathMapper {
 	return m
 }
 
-
 // RunSpec is the runtime-agnostic description of one runner container: which
 // image to run, the in-container argv, the identical-path project mount and
 // the workspace's mounts, a fresh HOME, and the run's env. A Runtime renders

@@ -236,4 +236,3 @@ func treeOf(t *testing.T, roots ...string) []string {
 	sort.Strings(all)
 	return all
 }
-

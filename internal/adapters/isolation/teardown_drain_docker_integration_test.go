@@ -1,6 +1,6 @@
 //go:build docker_integration
 
-package attach_test
+package isolation
 
 import (
 	"context"
@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/attach"
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -43,8 +42,8 @@ const payloadBytes = 96 * 1024
 // returned, and the payload is larger than the originator pty can buffer, so
 // part of it is necessarily still inside the relay when End runs.
 func TestEnd_TheContainersLastBytesSurviveTheRelay(t *testing.T) {
-	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container attach End drain test")
-	rt := isolation.ProbeRuntime("docker")
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container attach End drain test")
+	rt := ProbeRuntime("docker")
 
 	sig := t.TempDir()
 	written := filepath.Join(sig, "written")
@@ -56,15 +55,15 @@ func TestEnd_TheContainersLastBytesSurviveTheRelay(t *testing.T) {
 	// The runner stand-in: write the payload and a terminal mark to the tty,
 	// report the exit (the marker file — the runner's RunCompleted), exit.
 	script := fmt.Sprintf("head -c %d /dev/zero | tr '\\0' x; printf %s; : > /sig/written", payloadBytes, endMark)
-	spec := isolation.RunSpec{
+	spec := RunSpec{
 		Image:   "alpine:latest",
 		Name:    name,
 		Command: []string{"sh", "-c", script},
-		Mounts:  []isolation.Mount{{Host: sig, Container: "/sig"}},
+		Mounts:  []mount{{Host: sig, Container: "/sig"}},
 		TTY:     true,
 	}
-	pol := isolation.NewContainerFor(rt, "mock")
-	s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, func(runExited <-chan struct{}) { pol.Remove(name, runExited) })
+	pol := NewContainerFor(rt, "mock")
+	s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, removeOnExit(pol, name))
 	require.NoError(t, err)
 	t.Cleanup(func() { s.Kill(); _ = exec.Command(rt.Binary(), "rm", "-f", name).Run() })
 

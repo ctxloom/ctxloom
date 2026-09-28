@@ -280,7 +280,7 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 		Paths: present.Advised(present.Paths{
 			ProjectRoot: present.Root{Host: "/host/proj", Engine: "/ctr/proj"},
 			SessionHome: present.Root{Host: "/host/home", Engine: "/home/ctxloom"},
-		}, nil),
+		}),
 		Env:  map[string]string{"A_HOME_VAR": "/home/ctxloom"},
 		Home: []engine.HomeBinding{{Var: "A_HOME_VAR", Path: "/home/ctxloom"}},
 	}}

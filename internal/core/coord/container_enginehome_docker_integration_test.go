@@ -8,9 +8,9 @@
 // from (which does not exist inside the container).
 //
 // The cell is the PRODUCTION cell: launch.Resolve over
-// operations.LaunchDepsFor (the real Cells: BindAgentHome →
-// isolation.MountEngineHome → present.Containerize), started through the
-// production isolation.StarterForWorkspace. Only the package (a fixed
+// operations.LaunchDepsFor (the real Cells, whose isolation.Environment
+// relocates the session home with its mount), started through the
+// production Environment.Start. Only the package (a fixed
 // assembler) and the image (the config's isolation_images override) are the
 // test's. The image puts mockengine in claude's place: this proves delivery,
 // never that the real claude runs in any image.
@@ -138,11 +138,11 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
-	require.NotNil(t, l.Cell.Container, "the binding asked for a container cell")
+	prepared, ok := operations.EnvironmentOf(l.Cell)
+	require.True(t, ok, "the production cell carries its prepared environment: %T", l.Cell.Handle)
+	require.Equal(t, "docker", prepared.Describe().Runtime, "the binding asked for a container cell")
 	home := l.Cell.Paths.Paths().SessionHome
 	require.NotEqual(t, home.Host, home.Engine, "the engine home must be relocated for this test to mean anything: %+v", home)
-	prepared, ok := l.Cell.Handle.(operations.PreparedCell)
-	require.True(t, ok, "the production cell carries its prepared workspace: %T", l.Cell.Handle)
 
 	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "enginehome-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: entry.HarpName})
 	require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 
 	var container string
 	start := func(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
-		handle, err := isolation.StarterForWorkspace(prepared.Policy, prepared.Workspace, claude.EngineName, l.Label.Label, 0, spawnEnv)(ctx)
+		handle, err := prepared.Start(ctx, isolation.RunnerRequest{Engine: claude.EngineName, Label: l.Label.Label, Env: spawnEnv})
 		if err != nil {
 			return coord.OwnedRunner{}, err
 		}

@@ -211,30 +211,31 @@ func decodeMode(m pb.Mode) engine.Mode {
 func encodeCell(c launch.Cell) *pb.Cell {
 	out := &pb.Cell{
 		Paths:     encodePaths(c.Paths.Paths()),
-		Mounts:    encodeMounts(c.Paths.Mounts()),
 		Workspace: c.Workspace,
 		Env:       c.Env,
 		Home:      encodeHome(c.Home),
 	}
 	if c.Container != nil {
-		out.Container = &pb.ContainerCell{Runtime: string(c.Container.Runtime), Image: c.Container.Image, Mounts: encodeMounts(c.Container.Mounts), Home: c.Container.Home}
+		out.Container = &pb.ContainerCell{Runtime: string(c.Container.Runtime), Image: c.Container.Image, Home: c.Container.Home}
 	}
 	return out
 }
 
 func decodeCell(w *pb.Cell) (launch.Cell, error) {
 	out := launch.Cell{
-		Paths:     present.Advised(decodePaths(w.GetPaths()), decodeMounts(w.GetMounts())),
+		Placement: launch.Placement{
+			Paths: present.Advised(decodePaths(w.GetPaths())),
+			Env:   w.GetEnv(),
+			Home:  decodeHome(w.GetHome()),
+		},
 		Workspace: w.GetWorkspace(),
-		Env:       w.GetEnv(),
-		Home:      decodeHome(w.GetHome()),
 	}
 	if c := w.GetContainer(); c != nil {
 		runtime, err := launch.ParseRuntimeAxis(c.GetRuntime())
 		if err != nil {
 			return launch.Cell{}, fmt.Errorf("coordgrpc: container cell: %w", err)
 		}
-		out.Container = &launch.ContainerCell{Runtime: runtime, Image: c.GetImage(), Mounts: decodeMounts(c.GetMounts()), Home: c.GetHome()}
+		out.Container = &launch.ContainerCell{Runtime: runtime, Image: c.GetImage(), Home: c.GetHome()}
 	}
 	return out, nil
 }
@@ -247,28 +248,6 @@ func encodePaths(p present.Paths) *pb.Paths {
 func decodePaths(w *pb.Paths) present.Paths {
 	root := func(r *pb.Root) present.Root { return present.Root{Host: r.GetHost(), Engine: r.GetEngine()} }
 	return present.Paths{ProjectRoot: root(w.GetProjectRoot()), SessionHome: root(w.GetSessionHome())}
-}
-
-func encodeMounts(ms []present.Mount) []*pb.Mount {
-	if ms == nil {
-		return nil
-	}
-	out := make([]*pb.Mount, 0, len(ms))
-	for _, m := range ms {
-		out = append(out, &pb.Mount{HostDir: m.HostDir, TargetDir: m.TargetDir})
-	}
-	return out
-}
-
-func decodeMounts(ws []*pb.Mount) []present.Mount {
-	if ws == nil {
-		return nil
-	}
-	out := make([]present.Mount, 0, len(ws))
-	for _, m := range ws {
-		out = append(out, present.Mount{HostDir: m.GetHostDir(), TargetDir: m.GetTargetDir()})
-	}
-	return out
 }
 
 func encodeHome(hs []engine.HomeBinding) []*pb.HomeBinding {

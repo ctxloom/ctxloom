@@ -57,11 +57,10 @@ func endpointRebinder(deps launch.Deps) func(context.Context, launch.Launch) (la
 }
 
 // processStarter is the owner run's starter for a launch whose runner is a
-// plain process (operations.RunnerStarter over this run's cell); the handle
-// is recorded on the state so a container that failed to reach running is
-// still torn down.
+// plain process (operations.RunnerStarter over this run's environment); the
+// handle is recorded on the state for teardown.
 func (st *runState) processStarter() coord.OwnedRunStarter {
-	return operations.RunnerStarter(operations.PreparedCell{Policy: st.policy, Workspace: st.ws}, st.backendName, st.label, runVerbosity,
+	return operations.RunnerStarter(st.env, st.backendName, st.label, runVerbosity,
 		func(h *isolation.RunnerHandle) { st.runnerHandle = h })
 }
 

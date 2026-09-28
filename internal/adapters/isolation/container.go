@@ -294,15 +294,15 @@ func (c Container) resolveWorkspace(ctx context.Context, projectDir, agentID str
 		return nil, err
 	}
 	return &containerWorkspace{
-		dir:          dir,
-		projectDir:   projectDir,
-		scratchRoot:  sc.root,
-		stateMounts:  sc.stateMounts,
-		scratchEnv:   sc.runEnv(),
-		authMode:     sc.auth.mode,
-		agentID:      agentID,
-		baseCleanup:  baseCleanup,
-		reach:        route,
+		dir:         dir,
+		projectDir:  projectDir,
+		scratchRoot: sc.root,
+		stateMounts: sc.stateMounts,
+		scratchEnv:  sc.runEnv(),
+		authMode:    sc.auth.mode,
+		agentID:     agentID,
+		baseCleanup: baseCleanup,
+		reach:       route,
 	}, nil
 }
 

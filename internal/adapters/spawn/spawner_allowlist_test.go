@@ -87,7 +87,7 @@ func TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt(t *testing.T) {
 	})
 
 	t.Run("a Starter widens nothing: an unreviewed backend is still refused", func(t *testing.T) {
-		starter := func(string, map[string]string) isolation.EngineStarter { return nil }
+		starter := func(string, map[string]string) func(context.Context) (*isolation.RunnerHandle, error) { return nil }
 		require.Error(t, newSpawner(t, starter).admit("futurebackend"),
 			"the seam changes how a runner is stood up, never whether a backend is admitted")
 	})

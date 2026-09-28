@@ -11,7 +11,7 @@
 // `ctxloom run --structured` / `--one-shot` container arm wires to (run_owned.go):
 // StartOwnedRun mints the parent-less run and issues StartRun over the same
 // RunnerChannel; the container is launched through the production
-// isolation.Container.StartRunner (the identical primitive the host uses).
+// the container Environment's Start (the identical call the host uses).
 // Every assertion reads a delivered PAYLOAD or a live container fact.
 //
 //	just test-docker-integration
@@ -61,7 +61,7 @@ func containerOwnerLaunch(harp string, mode engine.Mode) launch.Launch {
 }
 
 // dockerOwnerRunStarter builds an OwnedRunStarter that launches a REAL container
-// through the production isolation starter (Container.StartRunner → docker-
+// through the production Environment.Start (the container runner → docker-
 // direct `ctxloom llm host mock` WITH the per-run trio StartOwnedRun mints), the
 // same primitive run.go's container arm uses. It records the container name for
 // the zero-listener assertions and the workspace for teardown.
@@ -70,8 +70,7 @@ type dockerOwnerRunStarter struct {
 	projectDir string
 	harp       string
 
-	pol isolation.Container
-	ws  isolation.Workspace
+	env isolation.Environment
 
 	mu         sync.Mutex
 	containers []string
@@ -89,26 +88,23 @@ const ownerRunBackend = "mock"
 // honours before the runner starts.
 func (s *dockerOwnerRunStarter) prepare(ctx context.Context, t *testing.T, l launch.Launch) launch.Launch {
 	t.Helper()
-	rt := isolation.ProbeRuntime("docker")
-	stateEnv := map[string]string{"CTXLOOM_SESSION_HARP": s.harp}
-	s.pol = isolation.NewContainerFor(rt, ownerRunBackend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
-	ws, err := s.pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
+	env, err := preparedContainer(ctx, "docker", ownerRunBackend, s.image, s.projectDir, isolation.SessionState{Harp: s.harp})
 	require.NoError(t, err)
-	s.ws = ws
-	l.Cell.Listen = isolation.WorkspaceListen(ws)
+	s.env = env
+	l.Cell.Listen = env.Listen()
 	return l
 }
 
 func (s *dockerOwnerRunStarter) start(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
-	pol, ws := s.pol, s.ws
-	handle, err := pol.StartRunner(ctx, ownerRunBackend, "fast", 0, ws, spawnEnv)
+	cell := s.env
+	handle, err := cell.Start(ctx, isolation.RunnerRequest{Engine: ownerRunBackend, Label: "fast", Env: spawnEnv})
 	if err != nil {
-		_ = ws.Cleanup()
+		_ = cell.Cleanup()
 		return coord.OwnedRunner{}, err
 	}
 	kill := sync.OnceFunc(func() {
 		handle.Kill()
-		_ = ws.Cleanup()
+		_ = cell.Cleanup()
 	})
 	s.mu.Lock()
 	s.containers = append(s.containers, handle.Name)

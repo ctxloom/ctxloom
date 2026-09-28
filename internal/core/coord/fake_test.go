@@ -283,7 +283,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 		Mode:       engine.Structured,
 		Permission: perm,
 		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
-		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Workspace: workDir, Env: spawnedEnv, Cleanup: func() error { return nil }},
+		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Env: spawnedEnv}, Workspace: workDir, Cleanup: func() error { return nil }},
 		Package:    carrier,
 		MCP:        ep,
 		Prompt:     start.Prompt,

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -454,8 +455,7 @@ func readJSON(t *testing.T, path string) map[string]any {
 // surface-level coverage at all, which is precisely the field whose omission
 // would silently drop commands from a portable materialize target.
 func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
-	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	fakeHome := testsupport.Isolate(t)
 
 	dup := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
 	writeRenderedHomeCommand(t, fakeHome, dup)

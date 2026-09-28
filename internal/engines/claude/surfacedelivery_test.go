@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // fakePlacement is defined in contextdelivery_test.go (same package): a local
@@ -156,8 +157,7 @@ func writeRenderedHomeCommand(t *testing.T, homeDir string, cmd agent.CommandExp
 // in the user-global ~/.claude/commands (here faked via $HOME), and the skip
 // is not manifest-tracked, while a project-unique command still lands normally.
 func TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy(t *testing.T) {
-	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	fakeHome := testsupport.Isolate(t)
 
 	dup := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
 	writeRenderedHomeCommand(t, fakeHome, dup)
@@ -183,8 +183,7 @@ func TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy(t *testing
 // verifies a same-named home file that differs from the rendered project bytes
 // (version skew) is never silently hidden: the project copy is still written.
 func TestFileTemplateDelivery_DeliverCommands_DivergentHomeCopyWritesNormally(t *testing.T) {
-	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	fakeHome := testsupport.Isolate(t)
 
 	old := agent.CommandExport{Name: "recover", Content: "OLD BODY", Enabled: true}
 	writeRenderedHomeCommand(t, fakeHome, old)
@@ -212,8 +211,7 @@ func TestFileTemplateDelivery_DeliverCommands_DivergentHomeCopyWritesNormally(t 
 // dropped from the manifest, so the project scope actually converges to
 // matching the global copy instead of leaving an orphaned duplicate.
 func TestFileTemplateDelivery_DeliverCommands_DedupConvergence(t *testing.T) {
-	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	fakeHome := testsupport.Isolate(t)
 	// No home copy yet for this run.
 
 	projectDir := t.TempDir()
@@ -247,8 +245,7 @@ func TestFileTemplateDelivery_DeliverCommands_DedupConvergence(t *testing.T) {
 // IS the resolved global commands directory (workDir == $HOME), the file is
 // still delivered even though it is byte-identical to "itself".
 func TestFileTemplateDelivery_DeliverCommands_HomeScopeDeliveryDisablesDedup(t *testing.T) {
-	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	fakeHome := testsupport.Isolate(t)
 
 	cmd := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
 	// Pre-seed the exact file the delivery is about to (re)write, at the same
@@ -275,8 +272,7 @@ func TestFileTemplateDelivery_DeliverCommands_HomeScopeDeliveryDisablesDedup(t *
 // behavior — dedup against home, as live launch/apply/container want — must be
 // unchanged.
 func TestFileTemplateDelivery_DeliverCommands_SelfContainedSkipsHomeDedup(t *testing.T) {
-	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	fakeHome := testsupport.Isolate(t)
 
 	dup := agent.CommandExport{Name: "recover", Content: "Recovering context", Enabled: true}
 	writeRenderedHomeCommand(t, fakeHome, dup)

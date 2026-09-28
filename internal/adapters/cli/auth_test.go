@@ -19,20 +19,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 const cliFixtureToken = "sk-ant-oat01-cli-fixture"
 
-// authHome points HOME at scratch, clears claude's credential vars, and
-// resets the auth commands' package-global flags after the test.
+// authHome isolates the environment (scratch HOME, no engine credential
+// vars) and resets the auth commands' package-global flags after the test.
 func authHome(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	for _, v := range []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv} {
-		t.Setenv(v, "")
-		require.NoError(t, os.Unsetenv(v))
-	}
+	home := testsupport.Isolate(t)
 	t.Cleanup(func() { authEngine, authMode = "", ""; rootCmd.SetIn(nil) })
 	return home
 }

@@ -272,8 +272,9 @@ lint-pins:
 # Shared for the reason at the top of this file: ci.yml calls these by bare
 # name under JUST_JUSTFILE=justfile.container, and a recipe that exists only in
 # the host justfile fails that step with "Justfile does not contain recipe".
-# Nested calls name {{justfile()}} (the ROOT justfile) because just does not
-# pass --justfile to a child `just`, so a bare one would resolve the host file.
+# Nested calls run "{{just_executable()}}" --justfile "{{justfile()}}" (the
+# ROOT justfile) because just does not pass --justfile to a child `just`, so a
+# bare one would resolve the host file.
 # The root is justfile_directory(), not git: in a worktree mounted into the
 # devcontainer, git cannot resolve the toplevel (see build/common.justfile).
 
@@ -325,7 +326,7 @@ _ensure-covdata:
 # selects nothing fails instead of passing.
 test-conformance:
     go test -trimpath -race -tags conformance ./internal/engines/conformance/...
-    just -f {{justfile()}} test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
+    "{{just_executable()}}" --justfile "{{justfile()}}" test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
 
 # Run the acceptance suite against a COVERAGE-INSTRUMENTED ctxloom and report
 # what it actually executed.

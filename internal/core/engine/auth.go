@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -103,7 +104,7 @@ func (m AuthMode) Minted() bool { return m == AuthToken }
 
 var (
 	// ErrNoCredential: the mode needs a credential and neither the launching
-	// env nor the store holds one. Returned (wrapped) by Auth.LaunchEnv and
+	// env nor the store holds one. Returned (wrapped) by Auth.Credentials and
 	// by a CredentialReader.
 	ErrNoCredential = errors.New("no credential for this auth mode")
 	// ErrMintUnsupported: the engine cannot mint a credential for the mode;
@@ -134,15 +135,56 @@ type Terminal struct {
 	Err io.Writer
 }
 
-// LaunchEnv is the env a run in one auth mode is launched with: Set is laid
-// over the engine's environment, and every name in Unset is removed from it
-// before the engine starts. Unset exists because an empty value is not an
-// absent one: for some variables "" means a real default (claude reads an
-// empty credential-storage var as $HOME/.claude), and some switches are
-// read as set whatever their value.
-type LaunchEnv struct {
-	Set   map[string]string
+// Credentials is what a run in one auth mode needs, as runtime-neutral DATA:
+// the environment that prepares the run decides how each piece is made true
+// where the engine runs, and the engine never learns which environment that
+// was.
+type Credentials struct {
+	// Env is laid over the engine's environment: the mode's credential.
+	Env map[string]string
+	// Unset names variables removed from the engine's environment before it
+	// starts. It exists because an empty value is not an absent one: for some
+	// variables "" means a real default (claude reads an empty
+	// credential-storage var as $HOME/.claude), and some switches are read as
+	// set whatever their value.
 	Unset []string
+	// Stores are the human's own credential stores the mode reads in place —
+	// a login's storage, a cloud provider's credential files. Each must exist
+	// where the run starts; an environment that cannot present one refuses.
+	Stores []SharedStore
+}
+
+// SharedStore is one of the human's credential stores a run shares rather
+// than copies: a directory the engine (or the provider SDK it embeds) reads,
+// and writes unless ReadOnly.
+type SharedStore struct {
+	// Var is the variable that points the engine at the store, "" when the
+	// engine finds it at HomeRel under $HOME with no variable at all.
+	Var string
+	// Value is the exact string the launching env's engine resolves Var
+	// from, never cleaned: claude names its macOS keychain item from it. ""
+	// means the engine's default, $HOME/HomeRel.
+	Value string
+	// HomeRel is where the engine keeps the store under $HOME when Var is
+	// empty or unset, slash-separated. "" declares a store that is NOT a
+	// directory under $HOME (an OS keychain): it can be shared in place but
+	// never presented anywhere else.
+	HomeRel string
+	// ReadOnly declares that the run only reads the store.
+	ReadOnly bool
+}
+
+// HostDir is the store's directory on the host whose home is hostHome:
+// Value when the launching env names one, else hostHome/HomeRel. "" for a
+// store that is not a directory (HomeRel "" and no Value).
+func (s SharedStore) HostDir(hostHome string) string {
+	switch {
+	case s.Var != "" && s.Value != "":
+		return s.Value
+	case s.HomeRel == "":
+		return ""
+	}
+	return filepath.Join(hostHome, filepath.FromSlash(s.HomeRel))
 }
 
 // Auth is an engine's authentication capability. The engine owns every
@@ -152,13 +194,14 @@ type LaunchEnv struct {
 type Auth interface {
 	// Modes are the auth modes the engine supports.
 	Modes() []AuthMode
-	// LaunchEnv is the env a run in mode is launched with: it SETS the
-	// mode's credential (a value the launching env exports for that mode
-	// wins over the stored one) and UNSETS every other credential the engine
-	// would read ahead of it or instead of it. It returns ErrNoCredential
-	// (wrapped) when the mode needs a credential that neither shell nor
-	// stored holds.
-	LaunchEnv(mode AuthMode, shell func(string) (string, bool), stored CredentialReader) (LaunchEnv, error)
+	// Credentials is what a run in mode needs: it SETS the mode's
+	// credential (a value the launching env exports for that mode wins over
+	// the stored one), UNSETS every other credential the engine would read
+	// ahead of it or instead of it, and declares the human's stores the mode
+	// shares. It returns ErrNoCredential (wrapped) when the mode needs a
+	// credential that neither shell nor stored holds. It knows nothing of
+	// where the run executes.
+	Credentials(mode AuthMode, shell func(string) (string, bool), stored CredentialReader) (Credentials, error)
 	// Mint runs the engine's own interactive flow on term and returns the
 	// credential it produced, never storing it. ErrMintUnsupported for a
 	// mode the engine cannot mint.

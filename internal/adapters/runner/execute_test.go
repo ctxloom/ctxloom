@@ -327,8 +327,7 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 		}
 		roots.SessionHome = present.Root{Host: home}
 	}
-	paths := present.OnHost(roots)
-	return launch.Cell{Paths: paths, Workspace: workspace, Env: map[string]string{}, Cleanup: func() error { return nil }}, nil
+	return launch.Cell{Placement: launch.Placement{Paths: present.OnHost(roots), Env: map[string]string{}}, Workspace: workspace, Cleanup: func() error { return nil }}, nil
 }
 
 // recordingDriver is the Driver double: it records what the runner asked
@@ -471,17 +470,19 @@ func TestExecute_TheLaunchsEngineEnvRidesTheExec(t *testing.T) {
 	require.Equal(t, id.Harp, got[sessions.EnvHarp], "the identity carriers reach the engine")
 }
 
-// TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot: the runner
-// of a container cell is the container's foreground process, so its
-// filesystem is the ENGINE's. A root relocated by the runtime advice (in
-// production the engine home, mounted at a fixed in-container path) must be
-// written at its Engine side: the Host side is the originator's directory,
-// which nothing mounts where the runner runs, and a write there lands in the
-// container's own layer while the engine is pointed at an empty mount.
+// TestExecute_ARelocatedCellIsDeliveredAtTheEngineSideOfEveryRoot: the
+// runner shares the ENGINE's filesystem, so a root the environment relocated
+// (in production the session home, mounted at a fixed in-container path) must
+// be written at its Engine side: the Host side is the originator's
+// directory, which nothing mounts where the runner runs, and a write there
+// lands in the container's own layer while the engine is pointed at an empty
+// mount.
 //
-// The mock's session files land under its session home, which this cell
-// relocates the way production does.
-func TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.T) {
+// NO RUNTIME MARKER: the cell carries no Container and nothing else that
+// names a runtime. The runner reads the Engine side unconditionally; a
+// runner that decided by asking which runtime it was under would write the
+// Host side here.
+func TestExecute_ARelocatedCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.T) {
 	env := newDeliveryEnv(t)
 	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
 		Identity: env.mint(t, 1, "run-ctr"),
@@ -491,12 +492,11 @@ func TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.
 
 	host := child.Cell.Paths.Paths()
 	engineSide := t.TempDir() // stands in for the in-container mount target
-	advised := present.Containerize{SessionHome: engineSide}.Apply(present.Paths{
-		ProjectRoot: present.Root{Host: host.ProjectRoot.Host},
-		SessionHome: present.Root{Host: host.SessionHome.Host},
+	child.Cell.Paths = present.Advised(present.Paths{
+		ProjectRoot: present.Root{Host: host.ProjectRoot.Host, Engine: host.ProjectRoot.Host},
+		SessionHome: present.Root{Host: host.SessionHome.Host, Engine: engineSide},
 	})
-	child.Cell.Paths = advised
-	child.Cell.Container = &launch.ContainerCell{Runtime: launch.RuntimeRootless, Mounts: advised.Mounts()}
+	require.Nil(t, child.Cell.Container, "premise: nothing on the cell names a runtime")
 
 	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
 	require.NoError(t, err)

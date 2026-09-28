@@ -27,7 +27,7 @@ func TestWorktreePolicy_RealGitLifecycle(t *testing.T) {
 	repo := initRealRepo(t)
 
 	pol := NewWorktree(git.NewExec())
-	ws, err := pol.PrepareWorkspace(ctx, repo, "member-int")
+	ws, err := pol.prepareWorkspace(ctx, repo, "member-int")
 	require.NoError(t, err, "PrepareWorkspace must add a worktree in a real repo")
 	wtDir := ws.Dir()
 	// Safety net: the test below calls ws.Cleanup() itself and asserts the dir
@@ -79,7 +79,7 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 	repo := initRealRepo(t)
 
 	pol := NewWorktree(git.NewExec())
-	ws, err := pol.PrepareWorkspace(ctx, repo, "member-nest")
+	ws, err := pol.prepareWorkspace(ctx, repo, "member-nest")
 	require.NoError(t, err)
 	outer := ws.Dir()
 	// Safety net registered IMMEDIATELY: the test's own manual cleanup below
@@ -141,7 +141,7 @@ func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T
 	gitRun(t, repo, "commit", "-m", "seed CLAUDE.md")
 
 	pol := NewWorktree(git.NewExec())
-	ws, err := pol.PrepareWorkspace(ctx, repo, "member-ctx")
+	ws, err := pol.prepareWorkspace(ctx, repo, "member-ctx")
 	require.NoError(t, err)
 	wtDir := ws.Dir()
 	t.Cleanup(func() { _ = os.RemoveAll(wtDir) })
@@ -185,7 +185,7 @@ func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T
 //     worktreeWorkspace case via baseCleanup's own type), never a dedicated
 //     scratch path — force-removing it would risk deleting the very repo the
 //     test is using.
-func requireCleanWorkspace(t *testing.T, ws Workspace) {
+func requireCleanWorkspace(t *testing.T, ws workspace) {
 	t.Helper()
 	if ws == nil {
 		return

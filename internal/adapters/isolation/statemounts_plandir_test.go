@@ -22,9 +22,9 @@ import (
 // a running container: a path under a bind mount is the HOST file, and every
 // other path is private to the container's overlay and dies with it. Longest
 // prefix wins, the way a real mount table resolves nested mounts.
-func resolveThroughMounts(t *testing.T, mounts []Mount, overlayRoot, containerPath string) string {
+func resolveThroughMounts(t *testing.T, mounts []mount, overlayRoot, containerPath string) string {
 	t.Helper()
-	ordered := append([]Mount(nil), mounts...)
+	ordered := append([]mount(nil), mounts...)
 	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i].Container) > len(ordered[j].Container) })
 	for _, m := range ordered {
 		if containerPath == m.Container || strings.HasPrefix(containerPath, m.Container+string(filepath.Separator)) {

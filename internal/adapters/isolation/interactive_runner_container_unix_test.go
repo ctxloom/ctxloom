@@ -27,7 +27,7 @@ func TestInteractiveRunner_Container_IsTheForegroundRunnerOnATTY(t *testing.T) {
 	cw := newRunnerTestWorkspace()
 	spawnEnv := map[string]string{"CTXLOOM_COORD_URL": "http://host:9000", "CTXLOOM_COORD_CRED": "super-secret-token", "CTXLOOM_RUN_ID": "run-123"}
 
-	cmd, name, err := c.InteractiveRunner(context.Background(), "mock", cw, spawnEnv)
+	cmd, name, err := c.interactiveRunner(context.Background(), "mock", cw, spawnEnv)
 	require.NoError(t, err)
 	require.NotEmpty(t, name, "the container is named so teardown can target it")
 	assert.Equal(t, "docker", filepath.Base(cmd.Path))

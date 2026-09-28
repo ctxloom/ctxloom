@@ -421,8 +421,7 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 	if dir, ok := launch.SessionHome(req.SessionDir, req.Engine, homeMode); ok {
 		roots.SessionHome = present.Root{Host: dir}
 	}
-	paths := present.OnHost(roots)
-	return launch.Cell{Paths: paths, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
+	return launch.Cell{Placement: launch.Placement{Paths: present.OnHost(roots)}, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
 }
 
 // Structured is a resolved structured-mode launch for one harp on the
@@ -444,7 +443,7 @@ func Structured(harp, backend, label, model, workDir string, perm agent.Permissi
 		Label:      engine.LabelConfig{Label: label, Model: model},
 		Mode:       engine.Structured,
 		Permission: perm,
-		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Workspace: workDir, Cleanup: func() error { return nil }},
+		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}})}, Workspace: workDir, Cleanup: func() error { return nil }},
 		Package:    carrier,
 	}
 }

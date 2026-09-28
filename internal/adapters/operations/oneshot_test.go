@@ -43,7 +43,7 @@ func oneshotTestConfig(t *testing.T) *config.Config {
 // callers' fixture setup.
 func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline) launch.Deps {
 	t.Helper()
-	stubPrepareIsolation(t, nil)
+	stubPrepareEnvironment(t, nil)
 	return launch.Deps{
 		SessionClaims: fsstore.SessionClaims,
 		Snapshot:      &config.Snapshot{Config: cfg},

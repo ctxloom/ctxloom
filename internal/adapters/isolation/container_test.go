@@ -13,8 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,13 +30,13 @@ func TestContainer_PrepareDegrades(t *testing.T) {
 
 	// Runtime cannot launch → error mentioning the runtime.
 	_, err := NewContainerFor(fakeRuntime{name: "docker", available: false}, "mock").WithImage("img").
-		PrepareWorkspace(ctx, "/proj", "m")
+		prepareWorkspace(ctx, "/proj", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot launch")
 
 	// Runtime available but image absent (binary "" → imagePresent false) → error.
 	_, err = NewContainerFor(fakeRuntime{name: "docker", binary: "", available: true}, "mock").WithImage("img").
-		PrepareWorkspace(ctx, "/proj", "m")
+		prepareWorkspace(ctx, "/proj", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not present")
 }
@@ -139,7 +137,7 @@ func TestContainer_GitdirMirrorMount(t *testing.T) {
 	m, ok, err := gitdirMirrorMount(ctx, rt, g, fileProj)
 	require.NoError(t, err)
 	require.True(t, ok, "a .git POINTER FILE (linked worktree/submodule) needs the common-dir mirror")
-	assert.Equal(t, Mount{Host: common, Container: "/ctr" + common}, m,
+	assert.Equal(t, mount{Host: common, Container: "/ctr" + common}, m,
 		"the common dir is mirrored through the runtime's mapper so gitdir resolves in-container")
 
 	// .git is a DIRECTORY → already inside the identical-path project mount.
@@ -230,8 +228,8 @@ func TestContainerName_AgreesWithSanitizeAgentID(t *testing.T) {
 //     reach PrepareWorkspace with one missing;
 //  2. the only value that HAS a nil base — a bare test-built Container{} — never
 //     reaches c.base.prepareBase at all. prepareContainerScratch runs first and
-//     returns on the nil runtime, and even past that the zero spec's nil
-//     resolveAuth would fire before the base is touched. Name()'s guard exists
+//     returns on the nil runtime, and even past that the zero spec's
+//     undeclared container story refuses before the base is touched. Name()'s guard exists
 //     because Name() IS called on such bare values; PrepareWorkspace is not.
 //
 // Adding a nil-base guard to PrepareWorkspace would be dead defensive code. This
@@ -255,64 +253,36 @@ func TestContainer_NilBaseIsUnreachable(t *testing.T) {
 	// The one nil-base value there is never reaches the base: the gate returns
 	// first, and no panic escapes.
 	require.NotPanics(t, func() {
-		_, err := Container{}.PrepareWorkspace(context.Background(), t.TempDir(), "m")
+		_, err := Container{}.prepareWorkspace(context.Background(), t.TempDir(), "m")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot launch",
 			"a bare Container{} stops at the runtime gate, long before the base")
 	})
 }
 
-// TestContainer_ExecSpecRefusesEmptyCommand pins a regression. ExecSpec
-// used to accept a nil/empty command and hand back a perfectly valid-looking
-// RunSpec whose Command was nil — renderRunSpec then emits nothing after the
-// image, so the container silently runs the IMAGE's default entrypoint instead
-// of what the caller asked for. That is this project's signature failure: a
-// success return with zero payload delivered, and the caller would go on to
-// speak its protocol at whatever the image's entrypoint happens to be. The
-// refusal must assert on the PAYLOAD (no spec, an error naming the empty
-// command), never on an exit code.
-func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
+// TestContainer_RunnerSpecRendersTheRelocatedRoots: the runner spec's WorkDir
+// and root mounts are the container relocator's outcome, not a second
+// derivation from the host path. Under fakeRuntime's non-identity
+// prefixMapper a spec that re-derived the project mount from cw.dir (or
+// skipped the mapper) would carry the raw host path, which this catches.
+func TestContainer_RunnerSpecRendersTheRelocatedRoots(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
-	ws := &containerWorkspace{dir: t.TempDir(), agentID: "m"}
-
-	for name, command := range map[string][]string{
-		"nil":   nil,
-		"empty": {},
-	} {
-		spec, err := c.ExecSpec(ws, command, nil, nil)
-		require.Error(t, err, "%s command must be refused, never silently run the image entrypoint", name)
-		assert.Contains(t, err.Error(), "empty command")
-		assert.Nil(t, spec.Command, "no spec is handed back on refusal")
-		assert.Empty(t, spec.Image, "no spec is handed back on refusal")
-	}
-
-	// A real command still renders unchanged.
-	spec, err := c.ExecSpec(ws, []string{"claude-code-acp"}, nil, nil)
+	cw := &containerWorkspace{dir: "/proj/live", agentID: "m"}
+	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: "/sessions/h/home/mock"})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"claude-code-acp"}, spec.Command)
-}
-
-// TestContainer_ExecSpec_RoutesProjectMountAndWorkDirThroughMapper is the
-// CONTROL nothing else in this package provided: ExecSpec builds its project
-// mount via ExposeMapped and its WorkDir via mapper().toContainer directly
-// (container.go), and neither was ever asserted against a MAPPED value — only
-// TestContainer_ExecSpecRefusesEmptyCommand touches ExecSpec, and it checks
-// spec.Command only. Under identityMapper this gap is invisible (Host ==
-// Container either way); under fakeRuntime's non-identity prefixMapper it is
-// not — a call site that quietly reverted to the raw host path (skipping
-// ExposeMapped/mapper() entirely) would leave spec.WorkDir == cw.dir and the
-// project mount's Container == cw.dir, which this test would catch.
-func TestContainer_ExecSpec_RoutesProjectMountAndWorkDirThroughMapper(t *testing.T) {
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
-	ws := &containerWorkspace{dir: "/proj/live", agentID: "m"}
-
-	spec, err := c.ExecSpec(ws, []string{"true"}, nil, nil)
+	_, err = c.environment(cw, pl, roots)
 	require.NoError(t, err)
+
+	spec := c.buildRunnerSpec("mock", "name", cw, nil)
 
 	assert.Equal(t, "/ctr/proj/live", spec.WorkDir,
 		"WorkDir must be the MAPPED container path, not the raw host dir")
-	assert.Contains(t, spec.Mounts, Mount{Host: "/proj/live", Container: "/ctr/proj/live"},
+	assert.Equal(t, pl.Paths.Paths().ProjectRoot.Engine, spec.WorkDir, "WorkDir is the placement's project root, from the same producer")
+	assert.Contains(t, spec.Mounts, mount{Host: "/proj/live", Container: "/ctr/proj/live"},
 		"the project mount's Container side must be the MAPPED path, not the raw host dir")
+	assert.Contains(t, spec.Mounts, mount{Host: "/sessions/h/home/mock", Container: defaultContainerHome},
+		"a non-relocating engine's session home is mounted as the container's $HOME")
+	assert.Equal(t, defaultContainerHome, spec.Home)
 }
 
 // TestContainer_WithImageRunsAsIs pins a regression. A caller-supplied
@@ -410,12 +380,12 @@ func TestContainer_CleanupKeepsOverlayTargets(t *testing.T) {
 	c.state = SessionState{Harp: "brisk-teal-otter"}
 
 	proj := t.TempDir()
-	first, err := c.PrepareWorkspace(ctx, proj, "member-first")
+	first, err := c.prepareWorkspace(ctx, proj, "member-first")
 	require.NoError(t, err)
 	for _, rel := range targets {
 		require.DirExists(t, filepath.Join(proj, rel), "premise: the first run created the overlay target")
 	}
-	second, err := c.PrepareWorkspace(ctx, proj, "member-second")
+	second, err := c.prepareWorkspace(ctx, proj, "member-second")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = second.Cleanup() })
 
@@ -448,10 +418,8 @@ func hermeticHostContainer(t *testing.T, overlayDirs []string) Container {
 		image:   "ctxloom-agent-hermetic-test:latest",
 		engineSpec: engineContainerSpec{
 			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func(engine.LaunchEnv) (containerAuth, bool) {
-				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-			},
-			overlayDirs: overlayDirs,
+			declared:      true,
+			overlayDirs:   overlayDirs,
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
@@ -470,7 +438,7 @@ func TestContainer_ScratchLivesUnderTheSessionEphemeralDir(t *testing.T) {
 	c := hermeticHostContainer(t, []string{".claude"})
 	c.state = SessionState{Harp: harp}
 
-	ws, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "member-scratch")
+	ws, err := c.prepareWorkspace(context.Background(), t.TempDir(), "member-scratch")
 	require.NoError(t, err)
 	cw := ws.(*containerWorkspace)
 	root := cw.scratchRoot
@@ -504,13 +472,13 @@ func TestContainer_HarplessRunIsRefused(t *testing.T) {
 			c.state = SessionState{Harp: tc.harp}
 			proj := t.TempDir()
 
-			ws, err := c.ResolveWorkspace(context.Background(), proj, "member-harpless")
+			ws, err := c.resolveWorkspace(context.Background(), proj, "member-harpless")
 			require.ErrorIs(t, err, tc.want)
 			assert.Nil(t, ws)
 
 			mark := strictness.Checkpoint()
 			done := captureStderr(t)
-			policy, fallback := prepareChain(context.Background(), []Policy{c, None{}}, RuntimeContainerRootless, proj, "member-harpless")
+			policy, fallback := prepareChain(context.Background(), []policy{c, None{}}, RuntimeContainerRootless, proj, "member-harpless")
 			_ = done()
 			found := strictness.Since(mark)
 			strictness.Close(mark)

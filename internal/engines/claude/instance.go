@@ -36,7 +36,7 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 // which gets its own .claude.json through claudeInstanceConfig (the account
 // identity and the onboarding answers, carried across by name and nothing
 // else). No credential is placed there: how a run authenticates is the
-// agent's declared mode, turned into env by claudeAuth.LaunchEnv.
+// agent's declared mode, resolved by claudeAuth.Credentials.
 func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
 		Vars:           []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
@@ -52,23 +52,6 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 	return engine.ContainerSpec{
 		Install:         installFragment,
 		ValidateCommand: "claude --version",
-		Auth: engine.Provide(engine.ContainerAuth{
-			// ANTHROPIC_AUTH_TOKEN is a trigger too: a gateway host
-			// authenticates with AUTH_TOKEN+BASE_URL and carries no API key.
-			// A provider switch selects claude's credential by itself (auth
-			// cloud), so it triggers too.
-			EnvTriggers: append(slices.Clone(credentialVars), providerSwitches...),
-			EnvPassthrough: []string{
-				OAuthTokenEnv,
-				APIKeyEnv,
-				AuthTokenEnv,
-				"ANTHROPIC_BASE_URL",
-				"ANTHROPIC_MODEL",
-				"ANTHROPIC_SMALL_FAST_MODEL",
-			},
-			Hint:   "no " + OAuthTokenEnv + ", " + APIKeyEnv + " or " + AuthTokenEnv + " to authenticate the in-container engine",
-			Remedy: "run `ctxloom auth mint --mode token` at a terminal, or export " + APIKeyEnv,
-		}),
 		OverlayDirs:        []string{ConfigDirName},
 		TranscriptStoreRel: filepath.Join(ConfigDirName, TranscriptsDirName),
 	}, nil

@@ -47,7 +47,7 @@ const worktreeScratchPrefix = "ctxloom-wt"
 // approvals — so approvals stay Prompt. StartRunner is the SAME bare self-invoked
 // subprocess as None; the isolation is expressed purely via the worktree cwd
 // plus the per-agent scratch and git identity its Env() carries. The engine's config home is NOT this policy's to provide: it is
-// decided off the agent binding for every cell (operations.ResolveInTreeAgentHome),
+// decided off the agent binding for every environment (the session home, stageLayout),
 // so a worktree run and a live-tree run with the same binding share the same
 // answer. Not a git repo, or the worktree add fails → PrepareWorkspace errors
 // so the caller degrades to None. A lost worktree is a WORKSPACE-axis degrade
@@ -70,8 +70,8 @@ type Worktree struct {
 	state SessionState
 }
 
-// Ensure Worktree satisfies the Policy interface.
-var _ Policy = Worktree{}
+// Ensure Worktree satisfies the policy interface.
+var _ policy = Worktree{}
 
 // NewWorktree builds a worktree policy over the given Git seam. A nil Git uses
 // the default git-binary implementation; tests pass a git.Fake to drive the
@@ -105,7 +105,7 @@ func (Worktree) Name() string { return "worktree" }
 //
 // The deferred recover below exists because the worktree checkout and
 // the scratch dir provisioned after it are real on-disk resources created
-// BEFORE this function returns a Workspace the caller could Cleanup() — if
+// BEFORE this function returns a workspace the caller could Cleanup() — if
 // anything after WorktreeAdd panics (a bug in excludeConfigFromMerge/
 // skipTrackedConfig, or — the case that surfaced this — a mutation-testing
 // mutant deliberately breaking one of them), the caller never gets a handle
@@ -114,7 +114,7 @@ func (Worktree) Name() string { return "worktree" }
 // what THIS call created, and re-panicking preserves the original failure (a
 // real bug still crashes / a mutant still gets killed) while guaranteeing no
 // resource outlives the call that made it.
-func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
+func (w Worktree) resolveWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error) {
 	if !w.git.IsRepo(projectDir) {
 		// The caller degrades to None (shared cwd). NOTE the user edge: concurrent
 		// members in a NON-git repo share the one cwd and lose config isolation —
@@ -173,16 +173,16 @@ func (w Worktree) ResolveWorkspace(ctx context.Context, projectDir, agentID stri
 	return ws, nil
 }
 
-// Mount maps nothing. Like None, the worktree policy runs the engine on the
+// mount maps nothing. Like None, the worktree policy runs the engine on the
 // HOST, directly inside the checkout ResolveWorkspace created — there is no
 // second environment to map the tree into. The toolchain-scratch and git
 // identity env the worktree does provide rides worktreeWorkspace.Env (the
-// EnvWorkspace seam the spawn already consults), not a mount plan.
-func (Worktree) Mount(context.Context, Workspace) (MountPlan, error) { return MountPlan{}, nil }
+// envWorkspace seam the spawn already consults), not a mount plan.
+func (Worktree) bind(context.Context, workspace) (mountPlan, error) { return mountPlan{}, nil }
 
 // PrepareWorkspace resolves and maps in one step (see prepareWorkspace).
-func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
-	return prepareWorkspace(ctx, w, projectDir, agentID)
+func (w Worktree) prepareWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error) {
+	return resolveAndBind(ctx, w, projectDir, agentID)
 }
 
 // provisionScratchDir creates the per-agent TOOLCHAIN scratch root
@@ -208,13 +208,13 @@ func (w Worktree) provisionScratchDir(agentID string) string {
 // StartRunner launches the bare `ctxloom runner` — identical to None
 // (the worktree rides RunOptions.WorkDir, not the spawn), so it defers to the
 // one unit rather than duplicate it.
-func (Worktree) StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
-	return None{}.StartRunner(ctx, backendName, label, verbosity, ws, spawnEnv)
+func (Worktree) startRunner(ctx context.Context, backendName, label string, verbosity int, ws workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
+	return None{}.startRunner(ctx, backendName, label, verbosity, ws, spawnEnv)
 }
 
 // InteractiveRunner is None's: the runner is a host process either way.
-func (Worktree) InteractiveRunner(ctx context.Context, backendName string, ws Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
-	return None{}.InteractiveRunner(ctx, backendName, ws, spawnEnv)
+func (Worktree) interactiveRunner(ctx context.Context, backendName string, ws workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
+	return None{}.interactiveRunner(ctx, backendName, ws, spawnEnv)
 }
 
 // excludeConfigFromMerge writes the broadened ctxloom-config exclude block to the
@@ -260,9 +260,9 @@ func (w Worktree) skipTrackedConfig(ctx context.Context, wtPath string) {
 	}
 }
 
-// worktreeWorkspace is the Worktree policy's workspace: Dir() is the per-agent
+// worktreeWorkspace is the Worktree policy's Workspace: Dir() is the per-agent
 // worktree checkout, Env() the env for what the worktree provisioned
-// (EnvWorkspace), and Cleanup() the WIP-safe, nested-worktree-aware teardown.
+// (envWorkspace), and Cleanup() the WIP-safe, nested-worktree-aware teardown.
 type worktreeWorkspace struct {
 	git     git.Git
 	repoDir string
@@ -280,14 +280,14 @@ type worktreeWorkspace struct {
 }
 
 // Ensure the workspace exposes the env for what it provisioned.
-var _ EnvWorkspace = (*worktreeWorkspace)(nil)
+var _ envWorkspace = (*worktreeWorkspace)(nil)
 
 // Dir returns the worktree checkout the member's engine runs in.
 func (w *worktreeWorkspace) Dir() string { return w.dir }
 
 // Env returns the env for what this worktree provisioned — and ONLY that.
 // It never names an engine's config home: that is decided off the agent
-// binding for every cell (operations.ResolveInTreeAgentHome), and a worktree
+// binding for every environment (the session home, stageLayout), and a worktree
 // that set it would make a run's home depend on which workspace it picked.
 // HOME itself is left untouched, deliberately: a blanket HOME override would
 // strip the ~/.gitconfig/~/.ssh identity the worktree still needs for git.
@@ -341,7 +341,7 @@ func (w *worktreeWorkspace) Env() map[string]string {
 // the identity from the SAME format in ONE place: the host+worktree path
 // (worktreeWorkspace.Env) and the container path (Container.PrepareWorkspace,
 // which the wrapped Worktree's Env() never reaches — containerWorkspace does not
-// implement EnvWorkspace).
+// implement envWorkspace).
 func gitIdentity(agentID string) (name, email string) {
 	if agentID == "" {
 		return "", ""

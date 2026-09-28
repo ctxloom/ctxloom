@@ -4,12 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -48,93 +44,6 @@ func checkHookTargetScopeOf(reg engine.Registry, name, workDir string, force boo
 	return fmt.Errorf("refusing to install hooks: %s resolves to %s (%s), which would apply ctxloom to every project instead of just this one; run from inside a project (or set CTXLOOM_ROOT), or pass --force to proceed anyway", workDir, label, globalPath)
 }
 
-// InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home INSTANCE
-// for one session's in-tree agent run: the engine's own home-relocation
-// variable, the per-session directory it points at, and the preparation (if
-// any) that has to happen before the engine is launched at it.
-type InTreeAgentHomeSpec struct {
-	// EnvVar is the engine's home-relocation variable (e.g.
-	// CLAUDE_CONFIG_DIR).
-	EnvVar string
-	// Dir is THIS SESSION's instance home: paths.HarpSessionEngineHomes with the
-	// engine's own leaf appended — the engine owns its leaf, so no two
-	// engines can collide under one session root.
-	Dir string
-	// Subdir is the engine's DECLARED leaf (engine.HomeVar.Subdir) — Dir's last
-	// element, stated rather than re-derived, so a run that presents the home
-	// elsewhere (a container's fixed instance root) hangs it at the leaf the
-	// engine declared, never at a guess from the host path.
-	Subdir string
-	// Prepare readies Dir before the engine is launched at it
-	// (isolation.PrepareInstanceHome). cwd is the directory the engine will
-	// actually run in — what a generated workspace-trust answer must name.
-	Prepare func(cwd string) error
-}
-
-// inTreeAgentHomeFor resolves the named backend's controlled config-home
-// INSTANCE for harp, or ok=false when that backend has none — or when the
-// harp cannot name one. It is the polymorphic seam
-// operations.ResolveInTreeAgentHome reads instead of branching on engine
-// identity (ADR-0026) — the same shape ResolveModelFor and
-// CheckHookTargetScope above have, and for the same reason.
-//
-// This answers only WHERE, never WHETHER. The scoping rule — controlled homes
-// go to runs whose agent binding declares `engine_home: session`, whichever
-// cell they run in — belongs to the caller and lives in ONE place there.
-//
-// harp is REQUIRED. An empty harp resolves nothing and creates nothing: there
-// is no session-less instance to fall back to, and a project-wide fallback is
-// exactly the durable home the per-session model retired. A harp that fails
-// validation warns and declines, because a caller that got this far with an
-// unusable session name has a bug the run should not paper over.
-//
-// It is DERIVED from the engine's Home declaration (Engine.Home), not a slot
-// of its own: the home var and its leaf are the same facts on every axis, so
-// the in-tree instance is <session home>/<leaf> with the declared var
-// pointing at it, prepared by isolation.PrepareInstanceHome.
-// An engine whose Home relocates nothing (mock: the zero HomeSpec) has no
-// in-tree home, and that absence is its own declaration.
-//
-// How the run authenticates is not this seam's question: the agent's auth
-// mode is resolved to env before the cell is prepared (resolveRunAuth),
-// because a container's auth gate needs it first.
-func inTreeAgentHomeFor(reg engine.Registry, name, harp string) (InTreeAgentHomeSpec, bool) {
-	kind, exists := reg.Lookup(engine.Name(name))
-	if !exists {
-		return InTreeAgentHomeSpec{}, false
-	}
-	home := kind.Home()
-	if !home.Relocates() || harp == "" {
-		return InTreeAgentHomeSpec{}, false
-	}
-	// The error is harp validation (paths.HarpDir): an instance cannot be
-	// named without a valid session, which is what keeps a durable
-	// project-wide home from regrowing.
-	sessionDir, err := paths.HarpDir(harp)
-	if err != nil {
-		clidiag.Warn("ctxloom", "cannot resolve a per-session config home for %s in session %q (%v); this run uses the engine's own host config home instead", name, harp, err)
-		return InTreeAgentHomeSpec{}, false
-	}
-	dir, _ := launch.SessionHome(sessionDir, kind, agents.HomeModeSession)
-	// The engine's instance-config writer takes the homes CONTAINER and
-	// appends its own leaf, so it is handed the session home's parent.
-	root := filepath.Dir(dir)
-	// ONE var, assumed explicitly: no engine declares more than one today,
-	// so Vars[0] is the var. An engine that splits config and data across
-	// several vars needs this spec to become a set (one EnvVar/Subdir per
-	// var) — lift it here when one does.
-	v := home.Vars[0]
-	engine := name
-	return InTreeAgentHomeSpec{
-		EnvVar: v.Name,
-		Dir:    dir,
-		Subdir: v.Subdir,
-		Prepare: func(cwd string) error {
-			return prepareInstanceHome(engine, root, cwd)
-		},
-	}, true
-}
-
 // cleanAbsPath returns p's cleaned absolute form for path comparison, falling
 // back to just Clean if it cannot be made absolute (e.g. a synthetic test
 // path with no real filesystem behind it — filepath.Abs only fails when the
@@ -144,16 +53,4 @@ func cleanAbsPath(p string) string {
 		return filepath.Clean(abs)
 	}
 	return filepath.Clean(p)
-}
-
-// prepareInstanceHome is the Prepare every config-home instance shares
-// (isolation.PrepareInstanceHome). cwd is the directory the engine runs in,
-// which the generated workspace-trust answer names.
-func prepareInstanceHome(engine, instanceRoot, cwd string) error {
-	_, err := isolation.PrepareInstanceHome(isolation.InstanceHomeRequest{
-		Engine:       engine,
-		InstanceHome: instanceRoot,
-		WorkDir:      cwd,
-	})
-	return err
 }

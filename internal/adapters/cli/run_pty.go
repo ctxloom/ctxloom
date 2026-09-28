@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/attach"
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
@@ -71,33 +72,43 @@ func stampTerminalEnv(env map[string]string) map[string]string {
 // there discards them. The drive's own teardown releases the master.
 func (st *runState) ptyStarter() coord.OwnedRunStarter {
 	return func(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
-		cmd, name, err := st.policy.InteractiveRunner(ctx, st.backendName, st.ws, spawnEnv)
+		in, err := st.env.Interactive(ctx, isolation.RunnerRequest{Engine: st.backendName, Label: st.label, Env: spawnEnv})
 		if err != nil {
 			return coord.OwnedRunner{}, err
 		}
 		// The launch ctx scopes preparation and attach only; teardown has
 		// one door (Kill), so the child must not die with the ctx.
-		if name == "" {
-			s, err := hostpty.Start(context.Background(), cmd)
+		if in.Teardown == nil {
+			s, err := hostpty.Start(context.Background(), in.Cmd)
 			if err != nil {
 				return coord.OwnedRunner{}, fmt.Errorf("start the runner on a pty: %w", err)
 			}
 			st.pty = s
 			return coord.OwnedRunner{Kill: s.End, Wait: s.ExitErr}, nil
 		}
-		container, ok := st.policy.(interface {
-			Remove(name string, runExited <-chan struct{})
-		})
-		if !ok {
-			return coord.OwnedRunner{}, fmt.Errorf("policy %q names container %q but cannot remove one", st.policy.Name(), name)
-		}
-		s, err := attach.Start(context.Background(), cmd, name, func(runExited <-chan struct{}) { container.Remove(name, runExited) })
+		s, err := attach.Start(context.Background(), in.Cmd, in.Name, func(runExited <-chan struct{}) { teardownOnExit(in.Teardown, runExited) })
 		if err != nil {
 			return coord.OwnedRunner{}, fmt.Errorf("attach the container runner on a pty: %w", err)
 		}
 		st.pty = s
-		return coord.OwnedRunner{Kill: s.End, Wait: s.ExitErr, ContainerName: name}, nil
+		return coord.OwnedRunner{Kill: s.End, Wait: s.ExitErr, ContainerName: in.Name}, nil
 	}
+}
+
+// teardownOnExit runs an interactive runner's teardown with a ctx that is
+// done once the run CLI has exited — the signal the teardown's wait for a
+// not-yet-created runner ends on.
+func teardownOnExit(teardown func(context.Context) error, runExited <-chan struct{}) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-runExited:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	_ = teardown(ctx)
 }
 
 // driveOwnedInteractive drives an interactive owner run over the pty: the

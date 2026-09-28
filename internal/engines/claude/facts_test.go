@@ -37,9 +37,9 @@ func TestHome_DeclaresAuthWithEveryMode(t *testing.T) {
 	assert.Equal(t, []engine.AuthMode{engine.AuthLogin, engine.AuthToken, engine.AuthAPIKey, engine.AuthCloud}, a.Modes())
 }
 
-// A container authenticates from the env alone: no credential file is ever
-// mounted into it, and the refusal names how to mint and store a token.
-func TestContainer_AuthIsEnvOnly(t *testing.T) {
+// The container declaration is how the image is built and what it overlays;
+// how a container run authenticates is the run's Credentials, not this.
+func TestContainer_Declaration(t *testing.T) {
 	c, err := claudeKind(t).Container()
 	require.NoError(t, err)
 	require.NoError(t, c.Validate())
@@ -48,13 +48,6 @@ func TestContainer_AuthIsEnvOnly(t *testing.T) {
 	assert.Equal(t, []string{ConfigDirName}, c.OverlayDirs)
 	assert.Equal(t, filepath.Join(ConfigDirName, TranscriptsDirName), c.TranscriptStoreRel)
 
-	auth, ok := c.Auth.Get()
-	require.True(t, ok)
-	assert.Equal(t, append([]string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}, providerSwitches...), auth.EnvTriggers,
-		"the setup-token var and each cloud provider switch authenticate a container on their own, so they are triggers")
-	assert.Contains(t, auth.EnvPassthrough, "CLAUDE_CODE_OAUTH_TOKEN", "a trigger that does not cross leaves the container logged out")
-	assert.Contains(t, auth.EnvPassthrough, "ANTHROPIC_BASE_URL")
-	assert.Contains(t, auth.Remedy, "ctxloom auth mint --mode token")
 }
 
 // Hooks decodes claude's native payload: the unified event for the native

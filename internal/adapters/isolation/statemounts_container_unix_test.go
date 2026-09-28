@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -113,10 +111,8 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-state-test:latest",
 		engineSpec: engineContainerSpec{
-			engineInstall: []byte("RUN echo fake-install\n"), // buildable → the run-as-is identity inspect is skipped
-			resolveAuth: func(engine.LaunchEnv) (containerAuth, bool) {
-				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-			},
+			engineInstall:      []byte("RUN echo fake-install\n"), // buildable → the run-as-is identity inspect is skipped
+			declared:           true,
 			overlayDirs:        []string{".claude"},
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		},
@@ -126,7 +122,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		base:       hostBase{},
 	}
 
-	ws, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "member-x")
+	ws, err := c.prepareWorkspace(context.Background(), t.TempDir(), "member-x")
 	require.NoError(t, err)
 	cw, ok := ws.(*containerWorkspace)
 	require.True(t, ok)
@@ -134,15 +130,15 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	requireCleanWorkspace(t, ws)
 
 	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")
-	assert.Contains(t, cw.extraMounts, Mount{
+	assert.Contains(t, cw.extraMounts, mount{
 		Host:      store,
 		Container: filepath.Join(defaultContainerHome, ".claude", "projects"),
 	}, "transcript store mount threaded into the run spec")
-	assert.Contains(t, cw.extraMounts, Mount{
+	assert.Contains(t, cw.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 	}, "session persist mount threaded into the run spec")
-	assert.Contains(t, cw.extraMounts, Mount{
+	assert.Contains(t, cw.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 	}, "this project's task-log mount threaded into the run spec")
@@ -168,10 +164,8 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		runtime: fakeRuntime{name: "docker", binary: script, available: true},
 		image:   "ctxloom-agent-state-test:latest",
 		engineSpec: engineContainerSpec{
-			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func(engine.LaunchEnv) (containerAuth, bool) {
-				return containerAuth{mode: authEnv}, true
-			},
+			engineInstall:      []byte("RUN echo fake-install\n"),
+			declared:           true,
 			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
 		},
 		binaryPath: defaultContainerBinary,
@@ -180,7 +174,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		base:       worktreeBase{wt: NewWorktree(&git.Fake{CommonDirValue: t.TempDir()})},
 	}
 
-	ws, err := cw.PrepareWorkspace(context.Background(), "/proj", "member-x")
+	ws, err := cw.prepareWorkspace(context.Background(), "/proj", "member-x")
 	require.NoError(t, err)
 	w, ok := ws.(*containerWorkspace)
 	require.True(t, ok)
@@ -200,11 +194,11 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		}
 	})
 
-	assert.Contains(t, w.extraMounts, Mount{
+	assert.Contains(t, w.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts"),
 		Container: filepath.Join(defaultContainerHome, ".claude", "projects"),
 	}, "transcript store mount rides the composition too")
-	assert.Contains(t, w.extraMounts, Mount{
+	assert.Contains(t, w.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 	})

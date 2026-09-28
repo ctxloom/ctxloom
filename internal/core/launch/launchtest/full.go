@@ -23,9 +23,9 @@ func FullLaunch(t *testing.T) launch.Launch {
 	t.Helper()
 	enc, err := composite.Encode(composite.Package{Context: composite.Context{Text: "ctx", Hash: "h"}})
 	require.NoError(t, err)
-	paths := present.Containerize{ProjectRoot: "/work", SessionHome: "/home/agent/.engine"}.Apply(present.Paths{
-		ProjectRoot: present.Root{Host: "/proj/.worktrees/harp-1"},
-		SessionHome: present.Root{Host: "/home/u/.ctxloom/sessions/harp-1/home/.engine"},
+	paths := present.Advised(present.Paths{
+		ProjectRoot: present.Root{Host: "/proj/.worktrees/harp-1", Engine: "/work"},
+		SessionHome: present.Root{Host: "/home/u/.ctxloom/sessions/harp-1/home/.engine", Engine: "/home/agent/.engine"},
 	})
 	return launch.Launch{
 		Identity:   sessions.Identity{Harp: "harp-1", RunID: "run-1", Depth: 1, OneShot: true, Project: "proj-1"},
@@ -35,11 +35,13 @@ func FullLaunch(t *testing.T) launch.Launch {
 		Permission: engine.PermissionPlan,
 		Axes:       launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeRootless},
 		Cell: launch.Cell{
-			Paths:     paths,
+			Placement: launch.Placement{
+				Paths: paths,
+				Env:   map[string]string{"WS_VAR": "ws"},
+				Home:  []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
+			},
 			Workspace: "/proj/.worktrees/harp-1",
-			Env:       map[string]string{"WS_VAR": "ws"},
-			Home:      []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
-			Container: &launch.ContainerCell{Runtime: launch.RuntimeRootless, Image: "ctxloom-agent:fixture", Mounts: paths.Mounts(), Home: "/home/agent"},
+			Container: &launch.ContainerCell{Runtime: launch.RuntimeRootless, Image: "ctxloom-agent:fixture", Home: "/home/agent"},
 		},
 		Home:    []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
 		Package: composite.Carrier{Inline: enc.Bytes, Digest: enc.Digest},

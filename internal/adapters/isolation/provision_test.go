@@ -19,10 +19,10 @@ import (
 // auth -e survive.
 func TestBuildRunnerSpec_WiresAuthAndMounts(t *testing.T) {
 	extraEnv := []string{"ANTHROPIC_API_KEY=scoped", "ANTHROPIC_BASE_URL=https://example"}
-	credMount := Mount{Host: "/h/.claude/.credentials.json", Container: "/root/.claude/.credentials.json", ReadOnly: true}
-	overlayMount := Mount{Host: "/scratch/cfg0", Container: "/proj/.claude"}
+	credMount := mount{Host: "/h/.claude/.credentials.json", Container: "/root/.claude/.credentials.json", ReadOnly: true}
+	overlayMount := mount{Host: "/scratch/cfg0", Container: "/proj/.claude"}
 
-	spec := runnerSpecFor(Docker{}, "claude-code", "/proj", extraEnv, []Mount{credMount, overlayMount})
+	spec := runnerSpecFor(Docker{}, "claude-code", "/proj", extraEnv, []mount{credMount, overlayMount})
 
 	assert.Equal(t, "/proj", spec.WorkDir)
 	assert.Equal(t, defaultContainerHome, spec.Home)
@@ -35,7 +35,7 @@ func TestBuildRunnerSpec_WiresAuthAndMounts(t *testing.T) {
 	}
 
 	// Mounts: project (identical-path) + auth cred + overlay.
-	assert.Contains(t, spec.Mounts, Mount{Host: "/proj", Container: "/proj"})
+	assert.Contains(t, spec.Mounts, mount{Host: "/proj", Container: "/proj"})
 	assert.Contains(t, spec.Mounts, credMount)
 	assert.Contains(t, spec.Mounts, overlayMount)
 

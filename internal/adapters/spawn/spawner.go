@@ -25,7 +25,7 @@ import (
 
 // StarterFunc is the runner-process seam: the runner-process seam, called
 // once per spawn with the backend and the per-spawn runner env.
-type StarterFunc func(backend string, runnerEnv map[string]string) isolation.EngineStarter
+type StarterFunc func(backend string, runnerEnv map[string]string) func(context.Context) (*isolation.RunnerHandle, error)
 
 // spawner is the production Spawner over the operations launch trunk. It
 // holds the process's App — the one config.Owner — and captures ONE
@@ -343,7 +343,7 @@ func (s *spawner) Start(ctx context.Context, l launch.Launch, reach sessions.End
 type cellRuntime struct{ starter StarterFunc }
 
 func (r cellRuntime) Start(ctx context.Context, l launch.Launch, env map[string]string) (coord.RunnerHandle, error) {
-	var starter isolation.EngineStarter
+	var starter func(context.Context) (*isolation.RunnerHandle, error)
 	if r.starter != nil {
 		starter = r.starter(string(l.Engine), env)
 	}
@@ -438,7 +438,7 @@ func warnNoReachBack(rep report.Reporter, agentName string, servers []agent.Chat
 }
 
 // childVerbosity is the verbosity handed to the child's runner starter
-// (isolation.StarterForWorkspace): above 0 a container runner reports its
+// (the environment's Start): above 0 a container runner reports its
 // auth route, and a host runner reads the same variable itself. The
 // coordinator often lives in a flagless `ctxloom mcp` process, so the knob is
 // env-only: CTXLOOM_VERBOSE (the existing process-wide verbose

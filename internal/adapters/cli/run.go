@@ -22,13 +22,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -379,10 +377,9 @@ type runState struct {
 	permMode    agent.PermissionMode
 	managed     *agent.ManagedConfig
 	activeHarp  string
-	// policy/ws are the cell's transport handle: how today's plugin
-	// transport spawns into the cell.
-	policy isolation.Policy
-	ws     isolation.Workspace
+	// env is the cell's prepared environment: where and how the runner is
+	// started, whatever the runtime.
+	env isolation.Environment
 
 	// hostCoordinator: the coordinator this run hosts for delegated agents
 	// and the reach-back env its runner is spawned with.
@@ -604,8 +601,8 @@ func (st *runState) bindLaunch(l launch.Launch, opened operations.Opened) {
 	st.labelModel = l.Label.Model
 	st.permMode = l.Permission
 	st.managed = opened.Managed
-	if cell, ok := operations.TransportOf(l.Cell); ok {
-		st.policy, st.ws = cell.Policy, cell.Workspace
+	if env, ok := operations.EnvironmentOf(l.Cell); ok {
+		st.env = env
 	}
 }
 
@@ -842,7 +839,7 @@ func (st *runState) emitDryRun() error {
 		return err
 	}
 	deps.Sessions = sessions.NewMemStore()
-	deps.Cells = dryCells{}
+	deps.Cells = operations.PreviewCells(App().LaunchFacts())
 	deps.Assembler = operations.PreviewAssembler(App().Engines())
 	deps.ClaimCheck = operations.PreviewClaims()
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
@@ -939,34 +936,6 @@ func printResumedEssence(payload dryRunJSON) {
 	if payload.ResumedEssenceNote != "" {
 		fmt.Println("(" + payload.ResumedEssenceNote + ")")
 	}
-}
-
-// dryCells is the --dry-run cell: the project root on the host and the
-// session's would-be home, prepared nowhere. It is what lets a preview run
-// the real resolver — the plan routes over the same roots a real cell
-// advises — without a worktree, a container or a session directory coming
-// into existence.
-type dryCells struct{}
-
-func (dryCells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell, error) {
-	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
-	if err != nil {
-		return launch.Cell{}, err
-	}
-	roots := present.Paths{ProjectRoot: present.Root{Host: req.ProjectRoot}}
-	// The session home the real cell WOULD advise: the router reads it to
-	// place the engine's session-home kinds, so a preview without it would
-	// show every kind on the project root — the opposite of the run it
-	// previews.
-	if dir, ok := launch.SessionHome(req.SessionDir, req.Engine, homeMode); ok {
-		roots.SessionHome = present.Root{Host: dir}
-	}
-	return launch.Cell{
-		Paths:     present.OnHost(roots),
-		Workspace: req.ProjectRoot,
-		HomeMode:  req.HomeMode,
-		Cleanup:   func() error { return nil },
-	}, nil
 }
 
 // resumeEnv is the CTXLOOM_RESUMED_FROM/PARTS pair for whichever --session

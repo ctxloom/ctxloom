@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"regexp"
 	"slices"
@@ -50,7 +51,7 @@ var providerSwitches = []string{
 // endpoint variables, and a gateway's bearer and base URL
 // (https://code.claude.com/docs/en/{amazon-bedrock, claude-platform-on-aws,
 // google-vertex-ai, microsoft-foundry, gateways}). A provider's credential
-// FILES (~/.aws, gcloud's ADC) are not variables and are not carried.
+// FILES are not variables: they are shared stores (providerStores).
 var cloudVars = append(slices.Clone(providerSwitches),
 	// Amazon Bedrock.
 	"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK",
@@ -66,6 +67,17 @@ var cloudVars = append(slices.Clone(providerSwitches),
 	// A gateway.
 	AuthTokenEnv, "ANTHROPIC_BASE_URL",
 )
+
+// providerStores are the cloud providers' own credential directories under
+// $HOME, which the SDKs claude embeds read when no variable carries the
+// credential: the AWS shared config and credentials files and SSO cache
+// (https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html,
+// which claude's Bedrock page defers to) and gcloud's application-default
+// credentials (https://cloud.google.com/docs/authentication/application-default-credentials,
+// what claude's Vertex page has you create with `gcloud auth
+// application-default login`). Shared read-only: a run uses the human's
+// provider login, never changes it.
+var providerStores = []string{".aws", ".config/gcloud"}
 
 // credentialVars are claude's own credential vars across the stored modes
 // and the gateway; the container passthrough declares them too.
@@ -93,40 +105,47 @@ func (claudeAuth) Modes() []engine.AuthMode {
 	return []engine.AuthMode{engine.AuthLogin, engine.AuthToken, engine.AuthAPIKey, engine.AuthCloud}
 }
 
-// LaunchEnv: the declared mode decides. Only that mode's credential reaches
-// claude, a value the launching env exports for THAT mode wins over the
-// stored one, and everything that would outrank or replace it is unset.
+// Credentials: the declared mode decides. Only that mode's credential
+// reaches claude, a value the launching env exports for THAT mode wins over
+// the stored one, and everything that would outrank or replace it is unset.
 //
-// login points SecureStorageEnv at the exact string the launching env's own
-// claude resolves its storage from — its own SecureStorageEnv when set (a
-// launch from inside a sharing run), else ConfigDirEnv, else "" (HOME/.claude)
-// — never cleaned, since claude names its macOS keychain item from it. The
-// credential and both refresh locks are then the human's own, shared. Every
-// other mode unsets SecureStorageEnv: "" is not "unset" for it but
-// HOME/.claude, the human's real credential.
-func (c claudeAuth) LaunchEnv(mode engine.AuthMode, shell func(string) (string, bool), stored engine.CredentialReader) (engine.LaunchEnv, error) {
+// login shares the human's own credential storage (loginStore). Every other
+// mode unsets SecureStorageEnv: "" is not "unset" for it but HOME/.claude,
+// the human's real credential.
+func (c claudeAuth) Credentials(mode engine.AuthMode, shell func(string) (string, bool), stored engine.CredentialReader) (engine.Credentials, error) {
 	switch mode {
 	case engine.AuthLogin:
-		return engine.LaunchEnv{
-			Set:   map[string]string{SecureStorageEnv: sharedStorage(shell)},
-			Unset: append(append(slices.Clone(credentialVars), providerSwitches...), ProfileEnv),
+		return engine.Credentials{
+			Unset:  append(append(slices.Clone(credentialVars), providerSwitches...), ProfileEnv),
+			Stores: []engine.SharedStore{loginStore(shell)},
 		}, nil
 	case engine.AuthCloud:
-		return c.cloudEnv(shell)
+		return c.cloudCredentials(shell)
 	}
 	v, ok := modeVar[mode]
 	if !ok {
-		return engine.LaunchEnv{}, fmt.Errorf("claude: %w: %q", engine.ErrAuthModeUnsupported, mode)
+		return engine.Credentials{}, fmt.Errorf("claude: %w: %q", engine.ErrAuthModeUnsupported, mode)
 	}
 	secret, err := c.modeCredential(mode, v, shell, stored)
 	if err != nil {
-		return engine.LaunchEnv{}, err
+		return engine.Credentials{}, err
 	}
 	unset := append(slices.DeleteFunc(slices.Clone(credentialVars), func(s string) bool { return s == v }), providerSwitches...)
-	return engine.LaunchEnv{
-		Set:   map[string]string{v: secret},
+	return engine.Credentials{
+		Env:   map[string]string{v: secret},
 		Unset: append(unset, SecureStorageEnv),
 	}, nil
+}
+
+// loginStore is the human's claude credential storage: SecureStorageEnv set
+// to the exact string the launching env's own claude resolves its storage
+// from — its own SecureStorageEnv when set (a launch from inside a sharing
+// run), else ConfigDirEnv, else "" (HOME/.claude) — never cleaned, since
+// claude names its macOS keychain item from it. The credential and both
+// refresh locks are then the human's own, shared. Where the OS keeps it
+// under $HOME is loginStoreHomeRel's per-OS answer.
+func loginStore(shell func(string) (string, bool)) engine.SharedStore {
+	return engine.SharedStore{Var: SecureStorageEnv, Value: sharedStorage(shell), HomeRel: loginStoreHomeRel}
 }
 
 // modeCredential is the shell's export of v when non-empty, else the stored
@@ -149,11 +168,13 @@ func (c claudeAuth) modeCredential(mode engine.AuthMode, v string, shell func(st
 	return string(bytes.TrimSpace(secret)), nil
 }
 
-// cloudEnv passes the human's cloud or gateway configuration through from
-// the shell, refusing when nothing selects one. The stored modes' vars and
-// the login's storage are unset: a provider switch outranks them anyway, but
-// a gateway bearer does not outrank nothing.
-func (c claudeAuth) cloudEnv(shell func(string) (string, bool)) (engine.LaunchEnv, error) {
+// cloudCredentials passes the human's cloud or gateway configuration
+// through from the shell, refusing when nothing selects one, and shares each
+// provider credential directory the human has (providerStores) read-only.
+// The stored modes' vars and the login's storage are unset: a provider
+// switch outranks them anyway, but a gateway bearer does not outrank
+// nothing.
+func (c claudeAuth) cloudCredentials(shell func(string) (string, bool)) (engine.Credentials, error) {
 	set := map[string]string{}
 	for _, k := range cloudVars {
 		if v, ok := shell(k); ok && v != "" {
@@ -171,12 +192,31 @@ func (c claudeAuth) cloudEnv(shell func(string) (string, bool)) (engine.LaunchEn
 				others = append(others, string(m))
 			}
 		}
-		return engine.LaunchEnv{}, report.Errorf(
+		return engine.Credentials{}, report.Errorf(
 			fmt.Sprintf("export one of %s with that provider's own variables (https://code.claude.com/docs/en/third-party-integrations), or %s with %s for a gateway; or declare another of the modes %s supports: %s",
 				strings.Join(providerSwitches, ", "), AuthTokenEnv, "ANTHROPIC_BASE_URL", c.engine, strings.Join(others, ", ")),
 			"%s cloud: none of %s is set: %w", c.engine, strings.Join(append(slices.Clone(providerSwitches), AuthTokenEnv), ", "), engine.ErrNoCredential)
 	}
-	return engine.LaunchEnv{Set: set, Unset: []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}}, nil
+	return engine.Credentials{Env: set, Unset: []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}, Stores: existingProviderStores()}, nil
+}
+
+// existingProviderStores are the providerStores present in the human's
+// home: only a directory that exists is declared, since a declared store
+// that is missing refuses the run and a provider login the human never made
+// is not a missing one.
+func existingProviderStores() []engine.SharedStore {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	var out []engine.SharedStore
+	for _, rel := range providerStores {
+		st := engine.SharedStore{HomeRel: rel, ReadOnly: true}
+		if fi, err := os.Stat(st.HostDir(home)); err == nil && fi.IsDir() {
+			out = append(out, st)
+		}
+	}
+	return out
 }
 
 // sharedStorage is what SecureStorageEnv must carry to share the login the

@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
@@ -126,19 +125,6 @@ func stageEngineFacts(t *testing.T, name string, mutate func(f *EngineFacts)) {
 	t.Cleanup(restore)
 }
 
-// claudeAuth returns the container-auth plan claude declares, as TestMain
-// pushed it — what the auth tests hand resolveDeclaredAuth.
-func claudeAuth(t *testing.T) engine.ContainerAuth {
-	t.Helper()
-	r, ok := engineContainerDeclared(claude.EngineName)
-	require.True(t, ok, "fixture: claude's container declaration must be registered by TestMain")
-	c, ok := r.container.Get()
-	require.True(t, ok)
-	a, ok := c.Auth.Get()
-	require.True(t, ok)
-	return a
-}
-
 // noCompanionsOnPath is the TestMain default: no companion resolves.
 func noCompanionsOnPath(string) (string, error) { return "", exec.ErrNotFound }
 
@@ -215,9 +201,6 @@ func withFakeHome(t *testing.T) string {
 	return home
 }
 
-// noRunAuth is a run whose credential ctxloom resolved nothing for.
-var noRunAuth engine.LaunchEnv
-
 // captureStderr swaps os.Stderr for a pipe; the returned func restores it and
 // yields everything written meanwhile. For asserting the STREAMED half of a
 // strictness fault (the warning fires in both modes; only recording is modal).
@@ -249,4 +232,35 @@ func unsetVersionStamp(t *testing.T) {
 	orig := binaryVersion
 	SetBinaryVersion("")
 	t.Cleanup(func() { SetBinaryVersion(orig) })
+}
+
+// mapped is rt's mapper applied to host, failing the test where it cannot
+// route — for assertions that compare against the mapped path.
+func mapped(t *testing.T, rt Runtime, host string) string {
+	t.Helper()
+	p, err := rt.mapper().toContainer(host)
+	require.NoError(t, err)
+	return p
+}
+
+// exposedMapped is rt.exposeMapped, failing the test where it cannot route.
+func exposedMapped(t *testing.T, rt Runtime, host string, readOnly bool) mount {
+	t.Helper()
+	m, err := rt.exposeMapped(host, readOnly)
+	require.NoError(t, err)
+	return m
+}
+
+// placeRoots runs the container relocator over cw's cwd alone and binds the
+// outcome, as Prepare does, so a test that renders a runner spec renders the
+// root mounts the relocator produced. It panics on a relocation error: the
+// callers' runtimes route every path.
+func placeRoots(c Container, cw *containerWorkspace) {
+	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir})
+	if err != nil {
+		panic(err)
+	}
+	if _, err := c.environment(cw, pl, roots); err != nil {
+		panic(err)
+	}
 }

@@ -249,7 +249,8 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 }
 
 // validateAgentAuth runs the one auth check (checkAgentAuth, the same one
-// every launch runs) against the engine and runtime this write results in,
+// every launch runs) against the engine this write results in — on every
+// runtime alike —
 // then asks the engine whether the credential is available now: a mode whose
 // credential the human must supply (an API key, a cloud provider's
 // variables) is refused until it is, with the engine's own remedy. A missing
@@ -264,12 +265,11 @@ func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req
 		return report.Errorf("set --llm in the same command, so the mode can be checked against the engine it binds",
 			"agent %q: auth %s: %w", name, *req.Auth, errAuthNeedsEngine)
 	}
-	axis, _ := launch.ParseRuntimeAxis(resultingAgentRuntime(cfg, name, req))
-	a, mode, err := checkAgentAuth(reg, backend, *req.Auth, !isolation.IsContainerRuntimeAxis(axis))
+	a, mode, err := checkAgentAuth(reg, backend, *req.Auth)
 	if err != nil || a == nil {
 		return wrapAgentErr(name, err)
 	}
-	_, err = a.LaunchEnv(mode, os.LookupEnv, isolation.StoredCredentials(backend))
+	_, err = a.Credentials(mode, os.LookupEnv, isolation.StoredCredentials(backend))
 	if errors.Is(err, engine.ErrNoCredential) && mode.Minted() {
 		return nil // a run mints it
 	}
@@ -679,8 +679,8 @@ type ResolvedAgent struct {
 	// undeclared/unresolvable → session default already applied). It is
 	// the value `agent show` reports; the launch resolver reads the same
 	// declaration off the binding itself (launch.HomeMode on the
-	// CellRequest) and the cells adapter threads it into
-	// InTreeAgentHome.HomeMode — a launch with NO binding gets the session
+	// CellRequest) and the cells adapter threads it into the environment's
+	// Spec (isolation.SpecBuilder.Home) — a launch with NO binding gets the session
 	// home by the resolver's own default, not by this field's value.
 	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
 	// Auth is the agent's EFFECTIVE auth mode: the declared one, or token

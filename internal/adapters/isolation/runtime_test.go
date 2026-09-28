@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os"
 	"strings"
 	"testing"
@@ -25,7 +24,7 @@ func sampleSpec() RunSpec {
 		Home:    "/root",
 		Command: []string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
 		Env:     []string{"CTXLOOM_PLUGIN=ai-backend-v1", "PLUGIN_PROTOCOL_VERSIONS=1"},
-		Mounts: []Mount{
+		Mounts: []mount{
 			{Host: "/home/u/proj", Container: "/home/u/proj"},
 			{Host: "/tmp/sock", Container: "/run/ctxloom/plugin"},
 		},
@@ -55,21 +54,17 @@ func TestDockerRootless_RunsAsMappedRoot(t *testing.T) {
 }
 
 // TestRunArgs_AuthSecretValueNotInArgv is the regression for the world-readable
-// cmdline leak: the resolved auth env crosses into the `docker run` argv
-// NAME-ONLY (`-e ANTHROPIC_API_KEY`), never as `KEY=VAL`, so the secret value
-// never appears in /proc/<pid>/cmdline for the container's whole lifetime. docker
-// forwards the value from its own inherited environment (the docker CLI ctxloom
-// execs inherits os.Environ, where the key was detected) instead.
+// cmdline leak: a secret env entry given as a bare NAME crosses into the
+// `docker run` argv NAME-ONLY (`-e ANTHROPIC_API_KEY`), never as `KEY=VAL`, so
+// the value never appears in /proc/<pid>/cmdline for the container's whole
+// lifetime. docker forwards the value from its own inherited environment
+// instead (the reach-back credential crosses this way).
 func TestRunArgs_AuthSecretValueNotInArgv(t *testing.T) {
 	const secret = "sk-ant-SUPER-SECRET-VALUE"
 	t.Setenv("ANTHROPIC_API_KEY", secret)
 
-	auth, ok := resolveDeclaredAuth(claudeAuth(t), engine.LaunchEnv{})
-	require.True(t, ok, "an ANTHROPIC_API_KEY in the env resolves env passthrough")
-	require.Equal(t, authEnv, auth.mode)
-
 	spec := sampleSpec()
-	spec.Env = append(spec.Env, auth.envPassthrough...)
+	spec.Env = append(spec.Env, "ANTHROPIC_API_KEY")
 	args := Docker{rootless: true}.RunArgs(spec)
 	joined := strings.Join(args, " ")
 
@@ -352,7 +347,7 @@ func TestInContainerFrom_Markers(t *testing.T) {
 // parameter, it is Container.home, assigned defaultContainerHome by
 // NewContainerFor — the sole constructor every path (containerFor,
 // NewContainerWorktreeFor) routes through — and threaded verbatim
-// into both engine-launching builders (buildRunnerSpec, ExecSpec). The one production RunSpec that carries no home
+// into the engine-launching builder (buildRunnerSpec). The one production RunSpec that carries no home
 // is the shared-fs marker probe, which runs `cat /probe/marker` in a scratch
 // container and holds no engine state at all, so it has no HOME property to
 // lose. This pins both halves: every Container carries a home, and a spec that

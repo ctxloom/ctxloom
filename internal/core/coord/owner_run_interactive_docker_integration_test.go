@@ -42,8 +42,8 @@ import (
 
 // dockerInteractiveStarter is an OwnedRunStarter that attaches a REAL
 // container through the production primitive `ctxloom run` uses for a
-// container INTERACTIVE launch: Container.InteractiveRunner (`docker run -i
-// -t … ctxloom runner mock`, the trio on the run process's env) started on
+// container INTERACTIVE launch: the container Environment's Interactive
+// (`docker run -i -t … ctxloom runner mock`, the trio on the run process's env) started on
 // a pty this test holds (adapters/attach). It records the session for the
 // typed round trip and the container's name for the live assertions.
 type dockerInteractiveStarter struct {
@@ -51,8 +51,7 @@ type dockerInteractiveStarter struct {
 	projectDir string
 	harp       string
 
-	pol isolation.Container
-	ws  isolation.Workspace
+	env isolation.Environment
 
 	mu       sync.Mutex
 	session  *attach.Session
@@ -68,38 +67,36 @@ type dockerInteractiveStarter struct {
 // honours before the runner starts.
 func (s *dockerInteractiveStarter) prepare(ctx context.Context, t *testing.T, l launch.Launch) launch.Launch {
 	t.Helper()
-	rt := isolation.ProbeRuntime("docker")
-	stateEnv := map[string]string{"CTXLOOM_SESSION_HARP": s.harp}
-	s.pol = isolation.NewContainerFor(rt, ownerRunBackend).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(stateEnv))
-	ws, err := s.pol.PrepareWorkspace(ctx, s.projectDir, s.harp)
+	env, err := preparedContainer(ctx, "docker", ownerRunBackend, s.image, s.projectDir, isolation.SessionState{Harp: s.harp})
 	require.NoError(t, err)
-	s.ws = ws
-	l.Cell.Listen = isolation.WorkspaceListen(ws)
+	s.env = env
+	l.Cell.Listen = env.Listen()
 	return l
 }
 
 func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
-	pol, ws := s.pol, s.ws
+	cell := s.env
 	// The mock's interactive echo loop is what holds the turn open and
 	// reflects typed input; it reads the knob off the runner's environment.
 	env := map[string]string{"CTXLOOM_MOCK_ECHO_STDIN": "1"}
 	for k, v := range spawnEnv {
 		env[k] = v
 	}
-	cmd, name, err := pol.InteractiveRunner(ctx, ownerRunBackend, ws, env)
+	in, err := cell.Interactive(ctx, isolation.RunnerRequest{Engine: ownerRunBackend, Env: env})
 	if err != nil {
-		_ = ws.Cleanup()
+		_ = cell.Cleanup()
 		return coord.OwnedRunner{}, err
 	}
-	sess, err := attach.Start(context.Background(), cmd, name, func(runExited <-chan struct{}) { pol.Remove(name, runExited) })
+	name := in.Name
+	sess, err := attach.Start(context.Background(), in.Cmd, name, removeOnRunExit(in.Teardown))
 	if err != nil {
-		_ = ws.Cleanup()
+		_ = cell.Cleanup()
 		return coord.OwnedRunner{}, err
 	}
 	go func() { _, _ = io.Copy(&s.out, sess.Master()) }()
 	kill := sync.OnceFunc(func() {
 		sess.Kill()
-		_ = ws.Cleanup()
+		_ = cell.Cleanup()
 	})
 	s.mu.Lock()
 	s.session, s.name = sess, name

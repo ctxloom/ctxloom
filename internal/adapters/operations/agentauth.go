@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
-	"strings"
 	"sync"
 
 	"golang.org/x/term"
@@ -16,24 +14,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// errLoginNotInContainer: an agent declaring the human's login runs in a
-// container, where that login is not reachable. Nothing mounts the human's
-// credential storage into a container, and a container that cannot reach
-// the login would start logged out rather than fail.
-var errLoginNotInContainer = errors.New("auth login shares the human's own login, which no container can reach")
-
 // runAuth is one run's claim on a credential: which engine, in which
-// DECLARED auth mode ("" undeclared), and where it runs. The engine home is
-// deliberately absent: auth is purely per agent, so a run on the human's
-// real home (engine_home: host) authenticates in its declared mode like any
-// other.
+// DECLARED auth mode ("" undeclared). Where it runs and its engine home are
+// deliberately absent: auth is purely per agent, so a container run and a
+// run on the human's real home (engine_home: host) authenticate in their
+// declared mode like any other, and the environment that prepares the run
+// makes the credentials true where the engine executes.
 type runAuth struct {
 	Backend string
 	// Declared is the agent's auth mode as written; checkAgentAuth parses it.
 	Declared string
-	// OnHost is whether the engine runs on the host rather than in a
-	// container.
-	OnHost bool
 }
 
 // attendedTerminal is the human's terminal when this process has one to mint
@@ -55,7 +45,7 @@ var mintMu sync.Mutex
 // an auth selection, run by `agent create/edit` (validateAgentAuth) and by
 // every launch (resolveRunAuth); config load runs engine.CheckAuth itself.
 // A nil Auth with no error is an engine that authenticates on its own.
-func checkAgentAuth(reg engine.Registry, backend, declared string, onHost bool) (engine.Auth, engine.AuthMode, error) {
+func checkAgentAuth(reg engine.Registry, backend, declared string) (engine.Auth, engine.AuthMode, error) {
 	kind, ok := reg.Lookup(engine.Name(backend))
 	if !ok {
 		return nil, "", nil
@@ -68,26 +58,15 @@ func checkAgentAuth(reg engine.Registry, backend, declared string, onHost bool) 
 	if !ok {
 		return nil, "", nil
 	}
-	if mode == engine.AuthLogin && !onHost {
-		others := slices.DeleteFunc(slices.Clone(a.Modes()), func(m engine.AuthMode) bool { return m == engine.AuthLogin })
-		return nil, "", report.Errorf(fmt.Sprintf("declare another of the modes %s supports for a container agent: %s, or run it on the host", backend, joinAuthModes(others)),
-			"%s: %w", backend, errLoginNotInContainer)
-	}
 	return a, mode, nil
 }
 
-func joinAuthModes(modes []engine.AuthMode) string {
-	s := make([]string, len(modes))
-	for i, m := range modes {
-		s[i] = string(m)
-	}
-	return strings.Join(s, ", ")
-}
-
-// resolveRunAuth is the env a run authenticates with: the engine's own
-// Auth.LaunchEnv for the agent's mode, which sets the mode's credential and
-// unsets the others. Engine-blind: which vars those are is the engine's
-// answer. Zero for an engine that declares no auth.
+// resolveRunAuth is what a run authenticates with: the engine's own
+// Auth.Credentials for the agent's mode, which sets the mode's credential,
+// unsets the others and declares the stores it shares. Engine-blind and
+// runtime-blind: which vars those are is the engine's answer, and how each
+// is made true is the environment's. Zero for an engine that declares no
+// auth.
 //
 // A MINTED credential (the token) that is neither exported nor stored is
 // minted when the human is at a terminal (Auth.Mint, then stored
@@ -95,45 +74,45 @@ func joinAuthModes(modes []engine.AuthMode) string {
 // run never starts logged out and never waits on a prompt nobody can see.
 // Every other missing credential is the engine's own refusal, which names
 // what to set or store.
-func resolveRunAuth(ctx context.Context, reg engine.Registry, in runAuth) (engine.LaunchEnv, error) {
-	a, mode, err := checkAgentAuth(reg, in.Backend, in.Declared, in.OnHost)
+func resolveRunAuth(ctx context.Context, reg engine.Registry, in runAuth) (engine.Credentials, error) {
+	a, mode, err := checkAgentAuth(reg, in.Backend, in.Declared)
 	if err != nil || a == nil {
-		return engine.LaunchEnv{}, err
+		return engine.Credentials{}, err
 	}
-	env, err := a.LaunchEnv(mode, os.LookupEnv, isolation.StoredCredentials(in.Backend))
+	creds, err := a.Credentials(mode, os.LookupEnv, isolation.StoredCredentials(in.Backend))
 	if !errors.Is(err, engine.ErrNoCredential) || !mode.Minted() {
-		return env, err
+		return creds, err
 	}
-	return mintAndLaunchEnv(ctx, a, in.Backend, mode)
+	return mintAndResolve(ctx, a, in.Backend, mode)
 }
 
-// mintAndLaunchEnv mints the missing credential at the human's terminal,
-// stores it, and resolves the env again; unattended, it refuses with the
-// commands that would provide one.
-func mintAndLaunchEnv(ctx context.Context, a engine.Auth, backend string, mode engine.AuthMode) (engine.LaunchEnv, error) {
+// mintAndResolve mints the missing credential at the human's terminal,
+// stores it, and resolves the credentials again; unattended, it refuses with
+// the commands that would provide one.
+func mintAndResolve(ctx context.Context, a engine.Auth, backend string, mode engine.AuthMode) (engine.Credentials, error) {
 	mintMu.Lock()
 	defer mintMu.Unlock()
 	store := isolation.StoredCredentials(backend)
-	env, err := a.LaunchEnv(mode, os.LookupEnv, store)
+	creds, err := a.Credentials(mode, os.LookupEnv, store)
 	if !errors.Is(err, engine.ErrNoCredential) {
-		return env, err
+		return creds, err
 	}
 	remedy := credentialRemedy(backend, mode)
 	t, ok := attendedTerminal()
 	if !ok {
-		return engine.LaunchEnv{}, report.Errorf(remedy, "%s auth %s needs a stored credential and this run has no terminal to mint one at: %w", backend, mode, engine.ErrNoCredential)
+		return engine.Credentials{}, report.Errorf(remedy, "%s auth %s needs a stored credential and this run has no terminal to mint one at: %w", backend, mode, engine.ErrNoCredential)
 	}
 	fmt.Fprintf(t.Err, "ctxloom: %s auth %s has no stored credential; starting %s's own flow to mint one\n", backend, mode, backend)
 	secret, err := a.Mint(ctx, mode, t)
 	if err != nil {
-		return engine.LaunchEnv{}, report.Errorf(remedy, "%s auth %s: mint: %w", backend, mode, err)
+		return engine.Credentials{}, report.Errorf(remedy, "%s auth %s: mint: %w", backend, mode, err)
 	}
 	path, err := isolation.StoreEngineCredential(backend, mode, secret)
 	if err != nil {
-		return engine.LaunchEnv{}, fmt.Errorf("%s auth %s: store the minted credential: %w", backend, mode, err)
+		return engine.Credentials{}, fmt.Errorf("%s auth %s: store the minted credential: %w", backend, mode, err)
 	}
 	fmt.Fprintf(t.Err, "ctxloom: stored the %s %s credential in %s (owner-only)\n", backend, mode, path)
-	return a.LaunchEnv(mode, os.LookupEnv, store)
+	return a.Credentials(mode, os.LookupEnv, store)
 }
 
 // credentialRemedy names the commands that store a credential for mode.

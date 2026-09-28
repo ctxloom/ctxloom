@@ -37,19 +37,20 @@ type EngineProcess struct {
 	Wait func() error
 }
 
-// StartEngine starts the runner process for a resolved launch through its
-// cell's transport (docker-direct for a container cell, a bare self-invoked
-// runner for a host cell), with the reach-back trio on the RUNNER's env —
-// never the engine's. A caller-supplied starter replaces the cell's
-// transport (test seam). A returned process is up; its dial-home is awaited
-// by the coordinator.
-func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]string, verbosity int, starter isolation.EngineStarter) (*EngineProcess, error) {
+// StartEngine starts the runner process for a resolved launch in its cell's
+// environment, with the reach-back trio on the RUNNER's env — never the
+// engine's. A caller-supplied starter — one launch closure, readiness being
+// the coordinator's awaitRunner — replaces the environment (test seam).
+// A returned process is up; its dial-home is awaited by the coordinator.
+func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]string, verbosity int, starter func(context.Context) (*isolation.RunnerHandle, error)) (*EngineProcess, error) {
 	if starter == nil {
-		cell, ok := TransportOf(l.Cell)
+		env, ok := EnvironmentOf(l.Cell)
 		if !ok {
-			return nil, errors.New("delegate: the cell carries no transport handle and no starter was supplied")
+			return nil, errors.New("delegate: the cell carries no environment and no starter was supplied")
 		}
-		starter = isolation.StarterForWorkspace(cell.Policy, cell.Workspace, string(l.Engine), l.Label.Label, verbosity, runnerEnv)
+		starter = func(ctx context.Context) (*isolation.RunnerHandle, error) {
+			return env.Start(ctx, isolation.RunnerRequest{Engine: string(l.Engine), Label: l.Label.Label, Verbosity: verbosity, Env: runnerEnv})
+		}
 	}
 	handle, err := starter(ctx)
 	if err != nil {

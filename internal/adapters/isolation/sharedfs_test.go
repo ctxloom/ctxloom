@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -187,12 +186,10 @@ func TestPrepareWorkspace_DegradesOnFSMismatch(t *testing.T) {
 	testsupport.Isolate(t)
 	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "mock").WithImage("img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	// Auth must resolve for the gate to reach prepareBase/the probe at all
-	// (host state — real ANTHROPIC_* creds — must never gate a hermetic test).
-	c.engineSpec.resolveAuth = func(engine.LaunchEnv) (containerAuth, bool) {
-		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-	}
-	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")
+	// The container story must be declared for the gate to reach
+	// prepareBase/the probe at all.
+	c.engineSpec.declared = true
+	_, err := c.prepareWorkspace(context.Background(), t.TempDir(), "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not share this process's filesystem")
 	assert.Contains(t, err.Error(), "bind mounts")
@@ -213,10 +210,8 @@ func TestPrepareWorkspace_FSProbeRunFailureIsNotMisreportedAsMismatch(t *testing
 	testsupport.Isolate(t)
 	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "mock").WithImage("img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	c.engineSpec.resolveAuth = func(engine.LaunchEnv) (containerAuth, bool) {
-		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-	}
-	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")
+	c.engineSpec.declared = true
+	_, err := c.prepareWorkspace(context.Background(), t.TempDir(), "m")
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "does not share this process's filesystem", "a transient run failure is not a sharing verdict")
 	assert.Contains(t, err.Error(), "could not run")
@@ -298,7 +293,7 @@ func TestMountProbeRoots(t *testing.T) {
 	authFile := filepath.Join(authParent, "auth.json")
 	require.NoError(t, os.WriteFile(authFile, []byte("secret"), 0o600))
 
-	got := mountProbeRoots(dir, scratch, []Mount{
+	got := mountProbeRoots(dir, scratch, []mount{
 		{Host: overlayDir, Container: "/x/overlay"},
 		{Host: authFile, Container: "/x/auth.json"},
 		{Host: scratch, Container: "/x/dup"}, // duplicate of scratch itself

@@ -27,7 +27,7 @@ func TestPrepareChain_NonContainerDegradeRaisesNoFinding(t *testing.T) {
 	mark := strictness.Checkpoint()
 
 	pol, ws := prepareChain(context.Background(),
-		[]Policy{failingPolicy{name: "worktree"}, passingPolicy{name: "none"}},
+		[]policy{failingPolicy{name: "worktree"}, passingPolicy{name: "none"}},
 		RuntimeHost, t.TempDir(), "member-a")
 
 	require.Equal(t, "none", pol.Name(), "the chain must degrade past the failed worktree")
@@ -57,7 +57,7 @@ func TestPrepareChain_LostContainerBoundaryRaisesIsolationFinding(t *testing.T) 
 			mark := strictness.Checkpoint()
 
 			pol, ws := prepareChain(context.Background(),
-				[]Policy{failingPolicy{name: tc.container}, passingPolicy{name: tc.next}},
+				[]policy{failingPolicy{name: tc.container}, passingPolicy{name: tc.next}},
 				RuntimeContainerRootless, t.TempDir(), "member-a")
 
 			require.Equal(t, tc.next, pol.Name(), "the chain still degrades so the run gets a workspace")

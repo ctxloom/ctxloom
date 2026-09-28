@@ -50,6 +50,6 @@ func TestEngineContainerSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
 	}
 
 	spec := engineContainerSpecFor(unknownEngineName)
-	assert.Equal(t, noContainerAuthHint, spec.authHint, "the default arm's marker hint identifies it")
+	assert.False(t, spec.declared, "the default arm is undeclared, so it fails closed")
 	assert.Equal(t, []string{ctxloomCacheOverlayDir}, spec.overlayDirs, "an unmapped engine shadows only ctxloom's own cache dir")
 }

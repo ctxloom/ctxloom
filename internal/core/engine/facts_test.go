@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,8 +15,8 @@ import (
 type fakeAuth struct{ modes []AuthMode }
 
 func (f fakeAuth) Modes() []AuthMode { return f.modes }
-func (fakeAuth) LaunchEnv(AuthMode, func(string) (string, bool), CredentialReader) (LaunchEnv, error) {
-	return LaunchEnv{}, nil
+func (fakeAuth) Credentials(AuthMode, func(string) (string, bool), CredentialReader) (Credentials, error) {
+	return Credentials{}, nil
 }
 func (fakeAuth) Mint(context.Context, AuthMode, Terminal) ([]byte, error) {
 	return nil, ErrMintUnsupported
@@ -166,14 +167,8 @@ func TestSupportsMode(t *testing.T) {
 
 func validContainer() ContainerSpec {
 	return ContainerSpec{
-		Install:         []byte("RUN true\n"),
-		ValidateCommand: "x --version",
-		Auth: Provide(ContainerAuth{
-			EnvTriggers:    []string{"X_API_KEY"},
-			EnvPassthrough: []string{"X_API_KEY", "X_BASE_URL"},
-			Hint:           "no X_API_KEY",
-			Remedy:         "export X_API_KEY",
-		}),
+		Install:            []byte("RUN true\n"),
+		ValidateCommand:    "x --version",
 		OverlayDirs:        []string{".x"},
 		TranscriptStoreRel: ".x/projects",
 	}
@@ -183,41 +178,20 @@ func TestContainerSpec_Validate_AcceptsACompleteDeclaration(t *testing.T) {
 	require.NoError(t, validContainer().Validate())
 }
 
-func TestContainerSpec_Validate_RefusesUndecidedAuth(t *testing.T) {
-	c := validContainer()
-	c.Auth = Declared[ContainerAuth]{}
-	assert.ErrorContains(t, c.Validate(), "Auth")
-}
-
 func TestContainerSpec_Validate_RefusesInstallWithoutValidate(t *testing.T) {
 	c := validContainer()
 	c.ValidateCommand = ""
 	assert.ErrorContains(t, c.Validate(), "ValidateCommand")
 }
 
-// A vendorless auth (mock: authenticates against nothing) must not ALSO name
-// triggers: the two shapes mean opposite things at resolve time and a
-// declaration carrying both has no single reading.
-func TestContainerAuth_Validate_VendorlessExcludesTriggers(t *testing.T) {
-	a := ContainerAuth{Vendorless: "authenticates against no vendor", EnvTriggers: []string{"X"}}
-	assert.ErrorContains(t, a.Validate(), "Vendorless")
-	a = ContainerAuth{Vendorless: "authenticates against no vendor"}
-	assert.NoError(t, a.Validate())
-}
-
-// A vendor-backed auth with no trigger can never resolve — every containerized run of it would degrade. That is a
-// declaration of "unknown", which is what Absent is for.
-func TestContainerAuth_Validate_RefusesNothingToResolve(t *testing.T) {
-	a := ContainerAuth{Hint: "no way in"}
-	assert.ErrorContains(t, a.Validate(), "resolve")
-}
-
-func TestContainerAuth_Validate_RefusesMissingRemedy(t *testing.T) {
-	a := ContainerAuth{EnvTriggers: []string{"X_API_KEY"}, Hint: "no X_API_KEY"}
-	assert.ErrorContains(t, a.Validate(), "Remedy")
-}
-
-func TestContainerAuth_Validate_RefusesMissingHint(t *testing.T) {
-	a := ContainerAuth{EnvTriggers: []string{"X_API_KEY"}}
-	assert.ErrorContains(t, a.Validate(), "Hint")
+// HostDir is where a shared store lives on the host: the launching env's own
+// value when it names one, else the store's place under the home; a store
+// that is no directory (an OS keychain) has none.
+func TestSharedStore_HostDir(t *testing.T) {
+	home := filepath.Join("h", "ben")
+	assert.Equal(t, filepath.Join(home, ".claude"), SharedStore{Var: "V", HomeRel: ".claude"}.HostDir(home), "an empty Value is the engine's default")
+	assert.Equal(t, "/elsewhere", SharedStore{Var: "V", Value: "/elsewhere", HomeRel: ".claude"}.HostDir(home), "the launching env's value wins")
+	assert.Equal(t, filepath.Join(home, ".config", "gcloud"), SharedStore{HomeRel: ".config/gcloud", ReadOnly: true}.HostDir(home), "HomeRel is slash-separated")
+	assert.Equal(t, "", SharedStore{Var: "V"}.HostDir(home), "a keychain-backed store has no directory")
+	assert.Equal(t, "", SharedStore{Value: "/ignored"}.HostDir(home), "a Value with no Var names nothing")
 }

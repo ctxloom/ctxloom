@@ -60,9 +60,9 @@ func NewRunners(reg engine.Registry) *Runners {
 	return &Runners{ctx: ctx, cancel: cancel, Engines: reg}
 }
 
-// Starter is coord.Options.Starter: the EngineStarter for one spawn, which
+// Starter is coord.Options.Starter: the runner starter for one spawn, which
 // stands the runner up in-process when the spawner calls it.
-func (r *Runners) Starter(backend string, runnerEnv map[string]string) isolation.EngineStarter {
+func (r *Runners) Starter(backend string, runnerEnv map[string]string) func(context.Context) (*isolation.RunnerHandle, error) {
 	return func(context.Context) (*isolation.RunnerHandle, error) {
 		return r.start(backend, runnerEnv)
 	}

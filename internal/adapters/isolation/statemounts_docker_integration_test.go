@@ -55,7 +55,7 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
-	var lockMount Mount
+	var lockMount mount
 	var found bool
 	for _, m := range mounts {
 		if strings.HasSuffix(m.Container, filepath.Join(".ctxloom", "locks")) {
@@ -90,7 +90,7 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 		WorkDir: "/",
 		Env:     []string{"HOME=" + defaultContainerHome},
 		Command: []string{"cat", containerLockPath},
-		Mounts:  []Mount{lockMount},
+		Mounts:  []mount{lockMount},
 	}
 
 	out, err := exec.CommandContext(ctx, rt.Binary(), rt.RunArgs(spec)...).Output()

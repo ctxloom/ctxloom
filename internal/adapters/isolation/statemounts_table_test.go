@@ -19,7 +19,7 @@ import (
 // container home — the session-state mounts proper, as opposed to the
 // engine's native transcript store (a session member bound to an
 // engine-defined target), the task log and the locks dir.
-func sessionDirMounts(t *testing.T, l sessions.Layout, harp string, mounts []Mount) map[string]string {
+func sessionDirMounts(t *testing.T, l sessions.Layout, harp string, mounts []mount) map[string]string {
 	t.Helper()
 	got := map[string]string{}
 	for _, m := range mounts {
@@ -86,7 +86,7 @@ func TestSessionStateMounts_CarryTheSpool_R3(t *testing.T) {
 	hostSpool, err := spool.Root(spool.NewHomeMapper(), harp)
 	require.NoError(t, err)
 
-	var carried *Mount
+	var carried *mount
 	for i := range mounts {
 		rel, err := filepath.Rel(mounts[i].Host, hostSpool)
 		if err == nil && !strings.HasPrefix(rel, "..") {

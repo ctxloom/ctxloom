@@ -172,7 +172,7 @@ func TestPrepareInstanceHome_WritesClaudesConfigAndNoCredential(t *testing.T) {
 	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 
-	cfgPath := filepath.Join(instance, "claude", ".claude.json")
+	cfgPath := filepath.Join(instance, ".claude.json")
 	data, err := os.ReadFile(cfgPath)
 	require.NoError(t, err)
 	var cfg map[string]any
@@ -183,6 +183,6 @@ func TestPrepareInstanceHome_WritesClaudesConfigAndNoCredential(t *testing.T) {
 	require.NoError(t, err)
 	fileperm.Equal(t, 0o600, info.Mode())
 
-	_, err = os.Lstat(filepath.Join(instance, "claude", ".credentials.json"))
+	_, err = os.Lstat(filepath.Join(instance, ".credentials.json"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "no credential is ever copied into a session home")
 }

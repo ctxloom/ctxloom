@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,14 +45,14 @@ func captureRuntimeAxis(t *testing.T) (*isolation.Axes, *stubEngine) {
 	t.Helper()
 	resetStrictness(t)
 	got := &isolation.Axes{}
-	stub := &stubEngine{out: "ran"}
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState, _ engine.LaunchEnv) (isolation.Policy, isolation.Workspace) {
-		*got = axes
-		return stubPolicy{}, stubWorkspace{dir: projectDir}
+	engine := &stubEngine{out: "ran"}
+	prev := prepareEnvironment
+	prepareEnvironment = func(_ context.Context, req launch.CellRequest, _ isolation.Spec) (isolation.Environment, error) {
+		*got = req.Axes
+		return stubEnvAt(req.ProjectRoot, nil), nil
 	}
-	t.Cleanup(func() { prepareIsolation = prev })
-	return got, stub
+	t.Cleanup(func() { prepareEnvironment = prev })
+	return got, engine
 }
 
 // -----------------------------------------------------------------------------

@@ -19,26 +19,26 @@ var startHostRunner = StartHostRunner
 // runner, so a run always has a working policy to fall back to.
 type None struct{}
 
-// Ensure None satisfies the Policy interface.
-var _ Policy = None{}
+// Ensure None satisfies the policy interface.
+var _ policy = None{}
 
 // Name returns the policy identifier.
 func (None) Name() string { return "none" }
 
 // ResolveWorkspace returns the live project directory as the workspace with a
 // noop cleanup — there is nothing to materialize or tear down.
-func (None) ResolveWorkspace(_ context.Context, projectDir, _ string) (Workspace, error) {
+func (None) resolveWorkspace(_ context.Context, projectDir, _ string) (workspace, error) {
 	return hostWorkspace{dir: projectDir}, nil
 }
 
-// Mount maps nothing. A host run's engine executes IN the workspace directory,
+// mount maps nothing. A host run's engine executes IN the workspace directory,
 // so there is no second environment to map it into and no plan to render — the
 // empty plan is the complete answer for this policy, not an unimplemented stub.
-func (None) Mount(context.Context, Workspace) (MountPlan, error) { return MountPlan{}, nil }
+func (None) bind(context.Context, workspace) (mountPlan, error) { return mountPlan{}, nil }
 
 // PrepareWorkspace resolves and maps in one step (see prepareWorkspace).
-func (n None) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
-	return prepareWorkspace(ctx, n, projectDir, agentID)
+func (n None) prepareWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error) {
+	return resolveAndBind(ctx, n, projectDir, agentID)
 }
 
 // StartRunner launches the bare self-invoked `ctxloom runner <engine>`
@@ -50,7 +50,7 @@ func (n None) PrepareWorkspace(ctx context.Context, projectDir, agentID string) 
 // Readiness is the coordinator's awaitRunner, not observed here. ctx is
 // checked once, before the spawn: an already-cancelled launch returns
 // ctx.Err() and starts nothing; after that, teardown is Kill, never ctx.
-func (None) StartRunner(ctx context.Context, backendName, label string, _ int, _ Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
+func (None) startRunner(ctx context.Context, backendName, label string, _ int, _ workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -69,11 +69,11 @@ func (None) StartRunner(ctx context.Context, backendName, label string, _ int, _
 
 // InteractiveRunner is the self-exec'd runner on the host: the originator
 // starts it on the pty it holds.
-func (None) InteractiveRunner(_ context.Context, backendName string, _ Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
+func (None) interactiveRunner(_ context.Context, backendName string, _ workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
 	return RunnerCommand(backendName, spawnEnv), "", nil
 }
 
-// hostWorkspace is the None policy's workspace: the live project directory with
+// hostWorkspace is the None policy's Workspace: the live project directory with
 // no teardown.
 type hostWorkspace struct{ dir string }
 

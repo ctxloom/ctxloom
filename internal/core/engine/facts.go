@@ -107,8 +107,10 @@ type InstanceConfigWriter interface {
 }
 
 // InstanceConfigRequest is what the writer is handed: the host user's real
-// home (the ambient values it may copy), the session home it writes under,
-// and the run's working directory.
+// home (the ambient values it may copy), the session home it writes into —
+// the directory the engine's home var names, placed by launch.SessionHome,
+// with no leaf of the writer's own appended — and the run's working
+// directory.
 type InstanceConfigRequest struct {
 	HostHome     string
 	InstanceHome string
@@ -121,8 +123,9 @@ type InstanceConfigReport struct {
 	Warnings []string
 }
 
-// ContainerSpec says how a containerized run of the engine is built and
-// authenticated. Engine.Container returns it, or refuses with ErrUnsupported
+// ContainerSpec says how a containerized run of the engine is built. How it
+// authenticates is not a container question: the run's Credentials
+// (Auth.Credentials) are satisfied by whichever environment runs it. Engine.Container returns it, or refuses with ErrUnsupported
 // when the engine has no image — so a container binding fails at Resolve,
 // never later.
 type ContainerSpec struct {
@@ -135,10 +138,6 @@ type ContainerSpec struct {
 	// ValidateCommand is the in-image command that proves the client runs
 	// (`<client> --version`). Required whenever Install is set.
 	ValidateCommand string
-	// Auth declares how the in-container engine authenticates, or that the
-	// question has no answer yet (Absent: the run fails closed rather than
-	// inherit another engine's credentials).
-	Auth Declared[ContainerAuth]
 	// OverlayDirs are the project-relative managed-config DIRECTORIES the
 	// engine's writers target under the run's cwd, shadowed by scratch
 	// overlays so the host project stays clean. Directories only.
@@ -153,57 +152,6 @@ type ContainerSpec struct {
 func (c ContainerSpec) Validate() error {
 	if len(c.Install) > 0 && c.ValidateCommand == "" {
 		return errors.New("ContainerSpec: Install is set but ValidateCommand is empty; an install fragment must be gated by a command that proves the client runs")
-	}
-	if !c.Auth.Decided() {
-		return errors.New("ContainerSpec: Auth is undeclared; provide a resolver or declare it absent with the reason")
-	}
-	if a, ok := c.Auth.Get(); ok {
-		if err := a.Validate(); err != nil {
-			return fmt.Errorf("ContainerSpec: %w", err)
-		}
-	}
-	return nil
-}
-
-// ContainerAuth is one engine's in-container authentication plan as DATA:
-// env passthrough when any trigger is set in the host env, else refuse with
-// Hint and Remedy. No credential file is ever mounted into a container.
-type ContainerAuth struct {
-	// Vendorless, when set, declares the engine authenticates against no
-	// vendor at all: resolution always succeeds with no env and no mounts.
-	// Correct only for an engine with no credential to resolve (a test
-	// double); mutually exclusive with every other field.
-	Vendorless string
-	// EnvTriggers: any one set in the host env selects env passthrough.
-	EnvTriggers []string
-	// EnvPassthrough is the scoped set of var NAMES forwarded name-only; a
-	// value is never stored here. Only the present ones cross.
-	EnvPassthrough []string
-	// Hint is the degrade diagnostic when nothing resolves — names the
-	// trigger var / credential source without leaking values. It says what is
-	// missing, not what to do about it.
-	Hint string
-	// Remedy is what the user runs to provide the credential; it travels as
-	// the refusal's fix, beside Hint rather than inside it.
-	Remedy string
-}
-
-// Validate refuses an auth plan with no single reading or nothing to resolve.
-func (a ContainerAuth) Validate() error {
-	if a.Vendorless != "" {
-		if len(a.EnvTriggers) > 0 || len(a.EnvPassthrough) > 0 || a.Hint != "" || a.Remedy != "" {
-			return errors.New("ContainerAuth: Vendorless excludes triggers, passthrough, a hint and a remedy")
-		}
-		return nil
-	}
-	if len(a.EnvTriggers) == 0 {
-		return errors.New("ContainerAuth: nothing to resolve (no EnvTriggers); declare Auth absent instead")
-	}
-	if a.Hint == "" {
-		return errors.New("ContainerAuth: Hint is empty; a plan that can fail must say what was missing")
-	}
-	if a.Remedy == "" {
-		return errors.New("ContainerAuth: Remedy is empty; a plan that can fail must say how to fix it")
 	}
 	return nil
 }

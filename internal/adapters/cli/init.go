@@ -767,9 +767,9 @@ func probeFailure(engine, what string, err error) error {
 // returned to the caller, which reports them through strictness and refuses
 // by default rather than swallowing them.
 func launchEngineWithPrompt(ctx context.Context, deps launch.Deps, workDir string, l launch.Launch) error {
-	cell, ok := operations.TransportOf(l.Cell)
+	env, ok := operations.EnvironmentOf(l.Cell)
 	if !ok {
-		return errors.New("the discovery launch's cell carries no transport handle")
+		return errors.New("the discovery launch's cell carries no environment")
 	}
 	c, err := internalCoordinator(workDir, l.Identity.Harp)
 	if err != nil {
@@ -784,8 +784,7 @@ func launchEngineWithPrompt(ctx context.Context, deps launch.Deps, workDir strin
 		backendName:  string(l.Engine),
 		label:        l.Label.Label,
 		labelModel:   l.Label.Model,
-		policy:       cell.Policy,
-		ws:           cell.Workspace,
+		env:          env,
 		sessionCoord: c,
 	}
 	st.launch.Env = stampTerminalEnv(st.launch.Env)

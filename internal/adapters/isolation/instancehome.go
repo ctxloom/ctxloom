@@ -18,9 +18,9 @@ import (
 type InstanceHomeRequest struct {
 	// Engine is the REGISTERED backend name ("claude-code", ...).
 	Engine string
-	// InstanceHome is the config-home ROOT to prepare — the session's
-	// engine-homes container (paths.HarpSessionEngineHomes). Each engine's
-	// own leaf is appended under it.
+	// InstanceHome is the session home to prepare — the directory the
+	// engine's home var names (launch.SessionHome). The engine writes into
+	// it; nothing appends a leaf of its own.
 	InstanceHome string
 	// WorkDir is the absolute project directory the run works in, passed
 	// through to the engine's generated config so a workspace-trust answer can
@@ -45,8 +45,8 @@ type InstanceHomeReport struct {
 // Every byte-level edit of a vendor's format happens inside that vendor's
 // package.
 //
-// No credential is placed in the home: a run authenticates from the env its
-// agent's auth mode resolves to (engine.Auth.LaunchEnv), settled before the
+// No credential is placed in the home: a run authenticates from what its
+// agent's auth mode resolves to (engine.Auth.Credentials), settled before the
 // home is prepared.
 //
 // The real host home is READ and never written by this call; tests/arch's

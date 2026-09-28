@@ -106,7 +106,7 @@ func probeKey(rt Runtime, image string, roots []string) string {
 // Host is a FILE probes its PARENT DIRECTORY instead — the probe writes its own marker
 // file alongside, never touching the real mounted file. Deduplicated and
 // sorted for a stable, memoizable probe key.
-func mountProbeRoots(dir, scratchRoot string, mounts []Mount) []string {
+func mountProbeRoots(dir, scratchRoot string, mounts []mount) []string {
 	seen := map[string]struct{}{}
 	if dir != "" {
 		seen[dir] = struct{}{}
@@ -226,7 +226,7 @@ func probeOneRoot(ctx context.Context, rt Runtime, image, root string) error {
 		Image:   image,
 		Name:    marker,
 		Command: []string{"cat", "/probe/marker"},
-		Mounts:  []Mount{{Host: dir, Container: "/probe", ReadOnly: true}},
+		Mounts:  []mount{{Host: dir, Container: "/probe", ReadOnly: true}},
 	})
 	out, err := probeExec(cctx, rt.Binary(), args)
 	if err != nil {

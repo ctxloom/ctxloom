@@ -11,24 +11,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
-// TestDeliverAndDeliverIsolated_WriteIdenticalBytes is the parity gate between
-// a surface's two delivery entry points.
+// TestProjectAndPrivateMCP_WriteIdenticalBytes is the parity gate between
+// MCP's two delivery approaches.
 //
 // Without a shared recipe, each surface carries TWO near-identical delivery
 // bodies whose only real differences are where `dir` comes from and whether the
 // resulting path is recorded — so the delivery recipe (which writer, which
 // receiver fields get threaded onto it, which arguments) has to be edited twice
 // per surface, with nothing holding the two halves to each other.
-// A per-surface receiver field is the exact shape of the hazard: denyTools is
-// threaded onto the writer in BOTH settings bodies and deliberately in NEITHER
-// MCP body, so a recipe edited in only one body silently splits the two.
 //
-// MCP now reaches its two writes through two APPROACHES sharing one embedded
-// mcpWriter, and settings still through one type's two forms. The invariant is
-// the same either way, and is what this pins: the project-file write and the
-// private write produce the SAME bytes, and only the private one records a
-// Path for the launch flag.
-func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
+// MCP reaches its two writes through two APPROACHES sharing one embedded
+// mcpWriter. What this pins: the project-file write and the private write
+// produce the SAME bytes, and only the private one records a Path for the
+// launch flag.
+func TestProjectAndPrivateMCP_WriteIdenticalBytes(t *testing.T) {
 	const (
 		wellKnownDir   = "/well-known"
 		sessionHomeDir = "/session-home"
@@ -57,14 +53,6 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 			path:       func(s builtSurfaces) string { return s.MCP.Path() },
 			privateDir: sessionHomeDir,
 			relPath:    ".mcp.json",
-		},
-		{
-			name:       "settings",
-			deliver:    func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.Deliver(roots) },
-			isolated:   func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.DeliverIsolated(roots) },
-			path:       func(s builtSurfaces) string { return s.Settings.Path() },
-			privateDir: sessionHomeDir,
-			relPath:    filepath.Join(".claude", "settings.json"),
 		},
 	}
 

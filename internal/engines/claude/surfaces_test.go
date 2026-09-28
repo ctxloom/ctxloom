@@ -70,8 +70,8 @@ func sampleInputs() agent.SurfaceInputs {
 // builtSurfaces holds one constructed instance of each claude approach, so a
 // test can drive a surface directly (the field) or through the builder
 // (Surfaces, the Declaration). Native is the unsafe-file context approach;
-// Context is the system-prompt one, which writes the SAME CLAUDE.md through
-// Deliver and the out-of-cwd scratch through DeliverIsolated.
+// Context is the system-prompt one (the framed <hash>.sysprompt.md beneath
+// the session home).
 type builtSurfaces struct {
 	Native    agent.Approach
 	Context   *systemPromptContext
@@ -287,27 +287,6 @@ func TestSettingsSurface_DeliverWritesSettingsJSON(t *testing.T) {
 	assert.NotContains(t, settings, "hooks", "cleanup reverts ctxloom hooks")
 }
 
-// settings DeliverIsolated writes .claude/settings.json beneath the session
-// home and exposes that path for --settings.
-func TestSettingsSurface_DeliverIsolated_OutOfCwd(t *testing.T) {
-	cwd := t.TempDir()
-	home := t.TempDir()
-	s := newSurfaces(sampleInputs(), nil)
-
-	handle, err := s.Settings.DeliverIsolated(runRoots(cwd, home))
-	require.NoError(t, err)
-
-	assert.Equal(t, filepath.Join(home, ".claude", "settings.json"), s.Settings.Path(),
-		"Path() is the out-of-cwd settings.json for --settings")
-	require.FileExists(t, s.Settings.Path())
-	assert.NoFileExists(t, filepath.Join(cwd, ".claude", "settings.json"), "the shared cwd is never written")
-
-	settings := readJSON(t, s.Settings.Path())
-	assert.Contains(t, settings, "hooks")
-
-	require.NoError(t, handle.Cleanup())
-}
-
 // ---- commands surface -------------------------------------------------------
 
 // commands Delivery writes .claude/commands/ into the target dir; Cleanup reverts
@@ -431,7 +410,7 @@ func TestSurfaces_SharedCwdSafetyAndLaunchOnly(t *testing.T) {
 	assert.True(t, agent.SafeInSharedCwd(s.Hook), "a rider writes no bytes of its own")
 	assert.True(t, agent.SafeInSharedCwd(s.MCP), "the private mcp config stays out of the workspace")
 	assert.False(t, agent.SafeInSharedCwd(s.MCPUnsafe), "mcp:unsafe-file is the project file — honoured, and warned")
-	assert.True(t, agent.SafeInSharedCwd(s.Settings))
+	assert.False(t, agent.SafeInSharedCwd(s.Settings), "settings writes the project's .claude/settings.json: honoured, and warned")
 	assert.False(t, agent.SafeInSharedCwd(s.Commands))
 	assert.False(t, agent.SafeInSharedCwd(s.Skills))
 
@@ -579,29 +558,6 @@ func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
 			assert.Empty(t, dirEntries(t, project), "no fallback to the project file")
 		})
 	}
-}
-
-// TestMCPConfig_PresentExisting_RefusesWithoutAnEngineHome is the same
-// condition on LaunchFormPresent: a member that would NAME the session's
-// private .mcp.json has no root to name it under, so it refuses exactly as
-// Deliver does — rather than stat'ing a bare relative path wherever the
-// process happens to be. An empty bundle is still "nothing to present": the
-// root is never consulted for a surface with no bytes.
-func TestMCPConfig_PresentExisting_RefusesWithoutAnEngineHome(t *testing.T) {
-	noHome := runRoots(t.TempDir(), "")
-
-	s := newSurfaces(sampleInputs(), nil)
-	p, err := s.MCP.PresentExisting(noHome)
-	require.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
-	assert.Empty(t, p)
-	assert.Empty(t, s.MCP.Path())
-
-	in := sampleInputs()
-	in.BundleMCP = nil
-	empty := newSurfaces(in, nil)
-	p, err = empty.MCP.PresentExisting(noHome)
-	require.NoError(t, err, "no bytes means nothing to present, not something unrooted")
-	assert.Empty(t, p)
 }
 
 // dirEntries lists the names directly beneath dir, so a test can assert a

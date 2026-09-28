@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -163,7 +161,6 @@ func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 	testsupport.Isolate(t)
 	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	c.engineSpec.resolveAuth = func(engine.LaunchEnv) (containerAuth, bool) { return containerAuth{}, true }
 
 	mark := strictness.Checkpoint()
 	sc, err := c.prepareContainerScratch(context.Background())

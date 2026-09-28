@@ -1,7 +1,6 @@
 package isolation
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,29 +22,14 @@ func TestEngineContainerSpecFor_Claude(t *testing.T) {
 	assert.NotContains(t, p.overlayDirs, ".mock",
 		"another REGISTERED engine's overlay dir — naming a deleted engine here would assert an absence nothing could ever violate")
 
-	// The auth axis: the degrade hint names claude's trigger var, and the wired
-	// resolver IS the claude (ANTHROPIC_*) one — asserted behaviorally since a
-	// func value is not directly comparable.
-	assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "the degrade hint names claude's trigger var")
-	assert.Contains(t, p.authRemedy, "ctxloom auth mint --mode token", "the remedy names how to provide the token")
-	assert.NotContains(t, p.authHint, p.authRemedy, "the hint says what is missing; the remedy travels beside it")
-	require.NotNil(t, p.resolveAuth, "the claude spec wires an auth resolver")
-	clearClaudeAuthEnv(t)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	auth, ok := p.resolveAuth(engine.LaunchEnv{})
-	require.True(t, ok, "with ANTHROPIC_API_KEY set the wired resolver authenticates")
-	assert.Equal(t, authEnv, auth.mode)
-	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the wired resolver is the claude (ANTHROPIC_*) resolver")
+	assert.True(t, p.declared, "claude declares a container story")
 }
 
 // TestEngineContainerSpecFor_UnknownIsDefault: a genuinely unknown/unregistered
 // backend name keeps the generic image, NO local build (run if the image is
-// present, degrade if not) — and fails CLOSED on credentials. Before the fix
-// the default wired claude's resolver, so any unrecognized engine got the
-// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through into a foreign
-// engine's container. resolveAuth always
-// returns ok=false, and the hint names the missing declaration rather than
-// Anthropic's env vars. Its overlay set is ctxloom's own cache dir alone: no
+// present, degrade if not) — and fails CLOSED: it is undeclared, so the
+// container gate refuses it. Its
+// overlay set is ctxloom's own cache dir alone: no
 // engine declared anything, so nothing engine-shaped is shadowed.
 func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 	for _, name := range []string{"", "no-such-engine"} {
@@ -53,18 +37,13 @@ func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 		assert.Equal(t, defaultContainerImage, p.image, "backend %q", name)
 		assert.Nil(t, p.engineInstall, "backend %q is not composable", name)
 		assert.Equal(t, []string{ctxloomCacheOverlayDir}, p.overlayDirs, "backend %q", name)
-		require.NotNil(t, p.resolveAuth, "backend %q must still wire a resolver, just one that fails closed", name)
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-		t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-test")
-		_, ok := p.resolveAuth(engine.LaunchEnv{})
-		assert.False(t, ok, "backend %q must NOT authenticate as claude — no declaration is registered for it", name)
-		assert.NotContains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q must not inherit claude's degrade hint", name)
+		assert.False(t, p.declared, "backend %q has no declaration, so the gate fails closed", name)
 	}
 }
 
 // vendorlessFixture is the shape of a test double's container declaration:
 // composable (a non-nil fragment, so `container build` has a recipe) with
-// NO vendor client, an auth plan that authenticates against nothing, its own
+// NO vendor client, no Auth (nothing to authenticate against), its own
 // overlay dir, and no transcript store. It is what the mock kind's
 // mock declares; this binary cannot link that package, so the shape is
 // authored here and registered under a fixture name.
@@ -74,7 +53,6 @@ func registerVendorlessFixture(t *testing.T, name string, dist engine.Distributi
 		f.Container = engine.Provide(engine.ContainerSpec{
 			Install:            []byte("RUN command -v cat\n"),
 			ValidateCommand:    "cat --version",
-			Auth:               engine.Provide(engine.ContainerAuth{Vendorless: name + " authenticates against no vendor"}),
 			OverlayDirs:        []string{".mock"},
 			TranscriptStoreRel: "",
 		})
@@ -84,8 +62,7 @@ func registerVendorlessFixture(t *testing.T, name string, dist engine.Distributi
 
 // TestEngineContainerSpecFor_Vendorless pins how a vendorless declaration
 // becomes a spec: composable, a validate command that proves the image
-// without any vendor client, an auth resolver that ALWAYS succeeds (unlike
-// every real engine's, which degrades on some path), an overlay set scoped
+// without any vendor client, a declared story, an overlay set scoped
 // to the engine's own managed-config directory plus the shared cache — never
 // another engine's — and an empty transcript root, which sessionStateMounts
 // reads as "nothing to mount", the correct value for an engine that keeps
@@ -99,21 +76,7 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 	assert.Equal(t, []string{".mock", ctxloomCacheOverlayDir}, p.overlayDirs)
 	assert.Empty(t, p.transcriptStoreRel)
 
-	// The hint is read only when resolveAuth answers !ok, which a vendorless
-	// resolver never does, so the ONE string the field can carry here is a
-	// sentinel that says so. The declaration side already forbids a real
-	// hint (engine.ContainerAuth.Validate: Vendorless excludes Hint); this
-	// pins the spec side, so the error a broken invariant would print names
-	// the invariant rather than a vendor credential that does not exist.
-	assert.True(t, strings.HasPrefix(p.authHint, "unreachable:"), "authHint = %q", p.authHint)
-	assert.Contains(t, p.authHint, "vendorless-fixture authenticates against no vendor",
-		"the sentinel carries the declaration's own reason, so a reader of the message can see which engine claimed it")
-
-	require.NotNil(t, p.resolveAuth)
-	auth, ok := p.resolveAuth(engine.LaunchEnv{})
-	require.True(t, ok, "a vendorless engine's auth resolves unconditionally")
-	assert.Equal(t, authNone, auth.mode)
-	assert.Empty(t, auth.envPassthrough)
+	assert.True(t, p.declared)
 }
 
 // TestEngineContainerSpecFor_DeclaredAbsentFailsClosed: an engine that is
@@ -128,7 +91,7 @@ func TestEngineContainerSpecFor_DeclaredAbsentFailsClosed(t *testing.T) {
 	})
 
 	assert.False(t, HasContainerAuth(name))
-	assert.Equal(t, noContainerAuthHint, engineContainerSpecFor(name).authHint)
+	assert.False(t, engineContainerSpecFor(name).declared)
 	assert.NotContains(t, composableEngines(), name)
 	assert.NotContains(t, ContainerAuthEngines(), name)
 	r, ok := engineContainerDeclared(name)
@@ -137,8 +100,8 @@ func TestEngineContainerSpecFor_DeclaredAbsentFailsClosed(t *testing.T) {
 }
 
 // TestRosters_ReadCapabilityAndPolicy pins the two roster filters: the default
-// image set is installer AND DistributionDefault; the offered container-auth
-// set is an auth plan AND not a test double. Capability comes from the
+// image set is installer AND DistributionDefault; the offered container set
+// is a declared container story AND not a test double. Capability comes from the
 // declaration, policy from Distribution, and neither roster is a list.
 func TestRosters_ReadCapabilityAndPolicy(t *testing.T) {
 	registerVendorlessFixture(t, "roster-default", engine.DistributionDefault)
@@ -186,7 +149,7 @@ func TestNewContainerFor_UsesSpecImage(t *testing.T) {
 // A test double keeps no transcripts and declares "" deliberately (see
 // TestEngineContainerSpecFor_Vendorless); it is never in the default image
 // set, so the loop is over the engines whose transcripts a user would lose.
-// The fail-closed default never reaches a mount at all — its auth gate is
+// The fail-closed default never reaches a mount at all — its gate is
 // upstream — so it is not asserted here.
 func TestEngineContainerSpecFor_EverySpecMapsATranscriptStore(t *testing.T) {
 	require.NotEmpty(t, composableEngines())
@@ -200,8 +163,8 @@ func TestEngineContainerSpecFor_EverySpecMapsATranscriptStore(t *testing.T) {
 // TestContainerAuthEngines_MatchesTheTable pins the two halves of the exported
 // auth surface config validation refuses bindings with:
 //
-//  1. every engine ContainerAuthEngines() advertises really does have a
-//     container-auth mapping (HasContainerAuth true), so a rejection message
+//  1. every engine ContainerAuthEngines() advertises really does declare a
+//     container story (HasContainerAuth true), so a rejection message
 //     can never name an engine the launch would then refuse; and
 //  2. the engines with NO mapping — the generic "acp" backend, the empty
 //     string the deleted image-only constructors used to pass, and any typo —
@@ -213,14 +176,14 @@ func TestContainerAuthEngines_MatchesTheTable(t *testing.T) {
 	require.NotEmpty(t, ContainerAuthEngines(), "the supported set a refusal names must not be empty")
 	for _, name := range ContainerAuthEngines() {
 		assert.True(t, HasContainerAuth(name),
-			"ContainerAuthEngines() advertises %q, so its declaration must carry a real auth plan", name)
-		assert.NotEqual(t, noContainerAuthHint, engineContainerSpecFor(name).authHint,
-			"backend %q must carry its OWN degrade hint, not the no-auth marker", name)
+			"ContainerAuthEngines() advertises %q, so it must declare a container story", name)
+		assert.True(t, engineContainerSpecFor(name).declared,
+			"backend %q must reach its OWN declaration, not the fail-closed default", name)
 	}
 	for _, name := range []string{"acp", "", "no-such-engine"} {
 		assert.False(t, HasContainerAuth(name),
 			"backend %q has no container-auth mapping, so a `runtime: container` binding for it must be refusable", name)
 	}
-	assert.Equal(t, noContainerAuthHint, engineContainerSpecFor("acp").authHint,
+	assert.False(t, engineContainerSpecFor("acp").declared,
 		"the generic acp backend reaches the fail-closed default arm — the case config validation exists to catch before launch")
 }

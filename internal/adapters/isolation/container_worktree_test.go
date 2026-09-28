@@ -32,7 +32,7 @@ func TestContainerWorktree_GitdirMountRoutesThroughMapper(t *testing.T) {
 		fakeRuntime{name: "docker", available: true},
 		&git.Fake{CommonDirValue: "/repo/.git"}, "/tmp/ctxloom-wt-m-abc")
 	require.NoError(t, err)
-	assert.Equal(t, Mount{Host: "/repo/.git", Container: "/ctr/repo/.git"}, m,
+	assert.Equal(t, mount{Host: "/repo/.git", Container: "/ctr/repo/.git"}, m,
 		"the .git common-dir is mirrored through the SAME mapper the project mount uses so gitdir resolves in-container")
 }
 
@@ -51,10 +51,10 @@ func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
 
 	// buildRunnerSpec is what the runner launch renders: workDir = the
 	// worktree, the workspace's mounts carrying the gitdir mirror.
-	spec := runnerSpecFor(Docker{}, "mock", worktreeDir, nil, []Mount{gitMount})
+	spec := runnerSpecFor(Docker{}, "mock", worktreeDir, nil, []mount{gitMount})
 
 	assert.Equal(t, worktreeDir, spec.WorkDir, "cwd is the member's worktree, not the live project")
-	assert.Contains(t, spec.Mounts, Mount{Host: worktreeDir, Container: worktreeDir},
+	assert.Contains(t, spec.Mounts, mount{Host: worktreeDir, Container: worktreeDir},
 		"the worktree is bind-mounted identical-path as cwd")
 	assert.Contains(t, spec.Mounts, gitMount,
 		"the .git gitdir mirror is mounted so git resolves inside the container")
@@ -67,7 +67,7 @@ func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
 func TestContainerWorktree_PrepareDegradesBeforeWorktree(t *testing.T) {
 	f := &git.Fake{}
 	_, err := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, f).
-		PrepareWorkspace(context.Background(), "/proj", "m")
+		prepareWorkspace(context.Background(), "/proj", "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot launch")
 	assert.Empty(t, f.Calls, "no worktree is created when the container gate fails")
@@ -108,7 +108,7 @@ func TestContainerWorktreeWorkspace_CleanupOrdering(t *testing.T) {
 // fresh HOME, so those host paths would be meaningless there.
 func TestContainerWorktreeWorkspace_NoConfigHomeEnv(t *testing.T) {
 	ws := &containerWorkspace{agentID: "m", baseCleanup: (&worktreeWorkspace{}).Cleanup}
-	assert.Nil(t, WorkspaceEnv(ws), "no host config-home envs cross into the container")
+	assert.Nil(t, workspaceEnv(ws), "no host config-home envs cross into the container")
 }
 
 // TestChainFor_NonContainer pins the deterministic (runtime-independent) chains:
@@ -179,7 +179,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// worktree prepares → chain stops there.
 	failing := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, &git.Fake{CommonDirValue: common})
 	working := NewWorktree(&git.Fake{CommonDirValue: common})
-	pol, ws := prepareChain(ctx, []Policy{failing, working, None{}}, RuntimeContainerRootless, "/proj", "m")
+	pol, ws := prepareChain(ctx, []policy{failing, working, None{}}, RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws)
 	// Safety net registered BEFORE the assertions below can fail/panic and skip
 	// the manual, non-deferred ws.Cleanup() call at the end of this block (see
@@ -192,7 +192,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// Non-git repo: both isolated tiers fail → none on the shared project dir.
 	nonRepo := &git.Fake{Repos: map[string]bool{}}
 	pol2, ws2 := prepareChain(ctx,
-		[]Policy{
+		[]policy{
 			NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, nonRepo),
 			NewWorktree(nonRepo),
 			None{},

@@ -52,7 +52,7 @@ func testAuth() claudeAuth { return claudeAuth{engine: testEngine} }
 // variable that would outrank or replace it is UNSET, even when the
 // launching env exports all of them. A shell value wins for the declared
 // mode only.
-func TestClaudeAuth_LaunchEnv_TheDeclaredModeDecides(t *testing.T) {
+func TestClaudeAuth_Credentials_TheDeclaredModeDecides(t *testing.T) {
 	stored := memStore{engine.AuthToken: "stored-token\n", engine.AuthAPIKey: "stored-key"}
 	nonLogin := append([]string{SecureStorageEnv}, providerSwitches...)
 	for _, tc := range []struct {
@@ -72,14 +72,14 @@ func TestClaudeAuth_LaunchEnv_TheDeclaredModeDecides(t *testing.T) {
 			map[string]string{APIKeyEnv: "shell-key"}, append([]string{OAuthTokenEnv, AuthTokenEnv}, nonLogin...)},
 		{"login shares the storage the launching env resolves", engine.AuthLogin,
 			map[string]string{OAuthTokenEnv: "shell-token", ConfigDirEnv: "/h/./cfg/"},
-			map[string]string{SecureStorageEnv: "/h/./cfg/"}, append(append([]string{OAuthTokenEnv, APIKeyEnv, AuthTokenEnv}, providerSwitches...), ProfileEnv)},
+			nil, append(append([]string{OAuthTokenEnv, APIKeyEnv, AuthTokenEnv}, providerSwitches...), ProfileEnv)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := testAuth().LaunchEnv(tc.mode, shellOf(tc.shell), stored)
+			got, err := testAuth().Credentials(tc.mode, shellOf(tc.shell), stored)
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantSet, got.Set)
+			assert.Equal(t, tc.wantSet, got.Env)
 			assert.ElementsMatch(t, tc.wantUnset, got.Unset)
-			for k := range got.Set {
+			for k := range got.Env {
 				assert.NotContains(t, got.Unset, k, "a variable is set or unset, never both")
 			}
 		})
@@ -87,16 +87,16 @@ func TestClaudeAuth_LaunchEnv_TheDeclaredModeDecides(t *testing.T) {
 }
 
 // An empty export is no credential: it neither wins nor hides the store.
-func TestClaudeAuth_LaunchEnv_AnEmptyExportIsNotAValue(t *testing.T) {
-	got, err := testAuth().LaunchEnv(engine.AuthToken, shellOf(map[string]string{OAuthTokenEnv: ""}), memStore{engine.AuthToken: "stored"})
+func TestClaudeAuth_Credentials_AnEmptyExportIsNotAValue(t *testing.T) {
+	got, err := testAuth().Credentials(engine.AuthToken, shellOf(map[string]string{OAuthTokenEnv: ""}), memStore{engine.AuthToken: "stored"})
 	require.NoError(t, err)
-	assert.Equal(t, "stored", got.Set[OAuthTokenEnv])
+	assert.Equal(t, "stored", got.Env[OAuthTokenEnv])
 }
 
 // The storage var is what the launching env's own claude resolves, byte for
 // byte: its own storage var when set (even to ""), else the config dir, else
 // "" (HOME/.claude).
-func TestClaudeAuth_LaunchEnv_LoginStorageIsWhatTheLaunchingEnvResolves(t *testing.T) {
+func TestClaudeAuth_Credentials_LoginStorageIsWhatTheLaunchingEnvResolves(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		env  map[string]string
@@ -108,21 +108,24 @@ func TestClaudeAuth_LaunchEnv_LoginStorageIsWhatTheLaunchingEnvResolves(t *testi
 		{"an inherited empty storage var is kept", map[string]string{SecureStorageEnv: "", ConfigDirEnv: "/session"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := testAuth().LaunchEnv(engine.AuthLogin, shellOf(tc.env), memStore{})
+			got, err := testAuth().Credentials(engine.AuthLogin, shellOf(tc.env), memStore{})
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, got.Set[SecureStorageEnv])
+			require.Len(t, got.Stores, 1, "login shares exactly the human's own storage")
+			assert.Equal(t, engine.SharedStore{Var: SecureStorageEnv, Value: tc.want, HomeRel: loginStoreHomeRel}, got.Stores[0],
+				"read-write: the human's claude and the run share the credential and its refresh locks")
+			assert.NotContains(t, got.Env, SecureStorageEnv, "the store's var is the environment's to set, per where the run executes")
 		})
 	}
 }
 
 // Every mode but login UNSETS the storage var: "" would mean HOME/.claude,
 // the human's own credential, so it must be absent, not empty.
-func TestClaudeAuth_LaunchEnv_NonLoginUnsetsTheStorageVar(t *testing.T) {
+func TestClaudeAuth_Credentials_NonLoginUnsetsTheStorageVar(t *testing.T) {
 	shell := shellOf(map[string]string{"CLAUDE_CODE_USE_VERTEX": "1", SecureStorageEnv: "/human/.claude"})
 	for _, mode := range []engine.AuthMode{engine.AuthToken, engine.AuthAPIKey, engine.AuthCloud} {
-		got, err := testAuth().LaunchEnv(mode, shell, memStore{engine.AuthToken: "t", engine.AuthAPIKey: "k"})
+		got, err := testAuth().Credentials(mode, shell, memStore{engine.AuthToken: "t", engine.AuthAPIKey: "k"})
 		require.NoError(t, err)
-		assert.NotContains(t, got.Set, SecureStorageEnv, mode)
+		assert.NotContains(t, got.Env, SecureStorageEnv, mode)
 		assert.Contains(t, got.Unset, SecureStorageEnv, mode)
 	}
 }
@@ -130,29 +133,72 @@ func TestClaudeAuth_LaunchEnv_NonLoginUnsetsTheStorageVar(t *testing.T) {
 // cloud passes the provider's own configuration through from the shell —
 // only what is set — and removes the stored modes' credentials and the
 // login's storage.
-func TestClaudeAuth_LaunchEnv_CloudPassesTheProviderThrough(t *testing.T) {
+func TestClaudeAuth_Credentials_CloudPassesTheProviderThrough(t *testing.T) {
+	fakeHome(t)
 	bedrock := map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1", "AWS_PROFILE": "work", "UNRELATED": "x"}
 	for k, v := range everyCredentialExported {
 		if _, ok := bedrock[k]; !ok && k != AuthTokenEnv {
 			bedrock[k] = v
 		}
 	}
-	got, err := testAuth().LaunchEnv(engine.AuthCloud, shellOf(bedrock), memStore{engine.AuthToken: "t"})
+	got, err := testAuth().Credentials(engine.AuthCloud, shellOf(bedrock), memStore{engine.AuthToken: "t"})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1", "AWS_PROFILE": "work"}, got.Set)
+	assert.Equal(t, map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1", "AWS_PROFILE": "work"}, got.Env)
 	assert.ElementsMatch(t, []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}, got.Unset)
 
 	gateway := map[string]string{AuthTokenEnv: "bearer", "ANTHROPIC_BASE_URL": "https://gw.example"}
-	got, err = testAuth().LaunchEnv(engine.AuthCloud, shellOf(gateway), memStore{})
+	got, err = testAuth().Credentials(engine.AuthCloud, shellOf(gateway), memStore{})
 	require.NoError(t, err)
-	assert.Equal(t, gateway, got.Set, "a gateway's bearer and base URL select cloud on their own")
+	assert.Equal(t, gateway, got.Env, "a gateway's bearer and base URL select cloud on their own")
+	assert.Empty(t, got.Stores, "a home with no provider login shares nothing")
+}
+
+// cloud shares each provider credential directory the human HAS, read-only
+// and at its place under $HOME — and declares none that is missing, since a
+// declared store that is missing refuses the run.
+func TestClaudeAuth_Credentials_CloudSharesTheProviderDirsThatExist(t *testing.T) {
+	home := fakeHome(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".config", "gcloud"), 0o700))
+	vertex := shellOf(map[string]string{"CLAUDE_CODE_USE_VERTEX": "1"})
+
+	got, err := testAuth().Credentials(engine.AuthCloud, vertex, memStore{})
+	require.NoError(t, err)
+	assert.Equal(t, []engine.SharedStore{{HomeRel: ".config/gcloud", ReadOnly: true}}, got.Stores, "only gcloud exists")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".aws"), 0o700))
+	got, err = testAuth().Credentials(engine.AuthCloud, vertex, memStore{})
+	require.NoError(t, err)
+	assert.Equal(t, []engine.SharedStore{{HomeRel: ".aws", ReadOnly: true}, {HomeRel: ".config/gcloud", ReadOnly: true}}, got.Stores)
+	for _, st := range got.Stores {
+		assert.True(t, st.ReadOnly, "a run uses the human's provider login, never changes it")
+		assert.Empty(t, st.Var, "the SDK finds it under $HOME with no variable")
+	}
+}
+
+// Token and api-key share no store of the human's: their credential is
+// ctxloom's own, carried in the env.
+func TestClaudeAuth_Credentials_StoredModesShareNoStore(t *testing.T) {
+	for _, mode := range []engine.AuthMode{engine.AuthToken, engine.AuthAPIKey} {
+		got, err := testAuth().Credentials(mode, shellOf(nil), memStore{engine.AuthToken: "t", engine.AuthAPIKey: "k"})
+		require.NoError(t, err)
+		assert.Empty(t, got.Stores, mode)
+	}
+}
+
+// fakeHome points the user's home at a fresh temp dir for one test.
+func fakeHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	return home
 }
 
 // Every refusal is typed and carries a remedy naming what to do: the
 // command that stores or mints the credential, the variables cloud needs,
 // and — for cloud — the other modes THIS engine supports, derived from
 // Modes().
-func TestClaudeAuth_LaunchEnv_RefusalsAreTypedWithARemedy(t *testing.T) {
+func TestClaudeAuth_Credentials_RefusalsAreTypedWithARemedy(t *testing.T) {
 	for _, tc := range []struct {
 		mode engine.AuthMode
 		want []string
@@ -161,7 +207,7 @@ func TestClaudeAuth_LaunchEnv_RefusalsAreTypedWithARemedy(t *testing.T) {
 		{engine.AuthAPIKey, []string{"ctxloom auth set --engine claude-code --mode api-key", APIKeyEnv}},
 		{engine.AuthCloud, []string{"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", AuthTokenEnv}},
 	} {
-		_, err := testAuth().LaunchEnv(tc.mode, shellOf(nil), memStore{})
+		_, err := testAuth().Credentials(tc.mode, shellOf(nil), memStore{})
 		require.ErrorIs(t, err, engine.ErrNoCredential, tc.mode)
 		var r report.Remediable
 		require.ErrorAs(t, err, &r, tc.mode)
@@ -176,7 +222,7 @@ func TestClaudeAuth_LaunchEnv_RefusalsAreTypedWithARemedy(t *testing.T) {
 			}
 		}
 	}
-	_, err := testAuth().LaunchEnv("keychain", shellOf(nil), memStore{})
+	_, err := testAuth().Credentials("keychain", shellOf(nil), memStore{})
 	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
 }
 

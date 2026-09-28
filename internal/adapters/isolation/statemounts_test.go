@@ -62,23 +62,23 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 			wantLocks, err := paths.HomeLocksDir()
 			require.NoError(t, err)
 
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      wantStore,
 				Container: filepath.Join(defaultContainerHome, filepath.FromSlash(tt.storeRel)),
 			}, mounts[0], "persist/transcripts binds to the engine's native store root in the CONTAINER home")
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      wantPersist,
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 			}, mounts[1], "persist/ binds to the container-home session path so in-container artifacts land on the host")
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 			}, mounts[2], "THIS project's task log binds into the container home, not the dir holding every project's")
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 			}, mounts[3], "the log's lock rides along: a lock the container cannot see excludes nothing")
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      wantLocks,
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "locks"),
 			}, mounts[4], "the home-rooted locks dir binds to the container home's .ctxloom/locks — the same directory paths.HomePathFor resolves to when $HOME is the container home, so host and container flock the same inode for an identical-path engine-settings file")
@@ -182,7 +182,7 @@ func TestSessionStateMounts_TaskMountReachesOnlyThisProjectsLog(t *testing.T) {
 
 // mountReaches reports whether host path p is inside (or is) what m exposes to
 // the container.
-func mountReaches(m Mount, p string) bool {
+func mountReaches(m mount, p string) bool {
 	return p == m.Host || strings.HasPrefix(p, m.Host+string(filepath.Separator))
 }
 
@@ -251,7 +251,7 @@ func TestSessionStateMounts_LocksDirMount_Unconditional(t *testing.T) {
 	wantLocks, err := paths.HomeLocksDir()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, ".ctxloom", "locks"), wantLocks)
-	assert.Contains(t, mounts, Mount{
+	assert.Contains(t, mounts, mount{
 		Host:      wantLocks,
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "locks"),
 		ReadOnly:  false,
@@ -269,7 +269,7 @@ func TestSessionStateMounts_LocksDirMount_Unconditional(t *testing.T) {
 // whose base is nil.
 func TestWithSessionState_StampsChainPolicies(t *testing.T) {
 	state := SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
-	chain := withSessionState([]Policy{
+	chain := withSessionState([]policy{
 		Container{base: worktreeBase{wt: Worktree{}}},
 		Container{}, // bare, nil base — the nil-base guard must not panic
 		Worktree{},

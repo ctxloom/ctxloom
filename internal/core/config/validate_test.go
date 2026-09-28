@@ -119,8 +119,8 @@ type authKind struct{ stubKind }
 type tokenOnlyAuth struct{}
 
 func (tokenOnlyAuth) Modes() []engine.AuthMode { return []engine.AuthMode{engine.AuthToken} }
-func (tokenOnlyAuth) LaunchEnv(engine.AuthMode, func(string) (string, bool), engine.CredentialReader) (engine.LaunchEnv, error) {
-	return engine.LaunchEnv{}, nil
+func (tokenOnlyAuth) Credentials(engine.AuthMode, func(string) (string, bool), engine.CredentialReader) (engine.Credentials, error) {
+	return engine.Credentials{}, nil
 }
 func (tokenOnlyAuth) Mint(context.Context, engine.AuthMode, engine.Terminal) ([]byte, error) {
 	return nil, engine.ErrMintUnsupported

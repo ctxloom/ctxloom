@@ -156,13 +156,13 @@ func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, 
 	if deps.Static == nil {
 		return l, nil, ErrNoStatic
 	}
-	// A container cell's runner is the container's foreground process: its
-	// filesystem is the engine's, so every root is opened at its Engine side.
-	// Rewritten once, here, before anything reads the cell — the engine
-	// session's roots, the static target, and the paths the drive is handed.
-	if l.Cell.Container != nil {
-		l.Cell.Paths = l.Cell.Paths.EngineSide()
-	}
+	// The runner shares the engine's filesystem wherever it runs (a
+	// container's foreground process, or beside the engine on the host), so
+	// every root is opened at its Engine side — on the host that IS the Host
+	// side, so one read is right under every runtime and nothing here asks
+	// which one it is under. Rewritten once, before anything reads the cell:
+	// the engine session's roots, the static target, the drive's paths.
+	l.Cell.Paths = l.Cell.Paths.EngineSide()
 	hosted := deps.Kind.Root().Name
 	if l.Engine != hosted {
 		return l, nil, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, hosted, l.Engine)

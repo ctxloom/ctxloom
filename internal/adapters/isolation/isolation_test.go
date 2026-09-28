@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -25,7 +27,7 @@ func resetStrictness(t *testing.T) {
 	})
 }
 
-// failingPolicy is a test Policy whose Name is configurable and whose
+// failingPolicy is a test policy whose Name is configurable and whose
 // PrepareWorkspace always fails — a stand-in for a tier that cannot launch
 // (a container whose image is absent / probe failed / auth unresolvable, or a
 // worktree that cannot be added). StartRunner is never reached: the chain
@@ -33,23 +35,30 @@ func resetStrictness(t *testing.T) {
 type failingPolicy struct{ name string }
 
 func (f failingPolicy) Name() string { return f.name }
-func (failingPolicy) ResolveWorkspace(context.Context, string, string) (Workspace, error) {
+func (failingPolicy) resolveWorkspace(context.Context, string, string) (workspace, error) {
 	return nil, errors.New("agent image absent")
 }
-func (failingPolicy) Mount(context.Context, Workspace) (MountPlan, error) {
-	return MountPlan{}, errors.New("unused: resolution fails first, so the chain never maps")
+func (failingPolicy) bind(context.Context, workspace) (mountPlan, error) {
+	return mountPlan{}, errors.New("unused: resolution fails first, so the chain never maps")
 }
-func (f failingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
-	return prepareWorkspace(ctx, f, projectDir, agentID)
+func (f failingPolicy) prepareWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error) {
+	return resolveAndBind(ctx, f, projectDir, agentID)
 }
-func (failingPolicy) StartRunner(context.Context, string, string, int, Workspace, map[string]string) (*RunnerHandle, error) {
+func (failingPolicy) startRunner(context.Context, string, string, int, workspace, map[string]string) (*RunnerHandle, error) {
 	return nil, errors.New("unused: the chain degrades before spawn")
 }
-func (failingPolicy) InteractiveRunner(context.Context, string, Workspace, map[string]string) (*exec.Cmd, string, error) {
+func (failingPolicy) interactiveRunner(context.Context, string, workspace, map[string]string) (*exec.Cmd, string, error) {
 	return nil, "", nil
 }
+func (failingPolicy) relocator() relocator { return hostRelocator{} }
+func (failingPolicy) environment(workspace, launch.Placement, []mount) (Environment, error) {
+	return nil, errors.New("unused: resolution fails first")
+}
+func (failingPolicy) preview(context.Context) (present.Listen, Description) {
+	return present.Listen{}, Description{}
+}
 
-// passingPolicy is a test Policy that always prepares a trivial workspace (the
+// passingPolicy is a test policy that always prepares a trivial workspace (the
 // project dir, via None); its Name is configurable so a chain can place a
 // SUCCEEDING non-container tier (e.g. a bare worktree) right after a failing
 // container tier — the shape that exercises a lost-CONTAINER-boundary degrade
@@ -58,20 +67,27 @@ func (failingPolicy) InteractiveRunner(context.Context, string, Workspace, map[s
 type passingPolicy struct{ name string }
 
 func (p passingPolicy) Name() string { return p.name }
-func (passingPolicy) ResolveWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
-	return None{}.ResolveWorkspace(ctx, projectDir, agentID)
+func (passingPolicy) resolveWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error) {
+	return None{}.resolveWorkspace(ctx, projectDir, agentID)
 }
-func (passingPolicy) Mount(context.Context, Workspace) (MountPlan, error) {
-	return MountPlan{}, nil
+func (passingPolicy) bind(context.Context, workspace) (mountPlan, error) {
+	return mountPlan{}, nil
 }
-func (p passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
-	return prepareWorkspace(ctx, p, projectDir, agentID)
+func (p passingPolicy) prepareWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error) {
+	return resolveAndBind(ctx, p, projectDir, agentID)
 }
-func (passingPolicy) StartRunner(context.Context, string, string, int, Workspace, map[string]string) (*RunnerHandle, error) {
+func (passingPolicy) startRunner(context.Context, string, string, int, workspace, map[string]string) (*RunnerHandle, error) {
 	return nil, errors.New("unused: prepareChain stops at the first success")
 }
-func (passingPolicy) InteractiveRunner(context.Context, string, Workspace, map[string]string) (*exec.Cmd, string, error) {
+func (passingPolicy) interactiveRunner(context.Context, string, workspace, map[string]string) (*exec.Cmd, string, error) {
 	return nil, "", nil
+}
+func (passingPolicy) relocator() relocator { return hostRelocator{} }
+func (p passingPolicy) environment(ws workspace, pl launch.Placement, _ []mount) (Environment, error) {
+	return &hostEnvironment{p: p, ws: ws, placement: pl}, nil
+}
+func (passingPolicy) preview(context.Context) (present.Listen, Description) {
+	return present.Listen{}, Description{}
 }
 
 // TestNone_IsHostIdentical pins the None policy to today's host behaviour: the
@@ -81,7 +97,7 @@ func TestNone_IsHostIdentical(t *testing.T) {
 	p := None{}
 	assert.Equal(t, "none", p.Name())
 
-	ws, err := p.PrepareWorkspace(context.Background(), "/project/root", "member-a")
+	ws, err := p.prepareWorkspace(context.Background(), "/project/root", "member-a")
 	require.NoError(t, err, "None never fails to prepare a workspace")
 	assert.Equal(t, "/project/root", ws.Dir(), "none workspace is the live project directory")
 	assert.NoError(t, ws.Cleanup(), "none cleanup is a noop")
@@ -170,7 +186,7 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 	// The chain chainFor builds ONLY for an explicitly-requested container: a
 	// container tier that fails to prepare (image absent / probe / auth),
 	// degrading to None.
-	containerChain := []Policy{failingPolicy{name: (Container{}).Name()}, None{}}
+	containerChain := []policy{failingPolicy{name: (Container{}).Name()}, None{}}
 
 	t.Run("strict: records one fatal isolation finding and still degrades to the host", func(t *testing.T) {
 		resetStrictness(t)
@@ -219,7 +235,7 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 		// boundary is lost even though the workspace axis is preserved, so it is
 		// fatal — a container→non-container transition, not the benign
 		// worktree→none workspace-axis degrade.
-		chain := []Policy{failingPolicy{name: "container-worktree"}, passingPolicy{name: (Worktree{}).Name()}, None{}}
+		chain := []policy{failingPolicy{name: "container-worktree"}, passingPolicy{name: (Worktree{}).Name()}, None{}}
 		policy, ws := prepareChain(context.Background(), chain, RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.Equal(t, "worktree", policy.Name(), "the requested worktree survives the lost container boundary")
@@ -269,7 +285,7 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 	t.Run("a workspace-axis degrade (worktree→none) is not an isolation finding", func(t *testing.T) {
 		resetStrictness(t)
 
-		workspaceChain := []Policy{failingPolicy{name: (Worktree{}).Name()}, None{}}
+		workspaceChain := []policy{failingPolicy{name: (Worktree{}).Name()}, None{}}
 		policy, _ := prepareChain(context.Background(), workspaceChain, RuntimeHost, "/project", "agent-a")
 		assert.IsType(t, None{}, policy)
 		assert.Empty(t, strictness.All(),
@@ -450,7 +466,7 @@ func TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName(t *testing.T) {
 }
 
 // TestNonePrepareWorkspace_CannotFail REFUTES a finding, which flagged
-// prepareChain's trailing `ws, _ := None{}.PrepareWorkspace(...)` as discarding
+// prepareChain's trailing `ws, _ := None{}.prepareWorkspace(...)` as discarding
 // "the one place a total failure would be invisible". None.PrepareWorkspace
 // returns a literal nil error on every path — the discard is statically
 // unreachable, not merely unlikely — and there is no lower tier to degrade
@@ -458,7 +474,7 @@ func TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName(t *testing.T) {
 // remedy is therefore not implementable: there is nothing an error path could
 // do that returning the project dir does not already do.
 //
-// That "None never fails" is the whole fault-tolerance floor the Policy
+// That "None never fails" is the whole fault-tolerance floor the policy
 // contract rests on (chainFor always terminates in None; prepareChain's
 // trailing call is the defensive fallback for an empty or all-failing chain).
 // So pin the property instead: if None ever grows a failure mode, this goes
@@ -466,7 +482,7 @@ func TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName(t *testing.T) {
 func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
 	ctx := context.Background()
 	for _, dir := range []string{"", "/proj", "/does/not/exist", "\x00not-a-path"} {
-		ws, err := None{}.PrepareWorkspace(ctx, dir, "agent-a")
+		ws, err := None{}.prepareWorkspace(ctx, dir, "agent-a")
 		require.NoError(t, err, "None is the fault-tolerant floor: it never fails to prepare (dir %q)", dir)
 		require.NotNil(t, ws)
 		assert.Equal(t, dir, ws.Dir())
@@ -477,7 +493,7 @@ func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
 	// all-failing chain still yields a workspace rather than a nil one.
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	policy, ws := prepareChain(cancelled, []Policy{failingPolicy{name: "worktree"}}, RuntimeHost, "/proj", "agent-a")
+	policy, ws := prepareChain(cancelled, []policy{failingPolicy{name: "worktree"}}, RuntimeHost, "/proj", "agent-a")
 	assert.Equal(t, None{}.Name(), policy.Name())
 	require.NotNil(t, ws)
 	assert.Equal(t, "/proj", ws.Dir())
@@ -582,14 +598,14 @@ func TestParseWorkspaceAxis(t *testing.T) {
 // TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe pins the last
 // gate before a daemon for a test double bound to a container: with a
 // runtime answering, the chain's first tier IS a container carrying that
-// engine's spec, whose auth resolves without any credential — and nothing on
+// engine's declared spec, which needs no credential — and nothing on
 // the way raised a finding. The probe itself is stubbed because it is the
 // daemon; everything short of it is the claim.
 //
 // A double is DistributionTestOnly, which keeps it out of every OFFERED and
 // composed roster. Those rosters are lists of names; this chain must never
 // consult one, because the capability (a declared install fragment and a
-// vendorless auth) is what a container run actually needs.
+// declared container story) is what a container run actually needs.
 func TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe(t *testing.T) {
 	const engine = "vendorless-chain"
 	registerVendorlessFixture(t, engine, coreengine.DistributionTestOnly)
@@ -607,8 +623,7 @@ func TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe(t *testing.T) 
 			c, ok := chain[0].(Container)
 			require.True(t, ok, "the first tier is the container the run asked for, not a degrade")
 			assert.Equal(t, engine, c.engine)
-			_, authOK := c.engineSpec.resolveAuth(noRunAuth)
-			assert.True(t, authOK, "the spec the tier carries authenticates the double against nothing")
+			assert.True(t, c.engineSpec.declared, "the spec the tier carries is the double's own declaration")
 			assert.Empty(t, strictness.All(), "no gate short of the daemon refused the pair")
 		})
 	}

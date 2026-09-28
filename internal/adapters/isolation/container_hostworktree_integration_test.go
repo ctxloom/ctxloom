@@ -71,7 +71,7 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 
 	testsupport.Isolate(t) // the session scratch resolves under a fake $HOME, never the real ~/.ctxloom
 	pol := NewContainerFor(rt, "mock").WithImage(worktreeIntegrationImage).WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	ws, err := pol.PrepareWorkspace(ctx, wtDir, "hostwt-itest")
+	ws, err := pol.prepareWorkspace(ctx, wtDir, "hostwt-itest")
 	require.NoError(t, err, "PrepareWorkspace must mirror the out-of-repo worktree's git common dir")
 	t.Cleanup(func() { _ = ws.Cleanup() })
 
@@ -84,7 +84,7 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	common, err := git.NewExec().CommonDir(ctx, wtDir)
 	require.NoError(t, err)
 	assert.NotEqual(t, filepath.Join(wtDir, ".git"), common, "an out-of-repo worktree's common dir lives OUTSIDE the worktree — the whole point of the mirror")
-	assert.Contains(t, cw.extraMounts, Mount{Host: common, Container: common},
+	assert.Contains(t, cw.extraMounts, mount{Host: common, Container: common},
 		"the host base mirrors the out-of-repo worktree's common dir identical-path, exactly like the worktree base")
 
 	// PAYLOAD: in-container git resolves via the SAME two mounts the policy
@@ -92,12 +92,12 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	// transport — mirrors container_worktree_integration_test.go's "(2) GIT
 	// RESOLVES INSIDE" step).
 	statusOut, err := dockerRun(ctx, worktreeIntegrationImage, wtDir,
-		[]Mount{{Host: wtDir, Container: wtDir}, {Host: common, Container: common}},
+		[]mount{{Host: wtDir, Container: wtDir}, {Host: common, Container: common}},
 		"git", "-c", "safe.directory=*", "status", "--porcelain")
 	require.NoError(t, err, "git status must resolve inside the container via the mounted common-dir:\n%s", statusOut)
 
 	gitDirOut, err := dockerRun(ctx, worktreeIntegrationImage, wtDir,
-		[]Mount{{Host: wtDir, Container: wtDir}, {Host: common, Container: common}},
+		[]mount{{Host: wtDir, Container: wtDir}, {Host: common, Container: common}},
 		"git", "-c", "safe.directory=*", "rev-parse", "--git-dir")
 	require.NoError(t, err, "git rev-parse --git-dir must resolve inside the container:\n%s", gitDirOut)
 	t.Logf("in-container --git-dir (host-base out-of-repo worktree): %s", strings.TrimSpace(gitDirOut))
@@ -106,7 +106,7 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	// mirror is load-bearing, not incidental (the exact contrast
 	// container_worktree_integration_test.go draws for the worktree base).
 	noMirror, err := dockerRun(ctx, worktreeIntegrationImage, wtDir,
-		[]Mount{{Host: wtDir, Container: wtDir}},
+		[]mount{{Host: wtDir, Container: wtDir}},
 		"git", "-c", "safe.directory=*", "rev-parse", "HEAD")
 	require.Error(t, err, "without the common-dir mirror, git must NOT resolve inside the container")
 	assert.Contains(t, noMirror, "not a git repository", "the gitdir pointer is unresolvable without the mirror")

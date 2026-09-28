@@ -36,7 +36,7 @@ type fileTemplateDelivery struct {
 	reporter report.Sink
 	// denyTools, when non-empty, is unioned into the settings surface's
 	// permissions.deny (see writeSettingsFile / mergeDenyTools). Only
-	// settingsSurface.Deliver/DeliverIsolated set this (from
+	// settingsSurface.Deliver sets this (from
 	// SurfaceInputs.DenyTools) — irrelevant to DeliverMCP/DeliverCommands and
 	// left nil everywhere else. Kept as a receiver field (not a
 	// DeliverSettings parameter) so DeliverSettings's signature stays

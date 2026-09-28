@@ -63,12 +63,12 @@ func TestProjectConfigMount(t *testing.T) {
 		require.NoDirExists(t, filepath.Join(worktreeDir, paths.AppDirName),
 			"premise: the checkout starts with no config, which is what makes the in-container ctxloom refuse")
 
-		mount, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
+		m, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
 
 		require.NoError(t, err)
 		require.True(t, ok, "a project config the checkout lacks is the whole case this delivery exists for")
-		assert.Equal(t, source, mount.Host, "the LIVE project's config tree is the source, not the checkout's")
-		assert.True(t, mount.ReadOnly,
+		assert.Equal(t, source, m.Host, "the LIVE project's config tree is the source, not the checkout's")
+		assert.True(t, m.ReadOnly,
 			"read-write would punch through the worktree axis's promise that the live project is not the cell's to change")
 
 		// The container side must name where the CHECKOUT appears in the
@@ -77,10 +77,10 @@ func TestProjectConfigMount(t *testing.T) {
 		// distinguishable from one routed through the mapper — under a real
 		// non-identity mapper that difference lands the config outside the
 		// checkout and the cell refuses exactly as before.
-		wantTarget := filepath.Join(rt.mapper().toContainer(worktreeDir), paths.AppDirName)
-		assert.Equal(t, wantTarget, mount.Container,
+		wantTarget := filepath.Join(mapped(t, rt, worktreeDir), paths.AppDirName)
+		assert.Equal(t, wantTarget, m.Container,
 			"the mount target is the checkout's CONTAINER path; using the host path delivers the config nowhere the cell will look")
-		assert.NotEqual(t, filepath.Join(worktreeDir, paths.AppDirName), mount.Container,
+		assert.NotEqual(t, filepath.Join(worktreeDir, paths.AppDirName), m.Container,
 			"guard on the guard: if these ever coincide the assertion above stops testing the mapper at all")
 
 		// Pre-created host-side, as the invoking user: a target the daemon has
@@ -95,12 +95,12 @@ func TestProjectConfigMount(t *testing.T) {
 		writeConfigTree(t, projectDir, "parent config")
 		own := writeConfigTree(t, worktreeDir, "the cell's own config")
 
-		mount, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
+		m, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
 
 		require.NoError(t, err)
 		assert.False(t, ok,
 			"own .ctxloom always wins (worktreeSignpost's precedence); shadowing it makes a deliberately separate project silently adopt its parent's config")
-		assert.Equal(t, Mount{}, mount, "no mount, not a zero-valued one that some caller might still append")
+		assert.Equal(t, mount{}, m, "no mount, not a zero-valued one that some caller might still append")
 
 		// Not just "no mount was returned" — the tree itself must be untouched.
 		got, err := os.ReadFile(filepath.Join(own, "config.yaml"))
@@ -111,11 +111,11 @@ func TestProjectConfigMount(t *testing.T) {
 	t.Run("a project with no config delivers nothing", func(t *testing.T) {
 		projectDir, worktreeDir := newCell(t)
 
-		mount, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
+		m, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
 
 		require.NoError(t, err)
 		assert.False(t, ok, "there is nothing to deliver; the refusal that follows is then about the project itself")
-		assert.Equal(t, Mount{}, mount)
+		assert.Equal(t, mount{}, m)
 		assert.NoDirExists(t, filepath.Join(worktreeDir, paths.AppDirName),
 			"no source means no mountpoint either — creating an empty .ctxloom would make the cell resolve to a config that does not exist")
 	})
@@ -124,11 +124,11 @@ func TestProjectConfigMount(t *testing.T) {
 		projectDir, worktreeDir := newCell(t)
 		require.NoError(t, os.WriteFile(filepath.Join(projectDir, paths.AppDirName), []byte("not a dir"), 0o644))
 
-		mount, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
+		m, ok, err := projectConfigMount(rt, projectDir, worktreeDir)
 
 		require.NoError(t, err)
 		assert.False(t, ok, "a bind mount of a file over a directory mountpoint is not a config tree")
-		assert.Equal(t, Mount{}, mount)
+		assert.Equal(t, mount{}, m)
 	})
 }
 
@@ -156,18 +156,18 @@ func TestWorktreeBase_MountBaseCarriesTheConfigMount(t *testing.T) {
 
 	// The gitdir mirror, unchanged: without it the cell's .git pointer file
 	// resolves to nothing and git is broken in-container.
-	assert.Contains(t, mounts, rt.ExposeMapped(filepath.Join(worktreeDir, ".git"), false),
+	assert.Contains(t, mounts, exposedMapped(t, rt, filepath.Join(worktreeDir, ".git"), false),
 		"the gitdir mirror must survive the addition of the config mount")
 
-	wantTarget := filepath.Join(rt.mapper().toContainer(worktreeDir), paths.AppDirName)
-	assert.Contains(t, mounts, Mount{Host: source, Container: wantTarget, ReadOnly: true},
+	wantTarget := filepath.Join(mapped(t, rt, worktreeDir), paths.AppDirName)
+	assert.Contains(t, mounts, mount{Host: source, Container: wantTarget, ReadOnly: true},
 		"the config mount must reach the run spec; building it and discarding it restores the defect exactly")
 	assert.Len(t, mounts, 2, "exactly the gitdir mirror and the config delivery")
 }
 
 // TestWorktreeBase_MountBaseOmitsTheConfigMountWhenThereIsNothingToDeliver is
 // the negative half of the wiring: mountBase must return the git mirror ALONE
-// rather than a zero-valued Mount{} appended for shape. A Mount{Host:"",
+// rather than a zero-valued mount{} appended for shape. A mount{Host:"",
 // Container:""} in a run spec is not inert — it renders as a bind argument the
 // runtime would reject or, worse, interpret.
 func TestWorktreeBase_MountBaseOmitsTheConfigMountWhenThereIsNothingToDeliver(t *testing.T) {
@@ -182,6 +182,6 @@ func TestWorktreeBase_MountBaseOmitsTheConfigMountWhenThereIsNothingToDeliver(t 
 
 	require.NoError(t, err)
 	require.Len(t, mounts, 1, "a project with no config contributes no mount at all")
-	assert.Equal(t, rt.ExposeMapped(filepath.Join(worktreeDir, ".git"), false), mounts[0])
-	assert.NotContains(t, mounts, Mount{}, "no empty mount may ride along for shape")
+	assert.Equal(t, exposedMapped(t, rt, filepath.Join(worktreeDir, ".git"), false), mounts[0])
+	assert.NotContains(t, mounts, mount{}, "no empty mount may ride along for shape")
 }

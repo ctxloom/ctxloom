@@ -53,22 +53,22 @@ func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
 func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
 
 // Expose is the OCI identity bind mount, so tests that route delivery mounts
-// through the runtime (sessionStateMounts, gitCommonDirMount) see the same Mount
+// through the runtime (sessionStateMounts, gitCommonDirMount) see the same mount
 // the literal produced.
-func (fakeRuntime) Expose(host, target string, readOnly bool) Mount {
-	return Mount{Host: host, Container: target, ReadOnly: readOnly}
+func (fakeRuntime) expose(host, target string, readOnly bool) mount {
+	return mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
 // ExposeMapped mirrors ociRuntime's real behavior: it routes hostPath through
 // f.mapper() rather than hardcoding Host==Container, so a call site that
 // skips ExposeMapped/mapper() entirely produces output distinguishable from
 // one that used it (see prefixMapper's doc, pathmapper_test.go).
-func (f fakeRuntime) ExposeMapped(hostPath string, readOnly bool) Mount {
-	return Mount{Host: hostPath, Container: f.mapper().toContainer(hostPath), ReadOnly: readOnly}
+func (f fakeRuntime) exposeMapped(hostPath string, readOnly bool) (mount, error) {
+	return exposeThrough(f.mapper(), hostPath, readOnly)
 }
 
 // mapper is a non-identity prefixMapper — deliberately NOT identityMapper.
-// Under identity, ExposeMapped(p) == Mount{p, p} whether or not a call site
+// Under identity, exposeMapped(p) == mount{p, p} whether or not a call site
 // actually threads its path through the mapper, so a deleted mapper() call
 // is byte-identical to a correct one and every container test that exercises
 // this fake was structurally unable to prove the mapper seam is reachable.

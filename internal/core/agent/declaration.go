@@ -58,57 +58,6 @@ type Approach interface {
 // carries no roots: the built Approach receives them at Present/Deliver time.
 type Construct func(in SurfaceInputs, fs afero.Fs) Approach
 
-// OutOfCwd is implemented by an Approach that ALSO has a race-safe form: the
-// same surface written OUT of the shared working directory (beneath the
-// advised session home, announced to the engine by a launch flag) instead of
-// at its well-known path. A shared-cwd delivery runs this form in place of
-// Deliver, without the race warning; a shared launch with no stated
-// preference prefers an approach that has one over the at-rest default.
-//
-// It is RESIDUE, and settings is the last approach that has one. Being a second
-// FORM rather than a separate approach is what made the conversion invisible:
-// a caller that named the well-known file got the private one instead, on a
-// shared launch, and was told it succeeded — while the SAME selection on an
-// isolated cell got the well-known file. One name, two behaviours, neither of
-// them the caller's choice. Context and MCP were split into separate approaches
-// for that reason; settings has not been split yet.
-//
-// Omitting it is the safe direction: an approach without it is warned and not
-// preferred, never silently treated as race-free. Prefer declaring one
-// single-form approach per behaviour over adding a second form here.
-type OutOfCwd interface {
-	DeliverIsolated(start present.Start) (Delivered, error)
-}
-
-// Existing is implemented by an Approach whose out-of-cwd form can be NAMED
-// without being written, because where it lands is a function of the run's
-// content alone (a content-addressed leaf, or a well-known name beneath the
-// advised session home).
-//
-// It is the seam LaunchFormPresent runs. A member sharing the project cwd must
-// not rewrite the session's one surface set, but it still has to tell the
-// engine where those surfaces are — and telling requires naming them. Present
-// is already documented as pure with respect to the filesystem and as composing
-// "how the engine is told about them (argv / env)", so naming is its job;
-// PresentExisting is the half that needs the run's own roots to resolve a path
-// and the run's own filesystem to insist the path is real.
-//
-// Omitting it is the safe direction: an approach without it contributes no argv
-// under LaunchFormPresent, exactly as an approach that delivered nothing
-// contributes none under LaunchFormDeliver. Silence about a surface is never
-// the same as a flag naming a file that is not there.
-type Existing interface {
-	// PresentExisting records and returns the path this approach's out-of-cwd
-	// form occupies — the same path DeliverIsolated would have written — having
-	// written nothing itself.
-	//
-	// "" with a nil error means this approach has no bytes this run (empty
-	// context, an empty MCP set) and so nothing to present; the caller emits no
-	// flag for it. A path that does NOT exist is an error wrapping
-	// ErrAbsentSharedSurface — never a fallback to writing it.
-	PresentExisting(start present.Start) (string, error)
-}
-
 // LaunchOnly is implemented by an Approach whose bytes reach the engine only
 // through a launch — its out-of-cwd form is announced on argv, and an at-rest
 // delivery (materialize, apply, remove) has no argv sink to hand that flag to.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -143,9 +144,17 @@ func TestInteractiveLaunch_WithTmuxHostsTheEngineInAPane(t *testing.T) {
 	// (see tmuxhost.writeLauncher). Read it BEFORE cancelling: the pane's temp
 	// directory is reclaimed when the run's context ends, so a read after the
 	// teardown below finds nothing and reports it as a missing launcher.
-	body, err := os.ReadFile(launcherPathFrom(t, joined))
+	launcherPath := launcherPathFrom(t, joined)
+	body, err := os.ReadFile(launcherPath)
 	require.NoError(t, err, "the pane's launcher must exist")
 	script := string(body)
+	// The environment travels through the FIFO the script sources, never the
+	// file: it carries the engine's credentials. Read it the way the script
+	// does, which also lets the feed finish.
+	envBody, err := os.ReadFile(filepath.Join(filepath.Dir(launcherPath),
+		strings.TrimSuffix(strings.Replace(filepath.Base(launcherPath), "ctxloom-launch-", "ctxloom-env-", 1), ".sh")+".fifo"))
+	require.NoError(t, err, "the pane's environment channel must exist")
+	envScript := string(envBody)
 
 	cancel()
 	<-done
@@ -157,9 +166,10 @@ func TestInteractiveLaunch_WithTmuxHostsTheEngineInAPane(t *testing.T) {
 
 	assert.Contains(t, script, "/opt/engine/claude", "the pane must host the ENGINE binary")
 	assert.Contains(t, script, "--resume", "the engine's own args must reach the pane")
-	assert.Contains(t, script, "CTXLOOM_MARKER='pane-arm'",
+	assert.NotContains(t, script, "CTXLOOM_MARKER", "no environment is written to the launcher file")
+	assert.Contains(t, envScript, "CTXLOOM_MARKER='pane-arm'",
 		"the merged environment must be passed explicitly: a tmux window otherwise inherits the shared server's env, not this run's")
-	assert.NotContains(t, script, "ambient-stale",
+	assert.NotContains(t, envScript, "ambient-stale",
 		"a later duplicate must win, or every override BuildEnv layered on is reverted by the conversion")
 
 	// Capture must be armed, or the pane would host the engine with nothing

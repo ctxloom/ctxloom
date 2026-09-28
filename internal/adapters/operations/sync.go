@@ -268,13 +268,12 @@ type PullBatch func(ctx context.Context, refs []string) error
 // syncToFixedPoint pulls until the visible ref set stops growing, reporting
 // whether the graph converged.
 //
-// A single pass is not enough. collect can only see the refs of profiles that
-// currently RESOLVE: a profile whose remote parent is not yet installed fails to
-// load and contributes nothing — not even the bundles it references directly
-// (collectProfileReferences swallows the loader error). Installing that parent
-// makes the profile loadable, revealing refs the first pass could not have known
-// about. Collecting once leaves part of the graph unpinned while still exiting
-// 0, forcing the user to re-run `deps pull` until it happens to converge.
+// A single pass is not enough. collect can only see into profiles that
+// currently RESOLVE: a bundle-profile parent is readable only once its bundle
+// is installed, so the bundles IT composes are invisible until the pull that
+// installs its bundle. Collecting once leaves part of the graph unpinned while
+// still exiting 0, forcing the user to re-run `deps pull` until it happens to
+// converge.
 //
 // It holds no Config and touches no filesystem: everything it needs is an
 // argument, so what it depends on is exactly what its signature says.
@@ -863,8 +862,8 @@ var startupCloneRefresh = refreshReferencedClones
 
 // refreshReferencedClones advances every remote clone the config references
 // (the bundle refs collectRemoteReferences gathers across profiles and config
-// defaults) to its live tip. Best-effort throughout: a collect or fetch
-// failure leaves the cache as-is; the probe and sync paths surface any real
+// defaults) to its live tip. Best-effort throughout: a fetch failure
+// leaves the cache as-is; the probe and sync paths surface any real
 // problem.
 func refreshReferencedClones(ctx context.Context, cfg *config.Config) {
 	refreshRepoCaches(ctx, NewRepoCache(cfg), syncRefURLs(collectRemoteReferences(cfg, nil)))

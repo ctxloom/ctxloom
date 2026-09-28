@@ -114,8 +114,9 @@ func (s DependencyStatus) UpToDate() bool {
 	return s.CurrentSHA != "" && s.CurrentSHA == s.LatestSHA
 }
 
-// CheckDependenciesResult is what the check found. Entries is how many the
-// lockfile holds (0: nothing is installed, so there was nothing to check).
+// CheckDependenciesResult is what the check found. Entries is how many
+// lockfile entries were checked: those the project closure reaches, or every
+// entry when the closure cannot be known (see closureLock). 0: nothing to check.
 // Single is set when the request named one reference; the closure fields
 // are then zero.
 type CheckDependenciesResult struct {

@@ -1311,33 +1311,8 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if got == "" {
 			return fmt.Errorf("the spy read no .claude.json out of its config home — claude would meet its onboarding and trust dialogs with nothing answered; full spy dump:\n%s", body)
 		}
-		var cfg struct {
-			HasCompletedOnboarding        bool `json:"hasCompletedOnboarding"`
-			BypassPermissionsModeAccepted bool `json:"bypassPermissionsModeAccepted"`
-			Projects                      map[string]struct {
-				HasTrustDialogAccepted bool `json:"hasTrustDialogAccepted"`
-			} `json:"projects"`
-			MCPServers map[string]any `json:"mcpServers"`
-		}
-		if err := json.Unmarshal([]byte(got), &cfg); err != nil {
-			return fmt.Errorf("the instance .claude.json is not valid JSON (%w):\n%s", err, got)
-		}
-		if !cfg.HasCompletedOnboarding {
-			return fmt.Errorf("hasCompletedOnboarding did not cross into the instance — every agent session would re-onboard:\n%s", got)
-		}
-		if cfg.BypassPermissionsModeAccepted {
-			return fmt.Errorf("the instance inherited Alice's standing bypass-permissions answer; that answer belongs to her own interactive session, not an agent run:\n%s", got)
-		}
-		workDir := isoParseSpyEnv(body)["PWD"]
-		entry, ok := cfg.Projects[workDir]
-		if !ok || !entry.HasTrustDialogAccepted {
-			return fmt.Errorf("no generated trust answer for the run's own working directory %q — headless, claude proceeds untrusted rather than prompting; instance config:\n%s", workDir, got)
-		}
-		if len(cfg.Projects) != 1 {
-			return fmt.Errorf("the instance carries %d project entries, want exactly the one this run works in — Alice's own projects map must never be copied wholesale:\n%s", len(cfg.Projects), got)
-		}
-		if cfg.MCPServers != nil {
-			return fmt.Errorf("the agent's instance inherited Alice's own mcpServers registrations:\n%s", got)
+		if err := isoCheckInstanceClaudeConfig(got, isoParseSpyEnv(body)["PWD"]); err != nil {
+			return err
 		}
 		for _, secret := range []string{isoFixturePersonalSecret, isoFixturePersonalHistory} {
 			if strings.Contains(got, secret) {
@@ -1374,6 +1349,41 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		w.docStepMaterialized = fmt.Sprintf("host %s credential file (%s), unchanged after the run:\n%s", engine, rel, strings.TrimSpace(got))
 		return nil
 	})
+}
+
+// isoCheckInstanceClaudeConfig checks the parsed instance .claude.json (got):
+// onboarding crossed, Alice's bypass-permissions answer did not, exactly one
+// project entry — a trust answer for workDir, the run's own working directory
+// — and no mcpServers registrations.
+func isoCheckInstanceClaudeConfig(got, workDir string) error {
+	var cfg struct {
+		HasCompletedOnboarding        bool `json:"hasCompletedOnboarding"`
+		BypassPermissionsModeAccepted bool `json:"bypassPermissionsModeAccepted"`
+		Projects                      map[string]struct {
+			HasTrustDialogAccepted bool `json:"hasTrustDialogAccepted"`
+		} `json:"projects"`
+		MCPServers map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(got), &cfg); err != nil {
+		return fmt.Errorf("the instance .claude.json is not valid JSON (%w):\n%s", err, got)
+	}
+	if !cfg.HasCompletedOnboarding {
+		return fmt.Errorf("hasCompletedOnboarding did not cross into the instance — every agent session would re-onboard:\n%s", got)
+	}
+	if cfg.BypassPermissionsModeAccepted {
+		return fmt.Errorf("the instance inherited Alice's standing bypass-permissions answer; that answer belongs to her own interactive session, not an agent run:\n%s", got)
+	}
+	entry, ok := cfg.Projects[workDir]
+	if !ok || !entry.HasTrustDialogAccepted {
+		return fmt.Errorf("no generated trust answer for the run's own working directory %q — headless, claude proceeds untrusted rather than prompting; instance config:\n%s", workDir, got)
+	}
+	if len(cfg.Projects) != 1 {
+		return fmt.Errorf("the instance carries %d project entries, want exactly the one this run works in — Alice's own projects map must never be copied wholesale:\n%s", len(cfg.Projects), got)
+	}
+	if cfg.MCPServers != nil {
+		return fmt.Errorf("the agent's instance inherited Alice's own mcpServers registrations:\n%s", got)
+	}
+	return nil
 }
 
 // isoStoreSetupToken stores the fixture setup-token for engine where

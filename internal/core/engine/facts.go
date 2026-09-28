@@ -3,6 +3,8 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 
 	"github.com/spf13/afero"
 )
@@ -153,7 +155,17 @@ func (c ContainerSpec) Validate() error {
 	if len(c.Install) > 0 && c.ValidateCommand == "" {
 		return errors.New("ContainerSpec: Install is set but ValidateCommand is empty; an install fragment must be gated by a command that proves the client runs")
 	}
+	if r := c.TranscriptStoreRel; r != "" && !isContainerRel(r) {
+		return fmt.Errorf("ContainerSpec: TranscriptStoreRel %q is not a clean relative slash path; it names a place inside the Linux container, so build it with path, never filepath", r)
+	}
 	return nil
+}
+
+// isContainerRel is a clean, relative, slash-separated path that stays below
+// its base — the only shape path.Join(home, rel) resolves inside the home.
+func isContainerRel(r string) bool {
+	return !strings.Contains(r, `\`) && !path.IsAbs(r) && path.Clean(r) == r &&
+		r != ".." && !strings.HasPrefix(r, "../")
 }
 
 // TranscriptReader is one version-scoped reader of the engine's own

@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -63,7 +64,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 		t.Skip("git not on PATH; skipping the worktree isolation-env integration test")
 	}
 	resetStrictness(t)
-	t.Setenv("HOME", t.TempDir())
+	fakeHostHome(t, "")
 	t.Setenv(claude.OAuthTokenEnv, tokenFixture) // the token agent's credential, exported
 	repo := initIsolationTestRepo(t)
 	req := claudeKind(t)
@@ -109,8 +110,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 
 	t.Run("a binding that declares engine_home: session gets the controlled home", func(t *testing.T) {
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test") // authenticates without a host credential fixture
+		fakeHostHome(t, "login") // the login agent's shared store, present on the host
 		workDir := t.TempDir()
 		cell := prepare(t, workDir, launch.HomeModeSession, launch.WorkspaceNone, "test-harp")
 
@@ -127,8 +127,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 
 	t.Run("a binding selecting engine_home: host keeps the real host home", func(t *testing.T) {
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+		fakeHostHome(t, "login")
 		workDir := t.TempDir()
 		cell := prepare(t, workDir, launch.HomeModeHost, launch.WorkspaceNone, "test-harp")
 
@@ -139,8 +138,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 
 	t.Run("two sessions in one checkout get two instances", func(t *testing.T) {
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+		fakeHostHome(t, "login")
 		workDir := t.TempDir()
 		homes := map[string]string{}
 		for _, harp := range []string{"ugly-icy-squid", "brave-warm-otter"} {
@@ -158,8 +156,7 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 			t.Skip("git not on PATH; skipping the worktree cell case")
 		}
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
-		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+		fakeHostHome(t, "login")
 		repo := initIsolationTestRepo(t)
 		cell := prepare(t, repo, launch.HomeModeSession, launch.WorkspaceWorktree, "test-harp")
 
@@ -314,7 +311,7 @@ func TestCellsPrepare_AnEngineThatRelocatesNothingGetsTheRulesSessionHome(t *tes
 	require.False(t, eng.Home().Relocates(), "the case needs an engine that relocates nothing")
 	for _, mode := range []launch.HomeMode{launch.HomeModeSession, launch.HomeModeHost} {
 		resetStrictness(t)
-		t.Setenv("HOME", t.TempDir())
+		fakeHostHome(t, "")
 		req := claudeKind(t)
 		req.Engine = eng
 		req.HomeMode = mode
@@ -388,3 +385,39 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 type listening struct{ stubEnvironment }
 
 func (listening) Listen() present.Listen { return present.Listen{Addr: "10.0.0.1"} }
+
+// A PREVIEW cell refuses nothing: the isolation findings a run's cell gate
+// refuses on stay on the ledger for the dry run's own gate, which lists them
+// after the plan, and the preview carries on with the environment's
+// best-effort outcome. The real cell, over the same findings, refuses.
+func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
+	resetStrictness(t)
+	// The run authenticates first: a stored token, so the refusal it meets
+	// is the environment's, not the credential's.
+	fakeHostHome(t, "")
+	_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
+	require.NoError(t, err)
+	refusing := func(context.Context, launch.CellRequest, isolation.Spec) (isolation.Environment, error) {
+		strictness.FailAlways(report.KindIsolation, "the fix", "the requested boundary cannot be provided")
+		return stubEnvironment{}, nil
+	}
+	prevPrepare, prevPreview := prepareEnvironment, previewEnvironment
+	prepareEnvironment, previewEnvironment = refusing, refusing
+	t.Cleanup(func() { prepareEnvironment, previewEnvironment = prevPrepare, prevPreview })
+	req := claudeKind(t)
+	req.ProjectRoot = t.TempDir()
+	req.Auth = string(engine.AuthToken)
+	req.SessionDir = harpDir(t, "test-harp")
+	cells := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}
+
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	preview := cells
+	preview.preview = true
+	_, err = preview.Prepare(context.Background(), req)
+	require.NoError(t, err, "a preview carries on past a refusal")
+	require.Len(t, strictness.Since(mark), 1, "the finding stays on the ledger for the dry run's gate")
+
+	_, err = cells.Prepare(context.Background(), req)
+	require.ErrorIs(t, err, launch.ErrRuntimeUnavailable, "a run refuses on the same finding")
+}

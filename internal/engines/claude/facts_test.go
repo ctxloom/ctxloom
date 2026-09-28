@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"path/filepath"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,7 +46,7 @@ func TestContainer_Declaration(t *testing.T) {
 	assert.NotEmpty(t, c.Install, "claude has an official npm installer")
 	assert.Equal(t, "claude --version", c.ValidateCommand)
 	assert.Equal(t, []string{ConfigDirName}, c.OverlayDirs)
-	assert.Equal(t, filepath.Join(ConfigDirName, TranscriptsDirName), c.TranscriptStoreRel)
+	assert.Equal(t, path.Join(ConfigDirName, TranscriptsDirName), c.TranscriptStoreRel)
 
 }
 

@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/procalive"
 )
 
 // testBound is far below any real command's run time, so every command below
@@ -100,7 +102,7 @@ func TestExec_TheBoundKillsTheWholeProcessGroup(t *testing.T) {
 		t.Fatalf("no grandchild pid in stdout %q: %v", h.LastStdout(), perr)
 	}
 	deadline := time.Now().Add(testGuard)
-	for syscall.Kill(pid, 0) == nil {
+	for procalive.Alive(pid) {
 		if time.Now().After(deadline) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 			t.Fatalf("grandchild %d outlived the group kill", pid)

@@ -38,7 +38,7 @@
 package arch
 
 import (
-	"path/filepath"
+	"path"
 	"slices"
 	"testing"
 
@@ -88,7 +88,7 @@ type transcriptCheck struct {
 
 func testSpecTranscriptStoreRel(t *testing.T) {
 	checks := []transcriptCheck{
-		{backend: "claude-code", want: filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.TranscriptsDirName))},
+		{backend: "claude-code", want: path.Join(claude.ConfigDirName, claude.TranscriptsDirName)},
 	}
 	for _, c := range checks {
 		t.Run(c.backend, func(t *testing.T) {

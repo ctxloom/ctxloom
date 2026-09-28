@@ -401,55 +401,69 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		// distrusted" tag.
 		w.docStepMaterialized = "$ ctxloom signer show " + j001700EmbeddedPrincipal + "   # before the removal attempt\n" + j001700.embeddedShowBefore +
 			"\n$ ctxloom signer show " + j001700EmbeddedPrincipal + "   # after the removal attempt\n" + j001700.embeddedShowAfter
-		check := func(raw string, format clifmt.Format, wantSuppressed bool, label string) error {
-			if !format.Structured() {
-				if !strings.Contains(raw, j001700EmbeddedPrincipal) {
-					return fmt.Errorf("expected 'signer show' (%s) to list the embedded principal; output:\n%s", label, raw)
-				}
-				if !strings.Contains(raw, "embedded") {
-					return fmt.Errorf("expected 'signer show' (%s) to tag the entry \"embedded\"; output:\n%s", label, raw)
-				}
-				if got := strings.Contains(raw, "DISTRUSTED"); got != wantSuppressed {
-					return fmt.Errorf("'signer show' (%s) reports DISTRUSTED=%v, want %v; output:\n%s", label, got, wantSuppressed, raw)
-				}
-				return nil
-			}
-			// operations.ShowSigner narrows to the one listing for the
-			// requested principal, so the JSON payload is a one-element array —
-			// the same shape "0.entry.principals.0"/"0.source"/"0.suppressed"
-			// addresses for both the before and after snapshot.
-			principal, err := jsonAtPathFrom(raw, "0.entry.principals.0")
-			if err != nil {
-				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
-			}
-			if got, _ := jsonScalar(principal); got != j001700EmbeddedPrincipal {
-				return fmt.Errorf("'signer show' (%s) json principal = %q, want %q; output:\n%s", label, got, j001700EmbeddedPrincipal, raw)
-			}
-			source, err := jsonAtPathFrom(raw, "0.source")
-			if err != nil {
-				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
-			}
-			if got, _ := jsonScalar(source); got != "embedded" {
-				return fmt.Errorf("'signer show' (%s) json source = %q, want %q; output:\n%s", label, got, "embedded", raw)
-			}
-			suppressed, err := jsonAtPathFrom(raw, "0.suppressed")
-			if err != nil {
-				return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
-			}
-			want := fmt.Sprintf("%v", wantSuppressed)
-			if got, _ := jsonScalar(suppressed); got != want {
-				return fmt.Errorf("'signer show' (%s) json suppressed = %s, want %s; output:\n%s", label, got, want, raw)
-			}
-			return nil
-		}
-		if err := check(j001700.embeddedShowBefore, j001700.embeddedShowBeforeFormat, false, "before"); err != nil {
+		if err := j001700CheckEmbeddedShow(j001700.embeddedShowBefore, j001700.embeddedShowBeforeFormat, false, "before"); err != nil {
 			return err
 		}
-		if err := check(j001700.embeddedShowAfter, j001700.embeddedShowAfterFormat, true, "after"); err != nil {
+		if err := j001700CheckEmbeddedShow(j001700.embeddedShowAfter, j001700.embeddedShowAfterFormat, true, "after"); err != nil {
 			return err
 		}
 		return nil
 	})
+}
+
+// j001700CheckEmbeddedShow checks one 'signer show' snapshot of the embedded
+// principal: listed, tagged embedded, and suppressed exactly when
+// wantSuppressed — read from text or JSON as format says.
+func j001700CheckEmbeddedShow(raw string, format clifmt.Format, wantSuppressed bool, label string) error {
+	if !format.Structured() {
+		return j001700CheckEmbeddedShowText(raw, wantSuppressed, label)
+	}
+	return j001700CheckEmbeddedShowJSON(raw, wantSuppressed, label)
+}
+
+// j001700CheckEmbeddedShowText is j001700CheckEmbeddedShow for a text snapshot.
+func j001700CheckEmbeddedShowText(raw string, wantSuppressed bool, label string) error {
+	if !strings.Contains(raw, j001700EmbeddedPrincipal) {
+		return fmt.Errorf("expected 'signer show' (%s) to list the embedded principal; output:\n%s", label, raw)
+	}
+	if !strings.Contains(raw, "embedded") {
+		return fmt.Errorf("expected 'signer show' (%s) to tag the entry \"embedded\"; output:\n%s", label, raw)
+	}
+	if got := strings.Contains(raw, "DISTRUSTED"); got != wantSuppressed {
+		return fmt.Errorf("'signer show' (%s) reports DISTRUSTED=%v, want %v; output:\n%s", label, got, wantSuppressed, raw)
+	}
+	return nil
+}
+
+// j001700CheckEmbeddedShowJSON is j001700CheckEmbeddedShow for a JSON snapshot.
+func j001700CheckEmbeddedShowJSON(raw string, wantSuppressed bool, label string) error {
+	// operations.ShowSigner narrows to the one listing for the
+	// requested principal, so the JSON payload is a one-element array —
+	// the same shape "0.entry.principals.0"/"0.source"/"0.suppressed"
+	// addresses for both the before and after snapshot.
+	principal, err := jsonAtPathFrom(raw, "0.entry.principals.0")
+	if err != nil {
+		return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
+	}
+	if got, _ := jsonScalar(principal); got != j001700EmbeddedPrincipal {
+		return fmt.Errorf("'signer show' (%s) json principal = %q, want %q; output:\n%s", label, got, j001700EmbeddedPrincipal, raw)
+	}
+	source, err := jsonAtPathFrom(raw, "0.source")
+	if err != nil {
+		return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
+	}
+	if got, _ := jsonScalar(source); got != "embedded" {
+		return fmt.Errorf("'signer show' (%s) json source = %q, want %q; output:\n%s", label, got, "embedded", raw)
+	}
+	suppressed, err := jsonAtPathFrom(raw, "0.suppressed")
+	if err != nil {
+		return fmt.Errorf("%s: %w; output:\n%s", label, err, raw)
+	}
+	want := fmt.Sprintf("%v", wantSuppressed)
+	if got, _ := jsonScalar(suppressed); got != want {
+		return fmt.Errorf("'signer show' (%s) json suppressed = %s, want %s; output:\n%s", label, got, want, raw)
+	}
+	return nil
 }
 
 // jsonAtPathFrom decodes raw as a JSON document and addresses it with

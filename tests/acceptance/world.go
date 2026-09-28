@@ -171,34 +171,25 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		if w == nil {
 			return ctx, nil
 		}
-		// This used to discard all three of these errors, so a
-		// scenario that leaked a subprocess or failed to remove its temp root
-		// reported nothing at all -- testenv.TestEnvironment.Cleanup's own doc
-		// names exactly this discard as the primary, always-reproducible
-		// mechanism behind an observed /tmp leak (see that type's doc).
-		// Returning the first non-nil error lets godog attribute it to the
+		// Every teardown error is returned — the first one — so godog
+		// attributes a leaked subprocess or an unremoved temp root to the
 		// scenario instead of it vanishing silently.
+		// testenv.TestEnvironment.Cleanup's own doc names a discarded cleanup
+		// error as the always-reproducible mechanism behind an observed /tmp
+		// leak.
 		var firstErr error
 		// Release before env.Cleanup: an flock this process still holds on a
 		// file inside the temp root would outlive the scenario that made it.
 		for _, fl := range w.heldSessionLocks {
-			if cerr := fl.Close(); cerr != nil && firstErr == nil {
-				firstErr = fmt.Errorf("release seeded session lock: %w", cerr)
-			}
+			firstErr = firstTeardownErr(firstErr, fl.Close(), "release seeded session lock")
 		}
 		w.heldSessionLocks = nil
-		if cerr := w.mcp.Close(); cerr != nil && firstErr == nil {
-			firstErr = fmt.Errorf("mcp client close: %w", cerr)
-		}
+		firstErr = firstTeardownErr(firstErr, w.mcp.Close(), "mcp client close")
 		// The agent session closes BEFORE the owner it dialed, so it ends
 		// against a live endpoint rather than a dead one.
 		w.owner.stop()
-		if cerr := w.tlMCP.Close(); cerr != nil && firstErr == nil {
-			firstErr = fmt.Errorf("taskloom mcp client close: %w", cerr)
-		}
-		if cerr := w.env.Cleanup(); cerr != nil && firstErr == nil {
-			firstErr = fmt.Errorf("env cleanup: %w", cerr)
-		}
+		firstErr = firstTeardownErr(firstErr, w.tlMCP.Close(), "taskloom mcp client close")
+		firstErr = firstTeardownErr(firstErr, w.env.Cleanup(), "env cleanup")
 		return ctx, firstErr
 	})
 
@@ -265,4 +256,14 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerStartupBoundarySteps(ctx)
 	registerContainerImageSteps(ctx)
 	registerDocCaptureHooks(ctx)
+}
+
+// firstTeardownErr keeps first when it is already set; otherwise it wraps err
+// as a what failure (nil when err is nil). Callers evaluate err before the
+// call, so every teardown action runs whichever error wins.
+func firstTeardownErr(first, err error, what string) error {
+	if first != nil || err == nil {
+		return first
+	}
+	return fmt.Errorf("%s: %w", what, err)
 }

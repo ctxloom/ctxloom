@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
@@ -242,15 +243,15 @@ func remedyOf(t *testing.T, err error) string {
 	return r.Remedy()
 }
 
-// fakeHostHome points $HOME at a scratch directory, clears every credential
-// var claude reads and UNSETS the ones its login store is resolved from, so
-// no case reads the developer's real credentials. When token is non-empty
-// the host also gets a native ~/.claude login.
+// fakeHostHome isolates the environment (testsupport.Isolate: a scratch
+// $HOME, the ambient ctxloom session cleared), clears every credential var
+// claude reads and UNSETS the ones its login store is resolved from, so no
+// case reads the developer's real credentials or a live session's
+// CLAUDE_CONFIG_DIR. When token is non-empty the host also gets a native
+// ~/.claude login.
 func fakeHostHome(t *testing.T, token string) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	home := testsupport.Isolate(t)
 	for _, v := range []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv} {
 		t.Setenv(v, "")
 	}

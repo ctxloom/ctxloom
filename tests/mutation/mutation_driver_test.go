@@ -61,12 +61,18 @@ func fakeGoDir(t *testing.T, output, status string) string {
 // a private mutation tmpdir, and NO baseline update mode — the acceptance and
 // package lanes ratchet against the repo's real survivor_baseline.txt, and an
 // inherited CTXLOOM_MUTATION_BASELINE=update would let a fake run rewrite it.
+//
+// JUST_JUSTFILE is set to justfile.container, as CI's container jobs set it,
+// on every machine: a lane that recursed through a bare `just` would resolve
+// that justfile instead of the one it was run from, and without this the
+// break shows only on CI.
 func driverEnv(t *testing.T, fakeDir, mutationTmp string) []string {
 	t.Helper()
 	var env []string
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "CTXLOOM_MUTATION_BASELINE=") ||
 			strings.HasPrefix(kv, "CTXLOOM_MUTATION_TMP=") ||
+			strings.HasPrefix(kv, "JUST_JUSTFILE=") ||
 			strings.HasPrefix(kv, "PATH=") {
 			continue
 		}
@@ -74,7 +80,8 @@ func driverEnv(t *testing.T, fakeDir, mutationTmp string) []string {
 	}
 	return append(env,
 		"PATH="+fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"CTXLOOM_MUTATION_TMP="+mutationTmp)
+		"CTXLOOM_MUTATION_TMP="+mutationTmp,
+		"JUST_JUSTFILE=justfile.container")
 }
 
 // runMutationRecipe runs a public mutation recipe exactly as a human would,

@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -160,19 +161,22 @@ func TestContainerEnvironment_MountsTheHomeAndNoCredential(t *testing.T) {
 // starts — beside the session home, never replacing it.
 func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	c := NewContainerFor(Docker{rootless: true}, "claude-code")
-	cw := &containerWorkspace{dir: "/proj"}
+	cw := &containerWorkspace{dir: t.TempDir()}
+	home := t.TempDir()
+	login, provider := filepath.Join(home, ".claude"), filepath.Join(home, ".aws")
 	stores := []sharedStore{
-		{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude"}, hostDir: "/h/.claude"},
-		{SharedStore: engine.SharedStore{HomeRel: ".aws", ReadOnly: true}, hostDir: "/h/.aws"},
+		{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude"}, hostDir: login},
+		{SharedStore: engine.SharedStore{HomeRel: ".aws", ReadOnly: true}, hostDir: provider},
 	}
-	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: hostSessionHome, homeVar: claudeHomeVar, stores: stores})
+	sessionHome := filepath.Join(t.TempDir(), "home", "claude")
+	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: sessionHome, homeVar: claudeHomeVar, stores: stores})
 	require.NoError(t, err)
 	_, err = c.environment(cw, pl, roots)
 	require.NoError(t, err)
 
 	argv := strings.Join(c.runtime.RunArgs(c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")
-	assert.Contains(t, argv, "type=bind,source=/h/.claude,target="+defaultContainerHome+"/.claude ", "the login store, read-write")
-	assert.Contains(t, argv, "type=bind,source=/h/.aws,target="+defaultContainerHome+"/.aws,readonly", "the provider store, read-only")
+	assert.Contains(t, argv, "type=bind,source="+login+",target="+defaultContainerHome+"/.claude ", "the login store, read-write")
+	assert.Contains(t, argv, "type=bind,source="+provider+",target="+defaultContainerHome+"/.aws,readonly", "the provider store, read-only")
 	assert.Contains(t, argv, "target=/ctxloom/home/claude", "the session home keeps its own mount")
 	assert.Equal(t, "", pl.Env["STORE_VAR"], "the var points the engine at $HOME")
 }

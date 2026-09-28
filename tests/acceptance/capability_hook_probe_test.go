@@ -25,6 +25,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -696,19 +697,7 @@ func TestHookProbeCarriageWatcher_SearchedIsTheUnionAcrossPasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Let at least one pass observe it, then take it away as teardown does.
-	deadline := time.Now().Add(5 * time.Second)
-	var walked bool
-	for time.Now().Before(deadline) && !walked {
-		for _, r := range w.Searched() {
-			if r == ephemeral {
-				walked = true
-			}
-		}
-		if !walked {
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
-	if !walked {
+	if !hookProbeAwaitSearched(w, ephemeral, 5*time.Second) {
 		t.Fatal("the watcher never walked the ephemeral root")
 	}
 	if err := os.RemoveAll(ephemeral); err != nil {
@@ -716,21 +705,26 @@ func TestHookProbeCarriageWatcher_SearchedIsTheUnionAcrossPasses(t *testing.T) {
 	}
 	w.Stop()
 
-	var sawEphemeral, sawFixed bool
-	for _, r := range w.Searched() {
-		switch r {
-		case ephemeral:
-			sawEphemeral = true
-		case fixed:
-			sawFixed = true
-		}
-	}
-	if !sawFixed {
+	searched := w.Searched()
+	if !slices.Contains(searched, fixed) {
 		t.Fatal("the fixed root is missing from Searched")
 	}
-	if !sawEphemeral {
+	if !slices.Contains(searched, ephemeral) {
 		t.Fatal("a root that existed only mid-run dropped out of Searched — a NOT SEEN would understate where the scan looked")
 	}
+}
+
+// hookProbeAwaitSearched polls w until root appears in Searched or within
+// elapses, reporting whether it appeared.
+func hookProbeAwaitSearched(w *hookProbeCarriageWatcher, root string, within time.Duration) bool {
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if slices.Contains(w.Searched(), root) {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
 }
 
 // TestHookProbeCarriageOrUnknown_NamesTheRootsItSearched: the NOT SEEN line has

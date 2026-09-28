@@ -133,6 +133,22 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 		"-e", "CTXLOOM_MOCK_REPORT_FILE=/work/report.json",
 		img, "/usr/local/bin/mockengine", "--" + claude.EngineName,
 	}, claudeContainerVendorArgv()...)
+	stderr := runMockEngineContainer(t, args)
+	rep := readWorkspaceReport(t, workspace, stderr)
+	assertStderrReportAgrees(t, rep, stderr)
+	assertDeliveredSurfaces(t, rep, wantContextHash)
+
+	t.Logf("discovery digest: %s", rep.DiscoveryDigest)
+	for _, r := range rep.Records {
+		t.Logf("  probe order=%d kind=%s scope=%s present=%t size=%d sha256=%s rel=%s",
+			r.Order, r.Kind, r.Scope, r.Present, r.Size, r.SHA256, r.Rel)
+	}
+}
+
+// runMockEngineContainer runs docker with args, the prompt on stdin, and
+// returns the captured stderr once the oneshot answered on stdout.
+func runMockEngineContainer(t *testing.T, args []string) string {
+	t.Helper()
 	cmd := exec.Command("docker", args...)
 	cmd.Stdin = strings.NewReader(containerPrompt)
 	var stdout, stderr bytes.Buffer
@@ -145,11 +161,16 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	if strings.TrimSpace(stdout.String()) == "" {
 		t.Fatalf("stdout carried no answer; stderr:\n%s", stderr.String())
 	}
+	return stderr.String()
+}
 
-	// Read the discovery report the mock wrote into the mounted workspace.
+// readWorkspaceReport reads the discovery report the mock wrote into the
+// mounted workspace and checks it identifies as claude-code/oneshot.
+func readWorkspaceReport(t *testing.T, workspace, stderr string) mockrt.Report {
+	t.Helper()
 	rb, err := os.ReadFile(filepath.Join(workspace, "report.json"))
 	if err != nil {
-		t.Fatalf("no report.json in the workspace; stderr:\n%s", stderr.String())
+		t.Fatalf("no report.json in the workspace; stderr:\n%s", stderr)
 	}
 	var rep mockrt.Report
 	if err := json.Unmarshal(rb, &rep); err != nil {
@@ -159,19 +180,27 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	if rep.Engine != claude.EngineName || rep.Surface != "oneshot" {
 		t.Fatalf("report identity = %s/%s, want claude-code/oneshot", rep.Engine, rep.Surface)
 	}
+	return rep
+}
 
-	// Also exercise the marker-bracketed stderr channel ExtractReport
-	// reads — it previously had no container caller at all, despite its own
-	// doc claiming one. Both channels must agree.
-	stderrRep, err := mockrt.ExtractReport(stderr.String())
+// assertStderrReportAgrees exercises the marker-bracketed stderr channel
+// ExtractReport reads — this is its container caller. Both channels must agree.
+func assertStderrReportAgrees(t *testing.T, rep mockrt.Report, stderr string) {
+	t.Helper()
+	stderrRep, err := mockrt.ExtractReport(stderr)
 	if err != nil {
-		t.Fatalf("ExtractReport on captured stderr: %v\nstderr:\n%s", err, stderr.String())
+		t.Fatalf("ExtractReport on captured stderr: %v\nstderr:\n%s", err, stderr)
 	}
 	if stderrRep.DiscoveryDigest != rep.DiscoveryDigest {
 		t.Fatalf("stderr-channel report digest %s != file-channel report digest %s",
 			stderrRep.DiscoveryDigest, rep.DiscoveryDigest)
 	}
+}
 
+// assertDeliveredSurfaces checks the delivered context matches the host bytes
+// and that never-delivered surfaces report absent.
+func assertDeliveredSurfaces(t *testing.T, rep mockrt.Report, wantContextHash string) {
+	t.Helper()
 	// DELIVERED: the context file the mock discovered inside the container must
 	// match the bytes ctxloom wrote on the host — same file, seen across the
 	// container boundary.
@@ -194,12 +223,6 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	}
 	if rep.DiscoveryDigest == "" {
 		t.Fatal("no discovery digest")
-	}
-
-	t.Logf("discovery digest: %s", rep.DiscoveryDigest)
-	for _, r := range rep.Records {
-		t.Logf("  probe order=%d kind=%s scope=%s present=%t size=%d sha256=%s rel=%s",
-			r.Order, r.Kind, r.Scope, r.Present, r.Size, r.SHA256, r.Rel)
 	}
 }
 

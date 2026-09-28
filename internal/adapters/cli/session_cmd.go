@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -311,23 +312,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("harp not found: %q", harpName)
 	}
 
-	// Situate this one-shot process in the session's recorded project dir before
-	// reading config or the transcript. The backend transcript reader is
-	// self-situated — it derives the agent's store path (e.g. claude-code's
-	// ~/.claude/projects/<mangled-cwd>/) from the ambient cwd, not from the
-	// session id. So distilling a harp whose project dir differs from where we
-	// were launched (being run from a subdir or another project is enough) would
-	// look for the transcript under the wrong dir and fail with "no such file". chdir is safe:
-	// `session distill` is a short-lived process that exits after this call.
-	if entry.ProjectDir != "" {
-		if cwd, _ := os.Getwd(); cwd != entry.ProjectDir {
-			if cerr := os.Chdir(entry.ProjectDir); cerr != nil {
-				// Don't hard-fail: the ambient cwd may still resolve (same project),
-				// and a usable "couldn't distill" beats blocking the caller (CLAUDE.md).
-				clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", entry.ProjectDir, harpName, cerr)
-			}
-		}
-	}
+	enterSessionProjectDir(entry.ProjectDir, harpName)
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -363,9 +348,8 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		progress.Printf("ctxloom: could not refresh transcript for %s before distilling: %v\n", harpName, src.HealErr)
 	}
 	// Only the fallback direction carries information: when resolve produced no
-	// entry, hand it the one already read above. The mirrored assignment that
-	// used to sit here (entry = src.Entry) wrote a local nothing reads again —
-	// entry is last read before this block — so it was dead, not symmetric.
+	// entry, hand it the one already read above. entry is not read after this
+	// point, so copying src.Entry back into it would be dead.
 	if src.Entry == nil {
 		src.Entry = entry
 	}
@@ -377,7 +361,35 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	w := iox.NewErrWriter(cmd.OutOrStdout())
+	return reportDistillResult(cmd.OutOrStdout(), harpName, result)
+}
+
+// enterSessionProjectDir situates this one-shot process in the session's
+// recorded project dir before config or the transcript is read. The backend
+// transcript reader is self-situated — it derives the agent's store path (e.g.
+// claude-code's ~/.claude/projects/<mangled-cwd>/) from the ambient cwd, not
+// from the session id. So distilling a harp whose project dir differs from
+// where we were launched (being run from a subdir or another project is
+// enough) would look for the transcript under the wrong dir and fail with "no
+// such file". chdir is safe: `session distill` is a short-lived process that
+// exits after this call.
+func enterSessionProjectDir(projectDir, harpName string) {
+	if projectDir == "" {
+		return
+	}
+	if cwd, _ := os.Getwd(); cwd == projectDir {
+		return
+	}
+	if cerr := os.Chdir(projectDir); cerr != nil {
+		// Don't hard-fail: the ambient cwd may still resolve (same project),
+		// and a usable "couldn't distill" beats blocking the caller (CLAUDE.md).
+		clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", projectDir, harpName, cerr)
+	}
+}
+
+// reportDistillResult prints the one-line distill summary to out.
+func reportDistillResult(out io.Writer, harpName string, result *memory.CompactionResult) error {
+	w := iox.NewErrWriter(out)
 	reduced := ""
 	if result.InputReduced {
 		// Say so rather than reporting the token counts alone: the essence is

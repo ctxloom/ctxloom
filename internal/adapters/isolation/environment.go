@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Environment is where one run executes. It is constructed from host facts
@@ -83,20 +84,32 @@ var ErrPreviewEnvironment = errors.New("isolation: a preview environment cannot 
 // session home (launch.SessionHome, created and prepared here). Stage 2 is
 // the chosen environment's relocator: the host presents every root in place,
 // the container presents each one together with the mount that makes it
-// true. It is the only place a path is rewritten.
+// true. It is the only place a ROOT is rewritten; the container's auxiliary
+// mounts (config overlays, the git common dir) are mapped by the same
+// runtime mapper where stage 1 builds them. The requested environment's
+// roots are routed once, with no effects, before either stage.
 func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	stores, err := stageStores(s.backend(), s.creds.Stores)
 	if err != nil {
 		return nil, err
 	}
 	chain := withSessionState(chainFor(s.axes, s.backend(), s.img), s.state)
+	// The requested environment's roots are routed first, with no effects:
+	// the chain's own container mounts map paths too, and a root failing
+	// there would read as an unstartable container rather than as the root
+	// no environment of this kind can present. Only an unreachable root is
+	// refused here; any other refusal is left to the prepared link, which may
+	// have degraded to one that can satisfy it.
+	head := chain[0].relocator()
+	if _, _, err := head.relocate(previewLayout(s, stores)); errors.Is(err, present.ErrUnreachableRoot) {
+		return nil, refuseUnreachable("run in", err)
+	}
 	p, ws := prepareChain(ctx, chain, s.axes.Runtime, s.project, s.harp)
 	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores)
 	pl, roots, err := p.relocator().relocate(l)
 	if err != nil {
-		refuseUnpresentable(err, "run in")
 		_ = ws.Cleanup()
-		return nil, err
+		return nil, refuseUnreachable("run in", err)
 	}
 	env, err := p.environment(ws, pl, roots)
 	if err != nil {
@@ -106,16 +119,26 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	return env, nil
 }
 
-// refuseUnpresentable records the fatal finding for a root the environment
-// cannot present. Any other relocation refusal (a credential store no
-// container can reach) carries its own remedy on the error.
-func refuseUnpresentable(err error, what string) {
-	if errors.Is(err, present.ErrUnreachableRoot) {
-		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy, "refusing to %s an environment that cannot present every root: %v", what, err)
+// unreachableRootRemedy names the fix for a root the runtime cannot route:
+// the one the refusal carries (a share path names its own), else moving the
+// root somewhere the daemon sees.
+func unreachableRootRemedy(err error) string {
+	if fix, ok := clifmt.RemedyOf(err); ok {
+		return fix
 	}
+	return "move the project and the ctxloom home onto a filesystem the container runtime can mount (the daemon must see the same paths), or run with `runtime: host`"
 }
 
-const unreachableRootRemedy = "move the project and the ctxloom home onto a filesystem the container runtime can mount (the daemon must see the same paths), or run with `runtime: host`"
+// refuseUnreachable records err as the non-degradable finding it is when it
+// is a root the environment cannot present, and returns it. Any other
+// relocation refusal (a credential store no container can reach) carries its
+// own remedy on the error.
+func refuseUnreachable(what string, err error) error {
+	if errors.Is(err, present.ErrUnreachableRoot) {
+		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to %s an environment that cannot present every root: %v", what, err)
+	}
+	return err
+}
 
 // Preview is Prepare's relocation with no effects on disk: no checkout, no
 // scratch, no session home created. A container preview PROBES the runtime
@@ -131,8 +154,7 @@ func Preview(ctx context.Context, s Spec) (Environment, error) {
 	p := chainFor(s.axes, s.backend(), s.img)[0]
 	pl, _, err := p.relocator().relocate(previewLayout(s, stores))
 	if err != nil {
-		refuseUnpresentable(err, "preview")
-		return nil, err
+		return nil, refuseUnreachable("preview", err)
 	}
 	listen, desc := p.preview(ctx)
 	return previewEnvironment{placement: pl, listen: listen, desc: desc}, nil

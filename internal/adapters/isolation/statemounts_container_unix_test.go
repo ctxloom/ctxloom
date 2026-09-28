@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,7 +64,7 @@ func TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir(t *testing.T) {
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: "brisk-teal-otter"}
 	require.Equal(t, defaultContainerHome, c.home)
-	wantContainerLocksDir := filepath.Join(c.home, paths.AppDirName, paths.HomeLocksDirName)
+	wantContainerLocksDir := path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName)
 	require.True(t, strings.HasPrefix(containerLockPath, wantContainerLocksDir+string(filepath.Separator)))
 
 	// The load-bearing equivalence: same basename either side of the
@@ -114,7 +115,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 			engineInstall:      []byte("RUN echo fake-install\n"), // buildable → the run-as-is identity inspect is skipped
 			declared:           true,
 			overlayDirs:        []string{".claude"},
-			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
+			transcriptStoreRel: ".claude/projects",
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
@@ -132,15 +133,15 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")
 	assert.Contains(t, cw.extraMounts, mount{
 		Host:      store,
-		Container: filepath.Join(defaultContainerHome, ".claude", "projects"),
+		Container: path.Join(defaultContainerHome, ".claude", "projects"),
 	}, "transcript store mount threaded into the run spec")
 	assert.Contains(t, cw.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
-		Container: filepath.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 	}, "session persist mount threaded into the run spec")
 	assert.Contains(t, cw.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
-		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 	}, "this project's task-log mount threaded into the run spec")
 }
 
@@ -166,7 +167,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		engineSpec: engineContainerSpec{
 			engineInstall:      []byte("RUN echo fake-install\n"),
 			declared:           true,
-			transcriptStoreRel: filepath.FromSlash(".claude/projects"),
+			transcriptStoreRel: ".claude/projects",
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
@@ -196,10 +197,10 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 
 	assert.Contains(t, w.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts"),
-		Container: filepath.Join(defaultContainerHome, ".claude", "projects"),
+		Container: path.Join(defaultContainerHome, ".claude", "projects"),
 	}, "transcript store mount rides the composition too")
 	assert.Contains(t, w.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
-		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 	})
 }

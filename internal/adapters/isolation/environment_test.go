@@ -159,7 +159,7 @@ func TestPrepare_NonRelocatingEngineInAContainerHasItsHomeAtHOME(t *testing.T) {
 func TestPrepare_UnreachableRootIsRefused(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := t.TempDir()
-	withFakeContainerRuntime(t, unroutableRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}})
+	withFakeContainerRuntime(t, mapperRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}})
 
 	env, err := Prepare(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, project))
 	require.ErrorIs(t, err, present.ErrUnreachableRoot)
@@ -169,6 +169,29 @@ func TestPrepare_UnreachableRootIsRefused(t *testing.T) {
 	assert.True(t, found[len(found)-1].NonDegradable, "an unpresentable root is not a thinner run")
 	matches, _ := filepath.Glob(filepath.Join(sessionDir(home, harpA), "*", "ctxloom-iso-*"))
 	assert.Empty(t, matches, "the refused environment's scratch was torn down")
+}
+
+// uncMapper refuses every path the way driveLetterMapper refuses a share.
+type uncMapper struct{}
+
+func (uncMapper) toContainer(host string) (string, error) {
+	return driveLetterMapper{}.toContainer(`\\srv\share` + host)
+}
+
+// A share-path root is refused with the remedy that fits it: the Linux build
+// inside the WSL distro, not "move it where the daemon sees it". Any other
+// unroutable root keeps the general remedy.
+func TestPrepare_UnreachableShareRootNamesWSLRemedy(t *testing.T) {
+	home := fakeHostHome(t, tokenFixture)
+	project := t.TempDir()
+	withFakeContainerRuntime(t, mapperRuntime{fakeRuntime: containerRuntime, m: uncMapper{}})
+
+	_, err := Prepare(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, project))
+	require.ErrorIs(t, err, errUNCPath)
+	found := strictness.All()
+	require.NotEmpty(t, found)
+	assert.Contains(t, found[len(found)-1].Remedy, "Linux build inside the WSL distro")
+	assert.NotContains(t, unreachableRootRemedy(errNoRoute), "WSL")
 }
 
 // A worktree's Placement carries what the worktree provisioned (scratch dir,

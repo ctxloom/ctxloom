@@ -99,13 +99,13 @@ func (m unroutableMapper) toContainer(host string) (string, error) {
 	return host, nil
 }
 
-// unroutableRuntime is fakeRuntime over an unroutableMapper.
-type unroutableRuntime struct {
+// mapperRuntime is fakeRuntime over the mapper a test gives it.
+type mapperRuntime struct {
 	fakeRuntime
 	m pathMapper
 }
 
-func (r unroutableRuntime) mapper() pathMapper { return r.m }
+func (r mapperRuntime) mapper() pathMapper { return r.m }
 
 // A root the runtime cannot route is refused by name, as
 // present.ErrUnreachableRoot — never presented at a guessed path.
@@ -118,7 +118,7 @@ func TestContainerRelocator_UnroutableRootIsErrUnreachableRoot(t *testing.T) {
 		"session home": {under: "/home/u", names: "session home"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			rt := unroutableRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, m: unroutableMapper{under: tc.under}}
+			rt := mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", available: true}, m: unroutableMapper{under: tc.under}}
 			c := NewContainerFor(rt, "claude-code")
 			_, mounts, err := c.relocator().relocate(layout{cwd: "/proj", sessionHome: hostSessionHome, homeVar: claudeHomeVar})
 			require.ErrorIs(t, err, present.ErrUnreachableRoot)

@@ -3,6 +3,7 @@ package isolation
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,23 +65,23 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 
 			assert.Equal(t, mount{
 				Host:      wantStore,
-				Container: filepath.Join(defaultContainerHome, filepath.FromSlash(tt.storeRel)),
+				Container: path.Join(defaultContainerHome, tt.storeRel),
 			}, mounts[0], "persist/transcripts binds to the engine's native store root in the CONTAINER home")
 			assert.Equal(t, mount{
 				Host:      wantPersist,
-				Container: filepath.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
+				Container: path.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 			}, mounts[1], "persist/ binds to the container-home session path so in-container artifacts land on the host")
 			assert.Equal(t, mount{
 				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
-				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
+				Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 			}, mounts[2], "THIS project's task log binds into the container home, not the dir holding every project's")
 			assert.Equal(t, mount{
 				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
-				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
+				Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 			}, mounts[3], "the log's lock rides along: a lock the container cannot see excludes nothing")
 			assert.Equal(t, mount{
 				Host:      wantLocks,
-				Container: filepath.Join(defaultContainerHome, ".ctxloom", "locks"),
+				Container: path.Join(defaultContainerHome, ".ctxloom", "locks"),
 			}, mounts[4], "the home-rooted locks dir binds to the container home's .ctxloom/locks — the same directory paths.HomePathFor resolves to when $HOME is the container home, so host and container flock the same inode for an identical-path engine-settings file")
 
 			for _, m := range mounts {
@@ -215,20 +216,20 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 
 	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")
 	assert.Contains(t, argv,
-		fmt.Sprintf("--mount type=bind,source=%s,target=%s", store, filepath.Join(defaultContainerHome, ".claude", "projects")))
+		fmt.Sprintf("--mount type=bind,source=%s,target=%s", store, path.Join(defaultContainerHome, ".claude", "projects")))
 	assert.Contains(t, argv,
 		fmt.Sprintf("--mount type=bind,source=%s,target=%s",
 			filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
-			filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl")))
+			path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl")))
 	assert.NotContains(t, argv,
-		fmt.Sprintf("--mount type=bind,source=%s,target=%s", filepath.Join(home, ".ctxloom", "tasks"), filepath.Join(defaultContainerHome, ".ctxloom", "tasks")),
+		fmt.Sprintf("--mount type=bind,source=%s,target=%s", filepath.Join(home, ".ctxloom", "tasks"), path.Join(defaultContainerHome, ".ctxloom", "tasks")),
 		"the dir holding every project's task log is never handed to a run")
 	assert.NotContains(t, argv, store+",readonly", "the engine writes its transcript store")
 
 	wantLocks, err := paths.HomeLocksDir()
 	require.NoError(t, err)
 	assert.Contains(t, argv,
-		fmt.Sprintf("--mount type=bind,source=%s,target=%s", wantLocks, filepath.Join(defaultContainerHome, ".ctxloom", "locks")),
+		fmt.Sprintf("--mount type=bind,source=%s,target=%s", wantLocks, path.Join(defaultContainerHome, ".ctxloom", "locks")),
 		"the locks-dir mount rides the same --mount argv every other state mount does")
 }
 
@@ -253,7 +254,7 @@ func TestSessionStateMounts_LocksDirMount_Unconditional(t *testing.T) {
 	assert.Equal(t, filepath.Join(home, ".ctxloom", "locks"), wantLocks)
 	assert.Contains(t, mounts, mount{
 		Host:      wantLocks,
-		Container: filepath.Join(defaultContainerHome, ".ctxloom", "locks"),
+		Container: path.Join(defaultContainerHome, ".ctxloom", "locks"),
 		ReadOnly:  false,
 	}, "the locks-dir mount needs no project id")
 

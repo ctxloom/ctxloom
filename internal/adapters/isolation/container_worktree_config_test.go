@@ -77,7 +77,7 @@ func TestProjectConfigMount(t *testing.T) {
 		// distinguishable from one routed through the mapper — under a real
 		// non-identity mapper that difference lands the config outside the
 		// checkout and the cell refuses exactly as before.
-		wantTarget := filepath.Join(mapped(t, rt, worktreeDir), paths.AppDirName)
+		wantTarget := mapped(t, rt, filepath.Join(worktreeDir, paths.AppDirName))
 		assert.Equal(t, wantTarget, m.Container,
 			"the mount target is the checkout's CONTAINER path; using the host path delivers the config nowhere the cell will look")
 		assert.NotEqual(t, filepath.Join(worktreeDir, paths.AppDirName), m.Container,
@@ -159,7 +159,7 @@ func TestWorktreeBase_MountBaseCarriesTheConfigMount(t *testing.T) {
 	assert.Contains(t, mounts, exposedMapped(t, rt, filepath.Join(worktreeDir, ".git"), false),
 		"the gitdir mirror must survive the addition of the config mount")
 
-	wantTarget := filepath.Join(mapped(t, rt, worktreeDir), paths.AppDirName)
+	wantTarget := mapped(t, rt, filepath.Join(worktreeDir, paths.AppDirName))
 	assert.Contains(t, mounts, mount{Host: source, Container: wantTarget, ReadOnly: true},
 		"the config mount must reach the run spec; building it and discarding it restores the defect exactly")
 	assert.Len(t, mounts, 2, "exactly the gitdir mirror and the config delivery")

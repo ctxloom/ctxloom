@@ -67,7 +67,7 @@ func (b worktreeBase) withState(state SessionState) containerBase {
 // leak a checkout, so the unwind order is exact: worktree teardown first (here),
 // scratch removal after (the caller).
 func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID string) (string, func() error, error) {
-	raw, err := b.wt.ResolveWorkspace(ctx, projectDir, agentID)
+	raw, err := b.wt.resolveWorkspace(ctx, projectDir, agentID)
 	if err != nil {
 		// The worktree never came up (non-git repo / add failed) — nothing created
 		// to unwind; the caller removes the shared scratch and the chain degrades.
@@ -84,7 +84,7 @@ func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID strin
 	// mounts wt.dir as cwd. The worktree's own Env() (host scratch dir, git
 	// identity) is not carried: the engine runs inside the container, where a
 	// host scratch path means nothing — the unified containerWorkspace never
-	// implements EnvWorkspace, and the container's git identity rides its
+	// implements envWorkspace, and the container's git identity rides its
 	// mount plan instead.
 	return wt.dir, wt.Cleanup, nil
 }
@@ -96,7 +96,7 @@ func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID strin
 // mountpoint INSIDE the ephemeral checkout, which dies with it; a failure here leaves the checkout for the workspace to tear down,
 // which lets the chain retry as a bare host worktree where git resolves natively
 // (a Tier-0 non-issue).
-func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir, _ string, _ engineContainerSpec, _ git.Git) ([]Mount, error) {
+func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir, _ string, _ engineContainerSpec, _ git.Git) ([]mount, error) {
 	gitMount, err := gitCommonDirMount(ctx, rt, b.wt.git, dir)
 	if err != nil {
 		return nil, err
@@ -106,9 +106,9 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 		return nil, err
 	}
 	if !ok {
-		return []Mount{gitMount}, nil
+		return []mount{gitMount}, nil
 	}
-	return []Mount{gitMount, cfgMount}, nil
+	return []mount{gitMount, cfgMount}, nil
 }
 
 // projectConfigMount delivers the LIVE project's .ctxloom tree into a worktree
@@ -118,7 +118,8 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 // live bug rather than a hypothetical one: the mountpoint is created on the
 // HOST, inside the checkout, while the mount TARGET names where the checkout
 // appears in the container's namespace — which is mapper().toContainer(dir),
-// the same translation Container.Mount applies to the cwd (ExposeMapped). Under
+// the same translation the container relocator applies to the cwd
+// (relocateRoot). Under
 // today's identityMapper the two coincide; under a non-identity mapper, using
 // the host path as the target would land the config OUTSIDE the checkout and
 // leave the very refusal this function exists to prevent.
@@ -145,8 +146,8 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 // hole straight through that promise into the one tree the user actually keeps.
 // Nothing legitimate writes through THIS mount from a cell: the one thing a
 // cell does write under the project's .ctxloom — its controlled engine home,
-// in the state tier — reaches it through its own read-write mount
-// (MountEngineHome), never through the delivered config tree, so a write here
+// in the state tier — reaches it through its own read-write mount (the
+// session home, relocateRoot), never through the delivered config tree, so a write here
 // would be the bug, not the need.
 //
 // A checkout carrying its OWN committed .ctxloom is left alone — no mount, no
@@ -154,16 +155,16 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 // already implements (its doc: own .ctxloom always wins, no further worktree
 // inspection); overriding it would make a deliberately separate project silently
 // adopt its parent's config.
-func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (Mount, bool, error) {
+func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (mount, bool, error) {
 	hostTarget := filepath.Join(worktreeDir, paths.AppDirName)
 	switch _, err := os.Stat(hostTarget); {
 	case err == nil:
-		return Mount{}, false, nil // the checkout's own config wins
+		return mount{}, false, nil // the checkout's own config wins
 	case !errors.Is(err, os.ErrNotExist):
 		// Unreadable is NOT absent: answering "deliver it" would shadow a config
 		// that may be there, and answering "skip" would strand the cell without
 		// one. Fail so the chain degrades loudly instead of guessing.
-		return Mount{}, false, fmt.Errorf("container-worktree: reading %s in the worktree: %w", paths.AppDirName, err)
+		return mount{}, false, fmt.Errorf("container-worktree: reading %s in the worktree: %w", paths.AppDirName, err)
 	}
 	source := filepath.Join(projectDir, paths.AppDirName)
 	info, err := os.Stat(source)
@@ -172,11 +173,11 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (Mount, bool
 		// The project genuinely has no config. Nothing to deliver, and the
 		// in-container refusal that follows is then CORRECT and about the
 		// project itself, not an artefact of the worktree boundary.
-		return Mount{}, false, nil
+		return mount{}, false, nil
 	case err != nil:
-		return Mount{}, false, fmt.Errorf("container-worktree: reading the project %s: %w", paths.AppDirName, err)
+		return mount{}, false, fmt.Errorf("container-worktree: reading the project %s: %w", paths.AppDirName, err)
 	case !info.IsDir():
-		return Mount{}, false, nil
+		return mount{}, false, nil
 	}
 	// Pre-create the mountpoint as the invoking user, for the reason
 	// containerConfigOverlay spells out: a target the daemon has to create is
@@ -185,10 +186,13 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (Mount, bool
 	// WIP-safe teardown then cannot remove. Empty and untracked, so git never
 	// reports it and the teardown stays WIP-safe.
 	if err := os.MkdirAll(hostTarget, 0o755); err != nil {
-		return Mount{}, false, fmt.Errorf("container-worktree: creating the %s mountpoint: %w", paths.AppDirName, err)
+		return mount{}, false, fmt.Errorf("container-worktree: creating the %s mountpoint: %w", paths.AppDirName, err)
 	}
-	containerTarget := filepath.Join(rt.mapper().toContainer(worktreeDir), paths.AppDirName)
-	return rt.Expose(source, containerTarget, true), true, nil
+	checkout, err := rt.mapper().toContainer(worktreeDir)
+	if err != nil {
+		return mount{}, false, fmt.Errorf("container-worktree: the checkout %s has no route into the container: %w", worktreeDir, err)
+	}
+	return rt.expose(source, filepath.Join(checkout, paths.AppDirName), true), true, nil
 }
 
 // NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED

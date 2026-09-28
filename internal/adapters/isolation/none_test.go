@@ -28,7 +28,7 @@ func TestNoneStartRunner_LaunchFailureNamesTheAgent(t *testing.T) {
 		return nil, assert.AnError
 	})
 
-	_, err := None{}.StartRunner(context.Background(), "mock", "member-3", 0, hostWorkspace{dir: "/proj"}, nil)
+	_, err := None{}.startRunner(context.Background(), "mock", "member-3", 0, hostWorkspace{dir: "/proj"}, nil)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, assert.AnError, "the cause must survive wrapping")
@@ -47,7 +47,7 @@ func TestNoneStartRunner_CarriesTheCallersEnvAndNoCell(t *testing.T) {
 	})
 
 	caller := map[string]string{"CTXLOOM_COORD_URL": "http://host:9000"}
-	_, _ = None{}.StartRunner(context.Background(), "mock", "m", 0, hostWorkspace{dir: "/ws"}, caller)
+	_, _ = None{}.startRunner(context.Background(), "mock", "m", 0, hostWorkspace{dir: "/ws"}, caller)
 
 	assert.Equal(t, map[string]string{"CTXLOOM_COORD_URL": "http://host:9000"}, got, "the runner's env is the caller's per-spawn env and nothing more: its cell rides the Launch")
 }
@@ -66,7 +66,7 @@ func TestNoneStartRunner_CancelledBeforeStartNeverSpawns(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	h, err := None{}.StartRunner(ctx, "mock", "", 0, hostWorkspace{dir: "/proj"}, nil)
+	h, err := None{}.startRunner(ctx, "mock", "", 0, hostWorkspace{dir: "/proj"}, nil)
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, h)

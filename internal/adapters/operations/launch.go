@@ -225,54 +225,58 @@ func (a *assembler) LabelEnv(snap *config.Snapshot, label string) map[string]str
 }
 
 // Cells implements launch.Cells: it settles the dirty parent tree for a
-// delegated child's worktree cell, prepares the workspace through
-// isolation's degrade chain, binds the engine's controlled home and reports
-// the cell's roots and env. A requested boundary that could not be provided
-// is refused here, typed.
+// delegated child's worktree cell, has isolation prepare the run's
+// Environment and hands the cell exactly that environment's outcome. A
+// requested boundary that could not be provided is refused here, typed.
+//
+// There is no runtime branch here, and there must not be one: where a root
+// lands, what is mounted and how the runner starts are the Environment's,
+// and a cell reads them off it the same way for every runtime.
 type Cells struct {
 	cfg  *config.Config
 	mode strictness.Mode // the gate's posture: which isolation findings refuse the member
-	// engines resolves the member's engine by name for its agent home.
+	// engines resolves the member's engine by name.
 	engines engine.Registry
+	// preview prepares nothing on disk (isolation.Preview): the --dry-run
+	// cell, which relocates and probes but creates no checkout, scratch or
+	// session home.
+	preview bool
 	// Git overrides the git seam the dirty-parent-tree decision uses (nil
 	// selects the real binary).
 	Git git.Git
 }
 
-// PreparedCell is the handle the cells adapter keeps on a Cell for today's
-// transport: the isolation policy that prepared the workspace and the
-// workspace itself. TransportOf reads it back.
-type PreparedCell struct {
-	Policy    isolation.Policy
-	Workspace isolation.Workspace
+// PreviewCells is the --dry-run cells adapter: the same relocation a run
+// gets, over an environment that creates nothing and starts nothing, so a
+// preview routes over the roots a real cell would present — and a container
+// preview shows the runtime and reach the run would get (Q5).
+func PreviewCells(f LaunchFacts) launch.Cells {
+	return Cells{mode: f.Mode, engines: f.Engines, preview: true}
 }
 
-// TransportOf reads the prepared transport back off a cell this adapter
+// EnvironmentOf reads the prepared environment back off a cell this adapter
 // made. ok is false for a cell prepared elsewhere (a test double).
-func TransportOf(cell launch.Cell) (PreparedCell, bool) {
-	p, ok := cell.Handle.(PreparedCell)
-	return p, ok
+func EnvironmentOf(cell launch.Cell) (isolation.Environment, bool) {
+	env, ok := cell.Handle.(isolation.Environment)
+	return env, ok
 }
 
-// prepareIsolation is the cells adapter's seam onto isolation.Prepare — a
-// package var so a test simulates a container degrade (which records
-// ClassIsolation findings) or hands back a stand-in workspace without
-// probing the real host's container runtimes.
-var prepareIsolation = isolation.Prepare
+// prepareEnvironment and previewEnvironment are the cells adapter's seams
+// onto isolation — package vars so a test hands back a stand-in environment
+// (or simulates a container degrade, which records ClassIsolation findings)
+// without probing the real host's container runtimes.
+var (
+	prepareEnvironment = isolation.Prepare
+	previewEnvironment = isolation.Preview
+)
 
 // Prepare implements launch.Cells.
 func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell, error) {
-	backend := string(req.Engine.Root().Name)
 	harp := req.Identity.Harp
-
 	gitClient, pendingCopy, err := c.settleDirtyParentTree(ctx, req, harp)
 	if err != nil {
 		return launch.Cell{}, err
 	}
-
-	// The fail-loudly cell gate: a container degrade inside Prepare records
-	// a ClassIsolation finding; the window is this launch's own, so a
-	// concurrent launch's findings never poison it.
 	// The resolver settled the home mode from the binding's declaration;
 	// re-parsed here through the vocabulary's own parser so the cell never
 	// asserts a spelling it did not check.
@@ -280,48 +284,55 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	if err != nil {
 		return launch.Cell{}, err
 	}
+	spec, err := isolation.NewSpec(req.Axes, req.Engine).
+		Project(req.ProjectRoot).
+		Session(harp, req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
+		Image(req.Image).
+		Home(homeMode).
+		Build()
+	if err != nil {
+		return launch.Cell{}, err
+	}
+
+	// The fail-loudly cell gate: a container degrade, an unpreparable session
+	// home and an unpresentable root each record a ClassIsolation finding;
+	// the window is this launch's own, so a concurrent launch's findings never
+	// poison it.
 	mark := strictness.Checkpoint()
-	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env))
-	env := isolation.WorkspaceEnv(ws)
-	home := BindAgentHome(c.engines, ws, InTreeAgentHome{
-		Backend:  backend,
-		Cwd:      ws.Dir(),
-		Harp:     harp,
-		HomeMode: homeMode,
-	})
-	cleanup := ws.Cleanup
+	env, err := c.environment(ctx, spec)
 	found := strictness.Since(mark)
 	strictness.Close(mark)
+	if err != nil {
+		return launch.Cell{}, fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, err)
+	}
 	if gerr := isolationGateErr(c.mode, found); gerr != nil {
-		_ = cleanup()
+		_ = env.Cleanup()
 		return launch.Cell{}, fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, gerr)
 	}
+	placement := env.Placement()
+	cwd := placement.Paths.Paths().ProjectRoot.Host
 	if pendingCopy != nil {
-		if err := applyCopySnapshot(ctx, gitClient, ws.Dir(), pendingCopy); err != nil {
-			_ = cleanup()
+		if err := applyCopySnapshot(ctx, gitClient, cwd, pendingCopy); err != nil {
+			_ = env.Cleanup()
 			return launch.Cell{}, err
 		}
 	}
-
-	roots := present.Paths{ProjectRoot: present.Root{Host: ws.Dir()}}
-	cell := launch.Cell{
-		Workspace: ws.Dir(),
-		Env:       env,
+	return launch.Cell{
+		Placement: placement,
+		Workspace: cwd,
 		HomeMode:  req.HomeMode,
-		Listen:    isolation.WorkspaceListen(ws),
-		Cleanup:   cleanup,
-		Handle:    PreparedCell{Policy: policy, Workspace: ws},
+		Listen:    env.Listen(),
+		Cleanup:   env.Cleanup,
+		Handle:    env,
+	}, nil
+}
+
+// environment is the prepared environment, or the preview's.
+func (c Cells) environment(ctx context.Context, spec isolation.Spec) (isolation.Environment, error) {
+	if c.preview {
+		return previewEnvironment(ctx, spec)
 	}
-	if home.Absent == "" {
-		bindCellHome(&cell, &roots, home)
-	} else if dir, ok := launch.SessionHome(req.SessionDir, req.Engine, homeMode); ok && !req.Engine.Home().Relocates() {
-		// An engine that relocates nothing still has a session home (the one
-		// rule); a relocating engine whose home came back absent has none,
-		// because nothing prepared or mounted the directory the rule names.
-		roots.SessionHome = present.Root{Host: dir}
-	}
-	placeCellPaths(&cell, roots, policy, home, req.Axes.Runtime)
-	return cell, nil
+	return prepareEnvironment(ctx, spec)
 }
 
 // settleDirtyParentTree runs the dirty-tree handler for a delegated worktree
@@ -332,7 +343,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 // front of them, and is not gated on it. The handler itself arrives settled
 // by the resolver.
 func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest, harp string) (git.Git, *copySnapshot, error) {
-	if req.Axes.Workspace != launch.WorkspaceWorktree || !req.Identity.IsChild() {
+	if c.preview || req.Axes.Workspace != launch.WorkspaceWorktree || !req.Identity.IsChild() {
 		return nil, nil, nil
 	}
 	gitClient := c.Git
@@ -344,39 +355,6 @@ func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest
 		return nil, nil, err
 	}
 	return gitClient, outcome.copy, nil
-}
-
-// bindCellHome carries a bound engine home into the cell: its root, its env
-// (also recorded as home bindings), and its login env.
-func bindCellHome(cell *launch.Cell, roots *present.Paths, home AgentHomeResolution) {
-	roots.SessionHome = present.Root{Host: home.Root.Host}
-	if cell.Env == nil {
-		cell.Env = map[string]string{}
-	}
-	maps.Copy(cell.Env, home.Env)
-	for k, v := range home.Env {
-		cell.Home = append(cell.Home, engine.HomeBinding{Var: k, Path: v})
-	}
-	maps.Copy(cell.Env, home.Login)
-}
-
-// placeCellPaths presents the roots as the cell sees them: containerized
-// (with the container's mounts) under a container policy, else on the host.
-func placeCellPaths(cell *launch.Cell, roots present.Paths, policy isolation.Policy, home AgentHomeResolution, runtime launch.RuntimeAxis) {
-	if !isolation.IsContainerPolicyName(policy.Name()) {
-		cell.Paths = present.OnHost(roots)
-		return
-	}
-	advice := present.Containerize{}
-	if home.Mount != nil {
-		advice.SessionHome = home.Mount.TargetDir
-	}
-	cell.Paths = advice.Apply(roots)
-	cell.Container = &launch.ContainerCell{
-		Runtime: runtime,
-		Mounts:  cell.Paths.Mounts(),
-		Home:    home.Root.Engine,
-	}
 }
 
 // endpointMinter mints the session's MCP endpoint on the host: a reserved

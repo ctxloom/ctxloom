@@ -64,23 +64,23 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 			wantLocks, err := paths.HomeLocksDir()
 			require.NoError(t, err)
 
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      wantStore,
 				Container: filepath.Join(defaultContainerHome, filepath.FromSlash(tt.storeRel)),
 			}, mounts[0], "persist/transcripts binds to the engine's native store root in the CONTAINER home")
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      wantPersist,
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 			}, mounts[1], "persist/ binds to the container-home session path so in-container artifacts land on the host")
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 			}, mounts[2], "THIS project's task log binds into the container home, not the dir holding every project's")
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 			}, mounts[3], "the log's lock rides along: a lock the container cannot see excludes nothing")
-			assert.Equal(t, Mount{
+			assert.Equal(t, mount{
 				Host:      wantLocks,
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "locks"),
 			}, mounts[4], "the home-rooted locks dir binds to the container home's .ctxloom/locks — the same directory paths.HomePathFor resolves to when $HOME is the container home, so host and container flock the same inode for an identical-path engine-settings file")
@@ -184,7 +184,7 @@ func TestSessionStateMounts_TaskMountReachesOnlyThisProjectsLog(t *testing.T) {
 
 // mountReaches reports whether host path p is inside (or is) what m exposes to
 // the container.
-func mountReaches(m Mount, p string) bool {
+func mountReaches(m mount, p string) bool {
 	return p == m.Host || strings.HasPrefix(p, m.Host+string(filepath.Separator))
 }
 
@@ -253,7 +253,7 @@ func TestSessionStateMounts_LocksDirMount_Unconditional(t *testing.T) {
 	wantLocks, err := paths.HomeLocksDir()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, ".ctxloom", "locks"), wantLocks)
-	assert.Contains(t, mounts, Mount{
+	assert.Contains(t, mounts, mount{
 		Host:      wantLocks,
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "locks"),
 		ReadOnly:  false,
@@ -338,7 +338,7 @@ func TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir(t *testing.T) {
 // whose base is nil.
 func TestWithSessionState_StampsChainPolicies(t *testing.T) {
 	state := SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
-	chain := withSessionState([]Policy{
+	chain := withSessionState([]policy{
 		Container{base: worktreeBase{wt: Worktree{}}},
 		Container{}, // bare, nil base — the nil-base guard must not panic
 		Worktree{},
@@ -389,7 +389,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		base:       hostBase{},
 	}
 
-	ws, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "member-x")
+	ws, err := c.prepareWorkspace(context.Background(), t.TempDir(), "member-x")
 	require.NoError(t, err)
 	cw, ok := ws.(*containerWorkspace)
 	require.True(t, ok)
@@ -397,15 +397,15 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	requireCleanWorkspace(t, ws)
 
 	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")
-	assert.Contains(t, cw.extraMounts, Mount{
+	assert.Contains(t, cw.extraMounts, mount{
 		Host:      store,
 		Container: filepath.Join(defaultContainerHome, ".claude", "projects"),
 	}, "transcript store mount threaded into the run spec")
-	assert.Contains(t, cw.extraMounts, Mount{
+	assert.Contains(t, cw.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 	}, "session persist mount threaded into the run spec")
-	assert.Contains(t, cw.extraMounts, Mount{
+	assert.Contains(t, cw.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 	}, "this project's task-log mount threaded into the run spec")
@@ -443,7 +443,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		base:       worktreeBase{wt: NewWorktree(&git.Fake{CommonDirValue: t.TempDir()})},
 	}
 
-	ws, err := cw.PrepareWorkspace(context.Background(), "/proj", "member-x")
+	ws, err := cw.prepareWorkspace(context.Background(), "/proj", "member-x")
 	require.NoError(t, err)
 	w, ok := ws.(*containerWorkspace)
 	require.True(t, ok)
@@ -463,11 +463,11 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		}
 	})
 
-	assert.Contains(t, w.extraMounts, Mount{
+	assert.Contains(t, w.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts"),
 		Container: filepath.Join(defaultContainerHome, ".claude", "projects"),
 	}, "transcript store mount rides the composition too")
-	assert.Contains(t, w.extraMounts, Mount{
+	assert.Contains(t, w.extraMounts, mount{
 		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 	})

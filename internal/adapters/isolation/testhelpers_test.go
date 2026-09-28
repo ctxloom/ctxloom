@@ -213,3 +213,34 @@ func withFakeHome(t *testing.T) string {
 	t.Cleanup(func() { hostHomeDir = orig })
 	return home
 }
+
+// mapped is rt's mapper applied to host, failing the test where it cannot
+// route — for assertions that compare against the mapped path.
+func mapped(t *testing.T, rt Runtime, host string) string {
+	t.Helper()
+	p, err := rt.mapper().toContainer(host)
+	require.NoError(t, err)
+	return p
+}
+
+// exposedMapped is rt.exposeMapped, failing the test where it cannot route.
+func exposedMapped(t *testing.T, rt Runtime, host string, readOnly bool) mount {
+	t.Helper()
+	m, err := rt.exposeMapped(host, readOnly)
+	require.NoError(t, err)
+	return m
+}
+
+// placeRoots runs the container relocator over cw's cwd alone and binds the
+// outcome, as Prepare does, so a test that renders a runner spec renders the
+// root mounts the relocator produced. It panics on a relocation error: the
+// callers' runtimes route every path.
+func placeRoots(c Container, cw *containerWorkspace) {
+	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir})
+	if err != nil {
+		panic(err)
+	}
+	if _, err := c.environment(cw, pl, roots); err != nil {
+		panic(err)
+	}
+}

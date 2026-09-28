@@ -171,12 +171,27 @@ type CellRequest struct {
 	Env map[string]string
 }
 
+// Placement is a prepared environment's outcome, as the engine is handed it:
+// every root on both sides, the env that makes each declared need true where
+// the engine runs, and the declared home vars as resolved. The host and the
+// container environment both return it, through the same calls, so nothing
+// that reads it can tell which one prepared it.
+type Placement struct {
+	// Paths are the roots: ProjectRoot's Engine side is the engine's cwd.
+	Paths present.Mapped
+	// Env is what the environment sets for the engine: the home var, the
+	// workspace's own provisions, the shared login.
+	Env map[string]string
+	// Home is each declared home var as resolved, at its Engine side.
+	Home []engine.HomeBinding
+}
+
 // Cell is a prepared place to run. A Cell exists only inside a Launch.
 type Cell struct {
-	Paths     present.Mapped
+	// Placement is embedded so every Cell.Paths / .Env / .Home reader reads
+	// the environment's outcome directly.
+	Placement
 	Workspace string
-	Env       map[string]string
-	Home      []engine.HomeBinding
 	// HomeMode is the engine-home policy this cell was prepared under: the
 	// session home, or the real one the binding selected — the unsafe
 	// selection a plan and a banner name. Local to the launching process;
@@ -189,10 +204,9 @@ type Cell struct {
 	Listen    present.Listen
 	Container *ContainerCell
 	Cleanup   func() error
-	// Handle is what the cells adapter keeps to START a process in this cell
-	// under today's transport: opaque to core, read back only by the adapter
-	// that made it. It leaves with that transport, when the runner is the one
-	// process every cell starts.
+	// Handle is what the cells adapter keeps to START a process in this cell:
+	// the prepared environment itself, opaque to core and read back only by
+	// the adapter that made it.
 	Handle any
 }
 
@@ -200,7 +214,6 @@ type Cell struct {
 type ContainerCell struct {
 	Runtime RuntimeAxis
 	Image   string
-	Mounts  []present.Mount
 	Home    string
 }
 

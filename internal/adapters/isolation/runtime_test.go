@@ -24,7 +24,7 @@ func sampleSpec() RunSpec {
 		Home:    "/root",
 		Command: []string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
 		Env:     []string{"CTXLOOM_PLUGIN=ai-backend-v1", "PLUGIN_PROTOCOL_VERSIONS=1"},
-		Mounts: []Mount{
+		Mounts: []mount{
 			{Host: "/home/u/proj", Container: "/home/u/proj"},
 			{Host: "/tmp/sock", Container: "/run/ctxloom/plugin"},
 		},

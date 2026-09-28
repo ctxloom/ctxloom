@@ -28,6 +28,7 @@
 package present
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	neturl "net/url"
@@ -46,6 +47,12 @@ import (
 // Engine equals Host; for a writer that shares the engine's filesystem, see
 // Mapped.EngineSide.
 type Root struct{ Host, Engine string }
+
+// ErrUnreachableRoot is a root the environment cannot present to the engine:
+// its host side has no route into the engine's filesystem. Only a relocating
+// environment can raise it — one that presents a root in place never maps
+// anything — and it is wrapped with the root it names.
+var ErrUnreachableRoot = errors.New("present: a root has no route into the engine's filesystem")
 
 // Paths is every root a presentation may build from, resolved once per run,
 // before any presenter composes anything.

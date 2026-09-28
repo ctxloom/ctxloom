@@ -191,7 +191,7 @@ func TestPrepareWorkspace_DegradesOnFSMismatch(t *testing.T) {
 	c.engineSpec.resolveAuth = func() (containerAuth, bool) {
 		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 	}
-	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")
+	_, err := c.prepareWorkspace(context.Background(), t.TempDir(), "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not share this process's filesystem")
 	assert.Contains(t, err.Error(), "bind mounts")
@@ -215,7 +215,7 @@ func TestPrepareWorkspace_FSProbeRunFailureIsNotMisreportedAsMismatch(t *testing
 	c.engineSpec.resolveAuth = func() (containerAuth, bool) {
 		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 	}
-	_, err := c.PrepareWorkspace(context.Background(), t.TempDir(), "m")
+	_, err := c.prepareWorkspace(context.Background(), t.TempDir(), "m")
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "does not share this process's filesystem", "a transient run failure is not a sharing verdict")
 	assert.Contains(t, err.Error(), "could not run")
@@ -297,7 +297,7 @@ func TestMountProbeRoots(t *testing.T) {
 	authFile := filepath.Join(authParent, "auth.json")
 	require.NoError(t, os.WriteFile(authFile, []byte("secret"), 0o600))
 
-	got := mountProbeRoots(dir, scratch, []Mount{
+	got := mountProbeRoots(dir, scratch, []mount{
 		{Host: overlayDir, Container: "/x/overlay"},
 		{Host: authFile, Container: "/x/auth.json"},
 		{Host: scratch, Container: "/x/dup"}, // duplicate of scratch itself

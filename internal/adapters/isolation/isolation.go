@@ -6,8 +6,8 @@
 // delegated fan-out (agent_run) can pick a policy per member orthogonally to
 // the engine.
 //
-// A Policy has two axes:
-//   - a Workspace it prepares (the child's cwd) and tears down, and
+// A policy has two axes:
+//   - a workspace it prepares (the child's cwd) and tears down, and
 //   - how it starts the runner for that workspace (StartRunner, or
 //     InteractiveRunner for the pty the originator holds).
 //
@@ -86,12 +86,12 @@ import (
 // host axis, because that is the request the user actually has to make.
 const isolationRemedy = "install/build the agent image and start the container runtime (docker/podman), or ask for a host run deliberately with `runtime: host` (the agent's runtime trait via `ctxloom agent edit <agent> --runtime host`, or the project `runtime:` default)"
 
-// Workspace is the per-agent directory a run executes in (the child engine's
+// workspace is the per-agent directory a run executes in (the child engine's
 // cwd) plus its teardown. none → the live project dir (noop cleanup); worktree →
 // a fresh per-agent git worktree (WIP-safe remove); container → the mounted
 // workspace (stop + remove). Cleanup is called once, after the run's client is
 // killed.
-type Workspace interface {
+type workspace interface {
 	// Dir is the workspace directory — the value the caller threads into the
 	// member's RunOptions.WorkDir so the engine's cwd lands here.
 	Dir() string
@@ -99,30 +99,30 @@ type Workspace interface {
 	Cleanup() error
 }
 
-// MountPlan is how a policy maps an already-materialized workspace into the
+// mountPlan is how a policy maps an already-materialized workspace into the
 // execution environment: the bind mounts the run is launched with, and the
 // per-run env that accompanies them. It is a DESCRIPTION, not a resource —
 // building one creates no container and starts nothing; the spawn renders it.
 // Empty for the host policies (none/worktree), which execute in the workspace
 // directly and so map nothing.
-type MountPlan struct {
+type mountPlan struct {
 	// Mounts are the bind mounts layered on top of the workspace's own cwd
 	// mount (credential mounts, scoped session state, config overlays, the
 	// git common-dir mirror).
-	Mounts []Mount
+	Mounts []mount
 	// Env is the per-run env the mapping carries (scoped auth passthrough,
 	// terminal description, scoped git identity).
 	Env []string
 }
 
-// Policy is the isolation seam: it prepares a per-agent Workspace and starts
+// policy is the isolation seam: it prepares a per-agent workspace and starts
 // the runner for that workspace. All strategies (none | worktree |
 // container) satisfy this one interface, so the fan-out picks a strategy per
 // agent without engine-specific logic. The run's approval posture resolves
 // wholly from config/CLI/agent (agent.PermissionMode), independent of which
-// strategy is in play — an approvals axis on Policy was tried and deleted as
+// strategy is in play — an approvals axis on policy was tried and deleted as
 // dead: none of the three strategies' resolvers ever consulted it.
-type Policy interface {
+type policy interface {
 	// Name identifies the policy ("none" | "worktree" | "container"), for
 	// diagnostics and config round-tripping.
 	Name() string
@@ -131,7 +131,7 @@ type Policy interface {
 	// project root; agentID scopes/names a per-agent workspace (a member
 	// label). FILESYSTEM ONLY — it knows nothing about how the workspace will
 	// later be mapped into an execution environment and builds no mounts, so a
-	// caller may WRITE INTO the returned tree before Mount runs and the mapping
+	// caller may WRITE INTO the returned tree before mount runs and the mapping
 	// will see what it wrote. A policy that cannot materialize its workspace
 	// warns and returns an error so the caller degrades down the chain; the run
 	// always gets a workspace (None never fails). Dropping a requested CONTAINER
@@ -141,25 +141,25 @@ type Policy interface {
 	// a plain warn-and-continue fallback.
 	//
 	// The container gate (runtime reachable / image present / engine auth
-	// resolvable) runs HERE rather than in Mount, so a degrade is decided before
+	// resolvable) runs HERE rather than in mount, so a degrade is decided before
 	// any base resource is created — the same order the single-call form had.
-	ResolveWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error)
-	// Mount maps an ALREADY-MATERIALIZED workspace into the execution
+	resolveWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error)
+	// mount maps an ALREADY-MATERIALIZED workspace into the execution
 	// environment and returns the plan that mapping renders as. It must not
 	// create, seed, or otherwise modify workspace CONTENT — whatever the tree
-	// held when Mount was called is what the run sees. (The container policy
+	// held when mount was called is what the run sees. (The container policy
 	// does pre-create the managed-config overlay MOUNTPOINTS inside the tree;
 	// they are empty directories a bind mount needs to exist, never content.)
 	// none/worktree run in the workspace directly and map nothing, so their
 	// plan is empty — that is the whole answer, not a stub.
-	Mount(ctx context.Context, ws Workspace) (MountPlan, error)
-	// PrepareWorkspace is ResolveWorkspace followed immediately by Mount, with
+	bind(ctx context.Context, ws workspace) (mountPlan, error)
+	// PrepareWorkspace is ResolveWorkspace followed immediately by mount, with
 	// no gap between them: the composed step for every caller that writes
 	// nothing into the tree in between. A caller that DOES need to write there
 	// calls the two halves itself — that gap is the reason they are separate.
-	// A Mount failure tears the resolved workspace down before returning, so a
+	// A mount failure tears the resolved workspace down before returning, so a
 	// failed prepare never leaks a checkout or a scratch tree.
-	PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error)
+	prepareWorkspace(ctx context.Context, projectDir, agentID string) (workspace, error)
 	// StartRunner launches the engine RUNNER process for a prepared workspace
 	// — the StartRun spawn half. Container → a docker/podman `run` of
 	// `ctxloom runner <backend>` with NO port publish (the session-state/
@@ -172,7 +172,7 @@ type Policy interface {
 	// Wait reaps the process, surfacing the captured stderr tail on failure.
 	// spawnEnv crosses host → cmd.Env; container → bare-name `-e` with values
 	// on the run-process env.
-	StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error)
+	startRunner(ctx context.Context, backendName, label string, verbosity int, ws workspace, spawnEnv map[string]string) (*RunnerHandle, error)
 	// InteractiveRunner is the runner process of an INTERACTIVE launch, as a
 	// command the originator starts on the pty it holds (adapters/hostpty,
 	// adapters/attach): the self-exec'd `ctxloom runner <engine>` on a host
@@ -180,7 +180,27 @@ type Policy interface {
 	// foreground process — for a container cell, whose name is returned so
 	// teardown can target it ("" on the host). spawnEnv rides as
 	// StartRunner's does. Readiness is the coordinator's awaitRunner.
-	InteractiveRunner(ctx context.Context, backendName string, ws Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error)
+	interactiveRunner(ctx context.Context, backendName string, ws workspace, spawnEnv map[string]string) (*exec.Cmd, string, error)
+	// relocator is this policy's stage 2: how the engine is shown the layout.
+	relocator() relocator
+	// environment is the Environment over a workspace this policy prepared,
+	// holding the relocator's Placement and the mounts produced with it.
+	environment(ws workspace, pl launch.Placement, roots []mount) (Environment, error)
+	// preview is what a Preview of this policy probes: the listen its runner
+	// would need and how it describes itself. It creates nothing.
+	preview(ctx context.Context) (present.Listen, Description)
+}
+
+// envWorkspace is an OPTIONAL workspace capability: a workspace that
+// PROVISIONED something of its own for the run — a per-agent toolchain
+// scratch dir, a git identity for the checkout it created — exposes the env
+// that points the engine at it (stage 1's layout.env). It is NOT the engine's
+// config-home carrier: the home var comes from the session home, once, for
+// every environment.
+type envWorkspace interface {
+	workspace
+	// Env returns the env additions for what this workspace provisioned.
+	Env() map[string]string
 }
 
 // RunnerTerm is the TERM an INTERACTIVE runner process runs under: `dumb`,
@@ -344,83 +364,6 @@ func WaitOf(h *RunnerHandle) func() error {
 	return h.Wait
 }
 
-// EngineStarter is the StartRun spawn-half seam on the delegated StartEngine
-// path. It binds a policy + prepared workspace + backend/label/verbosity +
-// runner env into a single launch closure; readiness is awaitRunner's.
-// Defined here — not in operations — so isolation, which cannot import
-// operations, can name it as StarterForWorkspace's return type; operations
-// references it as isolation.EngineStarter.
-type EngineStarter func(ctx context.Context) (*RunnerHandle, error)
-
-// StarterForWorkspace binds a policy and a prepared workspace into an
-// EngineStarter — the docker-direct / bare-host runner launch the StartRun
-// spawn half injects. backendName/label/verbosity bind here because
-// EngineStarter's closure takes only ctx — the StartEngine caller has nothing
-// but ctx to give it.
-func StarterForWorkspace(p Policy, ws Workspace, backendName, label string, verbosity int, spawnEnv map[string]string) EngineStarter {
-	return func(ctx context.Context) (*RunnerHandle, error) {
-		return p.StartRunner(ctx, backendName, label, verbosity, ws, spawnEnv)
-	}
-}
-
-// EnvWorkspace is an OPTIONAL Workspace capability: a workspace that
-// PROVISIONED something of its own for the run — a per-agent toolchain
-// scratch dir, a git identity for the checkout it created — exposes the env
-// that points the engine at it. The run threads that env into the member's
-// RunOptions.Env.
-//
-// It is NOT the engine's config-home carrier, and must not become one again.
-// The controlled config home (CLAUDE_CONFIG_DIR and its kin) is decided and
-// presented by operations.ResolveInTreeAgentHome for EVERY cell, off the agent
-// binding alone; a workspace has no say in whether a run has one. The vars
-// here are exactly the ones a prepared workspace genuinely owns because it
-// created what they name.
-type EnvWorkspace interface {
-	Workspace
-	// Env returns the env additions for what this workspace provisioned.
-	Env() map[string]string
-}
-
-// WorkspaceEnv returns the workspace's own env additions when it exposes them
-// (worktree), or nil otherwise (none/container). The caller merges the result
-// into the member's RunOptions.Env.
-func WorkspaceEnv(ws Workspace) map[string]string {
-	if e, ok := ws.(EnvWorkspace); ok {
-		return e.Env()
-	}
-	return nil
-}
-
-// ContainerInstanceHome is the runtime axis's half of an engine-home
-// presentation: the FIXED in-container root a relocated engine home is
-// mounted under, for a workspace whose engine runs in a container — or ""
-// for a host-executing workspace (none, worktree), where the engine opens the
-// host path itself and nothing is mounted. The resolver
-// (operations.ResolveInTreeAgentHome) hangs the engine's DECLARED leaf under
-// it and hands the resulting mount back through MountEngineHome. It never
-// decides WHETHER a run has a home, only where the engine is told it is.
-func ContainerInstanceHome(ws Workspace) string {
-	if cw, ok := ws.(*containerWorkspace); ok {
-		return cw.instanceHome
-	}
-	return ""
-}
-
-// MountEngineHome records the bind mount a resolved engine home needs inside
-// a container workspace, so the launch that follows binds Root.Host at
-// Root.Engine, read-write. It is an error on a workspace that executes on the
-// host: such a workspace has no ContainerInstanceHome and the resolver never
-// yields a mount for it, so reaching here with one means the two disagree.
-// The home holds no credential; the engine authenticates from its env.
-func MountEngineHome(ws Workspace, m present.Mount) error {
-	cw, ok := ws.(*containerWorkspace)
-	if !ok {
-		return fmt.Errorf("engine home mount %s -> %s: workspace %T executes on the host and cannot mount", m.HostDir, m.TargetDir, ws)
-	}
-	cw.extraMounts = append(cw.extraMounts, cw.runtime.Expose(m.HostDir, m.TargetDir, false))
-	return nil
-}
-
 // The isolation axes are launch's value types: WorkspaceAxis, RuntimeAxis
 // and the Axes pair are declared once, in core/launch, and this package
 // carries its established names forward for its own callers. The four
@@ -565,7 +508,7 @@ var selectRuntimeProbe = SelectRuntime
 //
 // A container tier never degrades INTO a worktree that wasn't requested, and
 // a requested worktree is never dropped just because the container failed.
-func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
+func chainFor(axes Axes, backend string, img ImageConfig) []policy {
 	warnUnknownAxes(axes)
 
 	if axes.WantsContainer() {
@@ -579,9 +522,9 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		rt := selectRuntimeProbe("", axes.Runtime)
 		if _, isHost := rt.(Host); !isHost {
 			if axes.WantsWorktree() {
-				return []Policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
+				return []policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
 			}
-			return []Policy{containerFor(rt, backend, img), None{}}
+			return []policy{containerFor(rt, backend, img), None{}}
 		}
 		// A container was EXPLICITLY requested (WantsContainer) but no runtime
 		// providing the demanded ownership is reachable, so this run would land
@@ -611,16 +554,16 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		}
 	}
 	if axes.WantsWorktree() {
-		// Workspace-only isolation, no runtime dependency — the git-repo check
+		// workspace-only isolation, no runtime dependency — the git-repo check
 		// and the worktree-add both degrade to None inside PrepareWorkspace
 		// (prepareChain warns). This is the PURE host+worktree path. Reached
 		// both for a bare {worktree, host} request and for a
 		// {worktree, container} request that just degraded to host above (the
 		// container was dropped, worktree stays) — either way the agent ends
 		// up on the HOST with only a worktree.
-		return []Policy{NewWorktree(nil), None{}}
+		return []policy{NewWorktree(nil), None{}}
 	}
-	return []Policy{None{}}
+	return []policy{None{}}
 }
 
 // PolicyNameContainer and PolicyNameContainerWorktree are the two
@@ -648,31 +591,13 @@ func IsContainerPolicyName(name string) bool {
 	return name == PolicyNameContainer || name == PolicyNameContainerWorktree
 }
 
-// Prepare prepares a workspace for the requested axes and the run's BACKEND
-// (per-member engines — the backend picks the container spec, with the
-// user's ImageConfig applied), walking chainFor's degrade chain until a policy
-// prepares (None never fails). It returns the policy that succeeded and its
-// prepared workspace. One mechanism serves the top-level session and every
-// fan-out member alike: the workspace axis arrives from the SESSION
-// (invocation flag / project default) and the runtime axis from the AGENT
-// binding — this function just realizes their product. state is the run's
-// session identity (SessionStateFromEnv over the run's env map): it scopes
-// the container policies' durable state mounts and the worktree's ephemeral
-// scratch home. Each degrade warns and the run always gets a workspace;
-// dropping a requested CONTAINER boundary is additionally a fatal finding
-// (ClassIsolation) the choke owner aborts on, --degraded included (a
-// workspace-axis degrade stays a silent fallback).
-func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState) (Policy, Workspace) {
-	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), axes.Runtime, projectDir, agentID)
-}
-
 // withSessionState stamps the run's session identity onto every policy in the
 // degrade chain that consumes it (the container policies' state mounts, the
 // worktree's ephemeral scratch home). Applied AFTER chainFor so the chain
 // construction — and Resolve, which only needs policy identity — stays
 // state-free. Policies are value types; the stamped copies replace the
 // originals in place.
-func withSessionState(chain []Policy, state SessionState) []Policy {
+func withSessionState(chain []policy, state SessionState) []policy {
 	for i, p := range chain {
 		switch v := p.(type) {
 		case Container:
@@ -693,22 +618,22 @@ func withSessionState(chain []Policy, state SessionState) []Policy {
 	return chain
 }
 
-// prepareWorkspace is the one implementation of the composed resolve-then-mount
-// step every Policy.PrepareWorkspace delegates to. It lives here, over the
+// resolveAndBind is the one implementation of the composed resolve-then-mount
+// step every policy.PrepareWorkspace delegates to. It lives here, over the
 // interface, rather than being written out on each policy: a composition of two
 // interface methods is not per-implementation behaviour, and three copies of it
 // would be three places for the unwind below to drift.
 //
 // The unwind is the part worth stating: once ResolveWorkspace returns, the
 // workspace OWNS whatever was created for it (the container scratch tree, a
-// freshly added checkout), so a Mount failure must Cleanup() rather than leave
+// freshly added checkout), so a mount failure must Cleanup() rather than leave
 // the caller a nil workspace and an orphaned resource.
-func prepareWorkspace(ctx context.Context, p Policy, projectDir, agentID string) (Workspace, error) {
-	ws, err := p.ResolveWorkspace(ctx, projectDir, agentID)
+func resolveAndBind(ctx context.Context, p policy, projectDir, agentID string) (workspace, error) {
+	ws, err := p.resolveWorkspace(ctx, projectDir, agentID)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := p.Mount(ctx, ws); err != nil {
+	if _, err := p.bind(ctx, ws); err != nil {
 		_ = ws.Cleanup()
 		return nil, err
 	}
@@ -719,9 +644,9 @@ func prepareWorkspace(ctx context.Context, p Policy, projectDir, agentID string)
 // that succeeds with its workspace, warning at each degrade. The chain always ends
 // in None (which never fails), so a member always gets a workspace; the trailing
 // fallback is defensive against an empty/all-failing chain.
-func prepareChain(ctx context.Context, chain []Policy, requested RuntimeAxis, projectDir, agentID string) (Policy, Workspace) {
+func prepareChain(ctx context.Context, chain []policy, requested RuntimeAxis, projectDir, agentID string) (policy, workspace) {
 	for i, p := range chain {
-		ws, err := p.PrepareWorkspace(ctx, projectDir, agentID)
+		ws, err := p.prepareWorkspace(ctx, projectDir, agentID)
 		if err == nil {
 			return p, ws
 		}
@@ -769,6 +694,6 @@ func prepareChain(ctx context.Context, chain []Policy, requested RuntimeAxis, pr
 		}
 		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)
 	}
-	ws, _ := None{}.PrepareWorkspace(ctx, projectDir, agentID)
+	ws, _ := None{}.prepareWorkspace(ctx, projectDir, agentID)
 	return None{}, ws
 }

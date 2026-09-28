@@ -23,7 +23,7 @@ func TestInteractiveRunner_Container_IsTheForegroundRunnerOnATTY(t *testing.T) {
 	cw := newRunnerTestWorkspace()
 	spawnEnv := map[string]string{"CTXLOOM_COORD_URL": "http://host:9000", "CTXLOOM_COORD_CRED": "super-secret-token", "CTXLOOM_RUN_ID": "run-123"}
 
-	cmd, name, err := c.InteractiveRunner(context.Background(), "mock", cw, spawnEnv)
+	cmd, name, err := c.interactiveRunner(context.Background(), "mock", cw, spawnEnv)
 	require.NoError(t, err)
 	require.NotEmpty(t, name, "the container is named so teardown can target it")
 	assert.Equal(t, "docker", filepath.Base(cmd.Path))
@@ -46,8 +46,8 @@ func TestInteractiveRunner_Container_IsTheForegroundRunnerOnATTY(t *testing.T) {
 // runner is the same binary self-exec'd as `runner <engine>`, with the trio on
 // its env; there is no container to name.
 func TestInteractiveRunner_Host_IsTheSelfExecdRunner(t *testing.T) {
-	for _, p := range []Policy{None{}, Worktree{}} {
-		cmd, name, err := p.InteractiveRunner(context.Background(), "mock", hostWorkspace{dir: "/proj"}, map[string]string{"CTXLOOM_RUN_ID": "run-1"})
+	for _, p := range []policy{None{}, Worktree{}} {
+		cmd, name, err := p.interactiveRunner(context.Background(), "mock", hostWorkspace{dir: "/proj"}, map[string]string{"CTXLOOM_RUN_ID": "run-1"})
 		require.NoError(t, err, p.Name())
 		assert.Empty(t, name, "%s: nothing to remove by name", p.Name())
 		assert.Equal(t, []string{"runner", "mock"}, cmd.Args[1:], p.Name())

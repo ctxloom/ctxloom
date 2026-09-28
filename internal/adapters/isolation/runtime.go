@@ -41,27 +41,20 @@ type Runtime interface {
 	RunArgs(spec RunSpec) []string
 	// RemoveArgs builds the argv that force-removes the named container (teardown).
 	RemoveArgs(name string) []string
-	// Expose renders one host↔target exposure into a Mount for this runtime. For
-	// the OCI runtimes (and Host) it is the identity bind Mount{host, target,
-	// readOnly}; it exists as a seam so a future daemonless/imageless runtime
-	// (Chroot) can map an exposure differently (e.g. a path under its root) at
-	// the one delivery-layer primitive instead of at every Mount literal.
-	Expose(host, target string, readOnly bool) Mount
-	// ExposeMapped renders the bind Mount for hostPath — project dir, gitdir
-	// mirror — with its Container side passed through this runtime's
-	// pathMapper (§ lanky-pod): Mount{Host: hostPath, Container:
-	// mapper().toContainer(hostPath)}. Under identityMapper (the default;
-	// every Docker/Podman/Host construction path today) that is byte-for-byte
-	// Expose(hostPath, hostPath, readOnly), so introducing this seam changes
-	// NOTHING on Linux/host-native/true-DinD. It is NOT guaranteed identical
-	// in general — a non-identity mapper (Windows drive-letter→POSIX; DooD
-	// mountinfo-derived) plugs in at ONE place — mapper() below — rather than
-	// at every call site that needs the SAME translation.
-	ExposeMapped(hostPath string, readOnly bool) Mount
+	// expose renders one host↔target exposure into a mount for this runtime:
+	// for the OCI runtimes (and Host) the identity bind mount{host, target,
+	// readOnly}. It is a seam so a future daemonless runtime (Chroot) maps an
+	// exposure at the one primitive rather than at every mount literal.
+	expose(host, target string, readOnly bool) mount
+	// exposeMapped renders the bind mount for hostPath at the path the
+	// runtime's pathMapper routes it to: mount{hostPath, mapper(hostPath)}.
+	// Under identityMapper that is expose(hostPath, hostPath, readOnly). It
+	// fails exactly where the mapper cannot route hostPath.
+	exposeMapped(hostPath string, readOnly bool) (mount, error)
 	// mapper returns this runtime's host↔container path translation
 	// (unexported: an internal wiring seam, not part of the public contract
-	// external packages implement). buildRunnerSpec reads it to translate the
-	// project mount + WorkDir the SAME way ExposeMapped does, so the two
+	// external packages implement). The container relocator routes every
+	// presented root through it (relocateRoot), so a root and exposeMapped
 	// never disagree about where a host path lands in-container.
 	mapper() pathMapper
 	// Enumerate lists containers whose name starts with namePrefix that are
@@ -191,7 +184,7 @@ type ContainerInfo struct {
 // pathMapper translates a host filesystem path to the path the SAME resource
 // appears at inside the container's mount namespace. It is the
 // convergence point runtime.go's doc on Expose already anticipated
-// ("Centralizing every delivery-layer Mount construction here is what lets a
+// ("Centralizing every delivery-layer mount construction here is what lets a
 // future daemonless runtime remap an exposure without touching each call
 // site"): identical-path (Host==Container) is ONE configuration of this seam
 // — identityMapper, the default — not a hardcoded assumption. An inverse
@@ -218,19 +211,22 @@ type ContainerInfo struct {
 //     loudly rather than mounting the wrong path).
 type pathMapper interface {
 	// toContainer maps a host path to the in-container path the SAME resource
-	// should be mounted/reached at.
-	toContainer(hostPath string) string
+	// should be mounted/reached at. It fails for a host path it cannot route
+	// (a DooD mapper for a path outside every daemon-visible mount, a Windows
+	// mapper for a path on no mapped drive); the container relocator reports
+	// that as present.ErrUnreachableRoot naming the root.
+	toContainer(hostPath string) (string, error)
 }
 
 // identityMapper is the default pathMapper: Host==Container, unconditionally.
 // Every Docker/Podman/Host construction path uses it today (directly or via
 // the nil-mapper fallback in withMapper/runtimeMapper), so the seam changes
-// NOTHING for the supported topology — every identical-path Mount this
-// package builds is byte-for-byte what a hardcoded Mount{Host: p, Container:
+// NOTHING for the supported topology — every identical-path mount this
+// package builds is byte-for-byte what a hardcoded mount{Host: p, Container:
 // p} literal produced before this seam existed.
 type identityMapper struct{}
 
-func (identityMapper) toContainer(hostPath string) string { return hostPath }
+func (identityMapper) toContainer(hostPath string) (string, error) { return hostPath, nil }
 
 // runtimeMapper returns m if non-nil, else identityMapper{} — the nil-safe
 // getter every Runtime's mapper() implements, so a runtime constructed
@@ -243,11 +239,6 @@ func runtimeMapper(m pathMapper) pathMapper {
 	return m
 }
 
-// funcMapper adapts a plain function to pathMapper — the backing type for
-// NewDockerWithMapperForTest.
-type funcMapper func(hostPath string) string
-
-func (f funcMapper) toContainer(hostPath string) string { return f(hostPath) }
 
 // RunSpec is the runtime-agnostic description of one runner container: which
 // image to run, the in-container argv, the identical-path project mount and
@@ -260,7 +251,7 @@ type RunSpec struct {
 	Home    string   // fresh $HOME inside the container (engine global state isolated)
 	Command []string // in-container argv (the container's ctxloom + its subcommand)
 	Env     []string // -e KEY=VAL, or a bare -e NAME forwarded from the run process's env
-	Mounts  []Mount  // --mount type=bind bind mounts
+	Mounts  []mount  // --mount type=bind bind mounts
 	// TTY attaches the run to a terminal (-i -t): the runner's stdio is the
 	// tty the originator holds — an INTERACTIVE launch's foreground runner.
 	TTY bool
@@ -273,8 +264,8 @@ type RunSpec struct {
 	Trace *TraceProbe
 }
 
-// Mount is one bind mount rendered as `--mount type=bind,source=,target=[,readonly]`.
-type Mount struct {
+// mount is one bind mount rendered as `--mount type=bind,source=,target=[,readonly]`.
+type mount struct {
 	Host      string
 	Container string
 	ReadOnly  bool
@@ -397,20 +388,26 @@ func (ociRuntime) runArgs(head []string, spec RunSpec) []string {
 	return append(head, renderRunSpec(spec)...)
 }
 
-// Expose renders one exposure as an identical-path bind mount — the OCI
-// primitive, shared by Docker and Podman (and matching Host). Centralizing every
-// delivery-layer Mount construction here is what lets a future daemonless runtime
-// remap an exposure without touching each call site.
-func (ociRuntime) Expose(host, target string, readOnly bool) Mount {
-	return Mount{Host: host, Container: target, ReadOnly: readOnly}
+// expose renders one exposure as a bind mount — the OCI primitive, shared by
+// Docker and Podman (and matching Host).
+func (ociRuntime) expose(host, target string, readOnly bool) mount {
+	return mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
-// ExposeMapped renders the Mount for hostPath with its Container side routed
-// through this runtime's pathMapper — identityMapper by default, so this is
-// byte-for-byte Expose(hostPath, hostPath, readOnly) until a non-identity
-// mapper is wired; a non-identity mapper changes ONLY the Container side.
-func (rt ociRuntime) ExposeMapped(hostPath string, readOnly bool) Mount {
-	return Mount{Host: hostPath, Container: rt.mapper().toContainer(hostPath), ReadOnly: readOnly}
+// exposeMapped renders the mount for hostPath with its Container side routed
+// through this runtime's pathMapper; a non-identity mapper changes ONLY the
+// Container side, and fails where it cannot route hostPath.
+func (rt ociRuntime) exposeMapped(hostPath string, readOnly bool) (mount, error) {
+	return exposeThrough(rt.mapper(), hostPath, readOnly)
+}
+
+// exposeThrough is exposeMapped's one body, over any mapper.
+func exposeThrough(m pathMapper, hostPath string, readOnly bool) (mount, error) {
+	target, err := m.toContainer(hostPath)
+	if err != nil {
+		return mount{}, err
+	}
+	return mount{Host: hostPath, Container: target, ReadOnly: readOnly}, nil
 }
 
 // mapper returns this runtime's pathMapper (identity when unset).
@@ -533,12 +530,12 @@ func renderRunSpec(spec RunSpec) []string {
 // OUT so the strace output written from inside survives the container's
 // `--rm` teardown (no docker cp race). A separate slice so the spec's own
 // Mounts are never mutated.
-func runMounts(spec RunSpec) []Mount {
+func runMounts(spec RunSpec) []mount {
 	if spec.Trace == nil {
 		return spec.Mounts
 	}
-	return append(append([]Mount(nil), spec.Mounts...),
-		Mount{Host: spec.Trace.HostDir, Container: spec.Trace.ContainerDir})
+	return append(append([]mount(nil), spec.Mounts...),
+		mount{Host: spec.Trace.HostDir, Container: spec.Trace.ContainerDir})
 }
 
 // mountArgs renders each mount as a --mount flag.
@@ -548,9 +545,9 @@ func runMounts(spec RunSpec) []Mount {
 // (C:\...) that mis-splits. --mount type=bind,source=,target=[,readonly] is
 // colon-free and renders identically on docker + podman + Linux. Every mount
 // in this package funnels through here, so this is the single site. (--mount
-// requires the source to already exist; every Mount.Host in this package is
+// requires the source to already exist; every mount.Host in this package is
 // a path we created or verified before the run, so that holds.)
-func mountArgs(mounts []Mount) []string {
+func mountArgs(mounts []mount) []string {
 	var args []string
 	for _, m := range mounts {
 		opt := "type=bind,source=" + m.Host + ",target=" + m.Container

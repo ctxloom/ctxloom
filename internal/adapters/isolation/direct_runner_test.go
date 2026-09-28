@@ -15,7 +15,7 @@ import (
 // stateMount is a stand-in for one of the session-state mounts
 // (sessionStateMounts) every container run threads in — the §6.4 mount whose
 // PRESENCE the transcript-survival guard depends on.
-var stateMount = Mount{
+var stateMount = mount{
 	Host:      "/home/u/.ctxloom/sessions/regal-rash-dash/persist",
 	Container: "/home/ctxloom/.ctxloom/sessions/regal-rash-dash/persist",
 }
@@ -28,7 +28,7 @@ func newRunnerTestWorkspace() *containerWorkspace {
 		dir:         "/proj",
 		scratchRoot: "/scratch",
 		extraEnv:    []string{"ANTHROPIC_API_KEY=scoped", "TERM=xterm-256color"},
-		extraMounts: []Mount{
+		extraMounts: []mount{
 			{Host: "/scratch/cfg0", Container: "/proj/.claude"}, // a config overlay
 			stateMount, // a session-state mount (§6.4)
 		},
@@ -68,9 +68,9 @@ func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 
 	// PRESERVED: the project mount, the scoped auth env, IS_SANDBOX, the config
 	// overlay, and — the §6.4 guard — the session-state mount.
-	assert.Contains(t, spec.Mounts, Mount{Host: "/proj", Container: "/ctr/proj"}, "project mount mapped through the runtime's pathMapper")
+	assert.Contains(t, spec.Mounts, mount{Host: "/proj", Container: "/ctr/proj"}, "project mount mapped through the runtime's pathMapper")
 	assert.Contains(t, spec.Mounts, stateMount, "the session-state mount is preserved (transcript survival, §6.4)")
-	assert.Contains(t, spec.Mounts, Mount{Host: "/scratch/cfg0", Container: "/proj/.claude"}, "config overlay preserved")
+	assert.Contains(t, spec.Mounts, mount{Host: "/scratch/cfg0", Container: "/proj/.claude"}, "config overlay preserved")
 	assert.Contains(t, spec.Env, "ANTHROPIC_API_KEY=scoped", "scoped auth env preserved")
 	assert.Contains(t, spec.Env, "IS_SANDBOX=1", "the container-is-the-boundary base env is preserved")
 
@@ -146,7 +146,7 @@ func TestStartDirectRunner_ContextIsNotTheTeardownHandle(t *testing.T) {
 	c := NewContainerFor(rt, "mock").WithImage("img")
 	cw := newRunnerTestWorkspace()
 
-	h, err := c.StartRunner(ctx, "mock", "", 0, cw, nil)
+	h, err := c.startRunner(ctx, "mock", "", 0, cw, nil)
 	require.NoError(t, err)
 
 	cancel()
@@ -182,7 +182,7 @@ func TestContainerStartRunner_CancelledBeforeStartNeverRunsTheCLI(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	h, err := c.StartRunner(ctx, "mock", "", 0, newRunnerTestWorkspace(), nil)
+	h, err := c.startRunner(ctx, "mock", "", 0, newRunnerTestWorkspace(), nil)
 
 	if h != nil {
 		_ = h.Wait() // a started CLI has run its script by the time Wait returns
@@ -243,8 +243,9 @@ func TestRemoveContainer_AlreadyGoneIsNotALeak(t *testing.T) {
 // runnerSpecFor renders the runner spec a Container over rt builds for a
 // workspace at dir carrying env/mounts — the one production spec builder
 // (buildRunnerSpec), driven without a daemon.
-func runnerSpecFor(rt Runtime, backend, dir string, env []string, mounts []Mount) RunSpec {
+func runnerSpecFor(rt Runtime, backend, dir string, env []string, mounts []mount) RunSpec {
 	c := NewContainerFor(rt, backend).WithImage("img")
 	cw := &containerWorkspace{dir: dir, extraEnv: env, extraMounts: mounts, agentID: "m"}
+	placeRoots(c, cw)
 	return c.buildRunnerSpec(backend, "name", cw, nil)
 }

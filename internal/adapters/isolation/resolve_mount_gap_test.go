@@ -60,8 +60,8 @@ func fileDigests(t *testing.T, root string) map[string]string {
 // TestResolveMountGap_MountLeavesWorkspaceContentAlone is the load-bearing test
 // for the resolution/containerization split. The split exists so a caller can
 // WRITE INTO the resolved workspace between the two halves and have the run mount
-// a tree that is already correct; that only holds while Mount treats the tree as
-// read-only input. Nothing else in the suite would notice if Mount started
+// a tree that is already correct; that only holds while mount treats the tree as
+// read-only input. Nothing else in the suite would notice if mount started
 // seeding, rewriting, or clearing workspace content — it would simply begin
 // silently discarding whatever the caller put there, which is the exact failure
 // the gap was created to make impossible.
@@ -72,10 +72,10 @@ func fileDigests(t *testing.T, root string) map[string]string {
 //     absent from the project. Without this, moving the mapping back inside
 //     resolution would close the gap and every other assertion here would still
 //     pass;
-//   - Mount really did map something: a non-empty plan and the mountpoint now
-//     present. Without this, a Mount gutted to `return MountPlan{}, nil` trivially
+//   - mount really did map something: a non-empty plan and the mountpoint now
+//     present. Without this, a mount gutted to `return mountPlan{}, nil` trivially
 //     satisfies the content comparison;
-//   - workspace file content is byte-identical across Mount, INCLUDING a file
+//   - workspace file content is byte-identical across mount, INCLUDING a file
 //     written in the gap, which is the property later phases stand on.
 //
 // The comparison is guarded against being vacuous: the tree is asserted non-empty
@@ -101,7 +101,7 @@ func TestResolveMountGap_MountLeavesWorkspaceContentAlone(t *testing.T) {
 	c.state = SessionState{Harp: "brisk-teal-otter"}
 
 	// STEP 1 — resolution only.
-	ws, err := c.ResolveWorkspace(ctx, proj, "member-gap")
+	ws, err := c.resolveWorkspace(ctx, proj, "member-gap")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ws.Cleanup() })
 	require.Equal(t, proj, ws.Dir(), "the plain container resolves to the live project dir")
@@ -120,16 +120,16 @@ func TestResolveMountGap_MountLeavesWorkspaceContentAlone(t *testing.T) {
 	require.Contains(t, before, filepath.Join(".kept", "user.json"), "guard: the seeded-from directory's content is in the snapshot being compared")
 
 	// STEP 3 — containerization.
-	plan, err := c.Mount(ctx, ws)
+	plan, err := c.bind(ctx, ws)
 	require.NoError(t, err)
 	require.NotEmpty(t, plan.Mounts,
-		"guard: Mount must actually map something, or the content comparison below is satisfied by a Mount that does nothing at all")
+		"guard: mount must actually map something, or the content comparison below is satisfied by a mount that does nothing at all")
 	assert.DirExists(t, filepath.Join(proj, ".claude"),
 		"the mapping creates the overlay mountpoint it needs — this is what proves the mapping ran between the two snapshots")
 
 	// THE ASSERTION THIS TEST EXISTS FOR.
 	assert.Equal(t, before, fileDigests(t, proj),
-		"Mount must map the workspace, never modify it: every file's bytes and mode must survive containerization unchanged")
+		"mount must map the workspace, never modify it: every file's bytes and mode must survive containerization unchanged")
 
 	kept, err := os.ReadFile(handoff)
 	require.NoError(t, err)

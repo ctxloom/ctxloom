@@ -28,7 +28,7 @@ import (
 // returns ctx.Err() with nothing created. It is NOT bound to the process
 // (see TestStartDirectRunner_ContextIsNotTheTeardownHandle): killing an
 // attached `docker run` orphans its container, so teardown is Kill.
-func (c Container) StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
+func (c Container) startRunner(ctx context.Context, backendName, label string, verbosity int, ws workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (c Container) StartRunner(ctx context.Context, backendName, label string, v
 // StartRunner renders — the mounts, the scoped env, the bare-name spawn env
 // — for the originator to start on the pty it holds. Teardown is by name
 // (Remove) plus the run CLI's own death with that pty.
-func (c Container) InteractiveRunner(_ context.Context, backendName string, ws Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
+func (c Container) interactiveRunner(_ context.Context, backendName string, ws workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return nil, "", fmt.Errorf("container interactive runner: unexpected workspace %T (expected a container workspace)", ws)
@@ -77,27 +77,27 @@ func (c Container) InteractiveRunner(_ context.Context, backendName string, ws W
 	return cmd, name, nil
 }
 
-// Remove force-removes the named container — the interactive runner's
-// teardown by name. runExited closes when the `run` CLI that launches it has
+// remove force-removes the named container — the interactive runner's
+// teardown by name. ctx is done once the `run` CLI that launches it has
 // exited: until then an "already gone" answer may precede the CLI's create,
-// so Remove waits that out and removes again (removeLaunched), blocking at
+// so remove waits that out and removes again (removeLaunched), blocking at
 // most AwaitContainerRunning's backstop.
-func (c Container) Remove(name string, runExited <-chan struct{}) {
-	removeLaunched(c.runtime, &RunnerHandle{Name: name, Wait: func() error { <-runExited; return nil }})
+func (c Container) remove(ctx context.Context, name string) {
+	removeLaunched(c.runtime, &RunnerHandle{Name: name, Wait: func() error { <-ctx.Done(); return nil }})
 }
 
 // buildRunnerSpec assembles the RunSpec for one container runner. Env = the
 // fixed container base env (IS_SANDBOX) + the workspace's scoped auth/TERM/
 // git-identity env (cw.extraEnv) + the per-spawn runner env as BARE NAMES.
-// Mounts = the identical-path project mount + the workspace's own mounts
-// (auth credential mounts, config overlays, gitdir mirror, and the
-// session-state mounts). Pure and deterministic so the render is
-// unit-testable without a container.
+// Mounts = the root mounts the container relocator produced WITH each
+// presented root (the project, the session home) + the workspace's own
+// mounts (config overlays, gitdir mirror, the session-state mounts); WorkDir
+// is the project root's Engine side from the same producer. Pure and
+// deterministic so the render is unit-testable without a container.
 func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorkspace, spawnEnv map[string]string) RunSpec {
 	// The runner reads no config: the label body rides the Launch, so the
 	// label never reaches its argv.
 	command := []string{c.binaryPath, "runner", backendName}
-	workDir := c.runtime.mapper().toContainer(cw.dir)
 
 	env := append([]string(nil), containerBaseEnv...)
 	env = append(env, cw.extraEnv...)
@@ -111,17 +111,14 @@ func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorksp
 	sort.Strings(names)
 	env = append(env, names...)
 
-	mounts := append([]Mount{
-		// Project mount: cwd + .git resolve unchanged under the identity mapper.
-		{Host: cw.dir, Container: workDir},
-	}, cw.extraMounts...)
+	mounts := append(append([]mount(nil), cw.roots...), cw.extraMounts...)
 
 	// No socket-dir mount, no published port: the runner dials home over the
 	// coordinator's reach-back, so this spec carries no transport of its own.
 	return RunSpec{
 		Image:   c.image,
 		Name:    name,
-		WorkDir: workDir,
+		WorkDir: cw.workDir,
 		Home:    c.home,
 		Command: command,
 		Env:     env,

@@ -27,7 +27,7 @@ const worktreeIntegrationImage = "ctxloom-iso-wt-itest:latest"
 // mounts and workdir, returning the combined output and error. (Rootless docker
 // maps container-root to the host user, so files it creates in the mounted
 // worktree are host-user-owned and the teardown can remove them.)
-func dockerRun(ctx context.Context, image, workDir string, mounts []Mount, args ...string) (string, error) {
+func dockerRun(ctx context.Context, image, workDir string, mounts []mount, args ...string) (string, error) {
 	full := []string{"run", "--rm"}
 	for _, m := range mounts {
 		// Mirror the policy's render (renderRunSpec): --mount type=bind, not -v.

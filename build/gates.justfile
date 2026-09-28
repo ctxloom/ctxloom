@@ -65,6 +65,9 @@ test-docker-integration: _require-generated _check-docker-integration-pkgs _chec
 # `//go:build docker_integration` constraint must live under a package the
 # list selects. Catches the "new package, new docker test, never run" hole
 # that the two-copies-of-one-recipe split created in the first place.
+# The file list comes from git grep, not a recursive grep: agent worktrees
+# nested under the repo (git-ignored) hold whole copies of the tree, and a
+# recursive grep reports their files as packages outside every pattern.
 _check-docker-integration-pkgs:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -81,7 +84,7 @@ _check-docker-integration-pkgs:
             esac
         done
         [ "$covered" -eq 1 ] || missing+=("$f")
-    done < <(grep -rl '^//go:build docker_integration' --include='*.go' . 2>/dev/null | sed 's|^\./||' | sort)
+    done < <(git grep -l --untracked '^//go:build docker_integration' -- '*.go' | sort)
     if [ "${#missing[@]}" -ne 0 ]; then
         echo "error: docker_integration-tagged files outside docker_integration_pkgs — these tests would NEVER run:" >&2
         printf '  %s\n' "${missing[@]}" >&2
@@ -103,7 +106,7 @@ _check-docker-skip-gate:
         if [ -n "$hits" ]; then
             offenders+="$f"$'\n'"$(sed 's/^/    /' <<<"$hits")"$'\n'
         fi
-    done < <(grep -rl '^//go:build docker_integration' --include='*.go' . 2>/dev/null | sed 's|^\./||' | sort)
+    done < <(git grep -l --untracked '^//go:build docker_integration' -- '*.go' | sort)
     if [ -n "$offenders" ]; then
         echo "error: bare t.Skip in a docker-gated test — route it through internal/testsupport/dockergate:" >&2
         printf '%s' "$offenders" >&2

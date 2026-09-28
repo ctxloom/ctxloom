@@ -130,6 +130,24 @@ func TestMockDefaultForm_RootsUnderSessionHome_NotProjectRoot(t *testing.T) {
 	assert.False(t, filepath.IsAbs(unrooted.HostPath), "with no session home advised the session form is not rootable: %q", unrooted.HostPath)
 }
 
+// TestMockSessionForm_KeepsTheSessionHomesEngineSide: the session form roots
+// its surfaces beneath the session home on BOTH sides. Where an environment
+// relocated that home (a container's $HOME), the engine must be told the
+// Engine side — a rebase that re-advised the roots in place would hand it the
+// host path, which does not exist where it runs.
+func TestMockSessionForm_KeepsTheSessionHomesEngineSide(t *testing.T) {
+	start := present.New(present.Advised(present.Paths{
+		ProjectRoot: present.Root{Host: "/proj", Engine: "/proj"},
+		SessionHome: present.Root{Host: "/sessions/harp/home/mock", Engine: "/home/ctxloom"},
+	}))
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
+		got := mockPresentNamed(t, kind, MockSessionFile, start)
+		rel := filepath.FromSlash(mockRel[kind])
+		assert.Equal(t, filepath.Join("/sessions/harp/home/mock", rel), got.HostPath, "kind %v: the bytes land on the host side", kind)
+		assert.Equal(t, "/home/ctxloom/"+mockRel[kind], got.EnginePath, "kind %v: the engine is told the Engine side", kind)
+	}
+}
+
 // TestMockDeclaration_UnsupportedApproach_IsRefused pins the branch Build
 // takes when the KIND is declared but the requested APPROACH is not one of
 // its names — mock declares the session and project forms only, so asking

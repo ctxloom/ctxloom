@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // scratchDirs lists the directories directly under parent carrying prefix.
@@ -100,7 +102,7 @@ func TestReapDeadScratch_DeletesOnlyWhileHoldingLock(t *testing.T) {
 // primitive, byte range or mode would let a reaper take a live owner's dir.
 func TestOwnerLock_ConflictsWithFlock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ownedScratchLockName)
-	f, err := iox.OpenLockFile(path, ownedScratchLockMode)
+	f, err := iox.OpenLockFile(path, owneronly.FileMode)
 	require.NoError(t, err)
 	require.NoError(t, lockOwnerFile(f))
 
@@ -216,4 +218,16 @@ func TestNewOwnedScratch_OwnerOpeningInsideReapersHoldNeverContinuesInDeletedDir
 	}
 	reapDeadScratch(parent, prefix)
 	assert.DirExists(t, s.dir, "and the owner holds it live against the next reaper")
+}
+
+// A claimed scratch is owner-only, its lock file included: whoever can open
+// the lock file can hold the scratch live. On Windows that is the DACL, which
+// the directory's parent (here a plain temp dir) would otherwise hand down.
+func TestNewOwnedScratch_IsOwnerOnly(t *testing.T) {
+	s, err := newOwnedScratch(t.TempDir(), "ctxloom-owneronly-")
+	require.NoError(t, err)
+	t.Cleanup(s.release)
+
+	fileperm.OwnerOnly(t, s.dir)
+	fileperm.OwnerOnly(t, filepath.Join(s.dir, ownedScratchLockName))
 }

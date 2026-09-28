@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjectClean
@@ -110,6 +111,6 @@ func TestDeliver_KeepsTheModeAnApproachWrote(t *testing.T) {
 	for rel, want := range map[string]os.FileMode{mock.ContextFileName: 0o600, ".mock/skills/greet/SKILL.md": 0o644, ".mock/skills/greet/scripts/run.sh": 0o755} {
 		info, err := os.Stat(filepath.Join(project, rel))
 		require.NoError(t, err, rel)
-		require.Equal(t, want, info.Mode().Perm(), rel)
+		fileperm.Equal(t, want, info.Mode(), rel)
 	}
 }

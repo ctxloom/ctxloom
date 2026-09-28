@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -44,11 +45,6 @@ var (
 	// ErrCredentialExposed: the stored credential, or the directory holding
 	// it, is open to someone other than its owner, so it is not used.
 	ErrCredentialExposed = errors.New("stored credential is not owner-only")
-)
-
-const (
-	credentialFileMode fs.FileMode = 0o600
-	credentialDirMode  fs.FileMode = 0o700
 )
 
 // AuthFor is the engine's declared auth; false when the engine is unknown or
@@ -88,15 +84,15 @@ func storableAuth(name string, mode engine.AuthMode) (engine.Auth, error) {
 	return a, nil
 }
 
-// restrictDir is restrictCredentialDir, indirected so a test can make it
-// fail: no ACL a test can write stops an elevated Windows administrator (the
-// account CI runs as) from replacing a DACL, so the failure has no honest
-// on-disk fixture there.
-var restrictDir = restrictCredentialDir
+// ensureOwnerOnlyDir is owneronly.EnsureDir, indirected so a test can make
+// it fail: no ACL a test can write stops an elevated Windows administrator
+// (the account CI runs as) from replacing a DACL, so the failure has no
+// honest on-disk fixture there.
+var ensureOwnerOnlyDir = owneronly.EnsureDir
 
 // StoreEngineCredential writes secret as engine's stored credential for
 // mode: owner-only from creation (iox.WriteFileAtomic), in an owner-only
-// directory, surrounding whitespace trimmed. It returns the file's path and
+// directory (owneronly.EnsureDir), surrounding whitespace trimmed. It returns the file's path and
 // never echoes the secret. The result is held to the same check a read
 // applies, and a credential that fails it is removed: a store never leaves a
 // readable credential.
@@ -116,13 +112,10 @@ func StoreEngineCredential(name string, mode engine.AuthMode, secret []byte) (st
 		return "", err
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, credentialDirMode); err != nil {
-		return "", fmt.Errorf("create %s: %w", dir, err)
-	}
-	if err := restrictDir(dir); err != nil {
+	if err := ensureOwnerOnlyDir(dir); err != nil {
 		return "", fmt.Errorf("restrict %s to its owner: %w", dir, err)
 	}
-	if err := iox.WriteFileAtomic(path, s, credentialFileMode, iox.Durable()); err != nil {
+	if err := iox.WriteFileAtomic(path, s, owneronly.FileMode, iox.Durable()); err != nil {
 		return "", err
 	}
 	if err := checkCredentialPrivate(path); err != nil {
@@ -135,20 +128,12 @@ func StoreEngineCredential(name string, mode engine.AuthMode, secret []byte) (st
 // open to anyone but its owner, with ErrCredentialExposed naming the path
 // and the fix. A missing path is returned as is (fs.ErrNotExist).
 func checkCredentialPrivate(path string) error {
-	for _, p := range []string{filepath.Dir(path), path} {
-		info, err := os.Stat(p)
-		if err != nil {
-			return err
-		}
-		why, err := ownerOnlyViolation(p, info)
-		if err != nil {
-			return fmt.Errorf("check who may read %s: %w", p, err)
-		}
-		if why != "" {
-			return fmt.Errorf("%w: %s %s; store it again (`ctxloom auth mint` or `ctxloom auth set`) to restrict it", ErrCredentialExposed, p, why)
-		}
+	err := owneronly.Check(filepath.Dir(path), path)
+	var exposed *owneronly.ExposedError
+	if errors.As(err, &exposed) {
+		return fmt.Errorf("%w: %w; store it again (`ctxloom auth mint` or `ctxloom auth set`) to restrict it", ErrCredentialExposed, err)
 	}
-	return nil
+	return err
 }
 
 // StoredCredentials is engine's credential store as its Auth reads it.
@@ -186,7 +171,7 @@ func (s storedCredentials) Read(mode engine.AuthMode) ([]byte, error) {
 
 // EngineCredentialStatus is one engine's stored credential for one mode,
 // without the credential. Protection is this platform's verdict on who can
-// read it (describeProtection); empty when nothing is stored.
+// read it (owneronly.Describe); empty when nothing is stored.
 type EngineCredentialStatus struct {
 	Engine     string
 	Mode       engine.AuthMode
@@ -226,28 +211,9 @@ func credentialStatus(name string, mode engine.AuthMode) (EngineCredentialStatus
 		return st, nil
 	}
 	st.Stored = true
-	st.Protection, err = describeProtection(path, info)
+	st.Protection, err = owneronly.Describe(path, info)
 	if err != nil {
 		return EngineCredentialStatus{}, fmt.Errorf("check who may read %s: %w", path, err)
 	}
 	return st, nil
-}
-
-// aclExposure names the grantees of an access list beyond the owner and the
-// principals every owner-only ACL on the platform tolerates, "" when there
-// are none. It is the platform-neutral half of the Windows owner-only check
-// (ownerOnlyViolation there reads the ACL and hands the SIDs here as
-// strings), kept out of the build-tagged file so it is tested everywhere.
-func aclExposure(owner string, tolerated, grantees []string) string {
-	var extra []string
-	for _, g := range grantees {
-		if g == owner || slices.Contains(tolerated, g) || slices.Contains(extra, g) {
-			continue
-		}
-		extra = append(extra, g)
-	}
-	if len(extra) == 0 {
-		return ""
-	}
-	return "grants access to " + strings.Join(extra, ", ")
 }

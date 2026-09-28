@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -237,10 +238,19 @@ func writtenFiles(layer afero.Fs) []string {
 // writeThrough lands a file the approach wrote outside the target's roots
 // on the real filesystem, bytes and mode as written. That file is the
 // approach's own state (claude's undo record, which keeps the previous value
-// of the key it undoes), so a directory created for it is owner-only.
+// of the key it undoes), so a directory created for it is owner-only, through
+// the record store's own seam. A directory that already exists is left as it
+// is: this lands a file, it does not own the directory it lands in.
 func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) error {
-	if err := fs.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	exists, err := afero.DirExists(fs, dir)
+	if err != nil {
 		return err
+	}
+	if !exists {
+		if err := confpatch.EnsureRecordDir(fs, dir); err != nil {
+			return err
+		}
 	}
 	return iox.WriteFileAtomicFs(fs, path, bytes, mode)
 }

@@ -350,10 +350,12 @@ credential nobody refreshes has no second holder to fall out of step with.
 engine and mode through `iox.WriteFileAtomic` at
 `paths.HomeEngineCredentialPath` (`~/.ctxloom/auth/<engine>.<mode>`), for the
 modes `AuthMode.Stored` names; a login or a cloud provider is the human's own
-and is never stored. Owner-only is a per-OS twin behind `ownerOnlyViolation`:
-mode `0600` in a `0700` directory on unix; on Windows a protected DACL
-granting the current user, where an existing ACL that also grants SYSTEM and
-Administrators is accepted (`aclExposure`). A read
+and is never stored. Owner-only is the shared per-OS seam `owneronly`
+(`owneronly.EnsureDir`, `owneronly.Check`): mode `0600` in a `0700` directory
+on unix; on Windows a protected DACL granting the current user, where an
+existing ACL that also grants SYSTEM and Administrators is accepted. The same
+seam protects a session home and the engine config written into it
+(`isolation.PrepareInstanceHome`). A read
 (`isolation.StoredCredentials`) refuses a credential others can reach rather
 than use it or treat it as absent. `ctxloom auth status` shows each stored
 mode and who can read it: the mode on unix, the owner-only or exposed verdict
@@ -428,7 +430,7 @@ darwin/arm64 and no more. Each claim below is sourced or marked.
   whether a session-home run sharing the login this way reaches the human's
   Keychain item.
 - **`token`, `api-key`.** ctxloom's own file store, `0600` files in a `0700`
-  `~/.ctxloom/auth` (the unix twin of `ownerOnlyViolation`). ctxloom itself
+  `~/.ctxloom/auth` (the unix side of `owneronly`). ctxloom itself
   never uses the Keychain.
 - **`cloud`.** The provider's variables from the human's shell; nothing
   stored.

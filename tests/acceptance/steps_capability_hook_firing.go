@@ -249,20 +249,8 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// vantage point that can tell a missing WRITE from a missing RUN on
 		// this axis — which is the entire question P3's container cells exist
 		// to answer.
-		var containerCarriage <-chan string
-		containerScanCancel := func() {}
-		if hookProbeIsContainerAxis(h.runtime) {
-			rt, decision, _ := probeContainerRuntimeForAxis(c, h.runtime, hookProbeFamily)
-			if decision == dockergate.Proceed && rt.Command != "" {
-				scanCtx, cancel := context.WithCancel(c)
-				defer cancel()
-				containerScanCancel = cancel
-				containerCarriage = hookProbeWatchContainerCarriage(
-					scanCtx, rt.Command, h.scriptPath,
-					[]string{w.env.ProjectDir}, h.authored,
-				)
-			}
-		}
+		containerCarriage, containerScanCancel := hookProbeStartContainerScan(c, h, w.env.ProjectDir)
+		defer containerScanCancel()
 
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -279,10 +267,8 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		timer.Stop()
 
 		h.stdout, h.stderr = stdout.String(), stderr.String()
-		if exitErr, ok := h.runErr.(*exec.ExitError); ok {
-			h.exitCode = exitErr.ExitCode()
-		} else if h.runErr != nil {
-			h.exitCode = -1
+		if h.runErr != nil {
+			h.exitCode = exitCodeOf(h.runErr)
 		}
 
 		// Read the stamp THROUGH probeFileArtifact, which refuses an unreadable
@@ -329,12 +315,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// bytes claude was actually handed, where the host's "" on this axis is
 		// only ever the absence of a place to look.
 		containerScanCancel()
-		if containerCarriage != nil {
-			if hit := <-containerCarriage; hit != "" {
-				h.carriage = hit
-			}
-			h.carriageRoots = append(h.carriageRoots, "(in-container) $HOME/.ctxloom, "+w.env.ProjectDir)
-		}
+		hookProbeCollectContainerCarriage(h, containerCarriage, w.env.ProjectDir)
 
 		w.docStepMaterialized = fmt.Sprintf(
 			"hook-probe %s exit=%d\nargv harp=%s\nstdout harp=%s\nstamp path=%s\nstamp read err=%v\nstamp contents:\n%s\ncarriage: %s\nstdout:\n%s\nstderr:\n%s",
@@ -478,4 +459,36 @@ func hookProbeWatchContainerCarriage(ctx context.Context, runtimeBin, needle str
 		}
 	}()
 	return out
+}
+
+// hookProbeStartContainerScan starts the in-container carriage scan when h is
+// a container cell whose runtime is reachable. It returns the scan's result
+// channel (nil when no scan started) and its cancel, which is always safe to
+// call and which the caller must defer.
+func hookProbeStartContainerScan(c context.Context, h *hookProbeState, projectDir string) (<-chan string, context.CancelFunc) {
+	if !hookProbeIsContainerAxis(h.runtime) {
+		return nil, func() {}
+	}
+	rt, decision, _ := probeContainerRuntimeForAxis(c, h.runtime, hookProbeFamily)
+	if decision != dockergate.Proceed || rt.Command == "" {
+		return nil, func() {}
+	}
+	scanCtx, cancel := context.WithCancel(c)
+	return hookProbeWatchContainerCarriage(
+		scanCtx, rt.Command, h.scriptPath,
+		[]string{projectDir}, h.authored,
+	), cancel
+}
+
+// hookProbeCollectContainerCarriage folds the in-container scan's result into
+// h: a hit there overrides the host's silence, and the in-container roots are
+// recorded as searched. A nil channel (no scan ran) changes nothing.
+func hookProbeCollectContainerCarriage(h *hookProbeState, containerCarriage <-chan string, projectDir string) {
+	if containerCarriage == nil {
+		return
+	}
+	if hit := <-containerCarriage; hit != "" {
+		h.carriage = hit
+	}
+	h.carriageRoots = append(h.carriageRoots, "(in-container) $HOME/.ctxloom, "+projectDir)
 }

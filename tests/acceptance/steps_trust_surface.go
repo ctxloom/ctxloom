@@ -1175,22 +1175,7 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		out := w.env.LastStdout()
 		w.docStepMaterialized = strings.TrimSpace(out)
 		if !formatAskedFor(w).Structured() {
-			if !strings.Contains(out, operations.ReviewStatusReReview) {
-				return fmt.Errorf("`review --list` does not label the superseded item a re-review — a stale approval of unchanged bytes must read as neither a first-time item nor a change; output:\n%s", out)
-			}
-			if !strings.Contains(out, "fragments/context") {
-				return fmt.Errorf("`review --list` does not list the superseded fragment at all; output:\n%s", out)
-			}
-			for _, line := range strings.Split(out, "\n") {
-				if !strings.Contains(line, "fragments/context") {
-					continue
-				}
-				if !strings.Contains(line, operations.ReviewStatusReReview) {
-					return fmt.Errorf("the superseded fragment is listed as %q, want it labelled %s; output:\n%s", strings.TrimSpace(line), operations.ReviewStatusReReview, out)
-				}
-				return nil
-			}
-			return fmt.Errorf("`review --list` listed no line for fragments/context; output:\n%s", out)
+			return tsAssertReReviewListedText(out)
 		}
 		// The JSON row reads the SAME fact off operations.PendingReviewResult's
 		// own shape: exactly one bundle here, and its one fragment item (named
@@ -1205,6 +1190,27 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+}
+
+// tsAssertReReviewListedText checks a text `review --list` labels the
+// superseded fragments/context item a re-review.
+func tsAssertReReviewListedText(out string) error {
+	if !strings.Contains(out, operations.ReviewStatusReReview) {
+		return fmt.Errorf("`review --list` does not label the superseded item a re-review — a stale approval of unchanged bytes must read as neither a first-time item nor a change; output:\n%s", out)
+	}
+	if !strings.Contains(out, "fragments/context") {
+		return fmt.Errorf("`review --list` does not list the superseded fragment at all; output:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "fragments/context") {
+			continue
+		}
+		if !strings.Contains(line, operations.ReviewStatusReReview) {
+			return fmt.Errorf("the superseded fragment is listed as %q, want it labelled %s; output:\n%s", strings.TrimSpace(line), operations.ReviewStatusReReview, out)
+		}
+		return nil
+	}
+	return fmt.Errorf("`review --list` listed no line for fragments/context; output:\n%s", out)
 }
 
 // tsAuthorSignAndEdit is the stale-local-signature row's fixture: Alice's key

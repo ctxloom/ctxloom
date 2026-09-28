@@ -91,7 +91,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	require.True(t, strings.HasSuffix(turn.Prompt, "go"), "the prompt is the first turn")
 	mcpConfig := childOut.MCPConfig
 	require.FileExists(t, mcpConfig)
-	require.True(t, strings.HasPrefix(mcpConfig, child.Cell.Paths.Paths().Scratch.Host), "the MCP file lands under the session's own root, never the project tree")
+	require.True(t, strings.HasPrefix(mcpConfig, child.Cell.Paths.Paths().SessionHome.Host), "the MCP file lands under the session's own root, never the project tree")
 	body, err := os.ReadFile(mcpConfig)
 	require.NoError(t, err)
 	require.Contains(t, string(body), `"deploy-tool"`, "the composed servers are what .mcp.json names")
@@ -316,15 +316,18 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 			return launch.Cell{}, err
 		}
 	}
-	sessionDir := filepath.Join(c.sessions, req.Identity.Harp)
-	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
+	if err != nil {
 		return launch.Cell{}, err
 	}
-	paths := present.OnHost(present.Paths{
-		ProjectRoot: present.Root{Host: workspace},
-		CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
-		Scratch:     present.Root{Host: sessionDir},
-	})
+	roots := present.Paths{ProjectRoot: present.Root{Host: workspace}}
+	if home, ok := launch.SessionHome(filepath.Join(c.sessions, req.Identity.Harp), req.Engine, homeMode); ok {
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			return launch.Cell{}, err
+		}
+		roots.SessionHome = present.Root{Host: home}
+	}
+	paths := present.OnHost(roots)
 	return launch.Cell{Paths: paths, Workspace: workspace, Env: map[string]string{}, Cleanup: func() error { return nil }}, nil
 }
 
@@ -360,7 +363,7 @@ func cellTree(t *testing.T, l launch.Launch) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	normalize := strings.NewReplacer(l.MCP.URL, "<endpoint>", l.MCP.Credential, "<bearer>")
-	for prefix, root := range map[string]string{"session": l.Cell.Paths.Paths().Scratch.Host, "workspace": l.Cell.Workspace} {
+	for prefix, root := range map[string]string{"session": l.Cell.Paths.Paths().SessionHome.Host, "workspace": l.Cell.Workspace} {
 		for rel, digest := range treeOf(t, root, normalize) {
 			out[prefix+"/"+rel] = digest
 		}
@@ -476,8 +479,8 @@ func TestExecute_TheLaunchsEngineEnvRidesTheExec(t *testing.T) {
 // which nothing mounts where the runner runs, and a write there lands in the
 // container's own layer while the engine is pointed at an empty mount.
 //
-// The mock's session files land under Scratch, so this cell relocates Scratch
-// the way production relocates EngineHome; the seam is root-agnostic.
+// The mock's session files land under its session home, which this cell
+// relocates the way production does.
 func TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.T) {
 	env := newDeliveryEnv(t)
 	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
@@ -488,10 +491,9 @@ func TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.
 
 	host := child.Cell.Paths.Paths()
 	engineSide := t.TempDir() // stands in for the in-container mount target
-	advised := present.Containerize{Scratch: engineSide}.Apply(present.Paths{
+	advised := present.Containerize{SessionHome: engineSide}.Apply(present.Paths{
 		ProjectRoot: present.Root{Host: host.ProjectRoot.Host},
-		CtxloomHome: present.Root{Host: host.CtxloomHome.Host},
-		Scratch:     present.Root{Host: host.Scratch.Host},
+		SessionHome: present.Root{Host: host.SessionHome.Host},
 	})
 	child.Cell.Paths = advised
 	child.Cell.Container = &launch.ContainerCell{Runtime: launch.RuntimeRootless, Mounts: advised.Mounts()}
@@ -509,7 +511,7 @@ func TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.
 	require.True(t, strings.HasPrefix(out.MCPConfig, engineSide+string(filepath.Separator)),
 		"the MCP file the engine is pointed at must be written at the engine side %s, got %s", engineSide, out.MCPConfig)
 	require.NotEmpty(t, treeOf(t, engineSide, strings.NewReplacer()), "nothing was delivered at the engine side of the relocated root")
-	require.Empty(t, treeOf(t, host.Scratch.Host, strings.NewReplacer()),
+	require.Empty(t, treeOf(t, host.SessionHome.Host, strings.NewReplacer()),
 		"the runner wrote into the originator-side directory, which is not mounted where it runs")
 	require.Len(t, drive.turns, 1)
 	for _, p := range drive.turns[0].Presented {

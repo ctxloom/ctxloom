@@ -53,7 +53,7 @@ type placement interface {
 // dirPlacement is a trivial placement whose Dir() returns a fixed directory.
 // It adapts a root read from the advised Start into the placement the reused
 // writers construct against — the project root for the well-known Delivery,
-// the private or Scratch root for the out-of-cwd forms; all arrive at call
+// the session home for the out-of-cwd forms; all arrive at call
 // time, never at construction.
 type dirPlacement struct{ dir string }
 
@@ -67,20 +67,17 @@ func (p dirPlacement) Dir() string { return p.dir }
 // choice is made once and cannot drift between two surfaces that are supposed
 // to obey one rule.
 //
-// It is the run's RELOCATED ENGINE HOME: configuration is a property of the
-// run, mounted into the container and inited against, and the home is
-// resolved off the agent binding alone — orthogonal to the cell, so every
-// cell kind reaches the same root. It is NOT Scratch, and that is not a
-// preference: on an isolated cell Scratch IS the working directory, so a
-// "private" file rooted there lands in the checkout — and for a container
-// with workspace: none the checkout is the live project mount.
+// It is the run's SESSION HOME, the relocated engine home: configuration is a
+// property of the run, mounted into the container and inited against, and
+// the home is resolved off the agent binding alone — orthogonal to the cell,
+// so every cell kind reaches the same root.
 //
 // Only a binding that relocates the home (engine_home: session) advises this
 // root at all. A run without one is REFUSED by every approach beneath it
 // (privateRooted) rather than served from the user's real home, which is
 // shared across every session and exactly the file these approaches exist to
 // stay out of.
-func privateRoot(start present.Start) present.Root { return start.Paths().EngineHome }
+func privateRoot(start present.Start) present.Root { return start.Paths().SessionHome }
 
 // underPrivateRoot roots a PRESENTATION at rel beneath the same root
 // privateRoot names. It sits here, adjacent to privateRoot and nowhere else,
@@ -89,7 +86,7 @@ func privateRoot(start present.Start) present.Root { return start.Paths().Engine
 // would announce a path nothing was written to. They are checked against each
 // other by TestSurfaces_PresentedPathIsWhereTheApproachWrites.
 func underPrivateRoot(start present.Start, rel string) present.Rooted {
-	return start.UnderEngineHome(rel)
+	return start.UnderSessionHome(rel)
 }
 
 // privateRooted is the entry refusal for an approach that lands beneath
@@ -98,7 +95,7 @@ func underPrivateRoot(start present.Start, rel string) present.Rooted {
 // own sentinel naming its own remedy — so a flip that moved the placement and
 // left the check on the old root would refuse runs that HAVE the new root and
 // serve runs that lack it, with a bare relative path.
-func privateRooted(start present.Start) error { return agent.EngineHomeRooted(start) }
+func privateRooted(start present.Start) error { return agent.SessionHomeRooted(start) }
 
 // claudeContextWriter is the ContextWriter the native-file context approach
 // merges through — the same core WriteContext (claude.go) every CLAUDE.md
@@ -132,7 +129,7 @@ func newMCPWriter(in agent.SurfaceInputs, fs afero.Fs) mcpWriter {
 // wrong place to decide one: the system prompt does not know what it would be
 // degrading to, or whether the caller would have accepted CLAUDE.md instead.
 // That is the engine declaration's job. A run that cannot serve this approach
-// gets ErrUnrootedEngineHome and writes nothing.
+// gets ErrUnrootedSessionHome and writes nothing.
 type systemPromptContext struct {
 	content string
 	fs      afero.Fs
@@ -172,7 +169,7 @@ func (s *systemPromptContext) Present(start present.Start) present.Presentation 
 // reaches it — an isolated launch that selected system-prompt now gets the
 // system prompt.
 //
-// An unresolved private root REFUSES (ErrUnrootedEngineHome) rather than writing
+// An unresolved private root REFUSES (ErrUnrootedSessionHome) rather than writing
 // the well-known file instead; see the type doc. A FAILED write leaves Path ""
 // (the writer's own contract): no flag may name a file that was not written.
 func (s *systemPromptContext) Deliver(start present.Start) (agent.Delivered, error) {
@@ -265,7 +262,7 @@ func (s *mcpConfig) Present(start present.Start) present.Presentation {
 
 // Deliver writes the merged .mcp.json beneath the advised private root and
 // records its path for --mcp-config. An unresolved private root REFUSES
-// (ErrUnrootedEngineHome) rather than falling back to the project file — the
+// (ErrUnrootedSessionHome) rather than falling back to the project file — the
 // fallback IS the defect. A FAILED write clears the path: Path() promises ""
 // for a file that does not exist, and the delivered presentation must never
 // hand claude --mcp-config naming one.
@@ -386,8 +383,8 @@ func (s *mcpUnsafeFile) UnsafeInfo() string { return "claude/mcp" }
 //
 // Deliver (well-known) writes .claude/settings.json into the project root via
 // the reused fileTemplateDelivery.DeliverSettings. DeliverIsolated writes the
-// same settings JSON beneath Scratch and exposes its path (Path) for
-// --settings <file>.
+// same settings JSON beneath the session home and exposes its path (Path)
+// for --settings <file>.
 type settingsSurface struct {
 	hooks            *wire.HooksConfig
 	manageStatusline bool
@@ -426,17 +423,22 @@ func (s *settingsSurface) Deliver(start present.Start) (agent.Delivered, error) 
 }
 
 // DeliverIsolated writes the settings JSON (incl. hooks) beneath the advised
-// Scratch root and records its path for --settings. A FAILED write clears
+// session home and records its path for --settings. A FAILED write clears
 // that path, for the same reason mcpConfig.Deliver does: no --settings flag may
-// name a file that was not written.
+// name a file that was not written. A run with no session home is refused
+// (ErrUnrootedSessionHome) rather than handed a bare relative path.
 func (s *settingsSurface) DeliverIsolated(start present.Start) (agent.Delivered, error) {
-	handle, err := s.deliver(start.Paths().Scratch.Host)
+	if err := privateRooted(start); err != nil {
+		s.path = ""
+		return nil, err
+	}
+	handle, err := s.deliver(privateRoot(start).Host)
 	if err != nil {
 		s.path = ""
 		return nil, err
 	}
 	// Declared, not re-joined — see mcpConfig.Deliver.
-	s.path = start.UnderScratch(relSettings).Build().HostPath
+	s.path = underPrivateRoot(start, relSettings).Build().HostPath
 	return handle, nil
 }
 
@@ -446,7 +448,7 @@ func (s *settingsSurface) DeliverIsolated(start present.Start) (agent.Delivered,
 // "empty" case to skip — a settings surface always has hooks or a statusline
 // policy to state, even when that state is "nothing configured".
 func (s *settingsSurface) PresentExisting(start present.Start) (string, error) {
-	p := start.UnderScratch(relSettings).Build().HostPath
+	p := underPrivateRoot(start, relSettings).Build().HostPath
 	if err := agent.RequireDelivered(s.fs, agent.SurfaceSettings, p); err != nil {
 		s.path = ""
 		return "", err

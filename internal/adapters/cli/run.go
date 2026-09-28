@@ -22,12 +22,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -949,18 +949,17 @@ func printResumedEssence(payload dryRunJSON) {
 type dryCells struct{}
 
 func (dryCells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell, error) {
-	roots := present.Paths{
-		ProjectRoot: present.Root{Host: req.ProjectRoot},
-		CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
-		Scratch:     present.Root{Host: req.SessionDir},
+	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
+	if err != nil {
+		return launch.Cell{}, err
 	}
-	// The engine home a session-home run of a relocatable engine WOULD
-	// advise (the real cell's, under the session's home dir): the router
-	// reads it to place the engine's session-home kinds, so a preview
-	// without it would show every kind on the project root — the opposite of
-	// the run it previews.
-	if home := req.Engine.Home(); home.Relocates() && req.HomeMode == launch.HomeModeSession {
-		roots.EngineHome = present.Root{Host: filepath.Join(req.SessionDir, paths.SessionEngineHomesDirName, home.Vars[0].Subdir)}
+	roots := present.Paths{ProjectRoot: present.Root{Host: req.ProjectRoot}}
+	// The session home the real cell WOULD advise: the router reads it to
+	// place the engine's session-home kinds, so a preview without it would
+	// show every kind on the project root — the opposite of the run it
+	// previews.
+	if dir, ok := launch.SessionHome(req.SessionDir, req.Engine, homeMode); ok {
+		roots.SessionHome = present.Root{Host: dir}
 	}
 	return launch.Cell{
 		Paths:     present.OnHost(roots),

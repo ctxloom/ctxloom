@@ -53,7 +53,7 @@ func fakeUnsafeFilePresenter(s present.Start) present.Presentation {
 // the advised roots — so this presenter neither knows nor asks whether it
 // did.
 func fakeSystemPromptPresenter(s present.Start) present.Presentation {
-	return s.UnderEngineHome(fakeSystemPromptRel).
+	return s.UnderSessionHome(fakeSystemPromptRel).
 		AnnounceEnv("FAKE_HOME").
 		AnnounceFlag(fakeSystemPromptFlag).
 		Build()
@@ -112,7 +112,7 @@ func fakeContextPresentations() Presentations {
 func fakeStart() present.Start {
 	return present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: fakeProjectRoot},
-		EngineHome:  present.Root{Host: fakeEngineHome},
+		SessionHome: present.Root{Host: fakeEngineHome},
 	}))
 }
 

@@ -60,7 +60,7 @@ type Construct func(in SurfaceInputs, fs afero.Fs) Approach
 
 // OutOfCwd is implemented by an Approach that ALSO has a race-safe form: the
 // same surface written OUT of the shared working directory (beneath the
-// advised Scratch root, announced to the engine by a launch flag) instead of
+// advised session home, announced to the engine by a launch flag) instead of
 // at its well-known path. A shared-cwd delivery runs this form in place of
 // Deliver, without the race warning; a shared launch with no stated
 // preference prefers an approach that has one over the at-rest default.
@@ -71,9 +71,7 @@ type Construct func(in SurfaceInputs, fs afero.Fs) Approach
 // shared launch, and was told it succeeded — while the SAME selection on an
 // isolated cell got the well-known file. One name, two behaviours, neither of
 // them the caller's choice. Context and MCP were split into separate approaches
-// for that reason; settings cannot be split while an isolated cell's scratch IS
-// its checkout, because a private --settings file would land at the well-known
-// path AND be announced on the flag, registering claude's hooks twice.
+// for that reason; settings has not been split yet.
 //
 // Omitting it is the safe direction: an approach without it is warned and not
 // preferred, never silently treated as race-free. Prefer declaring one
@@ -85,7 +83,7 @@ type OutOfCwd interface {
 // Existing is implemented by an Approach whose out-of-cwd form can be NAMED
 // without being written, because where it lands is a function of the run's
 // content alone (a content-addressed leaf, or a well-known name beneath the
-// advised Scratch root).
+// advised session home).
 //
 // It is the seam LaunchFormPresent runs. A member sharing the project cwd must
 // not rewrite the session's one surface set, but it still has to tell the

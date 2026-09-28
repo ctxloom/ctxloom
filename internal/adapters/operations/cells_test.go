@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -97,7 +98,7 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		assert.Contains(t, cell.Env, claude.SecureStorageEnv, "a host cell carries the shared login")
 		require.Contains(t, cell.Env, claude.OAuthTokenEnv)
 		assert.Empty(t, cell.Env[claude.OAuthTokenEnv], "and blanks the token it replaces")
-		assert.Equal(t, want, cell.Paths.Paths().EngineHome.Host, "the engine home is a root the launch advises")
+		assert.Equal(t, want, cell.Paths.Paths().SessionHome.Host, "the engine home is a root the launch advises")
 	})
 
 	t.Run("a binding selecting engine_home: host keeps the real host home", func(t *testing.T) {
@@ -220,4 +221,29 @@ func claudeInstanceDir(t *testing.T, workDir, harp string) string {
 	root, err := paths.HarpSessionEngineHomes(harp)
 	require.NoError(t, err)
 	return filepath.Join(root, claude.HomeLeaf)
+}
+
+// TestCellsPrepare_AnEngineThatRelocatesNothingGetsTheRulesSessionHome: the
+// real cell advises the session home launch.SessionHome names for an engine
+// with no relocatable home (mock), and none when the binding selects
+// engine_home: host — the same rule the preview cell and the resolver's test
+// cell follow.
+func TestCellsPrepare_AnEngineThatRelocatesNothingGetsTheRulesSessionHome(t *testing.T) {
+	eng, ok := engines.Registry().Lookup("mock")
+	require.True(t, ok)
+	require.False(t, eng.Home().Relocates(), "the case needs an engine that relocates nothing")
+	for _, mode := range []launch.HomeMode{launch.HomeModeSession, launch.HomeModeHost} {
+		resetStrictness(t)
+		t.Setenv("HOME", t.TempDir())
+		req := claudeKind(t)
+		req.Engine = eng
+		req.HomeMode = mode
+		req.ProjectRoot = t.TempDir()
+		req.SessionDir = t.TempDir()
+		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = cell.Cleanup() })
+		want, _ := launch.SessionHome(req.SessionDir, eng, agents.HomeMode(mode))
+		require.Equal(t, want, cell.Paths.Paths().SessionHome.Host, "engine_home %s", mode)
+	}
 }

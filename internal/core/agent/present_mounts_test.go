@@ -32,26 +32,20 @@ func TestContainerizeApply_RecordsTheMountContent(t *testing.T) {
 	assert.Equal(t, present.Mount{HostDir: "/home/user/project", TargetDir: "/mnt/proj"}, mounts[0])
 }
 
-// TestContainerizeApplyPaths_RecordsEveryResolvedRoot drives all four roots, so
+// TestContainerizeApplyPaths_RecordsEveryResolvedRoot drives every root, so
 // a result that captures the mounts slice partway through the appends is caught
 // as well as one that captures it before any of them.
 func TestContainerizeApplyPaths_RecordsEveryResolvedRoot(t *testing.T) {
 	_, mounts := present.Containerize{
 		ProjectRoot: "/c/proj",
-		EngineHome:  "/c/home",
-		CtxloomHome: "/c/ctxloom",
-		Scratch:     "/c/scratch",
+		SessionHome: "/c/home",
 	}.ApplyPaths(present.Paths{
 		ProjectRoot: present.Root{Host: "/h/proj"},
-		EngineHome:  present.Root{Host: "/h/home"},
-		CtxloomHome: present.Root{Host: "/h/ctxloom"},
-		Scratch:     present.Root{Host: "/h/scratch"},
+		SessionHome: present.Root{Host: "/h/home"},
 	})
 
 	assert.Equal(t, []present.Mount{
 		{HostDir: "/h/proj", TargetDir: "/c/proj"},
 		{HostDir: "/h/home", TargetDir: "/c/home"},
-		{HostDir: "/h/ctxloom", TargetDir: "/c/ctxloom"},
-		{HostDir: "/h/scratch", TargetDir: "/c/scratch"},
 	}, mounts)
 }

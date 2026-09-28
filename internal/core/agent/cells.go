@@ -58,15 +58,15 @@ type Delivery interface {
 // enters, before any surface can act on it.
 var ErrUnrootedDelivery = errors.New("delivery: the project root was never resolved")
 
-// ErrUnrootedEngineHome is returned by an approach that writes beneath the
-// ENGINE HOME when that root was never resolved for the run. The same
+// ErrUnrootedSessionHome is returned by an approach that writes beneath the
+// SESSION HOME when that root was never resolved for the run. The same
 // bare-relative-path hazard ErrUnrootedDelivery names applies, and one
 // more: the tempting fallback — the engine's REAL home, ~/.claude and the
 // like — is the user's own, shared across every session, and writing it
 // because a private one was not advised is the shared/dangerous default the
 // seam refuses to take on anyone's behalf. The remedy is in the message,
 // because the refusal is the whole interface for the failure.
-var ErrUnrootedEngineHome = errors.New("delivery: the engine home was never resolved — this approach writes beneath the engine's private config home, which only a run whose agent binding declares engine_home: session advises; declare it on the binding, or select a project-file approach for this surface")
+var ErrUnrootedSessionHome = errors.New("delivery: the session home was never resolved — this approach writes beneath the session's private home, which a run whose agent binding selects engine_home: host does not have; drop that selection, or select a project-file approach for this surface")
 
 // ErrNoArgvSinkAtRest is returned for a LaunchOnly approach asked to deliver AT
 // REST. Such an approach announces its payload on a launch flag, and at rest
@@ -100,14 +100,14 @@ func RequireDelivered(fs afero.Fs, kind SurfaceKind, path string) error {
 	return nil
 }
 
-// EngineHomeRooted is the entry check for an approach that lands beneath the
-// engine home: the counterpart of rooted for that root. It is exported
+// SessionHomeRooted is the entry check for an approach that lands beneath the
+// session home: the counterpart of rooted for that root. It is exported
 // because the approaches that need it live in the engine packages, and the
 // seam wants them to refuse the same way rather than each inventing its
 // own check.
-func EngineHomeRooted(start present.Start) error {
-	if start.Paths().EngineHome.Host == "" {
-		return ErrUnrootedEngineHome
+func SessionHomeRooted(start present.Start) error {
+	if start.Paths().SessionHome.Host == "" {
+		return ErrUnrootedSessionHome
 	}
 	return nil
 }
@@ -126,15 +126,13 @@ func EngineHomeRooted(start present.Start) error {
 // would be classed a project file. The presenter already states where the
 // bytes go — "the presenter decides where bytes go; Deliver acts" — so the
 // predicate reads that decision. A Rider presents nothing (no HostPath); a
-// launch-only scratch form presents under Scratch; both are correctly "not
+// launch-only session form presents under SessionHome; both are correctly "not
 // a project file" without being named here.
 func PresentsUnderProjectRoot(a Approach) bool {
 	const project = "/ctxloom-probe/project"
 	probe := present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: project},
-		EngineHome:  present.Root{Host: "/ctxloom-probe/engine-home"},
-		CtxloomHome: present.Root{Host: "/ctxloom-probe/ctxloom-home"},
-		Scratch:     present.Root{Host: "/ctxloom-probe/scratch"},
+		SessionHome: present.Root{Host: "/ctxloom-probe/session-home"},
 	}))
 	host := filepath.ToSlash(a.Present(probe).HostPath)
 	return host == project || strings.HasPrefix(host, project+"/")
@@ -154,11 +152,8 @@ func PresentsUnderProjectRoot(a Approach) bool {
 // The OutOfCwd disjunct is RESIDUE, and is the reason this is not simply
 // !Rider && !PresentsUnderProjectRoot. Settings is the last approach carrying
 // a second form: it presents as a project file but converts to a private one
-// when a shared launch delivers it. Splitting it the way MCP and the system
-// prompt were split is unsafe while an isolated cell's scratch IS its checkout
-// — a private --settings file would land at the well-known path AND be
-// announced on the flag, registering claude's hooks twice. When settings gains
-// its one form this disjunct goes, and the predicate reduces to the two terms
+// when a shared launch delivers it. When settings gains its one form this
+// disjunct goes, and the predicate reduces to the two terms
 // above.
 func SafeInSharedCwd(a Approach) bool {
 	if _, rider := a.(Rider); rider {

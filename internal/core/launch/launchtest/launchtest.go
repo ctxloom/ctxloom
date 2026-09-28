@@ -10,7 +10,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -407,16 +406,15 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 			return launch.Cell{}, engine.ErrUnsupported{Engine: req.Engine.Root().Name, Capability: "container"}
 		}
 	}
-	roots := present.Paths{
-		ProjectRoot: present.Root{Host: req.ProjectRoot},
-		CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
-		Scratch:     present.Root{Host: req.SessionDir},
+	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
+	if err != nil {
+		return launch.Cell{}, err
 	}
-	// An engine home is advised for a session-home run of an engine that
-	// declares a relocatable home, and never for a host-home run: the real
-	// home is the engine's own, not ours to deliver into.
-	if req.Engine.Home().Relocates() && req.HomeMode == launch.HomeModeSession {
-		roots.EngineHome = present.Root{Host: filepath.Join(req.SessionDir, "home", ".fixture")}
+	roots := present.Paths{ProjectRoot: present.Root{Host: req.ProjectRoot}}
+	// The session home is the production rule's, never for a host-home run:
+	// the real home is the engine's own, not ours to deliver into.
+	if dir, ok := launch.SessionHome(req.SessionDir, req.Engine, homeMode); ok {
+		roots.SessionHome = present.Root{Host: dir}
 	}
 	paths := present.OnHost(roots)
 	return launch.Cell{Paths: paths, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil

@@ -285,10 +285,10 @@ func deliverSettingsFile(name string, start present.Start, root present.RootKind
 	case present.RootProjectRoot:
 		p = start.UnderProjectRoot(filepath.Join(ConfigDirName, SettingsFileName)).Build()
 	case present.RootSessionHome:
-		if err := agent.EngineHomeRooted(start); err != nil {
+		if err := agent.SessionHomeRooted(start); err != nil {
 			return present.Delivered{}, err
 		}
-		p = start.UnderEngineHome(SettingsFileName).Build()
+		p = start.UnderSessionHome(SettingsFileName).Build()
 	default:
 		return present.Delivered{}, errRoot(name, root)
 	}

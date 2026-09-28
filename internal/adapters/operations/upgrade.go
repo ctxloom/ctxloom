@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"errors"
+	"sort"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
@@ -149,6 +150,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config, allowDowngrade
 	if serr := saveUpgradedLock(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)), active, round.newActive, &result); serr != nil {
 		return result, serr
 	}
+	result.Removed = droppedEntries(active, round.newActive)
 
 	// Persist this round's refusals AFTER the lockfile write, never before: a
 	// record says "the pin for X is being KEPT at <sha>", and a record written
@@ -295,6 +297,19 @@ func saveUpgradedLock(m *remote.LockfileManager, active, newActive *remote.Lockf
 		return nil
 	}
 	return m.Save(newActive)
+}
+
+// droppedEntries names, sorted, the entries of before that after no longer
+// holds.
+func droppedEntries(before, after *remote.Lockfile) []string {
+	var dropped []string
+	for _, e := range before.AllEntries() {
+		if _, ok := after.GetEntry(e.Type, e.Ref); !ok {
+			dropped = append(dropped, string(e.Ref))
+		}
+	}
+	sort.Strings(dropped)
+	return dropped
 }
 
 // directRepoURLs returns the unique repo URLs of the direct remote refs across

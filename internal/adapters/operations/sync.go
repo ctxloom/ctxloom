@@ -629,6 +629,7 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 	// warnings) must never land there.
 	opts := remote.PullOptions{
 		Force:          true,
+		Reresolve:      force,
 		ItemType:       itemType,
 		Stdout:         os.Stderr,
 		AllowDowngrade: downgrades.allowsRef(ref),

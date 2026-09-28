@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
@@ -123,7 +122,6 @@ func PresentsUnderProjectRoot(a Approach) bool {
 // is not a write into the shared cwd at all. Both are safe. A well-known
 // project file is not, and choosing it anyway is the caller's acknowledged
 // race — deliverOneShared warns and proceeds.
-//
 func SafeInSharedCwd(a Approach) bool {
 	if _, rider := a.(Rider); rider {
 		return true

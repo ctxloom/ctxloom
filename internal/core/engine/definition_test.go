@@ -3,6 +3,7 @@ package engine_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -16,8 +17,31 @@ var grammar = engine.CLIGrammar{
 	Positional: 1,
 }
 
+// parseArgvBounded is grammar.ParseArgv with a bound: the parse advances by
+// the index each flag read hands back, and a read that failed to advance it
+// would otherwise spin the test binary instead of failing the test.
+func parseArgvBounded(t *testing.T, argv []string) (engine.Parsed, error) {
+	t.Helper()
+	type result struct {
+		p   engine.Parsed
+		err error
+	}
+	got := make(chan result, 1)
+	go func() {
+		p, err := grammar.ParseArgv(argv)
+		got <- result{p, err}
+	}()
+	select {
+	case r := <-got:
+		return r.p, r.err
+	case <-time.After(5 * time.Second):
+		t.Fatalf("ParseArgv(%q) did not return", argv)
+		return engine.Parsed{}, nil
+	}
+}
+
 func TestCLIGrammar_ParseArgv_AcceptsDeclaredFlagsAndPositionals(t *testing.T) {
-	p, err := grammar.ParseArgv([]string{"-p", "--model", "m1", "--settings=s.json", "--", "-p"})
+	p, err := parseArgvBounded(t, []string{"-p", "--model", "m1", "--settings=s.json", "--", "-p"})
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"-p": "", "--model": "m1", "--settings": "s.json"}, p.Flags)
 	require.Equal(t, []string{"-p"}, p.Positionals, "everything after -- is positional, flags included")
@@ -31,7 +55,7 @@ func TestCLIGrammar_ParseArgv_RefusesDrift(t *testing.T) {
 		"too many positionals":   {"a", "b"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := grammar.ParseArgv(argv)
+			_, err := parseArgvBounded(t, argv)
 			require.True(t, errors.Is(err, engine.ErrArgv), "%v", err)
 		})
 	}

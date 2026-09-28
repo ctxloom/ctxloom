@@ -1,3 +1,7 @@
+//go:build !windows
+
+// tmux hosting is POSIX-only (see findTmux's Windows refusal).
+
 package tmuxhost
 
 import (

@@ -15,8 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
-
-	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
 // This file is Terminals, the registry that maps a hosted process's lifecycle
@@ -81,10 +79,9 @@ type Runner interface {
 // turning it into a remedy-carrying message, is the caller's job.
 var ErrTmuxUnavailable = errors.New("tmux is not available on this host")
 
-// lookupTmux resolves the tmux binary through the user's login-shell PATH (see
-// shellenv.Resolve for why the process PATH alone is not enough). Overridable
-// so tests can make tmux absent on a host where it is installed.
-var lookupTmux = func() (string, error) { return shellenv.Resolve("tmux") }
+// lookupTmux is findTmux, per OS. Overridable so tests can make tmux absent
+// on a host where it is installed.
+var lookupTmux = findTmux
 
 // NewExecRunner resolves tmux NOW and returns a runner pinned to that binary,
 // or ErrTmuxUnavailable wrapping the lookup's failure. Probing here puts the

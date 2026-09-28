@@ -189,9 +189,9 @@ error and produces a loud degrade; a panic guard removes the scratch.
 
 **Mounts** (`Mount{Host, Container, ReadOnly}`):
 
-- The project dir at its **identical absolute path** (`ociRuntime.Expose`).
-- `gitdirMirrorMount` when `.git` is a pointer file; `gitCommonDirMount` mirrors the whole common dir **read-write** at an identical path.
-- `containerConfigOverlay` — one scratch-backed bind per profile `overlayDirs`, seeded by `seedOverlay`, with the target pre-created so the mountpoint is never root-owned.
+- The project dir where the runtime's mapper routes it (`relocateRoot`) — its identical path on a POSIX host; see [Host path mapping](#host-path-mapping).
+- `gitdirMirrorMount` when `.git` is a pointer file; `gitCommonDirMount` mirrors the whole common dir **read-write** at its mapped path; `gitPointerMounts` shadows the checkout's `.git` pointer and its admin dir's back-pointer with **read-only** mapped copies wherever the mapping renames paths.
+- `containerConfigOverlay` — one scratch-backed bind per profile `overlayDirs`, seeded by `seedOverlay`, targeting the mapping of the project path it shadows, with the host mountpoint pre-created so it is never root-owned.
 - `sessionStateMounts` — scoped RW mounts: engine transcripts (at `engineContainerSpec.transcriptStoreRel` under container `HOME`), the session persist dir, and **this project's** task log `~/.ctxloom/tasks/<project-id>.jsonl` plus its `.lock` sidecar — two single files, never the `~/.ctxloom/tasks` dir, which holds every project on the machine. `safePathSegment` validates the harp, and `paths.HomeTasksLogPath` the project id, before they become host paths.
 
 **Env** (`renderRunSpec`): entries are emitted as `-e <entry>` and are **either**
@@ -201,17 +201,58 @@ a bare `NAME` (value read by the runtime from the launcher's own
 
 **Uid remap / entrypoint**: the image `ENTRYPOINT` is
 `/usr/local/bin/ctxloom-entrypoint`; `identityEnvArgs` passes `-e
-PUID=<getuid> -e PGID=<getgid>` and nothing else. **The entrypoint refuses to
+PUID=<uid> -e PGID=<gid>` from `runIdentity` and nothing else — the launching
+user on a POSIX host, the image's own `ctxloom` user (`imageUserID`) on
+Windows, which has no POSIX uid to remap to. **The entrypoint refuses to
 run the engine as root, and ctxloom passes no way to override that** — the
 `CTXLOOM_ALLOW_ROOT=1` escape hatch, previously sent under
 `strictness.Degraded()`, was removed: `--degraded` means "a thinner run", never
 "run as root with the project mounted". Rootless podman additionally gets
 `--userns=keep-id`.
 
-**Network**: nothing in the package sets any `--network` flag; no network isolation
-is applied or claimed. The runner spec (`Container.buildRunnerSpec`) has no
+**Network**: the only `--network` flag is rootless podman's translator option
+(`Podman.networkArgs`), which opens its route to the host's loopback; no network
+isolation is applied or claimed. The runner spec (`Container.buildRunnerSpec`) has no
 socket mount and no published port at all; "the absences are the security
 contract".
+
+### Host path mapping
+
+The mount SOURCE is always the host path as this process sees it; the runtime
+translates it (Docker Desktop and podman machine both take a native `C:\...`
+source). The TARGET is a name ctxloom chooses in the container, through the
+runtime's `pathMapper`, and the mapper varies by **host OS only** — chosen at
+compile time by `hostMapper` in the `hostos_{unix,windows}.go` twins, never by
+runtime name:
+
+- POSIX host: `identityMapper`. Linux shares the kernel's paths; Docker Desktop
+  and podman machine on macOS share the user's paths into their VM at the same
+  names.
+- Windows host: `driveLetterMapper` — `C:\Users\ben\proj` is
+  `/mnt/c/Users/ben/proj` (the WSL and podman-machine convention). The drive
+  letter is lowercased, the rest keeps its case, a `\\?\` prefix is stripped,
+  and `..` cannot leave the drive. Share and device paths (`\\server\share`,
+  `\\wsl.localhost\...`, `\\.\...`) are refused as `errUNCPath`, reported as
+  `present.ErrUnreachableRoot` with the remedy to run the Linux build inside the
+  WSL distro that holds the project.
+
+One rule for every mount site: the container side of a HOST-anchored path is
+`mapper().toContainer(host)`; the container side of a CONTAINER-anchored path
+(under the instance home or `$HOME`) is `path.Join` over a POSIX root;
+`filepath` never builds a container path. `Prepare` routes the requested
+environment's roots once, with no effects, before the workspace chain, so an
+unroutable project is refused as unreachable rather than read as an
+unstartable container. `mountArgs` renders each `--mount` as one CSV record,
+because both runtimes parse it with `encoding/csv`.
+
+Docker-outside-of-docker is **not** this seam: there this process's paths are
+not the daemon's, which is a rewrite of the SOURCE, applied to `mount.Host`,
+and would compose with the target mapper rather than replace it.
+
+A Windows host's container reaches the coordinator through the runtime's own
+route (`reachRoute`): Docker Desktop's `host.docker.internal`; a podman
+machine on WSL (`machineVMIsWSL`) takes the host's primary address, public and
+warned, because its `host.containers.internal` names the machine VM.
 
 ### Launch path
 
@@ -221,13 +262,19 @@ contract".
 
 ### Shared-FS verification
 
-An identical-path bind mount does not resolve through every daemon (Docker Desktop,
+A bind mount does not resolve through every daemon (Docker Desktop,
 remote daemons, DinD). Before launch, `mountProbeRoots` derives the real host
 roots, `sharedFSProbe` memoizes but **only latches definitive outcomes**
 (`definitiveProbe`), and `probeOneRoot` writes a marker inside the real root and
 reads it back through a scratch container. `runSharedFSProbe` **errors on an
 empty root set** rather than reporting "ok". `sharedFSGateError` distinguishes a
 definitive `*sharedFSMismatch` from a transient probe failure.
+
+Scope: the probe proves the daemon sees each root's CONTENT through a native
+source — it mounts every root at the fixed `/probe` target, so it needs no
+mapper and runs unchanged on Windows. It does not check the mapped TARGET
+names; those follow from the mapper. A Windows share path never reaches it:
+the mapper refuses it first.
 
 ## Credential delivery
 
@@ -542,7 +589,7 @@ image another is between building and running.
 11. **The engine never runs as root in a governed image** — there is no override, in either mode; the build itself fails without a privilege-drop path (`overlayUserGate`).
 12. **The build gates that the engine is runnable**, not merely installed.
 13. **An agent image is content-keyed** — base content and the ONE engine are both in the tag.
-14. **Identical-path bind mounts are verified, not assumed**; an empty root set is an error, not an "ok".
+14. **Bind-mount roots are verified, not assumed** (the shared-FS probe); an empty root set is an error, not an "ok".
 15. **Commits from an agent never impersonate the human** — `gitIdentity` yields `"ctxloom agent <id>" <sanitized>@agents.ctxloom.local`.
 16. **Worktree teardown leaks rather than destroys** — `force=false`, unknown-dirty treated as dirty, and a WIP-bearing orphan is SPARED (`teardownWorktree`, `worktree_reap.go`).
 17. **`WorktreeVerdict`'s unhandled/unclassified case funnels to `VerdictSkipped` (never touch)** — the `default:` case in `ReapOrphanedWorktrees`'s tally.

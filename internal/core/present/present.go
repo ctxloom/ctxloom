@@ -253,22 +253,28 @@ func (s Start) UnderProjectRoot(rel string) Rooted { return under(s.mapped.paths
 // UnderSessionHome roots the composition at Rel beneath the session home.
 func (s Start) UnderSessionHome(rel string) Rooted { return under(s.mapped.paths.SessionHome, rel) }
 
-// under materializes a Rooted from a Root and a relative path. HostPath is
-// OS-native, because a writer opens it on THIS host. EnginePath is always
-// joined with forward slashes: once Engine genuinely differs from Host it
-// names a container path, and a container is Linux regardless of the host
-// this process runs on — filepath.Join would carry the host's separator
-// into a path the engine can never open. Where Engine equals Host (the
-// uncontainerized case) this produces the identical string on every
-// platform this project supports, since Host itself already uses '/'.
+// under materializes a Rooted from a Root and a relative path.
 func under(root Root, rel string) Rooted {
 	return Rooted{
-		p: Presentation{
-			HostPath:   filepath.Join(root.Host, rel),
-			EnginePath: path.Join(root.Engine, rel),
-		},
+		p:    Presentation{HostPath: root.Host, EnginePath: root.Engine}.Beneath(rel),
 		root: root,
 	}
+}
+
+// Beneath extends p by rel, a slash-separated relative path. HostPath is
+// OS-native, because a writer opens it on THIS host. Where the engine sees
+// the host's own filesystem (EnginePath equals HostPath) the engine path IS
+// the host path, separators included — a Windows host's local engine opens
+// C:\... like everyone else there. Once they differ, EnginePath names a
+// container path, and a container is Linux regardless of the host, so it is
+// joined with '/': filepath.Join would carry the host's separator into a path
+// the engine can never open.
+func (p Presentation) Beneath(rel string) Presentation {
+	host := filepath.Join(p.HostPath, filepath.FromSlash(rel))
+	if p.EnginePath == p.HostPath {
+		return Presentation{HostPath: host, EnginePath: host}
+	}
+	return Presentation{HostPath: host, EnginePath: path.Join(p.EnginePath, rel)}
 }
 
 // Rooted has bytes at a host path and knows the root they sit beneath.

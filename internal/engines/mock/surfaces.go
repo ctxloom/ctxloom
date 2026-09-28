@@ -156,7 +156,7 @@ func (a *commandsDir) DeliverCommands(start present.Start, root present.RootKind
 		if !c.Enabled {
 			continue
 		}
-		p := present.Presentation{HostPath: filepath.Join(dir.HostPath, c.Name+".md"), EnginePath: path.Join(dir.EnginePath, c.Name+".md")}
+		p := dir.Beneath(c.Name + ".md")
 		d, err := writeFile(fs, p, c.Body, 0o644)
 		if err != nil {
 			return present.Delivered{}, err
@@ -183,7 +183,7 @@ func (a *skillsDir) DeliverSkills(start present.Start, root present.RootKind, in
 			continue
 		}
 		for _, f := range s.Files {
-			p := present.Presentation{HostPath: filepath.Join(dir.HostPath, s.Name, filepath.FromSlash(f.Path)), EnginePath: path.Join(dir.EnginePath, s.Name, f.Path)}
+			p := dir.Beneath(path.Join(s.Name, f.Path))
 			mode := os.FileMode(f.Mode)
 			if mode == 0 {
 				mode = 0o644

@@ -94,7 +94,10 @@ func ResolveHomeCommandsDir(opts ...CommandFileOption) string {
 // paths, any ".." path element, and any join whose result escapes dir.
 // Subdirectory names without traversal ("group/cmd") pass.
 func SafeCommandRelPath(dir, name string) (string, bool) {
-	if name == "" || filepath.IsAbs(name) || filepath.IsAbs(filepath.FromSlash(name)) {
+	// Rooted or volume-qualified, not just IsAbs: on Windows "/abs" has no
+	// drive so IsAbs is false, yet it names the drive's root, and "C:x" is
+	// relative to drive C's working directory — neither is a name under dir.
+	if name == "" || strings.HasPrefix(filepath.ToSlash(name), "/") || filepath.VolumeName(filepath.FromSlash(name)) != "" {
 		return "", false
 	}
 	for part := range strings.SplitSeq(filepath.ToSlash(name), "/") {

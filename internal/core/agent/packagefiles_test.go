@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // failChmodFs fails Chmod for exactly one path, passing everything else
@@ -75,11 +76,11 @@ func TestWriteManagedPackageFiles_ExecBitPreserved(t *testing.T) {
 
 	info, err := fs.Stat(filepath.Join(skillDir, "scripts", "run.sh"))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit on scripts/run.sh must survive materialize")
+	fileperm.Equal(t, 0o755, info.Mode(), "the exec bit on scripts/run.sh must survive materialize")
 
 	info, err = fs.Stat(filepath.Join(skillDir, "assets", "data.txt"))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0644), info.Mode().Perm())
+	fileperm.Equal(t, 0o644, info.Mode())
 
 	manifest, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
 	require.NoError(t, err)

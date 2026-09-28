@@ -19,7 +19,10 @@ import (
 func isolateTempDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	// os.TempDir reads TMPDIR on unix and TMP (then TEMP) on Windows.
 	t.Setenv("TMPDIR", dir)
+	t.Setenv("TMP", dir)
+	t.Setenv("TEMP", dir)
 	return dir
 }
 

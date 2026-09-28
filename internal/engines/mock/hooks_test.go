@@ -104,7 +104,7 @@ func deliverHookedAt(t *testing.T, set func(u *wire.UnifiedHooks, h wire.Hook), 
 	home := t.TempDir()
 	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
 	set(&pkg.Hooks.Unified, hook)
-	roots := present.Paths{Scratch: present.Root{Host: home, Engine: home}}
+	roots := present.Paths{SessionHome: present.Root{Host: home, Engine: home}}
 	plan, err := delivery.Route(pkg.EngineItems(eng.Root().Name), eng.Root(), delivery.Preference{}, roots)
 	require.NoError(t, err)
 	fs := afero.NewOsFs()

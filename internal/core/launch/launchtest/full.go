@@ -23,11 +23,9 @@ func FullLaunch(t *testing.T) launch.Launch {
 	t.Helper()
 	enc, err := composite.Encode(composite.Package{Context: composite.Context{Text: "ctx", Hash: "h"}})
 	require.NoError(t, err)
-	paths := present.Containerize{ProjectRoot: "/work", EngineHome: "/home/agent/.engine", CtxloomHome: "/home/agent/.ctxloom", Scratch: "/home/agent/.ctxloom/sessions/harp-1"}.Apply(present.Paths{
+	paths := present.Containerize{ProjectRoot: "/work", SessionHome: "/home/agent/.engine"}.Apply(present.Paths{
 		ProjectRoot: present.Root{Host: "/proj/.worktrees/harp-1"},
-		EngineHome:  present.Root{Host: "/proj/.ctxloom/state/harp-1/home/.engine"},
-		CtxloomHome: present.Root{Host: "/home/u/.ctxloom"},
-		Scratch:     present.Root{Host: "/home/u/.ctxloom/sessions/harp-1"},
+		SessionHome: present.Root{Host: "/home/u/.ctxloom/sessions/harp-1/home/.engine"},
 	})
 	return launch.Launch{
 		Identity:   sessions.Identity{Harp: "harp-1", RunID: "run-1", Depth: 1, OneShot: true, Project: "proj-1"},

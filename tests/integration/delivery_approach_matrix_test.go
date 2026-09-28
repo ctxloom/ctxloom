@@ -192,7 +192,7 @@ type deliverySpec struct {
 	wantSlot string
 	// underEngineHome roots wantFile beneath the ENGINE HOME rather than the
 	// project root: the approach writes the engine's private home and refuses
-	// a Start that advises none (agent.EngineHomeRooted). The loop advises
+	// a Start that advises none (agent.SessionHomeRooted). The loop advises
 	// both roots for such a pair and asserts the project root stays EMPTY —
 	// a private-home delivery that also touched the project tree would be
 	// the shared-cwd exposure the approach exists to avoid.
@@ -241,7 +241,7 @@ var matrixSpecs = map[string]deliverySpec{
 	"claude-code/mcp/unsafe-file": {wantFile: ".mcp.json", wantSlot: slotMCPCmd},
 	// The DEFAULT MCP approach, and it is private: the merged .mcp.json lands
 	// beneath the run's private root for --mcp-config, never the user's project
-	// file. An unresolved private root refuses (ErrUnrootedEngineHome) rather
+	// file. An unresolved private root refuses (ErrUnrootedSessionHome) rather
 	// than falling back to the project file — the fallback IS the defect.
 	"claude-code/mcp/mcp-config":       {wantFile: ".mcp.json", wantSlot: slotMCPCmd, underEngineHome: true},
 	"claude-code/settings/unsafe-file": {wantFile: ".claude/settings.json", wantSlot: slotHook},
@@ -446,17 +446,17 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 						const home = "/engine-home"
 						start = present.New(present.OnHost(present.Paths{
 							ProjectRoot: present.Root{Host: root},
-							EngineHome:  present.Root{Host: home},
+							SessionHome: present.Root{Host: home},
 						}))
 						deliveryRoot = home
 					}
 					if spec.underScratch {
 						const scratch = "/session-scratch"
 						_, unrooted := d.Deliver(present.ProjectOnHost(root))
-						require.ErrorIs(t, unrooted, agent.ErrUnrootedDelivery, "%s: a session form must refuse a Start that advises no Scratch", key)
+						require.ErrorIs(t, unrooted, agent.ErrUnrootedDelivery, "%s: a session form must refuse a Start that advises no session home", key)
 						start = present.New(present.OnHost(present.Paths{
 							ProjectRoot: present.Root{Host: root},
-							Scratch:     present.Root{Host: scratch},
+							SessionHome: present.Root{Host: scratch},
 						}))
 						deliveryRoot = scratch
 					}
@@ -562,7 +562,7 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 
 	handle, err := a.Deliver(present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: root},
-		EngineHome:  present.Root{Host: private},
+		SessionHome: present.Root{Host: private},
 	})))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
@@ -597,7 +597,7 @@ func TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun(t *testing.T) {
 
 	_, err := a.Deliver(present.ProjectOnHost(root))
 	require.Error(t, err, "an unrooted run must be refused, never served the project file")
-	assert.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	assert.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	assert.Empty(t, matrixTree(t, fs, root), "a refused delivery must write zero files")
 }
 

@@ -78,7 +78,7 @@ func TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjec
 	// (its session home beside it, no root selected) lands under the session
 	// home and leaves the project as the uninstall left it.
 	home := t.TempDir()
-	cell := present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, Scratch: present.Root{Host: home, Engine: home}}
+	cell := present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, SessionHome: present.Root{Host: home, Engine: home}}
 	sessionPlan, err := delivery.Route(items, eng.Root(), delivery.Preference{}, cell)
 	require.NoError(t, err)
 	session := delivery.Target{Root: present.New(present.OnHost(cell)), Ownership: rec, Writer: delivery.SessionWriter("h")}

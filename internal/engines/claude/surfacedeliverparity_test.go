@@ -30,11 +30,10 @@ import (
 // Path for the launch flag.
 func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 	const (
-		wellKnownDir  = "/well-known"
-		isolatedDir   = "/isolated"
-		engineHomeDir = "/engine-home"
+		wellKnownDir   = "/well-known"
+		sessionHomeDir = "/session-home"
 	)
-	roots := runRoots(wellKnownDir, isolatedDir, engineHomeDir)
+	roots := runRoots(wellKnownDir, sessionHomeDir)
 
 	build := func(t *testing.T, fs afero.Fs) builtSurfaces {
 		t.Helper()
@@ -56,7 +55,7 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 			deliver:    func(s builtSurfaces) (agent.Delivered, error) { return s.MCPUnsafe.Deliver(roots) },
 			isolated:   func(s builtSurfaces) (agent.Delivered, error) { return s.MCP.Deliver(roots) },
 			path:       func(s builtSurfaces) string { return s.MCP.Path() },
-			privateDir: engineHomeDir,
+			privateDir: sessionHomeDir,
 			relPath:    ".mcp.json",
 		},
 		{
@@ -64,7 +63,7 @@ func TestDeliverAndDeliverIsolated_WriteIdenticalBytes(t *testing.T) {
 			deliver:    func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.Deliver(roots) },
 			isolated:   func(s builtSurfaces) (agent.Delivered, error) { return s.Settings.DeliverIsolated(roots) },
 			path:       func(s builtSurfaces) string { return s.Settings.Path() },
-			privateDir: isolatedDir,
+			privateDir: sessionHomeDir,
 			relPath:    filepath.Join(".claude", "settings.json"),
 		},
 	}

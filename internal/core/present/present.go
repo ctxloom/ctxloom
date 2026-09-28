@@ -57,12 +57,11 @@ type Root struct{ Host, Engine string }
 type Paths struct {
 	// ProjectRoot is the user's code.
 	ProjectRoot Root
-	// EngineHome is the engine's own home (CLAUDE_CONFIG_DIR and the like).
-	EngineHome Root
-	// CtxloomHome is ctxloom's own: spool, sessions, task log.
-	CtxloomHome Root
-	// Scratch is this run's per-run materialization target.
-	Scratch Root
+	// SessionHome is this session's home for the engine: the directory its
+	// relocated config home (CLAUDE_CONFIG_DIR and the like) names, or, for
+	// an engine that relocates nothing, the session-private root it is
+	// delivered into. launch.SessionHome is the one rule that places it.
+	SessionHome Root
 }
 
 // Mount makes HostDir visible to the engine at TargetDir.
@@ -88,9 +87,7 @@ var _ PathsAdvice = Host{}
 func (Host) ApplyPaths(p Paths) (Paths, []Mount) {
 	return Paths{
 		ProjectRoot: identity(p.ProjectRoot),
-		EngineHome:  identity(p.EngineHome),
-		CtxloomHome: identity(p.CtxloomHome),
-		Scratch:     identity(p.Scratch),
+		SessionHome: identity(p.SessionHome),
 	}, nil
 }
 
@@ -134,10 +131,10 @@ func ProjectOnHost(dir string) Start {
 // A zero-value root (Host == "") is left alone and contributes no mount: it
 // names a root this run never resolved, so there is nothing to mount.
 type Containerize struct {
-	// ProjectRoot, EngineHome, CtxloomHome and Scratch are the directories
-	// each root becomes visible at inside the container. Empty means "mount
-	// at the same path the host used."
-	ProjectRoot, EngineHome, CtxloomHome, Scratch string
+	// ProjectRoot and SessionHome are the directories each root becomes
+	// visible at inside the container. Empty means "mount at the same path
+	// the host used."
+	ProjectRoot, SessionHome string
 }
 
 var _ PathsAdvice = Containerize{}
@@ -163,9 +160,7 @@ func (c Containerize) ApplyPaths(p Paths) (Paths, []Mount) {
 	// statement first makes the appends complete before mounts is read.
 	out := Paths{
 		ProjectRoot: remap(p.ProjectRoot, c.ProjectRoot),
-		EngineHome:  remap(p.EngineHome, c.EngineHome),
-		CtxloomHome: remap(p.CtxloomHome, c.CtxloomHome),
-		Scratch:     remap(p.Scratch, c.Scratch),
+		SessionHome: remap(p.SessionHome, c.SessionHome),
 	}
 	return out, mounts
 }
@@ -214,9 +209,7 @@ func (m Mapped) EngineSide() Mapped {
 	return Mapped{
 		paths: Paths{
 			ProjectRoot: side(p.ProjectRoot),
-			EngineHome:  side(p.EngineHome),
-			CtxloomHome: side(p.CtxloomHome),
-			Scratch:     side(p.Scratch),
+			SessionHome: side(p.SessionHome),
 		},
 		mounts: m.mounts,
 	}
@@ -257,30 +250,8 @@ func (s Start) Paths() Paths { return s.mapped.Paths() }
 // UnderProjectRoot roots the composition at Rel beneath the project root.
 func (s Start) UnderProjectRoot(rel string) Rooted { return under(s.mapped.paths.ProjectRoot, rel) }
 
-// UnderEngineHome roots the composition at Rel beneath the engine's home.
-func (s Start) UnderEngineHome(rel string) Rooted { return under(s.mapped.paths.EngineHome, rel) }
-
-// UnderCtxloomHome roots the composition at Rel beneath ctxloom's own home.
-func (s Start) UnderCtxloomHome(rel string) Rooted { return under(s.mapped.paths.CtxloomHome, rel) }
-
-// UnderScratch roots the composition at Rel beneath this run's scratch
-// target.
-func (s Start) UnderScratch(rel string) Rooted { return under(s.mapped.paths.Scratch, rel) }
-
-// Served is terminal: an endpoint the engine connects to, not a file it
-// reads. There is no root and no HostPath, because nothing here was
-// materialized to disk — a served surface's bytes, if any, are owned by
-// whatever is listening at the endpoint, not by this composition.
-//
-// endpoint is a Root like any other, which is what lets a served surface
-// travel through the SAME advice as a file-backed one: Containerize rewrites
-// endpoint.Engine (a container-reachable address, e.g. a mapped port or
-// host.docker.internal) exactly as it rewrites a mounted directory's Engine
-// side, with no served-specific case anywhere in the advice. envVar names it
-// to the engine, the same way AnnounceEnv does for a rooted composition.
-func (s Start) Served(endpoint Root, envVar string) Presentation {
-	return Presentation{Env: map[string]string{envVar: endpoint.Engine}}
-}
+// UnderSessionHome roots the composition at Rel beneath the session home.
+func (s Start) UnderSessionHome(rel string) Rooted { return under(s.mapped.paths.SessionHome, rel) }
 
 // under materializes a Rooted from a Root and a relative path. HostPath is
 // OS-native, because a writer opens it on THIS host. EnginePath is always

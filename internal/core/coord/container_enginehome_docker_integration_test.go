@@ -139,7 +139,7 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
 	require.NotNil(t, l.Cell.Container, "the binding asked for a container cell")
-	home := l.Cell.Paths.Paths().EngineHome
+	home := l.Cell.Paths.Paths().SessionHome
 	require.NotEqual(t, home.Host, home.Engine, "the engine home must be relocated for this test to mean anything: %+v", home)
 	prepared, ok := l.Cell.Handle.(operations.PreparedCell)
 	require.True(t, ok, "the production cell carries its prepared workspace: %T", l.Cell.Handle)

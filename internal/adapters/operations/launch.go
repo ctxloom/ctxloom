@@ -303,11 +303,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		}
 	}
 
-	roots := present.Paths{
-		ProjectRoot: present.Root{Host: ws.Dir()},
-		CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
-		Scratch:     present.Root{Host: req.SessionDir},
-	}
+	roots := present.Paths{ProjectRoot: present.Root{Host: ws.Dir()}}
 	cell := launch.Cell{
 		Workspace: ws.Dir(),
 		Env:       env,
@@ -318,6 +314,11 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	}
 	if home.Absent == "" {
 		bindCellHome(&cell, &roots, home)
+	} else if dir, ok := launch.SessionHome(req.SessionDir, req.Engine, homeMode); ok && !req.Engine.Home().Relocates() {
+		// An engine that relocates nothing still has a session home (the one
+		// rule); a relocating engine whose home came back absent has none,
+		// because nothing prepared or mounted the directory the rule names.
+		roots.SessionHome = present.Root{Host: dir}
 	}
 	placeCellPaths(&cell, roots, policy, home, req.Axes.Runtime)
 	return cell, nil
@@ -348,7 +349,7 @@ func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest
 // bindCellHome carries a bound engine home into the cell: its root, its env
 // (also recorded as home bindings), and its login env.
 func bindCellHome(cell *launch.Cell, roots *present.Paths, home AgentHomeResolution) {
-	roots.EngineHome = present.Root{Host: home.Root.Host}
+	roots.SessionHome = present.Root{Host: home.Root.Host}
 	if cell.Env == nil {
 		cell.Env = map[string]string{}
 	}
@@ -368,7 +369,7 @@ func placeCellPaths(cell *launch.Cell, roots present.Paths, policy isolation.Pol
 	}
 	advice := present.Containerize{}
 	if home.Mount != nil {
-		advice.EngineHome = home.Mount.TargetDir
+		advice.SessionHome = home.Mount.TargetDir
 	}
 	cell.Paths = advice.Apply(roots)
 	cell.Container = &launch.ContainerCell{

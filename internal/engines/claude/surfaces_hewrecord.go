@@ -39,9 +39,9 @@ const ApproachHewRecord = "hew-record"
 
 // settingsRecord is claude's hew-record settings approach.
 //
-// Present lands <EngineHome>/settings.json — claude's USER-scope settings
+// Present lands <SessionHome>/settings.json — claude's USER-scope settings
 // file, read from $CLAUDE_CONFIG_DIR — with no launch flag: claude finds it
-// natively. Deliver refuses a Start with no engine home (ErrUnrootedEngineHome)
+// natively. Deliver refuses a Start with no session home (ErrUnrootedSessionHome)
 // rather than falling back to the user's real ~/.claude, which is exactly the
 // shared, dangerous location a private home exists to keep agents out of.
 //
@@ -66,13 +66,13 @@ type settingsRecord struct {
 
 // Present declares the engine-home settings file. No flag.
 func (s *settingsRecord) Present(start present.Start) present.Presentation {
-	return start.UnderEngineHome(SettingsFileName).Build()
+	return start.UnderSessionHome(SettingsFileName).Build()
 }
 
 // Deliver patches ctxloom's settings into the engine-home file through the
 // record store and returns the handle that reverses it.
 func (s *settingsRecord) Deliver(start present.Start) (agent.Delivered, error) {
-	if err := agent.EngineHomeRooted(start); err != nil {
+	if err := agent.SessionHomeRooted(start); err != nil {
 		return nil, err
 	}
 	target := s.Present(start).HostPath

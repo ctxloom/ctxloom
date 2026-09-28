@@ -48,8 +48,8 @@ func mockSurfacePath(kind agent.SurfaceKind, start present.Start) string {
 // mockRel is where each mock surface lands, relative to the root it is
 // delivered under — the one table Present and the dir-taking path helpers
 // both read, so Route() and the delivery agree by construction. Every form
-// composes UnderProjectRoot; the session form (scratchRooted) hands it a
-// Start whose project root is the run's Scratch.
+// composes UnderProjectRoot; the session form (sessionRooted) hands it a
+// Start whose project root is the run's session home.
 var mockRel = map[agent.SurfaceKind]string{
 	agent.SurfaceContext:  mockContextFilename,
 	agent.SurfaceSkills:   mockSkillsDirName,
@@ -311,45 +311,41 @@ func newMockCommandsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach 
 }
 
 // MockSessionFile is the mock's session-rooted form of every surface: the
-// same well-known file, beneath the run's Scratch instead of the project
-// root. It is each surface's DEFAULT, so a binding that selects no root
+// same well-known file, beneath the run's session home instead of the
+// project root. It is each surface's DEFAULT, so a binding that selects no root
 // leaves the project tree alone (ruled 2026-09-21); the project form stays
 // selectable by name as agent.ApproachUnsafeFile.
 const MockSessionFile = "session-file"
 
-// scratchRooted rebases a project-rooted form onto the run's Scratch: the
-// inner approach presents and delivers exactly as it would beneath a project
-// root, handed a Start whose project root IS this run's Scratch. On a shared
-// cell that is the session's private directory; on an isolated cell Scratch
-// is the private checkout itself, so the rebase is the identity there. A run
-// advising no Scratch rebases onto "" and the form presents a bare relative
-// path — which is precisely what keeps selection from choosing it
-// (agent.rootedInThisRun reads that).
-func scratchRooted(ctor agent.Construct) agent.Construct {
+// sessionRooted rebases a project-rooted form onto the run's session home:
+// the inner approach presents and delivers exactly as it would beneath a
+// project root, handed a Start whose project root IS this run's session home.
+// A run advising no session home rebases onto "" and the form presents a
+// bare relative path — which is precisely what keeps selection from choosing
+// it (agent.rootedInThisRun reads that).
+func sessionRooted(ctor agent.Construct) agent.Construct {
 	return func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &scratchForm{inner: ctor(in, fs)}
+		return &sessionForm{inner: ctor(in, fs)}
 	}
 }
 
-type scratchForm struct{ inner agent.Approach }
+type sessionForm struct{ inner agent.Approach }
 
-func (s *scratchForm) rebase(start present.Start) present.Start {
+func (s *sessionForm) rebase(start present.Start) present.Start {
 	p := start.Paths()
 	return present.New(present.OnHost(present.Paths{
-		ProjectRoot: p.Scratch,
-		EngineHome:  p.EngineHome,
-		CtxloomHome: p.CtxloomHome,
-		Scratch:     p.Scratch,
+		ProjectRoot: p.SessionHome,
+		SessionHome: p.SessionHome,
 	}))
 }
 
-func (s *scratchForm) Present(start present.Start) present.Presentation {
+func (s *sessionForm) Present(start present.Start) present.Presentation {
 	return s.inner.Present(s.rebase(start))
 }
 
-func (s *scratchForm) Deliver(start present.Start) (agent.Delivered, error) {
-	if start.Paths().Scratch.Host == "" {
-		return nil, fmt.Errorf("%w: mock's %s form writes beneath the run's Scratch and this delivery advised none; select %s to deliver into a project root", agent.ErrUnrootedDelivery, MockSessionFile, agent.ApproachUnsafeFile)
+func (s *sessionForm) Deliver(start present.Start) (agent.Delivered, error) {
+	if start.Paths().SessionHome.Host == "" {
+		return nil, fmt.Errorf("%w: mock's %s form writes beneath the run's session home and this delivery advised none; select %s to deliver into a project root", agent.ErrUnrootedDelivery, MockSessionFile, agent.ApproachUnsafeFile)
 	}
 	return s.inner.Deliver(s.rebase(start))
 }
@@ -367,7 +363,7 @@ func (s *scratchForm) Deliver(start present.Start) (agent.Delivered, error) {
 func (m Mock) Declaration() agent.Declaration {
 	name := string(m.Name)
 	both := func(kind agent.SurfaceKind, ctor agent.Construct) agent.Presentations {
-		return agent.Presents(name, kind, MockSessionFile, scratchRooted(ctor)).Or(agent.ApproachUnsafeFile, ctor)
+		return agent.Presents(name, kind, MockSessionFile, sessionRooted(ctor)).Or(agent.ApproachUnsafeFile, ctor)
 	}
 	all := agent.Declaration{
 		agent.SurfaceContext: both(agent.SurfaceContext, newMockContext),

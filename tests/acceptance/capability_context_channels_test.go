@@ -105,18 +105,16 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 // every file that landed, partitioned by whether it is beneath the project
 // root, keyed by absolute path.
 //
-// It advises four separate roots rather than the single one ProjectOnHost
-// gives, because the question here is precisely WHICH root the bytes chose.
+// It advises both roots rather than the single one ProjectOnHost gives,
+// because the question here is precisely WHICH root the bytes chose.
 func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject, outsideProject map[string]string) {
 	t.Helper()
 	const (
 		projectRoot = "/probe/project"
 		engineHome  = "/probe/engine-home"
-		ctxloomHome = "/probe/ctxloom-home"
-		scratch     = "/probe/scratch"
 	)
 	fs := afero.NewMemMapFs()
-	for _, d := range []string{projectRoot, engineHome, ctxloomHome, scratch} {
+	for _, d := range []string{projectRoot, engineHome} {
 		require.NoError(t, fs.MkdirAll(d, 0o755))
 	}
 
@@ -130,9 +128,7 @@ func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject
 
 	_, err := delivery.Deliver(present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: projectRoot},
-		EngineHome:  present.Root{Host: engineHome},
-		CtxloomHome: present.Root{Host: ctxloomHome},
-		Scratch:     present.Root{Host: scratch},
+		SessionHome: present.Root{Host: engineHome},
 	})))
 	require.NoError(t, err, "%s context=%s must deliver when every root is advised", engine, approach)
 

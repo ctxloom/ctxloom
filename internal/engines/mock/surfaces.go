@@ -60,7 +60,7 @@ func (s *surface) rooted(start present.Start, root present.RootKind, rel string)
 	if root == present.RootProjectRoot {
 		return start.UnderProjectRoot(rel), nil
 	}
-	return start.UnderScratch(rel), nil
+	return start.UnderSessionHome(rel), nil
 }
 
 // writeFile writes bytes at the composed presentation's host path.

@@ -253,15 +253,8 @@ func newTestEngineHost(ctx context.Context, inst engine.Instance, harness, runID
 // never opens would park the test rather than fail it.
 func handleBounded(t *testing.T, eh *EngineHost, req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
 	t.Helper()
-	got := make(chan *agentcoordpb.RunnerResponse, 1)
-	go func() { got <- eh.Handle(req) }()
-	select {
-	case resp := <-got:
-		return resp
-	case <-time.After(5 * time.Second):
-		t.Fatalf("Handle(%T) did not return", req.GetKind())
-		return nil
-	}
+	return testsupport.Within(t, 5*time.Second, func() *agentcoordpb.RunnerResponse { return eh.Handle(req) },
+		"Handle(%T) did not return", req.GetKind())
 }
 
 // TestEngineHost_StartRunDrivesChatInProcess pins the whole runner half of

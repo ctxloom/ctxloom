@@ -15,6 +15,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // runChannelServer scripts one RunChannel: it records the Hello, answers
@@ -73,15 +74,8 @@ func runChannelClient(t *testing.T, s *runChannelServer) agentcoordpb.Coordinato
 // teardown, so the call itself is bounded too.
 func runChannelOnceBounded(t *testing.T, h *Home, client agentcoordpb.CoordinatorServiceClient) error {
 	t.Helper()
-	done := make(chan error, 1)
-	go func() { done <- h.runChannelOnce(client) }()
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(2 * conformanceWait):
-		t.Fatal("runChannelOnce did not return once its stream ended")
-		return nil
-	}
+	return testsupport.Within(t, 2*conformanceWait, func() error { return h.runChannelOnce(client) },
+		"runChannelOnce did not return once its stream ended")
 }
 
 func helloAck(accepted bool, reason *rpcstatus.Status) *agentcoordpb.CoordinatorFrame {

@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // claudeInteractive resolves claude's interactive surface off L1, the same way
@@ -123,13 +124,7 @@ func (s *interactiveRun) waitFor(t *testing.T, want string) {
 // point on this surface is that a test can close the turn on purpose.
 func (s *interactiveRun) exitCode(t *testing.T) int {
 	t.Helper()
-	select {
-	case code := <-s.done:
-		return code
-	case <-time.After(interactiveBound):
-		t.Fatalf("the session did not end; stdout:\n%s", s.stdout.String())
-		return -1
-	}
+	return testsupport.Await(t, interactiveBound, s.done, "the session did not end; stdout:\n%s", s.stdout)
 }
 
 // typeLine types one line at the session, bounded: an io.Pipe write returns
@@ -138,18 +133,12 @@ func (s *interactiveRun) exitCode(t *testing.T) int {
 // that closes the pipe.
 func (s *interactiveRun) typeLine(t *testing.T, line string) {
 	t.Helper()
-	written := make(chan error, 1)
-	go func() {
+	err := testsupport.Within(t, interactiveBound, func() error {
 		_, err := io.WriteString(s.stdin, line+"\n")
-		written <- err
-	}()
-	select {
-	case err := <-written:
-		if err != nil {
-			t.Fatalf("write %q to the mock's stdin: %v", line, err)
-		}
-	case <-time.After(interactiveBound):
-		t.Fatalf("the session never read %q; stdout:\n%s", line, s.stdout.String())
+		return err
+	}, "the session never read %q; stdout:\n%s", line, s.stdout)
+	if err != nil {
+		t.Fatalf("write %q to the mock's stdin: %v", line, err)
 	}
 }
 

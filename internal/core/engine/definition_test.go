@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 var grammar = engine.CLIGrammar{
@@ -26,18 +27,11 @@ func parseArgvBounded(t *testing.T, argv []string) (engine.Parsed, error) {
 		p   engine.Parsed
 		err error
 	}
-	got := make(chan result, 1)
-	go func() {
+	r := testsupport.Within(t, 5*time.Second, func() result {
 		p, err := grammar.ParseArgv(argv)
-		got <- result{p, err}
-	}()
-	select {
-	case r := <-got:
-		return r.p, r.err
-	case <-time.After(5 * time.Second):
-		t.Fatalf("ParseArgv(%q) did not return", argv)
-		return engine.Parsed{}, nil
-	}
+		return result{p, err}
+	}, "ParseArgv(%q) did not return", argv)
+	return r.p, r.err
 }
 
 func TestCLIGrammar_ParseArgv_AcceptsDeclaredFlagsAndPositionals(t *testing.T) {

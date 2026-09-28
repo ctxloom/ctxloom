@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,11 +26,7 @@ const feedBound = 5 * time.Second
 // awaitFeed waits, bounded, for the feed's writer to finish.
 func awaitFeed(t *testing.T, f *envFeed) {
 	t.Helper()
-	select {
-	case <-f.done:
-	case <-time.After(feedBound):
-		t.Fatalf("the environment feed's writer never finished (%s)", f.fifo)
-	}
+	testsupport.Await(t, feedBound, f.done, "the environment feed's writer never finished (%s)", f.fifo)
 }
 
 // A launcher RUN by sh sees its environment, and no byte of it — a

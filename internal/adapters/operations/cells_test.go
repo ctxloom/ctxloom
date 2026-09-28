@@ -392,7 +392,11 @@ func (listening) Listen() present.Listen { return present.Listen{Addr: "10.0.0.1
 // best-effort outcome. The real cell, over the same findings, refuses.
 func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
 	resetStrictness(t)
-	t.Setenv("HOME", t.TempDir())
+	// The run authenticates first: a stored token, so the refusal it meets
+	// is the environment's, not the credential's.
+	fakeHostHome(t, "")
+	_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
+	require.NoError(t, err)
 	refusing := func(context.Context, launch.CellRequest, isolation.Spec) (isolation.Environment, error) {
 		strictness.FailAlways(report.KindIsolation, "the fix", "the requested boundary cannot be provided")
 		return stubEnvironment{}, nil
@@ -402,6 +406,7 @@ func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
 	t.Cleanup(func() { prepareEnvironment, previewEnvironment = prevPrepare, prevPreview })
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()
+	req.Auth = string(engine.AuthToken)
 	req.SessionDir = harpDir(t, "test-harp")
 	cells := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}
 
@@ -409,7 +414,7 @@ func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
 	defer strictness.Close(mark)
 	preview := cells
 	preview.preview = true
-	_, err := preview.Prepare(context.Background(), req)
+	_, err = preview.Prepare(context.Background(), req)
 	require.NoError(t, err, "a preview carries on past a refusal")
 	require.Len(t, strictness.Since(mark), 1, "the finding stays on the ledger for the dry run's gate")
 

@@ -722,7 +722,7 @@ func hostTerminalEnv(getenv func(string) string) []string {
 // managed-config writers target under the run's cwd), backed by a scratch dir
 // under scratchRoot SEEDED from the project's existing content, whose container
 // target shadows the same path inside the bind-mounted project. For a container
-// top-level run the project is bind-mounted rw at its identical path, so these
+// top-level run the project is bind-mounted rw, so these
 // writes would otherwise land in the HOST project; the overlay keeps it clean
 // (writes go to scratch) while the seed keeps the engine's view complete
 // (user-authored commands/settings are visible, not hidden by an empty shadow).
@@ -755,7 +755,13 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		if err := os.MkdirAll(target, 0o755); err != nil {
 			return nil, fmt.Errorf("container config overlay target: %w", err)
 		}
-		mounts = append(mounts, rt.expose(host, target, false))
+		// The path is host-anchored, so its container side is the runtime's
+		// mapping of it — the same one the project root it sits in takes.
+		inContainer, err := rt.mapper().toContainer(target)
+		if err != nil {
+			return nil, fmt.Errorf("container config overlay target %s has no route into the container: %w", target, err)
+		}
+		mounts = append(mounts, rt.expose(host, inContainer, false))
 	}
 	return mounts, nil
 }

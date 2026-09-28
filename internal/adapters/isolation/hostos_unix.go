@@ -14,10 +14,8 @@ func hostMapper() pathMapper { return identityMapper{} }
 // user, so everything the run writes through a bind mount lands owned by it.
 func runIdentity() (uid, gid int) { return os.Getuid(), os.Getgid() }
 
-// podmanMachineRoute is how a podman machine's container reaches this host.
-// Off Windows the machine's network is gvproxy (user-mode networking is
-// always on outside WSL, podman-machine-init(1)), whose
-// host.containers.internal lands on this host's loopback.
-func podmanMachineRoute() (hostRoute, error) {
-	return hostRoute{dial: "host.containers.internal"}, nil
-}
+// machineVMIsWSL is false: off Windows a runtime's VM (Docker Desktop, a
+// podman machine) runs its own user-mode network, whose host alias lands on
+// this host's loopback (podman-machine-init(1): user-mode networking is
+// always on outside WSL).
+const machineVMIsWSL = false

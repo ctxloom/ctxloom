@@ -116,13 +116,12 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 //
 // The two sides of that path are NOT the same string, and conflating them is a
 // live bug rather than a hypothetical one: the mountpoint is created on the
-// HOST, inside the checkout, while the mount TARGET names where the checkout
-// appears in the container's namespace — which is mapper().toContainer(dir),
-// the same translation the container relocator applies to the cwd
-// (relocateRoot). Under
-// today's identityMapper the two coincide; under a non-identity mapper, using
-// the host path as the target would land the config OUTSIDE the checkout and
-// leave the very refusal this function exists to prevent.
+// HOST, inside the checkout, while the mount TARGET names where that
+// mountpoint appears in the container's namespace — the runtime's mapping of
+// it, the same translation the relocator applies to the cwd (relocateRoot).
+// On a POSIX host the two coincide; on Windows, using the host path as the
+// target would land the config OUTSIDE the checkout and leave the very
+// refusal this function exists to prevent.
 //
 // WHY THIS EXISTS. A cell's cwd is a fresh `git worktree` checkout, so it holds
 // only COMMITTED files. A project whose .ctxloom is gitignored — which is
@@ -188,11 +187,11 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (mount, bool
 	if err := os.MkdirAll(hostTarget, 0o755); err != nil {
 		return mount{}, false, fmt.Errorf("container-worktree: creating the %s mountpoint: %w", paths.AppDirName, err)
 	}
-	checkout, err := rt.mapper().toContainer(worktreeDir)
+	target, err := rt.mapper().toContainer(hostTarget)
 	if err != nil {
-		return mount{}, false, fmt.Errorf("container-worktree: the checkout %s has no route into the container: %w", worktreeDir, err)
+		return mount{}, false, fmt.Errorf("container-worktree: the checkout's %s has no route into the container: %w", paths.AppDirName, err)
 	}
-	return rt.expose(source, filepath.Join(checkout, paths.AppDirName), true), true, nil
+	return rt.expose(source, target, true), true, nil
 }
 
 // NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED

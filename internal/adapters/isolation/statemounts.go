@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -199,7 +200,7 @@ func (c Container) harpStateMounts() ([]mount, error) {
 	if c.engineSpec.transcriptStoreRel != "" {
 		mounts = append(mounts, c.runtime.expose(
 			store,
-			filepath.Join(c.home, c.engineSpec.transcriptStoreRel),
+			path.Join(c.home, c.engineSpec.transcriptStoreRel),
 			false,
 		))
 	}
@@ -210,7 +211,7 @@ func (c Container) harpStateMounts() ([]mount, error) {
 		}
 		mounts = append(mounts, c.runtime.expose(
 			host,
-			filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, dir),
+			path.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, dir),
 			false,
 		))
 	}
@@ -252,7 +253,7 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 			}
 			mounts = append(mounts, c.runtime.expose(
 				src,
-				filepath.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)),
+				path.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)),
 				false,
 			))
 		}
@@ -276,7 +277,7 @@ func (c Container) locksDirMount() (mount, error) {
 	}
 	return c.runtime.expose(
 		locksDir,
-		filepath.Join(c.home, paths.AppDirName, paths.HomeLocksDirName),
+		path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName),
 		false,
 	), nil
 }

@@ -2,7 +2,6 @@ package isolation
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"os/exec"
 	"path/filepath"
@@ -160,7 +159,7 @@ func TestPrepare_NonRelocatingEngineInAContainerHasItsHomeAtHOME(t *testing.T) {
 func TestPrepare_UnreachableRootIsRefused(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := t.TempDir()
-	withFakeContainerRuntime(t, unroutableRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}})
+	withFakeContainerRuntime(t, mapperRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}})
 
 	env, err := Prepare(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, project))
 	require.ErrorIs(t, err, present.ErrUnreachableRoot)
@@ -176,7 +175,7 @@ func TestPrepare_UnreachableRootIsRefused(t *testing.T) {
 type uncMapper struct{}
 
 func (uncMapper) toContainer(host string) (string, error) {
-	return "", fmt.Errorf("%w: %s", errUNCPath, host)
+	return driveLetterMapper{}.toContainer(`\\srv\share` + host)
 }
 
 // A share-path root is refused with the remedy that fits it: the Linux build
@@ -185,7 +184,7 @@ func (uncMapper) toContainer(host string) (string, error) {
 func TestPrepare_UnreachableShareRootNamesWSLRemedy(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := t.TempDir()
-	withFakeContainerRuntime(t, unroutableRuntime{fakeRuntime: containerRuntime, m: uncMapper{}})
+	withFakeContainerRuntime(t, mapperRuntime{fakeRuntime: containerRuntime, m: uncMapper{}})
 
 	_, err := Prepare(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, project))
 	require.ErrorIs(t, err, errUNCPath)

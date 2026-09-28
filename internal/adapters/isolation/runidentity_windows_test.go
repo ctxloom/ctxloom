@@ -3,6 +3,7 @@
 package isolation
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,13 +18,18 @@ func TestRunIdentity_IsTheImageUser(t *testing.T) {
 	assert.Equal(t, imageUserID, gid)
 }
 
-// Under WSL the machine alias lands in the VM, so the route is this host's
-// primary address — public, and saying why.
-func TestPodmanMachineRoute_IsPublicWithReason(t *testing.T) {
+// Under WSL the machine alias lands in the VM, so a podman machine's route
+// is this host's primary address — public, and saying why — while Docker
+// Desktop keeps its own host proxy's alias.
+func TestReachRoute_WindowsMachines(t *testing.T) {
 	stubPrimary(t, "192.0.2.10")
-	r, err := podmanMachineRoute()
+	r, err := Podman{rootless: true, rootlessNet: "pasta"}.reachRoute(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "192.0.2.10", r.dial)
 	assert.True(t, r.listen.Public)
 	assert.Contains(t, r.listen.Why, "WSL")
+
+	d, err := Docker{}.reachRoute(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, hostRoute{dial: "host.docker.internal"}, d)
 }

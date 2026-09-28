@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // pathMapper names, inside the container's mount namespace, where the SAME
@@ -56,11 +58,17 @@ var (
 	// errUNCPath refuses a share or device path (\\server\share, \\wsl$\...,
 	// \\wsl.localhost\..., \\.\..., \\?\UNC\...): no container runtime on
 	// Windows is known to bind one, and podman's own conversion rejects them.
-	errUNCPath = errors.New("isolation: a UNC, WSL-share or device path has no route into a Linux container (for a project inside a WSL distro, run ctxloom's Linux build inside that distro)")
+	// It is raised carrying uncPathRemedy.
+	errUNCPath = errors.New("isolation: a UNC, WSL-share or device path has no route into a Linux container")
 	// errNotDriveAbsolute refuses anything but <letter>:\... — layout paths
 	// are absolute, so this is a guard, not a guess.
 	errNotDriveAbsolute = errors.New("isolation: not a drive-absolute Windows path")
 )
+
+// uncPathRemedy is the fix for a share-path root. The usual one is a project
+// kept inside a WSL distro, which the Linux build run in that distro reaches
+// natively with no mapping at all.
+const uncPathRemedy = "run ctxloom's Linux build inside the WSL distro that holds the project (or move the project onto a local drive), or run with `runtime: host`"
 
 // driveMountRoot is where driveLetterMapper places each drive: the WSL and
 // podman-machine convention (C:\ is /mnt/c inside the VM), so a path reads
@@ -82,7 +90,7 @@ func (driveLetterMapper) toContainer(hostPath string) (string, error) {
 		p = rest
 	}
 	if strings.HasPrefix(p, "//") {
-		return "", fmt.Errorf("%w: %s", errUNCPath, hostPath)
+		return "", report.Errorf(uncPathRemedy, "%w: %s", errUNCPath, hostPath)
 	}
 	if len(p) < 3 || !isASCIILetter(p[0]) || p[1] != ':' || p[2] != '/' {
 		return "", fmt.Errorf("%w: %q", errNotDriveAbsolute, hostPath)

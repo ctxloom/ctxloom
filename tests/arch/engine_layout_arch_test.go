@@ -92,7 +92,7 @@ func testSpecTranscriptStoreRel(t *testing.T) {
 	}
 	for _, c := range checks {
 		t.Run(c.backend, func(t *testing.T) {
-			got := filepath.ToSlash(isolation.ContainerTranscriptStoreRelFor(c.backend))
+			got := isolation.ContainerTranscriptStoreRelFor(c.backend)
 			if got != c.want {
 				t.Errorf("isolation spec transcriptStoreRel for backend %q = %q, want %q",
 					c.backend, got, c.want)

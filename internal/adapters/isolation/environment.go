@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Environment is where one run executes. It is constructed from host facts
@@ -83,17 +84,27 @@ var ErrPreviewEnvironment = errors.New("isolation: a preview environment cannot 
 // session home (launch.SessionHome, created and prepared here). Stage 2 is
 // the chosen environment's relocator: the host presents every root in place,
 // the container presents each one together with the mount that makes it
-// true. It is the only place a path is rewritten.
+// true. It is the only place a ROOT is rewritten; the container's auxiliary
+// mounts (config overlays, the git common dir) are mapped by the same
+// runtime mapper where stage 1 builds them. The requested environment's
+// roots are routed once, with no effects, before either stage.
 func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	chain := withSessionState(chainFor(s.axes, s.backend(), s.img), s.state)
+	// The requested environment's roots are routed first, with no effects:
+	// the chain's own container mounts map paths too, and a root failing
+	// there would read as an unstartable container rather than as the root
+	// no environment of this kind can present.
+	head := chain[0].relocator()
+	if _, _, err := head.relocate(previewLayout(s, head.sharesLogin())); err != nil {
+		return nil, refuseUnreachable("run in", err)
+	}
 	p, ws := prepareChain(ctx, chain, s.axes.Runtime, s.project, s.harp)
 	r := p.relocator()
 	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), r.sharesLogin())
 	pl, roots, err := r.relocate(l)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to run in an environment that cannot present every root: %v", err)
 		_ = ws.Cleanup()
-		return nil, err
+		return nil, refuseUnreachable("run in", err)
 	}
 	env, err := p.environment(ws, pl, roots)
 	if err != nil {
@@ -103,14 +114,21 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	return env, nil
 }
 
-// unreachableRootRemedy names the fix for a root the runtime cannot route.
-// A share path gets its own: the usual one is a project kept inside a WSL
-// distro, which the Linux build run in that distro reaches natively.
+// unreachableRootRemedy names the fix for a root the runtime cannot route:
+// the one the refusal carries (a share path names its own), else moving the
+// root somewhere the daemon sees.
 func unreachableRootRemedy(err error) string {
-	if errors.Is(err, errUNCPath) {
-		return "run ctxloom's Linux build inside the WSL distro that holds the project (or move the project onto a local drive), or run with `runtime: host`"
+	if fix, ok := clifmt.RemedyOf(err); ok {
+		return fix
 	}
 	return "move the project and the ctxloom home onto a filesystem the container runtime can mount (the daemon must see the same paths), or run with `runtime: host`"
+}
+
+// refuseUnreachable records err — a root the environment cannot present — as
+// the non-degradable finding it is, and returns it.
+func refuseUnreachable(what string, err error) error {
+	strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to %s an environment that cannot present every root: %v", what, err)
+	return err
 }
 
 // Preview is Prepare's relocation with no effects on disk: no checkout, no
@@ -125,8 +143,7 @@ func Preview(ctx context.Context, s Spec) (Environment, error) {
 	l := previewLayout(s, r.sharesLogin())
 	pl, _, err := r.relocate(l)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to preview an environment that cannot present every root: %v", err)
-		return nil, err
+		return nil, refuseUnreachable("preview", err)
 	}
 	listen, desc := p.preview(ctx)
 	return previewEnvironment{placement: pl, listen: listen, desc: desc}, nil

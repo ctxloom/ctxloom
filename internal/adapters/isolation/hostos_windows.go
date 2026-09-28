@@ -16,12 +16,9 @@ func hostMapper() pathMapper { return driveLetterMapper{} }
 // the baked uid is a no-op remap.
 func runIdentity() (uid, gid int) { return imageUserID, imageUserID }
 
-// podmanMachineRoute: the default Windows machine runs under WSL, where
-// host.containers.internal names the machine VM, not this host, and a
-// connection to a Windows-host listener times out (podman issues #14933 and
-// #25152). This host's own primary address is the route the reports show
-// working, so it is taken explicitly — public, and warned — rather than
-// dialling an alias that lands in the VM.
-func podmanMachineRoute() (hostRoute, error) {
-	return publicRoute("podman machine on Windows (WSL) routes host.containers.internal to the machine VM, not this host; the coordinator listens on this host's primary address instead — allow it through Windows Firewall if the runner cannot connect, or use Docker Desktop")
-}
+// machineVMIsWSL is true: a runtime VM here is a WSL distro on WSL's own
+// NAT network by default (podman-machine-init(1): user-mode networking is
+// off unless asked for), where a VM's host alias can name the VM itself
+// rather than this host. A runtime that ships its own host proxy is
+// unaffected; one that relies on the VM's network reads this.
+const machineVMIsWSL = true

@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -275,6 +276,7 @@ func TestCellsPrepare_HostHomeAppliesTheDeclaredAuth(t *testing.T) {
 		req.HomeMode = launch.HomeModeHost
 		req.Identity = sessions.Identity{Harp: harpA}
 		req.Env = map[string]string{sessions.EnvHarp: harpA}
+		req.SessionDir = harpDir(t, harpA)
 		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 		if err == nil {
 			t.Cleanup(func() { _ = cell.Cleanup() })
@@ -328,12 +330,15 @@ func TestCellsPrepare_AnEngineThatRelocatesNothingGetsTheRulesSessionHome(t *tes
 
 // NO RUNTIME BRANCH: the cell IS the environment's outcome — its Placement,
 // its Listen and the environment itself as the handle — whichever axes were
-// asked for. A stand-in environment with container-shaped roots and a
-// non-zero listen is handed back unchanged on host and container axes alike;
-// a cells adapter that branched on the runtime would rewrite one of them.
+// asked for, and the credentials handed to the environment are the declared
+// mode's own on every runtime. A stand-in environment with container-shaped
+// roots and a non-zero listen is handed back unchanged on host and container
+// axes alike; a cells adapter that branched on the runtime would rewrite one
+// of them, or hand a container different credentials.
 func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 	resetStrictness(t)
-	t.Setenv("HOME", t.TempDir())
+	fakeHostHome(t, "")
+	t.Setenv(claude.OAuthTokenEnv, tokenFixture)
 	want := stubEnvironment{placement: launch.Placement{
 		Paths: present.Advised(present.Paths{
 			ProjectRoot: present.Root{Host: "/host/proj", Engine: "/ctr/proj"},
@@ -342,11 +347,17 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 		Env:  map[string]string{"A_HOME_VAR": "/home/ctxloom"},
 		Home: []engine.HomeBinding{{Var: "A_HOME_VAR", Path: "/home/ctxloom"}},
 	}}
+	var got isolation.Spec
 	prev := prepareEnvironment
-	prepareEnvironment = func(context.Context, launch.CellRequest, isolation.Spec) (isolation.Environment, error) {
+	prepareEnvironment = func(_ context.Context, _ launch.CellRequest, s isolation.Spec) (isolation.Environment, error) {
+		got = s
 		return listening{want}, nil
 	}
 	t.Cleanup(func() { prepareEnvironment = prev })
+	tokenCreds := engine.Credentials{
+		Env:   map[string]string{claude.OAuthTokenEnv: tokenFixture},
+		Unset: []string{claude.APIKeyEnv, claude.AuthTokenEnv, "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", claude.SecureStorageEnv},
+	}
 
 	for _, runtime := range []launch.RuntimeAxis{launch.RuntimeHost, launch.RuntimeRootless, launch.RuntimeRootful} {
 		req := claudeKind(t)
@@ -356,6 +367,14 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 		require.NoError(t, err, "runtime %s", runtime)
 
+		spec, err := isolation.NewSpec(req.Axes, req.Engine).Project(req.ProjectRoot).
+			Session("test-harp", req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
+			Home(agents.HomeMode(req.HomeMode)).Credentials(tokenCreds).Build()
+		require.NoError(t, err)
+		// Rendered, not compared: the engine value carries funcs, which
+		// reflect.DeepEqual never equates; the rendering names the same engine
+		// instance and every other field, credentials included.
+		assert.Equal(t, fmt.Sprintf("%+v", spec), fmt.Sprintf("%+v", got), "runtime %s: the environment is handed the declared mode's credentials, whatever the runtime", runtime)
 		assert.Equal(t, want.placement, cell.Placement, "runtime %s: the Placement is the environment's, untouched", runtime)
 		assert.Equal(t, present.Listen{Addr: "10.0.0.1"}, cell.Listen, "runtime %s: the Listen is the environment's", runtime)
 		env, ok := EnvironmentOf(cell)

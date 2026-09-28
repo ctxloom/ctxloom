@@ -314,6 +314,28 @@ func TestCredentials_AMissingLoginStoreRefusesOnEveryEnvironment(t *testing.T) {
 	}
 }
 
+// The preview of F7 carries on: the missing store is recorded as a
+// non-degradable finding carrying the run's remedy, the outcome is still
+// returned, and nothing is created.
+func TestPreview_AMissingLoginStoreIsRecordedNotReturned(t *testing.T) {
+	home := fakeHostHome(t, "") // no ~/.claude
+	s, err := NewSpec(launch.Axes{}, claudeEngine(t)).Project(t.TempDir()).
+		Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).
+		Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
+	require.NoError(t, err)
+
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	env := Preview(context.Background(), s)
+	found := strictness.Since(mark)
+
+	require.NotNil(t, env)
+	require.Len(t, found, 1)
+	assert.True(t, found[0].NonDegradable)
+	assert.Contains(t, found[0].Remedy, filepath.Join(home, ".claude"), "the run's remedy, naming the missing dir")
+	assert.NoDirExists(t, sessionDir(home, harpA), "a preview creates nothing")
+}
+
 // A store that is no directory (claude's login in the macOS Keychain) is
 // shared in place on the host and refused by a container, which cannot
 // reach it, naming the Keychain and `auth: token`.

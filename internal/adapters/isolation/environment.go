@@ -156,7 +156,7 @@ func refuseUnreachable(err error) error {
 // dry run's gate lists it beside the rest.
 func recordRefusal(err error) {
 	if errors.Is(err, present.ErrUnreachableRoot) {
-		refuseUnreachable(err)
+		_ = refuseUnreachable(err)
 		return
 	}
 	remedy, _ := clifmt.RemedyOf(err)
@@ -175,7 +175,8 @@ func recordRefusal(err error) {
 // can still compute: a root no runtime routes is marked unreachable (a Host
 // side and no Engine side, never a guessed path), an unreachable runtime is
 // described as RuntimeUnavailable and an unprobed route as ReachUnknown. A
-// credential store the run would refuse is recorded too, and left out.
+// credential store the run would refuse is recorded too, and the preview
+// then presents no store.
 func Preview(ctx context.Context, s Spec) Environment {
 	stores, err := stageStores(s.backend(), s.creds.Stores)
 	if err != nil {

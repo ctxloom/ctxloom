@@ -115,7 +115,7 @@ func TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout(t *testing.T) {
 	c.base = worktreeBase{wt: NewWorktree(f)}
 	c.state = SessionState{Harp: "brisk-teal-otter"}
 
-	ws, err := c.PrepareWorkspace(ctx, t.TempDir(), "member-unwind")
+	ws, err := c.prepareWorkspace(ctx, t.TempDir(), "member-unwind")
 	require.Error(t, err, "a mapping that cannot be built must fail the prepare, never launch a broken container")
 	assert.ErrorIs(t, err, boom, "the mapping failure must reach the caller intact")
 	assert.Nil(t, ws, "a failed prepare hands back no workspace")

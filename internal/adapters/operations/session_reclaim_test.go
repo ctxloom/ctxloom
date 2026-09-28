@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -239,7 +240,7 @@ func TestSweepReclaim_SparesSessionWhoseWorktreeHoldsUncommittedWork(t *testing.
 	harp := "wip-quiet-heron"
 	dir := srSeedHarp(t, harp)
 	repo := srInitRepo(t)
-	wtDir := srAddWorktree(t, repo, harp, "wip")
+	wtDir := srAddWorktree(t, repo, harp)
 	require.NoError(t, os.WriteFile(filepath.Join(wtDir, "in-flight.go"), []byte("// uncommitted\n"), 0o644))
 	srBackdate(t, dir)
 	srSeedDeadSession(t, harp)
@@ -271,7 +272,7 @@ func TestSweepReclaim_ReclaimsSessionWhoseWorktreeIsClean(t *testing.T) {
 	harp := "clean-quiet-heron"
 	dir := srSeedHarp(t, harp)
 	repo := srInitRepo(t)
-	srAddWorktree(t, repo, harp, "clean")
+	srAddWorktree(t, repo, harp)
 	srBackdate(t, dir)
 	srSeedDeadSession(t, harp)
 
@@ -313,16 +314,16 @@ func srInitRepo(t *testing.T) string {
 // itself, nothing would exist under the harp's ephemeral dir, and every
 // assertion here would pass while measuring nothing. So the workspace's own
 // directory is checked to be under that ephemeral dir before any test uses it.
-func srAddWorktree(t *testing.T, repo, harp, agentID string) string {
+func srAddWorktree(t *testing.T, repo, harp string) string {
 	t.Helper()
-	_, ws := isolation.Prepare(
-		context.Background(),
-		isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost},
-		"", isolation.ImageConfig{}, repo, agentID,
-		isolation.SessionState{Harp: harp},
-	)
-	require.NotNil(t, ws)
-	wtDir := ws.Dir()
+	sessionDir, err := paths.HarpDir(harp)
+	require.NoError(t, err)
+	spec, err := isolation.NewSpec(isolation.Axes{Workspace: isolation.WorkspaceWorktree, Runtime: isolation.RuntimeHost}, mock.New()).
+		Project(repo).Session(harp, sessionDir, isolation.SessionState{Harp: harp}).Build()
+	require.NoError(t, err)
+	env, err := isolation.Prepare(context.Background(), spec)
+	require.NoError(t, err)
+	wtDir := env.Placement().Paths.Paths().ProjectRoot.Host
 
 	ephemeral, err := paths.HarpEphemeralDir(harp)
 	require.NoError(t, err)

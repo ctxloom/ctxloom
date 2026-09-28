@@ -119,7 +119,7 @@ type claudeInstanceConfig struct{}
 
 var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 
-// WriteInstanceConfig generates `<InstanceHome>/claude/.claude.json` from three
+// WriteInstanceConfig generates `<InstanceHome>/.claude.json` from three
 // disjoint sources, in this order: the ambient allow-list copied out of the
 // user's real `~/.claude.json`, ctxloom's hardened policy keys, and the
 // generated project-trust entry for WorkDir.
@@ -140,7 +140,7 @@ var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 // This does NOT double-acquire with isolation.PrepareInstanceHome's caller-side lock
 // (isolation.lockInstanceHome): that lock is paths.ProjectPathFor(instanceHome)
 // — a DIFFERENT lock namespace (project-tree-relative) at a DIFFERENT path
-// (InstanceHome itself, not InstanceHome/claude/.claude.json) than the
+// (InstanceHome itself, not InstanceHome/.claude.json) than the
 // paths.HomePathFor(dest) this function's own WithFileLock takes. flock is
 // per-inode; two distinct paths in two distinct lock trees never contend, so
 // nesting is safe. It is also NOT redundant: lockInstanceHome silently
@@ -158,7 +158,9 @@ func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigReque
 		return rep, fmt.Errorf("claude instance config: no instance home to generate %s in", InstanceConfigFileName)
 	}
 	fs = agent.GetFS(fs)
-	dir := filepath.Join(req.InstanceHome, HomeLeaf)
+	// InstanceHome IS the session home launch.SessionHome placed — the dir
+	// CLAUDE_CONFIG_DIR names — so the file goes straight into it.
+	dir := req.InstanceHome
 	dest := filepath.Join(dir, InstanceConfigFileName)
 
 	err := sessions.WithFileLock(fs, dest, func() error {

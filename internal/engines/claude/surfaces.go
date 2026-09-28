@@ -27,8 +27,7 @@ import (
 // flag-announced form's Path() after delivery, on every cell.
 //
 // A surface with TWO forms names both: which one runs is the caller's
-// selection (or, on a shared launch with no preference, the derivation in
-// preferOutOfCwd), never a conversion applied underneath it. Where each
+// selection, never a conversion applied underneath it. Where each
 // form's bytes land is stated on the form (Present); which forms a kind
 // has is stated on its typed approach (Forms).
 //
@@ -182,25 +181,6 @@ func (s *systemPromptContext) Deliver(start present.Start) (agent.Delivered, err
 	return handle, err
 }
 
-// PresentExisting satisfies LaunchFormPresent by WRITING, and that is not the
-// fallback the form forbids. The file is named <sha256-prefix>.sysprompt.md
-// over the framed bytes, so it is owned by nobody: a run whose context differs
-// lands at a different path and clobbers nothing, and a run whose context is
-// identical writes identical bytes over identical bytes. There is no shared
-// copy here to preserve and nothing to refuse about — the surface this run
-// names IS this run's content, by construction.
-//
-// The handle Deliver returns is deliberately dropped rather than recorded:
-// under this form the run does not own the session's private root, and a
-// Cleanup that removed this file would take it out from under any sibling
-// delivering the same context.
-func (s *systemPromptContext) PresentExisting(start present.Start) (string, error) {
-	if _, err := s.Deliver(start); err != nil {
-		return "", err
-	}
-	return s.path, nil
-}
-
 // Path returns the framed <hash>.sysprompt.md written by Deliver (for
 // --append-system-prompt-file), or "" whenever no file stands behind it: before
 // delivery, for empty context, and after a FAILED delivery.
@@ -318,35 +298,6 @@ func materializeEmptyMCPConfig(fs afero.Fs, path string) error {
 	return iox.WriteFileAtomicFs(fs, path, doc, 0o600)
 }
 
-// PresentExisting names the session's private .mcp.json without writing it:
-// the leaf is FIXED, so the copy already there is the one every run in this
-// session reads and a second write would clobber it. An empty bundle means this
-// run has no MCP surface to name at all — "" and no error, so no --mcp-config
-// flag is emitted; anything else must be on disk or the run refuses. An
-// unresolved private root refuses exactly as Deliver does: there is no path
-// to look for, and a bare relative one would be stat'd wherever the process
-// happens to be.
-//
-// The path comes from the DECLARED leaf, exactly as Deliver records it, so
-// the two cannot drift into naming different files.
-func (s *mcpConfig) PresentExisting(start present.Start) (string, error) {
-	if len(s.bundle) == 0 {
-		s.path = ""
-		return "", nil
-	}
-	if err := privateRooted(start); err != nil {
-		s.path = ""
-		return "", err
-	}
-	p := underPrivateRoot(start, MCPFileName).Build().HostPath
-	if err := agent.RequireDelivered(s.fs, agent.SurfaceMCP, p); err != nil {
-		s.path = ""
-		return "", err
-	}
-	s.path = p
-	return p, nil
-}
-
 // Path returns the private .mcp.json written by Deliver (for --mcp-config
 // <file>), or "" before delivery and after a FAILED one.
 func (s *mcpConfig) Path() string { return s.path }
@@ -382,9 +333,7 @@ func (s *mcpUnsafeFile) UnsafeInfo() string { return "claude/mcp" }
 // keeps them in a single .claude/settings.json).
 //
 // Deliver (well-known) writes .claude/settings.json into the project root via
-// the reused fileTemplateDelivery.DeliverSettings. DeliverIsolated writes the
-// same settings JSON beneath the session home and exposes its path (Path)
-// for --settings <file>.
+// the reused fileTemplateDelivery.DeliverSettings.
 type settingsSurface struct {
 	hooks            *wire.HooksConfig
 	manageStatusline bool
@@ -396,17 +345,16 @@ type settingsSurface struct {
 	// engine-specific extra.
 	denyTools []string
 	fs        afero.Fs
-	path      string // set by DeliverIsolated: the out-of-cwd settings.json
 }
 
-// Present declares .claude/settings.json (hooks + statusline) plus the
-// --settings flag its out-of-cwd form is announced with.
+// Present declares .claude/settings.json (hooks + statusline) and names it on
+// --settings.
 func (s *settingsSurface) Present(start present.Start) present.Presentation {
 	return start.UnderProjectRoot(relSettings).AnnounceFlag(flagSettings).Build()
 }
 
-// deliver is the ONE .claude/settings.json recipe both entry points run (see
-// mcpWriter.deliver for the shape): build the reused file-template writer
+// deliver is the .claude/settings.json recipe (see mcpWriter.deliver for the
+// shape): build the reused file-template writer
 // against dir, thread the resolved deny_tools union onto it, and write the
 // settings JSON including hooks and the statusline policy.
 func (s *settingsSurface) deliver(dir string) (agent.Delivered, error) {
@@ -422,49 +370,9 @@ func (s *settingsSurface) Deliver(start present.Start) (agent.Delivered, error) 
 	return s.deliver(start.Paths().ProjectRoot.Host)
 }
 
-// DeliverIsolated writes the settings JSON (incl. hooks) beneath the advised
-// session home and records its path for --settings. A FAILED write clears
-// that path, for the same reason mcpConfig.Deliver does: no --settings flag may
-// name a file that was not written. A run with no session home is refused
-// (ErrUnrootedSessionHome) rather than handed a bare relative path.
-func (s *settingsSurface) DeliverIsolated(start present.Start) (agent.Delivered, error) {
-	if err := privateRooted(start); err != nil {
-		s.path = ""
-		return nil, err
-	}
-	handle, err := s.deliver(privateRoot(start).Host)
-	if err != nil {
-		s.path = ""
-		return nil, err
-	}
-	// Declared, not re-joined — see mcpConfig.Deliver.
-	s.path = underPrivateRoot(start, relSettings).Build().HostPath
-	return handle, nil
-}
-
-// PresentExisting names the session's out-of-cwd settings.json without writing
-// it. Same reasoning as mcpSurface's: the leaf is FIXED, so this run reads the
-// copy the session delivered and refuses when there is none. There is no
-// "empty" case to skip — a settings surface always has hooks or a statusline
-// policy to state, even when that state is "nothing configured".
-func (s *settingsSurface) PresentExisting(start present.Start) (string, error) {
-	p := underPrivateRoot(start, relSettings).Build().HostPath
-	if err := agent.RequireDelivered(s.fs, agent.SurfaceSettings, p); err != nil {
-		s.path = ""
-		return "", err
-	}
-	s.path = p
-	return p, nil
-}
-
-// Path returns the out-of-cwd settings.json written by DeliverIsolated (for
-// --settings <file>), or "" before delivery and after a FAILED one.
-func (s *settingsSurface) Path() string { return s.path }
-
 // commandsSurface is claude's commands approach: the slash-command exports
-// under .claude/commands/. claude has no out-of-cwd flag for slash-commands
-// (no OutOfCwd form), so a SHARED-cwd delivery of it falls back to the loud
-// well-known write; first preference is always an isolated cell. It
+// under .claude/commands/. claude has no out-of-cwd flag for slash-commands,
+// so a SHARED-cwd delivery of it is the loud well-known write; first preference is always an isolated cell. It
 // self-describes via UnsafeInfo for that fallback's warning. (Unlike the
 // mock, claude's commands ride fileTemplateDelivery.DeliverCommands, which
 // owns its own cleanup, so they are NOT the shared
@@ -512,22 +420,16 @@ func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 }
 
 // Compile-time capability contracts. Every approach is an agent.Approach.
-// The single-form private-root approaches are LaunchOnly and Existing (named
-// under LaunchFormPresent); settings alone still carries the OutOfCwd second
-// form (see agent.OutOfCwd for why it cannot yet be split); commands and
-// skills have no out-of-cwd form at all, so a SHARED-cwd delivery of them
-// always falls back to the loud well-known write (proved in surfaces_test.go).
+// The private-root approaches are LaunchOnly; commands and skills have no
+// out-of-cwd form at all, so a SHARED-cwd delivery of them is always the loud
+// well-known write (proved in surfaces_test.go).
 var (
 	_ agent.Approach   = (*systemPromptContext)(nil)
-	_ agent.Existing   = (*systemPromptContext)(nil)
 	_ agent.LaunchOnly = (*systemPromptContext)(nil)
 	_ agent.Approach   = (*mcpConfig)(nil)
-	_ agent.Existing   = (*mcpConfig)(nil)
 	_ agent.LaunchOnly = (*mcpConfig)(nil)
 	_ agent.Approach   = (*mcpUnsafeFile)(nil)
 	_ agent.Approach   = (*settingsSurface)(nil)
-	_ agent.OutOfCwd   = (*settingsSurface)(nil)
-	_ agent.Existing   = (*settingsSurface)(nil)
 	_ agent.Approach   = (*commandsSurface)(nil)
 	_ placement        = dirPlacement{}
 )

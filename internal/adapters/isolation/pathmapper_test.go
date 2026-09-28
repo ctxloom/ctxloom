@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // windowsStyleMapper is a TEST-ONLY stand-in for lanky-pod's eventual Windows
@@ -14,12 +15,12 @@ import (
 // proj → e.g. /workspace"). It is deliberately simplistic (no drive-letter
 // parsing, no Docker-Desktop /host_mnt SOURCE translation) — exercising it
 // here proves the SEAM (buildRunSpec/ExposeMapped route every identical-
-// path Mount + WorkDir through whatever mapper the runtime carries), not a
+// path mount + WorkDir through whatever mapper the runtime carries), not a
 // production-ready Windows implementation, which the plan explicitly scopes
 // out of this task (untested-without-hardware).
 type windowsStyleMapper struct{ root string }
 
-func (m windowsStyleMapper) toContainer(string) string { return m.root }
+func (m windowsStyleMapper) toContainer(string) (string, error) { return m.root, nil }
 
 // prefixMapper is a TEST-ONLY non-identity pathMapper that maps hostPath to
 // prefix+hostPath. Unlike windowsStyleMapper (which collapses EVERY host path
@@ -33,21 +34,24 @@ func (m windowsStyleMapper) toContainer(string) string { return m.root }
 // (a skipped mapper call is byte-identical to a used one under identity).
 type prefixMapper struct{ prefix string }
 
-func (m prefixMapper) toContainer(hostPath string) string { return m.prefix + hostPath }
+func (m prefixMapper) toContainer(hostPath string) (string, error) { return m.prefix + hostPath, nil }
 
 // TestIdentityMapper_NoOp pins the seam's zero-behavior-change contract: the
 // default mapper is a pure passthrough.
 func TestIdentityMapper_NoOp(t *testing.T) {
 	m := identityMapper{}
-	assert.Equal(t, "/home/user/proj", m.toContainer("/home/user/proj"))
+	got, err := m.toContainer("/home/user/proj")
+	require.NoError(t, err)
+	assert.Equal(t, "/home/user/proj", got)
 }
 
 // TestRuntimeMapper_NilIsIdentity pins the nil-safe getter every Runtime's
 // mapper() uses: an unset pathMapper (every construction path in this package
 // today) is identity, never a nil-pointer hazard.
 func TestRuntimeMapper_NilIsIdentity(t *testing.T) {
-	got := runtimeMapper(nil)
-	assert.Equal(t, "/x", got.toContainer("/x"), "nil mapper must behave as identity")
+	got, err := runtimeMapper(nil).toContainer("/x")
+	require.NoError(t, err)
+	assert.Equal(t, "/x", got, "nil mapper must behave as identity")
 }
 
 // TestBuildRunnerSpec_IdentityMapper_Unchanged pins the "no behavior change
@@ -58,7 +62,7 @@ func TestBuildRunnerSpec_IdentityMapper_Unchanged(t *testing.T) {
 	spec := runnerSpecFor(Docker{}, "mock", "/proj", nil, nil)
 
 	assert.Equal(t, "/proj", spec.WorkDir, "identity mapper: WorkDir is the unmapped project dir")
-	assert.Contains(t, spec.Mounts, Mount{Host: "/proj", Container: "/proj"},
+	assert.Contains(t, spec.Mounts, mount{Host: "/proj", Container: "/proj"},
 		"identity mapper: the project mount is identical-path")
 }
 
@@ -77,7 +81,7 @@ func TestBuildRunSpec_WindowsStyleMapper_TranslatesWorkDirAndProjectMount(t *tes
 
 	assert.Equal(t, "/workspace", spec.WorkDir,
 		"WorkDir must be the mapped POSIX target, not the raw Windows host path")
-	assert.Contains(t, spec.Mounts, Mount{Host: hostProj, Container: "/workspace"},
+	assert.Contains(t, spec.Mounts, mount{Host: hostProj, Container: "/workspace"},
 		"the project mount's SOURCE stays the real host path; only the CONTAINER target is mapped")
 
 	// Render sanity: the WorkDir flag and the mount's CONTAINER (target) side
@@ -99,14 +103,14 @@ func TestBuildRunSpec_WindowsStyleMapper_TranslatesWorkDirAndProjectMount(t *tes
 func TestOciRuntime_ExposeMapped_RoutesThroughMapper(t *testing.T) {
 	// Identity (default): unchanged behavior.
 	plain := Docker{}
-	assert.Equal(t, Mount{Host: "/repo/.git", Container: "/repo/.git"}, plain.ExposeMapped("/repo/.git", false),
+	assert.Equal(t, mount{Host: "/repo/.git", Container: "/repo/.git"}, exposedMapped(t, plain, "/repo/.git", false),
 		"a Docker runtime constructed without a mapper (every call site today) is identity")
 
 	// Non-identity: injected via the unexported ociRuntime.pathMap field
 	// (same-package test, mirroring how the plan's design injects a future
 	// Windows/DooD mapper at runtime construction).
 	mapped := Docker{ociRuntime: ociRuntime{pathMap: windowsStyleMapper{root: "/workspace"}}}
-	assert.Equal(t, Mount{Host: `C:\Users\foo\proj\.git`, Container: "/workspace", ReadOnly: true},
-		mapped.ExposeMapped(`C:\Users\foo\proj\.git`, true),
+	assert.Equal(t, mount{Host: `C:\Users\foo\proj\.git`, Container: "/workspace", ReadOnly: true},
+		exposedMapped(t, mapped, `C:\Users\foo\proj\.git`, true),
 		"ExposeMapped must route the container target through the SAME mapper buildRunSpec uses")
 }

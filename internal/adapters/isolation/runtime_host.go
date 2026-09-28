@@ -26,18 +26,16 @@ func (Host) RunArgs(RunSpec) []string { return nil }
 // RemoveArgs is a noop — Host has nothing to tear down.
 func (Host) RemoveArgs(string) []string { return nil }
 
-// Expose renders the identity bind mount, same as the OCI runtimes — the host
+// expose renders the identity bind mount, same as the OCI runtimes — the host
 // path IS the exposed path (no container namespace to remap into).
-func (Host) Expose(host, target string, readOnly bool) Mount {
-	return Mount{Host: host, Container: target, ReadOnly: readOnly}
+func (Host) expose(host, target string, readOnly bool) mount {
+	return mount{Host: host, Container: target, ReadOnly: readOnly}
 }
 
-// ExposeMapped is the identity mount for Host specifically — Host has no
-// container namespace to remap into, so this is unconditionally
-// Expose(hostPath, hostPath, readOnly) (matching Host.mapper() below, always
-// identityMapper).
-func (Host) ExposeMapped(hostPath string, readOnly bool) Mount {
-	return Mount{Host: hostPath, Container: hostPath, ReadOnly: readOnly}
+// exposeMapped is the identity mount for Host specifically — Host has no
+// container namespace to remap into (Host.mapper() is always identityMapper).
+func (Host) exposeMapped(hostPath string, readOnly bool) (mount, error) {
+	return exposeThrough(identityMapper{}, hostPath, readOnly)
 }
 
 // mapper is always identity — Host launches no container, so there is no

@@ -109,34 +109,6 @@ func TestApproachDispatch_DeclaredIsConstructible(t *testing.T) {
 	}
 }
 
-// TestApproachDispatch_SharedPreferenceIsUnambiguous guards the one arm of
-// the shared-cwd default derivation that fails loud at launch: a kind
-// declaring MORE THAN ONE approach with an out-of-cwd form, none of them the
-// default. No registered engine may reach it — an engine that rich has to
-// name its preference, and this is where that requirement is checked before
-// a user finds it at launch.
-func TestApproachDispatch_SharedPreferenceIsUnambiguous(t *testing.T) {
-	for _, name := range nativeSurfaceBackends(t) {
-		t.Run(name, func(t *testing.T) {
-			decl := hostedDeclaration(name)
-			for _, kind := range allSurfaceKinds {
-				var converting []string
-				def, _ := decl.Default(kind)
-				for _, n := range decl.Names(kind) {
-					a, _ := decl.Construct(kind, n, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
-					if _, ok := a.(agent.OutOfCwd); ok {
-						converting = append(converting, n)
-					}
-				}
-				if len(converting) > 1 {
-					assert.Contains(t, converting, def,
-						"%s: %s declares several out-of-cwd approaches (%v); its default must be one of them", name, kind, converting)
-				}
-			}
-		})
-	}
-}
-
 // hostedDeclaration is the named engine's named-form table off the engine
 // value (agent.Hosted); empty for an unregistered name.
 func hostedDeclaration(name string) agent.Declaration {

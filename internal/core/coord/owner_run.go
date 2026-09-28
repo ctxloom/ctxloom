@@ -68,10 +68,9 @@ type OwnedRunner struct {
 }
 
 // OwnedRunStarter launches the runner process for an owner-owned run with the
-// per-run reach-back env stamped on. It mirrors isolation.EngineStarter but
-// takes the spawn env because the run-id + credential trio it must carry is
-// minted INSIDE StartOwnedRun (a pre-bound isolation.EngineStarter cannot know
-// them yet).
+// per-run reach-back env stamped on. It takes the spawn env because the
+// run-id + credential trio it must carry is minted INSIDE StartOwnedRun (a
+// starter bound before the run exists cannot know them yet).
 type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (OwnedRunner, error)
 
 // StartOwnedRun mints a PARENT-LESS, owner-owned run and drives it onto

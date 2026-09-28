@@ -19,9 +19,9 @@ import (
 type InstanceHomeRequest struct {
 	// Engine is the REGISTERED backend name ("claude-code", ...).
 	Engine string
-	// InstanceHome is the config-home ROOT to prepare — the session's
-	// engine-homes container (paths.HarpSessionEngineHomes). Each engine's
-	// own leaf is appended under it.
+	// InstanceHome is the session home to prepare — the directory the
+	// engine's home var names (launch.SessionHome). The engine writes into
+	// it; nothing appends a leaf of its own.
 	InstanceHome string
 	// WorkDir is the absolute project directory the run works in, passed
 	// through to the engine's generated config so a workspace-trust answer can

@@ -58,9 +58,7 @@ func (s *exitSpawner) Resolve(ctx context.Context, agentName string) (*coord.Spa
 
 func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
-	rt := isolation.ProbeRuntime(s.runtime)
-	pol := isolation.NewContainerFor(rt, coord.ContainerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
-	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
+	cenv, err := preparedContainer(ctx, s.runtime, coord.ContainerAuthBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
 	if err != nil {
 		return coord.Resolved{}, err
 	}
@@ -68,13 +66,13 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	if s.cells == nil {
 		s.cells = map[string]preparedContainerCell{}
 	}
-	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
+	s.cells[start.Identity.Harp] = preparedContainerCell{env: cenv, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, agent.PermissionBypass)
 	l.Identity = start.Identity
 	l.Prompt = start.Prompt
 	l.Cell.Env = env
-	l.Cell.Listen = isolation.WorkspaceListen(ws)
+	l.Cell.Listen = cenv.Listen()
 	l.Axes.Runtime = launch.RuntimeRootless
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
@@ -93,13 +91,13 @@ func (s *exitSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 	s.mu.Unlock()
 	h, err := spawn.StartRunner(ctx, cellStarter{cell: cell}, l, reach)
 	if err != nil {
-		_ = cell.ws.Cleanup()
+		_ = cell.env.Cleanup()
 		return nil, err
 	}
 	kill := sync.OnceFunc(func() {
 		s.killed.Store(true)
 		h.Kill()
-		_ = cell.ws.Cleanup()
+		_ = cell.env.Cleanup()
 	})
 	s.mu.Lock()
 	s.containers = append(s.containers, h.Name)
@@ -112,7 +110,7 @@ func (s *exitSpawner) Start(ctx context.Context, l launch.Launch, reach sessions
 type cellStarter struct{ cell preparedContainerCell }
 
 func (c cellStarter) Start(ctx context.Context, _ launch.Launch, env map[string]string) (coord.RunnerHandle, error) {
-	handle, err := isolation.StarterForWorkspace(c.cell.pol, c.cell.ws, c.cell.backend, c.cell.label, 0, env)(ctx)
+	handle, err := c.cell.env.Start(ctx, isolation.RunnerRequest{Engine: c.cell.backend, Label: c.cell.label, Env: env})
 	if err != nil {
 		return coord.RunnerHandle{}, err
 	}
@@ -317,6 +315,7 @@ func TestRunnerExitPaths(t *testing.T) {
 	} {
 		t.Run(rtc.name, func(t *testing.T) {
 			dockergate.RequireNamedRuntime(t, rtc.name, rtc.available(), "the runner exit-path tests")
+			withPodmanSelected(t, rtc.name)
 			// Rootless podman keeps its images under the invoking HOME, and
 			// every subtest below isolates a HOME of its own, so the image
 			// built here would be missing from the store each launch reads.

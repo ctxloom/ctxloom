@@ -34,7 +34,7 @@ var ErrUnsupported = errors.New("mountns: this host does not permit an unprivile
 // path) becomes visible AT Target, which must already exist as a file — a
 // file bind mount mounts over an existing inode, it does not create one.
 //
-// This is deliberately NOT isolation.Mount. A Mount is a DESCRIPTOR handed to
+// This is deliberately NOT isolation's bind mount. That is a DESCRIPTOR handed to
 // a container runtime, which performs it and reports its own failures; a Bind
 // is an instruction this process carries out itself with mount(2), and fails
 // as an errno inside our own shim before the engine is exec'd. The two share

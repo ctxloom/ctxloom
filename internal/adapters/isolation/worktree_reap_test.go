@@ -59,7 +59,7 @@ func TestReapOrphanedWorktrees_ReapsCleanOrphan(t *testing.T) {
 	pol := NewWorktree(git.NewExec())
 	pol.state = SessionState{Harp: "reap-clean-harp"}
 	ctx := context.Background()
-	ws, err := pol.PrepareWorkspace(ctx, repo, "member-crashed")
+	ws, err := pol.prepareWorkspace(ctx, repo, "member-crashed")
 	require.NoError(t, err)
 	wtDir := ws.Dir()
 	t.Cleanup(func() { _ = os.RemoveAll(wtDir) }) // safety net if the assertion below fails first
@@ -93,7 +93,7 @@ func TestReapOrphanedWorktrees_SparesUncommittedWIP(t *testing.T) {
 	pol := NewWorktree(git.NewExec())
 	pol.state = SessionState{Harp: "reap-wip-harp"}
 	ctx := context.Background()
-	ws, err := pol.PrepareWorkspace(ctx, repo, "member-crashed-wip")
+	ws, err := pol.prepareWorkspace(ctx, repo, "member-crashed-wip")
 	require.NoError(t, err)
 	wtDir := ws.Dir()
 	t.Cleanup(func() {
@@ -132,7 +132,7 @@ func TestReapOrphanedWorktrees_SkipsLiveOwner(t *testing.T) {
 	pol := NewWorktree(git.NewExec())
 	pol.state = SessionState{Harp: "reap-live-harp"}
 	ctx := context.Background()
-	ws, err := pol.PrepareWorkspace(ctx, repo, "member-live")
+	ws, err := pol.prepareWorkspace(ctx, repo, "member-live")
 	require.NoError(t, err)
 	wtDir := ws.Dir()
 	t.Cleanup(func() { require.NoError(t, ws.Cleanup()) })
@@ -272,10 +272,10 @@ func buildFourVerdictFixture(t *testing.T) (repo string, dirs []string) {
 	repo = initRealRepo(t)
 
 	ctx := context.Background()
-	prepare := func(harp, member string) Workspace {
+	prepare := func(harp, member string) workspace {
 		pol := NewWorktree(git.NewExec())
 		pol.state = SessionState{Harp: harp}
-		ws, err := pol.PrepareWorkspace(ctx, repo, member)
+		ws, err := pol.prepareWorkspace(ctx, repo, member)
 		require.NoError(t, err)
 		return ws
 	}

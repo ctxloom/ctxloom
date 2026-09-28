@@ -1,6 +1,6 @@
 //go:build docker_integration
 
-package attach_test
+package isolation
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/attach"
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -22,32 +21,32 @@ import (
 // teardown's first remove, which answers "No such container" and returns only
 // once the daemon has registered the container.
 type wrappedRuntime struct {
-	isolation.Runtime
+	Runtime
 	bin string
 }
 
 func (r wrappedRuntime) Binary() string { return r.bin }
 
 // forEachRaced starts an interactive container run on a pty the way the
-// originator does (attach.Start with Container.Remove as its teardown by name),
+// originator does (attach.Start with the container environment's teardown by name),
 // through the forcing wrapper, once per runtime present.
 func forEachRaced(t *testing.T, what string, body func(t *testing.T, s *attach.Session, bin, name string)) {
 	for _, r := range []struct {
 		name      string
 		available func() bool
-	}{{"docker", isolation.Docker{}.Available}, {"podman", isolation.Podman{}.Available}} {
+	}{{"docker", Docker{}.Available}, {"podman", Podman{}.Available}} {
 		t.Run(r.name, func(t *testing.T) {
 			dockergate.RequireNamedRuntime(t, r.name, r.available(), what)
-			real := isolation.ProbeRuntime(r.name)
+			real := ProbeRuntime(r.name)
 			require.Equal(t, r.name, real.Name(), "the probe substituted another runtime")
 			suffix := make([]byte, 4)
 			_, _ = rand.Read(suffix)
 			name := "ctxloom-attach-rmrace-" + hex.EncodeToString(suffix)
 			t.Cleanup(func() { _ = exec.Command(real.Binary(), "rm", "-f", name).Run() })
 			rt := wrappedRuntime{Runtime: real, bin: dockergate.RemoveBeforeCreateWrapper(t, real.Binary(), name)}
-			spec := isolation.RunSpec{Image: "docker.io/library/alpine:latest", Name: name, Command: []string{"sleep", "300"}, TTY: true}
-			pol := isolation.NewContainerFor(rt, "mock")
-			s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, func(runExited <-chan struct{}) { pol.Remove(name, runExited) })
+			spec := RunSpec{Image: "docker.io/library/alpine:latest", Name: name, Command: []string{"sleep", "300"}, TTY: true}
+			pol := NewContainerFor(rt, "mock")
+			s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, removeOnExit(pol, name))
 			require.NoError(t, err)
 			t.Cleanup(s.Kill)
 			body(t, s, real.Binary(), name)
@@ -85,4 +84,22 @@ func TestEnd_BeforeCreateLeavesNoContainer(t *testing.T) {
 		require.Empty(t, dockergate.ContainersNamed(t, bin, name),
 			"End must not leave running a container whose create landed after its remove said \"No such container\"")
 	})
+}
+
+// removeOnExit is the attach remover the originator builds from an
+// interactive container runner's Teardown (cli's teardownOnExit): the
+// container's remove, with a ctx that is done once the run CLI has exited.
+func removeOnExit(c Container, name string) func(runExited <-chan struct{}) {
+	return func(runExited <-chan struct{}) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			select {
+			case <-runExited:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		c.remove(ctx, name)
+	}
 }

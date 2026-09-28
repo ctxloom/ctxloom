@@ -11,8 +11,7 @@ package agent
 //
 // Preference between approaches is expressed by the CALLER and by the cell,
 // never by a list order: `profile materialize` names the native file because
-// its output must outlive ctxloom; a shared-cwd launch prefers whichever
-// declared approach has an OutOfCwd form; an isolated cell takes the default.
+// its output must outlive ctxloom; a launch takes the default.
 const (
 	// ApproachUnsafeFile writes the engine's native, well-known file the engine
 	// reads directly (CLAUDE.md, .mcp.json, settings, command/skill dirs…).

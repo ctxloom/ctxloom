@@ -13,7 +13,7 @@ import (
 // TestCellKindOf_FollowsTheCell: the writers' cell kind is a projection of
 // the cell, decided nowhere else.
 func TestCellKindOf_FollowsTheCell(t *testing.T) {
-	shared := launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: "/proj"}}), Workspace: "/proj"}
+	shared := launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: "/proj"}})}, Workspace: "/proj"}
 	require.Equal(t, agent.CellKindShared, cellKindOf(shared))
 
 	apart := shared

@@ -99,7 +99,7 @@ type progressSpawnMode int
 
 const (
 	// progressSpawnReal launches the child through the production isolation
-	// starter (isolation.StarterForWorkspace → Container.StartRunner →
+	// starter (Environment.Start → the container runner →
 	// docker-direct `ctxloom runner mock`) — the same seam
 	// container_direct_docker_integration_test.go proves.
 	progressSpawnReal progressSpawnMode = iota
@@ -164,11 +164,7 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 		plan.Launch = l
 		return coord.Resolved{Launch: l}, nil
 	}
-	rt := isolation.ProbeRuntime("docker")
-	// Auth keys on the plan's engine, never on plan.AgentName — see
-	// containerAuthBackend.
-	pol := isolation.NewContainerFor(rt, coord.ContainerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
-	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
+	cenv, err := preparedContainer(ctx, "docker", coord.ContainerAuthBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
 	if err != nil {
 		return coord.Resolved{}, err
 	}
@@ -176,9 +172,9 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	if s.cells == nil {
 		s.cells = map[string]preparedContainerCell{}
 	}
-	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
+	s.cells[start.Identity.Harp] = preparedContainerCell{env: cenv, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, agent.PermissionBypass)
 	// What the coordinator settled for this start rides the launch, as the
 	// production resolver stamps it: the run id (Start encodes it into the
 	// reach-back; a runner handed none refuses to host) and the first turn
@@ -186,7 +182,7 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	l.Identity = start.Identity
 	l.Prompt = start.Prompt
 	l.Cell.Env = env
-	l.Cell.Listen = isolation.WorkspaceListen(ws)
+	l.Cell.Listen = cenv.Listen()
 	// As Resolve carries a container launch: the container axis (the runner
 	// dials the container-reachable listener) and a session endpoint for the
 	// runner to bind — any free loopback port inside the container.
@@ -204,15 +200,14 @@ func (s *progressSpawner) Start(ctx context.Context, l launch.Launch, reach sess
 	s.mu.Lock()
 	cell := s.cells[l.Identity.Harp]
 	s.mu.Unlock()
-	starter := isolation.StarterForWorkspace(cell.pol, cell.ws, cell.backend, cell.label, 0, runnerEnv)
-	handle, err := starter(ctx)
+	handle, err := cell.env.Start(ctx, isolation.RunnerRequest{Engine: cell.backend, Label: cell.label, Env: runnerEnv})
 	if err != nil {
-		_ = cell.ws.Cleanup()
+		_ = cell.env.Cleanup()
 		return nil, err
 	}
 	kill := sync.OnceFunc(func() {
 		handle.Kill()
-		_ = cell.ws.Cleanup()
+		_ = cell.env.Cleanup()
 	})
 	s.record(handle.Name, kill)
 	return &coord.EngineSpawn{Kill: kill}, nil

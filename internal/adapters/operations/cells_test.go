@@ -13,17 +13,36 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// The cells adapter is the ONE place a launch's workspace is prepared and
-// its engine home bound; these pin what a Cell carries out of it and what
-// the codec then delivers onto the wire.
+// The cells adapter is the ONE place a launch's environment is prepared;
+// these pin what a Cell carries out of it and what the codec then delivers
+// onto the wire.
+
+// The session names the cases key their homes by, and the token a stored
+// setup-token stands in for.
+const (
+	harpA        = "ugly-icy-squid"
+	harpB        = "brave-warm-otter"
+	tokenFixture = "sk-ant-oat01-fixture"
+)
+
+// harpDir is harp's session dir under the (test) ctxloom home — where
+// Resolve places it.
+func harpDir(t *testing.T, harp string) string {
+	t.Helper()
+	dir, err := paths.HarpDir(harp)
+	require.NoError(t, err)
+	return dir
+}
 
 func claudeKind(t *testing.T) launch.CellRequest {
 	t.Helper()
@@ -48,14 +67,15 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	req := claudeKind(t)
 	req.Axes.Workspace = launch.WorkspaceWorktree
 	req.ProjectRoot = repo
+	req.SessionDir = harpDir(t, "test-harp")
 
 	cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cell.Cleanup() })
 
-	handle, ok := TransportOf(cell)
+	prepared, ok := EnvironmentOf(cell)
 	require.True(t, ok)
-	require.Equal(t, "worktree", handle.Policy.Name(), "a git repo + worktree axis must resolve the Worktree policy, not degrade to none")
+	require.Equal(t, "worktree", prepared.Describe().Workspace, "a git repo + worktree axis must resolve a worktree, not degrade to none")
 	require.NotEqual(t, repo, cell.Workspace, "the resolved workspace must be a distinct worktree checkout, not the shared project dir")
 
 	require.Contains(t, cell.Env, "TMPDIR", "the per-agent toolchain scratch dir")
@@ -68,7 +88,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	assert.Equal(t, cell.Env["TMPDIR"], env["TMPDIR"], "the isolation-resolved workspace env reaches the engine env")
 }
 
-func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
+func TestCellsPrepare_SessionHome(t *testing.T) {
 	prepare := func(t *testing.T, workDir string, home launch.HomeMode, workspace launch.WorkspaceAxis, harp string) launch.Cell {
 		t.Helper()
 		req := claudeKind(t)
@@ -77,6 +97,7 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		req.Axes.Workspace = workspace
 		req.Identity.Harp = harp
 		req.Env = map[string]string{sessions.EnvHarp: harp}
+		req.SessionDir = harpDir(t, harp)
 		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = cell.Cleanup() })
@@ -139,15 +160,13 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		repo := initIsolationTestRepo(t)
 		cell := prepare(t, repo, launch.HomeModeSession, launch.WorkspaceWorktree, "test-harp")
 
-		handle, ok := TransportOf(cell)
+		env, ok := EnvironmentOf(cell)
 		require.True(t, ok)
-		require.Equal(t, "worktree", handle.Policy.Name(), "the worktree axis must not have degraded")
+		require.Equal(t, "worktree", env.Describe().Workspace, "the worktree axis must not have degraded")
 		require.NotEqual(t, repo, cell.Workspace)
 		want := claudeInstanceDir(t, repo, "test-harp")
 		assert.Equal(t, want, cell.Env[claude.ConfigDirEnv],
 			"the worktree cell's home is the session instance under the PROJECT root, exactly as on the live tree")
-		assert.NotContains(t, isolation.WorkspaceEnv(handle.Workspace), claude.ConfigDirEnv,
-			"the workspace itself carries no config-home var — one carrier, not two")
 
 		cfg, err := os.ReadFile(filepath.Join(want, ".claude.json"))
 		require.NoError(t, err)
@@ -183,6 +202,7 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 	req.HomeMode = launch.HomeModeSession
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
+	req.SessionDir = harpDir(t, harpA)
 	cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cell.Cleanup() })
@@ -247,3 +267,47 @@ func TestCellsPrepare_AnEngineThatRelocatesNothingGetsTheRulesSessionHome(t *tes
 		require.Equal(t, want, cell.Paths.Paths().SessionHome.Host, "engine_home %s", mode)
 	}
 }
+
+// NO RUNTIME BRANCH: the cell IS the environment's outcome — its Placement,
+// its Listen and the environment itself as the handle — whichever axes were
+// asked for. A stand-in environment with container-shaped roots and a
+// non-zero listen is handed back unchanged on host and container axes alike;
+// a cells adapter that branched on the runtime would rewrite one of them.
+func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
+	resetStrictness(t)
+	t.Setenv("HOME", t.TempDir())
+	want := stubEnvironment{placement: launch.Placement{
+		Paths: present.Advised(present.Paths{
+			ProjectRoot: present.Root{Host: "/host/proj", Engine: "/ctr/proj"},
+			SessionHome: present.Root{Host: "/host/home", Engine: "/home/ctxloom"},
+		}),
+		Env:  map[string]string{"A_HOME_VAR": "/home/ctxloom"},
+		Home: []engine.HomeBinding{{Var: "A_HOME_VAR", Path: "/home/ctxloom"}},
+	}}
+	prev := prepareEnvironment
+	prepareEnvironment = func(context.Context, launch.CellRequest, isolation.Spec) (isolation.Environment, error) {
+		return listening{want}, nil
+	}
+	t.Cleanup(func() { prepareEnvironment = prev })
+
+	for _, runtime := range []launch.RuntimeAxis{launch.RuntimeHost, launch.RuntimeRootless, launch.RuntimeRootful} {
+		req := claudeKind(t)
+		req.Axes.Runtime = runtime
+		req.ProjectRoot = "/host/proj"
+		req.SessionDir = harpDir(t, "test-harp")
+		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+		require.NoError(t, err, "runtime %s", runtime)
+
+		assert.Equal(t, want.placement, cell.Placement, "runtime %s: the Placement is the environment's, untouched", runtime)
+		assert.Equal(t, present.Listen{Addr: "10.0.0.1"}, cell.Listen, "runtime %s: the Listen is the environment's", runtime)
+		env, ok := EnvironmentOf(cell)
+		require.True(t, ok)
+		assert.Equal(t, listening{want}, env, "runtime %s: the handle is the environment itself", runtime)
+		assert.Nil(t, cell.Container, "runtime %s: nothing beside the environment describes the runtime", runtime)
+	}
+}
+
+// listening is a stubEnvironment with a non-zero Listen.
+type listening struct{ stubEnvironment }
+
+func (listening) Listen() present.Listen { return present.Listen{Addr: "10.0.0.1"} }

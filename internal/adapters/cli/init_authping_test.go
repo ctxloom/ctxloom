@@ -35,9 +35,9 @@ func authPingTestConfig(t *testing.T) *config.Config {
 }
 
 // testLaunchDeps composes the resolver's ports over cfg with stateless
-// doubles: an in-memory session store and the dry-run cell (the project root
-// on the host, prepared nowhere), so nothing a setup launch resolves lands on
-// disk. It is also installed as initLaunchDeps for the test's duration.
+// doubles: an in-memory session store and the dry-run cells
+// (operations.PreviewCells, which prepare nothing), so nothing a setup
+// launch resolves lands on disk. It is also installed as initLaunchDeps for the test's duration.
 func testLaunchDeps(t *testing.T, cfg *config.Config) launch.Deps {
 	t.Helper()
 	deps := launch.Deps{
@@ -45,7 +45,7 @@ func testLaunchDeps(t *testing.T, cfg *config.Config) launch.Deps {
 		Snapshot:      &config.Snapshot{Config: cfg},
 		Engines:       engines.Registry(),
 		Assembler:     launchtestAssembler{},
-		Cells:         dryCells{},
+		Cells:         operations.PreviewCells(operations.LaunchFacts{Engines: engines.Registry()}),
 		Endpoints:     sequenceMinter{},
 		Sessions:      sessions.NewMemStore(),
 		Host:          launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},

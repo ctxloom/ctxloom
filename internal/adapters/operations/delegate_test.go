@@ -32,6 +32,7 @@ import (
 func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 	req := func(t *testing.T) launch.CellRequest {
 		return launch.CellRequest{
+			SessionDir:  t.TempDir(),
 			Axes:        launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeRootless},
 			Engine:      mock.New(),
 			Identity:    sessions.Identity{Harp: "builder"},
@@ -41,7 +42,7 @@ func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 
 	t.Run("strict: the cell is refused with the finding text", func(t *testing.T) {
 		resetStrictness(t)
-		stubPrepareIsolation(t, map[string]bool{"builder": true})
+		stubPrepareEnvironment(t, map[string]bool{"builder": true})
 		_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req(t))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, launch.ErrRuntimeUnavailable)
@@ -56,7 +57,7 @@ func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 
 	t.Run("degraded: the cell proceeds on the degraded workspace", func(t *testing.T) {
 		resetStrictness(t)
-		stubPrepareIsolation(t, map[string]bool{"builder": true})
+		stubPrepareEnvironment(t, map[string]bool{"builder": true})
 		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{}), mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), req(t))
 		require.NoError(t, err)
 		_ = cell.Cleanup()
@@ -192,6 +193,7 @@ func TestCellsPrepare_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T) {
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M internal/foo.go"}}
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake, mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), launch.CellRequest{
+		SessionDir:  t.TempDir(),
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -214,6 +216,7 @@ func TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}}
 	cfg := config.NewFixture(config.Fixture{})
 	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		SessionDir:  t.TempDir(),
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("none"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    sessions.Identity{Harp: "coder"},
@@ -230,14 +233,15 @@ func TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
 func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": false}}
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{}, stubWorkspace{dir: projectDir}
+	prev := prepareEnvironment
+	prepareEnvironment = func(_ context.Context, req launch.CellRequest, _ isolation.Spec) (isolation.Environment, error) {
+		return stubEnvAt(req.ProjectRoot, nil), nil
 	}
-	t.Cleanup(func() { prepareIsolation = prev })
+	t.Cleanup(func() { prepareEnvironment = prev })
 
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		SessionDir:  t.TempDir(),
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -327,14 +331,15 @@ func TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing
 		DiffPatchValue: "FAKE-PATCH-CONTENT",
 		UntrackedList:  []string{"untracked.go", "nested/other.go"},
 	}
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{}, stubWorkspace{dir: target}
+	prev := prepareEnvironment
+	prepareEnvironment = func(_ context.Context, req launch.CellRequest, _ isolation.Spec) (isolation.Environment, error) {
+		return stubEnvAt(target, nil), nil
 	}
-	t.Cleanup(func() { prepareIsolation = prev })
+	t.Cleanup(func() { prepareEnvironment = prev })
 
 	cfg := config.NewFixture(config.Fixture{})
 	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		SessionDir:  t.TempDir(),
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -371,14 +376,15 @@ func TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 		DiffPatchValue: "FAKE-PATCH",
 		ApplyPatchErr:  fmt.Errorf("patch does not apply"),
 	}
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{}, stubWorkspace{dir: target}
+	prev := prepareEnvironment
+	prepareEnvironment = func(_ context.Context, req launch.CellRequest, _ isolation.Spec) (isolation.Environment, error) {
+		return stubEnvAt(target, nil), nil
 	}
-	t.Cleanup(func() { prepareIsolation = prev })
+	t.Cleanup(func() { prepareEnvironment = prev })
 
 	cfg := config.NewFixture(config.Fixture{})
 	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		SessionDir:  t.TempDir(),
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -403,14 +409,15 @@ func TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 		Changes:       []string{"?? untracked.go"},
 		UntrackedList: []string{"untracked.go"},
 	}
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{}, stubWorkspace{dir: target}
+	prev := prepareEnvironment
+	prepareEnvironment = func(_ context.Context, req launch.CellRequest, _ isolation.Spec) (isolation.Environment, error) {
+		return stubEnvAt(target, nil), nil
 	}
-	t.Cleanup(func() { prepareIsolation = prev })
+	t.Cleanup(func() { prepareEnvironment = prev })
 
 	cfg := config.NewFixture(config.Fixture{})
 	p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		SessionDir:  t.TempDir(),
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),
@@ -670,6 +677,7 @@ func TestCellsPrepare_DirtyTreeHandler_UnsettledDoesNotCommit(t *testing.T) {
 		t.Helper()
 		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree"})
 		return Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+			SessionDir:  t.TempDir(),
 			Axes:        launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost},
 			Engine:      mock.New(),
 			Identity:    delegatedChild("coder"),
@@ -715,11 +723,12 @@ func TestCellsPrepare_DirtyTreeHandler_UnsettledDoesNotCommit(t *testing.T) {
 func TestCellsPrepare_DirtyTree_OriginatorIsNotGated(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}, CurrentBranchValue: "main"}
-	stubPrepareIsolation(t, map[string]bool{})
+	stubPrepareEnvironment(t, map[string]bool{})
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	for _, handler := range []launch.DirtyTreeHandler{launch.DirtyTreeHandlerCommit, launch.DirtyTreeHandlerFail} {
 		t.Run(string(handler), func(t *testing.T) {
 			p, err := Cells{engines: engines.Registry(), cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+				SessionDir:  t.TempDir(),
 				Axes:        launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost},
 				Engine:      mock.New(),
 				Identity:    sessions.Identity{Harp: "originator"},

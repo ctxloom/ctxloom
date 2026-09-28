@@ -112,19 +112,20 @@ func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed se
 	return o, nil
 }
 
-// starter is the run's OwnedRunStarter: the cell's transport (RunnerStarter),
-// recording the runner's handle for End. A cell prepared elsewhere (a test
-// double) carries no transport, which is the starter's own refusal — the
-// coordinator asks for the runner only when it starts the run.
+// starter is the run's OwnedRunStarter: the cell's environment
+// (RunnerStarter), recording the runner's handle for End. A cell prepared
+// elsewhere (a test double) carries no environment, which is the starter's
+// own refusal — the coordinator asks for the runner only when it starts the
+// run.
 func (o *OneShotSession) starter() coord.OwnedRunStarter {
 	l := o.Launch
-	cell, ok := TransportOf(l.Cell)
+	env, ok := EnvironmentOf(l.Cell)
 	if !ok {
 		return func(context.Context, map[string]string) (coord.OwnedRunner, error) {
-			return coord.OwnedRunner{}, errors.New("one-shot: the cell carries no transport handle")
+			return coord.OwnedRunner{}, errors.New("one-shot: the cell carries no environment")
 		}
 	}
-	return RunnerStarter(cell, string(l.Engine), l.Label.Label, 0, func(h *isolation.RunnerHandle) { o.kill = h.Kill })
+	return RunnerStarter(env, string(l.Engine), l.Label.Label, 0, func(h *isolation.RunnerHandle) { o.kill = h.Kill })
 }
 
 // Turn drives one turn on the parked runner — a fresh engine process resumed
@@ -287,21 +288,6 @@ func (b *OneShotBuilder) Start(ctx context.Context) (*OneShotSession, error) {
 func (b *OneShotBuilder) Lazy() *LazyOneShot {
 	built := *b
 	return &LazyOneShot{start: built.Start}
-}
-
-// runtimeCarrier is the narrow capability the container policy implements
-// (Runtime) and None/Worktree do not — probed here rather than widening
-// isolation.Policy. It is how the originator awaits a container runner's
-// running state (isolation.AwaitContainerRunning).
-type runtimeCarrier interface{ Runtime() isolation.Runtime }
-
-// RuntimeForPolicy reports a container policy's launch runtime (docker/podman),
-// or nil for none/worktree.
-func RuntimeForPolicy(p isolation.Policy) isolation.Runtime {
-	if rc, ok := p.(runtimeCarrier); ok {
-		return rc.Runtime()
-	}
-	return nil
 }
 
 // isolationGateErr is the fail-loudly member gate over the strictness findings

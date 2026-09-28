@@ -331,9 +331,11 @@ func sessionRooted(ctor agent.Construct) agent.Construct {
 
 type sessionForm struct{ inner agent.Approach }
 
+// rebase re-roots the composition at the session home, keeping BOTH of its
+// sides: the roots are already relocated, so they are advised as they are.
 func (s *sessionForm) rebase(start present.Start) present.Start {
 	p := start.Paths()
-	return present.New(present.OnHost(present.Paths{
+	return present.New(present.Advised(present.Paths{
 		ProjectRoot: p.SessionHome,
 		SessionHome: p.SessionHome,
 	}))

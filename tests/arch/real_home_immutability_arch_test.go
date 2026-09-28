@@ -21,6 +21,7 @@
 package arch
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -31,10 +32,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -208,27 +210,35 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	assertHomeUnchanged(t, before, realHomeSnapshot(t, home))
 }
 
-// sessionInstances resolves each home-controlled engine's per-session
-// instance home, which a engine_home: session run must be handed.
+// sessionInstances prepares each home-controlled engine's per-session home
+// through the environment a engine_home: session host run gets.
 func sessionInstances(t *testing.T, workDir, harp string) map[string]string {
 	t.Helper()
 	instances := map[string]string{}
-	for _, backend := range []string{"claude-code"} {
-		res := operations.ResolveInTreeAgentHome(engines.Registry(), operations.InTreeAgentHome{
-			Backend:  backend,
-			Cwd:      workDir,
-			Harp:     harp,
-			HomeMode: agents.HomeModeSession,
-		})
-		if res.Absent != "" {
-			t.Fatalf("%s: a engine_home: session run must be handed a home, got absent: %s", backend, res.Absent)
+	for _, backend := range []engine.Name{"claude-code"} {
+		eng, ok := engines.Registry().Lookup(backend)
+		if !ok {
+			t.Fatalf("%s is not registered", backend)
 		}
-		if len(res.Env) != 1 {
-			t.Fatalf("%s: a engine_home: session run must be handed exactly one config-home var, got %v", backend, res.Env)
+		sessionDir, err := paths.HarpDir(harp)
+		if err != nil {
+			t.Fatalf("session dir: %v", err)
 		}
-		for _, v := range res.Env {
-			instances[backend] = v
+		spec, err := isolation.NewSpec(launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost}, eng).
+			Project(workDir).Session(harp, sessionDir, isolation.SessionState{Harp: harp}).Home(agents.HomeModeSession).Build()
+		if err != nil {
+			t.Fatalf("%s: spec: %v", backend, err)
 		}
+		env, err := isolation.Prepare(context.Background(), spec)
+		if err != nil {
+			t.Fatalf("%s: prepare: %v", backend, err)
+		}
+		t.Cleanup(func() { _ = env.Cleanup() })
+		pl := env.Placement()
+		if len(pl.Home) != 1 {
+			t.Fatalf("%s: a engine_home: session run must be handed exactly one config-home var, got %v", backend, pl.Home)
+		}
+		instances[string(backend)] = pl.Paths.Paths().SessionHome.Host
 	}
 	return instances
 }

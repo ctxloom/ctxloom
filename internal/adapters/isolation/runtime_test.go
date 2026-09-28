@@ -24,7 +24,7 @@ func sampleSpec() RunSpec {
 		Home:    "/root",
 		Command: []string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
 		Env:     []string{"CTXLOOM_PLUGIN=ai-backend-v1", "PLUGIN_PROTOCOL_VERSIONS=1"},
-		Mounts: []Mount{
+		Mounts: []mount{
 			{Host: "/home/u/proj", Container: "/home/u/proj"},
 			{Host: "/tmp/sock", Container: "/run/ctxloom/plugin"},
 		},
@@ -351,7 +351,7 @@ func TestInContainerFrom_Markers(t *testing.T) {
 // parameter, it is Container.home, assigned defaultContainerHome by
 // NewContainerFor — the sole constructor every path (containerFor,
 // NewContainerWorktreeFor) routes through — and threaded verbatim
-// into both engine-launching builders (buildRunnerSpec, ExecSpec). The one production RunSpec that carries no home
+// into the engine-launching builder (buildRunnerSpec). The one production RunSpec that carries no home
 // is the shared-fs marker probe, which runs `cat /probe/marker` in a scratch
 // container and holds no engine state at all, so it has no HOME property to
 // lose. This pins both halves: every Container carries a home, and a spec that

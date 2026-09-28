@@ -79,16 +79,15 @@ func TestMockSkillsPath_JoinsDirWithTheLiteralSkillsDir(t *testing.T) {
 }
 
 // TestMockContextPresenter_ContainerizedRun_EnginePathDivergesFromHostPath is
-// the actual point of the migration: composed against a Start that WAS
-// advised by Containerize, EnginePath must diverge from HostPath and land at
-// the container-visible root, and the run must record a mount making that
-// true. Nothing before this migration could even express this question — a
-// raw filepath.Join has no Host/Engine distinction to diverge.
+// the actual point of the migration: composed against a Start whose project
+// root an environment relocated, EnginePath must diverge from HostPath and
+// land at the container-visible root (the mount that makes it true is the
+// environment's). Nothing before this migration could even express this
+// question — a raw filepath.Join has no Host/Engine distinction to diverge.
 func TestMockContextPresenter_ContainerizedRun_EnginePathDivergesFromHostPath(t *testing.T) {
-	mapped := present.Containerize{ProjectRoot: "/mnt/proj"}.Apply(present.Paths{
-		ProjectRoot: present.Root{Host: "/home/user/project"},
-	})
-	start := present.New(mapped)
+	start := present.New(present.Advised(present.Paths{
+		ProjectRoot: present.Root{Host: "/home/user/project", Engine: "/mnt/proj"},
+	}))
 
 	got := mockPresent(t, agent.SurfaceContext, start)
 
@@ -96,9 +95,6 @@ func TestMockContextPresenter_ContainerizedRun_EnginePathDivergesFromHostPath(t 
 	assert.Equal(t, "/mnt/proj/"+mockContextFilename, got.EnginePath)
 	assert.NotEqual(t, got.HostPath, got.EnginePath,
 		"a containerized run must present a different engine path than host path")
-
-	require.Len(t, mapped.Mounts(), 1)
-	assert.Equal(t, present.Mount{HostDir: "/home/user/project", TargetDir: "/mnt/proj"}, mapped.Mounts()[0])
 }
 
 // mockPresent constructs the mock's PROJECT form (agent.ApproachUnsafeFile)
@@ -132,6 +128,24 @@ func TestMockDefaultForm_RootsUnderSessionHome_NotProjectRoot(t *testing.T) {
 	}
 	unrooted := mockPresentNamed(t, agent.SurfaceContext, MockSessionFile, present.ProjectOnHost("/proj"))
 	assert.False(t, filepath.IsAbs(unrooted.HostPath), "with no session home advised the session form is not rootable: %q", unrooted.HostPath)
+}
+
+// TestMockSessionForm_KeepsTheSessionHomesEngineSide: the session form roots
+// its surfaces beneath the session home on BOTH sides. Where an environment
+// relocated that home (a container's $HOME), the engine must be told the
+// Engine side — a rebase that re-advised the roots in place would hand it the
+// host path, which does not exist where it runs.
+func TestMockSessionForm_KeepsTheSessionHomesEngineSide(t *testing.T) {
+	start := present.New(present.Advised(present.Paths{
+		ProjectRoot: present.Root{Host: "/proj", Engine: "/proj"},
+		SessionHome: present.Root{Host: "/sessions/harp/home/mock", Engine: "/home/ctxloom"},
+	}))
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
+		got := mockPresentNamed(t, kind, MockSessionFile, start)
+		rel := filepath.FromSlash(mockRel[kind])
+		assert.Equal(t, filepath.Join("/sessions/harp/home/mock", rel), got.HostPath, "kind %v: the bytes land on the host side", kind)
+		assert.Equal(t, "/home/ctxloom/"+mockRel[kind], got.EnginePath, "kind %v: the engine is told the Engine side", kind)
+	}
 }
 
 // TestMockDeclaration_UnsupportedApproach_IsRefused pins the branch Build

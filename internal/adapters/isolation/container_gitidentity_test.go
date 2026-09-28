@@ -55,7 +55,7 @@ func TestGitIdentityEnv_AllFourVars(t *testing.T) {
 }
 
 // TestContainerGitIdentity_ReachesSpawnEnv is the WIRING proof: the exact env the
-// container spawn consumes (ExecSpec's RunSpec.Env)
+// container spawn consumes (buildRunnerSpec's RunSpec.Env)
 // carries the per-agent GIT_AUTHOR_EMAIL, and two workspaces built for different
 // agentIDs land different emails there.
 //
@@ -83,26 +83,17 @@ func TestContainerGitIdentity_ReachesSpawnEnv(t *testing.T) {
 	cwA := build("agent-a")
 	cwB := build("agent-b")
 
-	// --- buildRunnerSpec (the runner spawn path) ---
 	specA := c.buildRunnerSpec("mock", "name", cwA, nil)
-	launchA := envMap(t, specA.Env)
-	assert.Equal(t, "present", launchA["CTXLOOM_TEST_SENTINEL"], "premise: the base env reaches the spawn")
-	assert.Equal(t, "agent-a@agents.ctxloom.local", launchA["GIT_AUTHOR_EMAIL"])
+	specB := c.buildRunnerSpec("mock", "name", cwB, nil)
 
-	// --- ExecSpec (the ISO1 direct-exec path) ---
-	execA, err := c.ExecSpec(cwA, []string{"true"}, nil, nil)
-	require.NoError(t, err)
-	execB, err := c.ExecSpec(cwB, []string{"true"}, nil, nil)
-	require.NoError(t, err)
-
-	mA := envMap(t, execA.Env)
-	mB := envMap(t, execB.Env)
+	mA := envMap(t, specA.Env)
+	mB := envMap(t, specB.Env)
 
 	// Premise: the sentinel from cw.extraEnv is present in the assembled spawn
 	// env, so the git-email assertion below reads the same env the spawn sees.
-	assert.Equal(t, "present", mA["CTXLOOM_TEST_SENTINEL"], "premise: ExecSpec.Env is built from cw.extraEnv")
+	assert.Equal(t, "present", mA["CTXLOOM_TEST_SENTINEL"], "premise: the runner spec's Env is built from cw.extraEnv")
 
-	// All four vars reach the exec spawn env.
+	// All four vars reach the spawn env.
 	for _, k := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"} {
 		_, ok := mA[k]
 		assert.Truef(t, ok, "%s must reach the container spawn env", k)

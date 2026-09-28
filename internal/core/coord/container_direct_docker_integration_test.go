@@ -2,12 +2,12 @@
 
 // queer-shrug Phase 1's docker-gated proof that the DELEGATED container spawn
 // now goes docker-direct — `ctxloom runner <backend>` launched through the
-// REAL isolation.Container.StartRunner — and still round-trips a real turn while opening NO network port.
+// REAL container Environment's Start — and still round-trips a real turn while opening NO network port.
 //
 // Unlike container_bus_docker_integration_test.go (whose dockerBusSpawner
 // hand-rolls `docker run … llm serve mock` + the plugin magic cookie), this
-// spawner routes StartEngine through the production seam
-// (isolation.StarterForWorkspace → Container.StartRunner), so it exercises
+// spawner prepares the child's Environment through isolation.Prepare and
+// starts it through Environment.Start, so it exercises
 // buildRunnerSpec, the docker-direct launch, and the preserved session-state
 // mounts end to end. Every assertion reads a delivered PAYLOAD or a live
 // container fact — never just an exit status.
@@ -90,20 +90,13 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 	return entry.HarpName, nil
 }
 
-// ResolveLaunch prepares the REAL Container policy's workspace for the child
-// and resolves its launch over it; Start launches the runner via
-// isolation.StarterForWorkspace → Container.StartRunner (docker-direct
-// `ctxloom runner mock`). The session harp on env drives the session-state
+// ResolveLaunch prepares the REAL container Environment for the child and
+// resolves its launch over it; Start launches the runner via
+// Environment.Start (docker-direct `ctxloom runner mock`). The session harp on env drives the session-state
 // mounts (transcript survival).
 func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
-	rt := isolation.ProbeRuntime("docker")
-	// Container auth keys on the ENGINE, resolved PER CALL from the plan
-	// (containerAuthBackend — the same Backend field StarterForWorkspace below
-	// already reads). The harness image is unrelated to the engine, so it is
-	// named separately via WithImage.
-	pol := isolation.NewContainerFor(rt, coord.ContainerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
-	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
+	cenv, err := preparedContainer(ctx, "docker", coord.ContainerAuthBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
 	if err != nil {
 		return coord.Resolved{}, err
 	}
@@ -111,9 +104,9 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnP
 	if s.cells == nil {
 		s.cells = map[string]preparedContainerCell{}
 	}
-	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
+	s.cells[start.Identity.Harp] = preparedContainerCell{env: cenv, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, agent.PermissionBypass)
 	// What the coordinator settled for this start rides the launch, as the
 	// production resolver stamps it: the run id (Start encodes it into the
 	// reach-back; a runner handed none refuses to host) and the first turn
@@ -121,7 +114,7 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnP
 	l.Identity = start.Identity
 	l.Prompt = start.Prompt
 	l.Cell.Env = env
-	l.Cell.Listen = isolation.WorkspaceListen(ws)
+	l.Cell.Listen = cenv.Listen()
 	// As Resolve carries a container launch: the container axis (the runner
 	// dials the container-reachable listener) and a session endpoint for the
 	// runner to bind — any free loopback port inside the container.
@@ -136,15 +129,14 @@ func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach ses
 	s.mu.Lock()
 	cell := s.cells[l.Identity.Harp]
 	s.mu.Unlock()
-	starter := isolation.StarterForWorkspace(cell.pol, cell.ws, cell.backend, cell.label, 0, runnerEnv)
-	handle, err := starter(ctx)
+	handle, err := cell.env.Start(ctx, isolation.RunnerRequest{Engine: cell.backend, Label: cell.label, Env: runnerEnv})
 	if err != nil {
-		_ = cell.ws.Cleanup()
+		_ = cell.env.Cleanup()
 		return nil, err
 	}
 	kill := sync.OnceFunc(func() {
 		handle.Kill()
-		_ = cell.ws.Cleanup()
+		_ = cell.env.Cleanup()
 	})
 	s.mu.Lock()
 	s.containers = append(s.containers, handle.Name)
@@ -156,8 +148,7 @@ func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach ses
 // preparedContainerCell is what ResolveLaunch prepared for one harp and
 // Start launches into.
 type preparedContainerCell struct {
-	pol     isolation.Policy
-	ws      isolation.Workspace
+	env     isolation.Environment
 	backend string
 	label   string
 }

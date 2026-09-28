@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
@@ -88,17 +89,16 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if len(s.Profiles) > 0 {
 			w.Printf("    profiles: %s\n", strings.Join(s.Profiles, ", "))
 		}
-		if s.Runtime != "" {
-			w.Printf("    runtime: %s\n", s.Runtime)
-		}
-		if s.Permissions != "" {
-			w.Printf("    permissions: %s\n", s.Permissions)
-		}
-		if s.Driving != "" {
-			w.Printf("    driving: %s\n", s.Driving)
-		}
-		if s.HomeMode != "" {
-			w.Printf("    engine_home: %s\n", s.HomeMode)
+		for _, f := range []struct{ key, value string }{
+			{"runtime", s.Runtime},
+			{"permissions", s.Permissions},
+			{"driving", string(s.Driving)},
+			{"engine_home", s.HomeMode},
+			{"auth", s.Auth},
+		} {
+			if f.value != "" {
+				w.Printf("    %s: %s\n", f.key, f.value)
+			}
 		}
 		if len(s.Escalation) > 0 {
 			w.Printf("    escalation: %d rung(s)\n", len(s.Escalation))
@@ -206,6 +206,9 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	if def.HomeMode != "" {
 		w.Printf("Config home (declared): %s\n", def.HomeMode)
 	}
+	if def.Auth != "" {
+		w.Printf("Auth (declared): %s\n", def.Auth)
+	}
 	renderAgentEscalation(w, def.Escalation)
 	writeBulletList(w, "Profiles", def.Profiles)
 }
@@ -258,6 +261,9 @@ func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent,
 	if resolved.HomeMode != "" {
 		w.Printf("Resolved config home: %s\n", resolved.HomeMode)
 	}
+	if resolved.Auth != "" {
+		w.Printf("Resolved auth: %s\n", resolved.Auth)
+	}
 	w.Printf("Composed fragments: %d\n", len(resolved.Fragments))
 	for _, loss := range losses {
 		w.Printf("  NOT carried: %s (%s) — %s\n", loss.Surface, loss.Detail, loss.Reason)
@@ -295,6 +301,7 @@ var (
 	agentSetRoots       []string
 	agentSetPermissions string
 	agentSetEngineHome  string
+	agentSetAuth        string
 )
 
 // agentWriteLong is the shared body text for `agent create` and `agent edit`:
@@ -445,6 +452,9 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 	if cmd.Flags().Changed("engine-home") {
 		req.HomeMode = &agentSetEngineHome
 	}
+	if cmd.Flags().Changed("auth") {
+		req.Auth = &agentSetAuth
+	}
 	return req
 }
 
@@ -513,6 +523,9 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	}
 	if entry.HomeMode != "" {
 		w.Printf(", engine_home: %s", entry.HomeMode)
+	}
+	if entry.Auth != "" {
+		w.Printf(", auth: %s", entry.Auth)
 	}
 	w.Println(")")
 	return w.Err()
@@ -693,7 +706,9 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 		"Root selection for this agent: kind=root (repeatable; roots: session-home|project-root|work-dir). Validated against the roots the agent's engine offers for that kind; project-root is the shared root, selected here and never fallen back to.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
 	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
-		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (host|session; empty = host, the default — a per-session home is opt-in)")
+		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)")
+	cmd.Flags().StringVar(&agentSetAuth, "auth", "",
+		"How this agent's engine authenticates: login (your own login, host runs only) | token (the default: a minted token, stored owner-only) | api-key | cloud (a provider or gateway configured in your shell). Refused, naming the engine's modes, when the engine does not support it")
 	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = cmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
@@ -702,6 +717,9 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 	_ = cmd.RegisterFlagCompletionFunc("engine-home", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return agents.HomeModeNames(), cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = cmd.RegisterFlagCompletionFunc("auth", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return engine.AuthModeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 }
 

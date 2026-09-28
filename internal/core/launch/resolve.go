@@ -67,7 +67,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 
-	passthrough, cell, err := prepareCell(ctx, deps, src, eng, axes, dirty, sel.homeMode, label)
+	passthrough, cell, err := prepareCell(ctx, deps, src, eng, axes, dirty, sel, label)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -161,7 +161,7 @@ func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) 
 
 // prepareCell is Cells.Prepare for the launch, returning the engine
 // passthrough env (the label's env overlaid by the source's) with the cell.
-func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, homeMode HomeMode, label string) (map[string]string, Cell, error) {
+func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, sel selection, label string) (map[string]string, Cell, error) {
 	def := eng.Root()
 	passthrough := map[string]string{}
 	maps.Copy(passthrough, deps.Assembler.LabelEnv(deps.Snapshot, label))
@@ -178,7 +178,8 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 		Image:       ImageConfigFor(deps.Snapshot.Config, def.Name),
 		Host:        deps.Host,
 		Degraded:    src.Degraded,
-		HomeMode:    homeMode,
+		HomeMode:    sel.homeMode,
+		Auth:        sel.auth,
 		Env:         env,
 	})
 	if err != nil {
@@ -239,6 +240,7 @@ type selection struct {
 	runtime     string
 	permissions string
 	homeMode    HomeMode
+	auth        string
 	surfaces    map[string]string
 	roots       map[string]string
 }
@@ -249,7 +251,7 @@ type selection struct {
 func selectSource(cfg *config.Config, src Source) (selection, error) {
 	switch {
 	case src.Internal:
-		return selection{}, nil
+		return selection{auth: src.Auth}, nil
 	case src.Agent != "":
 		return bindingSelection(cfg, src.Agent, src.Degraded)
 	case len(src.Profiles) == 0 && len(src.Fragments) == 0 && len(src.Tags) == 0:
@@ -277,6 +279,10 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		}
 		home = HomeModeSession
 	}
+	// The declared auth travels as written: the cells adapter checks it
+	// against the engine it binds (engine.CheckAuth), the one check config
+	// load and `agent create/edit` also run.
+	auth := binding.Auth
 	return selection{
 		agent:       name,
 		profiles:    slices.Clone(binding.Profiles),
@@ -284,6 +290,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		runtime:     binding.Runtime,
 		permissions: binding.Permissions,
 		homeMode:    home,
+		auth:        auth,
 		surfaces:    maps.Clone(binding.Surfaces),
 		roots:       maps.Clone(binding.Roots),
 	}, nil

@@ -21,15 +21,15 @@ func nonRegisteredSpellings() []string {
 	return []string{"claude", "claudecode", "Claude-Code", "CLAUDE-CODE", "claude-cod"}
 }
 
-// TestTokenAuthFor_OnlyTheRegisteredNameResolves: the token-auth table gates
-// both the stored-token export and the unauthenticated-home refusal, so the
-// registered name must hit, and every other spelling — unknown, alias-shaped
-// or case-variant — must miss rather than be rounded to a real engine.
-func TestTokenAuthFor_OnlyTheRegisteredNameResolves(t *testing.T) {
-	_, ok := TokenAuthFor(claude.EngineName)
+// TestAuthFor_OnlyTheRegisteredNameResolves: the auth table gates which
+// engine a credential is stored for and read back as, so the registered
+// name must hit, and every other spelling — unknown, alias-shaped or
+// case-variant — must miss rather than be rounded to a real engine.
+func TestAuthFor_OnlyTheRegisteredNameResolves(t *testing.T) {
+	_, ok := AuthFor(claude.EngineName)
 	assert.True(t, ok, "the registered name resolves")
 	for _, spelling := range append(nonRegisteredSpellings(), unknownEngineName) {
-		_, ok := TokenAuthFor(spelling)
+		_, ok := AuthFor(spelling)
 		assert.False(t, ok, "%q is not the registered name and must miss", spelling)
 	}
 }

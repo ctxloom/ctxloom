@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/gofrs/flock"
 
@@ -28,23 +27,10 @@ type InstanceHomeRequest struct {
 	// be keyed to the directory the run actually uses. Empty is tolerated (the
 	// engine skips its per-project half and says so).
 	WorkDir string
-	// SharedLogin: the run executes on the host and authenticates from the
-	// human's own login in place (engine.HomeSpec.SharedLogin), so its env
-	// needs no token and the unauthenticated refusal does not apply.
-	SharedLogin bool
 }
 
 // InstanceHomeReport is what one PrepareInstanceHome call decided and wrote.
 type InstanceHomeReport struct {
-	// Unauthenticated is the FAIL-LOUD case: the engine authenticates from
-	// its env (engine.TokenAuth) and neither its token var nor any of its
-	// other auth vars is set, so an engine launched at this home would start
-	// logged out. It is a DECISION rather than a Go error so the caller can
-	// refuse the relocation in its own words.
-	Unauthenticated bool
-	// Reason is the ready-to-surface message for Unauthenticated, naming the
-	// fixes that work. Empty unless Unauthenticated.
-	Reason string
 	// Generated lists the paths the ENGINE's own instance-config writer wrote
 	// (claude's .claude.json, for instance).
 	Generated []string
@@ -54,15 +40,14 @@ type InstanceHomeReport struct {
 	Warnings []string
 }
 
-// PrepareInstanceHome readies a session's engine home: it refuses a home
-// the engine could not authenticate in, then asks the ENGINE to generate its
-// own instance config (claude's field-scoped .claude.json). Every byte-level
-// edit of a vendor's format happens inside that vendor's package.
+// PrepareInstanceHome readies a session's engine home: it asks the ENGINE
+// to generate its own instance config (claude's field-scoped .claude.json).
+// Every byte-level edit of a vendor's format happens inside that vendor's
+// package.
 //
-// No credential is placed in the home. The engine authenticates from the
-// human's own login in place (req.SharedLogin) or from its env (see
-// ExportStoredTokens for why), so the only credential question here is
-// whether a run that shares no login has an env that carries anything.
+// No credential is placed in the home: a run authenticates from the env its
+// agent's auth mode resolves to (engine.Auth.LaunchEnv), settled before the
+// home is prepared.
 //
 // The real host home is READ and never written by this call; tests/arch's
 // real-home byte-identity gate is what proves it.
@@ -86,14 +71,6 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 	defer unlock()
 
 	var rep InstanceHomeReport
-	if a, ok := f.Home.Auth.Get(); ok && !req.SharedLogin && !envAuthenticates(a) {
-		rep.Unauthenticated = true
-		rep.Reason = unauthenticatedReason(a)
-		// Do NOT generate a config for an instance the caller is about to
-		// refuse.
-		return rep, nil
-	}
-
 	writer := f.Home.InstanceConfig
 	if writer == nil {
 		return rep, nil
@@ -113,29 +90,6 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 		clidiag.Warn("ctxloom", "%s instance config: %s", req.Engine, w)
 	}
 	return rep, err
-}
-
-// envAuthenticates reports whether the process env carries the engine's
-// token var or any of its other auth vars. The stored token counts: it is
-// exported into this env at startup (ExportStoredTokens).
-func envAuthenticates(a engine.TokenAuth) bool {
-	for _, v := range append([]string{a.TokenVar}, a.EnvTriggers...) {
-		if os.Getenv(v) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-// unauthenticatedReason names every var that would have authenticated the
-// run and the fixes that work: mint and store a token, set an API var, or
-// select the real home on the binding, which runs the engine against the
-// user's own login with the engine's own lock and copies nothing. It names
-// no --degraded: the caller's finding is non-degradable.
-func unauthenticatedReason(a engine.TokenAuth) string {
-	vars := append([]string{a.TokenVar}, a.EnvTriggers...)
-	return fmt.Sprintf("none of %s is set to authenticate this run — run `%s` and store what it prints with `ctxloom auth set-token`, set %s, or select the real home on the binding with `engine_home: host` (the run then uses your own login in place; nothing is copied)",
-		strings.Join(vars, ", "), a.MintHint, strings.Join(a.EnvTriggers, " or "))
 }
 
 // lockFileMode and lockDirMode are the modes this instance-home lock's

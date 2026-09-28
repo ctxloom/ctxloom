@@ -181,7 +181,7 @@ func applyEngineNamedHelp(reg engine.Registry) {
 	engines := userEngineNames(reg)
 	// The scaffolding flags' HELP names the engine shipped by default — a
 	// registry fact; the value itself is resolved where each command runs.
-	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine"), authSetTokenCmd.Flags().Lookup("engine")} {
+	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine"), authMintCmd.Flags().Lookup("engine"), authSetCmd.Flags().Lookup("engine")} {
 		f.DefValue = operations.DefaultEngineName(reg)
 	}
 	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of

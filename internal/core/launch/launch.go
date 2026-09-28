@@ -166,6 +166,11 @@ type CellRequest struct {
 	Host        HostFacts
 	Degraded    bool
 	HomeMode    HomeMode
+	// Auth is the agent's DECLARED auth mode, as written ("" undeclared) —
+	// unparsed on purpose: the cells adapter's engine.CheckAuth is the one
+	// check that turns it into an engine.AuthMode, against the engine it
+	// binds, and resolves it to the run's credential env.
+	Auth string
 	// Env is the run's own environment: the identity carriers the cell's
 	// session state is keyed from and the caller's passthrough.
 	Env map[string]string
@@ -176,7 +181,12 @@ type Cell struct {
 	Paths     present.Mapped
 	Workspace string
 	Env       map[string]string
-	Home      []engine.HomeBinding
+	// Unset names variables the engine's process must NOT inherit from the
+	// runner's own environment (engine.LaunchEnv.Unset): the runner removes
+	// them before it drives the engine. An empty value in Env is not the
+	// same thing, and for some variables it means something else entirely.
+	Unset []string
+	Home  []engine.HomeBinding
 	// HomeMode is the engine-home policy this cell was prepared under: the
 	// session home, or the real one the binding selected — the unsafe
 	// selection a plan and a banner name. Local to the launching process;

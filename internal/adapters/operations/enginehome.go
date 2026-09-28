@@ -70,10 +70,6 @@ type AgentHomeResolution struct {
 	Root present.Root
 	// Env is the engine's declared home var pointed at Root.Engine.
 	Env map[string]string
-	// Login is the shared login a HOST run authenticates from in place of the
-	// token (InTreeAgentHomeSpec.LoginEnv), for the caller to merge beside
-	// Env; nil for a container run and for an absent home.
-	Login map[string]string
 	// Mount makes Root.Engine true inside a container: Root.Host — this
 	// session's instance leaf, the RIGHT host directory — bound at
 	// Root.Engine. nil whenever Engine equals Host.
@@ -88,16 +84,12 @@ func absent(format string, args ...any) AgentHomeResolution {
 	return AgentHomeResolution{Absent: fmt.Sprintf(format, args...)}
 }
 
-// inTreeAgentHomeRemedy is the fix-it on the one finding this file records.
-// The engine-specific remedies — its mint command, its auth vars — ride the
-// error the preparation produced (isolation.PrepareInstanceHome); this names
-// the shape: a stored or exported token, or the binding's explicit, unsafe
-// selection of the real home. It names no
-// --degraded: the finding is non-degradable (see ResolveInTreeAgentHome),
-// because the only fallback would be the SHARED host home — the one thing
-// the session home exists to keep a run off, and a thing only the binding
-// may select.
-const inTreeAgentHomeRemedy = "store the engine's long-lived token with `ctxloom auth set-token` (or export one of its auth vars), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
+// inTreeAgentHomeRemedy is the fix-it on the one finding this file records:
+// a session home that could not be prepared. It names no --degraded: the
+// finding is non-degradable (see ResolveInTreeAgentHome), because the only
+// fallback would be the SHARED host home — the one thing the session home
+// exists to keep a run off, and a thing only the binding may select.
+const inTreeAgentHomeRemedy = "fix what kept the session home from being prepared (the error names it), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
 
 // ResolveInTreeAgentHome decides ONE run's controlled engine config home —
 // CLAUDE_CONFIG_DIR and its kin pointed at THIS SESSION's ctxloom-controlled
@@ -142,13 +134,11 @@ const inTreeAgentHomeRemedy = "store the engine's long-lived token with `ctxloom
 // "host" the reason is recorded and nothing else happens — that is the
 // binding's selection. When it is "session" and the run still gets no home
 // (no session name, an engine with no relocatable home, an instance that
-// cannot be created), the reason is said out loud, and an engine nothing in
-// the env authenticates (no stored or exported token, no API var) is
-// FAIL-LOUD: a ClassIsolation finding, FailAlways, for the
-// caller's choke gate, naming the remedies. Handing the engine an empty home
-// it cannot authenticate against would trade a working run for a mysterious
-// 401, and falling back to the real home would hand it what only the
-// binding may select.
+// cannot be created), the reason is said out loud, and a home that cannot be
+// prepared is FAIL-LOUD: a ClassIsolation finding, FailAlways, for the
+// caller's choke gate, because falling back to the real home would hand the
+// engine what only the binding may select. Authentication is settled before
+// this runs (resolveRunAuth).
 func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeResolution {
 	if in.HomeMode == agents.HomeModeHost {
 		return absent("engine_home is %q: the binding selected the home its runtime gives the engine", in.HomeMode)
@@ -157,7 +147,7 @@ func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeRe
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the runtime's own config home instead", in.Backend)
 		return absent("this run carries no session name and a config-home instance is per-session")
 	}
-	spec, ok := inTreeAgentHomeFor(reg, in.Backend, in.Harp, in.ContainerHome == "")
+	spec, ok := inTreeAgentHomeFor(reg, in.Backend, in.Harp)
 	if !ok {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: engine_home is %q but %s declares no relocatable config home; using the runtime's own config home instead", in.Backend, agents.HomeModeSession, in.Backend)
 		return absent("%s declares no relocatable config home", in.Backend)
@@ -173,9 +163,9 @@ func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeRe
 			// never degrades to a shared home: private is the root, and sharing
 			// is only ever something a user selects explicitly.
 			strictness.FailAlways(report.KindIsolation, inTreeAgentHomeRemedy,
-				"in-tree agent home for %s: %v — refusing to point %s at an unauthenticated %s, and refusing to substitute the SHARED host config home for the per-session one this agent asked for",
+				"in-tree agent home for %s: %v — refusing to point %s at an unprepared %s, and refusing to substitute the SHARED host config home for the per-session one this agent asked for",
 				in.Backend, err, spec.EnvVar, home)
-			return absent("refusing to point %s at an unauthenticated %s: %v", spec.EnvVar, home, err)
+			return absent("refusing to point %s at an unprepared %s: %v", spec.EnvVar, home, err)
 		}
 	}
 	// Restated after preparation rather than assumed: an engine with no
@@ -194,9 +184,8 @@ func ResolveInTreeAgentHome(reg engine.Registry, in InTreeAgentHome) AgentHomeRe
 	}
 	paths, mounts := advice.ApplyPaths(present.Paths{SessionHome: present.Root{Host: home}})
 	res := AgentHomeResolution{
-		Root:  paths.SessionHome,
-		Env:   map[string]string{spec.EnvVar: paths.SessionHome.Engine},
-		Login: spec.LoginEnv,
+		Root: paths.SessionHome,
+		Env:  map[string]string{spec.EnvVar: paths.SessionHome.Engine},
 	}
 	if len(mounts) > 0 {
 		m := mounts[0]

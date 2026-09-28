@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -280,8 +281,14 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	if err != nil {
 		return launch.Cell{}, err
 	}
+	// Settled before the cell exists: a container's auth gate reads it, and a
+	// credential that has to be minted is minted before anything is built.
+	authEnv, err := c.runAuthEnv(ctx, req)
+	if err != nil {
+		return launch.Cell{}, err
+	}
 	mark := strictness.Checkpoint()
-	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env))
+	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env), authEnv)
 	env := isolation.WorkspaceEnv(ws)
 	home := BindAgentHome(c.engines, ws, InTreeAgentHome{
 		Backend:  backend,
@@ -320,6 +327,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		// because nothing prepared or mounted the directory the rule names.
 		roots.SessionHome = present.Root{Host: dir}
 	}
+	bindCellAuth(&cell, authEnv)
 	placeCellPaths(&cell, roots, policy, home, req.Axes.Runtime)
 	return cell, nil
 }
@@ -346,8 +354,32 @@ func (c Cells) settleDirtyParentTree(ctx context.Context, req launch.CellRequest
 	return gitClient, outcome.copy, nil
 }
 
-// bindCellHome carries a bound engine home into the cell: its root, its env
-// (also recorded as home bindings), and its login env.
+// runAuthEnv is the credential env the request's agent authenticates with
+// (resolveRunAuth), from the mode the binding declared.
+func (c Cells) runAuthEnv(ctx context.Context, req launch.CellRequest) (engine.LaunchEnv, error) {
+	return resolveRunAuth(ctx, c.engines, runAuth{
+		Backend:  string(req.Engine.Root().Name),
+		Declared: req.Auth,
+		OnHost:   !launch.IsContainerRuntimeAxis(req.Axes.Runtime),
+	})
+}
+
+// bindCellAuth lays the run's credential env over the cell's env — the
+// engine's own answer for the declared mode wins over everything else the
+// cell carries — and records what the engine's process must not inherit
+// (launch.Cell.Unset), which the runner removes before it drives the engine.
+func bindCellAuth(cell *launch.Cell, authEnv engine.LaunchEnv) {
+	if len(authEnv.Set) > 0 {
+		if cell.Env == nil {
+			cell.Env = map[string]string{}
+		}
+		maps.Copy(cell.Env, authEnv.Set)
+	}
+	cell.Unset = slices.Clone(authEnv.Unset)
+}
+
+// bindCellHome carries a bound engine home into the cell: its root and its
+// env (also recorded as home bindings).
 func bindCellHome(cell *launch.Cell, roots *present.Paths, home AgentHomeResolution) {
 	roots.SessionHome = present.Root{Host: home.Root.Host}
 	if cell.Env == nil {
@@ -357,7 +389,6 @@ func bindCellHome(cell *launch.Cell, roots *present.Paths, home AgentHomeResolut
 	for k, v := range home.Env {
 		cell.Home = append(cell.Home, engine.HomeBinding{Var: k, Path: v})
 	}
-	maps.Copy(cell.Env, home.Login)
 }
 
 // placeCellPaths presents the roots as the cell sees them: containerized

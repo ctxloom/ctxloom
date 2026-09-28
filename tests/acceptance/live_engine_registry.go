@@ -35,7 +35,9 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // realHomeDir is the user's actual home, captured in TestMain (acceptance_test.go)
@@ -335,16 +337,16 @@ type credentialMapping struct {
 }
 
 // mapClaudeCredentials hands a live claude the developer's STORED setup-token
-// (what `ctxloom auth set-token` wrote under the real HOME) as
+// (what `ctxloom auth mint --mode token` wrote under the real HOME) as
 // CLAUDE_CODE_OAUTH_TOKEN. Every ctxloom-launched claude authenticates from
 // that one token; it never refreshes, so the run can share it with the
 // developer's own sessions without consuming anything. It FAILS LOUD when no
 // token is stored, naming the file and the fix. It only reads.
 func mapClaudeCredentials(realHome string) ([]credentialMapping, error) {
-	p := filepath.Join(realHome, paths.AppDirName, paths.HomeAuthDirName, "claude-code"+paths.EngineTokenExt)
+	p := filepath.Join(realHome, paths.AppDirName, paths.HomeAuthDirName, paths.EngineCredentialFileName(claude.EngineName, string(engine.AuthToken)))
 	raw, err := os.ReadFile(p)
 	if err != nil {
-		return nil, fmt.Errorf("map claude credentials: no stored setup-token at %s (run `claude setup-token`, then `ctxloom auth set-token`): %w", p, err)
+		return nil, fmt.Errorf("map claude credentials: no stored setup-token at %s (run `ctxloom auth mint --mode token`): %w", p, err)
 	}
 	tok := strings.TrimSpace(string(raw))
 	if tok == "" {

@@ -213,3 +213,6 @@ func withFakeHome(t *testing.T) string {
 	t.Cleanup(func() { hostHomeDir = orig })
 	return home
 }
+
+// noRunAuth is a run whose credential ctxloom resolved nothing for.
+var noRunAuth engine.LaunchEnv

@@ -2,139 +2,167 @@ package isolation
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 const fixtureToken = "sk-ant-oat01-fixture"
 
-// tokenHome points the home at a fresh directory and clears the token var,
-// so a test reads only the store it wrote.
+// tokenHome points the home at a fresh directory and clears claude's
+// credential vars, so a test reads only the store it wrote. USERPROFILE is
+// where os.UserHomeDir looks on Windows.
 func tokenHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv(claude.OAuthTokenEnv, "")
-	require.NoError(t, os.Unsetenv(claude.OAuthTokenEnv))
-	t.Cleanup(resetTokenSources)
+	t.Setenv("USERPROFILE", home)
+	for _, v := range []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv} {
+		t.Setenv(v, "")
+		require.NoError(t, os.Unsetenv(v))
+	}
 	return home
 }
 
-// The stored token is owner-only from the moment it exists, in an
-// owner-only directory, and holds the token without the newline a paste
-// carries.
-func TestStoreEngineToken_WritesAnOwnerOnlyFile(t *testing.T) {
+// A stored credential lands at the engine's per-mode path, owner-only by
+// this platform's own check, and holds the credential without the newline a
+// paste carries. What owner-only means per platform is asserted beside each
+// twin.
+func TestStoreEngineCredential_WritesAnOwnerOnlyFilePerMode(t *testing.T) {
 	tokenHome(t)
-	path, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken+"\n"))
-	require.NoError(t, err)
-	want, err := paths.HomeEngineTokenPath(claude.EngineName)
-	require.NoError(t, err)
-	assert.Equal(t, want, path)
+	for _, mode := range []engine.AuthMode{engine.AuthToken, engine.AuthAPIKey} {
+		path, err := StoreEngineCredential(claude.EngineName, mode, []byte(fixtureToken+"-"+string(mode)+"\n"))
+		require.NoError(t, err)
+		want, err := paths.HomeEngineCredentialPath(claude.EngineName, string(mode))
+		require.NoError(t, err)
+		assert.Equal(t, want, path)
+		require.NoError(t, checkCredentialPrivate(path))
+		got, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, fixtureToken+"-"+string(mode), string(got))
+	}
+}
 
-	info, err := os.Stat(path)
+func TestStoreEngineCredential_RefusesWhatIsNotOneCredential(t *testing.T) {
+	tokenHome(t)
+	_, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte("  \n"))
+	assert.ErrorIs(t, err, ErrEmptyCredential)
+	_, err = StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte("two words"))
+	assert.ErrorIs(t, err, ErrMalformedCredential)
+	_, err = StoreEngineCredential("no-such-engine", engine.AuthToken, []byte(fixtureToken))
+	assert.ErrorIs(t, err, ErrNoAuth)
+	_, err = StoreEngineCredential(claude.EngineName, "keychain", []byte(fixtureToken))
+	assert.ErrorIs(t, err, engine.ErrUnknownAuthMode)
+}
+
+// The login and a cloud provider's variables are the human's own and are
+// never stored by ctxloom; the refusal's remedy names the modes that are.
+func TestStoreEngineCredential_RefusesTheModesItNeverStores(t *testing.T) {
+	home := tokenHome(t)
+	for _, mode := range []engine.AuthMode{engine.AuthLogin, engine.AuthCloud} {
+		_, err := StoreEngineCredential(claude.EngineName, mode, []byte(fixtureToken))
+		require.ErrorIs(t, err, ErrNotStored, mode)
+		var r report.Remediable
+		require.ErrorAs(t, err, &r)
+		assert.Contains(t, r.Remedy(), "token, api-key", mode)
+	}
+	assert.NoDirExists(t, home+"/"+paths.AppDirName+"/"+paths.HomeAuthDirName, "nothing is created for a refused store")
+}
+
+// What is stored reads back per mode; nothing stored is the typed absence an
+// engine's LaunchEnv mints or refuses on.
+func TestStoredCredentials_ReadsBackPerMode(t *testing.T) {
+	tokenHome(t)
+	store := StoredCredentials(claude.EngineName)
+	_, err := store.Read(engine.AuthToken)
+	require.ErrorIs(t, err, engine.ErrNoCredential)
+
+	_, err = StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-	dir, err := os.Stat(filepath.Dir(path))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o700), dir.Mode().Perm())
-	got, err := os.ReadFile(path)
+	got, err := store.Read(engine.AuthToken)
 	require.NoError(t, err)
 	assert.Equal(t, fixtureToken, string(got))
+	_, err = store.Read(engine.AuthAPIKey)
+	require.ErrorIs(t, err, engine.ErrNoCredential, "a token is not a key")
 }
 
-func TestStoreEngineToken_RefusesWhatIsNotOneToken(t *testing.T) {
+// Status lists every stored-credential mode of every engine with auth, never
+// the login, never the credential; a stored one carries this platform's
+// protection verdict.
+func TestEngineCredentialStatuses_ReportsStoredModesWithoutTheCredential(t *testing.T) {
 	tokenHome(t)
-	_, err := StoreEngineToken(claude.EngineName, []byte("  \n"))
-	assert.ErrorIs(t, err, ErrEmptyToken)
-	_, err = StoreEngineToken(claude.EngineName, []byte("two words"))
-	assert.ErrorIs(t, err, ErrMalformedToken)
-	_, err = StoreEngineToken("no-such-engine", []byte(fixtureToken))
-	assert.ErrorIs(t, err, ErrNoTokenAuth)
-}
-
-// A stored token reaches the process env under the engine's token var, so
-// every launch path, host or container, inherits it.
-func TestExportStoredTokens_FillsAnUnsetVarFromTheStore(t *testing.T) {
-	tokenHome(t)
-	_, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken))
+	_, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
 	require.NoError(t, err)
-	require.NoError(t, ExportStoredTokens())
-	assert.Equal(t, fixtureToken, os.Getenv(claude.OAuthTokenEnv))
-
-	st := engineTokenStatus(t, claude.EngineName)
-	assert.Equal(t, TokenSourceStored, st.Source)
-	assert.True(t, st.Stored)
-}
-
-// A token the user exported wins over the stored one.
-func TestExportStoredTokens_AnExportedTokenWins(t *testing.T) {
-	tokenHome(t)
-	_, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken))
+	all, err := EngineCredentialStatuses()
 	require.NoError(t, err)
-	t.Setenv(claude.OAuthTokenEnv, "exported")
-	require.NoError(t, ExportStoredTokens())
-	assert.Equal(t, "exported", os.Getenv(claude.OAuthTokenEnv))
-	assert.Equal(t, TokenSourceEnv, engineTokenStatus(t, claude.EngineName).Source)
-}
-
-func TestExportStoredTokens_NothingStoredLeavesTheVarUnset(t *testing.T) {
-	tokenHome(t)
-	require.NoError(t, ExportStoredTokens())
-	_, set := os.LookupEnv(claude.OAuthTokenEnv)
-	assert.False(t, set)
-	st := engineTokenStatus(t, claude.EngineName)
-	assert.Equal(t, TokenSourceNone, st.Source)
-	assert.False(t, st.Stored)
-}
-
-func engineTokenStatus(t *testing.T, name string) EngineTokenStatus {
-	t.Helper()
-	all, err := EngineTokenStatuses()
-	require.NoError(t, err)
+	byMode := map[engine.AuthMode]EngineCredentialStatus{}
 	for _, s := range all {
-		if s.Engine == name {
-			return s
+		if s.Engine == claude.EngineName {
+			byMode[s.Mode] = s
 		}
+		assert.NotContains(t, s.Protection, fixtureToken)
 	}
-	t.Fatalf("no token status for %s", name)
-	return EngineTokenStatus{}
+	require.Len(t, byMode, 2, "token and api-key; the login is never stored")
+	assert.True(t, byMode[engine.AuthToken].Stored)
+	assert.NotEmpty(t, byMode[engine.AuthToken].Protection)
+	assert.False(t, byMode[engine.AuthAPIKey].Stored)
+	assert.Empty(t, byMode[engine.AuthAPIKey].Protection)
 }
 
-// resetTokenSources forgets which vars this process filled from the store.
-func resetTokenSources() {
-	tokenSourcesMu.Lock()
-	defer tokenSourcesMu.Unlock()
-	storedExports = map[string]bool{}
+// The Windows owner-only verdict, platform-neutrally: the owner and the
+// tolerated machine principals (SYSTEM, Administrators) are not exposure;
+// anyone else is, named once each.
+func TestACLExposure(t *testing.T) {
+	const owner, system, admins, everyone, users = "S-1-5-21-1", "S-1-5-18", "S-1-5-32-544", "S-1-1-0", "S-1-5-32-545"
+	tolerated := []string{system, admins}
+	for _, tc := range []struct {
+		name     string
+		grantees []string
+		want     string
+	}{
+		{"owner only", []string{owner}, ""},
+		{"owner with SYSTEM and Administrators is still owner-only", []string{owner, system, admins}, ""},
+		{"no grantee at all", nil, ""},
+		{"Everyone is exposure", []string{owner, everyone}, "grants access to " + everyone},
+		{"each outsider named once, in ACL order", []string{users, owner, everyone, users}, "grants access to " + users + ", " + everyone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, aclExposure(owner, tolerated, tc.grantees))
+		})
+	}
 }
 
-// A token that exists only in the store reaches both launch paths once
-// exported: a host runner's env (os.Environ laid under the spawn env), and a
-// container's auth plan, by name. This is what lets a claude child launch
-// whatever engine its owner runs.
-func TestStoredToken_ReachesTheHostRunnerAndTheContainerPassthrough(t *testing.T) {
+// A container authenticates from the run's resolved auth env, so a stored
+// credential never has to enter this process's env; and a var that env names
+// is withheld from the passthrough, so a shell export of a credential the
+// mode blanked never crosses into the container.
+func TestResolveDeclaredAuth_TheRunsAuthEnvAuthenticatesAndIsAuthoritative(t *testing.T) {
 	tokenHome(t)
-	for _, v := range claudeAuth(t).EnvTriggers {
-		t.Setenv(v, "")
-	}
-	require.NoError(t, os.Unsetenv(claude.OAuthTokenEnv))
-	_, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken))
-	require.NoError(t, err)
-	require.NoError(t, ExportStoredTokens())
+	_, ok := resolveDeclaredAuth(claudeAuth(t), noRunAuth)
+	require.False(t, ok, "fixture: nothing authenticates without the run's env")
 
-	cmd, err := hostRunnerCmd([]string{"claude-code"}, map[string]string{"CTXLOOM_HARP": "brave-warm-otter"})
-	require.NoError(t, err)
-	assert.Contains(t, cmd.Env, claude.OAuthTokenEnv+"="+fixtureToken, "the host runner inherits the exported token")
-	for _, a := range cmd.Args {
-		assert.NotContains(t, a, fixtureToken, "the token never rides argv")
-	}
-
-	plan, ok := resolveDeclaredAuth(claudeAuth(t))
+	t.Setenv(claude.APIKeyEnv, "shell-key")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
+	plan, ok := resolveDeclaredAuth(claudeAuth(t), engine.LaunchEnv{
+		Set:   map[string]string{claude.OAuthTokenEnv: fixtureToken},
+		Unset: []string{claude.APIKeyEnv, claude.AuthTokenEnv},
+	})
 	require.True(t, ok)
-	assert.Contains(t, plan.envPassthrough, claude.OAuthTokenEnv, "the container gets it by name")
+	assert.NotContains(t, plan.envPassthrough, claude.APIKeyEnv, "the mode unset it; the shell's value stays out")
+	assert.NotContains(t, plan.envPassthrough, claude.OAuthTokenEnv, "its value rides the launch env, not the passthrough")
+	assert.Contains(t, plan.envPassthrough, "ANTHROPIC_BASE_URL", "a non-credential var still crosses")
+
+	_, ok = resolveDeclaredAuth(claudeAuth(t), engine.LaunchEnv{Unset: []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv}})
+	assert.False(t, ok, "a run env that unsets every credential does not authenticate from the shell's export")
+
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "")
+	plan, ok = resolveDeclaredAuth(claudeAuth(t), engine.LaunchEnv{Set: map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1"}, Unset: []string{claude.OAuthTokenEnv, claude.APIKeyEnv}})
+	require.True(t, ok, "a cloud run's provider switch authenticates a container")
+	assert.NotContains(t, plan.envPassthrough, "CLAUDE_CODE_USE_BEDROCK", "its value rides the launch env")
 }

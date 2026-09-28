@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -44,6 +45,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	}
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv(claude.OAuthTokenEnv, tokenFixture) // the token agent's credential, exported
 	repo := initIsolationTestRepo(t)
 	req := claudeKind(t)
 	req.Axes.Workspace = launch.WorkspaceWorktree
@@ -74,6 +76,7 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		req := claudeKind(t)
 		req.ProjectRoot = workDir
 		req.HomeMode = home
+		req.Auth = string(engine.AuthLogin)
 		req.Axes.Workspace = workspace
 		req.Identity.Harp = harp
 		req.Env = map[string]string{sessions.EnvHarp: harp}
@@ -95,9 +98,9 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		assert.Contains(t, want, "test-harp", "the home is THIS session's")
 		require.Len(t, cell.Home, 1, "the binding the cell made is reported on it")
 		assert.Equal(t, claude.ConfigDirEnv, cell.Home[0].Var)
-		assert.Contains(t, cell.Env, claude.SecureStorageEnv, "a host cell carries the shared login")
-		require.Contains(t, cell.Env, claude.OAuthTokenEnv)
-		assert.Empty(t, cell.Env[claude.OAuthTokenEnv], "and blanks the token it replaces")
+		assert.Contains(t, cell.Env, claude.SecureStorageEnv, "a host login agent's cell carries the shared login")
+		assert.NotContains(t, cell.Env, claude.OAuthTokenEnv)
+		assert.Contains(t, cell.Unset, claude.OAuthTokenEnv, "and every other credential is unset")
 		assert.Equal(t, want, cell.Paths.Paths().SessionHome.Host, "the engine home is a root the launch advises")
 	})
 
@@ -156,23 +159,16 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 }
 
 // A claude CHILD of a mock-engine owner. The owner's session keeps no claude
-// home at all, and the child's cell still prepares: on the host it shares the
-// human's login in place, with the token blanked, and the stored setup-token
-// a container run authenticates from is in this process's env
-// (ExportStoredTokens) before any launch. Nothing is read from the owner's
-// session home, so the engine the owner runs is irrelevant.
+// home at all, and the child's cell still prepares: its agent's token mode
+// resolves to the stored token in the CELL's env, never this process's, with
+// every other credential blanked. Nothing is read from the owner's session
+// home, so the engine the owner runs is irrelevant.
 func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing.T) {
 	resetStrictness(t)
-	t.Setenv("HOME", t.TempDir())
-	a, ok := isolation.TokenAuthFor("claude-code")
-	require.True(t, ok)
-	for _, v := range append([]string{a.TokenVar}, a.EnvTriggers...) {
-		t.Setenv(v, "")
-	}
-	require.NoError(t, os.Unsetenv(a.TokenVar))
-	_, err := isolation.StoreEngineToken("claude-code", []byte(tokenFixture))
+	fakeHostHome(t, "")
+	t.Setenv(claude.APIKeyEnv, "sk-ant-api-shell")
+	_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
 	require.NoError(t, err)
-	require.NoError(t, isolation.ExportStoredTokens())
 
 	ownerHome, err := paths.HarpSessionEngineHomes(harpB)
 	require.NoError(t, err)
@@ -181,6 +177,7 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 	req := claudeKind(t)
 	req.ProjectRoot = workDir
 	req.HomeMode = launch.HomeModeSession
+	req.Auth = string(engine.AuthToken)
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
 	cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
@@ -189,11 +186,36 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 
 	assert.Empty(t, strictness.All(), "the child's home is not refused")
 	assert.Equal(t, claudeInstanceDir(t, workDir, harpA), cell.Env[claude.ConfigDirEnv])
-	assert.Equal(t, tokenFixture, os.Getenv(a.TokenVar), "the stored token is in the env a container's passthrough reads")
-	require.Contains(t, cell.Env, a.TokenVar)
-	assert.Empty(t, cell.Env[a.TokenVar], "the host cell blanks it: the shared login replaces it")
+	assert.Equal(t, tokenFixture, cell.Env[claude.OAuthTokenEnv], "the agent's mode resolved to the stored token")
+	assert.NotContains(t, cell.Env, claude.APIKeyEnv)
+	assert.Contains(t, cell.Unset, claude.APIKeyEnv, "the shell's key is unset: the declared mode decides")
+	assert.Empty(t, os.Getenv(claude.OAuthTokenEnv), "the stored token never enters this process's env")
 	assert.NoFileExists(t, filepath.Join(cell.Env[claude.ConfigDirEnv], ".credentials.json"))
 	assert.NoDirExists(t, ownerHome, "the owner's session home is never consulted")
+}
+
+// UNATTENDED with nothing stored: the cell is refused before anything is
+// built, naming the command that mints the credential.
+func TestCellsPrepare_UnattendedWithNoCredentialIsRefused(t *testing.T) {
+	resetStrictness(t)
+	fakeHostHome(t, "")
+	withTerminal(t, engine.Terminal{}, false)
+	// No engine binary is reachable: a regression that tried to mint here
+	// fails on a missing binary instead of starting a real login flow.
+	t.Setenv("PATH", t.TempDir())
+
+	req := claudeKind(t)
+	req.ProjectRoot = t.TempDir()
+	req.HomeMode = launch.HomeModeSession
+	req.Auth = string(engine.AuthToken)
+	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
+	req.Env = map[string]string{sessions.EnvHarp: harpA}
+	_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+	require.ErrorIs(t, err, engine.ErrNoCredential)
+	assert.Contains(t, remedyOf(t, err), "ctxloom auth mint --engine claude-code --mode token")
+	root, perr := paths.HarpSessionEngineHomes(harpA)
+	require.NoError(t, perr)
+	assert.NoDirExists(t, root, "nothing is built for a refused run")
 }
 
 func initIsolationTestRepo(t *testing.T) string {
@@ -221,6 +243,43 @@ func claudeInstanceDir(t *testing.T, workDir, harp string) string {
 	root, err := paths.HarpSessionEngineHomes(harp)
 	require.NoError(t, err)
 	return filepath.Join(root, claude.HomeLeaf)
+}
+
+// Auth is purely per agent: a binding that selects the human's real home
+// (engine_home: host) still authenticates in its declared mode. A token
+// agent there gets the stored token and the login's storage var unset; with
+// nothing stored and no terminal it is refused like any other token agent.
+func TestCellsPrepare_HostHomeAppliesTheDeclaredAuth(t *testing.T) {
+	prepare := func(t *testing.T) (launch.Cell, error) {
+		req := claudeKind(t)
+		req.ProjectRoot = t.TempDir()
+		req.HomeMode = launch.HomeModeHost
+		req.Identity = sessions.Identity{Harp: harpA}
+		req.Env = map[string]string{sessions.EnvHarp: harpA}
+		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+		if err == nil {
+			t.Cleanup(func() { _ = cell.Cleanup() })
+		}
+		return cell, err
+	}
+	t.Run("stored token", func(t *testing.T) {
+		resetStrictness(t)
+		fakeHostHome(t, "")
+		_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
+		require.NoError(t, err)
+		cell, err := prepare(t)
+		require.NoError(t, err)
+		assert.Equal(t, tokenFixture, cell.Env[claude.OAuthTokenEnv])
+		assert.Contains(t, cell.Unset, claude.SecureStorageEnv)
+	})
+	t.Run("nothing stored, unattended", func(t *testing.T) {
+		resetStrictness(t)
+		fakeHostHome(t, "")
+		withTerminal(t, engine.Terminal{}, false)
+		t.Setenv("PATH", t.TempDir())
+		_, err := prepare(t)
+		require.ErrorIs(t, err, engine.ErrNoCredential)
+	})
 }
 
 // TestCellsPrepare_AnEngineThatRelocatesNothingGetsTheRulesSessionHome: the

@@ -29,19 +29,12 @@ type HomeSpec struct {
 	// has one entry; an engine that splits config and data across separate
 	// XDG vars contributes one entry per var.
 	Vars []HomeVar
-	// Auth declares how the engine authenticates from a long-lived token in
-	// its env (TokenAuth), or that it needs none (Absent, with the reason).
-	// Nothing is ever copied into a session home to authenticate it.
-	// Undecided is legal ONLY on the zero spec; Validate refuses it once a
-	// var is declared.
-	Auth Declared[TokenAuth]
-	// SharedLogin declares how a HOST run at the session home authenticates
-	// from the human's own login in place, taking the place of Auth's token:
-	// the var that relocates ONLY the engine's credential storage, pointed
-	// where the human's own engine keeps it. Absent, with the reason, for an
-	// engine that has no such var; like Auth, Undecided is legal only on the
-	// zero spec.
-	SharedLogin Declared[SharedLogin]
+	// Auth is the engine's authentication capability (modes, the env each
+	// mode launches with, minting), or Absent with the reason for an engine
+	// that needs no credential. Nothing is ever copied into a session home
+	// to authenticate it. Undecided is legal ONLY on the zero spec; Validate
+	// refuses it once a var is declared.
+	Auth Declared[Auth]
 	// InstanceConfig is the engine's own generator of its top-level config
 	// file inside a session home the cells adapter provisioned; nil when the
 	// engine has no config file of its own.
@@ -60,69 +53,6 @@ type HomeVar struct {
 // Relocates reports whether the spec moves anything: the zero spec does not.
 func (h HomeSpec) Relocates() bool { return len(h.Vars) > 0 }
 
-// TokenAuth is how an engine authenticates from its env alone: the var it
-// reads a long-lived token from, and the other vars any one of which
-// authenticates it instead.
-type TokenAuth struct {
-	// TokenVar is the env var the engine reads a long-lived token from.
-	// ctxloom fills it from the engine's stored token when the process env
-	// leaves it unset.
-	TokenVar string
-	// EnvTriggers are the other env vars, any one of which authenticates the
-	// engine without the token, in the order a refusal names them.
-	EnvTriggers []string
-	// MintHint is the command that mints the token.
-	MintHint string
-}
-
-// Validate refuses a declaration a refusal could not name a fix from.
-func (a TokenAuth) Validate() error {
-	if a.TokenVar == "" {
-		return errors.New("TokenAuth: TokenVar is empty; name the env var the engine reads its token from")
-	}
-	if a.MintHint == "" {
-		return errors.New("TokenAuth: MintHint is empty; name the command that mints the token")
-	}
-	return nil
-}
-
-// SharedLogin is an engine's credential-storage var: setting it moves where
-// the engine keeps its credential and the locks that serialize refreshing it,
-// and nothing else, so a run with its own config home can hold the SAME
-// credential and the SAME locks as the human's own engine.
-type SharedLogin struct {
-	// Var relocates only the credential storage.
-	Var string
-	// FallbackVar is the var the engine takes its credential storage from
-	// when Var is unset: its config home var.
-	FallbackVar string
-}
-
-// Value is what Var must carry for a run to share the login the launching
-// env resolves, read through lookup (os.LookupEnv): the launching env's own
-// Var when it sets one, as a launch from inside a sharing run does, else
-// FallbackVar's value, and "" when that is unset too. Never cleaned or made
-// absolute: an engine may name state after the exact string (claude names
-// its macOS keychain item from it).
-func (s SharedLogin) Value(lookup func(string) (string, bool)) string {
-	if v, ok := lookup(s.Var); ok {
-		return v
-	}
-	v, _ := lookup(s.FallbackVar)
-	return v
-}
-
-// Validate refuses a declaration that names no var to set or fall back from.
-func (s SharedLogin) Validate() error {
-	if s.Var == "" {
-		return errors.New("SharedLogin: Var is empty; name the var that relocates the credential storage")
-	}
-	if s.FallbackVar == "" {
-		return errors.New("SharedLogin: FallbackVar is empty; name the var the storage falls back to")
-	}
-	return nil
-}
-
 // Validate refuses a non-zero spec the cells adapter could not act on
 // correctly. The zero spec is valid: it declares nothing.
 func (h HomeSpec) Validate() error {
@@ -132,20 +62,13 @@ func (h HomeSpec) Validate() error {
 	if err := h.validateVars(); err != nil {
 		return err
 	}
-	if err := h.validateAuth(); err != nil {
-		return err
-	}
-	return h.validateSharedLogin()
+	return h.validateAuth()
 }
 
-// validateWithoutHome refuses auth or a shared login on a spec that
-// relocates nothing.
+// validateWithoutHome refuses auth on a spec that relocates nothing.
 func (h HomeSpec) validateWithoutHome() error {
 	if _, ok := h.Auth.Get(); ok {
-		return errors.New("HomeSpec: token auth with no home var; an engine that relocates nothing declares no auth here")
-	}
-	if _, ok := h.SharedLogin.Get(); ok {
-		return errors.New("HomeSpec: a shared login with no home var; an engine that relocates nothing shares nothing")
+		return errors.New("HomeSpec: auth with no home var; an engine that relocates nothing declares no auth here")
 	}
 	return nil
 }
@@ -166,23 +89,10 @@ func (h HomeSpec) validateVars() error {
 // validateAuth requires Auth decided, and valid when present.
 func (h HomeSpec) validateAuth() error {
 	if !h.Auth.Decided() {
-		return errors.New("HomeSpec: Auth is undeclared; provide token auth or declare it absent with the reason")
+		return errors.New("HomeSpec: Auth is undeclared; provide the engine's auth or declare it absent with the reason")
 	}
 	if a, ok := h.Auth.Get(); ok {
-		if err := a.Validate(); err != nil {
-			return fmt.Errorf("HomeSpec: %w", err)
-		}
-	}
-	return nil
-}
-
-// validateSharedLogin requires SharedLogin decided, and valid when present.
-func (h HomeSpec) validateSharedLogin() error {
-	if !h.SharedLogin.Decided() {
-		return errors.New("HomeSpec: SharedLogin is undeclared; provide the credential-storage var or declare it absent with the reason")
-	}
-	if l, ok := h.SharedLogin.Get(); ok {
-		if err := l.Validate(); err != nil {
+		if err := validateAuth(a); err != nil {
 			return fmt.Errorf("HomeSpec: %w", err)
 		}
 	}

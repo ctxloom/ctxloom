@@ -53,6 +53,7 @@ func DefaultPolicy() Policy {
 		// agentBindingMergeFunc's atomic-replace rule means a home-only value
 		// could never stick to a project-defined binding anyway.
 		{Path: "agents.*.engine_home", Scope: ScopeShared, Note: "a pollution/isolation policy decision about this project's agents, not a per-machine fact"},
+		{Path: "agents.*.auth", Scope: ScopeShared, Note: "which auth mode a project agent uses, never a credential (those are stored per user under the ctxloom home)"},
 
 		{Path: "dirty_tree_handler", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},
 		{Path: "workspace", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},

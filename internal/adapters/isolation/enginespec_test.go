@@ -27,12 +27,12 @@ func TestEngineContainerSpecFor_Claude(t *testing.T) {
 	// resolver IS the claude (ANTHROPIC_*) one — asserted behaviorally since a
 	// func value is not directly comparable.
 	assert.Contains(t, p.authHint, "ANTHROPIC_API_KEY", "the degrade hint names claude's trigger var")
-	assert.Contains(t, p.authRemedy, "ctxloom auth set-token", "the remedy names how to provide the token")
+	assert.Contains(t, p.authRemedy, "ctxloom auth mint --mode token", "the remedy names how to provide the token")
 	assert.NotContains(t, p.authHint, p.authRemedy, "the hint says what is missing; the remedy travels beside it")
 	require.NotNil(t, p.resolveAuth, "the claude spec wires an auth resolver")
 	clearClaudeAuthEnv(t)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	auth, ok := p.resolveAuth()
+	auth, ok := p.resolveAuth(engine.LaunchEnv{})
 	require.True(t, ok, "with ANTHROPIC_API_KEY set the wired resolver authenticates")
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "ANTHROPIC_API_KEY", "the wired resolver is the claude (ANTHROPIC_*) resolver")
@@ -56,7 +56,7 @@ func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 		require.NotNil(t, p.resolveAuth, "backend %q must still wire a resolver, just one that fails closed", name)
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 		t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-test")
-		_, ok := p.resolveAuth()
+		_, ok := p.resolveAuth(engine.LaunchEnv{})
 		assert.False(t, ok, "backend %q must NOT authenticate as claude — no declaration is registered for it", name)
 		assert.NotContains(t, p.authHint, "ANTHROPIC_API_KEY", "backend %q must not inherit claude's degrade hint", name)
 	}
@@ -110,7 +110,7 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 		"the sentinel carries the declaration's own reason, so a reader of the message can see which engine claimed it")
 
 	require.NotNil(t, p.resolveAuth)
-	auth, ok := p.resolveAuth()
+	auth, ok := p.resolveAuth(engine.LaunchEnv{})
 	require.True(t, ok, "a vendorless engine's auth resolves unconditionally")
 	assert.Equal(t, authNone, auth.mode)
 	assert.Empty(t, auth.envPassthrough)

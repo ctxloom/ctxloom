@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os/exec"
 	"sync"
 	"testing"
@@ -91,7 +92,7 @@ func stubPrepareIsolation(t *testing.T, failFor map[string]bool, seen ...*stubSp
 	}
 	t.Helper()
 	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, agentID string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
+	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, agentID string, _ isolation.SessionState, _ engine.LaunchEnv) (isolation.Policy, isolation.Workspace) {
 		if failFor[agentID] {
 			strictness.Fail(report.KindIsolation,
 				"install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",

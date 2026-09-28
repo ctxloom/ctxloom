@@ -29,25 +29,12 @@ func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 	assert.NotNil(t, home.InstanceConfig, "claude generates its own instance config into a provisioned home")
 }
 
-// claude authenticates from the one long-lived token `claude setup-token`
-// mints, or from an API key, a gateway token or a cloud provider instead.
-func TestHome_DeclaresTokenAuth(t *testing.T) {
+// claude declares its auth capability with every mode the shared vocabulary
+// has: the human's login, a minted token, and a pay-per-use key.
+func TestHome_DeclaresAuthWithEveryMode(t *testing.T) {
 	a, ok := claudeKind(t).Home().Auth.Get()
 	require.True(t, ok)
-	assert.Equal(t, engine.TokenAuth{
-		TokenVar:    "CLAUDE_CODE_OAUTH_TOKEN",
-		EnvTriggers: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"},
-		MintHint:    "claude setup-token",
-	}, a)
-}
-
-// A host run shares the human's login through the credential-storage var,
-// falling back to the config dir as claude itself does; the probe
-// TestClaudeSecureStorage_FollowsTheVar pins that the installed claude honours it.
-func TestHome_DeclaresSharedLogin(t *testing.T) {
-	l, ok := claudeKind(t).Home().SharedLogin.Get()
-	require.True(t, ok)
-	assert.Equal(t, engine.SharedLogin{Var: "CLAUDE_SECURESTORAGE_CONFIG_DIR", FallbackVar: "CLAUDE_CONFIG_DIR"}, l)
+	assert.Equal(t, []engine.AuthMode{engine.AuthLogin, engine.AuthToken, engine.AuthAPIKey, engine.AuthCloud}, a.Modes())
 }
 
 // A container authenticates from the env alone: no credential file is ever
@@ -63,12 +50,11 @@ func TestContainer_AuthIsEnvOnly(t *testing.T) {
 
 	auth, ok := c.Auth.Get()
 	require.True(t, ok)
-	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}, auth.EnvTriggers,
-		"the setup-token var authenticates a container on its own, so it is a trigger")
+	assert.Equal(t, append([]string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}, providerSwitches...), auth.EnvTriggers,
+		"the setup-token var and each cloud provider switch authenticate a container on their own, so they are triggers")
 	assert.Contains(t, auth.EnvPassthrough, "CLAUDE_CODE_OAUTH_TOKEN", "a trigger that does not cross leaves the container logged out")
 	assert.Contains(t, auth.EnvPassthrough, "ANTHROPIC_BASE_URL")
-	assert.Contains(t, auth.Remedy, "claude setup-token")
-	assert.Contains(t, auth.Remedy, "ctxloom auth set-token")
+	assert.Contains(t, auth.Remedy, "ctxloom auth mint --mode token")
 }
 
 // Hooks decodes claude's native payload: the unified event for the native

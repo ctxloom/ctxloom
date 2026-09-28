@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -662,8 +663,25 @@ func IsContainerPolicyName(name string) bool {
 // dropping a requested CONTAINER boundary is additionally a fatal finding
 // (ClassIsolation) the choke owner aborts on, --degraded included (a
 // workspace-axis degrade stays a silent fallback).
-func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState) (Policy, Workspace) {
-	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), axes.Runtime, projectDir, agentID)
+//
+// runAuth is the env the run's auth mode resolved to (engine.Auth.LaunchEnv):
+// a container's auth gate reads it ahead of the host env, so a credential
+// ctxloom stored authenticates a container without ever entering this
+// process's env.
+func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState, runAuth engine.LaunchEnv) (Policy, Workspace) {
+	return prepareChain(ctx, withRunAuth(withSessionState(chainFor(axes, backend, img), state), runAuth), axes.Runtime, projectDir, agentID)
+}
+
+// withRunAuth stamps the run's resolved auth env onto every container policy
+// in the degrade chain.
+func withRunAuth(chain []Policy, runAuth engine.LaunchEnv) []Policy {
+	for i, p := range chain {
+		if c, ok := p.(Container); ok {
+			c.runAuth = runAuth
+			chain[i] = c
+		}
+	}
+	return chain
 }
 
 // withSessionState stamps the run's session identity onto every policy in the

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 
@@ -49,6 +50,10 @@ type AgentEntry struct {
 	// (session|host), as written; empty (undeclared) defaults to session at
 	// resolve time — see agents.Agent.HomeMode's doc.
 	HomeMode string `json:"engine_home,omitempty"`
+	// Auth is the agent's declared auth mode (login|token|api-key), as
+	// written; empty (undeclared) is token at resolve time — see
+	// agents.Agent.Auth's doc.
+	Auth string `json:"auth,omitempty"`
 }
 
 // ListAgents returns every locally-defined agent (the `agents:` config key),
@@ -67,6 +72,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Driving:     s.Driving,
 			Escalation:  s.Escalation,
 			HomeMode:    s.HomeMode,
+			Auth:        s.Auth,
 		})
 	}
 	return out
@@ -91,6 +97,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Driving:     sub.Driving,
 		Escalation:  sub.Escalation,
 		HomeMode:    sub.HomeMode,
+		Auth:        sub.Auth,
 	}, nil
 }
 
@@ -141,6 +148,10 @@ type SetAgentRequest struct {
 	// returns an error, nothing is persisted) — the same treatment Surfaces
 	// gets, and for the same reason: see agents.Agent.HomeMode's doc.
 	HomeMode *string `json:"engine_home,omitempty"`
+	// Auth sets the binding's auth mode (login|token|api-key); empty
+	// (undeclared) is token at resolve time. An unknown mode, or one the
+	// engine this write results in does not support, is REJECTED.
+	Auth *string `json:"auth,omitempty"`
 }
 
 // orKeep dereferences an optional request field: nil means "the caller did not
@@ -231,7 +242,51 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 	if err := validateContainerAuth(reg, cfg, name, req); err != nil {
 		return err
 	}
+	if err := validateAgentAuth(reg, cfg, name, req); err != nil {
+		return err
+	}
 	return validateAgentHomeMode(name, req)
+}
+
+// validateAgentAuth runs the one auth check (checkAgentAuth, the same one
+// every launch runs) against the engine and runtime this write results in,
+// then asks the engine whether the credential is available now: a mode whose
+// credential the human must supply (an API key, a cloud provider's
+// variables) is refused until it is, with the engine's own remedy. A missing
+// token is not refused: a run mints it at a terminal. Nothing is persisted
+// on a refusal.
+func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
+	if req.Auth == nil || *req.Auth == "" {
+		return nil
+	}
+	backend, _ := ResolveBackend(reg, cfg, resultingAgentEngine(cfg, name, req))
+	if _, ok := reg.Lookup(engine.Name(backend)); !ok {
+		return report.Errorf("set --llm in the same command, so the mode can be checked against the engine it binds",
+			"agent %q: auth %s: %w", name, *req.Auth, errAuthNeedsEngine)
+	}
+	axis, _ := launch.ParseRuntimeAxis(resultingAgentRuntime(cfg, name, req))
+	a, mode, err := checkAgentAuth(reg, backend, *req.Auth, !isolation.IsContainerRuntimeAxis(axis))
+	if err != nil || a == nil {
+		return wrapAgentErr(name, err)
+	}
+	_, err = a.LaunchEnv(mode, os.LookupEnv, isolation.StoredCredentials(backend))
+	if errors.Is(err, engine.ErrNoCredential) && mode.Minted() {
+		return nil // a run mints it
+	}
+	return wrapAgentErr(name, err)
+}
+
+// errAuthNeedsEngine: an auth mode is written with no engine to check it
+// against.
+var errAuthNeedsEngine = errors.New("no known engine to check the auth mode against")
+
+// wrapAgentErr names the agent a refusal is about; its remedy stays
+// reachable through %w, where the renderer reads it.
+func wrapAgentErr(name string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("agent %q: %w", name, err)
 }
 
 // validateAgentEngine refuses a non-empty engine outside AvailableLLMNames.
@@ -481,6 +536,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
 		entry.HomeMode = orKeep(req.HomeMode, entry.HomeMode)
+		entry.Auth = orKeep(req.Auth, entry.Auth)
 		// Checked against the record the write RESULTS IN, inside the
 		// transaction, for the same reason the surface preference is: a
 		// create with no --llm/--profiles and an edit that clears the last of
@@ -504,6 +560,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 		Driving:     entry.Driving,
 		Escalation:  entry.Escalation,
 		HomeMode:    entry.HomeMode,
+		Auth:        entry.Auth,
 	}, nil
 }
 
@@ -626,6 +683,10 @@ type ResolvedAgent struct {
 	// InTreeAgentHome.HomeMode — a launch with NO binding gets the session
 	// home by the resolver's own default, not by this field's value.
 	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
+	// Auth is the agent's EFFECTIVE auth mode: the declared one, or token
+	// when undeclared (engine.ParseAuthMode). The launch resolver reads the
+	// same declaration off the binding itself.
+	Auth engine.AuthMode `json:"auth,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -699,11 +760,11 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 	// Effective engine: an explicit override (a caller-level --llm) wins over the
 	// binding's declared engine; either then beats the composed profiles' llm,
 	// then the project default — the same precedence run/oneshot use.
-	engine := sub.LLM
+	llmName := sub.LLM
 	if engineOverride != "" {
-		engine = engineOverride
+		llmName = engineOverride
 	}
-	label := resolveOneshotLabel(cfg, engine, ctxResult.ProfileLLM)
+	label := resolveOneshotLabel(cfg, llmName, ctxResult.ProfileLLM)
 	backend, model := ResolveBackend(reg, cfg, label)
 
 	// Effective runtime axis: the agent's own choice wins, else the project's
@@ -737,10 +798,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
 
-	configHome, cherr := agents.ParseHomeMode(sub.HomeMode)
-	if cherr != nil {
-		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)
-	}
+	configHome, authMode := resolvedHomeAndAuth(name, sub)
 
 	// The interactive base an unflagged run resolves to (declared → label →
 	// PROJECT DEFAULT → built-in default), so a blank claude-code posture shows
@@ -772,5 +830,22 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		Escalation:           sub.Escalation,
 		Driving:              sub.Driving,
 		HomeMode:             configHome,
+		Auth:                 authMode,
 	}, nil
+}
+
+// resolvedHomeAndAuth is the binding's effective engine-home and auth modes
+// as `agent show` reports them. A declaration that does not parse warns and
+// reports the default; the launch itself refuses an unparseable auth.
+func resolvedHomeAndAuth(name string, sub agents.Agent) (agents.HomeMode, engine.AuthMode) {
+	home, err := agents.ParseHomeMode(sub.HomeMode)
+	if err != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, err)
+	}
+	auth, err := engine.ParseAuthMode(sub.Auth)
+	if err != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — a launch refuses it", name, err)
+		auth = engine.AuthToken
+	}
+	return home, auth
 }

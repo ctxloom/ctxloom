@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -358,7 +359,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 	err := launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 	require.Error(t, err, "a failed ping must fail init loud, not degrade")
 	assert.False(t, launchCalled, "the engine must never be launched after a failed auth ping")
-	assert.Contains(t, err.Error(), "ctxloom auth set-token")
+	assert.Contains(t, err.Error(), "ctxloom auth mint --engine claude-code --mode token")
 }
 
 // TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint: a healthy
@@ -515,4 +516,45 @@ func TestLaunchDiscovery_SkipLaunch_SkipsPingToo(t *testing.T) {
 	err := launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 	require.NoError(t, err)
 	assert.False(t, pingCalled)
+}
+
+// recordingCells records the CellRequest a launch asked for, over an inner
+// Cells.
+type recordingCells struct {
+	inner launch.Cells
+	got   *launch.CellRequest
+}
+
+func (c recordingCells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell, error) {
+	*c.got = req
+	return c.inner.Prepare(ctx, req)
+}
+
+// The setup probe runs in the DEFAULT AGENT's declared auth mode — the
+// credential of the session init is about to launch — so an init whose
+// default agent shares the human's login never mints a token nobody will
+// use. With no default agent it declares nothing.
+func TestPingEngineAuth_RunsInTheDefaultAgentsAuthMode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  config.Fixture
+		want string
+	}{
+		{"the default agent's login", config.Fixture{
+			Agents:       map[string]agents.Agent{"dev": {Name: "dev", LLM: "claude-code", Auth: "login"}},
+			DefaultAgent: "dev",
+		}, string(engine.AuthLogin)},
+		{"no default agent", config.Fixture{}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubPingHosts(t, &stubRunHost{})
+			tc.cfg.AppPaths = []string{t.TempDir()}
+			cfg := gatedFixture(tc.cfg)
+			deps := testLaunchDeps(t, cfg)
+			var got launch.CellRequest
+			deps.Cells = recordingCells{inner: deps.Cells, got: &got}
+			require.NoError(t, pingEngineAuth(context.Background(), deps, cfg, "claude-code", t.TempDir()))
+			assert.Equal(t, tc.want, got.Auth)
+		})
+	}
 }

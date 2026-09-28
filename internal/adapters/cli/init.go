@@ -668,22 +668,16 @@ func printDiscoveryPostureHint(cfg *config.Config) {
 // prove a live, authenticated round trip happened.
 const authPingTask = "Reply with exactly: ok"
 
-// engineAuthFixHint names the fix for a failed auth probe, read off the
-// engine's OWN token-auth declaration (Engine.Home().Auth): the command that
-// mints its token, the command that stores it, and the env vars that
-// authenticate it instead. An engine that declares no token auth — or is not
-// registered at all — gets a generic but actionable fix rather than a blank,
-// since the probe still failed.
+// engineAuthFixHint names the fix for a failed auth probe. An engine that
+// declares auth (Engine.Home().Auth) gets the commands that mint or store
+// its credential; one that declares none — or is not registered at all —
+// gets a generic but actionable fix rather than a blank, since the probe
+// still failed.
 func engineAuthFixHint(engine string) string {
-	a, ok := isolation.TokenAuthFor(engine)
-	if !ok {
+	if _, ok := isolation.AuthFor(engine); !ok {
 		return "authenticate the engine (subscription login or its API-key env var) and try again"
 	}
-	fix := fmt.Sprintf("run `%s` and store what it prints with `ctxloom auth set-token`", a.MintHint)
-	if len(a.EnvTriggers) > 0 {
-		fix += fmt.Sprintf(" (or set %s)", strings.Join(a.EnvTriggers, " or "))
-	}
-	return fix
+	return fmt.Sprintf("run `ctxloom auth mint --engine %s --mode token` at a terminal, or store an API key with `ctxloom auth set --engine %s --mode api-key`", engine, engine)
 }
 
 // authPingHosts is a test seam: nil runs the probe on the command's
@@ -711,6 +705,7 @@ func pingHosts() operations.RunHosts {
 func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, engine, workDir string) error {
 	src := operations.InternalSource(engine, "", workDir)
 	src.Permission = agent.PermissionBypass
+	src.Auth = defaultAgentAuth(cfg)
 	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src)
 	if err != nil {
 		return probeFailure(engine, probeFailedToStart, err)
@@ -720,6 +715,20 @@ func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, e
 		return probeFailure(engine, probeDidNotAnswer, err)
 	}
 	return nil
+}
+
+// defaultAgentAuth is the auth mode the default agent declares: the probe
+// checks the credential the session init is about to launch will use (the
+// default agent's own login, as init writes it), so it never mints a token
+// that session would not use.
+func defaultAgentAuth(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if a, ok := cfg.Agent(cfg.GetDefaultAgent()); ok {
+		return a.Auth
+	}
+	return ""
 }
 
 // The probe's two failure points, named for WHAT FAILED rather than for auth.

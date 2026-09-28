@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -89,8 +90,12 @@ type Container struct {
 	base       containerBase
 	image      string
 	engineSpec engineContainerSpec // backend-keyed knobs: auth, overlays, local-build recipe
-	binaryPath string              // the container's ctxloom path (runs `runner <engine>`)
-	home       string              // fresh $HOME inside the container
+	// runAuth is the env the run's auth mode resolved to (engine.Auth.
+	// LaunchEnv), which the auth gate reads ahead of the host env; nil for a
+	// run whose credential is not ctxloom's to resolve. Stamped by Prepare.
+	runAuth    engine.LaunchEnv
+	binaryPath string // the container's ctxloom path (runs `runner <engine>`)
+	home       string // fresh $HOME inside the container
 	// instanceHome is the fixed in-container root a RELOCATED engine home is
 	// mounted under (defaultContainerInstanceHome; WithInstanceHome overrides).
 	instanceHome string
@@ -751,7 +756,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
 	}
-	auth, ok := c.engineSpec.resolveAuth()
+	auth, ok := c.engineSpec.resolveAuth(c.runAuth)
 	if !ok {
 		_ = os.RemoveAll(root)
 		return containerScratch{}, report.Error{Msg: "container auth: " + c.engineSpec.authHint, Fix: c.engineSpec.authRemedy}

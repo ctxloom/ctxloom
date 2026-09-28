@@ -107,6 +107,11 @@ func EngineHome(s string) AgentOption {
 	return func(d *agentDecl) { d.binding.HomeMode = s }
 }
 
+// Auth sets the binding's `auth:` declaration, unparsed.
+func Auth(s string) AgentOption {
+	return func(d *agentDecl) { d.binding.Auth = s }
+}
+
 // NoStructuredDrive makes the fixture engine declare Interactive only, so a
 // Structured Source is refused at Definition.Modes.
 func NoStructuredDrive() AgentOption {
@@ -282,7 +287,7 @@ func newFixtureEngine(modes []engine.Mode, readOnlyPlan, relocatableHome bool) e
 	}
 	e := fixtureEngine{Base: engine.Base{Definition: d}}
 	if relocatableHome {
-		e.home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: ".fixture"}}, Auth: engine.Absent[engine.TokenAuth]("the fixture authenticates against no vendor"), SharedLogin: engine.Absent[engine.SharedLogin]("the fixture keeps no credential")}
+		e.home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: ".fixture"}}, Auth: engine.Absent[engine.Auth]("the fixture authenticates against no vendor")}
 		if err := e.home.Validate(); err != nil {
 			panic(err)
 		}

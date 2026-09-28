@@ -132,6 +132,7 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/agents/additionalProperties/properties/permissions", goNames: agentaxis.PermissionModeNames},
 	{path: "properties/agents/additionalProperties/properties/driving", goNames: agents.DrivingModeNames},
 	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},
+	{path: "properties/agents/additionalProperties/properties/auth", goNames: engine.AuthModeNames},
 
 	// Escalation ladder: real Go vocabulary exists but is unexported inside
 	// internal/core/coord (approvalKindNames, LadderAction), a package

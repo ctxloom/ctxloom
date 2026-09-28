@@ -1,5 +1,7 @@
 //go:build unix
 
+// The runtime binary is /bin/sh, which a Windows host cannot exec.
+
 package isolation
 
 import (

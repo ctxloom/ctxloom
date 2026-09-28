@@ -1,6 +1,6 @@
 //go:build !windows
 
-// Container isolation has no Windows host support: nothing maps a Windows host path into the Linux container.
+// Drives hermeticHostContainer's #!/bin/sh runtime stub, which a Windows host cannot exec.
 
 package isolation
 

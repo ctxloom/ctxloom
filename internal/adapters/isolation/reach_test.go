@@ -1,6 +1,6 @@
 //go:build !windows
 
-// Container isolation has no Windows host support: nothing maps a Windows host path into the Linux container.
+// Pins the shared-kernel route order; a Windows host's containers always run in a VM (platform.ContainersInVM).
 
 package isolation
 
@@ -18,27 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
-
-// stubPrimary fixes the fallback route's address source.
-func stubPrimary(t *testing.T, ip string) {
-	t.Helper()
-	orig := primaryOutboundIP
-	primaryOutboundIP = func() string { return ip }
-	t.Cleanup(func() { primaryOutboundIP = orig })
-}
-
-// stubGateway answers every gateway inspect with out/err, recording the argv.
-func stubGateway(t *testing.T, out string, err error) *[]string {
-	t.Helper()
-	var got []string
-	orig := probeExec
-	probeExec = func(_ context.Context, bin string, args []string) (string, error) {
-		got = append([]string{bin}, args...)
-		return out, err
-	}
-	t.Cleanup(func() { probeExec = orig })
-	return &got
-}
 
 // TestReachRoute pins the preference order per runtime mode on a shared
 // kernel, as measured on this project's dev host (podman 5.4.2, rootless

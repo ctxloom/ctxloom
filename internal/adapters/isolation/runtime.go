@@ -3,6 +3,7 @@ package isolation
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -487,16 +488,31 @@ func runMounts(spec RunSpec) []mount {
 // in this package funnels through here, so this is the single site. (--mount
 // requires the source to already exist; every mount.Host in this package is
 // a path we created or verified before the run, so that holds.)
+//
+// The value is ONE CSV record: docker (opts.MountOpt.Set) and podman
+// (specgenutilexternal.FindMountType) both split it with encoding/csv, so a
+// path holding a comma or a quote is quoted here or it splits into fields
+// that are not there.
 func mountArgs(mounts []mount) []string {
 	var args []string
 	for _, m := range mounts {
-		opt := "type=bind,source=" + m.Host + ",target=" + m.Container
+		fields := []string{"type=bind", "source=" + m.Host, "target=" + m.Container}
 		if m.ReadOnly {
-			opt += ",readonly"
+			fields = append(fields, "readonly")
 		}
-		args = append(args, "--mount", opt)
+		args = append(args, "--mount", csvRecord(fields))
 	}
 	return args
+}
+
+// csvRecord renders fields as one CSV record, the inverse of the reader the
+// runtimes parse --mount with.
+func csvRecord(fields []string) string {
+	var b strings.Builder
+	w := csv.NewWriter(&b)
+	_ = w.Write(fields) // a strings.Builder cannot fail the write
+	w.Flush()
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // runtimeReachable reports whether a container runtime CLI is on PATH and its

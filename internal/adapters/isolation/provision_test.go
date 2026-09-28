@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // TestBuildRunnerSpec_WiresAuthAndMounts: buildRunnerSpec threads the
@@ -154,7 +156,7 @@ func TestContainerConfigOverlay_LeavesAnExistingHostTargetUntouched(t *testing.T
 
 	info, err := os.Stat(claudeDir)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "an existing target is never chmod-ed")
+	fileperm.Equal(t, 0o700, info.Mode(), "an existing target is never chmod-ed")
 	entries, err := os.ReadDir(claudeDir)
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "nothing is written into, or removed from, the host project's own config dir")

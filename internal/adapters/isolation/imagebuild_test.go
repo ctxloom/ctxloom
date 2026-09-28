@@ -1,3 +1,7 @@
+//go:build !windows
+
+// Container isolation has no Windows host support: nothing maps a Windows host path into the Linux container.
+
 package isolation
 
 import (
@@ -756,21 +760,6 @@ exit 0
 func forceProvenance(t *testing.T) {
 	t.Helper()
 	require.NotEmpty(t, HostProvenanceDigest(""), "the staleness gate must be live, or the assertions below prove nothing")
-}
-
-// unsetVersionStamp makes the provenance key UNRESOLVABLE for one test, which
-// is the only way the digest can now come back empty: it is derived from the
-// version stamp, not from reading any file.
-//
-// It replaced a helper that cleared a memo of a binary-content digest, whose
-// callers emptied the digest by breaking resolveSelfExe. That no longer empties
-// anything — those tests would have kept their names and stopped testing the
-// gate they name.
-func unsetVersionStamp(t *testing.T) {
-	t.Helper()
-	orig := binaryVersion
-	SetBinaryVersion("")
-	t.Cleanup(func() { SetBinaryVersion(orig) })
 }
 
 // TestEnsureImage_UnverifiableProvenanceIsNotCurrent pins that the

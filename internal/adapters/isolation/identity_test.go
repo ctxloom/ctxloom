@@ -1,13 +1,17 @@
+//go:build !windows
+
+// Container isolation has no Windows host support: nothing maps a Windows host path into the Linux container.
+
 package isolation
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,24 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// captureStderr swaps os.Stderr for a pipe; the returned func restores it and
-// yields everything written meanwhile. For asserting the STREAMED half of a
-// strictness fault (the warning fires in both modes; only recording is modal).
-func captureStderr(t *testing.T) func() string {
-	t.Helper()
-	orig := os.Stderr
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	os.Stderr = w
-	return func() string {
-		require.NoError(t, w.Close())
-		os.Stderr = orig
-		out, rerr := io.ReadAll(r)
-		require.NoError(t, rerr)
-		return string(out)
-	}
-}
 
 // overrideContainer builds a run-as-is override Container (config
 // isolation_images) over a fake runtime whose `image inspect` reports the

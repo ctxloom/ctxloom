@@ -1,3 +1,7 @@
+//go:build !windows
+
+// Container isolation has no Windows host support: nothing maps a Windows host path into the Linux container.
+
 package isolation
 
 import (

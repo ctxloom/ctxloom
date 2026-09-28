@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/spf13/afero"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -179,7 +181,7 @@ func TestPrepareInstanceHome_WritesClaudesConfigAndNoCredential(t *testing.T) {
 	assert.NotContains(t, cfg, "mcpServers", "the user's own registrations never cross")
 	info, err := os.Stat(cfgPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	fileperm.Equal(t, 0o600, info.Mode())
 
 	_, err = os.Lstat(filepath.Join(instance, "claude", ".credentials.json"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "no credential is ever copied into a session home")

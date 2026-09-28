@@ -1,3 +1,7 @@
+//go:build !windows
+
+// Unix mode bits: Windows has only a read-only attribute, so a perm is not observable there.
+
 package iox_test
 
 import (

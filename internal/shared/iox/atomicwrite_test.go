@@ -36,8 +36,4 @@ func TestWriteFileAtomic_WritesOverwritesAndLeavesNoTemp(t *testing.T) {
 		}
 		t.Fatalf("expected only index.yaml, got %v", names)
 	}
-
-	if info, _ := os.Stat(p); info.Mode().Perm() != 0o644 {
-		t.Fatalf("perm = %v, want 0644", info.Mode().Perm())
-	}
 }

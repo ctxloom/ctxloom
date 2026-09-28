@@ -14,5 +14,5 @@ import "os"
 //
 // A missing parent directory surfaces as fs.ErrNotExist on every platform.
 func OpenLockFile(path string, perm os.FileMode) (*os.File, error) {
-	return os.OpenFile(path, os.O_CREATE|os.O_RDONLY, perm)
+	return openLockFile(path, perm)
 }

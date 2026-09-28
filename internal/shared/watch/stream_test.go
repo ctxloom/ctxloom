@@ -7,16 +7,18 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestStream_EmitsOnceUpFrontThenPerDebouncedBurst pins the contract both
-// watch commands need: a subscriber sees current state immediately, and a
-// burst of filesystem events for one logical change collapses into one emit.
-func TestStream_EmitsOnceUpFrontThenPerDebouncedBurst(t *testing.T) {
+// TestStream_EmitsUpFrontThenOnARealChange pins the end-to-end path through a
+// real fsnotify watcher: a subscriber sees current state immediately, and an
+// actual write to a watched file reaches it. How MANY emits a burst produces is
+// deliberately not asserted here — see the synctest test below for why.
+func TestStream_EmitsUpFrontThenOnARealChange(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "log.jsonl")
 
@@ -34,13 +36,9 @@ func TestStream_EmitsOnceUpFrontThenPerDebouncedBurst(t *testing.T) {
 	require.Eventually(t, func() bool { return emits.Load() == 1 }, 2*time.Second, 5*time.Millisecond,
 		"Stream must emit once up front, before any change")
 
-	// One logical append, several filesystem events.
-	for range 5 {
-		require.NoError(t, os.WriteFile(target, []byte("x"), 0o644))
-	}
-	require.Eventually(t, func() bool { return emits.Load() >= 2 }, 2*time.Second, 5*time.Millisecond)
-	time.Sleep(200 * time.Millisecond)
-	assert.LessOrEqual(t, emits.Load(), int64(3), "a burst for one change must debounce, not emit per event")
+	require.NoError(t, os.WriteFile(target, []byte("x"), 0o644))
+	require.Eventually(t, func() bool { return emits.Load() >= 2 }, 2*time.Second, 5*time.Millisecond,
+		"a real change to a watched file must reach the subscriber")
 
 	cancel()
 	select {
@@ -49,6 +47,57 @@ func TestStream_EmitsOnceUpFrontThenPerDebouncedBurst(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Stream did not return after the context was cancelled")
 	}
+}
+
+// TestStream_ABurstForOneChangeDebouncesToOneEmit pins the debounce: events
+// arriving closer together than the debounce collapse into a single emit.
+//
+// This runs on synctest's fake clock and sends the events itself. Real
+// filesystem writes cannot establish "these events were one burst": the
+// debounce correctly treats any quiet gap longer than the interval as the
+// writing having stopped, and a writer stalled in a syscall on a loaded CI
+// runner produces exactly such a gap, so a wall-clock burst splits into
+// several and the count flakes. Here the gaps are chosen, not observed.
+func TestStream_ABurstForOneChangeDebouncesToOneEmit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		w := &Watcher{
+			events: make(chan Event),
+			errs:   make(chan error),
+			done:   make(chan struct{}),
+		}
+		const debounce = 30 * time.Millisecond
+
+		var emits atomic.Int64
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- Stream(ctx, w, debounce, func() error { emits.Add(1); return nil }) }()
+
+		synctest.Wait()
+		require.Equal(t, int64(1), emits.Load(), "Stream must emit once up front, before any change")
+
+		// One logical change, several events, each inside the debounce of the
+		// last — together spanning well past a single debounce interval, so
+		// only a timer that restarts on every event keeps them one burst.
+		for range 5 {
+			w.events <- Event{Path: "log.jsonl"}
+			time.Sleep(debounce / 2)
+			synctest.Wait()
+			require.Equal(t, int64(1), emits.Load(), "an event inside the debounce window must not emit")
+		}
+
+		time.Sleep(debounce)
+		synctest.Wait()
+		require.Equal(t, int64(2), emits.Load(), "the burst must emit once when the writing stops")
+
+		// Long past the ceiling too: a burst that has emitted must not emit
+		// again on a timer left over from it.
+		time.Sleep(2 * maxDebounceWait(debounce))
+		synctest.Wait()
+		assert.Equal(t, int64(2), emits.Load(), "a burst for one change must debounce, not emit per event")
+
+		cancel()
+		assert.NoError(t, <-done, "a cancelled context is a clean shutdown, not an error")
+	})
 }
 
 // TestStream_ReturnsTheEmitError pins that a write failure on the output stream

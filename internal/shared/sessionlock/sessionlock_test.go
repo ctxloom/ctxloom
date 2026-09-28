@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -140,7 +139,7 @@ func TestInspect_PidContentPlaysNoPart(t *testing.T) {
 // TestAcquire_Dead_KeepsTheLockUntilReleased is the sweeper's contract: a
 // Dead verdict comes WITH the lock, so a session resumed under the same harp
 // mid-sweep waits in Hold rather than racing the reclaim. The second
-// descriptor is a raw flock on the same path — the exact thing a concurrent
+// descriptor is a second harp lock on the same path — the exact thing a concurrent
 // Hold would do.
 func TestAcquire_Dead_KeepsTheLockUntilReleased(t *testing.T) {
 	testsupport.Isolate(t)
@@ -151,7 +150,7 @@ func TestAcquire_Dead_KeepsTheLockUntilReleased(t *testing.T) {
 	p, release := Acquire("reclaim-harp")
 	require.Equal(t, Dead, p.Verdict)
 
-	other := flock.New(lockPath(t, "reclaim-harp"))
+	other := newHarpLock(lockPath(t, "reclaim-harp"), harpLockFlagExisting)
 	got, err := other.TryLock()
 	require.NoError(t, err)
 	assert.False(t, got, "while the sweeper holds a Dead harp's lock nobody else can take it")
@@ -160,7 +159,7 @@ func TestAcquire_Dead_KeepsTheLockUntilReleased(t *testing.T) {
 	got, err = other.TryLock()
 	require.NoError(t, err)
 	assert.True(t, got, "release hands the lock back")
-	require.NoError(t, other.Unlock())
+	require.NoError(t, other.Close())
 }
 
 // TestAcquire_Alive_ReleaseIsHarmless: the release returned with a refusal
@@ -181,7 +180,7 @@ func TestAcquire_Alive_ReleaseIsHarmless(t *testing.T) {
 // cannot take the lock must not leave the file behind, because an existing
 // UNLOCKED file reads as Dead — the one outcome worse than no file at all
 // (which reads as Indeterminate, a refusal). The competing holder here is a
-// raw flock on the same path; holdWait is shortened so the bounded wait is
+// second harp lock on the same path; holdWait is shortened so the bounded wait is
 // measured in milliseconds, not the production seconds.
 func TestHold_WhenAnotherHolderWins_ErrorsAndLeavesNoUnlockedFile(t *testing.T) {
 	testsupport.Isolate(t)
@@ -192,11 +191,11 @@ func TestHold_WhenAnotherHolderWins_ErrorsAndLeavesNoUnlockedFile(t *testing.T) 
 
 	path := lockPath(t, "contested-harp")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-	other := flock.New(path)
+	other := newHarpLock(path, harpLockFlagCreate)
 	got, err := other.TryLock()
 	require.NoError(t, err)
 	require.True(t, got)
-	t.Cleanup(func() { _ = other.Unlock() })
+	t.Cleanup(func() { _ = other.Close() })
 
 	err = Hold("contested-harp")
 	require.Error(t, err)
@@ -217,13 +216,13 @@ func TestHold_WaitsOutABriefSweeperHold(t *testing.T) {
 
 	path := lockPath(t, "briefly-contested-harp")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-	other := flock.New(path)
+	other := newHarpLock(path, harpLockFlagCreate)
 	got, err := other.TryLock()
 	require.NoError(t, err)
 	require.True(t, got)
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		_ = other.Unlock()
+		_ = other.Close()
 	}()
 
 	require.NoError(t, Hold("briefly-contested-harp"))

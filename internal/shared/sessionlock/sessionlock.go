@@ -1,8 +1,8 @@
 // Package sessionlock answers one question for every sweep that reclaims
 // per-session data: is the session that owns this harp still running?
 //
-// The signal is an EXCLUSIVE FILE LOCK (github.com/gofrs/flock — flock(2) on
-// Linux and macOS, LockFileEx on Windows) that the session-owning process
+// The signal is an EXCLUSIVE FILE LOCK (newHarpLock: flock(2) on Linux and
+// macOS, LockFileEx over a byte past the content on Windows) that the session-owning process
 // holds on paths.HarpLockPath(harp) for as long as it runs. A sweeper tries
 // the lock:
 //
@@ -41,8 +41,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/gofrs/flock"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -119,8 +117,16 @@ const lockFileMode = 0o600
 // release; it is not the lock.
 var (
 	heldMu sync.Mutex
-	held   = map[string]*flock.Flock{}
+	held   = map[string]harpLock{}
 )
+
+// harpLock is the one lock primitive every holder and probe of a harp lock
+// file goes through; newHarpLock builds it per OS. Close releases.
+type harpLock interface {
+	TryLock() (bool, error)
+	TryLockContext(ctx context.Context, retry time.Duration) (bool, error)
+	Close() error
+}
 
 // Hold takes harp's lock for this process and keeps it until Release (or the
 // process ends, which is the point). Idempotent per process.
@@ -134,8 +140,7 @@ var (
 //     as dead.
 //   - It is written BEFORE the lock is taken so no second descriptor is ever
 //     opened on a locked file: on the fcntl-emulated platforms closing any
-//     descriptor drops the process's lock, and on Windows LockFileEx refuses
-//     a write through another handle.
+//     descriptor drops the process's lock.
 //
 // A Hold that loses the lock to another holder for longer than holdWait
 // REMOVES the file before returning ErrHeldElsewhere: a file left behind
@@ -160,7 +165,7 @@ func Hold(harp string) error {
 		return err
 	}
 
-	fl := flock.New(path, flock.SetPermissions(lockFileMode))
+	fl := newHarpLock(path, harpLockFlagCreate)
 	ctx, cancel := context.WithTimeout(context.Background(), holdWait)
 	defer cancel()
 	stop := lockwait.Watch(path)
@@ -244,7 +249,7 @@ func Acquire(harp string) (Probe, func()) {
 
 	// O_RDONLY without O_CREATE: the Lstat above already ruled out absence,
 	// and a create here would be the race that mints an unlocked file.
-	fl := flock.New(path, flock.SetFlag(os.O_RDONLY))
+	fl := newHarpLock(path, harpLockFlagExisting)
 	got, err := fl.TryLock()
 	if err != nil {
 		_ = fl.Close()

@@ -3,7 +3,6 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -84,31 +83,6 @@ func SessionHomeRooted(start present.Start) error {
 		return ErrUnrootedSessionHome
 	}
 	return nil
-}
-
-// PresentsUnderProjectRoot reports whether a's bytes land beneath the
-// PROJECT ROOT — as a well-known file an engine started in that directory
-// reads — by asking its presenter, against sentinel roots that cannot be
-// confused with one another. It is the ONE answer to "is this delivery a
-// project file?".
-//
-// It reads the PRESENTATION rather than enumerating marker interfaces
-// (Rider, LaunchOnly) because a marker list is a closed set that a new
-// approach silently falls outside of: a record-backed write beneath the
-// engine home is neither a rider nor launch-only, and by markers alone it
-// would be classed a project file. The presenter already states where the
-// bytes go — "the presenter decides where bytes go; Deliver acts" — so the
-// predicate reads that decision. A Rider presents nothing (no HostPath); a
-// launch-only session form presents under SessionHome; both are correctly "not
-// a project file" without being named here.
-func PresentsUnderProjectRoot(a Approach) bool {
-	const project = "/ctxloom-probe/project"
-	probe := present.New(present.OnHost(present.Paths{
-		ProjectRoot: present.Root{Host: project},
-		SessionHome: present.Root{Host: "/ctxloom-probe/session-home"},
-	}))
-	host := filepath.ToSlash(a.Present(probe).HostPath)
-	return host == project || strings.HasPrefix(host, project+"/")
 }
 
 // SurfaceKind is present.Kind under this package's established name: the

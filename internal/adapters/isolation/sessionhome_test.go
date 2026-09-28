@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -43,23 +44,16 @@ func claudeEngine(t *testing.T) engine.Engine {
 	return k
 }
 
-// fakeHostHome points $HOME at a scratch directory and unsets the vars
-// claude resolves its login storage from, so no case can read or write the
-// developer's real credentials. When token is non-empty the host also gets a
-// native ~/.claude login, so a case can show that login is never copied.
+// fakeHostHome isolates the environment (testsupport.Isolate: a scratch
+// $HOME, every var that can authenticate claude or locate its login unset),
+// so no case can read or write the developer's real credentials. When token
+// is non-empty the host also gets a native ~/.claude login, so a case can
+// show that login is never copied.
 func fakeHostHome(t *testing.T, token string) string {
 	t.Helper()
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	// UNSET, not empty: the login store reads whether the launching env
-	// sets these at all.
-	for _, v := range []string{claude.ConfigDirEnv, claude.SecureStorageEnv} {
-		t.Setenv(v, "")
-		require.NoError(t, os.Unsetenv(v))
-	}
+	home := testsupport.Isolate(t)
 	if token != "" {
 		writeNativeLogin(t, home)
 	}

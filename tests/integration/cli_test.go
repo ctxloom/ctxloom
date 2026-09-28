@@ -255,6 +255,11 @@ bundles:
 	require.Contains(t, env.LastOutput(), "dev",
 		"agent create must report the binding it wrote, not print the agent group's help")
 
+	// The preview exits with the strictness outcome, so whether the declared
+	// runtime is AVAILABLE decides the exit code: this test fixes its world to
+	// "a rootless runtime is reachable" rather than inheriting the machine's.
+	// The unavailable direction (exit 3 plus the isolation finding) is J002200's.
+	require.NoError(t, env.StubRootlessContainerRuntime())
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "agent test")
 
 	assert.Equal(t, 0, env.LastExitCode(), env.LastOutput())

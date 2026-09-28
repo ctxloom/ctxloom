@@ -310,9 +310,10 @@ const ptyWaitTimeout = 20 * time.Second
 // companion's typed setup guidance this harness is proving delivery of. init now hands off and exits with no further prompt
 // (the post-discovery relaunch offer and the inline review offer are both
 // deleted — init-as-skill slice ④), so this just waits for the process to
-// exit. Returns the mock's full recorded-input file.
-func driveDiscoverySessionViaMock(w *World, recordFile string) (string, error) {
-	sess, err := w.env.RunPTY(100, 30, nil, "init")
+// exit. Returns the mock's full recorded-input file. initArgs are passed to
+// `init` after the verb, for a row that runs setup with a flag.
+func driveDiscoverySessionViaMock(w *World, recordFile string, initArgs ...string) (string, error) {
+	sess, err := w.env.RunPTY(100, 30, nil, append([]string{"init"}, initArgs...)...)
 	if err != nil {
 		return "", fmt.Errorf("start pty session: %w", err)
 	}

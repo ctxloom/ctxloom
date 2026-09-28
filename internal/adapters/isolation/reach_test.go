@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -29,6 +30,7 @@ func TestReachRoute(t *testing.T) {
 		t.Skip("in a VM every runtime answers its alias; this pins the shared-kernel order")
 	}
 	stubPrimary(t, "192.0.2.10")
+	stubLocal(t, true, nil)
 	public := func(why string) present.Listen {
 		return present.Listen{Addr: "192.0.2.10", Public: true, Why: why}
 	}
@@ -135,4 +137,42 @@ type noRouteRuntime struct{ fakeRuntime }
 
 func (noRouteRuntime) reachRoute(context.Context) (hostRoute, error) {
 	return hostRoute{}, ErrNoHostReach
+}
+
+// TestSettleReach_ForeignBridgeGatewayIsAFatalIsolationFinding: a bridge
+// gateway that is not one of this host's own addresses (ctxloom in a container
+// driving a daemon it shares no network with) is refused at the gate with the
+// docker-outside-of-docker remedy, and no route is handed on to listen on.
+func TestSettleReach_ForeignBridgeGatewayIsAFatalIsolationFinding(t *testing.T) {
+	if platform.ContainersInVM {
+		t.Skip("in a VM every runtime answers its alias; the bridge gateway is a shared-kernel route")
+	}
+	stubPrimary(t, "192.0.2.10")
+	stubGateway(t, "172.17.0.1\n", nil)
+	asked := stubLocal(t, false, nil)
+	mark := strictness.Checkpoint()
+	route, err := settleReach(context.Background(), Docker{})
+	require.ErrorIs(t, err, errBridgeNotLocal)
+	assert.Equal(t, "172.17.0.1", *asked)
+	assert.Equal(t, hostRoute{}, route, "nothing is handed on to listen on")
+	found := strictness.Since(mark)
+	require.Len(t, found, 1)
+	assert.Equal(t, report.KindIsolation, found[0].Kind)
+	assert.Contains(t, found[0].Text, "172.17.0.1")
+	assert.Equal(t, foreignBridgeRemedy, found[0].Remedy)
+}
+
+// TestReachRoute_BridgeGatewayLocalityUnknownIsRefused: a host whose own
+// addresses cannot be listed cannot vouch for the gateway, so it is refused
+// rather than listened on blind.
+func TestReachRoute_BridgeGatewayLocalityUnknownIsRefused(t *testing.T) {
+	if platform.ContainersInVM {
+		t.Skip("in a VM every runtime answers its alias; the bridge gateway is a shared-kernel route")
+	}
+	stubPrimary(t, "192.0.2.10")
+	stubGateway(t, "172.17.0.1\n", nil)
+	stubLocal(t, false, errors.New("netlink: permission denied"))
+	_, err := Docker{}.reachRoute(context.Background())
+	require.ErrorIs(t, err, ErrNoHostReach)
+	assert.Contains(t, err.Error(), "netlink: permission denied")
 }

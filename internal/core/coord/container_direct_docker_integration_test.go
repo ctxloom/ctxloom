@@ -69,7 +69,7 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*coord.
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
-		Runtime:    launch.RuntimeRootless,
+		Runtime:    containerAxes("docker").Runtime,
 		Permission: perm.String(),
 	}, nil
 }
@@ -118,7 +118,7 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnP
 	// As Resolve carries a container launch: the container axis (the runner
 	// dials the container-reachable listener) and a session endpoint for the
 	// runner to bind — any free loopback port inside the container.
-	l.Axes.Runtime = launch.RuntimeRootless
+	l.Axes.Runtime = containerAxes("docker").Runtime
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil
@@ -214,7 +214,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	out, err := c.AgentRun(ctx, owner, directAgentName, seedPayload, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
-	require.Equal(t, launch.RuntimeRootless, out.Runtime)
+	require.Equal(t, containerAxes("docker").Runtime, out.Runtime)
 	childHarp := out.Harp
 
 	// Subscribe to the live tap before the container has even been run.

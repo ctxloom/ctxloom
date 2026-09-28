@@ -42,6 +42,34 @@ func TestIsolate_ClearsVarsBeyondTheOriginalThree(t *testing.T) {
 	}
 }
 
+// TestIsolate_UnsetsEngineCredentialVars pins that an engine's config and
+// credential vars from the developer's live session do not survive Isolate,
+// and that they are UNSET rather than set-empty: for several of them empty and
+// absent mean different things (an empty CLAUDE_SECURESTORAGE_CONFIG_DIR is
+// HOME/.claude, an absent one falls back to the config dir), and a CI box has
+// them absent. A test once passed locally only because CLAUDE_CONFIG_DIR
+// leaked in this way.
+func TestIsolate_UnsetsEngineCredentialVars(t *testing.T) {
+	leaked := []string{
+		"CLAUDE_CONFIG_DIR",
+		"CLAUDE_SECURESTORAGE_CONFIG_DIR",
+		"CLAUDE_CODE_OAUTH_TOKEN",
+		"ANTHROPIC_API_KEY",
+		"ANTHROPIC_BASE_URL",
+		"CTXLOOM_PROJECT_ID",
+	}
+	for _, k := range leaked {
+		t.Setenv(k, "ambient-leaked-value")
+	}
+
+	Isolate(t)
+
+	for _, k := range leaked {
+		v, ok := os.LookupEnv(k)
+		assert.False(t, ok, "Isolate must unset %s, found %q", k, v)
+	}
+}
+
 // TestEnvKeys_CoversTheFullProductionSet is a lightweight regression pin
 // against EnvKeys narrowing back down: every variable known (at the time of
 // the fix) to matter to isolation must still be present.

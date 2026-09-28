@@ -55,7 +55,7 @@ import (
 func containerOwnerLaunch(harp string, mode engine.Mode) launch.Launch {
 	l := coord.OwnerLaunch(harp, "mock", "fast", "mock", "/work", agent.PermissionBypass)
 	l.Mode = mode
-	l.Axes.Runtime = launch.RuntimeRootless
+	l.Axes.Runtime = containerAxes("docker").Runtime
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "owner-itest-bearer"}
 	return l
 }

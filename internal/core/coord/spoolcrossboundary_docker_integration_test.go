@@ -35,7 +35,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
-	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 const (
@@ -84,12 +83,9 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the spool cross-boundary integration test")
 	coord.ResetStrictness(t)
 
-	// A real filesystem outside the checkout, for the same two reasons the
-	// spool package's own fixture uses one: /tmp is tmpfs on a stock Linux box
-	// (a durable substrate proven only over RAM is evidence about the wrong
-	// thing), and in-tree residue confuses worktree-safe WIP detection even
-	// when .gitignore hides it.
-	fixture, err := os.MkdirTemp(crossBoundaryFixtureRoot(t), "ctxloom-spool-xb-")
+	// Outside the checkout, on a real filesystem the daemon can see —
+	// dockergate.BindFixtureRoot names all three constraints.
+	fixture, err := os.MkdirTemp(dockergate.BindFixtureRoot(), "ctxloom-spool-xb-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// Loud on purpose: leftover fixture dirs are machine debris a later
@@ -200,23 +196,4 @@ func containerRead(t *testing.T, fixture, containerPath string) string {
 	require.NoError(t, err, "the container could not read the doorbelled path %s:\n%s", containerPath, out)
 	require.NotEmpty(t, out, "the container read zero bytes from %s", containerPath)
 	return string(out)
-}
-
-// crossBoundaryFixtureRoot returns the parent directory for the fixture home:
-// outside the source tree and on a real (non-tmpfs) filesystem. /var/tmp
-// satisfies both by convention; the env override exists for a machine where it
-// is unusable, and the fallback is the checkout's parent rather than /tmp so
-// the "real filesystem" property survives.
-func crossBoundaryFixtureRoot(t *testing.T) string {
-	t.Helper()
-	if override := os.Getenv("CTXLOOM_TEST_FIXTURE_ROOT"); override != "" {
-		return override
-	}
-	const varTmp = "/var/tmp"
-	if info, err := os.Stat(varTmp); err == nil && info.IsDir() {
-		return varTmp
-	}
-	root, err := sourcedir.RepoRoot()
-	require.NoError(t, err, "locate the module root")
-	return root
 }

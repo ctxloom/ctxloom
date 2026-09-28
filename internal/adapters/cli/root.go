@@ -158,12 +158,18 @@ func pinAppDir(cmd *cobra.Command, appDir string) error {
 	if theApp != nil && theApp.Opened() {
 		return fmt.Errorf("cannot pin the configuration directory to %s: the configuration is already open", appDir)
 	}
-	noCompanions := envSwitchOn("CTXLOOM_NO_COMPANIONS")
-	if cmd.Root().PersistentFlags().Changed("no-companions") {
-		noCompanions = noCompanionsFlag
-	}
-	installApp(cmd.Flags(), os.Environ(), noCompanions, strictnessMode(cmd), configload.WithAppDir(appDir))
+	installApp(cmd.Flags(), os.Environ(), companionsOff(cmd), strictnessMode(cmd), configload.WithAppDir(appDir))
 	return nil
+}
+
+// companionsOff resolves the companion switch: CTXLOOM_NO_COMPANIONS, with an
+// explicitly set --no-companions winning in either direction.
+func companionsOff(cmd *cobra.Command) bool {
+	off := envSwitchOn("CTXLOOM_NO_COMPANIONS")
+	if cmd.Root().PersistentFlags().Changed("no-companions") {
+		off = noCompanionsFlag
+	}
+	return off
 }
 
 // envSwitchOn reads an on/off environment switch; an unrecognized value is
@@ -281,11 +287,7 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	// companion switch (CTXLOOM_NO_COMPANIONS, with an explicitly set
 	// --no-companions winning in either direction) are captured exactly ONCE
 	// per process, here, as inputs to the one config.Owner.
-	noCompanions := envSwitchOn("CTXLOOM_NO_COMPANIONS")
-	if cmd.Root().PersistentFlags().Changed("no-companions") {
-		noCompanions = noCompanionsFlag
-	}
-	installApp(cmd.Flags(), os.Environ(), noCompanions, strictnessMode(cmd))
+	installApp(cmd.Flags(), os.Environ(), companionsOff(cmd), strictnessMode(cmd))
 	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
 	// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
 	// text/markdown or an unresolvable value — an invalid --format is

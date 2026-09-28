@@ -74,7 +74,6 @@ func TestOneShot_SurfacesWithheldExecutable(t *testing.T) {
 	// A claude one-shot runs in its session home, which authenticates from
 	// the setup-token in the env: give it one, or the launch is refused
 	// before the surfaces are ever gated.
-	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", tokenFixture)
 	stub := &stubEngine{out: "done"}
 	warnings := captureWarnings(t)

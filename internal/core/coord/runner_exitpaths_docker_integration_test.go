@@ -52,7 +52,7 @@ func (s *exitSpawner) Resolve(ctx context.Context, agentName string) (*coord.Spa
 	if err != nil {
 		return nil, err
 	}
-	plan.Runtime = launch.RuntimeRootless
+	plan.Runtime = containerAxes(s.runtime).Runtime
 	return plan, nil
 }
 
@@ -73,7 +73,7 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	l.Prompt = start.Prompt
 	l.Cell.Env = env
 	l.Cell.Listen = cenv.Listen()
-	l.Axes.Runtime = launch.RuntimeRootless
+	l.Axes.Runtime = containerAxes(s.runtime).Runtime
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil

@@ -156,3 +156,28 @@ func DockerIsRootless() bool {
 	}
 	return strings.Contains(string(out), "rootless")
 }
+
+// BindFixtureRoot is the parent directory for a fixture a docker-gated test
+// bind-mounts into a container. It has to satisfy three constraints at once:
+//
+//   - OUTSIDE the source tree: `just test`'s leak check scans the checkout,
+//     and in-tree residue confuses worktree-safe WIP detection even when
+//     .gitignore hides it from `git status`.
+//   - on a REAL filesystem: /tmp is tmpfs on a stock Linux box, and a durable
+//     message substrate proven only over RAM is evidence about the wrong thing.
+//   - at the SAME path for the docker daemon: under docker-outside-of-docker
+//     (the CI job container) the daemon resolves a bind source against ITS
+//     filesystem, and a source it cannot see is created there EMPTY — the
+//     container reads a blank directory, never a mount error. The workflow's
+//     job `volumes:` share this root with the runner for that reason.
+//
+// /var/tmp satisfies all three by convention; os.TempDir() is the fallback on
+// a machine without one, trading the filesystem property for the isolation
+// one, which is the right way round because isolation is what a gate enforces.
+func BindFixtureRoot() string {
+	const preferred = "/var/tmp"
+	if st, err := os.Stat(preferred); err == nil && st.IsDir() {
+		return preferred
+	}
+	return os.TempDir()
+}

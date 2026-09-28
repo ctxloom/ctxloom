@@ -307,7 +307,11 @@ func (c Container) resolveWorkspace(ctx context.Context, projectDir, agentID str
 func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
 	route, err := rt.reachRoute(ctx)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, noHostReachRemedy, "refusing to run a container that cannot dial home: %v", err)
+		remedy := noHostReachRemedy
+		if errors.Is(err, errBridgeNotLocal) {
+			remedy = foreignBridgeRemedy
+		}
+		strictness.FailAlways(report.KindIsolation, remedy, "refusing to run a container that cannot dial home: %v", err)
 		return hostRoute{}, err
 	}
 	return route, nil
@@ -315,6 +319,9 @@ func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
 
 // noHostReachRemedy names the ways a container gets a route to the host.
 const noHostReachRemedy = "give the host a default route, or use a runtime whose containers reach the host privately: a rootless translator with a loopback route (pasta, slirp4netns) or a rootful bridge"
+
+// foreignBridgeRemedy names the one situation errBridgeNotLocal arises in.
+const foreignBridgeRemedy = "ctxloom appears to be running inside a container that drives a container daemon it shares no network with (docker-outside-of-docker, e.g. a devcontainer or CI job container using the host's socket); running container agents from there is not supported — run ctxloom on the daemon's host, or use runtime: host"
 
 // remintReach re-mints the runner's reach-back for its container: the
 // coordinator's host-side URL on spawnEnv becomes the URL the runtime's route

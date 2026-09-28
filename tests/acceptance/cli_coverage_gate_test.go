@@ -64,7 +64,6 @@ var coverageExemptLeaves = map[string]string{
 	// skips hidden commands entirely, so this gate is the first thing to
 	// report them at all. They are exempt because nothing a user does reaches
 	// them directly, not because they do not matter.
-	"ctxloom runner":               "the runner process; started by ctxloom itself with a reach-back on its env, never by a user",
 	"ctxloom container provenance": "hidden diagnostic reading image labels; needs a built image",
 }
 

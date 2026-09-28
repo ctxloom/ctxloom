@@ -40,7 +40,7 @@ func TestEngineHost_BriefingIsRecordedAsIntentNotAsDelivery(t *testing.T) {
 	eh := newTestEngineHost(context.Background(), dc, "claude-code", "run-1")
 	eh.BindHome(home)
 
-	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 	require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 
 	select {

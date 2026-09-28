@@ -69,7 +69,7 @@ func TestEngineHost_CloseJoinsTranscriptCapture(t *testing.T) {
 	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	eh.BindHome(home)
 
-	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 	require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 	require.Eventually(t, func() bool {
 		for _, n := range home.customNames() {

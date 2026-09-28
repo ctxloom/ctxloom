@@ -67,6 +67,23 @@ func runChannelClient(t *testing.T, s *runChannelServer) agentcoordpb.Coordinato
 	return agentcoordpb.NewCoordinatorServiceClient(conn)
 }
 
+// runChannelOnceBounded is h.runChannelOnce with a bound of its own. The
+// callers' watchdogs tear the Home down, but that only ends a loop that
+// returns when Recv fails; one that ignored the failure would spin past the
+// teardown, so the call itself is bounded too.
+func runChannelOnceBounded(t *testing.T, h *Home, client agentcoordpb.CoordinatorServiceClient) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- h.runChannelOnce(client) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(2 * conformanceWait):
+		t.Fatal("runChannelOnce did not return once its stream ended")
+		return nil
+	}
+}
+
 func helloAck(accepted bool, reason *rpcstatus.Status) *agentcoordpb.CoordinatorFrame {
 	return &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_HelloAck{
 		HelloAck: &agentcoordpb.HelloAck{Accepted: accepted, RejectReason: reason},
@@ -105,7 +122,7 @@ func TestRunChannelOnce_HandshakeFailures(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := recvHome(t)
-			err := h.runChannelOnce(runChannelClient(t, tc.srv))
+			err := runChannelOnceBounded(t, h, runChannelClient(t, tc.srv))
 			require.EqualError(t, err, tc.wantErr)
 			require.Equal(t, "run-1", tc.srv.hello.GetRunId())
 			h.mu.Lock()
@@ -136,7 +153,7 @@ func TestRunChannelOnce_AttachReissuesThenDetaches(t *testing.T) {
 	// turns that hang into a failed assertion below.
 	watchdog := time.AfterFunc(conformanceWait, h.cancel)
 	defer watchdog.Stop()
-	err := h.runChannelOnce(runChannelClient(t, srv))
+	err := runChannelOnceBounded(t, h, runChannelClient(t, srv))
 	require.ErrorIs(t, err, io.EOF)
 
 	require.Equal(t, "run-1", srv.hello.GetRunId())

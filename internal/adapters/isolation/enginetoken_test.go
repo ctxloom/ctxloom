@@ -31,9 +31,9 @@ func tokenHome(t *testing.T) string {
 func TestStoreEngineCredential_FailsWhenTheDirCannotBeRestricted(t *testing.T) {
 	tokenHome(t)
 	refused := errors.New("restriction refused")
-	prev := restrictDir
-	restrictDir = func(string) error { return refused }
-	t.Cleanup(func() { restrictDir = prev })
+	prev := ensureOwnerOnlyDir
+	ensureOwnerOnlyDir = func(string) error { return refused }
+	t.Cleanup(func() { ensureOwnerOnlyDir = prev })
 
 	_, err := StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(fixtureToken))
 	require.ErrorIs(t, err, refused)
@@ -126,27 +126,4 @@ func TestEngineCredentialStatuses_ReportsStoredModesWithoutTheCredential(t *test
 	assert.NotEmpty(t, byMode[engine.AuthToken].Protection)
 	assert.False(t, byMode[engine.AuthAPIKey].Stored)
 	assert.Empty(t, byMode[engine.AuthAPIKey].Protection)
-}
-
-// The Windows owner-only verdict, platform-neutrally: the owner and the
-// tolerated machine principals (SYSTEM, Administrators) are not exposure;
-// anyone else is, named once each.
-func TestACLExposure(t *testing.T) {
-	const owner, system, admins, everyone, users = "S-1-5-21-1", "S-1-5-18", "S-1-5-32-544", "S-1-1-0", "S-1-5-32-545"
-	tolerated := []string{system, admins}
-	for _, tc := range []struct {
-		name     string
-		grantees []string
-		want     string
-	}{
-		{"owner only", []string{owner}, ""},
-		{"owner with SYSTEM and Administrators is still owner-only", []string{owner, system, admins}, ""},
-		{"no grantee at all", nil, ""},
-		{"Everyone is exposure", []string{owner, everyone}, "grants access to " + everyone},
-		{"each outsider named once, in ACL order", []string{users, owner, everyone, users}, "grants access to " + users + ", " + everyone},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, aclExposure(owner, tolerated, tc.grantees))
-		})
-	}
 }

@@ -381,8 +381,11 @@ jobs:
   # the verdict) is in build/ci.justfile and scripts/mutshard.
   #
   # shard-timeout-minutes: the unsharded job took 5h48m on a large diff, most
-  # of it TIMED OUT mutants, each of which holds a worker for the whole
-  # per-mutant budget; the worst shard of that diff would still carry several.
+  # of it TIMED OUT mutants, each holding a worker for the whole per-mutant
+  # budget (the coverage run's duration times .gremlins.yaml's
+  # timeout-coefficient). The plan balances by changed lines and cannot see
+  # which mutants will time out, so this is sized for every timed-out mutant of
+  # that run landing on ONE shard's workers: three rounds of that budget.
   mutation:
     name: Mutation Testing
     needs: [build-container, test]
@@ -393,4 +396,4 @@ jobs:
                  && format('origin/{0}', github.base_ref)
                  || github.event.before }}
       image-tag: ${{ github.sha }}
-      shard-timeout-minutes: 240
+      shard-timeout-minutes: 300

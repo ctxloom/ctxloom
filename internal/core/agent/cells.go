@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -27,7 +26,7 @@ import (
 //
 // What a shared cwd never does is SUBSTITUTE. A caller that named an approach
 // gets that approach or an error, never a different one reported as success
-// (see deliverOneShared, and agent.OutOfCwd for the one residual conversion).
+// (see deliverOneShared).
 //
 // (Delivered — the handle owning a delivery's cleanup — is defined in
 // delivery.go and reused here.)
@@ -75,30 +74,6 @@ var ErrUnrootedSessionHome = errors.New("delivery: the session home was never re
 // of the run: callers that legitimately deliver the whole surface set at rest
 // match on this sentinel rather than on the message text.
 var ErrNoArgvSinkAtRest = errors.New("delivery has no argv sink at rest")
-
-// ErrAbsentSharedSurface is returned when a run on LaunchFormPresent names a
-// surface the session never delivered. "Use the existing surface" has exactly
-// one honest failure: there is no existing surface. Writing one instead would
-// clobber the shared cwd this form exists to protect, and re-injecting the
-// content down a second route is the silent degrade the form exists to remove —
-// so this refuses, naming what is missing.
-var ErrAbsentSharedSurface = errors.New("launch: this run presents the session's existing surfaces and writes none of its own, but one of them is not there — the session it rides was never set up, or its scratch was cleared; run the session's own setup first, or give this run an isolated cell so it delivers its own")
-
-// RequireDelivered is the entry check for LaunchFormPresent: it is exported
-// because the approaches that implement PresentExisting live in the engine
-// packages, and the seam wants them to refuse the same way rather than each
-// inventing its own stat. kind and path name what is missing, so the refusal
-// says which surface and where it was looked for.
-func RequireDelivered(fs afero.Fs, kind SurfaceKind, path string) error {
-	ok, err := afero.Exists(GetFS(fs), path)
-	if err != nil {
-		return fmt.Errorf("%w: checking the %s surface at %s: %w", ErrAbsentSharedSurface, kind, path, err)
-	}
-	if !ok {
-		return fmt.Errorf("%w: the %s surface is not at %s", ErrAbsentSharedSurface, kind, path)
-	}
-	return nil
-}
 
 // SessionHomeRooted is the entry check for an approach that lands beneath the
 // session home: the counterpart of rooted for that root. It is exported
@@ -149,17 +124,8 @@ func PresentsUnderProjectRoot(a Approach) bool {
 // project file is not, and choosing it anyway is the caller's acknowledged
 // race — deliverOneShared warns and proceeds.
 //
-// The OutOfCwd disjunct is RESIDUE, and is the reason this is not simply
-// !Rider && !PresentsUnderProjectRoot. Settings is the last approach carrying
-// a second form: it presents as a project file but converts to a private one
-// when a shared launch delivers it. When settings gains its one form this
-// disjunct goes, and the predicate reduces to the two terms
-// above.
 func SafeInSharedCwd(a Approach) bool {
 	if _, rider := a.(Rider); rider {
-		return true
-	}
-	if _, converts := a.(OutOfCwd); converts {
 		return true
 	}
 	return !PresentsUnderProjectRoot(a)

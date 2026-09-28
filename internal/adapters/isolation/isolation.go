@@ -271,17 +271,14 @@ var ErrRunnerExitedCleanly = errors.New("runner exited with status 0")
 
 // AwaitContainerRunning blocks until h's container is OBSERVED running.
 //
-// The docker-exec interactive transport hands h.Name straight to a launcher
-// that runs `exec -i <name>`. StartRunner returns as soon as the runtime CLI
-// PROCESS is spawned — that says nothing about whether the daemon created the
-// container, resolved its mounts, or started it. Without this barrier the exec
-// was issued BEFORE the `run` (measured: 0.33ms earlier) and failed with a
-// "No such container" that names nothing, while the real reason went to the
-// runner's stderr and was discarded.
-//
-// Deliberately NOT inside StartRunner: that path is shared with the owned-run
-// (delegated) transport, which does not exec into the container and works
-// today. Only the arm that execs needs the barrier.
+// startRunner returns as soon as the runtime CLI PROCESS is spawned — that
+// says nothing about whether the daemon created the container, resolved its
+// mounts, or started it. A caller that acted on h.Name before this barrier
+// (an `exec -i <name>` was measured issuing 0.33ms BEFORE the `run`) failed
+// with a "No such container" that names nothing, while the real reason went
+// to the runner's stderr and was discarded. The container Environment's
+// Start awaits it, so every container runner it hands back is running; the
+// teardown's remove-before-create race waits on it too (removeLaunched).
 //
 // A runtime with no Binary (Host, or a test fake) cannot be inspected, so this
 // reports ready immediately rather than stalling a caller that has no daemon.

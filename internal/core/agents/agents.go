@@ -137,8 +137,8 @@ type Agent struct {
 	// the home its runtime gives it
 	// (HomeModeHost — the engine's REAL host home, which ctxloom never
 	// writes, or a container's own fresh $HOME). It is the single source of
-	// truth for operations.ResolveInTreeAgentHome's
-	// scoping rule, and a DECLARED value wins on every invocation path this
+	// truth for the session-home scoping rule (launch.SessionHome, applied by
+	// the run's isolation.Environment), and a DECLARED value wins on every invocation path this
 	// binding resolves through — a bare run under default_agent, `run
 	// --agent`, a delegated child, a oneshot fan member alike. Invocation
 	// never matters for a declared binding; only whether ANY binding is in

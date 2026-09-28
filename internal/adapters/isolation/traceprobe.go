@@ -39,7 +39,7 @@ import (
 //
 // STRUCTURAL: renderRunSpec is a PURE function of RunSpec.Trace — it applies
 // the probe profile iff this field is non-nil — NIL is the zero value every
-// production spec builder (buildRunnerSpec, ExecSpec)
+// production spec builder (buildRunnerSpec)
 // produces, and traceProbeFromEnv is the SOLE writer. So no non-nil Trace ⇒
 // Docker's DEFAULT seccomp profile and no capability grant, and nothing but the
 // isolation probe can construct one. See
@@ -103,7 +103,7 @@ const (
 
 // traceProbeFromEnv returns a *TraceProbe when the probe-only env var is set,
 // else nil. It is the SOLE writer of RunSpec.Trace — see TraceProbe's security
-// note. Called from the container spec builders (buildRunnerSpec / ExecSpec);
+// note. Called from the container spec builders (buildRunnerSpec);
 // a normal run leaves the env unset and gets a nil Trace.
 //
 // Activation is ANNOUNCED. The gate is an inherited environment variable, not a

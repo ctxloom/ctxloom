@@ -468,13 +468,6 @@ func (c Container) WithImage(image string) Container {
 	return c
 }
 
-// Runtime returns the container's launch runtime (docker/podman): the
-// originator awaits a container runner's running state through it. A
-// narrow accessor probed via operations.RuntimeForPolicy rather than an
-// isolation.Policy method, so None/Worktree (which carry no runtime) need
-// no method.
-func (c Container) Runtime() Runtime { return c.runtime }
-
 // gitSeam returns the container's git DI seam, defaulting to the real git binary
 // when unset (the normal construction paths leave it nil). Tests inject a
 // git.Fake to drive the host base's gitdir mirror without a real linked worktree.

@@ -88,7 +88,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	assert.Equal(t, cell.Env["TMPDIR"], env["TMPDIR"], "the isolation-resolved workspace env reaches the engine env")
 }
 
-func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
+func TestCellsPrepare_SessionHome(t *testing.T) {
 	prepare := func(t *testing.T, workDir string, home launch.HomeMode, workspace launch.WorkspaceAxis, harp string) launch.Cell {
 		t.Helper()
 		req := claudeKind(t)

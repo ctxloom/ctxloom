@@ -47,7 +47,7 @@ const worktreeScratchPrefix = "ctxloom-wt"
 // approvals — so approvals stay Prompt. StartRunner is the SAME bare self-invoked
 // subprocess as None; the isolation is expressed purely via the worktree cwd
 // plus the per-agent scratch and git identity its Env() carries. The engine's config home is NOT this policy's to provide: it is
-// decided off the agent binding for every cell (operations.ResolveInTreeAgentHome),
+// decided off the agent binding for every environment (the session home, stageLayout),
 // so a worktree run and a live-tree run with the same binding share the same
 // answer. Not a git repo, or the worktree add fails → PrepareWorkspace errors
 // so the caller degrades to None. A lost worktree is a WORKSPACE-axis degrade
@@ -287,7 +287,7 @@ func (w *worktreeWorkspace) Dir() string { return w.dir }
 
 // Env returns the env for what this worktree provisioned — and ONLY that.
 // It never names an engine's config home: that is decided off the agent
-// binding for every cell (operations.ResolveInTreeAgentHome), and a worktree
+// binding for every environment (the session home, stageLayout), and a worktree
 // that set it would make a run's home depend on which workspace it picked.
 // HOME itself is left untouched, deliberately: a blanket HOME override would
 // strip the ~/.gitconfig/~/.ssh identity the worktree still needs for git.

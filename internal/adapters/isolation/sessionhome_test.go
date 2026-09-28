@@ -19,8 +19,7 @@ import (
 )
 
 // Stage 1's session home, over claude's REAL declaration (TestMain installs
-// its facts) and the relocators that present it. These are the properties
-// operations.ResolveInTreeAgentHome held before the home moved here.
+// its facts), and the relocators that present it.
 
 // The two session names every case here keys its homes by.
 const (

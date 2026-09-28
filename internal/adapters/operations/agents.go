@@ -622,8 +622,8 @@ type ResolvedAgent struct {
 	// undeclared/unresolvable → session default already applied). It is
 	// the value `agent show` reports; the launch resolver reads the same
 	// declaration off the binding itself (launch.HomeMode on the
-	// CellRequest) and the cells adapter threads it into
-	// InTreeAgentHome.HomeMode — a launch with NO binding gets the session
+	// CellRequest) and the cells adapter threads it into the environment's
+	// Spec (isolation.SpecBuilder.Home) — a launch with NO binding gets the session
 	// home by the resolver's own default, not by this field's value.
 	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
 }

@@ -372,41 +372,25 @@ jobs:
       - name: Run acceptance suite
         run: just test-acceptance-cover
 
+  # Diff-only mutation on both PR and push, so a green PR runs the same check
+  # that gates the release on main; the whole tree runs weekly instead
+  # (mutation-weekly.yml). Sharded across runners by .github/workflows/mutation.yml.
+  #
+  # The base is the one thing here that is genuinely GitHub's to compute —
+  # everything done with it (the no-base and no-mutable-Go skips, the plan,
+  # the verdict) is in build/ci.justfile and scripts/mutshard.
+  #
+  # shard-timeout-minutes: the unsharded job took 5h48m on a large diff, most
+  # of it TIMED OUT mutants, each of which holds a worker for the whole
+  # per-mutant budget; the worst shard of that diff would still carry several.
   mutation:
     name: Mutation Testing
-    runs-on: ubuntu-latest
     needs: [build-container, test]
-    container:
-      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    env:
-      JUST_JUSTFILE: justfile.container
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Mark workspace as safe
-        run: just ci-git-safe-directory
-
-      - name: Generate protobuf code
-        run: just proto
-
-      # Diff-only mutation on both PR and push, so a green PR runs the same
-      # check that gates the release on main. The whole-codebase run is too slow
-      # for every PR; it runs weekly instead (mutation-weekly.yml).
-      #
-      # The base is the one thing here that is genuinely GitHub's to compute —
-      # everything the recipe does with it (the no-base and no-mutable-Go skips,
-      # the TMPDIR pinning gremlins needs) is in build/ci.justfile.
-      - name: Run mutation tests (diff)
-        env:
-          MUTATION_BASE: >-
-            ${{ github.event_name == 'pull_request'
-                && format('origin/{0}', github.base_ref)
-                || github.event.before }}
-        run: just test-mutation-diff "$MUTATION_BASE"
+    uses: ./.github/workflows/mutation.yml
+    with:
+      scope: >-
+        diff:${{ github.event_name == 'pull_request'
+                 && format('origin/{0}', github.base_ref)
+                 || github.event.before }}
+      image-tag: ${{ github.sha }}
+      shard-timeout-minutes: 240

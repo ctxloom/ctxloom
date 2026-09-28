@@ -1,0 +1,112 @@
+name: Mutation
+
+# One gremlins mutation run, SHARDED across runners and judged as one run.
+# Called by ci.yml (the diff against the PR/push base) and mutation-weekly.yml
+# (the whole tree) — one definition of the shape, so the two cannot drift.
+#
+# Each shard runs `just test-mutation-shard` on a disjoint slice of the files
+# and uploads its report; `verdict` runs `just test-mutation-aggregate` over
+# all of them. Why a shard's result is the unsharded run's, and why only the
+# aggregate applies the thresholds: scripts/mutshard/main.go. The same pair of
+# recipes reproduces any of this locally (build/ci.justfile).
+#
+# Separate runners, not parallelism inside one: a mutation run saturates the
+# machine it is on, and shards share nothing but the checkout's commit.
+
+on:
+  workflow_call:
+    inputs:
+      scope:
+        description: '"tree", or "diff:<base>"'
+        type: string
+        required: true
+      image-tag:
+        description: devcontainer image tag to run in
+        type: string
+        required: true
+      shard-timeout-minutes:
+        type: number
+        required: true
+
+jobs:
+  shard:
+    name: shard ${{ strategy.job-index }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.shard-timeout-minutes }}
+    strategy:
+      # Every shard runs to the end: the verdict needs all of them, and one
+      # shard's failure says nothing about another's slice.
+      fail-fast: false
+      matrix:
+        # THE SHARD COUNT is this list's length, and it is stated nowhere
+        # else: each shard reads strategy.job-total, and the aggregate reads
+        # it back from the reports.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    container:
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ inputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace as safe
+        run: just ci-git-safe-directory
+
+      - name: Run mutation shard
+        env:
+          SCOPE: ${{ inputs.scope }}
+          SHARD: ${{ strategy.job-index }}
+          SHARDS: ${{ strategy.job-total }}
+        run: just test-mutation-shard "$SCOPE" "$SHARD" "$SHARDS" mutation-reports
+
+      - name: Upload shard report
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-shard-${{ strategy.job-index }}
+          path: mutation-reports/
+          if-no-files-found: error
+          retention-days: 7
+
+  verdict:
+    name: verdict
+    needs: shard
+    # Runs even when a shard failed, so a lost shard is refused by name
+    # ("no report from shard K of N") rather than leaving this check skipped.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: ghcr.io/${{ github.repository }}-devcontainer:${{ inputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      JUST_JUSTFILE: justfile.container
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mark workspace as safe
+        run: just ci-git-safe-directory
+
+      - name: Download shard reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-shard-*
+          path: mutation-reports
+          merge-multiple: true
+
+      - name: Judge the union
+        env:
+          SCOPE: ${{ inputs.scope }}
+        run: just test-mutation-aggregate "$SCOPE" mutation-reports

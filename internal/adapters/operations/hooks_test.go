@@ -912,6 +912,7 @@ fragments:
 // dedup is process-global, so reusing another test's exact message would
 // make this test's outcome depend on run order.
 func TestApplyHooks_RegenerateContextUndefinedVariableWarns(t *testing.T) {
+	freshWarnOnce(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := authoredV1(appDir)
@@ -961,6 +962,7 @@ fragments:
 // undefined-variable warning must name the offending one, not the clean one,
 // so a mustache mistake surfaced on session start is directly actionable.
 func TestApplyHooks_RegenerateContextUndefinedVariableWarningNamesFragment(t *testing.T) {
+	freshWarnOnce(t)
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
 	bundlesDir := authoredV1(appDir)

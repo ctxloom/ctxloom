@@ -23,7 +23,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
+
+// freshWarnOnce empties clidiag's process-wide warn-once memory for this test
+// and again after it. A test asserting that a WarnOnce line was printed sees
+// it only if nothing earlier in the process printed the same line — which a
+// second in-process run (`-count=2`) always has.
+func freshWarnOnce(t *testing.T) {
+	t.Helper()
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+}
 
 // captureStderr runs fn with os.Stderr redirected to a pipe and returns what
 // was written — the "ctxloom: warning:" lines the fault-tolerance paths emit.

@@ -51,6 +51,7 @@ func TestPendingReview_MaliciousItemNameCannotReachDisplay(t *testing.T) {
 	})
 	fx := newTrustFixture(t)
 	var warnings strings.Builder
+	freshWarnOnce(t)
 	restore := clidiag.SetSink(&warnings)
 	// The loader resolves its readers at construction, so the read — and the
 	// diagnostic it emits — happens inside the capture window.

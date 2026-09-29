@@ -59,8 +59,8 @@ func startStoppableRunner(t *testing.T, mode string, grace time.Duration) (*Host
 	return h, dir
 }
 
-// An orderly stop must let the runner run its teardown (PaneHost.Stop, temp
-// cleanup): Kill asks with SIGTERM first. The grace is far longer than the
+// An orderly stop must let the runner run its teardown (ending the engine it
+// hosts, temp cleanup): Kill asks with SIGTERM first. The grace is far longer than the
 // bound on Kill, so passing also proves Kill did not sit out the grace.
 func TestHostRunnerKill_RunsTheRunnersTeardown(t *testing.T) {
 	h, dir := startStoppableRunner(t, "graceful", time.Minute)

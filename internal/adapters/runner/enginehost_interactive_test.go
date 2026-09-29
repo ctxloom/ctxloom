@@ -106,12 +106,15 @@ func TestDrive_InteractiveLaunchDrivesTheTerminalNotTheChat(t *testing.T) {
 	assert.Equal(t, agentcoordpb.Result_RUN_STATUS_SUCCEEDED, completed.GetResult().GetStatus())
 }
 
+// errEngineDidNotStart is a terminal's failure to run the engine at all.
+var errEngineDidNotStart = errors.New("the engine could not be started on the terminal")
+
 // TestDrive_InteractiveEngineFailureIsTheRunsFailure: a non-zero exit, or a
 // terminal that could not run the engine at all, ends the run FAILED with
 // that code — never a green terminal over an engine that died.
 func TestDrive_InteractiveEngineFailureIsTheRunsFailure(t *testing.T) {
 	home := &fakeEngineHome{}
-	term := newFakeTerminal(3, errors.New("tmux was not found"))
+	term := newFakeTerminal(3, errEngineDidNotStart)
 	eh := newTestEngineHost(context.Background(), &scriptedChat{}, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
@@ -126,12 +129,15 @@ func TestDrive_InteractiveEngineFailureIsTheRunsFailure(t *testing.T) {
 	home.mu.Lock()
 	defer home.mu.Unlock()
 	assert.Equal(t, 3, home.exited[0].Code)
+	var completed *agentcoordpb.RunCompleted
 	for _, ev := range home.events {
 		if rc, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted); ok {
-			assert.Equal(t, agentcoordpb.Result_RUN_STATUS_FAILED, rc.RunCompleted.GetResult().GetStatus())
-			assert.Contains(t, rc.RunCompleted.GetResult().GetError().GetMessage(), "tmux was not found")
+			completed = rc.RunCompleted
 		}
 	}
+	require.NotNil(t, completed, "the engine's failure is the run's terminal")
+	assert.Equal(t, agentcoordpb.Result_RUN_STATUS_FAILED, completed.GetResult().GetStatus())
+	assert.Equal(t, errEngineDidNotStart.Error(), completed.GetResult().GetError().GetMessage(), "the run names why the engine did not run")
 }
 
 // TestDrive_InteractiveLaunchWithoutATerminalIsRefused: a runner composed

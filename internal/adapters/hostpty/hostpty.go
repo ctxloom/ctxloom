@@ -162,7 +162,7 @@ func (s *Session) End() {
 }
 
 // terminate asks the child to end with SIGTERM, so a runner unwinds through
-// its own teardown (PaneHost.Stop, temp cleanup), and SIGKILLs it if it is
+// its own teardown (ending the engine it hosts, temp cleanup), and SIGKILLs it if it is
 // still running once grace has passed. A child that cannot be signalled —
 // already gone, or never started — gets the kill straight away, which is a
 // no-op for the first and the right end for anything else.

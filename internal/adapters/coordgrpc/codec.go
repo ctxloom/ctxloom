@@ -371,6 +371,7 @@ func resultFromWire(r *agentcoordpb.Result) *coord.Result {
 		WallTime:         durationFromWire(r.GetWallTime()),
 		NumTurns:         r.GetNumTurns(),
 		ArtifactIDs:      r.GetArtifactIds(),
+		ExitCode:         r.ExitCode,
 	}
 }
 
@@ -389,6 +390,7 @@ func resultToWire(r *coord.Result) *agentcoordpb.Result {
 		WallTime:         durationToWire(r.WallTime),
 		NumTurns:         r.NumTurns,
 		ArtifactIds:      r.ArtifactIDs,
+		ExitCode:         r.ExitCode,
 	}
 }
 

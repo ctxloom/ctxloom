@@ -339,6 +339,13 @@ its full recorded transcript is folded into this run's assembled context.
 Add --distill to resume via the session's distilled essence instead
 (distilling on demand first if one doesn't exist yet).
 
+Exit status: when the engine ran and exited, ctxloom run exits with the
+engine's own status — its exit code, or 128+signum when a signal ended it
+(143 for SIGTERM), as a shell would report. A run that failed without an
+engine status (cancelled, or the engine never launched) exits 1. ctxloom's
+own refusals (2) and fatal startup findings (3) happen before the engine
+launches, so a 2 or 3 after the engine ran is the engine's.
+
 Examples:
   ctxloom run -f coding-standards "review this code"
   ctxloom run -p developer "explain the architecture"

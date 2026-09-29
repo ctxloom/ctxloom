@@ -512,7 +512,8 @@ func (eh *EngineHost) startRunResult() *agentcoordpb.RunnerResponse {
 // human owns the session, so there is no briefing to send and no turn sink
 // — coordinator mail reaches the engine through the terminal injector's
 // nudge (Home.SetTerminalNudge). The engine's exit is the run's terminal:
-// RunCompleted carries its status and RunExited its code.
+// RunCompleted carries its classification and exit status, RunExited its
+// code.
 func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) error {
 	ctx, cancel := context.WithCancel(eh.baseCtx)
 	eh.mu.Lock()
@@ -527,6 +528,13 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 	eh.goTracked(func() {
 		code, err := term.Run(ctx, t)
 		result := &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED}
+		if err == nil && ctx.Err() == nil {
+			// The engine ran and exited: its status (ptyrunner.ExitStatusFor)
+			// is what `ctxloom run` exits with. A terminal error means the
+			// engine never ran, and its code is ctxloom's, not the engine's.
+			exit := int32(code)
+			result.ExitCode = &exit
+		}
 		switch {
 		case ctx.Err() != nil:
 			result.Status = agentcoordpb.Result_RUN_STATUS_CANCELLED

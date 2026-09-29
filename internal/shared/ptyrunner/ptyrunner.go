@@ -445,7 +445,8 @@ type signaledStatus interface {
 // exited 255 and from a runner-internal failure. Shells have long since settled
 // this — a signalled child reports 128+signum (130 SIGINT, 137 SIGKILL, 143
 // SIGTERM) — and ctxloom's own launch path is a transparent wrapper around the
-// engine's status, so it reports what a shell would.
+// engine's status, so it reports what a shell would: the status rides the
+// run's Result (exit_code) and an interactive `ctxloom run` exits with it.
 //
 // WINDOWS, stated rather than left implicit: Windows keeps today's behaviour.
 // Its syscall.WaitStatus satisfies the interface above but hard-codes

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // An interactive engine is hosted on a plain pty by the runner itself, so an
@@ -71,7 +72,11 @@ func pathWithout(t *testing.T, name string) string {
 	return strings.Join(kept, sep)
 }
 
-func TestRunPTY_InteractiveEngineRunsOnAPlainPtyWithoutTmux(t *testing.T) {
+// startInteractiveFakeClaude stands up a project whose `dev` agent runs a fake
+// `claude` (body, formatted with claude's version floor) on a plain pty, and
+// starts an interactive `ctxloom run` against it.
+func startInteractiveFakeClaude(t *testing.T, body string) *testenv.PTYSession {
+	t.Helper()
 	env := setupTestEnv(t)
 	writeFragment(t, env, "rules", []string{"rules"}, "Project rules for the session.")
 	writeProfile(t, env, "dev", "description: dev\nbundles:\n  - local#fragments/rules\n")
@@ -81,7 +86,7 @@ func TestRunPTY_InteractiveEngineRunsOnAPlainPtyWithoutTmux(t *testing.T) {
 	require.True(t, ok, "claude is composed")
 	bin := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"),
-		[]byte(fmt.Sprintf(fakeInteractiveClaudeBody, e.Root().Version.Floor)), 0o755))
+		[]byte(fmt.Sprintf(body, e.Root().Version.Floor)), 0o755))
 	// A login shell that fails: binary resolution falls back to the user's
 	// login-shell PATH (shellenv), which would otherwise find the host's tmux
 	// again behind the PATH this test hides it from.
@@ -100,13 +105,18 @@ func TestRunPTY_InteractiveEngineRunsOnAPlainPtyWithoutTmux(t *testing.T) {
 
 	sess, err := env.RunPTY(ptyCols, ptyRows, nil, "run", "--agent", "dev")
 	require.NoError(t, err)
-	defer sess.Close()
+	t.Cleanup(sess.Close)
+	return sess
+}
+
+func TestRunPTY_InteractiveEngineRunsOnAPlainPtyWithoutTmux(t *testing.T) {
+	sess := startInteractiveFakeClaude(t, fakeInteractiveClaudeBody)
 
 	ready := sess.WaitForOutput(ptyRunTimeout, func(out string) bool { return strings.Contains(out, "FAKE-ENGINE-READY") })
 	require.True(t, ready, "the engine never started; captured so far: %q", sess.Output())
 	assert.Contains(t, sess.Output(), "FAKE-ENGINE-ON-A-TTY", "the engine's stdin and stdout are a terminal")
 
-	_, err = sess.Write([]byte("typed-through-the-pty\r"))
+	_, err := sess.Write([]byte("typed-through-the-pty\r"))
 	require.NoError(t, err)
 	echoed := sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
 		return strings.Contains(out, "FAKE-ENGINE-GOT:typed-through-the-pty")
@@ -116,4 +126,27 @@ func TestRunPTY_InteractiveEngineRunsOnAPlainPtyWithoutTmux(t *testing.T) {
 	exited, _ := sess.Wait(ptyRunTimeout)
 	require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
 	assert.Equal(t, 0, sess.ExitCode(), "the run ends with the engine's clean exit; captured: %q", sess.Output())
+}
+
+// An interactive `ctxloom run` passes the engine's exit status through: the
+// engine's own code when it exits, and what a shell reports (128+signum) when
+// a signal ends it.
+func TestRunPTY_InteractiveRunPassesTheEngineExitStatusThrough(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		end  string
+		want int
+	}{
+		{name: "exit code", end: "exit 3", want: 3},
+		{name: "signal", end: "kill -TERM $$", want: 128 + 15},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := "#!/bin/sh\ncase \"$1\" in --version) echo \"%s (Claude Code)\"; exit 0;; esac\necho FAKE-ENGINE-READY\n" + tc.end + "\n"
+			sess := startInteractiveFakeClaude(t, body)
+			exited, _ := sess.Wait(ptyRunTimeout)
+			require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
+			require.Contains(t, sess.Output(), "FAKE-ENGINE-READY", "the engine ran")
+			assert.Equal(t, tc.want, sess.ExitCode(), "captured: %q", sess.Output())
+		})
+	}
 }

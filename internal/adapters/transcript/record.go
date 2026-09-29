@@ -218,13 +218,14 @@ type CompletePayload struct {
 }
 
 // DeniedPayload is the KindDenied payload — agent.PermissionDenial, field for
-// field. Decider is agent.Decider's value and is never omitted: its zero is
-// the engine's own policy, a real answer.
+// field. Decider is written by name (agent.Decider's text form) and is never
+// omitted: its zero is the engine's own policy, a real answer. A line naming a
+// decider this build does not know does not decode.
 type DeniedPayload struct {
-	ToolName   string `json:"tool_name,omitempty"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	Decider    int    `json:"decider"`
+	ToolName   string        `json:"tool_name,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+	Reason     string        `json:"reason,omitempty"`
+	Decider    agent.Decider `json:"decider"`
 }
 
 // payloadFromChatEvent classifies ev and builds its Kind + payload, leaving
@@ -412,5 +413,5 @@ func deniedPayloads(ds []agent.PermissionDenial) []DeniedPayload {
 }
 
 func deniedPayload(d *agent.PermissionDenial) *DeniedPayload {
-	return &DeniedPayload{ToolName: d.ToolName, ToolCallID: d.ToolCallID, Reason: d.Reason, Decider: int(d.Decider)}
+	return &DeniedPayload{ToolName: d.ToolName, ToolCallID: d.ToolCallID, Reason: d.Reason, Decider: d.Decider}
 }

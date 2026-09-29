@@ -85,7 +85,8 @@ func TestDecider_UnknownIsRefusedBothWays(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnknownDecider)
 	assert.Equal(t, DeciderHuman, d, "a refused name leaves the destination untouched")
 
-	require.ErrorIs(t, json.Unmarshal([]byte(`0`), &d), ErrUnknownDecider, "the ordinal is not a name")
+	var typeErr *json.UnmarshalTypeError
+	require.ErrorAs(t, json.Unmarshal([]byte(`0`), &d), &typeErr, "the ordinal is not a name: a line from the int encoding does not decode")
 
 	_, err = json.Marshal(Decider(42))
 	require.ErrorIs(t, err, ErrUnknownDecider)

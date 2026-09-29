@@ -95,13 +95,13 @@ type chatCompleteJSON struct {
 	Denials []chatDenialJSON `json:"denials,omitempty"`
 }
 
-// chatDenialJSON mirrors agent.PermissionDenial; decider is agent.Decider's
-// value (0 = the engine's own policy).
+// chatDenialJSON mirrors agent.PermissionDenial; decider is written by name
+// (agent.Decider's text form).
 type chatDenialJSON struct {
-	ToolName   string `json:"toolName,omitempty"`
-	ToolCallID string `json:"toolCallId,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	Decider    int    `json:"decider"`
+	ToolName   string        `json:"toolName,omitempty"`
+	ToolCallID string        `json:"toolCallId,omitempty"`
+	Reason     string        `json:"reason,omitempty"`
+	Decider    agent.Decider `json:"decider"`
 }
 
 type chatMCPJSON struct {
@@ -199,7 +199,7 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 func chatDenialsJSON(ds []agent.PermissionDenial) []chatDenialJSON {
 	var out []chatDenialJSON
 	for _, d := range ds {
-		out = append(out, chatDenialJSON{ToolName: d.ToolName, ToolCallID: d.ToolCallID, Reason: d.Reason, Decider: int(d.Decider)})
+		out = append(out, chatDenialJSON{ToolName: d.ToolName, ToolCallID: d.ToolCallID, Reason: d.Reason, Decider: d.Decider})
 	}
 	return out
 }

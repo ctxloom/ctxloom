@@ -179,7 +179,7 @@ func TestFixtures_RealPayloadSurvives(t *testing.T) {
 			}
 		}
 		require.Len(t, denied, 1, "the denial turn records exactly one denied line")
-		want := DeniedPayload{ToolName: "mock_tool", ToolCallID: "mock-deny-1", Reason: "mock: mock_tool is denied by policy", Decider: 0}
+		want := DeniedPayload{ToolName: "mock_tool", ToolCallID: "mock-deny-1", Reason: "mock: mock_tool is denied by policy", Decider: agent.DeciderPolicy}
 		require.NotNil(t, denied[0].Denied)
 		assert.Equal(t, want, *denied[0].Denied)
 		require.NotNil(t, footer)

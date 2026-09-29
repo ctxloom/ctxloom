@@ -10,7 +10,7 @@
     "mock.transcript.acp.jsonl": {
       "real_source": "captured on this box by driving backends.NewMock().Chat with ChatRequest.ForwardPermissions through transcript.TeeAndClose into transcript.NewRecorder(harp, \"mock\") — the production structured-chat tee, not a hand-typed line",
       "real_fields": "lines 5 onward: a TOOLS turn (user, thinking, tool_use, tool_result, assistant, complete) driven through the real recorder",
-      "synthetic": "the first turn (lines 1-4): a denial turn hand-converted from a captured permission turn when the permission kind was replaced by denied — user entry, the denied line (tool_name mock_tool, tool_call_id mock-deny-1, decider 0 = policy), the assistant reply, and the complete footer carrying the same denial",
+      "synthetic": "the first turn (lines 1-4): a denial turn hand-converted from a captured permission turn when the permission kind was replaced by denied — user entry, the denied line (tool_name mock_tool, tool_call_id mock-deny-1, decider policy), the assistant reply, and the complete footer carrying the same denial",
       "why_not_fully_real": "the mock is a registered, production-reachable test double (`--llm mock`); its denial turn (mock:deny) has not been re-captured through the recorder. This fixture is what exercises KindDenied."
     }
   }

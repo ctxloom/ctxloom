@@ -2,7 +2,10 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 )
 
 // MCPTransport selects the wire-transport variant of one ChatMCPServer entry.
@@ -128,26 +131,51 @@ const (
 	DeciderGrant
 )
 
+// deciderNames is the vocabulary, indexed by Decider: String, MarshalText and
+// UnmarshalText all read it, so the name a report shows, the name written to
+// disk and the name read back are one enumeration.
+var deciderNames = [...]string{
+	DeciderPolicy:      "policy",
+	DeciderHuman:       "human",
+	DeciderTimeout:     "timeout",
+	DeciderCancelled:   "cancelled",
+	DeciderRefused:     "refused",
+	DeciderPlanPosture: "plan posture",
+	DeciderGrant:       "grant",
+}
+
+// ErrUnknownDecider is a decider outside the vocabulary: a name read that this
+// build does not know, or a value written that has no name.
+var ErrUnknownDecider = errors.New("unknown decider")
+
 // String is the spelling the parent's blocked report carries.
 func (d Decider) String() string {
-	switch d {
-	case DeciderPolicy:
-		return "policy"
-	case DeciderHuman:
-		return "human"
-	case DeciderTimeout:
-		return "timeout"
-	case DeciderCancelled:
-		return "cancelled"
-	case DeciderRefused:
-		return "refused"
-	case DeciderPlanPosture:
-		return "plan posture"
-	case DeciderGrant:
-		return "grant"
-	default:
+	if d < 0 || int(d) >= len(deciderNames) {
 		return "decider(" + strconv.Itoa(int(d)) + ")"
 	}
+	return deciderNames[d]
+}
+
+// MarshalText persists a decider by name. A value with no name is an error,
+// never "decider(N)": nothing could read that back.
+func (d Decider) MarshalText() ([]byte, error) {
+	if d < 0 || int(d) >= len(deciderNames) {
+		return nil, fmt.Errorf("%w: %d", ErrUnknownDecider, int(d))
+	}
+	return []byte(deciderNames[d]), nil
+}
+
+// UnmarshalText reads a decider by name. An unknown name is an ERROR, not the
+// zero value: the zero is DeciderPolicy, a real answer, so defaulting would
+// report the engine's policy for a decision this build cannot name.
+func (d *Decider) UnmarshalText(b []byte) error {
+	for i, name := range deciderNames {
+		if name == string(b) {
+			*d = Decider(i)
+			return nil
+		}
+	}
+	return fmt.Errorf("%w %q (known: %s)", ErrUnknownDecider, b, strings.Join(deciderNames[:], ", "))
 }
 
 // PermissionDenial is one tool call the engine did not run because nothing

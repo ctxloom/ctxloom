@@ -91,8 +91,9 @@ already exists in `internal/core/agent`. That is the design decision ADR
   trimmed subset: the transcript is a lossless superset of what the engine
   reported — including `denials`, every tool call the turn's engine refused.
 - **`denied`** — `agent.PermissionDenial`: one refused tool call as it
-  happened. `decider` is `agent.Decider`'s value (0 = the engine's own
-  policy).
+  happened. `decider` is `agent.Decider` by name (`policy` is the engine's
+  own posture and rules); a name the reading build does not know does not
+  decode, and the line is dropped as unreadable.
 
 ---
 

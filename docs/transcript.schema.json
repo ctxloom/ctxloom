@@ -206,7 +206,7 @@
         "tool_name": { "type": "string" },
         "tool_call_id": { "type": "string", "description": "The engine-native tool-call id the denial refers to." },
         "reason": { "type": "string", "description": "The engine's own words, when it gave any." },
-        "decider": { "type": "integer", "minimum": 0, "description": "agent.Decider: who decided the denial. 0 is the engine's own policy." }
+        "decider": { "type": "string", "enum": ["policy", "human", "timeout", "cancelled", "refused", "plan posture", "grant"], "description": "agent.Decider, by name: who decided the denial. policy is the engine's own posture and rules." }
       }
     }
   }

@@ -948,8 +948,8 @@ never permitted in the committable project store.
 10. **An agent can write to the repository it works in — and `.git` is code, not
     just data.** ctxloom runs an agent in its own git worktree, and the git
     *common* directory is exposed to that agent read-write: in a container it is
-    bind-mounted through the runtime's path mapper (`gitCommonDirMount` in
-    `internal/adapters/isolation/container.go` → `rt.ExposeMapped(common, false)`,
+    bind-mounted through the runtime's path mapper (`gitDirMounts` in
+    `internal/adapters/isolation/gitpointer.go` → `rt.ExposeMapped(common, false)`,
     and the project mount itself is `ExposeMapped(cw.dir, false)`) — identical
     host path under the default identity mapper — and on the host runtime
     nothing is in the way at all. That directory holds `hooks/` and

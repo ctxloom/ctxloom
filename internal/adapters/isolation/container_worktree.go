@@ -24,10 +24,8 @@ import (
 // gitdir-when-mounted: a linked worktree's .git is a FILE
 // (`gitdir: <main>/.git/worktrees/<name>`), so mounting only the worktree breaks
 // git inside the container ("not a git repository"). The fix is the .git
-// mirror — the main repo's git common-dir is ALSO bind-mounted, where the
-// runtime maps it (gitCommonDirMount), and where that mapping renames paths
-// the pointers are shadowed by mapped copies (gitPointerMounts) — so they
-// resolve and
+// mirror — this checkout's git data is ALSO bind-mounted, where the runtime
+// maps it (gitDirMounts) — so the pointers resolve and
 // `git status`/`git diff`/`git rev-parse` work in-container. This keeps the ENTIRE
 // worktree lifecycle host-side (create + WIP-safe teardown via the unchanged
 // Worktree machinery); the alternative (creating worktrees inside a mounted repo)
@@ -90,8 +88,7 @@ func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID strin
 	return wt.dir, wt.Cleanup, nil
 }
 
-// mountBase mirrors the checkout's git common dir (and, where the runtime
-// renames paths, its gitdir pointers — gitPointerMounts), and delivers the
+// mountBase mirrors the checkout's own git data (gitDirMounts), and delivers the
 // project's config tree into the checkout. The worktree's .git is ALWAYS a
 // pointer file, so the git mirror is unconditional (unlike the host base's
 // pointer-only mirror). The mapping creates nothing host-side but the config
@@ -99,15 +96,10 @@ func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID strin
 // which lets the chain retry as a bare host worktree where git resolves natively
 // (a Tier-0 non-issue).
 func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir, scratchRoot string, _ engineContainerSpec, _ git.Git) ([]mount, error) {
-	gitMount, err := gitCommonDirMount(ctx, rt, b.wt.git, dir)
+	mounts, err := gitDirMounts(ctx, rt, b.wt.git, dir, scratchRoot)
 	if err != nil {
 		return nil, err
 	}
-	pointers, err := gitPointerMounts(rt, dir, scratchRoot)
-	if err != nil {
-		return nil, err
-	}
-	mounts := append([]mount{gitMount}, pointers...)
 	cfgMount, ok, err := projectConfigMount(rt, projectDir, dir)
 	if err != nil {
 		return nil, err

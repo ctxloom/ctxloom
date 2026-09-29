@@ -53,7 +53,7 @@ func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
 func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
 
 // Expose is the OCI identity bind mount, so tests that route delivery mounts
-// through the runtime (sessionStateMounts, gitCommonDirMount) see the same mount
+// through the runtime (sessionStateMounts, gitDirMounts) see the same mount
 // the literal produced.
 func (fakeRuntime) expose(host, target string, readOnly bool) mount {
 	return mount{Host: host, Container: target, ReadOnly: readOnly}

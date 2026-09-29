@@ -273,13 +273,12 @@ jobs:
       # The job reaches the RUNNER's docker daemon through its mounted socket
       # (docker-outside-of-docker), and that daemon resolves a bind-mount
       # source against the runner's filesystem, not this container's. Tests
-      # mount t.TempDir() (/tmp) and dockergate.BindFixtureRoot (/var/tmp, kept
-      # off tmpfs on purpose); sharing both at the SAME path is what makes
-      # those sources exist for the daemon. An unshared source is created EMPTY
-      # on the runner, so the container sees a blank directory, not an error.
+      # mount t.TempDir() and dockergate.BindFixtureRoot, both under /tmp;
+      # sharing it at the SAME path is what makes those sources exist for the
+      # daemon. An unshared source is created EMPTY on the runner, so the
+      # container sees a blank directory, not an error.
       volumes:
         - /tmp:/tmp
-        - /var/tmp:/var/tmp
     env:
       JUST_JUSTFILE: justfile.container
 

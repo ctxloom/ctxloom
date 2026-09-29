@@ -171,24 +171,7 @@ func (st *runState) driveOwnedInteractive() error {
 
 	pumpCtx, stopPumps := context.WithCancel(st.ctx)
 	defer stopPumps()
-	if sio.stdin != nil {
-		go func() { _, _ = io.Copy(master, sio.stdin) }()
-	}
-	if sio.resize != nil {
-		go func() {
-			for {
-				select {
-				case ws, ok := <-sio.resize:
-					if !ok {
-						return
-					}
-					_ = st.pty.Resize(ws.Rows, ws.Cols)
-				case <-pumpCtx.Done():
-					return
-				}
-			}
-		}()
-	}
+	st.pumpSessionInput(pumpCtx, sio, master)
 	drained := make(chan struct{})
 	var drainErr error
 	go func() {
@@ -230,6 +213,30 @@ func (st *runState) driveOwnedInteractive() error {
 		return fmt.Errorf("the runner ended: %w", waitErr)
 	}
 	return st.ownedRunOutcome()
+}
+
+// pumpSessionInput feeds the runner's pty from the session: keystrokes onto
+// the master, each resize onto the pty until ctx ends.
+func (st *runState) pumpSessionInput(ctx context.Context, sio sessionIO, master io.Writer) {
+	if sio.stdin != nil {
+		go func() { _, _ = io.Copy(master, sio.stdin) }()
+	}
+	if sio.resize == nil {
+		return
+	}
+	go func() {
+		for {
+			select {
+			case ws, ok := <-sio.resize:
+				if !ok {
+					return
+				}
+				_ = st.pty.Resize(ws.Rows, ws.Cols)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // endRunnerAfter ends a runner that has not exited within grace: End first,

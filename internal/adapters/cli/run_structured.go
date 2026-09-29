@@ -90,6 +90,18 @@ type chatCompleteJSON struct {
 	StopReason          string  `json:"stopReason,omitempty"`
 	DurationMs          int     `json:"durationMs"`
 	NumTurns            int     `json:"numTurns"`
+	// Denials is every tool call the turn's engine refused (agent.TurnMeta.
+	// Denials): a turn with any is blocked, not done.
+	Denials []chatDenialJSON `json:"denials,omitempty"`
+}
+
+// chatDenialJSON mirrors agent.PermissionDenial; decider is agent.Decider's
+// value (0 = the engine's own policy).
+type chatDenialJSON struct {
+	ToolName   string `json:"toolName,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Decider    int    `json:"decider"`
 }
 
 type chatMCPJSON struct {
@@ -164,6 +176,7 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 			StopReason:          c.StopReason,
 			DurationMs:          c.DurationMs,
 			NumTurns:            c.NumTurns,
+			Denials:             chatDenialsJSON(c.Denials),
 		}}
 	case ev.Session != nil:
 		s := ev.Session
@@ -181,6 +194,14 @@ func chatEventToJSON(ev agent.ChatEvent) chatEventJSON {
 	default:
 		return chatEventJSON{}
 	}
+}
+
+func chatDenialsJSON(ds []agent.PermissionDenial) []chatDenialJSON {
+	var out []chatDenialJSON
+	for _, d := range ds {
+		out = append(out, chatDenialJSON{ToolName: d.ToolName, ToolCallID: d.ToolCallID, Reason: d.Reason, Decider: int(d.Decider)})
+	}
+	return out
 }
 
 func chatToolLocationsJSON(locs []agent.ToolLocation) []chatToolLocationJSON {

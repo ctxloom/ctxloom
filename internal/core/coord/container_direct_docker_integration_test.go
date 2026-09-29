@@ -312,10 +312,17 @@ func assertNoTCPListenSocket(t *testing.T, name string) {
 		if fields[3] != "0A" {
 			continue
 		}
-		// local_address is hex ip:port; IPv4 loopback is 0100007F, IPv6
-		// loopback ends in ...00000001 (::1) or the v4-mapped 0100007F.
+		// local_address is hex ip:port, IPv4 in little-endian byte order.
+		// Loopback is ALL of 127.0.0.0/8 (first octet 7F, the LAST hex pair),
+		// not just 127.0.0.1: a runner on a user-defined network (the
+		// docker-outside-of-docker self route joins one) carries Docker's
+		// embedded DNS resolver on 127.0.0.11, private to its netns like any
+		// loopback bind. IPv6 loopback is ::1, or a v4-mapped 127.x address.
 		local := strings.SplitN(fields[1], ":", 2)[0]
-		if local == "0100007F" || local == "00000000000000000000000001000000" || strings.HasSuffix(local, "0000FFFF0100007F") {
+		v4loop := len(local) == 8 && strings.HasSuffix(local, "7F")
+		v6loop := local == "00000000000000000000000001000000" ||
+			(len(local) == 32 && strings.HasPrefix(local, "0000000000000000FFFF0000") && strings.HasSuffix(local, "7F"))
+		if v4loop || v6loop {
 			continue
 		}
 		t.Fatalf("the runner container holds a TCP LISTEN socket beyond its own loopback (mauve-state hole): %q", line)

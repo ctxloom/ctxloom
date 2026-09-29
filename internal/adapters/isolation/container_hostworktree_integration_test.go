@@ -11,7 +11,7 @@
 // out-of-repo linked worktree (a plain `git worktree add` outside the main
 // repo — exactly the standing worktree layout, ~/workspace/worktrees/<proj>--
 // <branch>, every managed worktree included). container.go's
-// gitdirMirrorMount already handles this (unit-tested with a git.Fake in
+// gitdirMirrorMounts already handles this (unit-tested with a git.Fake in
 // container_test.go); this is its real-git, real-daemon, payload-asserting
 // proof, contrasted with the worktree-only mount FAILING exactly as
 // container_worktree_integration_test.go's contrast does.

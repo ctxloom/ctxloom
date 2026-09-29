@@ -537,11 +537,12 @@ func (hostBase) resolveBase(_ context.Context, projectDir, _ string) (string, fu
 }
 
 // mountBase maps the LIVE project dir: the managed-config overlays shadow the
-// engine's config writers off the host project, and a pointer-file .git gets its
-// common dir mirrored so in-container git resolves. dir is the already-resolved
-// cwd (== the project dir for this base). Failure returns the error (the caller
-// tears the workspace down); nothing but overlay mountpoints is created here,
-// and those are kept (see containerConfigOverlay).
+// engine's config writers off the host project, and a pointer-file .git gets
+// its own git data mirrored so in-container git resolves. dir is the
+// already-resolved cwd (== the project dir for this base). Failure returns the
+// error (the caller tears the workspace down); nothing is created here but
+// overlay mountpoints, which are kept (see containerConfigOverlay), and the git
+// mounts' files in the run's scratch.
 // The live project and the resolved cwd are the SAME dir for this base (its
 // resolveBase hands the project dir straight back), so it works from the
 // resolved one and ignores the duplicate.

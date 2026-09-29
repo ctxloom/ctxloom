@@ -81,10 +81,12 @@ func newTearHarness(t *testing.T, rows, cols int) *tearHarness {
 	})
 	h := &tearHarness{t: t, c: c, tty: tty, emu: vtemu.New(rows, cols), now: &now}
 	h.clean = func() {
-		nowNanos = restoreNow
+		// Close first: it joins the goroutines that read nowNanos, so the
+		// seam is restored only once nothing can still be reading it.
+		c.Close()
 		_ = pw.Close()
 		close(src)
-		c.Close()
+		nowNanos = restoreNow
 	}
 	t.Cleanup(h.clean)
 	h.feed()

@@ -392,19 +392,9 @@ func TestController_ApprovalPollFeedsBarAndRingsBellOnce(t *testing.T) {
 }
 
 func TestController_RosterPollFeedsBar(t *testing.T) {
-	const interval = 5 * time.Millisecond
-	var fetches atomic.Int64
-	var closing atomic.Bool
 	h := newCtlHarness(t, func(o *Options) {
-		o.RosterInterval = interval
+		o.RosterInterval = 5 * time.Millisecond
 		o.FetchRoster = func() ([]RosterEntry, error) {
-			fetches.Add(1)
-			if closing.Load() {
-				// Straggler poll after Close: error out so pollRoster skips
-				// SetRoster→RequestPaint and never reads the nowNanos seam
-				// again (see the drain note below).
-				return nil, fmt.Errorf("test: fetch after close")
-			}
 			return []RosterEntry{{Harp: "swift-elm-fox", State: "executing", LastActivityUnix: 1}}, nil
 		}
 	})
@@ -413,28 +403,43 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 	waitFor(t, "roster digest on the bar", func() bool {
 		return strings.Contains(h.tty.String(), "swift-elm-fox→executing")
 	})
-	closing.Store(true)
 	h.c.Close()
-	// Close signals pollRoster (close(stopRoster)) but does not JOIN its
-	// goroutine, whose select between an already-fired ticker and the close
-	// has no ordering guarantee. Left alone, that goroutine outlives this
-	// test and reaches RequestPaint's read of the package-level nowNanos
-	// seam concurrently with a later test's unsynchronized swap of it
-	// (surround_test.go / tear_test.go / incident_repro_test.go) — and the
-	// race detector attributes that leaked-goroutine race to whichever test
-	// is running when it pairs the accesses: observed once under full-suite
-	// load as a spurious failure of the deterministic, unrelated
-	// TestVTGuard_ChildDECSCClearedBySoftResetAndAltLeave. Two layers close
-	// it down (deadline-poll pattern, not a blind sleep): the closing flag
-	// above makes any post-Close fetch inert (error → no seam read), and
-	// this drain waits out a full ticker-cadence window with no new fetch —
-	// meaning the poller has exited, or at worst will next observe the
-	// closed stopRoster / the closing flag without ever touching the seam.
-	waitFor(t, "roster poll goroutine drained", func() bool {
-		before := fetches.Load()
-		time.Sleep(4 * interval)
-		return fetches.Load() == before
+}
+
+// TestController_CloseJoinsRosterPoll forces the interleaving rapid-grass is
+// about: the poll goroutine is held mid-iteration inside FetchRoster when
+// Close runs. Close must not return until that goroutine has exited —
+// otherwise the rest of the iteration (SetRoster, which reads the
+// package-level nowNanos seam) runs after Close, racing whatever the caller
+// does next, such as a later test swapping that seam.
+func TestController_CloseJoinsRosterPoll(t *testing.T) {
+	entered := make(chan struct{})
+	closeReturned := make(chan struct{})
+	var once sync.Once
+	h := newCtlHarness(t, func(o *Options) {
+		o.RosterInterval = time.Hour // only the immediate first fetch runs
+		o.FetchRoster = func() ([]RosterEntry, error) {
+			once.Do(func() { close(entered) })
+			// Hold the poll mid-iteration. A Close that does not join
+			// returns while this is still held; one that joins waits the
+			// hold out. The timer bounds only the joining (green) path.
+			select {
+			case <-closeReturned:
+			case <-time.After(100 * time.Millisecond):
+			}
+			return []RosterEntry{{Harp: "h", State: "executing"}}, nil
+		}
 	})
+	<-entered
+	h.c.Close()
+	// Checked BEFORE releasing the hold: releasing first would let a leaked
+	// goroutine finish and mask the missing join.
+	defer close(closeReturned)
+	select {
+	case <-h.c.rosterDone:
+	default:
+		t.Fatal("Close returned while the roster poll goroutine was still mid-iteration")
+	}
 }
 
 // TestController_RosterFetchWarnsAfterConsecutiveFailures pins the safe half:
@@ -444,9 +449,7 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 // snapshot must still stay displayed (unchanged, documented intent), but
 // enough consecutive failures must now surface exactly one warning, and a
 // later success must reset the streak. Exercises rosterFetch directly
-// (no goroutine/ticker) to stay fully deterministic — the goroutine-join
-// half is a separate, tracked concern (fussy-plow/rapid-grass) and is
-// deliberately untouched here.
+// (no goroutine/ticker) to stay fully deterministic.
 func TestController_RosterFetchWarnsAfterConsecutiveFailures(t *testing.T) {
 	boom := errors.New("coordinator unreachable")
 	fetchErr := true

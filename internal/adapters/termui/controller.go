@@ -118,6 +118,10 @@ type Controller struct {
 	uiOff      atomic.Bool
 	closed     atomic.Bool
 	stopRoster chan struct{}
+	// rosterDone is closed when pollRoster's goroutine has exited (at once
+	// when there is no poller); Close waits on it so no poll iteration can
+	// touch the surround after Close returns.
+	rosterDone chan struct{}
 
 	// rosterFails counts consecutive FetchRoster failures; touched only from
 	// pollRoster's own goroutine, never concurrently.
@@ -140,7 +144,7 @@ func New(opts Options) *Controller {
 	if opts.HoldCapacity <= 0 {
 		opts.HoldCapacity = 256 << 10
 	}
-	c := &Controller{opts: opts, stopRoster: make(chan struct{})}
+	c := &Controller{opts: opts, stopRoster: make(chan struct{}), rosterDone: make(chan struct{})}
 	c.sur = newSurround(&c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
 	// The guard runs inside the gate under the shared tty lock; its callbacks
 	// are the surround's *Locked accessors (same mutex, no re-entry).
@@ -167,6 +171,8 @@ func New(opts Options) *Controller {
 	})
 	if opts.FetchRoster != nil {
 		go c.pollRoster()
+	} else {
+		close(c.rosterDone)
 	}
 	return c
 }
@@ -189,6 +195,10 @@ func (c *Controller) Close() {
 		return
 	}
 	close(c.stopRoster)
+	// Join, not just signal: a ticker that already fired races the closed
+	// channel, so one more poll iteration may be in flight; it must finish
+	// before the restore below and before Close returns.
+	<-c.rosterDone
 	c.overlayMu.Lock()
 	ov := c.overlay
 	c.overlayMu.Unlock()
@@ -401,6 +411,7 @@ func (c *Controller) abortLiteral() {
 // failures blank nothing — the last good snapshot stays; a fetch after the
 // orchestrator exits keeps its final state visible.
 func (c *Controller) pollRoster() {
+	defer close(c.rosterDone)
 	tick := time.NewTicker(c.opts.RosterInterval)
 	defer tick.Stop()
 	c.rosterFetch()

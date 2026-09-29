@@ -262,7 +262,7 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 }
 
 // locksDirMount binds the home locks dir.
-func (c Container) locksDirMount() (mount, error) {
+func (c Container) locksDirMount() (m mount, err error) {
 	// The locks-dir mount is unconditional (see sessionStateMounts' doc):
 	// every registered engine spec's overlayDirs is non-empty, so every
 	// container this runs for already has an engine-settings write mount
@@ -270,10 +270,10 @@ func (c Container) locksDirMount() (mount, error) {
 	// before `run` the same way the other bind sources are.
 	locksDir, err := paths.HomeLocksDir()
 	if err != nil {
-		return mount{}, fmt.Errorf("container lock-dir mount: %w", err)
+		return m, fmt.Errorf("container lock-dir mount: %w", err)
 	}
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
-		return mount{}, fmt.Errorf("container lock-dir mount: %w", err)
+		return m, fmt.Errorf("container lock-dir mount: %w", err)
 	}
 	return c.runtime.paths().bind(
 		locksDir,

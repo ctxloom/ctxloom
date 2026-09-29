@@ -133,9 +133,23 @@ func TestModel_FooterNamesEveryControlKey(t *testing.T) {
 	assert.NotContains(t, footer, "save", "the transcript export was removed; the footer must not advertise it")
 	assert.NotContains(t, footer, "copy", "the OSC-52 copy was removed; the footer must not advertise it")
 
+	m.src.PendingApprovals = nil
+	assert.NotContains(t, m.footerLine(400), "a approvals", "a pane that is not wired must not be advertised")
+
 	m, _ = step(t, m, keyMsg("?"))
 	assert.Contains(t, m.render(), "ask → h1:", "the input line names the verb and its target")
 	m, _ = step(t, m, keyMsg("esc"))
 	m, _ = step(t, m, keyMsg("s"))
 	assert.Contains(t, m.render(), "summarize → h1:")
+}
+
+// TestModel_FooterNoteSurvivesAnOrdinaryWidth: the note is the outcome of the
+// key just pressed. Appended after the full key list it was cut off at any
+// ordinary width, so every failure and confirmation was invisible at 80
+// columns; it leads the line, and the key list is what gets truncated.
+func TestModel_FooterNoteSurvivesAnOrdinaryWidth(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	m := openSelected(t, newTestModel(f), f)
+	m.reportErr("inject: engine refused")
+	assert.Contains(t, m.footerLine(80), "inject: engine refused")
 }

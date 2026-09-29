@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -452,6 +453,10 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.firstKey = false
 		switch key {
 		case "f": // prefix-then-f: full screen
+			if m.geo.EngineOnAltScreen {
+				m.reportErr(fullScreenUnavailable)
+				return m, nil
+			}
 			m.full = true
 			m.resize()
 			// v2 has no EnterAltScreen command: the alt screen is a property
@@ -633,6 +638,15 @@ func controlPending(req coord.ControlRequest) string {
 	return "resuming " + req.Harp + "…"
 }
 
+// fullScreenUnavailable is why prefix-then-f stays in the panel over an
+// engine that is itself on the alternate screen (termui.OverlayGeometry).
+const fullScreenUnavailable = "full screen unavailable: the engine is using the alternate screen"
+
+// approvalsNotHere is why the approvals view will not open when no approvals
+// source is wired — which is always, in production (coord.PendingApproval):
+// approvals are answered in the engine's own prompt, not in this viewer.
+const approvalsNotHere = "no approvals pane here: answer approvals in the engine's own prompt"
+
 // openApprovals opens the approvals view — a FULL body-region view (like the
 // feed view, not a floating box: render() has no z-order primitive) listing
 // every approval parked for this human, with the selected one's detail. It
@@ -640,7 +654,7 @@ func controlPending(req coord.ControlRequest) string {
 // is never staring at a panel with nothing in it.
 func (m Model) openApprovals() (tea.Model, tea.Cmd) {
 	if m.src.PendingApprovals == nil {
-		m.reportErr("approvals unavailable (no coordinator for this session)")
+		m.reportErr(approvalsNotHere)
 		return m, nil
 	}
 	list := m.src.PendingApprovals()
@@ -758,7 +772,7 @@ func (m Model) answerApprovalCmd(messageID, harp string, decision agentcoordpb.A
 	if answer == nil {
 		return func() tea.Msg {
 			return approvalResultMsg{messageID: messageID, harp: harp, decision: decision,
-				err: fmt.Errorf("approvals unavailable (no coordinator for this session)")}
+				err: errors.New(approvalsNotHere)}
 		}
 	}
 	return func() tea.Msg {
@@ -1043,10 +1057,16 @@ func (m Model) footerLine(cols int) string {
 		// dimmed — it is the focused input.
 		return padCell(" "+controlLabel(m.composeVerb)+" → "+m.composeHarp+": "+m.composeText+"_ · enter send · esc cancel", cols)
 	}
-	hints := " j/k move · enter feed · i inject · ? ask · s summarize · p pause · r resume · a approvals · x expand · f follow · g/G ends · " +
-		strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
+	approvals := ""
+	if m.src.PendingApprovals != nil {
+		approvals = "a approvals · "
+	}
+	hints := " j/k move · enter feed · i inject · ? ask · s summarize · p pause · r resume · " + approvals +
+		"x expand · f follow · g/G ends · " + strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
+	// The note leads: it is the outcome of the key just pressed, and the key
+	// list is what an ordinary width truncates.
 	if note := m.hintNote(); note != "" {
-		hints += "  ─ " + note
+		hints = " " + note + "  ─" + hints
 	}
 	return styleDim.Render(padCell(hints, cols))
 }

@@ -175,8 +175,10 @@ func (c *Coordinator) readopt(runID string) {
 // the deterministic stand-in for the clock a restart test never waits on.
 func (c *Coordinator) expireRunnerGrace() {
 	c.mu.Lock()
-	pending := c.graceExpire
-	c.graceExpire = nil
+	pending := make([]func(), 0, len(c.graceExpire))
+	for _, fire := range c.graceExpire {
+		pending = append(pending, fire)
+	}
 	c.mu.Unlock()
 	for _, fire := range pending {
 		fire()

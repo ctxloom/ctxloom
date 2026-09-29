@@ -265,10 +265,13 @@ type Coordinator struct {
 	// reader behind agent_recv (spoolinbox.go).
 	inbox   *spoolInbox
 	runners map[string]*RunnerSession // credHash → connected runner
-	// graceExpire fires the runner-loss grace windows adopt armed for the
-	// runs it found live at startup, ahead of their clock — the test seam
-	// expireRunnerGrace drains; each closure is idempotent with its timer.
-	graceExpire []func()
+	// graceExpire holds the runner-loss grace windows adopt armed for the
+	// runs it found live at startup, keyed by run id, until each fires. A key
+	// with no attachment is a run whose runner has not dialed back: the
+	// shutdown drain has no process to wait on for it (BeginDrain). Firing
+	// them all ahead of their clock is the test seam expireRunnerGrace; each
+	// closure is idempotent with its timer.
+	graceExpire map[string]func()
 	runnerReady map[string]chan struct{} // credHash → closed on Hello registration (awaitRunner)
 	chans       map[string]*RunChannel   // role harp → live RunChannel
 	// reqTrack is plane-2 request idempotency that SURVIVES a RunChannel
@@ -475,6 +478,7 @@ func New(opts Options) (*Coordinator, error) {
 		watch:              newWatchHub(report.To(opts.Reporter)),
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
+		graceExpire:        make(map[string]func()),
 		byHarp:             make(map[string]*childRt),
 		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
@@ -718,6 +722,7 @@ func (c *Coordinator) adopt() {
 			once.Do(func() {
 				close(fired)
 				c.mu.Lock()
+				delete(c.graceExpire, runID)
 				_, connected := c.runners[credHash]
 				c.mu.Unlock()
 				if !connected {
@@ -726,7 +731,7 @@ func (c *Coordinator) adopt() {
 			})
 		}
 		c.mu.Lock()
-		c.graceExpire = append(c.graceExpire, fire)
+		c.graceExpire[runID] = fire
 		c.mu.Unlock()
 		c.goTracked(func() {
 			select {
@@ -778,7 +783,7 @@ func (c *Coordinator) BeginDrain() *Drain {
 		// Which children the drain accounts for is decided HERE, before this
 		// returns: a caller that ends a run right after BeginDrain must find
 		// it in the outcome, not lose it to a snapshot that ran later.
-		d = newDrain(shutdownPolicy(), c.drainTracked(nil))
+		d = newDrain(shutdownPolicy(), c.drainTracked(c.hasProcess()))
 		c.drain = d
 	}
 	c.drainMu.Unlock()
@@ -786,6 +791,24 @@ func (c *Coordinator) BeginDrain() *Drain {
 		c.startDrain(d)
 	}
 	return d
+}
+
+// hasProcess is the shutdown drain's selection: every live run except one
+// adopted at startup whose runner has not dialed back. That run has no
+// process here to ask to exit and none that could reach a turn boundary, so
+// waiting on it would only wait out its adoption grace — the whole
+// runnerLossTimeout, on every exit of a session that ends inside it. It is
+// left as adoption found it; the next coordinator's grace decides it.
+func (c *Coordinator) hasProcess() func(*RunRecord) bool {
+	c.mu.Lock()
+	orphaned := make(map[string]bool, len(c.graceExpire))
+	for runID := range c.graceExpire {
+		if c.attach[runID] == nil {
+			orphaned[runID] = true
+		}
+	}
+	c.mu.Unlock()
+	return func(r *RunRecord) bool { return !orphaned[r.RunID] }
 }
 
 // Draining reports whether BeginDrain has been called.

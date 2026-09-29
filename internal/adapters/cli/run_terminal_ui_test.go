@@ -13,6 +13,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -124,4 +126,50 @@ func TestRedirectDiagnosticsForTUI_AnnouncesTheOutcome(t *testing.T) {
 		assert.NotEmpty(t, announce.String(),
 			"a harp that does not resolve to a session dir must be reported")
 	})
+}
+
+// TestDivertRunnerDiagnostics_WarningsLandInTheNamedLog: an interactive
+// runner's stderr is the engine's pty, so a warning printed there is painted
+// into the middle of the engine's screen. Handed the session's log, the
+// runner writes its warnings there instead.
+func TestDivertRunnerDiagnostics_WarningsLandInTheNamedLog(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "diagnostics.log")
+	restore := divertRunnerDiagnostics(func(k string) string {
+		if k == sessions.EnvDiagnosticsLog {
+			return log
+		}
+		return ""
+	})
+	clidiag.Warn("ctxloom", "runner-side warning")
+	restore()
+
+	got, err := os.ReadFile(log)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "runner-side warning")
+}
+
+// TestRunnerTerminalEnv_ForwardsTheLogOnlyWhenTheUIOwnsTheTerminal: the
+// runner's diagnostics follow this process's own — diverted exactly when
+// prepareSessionIO diverts them (a real tty, no --plain-terminal) — and the
+// coordinator's env map is never written through.
+func TestRunnerTerminalEnv_ForwardsTheLogOnlyWhenTheUIOwnsTheTerminal(t *testing.T) {
+	testsupport.Isolate(t)
+	oldTerm, oldPlain := termIsTerminal, runPlainTerminal
+	t.Cleanup(func() { termIsTerminal, runPlainTerminal = oldTerm, oldPlain })
+	st := &runState{activeHarp: "self-harp"}
+	spawn := map[string]string{"K": "V"}
+	want, err := diagnosticsLogPath("self-harp")
+	require.NoError(t, err)
+
+	termIsTerminal, runPlainTerminal = func(int) bool { return true }, false
+	env := st.runnerTerminalEnv(spawn)
+	assert.Equal(t, want, env[sessions.EnvDiagnosticsLog])
+	assert.Equal(t, "V", env["K"])
+	assert.NotContains(t, spawn, sessions.EnvDiagnosticsLog, "the caller's map must not be written through")
+
+	runPlainTerminal = true
+	assert.NotContains(t, st.runnerTerminalEnv(spawn), sessions.EnvDiagnosticsLog, "--plain-terminal keeps diagnostics on the terminal")
+
+	termIsTerminal, runPlainTerminal = func(int) bool { return false }, false
+	assert.NotContains(t, st.runnerTerminalEnv(spawn), sessions.EnvDiagnosticsLog, "no tty, no terminal UI, nothing to divert from")
 }

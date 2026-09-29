@@ -156,3 +156,40 @@ func TestReadopt_ARestartSlowerThanTheGraceStillReadoptsTheRunner(t *testing.T) 
 	require.NotEmpty(t, res, "the re-adopted runner takes the next turn")
 	assert.Equal(t, 1, sp.spawnCount())
 }
+
+// TestReadopt_ShutdownDrainDoesNotWaitOnAnAdoptedRunWithNoRunner: a run the
+// journal says was mid-turn when its coordinator died, and whose runner has
+// not dialed back, has no process this coordinator can ask to exit — there
+// is nothing for the drain to wait on. A session that ends inside the
+// adoption grace used to sit in its exit for the whole grace window
+// (runnerLossTimeout) on such a run. The drain settles at once and leaves the
+// run exactly as adoption found it: its grace belongs to whichever
+// coordinator hosts the project next, which can still re-adopt a runner that
+// was merely slow to redial.
+func TestReadopt_ShutdownDrainDoesNotWaitOnAnAdoptedRunWithNoRunner(t *testing.T) {
+	resetStrictness(t)
+	stateDir := t.TempDir()
+	gate := make(chan struct{}) // never closed: the turn is in flight when the coordinator dies
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+
+	first := newTestCoordinatorOver(t, stateDir, sp)
+	out, err := first.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		sp.mu.Lock()
+		defer sp.mu.Unlock()
+		return len(sp.chats) == 1 && len(sp.chats[0].RecordedTexts()) == 1
+	}, conformanceWait, 5*time.Millisecond, "the turn must reach the engine: the run dies mid-turn, not mid-launch")
+	crashCoordinator(first)
+	sp.killEngine(0) // the runner died with the host
+
+	second := newTestCoordinatorOver(t, stateDir, sp)
+	second.drainBound = time.Minute
+	require.Equal(t, StateExecuting, rosterState(second, out.Harp), "precondition: adoption holds the run open for its grace")
+
+	started := time.Now()
+	outcome := awaitDrain(t, second.BeginDrain())
+	assert.Less(t, time.Since(started), runnerLossTimeout/4, "the drain must not wait out the adoption grace")
+	assert.NotContains(t, outcome.Interrupted, out.Harp, "an adopted run with no runner is not forced")
+	assert.NotEqual(t, StateEnded, rosterState(second, out.Harp), "the drain leaves the run for the next coordinator's grace")
+}

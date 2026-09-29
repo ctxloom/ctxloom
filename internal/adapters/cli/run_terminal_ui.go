@@ -144,6 +144,18 @@ func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, erro
 // diagnosticsLogPath is where a TUI-owning session parks its clidiag warnings.
 const diagnosticsLogName = "diagnostics.log"
 
+// diagnosticsLogPath is harp's diagnostics log, its session dir created.
+func diagnosticsLogPath(harp string) (string, error) {
+	dir, err := paths.HarpDir(harp)
+	if err != nil {
+		return "", fmt.Errorf("could not resolve a session dir for harp %q: %w", harp, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("could not create %s: %w", dir, err)
+	}
+	return filepath.Join(dir, diagnosticsLogName), nil
+}
+
 // redirectDiagnosticsForTUI routes clidiag's stderr warnings into a per-session
 // log for the lifetime of a terminal-UI session, and returns the restore.
 //
@@ -172,14 +184,10 @@ func redirectDiagnosticsForTUI(harp string, announce io.Writer) func() {
 	if harp == "" {
 		return decline("this session has no harp, so there is no per-session log to divert them to")
 	}
-	dir, err := paths.HarpDir(harp)
+	path, err := diagnosticsLogPath(harp)
 	if err != nil {
-		return decline("could not resolve a session dir for harp %q: %v", harp, err)
+		return decline("%v", err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return decline("could not create %s: %v", dir, err)
-	}
-	path := filepath.Join(dir, diagnosticsLogName)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return decline("could not open %s: %v", path, err)

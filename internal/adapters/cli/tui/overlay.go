@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -39,9 +40,10 @@ func NewOverlay(ctx context.Context, src Sources, prefix byte) *Overlay {
 
 // Run drives the overlay to completion. input is the interceptor-routed
 // keystroke stream (a pipe, never the tty — bubbletea therefore skips its
-// own raw-mode handling); tty is the raw terminal writer. The quick panel
-// draws over the bottom PanelRows rows; prefix-then-f enters the alt screen
-// (tea restores it on quit).
+// own raw-mode handling); tty is the raw terminal writer, on a screen the
+// controller has already taken over (termui's takeScreen). The quick panel
+// draws in the bottom PanelRows rows; prefix-then-f draws on the alt screen
+// (tea leaves it on quit), unless the engine is itself on it.
 func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry) error {
 	watchCtx, cancel := context.WithCancel(o.ctx)
 	defer cancel()
@@ -54,7 +56,7 @@ func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry
 	}
 	p := tea.NewProgram(m,
 		tea.WithInput(input),
-		tea.WithOutput(writerOnly{tty}),
+		tea.WithOutput(onlcr{tty}),
 		tea.WithoutSignalHandler(),
 		// The size has to be stated, and it is the PANEL's, not the terminal's.
 		// Input is the interceptor's pipe rather than the tty, so bubbletea v2
@@ -98,7 +100,17 @@ func (o *Overlay) Abort() {
 	}
 }
 
-// writerOnly hides everything except Write from bubbletea.
+// onlcr is the writer bubbletea draws through: the output post-processing
+// bubbletea assumes and the terminal does not do, behind a type that hides
+// everything but Write.
+//
+// bubbletea separates rows with a bare "\n" and moves its cursor model to
+// column 0 after one, because with its input not a tty it concludes the
+// terminal is still cooked and maps NL to CR-NL itself (ONLCR; tea.go's
+// mapNl). ctxloom's terminal is raw — OPOST is off — so nothing returns the
+// carriage: every row starts where the previous one ended, and the renderer's
+// cursor model no longer matches the screen for any later diffed frame. The
+// translation is done here, where bubbletea's output meets the tty.
 //
 // It matters that this is opaque. Given an output it can recognise as a real
 // terminal (an *os.File on a tty), bubbletea v2 takes the terminal over: it
@@ -107,9 +119,19 @@ func (o *Overlay) Abort() {
 // pipe, never the tty, so those replies never come and the renderer paints
 // erase-to-end-of-screen forever without ever writing its content.
 //
-// ctxloom owns this terminal. The controller has already set the scroll
-// region, saved the cursor and parked it at the panel's top-left, and it holds
-// the engine's output for the duration; bubbletea is a guest painting into
-// rows it was handed. Passing an opaque writer is what says so — the same
-// reasoning the input side states above, applied to output.
-type writerOnly struct{ io.Writer }
+// ctxloom owns this terminal. The controller has already taken it over,
+// saved the engine's cursor and parked it at the panel's top-left, and it
+// holds the engine's output for the duration; bubbletea is a guest painting
+// into rows it was handed. Passing an opaque writer is what says so — the
+// same reasoning the input side states above, applied to output.
+type onlcr struct{ w io.Writer }
+
+func (o onlcr) Write(p []byte) (int, error) {
+	if bytes.IndexByte(p, '\n') < 0 {
+		return o.w.Write(p)
+	}
+	if _, err := o.w.Write(bytes.ReplaceAll(p, []byte("\n"), []byte("\r\n"))); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}

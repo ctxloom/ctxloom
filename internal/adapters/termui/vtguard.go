@@ -54,7 +54,12 @@ type vtGuard struct {
 	// SYNC-REQUIRED: written in Filter and read by SafeForPaint (the surround's
 	// paint gate), both under the shared tty lock — keep all access on that lock.
 	childSaved bool
-	out        []byte // output scratch, reused; returned slice valid until next call
+	// altScreen tracks whether the child has switched to the alternate
+	// screen (47/1047/1049) and not back; RIS returns it to the main screen.
+	// The controller reads it to decide how an engagement may take the screen
+	// over. SYNC-REQUIRED: the same tty lock as childSaved.
+	altScreen bool
+	out       []byte // output scratch, reused; returned slice valid until next call
 }
 
 type vtState int
@@ -156,6 +161,7 @@ func (g *vtGuard) stepEsc(b byte) {
 		// re-homes, a no-op).
 		g.emitSeq(b)
 		g.childSaved = false
+		g.altScreen = false
 		g.insertReassert()
 		g.state = vtGround
 	case b == 0x1b:
@@ -321,6 +327,7 @@ func (g *vtGuard) finishCSI() {
 		return
 	case (final == 'l' || final == 'h') && private && csiParamsContainAltScreen(body[1:]):
 		g.emitPending()
+		g.altScreen = final == 'h'
 		if final == 'l' {
 			// Leaving the alt screen restores/consumes the main-screen
 			// saved-cursor slot (1049l), so a child DECSC left open no longer

@@ -20,7 +20,7 @@ import (
 //
 // rootlessNet is the rootless network command podman reports ("pasta",
 // "slirp4netns"; "" when unprobed), which decides how a container reaches the
-// host (reachRoute, networkArgs).
+// host and the network its runner sits on (reachRoute).
 type Podman struct {
 	ociRuntime
 	rootless    bool
@@ -51,7 +51,6 @@ func (p Podman) RunArgs(spec RunSpec) []string {
 		// remap; enter as namespaced root so the entrypoint can usermod+drop.
 		args = append(args, "--userns=keep-id", "--user", "0:0")
 	}
-	args = append(args, p.networkArgs()...)
 	args = append(args, identityEnvArgs()...)
 	return p.runArgs(args, spec)
 }
@@ -82,27 +81,15 @@ const pastaHostLoopback = "169.254.1.3"
 // loopback once allow_host_loopback is set.
 const slirpHostLoopback = "10.0.2.2"
 
-// networkArgs keeps the user's rootless translator and opens its route to the
-// host's loopback, so the coordinator needs no listener beyond loopback.
-// Measured on podman 5.4.2: without these options neither translator reaches
-// the host's 127.0.0.1, and pasta's host.containers.internal lands on a LAN
-// address.
-func (p Podman) networkArgs() []string {
-	if !p.rootless {
-		return nil
-	}
-	switch p.rootlessNet {
-	case "pasta":
-		return []string{"--network=pasta:--map-host-loopback," + pastaHostLoopback}
-	case "slirp4netns":
-		return []string{"--network=slirp4netns:allow_host_loopback=true"}
-	}
-	return nil
-}
-
 // reachRoute: host.containers.internal in a podman machine, except under WSL
-// (machineVMIsWSL); a rootless translator's loopback route (networkArgs);
-// rootful podman's netavark bridge gateway; else the public fallback.
+// (machineVMIsWSL); a rootless translator's loopback route; rootful podman's
+// netavark bridge gateway; else the public fallback.
+//
+// A translator route keeps the user's rootless translator and opens its route
+// to the host's loopback, so the coordinator needs no listener beyond
+// loopback. Measured on podman 5.4.2: without these options neither
+// translator reaches the host's 127.0.0.1, and pasta's
+// host.containers.internal lands on a LAN address.
 func (p Podman) reachRoute(ctx context.Context) (hostRoute, error) {
 	switch {
 	case platform.ContainersInVM && machineVMIsWSL:
@@ -114,9 +101,9 @@ func (p Podman) reachRoute(ctx context.Context) (hostRoute, error) {
 	case platform.ContainersInVM:
 		return hostRoute{dial: "host.containers.internal"}, nil
 	case p.rootless && p.rootlessNet == "pasta":
-		return hostRoute{dial: pastaHostLoopback}, nil
+		return hostRoute{dial: pastaHostLoopback, network: "pasta:--map-host-loopback," + pastaHostLoopback}, nil
 	case p.rootless && p.rootlessNet == "slirp4netns":
-		return hostRoute{dial: slirpHostLoopback}, nil
+		return hostRoute{dial: slirpHostLoopback, network: "slirp4netns:allow_host_loopback=true"}, nil
 	case p.rootless:
 		return publicRoute(fmt.Sprintf("rootless podman's network %q has no known route to the host's loopback", p.rootlessNet))
 	default:

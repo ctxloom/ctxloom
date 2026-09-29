@@ -125,6 +125,10 @@ type Runtime interface {
 type hostRoute struct {
 	dial   string
 	listen present.Listen
+	// network is the runner's --network: "" leaves the runtime's default.
+	// The route is its ONE producer, so where a runner dials and which
+	// network it sits on cannot disagree.
+	network string
 }
 
 // ErrNoHostReach refuses a container whose runtime offers no route to the
@@ -214,6 +218,9 @@ type RunSpec struct {
 	// TTY attaches the run to a terminal (-i -t): the runner's stdio is the
 	// tty the originator holds — an INTERACTIVE launch's foreground runner.
 	TTY bool
+	// Network is the run's --network, taken from the route home; "" is the
+	// runtime's default network.
+	Network string
 
 	// Trace, when non-nil, marks a PROBE-ONLY run: renderRunSpec then grants
 	// --cap-add=SYS_PTRACE, bind-mounts the trace dir out, and wraps Command in
@@ -439,6 +446,9 @@ func renderRunSpec(spec RunSpec) []string {
 	var args []string
 	if spec.TTY {
 		args = append(args, "-i", "-t")
+	}
+	if spec.Network != "" {
+		args = append(args, "--network="+spec.Network)
 	}
 	// PROBE-ONLY: a non-nil Trace overrides Docker's default seccomp profile
 	// with the probe profile (default policy + the ptrace family allowed), which

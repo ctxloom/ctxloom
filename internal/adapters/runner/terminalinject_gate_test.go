@@ -123,8 +123,7 @@ func TestTerminalInject_ModalSuppressionSurvivesTheDeadline(t *testing.T) {
 // TestTerminalInject_AnEngineWithNoGateIsRefusedNotAssumedSafe pins
 // fail-closed at the capability boundary. An engine that implements no
 // InputGate has given no signal, and no signal must delay a wake rather than
-// permit one — the same posture PaneInjector already takes toward an engine
-// whose paste behaviour nobody has measured.
+// permit one.
 func TestTerminalInject_AnEngineWithNoGateIsRefusedNotAssumedSafe(t *testing.T) {
 	var injected atomic.Int64
 	ti := &TerminalInjector{

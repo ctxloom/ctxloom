@@ -333,9 +333,6 @@ var noEngineNameInCoreAllowed = map[string]string{
 	"internal/core/bundles/bundles.go":                    "contract: signing.CommandPreimageContract canonicalises the claude-code block into the frozen preimage bytes (CommandSurface.ExportsPayload); leaves with a contract bump that re-signs every bundle, which is a human's call, not a slice's",
 	"internal/adapters/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
 
-	// adapters choosing a default by name
-	"internal/adapters/tmuxhost/paneinject.go": "slice 13: hostpty spawns the runner; the pane-injection table keyed by engine name goes with tmuxhost",
-
 	// the retiring plugin wire and the vendor readers
 }
 

@@ -229,7 +229,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
 	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
 	"mcp serve": {skip: "serve: runs the stdio MCP server"},
-	"attach":    {skip: "interactive: replaces this process with a tmux client attached to a run's pane; renders no result of its own"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},

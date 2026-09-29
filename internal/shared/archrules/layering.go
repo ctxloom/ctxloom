@@ -232,7 +232,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/projectroot":                    "slice 7: launch.HostFacts carries the project root from cmd/*",
 			"internal/adapters/cli -> internal/adapters/selfexec":                       "slice 13: hostpty spawns the runner; the self-exec path is a HostFacts value (measured; Part 1.1 does not place selfexec)",
 			"internal/adapters/isolation -> internal/adapters/selfexec":                 "composition root (cmd/*): the runner binary is launch.HostFacts.Binary handed to spawn.Runtimes; until then the host cell's runner command resolves its own self-exec path (measured; Part 1.1 does not place selfexec)",
-			"internal/adapters/cli -> internal/adapters/tmuxhost":                       "slice 13: tmuxhost goes with vpio; adapters/hostpty replaces it",
 			"internal/adapters/cli -> internal/adapters/turnchange":                     "measured; Part 1.1 does not place turnchange — no slice names this edge",
 			"internal/adapters/content -> internal/adapters/signing":                    "slice 5: one verifier behind the trust ports",
 			"internal/adapters/content/remotetree -> internal/adapters/remote":          "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",

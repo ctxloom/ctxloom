@@ -131,7 +131,6 @@ var pristineHidden = func() map[string]bool {
 // the complement of Product.Unhide, and together the two sets must account for
 // every hidden top-level command.
 var undocumentedHidden = map[string]bool{
-	"attach":     true, // runAttach has no success path yet; documenting a command that always refuses would advertise it
 	"completion": true,
 	"hook":       true,
 	"plan":       true,

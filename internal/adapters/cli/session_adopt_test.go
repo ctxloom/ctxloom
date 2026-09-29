@@ -22,7 +22,6 @@ import (
 func resetSessionAdoptFlags(t *testing.T) {
 	t.Helper()
 	sessionAdoptApply = false
-	resetRootFormat(t)
 }
 
 // writeAdoptVendorFile writes a minimal claude-code-shaped vendor transcript
@@ -90,7 +89,7 @@ func TestSessionAdopt_DryRunWritesNothing(t *testing.T) {
 
 	before := sidecarBytes(t, harp)
 
-	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp)
+	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--format", "text")
 	require.NoError(t, err)
 
 	after := sidecarBytes(t, harp)
@@ -113,7 +112,7 @@ func TestSessionAdopt_ApplyAppendsThroughStore_SurvivesReload(t *testing.T) {
 		time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 5, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(func() { resetSessionAdoptFlags(t) })
 
-	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--apply")
+	stdout, stderr, err := execRootCmdBoth(t, "session", "adopt", harp, "--apply", "--format", "text")
 	require.NoError(t, err)
 	assert.Contains(t, stdout, "adopted")
 	assert.Contains(t, stderr, "adopted 1 rotation")

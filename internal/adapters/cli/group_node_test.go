@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // walkCommands visits cmd and every command beneath it.
@@ -23,21 +21,13 @@ func walkCommands(cmd *cobra.Command, visit func(*cobra.Command)) {
 // runRoot drives the real rootCmd with args and returns everything it wrote
 // plus its error.
 //
-// rootCmd is package-global and its persistent flags KEEP whatever the last
-// test set — --format in particular, which other suites in this package leave
-// on markdown. That is not this test's state to inherit, so the flag is put
-// back to its default here as well as after; a namespace test that quietly
-// depended on a neighbour's leftovers would be measuring the neighbour.
+// --format is reset before as well as after (resetRootFormat): a namespace
+// test that quietly depended on a neighbour's leftovers would be measuring
+// the neighbour.
 func runRoot(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	resetFormat := func() {
-		if f := rootCmd.PersistentFlags().Lookup("format"); f != nil {
-			require.NoError(t, f.Value.Set(f.DefValue))
-			f.Changed = false
-		}
-	}
-	resetFormat()
+	resetRootFormat(t)
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
 	rootCmd.SetArgs(args)
@@ -45,14 +35,12 @@ func runRoot(t *testing.T, args ...string) (string, error) {
 		rootCmd.SetArgs(nil)
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
-		resetFormat()
-		// rootPersistentPreRun flips clidiag's structured channel on for a
-		// json/yaml/toml --format and nothing ever flips it back; a later
-		// test asserting on a plain "ctxloom: warning: ..." line would then
-		// find structured output and fail for a reason that has nothing to
-		// do with it. Process-global state set by an Execute() is this
-		// helper's to undo.
-		clidiag.SetStructured(false)
+		resetRootFormat(t)
+		// rootCommand() clears --help before ITS dispatch, but most of this
+		// package dispatches through rootCmd.Execute() directly and never
+		// gets that reset. A --help this call passed would otherwise turn the
+		// next such dispatch into a help print that exits 0.
+		resetHelpFlag(rootCmd)
 	})
 	err := rootCommand().Execute()
 	return out.String(), err

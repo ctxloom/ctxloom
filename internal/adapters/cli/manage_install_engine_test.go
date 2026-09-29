@@ -17,6 +17,7 @@ import (
 // require success — the point is usually that a command must NOT succeed.
 func runCLIErr(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	resetRootFormat(t)
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
@@ -25,6 +26,7 @@ func runCLIErr(t *testing.T, args ...string) (string, error) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
+		resetRootFormat(t)
 	})
 	err := rootCmd.Execute()
 	return out.String(), err

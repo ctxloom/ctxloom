@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,13 +47,7 @@ func TestFormatGuard_RefusesBeforeTheCommandDoesAnything(t *testing.T) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		// rootCmd's --format is a process-wide PersistentFlags() value that
-		// pflag does not reset between Execute() calls on the same tree, and
-		// PersistentPreRun flips the structured-diagnostics channel to match.
-		// Leaving either set reroutes later tests' warnings through the JSON
-		// renderer — a test-order hazard, not a product bug.
-		_ = rootCmd.PersistentFlags().Set("format", formatText)
-		clidiag.SetStructured(false)
+		resetRootFormat(t)
 	})
 
 	err := rootCmd.Execute()
@@ -86,8 +79,7 @@ func TestFormatGuard_TextAndImplicitFormatsStillRun(t *testing.T) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
-		_ = rootCmd.PersistentFlags().Set("format", formatText)
-		clidiag.SetStructured(false)
+		resetRootFormat(t)
 	})
 
 	err := rootCmd.Execute()

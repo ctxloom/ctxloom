@@ -227,14 +227,14 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 
 // headlessPermissionsOptions maps promptHeadlessPermissions' menu numbers to
 // the seed agent's permissions value, in display order. Index 0 is what a bare
-// Enter picks; "" (none) declares nothing, so the agent's headless runs are
-// refused until one is declared.
+// Enter picks; "" (none) declares nothing, so the agent's headless runs take
+// the engine's default posture.
 var headlessPermissionsOptions = []string{enginepkg.PermissionPlan.String(), enginepkg.PermissionBypass.String(), ""}
 
 // promptHeadlessPermissions asks which posture the default agent's headless
 // runs may use and returns the value for its `permissions:`. A headless run
-// has no human to answer a prompt, so without a headless-safe posture it is
-// refused; interactive runs keep the engine's host default either way.
+// has no human to answer a prompt, so whatever its posture would ask about is
+// denied; interactive runs keep the engine's host default either way.
 func (p *initPrompts) promptHeadlessPermissions() (string, error) {
 	fmt.Println()
 	fmt.Println("Your default agent sometimes runs HEADLESS — a one-shot (`ctxloom run --one-shot`)")
@@ -245,8 +245,9 @@ func (p *initPrompts) promptHeadlessPermissions() (string, error) {
 	fmt.Println()
 	fmt.Println("  1) plan — read-only: it can look and answer, but cannot change anything (Recommended)")
 	fmt.Println("  2) bypass — it may do anything, including edits and commands, without asking")
-	fmt.Println("  3) none — declare nothing now; headless runs of this agent are refused until")
-	fmt.Println("     you set `permissions:` on it (ctxloom agent edit default --permissions <plan|bypass>)")
+	fmt.Println("  3) none — declare nothing now; headless runs take the engine's default posture,")
+	fmt.Println("     and anything it would ask you about is denied (set one later with")
+	fmt.Println("     ctxloom agent edit default --permissions <posture>)")
 
 	for {
 		fmt.Print("\n> (1-3, Enter for recommended): ")

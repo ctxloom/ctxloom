@@ -135,10 +135,8 @@ func TestPingEngineAuth_Succeeds(t *testing.T) {
 // TestPingEngineAuth_RequestsBypassPermissionExplicitly pins that the ping
 // asks for permissions: bypass on its launch explicitly, rather than riding
 // whatever the chosen engine's llm label declares (or doesn't).
-// authPingTestConfig declares no llm permissions at all, so before
-// pingEngineAuth carried this override, its launch depended entirely on
-// operations.effectiveMemberPermission's floor for an unset posture — a
-// floor unroasted-spinning replaced with a refusal. This is a PAYLOAD
+// authPingTestConfig declares no llm permissions at all, so without this
+// override its launch would ride the engine's host default. This is a PAYLOAD
 // assertion on the launch the run started with (Launch.Permission), not
 // just "the ping succeeded": a caller-side fallback that quietly caught a
 // refusal and retried some other way could still pass a success-only

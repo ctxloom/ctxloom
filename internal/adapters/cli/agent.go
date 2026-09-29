@@ -100,9 +100,6 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 				w.Printf("    %s: %s\n", f.key, f.value)
 			}
 		}
-		if len(s.Escalation) > 0 {
-			w.Printf("    escalation: %d rung(s)\n", len(s.Escalation))
-		}
 	}
 	return w.Err()
 }
@@ -209,24 +206,7 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	if def.Auth != "" {
 		w.Printf("Auth (declared): %s\n", def.Auth)
 	}
-	renderAgentEscalation(w, def.Escalation)
 	writeBulletList(w, "Profiles", def.Profiles)
-}
-
-// renderAgentEscalation writes the approval ladder, one line per rung. A rung
-// naming no kinds is a catch-all, so it says so rather than printing nothing.
-func renderAgentEscalation(w *iox.ErrWriter, ladder []agents.EscalationRung) {
-	if len(ladder) == 0 {
-		return
-	}
-	w.Printf("Escalation: %d rung(s)\n", len(ladder))
-	for _, r := range ladder {
-		kinds := "all kinds"
-		if len(r.Kinds) > 0 {
-			kinds = strings.Join(r.Kinds, ",")
-		}
-		w.Printf("  - %s: %s\n", kinds, r.Action)
-	}
 }
 
 // renderAgentResolution writes what the declaration actually resolves to. A
@@ -364,7 +344,7 @@ var agentEditCmd = &cobra.Command{
 
 Only the flags you pass are applied; every unnamed field keeps its current
 value, so 'ctxloom agent edit dev --runtime container-rootless' does not wipe dev's
-llm, profiles, posture or escalation ladder. An explicitly-supplied empty
+llm, profiles or posture. An explicitly-supplied empty
 value (--llm "") clears that field.
 
 driving has NO flag: it is agent DATA, authored in config.yaml under
@@ -704,7 +684,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringArrayVar(&agentSetRoots, "root", nil,
 		"Root selection for this agent: kind=root (repeatable; roots: session-home|project-root|work-dir). Validated against the roots the agent's engine offers for that kind; project-root is the shared root, selected here and never fallen back to.")
-	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
+	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: "+strings.Join(agent.PermissionModeNames(), "|")+" (empty = engine/built-in default)")
 	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
 		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)")
 	cmd.Flags().StringVar(&agentSetAuth, "auth", "",

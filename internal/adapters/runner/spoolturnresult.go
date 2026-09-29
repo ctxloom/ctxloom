@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
@@ -27,6 +29,10 @@ import (
 //     no self-report produced nothing to deliver, and the parent — an agent
 //     whose sole input is its mail — must not simply hear nothing; the file
 //     goes where the parent looks.
+//   - A BLOCKED TURN SAYS SO FIRST. A turn whose engine refused a tool call
+//     did not do all it was asked, and a plain result reads as done. The
+//     body leads with what stopped it and the structure lists each refusal;
+//     it is not an empty turn even when it said nothing else.
 //
 // CORRELATION: when the turn was started by a delivered mail file, the report
 // quotes that message's id in in_reply_to. A parent that sent three children
@@ -46,8 +52,9 @@ import (
 // (EngineHost accumulates the same deltas, in the same order, that the
 // coordinator's accumulator did). inReplyTo is the id of the delivered
 // message that started the turn, or empty for a turn nothing delivered
-// started — a briefing, or an engine continuing on its own.
-func (h *Home) ReportTurnResult(text, inReplyTo string) error {
+// started — a briefing, or an engine continuing on its own. blocked is every
+// tool call the turn's engine refused.
+func (h *Home) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial) error {
 	if h.Depth() == 0 {
 		return nil
 	}
@@ -58,7 +65,11 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 	}
 	body := strings.TrimSpace(text)
 	kind := coord.KindResult
-	if body == "" {
+	calls := blockedCalls(blocked)
+	switch {
+	case len(calls) > 0:
+		body = strings.TrimSpace(blockedPreamble(calls) + "\n\n" + body)
+	case body == "":
 		// An empty body is this project's signature silent no-op, not a
 		// report — so this is not written as an empty result. It is written as
 		// an ERROR the parent can act on, which is the whole point: under a
@@ -73,7 +84,7 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 		// MARKED AUTOMATIC. The correlation above is what makes this necessary:
 		// without the marker this message is indistinguishable from the child
 		// deliberately answering the ask that started the turn.
-		Structured: coord.AutoReportStructured(),
+		Structured: coord.AutoReportStructured(calls...),
 	}); err != nil {
 		// LOUD AND COUNTED. A report that could not be written is a turn the
 		// parent will never hear about, and the accumulator that held it has
@@ -85,6 +96,32 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 	}
 	h.spoolDeliveryCount.Delivered.Add(1)
 	return nil
+}
+
+// blockedCalls projects the turn's denials onto the report's blocked list.
+func blockedCalls(denials []agent.PermissionDenial) []coord.BlockedCall {
+	var out []coord.BlockedCall
+	for _, d := range denials {
+		out = append(out, coord.BlockedCall{Tool: d.ToolName, Reason: d.Reason, Decider: d.Decider.String()})
+	}
+	return out
+}
+
+// blockedPreamble is the report's lead: one "BLOCKED on <tool>" line per
+// refused call.
+func blockedPreamble(calls []coord.BlockedCall) string {
+	var b strings.Builder
+	for i, c := range calls {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		reason := c.Reason
+		if reason == "" {
+			reason = "no reason given"
+		}
+		fmt.Fprintf(&b, "BLOCKED on %s: %s (decided by %s)", c.Tool, reason, c.Decider)
+	}
+	return b.String()
 }
 
 // noteSelfReported records that this run sent its parent a message during the

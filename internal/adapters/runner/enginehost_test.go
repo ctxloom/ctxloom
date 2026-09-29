@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -123,10 +124,23 @@ func (f *fakeEngineHome) SweepSpoolIn() {
 // at a boundary — the text AND the correlation, because the correlation is
 // half of what this report is for and a fake that swallowed it would let the
 // tag plumbing rot with every test still green.
-func (f *fakeEngineHome) ReportTurnResult(text, inReplyTo string) error {
+func (f *fakeEngineHome) ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.turnReports = append(f.turnReports, turnReport{Text: text, InReplyTo: inReplyTo})
+	f.turnReports = append(f.turnReports, turnReport{Text: text, InReplyTo: inReplyTo, Blocked: blocked})
+	return nil
+}
+
+// customValue is the value of the last custom event called name; nil when
+// none was emitted.
+func (f *fakeEngineHome) customValue(name string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.customs) - 1; i >= 0; i-- {
+		if f.customs[i].Name == name {
+			return f.customs[i].Value
+		}
+	}
 	return nil
 }
 
@@ -141,6 +155,7 @@ func (f *fakeEngineHome) turnReportsSeen() []turnReport {
 type turnReport struct {
 	Text      string
 	InReplyTo string
+	Blocked   []agent.PermissionDenial
 }
 
 // spoolSweepCount reports how many boundary sweeps were asked for.
@@ -255,6 +270,37 @@ func handleBounded(t *testing.T, eh *EngineHost, req *agentcoordpb.RunnerRequest
 	t.Helper()
 	return testsupport.Within(t, 5*time.Second, func() *agentcoordpb.RunnerResponse { return eh.Handle(req) },
 		"Handle(%T) did not return", req.GetKind())
+}
+
+// TestEngineHost_DeniedTurnIsReportedBlocked: a turn whose engine refused a
+// tool call did not do all it was asked. The runner says so on every channel
+// the turn ends on: the automatic report carries the denials (the parent
+// reads "blocked on X", not "done"), the idle event's stop_reason is
+// "blocked", and the run gets a finding naming the tool.
+func TestEngineHost_DeniedTurnIsReportedBlocked(t *testing.T) {
+	home := &fakeEngineHome{}
+	denial := agent.PermissionDenial{ToolName: "Bash", ToolCallID: "t1", Reason: "needs approval"}
+	sc := &scriptedChat{Denials: []agent.PermissionDenial{denial}}
+	var findings report.Collector
+	eh := NewEngineHost(context.Background(), &findings, "claude-code", "run-1")
+	eh.BindRunner(testRunner{eh: eh, inst: sc})
+	t.Cleanup(eh.Close)
+	eh.BindHome(home)
+
+	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+	require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	require.Eventually(t, func() bool { return home.customValue(coord.CustomTurnIdle) != nil }, 5*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, "blocked", home.customValue(coord.CustomTurnIdle)["stop_reason"])
+	reports := home.turnReportsSeen()
+	require.Len(t, reports, 1)
+	assert.Equal(t, []agent.PermissionDenial{denial}, reports[0].Blocked)
+	assert.Equal(t, "echo: CTX\n\ndo the thing", reports[0].Text, "what the turn did say still reaches the parent")
+	var named bool
+	for _, f := range findings.All() {
+		named = named || (strings.Contains(f.Text, "Bash") && strings.Contains(f.Text, "needs approval"))
+	}
+	assert.True(t, named, "the run records a finding naming the refused tool and why: %v", findings.All())
 }
 
 // TestEngineHost_StartRunDrivesChatInProcess pins the whole runner half of

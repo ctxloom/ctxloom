@@ -19,26 +19,18 @@ func TestLoadAgents_NeverAliasesConfigContainers(t *testing.T) {
 	assertNoSharedContainers(t, reflect.ValueOf(cfg).Elem(), reflect.ValueOf(list), "Config", "LoadAgents")
 }
 
-// TestLoadAgents_MutationDoesNotReachConfig states it as behaviour, on the two
-// fields F05 named.
+// TestLoadAgents_MutationDoesNotReachConfig states it as behaviour.
 func TestLoadAgents_MutationDoesNotReachConfig(t *testing.T) {
 	cfg := NewFixture(aliasProbeFixture())
 
 	for _, a := range cfg.LoadAgents() {
 		require.NotEmpty(t, a.Profiles)
-		require.NotEmpty(t, a.Escalation)
 		a.Profiles[0] = "MUTATED"
-		a.Escalation[0].Kinds[0] = "MUTATED"
-		a.Escalation[0].Action = "MUTATED"
 	}
 
 	worker := cfg.GetConfiguredAgents()["worker"]
 	assert.Equal(t, []string{"p"}, worker.Profiles,
 		"LoadAgents must hand back an owned copy of Profiles")
-	assert.Equal(t, []string{"TOOL_USE"}, worker.Escalation[0].Kinds,
-		"LoadAgents must hand back an owned copy of each rung's Kinds")
-	assert.Equal(t, "auto_accept", worker.Escalation[0].Action,
-		"LoadAgents must hand back an owned copy of the Escalation slice itself")
 }
 
 // TestAgent_MutationDoesNotReachConfig covers the single-name lookup, which is

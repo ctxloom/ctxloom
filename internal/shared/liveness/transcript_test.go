@@ -98,7 +98,7 @@ func TestReadTranscript_TwoRepeatsIsNotYetALoop(t *testing.T) {
 	assert.Nil(t, st.Redelivery)
 }
 
-func TestReadTranscript_TurnClosedAndPendingPermission(t *testing.T) {
+func TestReadTranscript_TurnClosed(t *testing.T) {
 	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)
 	mk := func(seq int, off time.Duration, kind string, entry map[string]any) map[string]any {
 		m := map[string]any{"v": 1, "harp": "h", "engine": "claude", "seq": seq,
@@ -115,16 +115,14 @@ func TestReadTranscript_TurnClosedAndPendingPermission(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.True(t, closed.TurnClosed)
-	assert.False(t, closed.PendingPermission)
 	assert.Equal(t, 1, closed.Completes)
 
-	parked, err := liveness.ReadTranscript(writeJSONL(t, []map[string]any{
+	open, err := liveness.ReadTranscript(writeJSONL(t, []map[string]any{
 		mk(0, 0, "entry", map[string]any{"type": "user", "content": "go"}),
-		mk(1, time.Second, "permission", nil),
+		mk(1, time.Second, "denied", nil),
 	}))
 	require.NoError(t, err)
-	assert.True(t, parked.PendingPermission)
-	assert.False(t, parked.TurnClosed)
+	assert.False(t, open.TurnClosed, "a refusal is not the turn's end")
 }
 
 // A newer schema version, or fields this reader does not know, must not turn

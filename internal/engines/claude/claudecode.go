@@ -152,7 +152,8 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 const sessionHarpEnv = agent.SessionHarpEnv
 
 // permissionArgs maps the generalized permission posture onto claude's flags.
-// bypass is the blanket skip; acceptEdits/plan use --permission-mode; default
+// bypass is the blanket skip; acceptEdits/plan/dontAsk/auto use
+// --permission-mode (the posture's String() IS claude's spelling); default
 // leaves the engine's normal prompting and adds nothing.
 //
 // plan ALSO gets a conservative --disallowedTools belt-and-suspenders
@@ -211,8 +212,8 @@ func permissionArgs(mode agent.PermissionMode, mcpServers []string) []string {
 	switch mode {
 	case agent.PermissionBypass:
 		return []string{flagSkipPermissions}
-	case agent.PermissionAcceptEdits:
-		return []string{flagPermissionMode, "acceptEdits"}
+	case agent.PermissionAcceptEdits, agent.PermissionDontAsk, agent.PermissionAuto:
+		return []string{flagPermissionMode, mode.String()}
 	case agent.PermissionPlan:
 		args := []string{
 			flagPermissionMode, "plan",

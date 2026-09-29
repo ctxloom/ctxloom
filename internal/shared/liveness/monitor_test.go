@@ -85,9 +85,8 @@ func healthySession(t *testing.T, harp string) {
 	require.NoError(t, rec.Record(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}))
 }
 
-// approvalParkedSession ends on a forwarded permission request with nothing
-// after it — a child holding on a human, which an approval rung may
-// legitimately do for many minutes.
+// approvalParkedSession ends mid-turn with nothing after it — a child holding
+// on a human, which an approval rung may legitimately do for many minutes.
 func approvalParkedSession(t *testing.T, harp string) {
 	t.Helper()
 	rec, err := transcript.NewRecorder(harp, "claude")
@@ -96,9 +95,6 @@ func approvalParkedSession(t *testing.T, harp string) {
 	transcript.RecordUserText(rec, composedContext)
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type: agent.EntryTypeAssistant, Content: "I need to run the migration.",
-	}}))
-	require.NoError(t, rec.Record(agent.ChatEvent{Permission: &agent.PermissionRequest{
-		ID: "perm-1", ToolName: "Bash",
 	}}))
 }
 
@@ -312,22 +308,6 @@ func TestMonitor_DoesNotFireOnApprovalPark(t *testing.T) {
 	assert.Equal(t, liveness.StateAwaitingApproval, rep.State, "reason=%q", rep.Reason)
 	assert.False(t, rep.Firing(), "a child waiting on a human must NEVER be reaped")
 
-	// (b) And even when the coordinator does NOT say so, the transcript's own
-	// trailing permission record must hold the verdict back — the two halves
-	// are independent on purpose, because whichever one is wired up wrongly
-	// must not be able to get a parked child killed.
-	rep = m.Assess(context.Background(), liveness.Target{
-		Harp:           harp,
-		Agent:          "worker",
-		Runtime:        "container",
-		RosterState:    "executing",
-		StartedAt:      now.Add(-90 * time.Minute),
-		LastActivity:   now.Add(-45 * time.Minute),
-		TranscriptPath: transcriptPath(t, harp),
-	})
-	t.Logf("verdict (transcript alone): %s — %s", rep.State, rep.Reason)
-	assert.Equal(t, liveness.StateAwaitingApproval, rep.State, "reason=%q", rep.Reason)
-	assert.False(t, rep.Firing())
 }
 
 // ===========================================================================

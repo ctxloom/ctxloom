@@ -20,7 +20,7 @@ existing one with 'ctxloom llm edit'.
 
 --type is the backend discriminator (claude-code);
 omit it to keep claude-code's default. --model sets the model string. --permissions
-sets the launch-time posture (default|acceptEdits|plan|bypass).
+sets the launch-time posture (default|acceptEdits|plan|bypass|dontAsk|auto).
 
 An entry carries NO credentials and no environment: the engine authenticates
 itself and reads its environment from the shell that runs ctxloom, so export
@@ -38,7 +38,7 @@ ctxloom llm create <label> [flags]
 
 ```
       --model string         model string
-      --permissions string   permission posture: default|acceptEdits|plan|bypass
+      --permissions string   permission posture: default|acceptEdits|plan|bypass|dontAsk|auto
       --type string          backend discriminator: claude-code (empty = claude-code)
 ```
 

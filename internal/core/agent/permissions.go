@@ -21,6 +21,8 @@ const (
 	PermissionAcceptEdits  = engine.PermissionAcceptEdits
 	PermissionPlan         = engine.PermissionPlan
 	PermissionBypass       = engine.PermissionBypass
+	PermissionDontAsk      = engine.PermissionDontAsk
+	PermissionAuto         = engine.PermissionAuto
 	PermissionFloor        = engine.PermissionFloor
 )
 
@@ -39,8 +41,7 @@ func WireMode(s string) PermissionMode { return engine.WireMode(s) }
 // default posture for a host run (engine.PermissionFacts.HostDefault), which
 // the caller reads off the engine's Definition so this stays engine-free.
 // It is the run-context-independent base shared by the run resolver and
-// `agent show`; callers layer CollapsePlanIfUnenforced and the headless
-// floor on top.
+// `agent show`; callers layer CollapsePlanIfUnenforced on top.
 //
 // UNSET AND UNPARSEABLE ARE DIFFERENT INPUTS, and conflating them was a silent
 // privilege escalation. An empty source declares nothing and is skipped, so a
@@ -49,8 +50,7 @@ func WireMode(s string) PermissionMode { return engine.WireMode(s) }
 // something, so continuing down the chain hands them a posture nobody chose —
 // on an engine whose host default is bypass, the bottom of that chain is
 // bypass, so `permissions: plann` (an obvious `plan`) resolved to full
-// --dangerously-skip-permissions, and the escalation ladder derived from it
-// flipped from auto-decline to auto-accept. A missed declaration therefore
+// --dangerously-skip-permissions. A missed declaration therefore
 // STOPS the chain, reports a fatal ClassConfig finding, and floors to
 // PermissionFloor. honoured is false in exactly that case, so a caller must
 // not apply any widening step (the ONESHOT floor, a backend collapse) to the

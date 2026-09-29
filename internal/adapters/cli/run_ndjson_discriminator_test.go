@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -62,4 +63,16 @@ func TestRenderOwnedRunEvents_EmitsTheSameEntryDiscriminator(t *testing.T) {
 
 	require.NotEmpty(t, out.String())
 	assert.Contains(t, out.String(), `"type":"`+chatEventTypeEntry+`"`)
+}
+
+// TestChatEventToJSON_DenialNamesItsDecider: a `--format json` completion
+// carries each denial's decider by NAME — the frontend reads "human", not an
+// ordinal it would have to keep in step with agent.Decider.
+func TestChatEventToJSON_DenialNamesItsDecider(t *testing.T) {
+	ev := chatEventToJSON(agent.ChatEvent{Complete: &agent.TurnMeta{Denials: []agent.PermissionDenial{
+		{ToolName: "Bash", ToolCallID: "t1", Reason: "no", Decider: agent.DeciderHuman},
+	}}})
+	raw, err := json.Marshal(ev)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"denials":[{"toolName":"Bash","toolCallId":"t1","reason":"no","decider":"human"}]`)
 }

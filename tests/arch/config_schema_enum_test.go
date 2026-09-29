@@ -27,16 +27,10 @@
 // EXCLUDED with a stated reason (excludeReason, non-empty). An excluded entry
 // is not a gap this gate hides; it is one this gate NAMES, in the failure
 // output of TestArch_ConfigSchemaEnums_ExclusionsAreExplained, printed
-// whenever the exclusion table changes shape. Three excluded classes exist
-// today: values a vendor CLI owns and ctxloom only passes through
-// (claude-code's hook `type`); the `role`
-// field, a shipped-registry marker the schema itself says is "ignored at
-// runtime", so no Go vocabulary backs it; and the
-// escalation ladder's `kinds`/`action`, whose real vocabulary
-// (internal/core/coord.approvalKindNames, coord.LadderAction) is
-// unexported in a package this test cannot reach without either a production
-// export change (out of scope for a test-only gate) or an import cycle
-// (coord depends on internal/core/config, which depends on internal/shared/schema).
+// whenever the exclusion table changes shape. The excluded classes are values
+// a vendor CLI owns and ctxloom only passes through (claude-code's hook
+// `type`), and the `role` field, a shipped-registry marker the schema itself
+// says is "ignored at runtime", so no Go vocabulary backs it.
 package arch
 
 import (
@@ -133,20 +127,6 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/agents/additionalProperties/properties/driving", goNames: agents.DrivingModeNames},
 	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},
 	{path: "properties/agents/additionalProperties/properties/auth", goNames: engine.AuthModeNames},
-
-	// Escalation ladder: real Go vocabulary exists but is unexported inside
-	// internal/core/coord (approvalKindNames, LadderAction), a package
-	// this test cannot import without an export change to production code —
-	// out of scope for a test-only gate — or, for internal/shared/schema, an import
-	// cycle (coord -> internal/core/config -> internal/shared/schema).
-	{
-		path:          "properties/agents/additionalProperties/properties/escalation/items/properties/kinds/items",
-		excludeReason: "real vocabulary is internal/core/coord.approvalKindNames, unexported; no reachable Names() accessor without a production export change",
-	},
-	{
-		path:          "properties/agents/additionalProperties/properties/escalation/items/properties/action",
-		excludeReason: "real vocabulary is internal/core/coord.LadderAction's consts, unexported; no reachable Names() accessor without a production export change",
-	},
 
 	// $defs/hook: claude-code's own hook-handler type vocabulary, passed
 	// through verbatim (ClaudeCodeHookWriter.addHook defaults it to

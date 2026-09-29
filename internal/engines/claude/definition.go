@@ -87,12 +87,11 @@ func Build(opts ...Option) (engine.Engine, error) {
 		Distribution: engine.DistributionDefault,
 		Modes:        []engine.Mode{engine.Interactive, engine.Structured},
 		Permissions: engine.PermissionFacts{
-			Native:       []engine.PermissionMode{engine.PermissionDefault, engine.PermissionPlan, engine.PermissionAcceptEdits, engine.PermissionBypass},
+			Native:       []engine.PermissionMode{engine.PermissionDefault, engine.PermissionPlan, engine.PermissionAcceptEdits, engine.PermissionBypass, engine.PermissionDontAsk, engine.PermissionAuto},
 			ReadOnlyPlan: true, // --permission-mode plan is read-only
 			// Undeclared, the bare host auto-approves edits and prompts for
-			// everything else. It prompts, so it is not headless-safe: a
-			// headless run must declare its own posture, and bypass is only
-			// ever declared, never defaulted.
+			// everything else; bypass is only ever declared, never
+			// defaulted.
 			HostDefault:       engine.PermissionAcceptEdits,
 			HostDefaultReason: "edits auto-approved on the host, everything else prompts (acceptEdits)",
 		},

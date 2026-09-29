@@ -385,9 +385,8 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err 
 // queueMailPayload delivers one message: the write into the recipient's in/
 // spool IS the delivery, fsynced before return, and the doorbell only bounds
 // latency. Routing policy is the caller's. structured is an optional
-// JSON-object companion (e.g. the escalation ladder's relayed
-// ApprovalRequest projection); inReplyTo correlates this message to an
-// earlier one's id.
+// JSON-object companion (e.g. an automatic turn report's marker and blocked
+// list); inReplyTo correlates this message to an earlier one's id.
 //
 // Nothing is handed to a waiting receiver synchronously: the recipient's
 // reader delivers it on the doorbell or its next sweep, and its

@@ -156,11 +156,16 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 }
 
 // execArgs is the argv up to the prompt: the label's args, the permission
-// posture, the model, the session name (interactive) or --print, every
+// posture (a structured run adds --permission-prompts none: nobody is at
+// the engine to answer, so claude denies what the posture leaves open), the
+// model, the session name (interactive) or --print, every
 // presentation's args in delivery order, then the resumed native key.
 func (i *instance) execArgs(presented []present.Presentation) []string {
 	args := slices.Clone(i.s.Label.Args)
 	args = append(args, permissionArgs(i.s.Permission, i.s.MCPServers)...)
+	if i.s.Mode == engine.Structured {
+		args = append(args, flagPermissionPrompts, "none")
+	}
 	if i.s.Label.Model != "" {
 		args = append(args, flagModel, i.s.Label.Model)
 	}
@@ -182,7 +187,9 @@ func (i *instance) execArgs(presented []present.Presentation) []string {
 
 // execEnv is the engine-native env: the relocated home vars, every
 // presentation's env channel, and the classic-screen switch when
-// interactive.
+// interactive — or, when structured, background tasks off: the turn's
+// process ends at its result, and a task left running past it would answer
+// into a turn nobody reads.
 func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 	env := map[string]string{}
 	for _, h := range i.s.Home {
@@ -193,6 +200,8 @@ func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 	}
 	if i.s.Mode == engine.Interactive {
 		env[classicScreenEnv] = "1"
+	} else {
+		env[disableBackgroundTasksEnv] = "1"
 	}
 	return env
 }
@@ -269,7 +278,7 @@ func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.T
 	}
 	_ = tr.stdin.Close()
 	var res engine.TurnResult
-	var answer []string
+	var acc turnAccumulator
 	for {
 		select {
 		case <-ctx.Done():
@@ -280,10 +289,10 @@ func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.T
 			if !ok {
 				<-readerDone
 				_ = tr.Close()
-				res.Answer = strings.Join(answer, "")
+				res.Answer = acc.answer()
 				return res, nil
 			}
-			answer = absorbChatEvent(&res, answer, ev)
+			acc.absorb(&res, &ev)
 			cancelled, err := relayChatEvent(ctx, out, ev)
 			if cancelled {
 				_ = tr.Close()
@@ -311,16 +320,72 @@ func (d *streamJSONDriver) seams() (chatTransportFunc, func() time.Time) {
 	return open, now
 }
 
-// absorbChatEvent records a session event's native key on res and returns
-// answer with an assistant entry's content appended.
-func absorbChatEvent(res *engine.TurnResult, answer []string, ev agent.ChatEvent) []string {
-	if ev.Session != nil && ev.Session.SessionID != "" {
-		res.NativeKey = ev.Session.SessionID
+// turnAccumulator folds one turn's events, which may span more than one
+// result frame (one process can answer more than once): the answer is the
+// LAST result's text, while the denials are EVERY result's, each joined with
+// the reason its permission_denied frame gave — result.permission_denials
+// carries no reason of its own. The runner keeps the last completion, so
+// absorb rewrites each completion's Denials to the turn's so far.
+type turnAccumulator struct {
+	segment  []string // assistant text since the last result
+	last     string   // the last result's text
+	results  int
+	reasons  map[string]string // tool_use_id → permission_denied message
+	denials  []agent.PermissionDenial
+	seenCall map[string]bool
+}
+
+// absorb records ev's native key on res and folds ev into the turn; a
+// completion's Denials are rewritten in place before it is relayed.
+func (a *turnAccumulator) absorb(res *engine.TurnResult, ev *agent.ChatEvent) {
+	switch {
+	case ev.Session != nil:
+		if ev.Session.SessionID != "" {
+			res.NativeKey = ev.Session.SessionID
+		}
+	case ev.Entry != nil:
+		if ev.Entry.Type == agent.EntryTypeAssistant {
+			a.segment = append(a.segment, ev.Entry.Content)
+		}
+	case ev.Denied != nil:
+		if a.reasons == nil {
+			a.reasons = map[string]string{}
+		}
+		a.reasons[ev.Denied.ToolCallID] = ev.Denied.Reason
+	case ev.Complete != nil:
+		a.complete(ev.Complete)
 	}
-	if ev.Entry != nil && ev.Entry.Type == agent.EntryTypeAssistant {
-		answer = append(answer, ev.Entry.Content)
+}
+
+// complete closes one result frame: its text becomes the answer so far, and
+// its Denials are replaced by the turn's, each first-seen call once.
+func (a *turnAccumulator) complete(m *agent.TurnMeta) {
+	a.last = strings.Join(a.segment, "")
+	a.segment = nil
+	a.results++
+	for _, d := range m.Denials {
+		if a.seenCall[d.ToolCallID] {
+			continue
+		}
+		if a.seenCall == nil {
+			a.seenCall = map[string]bool{}
+		}
+		a.seenCall[d.ToolCallID] = true
+		if d.Reason == "" {
+			d.Reason = a.reasons[d.ToolCallID]
+		}
+		a.denials = append(a.denials, d)
 	}
-	return answer
+	m.Denials = slices.Clone(a.denials)
+}
+
+// answer is the turn's answer: the last result's text, or — a process that
+// ended with no result — everything it said.
+func (a *turnAccumulator) answer() string {
+	if a.results == 0 {
+		return strings.Join(a.segment, "")
+	}
+	return a.last
 }
 
 // relayChatEvent sends ev on out (a nil out relays nothing). cancelled

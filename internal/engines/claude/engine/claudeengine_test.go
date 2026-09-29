@@ -42,3 +42,10 @@ func TestBuild_WithTheRootsInjections_IsHostedAndVersioned(t *testing.T) {
 	assert.True(t, e.Root().Version.Declared())
 	assert.Len(t, e.Transcripts(), len(Transcripts()))
 }
+
+// TestVersion_Floor: ctxloom drives claude only from the version its
+// headless route (--permission-prompts, permission_denied frames) was
+// verified on.
+func TestVersion_Floor(t *testing.T) {
+	require.Equal(t, "2.1.283", Version().Floor)
+}

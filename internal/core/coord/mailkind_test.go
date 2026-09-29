@@ -112,9 +112,9 @@ func TestAgentSend_StructuredKindIsInert(t *testing.T) {
 }
 
 // TestAgentSend_RefusesSpoofedApprovalRequest is the SPOOF REFUSAL at the
-// ingress a delegated child actually reaches: `approval_request` is the kind
-// the escalation ladder RELAYS TO A HUMAN as a trust decision, and a child
-// must not be able to write one into its parent's inbox.
+// ingress a delegated child actually reaches: `approval_request` claims to
+// ask a human for a trust decision, and a child must not be able to write one
+// into its parent's inbox.
 func TestAgentSend_RefusesSpoofedApprovalRequest(t *testing.T) {
 	_, _, resp := childSpoolSend(t, &agentcoordpb.PeerSendRequest{
 		ToRole: ParentAddress,

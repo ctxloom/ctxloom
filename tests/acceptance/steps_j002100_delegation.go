@@ -236,9 +236,9 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			w := worldFrom(c)
 			j002100 := j002100Of(w)
 			j002100.order = []string{nameA, nameB}
-			// Two headless-safe permission modes (agent.PermissionMode.SafeHeadless:
-			// bypass|plan) so the "recorded, not just implied" scenario has two
-			// genuinely different values to tell apart, not one value asserted twice.
+			// Two permission modes so the "recorded, not just implied" scenario
+			// has two genuinely different values to tell apart, not one value
+			// asserted twice.
 			j002100.specs[nameA] = &j002100AgentSpec{
 				Name: nameA, Profile: "review-profile", Bundle: "bundle-review",
 				Server: "docs-lookup", Command: "docs-server", SecretArg: "DOCS-SECRET-7e1d44",

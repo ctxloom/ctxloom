@@ -476,8 +476,8 @@ type Message struct {
 	Kind string `json:"kind,omitempty"`
 	Body string `json:"body"`
 	// Structured is an optional structured companion (arbitrary JSON object,
-	// e.g. the escalation ladder's relayed ApprovalRequest proto projection
-	// — Wave C2). Kept as raw JSON here so the mailbox fold stays proto-free;
+	// e.g. an automatic turn report's marker and blocked list). Kept as raw
+	// JSON here so the mailbox fold stays proto-free;
 	// the gRPC/MCP edges convert to/from structpb.Struct.
 	Structured json.RawMessage `json:"structured,omitempty"`
 	// InReplyTo correlates this message to an earlier one's ID (e.g. an

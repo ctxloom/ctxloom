@@ -65,7 +65,7 @@ ctxloom run [flags] [prompt...]
   -l, --llm string            config label to use (e.g. claude-code, claude-fast); overrides the configured default
       --no-startup-findings   Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context
       --one-shot              Run one turn non-interactively, print the response, and exit
-      --permissions string    Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)
+      --permissions string    Permission posture: default|acceptEdits|plan|bypass|dontAsk|auto (overrides the agent/config default)
       --plain-terminal        Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
   -p, --profile string        Profile to use (predefined fragment collection)
       --prompt string         Prompt to send to the AI (alternative to positional args)

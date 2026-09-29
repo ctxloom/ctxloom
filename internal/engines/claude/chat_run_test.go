@@ -260,3 +260,41 @@ func TestTurn_SpawnsTheExecsBinary(t *testing.T) {
 	assert.Contains(t, gotArgs, flagPrint)
 	assert.True(t, argPair(gotArgs, flagInputFormat, "stream-json"))
 }
+
+// TestTurn_AccumulatesAcrossResultFrames: one turn's process can print more
+// than one result. The answer and the accounting are the LAST result's; the
+// denials are every result's, each joined with the reason its
+// permission_denied frame gave, and ride the completion the runner keeps
+// (the last one).
+func TestTurn_AccumulatesAcrossResultFrames(t *testing.T) {
+	stdout := strings.NewReader(
+		`{"type":"system","subtype":"init","session_id":"sess-1"}` + "\n" +
+			`{"type":"system","subtype":"permission_denied","tool_name":"Write","tool_use_id":"t1","message":"write needs approval"}` + "\n" +
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"first"}]}}` + "\n" +
+			`{"type":"result","subtype":"success","stop_reason":"end_turn","num_turns":1,"permission_denials":[{"tool_name":"Write","tool_use_id":"t1","tool_input":{}}]}` + "\n" +
+			`{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"t2","message":"bash needs approval"}` + "\n" +
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"second"}]}}` + "\n" +
+			`{"type":"result","subtype":"success","stop_reason":"end_turn","num_turns":2,"permission_denials":[{"tool_name":"Bash","tool_use_id":"t2","tool_input":{}}]}` + "\n")
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+		return &chatTransport{stdin: nopWriteCloser{io.Discard}, stdout: stdout, close: func() error { return nil }}, nil
+	}
+	d, ex := driverFor(t, structured("m", 0), open, nil)
+	out := make(chan engine.Event, 32)
+	res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "go"}, out)
+	require.NoError(t, err)
+	close(out)
+	assert.Equal(t, "second", res.Answer, "the answer is the last result's")
+
+	var completes []*agent.TurnMeta
+	for _, ev := range decode(t, out) {
+		if ev.Complete != nil {
+			completes = append(completes, ev.Complete)
+		}
+	}
+	require.Len(t, completes, 2)
+	write := agent.PermissionDenial{ToolName: "Write", ToolCallID: "t1", Reason: "write needs approval", Decider: agent.DeciderPolicy}
+	bash := agent.PermissionDenial{ToolName: "Bash", ToolCallID: "t2", Reason: "bash needs approval", Decider: agent.DeciderPolicy}
+	assert.Equal(t, []agent.PermissionDenial{write}, completes[0].Denials)
+	assert.Equal(t, []agent.PermissionDenial{write, bash}, completes[1].Denials, "the last completion carries the whole turn's denials")
+	assert.Equal(t, 2, completes[1].NumTurns, "the accounting is the last result's")
+}

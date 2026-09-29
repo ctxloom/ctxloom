@@ -8,7 +8,7 @@
 // those was forgotten the result was SILENT field loss: the writer succeeded,
 // the bytes went out, and the field simply was not in them. That has now
 // happened on three separate mirrors — SessionPayload silently dropping
-// Resumable, PermissionPayload silently dropping ToolCallID, and the
+// Resumable, a permission payload silently dropping its tool-call id, and the
 // `--format json` entry/session DTOs — each found out of corpus rather than
 // by review.
 //
@@ -56,6 +56,7 @@
 package parity
 
 import (
+	"encoding"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -339,6 +340,9 @@ type sentinelBag struct {
 	bools     int
 	boolPaths []string
 	n         int
+	// enumLast is the last member handed out per text-enum type, so two
+	// fields of one enum never share a sentinel.
+	enumLast map[reflect.Type]int64
 }
 
 func (b *sentinelBag) next() int { b.n++; return b.n }
@@ -379,9 +383,7 @@ func fillValue(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
 		bag.bools++
 		bag.boolPaths = append(bag.boolPaths, path)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		n := int64(700000 + bag.next())
-		fv.SetInt(n)
-		bag.scalars = append(bag.scalars, scalarSentinel{path: path, value: float64(n)})
+		fillInt(t, fv, path, bag)
 	case reflect.Float32, reflect.Float64:
 		f := 900000 + float64(bag.next())
 		fv.SetFloat(f)
@@ -414,6 +416,50 @@ func fillValue(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
 		t.Fatalf("parity gate: field %s has unsupported kind %s (%s) — teach fillValue about it "+
 			"rather than letting the gate silently stop covering this field", path, fv.Kind(), fv.Type())
 	}
+}
+
+// fillInt stamps an int-kinded field: a unique number, unless the field
+// persists by name (see fillTextEnum).
+func fillInt(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
+	t.Helper()
+	if fv.Type().Implements(textMarshalerType) {
+		fillTextEnum(t, fv, path, bag)
+		return
+	}
+	n := int64(700000 + bag.next())
+	fv.SetInt(n)
+	bag.scalars = append(bag.scalars, scalarSentinel{path: path, value: float64(n)})
+}
+
+var textMarshalerType = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+
+// maxEnumProbe bounds the search for a text enum's next member.
+const maxEnumProbe = 1 << 10
+
+// fillTextEnum stamps an int-kinded field that persists by NAME (it implements
+// encoding.TextMarshaler). An arbitrary integer is no member, so it could only
+// survive as an ordinal — the gate would then demand the very encoding the
+// type exists to replace. The field gets the next member instead: never the
+// zero value (a converter that forgets the field writes the zero), distinct
+// from every other field of the same type (so a swap is seen), and the
+// sentinel that must survive is that member's text.
+func fillTextEnum(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
+	t.Helper()
+	if bag.enumLast == nil {
+		bag.enumLast = map[reflect.Type]int64{}
+	}
+	for n := bag.enumLast[fv.Type()] + 1; n < maxEnumProbe; n++ {
+		fv.SetInt(n)
+		text, err := fv.Interface().(encoding.TextMarshaler).MarshalText()
+		if err != nil {
+			continue
+		}
+		bag.enumLast[fv.Type()] = n
+		bag.scalars = append(bag.scalars, scalarSentinel{path: path, value: string(text)})
+		return
+	}
+	t.Fatalf("parity gate: %s (%s) has no unused non-zero member left to stamp it with — "+
+		"each field of a text enum needs a distinct one", path, fv.Type())
 }
 
 func isTime(t reflect.Type) bool { return t == reflect.TypeOf(time.Time{}) }

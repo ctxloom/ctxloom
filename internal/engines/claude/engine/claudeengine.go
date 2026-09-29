@@ -26,10 +26,14 @@ func Transcripts() []engine.TranscriptReader {
 }
 
 // Version is how `claude --version` is read. MEASURED: "2.1.225 (Claude
-// Code)" — the version leads, the product name follows in parentheses.
+// Code)" — the version leads, the product name follows in parentheses. The
+// floor is the release the headless route was verified live on
+// (--permission-prompts none, system/permission_denied, result
+// permission_denials).
 func Version() engine.VersionCommand {
 	return engine.VersionCommand{
 		Args:  []string{"--version"},
 		Parse: func(output string) (string, error) { return engineversion.TokenAt(output, 0) },
+		Floor: "2.1.283",
 	}
 }

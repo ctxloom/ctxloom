@@ -115,6 +115,9 @@ const (
 	flagMCPConfig        = "--mcp-config"
 	flagSettings         = "--settings"
 	flagOutputFormat     = "--output-format"
+	// flagPermissionPrompts tells claude who answers a prompt; "none" =
+	// nobody, so what the posture and rules leave open is denied.
+	flagPermissionPrompts = "--permission-prompts"
 )
 
 // commonFlags are the flags claude's driver can emit on BOTH surfaces.
@@ -123,7 +126,7 @@ func commonFlags() []agent.CLIFlag {
 		{Name: flagSkipPermissions, Value: agent.ValueNone,
 			Note: "PermissionBypass; the blanket skip"},
 		{Name: flagPermissionMode, Value: agent.ValueString,
-			Note: "acceptEdits | plan"},
+			Note: "acceptEdits | plan | dontAsk | auto"},
 		{Name: flagDisallowedTools, Value: agent.ValueString,
 			Note: "ONE comma-joined value token (Bash,Edit,Write,NotebookEdit), not repeated flags; plan posture only"},
 		{Name: flagAllowedTools, Value: agent.ValueString,
@@ -181,6 +184,10 @@ func setEnv() []string {
 // crash text names it as the way to force the classic renderer.
 const classicScreenEnv = "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"
 
+// disableBackgroundTasksEnv turns off claude's background tasks
+// (run_in_background, auto-backgrounding) for a structured run.
+const disableBackgroundTasksEnv = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
+
 // EngineCLIs declares claude's oneshot and interactive process surfaces.
 //
 // The two differ in exactly three ways, all of them load-bearing:
@@ -207,8 +214,10 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 				Note: "oneshot only, and REQUIRED: `claude --print` IS the oneshot surface. A line without it is an interactive launch that reads the piped prompt as terminal input and hangs on the handshake, so the grammar rejects it rather than letting a stand-in report a green run for a launch that could not start"},
 			agent.CLIFlag{Name: flagResume, Value: agent.ValueString,
 				Note: "the native session key a resumed Instance continues (Instance.Resume); the structured driver's own protocol flags (--input-format, --verbose) are appended by the driver and are not Exec's"},
+			agent.CLIFlag{Name: flagPermissionPrompts, Value: agent.ValueString,
+				Note: "none: a structured run has nobody at the engine to answer a prompt"},
 		),
-		SetEnv: setEnv(),
+		SetEnv: append(setEnv(), disableBackgroundTasksEnv),
 		Probes: probes(),
 	}
 	interactive := agent.EngineCLI{

@@ -82,10 +82,28 @@ func newMessageID() string { return RandID("m-", 12) }
 // answer its own ask — which is not an attack, just a wasted send.
 const autoReportKey = "auto_report"
 
-// AutoReportStructured is the marker payload, written as literal JSON rather
-// than marshalled: it is one constant object, and a literal cannot acquire a
-// field by accident.
-func AutoReportStructured() json.RawMessage { return json.RawMessage(`{"` + autoReportKey + `":true}`) }
+// BlockedCall is one tool call a child's engine refused during the turn an
+// automatic report covers — the report's "blocked" list.
+type BlockedCall struct {
+	Tool    string `json:"tool"`
+	Reason  string `json:"reason,omitempty"`
+	Decider string `json:"decider"`
+}
+
+// AutoReportStructured is the marker payload, plus the turn's refused calls
+// when there were any: a turn that was blocked says so in the structure a
+// parent can branch on, not only in prose.
+func AutoReportStructured(blocked ...BlockedCall) json.RawMessage {
+	payload := map[string]any{autoReportKey: true}
+	if len(blocked) > 0 {
+		payload["blocked"] = blocked
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		panic(err) // a bool and a slice of string structs always marshal
+	}
+	return b
+}
 
 // IsAutoReport reports whether structured marks this message as an automatic
 // turn report. Anything that is not an object with that key set to true is

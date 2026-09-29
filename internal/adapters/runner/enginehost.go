@@ -45,8 +45,9 @@ type engineHome interface {
 	AwaitMailAcked(ctx context.Context, ids []string) error
 	ReportRunExited(exitCode int, harnessSessionID string)
 	// ReportTurnResult writes this turn's own output to the parent as the
-	// automatic turn report.
-	ReportTurnResult(text, inReplyTo string) error
+	// automatic turn report; blocked is every tool call the turn's engine
+	// refused, which makes it a BLOCKED report.
+	ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial) error
 	// Request runs one plane-2 request to completion (Home.Request) — the
 	// engine host's seam for issuing an agent-initiated request to the
 	// coordinator and awaiting its answer.
@@ -657,11 +658,18 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 	if final == "" {
 		final = res.Answer
 	}
+	var denials []agent.PermissionDenial
+	if lastMeta != nil {
+		denials = lastMeta.Denials
+	}
+	for _, d := range denials {
+		eh.rep.Warnf("engine host: this turn is BLOCKED — the engine refused %s (%s): %s", d.ToolName, d.Decider, orNoReason(d.Reason))
+	}
 	// THE AUTOMATIC TURN REPORT (spoolturnresult.go). It runs BEFORE the
 	// turn-idle event, so the child's answer is durable before the
 	// coordinator is told the child is idle — which is the moment a
 	// leftover-mail resume decision reads the spool.
-	if rerr := home.ReportTurnResult(final, tag.mail); rerr != nil {
+	if rerr := home.ReportTurnResult(final, tag.mail, denials); rerr != nil {
 		eh.rep.Warnf("engine host: this turn's report was not written: %v", rerr)
 	}
 	if tag.done != nil {
@@ -670,7 +678,12 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 		tag.done <- turnOutcome{res: engine.TurnResult{NativeKey: nativeKey, Answer: final}}
 	}
 	stop := ""
-	if lastMeta != nil {
+	switch {
+	case len(denials) > 0:
+		// The engine's own stop reason reads as a clean end; the turn did not
+		// do all it was asked.
+		stop = "blocked"
+	case lastMeta != nil:
 		stop = lastMeta.StopReason
 	}
 	// THE BOUNDARY: the engine process has ended and the host parks with the
@@ -939,6 +952,14 @@ func messageRouting(t agent.SessionEntryType) (agentcoordpb.MessageRole, agentco
 	default:
 		return agentcoordpb.MessageRole_MESSAGE_ROLE_SYSTEM, agentcoordpb.MessageChannel_MESSAGE_CHANNEL_LOG
 	}
+}
+
+// orNoReason is a denial's reason, or says it had none.
+func orNoReason(reason string) string {
+	if reason == "" {
+		return "no reason given"
+	}
+	return reason
 }
 
 // appendTurnFinal accumulates one FINAL-channel fragment for the current turn.

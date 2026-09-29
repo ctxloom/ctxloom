@@ -238,19 +238,15 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"terminal-ui section (viewer prefix key + surround toggle)",
 			"ui:\n  prefix_key: ctrl-t\n  surround: false\n",
 		},
-		// These four are REAL regressions found by the unknown-key work: each key
+		// These are REAL regressions found by the unknown-key work: each key
 		// is honored by the parser but was absent from the schema, so
 		// additionalProperties:false rejected it — and a validation warning is a
 		// FATAL finding in strict mode. A user of a shipped feature (publisher
-		// signing, tag-selected fragments, curated commands, permission escalation)
+		// signing, tag-selected fragments, curated commands)
 		// was aborted at startup and told their own valid key was unknown.
 		{
 			"publisher-signing defaults (config.sign)",
 			"config:\n  sign:\n    default: true\n    key: SHA256:abc\n",
-		},
-		{
-			"agent escalation rungs",
-			"agents:\n  reviewer:\n    llm: fast\n    escalation:\n      - kinds: [TOOL_USE]\n        action: auto_accept\n      - action: relay_to_role\n        role: parent\n        timeout: 5m\n",
 		},
 		{
 			// `coordinator:` is deliberately absent: it was REMOVED, not

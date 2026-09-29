@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -22,14 +23,6 @@ func hermeticGit(t *testing.T) {
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
-}
-
-func runGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
 }
 
 // TestDiscoverer_DocumentedDefaultsApplyWithoutNewDiscoverer pins that the
@@ -82,10 +75,10 @@ func TestDiscoverer_DocumentedDefaultsApplyWithoutNewDiscoverer(t *testing.T) {
 
 		signer, line := newTestIdentity(t, "git-configured")
 		repo := t.TempDir()
-		runGit(t, repo, "init", "-q")
+		taskstest.Git(t, repo, nil, "init", "-q")
 		pubPath := filepath.Join(repo, "id.pub")
 		require.NoError(t, os.WriteFile(pubPath, []byte(line), 0o600))
-		runGit(t, repo, "config", "user.signingkey", pubPath)
+		taskstest.Git(t, repo, nil, "config", "user.signingkey", pubPath)
 
 		ag := &fakeAgent{signers: []ssh.Signer{signer}, comments: []string{"git-configured"}}
 		d := &Discoverer{

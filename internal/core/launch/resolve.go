@@ -67,7 +67,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 
-	passthrough, cell, err := prepareCell(ctx, deps, src, eng, axes, dirty, sel.homeMode, label)
+	passthrough, cell, err := prepareCell(ctx, deps, src, eng, axes, dirty, sel, label)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -161,7 +161,7 @@ func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) 
 
 // prepareCell is Cells.Prepare for the launch, returning the engine
 // passthrough env (the label's env overlaid by the source's) with the cell.
-func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, homeMode HomeMode, label string) (map[string]string, Cell, error) {
+func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, axes Axes, dirty DirtyTreeHandler, sel selection, label string) (map[string]string, Cell, error) {
 	def := eng.Root()
 	passthrough := map[string]string{}
 	maps.Copy(passthrough, deps.Assembler.LabelEnv(deps.Snapshot, label))
@@ -178,7 +178,8 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 		Image:       ImageConfigFor(deps.Snapshot.Config, def.Name),
 		Host:        deps.Host,
 		Degraded:    src.Degraded,
-		HomeMode:    homeMode,
+		HomeMode:    sel.homeMode,
+		Auth:        sel.auth,
 		Env:         env,
 	})
 	if err != nil {
@@ -239,6 +240,7 @@ type selection struct {
 	runtime     string
 	permissions string
 	homeMode    HomeMode
+	auth        string
 	surfaces    map[string]string
 	roots       map[string]string
 }
@@ -249,7 +251,7 @@ type selection struct {
 func selectSource(cfg *config.Config, src Source) (selection, error) {
 	switch {
 	case src.Internal:
-		return selection{}, nil
+		return selection{auth: src.Auth}, nil
 	case src.Agent != "":
 		return bindingSelection(cfg, src.Agent, src.Degraded)
 	case len(src.Profiles) == 0 && len(src.Fragments) == 0 && len(src.Tags) == 0:
@@ -277,6 +279,10 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		}
 		home = HomeModeSession
 	}
+	// The declared auth travels as written: the cells adapter checks it
+	// against the engine it binds (engine.CheckAuth), the one check config
+	// load and `agent create/edit` also run.
+	auth := binding.Auth
 	return selection{
 		agent:       name,
 		profiles:    slices.Clone(binding.Profiles),
@@ -284,6 +290,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		runtime:     binding.Runtime,
 		permissions: binding.Permissions,
 		homeMode:    home,
+		auth:        auth,
 		surfaces:    maps.Clone(binding.Surfaces),
 		roots:       maps.Clone(binding.Roots),
 	}, nil
@@ -389,13 +396,10 @@ func resolveDirtyTree(cfg *config.Config, src Source) (DirtyTreeHandler, error) 
 // wins — the flag, the binding, the label, the project default — else the
 // engine's declared host default; a declaration that does not parse is
 // refused (--degraded drops it to PermissionFloor and says so, never
-// widens). plan collapses to default on an engine with no read-only tier. A
-// Structured run that would block on a prompt has no human at the engine,
-// whoever launched it, so it is REFUSED rather than widened: elevating a
-// posture nobody chose is worse than not launching. --degraded launches it
-// at PermissionFloor instead, and says so through rep — but only on an
-// engine that enforces plan as read-only; elsewhere that floor would be a
-// promise nothing keeps, so the run is refused under --degraded too.
+// widens). plan collapses to default on an engine with no read-only tier.
+// A Structured run keeps whatever resolved: it has no human at the engine,
+// and the engine denies what its posture and rules leave open rather than
+// waiting on one, so there is nothing to refuse and nothing to widen.
 func floorPermission(rep report.Reporter, src Source, sel selection, label, labelPerm string, cfg *config.Config, facts engine.PermissionFacts) (engine.PermissionMode, error) {
 	flag := ""
 	if src.Permission != engine.PermissionNotRequested {
@@ -415,8 +419,7 @@ func floorPermission(rep report.Reporter, src Source, sel selection, label, labe
 	if err != nil {
 		return 0, err
 	}
-	mode = mode.CollapsePlanIfUnenforced(facts.ReadOnlyPlan)
-	return refuseBlockingHeadless(rep, src, sel.agent, mode, facts)
+	return mode.CollapsePlanIfUnenforced(facts.ReadOnlyPlan), nil
 }
 
 // permissionRung is one declared permission source, and how to name it.
@@ -442,36 +445,6 @@ func firstDeclaredPermission(rep report.Reporter, degraded bool, rungs []permiss
 		return engine.PermissionFloor, nil
 	}
 	return fallback, nil
-}
-
-// refuseBlockingHeadless refuses a Structured run whose posture would block
-// on an engine prompt, or under --degraded drops it to PermissionFloor where
-// the engine enforces plan as read-only. Any other run keeps mode.
-func refuseBlockingHeadless(rep report.Reporter, src Source, agent string, mode engine.PermissionMode, facts engine.PermissionFacts) (engine.PermissionMode, error) {
-	if src.Mode != engine.Structured || mode.SafeHeadless() {
-		return mode, nil
-	}
-	if src.Degraded && facts.ReadOnlyPlan {
-		rep.Warnf("--degraded: %q would block on an engine prompt that no human can answer in a headless run, so this run is launched at %s (read-only) instead of refused", mode, engine.PermissionFloor)
-		return engine.PermissionFloor, nil
-	}
-	if src.Degraded {
-		return 0, fmt.Errorf("%w: a headless run has no human to answer an engine prompt and %q would block on one, and --degraded cannot drop it to %s: this engine does not enforce read-only plan, so the only honest postures are %s on an engine that enforces it, or %s",
-			ErrPermissionUnhonoured, mode, engine.PermissionFloor, engine.PermissionPlan, engine.PermissionBypass)
-	}
-	return 0, fmt.Errorf("%w: a headless run has no human to answer an engine prompt and %q would block on one; %s",
-		ErrPermissionUnhonoured, mode, declareHeadlessPosture(agent))
-}
-
-// declareHeadlessPosture is the remedy a refused headless run is given, at
-// the door it was selected by: the agent binding when one was named, else
-// the run's own flag.
-func declareHeadlessPosture(agent string) string {
-	safe := engine.PermissionPlan.String() + "|" + engine.PermissionBypass.String()
-	if agent != "" {
-		return fmt.Sprintf("declare permissions: %s on agent %q", safe, agent)
-	}
-	return fmt.Sprintf("pass --permissions %s", safe)
 }
 
 // ImageConfigFor is the user's container-image configuration for the

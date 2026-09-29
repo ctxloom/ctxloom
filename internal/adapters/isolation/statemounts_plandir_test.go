@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,19 +18,20 @@ import (
 // resolveThroughMounts models what the kernel does with a containerPath inside
 // a running container: a path under a bind mount is the HOST file, and every
 // other path is private to the container's overlay and dies with it. Longest
-// prefix wins, the way a real mount table resolves nested mounts.
+// prefix wins, the way a real mount table resolves nested mounts. The
+// container side is a slash path whatever the host; only the host side is
+// joined with the host's separator.
 func resolveThroughMounts(t *testing.T, mounts []mount, overlayRoot, containerPath string) string {
 	t.Helper()
 	ordered := append([]mount(nil), mounts...)
 	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i].Container) > len(ordered[j].Container) })
 	for _, m := range ordered {
-		if containerPath == m.Container || strings.HasPrefix(containerPath, m.Container+string(filepath.Separator)) {
-			rel, err := filepath.Rel(m.Container, containerPath)
-			require.NoError(t, err)
-			return filepath.Join(m.Host, rel)
+		if containerPath == m.Container || strings.HasPrefix(containerPath, m.Container+"/") {
+			rel := strings.TrimPrefix(containerPath, m.Container)
+			return filepath.Join(m.Host, filepath.FromSlash(rel))
 		}
 	}
-	return filepath.Join(overlayRoot, containerPath)
+	return filepath.Join(overlayRoot, filepath.FromSlash(containerPath))
 }
 
 // TestSessionStateMounts_PlanDirOutlivesTheContainer is the durability claim
@@ -60,21 +62,24 @@ func TestSessionStateMounts_PlanDirOutlivesTheContainer(t *testing.T) {
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
-	// The two directories as the in-container MCP server sees them.
-	t.Setenv("HOME", c.home)
+	// The two directories as the in-container MCP server sees them: resolved
+	// under the container's home, read back as the Linux container's slash
+	// paths.
+	testsupport.PointHomeAt(t, c.home)
 	containerPlanDir, err := paths.HarpPlansDir(harp)
 	require.NoError(t, err)
 	containerHarpDir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
-	t.Setenv("HOME", hostHome)
+	containerPlanDir, containerHarpDir = filepath.ToSlash(containerPlanDir), filepath.ToSlash(containerHarpDir)
+	testsupport.PointHomeAt(t, hostHome)
 
 	require.NotEqual(t, containerHarpDir, containerPlanDir,
 		"the plan dir must not BE the harp top level — that identity is the defect")
 
 	overlay := t.TempDir() // the container's private, teardown-deleted space
 
-	durablePlan := resolveThroughMounts(t, mounts, overlay, filepath.Join(containerPlanDir, "design"+paths.PlanFileExt))
-	lostPlan := resolveThroughMounts(t, mounts, overlay, filepath.Join(containerHarpDir, "design"+paths.PlanFileExt))
+	durablePlan := resolveThroughMounts(t, mounts, overlay, path.Join(containerPlanDir, "design"+paths.PlanFileExt))
+	lostPlan := resolveThroughMounts(t, mounts, overlay, path.Join(containerHarpDir, "design"+paths.PlanFileExt))
 
 	const body = "# design\n\nthe decision and why\n"
 	for _, p := range []string{durablePlan, lostPlan} {

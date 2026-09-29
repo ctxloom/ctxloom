@@ -93,7 +93,7 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 		Mounts:  []mount{lockMount},
 	}
 
-	out, err := exec.CommandContext(ctx, rt.Binary(), rt.RunArgs(spec)...).Output()
+	out, err := exec.CommandContext(ctx, rt.Binary(), mustRunArgs(t, rt, spec)...).Output()
 	require.NoError(t, err, "run the container")
 	assert.Equal(t, proof, strings.TrimSpace(string(out)),
 		"the container, reading at the path its OWN paths.HomePathFor resolves to, must see the exact bytes the host wrote under ITS OWN HomePathFor — same protected path, same lock file, both sides of the boundary")

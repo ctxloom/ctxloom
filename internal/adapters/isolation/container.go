@@ -51,21 +51,18 @@ const (
 // (the container replaces the in-engine prompt as the safety net). For the
 // top-level run it bind-mounts the live project at its identical absolute path
 // (cwd + .git resolve unchanged, WIP intact, edits land in the real files) with a
-// fresh $HOME (engine global state isolated; no credential file is mounted into
-// it — see below). Any inability to launch returns an error the caller catches and
+// fresh $HOME (engine global state isolated; the only things of the human's
+// mounted into it are the credential stores the run's auth mode shares). Any inability to launch returns an error the caller catches and
 // degrades down the chain to None; because a container tier is only ever built
 // for an EXPLICIT request, that lost boundary is a fatal finding (ClassIsolation)
 // the choke owner aborts on unless --degraded (CLAUDE.md fail-loudly).
 //
-// AUTH crosses the boundary deliberately and scoped (PrepareWorkspace → the
-// spec's resolveAuth): the container gets the engine's scoped env passthrough,
-// by name (claude: CLAUDE_CODE_OAUTH_TOKEN, the setup-token, or an API key).
-// No resolvable auth →
-// PrepareWorkspace errors → the caller degrades down the chain to None — a
-// fatal finding (ClassIsolation) the choke owner aborts on unless --degraded,
-// since the container was EXPLICITLY requested. The owner's run and every
-// delegated agent, at any depth, resolve the same plan: there is no trust gate
-// on this path, by ruling (see containerAuth).
+// AUTH is the run's own Credentials (Spec.Credentials), resolved before the
+// environment exists: the credential rides the engine's env over the wire to
+// the in-container runner, never the `run` argv, and each shared store is
+// mounted at its place under the container's $HOME (containerRelocator).
+// The owner's run and every delegated agent, at any depth, authenticate the
+// same way: there is no trust gate on this path, by ruling.
 //
 // CONFIG: ctxloom's managed-config writers (.claude/settings.json, commands, the
 // framed context file under .ctxloom/cache) target the run's cwd, which here is
@@ -123,7 +120,7 @@ type Container struct {
 	state SessionState
 	// git is the DI seam used to resolve the live project's git common-dir when
 	// the project is itself a LINKED WORKTREE (or submodule) — see
-	// gitdirMirrorMount. Nil on the normal construction paths
+	// gitdirMirrorMounts. Nil on the normal construction paths
 	// (NewContainerFor/containerFor); gitSeam defaults it to the
 	// real git binary. Tests inject a git.Fake.
 	git git.Git
@@ -246,7 +243,7 @@ func (c Container) Name() string {
 // degrade gate. It fails (→ caller falls back to None) when no runtime can
 // launch, the required image is absent, OR no engine auth can be resolved
 // (resolveContainerAuth). Otherwise it delegates the workspace-flavored tail to
-// the injected base (host → the identical-path project dir, materialized already;
+// the injected base (host → the live project dir, materialized already;
 // worktree → a per-agent checkout it creates) and returns a workspace whose Dir()
 // is that cwd and whose Cleanup() removes the host scratch tree then runs the
 // mapping and base teardowns. agentID scopes the container name.
@@ -299,7 +296,6 @@ func (c Container) resolveWorkspace(ctx context.Context, projectDir, agentID str
 		scratchRoot: sc.root,
 		stateMounts: sc.stateMounts,
 		scratchEnv:  sc.runEnv(),
-		authMode:    sc.auth.mode,
 		agentID:     agentID,
 		baseCleanup: baseCleanup,
 		reach:       route,
@@ -311,7 +307,14 @@ func (c Container) resolveWorkspace(ctx context.Context, projectDir, agentID str
 func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
 	route, err := rt.reachRoute(ctx)
 	if err != nil {
-		strictness.FailAlways(report.KindIsolation, noHostReachRemedy, "refusing to run a container that cannot dial home: %v", err)
+		remedy := noHostReachRemedy
+		switch {
+		case errors.Is(err, errBridgeNotLocal):
+			remedy = foreignBridgeRemedy
+		case errors.Is(err, errNoSelfNetwork):
+			remedy = noSelfNetworkRemedy
+		}
+		strictness.FailAlways(report.KindIsolation, remedy, "refusing to run a container that cannot dial home: %v", err)
 		return hostRoute{}, err
 	}
 	return route, nil
@@ -319,6 +322,11 @@ func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
 
 // noHostReachRemedy names the ways a container gets a route to the host.
 const noHostReachRemedy = "give the host a default route, or use a runtime whose containers reach the host privately: a rootless translator with a loopback route (pasta, slirp4netns) or a rootful bridge"
+
+// foreignBridgeRemedy names the one situation errBridgeNotLocal arises in:
+// ctxloom in a container its daemon does NOT know. One the daemon knows takes
+// the self route (selfNetworkRoute) before any bridge is consulted.
+const foreignBridgeRemedy = "ctxloom appears to be running inside a container, but the container daemon it drives does not list that container (a daemon reached over TCP, a docker-in-docker sidecar, or a container ctxloom could not identify), so it shares no network with that daemon's containers — run ctxloom on the daemon's host or in a container of that same daemon, or use runtime: host"
 
 // remintReach re-mints the runner's reach-back for its container: the
 // coordinator's host-side URL on spawnEnv becomes the URL the runtime's route
@@ -372,7 +380,7 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	// prove THAT directory's sharing status — a standing false positive on a
 	// partially-shared Docker Desktop file-sharing list, exactly the platform
 	// this probe exists to protect. A mismatch on ANY root means that
-	// identical-path mount would resolve against a DIFFERENT filesystem and the
+	// bind mount would resolve against a DIFFERENT filesystem and the
 	// handshake would hang — erroring here turns that hang into the caller's
 	// clean per-axis degrade. The mapping leaves nothing to undo on failure; the
 	// workspace owns the scratch and the base resource and tears them down
@@ -383,7 +391,7 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	}
 	// Scope the container run's git identity to this agent, the SAME way the
 	// host+worktree path does (worktreeWorkspace.Env → gitIdentity). The .git
-	// common dir is bind-mounted READ-WRITE and SHARED (gitCommonDirMount), so a
+	// common dir is bind-mounted READ-WRITE and SHARED (gitDirMounts), so a
 	// containerized commit resolves the shared .git/config exactly like a host
 	// linked worktree does — a scoped GIT_AUTHOR_*/GIT_COMMITTER_* pair (which
 	// outranks repo-local config) is what stops one agent's commit from
@@ -424,7 +432,7 @@ func sharedFSGateError(rt Runtime, perr error) error {
 	if errors.As(perr, &mism) {
 		hint := "bind mounts of this process's paths cannot resolve through the daemon"
 		if InContainer() {
-			hint += "; this looks like a dev container using the host's daemon (docker-outside-of-docker) — enable the docker-in-docker feature, or drop `runtime: container`"
+			hint += "; this looks like a container driving its host's daemon (docker-outside-of-docker) — put that path on a bind mount or volume of this container, enable docker-in-docker, or drop `runtime: container`"
 		}
 		return fmt.Errorf("container runtime %s does not share this process's filesystem (%s): %w", runtimeName(rt), hint, perr)
 	}
@@ -512,7 +520,7 @@ type containerBase interface {
 }
 
 // hostBase is the plain-Container base: the container's cwd IS the LIVE project
-// dir, bind-mounted identical-path. Its mounts are the managed-config scratch
+// dir, bind-mounted where the runtime maps it. Its mounts are the managed-config scratch
 // overlays (keeping the host project clean while the engine writes to scratch)
 // plus, when the live project is itself a linked worktree/submodule, the .git
 // common-dir mirror. It creates no host-side resource of its own, so its cleanup
@@ -534,11 +542,12 @@ func (hostBase) resolveBase(_ context.Context, projectDir, _ string) (string, fu
 }
 
 // mountBase maps the LIVE project dir: the managed-config overlays shadow the
-// engine's config writers off the host project, and a pointer-file .git gets its
-// common dir mirrored so in-container git resolves. dir is the already-resolved
-// cwd (== the project dir for this base). Failure returns the error (the caller
-// tears the workspace down); nothing but overlay mountpoints is created here,
-// and those are kept (see containerConfigOverlay).
+// engine's config writers off the host project, and a pointer-file .git gets
+// its own git data mirrored so in-container git resolves. dir is the
+// already-resolved cwd (== the project dir for this base). Failure returns the
+// error (the caller tears the workspace down); nothing is created here but
+// overlay mountpoints, which are kept (see containerConfigOverlay), and the git
+// mounts' files in the run's scratch.
 // The live project and the resolved cwd are the SAME dir for this base (its
 // resolveBase hands the project dir straight back), so it works from the
 // resolved one and ignores the duplicate.
@@ -549,27 +558,26 @@ func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratc
 	}
 	// When the LIVE project is itself a linked worktree (or a submodule) its .git
 	// is a POINTER FILE whose common dir lives OUTSIDE projectDir — and so is not
-	// covered by the identical-path project mount. Mirror that common dir so
+	// covered by the project mount. Mirror this checkout's git data so
 	// in-container git resolves the repo, exactly as the worktree base does. A
 	// resolution failure fails this workspace so the chain degrades
 	// (fatal-unless-degraded), never a silent broken-git launch.
-	if gitMount, ok, gerr := gitdirMirrorMount(ctx, rt, g, projectDir); gerr != nil {
-		return nil, gerr
-	} else if ok {
-		overlays = append(overlays, gitMount)
+	gitMounts, err := gitdirMirrorMounts(ctx, rt, g, projectDir, scratchRoot)
+	if err != nil {
+		return nil, err
 	}
-	return overlays, nil
+	return append(overlays, gitMounts...), nil
 }
 
-// gitdirMirrorMount returns the git common-dir mirror mount the plain container
-// needs when the LIVE PROJECT is itself a linked worktree (or a submodule) — i.e.
-// projectDir/.git is a POINTER FILE, not a directory — whose common git dir lives
-// OUTSIDE projectDir and so is NOT covered by the identical-path project mount,
-// leaving in-container `git` unable to resolve the repo. ok=false (no extra mount)
-// when .git is a directory or absent: the common dir is inside the project mount
-// already (a normal main-repo checkout), or there is no repo to mirror. It reuses
-// the same identical-path mirror the worktree base builds (gitCommonDirMount).
-func gitdirMirrorMount(ctx context.Context, rt Runtime, g git.Git, projectDir string) (mount, bool, error) {
+// gitdirMirrorMounts returns the git mounts the plain container needs when the
+// LIVE PROJECT is itself a linked worktree (or a submodule) — i.e.
+// projectDir/.git is a POINTER FILE, not a directory — whose git data lives
+// OUTSIDE projectDir and so is NOT covered by the project mount, leaving
+// in-container `git` unable to resolve the repo. None when .git is a directory
+// or absent: the git dir is inside the project mount already (a normal
+// main-repo checkout), or there is no repo to mirror. It builds the same set the
+// worktree base does (gitDirMounts).
+func gitdirMirrorMounts(ctx context.Context, rt Runtime, g git.Git, projectDir, scratchRoot string) ([]mount, error) {
 	gitPath := filepath.Join(projectDir, ".git")
 	info, err := os.Stat(gitPath)
 	// ABSENT is a real "no mirror needed" (no repo to mirror). An unreadable .git
@@ -577,28 +585,22 @@ func gitdirMirrorMount(ctx context.Context, rt Runtime, g git.Git, projectDir st
 	// answering "no mirror needed" launches a container whose git cannot resolve
 	// the repo. Fail the workspace so the chain degrades loudly instead.
 	if errors.Is(err, os.ErrNotExist) {
-		return mount{}, false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return mount{}, false, fmt.Errorf("stat %s to decide the container gitdir mirror: %w", gitPath, err)
+		return nil, fmt.Errorf("stat %s to decide the container gitdir mirror: %w", gitPath, err)
 	}
 	if info.IsDir() {
-		return mount{}, false, nil
+		return nil, nil
 	}
-	m, err := gitCommonDirMount(ctx, rt, g, projectDir)
-	if err != nil {
-		return mount{}, false, err
-	}
-	return m, true, nil
+	return gitDirMounts(ctx, rt, g, projectDir, scratchRoot)
 }
 
 // containerScratch is the host-side scratch every container run needs regardless
-// of its Workspace: the temp root removed on Cleanup, the resolved engine auth
-// (env passthrough or read-only credential mounts), and the host terminal
+// of its Workspace: the temp root removed on Cleanup and the host terminal
 // description forwarded into the run.
 type containerScratch struct {
 	root    string
-	auth    containerAuth
 	termEnv []string
 	// stateMounts are the scoped RW session-state mounts (transcript store,
 	// session persist dir, shared task log — see sessionStateMounts) every
@@ -606,15 +608,13 @@ type containerScratch struct {
 	stateMounts []mount
 }
 
-// runEnv composes the per-run env threaded into the container spec: the scoped
-// auth passthrough (name-only entries — see containerAuth.envPassthrough — so the
-// secret value never enters the argv) plus the host terminal description
-// (TERM/COLORTERM as KEY=VAL, non-secret), which the curated handshake env
-// deliberately drops. Returns a fresh slice so callers never alias the scratch's
-// fields. The two forms mix in one slice and render uniformly through
-// renderRunSpec's `-e <entry>` loop (docker's `-e` grammar accepts both).
+// runEnv composes the per-run env threaded into the container spec: the host
+// terminal description (TERM/COLORTERM as KEY=VAL, non-secret), which the
+// curated handshake env deliberately drops. Returns a fresh slice so callers
+// never alias the scratch's fields. A credential never rides here: it reaches
+// the engine through the launch's own env, over the wire.
 func (sc containerScratch) runEnv() []string {
-	return append(append([]string(nil), sc.auth.envPassthrough...), sc.termEnv...)
+	return append([]string(nil), sc.termEnv...)
 }
 
 // gitIdentityEnv renders the container run's per-agent git identity as the four
@@ -637,26 +637,55 @@ func gitIdentityEnv(agentID string) []string {
 	}
 }
 
-// prepareContainerScratch runs the container degrade gate — a launchable runtime,
-// the required image present (or locally buildable, see ensureImage), and
-// resolvable engine auth (the spec's resolver) — then provisions the host
-// scratch root under the session's ephemeral dir. Any gate failure returns an error so the
-// caller degrades (the top-level run → None; a fan-out member → a bare worktree).
-// It is the shared front-half of BOTH the top-level Container workspace and the
-// worktree-in-container composition; each layers its own extra mounts (config
-// overlay / .git gitdir mirror) on top.
-func (c Container) prepareContainerScratch(ctx context.Context) (containerScratch, error) {
+// launchGate is the container gate's checks that create nothing, in the
+// run's order: a launchable runtime, the image (image: ensureImage for a run,
+// inspectImage for a preview), a user-owned image's identity contract, and a
+// declared container story. It returns the first refusal, as the run does;
+// the identity contract records its own finding.
+func (c Container) launchGate(ctx context.Context, image func(context.Context) error) error {
 	if c.runtime == nil || !c.runtime.Available() {
-		return containerScratch{}, fmt.Errorf("container runtime %q cannot launch", runtimeName(c.runtime))
+		return fmt.Errorf("container runtime %q cannot launch", runtimeName(c.runtime))
 	}
-	if err := c.ensureImage(ctx); err != nil {
-		return containerScratch{}, err
+	if err := image(ctx); err != nil {
+		return err
 	}
 	// The image is present — but a USER-OWNED run-as-is image must also satisfy
 	// the identity contract BEFORE anything starts: a wrong-identity container
 	// LAUNCHES fine (invisible to the fatal launch gate) and then root-owns
 	// every file it writes into the bind-mounted project.
 	c.checkRunAsIsIdentity(ctx)
+	if !c.engineSpec.declared {
+		return report.Error{Msg: "container: " + noContainerHint, Fix: noContainerRemedy}
+	}
+	return nil
+}
+
+// inspectImage is ensureImage with nothing pulled or built: the refusal a run
+// meets when the image is absent and there is no recipe to build it. An
+// absent image WITH a recipe is built by the run, so it is no refusal.
+func (c Container) inspectImage(ctx context.Context) error {
+	if sources, _, _ := c.containerBuildSources(""); len(sources) == 0 && !c.imagePresent(ctx) {
+		return c.imageUnbuildable()
+	}
+	return nil
+}
+
+// imageUnbuildable is the refusal of an absent image with no local recipe.
+func (c Container) imageUnbuildable() error {
+	return fmt.Errorf("container image %q is not present (no local build recipe for this engine; provide the image, or configure isolation_images)", c.image)
+}
+
+// prepareContainerScratch runs the container degrade gate (launchGate) and
+// then provisions the host scratch root under the session's ephemeral dir and
+// the session-state mounts. Any gate failure returns an error so the caller
+// refuses the run (prepareChain's refuseLostContainer).
+// It is the shared front-half of BOTH the top-level Container workspace and the
+// worktree-in-container composition; each layers its own extra mounts (config
+// overlay / .git gitdir mirror) on top.
+func (c Container) prepareContainerScratch(ctx context.Context) (containerScratch, error) {
+	if err := c.launchGate(ctx, c.ensureImage); err != nil {
+		return containerScratch{}, err
+	}
 	// The shared-filesystem probe used to run HERE, against a single throwaway
 	// tempdir under os.TempDir() — which only ever proved THAT directory's own
 	// sharing status, never the REAL roots this run bind-mounts (a partially
@@ -685,21 +714,16 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
 	}
-	auth, ok := c.engineSpec.resolveAuth()
-	if !ok {
-		_ = os.RemoveAll(root)
-		return containerScratch{}, report.Error{Msg: "container auth: " + c.engineSpec.authHint, Fix: c.engineSpec.authRemedy}
-	}
 	// Session-state persistence is part of the container gate: a run whose
 	// state dirs cannot be prepared errors here so the caller's degrade chain
 	// raises the fatal-unless-degraded ClassIsolation finding, exactly like an
-	// absent image or unresolvable auth — never a silent state-losing launch.
+	// absent image — never a silent state-losing launch.
 	stateMounts, err := c.sessionStateMounts()
 	if err != nil {
 		_ = os.RemoveAll(root)
 		return containerScratch{}, err
 	}
-	return containerScratch{root: root, auth: auth, termEnv: hostTerminalEnv(os.Getenv), stateMounts: stateMounts}, nil
+	return containerScratch{root: root, termEnv: hostTerminalEnv(os.Getenv), stateMounts: stateMounts}, nil
 }
 
 // hostTerminalEnv forwards the host's terminal description into the container
@@ -722,7 +746,7 @@ func hostTerminalEnv(getenv func(string) string) []string {
 // managed-config writers target under the run's cwd), backed by a scratch dir
 // under scratchRoot SEEDED from the project's existing content, whose container
 // target shadows the same path inside the bind-mounted project. For a container
-// top-level run the project is bind-mounted rw at its identical path, so these
+// top-level run the project is bind-mounted rw, so these
 // writes would otherwise land in the HOST project; the overlay keeps it clean
 // (writes go to scratch) while the seed keeps the engine's view complete
 // (user-authored commands/settings are visible, not hidden by an empty shadow).
@@ -740,10 +764,10 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		seedOverlay(target, host)
 		// Pre-create the overlay TARGET (as the invoking user — this process runs
 		// as it) BEFORE docker sees the mount. The target is nested inside the
-		// identical-path project bind (mounted rw at the SAME host path), so a
+		// project bind (mounted rw), so a
 		// still-missing target would make a rootful docker daemon create the bind
 		// mountpoint AS ROOT — and that root-owned dir lands in the real HOST
-		// project through the identical-path bind, EACCES-ing every later host
+		// project through that bind, EACCES-ing every later host
 		// run's managed-config writers. Creating it ourselves makes docker find it
 		// existing. Idempotent (a no-op — never a chmod — when it already exists).
 		//
@@ -755,53 +779,16 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		if err := os.MkdirAll(target, 0o755); err != nil {
 			return nil, fmt.Errorf("container config overlay target: %w", err)
 		}
-		mounts = append(mounts, rt.expose(host, target, false))
+		// The path is host-anchored, so its container side is the runtime's
+		// mapping of it — the same one the project root it sits in takes.
+		seam := rt.paths()
+		inContainer, err := seam.targetFor(target)
+		if err != nil {
+			return nil, fmt.Errorf("container config overlay target %s has no route into the container: %w", target, err)
+		}
+		mounts = append(mounts, seam.bind(host, inContainer, false))
 	}
 	return mounts, nil
-}
-
-// gitCommonDirMount builds the identical-path .git mirror mount from a checkout's
-// git common-dir, so a `gitdir:` POINTER FILE (a linked worktree or submodule,
-// whose common dir lives OUTSIDE the mounted checkout) resolves inside the
-// container. Read-write by design: the per-checkout admin files (index, HEAD)
-// under <common>/worktrees/<name> are written there, exactly as a host-native
-// checkout writes to the shared .git. Shared by the worktree base (whose
-// worktree .git is ALWAYS a pointer file) and the host base (only when the
-// live project is itself a linked worktree — see gitdirMirrorMount).
-//
-// Over-mount blast radius (live-gag, ACCEPTED): the key property that makes
-// this mount SUFFICIENT is that the per-worktree admin dir
-// <common>/worktrees/<name> — the ONE thing a linked checkout actually needs
-// — is a SUBDIRECTORY of <common>. Mounting the whole common dir identical-
-// path is therefore the simplest mount that covers it, but it ALSO exposes
-// every OTHER worktree's admin dir (and the main checkout's own index/refs)
-// to this container — real blast radius, not merely "no new" one. A surgical
-// mount (worktree dir + just its own <common>/worktrees/<name> + read-only
-// objects/refs) is possible in principle, but git needs write access to
-// refs/logs and the packed-refs/objects layout in ways that make a partial
-// mount fragile and easy to get subtly wrong. DECISION: keep the whole-
-// common-dir mount (correct, simple, RW-justified above) and accept the
-// wider exposure; revisit only if per-agent git isolation becomes a
-// requirement (already flagged a "later concern" — container_worktree.go's
-// worktreeBase doc). Every ctxloom-managed worktree is out-of-repo by the
-// standing layout (~/workspace/worktrees/<proj>--<branch>), so the worktree
-// base relies on this mount set in production already; the host base needs
-// it only when the user's OWN project dir happens to be a linked worktree —
-// proven end-to-end (real git, real container, payload-asserted) by
-// container_hostworktree_integration_test.go, alongside
-// container_worktree_integration_test.go's worktree-base proof.
-func gitCommonDirMount(ctx context.Context, rt Runtime, g git.Git, dir string) (mount, error) {
-	common, err := g.CommonDir(ctx, dir)
-	if err != nil {
-		return mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
-	}
-	// exposeMapped (not expose(common, common, ...)) routes through the
-	// runtime's pathMapper — the SAME translation the project root gets.
-	m, err := rt.exposeMapped(common, false)
-	if err != nil {
-		return mount{}, fmt.Errorf("git common dir %s has no route into the container: %w", common, err)
-	}
-	return m, nil
 }
 
 // seedOverlay copies the project's managed-config directory into its fresh
@@ -926,7 +913,7 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 }
 
 // containerWorkspace is the container policy's workspace, unified across both
-// bases: Dir() is the cwd the container mounts identical-path — the LIVE project
+// bases: Dir() is the host cwd the container mounts (where the runtime maps it) — the LIVE project
 // dir (host base) or the per-agent worktree checkout (worktree base) — and
 // Cleanup() removes the host-side scratch tree (config overlays)
 // then runs the base's own teardown (a noop for the host base; the WIP-safe,
@@ -934,7 +921,7 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 // via the client BEFORE Cleanup. extraEnv/extraMounts carry the resolved auth env
 // + credential/overlay/gitdir mounts threaded into the run spec at StartRunner.
 type containerWorkspace struct {
-	dir string // identical-path cwd (project dir or worktree checkout)
+	dir string // host cwd (project dir or worktree checkout)
 	// projectDir is the user's LIVE project — the dir PrepareWorkspace was
 	// called with, retained because dir is NOT it for every base: the worktree
 	// base's cwd is an ephemeral checkout elsewhere. mount needs the live
@@ -947,11 +934,10 @@ type containerWorkspace struct {
 	// mapping, resolved when the workspace was resolved and consumed by mount.
 	// They are held apart from extraEnv/extraMounts because those two are the
 	// MAPPING's output, not its input: they are empty until mount runs.
-	stateMounts []mount           // scoped RW session-state mounts
-	scratchEnv  []string          // scoped auth passthrough + host terminal description
-	extraEnv    []string          // mount's env plan (scratch env + scoped git identity)
-	extraMounts []mount           // mount's mount plan (state + base mounts)
-	authMode    containerAuthMode // how auth was resolved (diagnostics; no secrets)
+	stateMounts []mount  // scoped RW session-state mounts
+	scratchEnv  []string // host terminal description
+	extraEnv    []string // mount's env plan (scratch env + scoped git identity)
+	extraMounts []mount  // mount's mount plan (state + base mounts)
 	agentID     string
 	// reach is the runtime's route home for this workspace's runner,
 	// settled at resolveWorkspace (remintReach, the environment's Listen).
@@ -970,8 +956,8 @@ type containerWorkspace struct {
 	roots   []mount
 }
 
-// Dir returns the identical-path cwd (the container mounts it there so cwd + .git
-// resolve unchanged; the caller threads it into RunOptions.WorkDir).
+// Dir returns the host cwd; the container relocator presents it where the
+// runtime maps it.
 func (w *containerWorkspace) Dir() string { return w.dir }
 
 // Cleanup removes the host scratch tree, then runs the base teardown. Idempotent —

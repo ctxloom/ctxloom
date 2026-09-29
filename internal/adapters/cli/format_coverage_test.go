@@ -175,7 +175,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 		return []string{"coverage-target", "--add-tag", "smoke"}
 	}},
 	"bundle export": {extraArgs: func(f string) []string {
-		dest := filepath.Join(os.TempDir(), "clifmt-coverage-export-"+f)
+		dest := filepath.Join(coverageScratch, "export-"+f)
 		return []string{"coverage-target", "-o", dest}
 	}},
 	"bundle import": {extraArgs: func(f string) []string {
@@ -251,7 +251,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// five encodings to agree on.
 	"companion list": {extraArgs: noExtraArgs},
 	"auth status":    {extraArgs: noExtraArgs},
-	"auth set-token": {skip: "reads a secret from stdin; covered by auth_test.go"},
+	"auth set":       {skip: "reads a secret from stdin; covered by auth_test.go"},
+	"auth mint":      {skip: "runs the engine's interactive mint flow on a terminal; covered by auth_test.go"},
 	// Both mutate the personal consent record and need a real binary on PATH
 	// to resolve and hash; exercised end to end in trust_cli.feature instead.
 	"companion trust":   {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
@@ -416,12 +417,17 @@ func noExtraArgs(string) []string { return nil }
 // PATH (glob pattern), not a bundle name.
 var coverageTargetBundlePath string
 
+// coverageScratch is the outer test's own temp dir, for the path-taking
+// commands' destinations. Never os.TempDir(): a fixed name there is shared by
+// every concurrent run of this test on the host, and outlives it.
+var coverageScratch string
+
 // coverageImportSourcePath writes (once per format, since bundle import
 // names its destination from the source tree's directory and reuses it with
 // --force) a small standalone bundle tree importable independent of the
 // "coverage-target" fixture, and returns its directory.
 func coverageImportSourcePath(format string) string {
-	dir := filepath.Join(os.TempDir(), "clifmt-coverage-import-"+format)
+	dir := filepath.Join(coverageScratch, "import-"+format)
 	body := fmt.Sprintf("version: \"1.0.0\"\ndescription: coverage-import-%s\n", format)
 	_ = os.MkdirAll(dir, 0o755)
 	_ = os.WriteFile(filepath.Join(dir, "bundle.yaml"), []byte(body), 0o644)
@@ -435,6 +441,7 @@ func coverageImportSourcePath(format string) string {
 // future command with no registry entry fails the test loudly instead of
 // silently going unchecked.
 func TestFormatCoverage_AllRootCmdDescendants(t *testing.T) {
+	coverageScratch = t.TempDir()
 	cfg := formatCoverageProject(t)
 
 	// The shared read fixture behind bundle view/edit/export/distill.

@@ -199,13 +199,10 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 			}),
 		},
 		{
-			source:  "internal/adapters/isolation.ContainerAuthEngines (Engine.Container + Distribution)",
-			members: isolation.ContainerAuthEngines(),
-			absence: containerAbsence(func(c engine.ContainerSpec, dist engine.Distribution) string {
-				switch {
-				case c.Auth.AbsentReason() != "":
-					return c.Auth.AbsentReason()
-				case dist == engine.DistributionTestOnly:
+			source:  "internal/adapters/isolation.ContainerStoryEngines (Engine.Container + Distribution)",
+			members: isolation.ContainerStoryEngines(),
+			absence: containerAbsence(func(_ engine.ContainerSpec, dist engine.Distribution) string {
+				if dist == engine.DistributionTestOnly {
 					return "a test double is never offered"
 				}
 				return ""

@@ -65,3 +65,20 @@ func TestAtomicWriters_PermIsExact_UmaskIndependent(t *testing.T) {
 		})
 	}
 }
+
+// TestAtomicFile_ExactPerm pins the exact-chmod contract (not umask-masked),
+// matching WriteFileAtomicFs.
+func TestAtomicFile_ExactPerm(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "out.jsonl")
+
+	af, err := NewAtomicFile(target, 0o600)
+	require.NoError(t, err)
+	_, err = af.Write([]byte("secret"))
+	require.NoError(t, err)
+	require.NoError(t, af.Commit())
+
+	info, err := os.Stat(target)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}

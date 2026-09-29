@@ -50,14 +50,6 @@ func cloneWarnings(w []Warning) []Warning {
 
 func cloneAgent(a agents.Agent) agents.Agent {
 	a.Profiles = slices.Clone(a.Profiles)
-	if a.Escalation != nil {
-		out := make([]agents.EscalationRung, len(a.Escalation))
-		for i, r := range a.Escalation {
-			r.Kinds = slices.Clone(r.Kinds)
-			out[i] = r
-		}
-		a.Escalation = out
-	}
 	return a
 }
 

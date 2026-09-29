@@ -24,30 +24,36 @@ const nonInteractiveWaitDelay = 3 * time.Second
 
 // RunLaunchSpec is the runner's process launcher — the agent.Launcher the
 // runner injects into the hosted engine's Backend (agent.Hosted.Backend). It
-// execs the backend's LaunchSpec: an interactive launch in a tmux pane on
-// the runner's own terminal (the pty slave the originator holds the master
-// of), a non-interactive one over pipes. Process execution lives here, in
-// the runner, not in the engine.
+// execs the backend's LaunchSpec: an interactive launch on a pty this runner
+// owns, relayed to the runner's own terminal (the pty slave the originator
+// holds the master of), a non-interactive one over pipes. Process execution
+// lives here, in the runner, not in the engine.
 func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (int32, error) {
 	cmd := exec.CommandContext(ctx, resolveBinaryPath(spec.BinaryPath), spec.Args...)
 	cmd.Dir = spec.WorkDir
 	cmd.Env = spec.Env
 
 	if spec.Interactive {
-		// ONE interactive path: the engine is hosted in a tmux pane, so a
-		// human can attach to a run already in progress. There is no pty
-		// fallback when tmux is missing -- see panelaunch.go's doc for why a
-		// fallback is what would make the dependency untrue.
+		// The engine gets a pty of its own rather than inheriting the runner's
+		// terminal, so the runner stays between the two: keystrokes pass
+		// through the caller's reader, where the terminal injector types
+		// coordinator mail between them, and the window sizes the caller
+		// relays are applied to the engine's terminal.
 		//
-		// The pane merges the child's stdout and stderr onto one real pty, so
-		// this branch has a single destination: stderr is unreachable here by
-		// construction and is not passed on. Only the non-interactive branch
-		// below can keep the two apart.
+		// The pty merges the child's stdout and stderr into one stream, so the
+		// interactive branch has a single destination: stderr is unreachable
+		// here by construction and is not passed on (ptyrunner.RunInteractive
+		// takes one writer). Only the non-interactive branch below can keep
+		// the two apart.
 		//
 		// spec.StdinCleanup travels with the reader from whoever created it;
 		// this layer relays it and never substitutes one, because it cannot
 		// tell whether stdin is a pipe it may close or a terminal it may not.
-		return runInteractiveInPane(ctx, spec, stdin, stdout, resize)
+		exitCode, err := ptyrunner.RunInteractive(ctx, cmd, stdin, spec.StdinCleanup, stdout, resize)
+		if err != nil {
+			return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
+		}
+		return int32(exitCode), nil
 	}
 
 	// Non-interactive: stdin is the caller's reader when provided (a backend

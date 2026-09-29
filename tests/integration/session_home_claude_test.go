@@ -4,6 +4,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -24,16 +27,23 @@ import (
 // home, and the project and the real home are untouched; `engine_home: host`
 // is the unsafe selection and is rendered as such. No live claude: a fake `claude`
 // on PATH captures the launch (its env and argv) and answers the stream-json
-// protocol with one reply. Each agent declares `permissions: plan`: these
-// runs are headless, and a headless prompting posture is refused before
-// launch, which would mask the refusal and the home these tests are about.
+// protocol with one reply; it reports claude's version floor, which the
+// runner checks before launch. Each agent declares `permissions: plan`.
 
-// fakeClaudeScript answers `--version`, records its environment and argv,
-// drains stdin, and speaks enough stream-json for one turn.
-const fakeClaudeScript = `#!/bin/sh
-case "$1" in --version) echo "2.1.278 (Claude Code)"; exit 0;; esac
+// fakeClaudeScript answers `--version` with claude's declared floor (in
+// claude's own "<version> (Claude Code)" shape), records its environment and
+// argv, drains stdin, and speaks enough stream-json for one turn.
+func fakeClaudeScript(t *testing.T) string {
+	t.Helper()
+	e, ok := engines.Registry().Lookup(claude.EngineName)
+	require.True(t, ok, "claude is composed")
+	return fmt.Sprintf(fakeClaudeScriptBody, e.Root().Version.Floor)
+}
+
+const fakeClaudeScriptBody = `#!/bin/sh
+case "$1" in --version) echo "%s (Claude Code)"; exit 0;; esac
 env > "$FAKE_CLAUDE_CAPTURE.env"
-printf '%s\n' "$@" > "$FAKE_CLAUDE_CAPTURE.argv"
+printf '%%s\n' "$@" > "$FAKE_CLAUDE_CAPTURE.argv"
 cat > /dev/null
 echo '{"type":"system","subtype":"init","session_id":"fake-native-session"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"FAKE-CLAUDE-REPLY"}]}}'
@@ -54,7 +64,7 @@ func setupClaudeSessionProject(t *testing.T) (env *testenv.TestEnvironment, capt
 	writeProfile(t, env, "dev", "name: dev\ndescription: dev\nbundles:\n  - local#fragments/rules\n")
 
 	bin := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(fakeClaudeScript), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(fakeClaudeScript(t)), 0o755))
 	capturePath = filepath.Join(t.TempDir(), "capture")
 	env.SetChildEnv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	env.SetChildEnv("FAKE_CLAUDE_CAPTURE", capturePath)
@@ -110,19 +120,19 @@ func requireSharesTheHumansLogin(t *testing.T, got map[string]string) {
 	assert.Empty(t, got["CLAUDE_CODE_OAUTH_TOKEN"], "the setup-token is blanked on the host")
 }
 
-// TestRun_ClaudeDefaultBindingRunsInTheSessionHome: even with a token stored
-// by `ctxloom auth set-token` (read from stdin, never printed), a host run
-// shares the human's login and is handed the token blank; claude is told the
-// session home as CLAUDE_CONFIG_DIR; that home holds a .claude.json with the
-// account identity and NO credential; the project tree and the real home are
-// byte-identical before and after.
-func TestRun_ClaudeDefaultBindingRunsInTheSessionHome(t *testing.T) {
+// TestRun_ClaudeLoginAgentRunsInTheSessionHome: even with a token stored by
+// `ctxloom auth set --mode token` (read from stdin, never printed), a host
+// agent declaring auth: login shares the human's login and is handed the
+// token blank; claude is told the session home as CLAUDE_CONFIG_DIR; that
+// home holds a .claude.json with the account identity and NO credential; the
+// project tree and the real home are byte-identical before and after.
+func TestRun_ClaudeLoginAgentRunsInTheSessionHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	writeHostClaudeCredential(t, env)
-	require.NoError(t, env.RunWithStdin(storedSetupToken+"\n", "auth", "set-token"))
+	require.NoError(t, env.RunWithStdin(storedSetupToken+"\n", "auth", "set", "--mode", "token"))
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
-	assert.NotContains(t, env.LastOutput(), storedSetupToken, "set-token never prints the token")
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
+	assert.NotContains(t, env.LastOutput(), storedSetupToken, "set never prints the token")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--auth", "login", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 
 	projectBefore := treeSnapshot(t, env.ProjectDir, projectExcluded...)
@@ -157,14 +167,14 @@ func TestRun_ClaudeDefaultBindingRunsInTheSessionHome(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(env.ProjectDir, "CLAUDE.md"), "the context lands in the session home, not the project")
 }
 
-// TestRun_ClaudeHostRunWithNoTokenSharesTheHumansLogin: no stored or
-// exported token and no API key — a host run still proceeds, on the human's
-// own login shared in place, and nothing is copied into the session home or
-// written to the project or the real home.
-func TestRun_ClaudeHostRunWithNoTokenSharesTheHumansLogin(t *testing.T) {
+// TestRun_ClaudeLoginAgentWithNoTokenSharesTheHumansLogin: no stored or
+// exported token and no API key — a host login agent still proceeds, on the
+// human's own login shared in place, and nothing is copied into the session
+// home or written to the project or the real home.
+func TestRun_ClaudeLoginAgentWithNoTokenSharesTheHumansLogin(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	writeHostClaudeCredential(t, env)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--auth", "login", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 	projectBefore := treeSnapshot(t, env.ProjectDir, projectExcluded...)
 	homeBefore := treeSnapshot(t, env.HomeDir, paths.AppDirName)
@@ -183,6 +193,40 @@ func TestRun_ClaudeHostRunWithNoTokenSharesTheHumansLogin(t *testing.T) {
 	}
 }
 
+// TestRun_ClaudeTokenAgentGetsTheStoredToken: an agent declaring no auth is
+// a token agent. It is handed the token `auth set` stored, in its launch env
+// only, and an API key the human exported is blanked: the declared mode
+// decides.
+func TestRun_ClaudeTokenAgentGetsTheStoredToken(t *testing.T) {
+	env, capture := setupClaudeSessionProject(t)
+	env.SetChildEnv("ANTHROPIC_API_KEY", "sk-ant-api-shell")
+	require.NoError(t, env.RunWithStdin(storedSetupToken+"\n", "auth", "set", "--mode", "token"))
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+
+	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	assert.NotContains(t, env.LastOutput(), storedSetupToken, "the run never prints the token")
+	got := capturedEnv(t, capture)
+	assert.Equal(t, storedSetupToken, got["CLAUDE_CODE_OAUTH_TOKEN"], "the stored token reaches the engine")
+	assert.Empty(t, got["ANTHROPIC_API_KEY"], "the exported key is blanked for a token agent")
+}
+
+// TestRun_ClaudeTokenAgentWithNothingStoredIsRefusedUnattended: this run has
+// no terminal, so a token agent with nothing stored is refused before the
+// engine starts, naming the command that mints one; nothing prompts.
+func TestRun_ClaudeTokenAgentWithNothingStoredIsRefusedUnattended(t *testing.T) {
+	env, capture := setupClaudeSessionProject(t)
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+
+	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
+	require.NotEqual(t, 0, env.LastExitCode(), env.LastOutput())
+	assert.Contains(t, env.LastOutput(), "ctxloom auth mint --engine claude-code --mode token")
+	assert.NoFileExists(t, capture+".env", "the engine never started")
+}
+
 // TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome: the binding's
 // explicit `engine_home: host` is rendered unsafe in the dry-run plan and
 // the launch banner, and the run keeps the real home: no CLAUDE_CONFIG_DIR,
@@ -190,7 +234,10 @@ func TestRun_ClaudeHostRunWithNoTokenSharesTheHumansLogin(t *testing.T) {
 // selection.
 func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--permissions", "plan")
+	writeHostClaudeCredential(t, env)
+	// auth login: the real home with the human's own login in place. Auth is
+	// per agent, so a host-home binding still declares how it authenticates.
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--auth", "login", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "unicorn-prompt")
@@ -214,5 +261,70 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	assert.Empty(t, got["CLAUDE_CONFIG_DIR"], "a host-home run keeps the real home: claude is told no config dir")
 	for _, d := range sessionDirs(t, env) {
 		assert.Empty(t, findUnder(t, d, ".credentials.json"), "no credential is seeded into a session home the run does not use")
+	}
+}
+
+// TestRun_ClaudeLoginAgentWithNoLoginIsRefused: a login agent whose human
+// has no claude login on this host (no ~/.claude) is refused before the
+// engine starts, naming the missing directory and `auth: token`, rather than
+// started logged out.
+func TestRun_ClaudeLoginAgentWithNoLoginIsRefused(t *testing.T) {
+	env, capture := setupClaudeSessionProject(t)
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--auth", "login", "--permissions", "plan")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+
+	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
+	require.NotEqual(t, 0, env.LastExitCode(), env.LastOutput())
+	assert.Contains(t, env.LastOutput(), filepath.Join(env.HomeDir, ".claude"), "the remedy names the missing store")
+	assert.Contains(t, env.LastOutput(), "auth: token")
+	assert.NotContains(t, env.LastOutput(), "runtime is not available", "a missing login is not a runtime failure")
+	assert.NoFileExists(t, capture+".env", "the engine never started")
+}
+
+// credentialSentinel stands in for a stored credential in the exposure
+// audit: a string nothing else produces.
+const credentialSentinel = "sk-ant-oat01-EXPOSURE-SENTINEL-7Q2"
+
+// TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed: a token agent's
+// run reaches its engine with the stored credential and leaves no copy of it
+// anywhere ctxloom writes — its output, its logs and session state under the
+// ctxloom home, the project, the real home, or the temp dir its runner and
+// launchers use. The ONE place it may live is the owner-only store it was
+// read from.
+func TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed(t *testing.T) {
+	env, capture := setupClaudeSessionProject(t)
+	tmp := t.TempDir()
+	env.SetChildEnv("TMPDIR", tmp)
+	require.NoError(t, env.RunWithStdin(credentialSentinel+"\n", "auth", "set", "--mode", "token"))
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	output := env.LastOutput()
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	output += env.LastOutput()
+	_ = env.Run("auth", "status", "--format", "json")
+	output += env.LastOutput()
+
+	require.Equal(t, credentialSentinel, capturedEnv(t, capture)["CLAUDE_CODE_OAUTH_TOKEN"], "fixture: the engine did receive it")
+	assert.NotContains(t, output, credentialSentinel, "no command's output echoes the credential")
+	store := filepath.Join(env.HomeDir, paths.AppDirName, paths.HomeAuthDirName)
+	for _, root := range []string{env.HomeDir, env.ProjectDir, tmp} {
+		require.NoError(t, filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() && p == store {
+				return filepath.SkipDir
+			}
+			if d.IsDir() || !d.Type().IsRegular() {
+				return nil
+			}
+			b, rerr := os.ReadFile(p)
+			if rerr == nil {
+				assert.NotContains(t, string(b), credentialSentinel, "%s holds the credential", p)
+			}
+			return nil
+		}))
 	}
 }

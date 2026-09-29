@@ -15,8 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
-
-	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
 
 // This file is Terminals, the registry that maps a hosted process's lifecycle
@@ -81,10 +79,9 @@ type Runner interface {
 // turning it into a remedy-carrying message, is the caller's job.
 var ErrTmuxUnavailable = errors.New("tmux is not available on this host")
 
-// lookupTmux resolves the tmux binary through the user's login-shell PATH (see
-// shellenv.Resolve for why the process PATH alone is not enough). Overridable
-// so tests can make tmux absent on a host where it is installed.
-var lookupTmux = func() (string, error) { return shellenv.Resolve("tmux") }
+// lookupTmux is findTmux, per OS. Overridable so tests can make tmux absent
+// on a host where it is installed.
+var lookupTmux = findTmux
 
 // NewExecRunner resolves tmux NOW and returns a runner pinned to that binary,
 // or ErrTmuxUnavailable wrapping the lookup's failure. Probing here puts the
@@ -151,6 +148,9 @@ type tmuxTerminal struct {
 	outputPath string
 	statusPath string
 	limit      *int // CreateTerminalRequest.OutputByteLimit, retained for every later TerminalOutput call
+	// feed hands the window's launcher its environment; released with the
+	// window, so an environment nobody read never outlives it.
+	feed *envFeed
 
 	// mu guards exitStatus/killed, which a WaitForTerminalExit call (reading)
 	// and a KillTerminal call (writing) can reach concurrently — see kill's
@@ -402,14 +402,15 @@ func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 	for _, e := range spec.Env {
 		env[e.Name] = e.Value
 	}
-	launcher, err := writeLauncher(l.tmpDir, "term-"+name, env, spec.Command, spec.Args)
+	launch, err := writeLauncher(l.tmpDir, "term-"+name, env, spec.Command, spec.Args)
 	if err != nil {
 		return "", err
 	}
 	args = append(args, "sh", "-c", tmuxWindowWrapper,
-		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, "sh", launcher)
+		l.socketName(), string(writerRedirect), outputPath, channel+"-gate", statusPath, channel, "sh", launch.path)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {
+		launch.feed.release()
 		return "", err
 	}
 
@@ -419,6 +420,7 @@ func (l *Terminals) Create(ctx context.Context, spec Spec) (TerminalID, error) {
 		outputPath: outputPath,
 		statusPath: statusPath,
 		limit:      spec.OutputLimit,
+		feed:       launch.feed,
 	}
 	l.mu.Lock()
 	l.terms[id] = term
@@ -532,6 +534,7 @@ func windowOutput(t *tmuxTerminal) (string, error) {
 // just exited with a real code. Every terminal-owning editor accepts this.
 func (l *Terminals) killWindow(ctx context.Context, t *tmuxTerminal) {
 	_, _ = l.runner.Run(ctx, "kill-window", "-t", t.window)
+	t.feed.release()
 
 	t.mu.Lock()
 	t.killed = true
@@ -568,6 +571,7 @@ func (l *Terminals) releaseWindow(ctx context.Context, t *tmuxTerminal) {
 	_, _ = l.runner.Run(ctx, "wait-for", "-S", t.channel)
 	_ = os.Remove(t.outputPath)
 	_ = os.Remove(t.statusPath)
+	t.feed.release()
 }
 
 // output answers terminal/output: the captured file content (see

@@ -665,8 +665,8 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 }
 
 // warnPosture says out loud when the posture the run launches with is not
-// what the flag asked for, when a one-shot at plan has nobody to approve a
-// gated call, and (under -v) when the engine's declared host default is
+// what the flag asked for, when a one-shot has nobody to approve a gated
+// call, and (under -v) when the engine's declared host default is
 // what decided it.
 func (st *runState) warnPosture() {
 	if runPermissions != "" {
@@ -674,8 +674,8 @@ func (st *runState) warnPosture() {
 			clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", requested, st.backendName, st.permMode)
 		}
 	}
-	if st.launch.Mode == engine.Structured && st.permMode == agent.PermissionPlan {
-		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
+	if st.launch.Mode == engine.Structured && st.permMode != agent.PermissionBypass {
+		clidiag.Warn("ctxloom", "--one-shot with %s permissions has no human to approve a gated call; the engine denies every call the posture would ask about, so those steps will not run", st.permMode)
 	}
 	pf := operations.EnginePermissionFacts(App().Engines(), st.backendName)
 	if runPermissions == "" && runVerbosity > 0 && pf.HostDefaultReason != "" && st.permMode == pf.HostDefault {
@@ -1146,9 +1146,19 @@ func (st *runState) hostCoordinator() func() {
 		//
 		// BeginDrain closes admission at the verbs that mint new work and leaves
 		// the transport alone, so children keep reporting while they wind down.
-		// It is bounded per child (drainBound), so this cannot hang an exit.
+		// It is bounded per child (drainBound), but that bound is minutes: a
+		// shutdown signal sent WHILE it waits is the operator saying not to,
+		// and cuts it short -- Close() then overtakes the drain, which the
+		// drain accounts for. A signal that ended the session earlier does
+		// not: the children still get their drain.
+		interrupt := make(chan os.Signal, 1)
+		signal.Notify(interrupt, shutdownSignals...)
 		d := sc.BeginDrain()
-		<-d.Done()
+		settled := awaitDrain(d.Done(), interrupt)
+		signal.Stop(interrupt)
+		if !settled {
+			clidiag.Warn("ctxloom", "session exit: drain interrupted by a signal; children still running are ended by the coordinator's close")
+		}
 		// A PARKED child is deliberately not waited on: it keeps its turn, its
 		// slot and its session lock. Naming it here is the whole reason the
 		// outcome carries it -- an unattended park that nobody is told about is
@@ -1165,6 +1175,17 @@ func (st *runState) hostCoordinator() func() {
 		}
 		sc.RevokeSessionOwner(ownerToken)
 		sc.Close()
+	}
+}
+
+// awaitDrain waits for a coordinator drain to settle, reporting false when a
+// shutdown signal arrived first.
+func awaitDrain(done <-chan struct{}, interrupt <-chan os.Signal) bool {
+	select {
+	case <-done:
+		return true
+	case <-interrupt:
+		return false
 	}
 }
 
@@ -1489,7 +1510,7 @@ func init() {
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
 	runCmd.Flags().StringVar(&runAgent, "agent", "", "Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)")
 	runCmd.Flags().StringVar(&runWorkspace, "workspace", "", "Session workspace axis (none|worktree; empty = project default)")
-	runCmd.Flags().StringVar(&runPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)")
+	runCmd.Flags().StringVar(&runPermissions, "permissions", "", "Permission posture: "+strings.Join(agent.PermissionModeNames(), "|")+" (overrides the agent/config default)")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "profile")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "fragment")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "tag")

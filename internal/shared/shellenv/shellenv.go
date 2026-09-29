@@ -77,7 +77,9 @@ func resetCacheForTest() {
 // error is returned — this function only ever WIDENS what resolves, never
 // narrows or reshapes the failure a caller would otherwise see.
 func Resolve(name string) (string, error) {
-	if strings.ContainsRune(name, os.PathSeparator) {
+	// '/' separates paths on every platform, Windows included; the native
+	// separator is only one of them there.
+	if strings.ContainsRune(name, '/') || strings.ContainsRune(name, os.PathSeparator) {
 		return name, nil
 	}
 	// Kept, not re-derived. exec.LookPath stats every directory in PATH, and

@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +34,7 @@ type Fake struct {
 	// IgnoredContent maps a worktree path to whether HasIgnoredContent
 	// reports it as holding gitignored/excluded files.
 	IgnoredContent map[string]bool
-	// CommonDirValue is what CommonDir returns (empty → "<dir>/.git").
+	// CommonDirValue is what CommonDir returns (empty → <dir>/.git).
 	CommonDirValue string
 	// CommonDirErr, when set, is returned by CommonDir instead of
 	// CommonDirValue. A caller that resolves the common dir to build a
@@ -144,17 +145,24 @@ func (f *Fake) IsRepo(dir string) bool {
 	return f.Repos[dir]
 }
 
-// CommonDir returns CommonDirValue, or "<dir>/.git" when unset.
+// CommonDir returns CommonDirValue, or <dir>/.git in host form when unset —
+// host form because execGit.CommonDir cleans what git prints.
 func (f *Fake) CommonDir(_ context.Context, dir string) (string, error) {
+	return f.scripted(&f.CommonDirErr, &f.CommonDirValue, filepath.Join(dir, ".git"))
+}
+
+// scripted is a canned string answer, read under the lock: *err when set,
+// else *value, else fallback.
+func (f *Fake) scripted(err *error, value *string, fallback string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.CommonDirErr != nil {
-		return "", f.CommonDirErr
+	if *err != nil {
+		return "", *err
 	}
-	if f.CommonDirValue != "" {
-		return f.CommonDirValue, nil
+	if *value != "" {
+		return *value, nil
 	}
-	return dir + "/.git", nil
+	return fallback, nil
 }
 
 // WorktreeAdd records the add and (unless AddErr is set) appends the new
@@ -291,15 +299,7 @@ func (f *Fake) WorkingChanges(_ context.Context, _ string, maxEntries int) ([]st
 
 // CurrentBranch returns CurrentBranchValue, or "main" when unset.
 func (f *Fake) CurrentBranch(_ context.Context, _ string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.CurrentBranchErr != nil {
-		return "", f.CurrentBranchErr
-	}
-	if f.CurrentBranchValue != "" {
-		return f.CurrentBranchValue, nil
-	}
-	return "main", nil
+	return f.scripted(&f.CurrentBranchErr, &f.CurrentBranchValue, "main")
 }
 
 // CommitAll records the message and (unless CommitAllErr is set) returns the
@@ -364,15 +364,7 @@ func (f *Fake) Clone(_ context.Context, url, dir, branch string) error {
 
 // HeadSHA returns HeadSHAValue (or "fake-head-sha"), or HeadSHAErr.
 func (f *Fake) HeadSHA(_ context.Context, _ string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.HeadSHAErr != nil {
-		return "", f.HeadSHAErr
-	}
-	if f.HeadSHAValue != "" {
-		return f.HeadSHAValue, nil
-	}
-	return "fake-head-sha", nil
+	return f.scripted(&f.HeadSHAErr, &f.HeadSHAValue, "fake-head-sha")
 }
 
 // FileBlobSHA looks up "<ref>:<path>" in BlobSHAs; a miss is ABSENT.

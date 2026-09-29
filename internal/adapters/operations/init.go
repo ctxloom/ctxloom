@@ -199,8 +199,8 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {
 	if headlessPermissions != "" {
 		m, ok := enginepkg.ParsePermissionMode(headlessPermissions)
-		if !ok || !m.SafeHeadless() {
-			return nil, fmt.Errorf("headless posture %q: the default agent's headless runs need %s or %s", headlessPermissions, enginepkg.PermissionPlan, enginepkg.PermissionBypass)
+		if !ok {
+			return nil, fmt.Errorf("headless posture %q is not a posture (known: %s)", headlessPermissions, strings.Join(enginepkg.PermissionModeNames(), "|"))
 		}
 		headlessPermissions = m.String()
 	}
@@ -237,13 +237,16 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 	//
 	// Runtime and HomeMode are both written OUT even though each equals its
 	// parser's default: the isolation axes a binding declares should be visible
-	// in a fresh config, not inferred from what is missing.
+	// in a fresh config, not inferred from what is missing. Auth is login: the
+	// agent a human launches with `ctxloom run` shares their own login, with
+	// its refresh; every other agent keeps the token default.
 	f.DefaultAgent = SeedProfileName
 	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
 			LLM:         primaryLabel,
 			Runtime:     "host",
 			HomeMode:    string(agents.HomeModeSession),
+			Auth:        string(enginepkg.AuthLogin),
 			Profiles:    []string{SeedProfileName},
 			Permissions: headlessPermissions,
 		},

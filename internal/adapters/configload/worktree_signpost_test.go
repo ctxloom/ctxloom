@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -168,29 +169,21 @@ func realGitWorktreeFixture(t *testing.T) (main, linked string) {
 	}
 
 	mainDir := t.TempDir()
-	runGit(t, mainDir, "init", "-q")
-	runGit(t, mainDir, "config", "user.email", "test@example.com")
-	runGit(t, mainDir, "config", "user.name", "Test")
+	taskstest.Git(t, mainDir, nil, "init", "-q")
+	taskstest.Git(t, mainDir, nil, "config", "user.email", "test@example.com")
+	taskstest.Git(t, mainDir, nil, "config", "user.name", "Test")
 	require.NoError(t, os.WriteFile(filepath.Join(mainDir, "f.txt"), []byte("x"), 0o644))
-	runGit(t, mainDir, "add", "f.txt")
-	runGit(t, mainDir, "commit", "-q", "-m", "init")
+	taskstest.Git(t, mainDir, nil, "add", "f.txt")
+	taskstest.Git(t, mainDir, nil, "commit", "-q", "-m", "init")
 
 	linkedDir := filepath.Join(t.TempDir(), "linked-wt")
-	runGit(t, mainDir, "worktree", "add", "-q", "-b", "wt-branch", linkedDir)
+	taskstest.Git(t, mainDir, nil, "worktree", "add", "-q", "-b", "wt-branch", linkedDir)
 
 	main, err := filepath.EvalSymlinks(mainDir)
 	require.NoError(t, err)
 	linked, err = filepath.EvalSymlinks(linkedDir)
 	require.NoError(t, err)
 	return main, linked
-}
-
-func runGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "git %v: %s", args, out)
 }
 
 // findAppDir's last resort — reached only when os.UserHomeDir()

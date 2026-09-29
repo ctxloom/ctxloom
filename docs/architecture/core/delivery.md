@@ -64,14 +64,12 @@ unsafe selection, named beside the project routes in the plan and the
 banner (`cli.unsafeLabels`) — leaves `SurfaceSelection.keepOrReroot` to
 select the project file there.
 
-No credential is delivered. Every claude launch, at any depth and on any
-cell, authenticates from `CLAUDE_CODE_OAUTH_TOKEN`, which
-`isolation.ExportStoredTokens` fills from the token `ctxloom auth set-token`
-stored; the session home holds none, and a container gets the var by name.
-A session home no auth var authenticates is refused
-(`isolation.PrepareInstanceHome`, `report.KindIsolation`, FailAlways)
-naming `ctxloom auth set-token`, the engine's API-key vars and the unsafe
-`engine_home: host`. See [isolation](../engines/isolation.md#credential-delivery).
+No credential is delivered into a home. A launch authenticates from what
+its agent's `auth:` mode resolves to (`engine.Auth.Credentials`), which the
+environment makes true where the engine runs; the session home holds none. A mode whose credential is
+neither exported nor stored is minted at a terminal or, unattended, refused
+naming `ctxloom auth mint`. See
+[isolation](../engines/isolation.md#credential-delivery).
 
 ## Who delivers, and under which writer
 
@@ -86,9 +84,13 @@ The record store is owner-only before any delivery writes through it, and
 that is a security invariant: records and the approaches' undo records
 beside them keep the values they reverse verbatim. `Static.Deliver` calls
 `delivery.Ownership.Prepare` first, on the real filesystem, because the
-copy-on-write overlay the approaches write through cannot chmod a directory
-that already exists beneath it; `fsstatic.Records.Prepare` tightens the
-store's directory with `confpatch.EnsureRecordDir`. It does not depend on
+copy-on-write overlay the approaches write through cannot change the
+protection of a directory that already exists beneath it, so
+`confpatch.EnsureRecordDir` only creates through it; Prepare is the one
+place the protection is applied. `fsstatic.Records.Prepare` makes the
+store's directory owner-only with `confpatch.EnsureRecordDir` on the real
+filesystem, which goes through the per-OS `owneronly` seam (a mode on unix,
+an owner-only DACL on Windows). It does not depend on
 when, or whether, a caller opened the store
 (`TestDeliver_PreparesTheRecordDirItself`,
 `TestStatic_PreparesTheRecordOnceBeforeAnyWrite`).

@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func sessionDirMounts(t *testing.T, l sessions.Layout, harp string, mounts []mou
 		if err != nil || strings.HasPrefix(rel, "..") {
 			continue
 		}
-		want := filepath.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, rel)
+		want := path.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, rel)
 		if m.Container != want {
 			continue
 		}
@@ -61,7 +62,7 @@ func TestSessionStateMounts_EqualTheTablesMountedRows(t *testing.T) {
 
 	want := map[string]string{}
 	for _, dir := range paths.MountedLocations() {
-		want[dir] = filepath.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, dir)
+		want[dir] = path.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, dir)
 	}
 	assert.Equal(t, want, sessionDirMounts(t, l, harp, mounts))
 }
@@ -99,9 +100,9 @@ func TestSessionStateMounts_CarryTheSpool_R3(t *testing.T) {
 
 	rel, err := filepath.Rel(carried.Host, hostSpool)
 	require.NoError(t, err)
-	containerSpool := filepath.Join(carried.Container, rel)
+	containerSpool := path.Join(carried.Container, filepath.ToSlash(rel))
 	assert.Equal(t,
-		filepath.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, paths.PersistDirName, paths.SpoolDirName),
+		path.Join(defaultContainerHome, paths.AppDirName, paths.SessionsDir, harp, paths.PersistDirName, paths.SpoolDirName),
 		containerSpool,
 		"the container view of the spool is the home-relative path the child's HomeMapper resolves")
 }

@@ -470,10 +470,7 @@ func (h *Home) runnerChannelLoop() {
 	}
 	for {
 		wake := h.redialWake()
-		waiting, _ := h.waitState()
-		now := time.Now()
-		clock.observe(waiting, now)
-		link, release, err := h.dialLink(clock.left(now))
+		link, release, err := h.dialObserved(&clock)
 		if err != nil {
 			h.rep.WarnOncef("runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
 			if !backoff(wake) {
@@ -501,6 +498,37 @@ func (h *Home) runnerChannelLoop() {
 			h.releaseLink(link)
 			release()
 			return
+		}
+	}
+}
+
+// dialObserved is dialLink under the owner-loss clock: the clock is kept
+// current while the dial is in flight, so a turn starting or ending mid-dial
+// pauses or starts it then, not when the dial returns. The dial is not cut on
+// a change: its cutoff, the budget left at its start, never outlasts the
+// clock, since the budget only shrinks.
+func (h *Home) dialObserved(clock *ownerClock) (*RunnerLink, func(), error) {
+	waiting, changed := h.waitState()
+	now := time.Now()
+	clock.observe(waiting, now)
+	type dialed struct {
+		link    *RunnerLink
+		release func()
+		err     error
+	}
+	done := make(chan dialed, 1)
+	within := clock.left(now)
+	go func() {
+		link, release, err := h.dialLink(within)
+		done <- dialed{link, release, err}
+	}()
+	for {
+		select {
+		case d := <-done:
+			return d.link, d.release, d.err
+		case <-changed:
+			waiting, changed = h.waitState()
+			clock.observe(waiting, time.Now())
 		}
 	}
 }

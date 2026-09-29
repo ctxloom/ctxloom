@@ -19,3 +19,23 @@ func PrimaryOutboundIP() string {
 	}
 	return ""
 }
+
+// IsLocalAddr reports whether ip is assigned to one of this host's own network
+// interfaces — whether a listener on it can bind here at all. An error means
+// the host's addresses could not be listed, so the answer is unknown.
+func IsLocalAddr(ip string) (bool, error) {
+	want := net.ParseIP(ip)
+	if want == nil {
+		return false, nil
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false, err
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(want) {
+			return true, nil
+		}
+	}
+	return false, nil
+}

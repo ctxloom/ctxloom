@@ -166,6 +166,11 @@ type CellRequest struct {
 	Host        HostFacts
 	Degraded    bool
 	HomeMode    HomeMode
+	// Auth is the agent's DECLARED auth mode, as written ("" undeclared) —
+	// unparsed on purpose: the cells adapter's engine.CheckAuth is the one
+	// check that turns it into an engine.AuthMode, against the engine it
+	// binds, and resolves it to the run's credential env.
+	Auth string
 	// Env is the run's own environment: the identity carriers the cell's
 	// session state is keyed from and the caller's passthrough.
 	Env map[string]string
@@ -180,8 +185,13 @@ type Placement struct {
 	// Paths are the roots: ProjectRoot's Engine side is the engine's cwd.
 	Paths present.Mapped
 	// Env is what the environment sets for the engine: the home var, the
-	// workspace's own provisions, the shared login.
+	// workspace's own provisions, the mode's credential set.
 	Env map[string]string
+	// Unset names variables the engine's process must NOT inherit from the
+	// runner's own environment (engine.Credentials.Unset): the runner removes
+	// them before it drives the engine. An empty value in Env is not the
+	// same thing, and for some variables it means something else entirely.
+	Unset []string
 	// Home is each declared home var as resolved, at its Engine side.
 	Home []engine.HomeBinding
 }
@@ -201,20 +211,12 @@ type Cell struct {
 	// dial home: zero for a host cell and for a runtime that routes to the
 	// host's loopback. Local to the launching process, like HomeMode: the
 	// coordinator honours it before the runner starts.
-	Listen    present.Listen
-	Container *ContainerCell
-	Cleanup   func() error
+	Listen  present.Listen
+	Cleanup func() error
 	// Handle is what the cells adapter keeps to START a process in this cell:
 	// the prepared environment itself, opaque to core and read back only by
 	// the adapter that made it.
 	Handle any
-}
-
-// ContainerCell is the container half of a cell.
-type ContainerCell struct {
-	Runtime RuntimeAxis
-	Image   string
-	Home    string
 }
 
 // Launch is the resolved launch. Immutable once returned. Everything a runner

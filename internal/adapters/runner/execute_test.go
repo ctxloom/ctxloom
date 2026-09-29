@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet is the
@@ -184,6 +185,51 @@ func TestExecute_RefusesAStructuredLaunchTheInstanceCannotDrive(t *testing.T) {
 	require.ErrorAs(t, err, &unsupported)
 	require.Equal(t, "drive", unsupported.Capability)
 	require.Empty(t, drive.turns)
+}
+
+// TestExecute_RefusesAnEngineBelowItsVersionFloor: an engine whose installed
+// version is below the floor its definition declares is refused before
+// anything is delivered — a fatal finding with the remedy, not a launch that
+// fails later in a way nobody can read. At the floor it launches.
+func TestExecute_RefusesAnEngineBelowItsVersionFloor(t *testing.T) {
+	env := newDeliveryEnv(t)
+	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+		Identity: env.mint(t, 1, "run-floor"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+	})
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		installed string
+		refused   bool
+	}{{"2.1.259", true}, {"2.1.283", false}} {
+		drive := &recordingDriver{}
+		var findings report.Collector
+		_, err = runner.Execute(context.Background(), runner.Deps{
+			Kind: floored{mock.New()}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+			Static: staticWriter(t), Records: records(t), Driver: drive, Reporter: &findings,
+			EngineVersion: func(context.Context) (string, error) { return tc.installed, nil },
+		}, l)
+		if !tc.refused {
+			require.NoError(t, err, tc.installed)
+			continue
+		}
+		var below *engine.BelowFloorError
+		require.ErrorAs(t, err, &below, tc.installed)
+		require.Empty(t, drive.turns, "nothing is driven below the floor")
+		require.Empty(t, cellTree(t, l), "nothing was delivered")
+		fatal := findings.All().Fatal()
+		require.Len(t, fatal, 1, "a fatal finding, not a warning: %v", findings.All())
+		require.Contains(t, fatal[0].Remedy, "2.1.283")
+	}
+}
+
+// floored is the mock kind declaring a version floor.
+type floored struct{ engine.Engine }
+
+func (f floored) Root() engine.Base {
+	b := f.Engine.Root()
+	b.Version = engine.VersionCommand{Args: []string{"--version"}, Parse: func(s string) (string, error) { return s, nil }, Floor: "2.1.283"}
+	return b
 }
 
 // driverless is the mock kind whose instances carry no structured driver.
@@ -496,7 +542,6 @@ func TestExecute_ARelocatedCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.
 		ProjectRoot: present.Root{Host: host.ProjectRoot.Host, Engine: host.ProjectRoot.Host},
 		SessionHome: present.Root{Host: host.SessionHome.Host, Engine: engineSide},
 	})
-	require.Nil(t, child.Cell.Container, "premise: nothing on the cell names a runtime")
 
 	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
 	require.NoError(t, err)

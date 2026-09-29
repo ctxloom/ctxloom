@@ -9,27 +9,43 @@ This page is generated from `ctxloom auth status --help`.
 
 ## ctxloom auth status
 
-Show whether a token is stored and which one runs get (never the token)
+Show which credentials are stored and who can read them (never the credential)
 
 ### Synopsis
 
-Store the long-lived token ctxloom-launched engines authenticate with.
+Store the credentials ctxloom-launched engines authenticate with.
 
-A claude that ctxloom launches on the HOST shares your own claude login in
-place: the same credential and the same refresh locks as your claude
-(CLAUDE_SECURESTORAGE_CONFIG_DIR), so it needs no token. A claude in a
-CONTAINER authenticates with one token from 'claude setup-token' instead. That
-token lasts a year, claude never refreshes it and never writes it to disk, so
-every container run can share it safely. ctxloom does not copy your ~/.claude
-login anywhere.
+Each agent declares how its engine authenticates with 'auth:' on its binding
+(ctxloom agent edit <name> --auth <mode>):
 
-  claude setup-token          # prints the token once
-  ctxloom auth set-token      # paste it; stored owner-only under ~/.ctxloom/auth
+  login    your own login, shared: the same credential and the same
+           refresh as your own engine (claude: CLAUDE_SECURESTORAGE_CONFIG_DIR).
+           In place on the host; a container mounts it (claude: ~/.claude),
+           except on macOS, where it is the Keychain. Refused when missing.
+           'ctxloom init' gives the default agent this mode.
+  token    a long-lived token the engine mints (claude: 'claude setup-token',
+           a year, never refreshed). The default for an agent that declares
+           nothing.
+  api-key  a pay-per-use key you supply (claude: ANTHROPIC_API_KEY).
+  cloud    a cloud provider or gateway configured in your own shell (claude:
+           Amazon Bedrock, Claude Platform on AWS, Google Vertex, Microsoft
+           Foundry, or ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL). Nothing
+           is stored or minted for it.
 
-ctxloom exports the stored token as CLAUDE_CODE_OAUTH_TOKEN, which container
-runs carry; host runs blank it, because claude would read it ahead of your
-login. If you already export CLAUDE_CODE_OAUTH_TOKEN yourself, yours wins over
-the stored one.
+The declared mode decides. Only that mode's credential reaches the engine: a
+value you export for THAT mode wins over the stored one, and every other
+credential the engine reads is removed from the run's environment — including
+one you exported yourself. An invalid mode is refused, naming the modes the
+engine supports.
+
+ctxloom mints a token the first time a run needs one, at your terminal, and
+stores it owner-only under ~/.ctxloom/auth. A run with no terminal (a
+delegated agent, an unattended run) never prompts: it is refused, naming
+'ctxloom auth mint'. Credentials never enter a config file or a repository.
+
+  ctxloom auth mint --mode token     # run the engine's own mint flow, store the token
+  ctxloom auth set --mode api-key    # paste a key; read from stdin, never argv
+  ctxloom auth status                # what is stored, and who can read it
 
 ```
 ctxloom auth status [flags]
@@ -47,5 +63,5 @@ ctxloom auth status [flags]
 
 ### SEE ALSO
 
-* [ctxloom auth](/reference/cli/ctxloom_auth/)	 - Store the token ctxloom-launched engines authenticate with
+* [ctxloom auth](/reference/cli/ctxloom_auth/)	 - Store the credentials ctxloom-launched engines authenticate with
 

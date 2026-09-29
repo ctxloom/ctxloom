@@ -69,7 +69,7 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*coord.
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
-		Runtime:    launch.RuntimeRootless,
+		Runtime:    containerAxes("docker").Runtime,
 		Permission: perm.String(),
 	}, nil
 }
@@ -96,7 +96,7 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 // mounts (transcript survival).
 func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
-	cenv, err := preparedContainer(ctx, "docker", coord.ContainerAuthBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
+	cenv, err := preparedContainer(ctx, "docker", coord.ContainerStoryBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
 	if err != nil {
 		return coord.Resolved{}, err
 	}
@@ -118,7 +118,7 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnP
 	// As Resolve carries a container launch: the container axis (the runner
 	// dials the container-reachable listener) and a session endpoint for the
 	// runner to bind — any free loopback port inside the container.
-	l.Axes.Runtime = launch.RuntimeRootless
+	l.Axes.Runtime = containerAxes("docker").Runtime
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil
@@ -180,9 +180,8 @@ func (s *directBusSpawner) containerNames() []string {
 func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the docker-direct delegated-spawn integration test")
 	coord.ResetStrictness(t)
-	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
-	// mock's container-auth declaration (Vendorless) resolves
-	// unconditionally because mock authenticates against no vendor. Needing a
+	// NO credential is set on purpose: this run's engine is mock, which
+	// declares no Auth because it authenticates against no vendor. Needing a
 	// borrowed Anthropic key here would mean auth was being keyed on something
 	// other than the engine.
 
@@ -215,7 +214,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	out, err := c.AgentRun(ctx, owner, directAgentName, seedPayload, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
-	require.Equal(t, launch.RuntimeRootless, out.Runtime)
+	require.Equal(t, containerAxes("docker").Runtime, out.Runtime)
 	childHarp := out.Harp
 
 	// Subscribe to the live tap before the container has even been run.
@@ -313,10 +312,17 @@ func assertNoTCPListenSocket(t *testing.T, name string) {
 		if fields[3] != "0A" {
 			continue
 		}
-		// local_address is hex ip:port; IPv4 loopback is 0100007F, IPv6
-		// loopback ends in ...00000001 (::1) or the v4-mapped 0100007F.
+		// local_address is hex ip:port, IPv4 in little-endian byte order.
+		// Loopback is ALL of 127.0.0.0/8 (first octet 7F, the LAST hex pair),
+		// not just 127.0.0.1: a runner on a user-defined network (the
+		// docker-outside-of-docker self route joins one) carries Docker's
+		// embedded DNS resolver on 127.0.0.11, private to its netns like any
+		// loopback bind. IPv6 loopback is ::1, or a v4-mapped 127.x address.
 		local := strings.SplitN(fields[1], ":", 2)[0]
-		if local == "0100007F" || local == "00000000000000000000000001000000" || strings.HasSuffix(local, "0000FFFF0100007F") {
+		v4loop := len(local) == 8 && strings.HasSuffix(local, "7F")
+		v6loop := local == "00000000000000000000000001000000" ||
+			(len(local) == 32 && strings.HasPrefix(local, "0000000000000000FFFF0000") && strings.HasSuffix(local, "7F"))
+		if v4loop || v6loop {
 			continue
 		}
 		t.Fatalf("the runner container holds a TCP LISTEN socket beyond its own loopback (mauve-state hole): %q", line)

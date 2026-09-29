@@ -7,18 +7,17 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // stdioTerminal is the runner's Terminal over the process's own stdio: the
 // pty slave the originator holds the master of (adapters/hostpty), or the
 // container's -it tty. The engine is driven through the backend's
-// interactive Execute — its tmux pane, with the runner's stdin typed into
-// it and the pane's bytes relayed to the runner's stdout — over the
-// projection and the presentations the runner delivered, never a Setup of
-// its own. The injector wraps the pair so coordinator mail is typed into
-// the pane between the human's keystrokes (runner.TerminalInjector).
+// interactive Execute — on its own pty, with the runner's stdin copied into
+// it and its output relayed to the runner's stdout — over the projection
+// and the presentations the runner delivered, never a Setup of its own. The
+// injector wraps the pair so coordinator mail is typed into the engine
+// between the human's keystrokes (runner.TerminalInjector).
 type stdioTerminal struct {
 	backend  agent.Backend
 	injector *runner.TerminalInjector
@@ -51,7 +50,6 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 		Model:       turn.Launch.Label.Model,
 		Env:         turn.Launch.EngineEnv(),
 		Permissions: turn.Launch.Permission,
-		CellKind:    cellKindOf(turn.Launch.Cell),
 		Stdin:       stdin,
 		Resize:      turnResize(ctx, t.stdin),
 		Session:     &session,
@@ -100,17 +98,4 @@ func turnResize(ctx context.Context, f *os.File) <-chan agent.WindowSize {
 		}
 	}()
 	return out
-}
-
-// cellKindOf projects the cell onto the writers' cell kind: a container is
-// process-isolated, a workspace apart from the project root is
-// directory-isolated, the project root itself is shared.
-func cellKindOf(c launch.Cell) agent.CellKind {
-	switch {
-	case c.Container != nil:
-		return agent.CellKindProcessIsolated
-	case c.Workspace != "" && c.Workspace != c.Paths.Paths().ProjectRoot.Host:
-		return agent.CellKindDirectoryIsolated
-	}
-	return agent.CellKindShared
 }

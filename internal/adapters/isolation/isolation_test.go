@@ -598,18 +598,18 @@ func TestParseWorkspaceAxis(t *testing.T) {
 // TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe pins the last
 // gate before a daemon for a test double bound to a container: with a
 // runtime answering, the chain's first tier IS a container carrying that
-// engine's spec, whose auth resolves without any credential — and nothing on
+// engine's declared spec, which needs no credential — and nothing on
 // the way raised a finding. The probe itself is stubbed because it is the
 // daemon; everything short of it is the claim.
 //
 // A double is DistributionTestOnly, which keeps it out of every OFFERED and
 // composed roster. Those rosters are lists of names; this chain must never
 // consult one, because the capability (a declared install fragment and a
-// vendorless auth) is what a container run actually needs.
+// declared container story) is what a container run actually needs.
 func TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe(t *testing.T) {
 	const engine = "vendorless-chain"
 	registerVendorlessFixture(t, engine, coreengine.DistributionTestOnly)
-	require.NotContains(t, ContainerAuthEngines(), engine, "precondition: the double is not on the offered roster")
+	require.NotContains(t, ContainerStoryEngines(), engine, "precondition: the double is not on the offered roster")
 	require.NotContains(t, composableEngines(), engine, "precondition: nor on the composed one")
 
 	for _, axis := range []RuntimeAxis{RuntimeContainerRootless, RuntimeContainerRootful} {
@@ -623,8 +623,7 @@ func TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe(t *testing.T) 
 			c, ok := chain[0].(Container)
 			require.True(t, ok, "the first tier is the container the run asked for, not a degrade")
 			assert.Equal(t, engine, c.engine)
-			_, authOK := c.engineSpec.resolveAuth()
-			assert.True(t, authOK, "the spec the tier carries authenticates the double against nothing")
+			assert.True(t, c.engineSpec.declared, "the spec the tier carries is the double's own declaration")
 			assert.Empty(t, strictness.All(), "no gate short of the daemon refused the pair")
 		})
 	}

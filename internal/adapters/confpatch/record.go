@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/benjaminabbitt/hew/go/hewfs"
@@ -104,35 +106,28 @@ type RecordOp struct {
 // has to split a filename on it to insert its counter.
 const recordFileSuffix = ".hew-record.yaml"
 
-// recordDirMode is owner-only because a record's inverse keeps the previous
-// value of the key it undoes, verbatim — undo needs it — and that value may be
-// anything the user kept in the file.
-const recordDirMode = 0o700
-
 // EnsureRecordDir creates dir owner-only, and tightens it if it already exists
-// looser: MkdirAll leaves an existing directory's mode alone, so a directory an
-// older binary created 0755 would otherwise stay readable to everyone. Every
-// writer of a record calls it before the write.
+// looser: a record's inverse keeps the previous value of the key it undoes,
+// verbatim — undo needs it — and that value may be anything the user kept in
+// the file. Every writer of a record calls it before the write, and a record
+// file created inside inherits the protection where the platform's is an
+// inherited ACL (owneronly says what owner-only means per platform).
 //
-// The chmod is skipped when the mode is already right, and that is load-bearing:
-// claude's approach writes its record through fsstatic's copy-on-write overlay,
-// whose Chmod on a directory in the base fails (it tries to copy it up as a
-// file). fsstatic's Static.Deliver prepares the owning store
-// (delivery.Ownership.Prepare) on the real directory before any approach runs,
-// so through the overlay this finds it correct and does nothing.
+// Only the OS filesystem has access control to set. A test double has none,
+// and fsstatic's copy-on-write overlay cannot change a directory in its base
+// (its Chmod tries to copy the directory up as a file, and fails). The overlay
+// does not need to: fsstatic's Static.Deliver prepares the owning store
+// (delivery.Ownership.Prepare) on the real directory before any approach
+// writes through it. So on any other filesystem this only creates.
 func EnsureRecordDir(fs afero.Fs, dir string) error {
-	if err := fs.MkdirAll(dir, recordDirMode); err != nil {
-		return fmt.Errorf("confpatch: create %s: %w", dir, err)
-	}
-	info, err := fs.Stat(dir)
-	if err != nil {
-		return fmt.Errorf("confpatch: stat %s: %w", dir, err)
-	}
-	if info.Mode().Perm() == recordDirMode {
+	if filelock.IsOSBackedFs(fs) {
+		if err := owneronly.EnsureDir(dir); err != nil {
+			return fmt.Errorf("confpatch: restrict %s to its owner: %w", dir, err)
+		}
 		return nil
 	}
-	if err := fs.Chmod(dir, recordDirMode); err != nil {
-		return fmt.Errorf("confpatch: restrict %s: %w", dir, err)
+	if err := fs.MkdirAll(dir, owneronly.DirMode); err != nil {
+		return fmt.Errorf("confpatch: create %s: %w", dir, err)
 	}
 	return nil
 }

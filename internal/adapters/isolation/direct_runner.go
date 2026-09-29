@@ -37,7 +37,7 @@ func (c Container) startRunner(ctx context.Context, backendName, label string, v
 		return nil, fmt.Errorf("container start-runner: unexpected workspace %T (expected a container workspace)", ws)
 	}
 	if verbosity > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: container runner (%s, direct) auth via %s\n", c.runtime.Name(), cw.authMode)
+		fmt.Fprintf(os.Stderr, "ctxloom: container runner (%s, direct)\n", c.runtime.Name())
 	}
 	spawnEnv, err := remintReach(cw, spawnEnv)
 	if err != nil {
@@ -72,7 +72,11 @@ func (c Container) interactiveRunner(_ context.Context, backendName string, ws w
 	// The runner process runs under RunnerTerm (the last -e wins over the
 	// workspace's TERM); the engine's env carries the human's terminal.
 	spec.Env = append(spec.Env, "TERM="+RunnerTerm)
-	cmd := exec.Command(c.runtime.Binary(), c.runtime.RunArgs(spec)...)
+	args, err := c.runtime.RunArgs(spec)
+	if err != nil {
+		return nil, "", err
+	}
+	cmd := exec.Command(c.runtime.Binary(), args...)
 	cmd.Env = append(os.Environ(), envPairs(spawnEnv)...)
 	return cmd, name, nil
 }
@@ -123,6 +127,7 @@ func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorksp
 		Command: command,
 		Env:     env,
 		Mounts:  mounts,
+		Network: cw.reach.network,
 		// nil on every production run — set only when the isolation probe's
 		// dedicated env var is present (traceProbeFromEnv). This is the sole
 		// env→field bridge that turns a run into a read-observing probe run;
@@ -148,7 +153,11 @@ const runnerWaitDelay = 10 * time.Second
 // goroutine started here Waits it exactly once, and RunnerHandle.Wait reads
 // that one outcome (surfacing the stderr tail on failure).
 func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*RunnerHandle, error) {
-	cmd := exec.Command(rt.Binary(), rt.RunArgs(spec)...)
+	args, err := rt.RunArgs(spec)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(rt.Binary(), args...)
 	if len(spawnEnv) > 0 {
 		kv := make([]string, 0, len(spawnEnv))
 		for k, v := range spawnEnv {

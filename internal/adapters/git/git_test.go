@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -138,7 +139,7 @@ func TestExecGit_Lifecycle(t *testing.T) {
 // (container-runtime-bugs.plan.md §2.2.3): a worktree reached through a
 // SYMLINKED alias path must still resolve to the common dir's REAL absolute
 // path, not a path that runs through the symlink — the isolation container
-// axis mounts CommonDir's return value identical-path (gitCommonDirMount), so
+// axis mounts CommonDir's return value identical-path (gitDirMounts), so
 // a symlink-relative answer would mount the WRONG (or a nonexistent-outside-
 // the-mount) path inside the container. `git rev-parse --git-common-dir`
 // itself resolves to the physical path here (this is git's own behavior, not
@@ -361,7 +362,7 @@ func TestExecGit_CurrentBranch(t *testing.T) {
 	assert.Equal(t, "agent/named", named, "a seam-created worktree is on its named branch, never detached")
 
 	detachedWT := filepath.Join(t.TempDir(), "detached-wt")
-	gitRun(t, repo, "worktree", "add", "--detach", detachedWT, "HEAD")
+	taskstest.Git(t, repo, nil, "worktree", "add", "--detach", detachedWT, "HEAD")
 	detached, err := g.CurrentBranch(ctx, detachedWT)
 	require.NoError(t, err)
 	assert.Equal(t, "HEAD", detached, `git's own sentinel for detached HEAD`)
@@ -403,7 +404,7 @@ func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
 	// leaves the commit reachable from the branch in the shared repository.
 	sha := commit(t, wt, "work.txt", "done overnight", "agent work")
 	require.NoError(t, g.WorktreeRemove(ctx, repo, wt))
-	assert.Equal(t, sha, gitRun(t, repo, "rev-parse", "agent/member-a"),
+	assert.Equal(t, sha, taskstest.Git(t, repo, nil, "rev-parse", "agent/member-a"),
 		"the branch still holds the commit after the worktree is gone")
 
 	// git's own refusal stands: a second add on an existing branch name is
@@ -412,7 +413,7 @@ func TestExecGit_WorktreeAdd_NamedBranch(t *testing.T) {
 	err = g.WorktreeAdd(ctx, repo, other, "agent/member-a", "HEAD")
 	require.Error(t, err, "a branch name already taken is refused")
 	assert.NoDirExists(t, other)
-	assert.Equal(t, sha, gitRun(t, repo, "rev-parse", "agent/member-a"),
+	assert.Equal(t, sha, taskstest.Git(t, repo, nil, "rev-parse", "agent/member-a"),
 		"the refused add did not move the existing branch")
 }
 

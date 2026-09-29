@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -35,7 +36,7 @@ var (
 func llmWriteLong(reg engine.Registry) string {
 	return `--type is the backend discriminator (` + userEngineNames(reg) + `);
 omit it to keep ` + operations.DefaultEngineName(reg) + `'s default. --model sets the model string. --permissions
-sets the launch-time posture (default|acceptEdits|plan|bypass).
+sets the launch-time posture (` + strings.Join(engine.PermissionModeNames(), "|") + `).
 
 An entry carries NO credentials and no environment: the engine authenticates
 itself and reads its environment from the shell that runs ctxloom, so export
@@ -164,7 +165,7 @@ func init() {
 func registerLLMWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&llmSetType, "type", "", "backend discriminator (empty = claude-code)")
 	cmd.Flags().StringVar(&llmSetModel, "model", "", "model string")
-	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission posture: default|acceptEdits|plan|bypass")
+	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission posture: "+strings.Join(engine.PermissionModeNames(), "|"))
 	_ = cmd.RegisterFlagCompletionFunc("type", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return operations.EngineNames(App().Engines()), cobra.ShellCompDirectiveNoFileComp
 	})
@@ -181,7 +182,7 @@ func applyEngineNamedHelp(reg engine.Registry) {
 	engines := userEngineNames(reg)
 	// The scaffolding flags' HELP names the engine shipped by default — a
 	// registry fact; the value itself is resolved where each command runs.
-	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine"), authSetTokenCmd.Flags().Lookup("engine")} {
+	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine"), authMintCmd.Flags().Lookup("engine"), authSetCmd.Flags().Lookup("engine")} {
 		f.DefValue = operations.DefaultEngineName(reg)
 	}
 	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of

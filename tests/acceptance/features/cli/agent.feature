@@ -273,6 +273,79 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
         | --format json | developer           |
         | --format text | Updated agent       |
 
+    # --root picks, per surface kind, WHICH root that surface is written
+    # under (kind=root, repeatable). Like --surface it has no listing render,
+    # so the binding is the effect. The refusal is the other half: a root the
+    # engine's approach does not offer must fail at write time, not be stored
+    # and silently ignored at launch.
+    Scenario: Selecting a root for a surface kind records it in the binding
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      When Alice picks where this binding's MCP config is written:
+        """
+        ctxloom agent edit developer --root mcp=project-root
+        """
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" contains "mcp: project-root"
+
+    Scenario: A root the engine does not offer is refused, and the binding is left alone
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      When I run "ctxloom agent edit developer --root context=nowhere"
+      Then the command fails
+      And the output contains "context=nowhere"
+      And the file ".ctxloom/config.yaml" does not contain "roots:"
+
+    # --auth declares how this binding's engine authenticates, and the write
+    # asks the engine whether that credential is available NOW: one the human
+    # must supply (an API key) is refused until it is, with the remedy in the
+    # error, and nothing is persisted. The export is pinned empty because an
+    # empty export counts as none — without it, a machine that happens to
+    # export a real key would turn the refusal half green for the wrong reason.
+    Scenario: A pay-per-use key binding is refused until the key is available, then recorded
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      And the environment variable "ANTHROPIC_API_KEY" is set to ""
+      When I run "ctxloom agent edit developer --auth api-key"
+      Then the command fails
+      And the output contains "ctxloom auth set --engine claude-code --mode api-key"
+      And the file ".ctxloom/config.yaml" does not contain "auth:"
+      When I run "ctxloom auth set --engine claude-code --mode api-key" with input:
+        """
+        sk-acceptance-fixture-not-a-real-key
+        """
+      Then the command succeeds
+      When Alice switches this binding to the key she just stored:
+        """
+        ctxloom agent edit developer --auth api-key
+        """
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" contains "auth: api-key"
+
+    # A minted token is the other case: its absence is NOT refused, because a
+    # run mints it at a terminal (`auth mint`). Refusing it here would make the
+    # default mode undeclarable on a fresh machine.
+    Scenario: A token binding is recorded with nothing stored, since a run mints it
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      When I run "ctxloom agent edit developer --auth token"
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" contains "auth: token"
+
+    Scenario: An auth mode the engine does not support is refused, naming the ones it does
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      When I run "ctxloom agent edit developer --auth carrier-pigeon"
+      Then the command fails
+      And the output contains "carrier-pigeon"
+      And the output contains "api-key"
+      And the file ".ctxloom/config.yaml" does not contain "auth:"
+
   Rule: --engine-home decides WHOSE engine config home this binding's runs get
 
     The other axes above pick what runs. `--engine-home` picks whose engine

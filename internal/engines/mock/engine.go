@@ -58,16 +58,14 @@ type Option func(*Mock)
 // non-nil (so the spec is composable) and to assert the one mock-specific
 // need — `cat`, for the shared-filesystem probe — as a build-time gate
 // rather than an assumption. NOT a template for a real engine, whose
-// fragment must install and validate a real client. mock authenticates
-// against no vendor: there is no API key, token or credential file it could
-// need, so resolution always succeeds with nothing — a POSITIVE fact about
-// this one engine, verified by reading its implementation.
+// fragment must install and validate a real client. mock declares no Auth:
+// it authenticates against no vendor, so a container run of it needs no
+// credentials.
 func WithContainer() Option {
 	return func(m *Mock) {
 		m.container = &engine.ContainerSpec{
 			Install:         installFragment,
 			ValidateCommand: "cat --version",
-			Auth:            engine.Provide(engine.ContainerAuth{Vendorless: string(m.Name) + " authenticates against no vendor"}),
 			OverlayDirs:     []string{ConfigDirName},
 			// mock keeps no transcripts, so there is no native store root to
 			// bind-mount.

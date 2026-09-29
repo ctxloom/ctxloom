@@ -156,6 +156,91 @@ tool-version-args:
         } >> "$GITHUB_OUTPUT"
     fi
 
+# Print the pinned Go version, for runners outside the devcontainer image (ci.yml's
+# windows job feeds it to actions/setup-go). Read from the file the image reads,
+# not go.mod: go.mod's `go` line is the language floor, not the toolchain pin.
+# Under Actions it also sets the step output `version`.
+ci-go-version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_gha_error}}
+    v="$(grep -E '^GO_VERSION=' .devcontainer/tool-versions.env | cut -d= -f2-)"
+    if [ -z "$v" ]; then
+        gha_error "GO_VERSION not found in .devcontainer/tool-versions.env"
+        exit 1
+    fi
+    echo "$v"
+    if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "version=$v" >> "$GITHUB_OUTPUT"; fi
+
+# windows_test_pkgs prints the packages with a Windows arm: every package with a
+# file (test or not) that GOOS=windows compiles and GOOS=linux does not, so a
+# new per-OS twin joins the Windows run with nothing to register. A package
+# whose test build reaches a .proto package is left out, loudly: its .pb.go is
+# generated, and the Windows runner has no buf/protoc to generate it.
+_windows_test_pkgs := '''
+windows_test_pkgs() {
+    local files='{{range .GoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$.ImportPath}} {{.}}{{"\n"}}{{end}}'
+    # Import paths, not .Dir: on Windows .Dir has backslashes, which a glob
+    # reads as escapes.
+    local own='{{if .Module}}{{if .Module.Main}}{{.ImportPath}}{{end}}{{end}}'
+    local mod pkg dep dir
+    mod="$(go list -m)"
+    for pkg in $(comm -23 <(GOOS=windows go list -e -f "$files" ./... | sort) \
+                          <(GOOS=linux go list -e -f "$files" ./... | sort) | cut -d' ' -f1 | sort -u); do
+        for dep in $(GOOS=windows go list -e -deps -test -f "$own" "$pkg"); do
+            dir="${dep#"$mod"}"; dir=".${dir}"
+            if compgen -G "$dir/*.proto" >/dev/null; then
+                echo "skip: $pkg (its test build needs generated code from ${dep#"$mod/"})" >&2
+                continue 2
+            fi
+        done
+        echo "$pkg"
+    done
+}
+'''
+
+# Print the packages test-windows runs. Runs on any host: the derivation asks
+# go list about each GOOS, so it is the same list everywhere.
+windows-test-pkgs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_windows_test_pkgs}}
+    windows_test_pkgs
+
+# Run every package with a Windows arm (windows-test-pkgs) natively on a
+# Windows host: the half of each per-OS seam a linux run never compiles, let
+# alone runs. No -race: the race detector needs cgo and a C toolchain on
+# Windows, and the portable tests already run under -race on linux.
+# -count=1 so a cache-restored green cannot stand in for a run, and it refuses
+# to pass having run no test at all.
+test-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_gha_error}}
+    {{_windows_test_pkgs}}
+    if [ "$(go env GOOS)" != windows ]; then
+        gha_error "test-windows runs the Windows arm natively; this host's GOOS is $(go env GOOS) (CI runs it on windows-latest)"
+        exit 1
+    fi
+    mapfile -t pkgs < <(windows_test_pkgs)
+    if [ "${#pkgs[@]}" -eq 0 ]; then
+        gha_error "windows-test-pkgs selected no packages"
+        exit 1
+    fi
+    set +e
+    out="$(go test -count=1 -v "${pkgs[@]}" 2>&1)"; st=$?
+    set -e
+    grep -E '^(--- FAIL|FAIL|ok )' <<<"$out" || true
+    if [ "$st" -ne 0 ]; then
+        printf '%s\n' "$out" >&2
+        gha_error "test-windows failed"
+        exit "$st"
+    fi
+    if ! grep -qE '^--- PASS: ' <<<"$out"; then
+        gha_error "test-windows ran no test in ${pkgs[*]}"
+        exit 1
+    fi
+
 # Install the codegen/build tools release-completer.yml needs, at the versions
 # .devcontainer/tool-versions.env pins.
 #
@@ -208,46 +293,81 @@ install-script-hashes:
 # mutation recipes.
 mutation_tmp := env_var_or_default("CTXLOOM_MUTATION_TMP", "/var/tmp/ctxloom-mutation")
 
-# Run mutation tests with gremlins over the whole tree (requires gremlins
-# installed). This is what the weekly cron runs; it is far too slow to gate a
-# push.
-# "$@" (not the ARGS interpolation) so a value containing shell metacharacters
-# (e.g. a `|`-alternation regex) reaches gremlins intact instead of being
-# re-parsed by this script's shell — see test-pkg for the failure mode.
-test-mutation *ARGS: _mutation-prereqs
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash "$@"
+# gremlins mutation testing, SHARDED: one run split into disjoint slices that
+# run on separate machines (.github/workflows/mutation.yml), then judged as
+# ONE run. SCOPE is `tree` (the whole module; the weekly cron) or `diff:<base>`
+# (the changeset against base, gremlins --diff; every push and PR).
+#
+# Why a shard is still the unsharded run, and why only the aggregate judges:
+# the doc comment on scripts/mutshard/main.go. The shard count is not stated
+# here — the plan takes it as an argument, so a slice is always named as
+# "K of N" and the aggregate reads N back from the reports.
+#
+# Skipped, never red: a diff with no usable base (a first push, or the
+# all-zeroes SHA GitHub sends for a branch creation), and a scope with no
+# mutable Go — gremlins scores an empty changeset 0% and would fail the gate
+# for having nothing to test. "Mutable" is gremlins' own file rule plus
+# .gremlins.yaml's exclude-files, read from that file, not restated.
 
-# Diff-only mutation testing against BASE — the per-push/per-PR gate.
-#
-# Runs on both PR and push so a green PR ran the same check that gates the
-# release on main; the whole-codebase run is the weekly cron instead.
-#
-# Two skips, both of which would otherwise be spurious RED:
-#   - no usable base (first push to a new branch, or the all-zeroes SHA GitHub
-#     sends for a branch creation) — there is nothing to diff against;
-#   - a diff with no mutable Go. gremlins exits 10 on an empty changeset
-#     (0 mutants => 0% efficacy), so a docs/workflow/test-only change would
-#     fail the gate for having nothing to test. The exclusion list mirrors
-#     .gremlins.yaml's exclude-files.
-test-mutation-diff BASE: _mutation-prereqs
+# mutshard builds scripts/mutshard and runs it. Built, not `go run`: `go run`
+# reports every failing exit as 1, and the aggregate's exit code is gremlins'
+# own (10 efficacy, 11 mutant coverage).
+_mutshard := '''
+mutshard() {
+    local bin rc=0
+    bin="$(mktemp -d)"
+    go build -o "$bin/mutshard" ./scripts/mutshard || rc=$?
+    [ "$rc" -ne 0 ] || "$bin/mutshard" "$@" || rc=$?
+    rm -rf "$bin"
+    return "$rc"
+}
+'''
+
+# Print the files shard SHARD (0-based) of SHARDS mutates for SCOPE.
+#   just mutation-shard-plan diff:origin/main 0 8
+mutation-shard-plan SCOPE SHARD SHARDS:
     #!/usr/bin/env bash
     set -euo pipefail
-    base="$1"
-    if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-        echo "No base commit to diff against — skipping mutation testing."
-        exit 0
-    fi
-    mutable="$(git diff --name-only "$base"...HEAD -- '*.go' \
-        | grep -vE '(_test\.go$|\.pb\.go$|/mock_[^/]*\.go$|(^|/)testdata/|(^|/)tests/integration/)' || true)"
-    if [ -z "$mutable" ]; then
-        echo "No mutable Go files changed vs $base — skipping mutation testing."
-        exit 0
-    fi
-    echo "Mutable Go files in diff:"
-    printf '  %s\n' $mutable
-    bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins unleash --diff "$base"
+    {{_mutshard}}
+    mutshard plan -scope "$1" -shard "$2" -shards "$3"
+
+# Run shard SHARD of SHARDS for SCOPE; writes OUT/shard-SHARD.json for
+# test-mutation-aggregate. Passes whatever gremlins measured: the verdict is the
+# aggregate's.
+test-mutation-shard SCOPE SHARD SHARDS OUT: _mutation-prereqs
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_mutshard}}
+    mutshard run -scope "$1" -shard "$2" -shards "$3" -out "$4" -- \
+        bash tests/mutation/mutation_tmp.sh "{{mutation_tmp}}" gremlins
+
+# Judge the union of the shard reports under REPORTS: refuses a missing,
+# stale or never-looked shard, then applies .gremlins.yaml's thresholds to the
+# summed counts (exit 10/11 as gremlins' own).
+test-mutation-aggregate SCOPE REPORTS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{_mutshard}}
+    mutshard aggregate -scope "$1" -reports "$2"
+
+# The whole module on this machine: one shard of one, then the aggregate.
+# Far too slow to gate a push.
+test-mutation: _mutation-prereqs
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-unsharded tree
+
+# The changeset against BASE on this machine — the per-push gate, unsharded.
+test-mutation-diff BASE: _mutation-prereqs
+    @"{{just_executable()}}" --justfile "{{justfile()}}" _mutation-unsharded "diff:$1"
+
+# --no-deps: the public recipe above already ran _mutation-prereqs.
+_mutation-unsharded SCOPE:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    reports="$(mktemp -d)"
+    trap 'rm -rf "$reports"' EXIT
+    just=("{{just_executable()}}" --justfile "{{justfile()}}" --no-deps)
+    "${just[@]}" test-mutation-shard "$1" 0 1 "$reports"
+    "${just[@]}" test-mutation-aggregate "$1" "$reports"
 
 # ===== Documentation site =====
 

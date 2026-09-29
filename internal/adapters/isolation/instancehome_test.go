@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -9,8 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,9 +76,7 @@ func withInstanceConfigWriter(t *testing.T, name string, w engine.InstanceConfig
 // only the ones it names.
 func clearAuth(t *testing.T) {
 	t.Helper()
-	a, ok := TokenAuthFor("claude-code")
-	require.True(t, ok)
-	for _, v := range append([]string{a.TokenVar}, a.EnvTriggers...) {
+	for _, v := range []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv} {
 		t.Setenv(v, "")
 	}
 }
@@ -87,13 +89,15 @@ func TestPrepareInstanceHome_ReachesTheEngineWithTheInstanceAndWorkDir(t *testin
 	home := withFakeHome(t)
 	clearAuth(t)
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")
+	instance := t.TempDir()
+	generated := filepath.Join(instance, ".claude.json")
+	require.NoError(t, os.WriteFile(generated, []byte("{}"), 0o600))
 	rec := &recordingInstanceConfig{report: engine.InstanceConfigReport{
-		Wrote:    []string{"/generated/.claude.json"},
+		Wrote:    []string{generated},
 		Warnings: []string{"the host .claude.json carries no \"hasCompletedOnboarding\""},
 	}}
 	withInstanceConfigWriter(t, "claude-code", rec)
 
-	instance := t.TempDir()
 	workDir := t.TempDir()
 	report, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: workDir})
 	require.NoError(t, err)
@@ -104,68 +108,8 @@ func TestPrepareInstanceHome_ReachesTheEngineWithTheInstanceAndWorkDir(t *testin
 	assert.Equal(t, instance, got.InstanceHome)
 	assert.Equal(t, workDir, got.WorkDir, "the trust target is the run's working directory")
 
-	assert.Equal(t, []string{"/generated/.claude.json"}, report.Generated)
+	assert.Equal(t, []string{generated}, report.Generated)
 	assert.Len(t, report.Warnings, 1, "the engine's fail-loud notices reach the caller, not just stderr")
-	assert.False(t, report.Unauthenticated)
-}
-
-// With nothing in the env to authenticate, the home is refused, and the
-// reason names every fix that works: mint and store a setup-token, set an
-// API var, or select the real home on the binding. No config is generated
-// for a home the caller is about to refuse. A login in the host's own
-// ~/.claude does not count: it is never copied.
-func TestPrepareInstanceHome_NoAuthVarRefusesAndNamesTheFixes(t *testing.T) {
-	home := withFakeHome(t)
-	clearAuth(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(`{"claudeAiOauth":{}}`), 0o600))
-	rec := &recordingInstanceConfig{}
-	withInstanceConfigWriter(t, "claude-code", rec)
-
-	report, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
-	require.NoError(t, err)
-	require.True(t, report.Unauthenticated)
-	for _, want := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token", "ctxloom auth set-token", "ANTHROPIC_API_KEY", "engine_home: host"} {
-		assert.Contains(t, report.Reason, want)
-	}
-	assert.Empty(t, rec.seen(), "no config is generated for an instance the caller will refuse")
-}
-
-// A run that shares the human's login needs no auth var: the same empty env
-// that refuses above prepares the home, config and all, and places no
-// credential in it.
-func TestPrepareInstanceHome_SharedLoginNeedsNoAuthVar(t *testing.T) {
-	withFakeHome(t)
-	clearAuth(t)
-	rec := &recordingInstanceConfig{}
-	withInstanceConfigWriter(t, "claude-code", rec)
-	instance := t.TempDir()
-
-	report, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), SharedLogin: true})
-	require.NoError(t, err)
-	assert.False(t, report.Unauthenticated)
-	assert.Len(t, rec.seen(), 1, "the engine's config is still generated")
-	assert.NoFileExists(t, filepath.Join(instance, ".credentials.json"))
-}
-
-// Any one auth var authenticates the home, and the engine's config is still
-// generated: auth riding the env says nothing about onboarding or trust.
-func TestPrepareInstanceHome_AnyAuthVarAuthenticates(t *testing.T) {
-	withFakeHome(t)
-	a, ok := TokenAuthFor("claude-code")
-	require.True(t, ok)
-	for _, v := range append([]string{a.TokenVar}, a.EnvTriggers...) {
-		t.Run(v, func(t *testing.T) {
-			clearAuth(t)
-			t.Setenv(v, "1")
-			rec := &recordingInstanceConfig{}
-			withInstanceConfigWriter(t, "claude-code", rec)
-			report, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
-			require.NoError(t, err)
-			assert.False(t, report.Unauthenticated)
-			assert.Len(t, rec.seen(), 1)
-		})
-	}
 }
 
 // An engine the facts accessor does not know cannot be prepared for.
@@ -240,8 +184,47 @@ func TestPrepareInstanceHome_WritesClaudesConfigAndNoCredential(t *testing.T) {
 	assert.NotContains(t, cfg, "mcpServers", "the user's own registrations never cross")
 	info, err := os.Stat(cfgPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	fileperm.Equal(t, 0o600, info.Mode())
 
 	_, err = os.Lstat(filepath.Join(instance, ".credentials.json"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "no credential is ever copied into a session home")
+}
+
+// A session home holds the engine's config (.claude.json records the run's
+// trust answer and account identity), so it gets the same owner-only
+// protection as the credential store — on Windows an ACL, since a mode is
+// not access control there. A home that already exists loosened is
+// tightened, not trusted.
+//
+// MUTATION TARGET: drop the ensureOwnerOnlyDir call in PrepareInstanceHome
+// and this goes red.
+func TestPrepareInstanceHome_TheHomeIsOwnerOnly(t *testing.T) {
+	withFakeHome(t)
+	clearAuth(t)
+	instance := t.TempDir()
+	require.NoError(t, os.Chmod(instance, 0o755))
+
+	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+
+	fileperm.OwnerOnly(t, instance)
+	fileperm.OwnerOnly(t, filepath.Join(instance, ".claude.json"))
+}
+
+// A home that cannot be made owner-only is not prepared: the engine is never
+// asked to write its config into it.
+func TestPrepareInstanceHome_FailsWhenTheHomeCannotBeRestricted(t *testing.T) {
+	withFakeHome(t)
+	refused := errors.New("restriction refused")
+	prev := ensureOwnerOnlyDir
+	ensureOwnerOnlyDir = func(string) error { return refused }
+	t.Cleanup(func() { ensureOwnerOnlyDir = prev })
+	rec := &recordingInstanceConfig{}
+	withInstanceConfigWriter(t, "claude-code", rec)
+
+	instance := t.TempDir()
+	_, err := PrepareInstanceHome(InstanceHomeRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.ErrorIs(t, err, refused)
+	assert.Contains(t, err.Error(), instance)
+	assert.Empty(t, rec.seen(), "nothing is written into a home that is not owner-only")
 }

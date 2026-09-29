@@ -165,8 +165,8 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 	assert.Equal(t, 23, geo.Rows, "geo.Rows is the DRAWABLE height (real 24 rows minus the surround's 1-row reservation)")
 	assert.Equal(t, 80, geo.Cols)
 	assert.Equal(t, 8, geo.PanelRows, "bottom third floored at 8 rows")
-	assert.Contains(t, h.tty.String(), "\x1b7\x1b[r",
-		"engage saves the engine cursor and hands the overlay the full scroll region")
+	assert.Contains(t, h.tty.String(), "\x1b[?1049h\x1b[r",
+		"engage moves to the alternate screen (saving the engine's screen and cursor) with the full scroll region")
 	waitFor(t, "viewer key routed", func() bool { return h.overlay.ui.String() == "j" })
 
 	// Engine output during engagement is held.
@@ -175,17 +175,19 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 	assert.NotContains(t, h.tty.String(), "HELD-OUTPUT")
 	assert.Equal(t, before, h.tty.String(), "nothing hits the tty while held")
 
-	// Disengage: one atomic restore — panel cleared, scroll region + bar
-	// re-established, engine cursor restored — then the replay, then a nudge.
+	// Disengage: one atomic restore — back to the engine's screen, scroll
+	// region + bar re-established, engine cursor restored — then the replay,
+	// then a nudge.
 	h.overlay.release <- nil
 	waitFor(t, "held output replayed", func() bool { return strings.Contains(h.tty.String(), "HELD-OUTPUT") })
 	out := h.tty.String()
-	clearAt := strings.LastIndex(out, "\x1b[16;1H\x1b[J") // drawable−panel+1 = (24−1)−8+1
+	leaveAt := strings.LastIndex(out, "\x1b[?1049l")
 	regionAt := strings.LastIndex(out, "\x1b[1;23r")
 	cursorAt := strings.LastIndex(out, "\x1b8")
 	replayAt := strings.Index(out, "HELD-OUTPUT")
-	require.GreaterOrEqual(t, clearAt, 0, "panel region cleared")
-	assert.Less(t, clearAt, regionAt, "region re-established after the clear")
+	require.GreaterOrEqual(t, leaveAt, 0, "release leaves the alternate screen")
+	assert.NotContains(t, out, "\x1b[16;1H\x1b[J", "nothing of the engine's screen is erased: it was never drawn over")
+	assert.Less(t, leaveAt, regionAt, "region re-established on the engine's screen")
 	assert.Less(t, regionAt, cursorAt, "engine cursor restored after the bar repaint")
 	assert.Less(t, cursorAt, replayAt, "the replay lands on a fully restored screen")
 
@@ -390,19 +392,9 @@ func TestController_ApprovalPollFeedsBarAndRingsBellOnce(t *testing.T) {
 }
 
 func TestController_RosterPollFeedsBar(t *testing.T) {
-	const interval = 5 * time.Millisecond
-	var fetches atomic.Int64
-	var closing atomic.Bool
 	h := newCtlHarness(t, func(o *Options) {
-		o.RosterInterval = interval
+		o.RosterInterval = 5 * time.Millisecond
 		o.FetchRoster = func() ([]RosterEntry, error) {
-			fetches.Add(1)
-			if closing.Load() {
-				// Straggler poll after Close: error out so pollRoster skips
-				// SetRoster→RequestPaint and never reads the nowNanos seam
-				// again (see the drain note below).
-				return nil, fmt.Errorf("test: fetch after close")
-			}
 			return []RosterEntry{{Harp: "swift-elm-fox", State: "executing", LastActivityUnix: 1}}, nil
 		}
 	})
@@ -411,28 +403,43 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 	waitFor(t, "roster digest on the bar", func() bool {
 		return strings.Contains(h.tty.String(), "swift-elm-fox→executing")
 	})
-	closing.Store(true)
 	h.c.Close()
-	// Close signals pollRoster (close(stopRoster)) but does not JOIN its
-	// goroutine, whose select between an already-fired ticker and the close
-	// has no ordering guarantee. Left alone, that goroutine outlives this
-	// test and reaches RequestPaint's read of the package-level nowNanos
-	// seam concurrently with a later test's unsynchronized swap of it
-	// (surround_test.go / tear_test.go / incident_repro_test.go) — and the
-	// race detector attributes that leaked-goroutine race to whichever test
-	// is running when it pairs the accesses: observed once under full-suite
-	// load as a spurious failure of the deterministic, unrelated
-	// TestVTGuard_ChildDECSCClearedBySoftResetAndAltLeave. Two layers close
-	// it down (deadline-poll pattern, not a blind sleep): the closing flag
-	// above makes any post-Close fetch inert (error → no seam read), and
-	// this drain waits out a full ticker-cadence window with no new fetch —
-	// meaning the poller has exited, or at worst will next observe the
-	// closed stopRoster / the closing flag without ever touching the seam.
-	waitFor(t, "roster poll goroutine drained", func() bool {
-		before := fetches.Load()
-		time.Sleep(4 * interval)
-		return fetches.Load() == before
+}
+
+// TestController_CloseJoinsRosterPoll forces the interleaving rapid-grass is
+// about: the poll goroutine is held mid-iteration inside FetchRoster when
+// Close runs. Close must not return until that goroutine has exited —
+// otherwise the rest of the iteration (SetRoster, which reads the
+// package-level nowNanos seam) runs after Close, racing whatever the caller
+// does next, such as a later test swapping that seam.
+func TestController_CloseJoinsRosterPoll(t *testing.T) {
+	entered := make(chan struct{})
+	closeReturned := make(chan struct{})
+	var once sync.Once
+	h := newCtlHarness(t, func(o *Options) {
+		o.RosterInterval = time.Hour // only the immediate first fetch runs
+		o.FetchRoster = func() ([]RosterEntry, error) {
+			once.Do(func() { close(entered) })
+			// Hold the poll mid-iteration. A Close that does not join
+			// returns while this is still held; one that joins waits the
+			// hold out. The timer bounds only the joining (green) path.
+			select {
+			case <-closeReturned:
+			case <-time.After(100 * time.Millisecond):
+			}
+			return []RosterEntry{{Harp: "h", State: "executing"}}, nil
+		}
 	})
+	<-entered
+	h.c.Close()
+	// Checked BEFORE releasing the hold: releasing first would let a leaked
+	// goroutine finish and mask the missing join.
+	defer close(closeReturned)
+	select {
+	case <-h.c.rosterDone:
+	default:
+		t.Fatal("Close returned while the roster poll goroutine was still mid-iteration")
+	}
 }
 
 // TestController_RosterFetchWarnsAfterConsecutiveFailures pins the safe half:
@@ -442,9 +449,7 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 // snapshot must still stay displayed (unchanged, documented intent), but
 // enough consecutive failures must now surface exactly one warning, and a
 // later success must reset the streak. Exercises rosterFetch directly
-// (no goroutine/ticker) to stay fully deterministic — the goroutine-join
-// half is a separate, tracked concern (fussy-plow/rapid-grass) and is
-// deliberately untouched here.
+// (no goroutine/ticker) to stay fully deterministic.
 func TestController_RosterFetchWarnsAfterConsecutiveFailures(t *testing.T) {
 	boom := errors.New("coordinator unreachable")
 	fetchErr := true
@@ -511,4 +516,59 @@ func TestController_NoSizeYetRefusesEngage(t *testing.T) {
 		t.Fatal("overlay must not start without a known terminal size")
 	default:
 	}
+}
+
+// engageFake engages the fake overlay and returns the geometry it was given.
+func engageFake(t *testing.T, h *ctlHarness) OverlayGeometry {
+	t.Helper()
+	_, err := h.stdinW.Write([]byte{testPrefix, 'j'})
+	require.NoError(t, err)
+	select {
+	case geo := <-h.overlay.started:
+		return geo
+	case <-time.After(2 * time.Second):
+		t.Fatal("overlay never started")
+		return OverlayGeometry{}
+	}
+}
+
+// An engine already on the alternate screen cannot be kept by moving the
+// overlay to the alternate screen — leaving it would take the engine off its
+// own. The overlay draws over it in place instead, release clears the panel
+// region, and the overlay is told not to switch screens itself.
+func TestController_EngineOnAltScreenIsDrawnOverInPlace(t *testing.T) {
+	h := newCtlHarness(t, nil)
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
+	h.drainTranslated(t)
+	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	_, _ = h.c.Stdout().Write([]byte("\x1b[?1049h"))
+	engagedAt := len(h.tty.String())
+
+	geo := engageFake(t, h)
+	assert.True(t, geo.EngineOnAltScreen, "the overlay must know it may not switch screens")
+	engage := h.tty.String()[engagedAt:]
+	assert.Contains(t, engage, "\x1b7\x1b[r", "the engine's cursor is saved and the overlay drawn in place")
+	assert.NotContains(t, engage, "?1049h", "the overlay must not enter an alternate screen of its own")
+
+	h.overlay.release <- nil
+	h.drainTranslated(t) // the repaint nudge is what redraws the engine here
+	out := h.tty.String()[engagedAt:]
+	assert.Contains(t, out, "\x1b[16;1H\x1b[J", "release clears the panel region it drew over")
+	assert.NotContains(t, out, "?1049l", "release must not take the engine off its alternate screen")
+}
+
+// A session that ends while the viewer is open still gets its own screen
+// back: Close owns the final restore, but only release knows the overlay
+// moved to the alternate screen.
+func TestController_CloseDuringEngagementLeavesTheAltScreen(t *testing.T) {
+	h := newCtlHarness(t, nil)
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
+	h.drainTranslated(t)
+	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	engageFake(t, h)
+	engagedAt := strings.LastIndex(h.tty.String(), "\x1b[?1049h")
+	require.GreaterOrEqual(t, engagedAt, 0)
+
+	h.c.Close()
+	assert.Contains(t, h.tty.String()[engagedAt:], "\x1b[?1049l", "closing mid-engagement returns to the engine's screen")
 }

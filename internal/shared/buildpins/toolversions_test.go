@@ -268,17 +268,7 @@ func TestJustfileDevImageDerivesFromToolVersionsEnv(t *testing.T) {
 // that emitted a hardcoded list; asserting only the second would pass on a
 // recipe nothing calls.
 func TestCIWorkflowBuildContainerDerivesFromToolVersionsEnv(t *testing.T) {
-	content := readFile(t, ciWorkflowPath)
-
-	jobStart := strings.Index(content, "build-container:")
-	if jobStart < 0 {
-		t.Fatalf("%s: no build-container job found", ciWorkflowPath)
-	}
-	nextJob := regexp.MustCompile(`(?m)^  [a-zA-Z][\w-]*:\s*$`)
-	job := content[jobStart:]
-	if loc := nextJob.FindStringIndex(job[len("build-container:"):]); loc != nil {
-		job = job[:len("build-container:")+loc[0]]
-	}
+	job := workflowJob(t, ciWorkflowPath, "build-container")
 
 	assertInvokes(t, ciWorkflowPath, job, "tool-version-args")
 	if !strings.Contains(job, "docker/build-push-action") {
@@ -292,8 +282,51 @@ func TestCIWorkflowBuildContainerDerivesFromToolVersionsEnv(t *testing.T) {
 	}
 
 	body := recipeBody(t, ciJustfilePath, "tool-version-args")
-	if !strings.Contains(body, "tool-versions.env") {
+	if !regexp.MustCompile(`(?m)^\s*\w+="\$\([^\n]*tool-versions\.env`).MatchString(body) {
 		t.Errorf("build/ci.justfile's tool-version-args recipe does not read .devcontainer/tool-versions.env — it can't be deriving build-args from it:\n%s", body)
+	}
+}
+
+// workflowJob returns the text of one top-level job in a workflow, from its
+// `  name:` line up to the next job's.
+func workflowJob(t *testing.T, workflowPath, name string) string {
+	t.Helper()
+	content := readFile(t, workflowPath)
+	header := regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(name) + `:\s*$`)
+	loc := header.FindStringIndex(content)
+	if loc == nil {
+		t.Fatalf("%s: no %s job found", workflowPath, name)
+	}
+	job := content[loc[0]:]
+	nextJob := regexp.MustCompile(`(?m)^  [a-zA-Z][\w-]*:\s*$`)
+	if next := nextJob.FindStringIndex(job[loc[1]-loc[0]:]); next != nil {
+		job = job[:loc[1]-loc[0]+next[0]]
+	}
+	return job
+}
+
+// TestCIWorkflowWindowsJobDerivesGoFromToolVersionsEnv asserts ci.yml's
+// windows job — the one job that installs Go itself, since it cannot run the
+// Linux devcontainer image — takes the Go version from tool-versions.env,
+// the file the image's Go comes from. Two hops, like the build-container
+// test: the job runs `just ci-go-version` and feeds its output to setup-go,
+// and that recipe reads GO_VERSION from the file.
+func TestCIWorkflowWindowsJobDerivesGoFromToolVersionsEnv(t *testing.T) {
+	job := workflowJob(t, ciWorkflowPath, "windows")
+
+	assertInvokes(t, ciWorkflowPath, job, "ci-go-version")
+	if !strings.Contains(job, "actions/setup-go") {
+		t.Fatalf("ci.yml's windows job no longer uses actions/setup-go — this test needs updating for whatever replaced it")
+	}
+	if !regexp.MustCompile(`go-version:\s*\$\{\{\s*steps\.go_version\.outputs\.version\s*\}\}`).MatchString(job) {
+		t.Errorf("ci.yml's windows job does not feed the `ci-go-version` step output to setup-go's go-version — the recipe would run and its output be discarded")
+	}
+
+	// An assignment from a command reading GO_VERSION out of the file: a bare
+	// mention would also match the recipe's own error message.
+	body := recipeBody(t, ciJustfilePath, "ci-go-version")
+	if !regexp.MustCompile(`(?m)^\s*\w+="\$\([^\n]*GO_VERSION[^\n]*tool-versions\.env`).MatchString(body) {
+		t.Errorf("build/ci.justfile's ci-go-version recipe does not read GO_VERSION from .devcontainer/tool-versions.env:\n%s", body)
 	}
 }
 

@@ -12,28 +12,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/cucumber/godog"
-)
 
-// j002200StubRuntimeScript answers exactly the two probes that decide whether a
-// container tier is SELECTED and then whether it can START:
-//
-//	`info`          -> 0 AND prints SecurityOptions containing "rootless", so
-//	                   isolation.runtimeReachable reports the daemon up and
-//	                   isolation.dockerIsRootless resolves the OWNERSHIP the
-//	                   agent asked for. Reporting reachable without ownership
-//	                   sends the run to chainFor's runtime gate instead — the
-//	                   wrong gate, and exactly what this row must not assert.
-//	`image inspect` -> 1, so isolation.Container.imagePresent reports absent.
-//
-// Everything else fails, because nothing else should be reached: the run must
-// abort at the image gate, and a stub that cheerfully answered `run` would let
-// a broken gate look healthy.
-const j002200StubRuntimeScript = `#!/bin/sh
-case "$1" in
-  info) echo '[name=seccomp,profile=builtin name=rootless name=cgroupns]'; exit 0 ;;
-  *) exit 1 ;;
-esac
-`
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
+)
 
 // j002200StubContainerRuntime is the MIRROR of j002200MaskContainerRuntime.
 // That helper removes every runtime from PATH to force chainFor's
@@ -51,7 +32,7 @@ func j002200StubContainerRuntime(w *World) error {
 		return fmt.Errorf("create stub-runtime bin dir: %w", err)
 	}
 	stub := filepath.Join(binDir, "docker")
-	if err := os.WriteFile(stub, []byte(j002200StubRuntimeScript), 0o755); err != nil {
+	if err := os.WriteFile(stub, []byte(testenv.RootlessDockerStubScript), 0o755); err != nil {
 		return fmt.Errorf("write stub docker: %w", err)
 	}
 	w.env.SetEnv("PATH", isoSanitizedPATH(binDir))

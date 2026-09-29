@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -74,7 +73,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr,
 			"spool test isolation FAILED: a test wrote into the package source dir instead of a "+
 				"temp dir: %v\nThe entries were removed. Fixtures belong under t.TempDir() or, when a "+
-				"test needs a non-tmpfs path, under crossMountFixtureRoot() — never inside the checkout.\n",
+				"test bind-mounts it into a container, under dockergate.BindFixtureRoot() — never inside the checkout.\n",
 			leaks)
 		if code == 0 {
 			code = 1
@@ -109,82 +108,6 @@ func sourceTreeLeaks(dir string) []string {
 // compiled-in file path so it is correct no matter what the working directory
 // is when it is called.
 func packageSourceDir() string { return sourcedir.MustDir() }
-
-// crossMountFixtureRoot returns the parent directory for the docker-gated
-// test's fixture home.
-//
-// Two constraints, and they pull in different directions. The fixture must be
-// OUTSIDE the source tree: `just test`'s leak check scans the checkout, and an
-// in-tree fixture is disk residue that confuses worktree-safe WIP detection
-// even when .gitignore hides it. It should also be on a REAL filesystem: /tmp
-// is tmpfs on a stock Linux box, and a durable message substrate proven only
-// over RAM is evidence about the wrong thing. /var/tmp satisfies both — it is
-// disk-backed by convention (and by measurement here: ext4) and it is nobody's
-// source tree.
-//
-// The env override exists for a machine where /var/tmp is unusable; falling
-// back to os.TempDir() keeps the test runnable there, trading the filesystem
-// property for the isolation property, which is the right way round because
-// the isolation one is what a gate enforces.
-func crossMountFixtureRoot() string {
-	if custom := os.Getenv("CTXLOOM_SPOOL_FIXTURE_ROOT"); custom != "" {
-		return custom
-	}
-	const preferred = "/var/tmp"
-	if st, err := os.Stat(preferred); err == nil && st.IsDir() {
-		return preferred
-	}
-	return os.TempDir()
-}
-
-// TestCrossMountFixtureRoot_IsOutsideTheSourceTree pins the property the leak
-// gate cares about, in the DEFAULT lane — where the gate actually runs.
-//
-// The docker-gated test that consumes this root only runs with a daemon and a
-// build tag, so a regression there would be invisible to `just test` until it
-// had already written into the checkout. This test is what makes "the fixture
-// lives outside the source tree" a fact the default lane can refuse to lose.
-func TestCrossMountFixtureRoot_IsOutsideTheSourceTree(t *testing.T) {
-	root := crossMountFixtureRoot()
-	if !filepath.IsAbs(root) {
-		t.Fatalf("fixture root %q must be absolute: a relative root resolves against the test binary's cwd, which IS the package source dir", root)
-	}
-
-	pkgDir := packageSourceDir()
-	if pkgDir == "" {
-		t.Fatal("could not derive the package source dir")
-	}
-	repo := filepath.Dir(filepath.Dir(filepath.Dir(pkgDir))) // internal/core/spool -> repo root
-	if _, err := os.Stat(filepath.Join(repo, "go.mod")); err != nil {
-		t.Fatalf("derived repo root %q does not contain go.mod: %v", repo, err)
-	}
-
-	for _, forbidden := range []string{pkgDir, repo} {
-		if isInside(forbidden, root) {
-			t.Fatalf("fixture root %q is inside the source tree %q: the leak gate scans the checkout", root, forbidden)
-		}
-	}
-
-	st, err := os.Stat(root)
-	if err != nil {
-		t.Fatalf("fixture root %q must exist and be usable: %v", root, err)
-	}
-	if !st.IsDir() {
-		t.Fatalf("fixture root %q is not a directory", root)
-	}
-}
-
-// isInside reports whether child is parent or lives beneath it.
-func isInside(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	if err != nil {
-		return false
-	}
-	if filepath.IsAbs(rel) {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
-}
 
 // TestSourceTreeLeaks_DetectsWhatTheGateScansFor proves the guard above can go
 // red. A guard nobody has seen fail is a guard nobody knows works.

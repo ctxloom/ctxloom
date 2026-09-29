@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // runnerTTY is the interactive runner's terminal as the drive pumps it:
@@ -72,7 +74,7 @@ func stampTerminalEnv(env map[string]string) map[string]string {
 // there discards them. The drive's own teardown releases the master.
 func (st *runState) ptyStarter() coord.OwnedRunStarter {
 	return func(ctx context.Context, spawnEnv map[string]string) (coord.OwnedRunner, error) {
-		in, err := st.env.Interactive(ctx, isolation.RunnerRequest{Engine: st.backendName, Label: st.label, Env: spawnEnv})
+		in, err := st.env.Interactive(ctx, isolation.RunnerRequest{Engine: st.backendName, Label: st.label, Env: st.runnerTerminalEnv(spawnEnv)})
 		if err != nil {
 			return coord.OwnedRunner{}, err
 		}
@@ -93,6 +95,28 @@ func (st *runState) ptyStarter() coord.OwnedRunStarter {
 		st.pty = s
 		return coord.OwnedRunner{Kill: s.End, Wait: s.ExitErr, ContainerName: in.Name}, nil
 	}
+}
+
+// runnerTerminalEnv adds, to an interactive runner's env, where its
+// diagnostics go while the terminal UI owns the terminal — the decision
+// prepareSessionIO makes for this process's own (a real tty, and no
+// --plain-terminal). The runner's stderr is the engine's pty, so this
+// process's redirect cannot reach what the runner prints there. A container
+// runner cannot open a host path and keeps its stderr.
+func (st *runState) runnerTerminalEnv(spawnEnv map[string]string) map[string]string {
+	if runPlainTerminal || st.activeHarp == "" || !termIsTerminal(int(os.Stdin.Fd())) {
+		return spawnEnv
+	}
+	path, err := diagnosticsLogPath(st.activeHarp)
+	if err != nil {
+		return spawnEnv
+	}
+	env := maps.Clone(spawnEnv)
+	if env == nil {
+		env = map[string]string{}
+	}
+	env[sessions.EnvDiagnosticsLog] = path
+	return env
 }
 
 // teardownOnExit runs an interactive runner's teardown with a ctx that is

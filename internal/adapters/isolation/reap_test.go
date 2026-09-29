@@ -86,11 +86,11 @@ type reapRuntime struct {
 	name string
 }
 
-func (r reapRuntime) Name() string               { return r.name }
-func (r reapRuntime) Binary() string             { return r.bin }
-func (r reapRuntime) Available() bool            { return true }
-func (r reapRuntime) RunArgs(s RunSpec) []string { return r.run(s) }
-func (r reapRuntime) RemoveArgs(string) []string { return r.rm }
+func (r reapRuntime) Name() string                        { return r.name }
+func (r reapRuntime) Binary() string                      { return r.bin }
+func (r reapRuntime) Available() bool                     { return true }
+func (r reapRuntime) RunArgs(s RunSpec) ([]string, error) { return r.run(s), nil }
+func (r reapRuntime) RemoveArgs(string) []string          { return r.rm }
 
 // mapper is inherited from the embedded fakeRuntime (a non-identity
 // prefixMapper, container_test.go) — this type used to shadow it with its

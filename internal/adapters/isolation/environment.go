@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // Environment is where one run executes. It is constructed from host facts
@@ -93,17 +94,32 @@ var ErrPreviewEnvironment = errors.New("isolation: a preview environment cannot 
 // session home (launch.SessionHome, created and prepared here). Stage 2 is
 // the chosen environment's relocator: the host presents every root in place,
 // the container presents each one together with the mount that makes it
-// true. It is the only place a path is rewritten.
+// true. It is the only place a ROOT is rewritten; the container's auxiliary
+// mounts (config overlays, the git common dir) are mapped by the same
+// runtime mapper where stage 1 builds them. The requested environment's
+// roots are routed once, with no effects, before either stage.
 func Prepare(ctx context.Context, s Spec) (Environment, error) {
-	chain := withSessionState(chainFor(s.axes, s.backend(), s.img), s.state)
-	p, ws := prepareChain(ctx, chain, s.axes.Runtime, s.project, s.harp)
-	r := p.relocator()
-	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), r.sharesLogin())
-	pl, roots, err := r.relocate(l)
+	stores, err := stageStores(s.backend(), s.creds.Stores)
 	if err != nil {
-		refuseUnpresentable(err)
-		_ = ws.Cleanup()
 		return nil, err
+	}
+	chain := withSessionState(chainFor(s.axes, s.backend(), s.img), s.state)
+	// The requested environment's roots are routed first, with no effects:
+	// the chain's own container mounts map paths too, and a root failing
+	// there would read as an unstartable container rather than as the root
+	// no environment of this kind can present. Only an unreachable root is
+	// refused here; any other refusal is left to the prepared link, which may
+	// have degraded to one that can satisfy it.
+	head := chain[0].relocator()
+	if _, _, err := head.relocate(previewLayout(s, stores)); errors.Is(err, present.ErrUnreachableRoot) {
+		return nil, refuseUnreachable(err)
+	}
+	p, ws := prepareChain(ctx, chain, s.axes.Runtime, s.project, s.harp)
+	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores)
+	pl, roots, err := p.relocator().relocate(l)
+	if err != nil {
+		_ = ws.Cleanup()
+		return nil, refuseUnreachable(err)
 	}
 	env, err := p.environment(ws, pl, roots)
 	if err != nil {
@@ -113,29 +129,69 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	return env, nil
 }
 
-// unreachableRootRemedy names the fix for a root the runtime cannot route.
-const unreachableRootRemedy = "move the project and the ctxloom home onto a filesystem the container runtime can mount (the daemon must see the same paths), or run with `runtime: host`"
+// unreachableRootRemedy names the fix for a root the runtime cannot route:
+// the one the refusal carries (a share path names its own), else moving the
+// root somewhere the daemon sees.
+func unreachableRootRemedy(err error) string {
+	if fix, ok := clifmt.RemedyOf(err); ok {
+		return fix
+	}
+	return "move the project and the ctxloom home onto a filesystem the container runtime can mount (the daemon must see the same paths), or run with `runtime: host`"
+}
 
-// refuseUnpresentable records the refusal of an environment that cannot
-// present every root: the finding Prepare refuses on, and the one Preview
-// reports where the run would.
-func refuseUnpresentable(err error) {
-	strictness.FailAlways(report.KindIsolation, unreachableRootRemedy, "refusing to run in an environment that cannot present every root: %v", err)
+// refuseUnreachable records err as the non-degradable finding it is when it
+// is a root the environment cannot present, and returns it: the finding
+// Prepare refuses on, and the one Preview reports where the run would. Any
+// other relocation refusal (a credential store no container can reach)
+// carries its own remedy on the error.
+func refuseUnreachable(err error) error {
+	if errors.Is(err, present.ErrUnreachableRoot) {
+		strictness.FailAlways(report.KindIsolation, unreachableRootRemedy(err), "refusing to run in an environment that cannot present every root: %v", err)
+	}
+	return err
+}
+
+// recordRefusal records, for a preview, a refusal the run returns as an
+// error rather than a finding (a credential store it cannot have), so the
+// dry run's gate lists it beside the rest.
+func recordRefusal(err error) {
+	if errors.Is(err, present.ErrUnreachableRoot) {
+		_ = refuseUnreachable(err)
+		return
+	}
+	remedy, _ := clifmt.RemedyOf(err)
+	strictness.FailAlways(report.KindIsolation, remedy, "refusing to run: %v", err)
 }
 
 // Preview is Prepare's relocation with no effects on disk: no checkout, no
-// scratch, no session home created. A container preview PROBES the runtime
-// read-only — its selection (info) and its route home (network inspect) — so
-// Describe and Listen show the real runtime and reach. Start and Interactive
-// return ErrPreviewEnvironment; Cleanup is a no-op.
+// scratch, no session home created. A worktree preview shows the checkout
+// the run would create as its cwd. A container preview PROBES the runtime
+// read-only — its selection (info), the run's container gate with the image
+// inspected rather than pulled or built (launchGate), and its route home
+// (network inspect) — so Describe and Listen show the real runtime and
+// reach. The shared-filesystem probe is NOT run: it writes a marker into
+// each mount root and starts a container. Start and Interactive return
+// ErrPreviewEnvironment; Cleanup is a no-op.
 //
 // A preview does NOT stop at the first problem. Every refusal a run would hit
 // is recorded as the finding the run raises — through the same call, not a
 // copy — for the caller's gate, and the preview carries on with the outcome it
 // can still compute: a root no runtime routes is marked unreachable (a Host
 // side and no Engine side, never a guessed path), an unreachable runtime is
-// described as RuntimeUnavailable and an unprobed route as ReachUnknown.
+// described as RuntimeUnavailable and an unprobed route as ReachUnknown. A
+// credential store the run would refuse is recorded too, and the preview
+// then presents no store.
 func Preview(ctx context.Context, s Spec) Environment {
+	stores, err := stageStores(s.backend(), s.creds.Stores)
+	if err != nil {
+		recordRefusal(err)
+	}
+	l := previewLayout(s, stores)
+	if s.axes.WantsWorktree() {
+		w := NewWorktree(nil)
+		w.state = s.state
+		l.cwd = w.previewCwd(s.project, s.harp)
+	}
 	p := chainFor(s.axes, s.backend(), s.img)[0]
 	if s.axes.WantsContainer() && !IsContainerPolicyName(p.Name()) {
 		// chainFor recorded the refusal. p is the host fallback the run
@@ -143,12 +199,16 @@ func Preview(ctx context.Context, s Spec) Environment {
 		// routes any root.
 		_, desc := p.preview(ctx)
 		desc.Runtime, desc.Reach = RuntimeUnavailable, ReachUnknown
-		return previewEnvironment{placement: unrouted(previewLayout(s, false)), desc: desc}
+		return previewEnvironment{placement: unrouted(l), desc: desc}
 	}
-	r := p.relocator()
-	pl, _, err := r.relocate(previewLayout(s, r.sharesLogin()))
+	if c, ok := p.(Container); ok {
+		if err := c.launchGate(ctx, c.inspectImage); err != nil {
+			refuseLostContainer(err, s.harp, s.axes.Runtime)
+		}
+	}
+	pl, _, err := p.relocator().relocate(l)
 	if err != nil {
-		refuseUnpresentable(err)
+		recordRefusal(err)
 	}
 	listen, desc := p.preview(ctx)
 	return previewEnvironment{placement: pl, listen: listen, desc: desc}

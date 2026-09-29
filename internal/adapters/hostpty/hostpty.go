@@ -20,6 +20,8 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -36,19 +38,29 @@ type Session struct {
 	cmd       *exec.Cmd
 	stopCtx   func()
 	exited    chan struct{}
+	ended     chan struct{} // closed once terminate has returned
 	closeOnce sync.Once
 	code      int
 	waitErr   error
 }
+
+// endGrace bounds how long an orderly end waits for the child after SIGTERM
+// before it is SIGKILLed: long enough for a runner's teardown, short enough
+// that a wedged one cannot stall the party ending it.
+const endGrace = 10 * time.Second
 
 // ErrNoCommand refuses a Start with nothing to run.
 var ErrNoCommand = errors.New("hostpty: no command to start")
 
 // Start opens a pty, starts cmd on the SLAVE (its stdin/stdout/stderr become
 // the terminal), and returns the Session holding the master. A cancelled ctx
-// kills the child; teardown otherwise is Wait (or Kill). The child's stdio
+// ends the child (terminate); teardown otherwise is Wait (or Kill). The child's stdio
 // must not be pre-wired — Start owns it.
 func Start(ctx context.Context, cmd *exec.Cmd) (*Session, error) {
+	return start(ctx, cmd, endGrace)
+}
+
+func start(ctx context.Context, cmd *exec.Cmd, grace time.Duration) (*Session, error) {
 	if cmd == nil {
 		return nil, ErrNoCommand
 	}
@@ -69,15 +81,14 @@ func Start(ctx context.Context, cmd *exec.Cmd) (*Session, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Session{master: master, cmd: cmd, stopCtx: cancel, exited: make(chan struct{})}
+	s := &Session{master: master, cmd: cmd, stopCtx: cancel, exited: make(chan struct{}), ended: make(chan struct{})}
 	go func() {
+		defer close(s.ended)
 		<-ctx.Done()
 		// The ctx is the "ask to end" handle, not the teardown handle: on
-		// cancellation kill the child so a parked pty read cannot outlive the
+		// cancellation end the child so a parked pty read cannot outlive the
 		// caller. The reaper still owns the reap.
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+		s.terminate(grace)
 	}()
 	// Reap in the background, exactly once: a Start()ed process is released
 	// from the process table only by Wait, and the master stays open across
@@ -137,14 +148,40 @@ func (s *Session) ExitErr() error {
 	return nil
 }
 
-// End force-ends the child and leaves the master open: the handle for a
-// party that ends the run while another still reads its output. The child's
-// last bytes stay readable to EIO, and Wait or Kill releases the master.
+// End ends the child and leaves the master open: the handle for a party that
+// ends the run while another still reads its output. It returns once the
+// child has exited or, past the grace, been SIGKILLed (see terminate) — not
+// once it is reaped: on macOS a killed child's exit still waits for its
+// output to be read, and End's caller is not the reader, so waiting for the
+// reap there deadlocks. Exited, ExitErr and Wait observe the reap. The
+// child's last bytes stay readable to EIO, and Wait or Kill releases the
+// master.
 func (s *Session) End() {
-	if s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-	}
 	s.stopCtx()
+	<-s.ended
+}
+
+// terminate asks the child to end with SIGTERM, so a runner unwinds through
+// its own teardown (ending the engine it hosts, temp cleanup), and SIGKILLs it if it is
+// still running once grace has passed. A child that cannot be signalled —
+// already gone, or never started — gets the kill straight away, which is a
+// no-op for the first and the right end for anything else.
+func (s *Session) terminate(grace time.Duration) {
+	p := s.cmd.Process
+	if p == nil {
+		return
+	}
+	if err := p.Signal(syscall.SIGTERM); err != nil {
+		_ = p.Kill()
+		return
+	}
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-s.exited:
+	case <-timer.C:
+		_ = p.Kill()
+	}
 }
 
 // Kill force-ends the child and releases the pty. Safe after Wait.

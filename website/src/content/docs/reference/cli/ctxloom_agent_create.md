@@ -54,9 +54,10 @@ ctxloom agent create <name> [flags]
 ### Options
 
 ```
-      --engine-home string         Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (host|session; empty = host, the default — a per-session home is opt-in)
+      --auth string                How this agent's engine authenticates: login (your own login, shared; a container mounts it, except the macOS Keychain) | token (the default: a minted token, stored owner-only) | api-key | cloud (a provider or gateway configured in your shell). Refused, naming the engine's modes, when the engine does not support it
+      --engine-home string         Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)
       --llm string                 llm.configs label to bind (overrides the profiles' llm; empty = project default)
-      --permissions string         Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
+      --permissions string         Permission posture: default|acceptEdits|plan|bypass|dontAsk|auto (empty = engine/built-in default)
       --profiles strings           Comma-separated profile name(s)/ref(s) to compose
       --root stringArray           Root selection for this agent: kind=root (repeatable; roots: session-home|project-root|work-dir). Validated against the roots the agent's engine offers for that kind; project-root is the shared root, selected here and never fallen back to.
       --runtime ctxloom llm list   Runtime axis: where this agent's engine executes (host|container-rootless|container-rootful; empty = project default). ctxloom llm list reports which of these each engine can be given

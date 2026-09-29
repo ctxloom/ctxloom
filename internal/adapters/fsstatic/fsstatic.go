@@ -17,13 +17,13 @@ package fsstatic
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -94,13 +94,13 @@ func planRootable(items []delivery.StaticItem, surfaces engine.Surfaces, paths p
 // deliverItem runs the item's approach over a copy-on-write overlay, then
 // lands every file it wrote.
 func (s *Static) deliverItem(ctx context.Context, it delivery.StaticItem, approach present.Approach, target delivery.Target, inputs delivery.Inputs) (present.Delivered, error) {
-	layer := afero.NewMemMapFs()
+	layer := &writeLayer{Fs: afero.NewMemMapFs(), names: map[string]struct{}{}}
 	overlay := afero.NewCopyOnWriteFs(s.fs, layer)
 	d, err := deliverKind(approach, it.Kind, target.Root, it.Root, inputs, overlay)
 	if err != nil {
 		return present.Delivered{}, fmt.Errorf("fsstatic: deliver %v through %s: %w", it.Kind, it.Approach, err)
 	}
-	for _, path := range writtenFiles(layer) {
+	for _, path := range layer.files() {
 		if err := s.landFile(ctx, layer, path, target); err != nil {
 			return present.Delivered{}, err
 		}
@@ -219,17 +219,47 @@ func deliverAs[A any](a present.Approach, deliver func(A) (present.Delivered, er
 	return d, true, err
 }
 
-// writtenFiles lists every regular file the approach left in the overlay's
-// layer, sorted.
-func writtenFiles(layer afero.Fs) []string {
+// writeLayer is the overlay's write layer, noting every name the overlay
+// puts content under: a create, an open for writing (a copy-up included),
+// or a rename's destination.
+//
+// The written files are found by name, never by walking the layer: afero's
+// MemMapFs roots its tree at a lone separator, and a Windows volume path
+// (C:\...) is its own parent there, so a walk from the root finds nothing and
+// every delivery would land no file at all.
+type writeLayer struct {
+	afero.Fs
+	names map[string]struct{}
+}
+
+func (w *writeLayer) note(name string) { w.names[filepath.Clean(name)] = struct{}{} }
+
+func (w *writeLayer) Create(name string) (afero.File, error) {
+	w.note(name)
+	return iox.Create(w.Fs, name)
+}
+
+func (w *writeLayer) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE) != 0 {
+		w.note(name)
+	}
+	return w.Fs.OpenFile(name, flag, perm)
+}
+
+func (w *writeLayer) Rename(oldname, newname string) error {
+	w.note(newname)
+	return iox.Rename(w.Fs, oldname, newname)
+}
+
+// files lists every noted name the layer still holds as a regular file,
+// sorted: a name since renamed away or removed is not a written file.
+func (w *writeLayer) files() []string {
 	var out []string
-	_ = afero.Walk(layer, string(filepath.Separator), func(p string, info fs.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() {
-			return nil
+	for name := range w.names {
+		if info, err := w.Stat(name); err == nil && info.Mode().IsRegular() {
+			out = append(out, name)
 		}
-		out = append(out, p)
-		return nil
-	})
+	}
 	sort.Strings(out)
 	return out
 }
@@ -237,10 +267,19 @@ func writtenFiles(layer afero.Fs) []string {
 // writeThrough lands a file the approach wrote outside the target's roots
 // on the real filesystem, bytes and mode as written. That file is the
 // approach's own state (claude's undo record, which keeps the previous value
-// of the key it undoes), so a directory created for it is owner-only.
+// of the key it undoes), so a directory created for it is owner-only, through
+// the record store's own seam. A directory that already exists is left as it
+// is: this lands a file, it does not own the directory it lands in.
 func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) error {
-	if err := fs.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	exists, err := afero.DirExists(fs, dir)
+	if err != nil {
 		return err
+	}
+	if !exists {
+		if err := confpatch.EnsureRecordDir(fs, dir); err != nil {
+			return err
+		}
 	}
 	return iox.WriteFileAtomicFs(fs, path, bytes, mode)
 }

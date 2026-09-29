@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -45,6 +47,10 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 		Records:    records,
 		Dynamic:    dynamic,
 		Driver:     host,
+		Unsetenv:   os.Unsetenv,
+		EngineVersion: func(ctx context.Context) (string, error) {
+			return App().ProbeEngineVersion(ctx, backendName)
+		},
 	}
 	if c, ok := backend.(agent.Configurable); ok {
 		deps.Configure = func(body map[string]any) error {

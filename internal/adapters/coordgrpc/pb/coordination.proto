@@ -425,12 +425,17 @@ message Axes {
 // translating anything. The cell's process-local handles (Cleanup, Handle)
 // do not cross.
 message Cell {
+  // A container half was never produced: the Environment owns the runtime.
+  reserved 6;
+  reserved "container";
   Paths paths = 1;
   repeated Mount mounts = 2;
   string workspace = 3;
   map<string, string> env = 4;
   repeated HomeBinding home = 5;
-  ContainerCell container = 6;       // absent on a host cell
+  // Variables the engine's process must NOT inherit (launch.Cell.Unset): the
+  // runner removes them from its own env before it drives the engine.
+  repeated string unset_env = 7;
 }
 
 // Paths is present.Paths: every root a presentation builds from.
@@ -451,14 +456,6 @@ message Root {
 message Mount {
   string host_dir = 1;
   string target_dir = 2;
-}
-
-// ContainerCell is launch.ContainerCell.
-message ContainerCell {
-  string runtime = 1;
-  string image = 2;
-  repeated Mount mounts = 3;
-  string home = 4;
 }
 
 // HomeBinding is engine.HomeBinding: one home var resolved to its path.

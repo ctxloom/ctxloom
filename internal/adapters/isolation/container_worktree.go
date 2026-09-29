@@ -23,19 +23,18 @@ import (
 //
 // gitdir-when-mounted: a linked worktree's .git is a FILE
 // (`gitdir: <main>/.git/worktrees/<name>`), so mounting only the worktree breaks
-// git inside the container ("not a git repository"). The fix is the identical-path
-// .git mirror — the main repo's git common-dir is ALSO bind-mounted at its
-// identical host path (gitCommonDirMount), so the gitdir pointer resolves and
+// git inside the container ("not a git repository"). The fix is the .git
+// mirror — this checkout's git data is ALSO bind-mounted, where the runtime
+// maps it (gitDirMounts) — so the pointers resolve and
 // `git status`/`git diff`/`git rev-parse` work in-container. This keeps the ENTIRE
 // worktree lifecycle host-side (create + WIP-safe teardown via the unchanged
 // Worktree machinery); the alternative (creating worktrees inside a mounted repo)
 // would split that lifecycle across the boundary and put worktree creation +
 // teardown out of reach of the host-side WIP-safe Git seam.
 //
-// Auth comes from the surrounding Container (its spec's resolveAuth): a
-// delegated member receives the SAME full host credential, under the same
-// mount mode, as the owner's run — full parity at every delegation depth, no
-// trust gate, by ruling (see containerAuth).
+// Auth is the run's own Credentials, as for the surrounding Container: a
+// delegated member authenticates exactly as the owner's run does — full
+// parity at every delegation depth, no trust gate, by ruling.
 type worktreeBase struct{ wt Worktree }
 
 // name identifies the worktree-in-container policy.
@@ -58,7 +57,7 @@ func (b worktreeBase) withState(state SessionState) containerBase {
 //     info/exclude + skip-worktree and the WIP-safe teardown all come for free — a
 //     non-git repo fails HERE (before any resource is created) and the chain
 //     degrades worktree→none;
-//  2. then the identical-path .git gitdir mirror mount so git resolves in-container.
+//  2. then the .git gitdir mirror (and pointer) mounts so git resolves in-container.
 //
 // Any failure AFTER the worktree exists tears the worktree down (WIP-safe — it is
 // freshly created, so clean) BEFORE returning, and the caller
@@ -89,15 +88,15 @@ func (b worktreeBase) resolveBase(ctx context.Context, projectDir, agentID strin
 	return wt.dir, wt.Cleanup, nil
 }
 
-// mountBase mirrors the checkout's git common dir identical-path, and delivers
-// the project's config tree into the checkout. The worktree's .git is ALWAYS a
+// mountBase mirrors the checkout's own git data (gitDirMounts), and delivers the
+// project's config tree into the checkout. The worktree's .git is ALWAYS a
 // pointer file, so the git mirror is unconditional (unlike the host base's
 // pointer-only mirror). The mapping creates nothing host-side but the config
 // mountpoint INSIDE the ephemeral checkout, which dies with it; a failure here leaves the checkout for the workspace to tear down,
 // which lets the chain retry as a bare host worktree where git resolves natively
 // (a Tier-0 non-issue).
-func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir, _ string, _ engineContainerSpec, _ git.Git) ([]mount, error) {
-	gitMount, err := gitCommonDirMount(ctx, rt, b.wt.git, dir)
+func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir, scratchRoot string, _ engineContainerSpec, _ git.Git) ([]mount, error) {
+	mounts, err := gitDirMounts(ctx, rt, b.wt.git, dir, scratchRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -105,10 +104,10 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return []mount{gitMount}, nil
+	if ok {
+		mounts = append(mounts, cfgMount)
 	}
-	return []mount{gitMount, cfgMount}, nil
+	return mounts, nil
 }
 
 // projectConfigMount delivers the LIVE project's .ctxloom tree into a worktree
@@ -116,13 +115,12 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 //
 // The two sides of that path are NOT the same string, and conflating them is a
 // live bug rather than a hypothetical one: the mountpoint is created on the
-// HOST, inside the checkout, while the mount TARGET names where the checkout
-// appears in the container's namespace — which is mapper().toContainer(dir),
-// the same translation the container relocator applies to the cwd
-// (relocateRoot). Under
-// today's identityMapper the two coincide; under a non-identity mapper, using
-// the host path as the target would land the config OUTSIDE the checkout and
-// leave the very refusal this function exists to prevent.
+// HOST, inside the checkout, while the mount TARGET names where that
+// mountpoint appears in the container's namespace — the runtime's mapping of
+// it, the same translation the relocator applies to the cwd (relocateRoot).
+// On a POSIX host the two coincide; on Windows, using the host path as the
+// target would land the config OUTSIDE the checkout and leave the very
+// refusal this function exists to prevent.
 //
 // WHY THIS EXISTS. A cell's cwd is a fresh `git worktree` checkout, so it holds
 // only COMMITTED files. A project whose .ctxloom is gitignored — which is
@@ -188,11 +186,12 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (mount, bool
 	if err := os.MkdirAll(hostTarget, 0o755); err != nil {
 		return mount{}, false, fmt.Errorf("container-worktree: creating the %s mountpoint: %w", paths.AppDirName, err)
 	}
-	checkout, err := rt.mapper().toContainer(worktreeDir)
+	seam := rt.paths()
+	target, err := seam.targetFor(hostTarget)
 	if err != nil {
-		return mount{}, false, fmt.Errorf("container-worktree: the checkout %s has no route into the container: %w", worktreeDir, err)
+		return mount{}, false, fmt.Errorf("container-worktree: the checkout's %s has no route into the container: %w", paths.AppDirName, err)
 	}
-	return rt.expose(source, filepath.Join(checkout, paths.AppDirName), true), true, nil
+	return seam.bind(source, target, true), true, nil
 }
 
 // NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED

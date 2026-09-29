@@ -26,6 +26,7 @@ type Spec struct {
 	state      SessionState
 	img        ImageConfig
 	home       agents.HomeMode
+	creds      engine.Credentials
 }
 
 // SpecBuilder assembles a Spec. The first error wins and is reported at
@@ -82,6 +83,16 @@ func (b *SpecBuilder) Home(m agents.HomeMode) *SpecBuilder {
 		m = agents.HomeModeSession
 	}
 	b.s.home = m
+	return b
+}
+
+// Credentials are what the run's auth mode needs (engine.Auth.Credentials):
+// the environment makes each true where the engine runs — the env laid over
+// the engine's, the names removed from it, and each shared store in place on
+// the host or mounted at its place under the container's $HOME. The zero
+// value is an engine that needs none.
+func (b *SpecBuilder) Credentials(c engine.Credentials) *SpecBuilder {
+	b.s.creds = c
 	return b
 }
 

@@ -235,25 +235,26 @@ func isoBinaryNames(engine string) ([]string, error) {
 	}
 }
 
-// isoAuthEnvVars are every env var that authenticates engine — its token
-// var first, then the others — read off the engine's own declaration
-// (engine.TokenAuth), not re-typed here.
+// isoAuthEnvVars are every env var that authenticates engine, its token var
+// first. Which vars those are is the engine's own knowledge (its Auth), so
+// they are read off the engine package's constants, not re-typed here.
 func isoAuthEnvVars(engine string) ([]string, error) {
-	a, ok := isoTokenAuth(engine)
-	if !ok {
-		return nil, fmt.Errorf("iso matrix: engine %q declares no token auth", engine)
+	switch engine {
+	case "claude-code":
+		return []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv, "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"}, nil
+	default:
+		return nil, fmt.Errorf("iso matrix: unknown engine %q", engine)
 	}
-	return append([]string{a.TokenVar}, a.EnvTriggers...), nil
 }
 
-// isoAPIKeyEnvVar is the first var the engine declares as authenticating it
-// without the token (claude: its API key).
+// isoAPIKeyEnvVar is the var carrying the engine's pay-per-use key.
 func isoAPIKeyEnvVar(engine string) (string, error) {
-	a, ok := isoTokenAuth(engine)
-	if !ok || len(a.EnvTriggers) == 0 {
+	switch engine {
+	case "claude-code":
+		return claude.APIKeyEnv, nil
+	default:
 		return "", fmt.Errorf("iso matrix: engine %q has no API-key alternative", engine)
 	}
-	return a.EnvTriggers[0], nil
 }
 
 // isoCredHostPath is where engine keeps its NATIVE login, relative to HOME:
@@ -397,6 +398,9 @@ type isoMatrixState struct {
 	// is what turns this fixture from a test of the config KEY into a test of
 	// the FLAG that sets it.
 	engineHomeViaCLI bool
+	// auth is the "iso" binding's declared `auth:` mode for the next
+	// runIsoMatrix call; "" leaves it undeclared (the token default).
+	auth string
 }
 
 func isoMatrixOf(w *World) *isoMatrixState {
@@ -424,14 +428,37 @@ func isoMatrixSanitizedPATH(spyDir string) string {
 	return isoSanitizedPATH(spyDir, "/usr/bin", "/bin")
 }
 
+// isoSpyVersionAnswer is the shell prologue that answers engineName's
+// declared version command with its declared floor, ahead of any recording:
+// the runner asks the binary its version before launching and refuses one it
+// cannot show to be at or above the floor, and that probe must neither be
+// refused nor overwrite the dump of the run the scenario asserts on. Empty
+// when the engine declares no floor, since nothing then asks.
+func isoSpyVersionAnswer(engineName string) (string, error) {
+	e, ok := engines.Registry().Lookup(engine.Name(engineName))
+	if !ok {
+		return "", fmt.Errorf("iso matrix: engine %q is not registered", engineName)
+	}
+	v := e.Root().Version
+	if !v.Declared() || v.Floor == "" {
+		return "", nil
+	}
+	return fmt.Sprintf("if [ \"$*\" = %q ]; then echo %q; exit 0; fi\n", strings.Join(v.Args, " "), v.Floor), nil
+}
+
 // installIsoSpy writes the spy script once and symlinks it under each of
 // names, so every engine's exec resolves to the SAME recording behavior.
-func installIsoSpy(dir string, names ...string) error {
+func installIsoSpy(dir, engineName string, names ...string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create spy dir: %w", err)
 	}
+	version, err := isoSpyVersionAnswer(engineName)
+	if err != nil {
+		return err
+	}
+	script := strings.Replace(isoMatrixSpyScript, "#!/bin/sh\n", "#!/bin/sh\n"+version, 1)
 	scriptPath := filepath.Join(dir, ".ctxloom-iso-spy.sh")
-	if err := os.WriteFile(scriptPath, []byte(isoMatrixSpyScript), 0o755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		return fmt.Errorf("write spy script: %w", err)
 	}
 	for _, name := range names {
@@ -458,10 +485,13 @@ func installIsoSpy(dir string, names ...string) error {
 // is refused at load, config.RetiredLLMEnvKey), and every scenario that
 // reaches the spy runs it on the host, where the ambient environment is the
 // engine's environment.
-func isoMatrixConfigYAML(engineType, engineHome string) string {
+func isoMatrixConfigYAML(engineType, engineHome, auth string) string {
 	engineHomeLine := ""
 	if engineHome != "" {
 		engineHomeLine = fmt.Sprintf("    engine_home: %s\n", engineHome)
+	}
+	if auth != "" {
+		engineHomeLine += fmt.Sprintf("    auth: %s\n", auth)
 	}
 	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
   configs:
@@ -529,7 +559,7 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 		return err
 	}
 	spyDir := filepath.Join(w.env.Root, "iso-spy-bin")
-	if err := installIsoSpy(spyDir, binNames...); err != nil {
+	if err := installIsoSpy(spyDir, engine, binNames...); err != nil {
 		return err
 	}
 	w.env.SetEnv("PATH", isoMatrixSanitizedPATH(spyDir))
@@ -546,7 +576,7 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 	if j.engineHomeViaCLI {
 		renderedEngineHome = ""
 	}
-	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, renderedEngineHome)); err != nil {
+	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, renderedEngineHome, j.auth)); err != nil {
 		return err
 	}
 	if j.engineHomeViaCLI {
@@ -595,7 +625,7 @@ func runIsoMatrixOwnerSession(c context.Context, engine string) error {
 		return err
 	}
 	spyDir := filepath.Join(w.env.Root, "iso-spy-bin")
-	if err := installIsoSpy(spyDir, binNames...); err != nil {
+	if err := installIsoSpy(spyDir, engine, binNames...); err != nil {
 		return err
 	}
 	w.env.SetEnv("PATH", isoMatrixSanitizedPATH(spyDir))
@@ -609,7 +639,7 @@ func runIsoMatrixOwnerSession(c context.Context, engine string) error {
 	// point is the undeclared case, and reading scenario-shared state here
 	// would let an earlier "Alice's agent declares engine_home" step in some
 	// other ordering silently change what is under test.
-	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, "")+"default_agent: iso\n"); err != nil {
+	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, "", "")+"default_agent: iso\n"); err != nil {
 		return err
 	}
 	if err := w.env.GitCommit("iso matrix config for " + engine); err != nil {
@@ -722,8 +752,8 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// The per-engine form of "Alice can authenticate": she has stored a
-	// setup-token the way the docs tell her to (`ctxloom auth set-token`
-	// writes this file). Her own shell's token var is emptied so the stored
+	// setup-token the way the docs tell her to (`ctxloom auth mint` or
+	// `ctxloom auth set --mode token` writes this file). Her own shell's token var is emptied so the stored
 	// one is what the run gets: an exported token wins over the store.
 	ctx.Step(`^Alice has whatever credentials "([^"]*)" needs to authenticate$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
@@ -742,9 +772,9 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		// Explicit empty-set, not a bare assumption of absence: the acceptance
-		// binary inherits the developer's own shell env (isolatedEnv only
-		// replaces HOME/XDG_*), so a locally-exported ANTHROPIC_API_KEY (etc.)
-		// would otherwise silently flip this scenario's premise.
+		// binary inherits the developer's own shell env, and isolatedEnv's
+		// scrub covers only testsupport.EnvKeys, so a locally-exported key it
+		// does not list would otherwise silently flip this scenario's premise.
 		for _, key := range keys {
 			w.env.SetEnv(key, "")
 		}
@@ -791,6 +821,13 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// A scenario that never calls this step gets an undeclared binding, which
 	// is itself a fixture under test (see the "undeclared engine_home"
 	// scenario).
+	// The auth knob: the "iso" binding's declared `auth:` mode for the next
+	// runIsoMatrix call. Undeclared is the token default.
+	ctx.Step(`^Alice's agent declares auth "([^"]*)"$`, func(c context.Context, value string) error {
+		isoMatrixOf(worldFrom(c)).auth = value
+		return nil
+	})
+
 	ctx.Step(`^Alice's agent declares engine_home "([^"]*)"$`, func(c context.Context, value string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
@@ -1373,31 +1410,25 @@ func isoCheckInstanceClaudeConfig(got, workDir string) error {
 	return nil
 }
 
-// isoTokenAuth is the engine's token-auth declaration off its own Home.
-func isoTokenAuth(name string) (engine.TokenAuth, bool) {
-	kind, ok := engines.Registry().Lookup(engine.Name(name))
-	if !ok {
-		return engine.TokenAuth{}, false
-	}
-	return kind.Home().Auth.Get()
-}
-
 // isoStoreSetupToken stores the fixture setup-token for engine where
-// `ctxloom auth set-token` would (paths.HomeEngineTokenPath), owner-only,
-// and empties engine's token var so the stored token is the one the run
-// gets.
-func isoStoreSetupToken(w *World, engine string) error {
-	a, ok := isoTokenAuth(engine)
-	if !ok {
-		return fmt.Errorf("iso matrix: engine %q declares no token auth", engine)
+// `ctxloom auth mint` would (paths.HomeEngineCredentialPath, mode token),
+// owner-only file in an owner-only directory, and empties engine's token var
+// so the stored token is the one the run gets.
+func isoStoreSetupToken(w *World, eng string) error {
+	vars, err := isoAuthEnvVars(eng)
+	if err != nil {
+		return err
 	}
-	rel := filepath.Join(paths.AppDirName, paths.HomeAuthDirName, engine+paths.EngineTokenExt)
+	rel := filepath.Join(paths.AppDirName, paths.HomeAuthDirName, paths.EngineCredentialFileName(eng, string(engine.AuthToken)))
 	if err := w.env.WriteHomeFile(rel, isoFixtureSetupToken); err != nil {
+		return err
+	}
+	if err := os.Chmod(filepath.Dir(filepath.Join(w.env.HomeDir, rel)), 0o700); err != nil {
 		return err
 	}
 	if err := os.Chmod(filepath.Join(w.env.HomeDir, rel), 0o600); err != nil {
 		return err
 	}
-	w.env.SetEnv(a.TokenVar, "")
+	w.env.SetEnv(vars[0], "")
 	return nil
 }

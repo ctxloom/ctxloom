@@ -73,25 +73,16 @@ things stand in for it, deliberately, instead of a slow/flaky cucumber
 scenario:
 
 1. **The generic fail-loud/degrade CONTRACT** (any container that cannot
-   actually launch — no daemon, no image, unresolvable auth — is a fatal
+   actually launch — no daemon, no image, no container story — is a fatal
    finding that aborts the run unless `--degraded`) is already proven,
    engine-agnostically, by j002200's own pre-existing "Requesting a container with
    no runtime fails loud, or degrades under `--degraded`" scenario. Not
    restated here.
-2. **Per-engine container auth RESOLUTION** (does THIS engine's specific
-   auth plan — env passthrough, credential mount, or "no lever at all" —
-   resolve the way the matrix below claims) is pinned at the Go level,
-   thoroughly, in `internal/adapters/isolation/auth_test.go` and
-   `curatedhome_test.go`: `TestResolveClaudeContainerAuth_*`,
-   `TestPrepareCodexHome_*` (codex's container-auth mount reuses the same
-   spec). Run via
-   `just test`.
-
-| backend | container auth mechanism | who can fix a gap | cucumber coverage |
-|---|---|---|---|
-| claude-code | `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` env passthrough, else a read-write COPY of the host OAuth token mounted in | n/a — full lever | NOT EXECUTED (Go-pinned) |
-| codex | `OPENAI_API_KEY` env passthrough, else a read-only mount of `~/.codex/auth.json` | n/a — full lever | NOT EXECUTED (Go-pinned) |
-| opencode | `OPENROUTER_API_KEY` env passthrough, else a read-only mount of the seeded `auth.json` | n/a — full lever | NOT EXECUTED (Go-pinned) |
+2. **Container credentials.** A container run authenticates exactly as a host
+   run does: the agent's mode resolves to `engine.Credentials`, and the
+   container environment mounts each shared store at its place under
+   `$HOME`. That is pinned at the Go level (`TestCredentials_*` in
+   `internal/adapters/isolation/sessionhome_test.go`), run via `just test`.
 
 ## Per-leak documentation
 

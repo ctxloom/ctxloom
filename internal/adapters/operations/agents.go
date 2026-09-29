@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 
@@ -32,23 +33,21 @@ type AgentEntry struct {
 	// written; empty inherits the project `runtime:` default.
 	Runtime string `json:"runtime,omitempty"`
 	// Permissions is the agent's declared permission posture
-	// (default|acceptEdits|plan|bypass), as written; empty inherits the engine
+	// (engine.PermissionModeNames), as written; empty inherits the engine
 	// label's default and finally the built-in default.
 	Permissions string `json:"permissions,omitempty"`
 	// Driving is the agent's declared per-turn execution axis
 	// (conversational|oneshot), as written; empty means conversational (the
 	// default — see agents.Agent.Driving).
 	Driving agents.DrivingMode `json:"driving,omitempty"`
-	// Escalation is the agent's declared approval-policy ladder, as written
-	// (previously invisible here — settable only by hand-editing YAML and
-	// undetectable from `agent list`/`agent show`). Empty means the ladder is
-	// derived from Permissions at resolve time (see agents.Agent.Escalation's
-	// doc).
-	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 	// HomeMode is the agent's declared per-engine engine-home policy
 	// (session|host), as written; empty (undeclared) defaults to session at
 	// resolve time — see agents.Agent.HomeMode's doc.
 	HomeMode string `json:"engine_home,omitempty"`
+	// Auth is the agent's declared auth mode (login|token|api-key), as
+	// written; empty (undeclared) is token at resolve time — see
+	// agents.Agent.Auth's doc.
+	Auth string `json:"auth,omitempty"`
 }
 
 // ListAgents returns every locally-defined agent (the `agents:` config key),
@@ -65,8 +64,8 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Runtime:     s.Runtime,
 			Permissions: s.Permissions,
 			Driving:     s.Driving,
-			Escalation:  s.Escalation,
 			HomeMode:    s.HomeMode,
+			Auth:        s.Auth,
 		})
 	}
 	return out
@@ -89,8 +88,8 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Runtime:     sub.Runtime,
 		Permissions: sub.Permissions,
 		Driving:     sub.Driving,
-		Escalation:  sub.Escalation,
 		HomeMode:    sub.HomeMode,
+		Auth:        sub.Auth,
 	}, nil
 }
 
@@ -99,7 +98,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 // default / the composed profiles' llm); Profiles compose into one context;
 // Runtime is optional (one of isolation.RuntimeNames — host |
 // container-rootless | container-rootful; empty inherits the project
-// `runtime:` default); Permissions is optional (default|acceptEdits|plan|bypass;
+// `runtime:` default); Permissions is optional (engine.PermissionModeNames;
 // empty inherits the engine label's default). The workspace axis is deliberately
 // NOT settable here — it is a session trait chosen at invocation time, never
 // stored on a binding.
@@ -141,6 +140,10 @@ type SetAgentRequest struct {
 	// returns an error, nothing is persisted) — the same treatment Surfaces
 	// gets, and for the same reason: see agents.Agent.HomeMode's doc.
 	HomeMode *string `json:"engine_home,omitempty"`
+	// Auth sets the binding's auth mode (login|token|api-key); empty
+	// (undeclared) is token at resolve time. An unknown mode, or one the
+	// engine this write results in does not support, is REJECTED.
+	Auth *string `json:"auth,omitempty"`
 }
 
 // orKeep dereferences an optional request field: nil means "the caller did not
@@ -228,10 +231,54 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 	if err := validateAgentApproaches(reg, cfg, name, req); err != nil {
 		return err
 	}
-	if err := validateContainerAuth(reg, cfg, name, req); err != nil {
+	if err := validateContainerStory(reg, cfg, name, req); err != nil {
+		return err
+	}
+	if err := validateAgentAuth(reg, cfg, name, req); err != nil {
 		return err
 	}
 	return validateAgentHomeMode(name, req)
+}
+
+// validateAgentAuth runs the one auth check (checkAgentAuth, the same one
+// every launch runs) against the engine this write results in — on every
+// runtime alike —
+// then asks the engine whether the credential is available now: a mode whose
+// credential the human must supply (an API key, a cloud provider's
+// variables) is refused until it is, with the engine's own remedy. A missing
+// token is not refused: a run mints it at a terminal. Nothing is persisted
+// on a refusal.
+func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
+	if req.Auth == nil || *req.Auth == "" {
+		return nil
+	}
+	backend, _ := ResolveBackend(reg, cfg, resultingAgentEngine(cfg, name, req))
+	if _, ok := reg.Lookup(engine.Name(backend)); !ok {
+		return report.Errorf("set --llm in the same command, so the mode can be checked against the engine it binds",
+			"agent %q: auth %s: %w", name, *req.Auth, errAuthNeedsEngine)
+	}
+	a, mode, err := checkAgentAuth(reg, backend, *req.Auth)
+	if err != nil || a == nil {
+		return wrapAgentErr(name, err)
+	}
+	_, err = a.Credentials(mode, os.LookupEnv, isolation.StoredCredentials(backend))
+	if errors.Is(err, engine.ErrNoCredential) && mode.Minted() {
+		return nil // a run mints it
+	}
+	return wrapAgentErr(name, err)
+}
+
+// errAuthNeedsEngine: an auth mode is written with no engine to check it
+// against.
+var errAuthNeedsEngine = errors.New("no known engine to check the auth mode against")
+
+// wrapAgentErr names the agent a refusal is about; its remedy stays
+// reachable through %w, where the renderer reads it.
+func wrapAgentErr(name string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("agent %q: %w", name, err)
 }
 
 // validateAgentEngine refuses a non-empty engine outside AvailableLLMNames.
@@ -331,13 +378,19 @@ func resultingAgentRuntime(cfg *config.Config, name string, req SetAgentRequest)
 	return runtime
 }
 
-// validateContainerAuth refuses a binding whose {engine, runtime: container}
-// pair has no way to authenticate the engine INSIDE the container.
+// noContainerStory is the phrase both container refusals (validateContainerStory
+// and AgentRuntimeOffer's withheld reason) carry, so a test can pin WHAT is
+// missing without restating the sentence around it.
+const noContainerStory = "declares no container story"
+
+// validateContainerStory refuses a binding whose {engine, runtime: container}
+// pair names an engine that declares no container story, so it cannot run
+// inside a container at all.
 //
-// Container auth is keyed on the ENGINE (isolation.HasContainerAuth over
+// The container story is keyed on the ENGINE (isolation.HasContainerStory over
 // engineContainerSpecFor's table), and an engine with no mapping — a generic
 // `acp` backend, or any engine nobody has written a resolver for — fails closed
-// at PrepareWorkspace: the launch aborts with "no container auth is registered
+// at PrepareWorkspace: the launch aborts with "no container story is declared
 // for this engine". That gate stays as the last line for the paths that never
 // went through a binding, but a BINDING is knowable now, so the refusal belongs
 // here, at the command that typed the pair, rather than at the first run of an
@@ -350,13 +403,13 @@ func resultingAgentRuntime(cfg *config.Config, name string, req SetAgentRequest)
 // `--runtime container` does. An agent with NO engine on the binding is left
 // alone: its engine comes from the composed profiles' llm and then the project
 // default at resolve time, so there is no pair here to judge.
-func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
+func validateContainerStory(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
 	runtime := resultingAgentRuntime(cfg, name, req)
 	// Two of the three sources above are still raw at this point: the RECORDED
 	// binding and the project `runtime:` default (only req.Runtime was parsed,
 	// by the caller). Asserted past the parser, an unrecognized spelling
 	// answers "not a container" and this gate returns clean — so the binding
-	// is written for an engine that cannot authenticate inside a container,
+	// is written for an engine that cannot run inside a container,
 	// and only the launch discovers it. The runtime axis is a security
 	// boundary, so the typo is refused here instead.
 	axis, rterr := launch.ParseRuntimeAxis(runtime)
@@ -372,15 +425,15 @@ func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string,
 		return nil
 	}
 	backend, _ := ResolveBackend(reg, cfg, label)
-	if isolation.HasContainerAuth(backend) {
+	if isolation.HasContainerStory(backend) {
 		return nil
 	}
 	engine := fmt.Sprintf("%q", label)
 	if backend != label {
 		engine = fmt.Sprintf("%q (backend %q)", label, backend)
 	}
-	return fmt.Errorf("agent %q: engine %s has no container auth, so `runtime: container` could not authenticate it inside the container; engines with container auth: %s — bind one of those, or use runtime: host",
-		name, engine, strings.Join(isolation.ContainerAuthEngines(), ", "))
+	return fmt.Errorf("agent %q: engine %s %s, so `runtime: container` cannot run it; engines with a container story: %s — bind one of those, or use runtime: host",
+		name, engine, noContainerStory, strings.Join(isolation.ContainerStoryEngines(), ", "))
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key,
@@ -396,11 +449,9 @@ func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string,
 // never mutated. The bind itself is a per-FIELD update applied to the
 // transaction's fresh Draft: a nil request field means "the caller did not
 // name this field" and keeps whatever the existing binding holds, while an
-// explicitly-supplied empty value clears it. It used to be a whole-binding
-// REPLACE, which meant `ctxloom agent set dev --runtime container` silently
-// destroyed dev's engine, profiles, and permission posture, and
-// — worst, because the request type cannot even express it — its approval
-// escalation ladder. Merging inside Update also keeps the read-modify-write
+// explicitly-supplied empty value clears it — never a whole-binding replace,
+// which would destroy every field the request did not name. Merging inside
+// Update also keeps the read-modify-write
 // under the same lock, so a concurrent writer cannot land
 // between the read of the existing record and the write of the merged one.
 //
@@ -450,8 +501,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 		}
 		// Start from the record as it stands RIGHT NOW inside the transaction
 		// (not from cfg, which was loaded before the lock), so every field the
-		// request does not name — including Escalation, which SetAgentRequest
-		// has no way to carry — survives untouched.
+		// request does not name survives untouched.
 		entry = d.Agents[name]
 		if req.Profiles != nil {
 			entry.Profiles = canonicalizeProfileRefs(*req.Profiles, aliasToURLResolver(cfg))
@@ -481,6 +531,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
 		entry.HomeMode = orKeep(req.HomeMode, entry.HomeMode)
+		entry.Auth = orKeep(req.Auth, entry.Auth)
 		// Checked against the record the write RESULTS IN, inside the
 		// transaction, for the same reason the surface preference is: a
 		// create with no --llm/--profiles and an edit that clears the last of
@@ -502,8 +553,8 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 		Runtime:     entry.Runtime,
 		Permissions: entry.Permissions,
 		Driving:     entry.Driving,
-		Escalation:  entry.Escalation,
 		HomeMode:    entry.HomeMode,
+		Auth:        entry.Auth,
 	}, nil
 }
 
@@ -603,14 +654,8 @@ type ResolvedAgent struct {
 	// EffectivePermissions is the posture an interactive run resolves to WITHOUT a
 	// --permissions flag: declared → engine-label config → project default →
 	// the engine's declared host default, so a blank-declared agent's real
-	// posture is visible rather than "". A headless run is refused unless this
-	// is headless-safe; --permissions overrides it.
+	// posture is visible rather than ""; --permissions overrides it.
 	EffectivePermissions string `json:"effectivePermissions,omitempty"`
-	// Escalation is the agent's DECLARED approval-request ladder (may be
-	// empty — the coordinator derives a preset ladder from Permissions when
-	// so). Raw, unvalidated config; the coordinator's
-	// spawn-time ladder builder validates and converts it.
-	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 	// Driving mirrors agents.Agent.Driving: the agent's declared per-turn
 	// execution axis (conversational|oneshot; empty = conversational). The
 	// coordinator's per-engine resume-capability gate (coord.resolveResumeMode)
@@ -626,6 +671,10 @@ type ResolvedAgent struct {
 	// Spec (isolation.SpecBuilder.Home) — a launch with NO binding gets the session
 	// home by the resolver's own default, not by this field's value.
 	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
+	// Auth is the agent's EFFECTIVE auth mode: the declared one, or token
+	// when undeclared (engine.ParseAuthMode). The launch resolver reads the
+	// same declaration off the binding itself.
+	Auth engine.AuthMode `json:"auth,omitempty"`
 }
 
 // ResolveAgent resolves the named agent into a composed context + an
@@ -699,11 +748,11 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 	// Effective engine: an explicit override (a caller-level --llm) wins over the
 	// binding's declared engine; either then beats the composed profiles' llm,
 	// then the project default — the same precedence run/oneshot use.
-	engine := sub.LLM
+	llmName := sub.LLM
 	if engineOverride != "" {
-		engine = engineOverride
+		llmName = engineOverride
 	}
-	label := resolveOneshotLabel(cfg, engine, ctxResult.ProfileLLM)
+	label := resolveOneshotLabel(cfg, llmName, ctxResult.ProfileLLM)
 	backend, model := ResolveBackend(reg, cfg, label)
 
 	// Effective runtime axis: the agent's own choice wins, else the project's
@@ -737,10 +786,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
 	}
 
-	configHome, cherr := agents.ParseHomeMode(sub.HomeMode)
-	if cherr != nil {
-		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, cherr)
-	}
+	configHome, authMode := resolvedHomeAndAuth(name, sub)
 
 	// The interactive base an unflagged run resolves to (declared → label →
 	// PROJECT DEFAULT → built-in default), so a blank claude-code posture shows
@@ -769,8 +815,24 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		Runtime:              runtime,
 		Permissions:          sub.Permissions,
 		EffectivePermissions: effectivePerm.String(),
-		Escalation:           sub.Escalation,
 		Driving:              sub.Driving,
 		HomeMode:             configHome,
+		Auth:                 authMode,
 	}, nil
+}
+
+// resolvedHomeAndAuth is the binding's effective engine-home and auth modes
+// as `agent show` reports them. A declaration that does not parse warns and
+// reports the default; the launch itself refuses an unparseable auth.
+func resolvedHomeAndAuth(name string, sub agents.Agent) (agents.HomeMode, engine.AuthMode) {
+	home, err := agents.ParseHomeMode(sub.HomeMode)
+	if err != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — using the real host config home", name, err)
+	}
+	auth, err := engine.ParseAuthMode(sub.Auth)
+	if err != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — a launch refuses it", name, err)
+		auth = engine.AuthToken
+	}
+	return home, auth
 }

@@ -49,8 +49,7 @@ func TestQueueMail_RefusesAnEmptyBody(t *testing.T) {
 
 // TestQueueMail_StructuredOnlyMessageIsStillAllowed keeps the guard from
 // breaking the one legitimate body-less shape: a message whose payload IS its
-// structured companion (the escalation ladder's relayed ApprovalRequest
-// projection carries both, and a reply may carry only the structure).
+// structured companion (a reply may carry only the structure).
 func TestQueueMail_StructuredOnlyMessageIsStillAllowed(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)

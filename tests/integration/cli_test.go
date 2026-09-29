@@ -208,8 +208,17 @@ variables:
 	assert.Contains(t, recorded, "The version is 1.21")
 }
 
+// storeClaudeToken stores the token the default claude-code agent
+// authenticates with. A dry run resolves credentials read-only and refuses
+// where the run would, and an unattended run with nothing stored refuses.
+func storeClaudeToken(t *testing.T, env *testenv.TestEnvironment) {
+	t.Helper()
+	require.NoError(t, env.RunWithStdin("sk-ant-oat01-fixture\n", "auth", "set", "--engine", "claude-code", "--mode", "token"))
+}
+
 func TestRun_DryRun(t *testing.T) {
 	env := setupTestEnv(t)
+	storeClaudeToken(t, env)
 
 	writeFragment(t, env, "dry-frag", []string{"dry"}, "Dry run content.")
 
@@ -242,6 +251,7 @@ func TestRun_DryRun(t *testing.T) {
 // test exercises the dry-run preview with one of the three legal values.
 func TestRun_Agent_DryRun(t *testing.T) {
 	env := setupTestEnv(t)
+	storeClaudeToken(t, env)
 
 	writeFragment(t, env, "agent-frag", []string{"agent"}, "Agent-composed content.")
 	writeProfile(t, env, "agent-profile", `name: agent-profile
@@ -255,6 +265,11 @@ bundles:
 	require.Contains(t, env.LastOutput(), "dev",
 		"agent create must report the binding it wrote, not print the agent group's help")
 
+	// The preview exits with the strictness outcome, so whether the declared
+	// runtime is AVAILABLE decides the exit code: this test fixes its world to
+	// "a rootless runtime is reachable" rather than inheriting the machine's.
+	// The unavailable direction (exit 3 plus the isolation finding) is J002200's.
+	require.NoError(t, env.StubRootlessContainerRuntime())
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "agent test")
 
 	assert.Equal(t, 0, env.LastExitCode(), env.LastOutput())
@@ -418,7 +433,7 @@ func TestRun_NonTTYStdinNeverEngagesTerminalUI(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 	out := env.LastOutput()
 	assert.NotContains(t, out, "\x1b[1;", "a non-tty stdin never establishes the surround's protected region")
-	assert.NotContains(t, out, "\x1b7\x1b[r", "a non-tty stdin never wires the prefix interceptor")
+	assert.NotContains(t, out, "\x1b[?1049h\x1b[r", "a non-tty stdin never wires the prefix interceptor")
 	assert.Contains(t, out, "plain response", "the run still completes normally on the unwrapped seams")
 }
 

@@ -30,19 +30,15 @@ designed to cover.
 
 **1. The agent can just ask, and you can just say yes.** A worktree boundary doesn't remove
 the agent's ability to *request* something outside it — it removes nothing about requesting at
-all. Every engine ctxloom drives has an approval flow for exactly this: a permission prompt, an
-escalation ladder, a `plan` posture that asks before every mutation. When an agent asks to
+all. Every engine ctxloom drives has an approval flow for exactly this: a permission prompt, a
+`plan` posture that asks before every mutation. When an agent asks to
 touch a path outside its worktree and the answer is yes, nothing was bypassed. The boundary was
 opened from the inside, by the person who has standing to open it. That is the approval flow
 working as intended — and it is also, categorically, not something a workspace choice can stop,
-because stopping it would mean refusing your own "yes." [Agent permissions and the escalation
-ladder](/concepts/agents/#what-an-agent-is) cover the actual knobs — `default`, `acceptEdits`,
-`plan`, `bypass`, and a per-request-kind ladder that can auto-accept, auto-decline, or relay
-upward. Read `bypass` for what it says: skip every prompt. An agent launched that way was never
-going to be stopped by which directory it started in. It is also what Claude Code runs with on
-the host when no posture is declared anywhere, on the agent or in the project: the engine's
-declared host default is `bypass` until approval prompts can be routed to a human. If you want
-to be asked, set `permissions:` on the agent.
+because stopping it would mean refusing your own "yes." [Agent
+permissions](/concepts/agents/#what-an-agent-is) cover the actual knobs. Read `bypass` for what
+it says: skip every prompt. An agent launched that way was never going to be stopped by which
+directory it started in. If you want to be asked, set `permissions:` on the agent.
 
 **2. Privilege doesn't care about directories.** An agent running under elevated privilege, or
 one that calls out to a tool that itself runs privileged, isn't contained by a worktree at all.
@@ -87,10 +83,11 @@ expensive in time and complexity" means in practice.
   seconds or thirty minutes.
 - **A credential story you have to solve on purpose.** An isolated engine still has to
   authenticate somehow, and "isolated from the host" and "has the host's credentials" pull in
-  opposite directions. ctxloom hands the container the engine's auth vars by name (for claude,
-  the `CLAUDE_CODE_OAUTH_TOKEN` that `ctxloom auth set-token` stored, or an API key) and never
-  mounts a credential file. When none is set it refuses to launch rather than start an engine
-  that cannot log in. Plan for that before the run, not during it.
+  opposite directions. ctxloom hands the container the credential its agent's `auth:` mode
+  resolves to (for claude, the token `ctxloom auth mint` stored, or an API key) and never
+  mounts a credential file; an agent declaring `auth: login` is refused in a container. When
+  nothing is stored and no one is at a terminal to mint it, it refuses to launch rather than
+  start an engine that cannot log in. Plan for that before the run, not during it.
 - **Debugging across a boundary.** When something goes wrong inside a container, "what does
   the filesystem actually look like right now" is no longer a question your host shell answers
   for free.

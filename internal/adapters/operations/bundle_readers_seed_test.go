@@ -82,6 +82,7 @@ func TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "remotes.yaml"), 0755))
 
 	var buf syncBuffer
+	freshWarnOnce(t)
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
@@ -104,6 +105,7 @@ func TestLoadRemoteBundleSeed_LockfileParseErrorWarnsNotSilent(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "lock.yaml"), []byte("\tnot: valid yaml\n"), 0644))
 
 	var buf syncBuffer
+	freshWarnOnce(t)
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 

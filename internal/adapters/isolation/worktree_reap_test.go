@@ -6,15 +6,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // deadPid is a pid guaranteed not to name a live process: it exceeds even a
@@ -73,7 +75,7 @@ func TestReapOrphanedWorktrees_ReapsCleanOrphan(t *testing.T) {
 
 	assert.NoDirExists(t, wtDir, "the orphaned checkout is removed")
 
-	out := gitOut(t, repo, "worktree", "list", "--porcelain")
+	out := gitRun(t, repo, "worktree", "list", "--porcelain")
 	assert.NotContains(t, out, wtDir, "no leftover worktree registration after the sweep")
 }
 
@@ -173,36 +175,6 @@ func gitRunNoFail(dir string, args ...string) error {
 	return gitCmd(dir, args...).Run()
 }
 
-// TestWorktreeRemoved_UnreadableIsNotGone is a red-first pin. The
-// REAPED-vs-SPARED verdict was `if _, statErr := os.Stat(wtDir); statErr != nil`,
-// which reads EVERY stat failure as "the tree is gone": EACCES on a parent
-// directory, ELOOP, ENAMETOOLONG. The sweep then reports a worktree it never
-// removed as reaped, and the summary the boot transcript prints is wrong in the
-// one direction that matters — claiming cleanup that did not happen. Only
-// ErrNotExist proves removal.
-func TestWorktreeRemoved_UnreadableIsNotGone(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root: directory permissions do not deny stat")
-	}
-	parent := filepath.Join(t.TempDir(), "sealed")
-	wtDir := filepath.Join(parent, "ctxloom-wt-x")
-	require.NoError(t, os.MkdirAll(wtDir, 0o755))
-	require.NoError(t, os.Chmod(parent, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
-
-	_, statErr := os.Stat(wtDir)
-	require.Error(t, statErr, "the fixture must actually make stat fail")
-	require.False(t, os.IsNotExist(statErr), "…and fail for a reason other than absence")
-
-	assert.False(t, worktreeRemoved(wtDir),
-		"an unreadable path is not proof of removal — the tree may well still be there")
-
-	require.NoError(t, os.Chmod(parent, 0o755))
-	assert.False(t, worktreeRemoved(wtDir), "a readable, still-present tree was not removed")
-	require.NoError(t, os.RemoveAll(wtDir))
-	assert.True(t, worktreeRemoved(wtDir), "an absent tree WAS removed")
-}
-
 // A reaper that could not act on ANY candidate is NOT silent, and that is the
 // whole point: a clean sweep says nothing, so every line the sweep does print
 // is a candidate it declined to remove and why. This pins the diagnostic
@@ -234,7 +206,7 @@ func TestReapOrphanedWorktrees_UnresolvableCandidateIsReportedNotSwallowed(t *te
 
 	assert.Equal(t, WorktreeReapResult{Skipped: 1}, result)
 	out := sink.String()
-	assert.Contains(t, out, wtDir, "the candidate the sweep could not act on must be named")
+	assert.Contains(t, out, strconv.Quote(wtDir), "the candidate the sweep could not act on must be named, quoted")
 	assert.Contains(t, out, "leaving it in place",
 		"and the sweep must say what it did about it")
 }

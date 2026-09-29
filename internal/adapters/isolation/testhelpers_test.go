@@ -2,14 +2,15 @@ package isolation
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
@@ -125,19 +126,6 @@ func stageEngineFacts(t *testing.T, name string, mutate func(f *EngineFacts)) {
 	t.Cleanup(restore)
 }
 
-// claudeAuth returns the container-auth plan claude declares, as TestMain
-// pushed it — what the auth tests hand resolveDeclaredAuth.
-func claudeAuth(t *testing.T) engine.ContainerAuth {
-	t.Helper()
-	r, ok := engineContainerDeclared(claude.EngineName)
-	require.True(t, ok, "fixture: claude's container declaration must be registered by TestMain")
-	c, ok := r.container.Get()
-	require.True(t, ok)
-	a, ok := c.Auth.Get()
-	require.True(t, ok)
-	return a
-}
-
 // noCompanionsOnPath is the TestMain default: no companion resolves.
 func noCompanionsOnPath(string) (string, error) { return "", exec.ErrNotFound }
 
@@ -214,19 +202,52 @@ func withFakeHome(t *testing.T) string {
 	return home
 }
 
-// mapped is rt's mapper applied to host, failing the test where it cannot
+// captureStderr swaps os.Stderr for a pipe; the returned func restores it and
+// yields everything written meanwhile. For asserting the STREAMED half of a
+// strictness fault (the warning fires in both modes; only recording is modal).
+func captureStderr(t *testing.T) func() string {
+	t.Helper()
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+	return func() string {
+		require.NoError(t, w.Close())
+		os.Stderr = orig
+		out, rerr := io.ReadAll(r)
+		require.NoError(t, rerr)
+		return string(out)
+	}
+}
+
+// unsetVersionStamp makes the provenance key UNRESOLVABLE for one test, which
+// is the only way the digest can now come back empty: it is derived from the
+// version stamp, not from reading any file.
+//
+// It replaced a helper that cleared a memo of a binary-content digest, whose
+// callers emptied the digest by breaking resolveSelfExe. That no longer empties
+// anything — those tests would have kept their names and stopped testing the
+// gate they name.
+func unsetVersionStamp(t *testing.T) {
+	t.Helper()
+	orig := binaryVersion
+	SetBinaryVersion("")
+	t.Cleanup(func() { SetBinaryVersion(orig) })
+}
+
+// mapped is rt's target rule applied to host, failing the test where it cannot
 // route — for assertions that compare against the mapped path.
 func mapped(t *testing.T, rt Runtime, host string) string {
 	t.Helper()
-	p, err := rt.mapper().toContainer(host)
+	p, err := rt.paths().targetFor(host)
 	require.NoError(t, err)
 	return p
 }
 
-// exposedMapped is rt.exposeMapped, failing the test where it cannot route.
+// exposedMapped is rt.paths().expose, failing the test where it cannot route.
 func exposedMapped(t *testing.T, rt Runtime, host string, readOnly bool) mount {
 	t.Helper()
-	m, err := rt.exposeMapped(host, readOnly)
+	m, err := rt.paths().expose(host, readOnly)
 	require.NoError(t, err)
 	return m
 }
@@ -243,4 +264,56 @@ func placeRoots(c Container, cw *containerWorkspace) {
 	if _, err := c.environment(cw, pl, roots); err != nil {
 		panic(err)
 	}
+}
+
+// stubPrimary fixes the fallback route's address source.
+func stubPrimary(t *testing.T, ip string) {
+	t.Helper()
+	orig := primaryOutboundIP
+	primaryOutboundIP = func() string { return ip }
+	t.Cleanup(func() { primaryOutboundIP = orig })
+}
+
+// stubLocal answers every "is this address one of the host's own" check with
+// local/err, recording the address asked about.
+func stubLocal(t *testing.T, local bool, err error) *string {
+	t.Helper()
+	var asked string
+	orig := isLocalAddr
+	isLocalAddr = func(ip string) (bool, error) {
+		asked = ip
+		return local, err
+	}
+	t.Cleanup(func() { isLocalAddr = orig })
+	return &asked
+}
+
+// stubGateway answers every gateway inspect with out/err, recording the argv.
+func stubGateway(t *testing.T, out string, err error) *[]string {
+	t.Helper()
+	var got []string
+	orig := probeExec
+	probeExec = func(_ context.Context, bin string, args []string) (string, error) {
+		got = append([]string{bin}, args...)
+		return out, err
+	}
+	t.Cleanup(func() { probeExec = orig })
+	return &got
+}
+
+// mustRunArgs renders rt's run argv for spec, failing the test on a render
+// error (a mount source the daemon has no name for).
+func mustRunArgs(t testing.TB, rt Runtime, spec RunSpec) []string {
+	t.Helper()
+	args, err := rt.RunArgs(spec)
+	require.NoError(t, err)
+	return args
+}
+
+// mustRender renders spec's shared tail with identity sources.
+func mustRender(t testing.TB, spec RunSpec) []string {
+	t.Helper()
+	args, err := renderRunSpec(spec, pathSeam{})
+	require.NoError(t, err)
+	return args
 }

@@ -16,7 +16,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -92,10 +94,10 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 // the labels the loaded config declares.
 //
 // no-auth-engine is bound to a backend name nothing registers, so it reaches
-// engineContainerSpecFor's fail-closed default arm and has NO container auth.
+// engineContainerSpecFor's fail-closed default arm and declares NO container story.
 // It is a label rather than a backend deliberately: every backend in the
-// registry today HAS container auth, so a label pointing at an unmapped engine
-// is the only reachable subject for the container-auth refusal — and it is a
+// registry today DECLARES a container story, so a label pointing at an unmapped engine
+// is the only reachable subject for the container-story refusal — and it is a
 // real one, since `llm.configs.<label>.type` accepts any string a user types.
 const llmLabelsFixture = `version: 5
 llm:
@@ -415,41 +417,6 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 	assert.Equal(t, []string{"y", "z"}, sub.Profiles, "profiles replaced, not unioned")
 }
 
-// TestGetAgent_SurfacesEscalation proves the approval-policy ladder —
-// previously invisible from every read path (AgentEntry had no Escalation
-// field) — is now visible via GetAgent/ListAgents, and survives a SetAgent
-// write that does not name it (the merge landed on the write side; this
-// pins the read half of the same fix).
-func TestGetAgent_SurfacesEscalation(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, `version: 5
-agents:
-  dev:
-    profiles: [x]
-    escalation:
-      - action: auto_accept
-        kinds: [COMMAND_EXECUTION]
-`)
-	mgr := managerFor(t, appDir)
-
-	entry, err := GetAgent(cfg, "dev")
-	require.NoError(t, err)
-	require.Len(t, entry.Escalation, 1, "escalation ladder must be readable, not invisible")
-	assert.Equal(t, "auto_accept", entry.Escalation[0].Action)
-
-	list := ListAgents(cfg)
-	require.Len(t, list, 1)
-	require.Len(t, list[0].Escalation, 1, "ListAgents must surface it too")
-
-	// A write that doesn't name Escalation must not wipe it.
-	_, err = SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
-	require.NoError(t, err)
-	reloaded, err := configload.Load(configload.WithAppDir(appDir))
-	require.NoError(t, err)
-	entry, err = GetAgent(reloaded, "dev")
-	require.NoError(t, err)
-	assert.Len(t, entry.Escalation, 1, "escalation must survive an unrelated field write")
-}
-
 // TestGetAgent_CarriesEveryDeclaredAxis is the read-path class gate: every
 // axis a binding may declare must reach AgentEntry, from both read functions.
 // `agent show` and `agent list --format json` are how a user checks what a
@@ -465,9 +432,6 @@ agents:
     permissions: bypass
     driving: oneshot
     engine_home: session
-    escalation:
-      - action: auto_accept
-        kinds: [TOOL_USE]
 `)
 
 	entry, err := GetAgent(cfg, "dev")
@@ -484,8 +448,6 @@ agents:
 			assert.Equal(t, "bypass", got.Permissions)
 			assert.Equal(t, agents.DrivingOneshot, got.Driving)
 			assert.Equal(t, string(agents.HomeModeSession), got.HomeMode)
-			require.Len(t, got.Escalation, 1)
-			assert.Equal(t, "auto_accept", got.Escalation[0].Action)
 		})
 	}
 }
@@ -652,13 +614,13 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 	assert.False(t, ok, "a refused write must not half-apply a binding")
 }
 
-// TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth pins the
-// binding-time half of the container-auth rule: container auth is keyed on the
+// TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerStory pins the
+// binding-time half of the container-story rule: the container story is keyed on the
 // ENGINE, and an engine with no mapping (llmLabelsFixture's no-auth-engine,
-// whose type nothing registers) has no credentials to give a containerized run. Before this check the pair was
+// whose type nothing registers) declares no container story, so a containerized run cannot start. Before this check the pair was
 // happily written and `agent list` showed a normal-looking agent; the failure
-// arrived at the first launch, from isolation, as "no container auth is
-// registered for this engine" — a config defect reported by a subsystem the
+// arrived at the first launch, from isolation, as "no container story is
+// declared for this engine" — a config defect reported by a subsystem the
 // user never named.
 //
 // The message is asserted as a PAYLOAD, not just as an error: a refusal that
@@ -668,7 +630,7 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 // containerized at all" — credentials are missing from a rootful container for
 // exactly the reason they are missing from a rootless one. A single-mode table
 // would stay green while the gate quietly stopped covering half the axis.
-func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testing.T) {
+func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerStory(t *testing.T) {
 	for _, mode := range []string{"container-rootless", "container-rootful"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, llmLabelsFixture)
@@ -679,12 +641,12 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 				Profiles: ptr([]string{"default"}),
 				Runtime:  ptr(mode),
 			})
-			require.Errorf(t, err, "an engine with no container auth + `runtime: %s` has no way to authenticate and must be refused at write time", mode)
+			require.Errorf(t, err, "an engine with no container story + `runtime: %s` has no way to authenticate and must be refused at write time", mode)
 			msg := err.Error()
 			assert.Contains(t, msg, "editor", "the refusal must name the agent it refused")
 			assert.Contains(t, msg, "no-auth-engine", "the refusal must name the engine that cannot be containerized")
-			assert.Contains(t, msg, "container auth", "the refusal must say WHAT is missing, not just that something is wrong")
-			for _, supported := range isolation.ContainerAuthEngines() {
+			assert.Contains(t, msg, noContainerStory, "the refusal must say WHAT is missing, not just that something is wrong")
+			for _, supported := range isolation.ContainerStoryEngines() {
 				assert.Containsf(t, msg, supported, "the refusal must name the supported set, including %q", supported)
 			}
 			assert.Contains(t, msg, "runtime: host", "the refusal must name the way out")
@@ -699,7 +661,7 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 
 // TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn is the edit half,
 // and the one a narrower fix would miss: neither `--runtime container` nor an
-// engine without container auth is wrong on its own — the PAIR is. So each field is validated
+// engine without a container story is wrong on its own — the PAIR is. So each field is validated
 // against the value the OTHER one already holds (the same rule the surface
 // preference above follows), from either direction, and a live binding is never
 // left half-updated into a shape that cannot launch.
@@ -740,7 +702,7 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 					LLM:     ptr(engine),
 					Runtime: ptr(mode),
 				})
-				require.NoErrorf(t, err, "engine %q has container auth, so `runtime: %s` must be accepted", engine, mode)
+				require.NoErrorf(t, err, "engine %q declares a container story, so `runtime: %s` must be accepted", engine, mode)
 			}
 
 			// An agent with NO llm on the binding is left alone: its engine comes
@@ -847,4 +809,50 @@ func TestSetAgent_RefusesARootTheApproachDoesNotOffer(t *testing.T) {
 	require.NoError(t, rerr)
 	_, ok := reloaded.Agent("scout")
 	assert.False(t, ok, "a refused write must not half-apply a binding")
+}
+
+// auth round-trips as the MODE only, and is validated against the engine the
+// write results in: an unknown mode, a mode that engine does not support,
+// and any mode on an engine that declares no auth are refused, and nothing
+// is persisted.
+func TestSetAgent_ValidatesAuthAgainstTheEnginesModes(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	mgr := managerFor(t, appDir)
+	fakeHostHome(t, "")
+	t.Setenv(claude.APIKeyEnv, "sk-ant-api-fixture") // an api-key agent is written once its key is available
+
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
+		Name: "coder", LLM: ptr("claude-code"), Profiles: ptr([]string{"default"}), Auth: ptr("api-key"),
+	})
+	require.NoError(t, err)
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := reloaded.Agent("coder")
+	require.True(t, ok)
+	assert.Equal(t, "api-key", sub.Auth)
+
+	refused := func(t *testing.T, req SetAgentRequest, want ...string) {
+		t.Helper()
+		_, err := SetAgent(context.Background(), mgr, reloaded, req)
+		require.Error(t, err)
+		for _, w := range want {
+			assert.Contains(t, err.Error(), w)
+		}
+		final, err := configload.Load(configload.WithAppDir(appDir))
+		require.NoError(t, err)
+		_, ok := final.Agent(req.Name)
+		assert.False(t, ok, "a refused write persists nothing")
+	}
+	refused(t, SetAgentRequest{Name: "typo", LLM: ptr("claude-code"), Profiles: ptr([]string{"x"}), Auth: ptr("apikey")}, "apikey")
+	refused(t, SetAgentRequest{Name: "noauth", LLM: ptr("mock"), Profiles: ptr([]string{"x"}), Auth: ptr("token")}, "declares no auth")
+}
+
+func TestSetAgent_RefusesAModeTheEngineLacks(t *testing.T) {
+	installFakeMint(t)
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name: "fake", LLM: ptr("fake-auth"), Profiles: ptr([]string{"x"}), Auth: ptr("login"),
+	})
+	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
+	assert.Contains(t, remedyOf(t, err), "token, api-key", "the remedy names what the engine does support")
 }

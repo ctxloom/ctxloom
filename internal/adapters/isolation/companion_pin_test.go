@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // pinWorld is a hermetic companion world: ctxloom's own PATH resolves
@@ -74,12 +76,14 @@ func envPath(env []string) string {
 	return path
 }
 
-// resolveIn is PATH resolution over an explicit PATH string.
+// resolveIn is PATH resolution over an explicit PATH string, by order alone:
+// every candidate these tests write is executable, and an exec bit is not
+// what makes a file runnable on Windows.
 func resolveIn(t *testing.T, path, name string) string {
 	t.Helper()
 	for _, dir := range filepath.SplitList(path) {
 		p := filepath.Join(dir, name)
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode().Perm()&0o111 != 0 {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 			return p
 		}
 	}
@@ -99,7 +103,7 @@ func TestHostRunnerEnv_AdmittedCompanionsLeadPath(t *testing.T) {
 	writeCompanion(t, shadow, "taskloom", "#!/bin/sh\necho SHADOW\n")
 	t.Setenv("PATH", shadow+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	plain, err := hostRunnerCmd([]string{"runner", "claude"}, map[string]string{"K": "V"})
+	plain, err := hostRunnerCmd(context.Background(), []string{"runner", "claude"}, map[string]string{"K": "V"})
 	require.NoError(t, err)
 	for label, env := range map[string][]string{
 		"pty":   RunnerCommand("claude", nil).Env,
@@ -148,7 +152,7 @@ func TestStageCompanions_StagesOnlyAdmittedWithSignature(t *testing.T) {
 	assert.FileExists(t, filepath.Join(staged, "ltk.release"), "the release statement the signature covers is staged too")
 	info, err := os.Stat(filepath.Join(staged, "ltk"))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "staged companion is 0755 exactly, umask notwithstanding")
+	fileperm.Equal(t, 0o755, info.Mode(), "staged companion is 0755 exactly, umask notwithstanding")
 
 	assert.NoFileExists(t, filepath.Join(staged, "taskloom"), "an unverified companion is never staged")
 	assert.NoFileExists(t, filepath.Join(staged, "reprise"), "an absent companion is never staged")

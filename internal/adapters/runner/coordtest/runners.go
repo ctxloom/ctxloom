@@ -86,6 +86,10 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
 		Static:     noDelivery{},
 		Driver:     recordingDriver{Driver: host, rec: engine},
+		// The double hosts many runs in ONE test process: removing a
+		// variable here would leak into every other test, so the removal is
+		// accepted and not applied. The real runner's is os.Unsetenv.
+		Unsetenv: func(string) error { return nil },
 	}})
 	home, err := runner.NewHome(rctx, runner.HomeConfig{
 		URL:          runnerEnv[coord.EnvCoordURL],

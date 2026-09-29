@@ -38,21 +38,16 @@ export GOWORK := "off"
 # `import "build/common.justfile"`. Their recipes are reachable as
 # ctxloom::build, ltk::build, taskloom::build, etc.
 #
-# Recipes below invoke these as `just -f justfile.container <mod>::<recipe>`,
-# and the `-f` is LOAD-BEARING — a bare `just ctxloom::build` is broken and was
-# broken in CI. just does not export JUST_JUSTFILE to a recipe's environment,
-# so a nested bare `just` searches for a justfile from scratch and finds the
-# HOST `justfile`, which declares none of these modules:
-#
-#   error: Justfile does not contain submodule `ctxloom`
-#
-# It looked fine for as long as it did because the local path never takes it:
-# `just dev-*` mounts THIS file over `justfile` inside the container (the host
-# justfile's `_run` overlay), so there the bare call resolves to this file and
-# the modules are there. CI does not mount anything — it runs
-# `just -f justfile.container build` against a checkout holding both files —
-# so only CI hit the broken resolution, and only in a job that a red upstream
-# job had been skipping.
+# Every nested call names its own justfile —
+# `"{{just_executable()}}" --justfile "{{justfile()}}" <mod>::<recipe>` — and
+# that is LOAD-BEARING in both directions. Invoking just with `-f` does not
+# export JUST_JUSTFILE, so a bare nested `just` searches from scratch and finds
+# the HOST `justfile`, which declares none of these modules ("Justfile does not
+# contain submodule `ctxloom`"). And a JUST_JUSTFILE already in the environment
+# (CI's containerized jobs set it) is inherited by every nested call, steering
+# it at whatever file that names. Only an explicit --justfile is right in both
+# cases. Locally this is masked: `just dev-*` mounts THIS file over `justfile`
+# inside the container, so a bare call happens to resolve here.
 mod ctxloom "cmd/ctxloom/justfile"
 mod ltk "cmd/ltk/justfile"
 mod taskloom "cmd/taskloom/justfile"
@@ -280,11 +275,14 @@ build-darwin-arm64:
         -o ctxloom-darwin-arm64 ./cmd/ctxloom
 
 # Compile every non-test package for the non-Linux targets, discarding the
-# output. The per-platform build-* targets above compile only the main package
-# and nothing runs them routinely, which is how a Windows build break went
-# unnoticed.
+# output, and type-check every test file for Windows (vet). The per-platform
+# build-* targets above compile only the main package and nothing runs them
+# routinely, which is how a Windows build break went unnoticed; the vet line
+# is what catches a Windows-only test that no longer compiles before the
+# Windows CI job (test-windows) has to.
 build-cross:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build {{buildvcs}} ./...
+    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build {{buildvcs}} ./...
 
 # Build all platforms

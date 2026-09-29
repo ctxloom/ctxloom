@@ -3,7 +3,6 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -14,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
 // This file pins the render-then-swap rewrite (fs-consolidation C11 /
@@ -238,5 +238,5 @@ func TestWriteManagedPackageFiles_FirstDeliveryIntoWhollyNonexistentTree(t *test
 
 	info, err := fs.Stat(filepath.Join(dir, "reviewer", "scripts", "run.sh"))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit must survive a from-scratch delivery")
+	fileperm.Equal(t, 0o755, info.Mode(), "the exec bit must survive a from-scratch delivery")
 }

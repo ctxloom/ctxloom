@@ -15,8 +15,8 @@ import (
 // in the shared tree, which never imports an engine, and testsupport cannot
 // either (claude's in-package tests import testsupport, so the edge would be a
 // cycle). So the vars are listed there by hand, and this test derives the set
-// every shipped engine declares — its home, token, shared-login and container
-// passthrough vars — and fails on any that EnvKeys misses. Such a var leaks
+// every shipped engine declares — its home vars and every var its auth modes
+// read, set, unset or point a store at — and fails on any EnvKeys misses. Such a var leaks
 // from the developer's live session into every isolated test: CLAUDE_CONFIG_DIR
 // did, and a test passed locally only because of it.
 func TestEnvKeys_CoverEveryEngineDeclaredVar(t *testing.T) {
@@ -39,6 +39,10 @@ func TestEnvKeys_CoverEveryEngineDeclaredVar(t *testing.T) {
 	}
 }
 
+// engineDeclaredEnv is every var the engine's home relocates plus, for each
+// auth mode it declares, every var its Credentials consults in the launching
+// env, sets, unsets, or points a shared store at. Auth never names its vars
+// directly, so they are observed through the shell it is handed.
 func engineDeclaredEnv(t *testing.T, e engine.Engine) []string {
 	t.Helper()
 	var out []string
@@ -46,20 +50,36 @@ func engineDeclaredEnv(t *testing.T, e engine.Engine) []string {
 	for _, v := range home.Vars {
 		out = append(out, v.Name)
 	}
-	if a, ok := home.Auth.Get(); ok {
-		out = append(append(out, a.TokenVar), a.EnvTriggers...)
-	}
-	if s, ok := home.SharedLogin.Get(); ok {
-		out = append(out, s.Var, s.FallbackVar)
-	}
-	c, err := e.Container()
-	var unsupported engine.ErrUnsupported
-	if errors.As(err, &unsupported) {
+	a, ok := home.Auth.Get()
+	if !ok {
 		return out
 	}
-	require.NoError(t, err)
-	if a, ok := c.Auth.Get(); ok {
-		out = append(append(out, a.EnvTriggers...), a.EnvPassthrough...)
+	for _, mode := range a.Modes() {
+		shell := func(name string) (string, bool) {
+			out = append(out, name)
+			return "", false
+		}
+		creds, err := a.Credentials(mode, shell, storedCredential{})
+		if err != nil && !errors.Is(err, engine.ErrNoCredential) {
+			require.NoError(t, err, "mode %s", mode)
+		}
+		for k := range creds.Env {
+			out = append(out, k)
+		}
+		out = append(out, creds.Unset...)
+		for _, st := range creds.Stores {
+			if st.Var != "" {
+				out = append(out, st.Var)
+			}
+		}
 	}
 	return out
+}
+
+// storedCredential holds a credential for every mode, so Credentials takes
+// each mode's stored path and names the var it would set.
+type storedCredential struct{}
+
+func (storedCredential) Read(engine.AuthMode) ([]byte, error) {
+	return []byte("fixture-credential"), nil
 }

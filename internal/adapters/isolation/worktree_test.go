@@ -4,15 +4,17 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestWorktree_PrepareCreatesWorktree: in a repo, PrepareWorkspace adds a detached
@@ -673,7 +675,7 @@ func TestWorktree_RefusesAStrangerAtTheResumePath(t *testing.T) {
 
 	_, err := w.prepareWorkspace(context.Background(), "/proj", "worker")
 	require.Error(t, err, "an unverifiable occupant at the resume path must refuse, not adopt or silently degrade")
-	assert.Contains(t, err.Error(), path, "the refusal names the path")
+	assert.Contains(t, err.Error(), strconv.Quote(path), "the refusal names the path, quoted")
 }
 
 // TestWorktree_RefusesWrongBranchAtTheResumePath: the path is occupied AND
@@ -694,5 +696,5 @@ func TestWorktree_RefusesWrongBranchAtTheResumePath(t *testing.T) {
 
 	_, err := w.prepareWorkspace(context.Background(), "/proj", "worker")
 	require.Error(t, err, "a registered worktree on the wrong branch is not provably this agent's own")
-	assert.Contains(t, err.Error(), path)
+	assert.Contains(t, err.Error(), strconv.Quote(path))
 }

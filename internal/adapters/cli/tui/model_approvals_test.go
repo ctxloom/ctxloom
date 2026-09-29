@@ -26,8 +26,10 @@ func TestModel_ApprovalsKeyOnEmptyListHintsWithoutOpening(t *testing.T) {
 
 // TestModel_ApprovalsKeyWithNoSeamHintsUnavailable mirrors
 // TestModel_InjectRequiresTargetAndSeam's nil-seam half: a Sources with no
-// PendingApprovals wired (no coordinator hosted) must not open the view, and
-// must say why.
+// PendingApprovals wired must not open the view, and must say why. The why is
+// NOT a missing coordinator: production wires no approvals pane even with one
+// hosted (coord.PendingApproval), and saying otherwise sent the human hunting
+// for a coordinator that was running all along.
 func TestModel_ApprovalsKeyWithNoSeamHintsUnavailable(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	src := f.sources()
@@ -40,7 +42,8 @@ func TestModel_ApprovalsKeyWithNoSeamHintsUnavailable(t *testing.T) {
 	m, cmd = step(t, m, keyMsg("a"))
 	assert.Nil(t, cmd)
 	assert.False(t, m.approving)
-	assert.Contains(t, m.errMsg, "approvals unavailable")
+	assert.Equal(t, approvalsNotHere, m.errMsg)
+	assert.NotContains(t, m.errMsg, "coordinator", "the coordinator is not why the pane is off")
 }
 
 // TestModel_ApprovalsOpenSelectAndAnswer covers y/s driving AnswerApproval
@@ -184,5 +187,5 @@ func TestModel_ApprovalAnswerWithNoAnswerSeamReportsUnavailable(t *testing.T) {
 	m, cmd = step(t, m, keyMsg("y"))
 	require.NotNil(t, cmd)
 	m, _ = step(t, m, cmd())
-	assert.Contains(t, m.errMsg, "approvals unavailable")
+	assert.Contains(t, m.errMsg, approvalsNotHere)
 }

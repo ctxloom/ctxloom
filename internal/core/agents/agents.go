@@ -101,18 +101,11 @@ type Agent struct {
 	// Resolution lives in operations.resolveAgentBinding.
 	Runtime string `yaml:"runtime,omitempty"`
 	// Permissions is the agent's launch-time permission posture
-	// (default|acceptEdits|plan|bypass) — the second safety axis a binding
+	// (engine.PermissionModeNames) — the second safety axis a binding
 	// declares alongside Runtime. Empty inherits the engine label's configured
 	// permissions and finally the built-in default. The `run --permissions` flag
 	// overrides it.
 	Permissions string `yaml:"permissions,omitempty"`
-	// Escalation is the agent's approval-request policy: an
-	// ORDERED ladder of rungs, each naming which ApprovalRequest kinds it
-	// answers and how. Empty derives the ladder from Permissions — the
-	// degenerate two-rung preset (bypass accepts everything; plan declines
-	// mutating kinds and relays the rest to the parent). An explicit
-	// Escalation overrides the preset entirely (no merge).
-	Escalation []EscalationRung `yaml:"escalation,omitempty"`
 	// Driving is the agent's per-turn execution axis: conversational (the
 	// zero value/default — the engine process stays warm across turns, the
 	// model today) or oneshot (a turn ends its engine process at the turn
@@ -168,6 +161,16 @@ type Agent struct {
 	// rather than blocking the launch — never onto the real home, which a
 	// typo must not select.
 	HomeMode string `yaml:"engine_home,omitempty"`
+	// Auth is how this agent's engine authenticates, in the engine-neutral
+	// vocabulary (engine.AuthModeNames: login, token, api-key). Purely per
+	// agent: a binding declaring login gets the human's own login whether it
+	// runs top-level, as a delegated child or as a one-shot. Undeclared is
+	// token (engine.ParseAuthMode), so the human's login is only ever reached
+	// by name. Validated against the bound engine's Auth.Modes when WRITTEN
+	// (operations.SetAgent); a credential is never written here, only the
+	// mode — the credential itself is stored owner-only under the ctxloom
+	// home, out of any repository.
+	Auth string `yaml:"auth,omitempty"`
 }
 
 // HomeMode is the EFFECTIVE engine-home policy a declaration parses to: one
@@ -272,34 +275,6 @@ func ValidateDriving(d DrivingMode) error {
 		return fmt.Errorf("invalid driving %q (known: %s)", string(d), strings.Join(DrivingModeNames(), "|"))
 	}
 	return nil
-}
-
-// EscalationRung is one ordered entry of an agent's escalation ladder: which
-// ApprovalRequest kinds it matches, the disposition, and — for a relaying
-// disposition — how long to wait before falling through to the next
-// matching rung. The ladder bottoms at CANCEL when no rung resolves a
-// request — nobody decided, so the engine is told the request was cancelled
-// rather than refused (coord.buildLadder is the validating parser; this type
-// is the raw, hand-editable config shape).
-type EscalationRung struct {
-	// Kinds are ApprovalRequest.ApprovalKind names, short form, e.g.
-	// "COMMAND_EXECUTION" | "FILE_CHANGE" | "TOOL_USE" |
-	// "PERMISSION_ESCALATION" | "ARTIFACT_REVIEW" | "CUSTOM". Empty matches
-	// every kind (a catch-all rung).
-	Kinds []string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
-	// Action is the rung's disposition: auto_accept | auto_decline |
-	// relay_to_role | surface_to_human.
-	Action string `yaml:"action" json:"action"`
-	// Role is the relay_to_role/surface_to_human target. Only "parent" is
-	// addressable in this window (flat-hub topology); empty defaults to
-	// "parent" for both actions.
-	Role string `yaml:"role,omitempty" json:"role,omitempty"`
-	// Timeout bounds a relay_to_role/surface_to_human rung's wait, Go
-	// duration syntax (e.g. "5m"). Empty uses the resolver's default.
-	// REFUSED on auto_accept/auto_decline: they resolve the request
-	// immediately, so nothing waits and a declared timeout can only mean the
-	// operator expected behaviour the ladder does not have.
-	Timeout string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
 // RetiredLLMKey is the pre-rename spelling of Agent.LLM.

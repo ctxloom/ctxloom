@@ -132,7 +132,7 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
-		Runtime:    launch.RuntimeRootless,
+		Runtime:    containerAxes("docker").Runtime,
 		Permission: perm.String(),
 		// The production resolver's allowlist (viaStartRunBackends) does NOT
 		// list "mock"; this spawner resolves it directly, so the test drives
@@ -158,13 +158,13 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 		// (StartRun refuses a launch that carries none).
 		l.Identity = start.Identity
 		l.Prompt = start.Prompt
-		l.Axes.Runtime = launch.RuntimeRootless
+		l.Axes.Runtime = containerAxes("docker").Runtime
 		l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 		l.Cell.Env = env
 		plan.Launch = l
 		return coord.Resolved{Launch: l}, nil
 	}
-	cenv, err := preparedContainer(ctx, "docker", coord.ContainerAuthBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
+	cenv, err := preparedContainer(ctx, "docker", coord.ContainerStoryBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
 	if err != nil {
 		return coord.Resolved{}, err
 	}
@@ -186,7 +186,7 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	// As Resolve carries a container launch: the container axis (the runner
 	// dials the container-reachable listener) and a session endpoint for the
 	// runner to bind — any free loopback port inside the container.
-	l.Axes.Runtime = launch.RuntimeRootless
+	l.Axes.Runtime = containerAxes("docker").Runtime
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil
@@ -367,9 +367,8 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	t.Helper()
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container-progress integration test")
 	coord.ResetStrictness(t)
-	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
-	// mock's container-auth declaration (Vendorless) resolves
-	// unconditionally because mock authenticates against no vendor. Needing a
+	// NO credential is set on purpose: this run's engine is mock, which
+	// declares no Auth because it authenticates against no vendor. Needing a
 	// borrowed Anthropic key here would mean auth was being keyed on something
 	// other than the engine.
 
@@ -409,7 +408,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	out, err := c.AgentRun(ctx, coord.OwnerIdentity(), progressAgentName, prompt, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
-	require.Equal(t, launch.RuntimeRootless, out.Runtime)
+	require.Equal(t, containerAxes("docker").Runtime, out.Runtime)
 	return out.Harp, startedAt, sp
 }
 

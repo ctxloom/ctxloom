@@ -453,7 +453,6 @@ var envLiteralsOnceAllowed = map[string]string{
 
 	// the runner's halves today
 	"internal/adapters/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
-	"internal/adapters/runner/panelaunch.go":      "the pane's capture directory is a scratch root the runner makes for the tmux host; no slice carries a temp root to the runner yet (measured)",
 
 	// isolation: handed HostFacts and a CellRequest
 	"internal/adapters/isolation/diagnose.go":   "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",

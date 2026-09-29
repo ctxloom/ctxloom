@@ -110,7 +110,7 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 	t.Run("run failure → unprobed, not mismatch", func(t *testing.T) {
 		stubProbeExec(t, func(string) (string, error) {
 			_, err := exec.Command("sh", "-c", "echo 'daemon is down' >&2; exit 1").Output()
-			return "", err
+			return "", withStderr(err) // as probeExec reports it
 		})
 		d := &Diagnosis{}
 		diagnoseProbe(context.Background(), rt, "img", []string{t.TempDir()}, d)
@@ -124,6 +124,19 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 		d := &Diagnosis{}
 		diagnoseProbe(context.Background(), rt, "img", []string{t.TempDir()}, d)
 		assert.True(t, strings.HasPrefix(d.SharedFS, "mismatch:"), "%q", d.SharedFS)
+	})
+
+	t.Run("mount refused, unmounted run ok → mismatch", func(t *testing.T) {
+		stubProbeExec(t, func(markerPath string) (string, error) {
+			if markerPath != "" {
+				return "", errors.New("exit status 125")
+			}
+			return "", nil
+		})
+		d := &Diagnosis{InContainer: true}
+		diagnoseProbe(context.Background(), rt, "img", []string{t.TempDir()}, d)
+		assert.True(t, strings.HasPrefix(d.SharedFS, "mismatch:"), "%q", d.SharedFS)
+		assert.Contains(t, strings.Join(d.Guidance, "\n"), "docker-outside-of-docker")
 	})
 
 	t.Run("shared → ok", func(t *testing.T) {

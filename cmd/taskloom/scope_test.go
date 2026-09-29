@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -21,8 +20,7 @@ import (
 // normal, project-scoped read (even on a repo's very first taskloom call).
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
-	cmd := exec.Command("git", "init", "--quiet", dir)
-	require.NoError(t, cmd.Run(), "git init")
+	taskstest.Git(t, dir, nil, "init", "--quiet")
 }
 
 func TestResolveListScope_ExplicitGlobal_AlwaysAggregatesNoNotice(t *testing.T) {

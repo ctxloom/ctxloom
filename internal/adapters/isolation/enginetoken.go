@@ -7,177 +7,213 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sync"
+	"slices"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// A ctxloom-launched engine that shares no login authenticates from ONE
-// long-lived token in its env (engine.TokenAuth.TokenVar), filled by
-// ExportStoredTokens; a host run of an engine declaring
-// engine.HomeSpec.SharedLogin uses the human's own login in place instead,
-// with the token blanked. Nothing is copied into a session home, mounted into
-// a container or refreshed by ctxloom.
+// An engine's stored credentials: one owner-only file per engine and auth
+// mode under the ctxloom home. Nothing here knows which env var carries a
+// credential or which mode an engine prefers: the engine's own Auth reads
+// what is stored (StoredCredentials) and decides. Nothing is copied into a
+// session home, mounted into a container or refreshed by ctxloom.
 //
-// Why: an OAuth refresh token is single-use and rotates. Native sessions stay
-// in step only because they share one credentials file AND one lock pair. A
-// per-session copy has its own config dir and its own locks, and a container
-// bind of the one file pins the inode claude replaces by rename, so copies
-// went stale and a refresh from one could revoke the rest. A shared login is
-// the ONE file and lock pair; a setup-token is never refreshed and never
-// written by the engine. Neither has a second holder to fall out of step with.
+// Why only long-lived credentials are stored: an OAuth refresh token is
+// single-use and rotates. Native sessions stay in step only because they
+// share one credentials file AND one lock pair; a copy has its own locks,
+// went stale, and a refresh from one revoked the rest. A minted token and an
+// API key are never refreshed, so a stored one has no second holder to fall
+// out of step with. The login is never stored: a run in that mode is pointed
+// at the human's own.
 
 var (
-	// ErrNoTokenAuth: the engine declares no token var to store a token for.
-	ErrNoTokenAuth = errors.New("engine takes no stored token")
-	// ErrEmptyToken: nothing but whitespace was supplied.
-	ErrEmptyToken = errors.New("no token supplied")
-	// ErrMalformedToken: the input holds more than one word, so it is not
-	// one token (a pasted command, or two lines).
-	ErrMalformedToken = errors.New("input is not a single token")
+	// ErrNoAuth: the engine is unknown or declares no auth to store for.
+	ErrNoAuth = errors.New("engine declares no auth")
+	// ErrNotStored: the mode keeps no credential ctxloom could store (the
+	// human's own login).
+	ErrNotStored = errors.New("the auth mode stores no credential")
+	// ErrEmptyCredential: nothing but whitespace was supplied.
+	ErrEmptyCredential = errors.New("no credential supplied")
+	// ErrMalformedCredential: the input holds more than one word, so it is
+	// not one credential (a pasted command, or two lines).
+	ErrMalformedCredential = errors.New("input is not a single credential")
+	// ErrCredentialExposed: the stored credential, or the directory holding
+	// it, is open to someone other than its owner, so it is not used.
+	ErrCredentialExposed = errors.New("stored credential is not owner-only")
 )
 
-const (
-	tokenFileMode fs.FileMode = 0o600
-	tokenDirMode  fs.FileMode = 0o700
-)
-
-// TokenSource is where an engine's token var got its value in this process.
-type TokenSource string
-
-const (
-	// TokenSourceEnv: the user exported the var; it wins over the store.
-	TokenSourceEnv TokenSource = "env"
-	// TokenSourceStored: ExportStoredTokens filled it from the stored file.
-	TokenSourceStored TokenSource = "stored"
-	// TokenSourceNone: the var is unset.
-	TokenSourceNone TokenSource = "none"
-)
-
-var (
-	tokenSourcesMu sync.Mutex
-	// storedExports are the vars ExportStoredTokens set in this process, so
-	// a later status can tell them from ones the user exported.
-	storedExports = map[string]bool{}
-)
-
-// TokenAuthFor is the engine's declared token auth; false when the engine is
-// unknown or declares none.
-func TokenAuthFor(name string) (engine.TokenAuth, bool) {
+// AuthFor is the engine's declared auth; false when the engine is unknown or
+// declares none.
+func AuthFor(name string) (engine.Auth, bool) {
 	f, ok := factsFor(name)
 	if !ok {
-		return engine.TokenAuth{}, false
+		return nil, false
 	}
 	return f.Home.Auth.Get()
 }
 
-// StoreEngineToken writes token as engine's stored token: owner-only from
-// creation (iox.WriteFileAtomic), in an owner-only directory, surrounding
-// whitespace trimmed. It returns the file's path and never echoes the token.
-func StoreEngineToken(name string, token []byte) (string, error) {
-	if _, ok := TokenAuthFor(name); !ok {
-		return "", fmt.Errorf("%s: %w", name, ErrNoTokenAuth)
+// storableAuth is the engine's auth when mode is one it supports AND one
+// ctxloom stores a credential for.
+func storableAuth(name string, mode engine.AuthMode) (engine.Auth, error) {
+	f, ok := factsFor(name)
+	if !ok {
+		return nil, report.Errorf("name a registered engine with --engine", "%s: %w", name, ErrNoAuth)
 	}
-	tok := bytes.TrimSpace(token)
-	if len(tok) == 0 {
-		return "", ErrEmptyToken
+	if _, err := engine.CheckAuth(engine.Name(name), f.Home.Auth, string(mode)); err != nil {
+		return nil, err
 	}
-	if len(bytes.Fields(tok)) != 1 {
-		return "", ErrMalformedToken
+	a, ok := f.Home.Auth.Get()
+	if !ok {
+		return nil, report.Errorf(fmt.Sprintf("%s authenticates on its own; there is nothing to store", name), "%s: %w", name, ErrNoAuth)
 	}
-	path, err := paths.HomeEngineTokenPath(name)
+	if !mode.Stored() {
+		var stored []string
+		for _, m := range a.Modes() {
+			if m.Stored() {
+				stored = append(stored, string(m))
+			}
+		}
+		return nil, report.Errorf(fmt.Sprintf("nothing is stored for auth %s: it uses what your own shell or login already holds; the modes of %s ctxloom stores a credential for are: %s", mode, name, strings.Join(stored, ", ")),
+			"%s %s: %w", name, mode, ErrNotStored)
+	}
+	return a, nil
+}
+
+// ensureOwnerOnlyDir is owneronly.EnsureDir, indirected so a test can make
+// it fail: no ACL a test can write stops an elevated Windows administrator
+// (the account CI runs as) from replacing a DACL, so the failure has no
+// honest on-disk fixture there.
+var ensureOwnerOnlyDir = owneronly.EnsureDir
+
+// StoreEngineCredential writes secret as engine's stored credential for
+// mode: owner-only from creation (iox.WriteFileAtomic), in an owner-only
+// directory (owneronly.EnsureDir), surrounding whitespace trimmed. It returns the file's path and
+// never echoes the secret. The result is held to the same check a read
+// applies, and a credential that fails it is removed: a store never leaves a
+// readable credential.
+func StoreEngineCredential(name string, mode engine.AuthMode, secret []byte) (string, error) {
+	if _, err := storableAuth(name, mode); err != nil {
+		return "", err
+	}
+	s := bytes.TrimSpace(secret)
+	if len(s) == 0 {
+		return "", ErrEmptyCredential
+	}
+	if len(bytes.Fields(s)) != 1 {
+		return "", ErrMalformedCredential
+	}
+	path, err := paths.HomeEngineCredentialPath(name, string(mode))
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), tokenDirMode); err != nil {
-		return "", fmt.Errorf("create %s: %w", filepath.Dir(path), err)
+	dir := filepath.Dir(path)
+	if err := ensureOwnerOnlyDir(dir); err != nil {
+		return "", fmt.Errorf("restrict %s to its owner: %w", dir, err)
 	}
-	if err := os.Chmod(filepath.Dir(path), tokenDirMode); err != nil {
-		return "", fmt.Errorf("restrict %s: %w", filepath.Dir(path), err)
-	}
-	if err := iox.WriteFileAtomic(path, tok, tokenFileMode, iox.Durable()); err != nil {
+	if err := iox.WriteFileAtomic(path, s, owneronly.FileMode, iox.Durable()); err != nil {
 		return "", err
+	}
+	if err := checkCredentialPrivate(path); err != nil {
+		return "", errors.Join(err, os.Remove(path))
 	}
 	return path, nil
 }
 
-// ExportStoredTokens sets each engine's token var from its stored token when
-// the process env leaves it unset. It runs once at process start, so every
-// launch path inherits the var: a container through the name-only
-// passthrough (engine.ContainerAuth), a host engine through the runner's env
-// unless its cell shares the human's login and blanks it.
-func ExportStoredTokens() error {
-	var errs []error
-	for _, name := range factNames() {
-		a, ok := TokenAuthFor(name)
-		if !ok || os.Getenv(a.TokenVar) != "" {
-			continue
-		}
-		path, err := paths.HomeEngineTokenPath(name)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		raw, err := os.ReadFile(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			errs = append(errs, fmt.Errorf("read the stored %s token: %w", name, err))
-			continue
-		}
-		tok := string(bytes.TrimSpace(raw))
-		if tok == "" {
-			continue
-		}
-		if err := os.Setenv(a.TokenVar, tok); err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		tokenSourcesMu.Lock()
-		storedExports[a.TokenVar] = true
-		tokenSourcesMu.Unlock()
+// checkCredentialPrivate refuses a credential whose directory or file is
+// open to anyone but its owner, with ErrCredentialExposed naming the path
+// and the fix. A missing path is returned as is (fs.ErrNotExist).
+func checkCredentialPrivate(path string) error {
+	err := owneronly.Check(filepath.Dir(path), path)
+	var exposed *owneronly.ExposedError
+	if errors.As(err, &exposed) {
+		return fmt.Errorf("%w: %w; store it again (`ctxloom auth mint` or `ctxloom auth set`) to restrict it", ErrCredentialExposed, err)
 	}
-	return errors.Join(errs...)
+	return err
 }
 
-// EngineTokenStatus is one engine's token state, without the token.
-type EngineTokenStatus struct {
-	Engine string
-	Var    string
-	Path   string
-	Stored bool
-	Mode   fs.FileMode
-	Source TokenSource
+// StoredCredentials is engine's credential store as its Auth reads it.
+func StoredCredentials(name string) engine.CredentialReader {
+	return storedCredentials{engine: name}
 }
 
-// EngineTokenStatuses reports every engine that declares token auth.
-func EngineTokenStatuses() ([]EngineTokenStatus, error) {
-	var out []EngineTokenStatus
+type storedCredentials struct{ engine string }
+
+// Read returns the stored credential for mode, trimmed. Nothing stored is
+// engine.ErrNoCredential; a credential others can read is refused with
+// ErrCredentialExposed rather than used or treated as absent.
+func (s storedCredentials) Read(mode engine.AuthMode) ([]byte, error) {
+	path, err := paths.HomeEngineCredentialPath(s.engine, string(mode))
+	if err != nil {
+		return nil, err
+	}
+	err = checkCredentialPrivate(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%s: %w", path, engine.ErrNoCredential)
+	}
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	c := bytes.TrimSpace(raw)
+	if len(c) == 0 {
+		return nil, fmt.Errorf("%s is empty: %w", path, engine.ErrNoCredential)
+	}
+	return c, nil
+}
+
+// EngineCredentialStatus is one engine's stored credential for one mode,
+// without the credential. Protection is this platform's verdict on who can
+// read it (owneronly.Describe); empty when nothing is stored.
+type EngineCredentialStatus struct {
+	Engine     string
+	Mode       engine.AuthMode
+	Path       string
+	Stored     bool
+	Protection string
+}
+
+// EngineCredentialStatuses reports every stored-credential mode of every
+// engine that declares auth, in the engine's own mode order.
+func EngineCredentialStatuses() ([]EngineCredentialStatus, error) {
+	var out []EngineCredentialStatus
 	for _, name := range factNames() {
-		a, ok := TokenAuthFor(name)
+		a, ok := AuthFor(name)
 		if !ok {
 			continue
 		}
-		path, err := paths.HomeEngineTokenPath(name)
-		if err != nil {
-			return nil, err
-		}
-		st := EngineTokenStatus{Engine: name, Var: a.TokenVar, Path: path, Source: TokenSourceNone}
-		if info, err := os.Stat(path); err == nil {
-			st.Stored, st.Mode = true, info.Mode().Perm()
-		}
-		if os.Getenv(a.TokenVar) != "" {
-			st.Source = TokenSourceEnv
-			tokenSourcesMu.Lock()
-			if storedExports[a.TokenVar] {
-				st.Source = TokenSourceStored
+		for _, mode := range slices.DeleteFunc(slices.Clone(a.Modes()), func(m engine.AuthMode) bool { return !m.Stored() }) {
+			st, err := credentialStatus(name, mode)
+			if err != nil {
+				return nil, err
 			}
-			tokenSourcesMu.Unlock()
+			out = append(out, st)
 		}
-		out = append(out, st)
 	}
 	return out, nil
+}
+
+func credentialStatus(name string, mode engine.AuthMode) (EngineCredentialStatus, error) {
+	path, err := paths.HomeEngineCredentialPath(name, string(mode))
+	if err != nil {
+		return EngineCredentialStatus{}, err
+	}
+	st := EngineCredentialStatus{Engine: name, Mode: mode, Path: path}
+	info, err := os.Stat(path)
+	if err != nil {
+		return st, nil
+	}
+	st.Stored = true
+	st.Protection, err = owneronly.Describe(path, info)
+	if err != nil {
+		return EngineCredentialStatus{}, fmt.Errorf("check who may read %s: %w", path, err)
+	}
+	return st, nil
 }

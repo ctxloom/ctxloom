@@ -21,15 +21,15 @@ func nonRegisteredSpellings() []string {
 	return []string{"claude", "claudecode", "Claude-Code", "CLAUDE-CODE", "claude-cod"}
 }
 
-// TestTokenAuthFor_OnlyTheRegisteredNameResolves: the token-auth table gates
-// both the stored-token export and the unauthenticated-home refusal, so the
-// registered name must hit, and every other spelling — unknown, alias-shaped
-// or case-variant — must miss rather than be rounded to a real engine.
-func TestTokenAuthFor_OnlyTheRegisteredNameResolves(t *testing.T) {
-	_, ok := TokenAuthFor(claude.EngineName)
+// TestAuthFor_OnlyTheRegisteredNameResolves: the auth table gates which
+// engine a credential is stored for and read back as, so the registered
+// name must hit, and every other spelling — unknown, alias-shaped or
+// case-variant — must miss rather than be rounded to a real engine.
+func TestAuthFor_OnlyTheRegisteredNameResolves(t *testing.T) {
+	_, ok := AuthFor(claude.EngineName)
 	assert.True(t, ok, "the registered name resolves")
 	for _, spelling := range append(nonRegisteredSpellings(), unknownEngineName) {
-		_, ok := TokenAuthFor(spelling)
+		_, ok := AuthFor(spelling)
 		assert.False(t, ok, "%q is not the registered name and must miss", spelling)
 	}
 }
@@ -39,17 +39,17 @@ func TestTokenAuthFor_OnlyTheRegisteredNameResolves(t *testing.T) {
 // inherit another engine's credentials — and a non-registered spelling of a
 // real engine is unmapped.
 func TestEngineContainerSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
-	require.NotEmpty(t, ContainerAuthEngines(), "fixture: the container-auth roster must not be empty")
-	assert.True(t, HasContainerAuth(claude.EngineName), "the registered name resolves")
+	require.NotEmpty(t, ContainerStoryEngines(), "fixture: the container-story roster must not be empty")
+	assert.True(t, HasContainerStory(claude.EngineName), "the registered name resolves")
 
-	assert.False(t, HasContainerAuth(unknownEngineName), "an unmapped engine must reach the fail-closed default")
-	assert.False(t, HasContainerAuth(""), "an empty engine name must reach the fail-closed default")
-	assert.False(t, HasContainerAuth("acp"), "the generic acp backend has no vetted container auth")
+	assert.False(t, HasContainerStory(unknownEngineName), "an unmapped engine must reach the fail-closed default")
+	assert.False(t, HasContainerStory(""), "an empty engine name must reach the fail-closed default")
+	assert.False(t, HasContainerStory("acp"), "the generic acp backend has no declared container story")
 	for _, spelling := range nonRegisteredSpellings() {
-		assert.False(t, HasContainerAuth(spelling), "%q is not the registered name and must miss", spelling)
+		assert.False(t, HasContainerStory(spelling), "%q is not the registered name and must miss", spelling)
 	}
 
 	spec := engineContainerSpecFor(unknownEngineName)
-	assert.Equal(t, noContainerAuthHint, spec.authHint, "the default arm's marker hint identifies it")
+	assert.False(t, spec.declared, "the default arm is undeclared, so it fails closed")
 	assert.Equal(t, []string{ctxloomCacheOverlayDir}, spec.overlayDirs, "an unmapped engine shadows only ctxloom's own cache dir")
 }

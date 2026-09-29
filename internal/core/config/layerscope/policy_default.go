@@ -14,7 +14,6 @@ func DefaultPolicy() Policy {
 		{Path: "agents.*.profiles", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		{Path: "agents.*.llm", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		{Path: "agents.*.driving", Scope: ScopeShared, Note: "which context this project's roles compose"},
-		{Path: "agents.*.escalation", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		// DIVERGES from the design doc's literal table (which lists this as
 		// ScopeMachine): reclassified to Shared. Reasoning, in full, belongs
 		// in the human-facing report for this change (it is a deliberate,
@@ -53,6 +52,7 @@ func DefaultPolicy() Policy {
 		// agentBindingMergeFunc's atomic-replace rule means a home-only value
 		// could never stick to a project-defined binding anyway.
 		{Path: "agents.*.engine_home", Scope: ScopeShared, Note: "a pollution/isolation policy decision about this project's agents, not a per-machine fact"},
+		{Path: "agents.*.auth", Scope: ScopeShared, Note: "which auth mode a project agent uses, never a credential (those are stored per user under the ctxloom home)"},
 
 		{Path: "dirty_tree_handler", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},
 		{Path: "workspace", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},

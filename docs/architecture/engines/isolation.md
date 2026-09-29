@@ -98,19 +98,6 @@ requested worktree is never dropped because the container failed.
 `""` means unset (host default), and a non-empty unknown runtime raises a fatal
 finding.
 
-### Cells — the engine-side mirror
-
-`agent.CellKind` is what actually reaches the engine backend: `CellKindShared`
-(zero), `CellKindDirectoryIsolated`, `CellKindProcessIsolated` — note this is a
-THREE-value enum, one per **workspace posture** the backend can observe (shared /
-worktree / container), not a mirror of the six-value runtime-ownership space:
-`CellKindProcessIsolated` covers a container cell in **either** ownership mode,
-since ownership is a host-side launch decision the backend itself never needs to
-see. A backend's `buildArgs` switches on it directly rather than inferring the
-cell from `WorkDir` — claude gates its out-of-cwd launch flags on
-`CellKindShared`, since an isolated cell reads the engine's well-known files in
-its private cwd instead.
-
 ## Container mechanics
 
 ### Image build — two stages
@@ -189,9 +176,9 @@ error and produces a loud degrade; a panic guard removes the scratch.
 
 **Mounts** (`Mount{Host, Container, ReadOnly}`):
 
-- The project dir at its **identical absolute path** (`ociRuntime.Expose`).
-- `gitdirMirrorMount` when `.git` is a pointer file; `gitCommonDirMount` mirrors the whole common dir **read-write** at an identical path.
-- `containerConfigOverlay` — one scratch-backed bind per profile `overlayDirs`, seeded by `seedOverlay`, with the target pre-created so the mountpoint is never root-owned.
+- The project dir where the runtime's mapper routes it (`relocateRoot`) — its identical path on a POSIX host; see [Host path mapping](#host-path-mapping).
+- `gitdirMirrorMounts` when `.git` is a pointer file; `gitDirMounts` mirrors the common dir **read-write** at its mapped path, masks its `worktrees/` registry with an empty **read-only** scratch dir and mounts this checkout's own admin dir back into it **read-write** (`gitRegistryMask`), and `gitPointerMounts` shadows the checkout's `.git` pointer and its admin dir's back-pointer with **read-only** mapped copies wherever the mapping renames paths.
+- `containerConfigOverlay` — one scratch-backed bind per profile `overlayDirs`, seeded by `seedOverlay`, targeting the mapping of the project path it shadows, with the host mountpoint pre-created so it is never root-owned.
 - `sessionStateMounts` — scoped RW mounts: engine transcripts (at `engineContainerSpec.transcriptStoreRel` under container `HOME`), the session persist dir, and **this project's** task log `~/.ctxloom/tasks/<project-id>.jsonl` plus its `.lock` sidecar — two single files, never the `~/.ctxloom/tasks` dir, which holds every project on the machine. `safePathSegment` validates the harp, and `paths.HomeTasksLogPath` the project id, before they become host paths.
 
 **Env** (`renderRunSpec`): entries are emitted as `-e <entry>` and are **either**
@@ -201,17 +188,62 @@ a bare `NAME` (value read by the runtime from the launcher's own
 
 **Uid remap / entrypoint**: the image `ENTRYPOINT` is
 `/usr/local/bin/ctxloom-entrypoint`; `identityEnvArgs` passes `-e
-PUID=<getuid> -e PGID=<getgid>` and nothing else. **The entrypoint refuses to
+PUID=<uid> -e PGID=<gid>` from `runIdentity` and nothing else — the launching
+user on a POSIX host, the image's own `ctxloom` user (`imageUserID`) on
+Windows, which has no POSIX uid to remap to. **The entrypoint refuses to
 run the engine as root, and ctxloom passes no way to override that** — the
 `CTXLOOM_ALLOW_ROOT=1` escape hatch, previously sent under
 `strictness.Degraded()`, was removed: `--degraded` means "a thinner run", never
 "run as root with the project mounted". Rootless podman additionally gets
 `--userns=keep-id`.
 
-**Network**: nothing in the package sets any `--network` flag; no network isolation
-is applied or claimed. The runner spec (`Container.buildRunnerSpec`) has no
+**Network**: the only `--network` flag is rootless podman's translator option
+(`Podman.networkArgs`), which opens its route to the host's loopback; no network
+isolation is applied or claimed. The runner spec (`Container.buildRunnerSpec`) has no
 socket mount and no published port at all; "the absences are the security
 contract".
+
+### Host path mapping
+
+The mount SOURCE is always the host path as this process sees it; the runtime
+translates it (Docker Desktop and podman machine both take a native `C:\...`
+source). The TARGET is a name ctxloom chooses in the container, through the
+runtime's `pathMapper`, and the mapper varies by **host OS only** — chosen at
+compile time by `hostMapper` in the `hostos_{unix,windows}.go` twins, never by
+runtime name:
+
+- POSIX host: `identityMapper`. Linux shares the kernel's paths; Docker Desktop
+  and podman machine on macOS share the user's paths into their VM at the same
+  names.
+- Windows host: `driveLetterMapper` — `C:\Users\ben\proj` is
+  `/mnt/c/Users/ben/proj` (the WSL and podman-machine convention). The drive
+  letter is lowercased, the rest keeps its case, a `\\?\` prefix is stripped,
+  and `..` cannot leave the drive. Share and device paths (`\\server\share`,
+  `\\wsl.localhost\...`, `\\.\...`) are refused as `errUNCPath`, reported as
+  `present.ErrUnreachableRoot` with the remedy to run the Linux build inside the
+  WSL distro that holds the project.
+
+Every mount is built by the runtime's path seam (`pathSeam`, from
+`Runtime.paths()`), and nowhere else — `TestArch_MountsAreBuiltByThePathSeam`
+refuses a mount literal outside it. The container side of a HOST-anchored path
+is the seam's `targetFor(host)` (`expose` binds it there); the container side of a CONTAINER-anchored path
+(under the instance home or `$HOME`) is `path.Join` over a POSIX root;
+`filepath` never builds a container path. `Prepare` routes the requested
+environment's roots once, with no effects, before the workspace chain, so an
+unroutable project is refused as unreachable rather than read as an
+unstartable container. `mountArgs` renders each `--mount` as one CSV record,
+because both runtimes parse it with `encoding/csv`.
+
+Docker-outside-of-docker is the seam's OTHER rule: there this process's paths
+are not the daemon's, so the bind SOURCE is rewritten (`sourceFor`, through
+this process's own container mounts) while the target is not. Targets never
+read that rule; it is applied only when `mountArgs` renders the argv, which is
+where a path the daemon has no name for is refused.
+
+A Windows host's container reaches the coordinator through the runtime's own
+route (`reachRoute`): Docker Desktop's `host.docker.internal`; a podman
+machine on WSL (`machineVMIsWSL`) takes the host's primary address, public and
+warned, because its `host.containers.internal` names the machine VM.
 
 ### Launch path
 
@@ -221,7 +253,7 @@ contract".
 
 ### Shared-FS verification
 
-An identical-path bind mount does not resolve through every daemon (Docker Desktop,
+A bind mount does not resolve through every daemon (Docker Desktop,
 remote daemons, DinD). Before launch, `mountProbeRoots` derives the real host
 roots, `sharedFSProbe` memoizes but **only latches definitive outcomes**
 (`definitiveProbe`), and `probeOneRoot` writes a marker inside the real root and
@@ -229,72 +261,189 @@ reads it back through a scratch container. `runSharedFSProbe` **errors on an
 empty root set** rather than reporting "ok". `sharedFSGateError` distinguishes a
 definitive `*sharedFSMismatch` from a transient probe failure.
 
+Scope: the probe proves the daemon sees each root's CONTENT through a native
+source — it mounts every root at the fixed `/probe` target, so it needs no
+mapper and runs unchanged on Windows. It does not check the mapped TARGET
+names; those follow from the mapper. A Windows share path never reaches it:
+the mapper refuses it first.
+
 ## Credential delivery
 
-A ctxloom-launched claude on the HOST, top-level or delegated, shares the
-human's own login in place: `CLAUDE_SECURESTORAGE_CONFIG_DIR` moves only
-claude's credential storage (the file, its write lock, both refresh locks, the
-macOS keychain item name) apart from `CLAUDE_CONFIG_DIR`, so a session-home
-run holds the SAME credential and the SAME lock pair as the human's claude,
-and claude's own locked, compare-and-swap refresh keeps them in step. The
-engine declares the var as `engine.HomeSpec.SharedLogin`;
-`operations.ResolveInTreeAgentHome` sets it on host cells only, to exactly the
-string the launching env's claude resolves (`engine.SharedLogin.Value`: the
-inherited var when set, else the human's `CLAUDE_CONFIG_DIR` byte for byte,
-else `""`, which claude reads as `$HOME/.claude`), and blanks
-`CLAUDE_CODE_OAUTH_TOKEN`, which claude reads ahead of any credential.
-`TestClaudeSecureStorage_FollowsTheVar` (`just test-conformance`) pins that
-the installed claude still honours the var.
+How a run authenticates is its AGENT's choice, declared as `auth:` on the
+binding (`agents.Agent.Auth`) in engine-neutral words (`engine.AuthMode`):
+`login`, `token`, `api-key` or `cloud`. Undeclared is `token`, so the human's
+own login is reached only by name; `ctxloom init` gives the default agent
+`login`. It is purely per agent: top-level, delegated or one-shot, on the
+session home or the real one (`engine_home: host` changes the home, never the
+credential).
 
-A claude in a CONTAINER authenticates from ONE long-lived token that
-`claude setup-token` mints, carried in `CLAUDE_CODE_OAUTH_TOKEN`. claude reads
-that variable ahead of any credentials file, never refreshes it and never
-writes it to disk. Nothing is copied into a session home, mounted into a
-container, replicated or refreshed by ctxloom.
+**One check.** `engine.CheckAuth` is the only validation of an auth
+selection, and config load (`config.Validate`), `agent create/edit`
+(`operations.validateAgentAuth`) and every launch (`operations.resolveRunAuth`,
+through `checkAgentAuth`) all run it, so they cannot disagree. Each refusal is
+typed — `ErrUnknownAuthMode`, `ErrAuthModeUnsupported`, `ErrEngineHasNoAuth` —
+and carries a remedy (`report.Errorf`) naming the modes that engine's
+`Auth.Modes` returns. Whether the credential is available is the engine's own
+answer (`Auth.Credentials` returning `ErrNoCredential` with its remedy); write
+time asks it too, and tolerates only a missing minted credential, which a run
+mints.
 
-Why: an OAuth refresh token is single-use and rotating. Native claude sessions
-stay in step only because they share one credentials file AND one lock beside
-the config dir. A per-session copy has its own config dir and its own lock,
-and a bind mount of the single file pins the inode claude replaces by
-temp-and-rename, so copies went stale and a refresh from one could revoke the
-rest. A token nobody refreshes has no second holder to fall out of step with.
-The reasoning is recorded once, at `isolation.ExportStoredTokens`.
+**The engine owns the meaning.** Which variables carry a mode, the precedence
+between them, and minting live behind `engine.Auth` on the engine's
+`HomeSpec`. `Credentials` returns an `engine.Credentials`, which names nothing
+about where the run executes: `Env` is laid over the engine's environment,
+every name in `Unset` is REMOVED from it, and `Stores` are the human's own
+credential stores the mode shares (`engine.SharedStore`: the var that points
+the engine at one, the launching env's exact value for it, its place under
+`$HOME`, and whether the run only reads it). Removal is not an empty value:
+some variables read `""` as a real default, and some switches count as set
+whatever their value.
 
-**Intake.** `ctxloom auth set-token` reads the token from stdin (a hidden
-prompt on a terminal), never argv, and stores it owner-only through
-`iox.WriteFileAtomic` at `paths.HomeEngineTokenPath` (`~/.ctxloom/auth/<engine>.token`).
-`ctxloom auth status` reports whether one is stored, its mode, and which one
-runs get, never the value.
+For claude (`claudeAuth`) the declared mode decides, against claude's
+documented precedence (https://code.claude.com/docs/en/authentication,
+"Authentication precedence": a cloud-provider switch, then
+`ANTHROPIC_AUTH_TOKEN`, then `ANTHROPIC_API_KEY`, then `apiKeyHelper`, then
+`CLAUDE_CODE_OAUTH_TOKEN`, then a named `ANTHROPIC_PROFILE`, then `/login`).
+Each mode sets its own credential (a value the human exported for THAT mode
+wins over the stored one) and unsets whatever would outrank or replace it:
 
-**Injection.** `cli.run` calls `isolation.ExportStoredTokens` once, before any
-command: for each engine declaring `engine.TokenAuth`, it sets the engine's
-`TokenVar` from the stored file when the process env leaves it unset. A token
-the user exported wins. Every launch path inherits this process's env, so a
-container gets it by name; a host cell sharing the login blanks it.
+- `login` shares one read-write store: `CLAUDE_SECURESTORAGE_CONFIG_DIR` with
+  exactly the string the launching env's claude resolves its storage from —
+  the inherited var when set, else the human's `CLAUDE_CONFIG_DIR` byte for
+  byte, else `""` (`$HOME/.claude`). That var moves only claude's credential
+  storage (the file, its write lock, both refresh locks) apart from
+  `CLAUDE_CONFIG_DIR`, so a session-home run holds the SAME credential and
+  lock pair as the human's claude; `TestClaudeSecureStorage_FollowsTheVar`
+  (`just test-conformance`) pins that the installed claude honours it on
+  Linux.
+- `token` sets `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token
+  `claude setup-token` mints; claude never refreshes it or writes it to disk.
+- `api-key` sets `ANTHROPIC_API_KEY`.
+- `cloud` passes the provider's own variables through from the shell (the set
+  is claude's `cloudVars`, taken from claude's Bedrock, Claude Platform on AWS,
+  Google Vertex, Microsoft Foundry and gateway pages), and is refused when no
+  provider switch and no gateway bearer is set. The provider's credential
+  FILES are shared stores, declared only when present in the human's home
+  (`providerStores`: `~/.aws`, the AWS shared config and credentials;
+  `~/.config/gcloud`, gcloud's application-default credentials), read-only
+  except `~/.aws/sso/cache`, which the AWS SDK rewrites on an SSO refresh and
+  is therefore a read-write store nested in the read-only `~/.aws`. A file
+  named by `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` or
+  `GOOGLE_APPLICATION_CREDENTIALS` still passes through as a host path, which
+  a container cannot open unless it lies inside one of those stores.
 
-**Refusal.** A relocated home (`engine_home: session`) that shares no login
-and that none of the engine's auth vars authenticates is refused by
-`isolation.PrepareInstanceHome`
-(a `report.KindIsolation` finding, FailAlways) naming the mint command,
-`ctxloom auth set-token`, the API-key vars and `engine_home: host`.
+Every mode but `login` unsets `CLAUDE_SECURESTORAGE_CONFIG_DIR`: `""` would be
+`$HOME/.claude`, the human's own credential.
 
-`containerAuth{mode, envPassthrough}` is resolved per backend.
-`containerAuthMode` is `authNone` (**zero value — least privilege**) or
-`authEnv`. `resolveDeclaredAuth` is trigger-then-refuse: any declared trigger
-set selects passthrough, else the run is refused. `presentEnvKeys` filters an
-allowlist down to *set* variables only — **names only cross the boundary**.
+Why only long-lived credentials are stored: an OAuth refresh token is
+single-use and rotating. Native claude sessions stay in step only because
+they share one credentials file AND one lock beside the config dir. A copy
+has its own lock, went stale, and a refresh from one revoked the rest. A
+credential nobody refreshes has no second holder to fall out of step with.
 
-| Engine | Env trigger | Site |
-|---|---|---|
-| claude | `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | claude's descriptor `Container.Auth`, resolved by `resolveDeclaredAuth`. No credential file is mounted |
-| mock | none needed | a `Vendorless` declaration — the one plan that never fails to resolve: mock authenticates against no vendor |
-| **unmapped/empty backend** | — | `noContainerAuth` — **fails closed**; the containerized run aborts at `PrepareWorkspace`'s auth gate rather than inheriting any other engine's credentials |
+**Storage.** `isolation.StoreEngineCredential` writes one owner-only file per
+engine and mode through `iox.WriteFileAtomic` at
+`paths.HomeEngineCredentialPath` (`~/.ctxloom/auth/<engine>.<mode>`), for the
+modes `AuthMode.Stored` names; a login or a cloud provider is the human's own
+and is never stored. Owner-only is the shared per-OS seam `owneronly`
+(`owneronly.EnsureDir`, `owneronly.Check`): mode `0600` in a `0700` directory
+on unix; on Windows a protected DACL granting the current user, where an
+existing ACL that also grants SYSTEM and Administrators is accepted. The same
+seam protects a session home and the engine config written into it
+(`isolation.PrepareInstanceHome`). A read
+(`isolation.StoredCredentials`) refuses a credential others can reach rather
+than use it or treat it as absent. `ctxloom auth status` shows each stored
+mode and who can read it: the mode on unix, the owner-only or exposed verdict
+on Windows. Intake is `ctxloom auth mint` (the engine's `Mint`, whose output
+reaches the terminal with the token itself replaced) or `ctxloom auth set`
+(stdin, never argv).
+
+**Resolution and delivery.** `operations.Cells.Prepare` resolves the run's
+`engine.Credentials` (`resolveRunAuth`) BEFORE the environment exists, with
+no input about where it will run, and hands them to the environment
+(`isolation.SpecBuilder.Credentials`). A preview resolves none. The
+environment makes each piece true where the engine runs:
+
+- the HOST sets each store's var to its value in place, so the run and the
+  human read the same store;
+- the CONTAINER mounts each store's host directory at its place under the
+  container's `$HOME` (never `$HOME` itself, never the session home;
+  read-only when declared so) through `relocateRoot`, the same helper that
+  produces every presented path with its mount, and sets the var to `""`,
+  which points the engine there;
+- BOTH refuse a declared store whose directory is missing (`stageStores`,
+  wrapping `ErrNoCredential`, remedy naming the directory and `auth: token`):
+  a run that would start logged out fails loudly instead.
+
+`Env` rides the placement's env and `Unset` its `Unset`
+(`launch.Placement.Unset`, the wire's `Cell.unset_env`) to the runner, which
+removes those names from its own
+environment before it drives the engine (`runner.Deps.Unsetenv`, refusing with
+`ErrEngineEnvUnscrubbed` when it cannot). Nothing enters the ctxloom process's
+env. A MINTED credential (`AuthMode.Minted`: the token) that is neither
+exported nor stored is minted when the human is at a terminal and refused when
+not, naming `ctxloom auth mint`: an unattended run never prompts and never
+starts logged out. Any other missing credential is the engine's own refusal.
+
+**Where a credential may and may not be.** It lives in the owner-only store,
+in the coordinator's and runner's memory, in the StartRun message between
+them, and in the engine process's environment. It is never journalled (a run
+fact records `cred_hash` and MCP server names, never an env), never in a
+container's `run` argv (it reaches the in-container engine through the
+launch's env over the wire), and never in a file an
+interactive launch writes: `tmuxhost.writeLauncher` keeps argv in its script
+but feeds the environment through a FIFO the script sources, unlinked once
+read. `TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed` scans a
+run's output, the ctxloom home outside the store, the project and the run's
+temp dir for a sentinel.
+
+A container adds no auth question of its own: `engine.ContainerSpec` says how
+the image is built, and its run authenticates exactly as a host run does.
+Whether an engine may run in a container at all is whether it declares a
+container story (`isolation.HasContainerStory` / `ContainerStoryEngines`); an
+unmapped or empty backend reaches the default spec, which **fails closed** at
+the container gate (`noContainerHint`).
 
 **`engine_home: host`.** On the host it runs claude against the real
-`~/.claude` in place, with claude's own lock, and copies nothing. In a
-container it means the container's own fresh `$HOME`, which authenticates
-from the forwarded token like any other container run; the real `~/.claude`
-is never mounted.
+`~/.claude` in place, with claude's own lock, and copies nothing; the agent's
+declared auth still applies. In a container it means the container's own
+fresh `$HOME`; the real `~/.claude` is mounted only as a `login` agent's
+shared store.
+
+### On a macOS host
+
+Nothing in this design has run on macOS: `just build-cross` compiles it for
+darwin/arm64 and no more. Each claim below is sourced or marked.
+
+- **`login`.** claude keeps its login in the macOS Keychain, falling back to
+  `~/.claude/.credentials.json` (mode `0600`) when the Keychain refuses the
+  write, and a set `CLAUDE_CONFIG_DIR` keys the Keychain entry to that
+  directory (https://code.claude.com/docs/en/authentication, "Credential
+  management"). That `CLAUDE_SECURESTORAGE_CONFIG_DIR` also moves the Keychain
+  item name is INFERRED from the claude binary's strings, measured on Linux
+  (claude's `SecureStorageEnv` doc); it is UNVERIFIED on macOS, and so is
+  whether a session-home run sharing the login this way reaches the human's
+  Keychain item.
+- **`token`, `api-key`.** ctxloom's own file store, `0600` files in a `0700`
+  `~/.ctxloom/auth` (the unix side of `owneronly`). ctxloom itself
+  never uses the Keychain.
+- **`cloud`.** The provider's variables from the human's shell; nothing
+  stored.
+- **Refused: a container agent declaring `login`.** The Keychain cannot be
+  mounted into a container. claude's darwin build declares its login store
+  with no place under `$HOME` (`loginStoreHomeRel` is `""`), and the
+  container environment refuses any store it cannot place
+  (`errStoreNotADirectory`, wrapping `ErrNoCredential`), naming the Keychain,
+  remedy `auth: token`. The host shares it in place. On Linux the same
+  agent's store is mounted. Both refuse a missing store.
+- **Where an implementation plugs in.** `engine.Auth.Credentials` decides the
+  env and the shared stores per mode; `loginStoreHomeRel` is the per-OS answer
+  to where claude's login lives; the per-OS store behind
+  `StoreEngineCredential` / `StoredCredentials` holds ctxloom's own. OPEN,
+  not decided, for a macOS container with
+  `login`: mint a token for container runs of a `login` agent; or export the
+  Keychain item into an owner-only file mounted for the run (which reopens
+  the copy-and-refresh problem above).
 
 ## Engine config homes
 
@@ -453,11 +602,11 @@ loops over them.
 Every row above is the engine's OWN declaration (`engine.Descriptor.Container`),
 pushed into `internal/adapters/isolation` at registration; isolation keeps no table.
 
-The default arm's `resolveAuth` is `noContainerAuth`: an engine with no mapping
-gets **no credentials at all** and its containerized run aborts at
-`PrepareWorkspace`'s auth gate. `isolation.HasContainerAuth(backend)` /
-`ContainerAuthEngines()` expose that same table so the refusal can happen
-*earlier*, at configuration time: `operations.validateContainerAuth` (run from
+The default arm is undeclared: an engine with no container declaration has
+its containerized run refused at the container gate
+(`prepareContainerScratch`). `isolation.HasContainerStory(backend)` /
+`ContainerStoryEngines()` read the same declarations so the refusal can happen
+*earlier*, at configuration time: `operations.validateContainerStory` (run from
 `validateAgentAxes`, i.e. `agent create`/`agent edit`/`SetAgent`) rejects a
 binding whose resulting `{engine, runtime: container-*}` pair names an engine
 with no mapping, naming the supported set in the error.
@@ -535,14 +684,14 @@ image another is between building and running.
 4. **The chain always terminates in a workspace**; `Prepare` never errors.
 5. **Unknown runtime axis is fail-closed; unknown workspace axis warns** (`warnUnknownAxes`).
 6. **Auth env values never enter argv** — `envPassthrough` carries names only, because `/proc/<pid>/cmdline` is world-readable.
-7. **`containerAuth`'s zero value fails closed** (`authNone`, no credentials cross).
+7. **The default container spec fails closed** (undeclared: the container gate refuses it).
 8. **No implicit pull** — an absent image is built from a known source or the policy degrades.
 9. **An unverifiable image *identity* fails loud; an unverifiable *label* reads as stale and triggers a rebuild** — opposite directions, both deliberate (`imageIdentityConfig` errors; `imageLabels` returns nil).
 10. **A user-owned (run-as-is) image must satisfy the identity contract** — a ctxloom-governed entrypoint or a non-root user, else `KindIsolation` (`Container.checkRunAsIsIdentity`).
 11. **The engine never runs as root in a governed image** — there is no override, in either mode; the build itself fails without a privilege-drop path (`overlayUserGate`).
 12. **The build gates that the engine is runnable**, not merely installed.
 13. **An agent image is content-keyed** — base content and the ONE engine are both in the tag.
-14. **Identical-path bind mounts are verified, not assumed**; an empty root set is an error, not an "ok".
+14. **Bind-mount roots are verified, not assumed** (the shared-FS probe); an empty root set is an error, not an "ok".
 15. **Commits from an agent never impersonate the human** — `gitIdentity` yields `"ctxloom agent <id>" <sanitized>@agents.ctxloom.local`.
 16. **Worktree teardown leaks rather than destroys** — `force=false`, unknown-dirty treated as dirty, and a WIP-bearing orphan is SPARED (`teardownWorktree`, `worktree_reap.go`).
 17. **`WorktreeVerdict`'s unhandled/unclassified case funnels to `VerdictSkipped` (never touch)** — the `default:` case in `ReapOrphanedWorktrees`'s tally.
@@ -554,7 +703,7 @@ image another is between building and running.
 
 **Credential and coverage gaps**
 
-- ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerAuth`) and the launch aborts; `operations.validateContainerAuth` refuses such a binding at write time so the abort is not the first the user hears of it.
+- ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerHint`) and the launch aborts; `operations.validateContainerStory` refuses such a binding at write time so the abort is not the first the user hears of it.
 - ~~**A backend in neither `credentialSeedSpecs` nor a curated-home registry gets a worktree with zero engine-global isolation and no finding at all**~~ — **PARTIALLY RESOLVED.** `Worktree.PrepareWorkspace` now records a `strictness.Fail(KindIsolation)` for any backend that is neither in `credentialSeedSpecs` nor named in `backendsWithNoGlobalState` — closing the gap for every unmapped engine. `backendsWithNoGlobalState` carries exactly one, independently-verified exemption (`mock`, which provably touches no engine-global state), not a silent carve-out; an empty backend (no agent context at all) stays silent by design.
 - **The curated-HOME allowlist** that used to symlink `~/.gitconfig`/`~/.ssh` into a worktree's per-agent home **has been removed along with the whole curated-home mechanism** — `Worktree` now relies solely on `credentialSeedSpecs`' scoped env vars (`Worktree.prepareHomeVarDirs`), which is why `.gitconfig`/`.ssh` identity is left on the *shared* worktree checkout instead of being copied or symlinked per agent. Whether that removal fully retired the class of bug the old allowlist was tracking (over-broad `.ssh` exposure) was not re-verified here.
 - **The worktree reaper's scope is `~/.ctxloom/sessions/*/ephemeral/` only** (`ReapOrphanedWorktrees`); worktrees on the `os.TempDir()` fallback are permanently unreapable, and nothing sweeps the sibling `ctxloom-tmp-*` dirs.
@@ -581,7 +730,7 @@ image another is between building and running.
   same bytes out of memory even past that. `internal/shared/procsec` raises
   the cost of the file-read path but says so itself: "THIS IS BAR-RAISING,
   NOT A BOUNDARY … The isolation boundary is a container" (`procsec.go:12-17`).
-- **`gitCommonDirMount` mounts the entire git common dir read-write**. The accepted risk is recorded in an implementation comment and not in the user-facing isolation claim or `docs/trust-model.md`. A member can therefore rewrite main's refs/objects/index and other agents' worktree admin dirs.
+- **`gitDirMounts` mounts the git common dir read-write** (only the `worktrees/` registry is masked). A member can therefore rewrite main's refs/objects/index, hooks and config.
 - **`TraceProbe`'s doc claims the loosened seccomp profile is structurally unreachable from a normal run**, but the gate is a plain `os.Getenv` (`traceProbeFromEnv`) — any parent exporting `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` makes every container run in that process ptrace-permitted and strace-wrapped.
 - **`worktreeWorkspace.Env()` advertises `HomeVar` target directories that nothing creates** if `prepareHomeVarDirs` failed; isolation then depends on each engine choosing to `mkdir -p` rather than falling back to its global home.
 - **`ImageConfig`'s doc claims "zero value = devcontainer auto-detect ON"** but `resolveDevBase` turns detection *off* when `AppRoot == ""`.

@@ -1,3 +1,7 @@
+//go:build !windows
+
+// tmux hosting is POSIX-only (see findTmux's Windows refusal).
+
 package tmuxhost
 
 import (
@@ -184,8 +188,27 @@ func TestTerminals_Create_MapsToNewWindow(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, carried, "the launcher for the echo terminal must exist")
-	assert.Contains(t, carried, "export FOO='bar'", "the environment is carried, exported")
 	assert.Contains(t, carried, "exec 'echo' 'hi'", "the command and its args are carried, quoted")
+	assert.NotContains(t, carried, "FOO", "the environment never lands in a file: it may carry credentials")
+	for _, path := range launchers {
+		if body, _ := os.ReadFile(path); strings.Contains(string(body), "echo") {
+			assert.Contains(t, readLaunchEnv(t, path), "export FOO='bar'", "the environment reaches the script through its feed, exported")
+		}
+	}
+}
+
+// readLaunchEnv reads a launcher's environment the way its script does: by
+// opening the FIFO it sources, which is also what lets the feed finish.
+func readLaunchEnv(t *testing.T, launcherPath string) string {
+	t.Helper()
+	fifo := filepath.Join(filepath.Dir(launcherPath),
+		strings.TrimSuffix(strings.Replace(filepath.Base(launcherPath), "ctxloom-launch-", "ctxloom-env-", 1), ".sh")+".fifo")
+	info, err := os.Stat(fifo)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeNamedPipe, "the environment channel is a FIFO, not a file")
+	body, err := os.ReadFile(fifo)
+	require.NoError(t, err)
+	return string(body)
 }
 
 // TestTerminals_Output_ReadsCapturedFileNotPane: Output reads the wrapper's
@@ -540,5 +563,6 @@ func TestTerminals_Create_KeepsTheTmuxCommandLineBounded(t *testing.T) {
 	body, rerr := os.ReadFile(launchers[0])
 	require.NoError(t, rerr)
 	assert.Contains(t, string(body), "PROMPT-BODY", "the prompt is carried in the launcher instead")
-	assert.Contains(t, string(body), "CTXLOOM_VAR_199", "every variable is carried in the launcher")
+	assert.NotContains(t, string(body), "CTXLOOM_VAR_", "no variable is written to the launcher file")
+	assert.Contains(t, readLaunchEnv(t, launchers[0]), "CTXLOOM_VAR_199", "every variable is carried through the feed")
 }

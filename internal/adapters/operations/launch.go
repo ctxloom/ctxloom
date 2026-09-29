@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -24,8 +25,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // This file is the trunk every host-side launch enters: StartRun mints the
@@ -286,19 +289,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	if err != nil {
 		return launch.Cell{}, err
 	}
-	// The resolver settled the home mode from the binding's declaration;
-	// re-parsed here through the vocabulary's own parser so the cell never
-	// asserts a spelling it did not check.
-	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
-	if err != nil {
-		return launch.Cell{}, err
-	}
-	spec, err := isolation.NewSpec(req.Axes, req.Engine).
-		Project(req.ProjectRoot).
-		Session(harp, req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
-		Image(req.Image).
-		Home(homeMode).
-		Build()
+	spec, err := c.spec(ctx, req, harp)
 	if err != nil {
 		return launch.Cell{}, err
 	}
@@ -313,6 +304,12 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	env, err := c.environment(ctx, req, spec)
 	found := strictness.Since(mark)
 	strictness.Close(mark)
+	if errors.Is(err, engine.ErrNoCredential) {
+		// A credential store the run cannot have (missing, or one no
+		// container can reach) is the credential's refusal, with its own
+		// remedy; the runtime is not what failed.
+		return launch.Cell{}, err
+	}
 	if err != nil {
 		return launch.Cell{}, fmt.Errorf("%w: %w", launch.ErrRuntimeUnavailable, err)
 	}
@@ -336,6 +333,50 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		Cleanup:   env.Cleanup,
 		Handle:    env,
 	}, nil
+}
+
+// spec is the isolation Spec the request's cell is prepared from, with the
+// credentials its agent authenticates with.
+func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (isolation.Spec, error) {
+	// The resolver settled the home mode from the binding's declaration;
+	// re-parsed here through the vocabulary's own parser so the cell never
+	// asserts a spelling it did not check.
+	homeMode, err := agents.ParseHomeMode(string(req.HomeMode))
+	if err != nil {
+		return isolation.Spec{}, err
+	}
+	creds, err := c.runCredentials(ctx, req)
+	if err != nil {
+		return isolation.Spec{}, err
+	}
+	return isolation.NewSpec(req.Axes, req.Engine).
+		Project(req.ProjectRoot).
+		Session(harp, req.SessionDir, isolation.SessionStateFromEnv(req.Env)).
+		Image(req.Image).
+		Home(homeMode).
+		Credentials(creds).
+		Build()
+}
+
+// runCredentials is what the request's agent authenticates with
+// (resolveRunAuth), from the mode the binding declared — settled before the
+// environment exists, so a credential that has to be minted is minted before
+// anything is built. A preview resolves them READ-ONLY (previewRunAuth: it
+// never mints, writes or creates a credential), so the environment sees the
+// stores the run would share; a refusal the run would return is recorded for
+// the dry run's gate and the preview carries on without credentials.
+func (c Cells) runCredentials(ctx context.Context, req launch.CellRequest) (engine.Credentials, error) {
+	in := runAuth{Backend: string(req.Engine.Root().Name), Declared: req.Auth}
+	if !c.preview {
+		return resolveRunAuth(ctx, c.engines, in)
+	}
+	creds, err := previewRunAuth(c.engines, in)
+	if err != nil {
+		remedy, _ := clifmt.RemedyOf(err)
+		strictness.FailAlways(report.KindIsolation, remedy, "refusing to run: %v", err)
+		return engine.Credentials{}, nil
+	}
+	return creds, nil
 }
 
 // environment is the prepared environment, or the preview's.

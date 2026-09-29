@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
+
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
@@ -63,10 +65,47 @@ type Definition struct {
 type VersionCommand struct {
 	Args  []string
 	Parse func(output string) (string, error)
+	// Floor is the oldest version ctxloom drives this engine at: the one the
+	// surfaces ctxloom relies on were verified against. "" declares none.
+	Floor string
 }
 
 // Declared reports whether the engine can be asked for its version at all.
 func (v VersionCommand) Declared() bool { return len(v.Args) > 0 && v.Parse != nil }
+
+// BelowFloorError refuses an installed engine older than its declared floor.
+type BelowFloorError struct{ Engine, Version, Floor string }
+
+func (e *BelowFloorError) Error() string {
+	return fmt.Sprintf("engine %q is version %s, below the %s ctxloom requires", e.Engine, e.Version, e.Floor)
+}
+
+// Remedy is what the user does about it.
+func (e *BelowFloorError) Remedy() string {
+	return fmt.Sprintf("upgrade %s to %s or newer", e.Engine, e.Floor)
+}
+
+// CheckFloor refuses version when it is below the declared floor. No floor
+// checks nothing; a version that does not parse is refused too — it cannot
+// be shown to be new enough, and guessing that it is would be the failure the
+// floor exists to prevent.
+func (v VersionCommand) CheckFloor(engineName, version string) error {
+	if v.Floor == "" {
+		return nil
+	}
+	floor, err := semver.NewVersion(v.Floor)
+	if err != nil {
+		return fmt.Errorf("engine %q declares an unparseable version floor %q: %w", engineName, v.Floor, err)
+	}
+	got, err := semver.NewVersion(version)
+	if err != nil {
+		return fmt.Errorf("engine %q reported version %q, which cannot be checked against its floor %s: %w", engineName, version, v.Floor, err)
+	}
+	if got.LessThan(floor) {
+		return &BelowFloorError{Engine: engineName, Version: version, Floor: v.Floor}
+	}
+	return nil
+}
 
 // Base is the ENGINE ROOT: every engine struct embeds it, so the views over
 // a Definition and the COMMON DECISIONING are written once, in core, and no
@@ -239,8 +278,7 @@ type PermissionFacts struct {
 	// genuinely read-only, non-prompting mode; false = no such tier, and the
 	// resolver collapses plan to default.
 	ReadOnlyPlan bool
-	// HostDefault is the posture a run takes when nothing declared one; a
-	// headless run refuses it unless it is SafeHeadless.
+	// HostDefault is the posture a run takes when nothing declared one.
 	HostDefault PermissionMode
 	// HostDefaultReason is shown to the user (under -v) when HostDefault is
 	// the posture a run resolved to.

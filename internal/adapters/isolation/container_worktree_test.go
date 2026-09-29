@@ -25,37 +25,36 @@ func TestContainerWorktree_Axes(t *testing.T) {
 // and maps it through the runtime's pathMapper (identity by default), so the
 // worktree's `gitdir:` pointer resolves inside the container.
 func TestContainerWorktree_GitdirMountRoutesThroughMapper(t *testing.T) {
-	// The worktree base mirrors the worktree's .git common-dir through the
-	// runtime's mapper (gitCommonDirMount) — the collapse of the former
-	// ContainerWorktree.gitdirMount.
-	m, err := gitCommonDirMount(context.Background(),
+	ms, err := gitDirMounts(context.Background(),
 		fakeRuntime{name: "docker", available: true},
-		&git.Fake{CommonDirValue: "/repo/.git"}, "/tmp/ctxloom-wt-m-abc")
+		&git.Fake{CommonDirValue: "/repo/.git"}, "/tmp/ctxloom-wt-m-abc", t.TempDir())
 	require.NoError(t, err)
-	assert.Equal(t, mount{Host: "/repo/.git", Container: "/ctr/repo/.git"}, m,
+	assert.Equal(t, []mount{{Host: "/repo/.git", Container: "/ctr/repo/.git"}}, ms,
 		"the .git common-dir is mirrored through the SAME mapper the project mount uses so gitdir resolves in-container")
 }
 
 // TestContainerWorktree_RunSpecMountsWorktreeAndGitdir proves the run spec the
-// container launcher builds carries BOTH the identical-path WORKTREE mount (cwd)
+// container launcher builds carries BOTH the mapped WORKTREE mount (cwd)
 // and the .git gitdir mirror — the two mounts that make git resolve inside the
 // container over the member's own checkout.
 func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
 	const common = "/repo/.git"
 	worktreeDir := filepath.Join(os.TempDir(), "ctxloom-wt-m-xyz")
 
-	gitMount, err := gitCommonDirMount(context.Background(),
+	gitMounts, err := gitDirMounts(context.Background(),
 		fakeRuntime{name: "docker", available: true},
-		&git.Fake{CommonDirValue: common}, worktreeDir)
+		&git.Fake{CommonDirValue: common}, worktreeDir, t.TempDir())
 	require.NoError(t, err)
+	require.NotEmpty(t, gitMounts)
+	gitMount := gitMounts[0]
 
 	// buildRunnerSpec is what the runner launch renders: workDir = the
 	// worktree, the workspace's mounts carrying the gitdir mirror.
 	spec := runnerSpecFor(Docker{}, "mock", worktreeDir, nil, []mount{gitMount})
 
-	assert.Equal(t, worktreeDir, spec.WorkDir, "cwd is the member's worktree, not the live project")
-	assert.Contains(t, spec.Mounts, mount{Host: worktreeDir, Container: worktreeDir},
-		"the worktree is bind-mounted identical-path as cwd")
+	assert.Equal(t, mapped(t, Docker{}, worktreeDir), spec.WorkDir, "cwd is the member's worktree, not the live project")
+	assert.Contains(t, spec.Mounts, exposedMapped(t, Docker{}, worktreeDir, false),
+		"the worktree is bind-mounted at its mapped path as cwd")
 	assert.Contains(t, spec.Mounts, gitMount,
 		"the .git gitdir mirror is mounted so git resolves inside the container")
 }

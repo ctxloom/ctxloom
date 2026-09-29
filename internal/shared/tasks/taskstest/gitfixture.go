@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,17 +35,17 @@ func RealGitWorktreeFixture(t *testing.T) (main, linked string) {
 	requireGit(t)
 
 	mainDir := t.TempDir()
-	runGit(t, mainDir, "init", "-q")
-	runGit(t, mainDir, "config", "user.email", "test@example.com")
-	runGit(t, mainDir, "config", "user.name", "Test")
+	Git(t, mainDir, nil, "init", "-q")
+	Git(t, mainDir, nil, "config", "user.email", "test@example.com")
+	Git(t, mainDir, nil, "config", "user.name", "Test")
 	if err := os.WriteFile(filepath.Join(mainDir, "f.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write fixture file: %v", err)
 	}
-	runGit(t, mainDir, "add", "f.txt")
-	runGit(t, mainDir, "commit", "-q", "-m", "init")
+	Git(t, mainDir, nil, "add", "f.txt")
+	Git(t, mainDir, nil, "commit", "-q", "-m", "init")
 
 	linkedDir := filepath.Join(t.TempDir(), "linked-wt")
-	runGit(t, mainDir, "worktree", "add", "-q", "-b", "wt-branch", linkedDir)
+	Git(t, mainDir, nil, "worktree", "add", "-q", "-b", "wt-branch", linkedDir)
 
 	main, err := filepath.EvalSymlinks(mainDir)
 	if err != nil {
@@ -119,12 +120,34 @@ func requireGit(t *testing.T) {
 		"optional dependency; set %s=1 to downgrade this to a skip.", EnvAllowMissingGit)
 }
 
-func runGit(t *testing.T, dir string, args ...string) {
+// Git runs git with args in dir, fails t on any error with git's own output
+// attached, and returns the trimmed combined output. env is appended to the
+// ambient environment; os/exec keeps the LAST value of a duplicated key, so an
+// entry in env overrides an inherited one rather than competing with it.
+//
+// This is the one test-side "run git or fail" body. It lives here rather than
+// in internal/testsupport because testsupport imports this package, and
+// because this package's own non-test fixtures need it — archtestsupport bars
+// a non-test file outside that tree from importing it.
+func Git(t testing.TB, dir string, env []string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// GitIdentity is the env pinning git's author and committer to name/email, for
+// a commit made where no identity is configured.
+func GitIdentity(name, email string) []string {
+	return []string{
+		"GIT_AUTHOR_NAME=" + name, "GIT_AUTHOR_EMAIL=" + email,
+		"GIT_COMMITTER_NAME=" + name, "GIT_COMMITTER_EMAIL=" + email,
 	}
 }

@@ -133,10 +133,10 @@ func TestPreview_ContainerDescribesTheProbedRuntime(t *testing.T) {
 // errNoHomeRoute is a runtime with no route home, as settleReach refuses.
 var errNoHomeRoute = errors.New("no default route to the host")
 
-// homelessRuntime is unroutableRuntime with no route home either: two
+// homelessRuntime is a mapperRuntime over an unroutableMapper with no route home either: two
 // independent problems a run would refuse on, one at relocation and one at
 // the reach probe.
-type homelessRuntime struct{ unroutableRuntime }
+type homelessRuntime struct{ mapperRuntime }
 
 func (homelessRuntime) reachRoute(context.Context) (hostRoute, error) {
 	return hostRoute{}, errNoHomeRoute
@@ -150,7 +150,7 @@ func (homelessRuntime) reachRoute(context.Context) (hostRoute, error) {
 func TestPreview_ReportsEveryProblemAndContinues(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := t.TempDir()
-	withFakeContainerRuntime(t, homelessRuntime{unroutableRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}}})
+	withFakeContainerRuntime(t, homelessRuntime{mapperRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}}})
 
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
@@ -163,9 +163,10 @@ func TestPreview_ReportsEveryProblemAndContinues(t *testing.T) {
 		assert.NotEmpty(t, f.Remedy, "every finding names its fix: %s", f.Text)
 		texts = append(texts, f.Text)
 	}
-	require.Len(t, found, 2, "both problems, not the first: %q", texts)
-	assert.Contains(t, found[0].Text, project, "the unroutable root, by name")
-	assert.Contains(t, found[1].Text, errNoHomeRoute.Error(), "the missing route home")
+	require.Len(t, found, 3, "every problem, not the first: %q", texts)
+	assert.Contains(t, found[0].Text, "identity contract cannot be verified", "the container gate: the fake runtime's run-as-is image has no config to verify")
+	assert.Contains(t, found[1].Text, project, "the unroutable root, by name")
+	assert.Contains(t, found[2].Text, errNoHomeRoute.Error(), "the missing route home")
 
 	root := env.Placement().Paths.Paths().ProjectRoot
 	assert.Equal(t, present.Root{Host: project}, root, "an unreachable root has no Engine side — never a guessed path")
@@ -203,7 +204,7 @@ func TestPreview_NoRuntimeDescribesTheRuntimeUnavailable(t *testing.T) {
 func TestPrepare_StillRefusesAPartialRelocation(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
 	project := t.TempDir()
-	withFakeContainerRuntime(t, unroutableRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}})
+	withFakeContainerRuntime(t, mapperRuntime{fakeRuntime: containerRuntime, m: unroutableMapper{under: project}})
 
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
@@ -212,12 +213,35 @@ func TestPrepare_StillRefusesAPartialRelocation(t *testing.T) {
 	assert.Nil(t, env, "no environment over a partial relocation")
 	var refusals int
 	for _, f := range strictness.Since(mark) {
-		if f.Remedy == unreachableRootRemedy {
+		if f.Remedy == unreachableRootRemedy(errNoRoute) {
 			refusals++
 			assert.True(t, f.NonDegradable)
 		}
 	}
 	assert.Equal(t, 1, refusals, "one relocation refusal")
+}
+
+// uncMapper refuses every path the way driveLetterMapper refuses a share.
+type uncMapper struct{}
+
+func (uncMapper) toContainer(host string) (string, error) {
+	return driveLetterMapper{}.toContainer(`\\srv\share` + host)
+}
+
+// A share-path root is refused with the remedy that fits it: the Linux build
+// inside the WSL distro, not "move it where the daemon sees it". Any other
+// unroutable root keeps the general remedy.
+func TestPrepare_UnreachableShareRootNamesWSLRemedy(t *testing.T) {
+	home := fakeHostHome(t, tokenFixture)
+	project := t.TempDir()
+	withFakeContainerRuntime(t, mapperRuntime{fakeRuntime: containerRuntime, m: uncMapper{}})
+
+	_, err := Prepare(context.Background(), envSpec(t, containerAxes, claudeEngine(t), home, project))
+	require.ErrorIs(t, err, errUNCPath)
+	found := strictness.All()
+	require.NotEmpty(t, found)
+	assert.Contains(t, found[len(found)-1].Remedy, "Linux build inside the WSL distro")
+	assert.NotContains(t, unreachableRootRemedy(errNoRoute), "WSL")
 }
 
 // A worktree's Placement carries what the worktree provisioned (scratch dir,
@@ -284,4 +308,83 @@ func treeOf(t *testing.T, roots ...string) []string {
 	}
 	sort.Strings(all)
 	return all
+}
+
+// finding is what a dry run's gate lists of one strictness finding.
+type finding struct {
+	text, remedy  string
+	nonDegradable bool
+}
+
+func findingsSince(mark strictness.Mark) []finding {
+	var out []finding
+	for _, f := range strictness.Since(mark) {
+		out = append(out, finding{f.Text, f.Remedy, f.NonDegradable})
+	}
+	return out
+}
+
+// A container preview runs the run's container gate — inspecting, never
+// pulling or building — and records exactly the refusals the run records on
+// the same inputs, so a dry run is never clean where the run refuses: an
+// image that is absent with no recipe to build it, and an engine that
+// declares no container story (behind a user-owned image whose identity
+// contract cannot be verified, which the run refuses on too).
+func TestPreview_RecordsTheContainerGateARunRefusesOn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rt   Runtime
+		eng  func(t *testing.T) engine.Engine
+	}{
+		{"image absent, nothing to build it from", fakeRuntime{name: "docker", binary: "false", available: true}, claudeEngine},
+		{"engine with no container story", containerRuntime, func(*testing.T) engine.Engine { return mock.NewNamed("storyless") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := fakeHostHome(t, tokenFixture)
+			project := t.TempDir()
+			withFakeContainerRuntime(t, tc.rt)
+			s := envSpec(t, containerAxes, tc.eng(t), home, project)
+
+			mark := strictness.Checkpoint()
+			env, err := Prepare(context.Background(), s)
+			if err == nil {
+				require.NoError(t, env.Cleanup())
+			}
+			run := findingsSince(mark)
+			strictness.Close(mark)
+			require.NotEmpty(t, run, "precondition: the run refuses")
+
+			mark = strictness.Checkpoint()
+			defer strictness.Close(mark)
+			_ = Preview(context.Background(), s)
+			assert.Equal(t, run, findingsSince(mark), "the dry run records what the run refuses on")
+		})
+	}
+}
+
+// A worktree preview shows the cwd the run gets: the checkout it would
+// create, at the path it creates it, and nothing on disk — or, for a project
+// that is no git repository (the run degrades to the shared tree), the live
+// project.
+func TestPreview_WorktreeShowsTheCwdTheRunGets(t *testing.T) {
+	axes := launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost}
+	for _, tc := range []struct {
+		name    string
+		project func(t *testing.T) string
+	}{
+		{"a git project: the checkout", gitRepo},
+		{"no git repository: the live project", func(t *testing.T) string { return t.TempDir() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := fakeHostHome(t, tokenFixture)
+			project := tc.project(t)
+			s := envSpec(t, axes, claudeEngine(t), home, project)
+
+			previewed := Preview(context.Background(), s).Placement().Paths.Paths().ProjectRoot.Host
+			require.NoDirExists(t, sessionDir(home, harpA), "a preview creates nothing on disk")
+
+			ran := prepared(t, s).Placement().Paths.Paths().ProjectRoot.Host
+			assert.Equal(t, ran, previewed, "the preview shows the cwd the run gets")
+		})
+	}
 }

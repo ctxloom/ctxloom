@@ -461,6 +461,7 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 // matching the promise in docs/concepts/fragments.md ("An undefined variable
 // renders empty and produces a warning").
 func TestAssembleContext_UndefinedVariableWarns(t *testing.T) {
+	freshWarnOnce(t)
 	fs, loader := setupContextTestFS(t)
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
 		"project-partial": {
@@ -513,6 +514,7 @@ func TestAssembleContext_DefinedVariablesDoNotWarn(t *testing.T) {
 // never silently dropped) and the parse failure warns exactly like the
 // undefined-variable case.
 func TestAssembleContext_TemplateParseFailureWarnsAndReturnsContentUnchanged(t *testing.T) {
+	freshWarnOnce(t)
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
@@ -559,6 +561,7 @@ fragments:
 // occupancy in clidiag's process-global onceSeen set can never race another
 // test's expectation depending on test execution order.
 func TestAssembleContext_UndefinedVariableWarningDedupesAcrossRepeatedCalls(t *testing.T) {
+	freshWarnOnce(t)
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
@@ -603,6 +606,7 @@ fragments:
 // multi-fragment profile can go straight to the right file instead of
 // grepping every assembled fragment for the placeholder.
 func TestAssembleContext_UndefinedVariableWarningNamesFragment(t *testing.T) {
+	freshWarnOnce(t)
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))

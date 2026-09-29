@@ -227,6 +227,40 @@ jobs:
       - name: Check generated MCP tool schemas are current
         run: just gen-mcp-schemas-check
 
+  # The Windows arm of every per-platform seam: the files a linux run never
+  # compiles, run natively. On the runner host, not the devcontainer image,
+  # which is Linux. No `needs:` — it shares nothing with the container jobs, so
+  # it runs alongside them.
+  windows:
+    name: Windows platform tests
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The host justfile delegates into docker; this one runs the toolchain
+      # directly, which is what this runner has.
+      JUST_JUSTFILE: justfile.container
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-just
+
+      - name: Resolve pinned Go version
+        id: go_version
+        run: just ci-go-version
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go_version.outputs.version }}
+          cache-dependency-path: go.sum
+
+      - name: Windows platform tests
+        run: just test-windows
+
   build-and-integration:
     name: Build & Integration Tests
     runs-on: ubuntu-latest
@@ -236,6 +270,15 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      # The job reaches the RUNNER's docker daemon through its mounted socket
+      # (docker-outside-of-docker), and that daemon resolves a bind-mount
+      # source against the runner's filesystem, not this container's. Tests
+      # mount t.TempDir() and dockergate.BindFixtureRoot, both under /tmp;
+      # sharing it at the SAME path is what makes those sources exist for the
+      # daemon. An unshared source is created EMPTY on the runner, so the
+      # container sees a blank directory, not an error.
+      volumes:
+        - /tmp:/tmp
     env:
       JUST_JUSTFILE: justfile.container
 
@@ -297,6 +340,14 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      # The job reaches the RUNNER's docker daemon through its mounted socket
+      # (docker-outside-of-docker), and that daemon resolves a bind-mount
+      # source against the runner's filesystem, not this container's. Tests
+      # create everything they mount under /tmp; sharing it at the SAME path is
+      # what makes those sources exist for the daemon. Without it the product's
+      # shared-filesystem probe correctly reports that nothing can be mounted.
+      volumes:
+        - /tmp:/tmp
     env:
       JUST_JUSTFILE: justfile.container
 
@@ -320,41 +371,28 @@ jobs:
       - name: Run acceptance suite
         run: just test-acceptance-cover
 
+  # Diff-only mutation on both PR and push, so a green PR runs the same check
+  # that gates the release on main; the whole tree runs weekly instead
+  # (mutation-weekly.yml). Sharded across runners by .github/workflows/mutation.yml.
+  #
+  # The base is the one thing here that is genuinely GitHub's to compute —
+  # everything done with it (the no-base and no-mutable-Go skips, the plan,
+  # the verdict) is in build/ci.justfile and scripts/mutshard.
+  #
+  # shard-timeout-minutes: the unsharded job took 5h48m on a large diff, most
+  # of it TIMED OUT mutants, each holding a worker for the whole per-mutant
+  # budget (the coverage run's duration times .gremlins.yaml's
+  # timeout-coefficient). The plan balances by changed lines and cannot see
+  # which mutants will time out, so this is sized for every timed-out mutant of
+  # that run landing on ONE shard's workers: three rounds of that budget.
   mutation:
     name: Mutation Testing
-    runs-on: ubuntu-latest
     needs: [build-container, test]
-    container:
-      image: ghcr.io/${{ github.repository }}-devcontainer:${{ github.sha }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    env:
-      JUST_JUSTFILE: justfile.container
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Mark workspace as safe
-        run: just ci-git-safe-directory
-
-      - name: Generate protobuf code
-        run: just proto
-
-      # Diff-only mutation on both PR and push, so a green PR runs the same
-      # check that gates the release on main. The whole-codebase run is too slow
-      # for every PR; it runs weekly instead (mutation-weekly.yml).
-      #
-      # The base is the one thing here that is genuinely GitHub's to compute —
-      # everything the recipe does with it (the no-base and no-mutable-Go skips,
-      # the TMPDIR pinning gremlins needs) is in build/ci.justfile.
-      - name: Run mutation tests (diff)
-        env:
-          MUTATION_BASE: >-
-            ${{ github.event_name == 'pull_request'
-                && format('origin/{0}', github.base_ref)
-                || github.event.before }}
-        run: just test-mutation-diff "$MUTATION_BASE"
+    uses: ./.github/workflows/mutation.yml
+    with:
+      scope: >-
+        diff:${{ github.event_name == 'pull_request'
+                 && format('origin/{0}', github.base_ref)
+                 || github.event.before }}
+      image-tag: ${{ github.sha }}
+      shard-timeout-minutes: 300

@@ -16,34 +16,14 @@ permissions:
   packages: read
 
 jobs:
+  # The same sharded run as ci.yml's diff gate, over the whole tree
+  # (.github/workflows/mutation.yml): a whole-tree run does not fit in one
+  # job's 6h limit. No completed whole-tree run exists to size the shard
+  # timeout from, so it is the hosted-runner maximum less a margin.
   full-mutation:
     name: Full Mutation Testing
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/${{ github.repository }}-devcontainer:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    env:
-      JUST_JUSTFILE: justfile.container
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Mark workspace as safe
-        run: just ci-git-safe-directory
-
-      - name: Generate protobuf code
-        run: just proto
-
-      # `just test-mutation`, not a bare `gremlins unleash`. gremlins copies the
-      # whole Go module into TMPDIR once per worker; on a tmpfs /tmp that
-      # exhausts RAM and wedges the machine (it has emptied a 16G tmpfs on a dev
-      # box). The recipe pins TMPDIR to disk and sweeps the copies afterwards.
-      # This step called gremlins directly and had none of that — the exact
-      # workflow-vs-recipe drift build/ci.justfile exists to end.
-      - name: Run full mutation tests
-        run: just test-mutation
+    uses: ./.github/workflows/mutation.yml
+    with:
+      scope: tree
+      image-tag: latest
+      shard-timeout-minutes: 350

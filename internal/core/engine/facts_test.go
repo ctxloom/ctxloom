@@ -1,17 +1,31 @@
 package engine
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
+
+// fakeAuth is an Auth with the modes a test names and nothing else.
+type fakeAuth struct{ modes []AuthMode }
+
+func (f fakeAuth) Modes() []AuthMode { return f.modes }
+func (fakeAuth) Credentials(AuthMode, func(string) (string, bool), CredentialReader) (Credentials, error) {
+	return Credentials{}, nil
+}
+func (fakeAuth) Mint(context.Context, AuthMode, Terminal) ([]byte, error) {
+	return nil, ErrMintUnsupported
+}
 
 func validHome() HomeSpec {
 	return HomeSpec{
-		Vars:        []HomeVar{{Name: "X_CONFIG_DIR", Subdir: "x"}},
-		Auth:        Provide(TokenAuth{TokenVar: "X_TOKEN", EnvTriggers: []string{"X_API_KEY"}, MintHint: "x setup-token"}),
-		SharedLogin: Provide(SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"}),
+		Vars: []HomeVar{{Name: "X_CONFIG_DIR", Subdir: "x"}},
+		Auth: Provide[Auth](fakeAuth{modes: []AuthMode{AuthLogin, AuthToken}}),
 	}
 }
 
@@ -26,10 +40,10 @@ func TestHomeSpec_ZeroValue_IsTheNullObject(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// Token auth on a spec that relocates nothing is refused: the auth check
-// guards a relocated home, and there is none.
+// Auth on a spec that relocates nothing is refused: the auth check guards a
+// relocated home, and there is none.
 func TestHomeSpec_Validate_RefusesAuthWithNoVar(t *testing.T) {
-	h := HomeSpec{Auth: Provide(TokenAuth{TokenVar: "X_TOKEN", MintHint: "x setup-token"})}
+	h := HomeSpec{Auth: Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken}})}
 	assert.ErrorContains(t, h.Validate(), "no home var")
 }
 
@@ -50,84 +64,111 @@ func TestHomeSpec_Validate_RefusesEmptyVarFields(t *testing.T) {
 // an engine with a relocatable home MUST say how a run there authenticates.
 func TestHomeSpec_Validate_RefusesUndecidedAuth(t *testing.T) {
 	h := validHome()
-	h.Auth = Declared[TokenAuth]{}
+	h.Auth = Declared[Auth]{}
 	assert.ErrorContains(t, h.Validate(), "Auth")
 }
 
 func TestHomeSpec_Validate_AcceptsAbsentAuth(t *testing.T) {
 	h := validHome()
-	h.Auth = Absent[TokenAuth]("authenticates against no vendor")
+	h.Auth = Absent[Auth]("authenticates against no vendor")
 	assert.NoError(t, h.Validate())
 }
 
-// A token-auth declaration must name the var the engine reads its token from
-// and the command that mints one: the refusal of an unauthenticated run
-// names both.
-func TestHomeSpec_Validate_TokenAuthNamesItsVarAndItsMintCommand(t *testing.T) {
+// An Auth a binding could never select is refused at registration: one with
+// no mode, a nil one, and one naming a mode outside the shared vocabulary.
+func TestHomeSpec_Validate_RefusesAnUnselectableAuth(t *testing.T) {
 	h := validHome()
-	h.Auth = Provide(TokenAuth{MintHint: "x setup-token"})
-	assert.ErrorContains(t, h.Validate(), "TokenVar")
-	h.Auth = Provide(TokenAuth{TokenVar: "X_TOKEN"})
-	assert.ErrorContains(t, h.Validate(), "MintHint")
+	h.Auth = Provide[Auth](fakeAuth{})
+	assert.ErrorContains(t, h.Validate(), "no mode")
+	h.Auth = Provide[Auth](nil)
+	assert.ErrorContains(t, h.Validate(), "nil")
+	h.Auth = Provide[Auth](fakeAuth{modes: []AuthMode{"keychain"}})
+	assert.ErrorContains(t, h.Validate(), `"keychain"`)
 }
 
-// An undecided SharedLogin is refused like an undecided Auth: an engine with
-// a relocatable home must say whether a host run can share the human's login.
-func TestHomeSpec_Validate_RefusesUndecidedSharedLogin(t *testing.T) {
-	h := validHome()
-	h.SharedLogin = Declared[SharedLogin]{}
-	assert.ErrorContains(t, h.Validate(), "SharedLogin")
-	h.SharedLogin = Absent[SharedLogin]("keeps no credential storage of its own")
-	assert.NoError(t, h.Validate())
-}
-
-func TestHomeSpec_Validate_SharedLoginNamesBothVars(t *testing.T) {
-	h := validHome()
-	h.SharedLogin = Provide(SharedLogin{FallbackVar: "X_CONFIG_DIR"})
-	assert.ErrorContains(t, h.Validate(), "Var is empty")
-	h.SharedLogin = Provide(SharedLogin{Var: "X_STORAGE_DIR"})
-	assert.ErrorContains(t, h.Validate(), "FallbackVar")
-}
-
-func TestHomeSpec_Validate_RefusesSharedLoginWithNoVar(t *testing.T) {
-	h := HomeSpec{SharedLogin: Provide(SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"})}
-	assert.ErrorContains(t, h.Validate(), "no home var")
-}
-
-// Value is the string the launching env's own engine resolves its storage
-// from, byte for byte: the storage var when set (even to ""), else the
-// fallback's value, else "".
-func TestSharedLogin_Value_IsWhatTheLaunchingEnvResolves(t *testing.T) {
-	l := SharedLogin{Var: "X_STORAGE_DIR", FallbackVar: "X_CONFIG_DIR"}
-	env := func(kv map[string]string) func(string) (string, bool) {
-		return func(k string) (string, bool) { v, ok := kv[k]; return v, ok }
+// Undeclared auth is the token: the default never reaches the human's own
+// login. An unknown spelling is refused, typed, never defaulted.
+func TestParseAuthMode(t *testing.T) {
+	for in, want := range map[string]AuthMode{"": AuthToken, " login ": AuthLogin, "token": AuthToken, "api-key": AuthAPIKey, "cloud": AuthCloud} {
+		got, err := ParseAuthMode(in)
+		require.NoError(t, err, in)
+		assert.Equal(t, want, got, in)
 	}
+	_, err := ParseAuthMode("apikey")
+	require.ErrorIs(t, err, ErrUnknownAuthMode)
+	var r report.Remediable
+	require.ErrorAs(t, err, &r)
+	for _, m := range AuthModeNames() {
+		assert.Contains(t, r.Remedy(), m)
+	}
+}
+
+// Only a token and an API key are ctxloom's to store; only the token is the
+// engine's to mint.
+func TestAuthMode_StoredAndMinted(t *testing.T) {
+	for m, want := range map[AuthMode][2]bool{AuthLogin: {false, false}, AuthToken: {true, true}, AuthAPIKey: {true, false}, AuthCloud: {false, false}} {
+		assert.Equal(t, want[0], m.Stored(), "Stored %s", m)
+		assert.Equal(t, want[1], m.Minted(), "Minted %s", m)
+	}
+}
+
+// CheckAuth is the one check of an auth selection. Every invalid selection
+// is refused with its own sentinel and a remedy; where the fix is another
+// mode, the remedy names exactly the modes THIS engine supports, read from
+// its Modes().
+func TestCheckAuth_EveryInvalidSelectionIsTypedWithARemedy(t *testing.T) {
+	withAuth := Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken, AuthCloud}})
+	noAuth := Absent[Auth]("authenticates against no vendor")
 	for _, tc := range []struct {
-		name string
-		env  map[string]string
-		want string
+		name     string
+		declared Declared[Auth]
+		mode     string
+		sentinel error
+		modes    bool
 	}{
-		{"neither set is the engine's default", map[string]string{}, ""},
-		{"the fallback verbatim, never cleaned", map[string]string{"X_CONFIG_DIR": "/h/./cfg/"}, "/h/./cfg/"},
-		{"an inherited storage var wins over the fallback", map[string]string{"X_STORAGE_DIR": "/real", "X_CONFIG_DIR": "/session"}, "/real"},
-		{"an inherited empty storage var is kept", map[string]string{"X_STORAGE_DIR": "", "X_CONFIG_DIR": "/session"}, ""},
+		{"an unknown spelling", withAuth, "apikey", ErrUnknownAuthMode, true},
+		{"a mode the engine lacks", withAuth, "login", ErrAuthModeUnsupported, true},
+		{"undeclared, and the engine lacks the token default", Provide[Auth](fakeAuth{modes: []AuthMode{AuthCloud}}), "", ErrAuthModeUnsupported, false},
+		{"any mode on an engine with no auth", noAuth, "token", ErrEngineHasNoAuth, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, l.Value(env(tc.env)))
+			_, err := CheckAuth("x", tc.declared, tc.mode)
+			require.ErrorIs(t, err, tc.sentinel)
+			var r report.Remediable
+			require.ErrorAs(t, err, &r)
+			require.NotEmpty(t, r.Remedy())
+			if a, ok := tc.declared.Get(); ok {
+				for _, m := range a.Modes() {
+					assert.Contains(t, r.Remedy(), string(m), "the remedy names the engine's own modes")
+				}
+			}
 		})
 	}
 }
 
+func TestCheckAuth_ValidSelections(t *testing.T) {
+	withAuth := Provide[Auth](fakeAuth{modes: []AuthMode{AuthToken, AuthCloud}})
+	m, err := CheckAuth("x", withAuth, "")
+	require.NoError(t, err)
+	assert.Equal(t, AuthToken, m, "undeclared is the token")
+	m, err = CheckAuth("x", withAuth, " cloud ")
+	require.NoError(t, err)
+	assert.Equal(t, AuthCloud, m)
+	m, err = CheckAuth("x", Absent[Auth]("none"), "")
+	require.NoError(t, err)
+	assert.Empty(t, m, "an engine with no auth and no declaration has nothing to check")
+}
+
+func TestSupportsMode(t *testing.T) {
+	a := fakeAuth{modes: []AuthMode{AuthToken}}
+	assert.True(t, SupportsMode(a, AuthToken))
+	assert.False(t, SupportsMode(a, AuthAPIKey))
+}
+
 func validContainer() ContainerSpec {
 	return ContainerSpec{
-		Install:         []byte("RUN true\n"),
-		ValidateCommand: "x --version",
-		Auth: Provide(ContainerAuth{
-			EnvTriggers:    []string{"X_API_KEY"},
-			EnvPassthrough: []string{"X_API_KEY", "X_BASE_URL"},
-			Hint:           "no X_API_KEY",
-			Remedy:         "export X_API_KEY",
-		}),
+		Install:            []byte("RUN true\n"),
+		ValidateCommand:    "x --version",
 		OverlayDirs:        []string{".x"},
 		TranscriptStoreRel: ".x/projects",
 	}
@@ -137,41 +178,35 @@ func TestContainerSpec_Validate_AcceptsACompleteDeclaration(t *testing.T) {
 	require.NoError(t, validContainer().Validate())
 }
 
-func TestContainerSpec_Validate_RefusesUndecidedAuth(t *testing.T) {
-	c := validContainer()
-	c.Auth = Declared[ContainerAuth]{}
-	assert.ErrorContains(t, c.Validate(), "Auth")
-}
-
 func TestContainerSpec_Validate_RefusesInstallWithoutValidate(t *testing.T) {
 	c := validContainer()
 	c.ValidateCommand = ""
 	assert.ErrorContains(t, c.Validate(), "ValidateCommand")
 }
 
-// A vendorless auth (mock: authenticates against nothing) must not ALSO name
-// triggers: the two shapes mean opposite things at resolve time and a
-// declaration carrying both has no single reading.
-func TestContainerAuth_Validate_VendorlessExcludesTriggers(t *testing.T) {
-	a := ContainerAuth{Vendorless: "authenticates against no vendor", EnvTriggers: []string{"X"}}
-	assert.ErrorContains(t, a.Validate(), "Vendorless")
-	a = ContainerAuth{Vendorless: "authenticates against no vendor"}
-	assert.NoError(t, a.Validate())
+// TranscriptStoreRel names a path inside the Linux container, so it is a clean
+// relative slash path whatever the host separator: a filepath-built value
+// carries `\` on a Windows host and lands the transcript mount at a literal
+// backslash-named directory.
+func TestContainerSpec_Validate_RefusesANonSlashTranscriptStore(t *testing.T) {
+	for _, rel := range []string{`.x\projects`, "/root/.x/projects", "../.x/projects", ".x//projects", ".x/projects/"} {
+		c := validContainer()
+		c.TranscriptStoreRel = rel
+		assert.ErrorContains(t, c.Validate(), "TranscriptStoreRel", rel)
+	}
+	c := validContainer()
+	c.TranscriptStoreRel = ""
+	assert.NoError(t, c.Validate(), "an engine that keeps no transcripts declares none")
 }
 
-// A vendor-backed auth with no trigger can never resolve — every containerized run of it would degrade. That is a
-// declaration of "unknown", which is what Absent is for.
-func TestContainerAuth_Validate_RefusesNothingToResolve(t *testing.T) {
-	a := ContainerAuth{Hint: "no way in"}
-	assert.ErrorContains(t, a.Validate(), "resolve")
-}
-
-func TestContainerAuth_Validate_RefusesMissingRemedy(t *testing.T) {
-	a := ContainerAuth{EnvTriggers: []string{"X_API_KEY"}, Hint: "no X_API_KEY"}
-	assert.ErrorContains(t, a.Validate(), "Remedy")
-}
-
-func TestContainerAuth_Validate_RefusesMissingHint(t *testing.T) {
-	a := ContainerAuth{EnvTriggers: []string{"X_API_KEY"}}
-	assert.ErrorContains(t, a.Validate(), "Hint")
+// HostDir is where a shared store lives on the host: the launching env's own
+// value when it names one, else the store's place under the home; a store
+// that is no directory (an OS keychain) has none.
+func TestSharedStore_HostDir(t *testing.T) {
+	home := filepath.Join("h", "ben")
+	assert.Equal(t, filepath.Join(home, ".claude"), SharedStore{Var: "V", HomeRel: ".claude"}.HostDir(home), "an empty Value is the engine's default")
+	assert.Equal(t, "/elsewhere", SharedStore{Var: "V", Value: "/elsewhere", HomeRel: ".claude"}.HostDir(home), "the launching env's value wins")
+	assert.Equal(t, filepath.Join(home, ".config", "gcloud"), SharedStore{HomeRel: ".config/gcloud", ReadOnly: true}.HostDir(home), "HomeRel is slash-separated")
+	assert.Equal(t, "", SharedStore{Var: "V"}.HostDir(home), "a keychain-backed store has no directory")
+	assert.Equal(t, "", SharedStore{Value: "/ignored"}.HostDir(home), "a Value with no Var names nothing")
 }

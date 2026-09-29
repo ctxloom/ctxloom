@@ -1,8 +1,11 @@
+//go:build !windows
+
+// overrideContainer drives writeFakeRuntimeScript's #!/bin/sh runtime stub, which a Windows host cannot exec.
+
 package isolation
 
 import (
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,24 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// captureStderr swaps os.Stderr for a pipe; the returned func restores it and
-// yields everything written meanwhile. For asserting the STREAMED half of a
-// strictness fault (the warning fires in both modes; only recording is modal).
-func captureStderr(t *testing.T) func() string {
-	t.Helper()
-	orig := os.Stderr
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	os.Stderr = w
-	return func() string {
-		require.NoError(t, w.Close())
-		os.Stderr = orig
-		out, rerr := io.ReadAll(r)
-		require.NoError(t, rerr)
-		return string(out)
-	}
-}
-
 // overrideContainer builds a run-as-is override Container (config
 // isolation_images) over a fake runtime whose `image inspect` reports the
 // image PRESENT and answers --format with configJSON — the hermetic stand-in
@@ -46,43 +31,6 @@ func overrideContainer(t *testing.T, configJSON, image string) Container {
 	marker := strings.NewReplacer("/", "_", ":", "_").Replace(image)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, marker), nil, 0o644))
 	return containerFor(fakeRuntime{name: "docker", binary: script, available: true}, "claude-code", ImageConfig{Image: image})
-}
-
-// TestRunAsIsIdentityProblem pins the per-runtime identity contract for
-// user-owned run-as-is images. PUID-passing modes (rootful docker, podman
-// both modes) need the ctxloom entrypoint started as root — nothing else
-// makes the PUID env change who the engine runs as. Rootless docker passes
-// no PUID and container-root is the ONE uid that maps to the launching user,
-// so there the image must simply run as root.
-func TestRunAsIsIdentityProblem(t *testing.T) {
-	governed := []string{"/usr/local/bin/ctxloom-entrypoint"}
-	tests := []struct {
-		name   string
-		rt     Runtime
-		id     imageIdentity
-		wantOK bool
-	}{
-		{"rootful docker + governed", Docker{}, imageIdentity{Entrypoint: governed}, true},
-		{"rootful docker + foreign entrypoint", Docker{}, imageIdentity{Entrypoint: []string{"/docker-entrypoint.sh"}}, false},
-		{"rootful docker + no entrypoint", Docker{}, imageIdentity{}, false},
-		{"rootful docker + governed but USER blocks the remap", Docker{}, imageIdentity{Entrypoint: governed, User: "node"}, false},
-		{"rootless docker + default root", Docker{rootless: true}, imageIdentity{}, true},
-		{"rootless docker + explicit root", Docker{rootless: true}, imageIdentity{User: "root"}, true},
-		{"rootless docker + USER maps to a subuid", Docker{rootless: true}, imageIdentity{User: "1000:1000"}, false},
-		{"rootful podman + governed", Podman{}, imageIdentity{Entrypoint: governed}, true},
-		{"rootless podman + ungoverned", Podman{rootless: true}, imageIdentity{}, false},
-		{"unknown runtime held to the PUID contract", fakeRuntime{}, imageIdentity{}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			problem := runAsIsIdentityProblem(tt.rt, tt.id)
-			if tt.wantOK {
-				assert.Empty(t, problem)
-			} else {
-				assert.NotEmpty(t, problem)
-			}
-		})
-	}
 }
 
 // TestCheckRunAsIsIdentity_UngovernedIsAFinding: a run-as-is override whose
@@ -151,16 +99,6 @@ func TestCheckRunAsIsIdentity_DegradedWarnsAndProceeds(t *testing.T) {
 	assert.Contains(t, stderr, "user/own:img", "the warning still streams")
 }
 
-// TestCheckRunAsIsIdentity_LocallyBuiltSkips: a backend with a local build
-// recipe (no image override) bakes the entrypoint itself — the contract holds
-// by construction and no inspect runs (the fake binary here would fail one).
-func TestCheckRunAsIsIdentity_LocallyBuiltSkips(t *testing.T) {
-	resetStrictness(t)
-	c := NewContainerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "claude-code")
-	c.checkRunAsIsIdentity(context.Background())
-	assert.Empty(t, strictness.All(), "locally-built images are governed by construction")
-}
-
 // TestPrepareContainerScratch_GatesRunAsIsIdentity wires the check into the
 // shared prepare front-half: the scratch still prepares (the abort decision
 // belongs to the choke owner — strict gates on the finding pre-spawn,
@@ -176,7 +114,6 @@ func TestPrepareContainerScratch_GatesRunAsIsIdentity(t *testing.T) {
 	testsupport.Isolate(t)
 	c := overrideContainer(t, `{"Entrypoint":null,"User":""}`, "user/own:img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	c.engineSpec.resolveAuth = func() (containerAuth, bool) { return containerAuth{}, true }
 
 	mark := strictness.Checkpoint()
 	sc, err := c.prepareContainerScratch(context.Background())

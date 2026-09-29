@@ -32,11 +32,8 @@ import (
 //     `<client> --version` build gate), used by the single-engine `--base-image`
 //     overlay escape hatch (overlayContainerfile) — composition uses
 //     engineInstall's OWN embedded validate step instead.
-//   - resolveAuth: how the in-container engine authenticates (scoped env
-//     passthrough, by name), built from the engine's declared
-//     engine.ContainerAuth by resolveDeclaredAuth.
-//   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
-//     the engine's trigger var/credential source without leaking values.
+//   - declared: the engine declared a container story. The default spec
+//     (declared false) fails the container gate closed.
 //   - overlayDirs: the project-relative managed-config DIRECTORIES ctxloom's
 //     writers target under the run's cwd for this engine, shadowed by scratch
 //     overlay mounts on the live-project mount so the HOST project stays clean
@@ -64,9 +61,7 @@ type engineContainerSpec struct {
 	image              string
 	engineInstall      []byte
 	validate           string
-	resolveAuth        func() (containerAuth, bool)
-	authHint           string
-	authRemedy         string
+	declared           bool
 	overlayDirs        []string
 	transcriptStoreRel string
 }
@@ -115,10 +110,10 @@ func ComposableEngines() []string {
 // ever name the wrong engine.
 //
 // An unregistered (or empty) name, or an engine that declared NO container
-// story, gets the default spec, whose AUTH fails closed (noContainerAuth): its
-// containerized run aborts at PrepareWorkspace's auth gate rather than
-// inheriting another engine's credentials. Config validation
-// (operations.validateAgentAxes, via HasContainerAuth) refuses `runtime:
+// story, gets the default spec, which fails the container gate CLOSED
+// (declared false): its containerized run aborts rather than run an engine
+// nobody vetted for a container. Config validation
+// (operations.validateAgentAxes, via HasContainerStory) refuses `runtime:
 // container` for such a backend at WRITE time; this arm is the last line for
 // the paths that never went through a binding.
 func engineContainerSpecFor(backend string) engineContainerSpec {
@@ -127,17 +122,8 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 			return specFromDeclaration(c)
 		}
 	}
-	// This used to be a claude-oriented default that failed OPEN on
-	// credentials, so any unrecognized engine got the user's ANTHROPIC_*
-	// vars passed through into a FOREIGN engine's container. Every engine must earn its own auth by declaring
-	// it; the default must not hand out anyone's credentials to an engine
-	// nobody vetted. It fails closed (noContainerAuth) so an unmapped engine
-	// degrades honestly instead of silently authenticating as another.
 	return engineContainerSpec{
 		image:       defaultContainerImage,
-		resolveAuth: noContainerAuth,
-		authHint:    noContainerAuthHint,
-		authRemedy:  noContainerAuthRemedy,
 		overlayDirs: []string{ctxloomCacheOverlayDir},
 	}
 }
@@ -152,70 +138,52 @@ func specFromDeclaration(c engine.ContainerSpec) engineContainerSpec {
 		engineInstall:      c.Install,
 		validate:           c.ValidateCommand,
 		overlayDirs:        append(append([]string{}, c.OverlayDirs...), ctxloomCacheOverlayDir),
-		transcriptStoreRel: filepath.FromSlash(c.TranscriptStoreRel),
-	}
-	a, ok := c.Auth.Get()
-	if !ok {
-		spec.resolveAuth = noContainerAuth
-		spec.authHint = noContainerAuthHint
-		spec.authRemedy = noContainerAuthRemedy
-		return spec
-	}
-	spec.resolveAuth = func() (containerAuth, bool) { return resolveDeclaredAuth(a) }
-	spec.authHint = a.Hint
-	spec.authRemedy = a.Remedy
-	if a.Vendorless != "" {
-		spec.authHint = "unreachable: a vendorless name's auth never fails to resolve (" + a.Vendorless + ")"
+		transcriptStoreRel: c.TranscriptStoreRel,
+		declared:           true,
 	}
 	return spec
 }
 
 // The fail-closed default's degrade diagnostic and its fix.
 const (
-	noContainerAuthHint   = "no container auth is declared for this engine"
-	noContainerAuthRemedy = "declare Container.Auth in the engine's descriptor rather than inherit the default, or run this engine with `runtime: host`"
+	noContainerHint   = "no container story is declared for this engine"
+	noContainerRemedy = "declare Container in the engine's descriptor rather than inherit the default, or run this engine with `runtime: host`"
 )
 
-// HasContainerAuth reports whether backend (a REGISTERED backend name) declares
-// a container-auth plan — i.e. whether a `runtime: container` run of that
-// engine can authenticate at all. False means the engine reaches
-// engineContainerSpecFor's fail-closed default, so PrepareWorkspace would
-// abort on the auth gate. A CAPABILITY question, answered whatever the
+// HasContainerStory reports whether a `runtime: container` run of backend (a
+// REGISTERED backend name) can run at all: whether the engine declares a
+// container story. Credentials are not part of the question: they are the
+// run's own (engine.Auth.Credentials), which every environment satisfies. False means the engine
+// reaches engineContainerSpecFor's fail-closed default. A CAPABILITY question, answered whatever the
 // engine's shipping policy. Exported for config validation
 // (operations.validateAgentAxes), which refuses the binding at write time
 // rather than letting the launch discover it.
-func HasContainerAuth(backend string) bool {
+func HasContainerStory(backend string) bool {
 	r, ok := engineContainerDeclared(backend)
 	if !ok {
 		return false
 	}
-	c, ok := r.container.Get()
-	if !ok {
-		return false
-	}
-	_, ok = c.Auth.Get()
+	_, ok = r.container.Get()
 	return ok
 }
 
-// ContainerAuthEngines lists the backend names a user may bind `runtime:
-// container` to — every engine that declares a container-auth plan and is
+// ContainerStoryEngines lists the backend names a user may bind `runtime:
+// container` to — every engine that declares a container story and is
 // OFFERED (DistributionDefault or DistributionOptIn), sorted. It is the
 // supported set a rejection message names, so a test double is excluded
-// even though HasContainerAuth reports its capability: an opt-in engine is
+// even though HasContainerStory reports its capability: an opt-in engine is
 // a legitimate thing to ask for by name, a double is not. (This is the one
 // place the offered set differs from the default image set — the composable
 // roster is stricter, DistributionDefault only, because composing is
 // unasked-for and offering is not.)
-func ContainerAuthEngines() []string {
+func ContainerStoryEngines() []string {
 	var names []string
 	for name, r := range registeredEngineContainers() {
 		if r.distribution == engine.DistributionTestOnly {
 			continue
 		}
-		if c, ok := r.container.Get(); ok {
-			if _, ok := c.Auth.Get(); ok {
-				names = append(names, name)
-			}
+		if _, ok := r.container.Get(); ok {
+			names = append(names, name)
 		}
 	}
 	sort.Strings(names)

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
 )
 
 // ErrAlreadyGone reports that a spool file is not at the ref the caller
@@ -174,7 +176,7 @@ func Fail(m PathMapper, ref Ref) error {
 // It reports a missing source as ErrAlreadyGone: another sweep winning the
 // race is ordinary, not a fault.
 func renameInto(from, to string) error {
-	if err := os.MkdirAll(filepath.Dir(to), dirPerm); err != nil {
+	if err := os.MkdirAll(filepath.Dir(to), owneronly.DirMode); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(to), err)
 	}
 	if err := os.Rename(from, to); err != nil {

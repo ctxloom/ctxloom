@@ -97,6 +97,27 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// The same launch with --no-companions: the flag is read by init's own
+	// re-composition of the App (pinAppDir), which is what decides whether
+	// companion loadouts reach the interview prompt at all.
+	ctx.Step(`^Alice runs the ctxloom setup with companions switched off$`, func(c context.Context) error {
+		w := worldFrom(c)
+		recorded, err := driveDiscoverySessionViaMock(w, w.j000300RecordFile, "--no-companions")
+		if err != nil {
+			return err
+		}
+		w.j000300Recorded = recorded
+		return nil
+	})
+
+	ctx.Step(`^it does not include the company's onboarding steps$`, func(c context.Context) error {
+		return j000300PromptLacks(worldFrom(c), j000300CompanyOnboarding, "the company's onboarding steps")
+	})
+
+	ctx.Step(`^it does not include her personal setup preferences$`, func(c context.Context) error {
+		return j000300PromptLacks(worldFrom(c), j000300PersonalPreference, "her personal setup preferences")
+	})
+
 	ctx.Step(`^the interview prompt the mock engine receives includes ctxloom's built-in setup guidance$`, func(c context.Context) error {
 		w := worldFrom(c)
 		prompt, err := promptSection(w.j000300Recorded)
@@ -270,4 +291,18 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+}
+
+// j000300PromptLacks fails when the recorded interview prompt carries marker.
+// It reads the prompt section, so a record with no prompt at all fails loud
+// in promptSection rather than passing as "the marker is absent".
+func j000300PromptLacks(w *World, marker, what string) error {
+	prompt, err := promptSection(w.j000300Recorded)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(prompt, marker) {
+		return fmt.Errorf("interview prompt contains %s although companions were switched off; prompt:\n%s", what, prompt)
+	}
+	return nil
 }

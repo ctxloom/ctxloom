@@ -59,7 +59,7 @@ pins the predicate so it cannot degrade into "is this backend known?".
 
 One further permission fact:
 
-- A headless **structured** run cannot hang on an engine approval prompt (`launch.floorPermission`): a top-level run floors any non-`SafeHeadless()` posture to `PermissionBypass`, a degraded delegated run to `PermissionFloor`, and any other delegated run is refused with a message naming the agent. `SafeHeadless()` is true only for `bypass` and `plan`.
+- A headless **structured** run launches at whatever posture resolved and cannot hang on an engine approval prompt: claude is told nobody answers (`--permission-prompts none`), so it denies what the posture leaves open, and the runner reports that turn BLOCKED to the parent (`agent.ChatEvent.Denied`, `agent.TurnMeta.Denials`).
 
 ## 3. Native per-tool deny list
 
@@ -184,8 +184,8 @@ Full detail in [isolation](isolation.md). Summary:
 
 `composableEngines()` (`internal/adapters/isolation/enginespec.go`) names the engines
 with a container install fragment; an engine absent from
-`engineContainerSpecFor`'s switch gets the default arm, whose auth resolver
-`noContainerAuth` **fails closed**.
+`engineContainerSpecFor`'s declarations gets the default arm, which is
+undeclared and **fails closed** at the container gate.
 
 ## 9. Support status
 

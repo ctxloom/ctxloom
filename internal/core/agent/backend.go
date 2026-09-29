@@ -201,8 +201,7 @@ type SessionEntry struct {
 	// ToolKind is the ACP tool-call category classification (execute | edit |
 	// delete | move | read | search | fetch | think | switch_mode | other),
 	// when the backend's protocol supplies one. Empty means unclassified.
-	// Purely advisory (UI icon/treatment hints); mirrors
-	// PermissionRequest.Kind's existing precedent.
+	// Purely advisory (UI icon/treatment hints).
 	ToolKind string
 	// ToolLocations are file locations (path + optional line) this tool call
 	// touches — ACP's "follow-along" locations, for tool_use/tool_result
@@ -444,13 +443,6 @@ type ExecuteRequest struct {
 	DryRun      bool
 	Permissions PermissionMode
 	Temperature float32
-	// CellKind is the resolved isolation cell this run executes in, decided
-	// by the launch's cell (cli.cellKindOf). It is carried for diagnostics and
-	// for the env a cell-aware backend computes; it is NOT what an argv site
-	// switches on. Where a surface
-	// lands, and therefore what the engine is told about it, is the launch
-	// plan's decision, delivered by the runner and handed here as Presented.
-	CellKind CellKind
 
 	// Stdin and Resize carry the frontend's terminal input into an interactive
 	// run (over the bidi Run stream): Stdin is the keystroke byte stream, Resize

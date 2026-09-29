@@ -20,15 +20,15 @@ type (
 )
 
 var (
-	NewFakeSpawner       = newFakeSpawner
-	NewTestCoordinator   = newTestCoordinator
-	OwnerIdentity        = ownerIdentity
-	OwnerLaunch          = ownerLaunch
-	OwnedRunOf           = ownerRun
-	ResetStrictness      = resetStrictness
-	TeeHome              = teeHome
-	AwaitRunnerHome      = awaitRunnerHome
-	ContainerAuthBackend = containerAuthBackend
+	NewFakeSpawner        = newFakeSpawner
+	NewTestCoordinator    = newTestCoordinator
+	OwnerIdentity         = ownerIdentity
+	OwnerLaunch           = ownerLaunch
+	OwnedRunOf            = ownerRun
+	ResetStrictness       = resetStrictness
+	TeeHome               = teeHome
+	AwaitRunnerHome       = awaitRunnerHome
+	ContainerStoryBackend = containerStoryBackend
 )
 
 // BypassAgent is a fake agent binding resolved under the bypass permission.

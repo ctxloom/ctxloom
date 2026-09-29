@@ -75,7 +75,7 @@ func WriteFileAtomicFs(fs afero.Fs, path string, data []byte, perm os.FileMode, 
 		_ = fs.Remove(tmpName)
 		return fmt.Errorf("atomic write %s: set mode %#o on temp file: %w", path, perm, err)
 	}
-	if err := fs.Rename(tmpName, path); err != nil {
+	if err := Rename(fs, tmpName, path); err != nil {
 		_ = fs.Remove(tmpName)
 		return fmt.Errorf("atomic write %s: rename temp file into place: %w", path, err)
 	}

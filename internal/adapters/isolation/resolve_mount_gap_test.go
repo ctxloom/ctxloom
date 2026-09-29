@@ -1,3 +1,7 @@
+//go:build !windows
+
+// Drives hermeticHostContainer's #!/bin/sh runtime stub, which a Windows host cannot exec.
+
 package isolation
 
 import (

@@ -20,8 +20,9 @@ import (
 // shared fake returns nil), so the probe's mount reaches the exec stub.
 type probeRuntime struct{ fakeRuntime }
 
-func (p probeRuntime) RunArgs(spec RunSpec) []string {
-	return append([]string{"run", "--rm", "--name", spec.Name}, renderRunSpec(spec)...)
+func (p probeRuntime) RunArgs(spec RunSpec) ([]string, error) {
+	tail, err := renderRunSpec(spec, pathSeam{})
+	return append([]string{"run", "--rm", "--name", spec.Name}, tail...), err
 }
 
 // stubProbeExec swaps the probe's exec seam for the test and restores it.
@@ -127,12 +128,12 @@ func TestSharedFSProbe_TransientNotMemoized(t *testing.T) {
 	roots := []string{t.TempDir()}
 
 	require.Error(t, sharedFSProbe(context.Background(), rt, "img", roots))
-	require.Equal(t, 1, *calls)
+	require.Equal(t, 2, *calls, "the failed mounted run plus its one unmounted retry")
 
 	// Daemon warms up — the next call must RE-PROBE (not return the cached error).
 	fail = false
 	require.NoError(t, sharedFSProbe(context.Background(), rt, "img", roots))
-	assert.Equal(t, 2, *calls, "a transient failure is re-probed, never latched")
+	assert.Equal(t, 3, *calls, "a transient failure is re-probed, never latched")
 }
 
 // TestSharedFSProbe_DefinitiveOutcomesMemoized is the complement: success
@@ -149,14 +150,27 @@ func TestSharedFSProbe_DefinitiveOutcomesMemoized(t *testing.T) {
 	})
 }
 
+// TestProbeExec_AFailureCarriesTheCLIsStderr: a runtime CLI that fails says
+// WHY on stderr; an error reading only "exit status 1" (what CI showed for
+// findSelf's listing) hides it. The *exec.ExitError stays reachable, since
+// callers classify on its Stderr (removeOutcome).
+func TestProbeExec_AFailureCarriesTheCLIsStderr(t *testing.T) {
+	_, err := probeExec(context.Background(), "sh", []string{"-c", "echo '  permission denied on the socket  ' >&2; exit 1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exit status 1")
+	assert.Contains(t, err.Error(), ": permission denied on the socket", "the CLI's stderr, trimmed, is the reason")
+	var ee *exec.ExitError
+	assert.True(t, errors.As(err, &ee), "the exit error stays reachable")
+}
+
 // TestSharedFSProbe_RunFailureSurfacesStderr: a run failure is
 // reported as its REAL cause — docker's stderr — not as a phantom fs-sharing
 // mismatch, and it is not a definitive (memoizable) verdict.
 func TestSharedFSProbe_RunFailureSurfacesStderr(t *testing.T) {
 	stubProbeExec(t, func(string) (string, error) {
-		// A real *exec.ExitError with populated .Stderr (what .Output() yields).
+		// A real CLI failure, as probeExec reports it.
 		_, err := exec.Command("sh", "-c", "echo 'Cannot connect to the daemon socket' >&2; exit 1").Output()
-		return "", err
+		return "", withStderr(err)
 	})
 	rt := probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}
 	err := sharedFSProbe(context.Background(), rt, "img", []string{t.TempDir()})
@@ -186,11 +200,9 @@ func TestPrepareWorkspace_DegradesOnFSMismatch(t *testing.T) {
 	testsupport.Isolate(t)
 	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "mock").WithImage("img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	// Auth must resolve for the gate to reach prepareBase/the probe at all
-	// (host state — real ANTHROPIC_* creds — must never gate a hermetic test).
-	c.engineSpec.resolveAuth = func() (containerAuth, bool) {
-		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-	}
+	// The container story must be declared for the gate to reach
+	// prepareBase/the probe at all.
+	c.engineSpec.declared = true
 	_, err := c.prepareWorkspace(context.Background(), t.TempDir(), "m")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not share this process's filesystem")
@@ -212,9 +224,7 @@ func TestPrepareWorkspace_FSProbeRunFailureIsNotMisreportedAsMismatch(t *testing
 	testsupport.Isolate(t)
 	c := NewContainerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "mock").WithImage("img").
 		WithSessionState(SessionState{Harp: "brisk-teal-otter"})
-	c.engineSpec.resolveAuth = func() (containerAuth, bool) {
-		return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-	}
+	c.engineSpec.declared = true
 	_, err := c.prepareWorkspace(context.Background(), t.TempDir(), "m")
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "does not share this process's filesystem", "a transient run failure is not a sharing verdict")
@@ -310,4 +320,72 @@ func TestMountProbeRoots(t *testing.T) {
 	before, err := os.ReadFile(authFile)
 	require.NoError(t, err)
 	assert.Equal(t, "secret", string(before), "deriving the probe root never touches the real credential file's content")
+}
+
+// TestProbeOneRoot_RetryWithoutMount pins the docker-outside-of-docker verdict
+// under `--mount type=bind` semantics: a daemon that cannot see the probed path
+// REFUSES the bind source outright (the run never starts), unlike `-v`, which
+// would auto-create an empty dir and yield the empty-read mismatch. So a failed
+// mounted run is retried once WITHOUT the mount; the daemon running the same
+// image unmounted isolates the mount as the failing ingredient, which is the
+// sharing verdict. The distinction is behavioural — the stub's error text is
+// deliberately identical in every case, so nothing can be parsing it.
+func TestProbeOneRoot_RetryWithoutMount(t *testing.T) {
+	rt := probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}
+	refused := errors.New("exit status 125")
+
+	t.Run("mounted run fails, unmounted runs: sharing verdict", func(t *testing.T) {
+		calls := stubProbeExec(t, func(markerPath string) (string, error) {
+			if markerPath != "" {
+				return "", refused
+			}
+			return "", nil
+		})
+		err := sharedFSProbe(context.Background(), rt, "img", []string{t.TempDir()})
+		require.Error(t, err)
+		var mism *sharedFSMismatch
+		require.True(t, errors.As(err, &mism), "a mount-only failure is a definitive sharing verdict, got %v", err)
+		assert.Contains(t, err.Error(), "not shared with the container daemon")
+		assert.Equal(t, 2, *calls, "exactly one unmounted retry")
+
+		gate := sharedFSGateError(rt, err)
+		assert.Contains(t, gate.Error(), "does not share this process's filesystem", "the run gate reaches the same verdict")
+		assert.NotContains(t, gate.Error(), "could not run")
+	})
+
+	t.Run("both runs fail: could not run", func(t *testing.T) {
+		calls := stubProbeExec(t, func(string) (string, error) { return "", refused })
+		err := sharedFSProbe(context.Background(), rt, "img", []string{t.TempDir()})
+		require.Error(t, err)
+		var mism *sharedFSMismatch
+		assert.False(t, errors.As(err, &mism), "the daemon cannot run the image at all: not a sharing verdict")
+		assert.Contains(t, err.Error(), "did not run")
+		assert.Equal(t, 2, *calls)
+		assert.Contains(t, sharedFSGateError(rt, err).Error(), "could not run")
+	})
+
+	t.Run("mounted run succeeds: no retry", func(t *testing.T) {
+		calls := stubProbeExec(t, func(markerPath string) (string, error) {
+			b, err := os.ReadFile(markerPath)
+			return string(b), err
+		})
+		require.NoError(t, sharedFSProbe(context.Background(), rt, "img", []string{t.TempDir()}))
+		assert.Equal(t, 1, *calls)
+	})
+
+	t.Run("cancelled mounted run: no retry, transient", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		calls := stubProbeExec(t, func(markerPath string) (string, error) {
+			if markerPath != "" {
+				cancel()
+				return "", context.Canceled
+			}
+			return "", nil
+		})
+		err := sharedFSProbe(ctx, rt, "img", []string{t.TempDir()})
+		require.Error(t, err)
+		var mism *sharedFSMismatch
+		assert.False(t, errors.As(err, &mism), "a run cut short by its own context proved nothing about sharing")
+		assert.Equal(t, 1, *calls)
+	})
 }

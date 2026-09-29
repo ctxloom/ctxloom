@@ -2,6 +2,7 @@ package containercell
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -95,7 +96,8 @@ func TestRun_RefusesAnUnavailableRuntime(t *testing.T) {
 }
 
 func TestUnderAny(t *testing.T) {
-	mounts := []string{"/tmp/root"}
+	// Host paths, so in the host's separator: underAny joins on filepath.Separator.
+	mounts := []string{filepath.FromSlash("/tmp/root")}
 	for _, tc := range []struct {
 		path string
 		want bool
@@ -107,7 +109,7 @@ func TestUnderAny(t *testing.T) {
 		{"/tmp", false},
 		{"/elsewhere", false},
 	} {
-		if got := underAny(tc.path, mounts); got != tc.want {
+		if got := underAny(filepath.FromSlash(tc.path), mounts); got != tc.want {
 			t.Fatalf("underAny(%q) = %v, want %v", tc.path, got, tc.want)
 		}
 	}

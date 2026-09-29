@@ -2,101 +2,19 @@ package isolation
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/git"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
-
-// fakeRuntime is a Runtime stub for the degrade-path tests: it reports a
-// configurable availability and binary without touching a real daemon.
-type fakeRuntime struct {
-	name      string
-	binary    string
-	available bool
-}
-
-func (f fakeRuntime) Name() string             { return f.name }
-func (f fakeRuntime) Binary() string           { return f.binary }
-func (f fakeRuntime) Available() bool          { return f.available }
-func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
-func (fakeRuntime) RemoveArgs(string) []string { return nil }
-
-// reachRoute is empty: a fake runner's env passes through un-re-minted.
-func (fakeRuntime) reachRoute(context.Context) (hostRoute, error) { return hostRoute{}, nil }
-func (fakeRuntime) gatewayInspectArgs() []string                  { return ociRuntime{}.gatewayInspectArgs() }
-
-// The CLI grammar is the shared OCI default, so a call site routed through the
-// seam renders the same argv against the fake as against a real runtime.
-func (fakeRuntime) inspectRunningArgs(name string) []string {
-	return ociRuntime{}.inspectRunningArgs(name)
-}
-func (fakeRuntime) imageInspectArgs(format string, images ...string) []string {
-	return ociRuntime{}.imageInspectArgs(format, images...)
-}
-func (fakeRuntime) imageListArgs(filter string) []string { return ociRuntime{}.imageListArgs(filter) }
-func (fakeRuntime) containerListAllArgs() []string       { return ociRuntime{}.containerListAllArgs() }
-func (fakeRuntime) containerImageArgs(ids ...string) []string {
-	return ociRuntime{}.containerImageArgs(ids...)
-}
-func (fakeRuntime) imageRemoveArgs(refs ...string) []string {
-	return ociRuntime{}.imageRemoveArgs(refs...)
-}
-func (fakeRuntime) canonicalRef(ref string) string { return ociRuntime{}.canonicalRef(ref) }
-
-// imageUniqueSizes answers through the docker grammar, so a scripted
-// probeExec (image_prune_test.go) serves it like any other call.
-func (f fakeRuntime) imageUniqueSizes(ctx context.Context) (map[string]int64, error) {
-	return dockerUniqueSizes(ctx, f.binary)
-}
-func (fakeRuntime) buildArgs(image, file, contextDir string, flags buildFlags) []string {
-	return ociRuntime{}.buildArgs(image, file, contextDir, flags)
-}
-func (fakeRuntime) daemonNameTemplate() string { return ociRuntime{}.daemonNameTemplate() }
-func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
-	return ociRuntime{}.removeOutcome(stdout, err)
-}
-func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
-
-// Expose is the OCI identity bind mount, so tests that route delivery mounts
-// through the runtime (sessionStateMounts, gitCommonDirMount) see the same mount
-// the literal produced.
-func (fakeRuntime) expose(host, target string, readOnly bool) mount {
-	return mount{Host: host, Container: target, ReadOnly: readOnly}
-}
-
-// ExposeMapped mirrors ociRuntime's real behavior: it routes hostPath through
-// f.mapper() rather than hardcoding Host==Container, so a call site that
-// skips ExposeMapped/mapper() entirely produces output distinguishable from
-// one that used it (see prefixMapper's doc, pathmapper_test.go).
-func (f fakeRuntime) exposeMapped(hostPath string, readOnly bool) (mount, error) {
-	return exposeThrough(f.mapper(), hostPath, readOnly)
-}
-
-// mapper is a non-identity prefixMapper — deliberately NOT identityMapper.
-// Under identity, exposeMapped(p) == mount{p, p} whether or not a call site
-// actually threads its path through the mapper, so a deleted mapper() call
-// is byte-identical to a correct one and every container test that exercises
-// this fake was structurally unable to prove the mapper seam is reachable.
-// prefixMapper breaks that: it is injective (distinct host paths stay
-// distinct after mapping), so a test comparing against the ACTUAL mapped
-// value catches a call site that silently reverts to the raw host path.
-func (fakeRuntime) mapper() pathMapper { return prefixMapper{prefix: "/ctr"} }
-
-// Enumerate is a no-op default for the many tests that never exercise the
-// container-reap sweep; container_reap_test.go defines its own fake that
-// embeds fakeRuntime and overrides this.
-func (fakeRuntime) Enumerate(context.Context, string) ([]ContainerInfo, error) { return nil, nil }
 
 // TestContainer_PrepareDegrades: an unavailable runtime OR a missing image makes
 // PrepareWorkspace return an error so the caller falls back to None — never blocks.
@@ -134,63 +52,6 @@ func TestContainerWorkspace_DirAndCleanup(t *testing.T) {
 	assert.NoError(t, ws.Cleanup(), "cleanup is idempotent")
 }
 
-// brokenScratch builds a scratch tree RemoveAll cannot fully remove (a file
-// pinned inside a write-protected subdir) — the hermetic stand-in for the
-// root-owned residue a wrong-identity container leaves behind. Perms are
-// restored on cleanup so t.TempDir's own removal succeeds.
-func brokenScratch(t *testing.T) string {
-	t.Helper()
-	if os.Getuid() == 0 {
-		t.Skip("root ignores directory write protection; cannot simulate immovable residue")
-	}
-	root := t.TempDir()
-	sub := filepath.Join(root, "cfg0")
-	require.NoError(t, os.Mkdir(sub, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(sub, "stuck"), []byte("x"), 0o644))
-	require.NoError(t, os.Chmod(sub, 0o555))
-	t.Cleanup(func() { _ = os.Chmod(sub, 0o755) })
-	return root
-}
-
-// TestContainerWorkspace_CleanupSurfacesResidue: a scratch tree the launching
-// user cannot remove is the CONSEQUENCE DETECTOR for every identity hole (a
-// wrong-identity container root-owned it) — the failure must stream loudly,
-// naming the residue path, the likely cause, and a manual fix, never be
-// silently swallowed (the callers discard Cleanup's error by contract).
-func TestContainerWorkspace_CleanupSurfacesResidue(t *testing.T) {
-	root := brokenScratch(t)
-	ws := &containerWorkspace{dir: "/proj", scratchRoot: root, agentID: "m"}
-
-	done := captureStderr(t)
-	err := ws.Cleanup()
-	stderr := done()
-
-	require.Error(t, err, "the error still returns for callers that check")
-	assert.Contains(t, err.Error(), "remove container scratch")
-	assert.Contains(t, stderr, root, "the warning names the residue path")
-	assert.Contains(t, stderr, "wrong-identity", "…and the likely cause")
-	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
-}
-
-// TestContainerWorkspace_WorktreeBaseCleanupSurfacesResidue: the worktree-base
-// workspace (baseCleanup = the worktree teardown) surfaces the same scratch
-// residue the host base does — post-collapse both bases share one containerWorkspace
-// whose Cleanup always warns AND returns the scratch error (SD3), the base teardown
-// (WIP-safe) contributing no error of its own.
-func TestContainerWorkspace_WorktreeBaseCleanupSurfacesResidue(t *testing.T) {
-	root := brokenScratch(t)
-	ws := &containerWorkspace{scratchRoot: root, agentID: "m", baseCleanup: (&worktreeWorkspace{}).Cleanup}
-
-	done := captureStderr(t)
-	err := ws.Cleanup()
-	stderr := done()
-
-	require.Error(t, err, "the scratch-removal error returns for callers that check")
-	assert.Contains(t, err.Error(), "remove container scratch")
-	assert.Contains(t, stderr, root, "the warning names the residue path")
-	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
-}
-
 // TestContainer_GitdirMirrorMount is the unit test for the case where the LIVE
 // project is itself a linked worktree (or submodule) whose .git is a POINTER
 // FILE whose common
@@ -200,7 +61,7 @@ func TestContainerWorkspace_WorktreeBaseCleanupSurfacesResidue(t *testing.T) {
 // no extra mount, and a non-repo project needs none either.
 func TestContainer_GitdirMirrorMount(t *testing.T) {
 	ctx := context.Background()
-	const common = "/repo/.git"
+	common := filepath.Join(t.TempDir(), "repo", ".git")
 
 	rt := fakeRuntime{name: "docker", available: true}
 	g := &git.Fake{CommonDirValue: common}
@@ -208,25 +69,25 @@ func TestContainer_GitdirMirrorMount(t *testing.T) {
 	// .git is a POINTER FILE → mirror the common dir identical-path.
 	fileProj := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fileProj, ".git"),
-		[]byte("gitdir: /repo/.git/worktrees/x\n"), 0o644))
-	m, ok, err := gitdirMirrorMount(ctx, rt, g, fileProj)
+		[]byte("gitdir: "+filepath.Join(common, "worktrees", "x")+"\n"), 0o644))
+	ms, err := gitdirMirrorMounts(ctx, rt, g, fileProj, t.TempDir())
 	require.NoError(t, err)
-	require.True(t, ok, "a .git POINTER FILE (linked worktree/submodule) needs the common-dir mirror")
-	assert.Equal(t, mount{Host: common, Container: "/ctr" + common}, m,
-		"the common dir is mirrored through the runtime's mapper so gitdir resolves in-container")
+	require.NotEmpty(t, ms)
+	assert.Equal(t, mount{Host: common, Container: mapped(t, rt, common)}, ms[0],
+		"a .git POINTER FILE (linked worktree/submodule) gets the common dir mirrored through the runtime's mapper so gitdir resolves in-container")
 
 	// .git is a DIRECTORY → already inside the identical-path project mount.
 	dirProj := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dirProj, ".git"), 0o755))
-	_, ok, err = gitdirMirrorMount(ctx, rt, g, dirProj)
+	ms, err = gitdirMirrorMounts(ctx, rt, g, dirProj, t.TempDir())
 	require.NoError(t, err)
-	assert.False(t, ok, "a normal .git directory is covered by the project mount; no mirror")
+	assert.Empty(t, ms, "a normal .git directory is covered by the project mount; no mirror")
 
 	// No repo at all → nothing to mirror.
 	bareProj := t.TempDir()
-	_, ok, err = gitdirMirrorMount(ctx, rt, g, bareProj)
+	ms, err = gitdirMirrorMounts(ctx, rt, g, bareProj, t.TempDir())
 	require.NoError(t, err)
-	assert.False(t, ok, "a non-repo project needs no gitdir mirror")
+	assert.Empty(t, ms, "a non-repo project needs no gitdir mirror")
 }
 
 // TestContainerName_SanitizesAndScopes: the name is a valid, unique,
@@ -303,8 +164,8 @@ func TestContainerName_AgreesWithSanitizeAgentID(t *testing.T) {
 //     reach PrepareWorkspace with one missing;
 //  2. the only value that HAS a nil base — a bare test-built Container{} — never
 //     reaches c.base.prepareBase at all. prepareContainerScratch runs first and
-//     returns on the nil runtime, and even past that the zero spec's nil
-//     resolveAuth would fire before the base is touched. Name()'s guard exists
+//     returns on the nil runtime, and even past that the zero spec's
+//     undeclared container story refuses before the base is touched. Name()'s guard exists
 //     because Name() IS called on such bare values; PrepareWorkspace is not.
 //
 // Adding a nil-base guard to PrepareWorkspace would be dead defensive code. This
@@ -341,21 +202,25 @@ func TestContainer_NilBaseIsUnreachable(t *testing.T) {
 // prefixMapper a spec that re-derived the project mount from cw.dir (or
 // skipped the mapper) would carry the raw host path, which this catches.
 func TestContainer_RunnerSpecRendersTheRelocatedRoots(t *testing.T) {
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "")
-	cw := &containerWorkspace{dir: "/proj/live", agentID: "m"}
-	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: "/sessions/h/home/mock"})
+	rt := fakeRuntime{name: "docker", available: true}
+	c := NewContainerFor(rt, "")
+	live := filepath.Join(t.TempDir(), "proj", "live")
+	sessionHome := filepath.Join(t.TempDir(), "sessions", "h", "home", "mock")
+	cw := &containerWorkspace{dir: live, agentID: "m"}
+	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: sessionHome})
 	require.NoError(t, err)
 	_, err = c.environment(cw, pl, roots)
 	require.NoError(t, err)
 
 	spec := c.buildRunnerSpec("mock", "name", cw, nil)
 
-	assert.Equal(t, "/ctr/proj/live", spec.WorkDir,
+	assert.Equal(t, mapped(t, rt, live), spec.WorkDir,
 		"WorkDir must be the MAPPED container path, not the raw host dir")
 	assert.Equal(t, pl.Paths.Paths().ProjectRoot.Engine, spec.WorkDir, "WorkDir is the placement's project root, from the same producer")
-	assert.Contains(t, spec.Mounts, mount{Host: "/proj/live", Container: "/ctr/proj/live"},
+	assert.NotEqual(t, live, spec.WorkDir, "guard on the guard: the mapper under test is non-identity")
+	assert.Contains(t, spec.Mounts, mount{Host: live, Container: mapped(t, rt, live)},
 		"the project mount's Container side must be the MAPPED path, not the raw host dir")
-	assert.Contains(t, spec.Mounts, mount{Host: "/sessions/h/home/mock", Container: defaultContainerHome},
+	assert.Contains(t, spec.Mounts, mount{Host: sessionHome, Container: defaultContainerHome},
 		"a non-relocating engine's session home is mounted as the container's $HOME")
 	assert.Equal(t, defaultContainerHome, spec.Home)
 }
@@ -382,232 +247,6 @@ func TestContainer_WithImageRunsAsIs(t *testing.T) {
 		"the isolation_images override path already agreed")
 	assert.False(t, NewContainerFor(rt, "claude-code").runAsIs(),
 		"without an override the spec's own recipe still builds the agent image")
-}
-
-// TestContainer_GitdirMirrorMountUnreadableGit pins a regression. The
-// guard was `if err != nil || info.IsDir()` — one branch for two opposite facts.
-// "no .git" and "a .git directory" genuinely need no mirror, but an UNREADABLE
-// .git means we could not tell which case we are in, and answering "no mirror
-// needed" hands the container a checkout whose git cannot resolve the repo. The
-// container axis's whole degrade contract is fatal-unless-degraded on a lost
-// boundary, so this must error out of PrepareWorkspace, never resolve silently.
-func TestContainer_GitdirMirrorMountUnreadableGit(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("root ignores directory permissions; cannot make .git unstattable")
-	}
-	proj := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(proj, ".git"),
-		[]byte("gitdir: /repo/.git/worktrees/x\n"), 0o644))
-	require.NoError(t, os.Chmod(proj, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(proj, 0o755) })
-
-	_, ok, err := gitdirMirrorMount(context.Background(),
-		fakeRuntime{name: "docker", available: true}, &git.Fake{CommonDirValue: "/repo/.git"}, proj)
-	require.Error(t, err, "an unreadable .git must fail the workspace, not silently yield no mirror")
-	assert.False(t, ok)
-	assert.Contains(t, err.Error(), ".git")
-}
-
-// TestContainerWorkspace_CleanupSurfacesBaseError pins a regression. The
-// base teardown's error was discarded with `_ =` under a comment asserting it
-// "never contributes an error" — true today only because worktreeWorkspace.
-// Cleanup happens to return nil unconditionally (it warns instead), which is a
-// property of a DIFFERENT type in a different file that nothing binds to this
-// one. The moment a base teardown does report a failure it would vanish. Join
-// it instead, so the guarantee is structural rather than remote.
-func TestContainerWorkspace_CleanupSurfacesBaseError(t *testing.T) {
-	baseErr := fmt.Errorf("worktree teardown failed")
-
-	// Base failure alone: nothing else went wrong, and it still surfaces.
-	ws := &containerWorkspace{dir: "/proj", agentID: "m", baseCleanup: func() error { return baseErr }}
-	err := ws.Cleanup()
-	require.Error(t, err, "a base teardown failure must not be swallowed")
-	assert.ErrorIs(t, err, baseErr)
-
-	// Both halves fail: neither hides the other.
-	root := brokenScratch(t)
-	both := &containerWorkspace{dir: "/proj", agentID: "m", scratchRoot: root, baseCleanup: func() error { return baseErr }}
-	done := captureStderr(t)
-	err = both.Cleanup()
-	_ = done()
-	require.Error(t, err)
-	assert.ErrorIs(t, err, baseErr)
-	assert.Contains(t, err.Error(), "remove container scratch")
-}
-
-// TestContainer_CleanupKeepsOverlayTargets pins the ruling that the overlay
-// mountpoints a container run needs inside the LIVE project are created and
-// KEPT. They must be pre-created as the invoking user (containerConfigOverlay
-// says why), and removing them again at teardown is unsafe: the project is
-// shared, so a second run on it mounts the SAME targets, and one run's teardown
-// removing an empty target detaches the path the other run's overlay is bound
-// to. The accepted cost is an empty .claude/ and .ctxloom/cache/ in a
-// container-only project.
-//
-// Driven through the real PrepareWorkspace and Cleanup, with two workspaces on
-// one project: the first creates the targets, and its Cleanup must leave them
-// for the second.
-func TestContainer_CleanupKeepsOverlayTargets(t *testing.T) {
-	testsupport.Isolate(t)
-	ctx := context.Background()
-	targets := []string{".claude", filepath.FromSlash(".ctxloom/cache")}
-	c := hermeticHostContainer(t, targets)
-	c.state = SessionState{Harp: "brisk-teal-otter"}
-
-	proj := t.TempDir()
-	first, err := c.prepareWorkspace(ctx, proj, "member-first")
-	require.NoError(t, err)
-	for _, rel := range targets {
-		require.DirExists(t, filepath.Join(proj, rel), "premise: the first run created the overlay target")
-	}
-	second, err := c.prepareWorkspace(ctx, proj, "member-second")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = second.Cleanup() })
-
-	require.NoError(t, first.Cleanup())
-
-	for _, rel := range targets {
-		assert.DirExists(t, filepath.Join(proj, rel),
-			"the first run's teardown must not remove a target the second run's overlay is still bound to")
-	}
-}
-
-// hermeticHostContainer is a host-base Container whose whole prepare gate runs
-// without a daemon: a fake runtime script that reports the image present and
-// provenance-current, stubbed auth, and a stubbed shared-fs probe. The caller
-// stamps the session state.
-func hermeticHostContainer(t *testing.T, overlayDirs []string) Container {
-	t.Helper()
-	fake := t.TempDir()
-	script := filepath.Join(fake, "fake-docker")
-	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
-	writeFakeRuntimeScript(t, script, filepath.Join(fake, "builds.log"), fake, labels)
-	require.NoError(t, os.WriteFile(filepath.Join(fake, "ctxloom-agent-hermetic-test_latest"), nil, 0o644))
-
-	prevFS := sharedFSCheck
-	sharedFSCheck = func(context.Context, Runtime, string, []string) error { return nil }
-	t.Cleanup(func() { sharedFSCheck = prevFS })
-
-	return Container{
-		runtime: fakeRuntime{name: "docker", binary: script, available: true},
-		image:   "ctxloom-agent-hermetic-test:latest",
-		engineSpec: engineContainerSpec{
-			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func() (containerAuth, bool) {
-				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
-			},
-			overlayDirs: overlayDirs,
-		},
-		binaryPath: defaultContainerBinary,
-		home:       defaultContainerHome,
-		base:       hostBase{},
-	}
-}
-
-// TestContainer_ScratchLivesUnderTheSessionEphemeralDir pins where a container
-// run's host scratch goes: under the session's ephemeral dir, never the OS temp
-// dir. An owner that dies before Cleanup then leaves it inside the session
-// layout, where the session's own cleanup reaches it, instead of an orphaned
-// ctxloom-iso-* in the temp dir that nothing ever collects.
-func TestContainer_ScratchLivesUnderTheSessionEphemeralDir(t *testing.T) {
-	testsupport.Isolate(t)
-	const harp = "brisk-teal-otter"
-	c := hermeticHostContainer(t, []string{".claude"})
-	c.state = SessionState{Harp: harp}
-
-	ws, err := c.prepareWorkspace(context.Background(), t.TempDir(), "member-scratch")
-	require.NoError(t, err)
-	cw := ws.(*containerWorkspace)
-	root := cw.scratchRoot
-
-	eph, err := paths.HarpEphemeralDir(harp)
-	require.NoError(t, err)
-	assert.Equal(t, eph, filepath.Dir(root), "the scratch root is a direct child of the session's ephemeral dir")
-	assert.True(t, strings.HasPrefix(filepath.Base(root), "ctxloom-iso-"), "scratch root %q keeps its name prefix", root)
-	require.DirExists(t, root)
-
-	require.NoError(t, ws.Cleanup())
-	assert.NoDirExists(t, root, "Cleanup still removes the scratch root")
-}
-
-// TestContainer_HarplessRunIsRefused: a container run with no usable harp has
-// nowhere in the session layout to put its scratch, and is refused rather than
-// falling back to the OS temp dir. Through the degrade chain the refusal is the
-// fatal ClassIsolation finding, the same way an unpreparable state dir fails.
-func TestContainer_HarplessRunIsRefused(t *testing.T) {
-	for name, tc := range map[string]struct {
-		harp string
-		want error
-	}{
-		"no harp":     {"", errNoSessionHarp},
-		"unsafe harp": {"../evil", errUnsafeSessionHarp},
-	} {
-		t.Run(name, func(t *testing.T) {
-			testsupport.Isolate(t)
-			resetStrictness(t)
-			c := hermeticHostContainer(t, []string{".claude"})
-			c.state = SessionState{Harp: tc.harp}
-			proj := t.TempDir()
-
-			ws, err := c.resolveWorkspace(context.Background(), proj, "member-harpless")
-			require.ErrorIs(t, err, tc.want)
-			assert.Nil(t, ws)
-
-			mark := strictness.Checkpoint()
-			done := captureStderr(t)
-			policy, fallback := prepareChain(context.Background(), []policy{c, None{}}, RuntimeContainerRootless, proj, "member-harpless")
-			_ = done()
-			found := strictness.Since(mark)
-			strictness.Close(mark)
-			t.Cleanup(func() { _ = fallback.Cleanup() })
-
-			assert.Equal(t, None{}.Name(), policy.Name(), "the chain walks past the refused container")
-			// The hermetic gate records findings of its own (the fake image has
-			// no engine recipe and no ctxloom entrypoint); the one under test is
-			// the one naming the harp refusal.
-			var refusals []report.Finding
-			for _, f := range found {
-				if strings.Contains(f.Text, tc.want.Error()) {
-					refusals = append(refusals, f)
-				}
-			}
-			require.Len(t, refusals, 1, "the refusal is a recorded finding, never a silent host run: %v", found)
-			assert.Equal(t, report.KindIsolation, refusals[0].Kind)
-			assert.True(t, refusals[0].NonDegradable, "a requested container boundary is refused in both modes")
-		})
-	}
-}
-
-// TestGitCommonDirMount_WholeCommonDirReadWrite pins the ACCEPTED posture a
-// review row re-opened. The row's facts are correct: the entire git common dir is
-// bind-mounted READ-WRITE, mapped through the runtime's pathMapper, so a
-// low-trust container-worktree member can reach the main checkout's
-// refs/objects/index and every other worktree's admin dir. That exposure is
-// real and was adjudicated in the tree before this wave (see
-// gitCommonDirMount's own DECISION block): the per-worktree admin dir a
-// linked checkout needs is a SUBDIRECTORY of the common dir, git needs write
-// access to refs/logs and the packed-refs/objects layout, and a surgical
-// partial mount is fragile in ways that are easy to get subtly wrong.
-// Narrowing it is a per-agent-git-isolation design decision, not a sweep's
-// call — escalated, not changed here.
-//
-// What this pins is the posture itself, in both directions: read-only would
-// break every linked-worktree container run, and an UNMAPPED path (skipping
-// the runtime's pathMapper rather than routing through it) would break the
-// `gitdir:` pointer that made the mount necessary — the mount and the
-// project's own WorkDir must always agree on the SAME translation, identity
-// or not. A change to either must be deliberate.
-func TestGitCommonDirMount_WholeCommonDirReadWrite(t *testing.T) {
-	const common = "/repo/.git"
-	m, err := gitCommonDirMount(context.Background(),
-		fakeRuntime{name: "docker", available: true},
-		&git.Fake{CommonDirValue: common}, "/repo/wt")
-	require.NoError(t, err)
-
-	assert.Equal(t, common, m.Host, "the WHOLE common dir is the mount source (accepted blast radius)")
-	assert.Equal(t, "/ctr"+common, m.Container, "mapped through the runtime's pathMapper, so a `gitdir:` pointer file resolves in-container")
-	assert.False(t, m.ReadOnly,
-		"read-write by design: a linked checkout writes its own admin files under <common>/worktrees/<name>")
 }
 
 // TestContainerFor_PropagatesEveryImageConfigField pins the field-by-field
@@ -657,4 +296,64 @@ func imageConfigFieldNames() []string {
 		names = append(names, tp.Field(i).Name)
 	}
 	return names
+}
+
+// TestRunAsIsIdentityProblem pins the per-runtime identity contract for
+// user-owned run-as-is images. PUID-passing modes (rootful docker, podman
+// both modes) need the ctxloom entrypoint started as root — nothing else
+// makes the PUID env change who the engine runs as. Rootless docker passes
+// no PUID and container-root is the ONE uid that maps to the launching user,
+// so there the image must simply run as root.
+func TestRunAsIsIdentityProblem(t *testing.T) {
+	governed := []string{"/usr/local/bin/ctxloom-entrypoint"}
+	tests := []struct {
+		name   string
+		rt     Runtime
+		id     imageIdentity
+		wantOK bool
+	}{
+		{"rootful docker + governed", Docker{}, imageIdentity{Entrypoint: governed}, true},
+		{"rootful docker + foreign entrypoint", Docker{}, imageIdentity{Entrypoint: []string{"/docker-entrypoint.sh"}}, false},
+		{"rootful docker + no entrypoint", Docker{}, imageIdentity{}, false},
+		{"rootful docker + governed but USER blocks the remap", Docker{}, imageIdentity{Entrypoint: governed, User: "node"}, false},
+		{"rootless docker + default root", Docker{rootless: true}, imageIdentity{}, true},
+		{"rootless docker + explicit root", Docker{rootless: true}, imageIdentity{User: "root"}, true},
+		{"rootless docker + USER maps to a subuid", Docker{rootless: true}, imageIdentity{User: "1000:1000"}, false},
+		{"rootful podman + governed", Podman{}, imageIdentity{Entrypoint: governed}, true},
+		{"rootless podman + ungoverned", Podman{rootless: true}, imageIdentity{}, false},
+		{"unknown runtime held to the PUID contract", fakeRuntime{}, imageIdentity{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			problem := runAsIsIdentityProblem(tt.rt, tt.id)
+			if tt.wantOK {
+				assert.Empty(t, problem)
+			} else {
+				assert.NotEmpty(t, problem)
+			}
+		})
+	}
+}
+
+// TestCheckRunAsIsIdentity_LocallyBuiltSkips: a backend with a local build
+// recipe (no image override) bakes the entrypoint itself — the contract holds
+// by construction and no inspect runs (the fake binary here would fail one).
+func TestCheckRunAsIsIdentity_LocallyBuiltSkips(t *testing.T) {
+	resetStrictness(t)
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "false", available: true}, "claude-code")
+	c.checkRunAsIsIdentity(context.Background())
+	assert.Empty(t, strictness.All(), "locally-built images are governed by construction")
+}
+
+// TestIdentityFor_ComposableCarriesSlot: the on-the-fly build (ensureImage)
+// gets the same slot labels as the explicit one — identityFor hands
+// buildFromSource composedIdentity's slot and companion key, under the
+// container's own tag.
+func TestIdentityFor_ComposableCarriesSlot(t *testing.T) {
+	c := containerFor(fakeRuntime{name: "docker", binary: "true", available: true}, "claude-code", ImageConfig{})
+	id := c.identityFor(nil)
+	assert.Equal(t, c.image, id.ref)
+	assert.NotEmpty(t, id.slot)
+	assert.True(t, strings.HasSuffix(c.image, id.slot), "the slot is the content key the tag ends in: %s vs %s", c.image, id.slot)
+	assert.Equal(t, hostImageKeys().companions, id.companions)
 }

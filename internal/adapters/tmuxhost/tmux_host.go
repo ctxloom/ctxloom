@@ -94,17 +94,19 @@ func (l *Terminals) host(ctx context.Context, spec hostSpec) (*tmuxTerminal, err
 	// The environment and the command's own arguments travel in a launcher
 	// FILE, never on this command line: tmux caps it, and both of those grow
 	// without bound (see writeLauncher).
-	launcher, err := writeLauncher(l.tmpDir, "host-"+name, spec.Env, spec.Command, spec.Args)
+	launch, err := writeLauncher(l.tmpDir, "host-"+name, spec.Env, spec.Command, spec.Args)
 	if err != nil {
 		return nil, fmt.Errorf("host %q: %w", spec.Command, err)
 	}
+	h.feed = launch.feed
 	// writerPipePane: the command's stdout is the window's real PTY, so an
 	// interactive program behaves as it would in any terminal, and pipe-pane
 	// (armed below, before the gate is released) copies the bytes out.
 	args = append(args, "sh", "-c", tmuxWindowWrapper,
-		l.socketName(), string(writerPipePane), h.outputPath, gate, h.statusPath, h.channel, "sh", launcher)
+		l.socketName(), string(writerPipePane), h.outputPath, gate, h.statusPath, h.channel, "sh", launch.path)
 
 	if _, err := l.runner.Run(ctx, args...); err != nil {
+		launch.feed.release()
 		return nil, fmt.Errorf("host %q: %w", spec.Command, err)
 	}
 

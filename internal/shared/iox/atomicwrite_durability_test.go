@@ -44,8 +44,8 @@ func TestAtomicWriters_ReplaceByRename_NotInPlace(t *testing.T) {
 			target := filepath.Join(dir, "settings.json")
 			require.NoError(t, os.WriteFile(target, old, 0o644))
 
-			beforeInfo, err := os.Stat(target)
-			require.NoError(t, err)
+			beforeInfo := statByHandle(t, target)
+			var err error
 
 			// A concurrent reader that opened the file before the write. Skipped
 			// on Windows, where replacing a file another handle holds open is
@@ -77,4 +77,17 @@ func TestAtomicWriters_ReplaceByRename_NotInPlace(t *testing.T) {
 			assert.Equal(t, string(fresh), string(got))
 		})
 	}
+}
+
+// statByHandle pins path's file identity NOW. An os.Stat FileInfo on Windows
+// loads its file id lazily, by path, when os.SameFile first asks — after a
+// rename it would describe the new file and compare equal to it.
+func statByHandle(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	require.NoError(t, err)
+	return info
 }

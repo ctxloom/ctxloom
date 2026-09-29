@@ -81,6 +81,7 @@ func admitFragment(t *testing.T, g *contentGate, read bundles.BundleRead, ref st
 // the observable.
 func tamperedRemoteLoad(t *testing.T, ref string, b *bundles.Bundle) (*bundles.Loader, string) {
 	t.Helper()
+	freshWarnOnce(t)
 	var warnings strings.Builder
 	restore := clidiag.SetSink(&warnings)
 	defer restore()

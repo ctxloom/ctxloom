@@ -34,20 +34,6 @@ default: build
 # explicit for the docker `-e` passthroughs.
 export GOWORK := "off"
 
-# The test suites build a ~30MB taskloom binary of their own
-# (testenv.TaskloomBinary for acceptance, tasksBinary for tests/taskloom) and
-# both site it under GOTMPDIR — because on a tmpfs /tmp the linker's mmap of
-# that output ENOSPCs under the suite's parallel builds. GOTMPDIR was UNSET
-# here, so MkdirTemp fell back to os.TempDir() = the exact tmpfs those helpers
-# were trying to avoid: the intent was written into the code and never wired
-# up. Default it to disk so a future leak (or just a big parallel run) cannot
-# kill the tmpfs. `go build` honors it for its own intermediates too. Same
-# shape and same reason as `mutation_tmp` in build/ci.justfile.
-#
-# Recipes that use it depend on _ensure-gotmpdir: Go does NOT create GOTMPDIR
-# on demand — with the directory missing, every go invocation dies with
-# "creating work dir: ... no such file or directory" (see clean-caches, which
-# learned that the hard way).
 # TOP is the repository root, detected from git.
 #
 # Every recipe that has to name this checkout from OUTSIDE it — the host side of
@@ -63,14 +49,6 @@ export GOWORK := "off"
 # remote fetchers, the worktree isolation and the version stamp all need it), so
 # a missing git is a broken environment to fix, not a case to degrade into.
 TOP := `git rev-parse --show-toplevel`
-
-go_tmp := env_var_or_default("CTXLOOM_GOTMPDIR", "/var/tmp/ctxloom-gotmp")
-
-# Create the GOTMPDIR above. Cheap, idempotent, and a dependency rather than a
-# global export so a missing directory can never break a recipe that never
-# asked for it.
-_ensure-gotmpdir:
-    @mkdir -p "{{go_tmp}}"
 
 # Get version from versionator. There is no placeholder stamp: when versionator
 # cannot produce one, the else branch names the cause and the remedy on stderr
@@ -278,22 +256,6 @@ gen-schemas:
 defaults:
     go run ./internal/ltk/tools/extract-defaults
 
-# Ensure the covdata tool is present for multi-package coverage merges.
-# Go 1.25 dropped covdata (and other secondary tools) from the prebuilt
-# distribution — they're built on demand from src/cmd. But `go test
-# -coverprofile ./...` merges coverage for test-less packages by invoking
-# covdata out of GOTOOLDIR, and an auto-downloaded toolchain's GOTOOLDIR is
-# read-only with no covdata, so the merge fails with `no such tool "covdata"`.
-# Build the version-matched covdata into GOTOOLDIR once (idempotent).
-_ensure-covdata:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tooldir="$(go env GOTOOLDIR)"
-    if [ -x "$tooldir/covdata" ]; then exit 0; fi
-    chmod u+w "$tooldir" 2>/dev/null || true
-    go build -o "$tooldir/covdata" cmd/covdata
-    echo "ctxloom: built version-matched covdata into $tooldir/"
-
 # THE developer/agent entry point: runs EVERY test group and fails if ANY
 # fails.
 #
@@ -453,18 +415,6 @@ cover-html:
 
 # Run tests with coverage (legacy alias)
 test-coverage: cover
-
-# Run the cross-agent equity conformance suite (every registered backend through
-# the shared agent.SettingsWriter contract). Tag-gated so it's excluded from the
-# default `go test ./...`; run it explicitly here.
-#
-# Then the installed claude's secure-storage probe: a host run shares the
-# human's login only while claude still takes its credential and both refresh
-# locks from CLAUDE_SECURESTORAGE_CONFIG_DIR. Through test-pkg, so a -run that
-# selects nothing fails instead of passing.
-test-conformance:
-    go test -trimpath -race -tags conformance ./internal/engines/conformance/...
-    "{{just_executable()}}" --justfile "{{justfile()}}" test-pkg ./internal/engines/claude/ -tags conformance -run '^TestClaudeSecureStorage_'
 
 # Validate ONE vendor-transcript reader in isolation (its own package,
 # already part of `go test ./...`, but named here so a release-monitoring job
@@ -781,92 +731,6 @@ test-acceptance-focus PATHS TAGS="": build _ensure-gotmpdir
 # Build a coverage-instrumented ctxloom.
 build-cover: dev-image
     "{{just_executable()}}" --justfile "{{justfile()}}" _run build-cover
-
-# Run the acceptance suite against a COVERAGE-INSTRUMENTED ctxloom and report
-# what it actually executed.
-#
-# WHY THIS EXISTS, and what it is NOT for. completeness_test.go answers
-# "was this leaf REACHED?" from testenv.RecordedInvocations() — the argv the
-# suite actually started, resolved to a leaf by cobra's own root.Find(). That
-# gate is correct and stays: it keeps flag-level credit (`--engine <name>`
-# is a separate row), works in both lanes, and cannot be fooled by a mention.
-#
-# What it cannot answer is "how MUCH of that leaf ran". A leaf invoked once
-# with no flags is fully credited. This lane answers that second question, and
-# only that one — it is a DEPTH signal, never the reach gate.
-#
-# Coverage is measurable here at all only because the suite drives ctxloom as a
-# SUBPROCESS and `go test -coverprofile` cannot follow an exec.
-#
-# DO NOT repoint the reach gate at this data. Measured: a SIGKILLed process
-# never flushes its counters, and the harness hard-kills servers — `mcp serve`
-# reads 0.0% while running in every @mcp scenario (taskloom unsure-cadet).
-#
-# `go build -cover` + GOCOVERDIR (Go 1.20+) can: the instrumented binary
-# writes counters at exit, once per exec, and covdata merges them. That is the
-# standard mechanism for exactly this problem, and this repo already built
-# half of it — `_ensure-covdata` installs a version-matched covdata into
-# GOTOOLDIR. Only the instrumentation was missing.
-#
-# GOCOVERDIR reaches the binary because testenv's isolatedEnv() starts from
-# os.Environ() and scrubSessionEnv only strips CTXLOOM session keys. The dir
-# must EXIST before the first exec or the runtime has nowhere to write.
-#
-# This is deliberately NOT the commit gate: an instrumented binary is slower
-# and writes a file per exec, and the suite execs ctxloom thousands of times.
-# Run it to get a number, not on every push.
-test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
-    #!/usr/bin/env bash
-    set -euo pipefail
-    covdir="{{go_tmp}}/acceptance-cover"
-    coverbin="{{TOP}}/.coverbin"
-    rm -rf "$covdir"; mkdir -p "$covdir"
-    # -count=1 so nothing is served from the test cache: a cached PASS runs no
-    # binary and would produce an empty, silently wrong coverage set.
-    set +e
-    # The instrumented binary is NAMED ctxloom and its directory leads PATH, so
-    # the product resolves itself exactly as in a normal run. Point CTXLOOM_BINARY
-    # at a differently-named twin instead and ctxloom writes its self-referencing
-    # hooks as absolute paths rather than the bare name — different bytes, so a
-    # different program measured. See cmd/ctxloom/justfile's build-cover.
-    # -timeout 30m for the same reason test-acceptance carries it, only more so:
-    # this lane runs the SAME 515 scenarios through a coverage-instrumented
-    # binary, so it is strictly slower than the 1200s the plain suite measured.
-    # Under go test's 600s default this lane died mid-suite and still emitted a
-    # profile — a TRUNCATED one, which is worse than none: every leaf and flag
-    # the run never reached reads as "not exercised", so a gate seeded from it
-    # bakes in exemptions for code that is in fact covered.
-    PATH="$coverbin:$PATH" GOTMPDIR="{{go_tmp}}" GOCOVERDIR="$covdir" \
-        CTXLOOM_BINARY="$coverbin/ctxloom" \
-        go test -trimpath -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
-    status=$?
-    set -e
-    files=$(find "$covdir" -name 'covcounters.*' | wc -l)
-    if [ "$files" -eq 0 ]; then
-        echo "error: the suite produced NO coverage counters — the instrumented" >&2
-        echo "       binary never ran. A coverage report of nothing must not read" >&2
-        echo "       as a clean result." >&2
-        exit 1
-    fi
-    echo
-    echo "=== coverage from $files instrumented runs ==="
-    go tool covdata percent -i="$covdir"
-    echo
-    echo "(per-function: go tool covdata func -i=$covdir)"
-
-    # The completeness gate, over data rather than over the suite's own account
-    # of itself. It runs as a SECOND `go test` invocation because coverage is
-    # complete only once every exec has flushed — an in-suite check would be
-    # reading a half-written profile. It stays a Go test rather than a shell
-    # comparison so it is discoverable where the other gates are.
-    profile="$covdir/profile.txt"
-    go tool covdata textfmt -i="$covdir" -o="$profile"
-    echo
-    echo "=== every CLI leaf's RunE ran, and every Changed() flag was passed? ==="
-    CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{go_tmp}}" \
-        go test -trimpath -v -tags "acceptance integration coveragegate" -count=1 \
-        -run 'TestCLICoverage_' ./tests/acceptance/... || status=1
-    exit "$status"
 
 # Re-run the CLI coverage gates ALONE, against a profile that already exists.
 #
@@ -1345,12 +1209,13 @@ test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
 
 # ===== Mutation testing =====
 
-# `mutation_tmp` and the whole-tree `test-mutation` come from build/ci.justfile
-# (imported at the top of this file AND by justfile.container), alongside the
-# diff-only `test-mutation-diff` that gates every push. They live there because
-# CI runs them: mutation-weekly.yml used to call a bare `gremlins unleash`,
-# which is the same operation WITHOUT the TMPDIR pinning below — the recipe
-# existed here and CI ran past it. The recipes below are host-only and keep
+# `mutation_tmp` and the gremlins recipes — the shard/aggregate pair CI runs,
+# and `test-mutation` / `test-mutation-diff`, which compose that pair on one
+# machine — come from build/ci.justfile (imported at the top of this file AND
+# by justfile.container). They live there because CI runs them:
+# mutation-weekly.yml used to call a bare `gremlins unleash`, which is the same
+# operation WITHOUT the TMPDIR pinning below — the recipe existed here and CI
+# ran past it. The recipes below are host-only and keep
 # using the shared `mutation_tmp`.
 
 # --- content bundle signing ------------------------------------------------
@@ -1457,6 +1322,10 @@ test-mutation-container: _mutation-prereqs
 # run producing no score at all. Re-record after coverage work with
 # CTXLOOM_MUTATION_BASELINE=update; the baseline file states what each
 # provenance word licenses.
+# The lanes recurse into it through "{{just_executable()}}" --justfile
+# "{{justfile()}}", never a bare `just`: a bare one resolves the justfile
+# afresh, from JUST_JUSTFILE when the environment sets it, and CI's container
+# jobs set it to justfile.container, which has no mutation lanes.
 _mutation-driver LANE *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1677,7 +1546,8 @@ fmt:
 lint: dev-image _require-generated
     "{{just_executable()}}" --justfile "{{justfile()}}" _run lint
 
-# Compile every package for windows and darwin (delegates to devcontainer).
+# Compile every package for windows and darwin, and vet every test file for
+# windows (delegates to devcontainer).
 # Linux-only code compiles for the other OSes only through build-tagged twins,
 # and this is the gate that proves each twin still has its counterpart.
 build-cross: dev-image _require-generated
@@ -2145,13 +2015,12 @@ _run +ARGS:
         # error, so the build SUCCEEDS carrying a binary that cannot say what it
         # was built from.
         #
-        # READ-WRITE and whole-common-dir, matching the adjudicated posture in
-        # isolation.gitCommonDirMount — see its DECISION block for why the
-        # exposure is accepted and why a surgical partial mount is not viable
-        # (git needs write access to refs/logs and the packed-refs/objects
-        # layout). Do not re-derive that reasoning here; that function owns it,
-        # and TestGitCommonDirMount_WholeCommonDirReadWrite pins it in both
-        # directions.
+        # READ-WRITE and whole-common-dir: docs/adr/0034 records why the
+        # exposure is accepted and why a file-by-file mount is not viable (git
+        # updates config, packed-refs and refs by lock-and-rename inside the
+        # common dir). The worktrees/ registry is NOT masked here, and no other
+        # checkout is mounted: a `git worktree prune` (or gc's auto-prune) run
+        # in this container deletes every other worktree's registration.
         #
         # --mount, not -v: MEASURED — the `-v src:dst:ro` form mis-parses a
         # destination ending in `.git`, silently landing the bind at a truncated

@@ -127,6 +127,7 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/filelock",
 			"internal/shared/exectoken",
 			"internal/shared/textblocks",
+			"internal/shared/owneronly",
 		},
 		Allowed: map[string]string{
 			// core/profiles — Part 1.0 lists remote; the others were MEASURED,
@@ -273,7 +274,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/operations/managedhooks": "sanctioned: a package's own subpackage — the managed hook set operations assembles and reports",
 			"internal/adapters/operations/managedhooks -> internal/adapters/remote":     "slice 5: the profile gate's bundle refs are parsed through the pull-walk's ref grammar (remote.ParseReference); behind composite.Transport / bundles.Reader with the operations edge above",
-			"internal/adapters/runner -> internal/adapters/tmuxhost":                    "sanctioned: the runner hosts an interactive engine in a tmux pane on its own terminal (runner.RunLaunchSpec)",
 			"internal/adapters/operations -> internal/adapters/signing":                 "slice 5: one verifier behind the trust ports",
 			"internal/adapters/operations -> internal/adapters/signing/agentkey":        "slice 5: one verifier behind the trust ports",
 			"internal/adapters/operations -> internal/adapters/signing/allowedsigners":  "slice 5: composite.SignerDecision is core-owned; the adapter is injected",

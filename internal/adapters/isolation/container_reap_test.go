@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 )
 
 // reapFakeRuntime is a Runtime stub for ReapOrphanedContainers: Enumerate
@@ -58,9 +60,34 @@ func labeledInfo(name string, pid int, createdAt string) ContainerInfo {
 	return ContainerInfo{
 		Name: name,
 		Labels: map[string]string{
-			labelOwnerPID:  strconv.Itoa(pid),
-			labelCreatedAt: createdAt,
+			labelOwnerPID:   strconv.Itoa(pid),
+			labelCreatedAt:  createdAt,
+			labelOwnerPIDNS: ownerPIDNamespace(),
 		},
+	}
+}
+
+// TestReapOrphanedContainers_ForeignPIDNamespaceIsNeverJudged: under
+// docker-outside-of-docker several ctxloom processes in different pid
+// namespaces share one daemon, and a pid read in ANOTHER namespace names
+// nothing here — a dead-looking pid there may be a live owner. A container
+// whose owner-pidns is not ours, or absent, is left alone, even when its pid
+// is dead in this namespace.
+func TestReapOrphanedContainers_ForeignPIDNamespaceIsNeverJudged(t *testing.T) {
+	foreign := labeledInfo("ctxloom-iso-agent-foreign", deadPid, oldEnough())
+	foreign.Labels[labelOwnerPIDNS] = "pid:[4026532999]"
+	absent := labeledInfo("ctxloom-iso-agent-absent", deadPid, oldEnough())
+	delete(absent.Labels, labelOwnerPIDNS)
+	for _, info := range []ContainerInfo{foreign, absent} {
+		calls := stubReapProbeExec(t)
+		rt := reapFakeRuntime{
+			fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true},
+			infos:       []ContainerInfo{info},
+		}
+		assert.Equal(t, ContainerReapResult{Skipped: 1}, ReapOrphanedContainers(context.Background(), rt), info.Name)
+		assert.Empty(t, *calls, "%s must never be removed", info.Name)
+		c := classifyContainer(time.Now(), info)
+		assert.Equal(t, pidalive.State(0), c.OwnerState, "%s: its pid is never probed here", info.Name)
 	}
 }
 
@@ -195,10 +222,12 @@ func TestOwnerLabelArgs_StampsThisProcessAndARecentTimestamp(t *testing.T) {
 	args := ownerLabelArgs()
 	after := time.Now()
 
-	require.Len(t, args, 4)
+	require.Len(t, args, 6)
 	assert.Equal(t, "--label", args[0])
 	assert.Equal(t, labelOwnerPID+"="+strconv.Itoa(os.Getpid()), args[1])
 	assert.Equal(t, "--label", args[2])
+	assert.Equal(t, []string{"--label", labelOwnerPIDNS + "=" + ownerPIDNamespace()}, args[4:6],
+		"the pid is stamped with the namespace it is read in")
 
 	createdRaw := args[3][len(labelCreatedAt)+1:]
 	created, err := time.Parse(time.RFC3339, createdRaw)

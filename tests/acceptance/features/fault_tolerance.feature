@@ -19,10 +19,16 @@ Feature: Fault tolerance
   # keep their severity: a bundle the profile names that does not load is a
   # fatal finding for the run, so it is one for the preview. The preview is
   # refused where the run would be — and --degraded previews past it exactly
-  # as it would launch past it, warning.
+  # as it would launch past it, warning. The agent's token is stored: a
+  # preview also refuses a credential the run would refuse, and --degraded
+  # does not reach that one.
   Scenario: A profile referencing a missing bundle is refused like a run; --degraded previews past it
     Given an initialized ctxloom project
     And a profile "broken" referencing a missing bundle
+    And I run "ctxloom auth set --engine claude-code --mode token" with input:
+      """
+      sk-ant-oat01-fixture
+      """
     When I run "ctxloom run --dry-run --profile broken hello"
     Then the command exits with code 3
     And the output contains "failed to load bundle"

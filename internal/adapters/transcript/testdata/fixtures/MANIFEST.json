@@ -9,9 +9,9 @@
     },
     "mock.transcript.acp.jsonl": {
       "real_source": "captured on this box by driving backends.NewMock().Chat with ChatRequest.ForwardPermissions through transcript.TeeAndClose into transcript.NewRecorder(harp, \"mock\") — the production structured-chat tee, not a hand-typed line",
-      "real_fields": "every line: a PERMISSION turn (user entry, the forwarded permission request the mock emits — id mock-perm-1, tool_name mock_tool, tool_input {\"action\":\"scripted\"}, allow_once/reject_once options — answered allow, the assistant 'mock chat: permission granted', and the complete footer with model mock-model) followed by a TOOLS turn (user, thinking, tool_use, tool_result, assistant, complete)",
-      "synthetic": "none — the mock's payloads are scripted by design, but every byte here is what the registered mock backend wrote through the real recorder",
-      "why_not_fully_real": "the mock is a registered, production-reachable test double (`--llm mock`), and the only in-tree engine that forwards a permission request without a live vendor process. This fixture is what exercises KindPermission."
+      "real_fields": "lines 5 onward: a TOOLS turn (user, thinking, tool_use, tool_result, assistant, complete) driven through the real recorder",
+      "synthetic": "the first turn (lines 1-4): a denial turn hand-converted from a captured permission turn when the permission kind was replaced by denied — user entry, the denied line (tool_name mock_tool, tool_call_id mock-deny-1, decider 0 = policy), the assistant reply, and the complete footer carrying the same denial",
+      "why_not_fully_real": "the mock is a registered, production-reachable test double (`--llm mock`); its denial turn (mock:deny) has not been re-captured through the recorder. This fixture is what exercises KindDenied."
     }
   }
 }

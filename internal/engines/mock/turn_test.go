@@ -95,6 +95,46 @@ func TestTurn_ToolsMarkerEmitsTheFullEntryVocabulary(t *testing.T) {
 	assert.Equal(t, []agent.SessionEntryType{agent.EntryTypeThinking, agent.EntryTypeToolUse, agent.EntryTypeToolResult, agent.EntryTypeAssistant}, kinds)
 }
 
+// TestTurn_DenyMarkerIsAnEnginePolicyDenial: `mock:deny=<tool>` is the mock's
+// engine-policy denial — the tool_use, a Denied event for that call, and a
+// completion carrying the same denial — the shape claude reports when its
+// posture refuses a call nobody can approve.
+func TestTurn_DenyMarkerIsAnEnginePolicyDenial(t *testing.T) {
+	_, events, err := runTurn(t, engine.Exec{Binary: "mock"}, Deny("Bash")+" run the migration")
+	require.NoError(t, err)
+	var toolUse *agent.SessionEntry
+	var denied *agent.PermissionDenial
+	var meta *agent.TurnMeta
+	for _, ev := range events {
+		switch {
+		case ev.Entry != nil && ev.Entry.Type == agent.EntryTypeToolUse:
+			toolUse = ev.Entry
+		case ev.Denied != nil:
+			denied = ev.Denied
+		case ev.Complete != nil:
+			meta = ev.Complete
+		}
+	}
+	require.NotNil(t, toolUse, "the call was attempted")
+	assert.Equal(t, "Bash", toolUse.ToolName)
+	require.NotNil(t, denied, "the refusal surfaces as it happens")
+	assert.Equal(t, "Bash", denied.ToolName)
+	assert.Equal(t, toolUse.ToolCallID, denied.ToolCallID, "the denial names the call it refused")
+	assert.Equal(t, agent.DeciderPolicy, denied.Decider)
+	assert.NotEmpty(t, denied.Reason)
+	require.NotNil(t, meta)
+	assert.Equal(t, []agent.PermissionDenial{*denied}, meta.Denials, "the turn's account carries it")
+
+	_, events, err = runTurn(t, engine.Exec{Binary: "mock"}, "no marker")
+	require.NoError(t, err)
+	for _, ev := range events {
+		assert.Nil(t, ev.Denied)
+		if ev.Complete != nil {
+			assert.Empty(t, ev.Complete.Denials)
+		}
+	}
+}
+
 // TestTurn_HangMarkerStallsSilentlyUntilCancelled: a prompt carrying HANG
 // takes the turn and relays NOTHING — no session event, no entry, no
 // completion — until its context ends, and then returns that context's error.

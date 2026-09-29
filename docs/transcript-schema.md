@@ -43,12 +43,12 @@ sessions captured under the file's earlier name. Nothing writes that name.
   "engine": "claude-code",       // the driving backend's REGISTERED name, verbatim
   "seq": 0,                      // monotonic per transcript, starting at 0, no gaps
   "ts": "2026-07-14T19:42:24Z",  // RFC3339 UTC — recorder RECEIPT time, not an engine timestamp
-  "kind": "entry",               // entry|session|complete|permission|raw — selects the payload
+  "kind": "entry",               // entry|session|complete|denied|raw — selects the payload
 
   "entry": { … },       // present iff kind=="entry"
   "session": { … },     // present iff kind=="session"
   "complete": { … },    // present iff kind=="complete"
-  "permission": { … },  // present iff kind=="permission"
+  "denied":   { … },  // present iff kind=="denied"
   "raw": { … }          // sole payload iff kind=="raw"; may also ride beside "entry" — see §4
 }
 ```
@@ -89,10 +89,10 @@ already exists in `internal/core/agent`. That is the design decision ADR
   native session by `session_id` on a later spawn.
 - **`complete`** — `agent.TurnMeta`, carried in **full**. Every field, not a
   trimmed subset: the transcript is a lossless superset of what the engine
-  reported.
-- **`permission`** — `agent.PermissionRequest`. Its `kind` is the ACP
-  tool-call classification and is advisory; it is distinct from the
-  envelope's `kind`.
+  reported — including `denials`, every tool call the turn's engine refused.
+- **`denied`** — `agent.PermissionDenial`: one refused tool call as it
+  happened. `decider` is `agent.Decider`'s value (0 = the engine's own
+  policy).
 
 ---
 
@@ -114,9 +114,7 @@ by `transcript.RawPolicy` (`transcript.WithRawPolicy` on `NewRecorder`):
 - `RawOff` drops a raw-only line rather than writing an empty placeholder.
 
 The policy cannot make the adapter forward more than it chose to; it only
-decides what of that is written. Permissions never ride this channel — a
-permission request is not a stream update, so nothing could produce one as
-`Raw` even in principle.
+decides what of that is written. Permissions never ride this channel.
 
 ---
 

@@ -8,7 +8,7 @@
 // those was forgotten the result was SILENT field loss: the writer succeeded,
 // the bytes went out, and the field simply was not in them. That has now
 // happened on three separate mirrors — SessionPayload silently dropping
-// Resumable, PermissionPayload silently dropping ToolCallID, and the
+// Resumable, a permission payload silently dropping its tool-call id, and the
 // `--format json` entry/session DTOs — each found out of corpus rather than
 // by review.
 //

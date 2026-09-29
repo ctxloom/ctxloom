@@ -165,29 +165,24 @@ func TestFixtures_RealPayloadSurvives(t *testing.T) {
 		assert.True(t, sawAssistant)
 	})
 
-	t.Run("mock: real forwarded permission request, answered, then a tool turn", func(t *testing.T) {
+	t.Run("mock: a denial turn, then a tool turn", func(t *testing.T) {
 		_, recs := readFixtureLines(t, "mock")
-		var perms []Record
-		var sawGranted bool
+		var denied []Record
+		var footer *CompletePayload
 		for _, r := range recs {
 			switch {
-			case r.Kind == KindPermission:
-				perms = append(perms, r)
-			case r.Kind == KindEntry && r.Entry.Type == "assistant" && r.Entry.Content == "mock chat: permission granted":
-				sawGranted = true
+			case r.Kind == KindDenied:
+				denied = append(denied, r)
+			case r.Kind == KindComplete && footer == nil:
+				footer = r.Complete
 			}
 		}
-		require.Len(t, perms, 1, "the mock's PERMISSION turn forwards exactly one request")
-		p := perms[0].Permission
-		require.NotNil(t, p)
-		assert.Equal(t, "mock-perm-1", p.ID)
-		assert.Equal(t, "mock_tool", p.ToolName)
-		assert.JSONEq(t, `{"action":"scripted"}`, string(p.ToolInput))
-		assert.Equal(t, []PermissionOption{
-			{ID: "allow", Kind: "allow_once", Name: "Allow"},
-			{ID: "reject", Kind: "reject_once", Name: "Reject"},
-		}, p.Options)
-		assert.True(t, sawGranted, "the answered permission must be followed by the mock's granted reply")
+		require.Len(t, denied, 1, "the denial turn records exactly one denied line")
+		want := DeniedPayload{ToolName: "mock_tool", ToolCallID: "mock-deny-1", Reason: "mock: mock_tool is denied by policy", Decider: 0}
+		require.NotNil(t, denied[0].Denied)
+		assert.Equal(t, want, *denied[0].Denied)
+		require.NotNil(t, footer)
+		assert.Equal(t, []DeniedPayload{want}, footer.Denials, "the turn's footer carries its denials")
 
 		byType := map[string]int{}
 		for _, r := range recs {

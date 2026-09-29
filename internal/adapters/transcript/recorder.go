@@ -304,7 +304,7 @@ func (r *fileRecorder) releaseLock() {
 }
 
 func (r *fileRecorder) record(ev agent.ChatEvent) error {
-	kind, entry, session, complete, permission, err := payloadFromChatEvent(ev)
+	kind, entry, session, complete, denied, err := payloadFromChatEvent(ev)
 	if err != nil {
 		return err
 	}
@@ -329,18 +329,18 @@ func (r *fileRecorder) record(ev agent.ChatEvent) error {
 	}
 
 	rec := Record{
-		V:          SchemaVersion,
-		Harp:       r.harp,
-		SessionID:  r.sessionID,
-		Engine:     r.engine,
-		Seq:        r.seq,
-		TS:         r.now(),
-		Kind:       kind,
-		Entry:      entry,
-		Session:    session,
-		Complete:   complete,
-		Permission: permission,
-		Raw:        raw,
+		V:         SchemaVersion,
+		Harp:      r.harp,
+		SessionID: r.sessionID,
+		Engine:    r.engine,
+		Seq:       r.seq,
+		TS:        r.now(),
+		Kind:      kind,
+		Entry:     entry,
+		Session:   session,
+		Complete:  complete,
+		Denied:    denied,
+		Raw:       raw,
 	}
 
 	line, err := json.Marshal(rec)

@@ -74,7 +74,7 @@ var capabilityInventory = []capabilityRow{
 	{9, "agent.CommandExport / agentDescriptor.exports — slash-command export"},
 	{10, "agent.SkillExport / agentDescriptor.skillExports — skills export"},
 	{11, "agent.PermissionMode / enforcesReadOnlyPlan — permission tiers, plan read-only"},
-	{12, "agent.PermissionRequest — approval flow"},
+	{12, "agent.PermissionDenial / TurnMeta.Denials — approval flow and denials"},
 	{13, "agent_send / coord.peerSend / the runner's automatic turn report — steer and mail at turn boundaries"},
 	{14, "engine.Turn.Resume / ChatSessionInfo.Resumable — resume and session identity"},
 	{15, "transcript.Record / paths.HarpCanonicalTranscriptPath — canonical transcript capture"},
@@ -417,13 +417,12 @@ var probeRegistry = []probeSpec{
 		Cells:        p4Cells(),
 	},
 	// P5 stays planned deliberately (ruled 2026-09-22): approvals are wanted
-	// back as a capability. It cannot be built yet — decision 21's per-turn
-	// drive removed mid-turn approval, launch.floorPermission floors a
-	// headless run so it never prompts, and nothing emits
-	// agent.ChatEvent.Permission. A cell wires when an engine emits one.
+	// back as a capability. It cannot be built yet — a headless run's engine
+	// denies what nothing approves (surfaced as agent.ChatEvent.Denied), and
+	// no approval route reaches a human yet. A cell wires when one does.
 	{
 		Name:         probeP5,
-		Title:        "approval surface: an engine permission request must SURFACE as a PermissionRequest, and the gated effect must appear only after the allow",
+		Title:        "approval surface: an engine permission request must SURFACE to a human, and the gated effect must appear only after the allow",
 		Capabilities: []int{2, 12},
 		Channel:      channelGatedAction,
 		Paid:         true,

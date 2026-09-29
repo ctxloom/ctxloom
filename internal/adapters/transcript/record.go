@@ -30,7 +30,7 @@ import (
 const SchemaVersion = 1
 
 // Kind discriminates which payload field of a Record is populated. Exactly
-// one of Entry/Session/Complete/Permission is non-nil for a given Kind.
+// one of Entry/Session/Complete/Denied is non-nil for a given Kind.
 type Kind string
 
 const (
@@ -46,11 +46,11 @@ const (
 	// duration, stop reason) — a turn BOUNDARY marker with NO content. Mirrors
 	// agent.ChatEvent.Complete.
 	KindComplete Kind = "complete"
-	// KindPermission carries a forwarded engine permission request awaiting a
-	// caller decision. Mirrors agent.ChatEvent.Permission.
-	KindPermission Kind = "permission"
+	// KindDenied carries one tool call the engine refused, as it happened.
+	// Mirrors agent.ChatEvent.Denied.
+	KindDenied Kind = "denied"
 	// KindRaw carries ONLY the IR3 raw side channel (Record.Raw) — a
-	// ChatEvent that had no Entry/Session/Complete/Permission of its own
+	// ChatEvent that had no Entry/Session/Complete/Denied of its own
 	// (e.g. an available_commands_update/current_mode_update passthrough
 	// forwarded via agent.ChatEvent.Raw). Distinct from the other four Kinds
 	// carrying no payload:
@@ -97,10 +97,10 @@ type Record struct {
 	// Kind selects which payload field below is populated.
 	Kind Kind `json:"kind"`
 
-	Entry      *EntryPayload      `json:"entry,omitempty"`
-	Session    *SessionPayload    `json:"session,omitempty"`
-	Complete   *CompletePayload   `json:"complete,omitempty"`
-	Permission *PermissionPayload `json:"permission,omitempty"`
+	Entry    *EntryPayload    `json:"entry,omitempty"`
+	Session  *SessionPayload  `json:"session,omitempty"`
+	Complete *CompletePayload `json:"complete,omitempty"`
+	Denied   *DeniedPayload   `json:"denied,omitempty"`
 
 	// Raw is an OPTIONAL escape hatch for the original engine frame. As of IR3
 	// (2026-07), agent.ChatEvent DOES carry one (ChatEvent.Raw — the protocol
@@ -213,36 +213,18 @@ type CompletePayload struct {
 	StopReason          string  `json:"stop_reason,omitempty"`
 	DurationMs          int     `json:"duration_ms,omitempty"`
 	NumTurns            int     `json:"num_turns,omitempty"`
+	// Denials is every tool call the turn's engine refused.
+	Denials []DeniedPayload `json:"denials,omitempty"`
 }
 
-// PermissionPayload is the KindPermission payload — agent.PermissionRequest,
-// field for field.
-type PermissionPayload struct {
-	ID        string             `json:"id"`
-	ToolName  string             `json:"tool_name,omitempty"`
-	ToolInput json.RawMessage    `json:"tool_input,omitempty"`
-	Options   []PermissionOption `json:"options,omitempty"`
-	// Kind is the connector-classified tool category (agent.PermissionRequest.
-	// Kind), when the backend's native protocol supplies one. Distinct from
-	// Record.Kind (the envelope discriminator) — this is the ACP ToolCallKind
-	// vocabulary ("execute"|"edit"|"delete"|"move"|"read"|"search"|"fetch"|
-	// "think"|"other"), advisory metadata about the tool being requested.
-	Kind string `json:"kind,omitempty"`
-	// ToolCallID mirrors agent.PermissionRequest.ToolCallID — the
-	// engine-native tool-call id this request refers to. Without it a
-	// recorded permission request cannot be re-paired with the tool call it
-	// gated, leaving only name-based guessing. The published
-	// schema (docs/transcript.schema.json) already declared this key before
-	// the Go struct carried it.
+// DeniedPayload is the KindDenied payload — agent.PermissionDenial, field for
+// field. Decider is agent.Decider's value and is never omitted: its zero is
+// the engine's own policy, a real answer.
+type DeniedPayload struct {
+	ToolName   string `json:"tool_name,omitempty"`
 	ToolCallID string `json:"tool_call_id,omitempty"`
-}
-
-// PermissionOption is one decision the engine offers for a permission request
-// (agent.PermissionOption).
-type PermissionOption struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"`
-	Name string `json:"name,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Decider    int    `json:"decider"`
 }
 
 // payloadFromChatEvent classifies ev and builds its Kind + payload, leaving
@@ -251,10 +233,10 @@ type PermissionOption struct {
 // ChatEvent (no variant AND no Raw) — the caller must not silently emit a
 // line with no payload; a blank envelope masquerading as a recorded event is
 // exactly the silent-no-op failure mode this package exists to avoid. A
-// raw-only event (Entry/Session/Complete/Permission all nil, Raw non-empty —
+// raw-only event (Entry/Session/Complete/Denied all nil, Raw non-empty —
 // IR3's passthrough events) is NOT that case: it legitimately has nothing
 // else to say, and classifies as KindRaw instead of erroring.
-func payloadFromChatEvent(ev agent.ChatEvent) (Kind, *EntryPayload, *SessionPayload, *CompletePayload, *PermissionPayload, error) {
+func payloadFromChatEvent(ev agent.ChatEvent) (Kind, *EntryPayload, *SessionPayload, *CompletePayload, *DeniedPayload, error) {
 	switch {
 	case ev.Entry != nil:
 		return KindEntry, entryPayload(ev.Entry), nil, nil, nil, nil
@@ -262,12 +244,12 @@ func payloadFromChatEvent(ev agent.ChatEvent) (Kind, *EntryPayload, *SessionPayl
 		return KindSession, nil, sessionPayload(ev.Session), nil, nil, nil
 	case ev.Complete != nil:
 		return KindComplete, nil, nil, completePayload(ev.Complete), nil, nil
-	case ev.Permission != nil:
-		return KindPermission, nil, nil, nil, permissionPayload(ev.Permission), nil
+	case ev.Denied != nil:
+		return KindDenied, nil, nil, nil, deniedPayload(ev.Denied), nil
 	case len(ev.Raw) > 0:
 		return KindRaw, nil, nil, nil, nil, nil
 	default:
-		return "", nil, nil, nil, nil, fmt.Errorf("transcript: ChatEvent carries no variant and no Raw (Entry/Session/Complete/Permission all nil, Raw empty) — refusing to record an empty line")
+		return "", nil, nil, nil, nil, fmt.Errorf("transcript: ChatEvent carries no variant and no Raw (Entry/Session/Complete/Denied all nil, Raw empty) — refusing to record an empty line")
 	}
 }
 
@@ -291,7 +273,7 @@ const (
 	// RawLossyOnly (the DEFAULT) persists Raw only when it is the event's
 	// SOLE payload — the mapping layer had no other IR projection for this
 	// frame at all (a raw-only passthrough event, KindRaw). When Raw merely
-	// SUPPLEMENTS an already-captured Entry/Session/Complete/Permission
+	// SUPPLEMENTS an already-captured Entry/Session/Complete/Denied
 	// (e.g. a `_meta` blob riding alongside a mapped tool_call), it is
 	// dropped: that structured payload is not itself lossy, and the
 	// supplement is treated as non-essential to keep on disk by default.
@@ -417,19 +399,18 @@ func completePayload(m *agent.TurnMeta) *CompletePayload {
 		StopReason:          m.StopReason,
 		DurationMs:          m.DurationMs,
 		NumTurns:            m.NumTurns,
+		Denials:             deniedPayloads(m.Denials),
 	}
 }
 
-func permissionPayload(p *agent.PermissionRequest) *PermissionPayload {
-	out := &PermissionPayload{
-		ID:         p.ID,
-		ToolName:   p.ToolName,
-		ToolInput:  p.ToolInput,
-		Kind:       p.Kind,
-		ToolCallID: p.ToolCallID,
-	}
-	for _, o := range p.Options {
-		out.Options = append(out.Options, PermissionOption{ID: o.ID, Kind: o.Kind, Name: o.Name})
+func deniedPayloads(ds []agent.PermissionDenial) []DeniedPayload {
+	var out []DeniedPayload
+	for i := range ds {
+		out = append(out, *deniedPayload(&ds[i]))
 	}
 	return out
+}
+
+func deniedPayload(d *agent.PermissionDenial) *DeniedPayload {
+	return &DeniedPayload{ToolName: d.ToolName, ToolCallID: d.ToolCallID, Reason: d.Reason, Decider: int(d.Decider)}
 }

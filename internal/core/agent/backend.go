@@ -201,8 +201,7 @@ type SessionEntry struct {
 	// ToolKind is the ACP tool-call category classification (execute | edit |
 	// delete | move | read | search | fetch | think | switch_mode | other),
 	// when the backend's protocol supplies one. Empty means unclassified.
-	// Purely advisory (UI icon/treatment hints); mirrors
-	// PermissionRequest.Kind's existing precedent.
+	// Purely advisory (UI icon/treatment hints).
 	ToolKind string
 	// ToolLocations are file locations (path + optional line) this tool call
 	// touches — ACP's "follow-along" locations, for tool_use/tool_result

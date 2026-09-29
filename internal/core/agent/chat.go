@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strconv"
 )
 
 // MCPTransport selects the wire-transport variant of one ChatMCPServer entry.
@@ -59,6 +60,8 @@ func (ev ChatEvent) Kind() string {
 		return "session"
 	case ev.Complete != nil:
 		return "complete"
+	case ev.Denied != nil:
+		return "denied"
 	case ev.Entry != nil:
 		return string(ev.Entry.Type)
 	default:
@@ -72,17 +75,18 @@ func (ev ChatEvent) Kind() string {
 //   - Entry      — conversation CONTENT, one atomic piece, MANY per response
 //     (assistant text block, tool_use, tool_result). This is the turn's substance.
 //   - Complete   — the response's COMPLETION marker, ONE after the entries, carrying
-//     only accounting (tokens/context/cost/timing), NO content. Lets a client end
-//     the turn (re-enable input) and update a context-window gauge.
+//     only accounting (tokens/context/cost/timing) and the turn's denials, NO
+//     content. Lets a client end the turn (re-enable input) and update a
+//     context-window gauge.
 //   - Session    — one-time session metadata, emitted once at the start.
-//   - Permission — an engine permission request, recorded to the transcript
-//     (transcript.KindPermission). Nothing answers it: the launch's
-//     permission mode settles it.
+//   - Denied     — a tool call the engine refused, as it happened. The turn's
+//     completion carries every one again (TurnMeta.Denials): this variant is
+//     the live signal, that one the turn's account.
 type ChatEvent struct {
-	Entry      *SessionEntry
-	Complete   *TurnMeta
-	Session    *ChatSessionInfo
-	Permission *PermissionRequest
+	Entry    *SessionEntry
+	Complete *TurnMeta
+	Session  *ChatSessionInfo
+	Denied   *PermissionDenial
 
 	// Raw is IR3's side channel: the ORIGINAL ACP session/update frame (or
 	// just its `_meta` object), verbatim, for the CURATED ALLOWLIST of things
@@ -90,20 +94,15 @@ type ChatEvent struct {
 	// update, current_mode_update, and any variant's `_meta` property (ACP's
 	// vendor-extension escape hatch). It is what keeps those from being
 	// SILENTLY LOST in transit (the conformance audit's gap G9): unlike
-	// Entry/Complete/Session/Permission, Raw is not part of the "exactly one
+	// Entry/Complete/Session/Denied, Raw is not part of the "exactly one
 	// set" union above — it may ride ALONGSIDE Entry (a `_meta` supplement to
 	// an otherwise-fully-mapped entry) or stand ALONE (Entry/Complete/
-	// Session/Permission all nil — a pure passthrough frame, e.g.
+	// Session/Denied all nil — a pure passthrough frame, e.g.
 	// available_commands_update, that the IR has no other shape for at all).
 	//
-	// PERMISSIONS NEVER RIDE HERE. session/request_permission is not even a
-	// session/update variant (it is a separate agent→client REQUEST,
-	// mediated end to end via Permission above), so it structurally cannot
-	// reach Raw — this is not a filter that could be bypassed, permission
-	// requests are never in the candidate set to begin with. Never add a
-	// producer that marshals a permission-shaped frame into Raw: mediation is
-	// exactly where ctxloom's trust layer injects, and a byte tunnel would
-	// defeat it.
+	// PERMISSIONS NEVER RIDE HERE. Never add a producer that marshals a
+	// permission-shaped frame into Raw: mediation is exactly where ctxloom's
+	// trust layer injects, and a byte tunnel would defeat it.
 	//
 	// Raw is NOT internal/adapters/transcript's Record.Raw (record.go). That is a
 	// SEPARATE capture-layer field, populated FROM this one under the
@@ -114,39 +113,48 @@ type ChatEvent struct {
 	Raw json.RawMessage
 }
 
-// PermissionRequest is an engine permission request as the transcript records
-// it: the engine wants to run ToolName and offers the given decision options.
-// ID is unique within one conversation.
-type PermissionRequest struct {
-	ID        string
-	ToolName  string
-	ToolInput json.RawMessage
-	Options   []PermissionOption
-	// Kind is the connector-classified tool category, when the backend's
-	// native protocol supplies one (ACP's ToolCallKind: "execute" | "edit" |
-	// "delete" | "move" | "read" | "search" | "fetch" | "think" | "other").
-	// Empty means unclassified. Purely advisory metadata carried through to
-	// whatever buckets the request under a policy (e.g. the agentcoord
-	// escalation ladder's ApprovalKind, Wave C2) — backends that cannot
-	// classify simply leave it empty.
-	Kind string
-	// ToolCallID is the engine-native tool-call id this permission request
-	// refers to, when the backend's protocol supplies one (ACP's
-	// RequestPermissionRequest.toolCall.toolCallId). Carried through so a
-	// re-emission can target the SAME id instead of guessing one by tool
-	// name — the same fix as SessionEntry.ToolCallID, applied to the
-	// permission-forwarding path. Empty means unknown; a consumer falls back
-	// to its own name-based lookup exactly as before this field existed.
-	ToolCallID string
+// Decider names who decided a denial. The zero value is the engine's own
+// policy — its posture and rules — which is every denial an engine reports
+// on its own; the runner, which sees the approval route, names the others.
+type Decider int
+
+const (
+	DeciderPolicy Decider = iota
+	DeciderHuman
+	DeciderTimeout
+	DeciderCancelled
+	DeciderRefused
+	DeciderPlanPosture
+	DeciderGrant
+)
+
+// String is the spelling the parent's blocked report carries.
+func (d Decider) String() string {
+	switch d {
+	case DeciderPolicy:
+		return "policy"
+	case DeciderHuman:
+		return "human"
+	case DeciderTimeout:
+		return "timeout"
+	case DeciderCancelled:
+		return "cancelled"
+	case DeciderRefused:
+		return "refused"
+	case DeciderPlanPosture:
+		return "plan posture"
+	case DeciderGrant:
+		return "grant"
+	default:
+		return "decider(" + strconv.Itoa(int(d)) + ")"
+	}
 }
 
-// PermissionOption is one decision the engine offers for a permission request.
-// Kind is the ACP option-kind vocabulary: allow_once | allow_always |
-// reject_once | reject_always.
-type PermissionOption struct {
-	ID   string
-	Kind string
-	Name string
+// PermissionDenial is one tool call the engine did not run because nothing
+// allowed it. Reason is the engine's own words, when it gave any.
+type PermissionDenial struct {
+	ToolName, ToolCallID, Reason string
+	Decider                      Decider
 }
 
 // TurnMeta is backend-agnostic completion metadata, emitted once per response:
@@ -179,6 +187,9 @@ type TurnMeta struct {
 	StopReason          string
 	DurationMs          int
 	NumTurns            int
+	// Denials is every tool call the turn's engine refused. A turn with
+	// any did not do all it was asked: it is BLOCKED, not done.
+	Denials []PermissionDenial
 }
 
 // ChatSessionInfo is one-time metadata emitted at the start of a chat (kept

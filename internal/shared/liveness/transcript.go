@@ -37,7 +37,7 @@ type TranscriptStat struct {
 	// (maxTranscriptScan) so Records, Malformed, EntryRecords,
 	// AssistantEntries, EntryTypes, Completes and Redelivery describe only
 	// the HEAD of the file. The last-record measurements (LastTS, MaxSeq,
-	// TurnClosed, PendingPermission, LastToolUse) are recovered from a tail
+	// TurnClosed, LastToolUse) are recovered from a tail
 	// pass and stay trustworthy; the counting fields are floors, never
 	// totals, and no absence-based rule may fire on them.
 	Truncated bool `json:"truncated,omitempty"`
@@ -76,11 +76,6 @@ type TranscriptStat struct {
 	// with TurnClosed false is the DIED case; with TurnClosed true it merely
 	// ended.
 	TurnClosed bool `json:"turn_closed"`
-	// PendingPermission reports that the LAST record is a permission request
-	// with nothing after it: the agent is parked waiting on a decision. This
-	// is the transcript-side half of "never reap a child awaiting approval",
-	// independent of whatever the roster claims.
-	PendingPermission bool `json:"pending_permission,omitempty"`
 	// FirstTS / LastTS are the receipt times of the first and last records.
 	FirstTS time.Time `json:"first_ts,omitempty"`
 	LastTS  time.Time `json:"last_ts,omitempty"`
@@ -134,8 +129,8 @@ type envelope struct {
 // 20000 lines is far past any threshold in this package while staying a
 // sub-second read.
 //
-// The LAST-RECORD signals are the opposite: LastTS, TurnClosed, MaxSeq and
-// PendingPermission live at the END of the file and drive four rungs each. A
+// The LAST-RECORD signals are the opposite: LastTS, TurnClosed and MaxSeq
+// live at the END of the file and drive the rungs that read them. A
 // head-only bound made them permanently stale past 20000 lines, so a healthy
 // long-running agent read as stalled and a cleanly-finished one as dead.
 // maxTailBytes is the bounded suffix re-read to recover them.
@@ -277,7 +272,6 @@ type txScan struct {
 	groups          map[[2]string][]time.Time
 	lastUserIdx     int
 	lastCompleteIdx int
-	lastKind        string
 	// tail is the bounded suffix fold, non-nil only when the head bound was
 	// hit. Its measurements OVERRIDE the head's for every last-record field,
 	// because on a truncated file the head's answer is not merely imprecise,
@@ -293,7 +287,6 @@ type txTail struct {
 	lastTS      time.Time
 	maxSeq      int
 	lastToolUse time.Time
-	lastKind    string
 	// userIdx/completeIdx are positions WITHIN the tail (-1 = not seen), which
 	// is all TurnClosed needs: whether a `complete` came after the last `user`.
 	userIdx     int
@@ -334,7 +327,6 @@ func (s *txScan) line(raw []byte) {
 	if !e.TS.IsZero() {
 		s.st.LastTS = e.TS
 	}
-	s.lastKind = e.Kind
 	switch e.Kind {
 	case "complete":
 		s.st.Completes++
@@ -372,7 +364,6 @@ func (s *txScan) finish(thr Thresholds) TranscriptStat {
 	// relaunch loop, not one conversation.
 	st.SeqPinned = st.Records > 1 && st.MaxSeq == 0
 	st.TurnClosed = s.lastCompleteIdx > s.lastUserIdx
-	st.PendingPermission = s.lastKind == "permission"
 	st.Redelivery = detectRedelivery(s.groups, thr)
 	return s.applyTail(st)
 }
@@ -397,7 +388,6 @@ func (s *txScan) tailLine(raw []byte) {
 	if !e.TS.IsZero() {
 		t.lastTS = e.TS
 	}
-	t.lastKind = e.Kind
 	switch e.Kind {
 	case "complete":
 		t.completeIdx = idx
@@ -438,9 +428,6 @@ func (s *txScan) applyTail(st TranscriptStat) TranscriptStat {
 	}
 	if !t.lastToolUse.IsZero() {
 		st.LastToolUse = t.lastToolUse
-	}
-	if t.lastKind != "" {
-		st.PendingPermission = t.lastKind == "permission"
 	}
 	// Only speak about the turn boundary if the tail actually saw one of its
 	// two markers; otherwise the head's answer is still the best available.

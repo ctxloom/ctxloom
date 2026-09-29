@@ -24,12 +24,12 @@ func TestPayloadFromChatEvent_AllVariants(t *testing.T) {
 			IsError:    false,
 			Sidechain:  true,
 		}}
-		kind, entry, session, complete, permission, err := payloadFromChatEvent(ev)
+		kind, entry, session, complete, denied, err := payloadFromChatEvent(ev)
 		require.NoError(t, err)
 		assert.Equal(t, KindEntry, kind)
 		assert.Nil(t, session)
 		assert.Nil(t, complete)
-		assert.Nil(t, permission)
+		assert.Nil(t, denied)
 		require.NotNil(t, entry)
 		assert.Equal(t, "tool_use", entry.Type)
 		assert.Equal(t, "read", entry.ToolName)
@@ -45,12 +45,12 @@ func TestPayloadFromChatEvent_AllVariants(t *testing.T) {
 			ContextWindow:  258400,
 			MCPServers:     []agent.MCPStatus{{Name: "ctxloom", Status: "connected"}},
 		}}
-		kind, entry, session, complete, permission, err := payloadFromChatEvent(ev)
+		kind, entry, session, complete, denied, err := payloadFromChatEvent(ev)
 		require.NoError(t, err)
 		assert.Equal(t, KindSession, kind)
 		assert.Nil(t, entry)
 		assert.Nil(t, complete)
-		assert.Nil(t, permission)
+		assert.Nil(t, denied)
 		require.NotNil(t, session)
 		assert.Equal(t, "gpt-5.4-mini", session.Model)
 		assert.Equal(t, 258400, session.ContextWindow)
@@ -68,39 +68,38 @@ func TestPayloadFromChatEvent_AllVariants(t *testing.T) {
 			Model:           "gpt-5.4-mini",
 			StopReason:      "end_turn",
 		}}
-		kind, entry, session, complete, permission, err := payloadFromChatEvent(ev)
+		kind, entry, session, complete, denied, err := payloadFromChatEvent(ev)
 		require.NoError(t, err)
 		assert.Equal(t, KindComplete, kind)
 		assert.Nil(t, entry)
 		assert.Nil(t, session)
-		assert.Nil(t, permission)
+		assert.Nil(t, denied)
 		require.NotNil(t, complete)
 		assert.Equal(t, 20240, complete.InputTokens)
 		assert.Equal(t, 4480, complete.CacheReadTokens)
 		assert.Equal(t, "end_turn", complete.StopReason)
 	})
 
-	t.Run("permission", func(t *testing.T) {
-		ev := agent.ChatEvent{Permission: &agent.PermissionRequest{
-			ID:        "perm-1",
-			ToolName:  "rm",
-			ToolInput: json.RawMessage(`{"path":"/tmp/scratch"}`),
-			Kind:      "delete",
-			Options: []agent.PermissionOption{
-				{ID: "allow_once", Kind: "allow_once", Name: "Allow once"},
-			},
+	t.Run("denied", func(t *testing.T) {
+		ev := agent.ChatEvent{Denied: &agent.PermissionDenial{
+			ToolName: "Bash", ToolCallID: "toolu_1", Reason: "needs approval", Decider: agent.DeciderTimeout,
 		}}
-		kind, entry, session, complete, permission, err := payloadFromChatEvent(ev)
+		kind, entry, session, complete, denied, err := payloadFromChatEvent(ev)
 		require.NoError(t, err)
-		assert.Equal(t, KindPermission, kind)
+		assert.Equal(t, KindDenied, kind)
 		assert.Nil(t, entry)
 		assert.Nil(t, session)
 		assert.Nil(t, complete)
-		require.NotNil(t, permission)
-		assert.Equal(t, "perm-1", permission.ID)
-		assert.Equal(t, "delete", permission.Kind)
-		require.Len(t, permission.Options, 1)
-		assert.Equal(t, "allow_once", permission.Options[0].ID)
+		require.NotNil(t, denied)
+		assert.Equal(t, DeniedPayload{ToolName: "Bash", ToolCallID: "toolu_1", Reason: "needs approval", Decider: int(agent.DeciderTimeout)}, *denied)
+	})
+
+	t.Run("complete carries the turn's denials", func(t *testing.T) {
+		ev := agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", Denials: []agent.PermissionDenial{{ToolName: "Write", ToolCallID: "t1"}}}}
+		_, _, _, complete, _, err := payloadFromChatEvent(ev)
+		require.NoError(t, err)
+		require.NotNil(t, complete)
+		assert.Equal(t, []DeniedPayload{{ToolName: "Write", ToolCallID: "t1"}}, complete.Denials)
 	})
 
 	t.Run("empty ChatEvent is rejected, not silently recorded blank", func(t *testing.T) {
@@ -144,5 +143,5 @@ func TestRecord_JSONRoundTrip(t *testing.T) {
 	assert.JSONEq(t, `{"command":["cat","probe.txt"]}`, string(decoded.Entry.ToolInput))
 	assert.Nil(t, decoded.Session)
 	assert.Nil(t, decoded.Complete)
-	assert.Nil(t, decoded.Permission)
+	assert.Nil(t, decoded.Denied)
 }

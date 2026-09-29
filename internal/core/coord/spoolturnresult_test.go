@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
@@ -259,11 +261,46 @@ func TestSpoolTurnResult_SelfReportSuppressesIt(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, resp.GetStatus().GetCode())
-	require.NoError(t, home.ReportTurnResult("whatever the model happened to say", ""))
+	require.NoError(t, home.ReportTurnResult("whatever the model happened to say", "", nil))
 
 	require.NotEmpty(t, recvBody(t, c, "in my own words", conformanceWait), "the child's own report must arrive")
 	assert.Empty(t, recvBody(t, c, "whatever the model happened to say", 300*time.Millisecond),
 		"a child that already reported must not have the same turn reported for it as well")
+}
+
+// TestSpoolTurnResult_BlockedTurnSaysBlocked pins what the parent reads
+// when a child's engine refused a tool call: "blocked on X", never a plain
+// result that reads as done — even when the turn said nothing else, which
+// is NOT the empty-turn error (the turn has something to report: what
+// stopped it). The structured payload lists each refusal, and the report is
+// still the runner's automatic one.
+func TestSpoolTurnResult_BlockedTurnSaysBlocked(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
+	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
+
+	denial := agent.PermissionDenial{ToolName: "Bash", ToolCallID: "t1", Reason: "needs approval"}
+	require.NoError(t, home.ReportTurnResult("I could not run the migration.", "", []agent.PermissionDenial{denial}))
+	got := recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED") }, conformanceWait)
+	require.Len(t, got, 1, "the parent must hear the turn was blocked")
+	assert.Equal(t, KindResult, got[0].Kind)
+	assert.Equal(t, out.Harp, got[0].From)
+	assert.Contains(t, got[0].Body, "BLOCKED on Bash: needs approval (decided by policy)")
+	assert.Contains(t, got[0].Body, "I could not run the migration.", "what the turn did say still arrives")
+	assert.True(t, IsAutoReport(got[0].Structured))
+	var structured struct {
+		Blocked []BlockedCall `json:"blocked"`
+	}
+	require.NoError(t, json.Unmarshal(got[0].Structured, &structured))
+	assert.Equal(t, []BlockedCall{{Tool: "Bash", Reason: "needs approval", Decider: "policy"}}, structured.Blocked)
+
+	require.NoError(t, home.ReportTurnResult("  ", "", []agent.PermissionDenial{{ToolName: "Write"}}))
+	got = recvWhere(t, c, func(m Message) bool { return strings.HasPrefix(m.Body, "BLOCKED on Write") }, conformanceWait)
+	require.Len(t, got, 1, "a blocked turn that said nothing else is still a blocked report")
+	assert.Equal(t, KindResult, got[0].Kind, "not the empty-turn error: the turn has a report — what stopped it")
 }
 
 // TestSpoolTurnResult_EmptyTurnIsReportedAsAnError pins the empty-turn arm on
@@ -281,7 +318,7 @@ func TestSpoolTurnResult_EmptyTurnIsReportedAsAnError(t *testing.T) {
 	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
-	require.NoError(t, home.ReportTurnResult("   \n  ", ""))
+	require.NoError(t, home.ReportTurnResult("   \n  ", "", nil))
 
 	got := recvKind(t, c, KindError, conformanceWait)
 	require.NotEmpty(t, got, "an empty turn must reach the PARENT, not just the runner's stderr")

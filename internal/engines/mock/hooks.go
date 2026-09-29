@@ -59,6 +59,23 @@ var toolCallPattern = regexp.MustCompile(`mock:tool=(\S+)`)
 // ToolCall renders the prompt directive that makes the mock's turn run tool.
 func ToolCall(tool string) string { return "mock:tool=" + tool }
 
+// denyPattern is the mock's engine-policy denial: a prompt carrying
+// `mock:deny=<tool>` attempts the named tool and has it refused.
+var denyPattern = regexp.MustCompile(`mock:deny=(\S+)`)
+
+// Deny renders the prompt directive that makes the mock's turn attempt tool
+// and have it denied by policy.
+func Deny(tool string) string { return "mock:deny=" + tool }
+
+// deniedToolIn reads the tool a prompt asks the turn to have denied.
+func deniedToolIn(prompt string) (string, bool) {
+	m := denyPattern.FindStringSubmatch(prompt)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
 // toolCallIn reads the tool a prompt asks the turn to run.
 func toolCallIn(prompt string) (string, bool) {
 	m := toolCallPattern.FindStringSubmatch(prompt)

@@ -15,21 +15,55 @@ import (
 // --- stream-json wire shapes (subset we consume) ---
 
 type sjEvent struct {
-	Type    string     `json:"type"`
-	Subtype string     `json:"subtype"`
-	Message *sjMessage `json:"message"`
+	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
+	// Message is an object on assistant/user frames and a string on
+	// system/permission_denied, so it is decoded per frame type (message,
+	// deniedMessage) — a typed field would fail the whole frame on the other
+	// shape, and a dropped frame is a dropped denial.
+	Message json.RawMessage `json:"message"`
 	// result fields
-	Usage      *sjUsage              `json:"usage"`
-	ModelUsage map[string]sjModelUse `json:"modelUsage"`
-	TotalCost  float64               `json:"total_cost_usd"`
-	DurationMs int                   `json:"duration_ms"`
-	NumTurns   int                   `json:"num_turns"`
-	StopReason string                `json:"stop_reason"`
+	Usage             *sjUsage              `json:"usage"`
+	ModelUsage        map[string]sjModelUse `json:"modelUsage"`
+	TotalCost         float64               `json:"total_cost_usd"`
+	DurationMs        int                   `json:"duration_ms"`
+	NumTurns          int                   `json:"num_turns"`
+	StopReason        string                `json:"stop_reason"`
+	PermissionDenials []sjDenial            `json:"permission_denials"`
 	// system/init fields
 	SessionID      string  `json:"session_id"`
 	Model          string  `json:"model"`
 	PermissionMode string  `json:"permissionMode"`
 	MCPServers     []sjMCP `json:"mcp_servers"`
+	// system/permission_denied fields
+	ToolName  string `json:"tool_name"`
+	ToolUseID string `json:"tool_use_id"`
+}
+
+// message is an assistant/user frame's message object; nil when absent or
+// not an object.
+func (e *sjEvent) message() *sjMessage {
+	var m sjMessage
+	if len(e.Message) == 0 || json.Unmarshal(e.Message, &m) != nil {
+		return nil
+	}
+	return &m
+}
+
+// deniedMessage is a permission_denied frame's reason; "" when absent or not
+// a string.
+func (e *sjEvent) deniedMessage() string {
+	var s string
+	_ = json.Unmarshal(e.Message, &s)
+	return s
+}
+
+// sjDenial is one result.permission_denials entry. claude also sends the
+// call's tool_input; a denial is reported by tool and call, not replayed, so
+// it is not read.
+type sjDenial struct {
+	ToolName  string `json:"tool_name"`
+	ToolUseID string `json:"tool_use_id"`
 }
 
 type sjMessage struct {
@@ -116,14 +150,20 @@ func mapStreamJSONEvent(raw []byte) []agent.ChatEvent {
 	// and stays a literal on purpose.
 	switch e.Type {
 	case string(agent.EntryTypeAssistant):
-		return mapAssistantBlocks(e.Message)
+		return mapAssistantBlocks(e.message())
 	case string(agent.EntryTypeUser):
-		return mapToolResults(e.Message)
+		return mapToolResults(e.message())
 	case "result":
 		return []agent.ChatEvent{{Complete: resultToTurnMeta(&e)}}
 	case string(agent.EntryTypeSystem):
-		if e.Subtype == "init" {
+		switch e.Subtype {
+		case "init":
 			return []agent.ChatEvent{{Session: initToSessionInfo(&e)}}
+		case "permission_denied":
+			// Engine-decided: the posture and rules refused the call, so the
+			// decider is the engine's policy until the runner joins it with
+			// an approval it saw.
+			return []agent.ChatEvent{{Denied: &agent.PermissionDenial{ToolName: e.ToolName, ToolCallID: e.ToolUseID, Reason: e.deniedMessage(), Decider: agent.DeciderPolicy}}}
 		}
 		return nil
 	default:
@@ -219,6 +259,9 @@ func resultToTurnMeta(e *sjEvent) *agent.TurnMeta {
 		StopReason: e.StopReason,
 		DurationMs: e.DurationMs,
 		NumTurns:   e.NumTurns,
+	}
+	for _, d := range e.PermissionDenials {
+		tm.Denials = append(tm.Denials, agent.PermissionDenial{ToolName: d.ToolName, ToolCallID: d.ToolUseID, Decider: agent.DeciderPolicy})
 	}
 	if e.Usage != nil {
 		tm.InputTokens = e.Usage.InputTokens

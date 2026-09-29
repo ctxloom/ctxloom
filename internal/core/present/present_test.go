@@ -451,6 +451,30 @@ func repoRootForHarness(t *testing.T) string {
 	return filepath.Dir(gomod)
 }
 
+// TestUnder_AcceptsTheHostSeparator pins the Windows shape on every OS: a
+// host path there is separated by '\', and a file the static writer lands
+// under a project root must count as under it, or it is written unrecorded.
+// '/' stays a separator whatever the host (an engine path inside a
+// container is POSIX).
+func TestUnder_AcceptsTheHostSeparator(t *testing.T) {
+	for _, c := range []struct {
+		path, root string
+		want       bool
+	}{
+		{`C:\p\x`, `C:\p\x`, true},
+		{`C:\p\x\CLAUDE.md`, `C:\p\x`, true},
+		{`C:\p\x\CLAUDE.md`, `C:\p\x\`, true},
+		{`C:\p\x/CLAUDE.md`, `C:\p\x`, true},
+		{`C:\p\xy\CLAUDE.md`, `C:\p\x`, false}, // a shared prefix is not containment
+		{"/h/x/claude", "/h/x", true},
+		{"/h/xy", "/h/x", false},
+	} {
+		if got := underSep(c.path, c.root, '\\'); got != c.want {
+			t.Errorf("underSep(%q, %q) on a '\\' host = %v, want %v", c.path, c.root, got, c.want)
+		}
+	}
+}
+
 func TestUnder_RootOrBelowIt_NeverASharedPrefix(t *testing.T) {
 	for _, c := range []struct {
 		path, root string

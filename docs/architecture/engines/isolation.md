@@ -197,16 +197,20 @@ run the engine as root, and ctxloom passes no way to override that** — the
 "run as root with the project mounted". Rootless podman additionally gets
 `--userns=keep-id`.
 
-**Network**: the only `--network` flag is rootless podman's translator option
-(`Podman.networkArgs`), which opens its route to the host's loopback; no network
+**Network**: a runner's `--network` (`RunSpec.Network`) has one producer, the
+route home (`hostRoute.network`, from `reachRoute`), so where a runner dials and
+which network it sits on cannot disagree. It is set only where that route needs
+it: rootless podman's translator option that opens a route to the host's
+loopback, or — when this process itself runs in a container — the network of
+its own container that a sibling can join (`pickSelfNetwork`). No network
 isolation is applied or claimed. The runner spec (`Container.buildRunnerSpec`) has no
 socket mount and no published port at all; "the absences are the security
 contract".
 
 ### Host path mapping
 
-The mount SOURCE is always the host path as this process sees it; the runtime
-translates it (Docker Desktop and podman machine both take a native `C:\...`
+The mount SOURCE is the host path as this process sees it (except under
+docker-outside-of-docker, below); the runtime translates it (Docker Desktop and podman machine both take a native `C:\...`
 source). The TARGET is a name ctxloom chooses in the container, through the
 runtime's `pathMapper`, and the mapper varies by **host OS only** — chosen at
 compile time by `hostMapper` in the `hostos_{unix,windows}.go` twins, never by
@@ -390,10 +394,9 @@ in the coordinator's and runner's memory, in the StartRun message between
 them, and in the engine process's environment. It is never journalled (a run
 fact records `cred_hash` and MCP server names, never an env), never in a
 container's `run` argv (it reaches the in-container engine through the
-launch's env over the wire), and never in a file an
-interactive launch writes: `tmuxhost.writeLauncher` keeps argv in its script
-but feeds the environment through a FIFO the script sources, unlinked once
-read. `TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed` scans a
+launch's env over the wire), and never in a file: an interactive launch
+(`runner.RunLaunchSpec`) hands the environment straight to the engine process
+it runs on a pty, and writes no launcher script. `TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed` scans a
 run's output, the ctxloom home outside the store, the project and the run's
 temp dir for a sentinel.
 

@@ -658,7 +658,7 @@ type ResolvedAgent struct {
 	EffectivePermissions string `json:"effectivePermissions,omitempty"`
 	// Driving mirrors agents.Agent.Driving: the agent's declared per-turn
 	// execution axis (conversational|oneshot; empty = conversational). The
-	// coordinator's per-engine resume-capability gate (coord.resolveResumeMode)
+	// coordinator's per-engine resume-capability gate (spawn.resolveResumeMode)
 	// consumes this to decide SpawnPlan.ResumeMode.
 	Driving agents.DrivingMode `json:"driving,omitempty"`
 	// HomeMode is the agent's EFFECTIVE, already-resolved config-home

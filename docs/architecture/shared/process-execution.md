@@ -6,7 +6,7 @@ The contract they jointly own: **an engine binary is found even under a GUI-laun
 
 ```mermaid
 flowchart TD
-  LAUNCH["internal/lm/backends/launcher.go:31<br/>exec.CommandContext"]
+  LAUNCH["runner.RunLaunchSpec<br/>exec.CommandContext"]
 
   subgraph se["internal/shared/shellenv"]
     R["Resolve(name) (string, error)"]
@@ -22,16 +22,14 @@ flowchart TD
   end
 
   subgraph pr["internal/shared/ptyrunner"]
-    RI["RunInteractive(ctx, cmd, stdin, stdout, stderr, resize)"]
+    RI["RunInteractive(ctx, cmd, stdin, stdinCleanup, out, resize) (int, error)"]
     DR["drainPTY(ptty, copyDone)"]
-    RES["Result{ExitCode int}"]
     PPB["pendingPTYBytes — per-GOOS ioctl"]
     IBE["isBenignPTYError — per-GOOS sentinels"]
     APC["adjustPtyCommand — per-GOOS argv fixup"]
     RI --> DR --> PPB
     RI --> APC
     RI --> IBE
-    RI --> RES
   end
 
   subgraph st["internal/shared/stderrtail"]
@@ -51,33 +49,30 @@ flowchart TD
 
   R --> LAUNCH --> RI
   LAUNCH -->|"cmd.Stderr"| TEE
-  RI -->|"stderr param ACCEPTED, NEVER READ"| VOID["/dev/null"]
   AU --> LIVE["internal/shared/liveness/probe.go:75<br/>ProcState{Observed:true, Alive:alive}"]
   AU --> REAP["internal/adapters/isolation/worktree_reap.go:205<br/>dead ⇒ DELETE worktree"]
   AU --> SD["internal/core/coord/statedir.go:76"]
 
-  style VOID fill:#fdd,stroke:#900
 ```
 
 ## `internal/shared/ptyrunner`
 
-One child on a pty, with the caller supplying stdin, the output writer, and a resize channel. Sole production caller: `internal/lm/backends/launcher.go:36` (`RunLaunchSpec`, interactive branch).
+One child on a pty, with the caller supplying stdin, the output writer, and a resize channel. Sole production caller: `runner.RunLaunchSpec`'s interactive branch.
 
-| Symbol | file:line | Purpose |
+| Symbol | File | Purpose |
 |---|---|---|
-| `Result{ExitCode int}` | `internal/shared/ptyrunner/ptyrunner.go:91` | The child's exit code. Session output is deliberately *not* captured here — an interactive TUI redraws for hours |
-| `initialResizeWait = 300ms` | `internal/shared/ptyrunner/ptyrunner.go:32` | Bounded pre-`Start` wait for the first resize |
-| `ptyDrainGrace = 2s` | `internal/shared/ptyrunner/ptyrunner.go:47` | Deadline for `drainPTY` |
-| `ptyDrainPollInterval = 2ms` | `internal/shared/ptyrunner/ptyrunner.go:53` | `drainPTY` poll cadence |
-| `drainPTY(ptty, copyDone)` | `internal/shared/ptyrunner/ptyrunner.go:69` | Polls `pendingPTYBytes` until the copier finishes (`:73`), the pty reports 0 buffered bytes (`:77`), or the grace expires (`:80`). Returns nothing |
-| `RunInteractive(ctx, cmd *exec.Cmd, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (*Result, error)` | `internal/shared/ptyrunner/ptyrunner.go:104` | The whole lifecycle: `pty.New` → `ptty.CommandContext(cmd.Path, cmd.Args[1:]...)` (`:113`) → `adjustPtyCommand` (`:118`) → await first resize (`:124-137`) → `Start` → resize pump (`:156`) → stdin copier (`:165`) → `io.Copy(dst, ptty)` (`:221`) → `Wait` → `drainPTY` (`:233`) → `ptty.Close()` (`:234`) → exit classification (`:239-251`) |
-| `pendingPTYBytes(ptty) (int, bool)` (linux) | `internal/shared/ptyrunner/prepare_ioctl_linux.go:20` | `TIOCINQ` on the pty master fd; `(0,false)` if not a `pty.UnixPty` or the ioctl fails |
-| `pendingPTYBytes(ptty) (int, bool)` (darwin) | `internal/shared/ptyrunner/prepare_ioctl_darwin.go:28` | Same via a locally-declared `FIONREAD` (`0x4004667f`) |
-| `pendingPTYBytes(ptty) (int, bool)` (windows) | `internal/shared/ptyrunner/prepare_windows.go:59` | Unconditional `return 0, false` |
-| `isBenignPTYError(err) bool` (!windows) | `internal/shared/ptyrunner/prepare_other.go:19` | `errors.Is(err, fs.ErrClosed) \|\| errors.Is(err, syscall.EIO)` |
-| `isBenignPTYError(err) bool` (windows) | `internal/shared/ptyrunner/prepare_windows.go:21` | `errors.Is(err, fs.ErrClosed)` only |
-| `adjustPtyCommand(c *pty.Cmd, cmd *exec.Cmd)` (!windows) | `internal/shared/ptyrunner/prepare_other.go:24` | No-op (build-tag seam) |
-| `adjustPtyCommand(c *pty.Cmd, cmd *exec.Cmd)` (windows) | `internal/shared/ptyrunner/prepare_windows.go:35` | For `.cmd`/`.bat`, rewrites to `cmd.exe` with a double-quoted `/c` line via `windows.ComposeCommandLine`; silently no-ops for other extensions |
+| `initialResizeWait = 300ms` | `internal/shared/ptyrunner/ptyrunner.go` | Bounded pre-`Start` wait for the first resize |
+| `ptyDrainGrace = 2s` | `internal/shared/ptyrunner/ptyrunner.go` | Deadline for `drainPTY` |
+| `ptyDrainPollInterval = 2ms` | `internal/shared/ptyrunner/ptyrunner.go` | `drainPTY` poll cadence |
+| `drainPTY(ptty, copyDone)` | `internal/shared/ptyrunner/ptyrunner.go` | Polls `pendingPTYBytes` until the copier finishes, the pty reports 0 buffered bytes, or the grace expires. Returns nothing |
+| `RunInteractive(ctx, cmd *exec.Cmd, stdin io.Reader, stdinCleanup func(), out io.Writer, resize <-chan agent.WindowSize) (int, error)` | `internal/shared/ptyrunner/ptyrunner.go` | The whole lifecycle: `pty.New` → `ptyCommand` (incl. `adjustPtyCommand`) → `applyInitialSize` → `Start` → `startResizeApplier` → `startStdinCopier` → `startOutputCopier` → `Wait` → `drainPTY` → `closeOnce` → `runResult`. `out` gets stdout and stderr interleaved — a pty has one stream. Session output is not captured — an interactive TUI redraws for hours |
+| `pendingPTYBytes(ptty) (int, bool)` (linux) | `internal/shared/ptyrunner/prepare_ioctl_linux.go` | `TIOCINQ` on the pty master fd; `(0,false)` if not a `pty.UnixPty` or the ioctl fails |
+| `pendingPTYBytes(ptty) (int, bool)` (darwin) | `internal/shared/ptyrunner/prepare_ioctl_darwin.go` | Same via a locally-declared `FIONREAD` (`0x4004667f`) |
+| `pendingPTYBytes(ptty) (int, bool)` (windows) | `internal/shared/ptyrunner/prepare_windows.go` | Unconditional `return 0, false` |
+| `isBenignPTYError(err) bool` (!windows) | `internal/shared/ptyrunner/prepare_other.go` | `errors.Is(err, fs.ErrClosed) \|\| errors.Is(err, syscall.EIO)` |
+| `isBenignPTYError(err) bool` (windows) | `internal/shared/ptyrunner/prepare_windows.go` | `errors.Is(err, fs.ErrClosed)` only |
+| `adjustPtyCommand(c *pty.Cmd, cmd *exec.Cmd)` (!windows) | `internal/shared/ptyrunner/prepare_other.go` | No-op (build-tag seam) |
+| `adjustPtyCommand(c *pty.Cmd, cmd *exec.Cmd)` (windows) | `internal/shared/ptyrunner/prepare_windows.go` | For `.cmd`/`.bat`, rewrites to `cmd.exe` with a double-quoted `/c` line via `windows.ComposeCommandLine`; silently no-ops for other extensions |
 
 ## `internal/shared/pidalive`
 
@@ -117,7 +112,7 @@ A related but distinct implementation of the bounded-byte-tail concept lives at 
 
 ## `internal/shared/shellenv`
 
-Widens binary resolution from the process's inherited `PATH` to the user's login+interactive shell `PATH`. Solves the detached-GUI launch (Dock icon, editor extension host) that inherits a bare `PATH` without nvm/rbenv/homebrew/`~/go/bin`, sometimes with `$SHELL` unset. Two consumers: `internal/lm/backends/launcher.go:85` (`resolveBinaryPath`, spawn path) and `internal/lm/backends/registry.go:197` (`IsAvailable`, doctor/boot path).
+Widens binary resolution from the process's inherited `PATH` to the user's login+interactive shell `PATH`. Solves the detached-GUI launch (Dock icon, editor extension host) that inherits a bare `PATH` without nvm/rbenv/homebrew/`~/go/bin`, sometimes with `$SHELL` unset. Consumers: `git grep 'shellenv\.Resolve'` — the runner's spawn path (`runner.resolveBinaryPath`) and the engine-availability probe in `internal/adapters/operations`.
 
 > Navigation note: a second, unrelated package is also named `shellenv` — `internal/ltk/shellenv`, whose `ShellFromPath` does thorough shell-family classification. Both are imported under the bare identifier `shellenv`.
 
@@ -139,18 +134,17 @@ Widens binary resolution from the process's inherited `PATH` to the user's login
 
 **Pty execution (`ptyrunner`)**
 
-- **The frontend owns the terminal** (`ptyrunner.go:98-103`). Raw mode, keystrokes, and SIGWINCH happen elsewhere and arrive as an `io.Reader` and a channel; this runner never touches the controller's own `os.Stdin`/`os.Stdout`, which is what makes a remote controller possible.
-- Ordering is the whole design: allocate pty → build the pty command → `adjustPtyCommand` → wait up to `initialResizeWait` for the first resize and apply it **before `Start`** → start → spawn the three goroutines → `Wait` → `drainPTY` → `Close` → classify. The pre-`Start` resize exists because go-pty allocates at 0x0 and SIGWINCH only fires on a *change*, so a wrong first paint never self-heals. The wait is bounded rather than indefinite because a non-tty caller legitimately never sends a resize.
-- `stdin` and `resize` may be nil — the corresponding goroutines are simply not started (`:165`, `:146`).
-- `stdout == nil` becomes `io.Discard` (`:214-217`) rather than skipping the copy: the pty must be drained regardless or the child blocks on a full buffer.
-- The stdin copier force-closes the reader **only when it is an `*io.PipeReader`** (`:170-175`), so a caller-owned reader (a real `os.Stdin`) is never closed from here — and for any other reader type the copier outlives `RunInteractive`.
+- **The frontend owns the terminal** (`RunInteractive`'s doc). Raw mode, keystrokes, and SIGWINCH happen elsewhere and arrive as an `io.Reader` and a channel; this runner never touches the controller's own `os.Stdin`/`os.Stdout`, which is what makes a remote controller possible.
+- Ordering is the whole design: allocate pty → `ptyCommand` → `applyInitialSize` (wait up to `initialResizeWait` for the first resize and apply it **before `Start`**) → start → spawn the three goroutines → `Wait` → `drainPTY` → close → `runResult`. The pre-`Start` resize exists because go-pty allocates at 0x0 and SIGWINCH only fires on a *change*, so a wrong first paint never self-heals. The wait is bounded rather than indefinite because a non-tty caller legitimately never sends a resize.
+- `stdin` and `resize` may be nil — the corresponding goroutines are simply not started (`startStdinCopier`, `startResizeApplier`).
+- `out == nil` becomes `io.Discard` (`startOutputCopier`) rather than skipping the copy: the pty must be drained regardless or the child blocks on a full buffer.
+- Stdin is released by the `stdinCleanup` its OWNER supplies, run once (whichever of the copier or `RunInteractive`'s return gets there first); nil means the caller keeps the reader. This package never infers what stdin is from its type.
 - Benign pty-close fallout is distinguished **by sentinel, never by substring**: `fs.ErrClosed` plus `syscall.EIO` on Unix, `fs.ErrClosed` on Windows.
-- `cmd.Args[1:]` at `:113` **panics on a nil `Args`** and silently discards `cmd.Args[0]` — a caller setting a distinct argv[0] loses it. Safe only because the sole caller builds the command with `exec.CommandContext`.
-- `ptty.Close()` is called twice on the normal path (`:110` deferred, `:234` explicit); correctness rests on go-pty's `Close` being idempotent, which is undocumented third-party behaviour.
-- Exit classification routes `*exec.ExitError` through `ExitStatusFor`: an ordinary exit propagates `exitErr.ExitCode()` verbatim, and a child killed by a signal reports the shell convention `128+signum` (130 SIGINT, 137 SIGKILL, 143 SIGTERM) rather than os/exec's raw `-1`, which is not a valid POSIX status and reached the user truncated to `255` — indistinguishable from a genuine 255 and from a runner-internal error. `backends.RunLaunchSpec`'s non-interactive branch calls the same helper, so both launch modes classify a killed engine identically. On Windows the mapping is a documented no-op: `syscall.WaitStatus` there hard-codes `Signaled() == false`, so the `ExitCode()` fallthrough runs.
-- Real vs documented: the `stderr io.Writer` parameter at `:104` appears nowhere in the body — a pty merges both streams onto the master, so the child's stderr arrives on `stdout` and a caller passing distinct writers gets nothing on stderr.
+- `ptyCommand` tolerates a nil `Args`, but a caller's own `cmd.Args[0]` cannot reach the child: go-pty rebuilds argv with `Path` as argv[0].
+- The master is closed exactly once (`closeOnce`), by the explicit post-`Wait` close or the early-return defer, and that close's error is inspected in `runResult`.
+- Exit classification routes `*exec.ExitError` through `ExitStatusFor`: an ordinary exit propagates `exitErr.ExitCode()` verbatim, and a child killed by a signal reports the shell convention `128+signum` (130 SIGINT, 137 SIGKILL, 143 SIGTERM) rather than os/exec's raw `-1`, which is not a valid POSIX status and reached the user truncated to `255` — indistinguishable from a genuine 255 and from a runner-internal error. `runner.RunLaunchSpec`'s non-interactive branch calls the same helper, so both launch modes classify a killed engine identically. On Windows the mapping is a documented no-op: `syscall.WaitStatus` there hard-codes `Signaled() == false`, so the `ExitCode()` fallthrough runs.
 - Real vs documented: `drainPTY`'s doc treats an unavailable byte-count probe as a rare safety net, but on Windows `pendingPTYBytes` returns `(0, false)` unconditionally and `copyDone` cannot fire before the pty is closed (which happens *after* `drainPTY` returns), so the deadline is the only reachable exit — the full 2s grace is spent on every interactive run there, and on Unix whenever the ioctl fails.
-- `drainPTY` returns nothing and `io.Copy(dst, ptty)` discards both results (`:221`), so "deadline expired with bytes still buffered" and "the output writer failed on its first byte" are both indistinguishable from a clean run; `RunInteractive` returns `&Result{ExitCode: 0}, nil` either way.
+- `drainPTY` returns nothing, so "deadline expired with bytes still buffered" is indistinguishable from a clean drain. An output-writer failure is NOT silent: `runResult` reports it through `trackWriter`.
 
 **Liveness (`pidalive`)**
 
@@ -175,7 +169,7 @@ Widens binary resolution from the process's inherited `PATH` to the user's login
 
 **PATH resolution (`shellenv`)**
 
-- **`Resolve` only ever WIDENS what resolves; it never narrows or reshapes a failure** (`shellenv.go:66-69`). Both failure returns hand back the *original* `exec.LookPath` error, so a genuinely-missing binary produces exactly the message it always did. The sole consumer mirrors this posture in writing (`internal/lm/backends/launcher.go:80-83`).
+- **`Resolve` only ever WIDENS what resolves; it never narrows or reshapes a failure** (`shellenv.go:66-69`). Both failure returns hand back the *original* `exec.LookPath` error, so a genuinely-missing binary produces exactly the message it always did. `runner.resolveBinaryPath` mirrors this posture in writing.
 - A name containing a path separator short-circuits and is returned unchanged — an operator-configured explicit path is never second-guessed.
 - The login-shell probe runs **at most once per process**, under a mutex so concurrent first-callers serialize rather than spawning duplicate shells, and **caches failures identically to successes** — one transient failure disables the fallback for the life of the process.
 - The probe is Windows-rejected, defaults `$SHELL` to `/bin/bash` when unset, and is bounded at 10s.

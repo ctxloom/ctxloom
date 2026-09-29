@@ -44,8 +44,9 @@ func (c Container) startRunner(ctx context.Context, backendName, label string, v
 		return nil, err
 	}
 	name := containerName(cw.agentID)
-	// This name is the no-tmux fallback's only handle, is randomly suffixed, and dies with
-	// the container. Unconditional on purpose.
+	// The watch hint is the container's log handle: the name is randomly
+	// suffixed and dies with the container, so this line is the only place
+	// an operator learns it. Unconditional on purpose.
 	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: %s logs -f %s)\n", name, c.runtime.Binary(), name)
 	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)
 	return startDirectRunner(c.runtime, spec, spawnEnv)

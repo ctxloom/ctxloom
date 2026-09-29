@@ -112,7 +112,7 @@ func hostRunnerCmd(ctx context.Context, args []string, spawnEnv map[string]strin
 
 // Kill stops the runner and reaps its whole session (killSession) —
 // idempotent. It asks first (procsig.Stop) so the runner runs its own teardown
-// — PaneHost.Stop, temp cleanup — and SIGKILLs it only if it is still there
+// — ending the engine it hosts, temp cleanup — and SIGKILLs it only if it is still there
 // after hostRunnerWaitDelay; it returns once the runner has been reaped. The
 // session sweep comes last, for whatever the runner's teardown left or a
 // SIGKILL stranded: a grandchild in a separate process group.

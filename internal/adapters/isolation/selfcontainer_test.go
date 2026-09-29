@@ -200,14 +200,17 @@ func TestReachRoute_SelfFirst(t *testing.T) {
 }
 
 // TestReachRoute_SelfOnTheHostNetworkFallsThrough: a container on the host's
-// own stack sees docker0 locally, so the bridge route stands.
+// own stack reaches what the host does, so the host route stands (docker0's
+// gateway on a shared kernel).
 func TestReachRoute_SelfOnTheHostNetworkFallsThrough(t *testing.T) {
 	stubPrimary(t, "192.0.2.10")
 	stubLocal(t, true, nil)
 	stubGateway(t, "172.17.0.1\n", nil)
+	want, err := Docker{}.hostReach(context.Background())
+	require.NoError(t, err)
 	got, err := Docker{ociRuntime: withSelf(selfContainer{id: selfID, hostNet: true})}.reachRoute(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, "172.17.0.1", got.dial)
+	assert.Equal(t, want, got)
 }
 
 // TestReachRoute_RootlessPodmanWithoutANetworkSharesTheNamespace: the owner's

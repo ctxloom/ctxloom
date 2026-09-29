@@ -8,13 +8,18 @@ import (
 	"path/filepath"
 )
 
-// RootlessDockerStubScript answers exactly the two probes that decide whether
-// a `container-rootless` runtime is SELECTED:
+// RootlessDockerStubScript answers exactly the probes that decide whether a
+// `container-rootless` runtime is SELECTED:
 //
 //	`info`          -> 0 AND prints SecurityOptions containing "rootless", so
 //	                   isolation.runtimeReachable reports the daemon up and
 //	                   isolation.dockerIsRootless resolves the ownership a
 //	                   container-rootless agent asks for.
+//	`ps`            -> 0 with no ids: isolation.findSelf's id-filtered listing
+//	                   answered as a daemon that owns no container of this
+//	                   process's. Without it, a test run inside a container
+//	                   (CI's job container) has a self-id candidate, and a
+//	                   failing listing is an undecidable self — fatal.
 //	`image inspect` -> 1, so isolation.Container.imagePresent reports absent.
 //
 // Everything else fails, because nothing else should be reached by a caller
@@ -23,6 +28,7 @@ import (
 const RootlessDockerStubScript = `#!/bin/sh
 case "$1" in
   info) echo '[name=seccomp,profile=builtin name=rootless name=cgroupns]'; exit 0 ;;
+  ps) exit 0 ;;
   *) exit 1 ;;
 esac
 `

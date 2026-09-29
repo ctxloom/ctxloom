@@ -1,3 +1,10 @@
+//go:build !windows
+
+// Self-mount translation is docker-outside-of-docker from a Linux container:
+// only there does findSelf ever resolve a self (containerprobe.SelfIDCandidates
+// proposes nothing elsewhere), and its mounts are Linux paths a Windows
+// filesystem cannot resolve.
+
 package isolation
 
 import (

@@ -32,10 +32,10 @@ in front of the adapters composes a mock kind under its own name
 
 ## What `agent.Backend` still is, and where its remainder lives
 
-`agent.Backend` (`internal/core/agent`) is the seam the interactive pane and
+`agent.Backend` (`internal/core/agent`) is the seam the interactive launch and
 the legacy one-shot still drive: `Execute` runs the engine's process over the
-injected `agent.Launcher` — the runner's `runner.RunLaunchSpec`, a tmux pane
-on the runner's own terminal for an interactive launch, pipes otherwise. The
+injected `agent.Launcher` — the runner's `runner.RunLaunchSpec`, a pty
+(`ptyrunner.RunInteractive`) for an interactive launch, pipes otherwise. The
 structured drive does NOT go through it: a headless turn is the port's
 `Instance.Drivers()[0].Turn` over `Instance.Exec`.
 
@@ -45,7 +45,7 @@ the adapters on the registry's value (`engines.Hosted(name)`):
 
 | `agent.Hosted` | what it is for | read by |
 |---|---|---|
-| `Backend(Launcher) Backend` | a fresh backend over the runner's launcher | `cli.runRunner` (the interactive pane), `operations.HistoryForBackend` |
+| `Backend(Launcher) Backend` | a fresh backend over the runner's launcher | `cli.runRunner` (the interactive launch), `operations.HistoryForBackend` |
 | `NewConfig() BackendConfig` | the zero typed config a labeled LLM entry's body decodes into | `operations.DecodeEngineConfig` |
 | `Declaration() Declaration` | the named-form table a binding's `surfaces:` is validated against | `operations.ResolveAgentSurfaces`, `operations.KnownApproachNames` |
 | `SettingsWriter(SettingsOptions) SettingsWriter` | the writer whose `Status` `manage status` reports and whose `RemoveSettings` strips ctxloom's wiring | `operations.engineSettingsStatus` |

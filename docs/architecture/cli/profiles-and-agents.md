@@ -26,7 +26,7 @@ flowchart TD
 
     subgraph agent["agent.go"]
         AL["agent list"] --> RAL["renderAgentList"]
-        AS["agent show &lt;name&gt;"] --> RAS["renderAgentShow → renderAgentDeclaration · renderAgentEscalation · renderAgentResolution"]
+        AS["agent show &lt;name&gt;"] --> RAS["renderAgentShow → renderAgentDeclaration · renderAgentResolution"]
         AC["agent create &lt;name&gt;"] --> WAB["writeAgentBinding → checkAgentExistence → buildSetAgentRequest"]
         AE["agent edit &lt;name&gt;"] --> WAB
         WAB --> RAW["renderAgentWritten"]

@@ -36,7 +36,20 @@ var probeExec = func(ctx context.Context, bin string, args []string) (string, er
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.WaitDelay = probeWaitDelay
 	out, err := cmd.Output()
-	return string(out), err
+	return string(out), withStderr(err)
+}
+
+// withStderr names a failed CLI's reason: .Output() keeps its stderr (bounded)
+// on the *exec.ExitError, whose own text is only "exit status N". The exit
+// error stays wrapped, since callers classify on its Stderr (removeOutcome).
+func withStderr(err error) error {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if stderr := strings.TrimSpace(string(ee.Stderr)); stderr != "" {
+			return fmt.Errorf("%w: %s", err, stderr)
+		}
+	}
+	return err
 }
 
 // sharedFSCheck is prepareContainerScratch's seam onto the probe, a package
@@ -249,9 +262,9 @@ func probeOneRoot(ctx context.Context, rt Runtime, image, root string) error {
 		// The probe container did not run to completion: daemon down/cold, image
 		// unreadable, our own timeout, or a cancelled caller ctx. This is NOT a
 		// filesystem-sharing verdict — surface the REAL cause (docker's stderr,
-		// which .Output() stashes on the ExitError) so the fix-it points at the
+		// which probeExec carries in err) so the fix-it points at the
 		// daemon/image, not at a phantom sharing gap. Transient: never memoized.
-		return probeRunError(root, err)
+		return fmt.Errorf("shared-fs probe container did not run for mount root %s: %w", root, err)
 	}
 	if got := strings.TrimSpace(out); got != marker {
 		// The container ran and the daemon read the dir back, but not our marker
@@ -277,17 +290,4 @@ func runsUnmounted(ctx context.Context, rt Runtime, image, marker string) bool {
 	}
 	_, err = probeExec(ctx, rt.Binary(), args)
 	return err == nil
-}
-
-// probeRunError decorates a probe-run failure with the runtime's stderr when it
-// carried one (exec's .Output() stashes it on *exec.ExitError), preserving the
-// wrapped error so callers can still errors.Is it (context.Canceled/DeadlineExceeded).
-func probeRunError(root string, err error) error {
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		if stderr := strings.TrimSpace(string(ee.Stderr)); stderr != "" {
-			return fmt.Errorf("shared-fs probe container did not run for mount root %s: %w — %s", root, err, stderr)
-		}
-	}
-	return fmt.Errorf("shared-fs probe container did not run for mount root %s: %w", root, err)
 }

@@ -11,7 +11,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,7 +28,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -231,40 +229,19 @@ func (r exitRun) requireCellReleased(t *testing.T, why string) {
 		"%s: the coordinator must release the run's cell through the spawn's Kill", why)
 }
 
-// persistentMembers lists every path under the run's session dir that the
-// session-member table classifies as Persist (paths.HarpMembers): what resume,
-// distill, the session list and the human read after the run is over.
+// persistentMembers is the run's Persist members (persistentMembers).
 func (r exitRun) persistentMembers(t *testing.T) []string {
 	t.Helper()
-	dir, err := paths.HarpDir(r.harp)
-	require.NoError(t, err)
-	var out []string
-	require.NoError(t, filepath.WalkDir(dir, func(p string, _ fs.DirEntry, werr error) error {
-		if werr != nil {
-			return werr
-		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		if m, ok := paths.ClassifyMember(filepath.ToSlash(rel)); ok && m.Lifetime == paths.Persist {
-			out = append(out, p)
-		}
-		return nil
-	}))
-	return out
+	return persistentMembers(t, r.harp)
 }
 
 // requirePersistentKept: every Persist member present before the end is
-// still there after it. Cleanup releases ephemerals only.
+// still there after it (lostPersistent). Cleanup releases ephemerals only.
 func (r exitRun) requirePersistentKept(t *testing.T, before []string, why string) {
 	t.Helper()
 	require.NotEmpty(t, before, "the run left no persistent session state to check")
 	t.Logf("%s: %d persistent session member(s) checked: %v", why, len(before), before)
-	for _, p := range before {
-		_, err := os.Lstat(p)
-		require.NoError(t, err, "%s: persistent session member %s was removed", why, p)
-	}
+	require.Empty(t, lostPersistent(before), "%s: persistent session member(s) removed", why)
 }
 
 // runtimeExec starts argv inside the run's container, detached: the argv kills

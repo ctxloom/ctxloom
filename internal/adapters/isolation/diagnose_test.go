@@ -110,7 +110,7 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 	t.Run("run failure → unprobed, not mismatch", func(t *testing.T) {
 		stubProbeExec(t, func(string) (string, error) {
 			_, err := exec.Command("sh", "-c", "echo 'daemon is down' >&2; exit 1").Output()
-			return "", err
+			return "", withStderr(err) // as probeExec reports it
 		})
 		d := &Diagnosis{}
 		diagnoseProbe(context.Background(), rt, "img", []string{t.TempDir()}, d)

@@ -634,10 +634,10 @@ message HarnessSpec {
   // coordinator does not set it: a resume's key rides the launch
   // (ResumeRef.native_key), read from the harp's session entry.
   string resume_session_id = 6;
-  // The security-relevant contract for delegated children: a headless
-  // child must declare a headless-safe mode (it has no channel to
-  // surface a prompt). Values are harness-mapped and
-  // coordinator-enforced.
+  // The child's permission posture, harness-mapped. Any posture is
+  // accepted: the child runs headless, so a tool call the posture would
+  // prompt for is denied rather than asked, and the turn is reported
+  // BLOCKED to the parent, naming the tool.
   string permission_mode = 7;
 }
 
@@ -1058,7 +1058,7 @@ message UserInputResult {
 // removed below.
 message SpawnAgentRequest {
   option (message_schema) = {
-    doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and never prompt: the agent must declare a headless-safe permission enum."
+    doc: "Launch a configured ctxloom agent as a delegated child session. Async spawn: returns at enqueue with the child's ids (child_agent_id is its harp — its address and continuation token); results, questions, and reports come back as mailbox messages (agent_recv). Follow-ups go down with agent_send. Children execute serially (a spawn past the cap queues) and run headless: any permission posture is accepted, and a tool call the posture would prompt for is denied instead — that turn comes back BLOCKED, naming the tool."
   };
 
   // e.g. "test-writer"

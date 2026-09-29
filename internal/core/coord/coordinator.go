@@ -1263,7 +1263,7 @@ func (c *Coordinator) stopAtRunner(rec *RunRecord, reason string, grace time.Dur
 	if grace <= 0 {
 		grace = DefaultStopGrace
 	}
-	if rec.CredHash == "" || !c.spoolDeliverTo(rec.Harp) {
+	if !c.runnerReachable(rec) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.baseCtx, grace+stopAnswerMargin)
@@ -1275,6 +1275,13 @@ func (c *Coordinator) stopAtRunner(rec *RunRecord, reason string, grace time.Dur
 	if hook := c.stopAnsweredHook; hook != nil {
 		hook(rec.RunID)
 	}
+}
+
+// runnerReachable reports whether a runner request can reach rec's run: it
+// was issued to a runner credential, and its harp is one the coordinator
+// delivers to.
+func (c *Coordinator) runnerReachable(rec *RunRecord) bool {
+	return rec.CredHash != "" && c.spoolDeliverTo(rec.Harp)
 }
 
 // setPendingStop records (detail != "") or clears the terminal detail of an

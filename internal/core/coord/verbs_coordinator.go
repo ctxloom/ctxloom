@@ -64,7 +64,7 @@ func (c *Coordinator) Stop(ctx context.Context, caller Identity, req StopRequest
 		return StopResult{}, err
 	}
 	if req.Harp == "" {
-		stopped, err := c.stopChildren(ctx, caller, strings.TrimSpace(req.Reason))
+		stopped, err := c.stopChildren(ctx, caller, strings.TrimSpace(req.Reason), req.Grace)
 		if err != nil {
 			return StopResult{}, err
 		}

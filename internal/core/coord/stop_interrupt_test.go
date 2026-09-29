@@ -138,7 +138,7 @@ func TestStopChildren_InterruptsEachRunningTurnThenCloses(t *testing.T) {
 	res, err := c.Stop(ctx, ownerIdentity(), StopRequest{Reason: "fan-out complete", Grace: 5 * time.Second})
 	require.NoError(t, err, "the sweep must settle on the interrupt, not wait out the drain bound")
 	require.Len(t, res.Children, 1)
-	assert.Equal(t, StopOutcomeInterrupted, res.Children[0].Outcome, "its turn was cut short, and the result says so")
+	assert.Equal(t, StopOutcomeStopped, res.Children[0].Outcome, "it ended inside the bound: nothing was forced")
 	assert.Contains(t, res.Children[0].Detail, "fan-out complete")
 	assert.Equal(t, CauseStopped, runCause(c, out.RunID))
 	assert.Empty(t, readAuditKind(t, c, "drain_force"), "nothing waited for the bound: the interrupt ended the turn")

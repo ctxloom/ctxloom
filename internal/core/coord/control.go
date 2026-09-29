@@ -186,7 +186,7 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 // runner request can reach has no turn to cut — an ended target is resumed by
 // the steer itself — so only the runner's own refusal is an error.
 func (c *Coordinator) interruptAtRunner(ctx context.Context, rec *RunRecord) error {
-	if rec.Ended || rec.CredHash == "" || !c.spoolDeliverTo(rec.Harp) {
+	if rec.Ended || !c.runnerReachable(rec) {
 		return nil
 	}
 	if _, has := ctx.Deadline(); !has {

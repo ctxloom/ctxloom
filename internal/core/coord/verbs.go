@@ -138,8 +138,9 @@ type SendResult struct {
 
 // StopRequest is agent_stop: one child by Harp, or — with no harp — every
 // live child, for which a Reason is required so an accidental omission
-// stops nothing. Grace (one child only) is how long its interrupted turn gets
-// to end before it is killed; zero means DefaultStopGrace.
+// stops nothing. Grace is how long a stopped child's interrupted turn gets to
+// end before it is killed — each child's, in the bulk shape; zero means
+// DefaultStopGrace.
 type StopRequest struct {
 	Harp   string        `json:"harp,omitempty"`
 	Reason string        `json:"reason,omitempty"`

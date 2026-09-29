@@ -1146,9 +1146,19 @@ func (st *runState) hostCoordinator() func() {
 		//
 		// BeginDrain closes admission at the verbs that mint new work and leaves
 		// the transport alone, so children keep reporting while they wind down.
-		// It is bounded per child (drainBound), so this cannot hang an exit.
+		// It is bounded per child (drainBound), but that bound is minutes: a
+		// shutdown signal sent WHILE it waits is the operator saying not to,
+		// and cuts it short -- Close() then overtakes the drain, which the
+		// drain accounts for. A signal that ended the session earlier does
+		// not: the children still get their drain.
+		interrupt := make(chan os.Signal, 1)
+		signal.Notify(interrupt, shutdownSignals...)
 		d := sc.BeginDrain()
-		<-d.Done()
+		settled := awaitDrain(d.Done(), interrupt)
+		signal.Stop(interrupt)
+		if !settled {
+			clidiag.Warn("ctxloom", "session exit: drain interrupted by a signal; children still running are ended by the coordinator's close")
+		}
 		// A PARKED child is deliberately not waited on: it keeps its turn, its
 		// slot and its session lock. Naming it here is the whole reason the
 		// outcome carries it -- an unattended park that nobody is told about is
@@ -1165,6 +1175,17 @@ func (st *runState) hostCoordinator() func() {
 		}
 		sc.RevokeSessionOwner(ownerToken)
 		sc.Close()
+	}
+}
+
+// awaitDrain waits for a coordinator drain to settle, reporting false when a
+// shutdown signal arrived first.
+func awaitDrain(done <-chan struct{}, interrupt <-chan os.Signal) bool {
+	select {
+	case <-done:
+		return true
+	case <-interrupt:
+		return false
 	}
 }
 

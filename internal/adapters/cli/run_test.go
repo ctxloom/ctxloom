@@ -3,7 +3,9 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -223,3 +225,17 @@ func TestShellOutDistill_PropagatesError(t *testing.T) {
 
 // The resolveSelfExecutable decision tree (deleted-suffix stripping, PATH
 // fallback) is owned and tested by internal/adapters/selfexec.
+
+// TestAwaitDrain_ASignalDuringTheDrainCutsItShort: the session-exit drain is
+// bounded in minutes, so a shutdown signal sent while it waits must end the
+// wait instead of being swallowed until the drain settles on its own.
+func TestAwaitDrain_ASignalDuringTheDrainCutsItShort(t *testing.T) {
+	never := make(chan struct{})
+	interrupt := make(chan os.Signal, 1)
+	interrupt <- syscall.SIGTERM
+	assert.False(t, awaitDrain(never, interrupt), "a signal must end the wait on a drain that has not settled")
+
+	settled := make(chan struct{})
+	close(settled)
+	assert.True(t, awaitDrain(settled, make(chan os.Signal)), "a settled drain reports settled")
+}

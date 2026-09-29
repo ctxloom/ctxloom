@@ -222,7 +222,7 @@ func (r Rooted) Build() Presentation { return r.p }
 // ("/home/x" under "/home/xy") is not under it.
 //
 // A separator is '/' or the host's own: an engine path inside a container is
-// POSIX whatever the host, and a host path on Windows is separated by ''.
+// POSIX whatever the host, and a host path on Windows is separated by '\'.
 func Under(path, root string) bool { return underSep(path, root, filepath.Separator) }
 
 // underSep is Under with the host separator a parameter, so the Windows shape

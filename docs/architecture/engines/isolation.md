@@ -319,10 +319,14 @@ wins over the stored one) and unsets whatever would outrank or replace it:
   is claude's `cloudVars`, taken from claude's Bedrock, Claude Platform on AWS,
   Google Vertex, Microsoft Foundry and gateway pages), and is refused when no
   provider switch and no gateway bearer is set. The provider's credential
-  FILES are read-only shared stores, declared only when present in the
-  human's home (`providerStores`: `~/.aws`, the AWS shared config,
-  credentials and SSO cache; `~/.config/gcloud`, gcloud's
-  application-default credentials).
+  FILES are shared stores, declared only when present in the human's home
+  (`providerStores`: `~/.aws`, the AWS shared config and credentials;
+  `~/.config/gcloud`, gcloud's application-default credentials), read-only
+  except `~/.aws/sso/cache`, which the AWS SDK rewrites on an SSO refresh and
+  is therefore a read-write store nested in the read-only `~/.aws`. A file
+  named by `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` or
+  `GOOGLE_APPLICATION_CREDENTIALS` still passes through as a host path, which
+  a container cannot open unless it lies inside one of those stores.
 
 Every mode but `login` unsets `CLAUDE_SECURESTORAGE_CONFIG_DIR`: `""` would be
 `$HOME/.claude`, the human's own credential.

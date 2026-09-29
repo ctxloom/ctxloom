@@ -70,24 +70,24 @@ func TestContainer_GitdirMirrorMount(t *testing.T) {
 	fileProj := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fileProj, ".git"),
 		[]byte("gitdir: "+filepath.Join(common, "worktrees", "x")+"\n"), 0o644))
-	m, ok, err := gitdirMirrorMount(ctx, rt, g, fileProj)
+	ms, err := gitdirMirrorMounts(ctx, rt, g, fileProj, t.TempDir())
 	require.NoError(t, err)
-	require.True(t, ok, "a .git POINTER FILE (linked worktree/submodule) needs the common-dir mirror")
-	assert.Equal(t, mount{Host: common, Container: mapped(t, rt, common)}, m,
-		"the common dir is mirrored through the runtime's mapper so gitdir resolves in-container")
+	require.NotEmpty(t, ms)
+	assert.Equal(t, mount{Host: common, Container: mapped(t, rt, common)}, ms[0],
+		"a .git POINTER FILE (linked worktree/submodule) gets the common dir mirrored through the runtime's mapper so gitdir resolves in-container")
 
 	// .git is a DIRECTORY → already inside the identical-path project mount.
 	dirProj := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(dirProj, ".git"), 0o755))
-	_, ok, err = gitdirMirrorMount(ctx, rt, g, dirProj)
+	ms, err = gitdirMirrorMounts(ctx, rt, g, dirProj, t.TempDir())
 	require.NoError(t, err)
-	assert.False(t, ok, "a normal .git directory is covered by the project mount; no mirror")
+	assert.Empty(t, ms, "a normal .git directory is covered by the project mount; no mirror")
 
 	// No repo at all → nothing to mirror.
 	bareProj := t.TempDir()
-	_, ok, err = gitdirMirrorMount(ctx, rt, g, bareProj)
+	ms, err = gitdirMirrorMounts(ctx, rt, g, bareProj, t.TempDir())
 	require.NoError(t, err)
-	assert.False(t, ok, "a non-repo project needs no gitdir mirror")
+	assert.Empty(t, ms, "a non-repo project needs no gitdir mirror")
 }
 
 // TestContainerName_SanitizesAndScopes: the name is a valid, unique,
@@ -247,39 +247,6 @@ func TestContainer_WithImageRunsAsIs(t *testing.T) {
 		"the isolation_images override path already agreed")
 	assert.False(t, NewContainerFor(rt, "claude-code").runAsIs(),
 		"without an override the spec's own recipe still builds the agent image")
-}
-
-// TestGitCommonDirMount_WholeCommonDirReadWrite pins the ACCEPTED posture a
-// review row re-opened. The row's facts are correct: the entire git common dir is
-// bind-mounted READ-WRITE, mapped through the runtime's pathMapper, so a
-// low-trust container-worktree member can reach the main checkout's
-// refs/objects/index and every other worktree's admin dir. That exposure is
-// real and was adjudicated in the tree before this wave (see
-// gitCommonDirMount's own DECISION block): the per-worktree admin dir a
-// linked checkout needs is a SUBDIRECTORY of the common dir, git needs write
-// access to refs/logs and the packed-refs/objects layout, and a surgical
-// partial mount is fragile in ways that are easy to get subtly wrong.
-// Narrowing it is a per-agent-git-isolation design decision, not a sweep's
-// call — escalated, not changed here.
-//
-// What this pins is the posture itself, in both directions: read-only would
-// break every linked-worktree container run, and an UNMAPPED path (skipping
-// the runtime's pathMapper rather than routing through it) would break the
-// `gitdir:` pointer that made the mount necessary — the mount and the
-// project's own WorkDir must always agree on the SAME translation, identity
-// or not. A change to either must be deliberate.
-func TestGitCommonDirMount_WholeCommonDirReadWrite(t *testing.T) {
-	repo := t.TempDir()
-	common := filepath.Join(repo, ".git")
-	rt := fakeRuntime{name: "docker", available: true}
-	m, err := gitCommonDirMount(context.Background(), rt,
-		&git.Fake{CommonDirValue: common}, filepath.Join(repo, "wt"))
-	require.NoError(t, err)
-
-	assert.Equal(t, common, m.Host, "the WHOLE common dir is the mount source (accepted blast radius)")
-	assert.Equal(t, mapped(t, rt, common), m.Container, "mapped through the runtime's pathMapper, so a `gitdir:` pointer file resolves in-container")
-	assert.False(t, m.ReadOnly,
-		"read-write by design: a linked checkout writes its own admin files under <common>/worktrees/<name>")
 }
 
 // TestContainerFor_PropagatesEveryImageConfigField pins the field-by-field

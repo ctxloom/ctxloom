@@ -120,7 +120,7 @@ type Container struct {
 	state SessionState
 	// git is the DI seam used to resolve the live project's git common-dir when
 	// the project is itself a LINKED WORKTREE (or submodule) — see
-	// gitdirMirrorMount. Nil on the normal construction paths
+	// gitdirMirrorMounts. Nil on the normal construction paths
 	// (NewContainerFor/containerFor); gitSeam defaults it to the
 	// real git binary. Tests inject a git.Fake.
 	git git.Git
@@ -386,7 +386,7 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	}
 	// Scope the container run's git identity to this agent, the SAME way the
 	// host+worktree path does (worktreeWorkspace.Env → gitIdentity). The .git
-	// common dir is bind-mounted READ-WRITE and SHARED (gitCommonDirMount), so a
+	// common dir is bind-mounted READ-WRITE and SHARED (gitDirMounts), so a
 	// containerized commit resolves the shared .git/config exactly like a host
 	// linked worktree does — a scoped GIT_AUTHOR_*/GIT_COMMITTER_* pair (which
 	// outranks repo-local config) is what stops one agent's commit from
@@ -552,33 +552,26 @@ func (hostBase) mountBase(ctx context.Context, rt Runtime, _, projectDir, scratc
 	}
 	// When the LIVE project is itself a linked worktree (or a submodule) its .git
 	// is a POINTER FILE whose common dir lives OUTSIDE projectDir — and so is not
-	// covered by the project mount. Mirror that common dir so
+	// covered by the project mount. Mirror this checkout's git data so
 	// in-container git resolves the repo, exactly as the worktree base does. A
 	// resolution failure fails this workspace so the chain degrades
 	// (fatal-unless-degraded), never a silent broken-git launch.
-	gitMount, ok, err := gitdirMirrorMount(ctx, rt, g, projectDir)
+	gitMounts, err := gitdirMirrorMounts(ctx, rt, g, projectDir, scratchRoot)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return overlays, nil
-	}
-	pointers, err := gitPointerMounts(rt, projectDir, scratchRoot)
-	if err != nil {
-		return nil, err
-	}
-	return append(append(overlays, gitMount), pointers...), nil
+	return append(overlays, gitMounts...), nil
 }
 
-// gitdirMirrorMount returns the git common-dir mirror mount the plain container
-// needs when the LIVE PROJECT is itself a linked worktree (or a submodule) — i.e.
-// projectDir/.git is a POINTER FILE, not a directory — whose common git dir lives
-// OUTSIDE projectDir and so is NOT covered by the project mount,
-// leaving in-container `git` unable to resolve the repo. ok=false (no extra mount)
-// when .git is a directory or absent: the common dir is inside the project mount
-// already (a normal main-repo checkout), or there is no repo to mirror. It reuses
-// the same mapped mirror the worktree base builds (gitCommonDirMount).
-func gitdirMirrorMount(ctx context.Context, rt Runtime, g git.Git, projectDir string) (mount, bool, error) {
+// gitdirMirrorMounts returns the git mounts the plain container needs when the
+// LIVE PROJECT is itself a linked worktree (or a submodule) — i.e.
+// projectDir/.git is a POINTER FILE, not a directory — whose git data lives
+// OUTSIDE projectDir and so is NOT covered by the project mount, leaving
+// in-container `git` unable to resolve the repo. None when .git is a directory
+// or absent: the git dir is inside the project mount already (a normal
+// main-repo checkout), or there is no repo to mirror. It builds the same set the
+// worktree base does (gitDirMounts).
+func gitdirMirrorMounts(ctx context.Context, rt Runtime, g git.Git, projectDir, scratchRoot string) ([]mount, error) {
 	gitPath := filepath.Join(projectDir, ".git")
 	info, err := os.Stat(gitPath)
 	// ABSENT is a real "no mirror needed" (no repo to mirror). An unreadable .git
@@ -586,19 +579,15 @@ func gitdirMirrorMount(ctx context.Context, rt Runtime, g git.Git, projectDir st
 	// answering "no mirror needed" launches a container whose git cannot resolve
 	// the repo. Fail the workspace so the chain degrades loudly instead.
 	if errors.Is(err, os.ErrNotExist) {
-		return mount{}, false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return mount{}, false, fmt.Errorf("stat %s to decide the container gitdir mirror: %w", gitPath, err)
+		return nil, fmt.Errorf("stat %s to decide the container gitdir mirror: %w", gitPath, err)
 	}
 	if info.IsDir() {
-		return mount{}, false, nil
+		return nil, nil
 	}
-	m, err := gitCommonDirMount(ctx, rt, g, projectDir)
-	if err != nil {
-		return mount{}, false, err
-	}
-	return m, true, nil
+	return gitDirMounts(ctx, rt, g, projectDir, scratchRoot)
 }
 
 // containerScratch is the host-side scratch every container run needs regardless
@@ -793,51 +782,6 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		mounts = append(mounts, rt.expose(host, inContainer, false))
 	}
 	return mounts, nil
-}
-
-// gitCommonDirMount builds the .git mirror mount, at the runtime's mapping of
-// the common dir, from a checkout's
-// git common-dir, so a `gitdir:` POINTER FILE (a linked worktree or submodule,
-// whose common dir lives OUTSIDE the mounted checkout) resolves inside the
-// container. Read-write by design: the per-checkout admin files (index, HEAD)
-// under <common>/worktrees/<name> are written there, exactly as a host-native
-// checkout writes to the shared .git. Shared by the worktree base (whose
-// worktree .git is ALWAYS a pointer file) and the host base (only when the
-// live project is itself a linked worktree — see gitdirMirrorMount).
-//
-// Over-mount blast radius (live-gag, ACCEPTED): the key property that makes
-// this mount SUFFICIENT is that the per-worktree admin dir
-// <common>/worktrees/<name> — the ONE thing a linked checkout actually needs
-// — is a SUBDIRECTORY of <common>. Mounting the whole common dir identical-
-// path is therefore the simplest mount that covers it, but it ALSO exposes
-// every OTHER worktree's admin dir (and the main checkout's own index/refs)
-// to this container — real blast radius, not merely "no new" one. A surgical
-// mount (worktree dir + just its own <common>/worktrees/<name> + read-only
-// objects/refs) is possible in principle, but git needs write access to
-// refs/logs and the packed-refs/objects layout in ways that make a partial
-// mount fragile and easy to get subtly wrong. DECISION: keep the whole-
-// common-dir mount (correct, simple, RW-justified above) and accept the
-// wider exposure; revisit only if per-agent git isolation becomes a
-// requirement (already flagged a "later concern" — container_worktree.go's
-// worktreeBase doc). Every ctxloom-managed worktree is out-of-repo by the
-// standing layout (~/workspace/worktrees/<proj>--<branch>), so the worktree
-// base relies on this mount set in production already; the host base needs
-// it only when the user's OWN project dir happens to be a linked worktree —
-// proven end-to-end (real git, real container, payload-asserted) by
-// container_hostworktree_integration_test.go, alongside
-// container_worktree_integration_test.go's worktree-base proof.
-func gitCommonDirMount(ctx context.Context, rt Runtime, g git.Git, dir string) (mount, error) {
-	common, err := g.CommonDir(ctx, dir)
-	if err != nil {
-		return mount{}, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
-	}
-	// exposeMapped (not expose(common, common, ...)) routes through the
-	// runtime's pathMapper — the SAME translation the project root gets.
-	m, err := rt.exposeMapped(common, false)
-	if err != nil {
-		return mount{}, fmt.Errorf("git common dir %s has no route into the container: %w", common, err)
-	}
-	return m, nil
 }
 
 // seedOverlay copies the project's managed-config directory into its fresh

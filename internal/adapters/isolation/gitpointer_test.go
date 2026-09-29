@@ -115,15 +115,15 @@ func readFile(t *testing.T, p string) string {
 func TestMountBase_CarriesGitPointerMounts(t *testing.T) {
 	ctx := context.Background()
 	rt := fakeRuntime{name: "docker", binary: "docker", available: true}
-	f := &git.Fake{}
-
 	dir, admin := linkedCheckout(t, "")
+	f := &git.Fake{CommonDirValue: filepath.Dir(filepath.Dir(admin))}
 	wtMounts, err := worktreeBase{wt: NewWorktree(f)}.mountBase(ctx, rt, t.TempDir(), dir, t.TempDir(), engineContainerSpec{}, f)
 	require.NoError(t, err)
 	assert.Contains(t, targetsOf(wtMounts), "/ctr"+filepath.Join(dir, ".git"))
 	assert.Contains(t, targetsOf(wtMounts), "/ctr"+filepath.Join(admin, "gitdir"))
 
 	proj, projAdmin := linkedCheckout(t, "")
+	f = &git.Fake{CommonDirValue: filepath.Dir(filepath.Dir(projAdmin))}
 	hostMounts, err := hostBase{}.mountBase(ctx, rt, proj, proj, t.TempDir(), engineContainerSpec{}, f)
 	require.NoError(t, err)
 	assert.Contains(t, targetsOf(hostMounts), "/ctr"+filepath.Join(proj, ".git"))
@@ -167,47 +167,53 @@ func TestMountBase_HidesOtherWorktreesRegistry(t *testing.T) {
 		"renaming": fakeRuntime{name: "docker", binary: "docker", available: true},
 		"identity": mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true}, m: identityMapper{}},
 	}
+	pointers := map[string]string{"absolute": "", "relative": filepath.Join("..", "repo", ".git", "worktrees", "wt")}
 	for rtName, rt := range runtimes {
 		for _, base := range []string{"worktree", "host"} {
-			t.Run(rtName+"/"+base, func(t *testing.T) {
-				dir, admin := linkedCheckout(t, "")
-				registry := filepath.Dir(admin)
-				common := filepath.Dir(registry)
-				other := filepath.Join(registry, "other")
-				require.NoError(t, os.MkdirAll(other, 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(other, "gitdir"), []byte("/elsewhere/.git\n"), 0o644))
-				for _, d := range []string{"objects", "refs", "hooks"} {
-					require.NoError(t, os.MkdirAll(filepath.Join(common, d), 0o755))
-				}
-				for _, f := range []string{"config", "packed-refs", "HEAD"} {
-					require.NoError(t, os.WriteFile(filepath.Join(common, f), nil, 0o644))
-				}
-				f := &git.Fake{CommonDirValue: common}
+			for ptrName, pointer := range pointers {
+				t.Run(rtName+"/"+base+"/"+ptrName, func(t *testing.T) {
+					dir, admin := linkedCheckout(t, pointer)
+					registry := filepath.Dir(admin)
+					common := filepath.Dir(registry)
+					other := filepath.Join(registry, "other")
+					require.NoError(t, os.MkdirAll(other, 0o755))
+					require.NoError(t, os.WriteFile(filepath.Join(other, "gitdir"), []byte("/elsewhere/.git\n"), 0o644))
+					for _, d := range []string{"objects", "refs", "hooks"} {
+						require.NoError(t, os.MkdirAll(filepath.Join(common, d), 0o755))
+					}
+					for _, f := range []string{"config", "packed-refs", "HEAD"} {
+						require.NoError(t, os.WriteFile(filepath.Join(common, f), nil, 0o644))
+					}
+					f := &git.Fake{CommonDirValue: common}
 
-				var mounts []mount
-				var err error
-				if base == "worktree" {
-					mounts, err = worktreeBase{wt: NewWorktree(f)}.mountBase(ctx, rt, t.TempDir(), dir, t.TempDir(), engineContainerSpec{}, f)
-				} else {
-					mounts, err = hostBase{}.mountBase(ctx, rt, dir, dir, t.TempDir(), engineContainerSpec{}, f)
-				}
-				require.NoError(t, err)
+					var mounts []mount
+					var err error
+					if base == "worktree" {
+						mounts, err = worktreeBase{wt: NewWorktree(f)}.mountBase(ctx, rt, t.TempDir(), dir, t.TempDir(), engineContainerSpec{}, f)
+					} else {
+						mounts, err = hostBase{}.mountBase(ctx, rt, dir, dir, t.TempDir(), engineContainerSpec{}, f)
+					}
+					require.NoError(t, err)
 
-				host, _, ok := hostBehind(mounts, mapped(t, rt, other))
-				if ok {
-					_, statErr := os.Stat(host)
-					assert.ErrorIs(t, statErr, os.ErrNotExist,
-						"another worktree's registration must not be reachable from the container (it resolved to %s)", host)
-				}
-				for _, need := range []string{admin, filepath.Join(admin, "HEAD"),
-					filepath.Join(common, "config"), filepath.Join(common, "packed-refs"),
-					filepath.Join(common, "hooks"), filepath.Join(common, "objects"), filepath.Join(common, "refs")} {
-					host, ro, ok := hostBehind(mounts, mapped(t, rt, need))
-					require.True(t, ok, "%s must be mounted", need)
-					assert.Equal(t, need, host, "%s must resolve to the host's own copy", need)
-					assert.False(t, ro, "%s must be writable: git updates it in place", need)
-				}
-			})
+					_, ro, ok := hostBehind(mounts, mapped(t, rt, registry))
+					require.True(t, ok)
+					assert.True(t, ro, "the registry is read-only, so a new registration fails instead of vanishing into scratch")
+					host, _, ok := hostBehind(mounts, mapped(t, rt, other))
+					if ok {
+						_, statErr := os.Stat(host)
+						assert.ErrorIs(t, statErr, os.ErrNotExist,
+							"another worktree's registration must not be reachable from the container (it resolved to %s)", host)
+					}
+					for _, need := range []string{admin, filepath.Join(admin, "HEAD"),
+						filepath.Join(common, "config"), filepath.Join(common, "packed-refs"),
+						filepath.Join(common, "hooks"), filepath.Join(common, "objects"), filepath.Join(common, "refs")} {
+						host, ro, ok := hostBehind(mounts, mapped(t, rt, need))
+						require.True(t, ok, "%s must be mounted", need)
+						assert.Equal(t, need, host, "%s must resolve to the host's own copy", need)
+						assert.False(t, ro, "%s must be writable: git updates it in place", need)
+					}
+				})
+			}
 		}
 	}
 }

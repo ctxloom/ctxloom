@@ -6,8 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"syscall"
+
+	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 )
 
 // isolateRunner decides the process attributes of the host runner subprocess
@@ -73,46 +74,19 @@ func killSession(sid int) {
 		if err != nil {
 			continue
 		}
-		// Pin the process BEFORE deciding about it. procSessionID and the kill
-		// are two separate steps, and a pid is not a stable identity across
-		// them — the target can exit in between and the kernel can hand its
-		// number to an unrelated process, which would then take the SIGKILL.
-		// The handle names the process that existed at this instant (see
-		// procHandle), so a signal can only ever reach that one.
-		h, ok := pinProcess(pid)
+		// Pin the process BEFORE deciding about it. Reading its session and
+		// the kill are two separate steps, and a pid is not a stable identity
+		// across them — the target can exit in between and the kernel can
+		// hand its number to an unrelated process, which would then take the
+		// SIGKILL. The handle names the process that existed at this instant
+		// (see procpin.Handle), so a signal can only ever reach that one.
+		h, ok := procpin.Pin(pid)
 		if !ok {
 			continue // already gone: nothing left to kill
 		}
-		if procSessionID(pid) != sid {
-			h.close()
-			continue
+		if st, err := procpin.ReadStat(pid); err == nil && st.Session == sid {
+			_ = h.Signal(syscall.SIGKILL)
 		}
-		h.kill()
+		h.Close()
 	}
-}
-
-// procSessionID reads a process's session id from /proc/<pid>/stat (field 6;
-// proc(5)) — the comm field can itself contain parens, so the fields after
-// it are located from the LAST ')', matching the approach in isZombie
-// (procsession_unix_test.go).
-func procSessionID(pid int) int {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return -1
-	}
-	i := strings.LastIndexByte(string(data), ')')
-	if i < 0 || i+2 >= len(data) {
-		return -1
-	}
-	// After the comm field: state(1) ppid(2) pgrp(3) session(4) — indices
-	// 0..3 in this 0-based slice.
-	fields := strings.Fields(string(data[i+2:]))
-	if len(fields) < 4 {
-		return -1
-	}
-	sid, err := strconv.Atoi(fields[3])
-	if err != nil {
-		return -1
-	}
-	return sid
 }

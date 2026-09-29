@@ -1065,7 +1065,7 @@ func (st *runState) markSessionEnded() {
 func recordCoordinatorStartupFinding(cerr error) {
 	if errors.Is(cerr, coord.ErrStateOwned) {
 		strictness.Fail(strictness.ClassOwner,
-			"end the session that owns this project (its pid is stamped in the state dir's "+coord.OwnerLockFileName+"), or pass --degraded (env CTXLOOM_DEGRADED=1) to launch this one without agent delegation",
+			"end the session that owns this project (named above; `ctxloom doctor` shows it too), or pass --degraded (env CTXLOOM_DEGRADED=1) to launch this one without agent delegation",
 			"a project has one session owner and this one is already owned: %v — this session is refused as a second coordinator; nothing the owner has spawned is affected", cerr)
 		return
 	}
@@ -1075,7 +1075,11 @@ func recordCoordinatorStartupFinding(cerr error) {
 }
 
 func (st *runState) hostCoordinator() func() {
-	sc, ownerToken, cerr := mcp.HostCoordinatorForSession(NewCoordinator, App(), st.workDir, st.activeHarp)
+	mode := coord.OwnerNonInteractive
+	if st.launch.Mode == engine.Interactive {
+		mode = coord.OwnerInteractive
+	}
+	sc, ownerToken, cerr := mcp.HostCoordinatorForSession(NewCoordinator, App(), st.workDir, st.activeHarp, mode)
 	if cerr != nil {
 		recordCoordinatorStartupFinding(cerr)
 		return func() {}

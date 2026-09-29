@@ -3,25 +3,23 @@ package coord
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
-
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // State layout (all 0700 dirs / 0600 files — journals carry message bodies
 // and credential hashes):
 //
 //	~/.ctxloom/coord/<project-key>/
-//	    owner.pid          exclusive-owner lock (single writer per journal
+//	    owner.lock         exclusive-owner lock, a kernel file lock held for
+//	                       the owner's lifetime (single writer per journal
 //	                       is per PROCESS too — see claimOwner)
+//	    owner.json         the holder's stamp: pid, session, mode, start —
+//	                       for display and the orphan test, never liveness
 //	    runs.jsonl         run registry / spawn queue / roster journal
 //	    mailbox.jsonl      role mailboxes + consume cursors
 //	    interactions.jsonl audit journal (no projection)
@@ -36,19 +34,41 @@ import (
 const coordDirName = paths.CoordDirName
 
 // OwnerLockFileName is the exclusive-owner lock's file name inside a project
-// state dir. Its presence on disk IS the evidence that a process claimed the
-// project as coordinator — the gate that proves an MCP shim never becomes one
-// looks for exactly this file, so the name is exported rather than repeated.
-const OwnerLockFileName = "owner.pid"
+// state dir. The file persists across owners: whether it is LOCKED is the
+// ownership fact (ProbeOwner), its presence only says a claim was once made.
+const OwnerLockFileName = "owner.lock"
 
-// stateDirForProject resolves the coordinator state dir, keyed by project
-// (plan: durability first, keyed by project — a fresh `ctxloom run` adopts
-// orphaned state from disk). projectKey should be the stable project id when
-// one resolves; the caller may fall back to a path-derived key.
-func stateDirForProject(projectKey string) (string, error) {
+// ProjectStateDir resolves a project's coordinator state dir without creating
+// or claiming it: the stable project id when one resolved, otherwise a key
+// derived from projectDir. It is the dir New claims and ProbeOwner reads.
+func ProjectStateDir(projectID, projectDir string) (string, error) {
+	return stateDirPath(projectKey(projectID, projectDir))
+}
+
+// projectKey is the state-dir key for a project: its id, or a path-derived
+// key when no id resolved.
+func projectKey(projectID, projectDir string) string {
+	if projectID != "" {
+		return projectID
+	}
+	return pathDerivedProjectKey(projectDir)
+}
+
+func stateDirPath(projectKey string) (string, error) {
 	dir, err := paths.CoordProjectStateDir(sanitizeKey(projectKey))
 	if err != nil {
 		return "", fmt.Errorf("coord: state dir: %w", err)
+	}
+	return dir, nil
+}
+
+// stateDirForProject resolves and creates the coordinator state dir, keyed by
+// project (plan: durability first, keyed by project — a fresh `ctxloom run`
+// adopts orphaned state from disk).
+func stateDirForProject(projectKey string) (string, error) {
+	dir, err := stateDirPath(projectKey)
+	if err != nil {
+		return "", err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("coord: state dir: %w", err)
@@ -107,74 +127,4 @@ func sanitizeKey(k string) string {
 		return defaultProjectKey
 	}
 	return out
-}
-
-// ErrStateOwned reports the project state dir is exclusively owned by another
-// live coordinator process. It is exported because the process that loses
-// the claim is REFUSED, not degraded: the session host turns it into the
-// named finding a second `ctxloom run` on one project exits on.
-var ErrStateOwned = errors.New("coord: project state is owned by another live coordinator")
-
-// writeOwnerPID stamps pid into a freshly created owner-lock file and closes
-// it, reporting the FIRST of the write's or the close's failure.
-//
-// Indirected so a test can drive that failure: on a real filesystem the write
-// and the close only fail on conditions a test cannot provoke (a full or
-// failing device), while the consequence of ignoring them — a lock file that
-// carries no pid — is exactly what claimOwner must never leave behind.
-var writeOwnerPID = func(f *os.File, pid int) error {
-	_, err := fmt.Fprintf(f, "%d\n", pid)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
-}
-
-// claimOwner takes the project state dir's exclusive-owner lock. The journal
-// discipline demands a single writer per journal, and that holds ACROSS
-// processes too: two concurrent session-owning processes for one project must
-// not share journals. The second claimant gets ErrStateOwned and is REFUSED —
-// a project has one coordinator, and the loser must not run a rival on state
-// of its own (acquireStateDir). A dead owner's stale lock is replaced
-// (liveness = signal 0 probe).
-//
-// A lock file this function creates but cannot STAMP is removed again before it
-// declines: an owner.pid with no pid in it reads to the next
-// claimant as a dead owner — strconv.Atoi("") fails, so the lock is treated as
-// stale and deleted — and two live coordinators would then share one project's
-// journals, the single outcome this lock exists to prevent. Declining a claim
-// costs this session adoption; leaving an unstamped lock costs the journal its
-// single writer.
-func claimOwner(rep report.Reporter, dir string) (release func(), err error) {
-	lock := filepath.Join(dir, OwnerLockFileName)
-	for range 2 {
-		f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if err == nil {
-			if werr := writeOwnerPID(f, os.Getpid()); werr != nil {
-				_ = os.Remove(lock)
-				rep.Warnf("coordinator: could not stamp the project state lock %s (%v); declining the claim rather than leaving a lock that reads as a dead owner", lock, werr)
-				return nil, ErrStateOwned
-			}
-			return func() { _ = os.Remove(lock) }, nil
-		}
-		raw, rerr := os.ReadFile(lock)
-		if rerr != nil {
-			return nil, ErrStateOwned
-		}
-		pid, perr := strconv.Atoi(strings.TrimSpace(string(raw)))
-		// MaybeAlive (not a bare Alive check) treats an
-		// unconfirmable probe the same as a live owner — a false "the owner
-		// is dead" here would let a second process share this project's
-		// journal, which the single-writer discipline this function exists
-		// to enforce can never recover from. A needless refusal on a false
-		// positive is the safe direction; a shared journal is not.
-		if perr == nil && pid > 0 && pidalive.Probe(pid).MaybeAlive() && pid != os.Getpid() {
-			return nil, fmt.Errorf("%w (owner pid %d)", ErrStateOwned, pid)
-		}
-		// Stale lock from a dead owner: remove and retry once. The remove→
-		// create window is racy in theory; the loser of the race lands on
-		// ErrStateOwned and is refused — never a shared journal.
-		_ = os.Remove(lock)
-	}
-	return nil, ErrStateOwned
 }

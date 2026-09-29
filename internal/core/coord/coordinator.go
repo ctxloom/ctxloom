@@ -128,6 +128,11 @@ type Options struct {
 	// whose inbox it drains would write every child->parent message into a
 	// directory nothing reads.
 	OwnerHarp string
+	// OwnerMode is how the session owner runs, stamped beside the owner lock
+	// for the next claimant: only an INTERACTIVE owner can be proven an
+	// abandoned orphan and reclaimed (claimOwner). The zero value is never
+	// reclaimed.
+	OwnerMode OwnerMode
 	// Mapper resolves spool references to paths — the ONE mapper every spool
 	// read and write this coordinator performs goes through. Nil is the
 	// home-relative mapper (spool.NewHomeMapper).
@@ -603,15 +608,11 @@ func acquireStateDir(opts Options) (stateDirClaim, error) {
 	if opts.StateDir != "" {
 		return stateDirClaim{dir: opts.StateDir}, nil
 	}
-	key := opts.ProjectID
-	if key == "" {
-		key = pathDerivedProjectKey(opts.ProjectDir)
-	}
-	dir, err := stateDirForProject(key)
+	dir, err := stateDirForProject(projectKey(opts.ProjectID, opts.ProjectDir))
 	if err != nil {
 		return stateDirClaim{}, err
 	}
-	release, err := claimOwner(report.To(opts.Reporter), dir)
+	release, err := claimOwner(report.To(opts.Reporter), dir, newOwnerStamp(opts.OwnerHarp, opts.OwnerMode))
 	if err != nil {
 		return stateDirClaim{}, err
 	}

@@ -207,6 +207,28 @@ func TestClaudeAuth_Credentials_OnlyCloudSharesProviderStores(t *testing.T) {
 	}
 }
 
+// cloud declares which of the vars it passes through name a credential FILE
+// — only those the launching env sets — so an environment that runs claude
+// elsewhere can present the file; the value stays the human's path. No other
+// mode reads a provider file, so none declares one even when every file var
+// is exported.
+func TestClaudeAuth_Credentials_OnlyCloudDeclaresCredentialFiles(t *testing.T) {
+	shell := shellOf(map[string]string{
+		"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_CONFIG_FILE": "/h/aws-config", "GOOGLE_APPLICATION_CREDENTIALS": "/h/adc.json",
+	})
+	got, err := testAuth().Credentials(engine.AuthCloud, shell, memStore{})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"AWS_CONFIG_FILE", "GOOGLE_APPLICATION_CREDENTIALS"}, got.FileVars)
+	assert.Equal(t, "/h/aws-config", got.Env["AWS_CONFIG_FILE"], "declared, not rewritten: where it is presented is the environment's call")
+
+	for _, mode := range []engine.AuthMode{engine.AuthLogin, engine.AuthToken, engine.AuthAPIKey} {
+		got, err := testAuth().Credentials(mode, shell, memStore{engine.AuthToken: "t", engine.AuthAPIKey: "k"})
+		require.NoError(t, err, mode)
+		assert.Empty(t, got.FileVars, mode)
+		assert.NotContains(t, got.Env, "AWS_CONFIG_FILE", mode)
+	}
+}
+
 // Token and api-key share no store of the human's: their credential is
 // ctxloom's own, carried in the env.
 func TestClaudeAuth_Credentials_StoredModesShareNoStore(t *testing.T) {

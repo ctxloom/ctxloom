@@ -50,8 +50,9 @@ var providerSwitches = []string{
 // provider switches, each provider's documented credential, region and
 // endpoint variables, and a gateway's bearer and base URL
 // (https://code.claude.com/docs/en/{amazon-bedrock, claude-platform-on-aws,
-// google-vertex-ai, microsoft-foundry, gateways}). A provider's credential
-// FILES are not variables: they are shared stores (providerStores).
+// google-vertex-ai, microsoft-foundry, gateways}). The directories a
+// provider's SDK finds under $HOME are shared stores (providerStores); a
+// file a variable names is declared by credentialFileVars.
 var cloudVars = append(slices.Clone(providerSwitches),
 	// Amazon Bedrock.
 	"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK",
@@ -67,6 +68,13 @@ var cloudVars = append(slices.Clone(providerSwitches),
 	// A gateway.
 	AuthTokenEnv, "ANTHROPIC_BASE_URL",
 )
+
+// credentialFileVars are the cloudVars whose value is a path to a credential
+// file, not a credential: the AWS shared config and credentials files
+// (https://docs.aws.amazon.com/sdkref/latest/guide/file-location.html) and a
+// Google service-account or ADC key
+// (https://cloud.google.com/docs/authentication/application-default-credentials).
+var credentialFileVars = []string{"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE", "GOOGLE_APPLICATION_CREDENTIALS"}
 
 // providerStores are the cloud providers' own credential directories under
 // $HOME, which the SDKs claude embeds read when no variable carries the
@@ -205,7 +213,13 @@ func (c claudeAuth) cloudCredentials(shell func(string) (string, bool)) (engine.
 				strings.Join(providerSwitches, ", "), AuthTokenEnv, "ANTHROPIC_BASE_URL", c.engine, strings.Join(others, ", ")),
 			"%s cloud: none of %s is set: %w", c.engine, strings.Join(append(slices.Clone(providerSwitches), AuthTokenEnv), ", "), engine.ErrNoCredential)
 	}
-	return engine.Credentials{Env: set, Unset: []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}, Stores: existingProviderStores(shell)}, nil
+	var files []string
+	for _, k := range credentialFileVars {
+		if set[k] != "" {
+			files = append(files, k)
+		}
+	}
+	return engine.Credentials{Env: set, Unset: []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}, Stores: existingProviderStores(shell), FileVars: files}, nil
 }
 
 // existingProviderStores are the providerStores present in the launching

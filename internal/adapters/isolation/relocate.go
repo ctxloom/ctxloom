@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path"
+	"path/filepath"
 	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -200,7 +202,68 @@ func (r containerRelocator) relocate(l layout) (launch.Placement, []mount, error
 	if err != nil {
 		return placementOf(paths, l, nil), nil, err
 	}
-	return placementOf(paths, l, storeEnv), append(mounts, storeMounts...), nil
+	fileEnv, fileMounts, err := r.relocateFiles(l.creds)
+	if err != nil {
+		return placementOf(paths, l, nil), nil, err
+	}
+	maps.Copy(storeEnv, fileEnv)
+	// Files after stores: a file inside a store's directory must not be
+	// shadowed by that directory's mount.
+	return placementOf(paths, l, storeEnv), append(append(mounts, storeMounts...), fileMounts...), nil
+}
+
+// relocateFiles binds each credential file the credentials declare
+// (engine.Credentials.FileVars) read-only where the runtime's seam routes it
+// — a single-file bind — and points its var at that path: the human's path
+// means nothing inside the container. A path the seam cannot route is
+// present.ErrUnreachableRoot; one naming no file the runtime could bind
+// refuses, since the daemon would reject the mount anyway. The host needs
+// none of this: there the var already names the file.
+func (r containerRelocator) relocateFiles(c engine.Credentials) (map[string]string, []mount, error) {
+	env := map[string]string{}
+	var mounts []mount
+	bound := map[string]bool{}
+	for _, v := range c.FileVars {
+		host := c.Env[v]
+		if host == "" {
+			continue
+		}
+		rel, err := relocateRoot(r.rt, host, "", true)
+		if err != nil {
+			return nil, nil, fmt.Errorf("credential file %s: %w", v, err)
+		}
+		if err := isBindableFile(host); err != nil {
+			return nil, nil, report.Errorf(fmt.Sprintf("point %s at an existing credential file by its absolute path, or unset it", v),
+				"%s names the credential file %s, which %w: %w", v, host, err, engine.ErrNoCredential)
+		}
+		env[v] = rel.root.Engine
+		if !bound[rel.mount.Container] {
+			bound[rel.mount.Container] = true
+			mounts = append(mounts, rel.mount)
+		}
+	}
+	return env, mounts, nil
+}
+
+var (
+	errCredentialFileRelative = errors.New("is not an absolute path")
+	errCredentialFileMissing  = errors.New("does not exist")
+	errCredentialFileNotAFile = errors.New("is not a regular file")
+)
+
+// isBindableFile refuses what a single-file bind cannot carry.
+func isBindableFile(host string) error {
+	if !filepath.IsAbs(host) {
+		return errCredentialFileRelative
+	}
+	fi, err := os.Stat(host)
+	if err != nil {
+		return fmt.Errorf("%w (%w)", errCredentialFileMissing, err)
+	}
+	if !fi.Mode().IsRegular() {
+		return errCredentialFileNotAFile
+	}
+	return nil
 }
 
 // errStoreNotADirectory: a shared store that is no directory under $HOME (an

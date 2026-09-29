@@ -423,7 +423,7 @@ func TestRun_NonTTYStdinNeverEngagesTerminalUI(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 	out := env.LastOutput()
 	assert.NotContains(t, out, "\x1b[1;", "a non-tty stdin never establishes the surround's protected region")
-	assert.NotContains(t, out, "\x1b7\x1b[r", "a non-tty stdin never wires the prefix interceptor")
+	assert.NotContains(t, out, "\x1b[?1049h\x1b[r", "a non-tty stdin never wires the prefix interceptor")
 	assert.Contains(t, out, "plain response", "the run still completes normally on the unwrapped seams")
 }
 

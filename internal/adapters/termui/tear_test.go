@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,260 +22,14 @@ import (
 // copies — and bar repaints flushed at raw pty-chunk boundaries could land
 // inside a split escape sequence or UTF-8 rune. The tests drive the REAL
 // controller wiring (interceptor + gate + surround) with a scripted child
-// stream, then replay the captured tty bytes through a small VT emulator and
-// assert the invariants a live terminal needs:
+// stream, then replay the captured tty bytes through a VT screen model
+// (testsupport/vtemu) and assert the invariants a live terminal needs:
 //
 //   - bar content only ever renders on the reserved bottom row (never above
 //     it, never in scrollback);
 //   - child escape sequences and runes arrive contiguously (no bar bytes
 //     spliced into their middle);
 //   - every bar repaint begins at a parser-ground boundary.
-
-// ---------------------------------------------------------------------------
-// Mini VT emulator: just enough xterm to render the surround + a child stream
-// (CUP, EL, ED, DECSTBM incl. region-aware LF scrolling, DECSC/DECRC, RIS,
-// OSC skip, SGR ignore). Lines scroll into scrollback only when the scroll
-// region is the full screen, matching xterm.
-// ---------------------------------------------------------------------------
-
-type vtEmu struct {
-	rows, cols int
-	grid       [][]rune
-	curR, curC int
-	top, bot   int // scroll margins, 0-indexed inclusive
-	savR, savC int
-	scrollback []string
-	buf        []byte // undecoded tail (mid-sequence / mid-rune)
-}
-
-func newVTEmu(rows, cols int) *vtEmu {
-	e := &vtEmu{rows: rows, cols: cols, bot: rows - 1}
-	e.grid = make([][]rune, rows)
-	for i := range e.grid {
-		e.grid[i] = blankRow(cols)
-	}
-	return e
-}
-
-func blankRow(cols int) []rune {
-	r := make([]rune, cols)
-	for i := range r {
-		r[i] = ' '
-	}
-	return r
-}
-
-func (e *vtEmu) row(i int) string { return strings.TrimRight(string(e.grid[i]), " ") }
-
-// midSequence reports whether the fed bytes end inside an escape sequence,
-// string, or partial rune — i.e. NOT a safe boundary for an injected paint.
-func (e *vtEmu) midSequence() bool { return len(e.buf) > 0 }
-
-func (e *vtEmu) Feed(p []byte) {
-	e.buf = append(e.buf, p...)
-	for len(e.buf) > 0 {
-		n := e.step(e.buf)
-		if n == 0 {
-			return // incomplete tail: wait for more bytes
-		}
-		e.buf = e.buf[n:]
-	}
-}
-
-// step consumes one action from b, returning bytes consumed (0 = incomplete).
-func (e *vtEmu) step(b []byte) int {
-	switch b[0] {
-	case 0x1b:
-		return e.stepEscape(b)
-	case '\n':
-		e.lineFeed()
-		return 1
-	case '\r':
-		e.curC = 0
-		return 1
-	case '\b':
-		if e.curC > 0 {
-			e.curC--
-		}
-		return 1
-	}
-	if b[0] < 0x20 {
-		return 1 // other C0: ignore
-	}
-	r, size := utf8.DecodeRune(b)
-	if r == utf8.RuneError && !utf8.FullRune(b) {
-		return 0
-	}
-	e.grid[e.curR][e.curC] = r
-	if e.curC < e.cols-1 {
-		e.curC++ // clamp at the last column (no autowrap modeling needed)
-	}
-	return size
-}
-
-func (e *vtEmu) stepEscape(b []byte) int {
-	if len(b) < 2 {
-		return 0
-	}
-	switch b[1] {
-	case '[':
-		return e.stepCSI(b)
-	case ']', 'P', 'X', '^', '_': // OSC/DCS/…: skip to BEL or ST
-		for i := 2; i < len(b); i++ {
-			if b[i] == 0x07 {
-				return i + 1
-			}
-			if b[i] == 0x1b {
-				if i+1 >= len(b) {
-					return 0
-				}
-				if b[i+1] == '\\' {
-					return i + 2
-				}
-				return i // aborted: reprocess the ESC
-			}
-		}
-		return 0
-	case '7':
-		e.savR, e.savC = e.curR, e.curC
-		return 2
-	case '8':
-		e.curR, e.curC = e.savR, e.savC
-		return 2
-	case 'c': // RIS
-		for i := range e.grid {
-			e.grid[i] = blankRow(e.cols)
-		}
-		e.curR, e.curC, e.savR, e.savC = 0, 0, 0, 0
-		e.top, e.bot = 0, e.rows-1
-		return 2
-	}
-	if b[1] >= 0x20 && b[1] <= 0x2f { // ESC + intermediate + final
-		if len(b) < 3 {
-			return 0
-		}
-		return 3
-	}
-	return 2 // other two-byte escapes: ignore
-}
-
-func (e *vtEmu) stepCSI(b []byte) int {
-	end := -1
-	for i := 2; i < len(b); i++ {
-		if b[i] >= 0x40 && b[i] <= 0x7e {
-			end = i
-			break
-		}
-	}
-	if end < 0 {
-		return 0
-	}
-	body := string(b[2:end])
-	private := strings.ContainsAny(body, "<=>?")
-	params := strings.Split(body, ";")
-	num := func(i, def int) int {
-		if i >= len(params) || params[i] == "" {
-			return def
-		}
-		v := 0
-		for _, c := range params[i] {
-			if c < '0' || c > '9' {
-				return def
-			}
-			v = v*10 + int(c-'0')
-		}
-		if v == 0 {
-			return def
-		}
-		return v
-	}
-	if !private {
-		switch b[end] {
-		case 'H', 'f':
-			e.curR = clamp(num(0, 1)-1, 0, e.rows-1)
-			e.curC = clamp(num(1, 1)-1, 0, e.cols-1)
-		case 'A':
-			e.curR = clamp(e.curR-num(0, 1), 0, e.rows-1)
-		case 'B':
-			e.curR = clamp(e.curR+num(0, 1), 0, e.rows-1)
-		case 'C':
-			e.curC = clamp(e.curC+num(0, 1), 0, e.cols-1)
-		case 'D':
-			e.curC = clamp(e.curC-num(0, 1), 0, e.cols-1)
-		case 'r':
-			t, bo := num(0, 1), num(1, e.rows)
-			if t >= 1 && bo <= e.rows && t < bo {
-				e.top, e.bot = t-1, bo-1
-				e.curR, e.curC = 0, 0
-			}
-		case 'K':
-			e.eraseLine(num(0, 0))
-		case 'J':
-			e.eraseScreen(num(0, 0))
-		}
-	}
-	return end + 1
-}
-
-func (e *vtEmu) eraseLine(mode int) {
-	row := e.grid[e.curR]
-	switch mode {
-	case 2:
-		e.grid[e.curR] = blankRow(e.cols)
-	case 1:
-		for i := 0; i <= e.curC; i++ {
-			row[i] = ' '
-		}
-	default:
-		for i := e.curC; i < e.cols; i++ {
-			row[i] = ' '
-		}
-	}
-}
-
-func (e *vtEmu) eraseScreen(mode int) {
-	switch mode {
-	case 2, 3:
-		for i := range e.grid {
-			e.grid[i] = blankRow(e.cols)
-		}
-	case 1:
-		for i := 0; i < e.curR; i++ {
-			e.grid[i] = blankRow(e.cols)
-		}
-		e.eraseLine(1)
-	default:
-		e.eraseLine(0)
-		for i := e.curR + 1; i < e.rows; i++ {
-			e.grid[i] = blankRow(e.cols)
-		}
-	}
-}
-
-func (e *vtEmu) lineFeed() {
-	if e.curR == e.bot {
-		// Scroll the region; only a full-screen region feeds the scrollback.
-		if e.top == 0 && e.bot == e.rows-1 {
-			e.scrollback = append(e.scrollback, e.row(e.top))
-		}
-		copy(e.grid[e.top:e.bot], e.grid[e.top+1:e.bot+1])
-		e.grid[e.bot] = blankRow(e.cols)
-		return
-	}
-	if e.curR < e.rows-1 {
-		e.curR++
-	}
-}
-
-func clamp(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
 
 // ---------------------------------------------------------------------------
 // Harness: the real controller wiring over a scripted child, with the clock
@@ -291,7 +45,7 @@ type tearHarness struct {
 	t     *testing.T
 	c     *Controller
 	tty   *lockedBuffer
-	emu   *vtEmu
+	emu   *vtemu.Screen
 	fed   int
 	now   *int64
 	clean func()
@@ -325,7 +79,7 @@ func newTearHarness(t *testing.T, rows, cols int) *tearHarness {
 	waitFor(t, "surround establish", func() bool {
 		return strings.Contains(tty.String(), fmt.Sprintf("\x1b[1;%dr", rows-1))
 	})
-	h := &tearHarness{t: t, c: c, tty: tty, emu: newVTEmu(rows, cols), now: &now}
+	h := &tearHarness{t: t, c: c, tty: tty, emu: vtemu.New(rows, cols), now: &now}
 	h.clean = func() {
 		nowNanos = restoreNow
 		_ = pw.Close()
@@ -366,12 +120,12 @@ func (h *tearHarness) feed() {
 func (h *tearHarness) assertNoBleed() {
 	h.t.Helper()
 	h.feed()
-	for i := 0; i < h.emu.rows-1; i++ {
-		if strings.Contains(h.emu.row(i), barMarker) {
-			h.t.Fatalf("bar content leaked into the scrolling region: row %d = %q", i+1, h.emu.row(i))
+	for i := 0; i < h.emu.Rows()-1; i++ {
+		if strings.Contains(h.emu.Row(i), barMarker) {
+			h.t.Fatalf("bar content leaked into the scrolling region: row %d = %q", i+1, h.emu.Row(i))
 		}
 	}
-	for _, l := range h.emu.scrollback {
+	for _, l := range h.emu.Scrollback() {
 		if strings.Contains(l, barMarker) {
 			h.t.Fatalf("bar content rode into the scrollback: %q", l)
 		}
@@ -416,7 +170,7 @@ func TestSurround_ChildRISRepaintsProtectedBar(t *testing.T) {
 		h.assertNoBleed()
 	}
 	h.feed()
-	assert.Contains(t, h.emu.row(23), barMarker,
+	assert.Contains(t, h.emu.Row(23), barMarker,
 		"the bar must be repainted on the reserved row after a child RIS")
 }
 
@@ -472,10 +226,10 @@ func TestSurround_ResizeClobbersChildSavedCursor(t *testing.T) {
 	h.child("Z")
 	h.feed()
 
-	if got := h.emu.grid[9][4]; got != 'Z' {
+	if got := h.emu.Cell(9, 4); got != 'Z' {
 		t.Fatalf("child's saved cursor did not survive a resize repaint: marker 'Z' "+
 			"landed elsewhere, row10/col5 (0-idx 9,4) = %q; full row 10 = %q",
-			string(got), h.emu.row(9))
+			string(got), h.emu.Row(9))
 	}
 }
 
@@ -491,9 +245,9 @@ func assertBarPaintsAtGroundBoundaries(t *testing.T, out string, rows int) {
 			break
 		}
 		idx = searched + i
-		e := newVTEmu(rows, 80)
+		e := vtemu.New(rows, 80)
 		e.Feed([]byte(out[:idx]))
-		assert.False(t, e.midSequence(),
+		assert.False(t, e.MidSequence(),
 			"bar repaint at offset %d lands mid-sequence: …%q", idx, tail(out[:idx], 24))
 		searched = idx + len(sig)
 	}

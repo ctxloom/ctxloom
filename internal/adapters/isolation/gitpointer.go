@@ -70,22 +70,14 @@ func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot s
 // source, and would create it as root under a rootful daemon if it could.
 func gitRegistryMask(rt Runtime, common, dir, scratchRoot string) ([]mount, error) {
 	registry := filepath.Join(common, "worktrees")
-	switch info, err := os.Stat(registry); {
-	case errors.Is(err, os.ErrNotExist):
-		return nil, nil
-	case err != nil:
-		return nil, fmt.Errorf("git worktree registry: %w", err)
-	case !info.IsDir():
-		return nil, nil
+	present, err := gitRegistryPresent(registry)
+	if err != nil || !present {
+		return nil, err
 	}
-	admin, ok, err := readGitfile(filepath.Join(dir, ".git"))
+	admin, own, err := ownAdminDir(dir, registry)
 	if err != nil {
 		return nil, err
 	}
-	if ok && !filepath.IsAbs(admin) {
-		admin = filepath.Join(dir, admin)
-	}
-	own := ok && filepath.Dir(filepath.Clean(admin)) == registry
 	mask := filepath.Join(scratchRoot, "git-worktrees")
 	mountpoint := mask
 	if own {
@@ -107,6 +99,34 @@ func gitRegistryMask(rt Runtime, common, dir, scratchRoot string) ([]mount, erro
 		return nil, fmt.Errorf("git admin dir %s has no route into the container: %w", admin, err)
 	}
 	return append(mounts, adminMount), nil
+}
+
+// gitRegistryPresent reports whether registry is a directory. A missing
+// registry, or a non-directory in its place, is not an error: there is
+// nothing to mask.
+func gitRegistryPresent(registry string) (bool, error) {
+	switch info, err := os.Stat(registry); {
+	case errors.Is(err, os.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("git worktree registry: %w", err)
+	default:
+		return info.IsDir(), nil
+	}
+}
+
+// ownAdminDir resolves the admin dir dir's .git gitfile names (relative to
+// dir when relative, and NOT cleaned) and whether it is registered in
+// registry — own is false when dir has no gitfile.
+func ownAdminDir(dir, registry string) (admin string, own bool, err error) {
+	admin, ok, err := readGitfile(filepath.Join(dir, ".git"))
+	if err != nil {
+		return "", false, err
+	}
+	if ok && !filepath.IsAbs(admin) {
+		admin = filepath.Join(dir, admin)
+	}
+	return admin, ok && filepath.Dir(filepath.Clean(admin)) == registry, nil
 }
 
 // gitdirPrefix opens a gitfile: a `.git` FILE whose content names the real

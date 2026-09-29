@@ -56,10 +56,10 @@ func captureRuntimeAxis(t *testing.T) (*isolation.Axes, *stubEngine) {
 }
 
 // -----------------------------------------------------------------------------
-// validateContainerAuth — the WRITE boundary (`ctxloom agent create/set`).
+// validateContainerStory — the WRITE boundary (`ctxloom agent create/set`).
 // -----------------------------------------------------------------------------
 
-// TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean
+// TestSetAgent_ContainerStoryGateRefusesATypodRuntimeRatherThanPassingItClean
 // covers the two runtime sources that reach this gate UNPARSED: the recorded
 // binding and the project `runtime:` default. (The third, an explicit
 // --runtime on this very call, is parsed by validateAgentAxes before the gate
@@ -70,9 +70,9 @@ func captureRuntimeAxis(t *testing.T) (*isolation.Axes, *stubEngine) {
 // written anyway — a config that looks fine in `agent list` until the first
 // launch of it fails. Reading the file back is what proves the refusal: an
 // error alone would pass even if the bad binding were written alongside it.
-func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(t *testing.T) {
-	// "acp" is a registered backend with no container-auth mapping, so the
-	// container-auth refusal is the one thing left for a container axis to
+func TestSetAgent_ContainerStoryGateRefusesATypodRuntimeRatherThanPassingItClean(t *testing.T) {
+	// "acp" is a registered backend with no container-story mapping, so the
+	// container-story refusal is the one thing left for a container axis to
 	// fail on. Both controls below depend on that.
 	const noAuthLabel = "editor"
 	noAuthLabels := map[string]config.LLMConfig{noAuthLabel: {Type: "acp"}}
@@ -88,12 +88,12 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 	t.Run("control: a declared container axis on the project default IS seen by the gate", func(t *testing.T) {
 		_, appDir := loadConfigDir(t, "version: 6\n")
 		cfg := newCfg(string(isolation.RuntimeContainerRootless), nil)
-		require.False(t, isolation.HasContainerAuth("acp"),
-			"fixture precondition: the label's backend must have no container auth")
+		require.False(t, isolation.HasContainerStory("acp"),
+			"fixture precondition: the label's backend must have no container story")
 
 		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
 		require.Error(t, err, "the gate must READ the project default — this is what makes the refusal below meaningful")
-		assert.Contains(t, err.Error(), "container auth")
+		assert.Contains(t, err.Error(), noContainerStory)
 		_, ok := readAgentFromDisk(t, appDir, "odd")
 		assert.False(t, ok)
 	})
@@ -104,7 +104,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 
 		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
 		require.Error(t, err, "rootful and rootless are two members, not one; a gate that only saw one would answer host for the other")
-		assert.Contains(t, err.Error(), "container auth")
+		assert.Contains(t, err.Error(), noContainerStory)
 	})
 
 	t.Run("a typo'd project runtime default is refused and nothing is written", func(t *testing.T) {
@@ -112,7 +112,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 		cfg := newCfg("contianer-rootless", nil)
 
 		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
-		require.Error(t, err, "a typo must not read as host and slip past the container-auth gate")
+		require.Error(t, err, "a typo must not read as host and slip past the container-story gate")
 		assert.Contains(t, err.Error(), "contianer-rootless")
 		assert.Contains(t, err.Error(), "host|container-rootless|container-rootful",
 			"the refusal names the legal values, not just the bad one")

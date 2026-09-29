@@ -147,7 +147,7 @@ func TestLLMList_DegradedConfigAuthorsNothing(t *testing.T) {
 
 // TestRunLLMList_TextWithholdsContainerForEngineWithoutAuthAndSaysWhy is the
 // gate seen from the CLI: a label bound to the generic "acp" backend (no
-// container auth) renders host and nothing else, WITH the reason — a shorter
+// container story) renders host and nothing else, WITH the reason — a shorter
 // menu on its own would read as ctxloom having an opinion about containers.
 func TestRunLLMList_TextWithholdsContainerForEngineWithoutAuthAndSaysWhy(t *testing.T) {
 	agentProject(t, "version: 6\nllm:\n  configs:\n    editor: { type: acp }\n")
@@ -157,8 +157,8 @@ func TestRunLLMList_TextWithholdsContainerForEngineWithoutAuthAndSaysWhy(t *test
 	got := out.String()
 	require.Contains(t, got, "editor (default) [configured]")
 	assert.Regexp(t, "editor \\(default\\) \\[configured\\]\n\\s+runtimes: host\n",
-		got, "an engine with no container auth is offered host and nothing else")
-	assert.Regexp(t, `no container runtime: .*container auth`, got,
+		got, "an engine with no container story is offered host and nothing else")
+	assert.Regexp(t, `no container runtime: .*container story`, got,
 		"and the listing says why, rather than quietly presenting a shorter menu")
 }
 
@@ -195,7 +195,7 @@ func TestRunLLMList_JSONCarriesTheRuntimeOffer(t *testing.T) {
 	require.Contains(t, byLabel, "claude-code")
 
 	assert.Equal(t, []any{"host"}, byLabel["editor"]["runtimes"],
-		"the engine with no container auth is offered host alone")
+		"the engine with no container story is offered host alone")
 	assert.NotEmpty(t, byLabel["editor"]["container_withheld"],
 		"and the wire carries the reason too")
 	assert.Equal(t, []any{"host", "container-rootless", "container-rootful"},

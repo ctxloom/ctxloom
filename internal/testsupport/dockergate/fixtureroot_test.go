@@ -26,6 +26,12 @@ func TestBindFixtureRoot_IsOutsideTheSourceTree(t *testing.T) {
 	if rel, err := filepath.Rel(repo, root); err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
 		t.Fatalf("fixture root %q is inside the source tree %q: the leak gate scans the checkout", root, repo)
 	}
+	// The CI job shares exactly one temp root with the runner's daemon, so a
+	// fixture anywhere else is created EMPTY for the daemon, and the
+	// container reads a blank directory, not an error.
+	if root != os.TempDir() {
+		t.Fatalf("fixture root %q is not the temp root %q, the one the CI job shares with the docker daemon", root, os.TempDir())
+	}
 	st, err := os.Stat(root)
 	if err != nil {
 		t.Fatalf("fixture root %q must exist and be usable: %v", root, err)

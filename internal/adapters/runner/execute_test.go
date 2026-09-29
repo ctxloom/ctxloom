@@ -542,7 +542,6 @@ func TestExecute_ARelocatedCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.
 		ProjectRoot: present.Root{Host: host.ProjectRoot.Host, Engine: host.ProjectRoot.Host},
 		SessionHome: present.Root{Host: host.SessionHome.Host, Engine: engineSide},
 	})
-	require.Nil(t, child.Cell.Container, "premise: nothing on the cell names a runtime")
 
 	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
 	require.NoError(t, err)

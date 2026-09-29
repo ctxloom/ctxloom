@@ -117,9 +117,9 @@ func TestContainer_GitdirMirrorMountUnreadableGit(t *testing.T) {
 	require.NoError(t, os.Chmod(proj, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(proj, 0o755) })
 
-	_, ok, err := gitdirMirrorMount(context.Background(),
-		fakeRuntime{name: "docker", available: true}, &git.Fake{CommonDirValue: "/repo/.git"}, proj)
+	ms, err := gitdirMirrorMounts(context.Background(),
+		fakeRuntime{name: "docker", available: true}, &git.Fake{CommonDirValue: "/repo/.git"}, proj, t.TempDir())
 	require.Error(t, err, "an unreadable .git must fail the workspace, not silently yield no mirror")
-	assert.False(t, ok)
+	assert.Empty(t, ms)
 	assert.Contains(t, err.Error(), ".git")
 }

@@ -139,7 +139,7 @@ func TestExecGit_Lifecycle(t *testing.T) {
 // (container-runtime-bugs.plan.md §2.2.3): a worktree reached through a
 // SYMLINKED alias path must still resolve to the common dir's REAL absolute
 // path, not a path that runs through the symlink — the isolation container
-// axis mounts CommonDir's return value identical-path (gitCommonDirMount), so
+// axis mounts CommonDir's return value identical-path (gitDirMounts), so
 // a symlink-relative answer would mount the WRONG (or a nonexistent-outside-
 // the-mount) path inside the container. `git rev-parse --git-common-dir`
 // itself resolves to the physical path here (this is git's own behavior, not

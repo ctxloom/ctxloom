@@ -98,19 +98,6 @@ requested worktree is never dropped because the container failed.
 `""` means unset (host default), and a non-empty unknown runtime raises a fatal
 finding.
 
-### Cells — the engine-side mirror
-
-`agent.CellKind` is what actually reaches the engine backend: `CellKindShared`
-(zero), `CellKindDirectoryIsolated`, `CellKindProcessIsolated` — note this is a
-THREE-value enum, one per **workspace posture** the backend can observe (shared /
-worktree / container), not a mirror of the six-value runtime-ownership space:
-`CellKindProcessIsolated` covers a container cell in **either** ownership mode,
-since ownership is a host-side launch decision the backend itself never needs to
-see. A backend's `buildArgs` switches on it directly rather than inferring the
-cell from `WorkDir` — claude gates its out-of-cwd launch flags on
-`CellKindShared`, since an isolated cell reads the engine's well-known files in
-its private cwd instead.
-
 ## Container mechanics
 
 ### Image build — two stages
@@ -190,7 +177,7 @@ error and produces a loud degrade; a panic guard removes the scratch.
 **Mounts** (`Mount{Host, Container, ReadOnly}`):
 
 - The project dir where the runtime's mapper routes it (`relocateRoot`) — its identical path on a POSIX host; see [Host path mapping](#host-path-mapping).
-- `gitdirMirrorMount` when `.git` is a pointer file; `gitCommonDirMount` mirrors the whole common dir **read-write** at its mapped path; `gitPointerMounts` shadows the checkout's `.git` pointer and its admin dir's back-pointer with **read-only** mapped copies wherever the mapping renames paths.
+- `gitdirMirrorMounts` when `.git` is a pointer file; `gitDirMounts` mirrors the common dir **read-write** at its mapped path, masks its `worktrees/` registry with an empty **read-only** scratch dir and mounts this checkout's own admin dir back into it **read-write** (`gitRegistryMask`), and `gitPointerMounts` shadows the checkout's `.git` pointer and its admin dir's back-pointer with **read-only** mapped copies wherever the mapping renames paths.
 - `containerConfigOverlay` — one scratch-backed bind per profile `overlayDirs`, seeded by `seedOverlay`, targeting the mapping of the project path it shadows, with the host mountpoint pre-created so it is never root-owned.
 - `sessionStateMounts` — scoped RW mounts: engine transcripts (at `engineContainerSpec.transcriptStoreRel` under container `HOME`), the session persist dir, and **this project's** task log `~/.ctxloom/tasks/<project-id>.jsonl` plus its `.lock` sidecar — two single files, never the `~/.ctxloom/tasks` dir, which holds every project on the machine. `safePathSegment` validates the harp, and `paths.HomeTasksLogPath` the project id, before they become host paths.
 
@@ -332,10 +319,14 @@ wins over the stored one) and unsets whatever would outrank or replace it:
   is claude's `cloudVars`, taken from claude's Bedrock, Claude Platform on AWS,
   Google Vertex, Microsoft Foundry and gateway pages), and is refused when no
   provider switch and no gateway bearer is set. The provider's credential
-  FILES are read-only shared stores, declared only when present in the
-  human's home (`providerStores`: `~/.aws`, the AWS shared config,
-  credentials and SSO cache; `~/.config/gcloud`, gcloud's
-  application-default credentials).
+  FILES are shared stores, declared only when present in the human's home
+  (`providerStores`: `~/.aws`, the AWS shared config and credentials;
+  `~/.config/gcloud`, gcloud's application-default credentials), read-only
+  except `~/.aws/sso/cache`, which the AWS SDK rewrites on an SSO refresh and
+  is therefore a read-write store nested in the read-only `~/.aws`. A file
+  named by `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` or
+  `GOOGLE_APPLICATION_CREDENTIALS` still passes through as a host path, which
+  a container cannot open unless it lies inside one of those stores.
 
 Every mode but `login` unsets `CLAUDE_SECURESTORAGE_CONFIG_DIR`: `""` would be
 `$HOME/.claude`, the human's own credential.
@@ -405,7 +396,7 @@ temp dir for a sentinel.
 A container adds no auth question of its own: `engine.ContainerSpec` says how
 the image is built, and its run authenticates exactly as a host run does.
 Whether an engine may run in a container at all is whether it declares a
-container story (`isolation.HasContainerAuth` / `ContainerAuthEngines`); an
+container story (`isolation.HasContainerStory` / `ContainerStoryEngines`); an
 unmapped or empty backend reaches the default spec, which **fails closed** at
 the container gate (`noContainerHint`).
 
@@ -609,9 +600,9 @@ pushed into `internal/adapters/isolation` at registration; isolation keeps no ta
 
 The default arm is undeclared: an engine with no container declaration has
 its containerized run refused at the container gate
-(`prepareContainerScratch`). `isolation.HasContainerAuth(backend)` /
-`ContainerAuthEngines()` read the same declarations so the refusal can happen
-*earlier*, at configuration time: `operations.validateContainerAuth` (run from
+(`prepareContainerScratch`). `isolation.HasContainerStory(backend)` /
+`ContainerStoryEngines()` read the same declarations so the refusal can happen
+*earlier*, at configuration time: `operations.validateContainerStory` (run from
 `validateAgentAxes`, i.e. `agent create`/`agent edit`/`SetAgent`) rejects a
 binding whose resulting `{engine, runtime: container-*}` pair names an engine
 with no mapping, naming the supported set in the error.
@@ -708,7 +699,7 @@ image another is between building and running.
 
 **Credential and coverage gaps**
 
-- ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerAuth`) and the launch aborts; `operations.validateContainerAuth` refuses such a binding at write time so the abort is not the first the user hears of it.
+- ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerHint`) and the launch aborts; `operations.validateContainerStory` refuses such a binding at write time so the abort is not the first the user hears of it.
 - ~~**A backend in neither `credentialSeedSpecs` nor a curated-home registry gets a worktree with zero engine-global isolation and no finding at all**~~ — **PARTIALLY RESOLVED.** `Worktree.PrepareWorkspace` now records a `strictness.Fail(KindIsolation)` for any backend that is neither in `credentialSeedSpecs` nor named in `backendsWithNoGlobalState` — closing the gap for every unmapped engine. `backendsWithNoGlobalState` carries exactly one, independently-verified exemption (`mock`, which provably touches no engine-global state), not a silent carve-out; an empty backend (no agent context at all) stays silent by design.
 - **The curated-HOME allowlist** that used to symlink `~/.gitconfig`/`~/.ssh` into a worktree's per-agent home **has been removed along with the whole curated-home mechanism** — `Worktree` now relies solely on `credentialSeedSpecs`' scoped env vars (`Worktree.prepareHomeVarDirs`), which is why `.gitconfig`/`.ssh` identity is left on the *shared* worktree checkout instead of being copied or symlinked per agent. Whether that removal fully retired the class of bug the old allowlist was tracking (over-broad `.ssh` exposure) was not re-verified here.
 - **The worktree reaper's scope is `~/.ctxloom/sessions/*/ephemeral/` only** (`ReapOrphanedWorktrees`); worktrees on the `os.TempDir()` fallback are permanently unreapable, and nothing sweeps the sibling `ctxloom-tmp-*` dirs.
@@ -735,7 +726,7 @@ image another is between building and running.
   same bytes out of memory even past that. `internal/shared/procsec` raises
   the cost of the file-read path but says so itself: "THIS IS BAR-RAISING,
   NOT A BOUNDARY … The isolation boundary is a container" (`procsec.go:12-17`).
-- **`gitCommonDirMount` mounts the entire git common dir read-write**. The accepted risk is recorded in an implementation comment and not in the user-facing isolation claim or `docs/trust-model.md`. A member can therefore rewrite main's refs/objects/index and other agents' worktree admin dirs.
+- **`gitDirMounts` mounts the git common dir read-write** (only the `worktrees/` registry is masked). A member can therefore rewrite main's refs/objects/index, hooks and config.
 - **`TraceProbe`'s doc claims the loosened seccomp profile is structurally unreachable from a normal run**, but the gate is a plain `os.Getenv` (`traceProbeFromEnv`) — any parent exporting `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` makes every container run in that process ptrace-permitted and strace-wrapped.
 - **`worktreeWorkspace.Env()` advertises `HomeVar` target directories that nothing creates** if `prepareHomeVarDirs` failed; isolation then depends on each engine choosing to `mkdir -p` rather than falling back to its global home.
 - **`ImageConfig`'s doc claims "zero value = devcontainer auto-detect ON"** but `resolveDevBase` turns detection *off* when `AppRoot == ""`.

@@ -16,9 +16,8 @@ import (
 
 // runVersionCmd executes `ctxloom version` with the given --format and
 // returns everything it wrote. --format is an explicit argument rather than
-// an omitted flag because rootCmd's --format is a process-wide
-// PersistentFlags() value pflag does not reset between Execute() calls in
-// one test binary (same hazard format_test.go documents).
+// an omitted flag because an omitted one resolves from whether stdout is a
+// terminal (cliemit.Resolve); it is put back with resetRootFormat afterward.
 func runVersionCmd(t *testing.T, format string) string {
 	t.Helper()
 	var out bytes.Buffer
@@ -29,6 +28,7 @@ func runVersionCmd(t *testing.T, format string) string {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
+		resetRootFormat(t)
 	})
 	require.NoError(t, rootCmd.Execute())
 	return out.String()
@@ -68,6 +68,7 @@ func TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary(t *testing.T) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
+		resetRootFormat(t)
 	})
 
 	err := rootCmd.Execute()

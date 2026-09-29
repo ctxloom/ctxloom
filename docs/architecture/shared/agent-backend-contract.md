@@ -88,7 +88,6 @@ classDiagram
 | `ExecutionMode` | `internal/core/agent/backend.go:29` | interactive vs oneshot; values pinned `= 0` / `= 1` to mirror the proto enum. |
 | `Fragment` | `internal/core/agent/backend.go:40` | One piece of injectable context (`Name`, `Version`, `Tags`, `Content`, `Installation`, `IsDistilled`, `DistilledBy`). |
 | `ModelInfo` | `internal/core/agent/backend.go:51` | Provenance for the executed model (name/version/provider); populated by every backend's `Execute`. |
-| `SetupRequest` | `internal/core/agent/backend.go:324` | Everything `Setup` needs: `WorkDir`, `Fragments`, `Env`, `Verbosity`, `Managed`, `CellKind`. |
 | `ManagedConfig` | `internal/core/agent/backend.go:348` | The host-assembled setup payload: `Commands`, `Skills`, `Hooks`, `MCP`, `BundleMCP`, `ManageStatusline`, `DenyTools`. |
 | `ExecuteRequest` | `internal/core/agent/backend.go:366` | Runtime parameters for one execution. |
 | `ExecuteResult` | `internal/core/agent/backend.go:400` | Outcome of one execution. |

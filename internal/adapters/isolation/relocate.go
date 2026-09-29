@@ -61,7 +61,8 @@ func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore
 }
 
 // previewLayout is stage 1 with no effects on disk: the live project as the
-// cwd and the session home the run WOULD create.
+// cwd (Preview puts a worktree's checkout there) and the session home the run
+// WOULD create.
 func previewLayout(s Spec, stores []sharedStore) layout {
 	l := layout{cwd: s.project, creds: s.creds, stores: stores}
 	if dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home); ok {

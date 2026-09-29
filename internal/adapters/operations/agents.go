@@ -231,7 +231,7 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 	if err := validateAgentApproaches(reg, cfg, name, req); err != nil {
 		return err
 	}
-	if err := validateContainerAuth(reg, cfg, name, req); err != nil {
+	if err := validateContainerStory(reg, cfg, name, req); err != nil {
 		return err
 	}
 	if err := validateAgentAuth(reg, cfg, name, req); err != nil {
@@ -378,13 +378,19 @@ func resultingAgentRuntime(cfg *config.Config, name string, req SetAgentRequest)
 	return runtime
 }
 
-// validateContainerAuth refuses a binding whose {engine, runtime: container}
-// pair has no way to authenticate the engine INSIDE the container.
+// noContainerStory is the phrase both container refusals (validateContainerStory
+// and AgentRuntimeOffer's withheld reason) carry, so a test can pin WHAT is
+// missing without restating the sentence around it.
+const noContainerStory = "declares no container story"
+
+// validateContainerStory refuses a binding whose {engine, runtime: container}
+// pair names an engine that declares no container story, so it cannot run
+// inside a container at all.
 //
-// Container auth is keyed on the ENGINE (isolation.HasContainerAuth over
+// The container story is keyed on the ENGINE (isolation.HasContainerStory over
 // engineContainerSpecFor's table), and an engine with no mapping — a generic
 // `acp` backend, or any engine nobody has written a resolver for — fails closed
-// at PrepareWorkspace: the launch aborts with "no container auth is registered
+// at PrepareWorkspace: the launch aborts with "no container story is declared
 // for this engine". That gate stays as the last line for the paths that never
 // went through a binding, but a BINDING is knowable now, so the refusal belongs
 // here, at the command that typed the pair, rather than at the first run of an
@@ -397,13 +403,13 @@ func resultingAgentRuntime(cfg *config.Config, name string, req SetAgentRequest)
 // `--runtime container` does. An agent with NO engine on the binding is left
 // alone: its engine comes from the composed profiles' llm and then the project
 // default at resolve time, so there is no pair here to judge.
-func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
+func validateContainerStory(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
 	runtime := resultingAgentRuntime(cfg, name, req)
 	// Two of the three sources above are still raw at this point: the RECORDED
 	// binding and the project `runtime:` default (only req.Runtime was parsed,
 	// by the caller). Asserted past the parser, an unrecognized spelling
 	// answers "not a container" and this gate returns clean — so the binding
-	// is written for an engine that cannot authenticate inside a container,
+	// is written for an engine that cannot run inside a container,
 	// and only the launch discovers it. The runtime axis is a security
 	// boundary, so the typo is refused here instead.
 	axis, rterr := launch.ParseRuntimeAxis(runtime)
@@ -419,15 +425,15 @@ func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string,
 		return nil
 	}
 	backend, _ := ResolveBackend(reg, cfg, label)
-	if isolation.HasContainerAuth(backend) {
+	if isolation.HasContainerStory(backend) {
 		return nil
 	}
 	engine := fmt.Sprintf("%q", label)
 	if backend != label {
 		engine = fmt.Sprintf("%q (backend %q)", label, backend)
 	}
-	return fmt.Errorf("agent %q: engine %s has no container auth, so `runtime: container` could not authenticate it inside the container; engines with container auth: %s — bind one of those, or use runtime: host",
-		name, engine, strings.Join(isolation.ContainerAuthEngines(), ", "))
+	return fmt.Errorf("agent %q: engine %s %s, so `runtime: container` cannot run it; engines with a container story: %s — bind one of those, or use runtime: host",
+		name, engine, noContainerStory, strings.Join(isolation.ContainerStoryEngines(), ", "))
 }
 
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key,

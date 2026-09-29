@@ -58,7 +58,7 @@ func (s *exitSpawner) Resolve(ctx context.Context, agentName string) (*coord.Spa
 
 func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
-	cenv, err := preparedContainer(ctx, s.runtime, coord.ContainerAuthBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
+	cenv, err := preparedContainer(ctx, s.runtime, coord.ContainerStoryBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
 	if err != nil {
 		return coord.Resolved{}, err
 	}

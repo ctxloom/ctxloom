@@ -49,7 +49,7 @@ func (c argvCase) argvFor(t *testing.T, b *ClaudeCode) []string {
 }
 
 // buildArgsMatrix enumerates EVERY argv shape the driver can produce —
-// permission posture × mode × CellKind — with a harp in the env (so the
+// permission posture × mode × resume — with a harp in the env (so the
 // interactive --name arm fires), a prompt (so the positional arm fires) and
 // the runner-delivered presentations (so every out-of-cwd flag fires).
 // Modulo the opaque ClaudeConfig.Args passthrough, which is user-supplied
@@ -72,49 +72,38 @@ func buildArgsMatrix(presented []present.Presentation) []argvCase {
 		{"oneshot", agent.ModeOneshot, agent.CLISurfaceOneshot},
 		{"interactive", agent.ModeInteractive, agent.CLISurfaceInteractive},
 	}
-	cells := []struct {
-		name string
-		k    agent.CellKind
-	}{
-		{"shared", agent.CellKindShared},
-		{"dir-isolated", agent.CellKindDirectoryIsolated},
-		{"process-isolated", agent.CellKindProcessIsolated},
-	}
 	var out []argvCase
 	for _, perm := range perms {
 		for _, mode := range modes {
-			for _, cell := range cells {
-				for _, resume := range []string{"", "native-key"} {
-					if resume != "" && mode.m != agent.ModeOneshot {
-						continue // an interactive launch is never resumed by native key
-					}
-					// The session the runner binds the request to, with the
-					// MCP servers the launch composed (the plan posture's
-					// --allowedTools grants ride them).
-					session := &engine.Session{
-						Identity:   sessions.Identity{Harp: "perky-same-chevy"},
-						Label:      engine.LabelConfig{Label: EngineName, Model: matrixModel},
-						Mode:       engine.Mode(mode.m),
-						Permission: perm.p,
-						Prompt:     "do the thing",
-						MCPServers: []string{"probe"},
-					}
-					out = append(out, argvCase{
-						label:   fmt.Sprintf("%s/%s/%s/resume=%q", perm.name, mode.name, cell.name, resume),
-						surface: mode.surface,
-						resume:  resume,
-						req: &agent.ExecuteRequest{
-							Mode:        mode.m,
-							Permissions: perm.p,
-							CellKind:    cell.k,
-							Model:       matrixModel,
-							Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
-							Prompt:      &agent.Fragment{Content: "do the thing"},
-							Presented:   presented,
-							Session:     session,
-						},
-					})
+			for _, resume := range []string{"", "native-key"} {
+				if resume != "" && mode.m != agent.ModeOneshot {
+					continue // an interactive launch is never resumed by native key
 				}
+				// The session the runner binds the request to, with the
+				// MCP servers the launch composed (the plan posture's
+				// --allowedTools grants ride them).
+				session := &engine.Session{
+					Identity:   sessions.Identity{Harp: "perky-same-chevy"},
+					Label:      engine.LabelConfig{Label: EngineName, Model: matrixModel},
+					Mode:       engine.Mode(mode.m),
+					Permission: perm.p,
+					Prompt:     "do the thing",
+					MCPServers: []string{"probe"},
+				}
+				out = append(out, argvCase{
+					label:   fmt.Sprintf("%s/%s/resume=%q", perm.name, mode.name, resume),
+					surface: mode.surface,
+					resume:  resume,
+					req: &agent.ExecuteRequest{
+						Mode:        mode.m,
+						Permissions: perm.p,
+						Model:       matrixModel,
+						Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
+						Prompt:      &agent.Fragment{Content: "do the thing"},
+						Presented:   presented,
+						Session:     session,
+					},
+				})
 			}
 		}
 	}
@@ -143,8 +132,8 @@ func matrixPresentations(t *testing.T) []present.Presentation {
 }
 
 // TestEngineCLI_BuildArgsFlagsAreDeclared is the ANTI-DRIFT GATE. Every flag
-// buildArgs can emit, across the full permission × mode × launch form ×
-// CellKind matrix, must parse against the declared engine CLI grammar. A flag added to
+// buildArgs can emit, across the full permission × mode × resume matrix,
+// must parse against the declared engine CLI grammar. A flag added to
 // the driver without a declaration fails HERE, at the driver, instead of
 // silently going missing from a stand-in binary that would keep reporting green.
 //
@@ -265,7 +254,7 @@ func TestEngineCLI_SettingsValueIsTheDeliveredPath(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, agent.ValuePath, f.Value)
 
-	args := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, CellKind: agent.CellKindShared, Presented: matrixPresentations(t)})
+	args := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Presented: matrixPresentations(t)})
 	parsed, err := oneshot.ParseArgv(args)
 	require.NoError(t, err)
 	v, ok := parsed.Value(flagSettings)

@@ -25,14 +25,11 @@ func TestContainerWorktree_Axes(t *testing.T) {
 // and maps it through the runtime's pathMapper (identity by default), so the
 // worktree's `gitdir:` pointer resolves inside the container.
 func TestContainerWorktree_GitdirMountRoutesThroughMapper(t *testing.T) {
-	// The worktree base mirrors the worktree's .git common-dir through the
-	// runtime's mapper (gitCommonDirMount) — the collapse of the former
-	// ContainerWorktree.gitdirMount.
-	m, err := gitCommonDirMount(context.Background(),
+	ms, err := gitDirMounts(context.Background(),
 		fakeRuntime{name: "docker", available: true},
-		&git.Fake{CommonDirValue: "/repo/.git"}, "/tmp/ctxloom-wt-m-abc")
+		&git.Fake{CommonDirValue: "/repo/.git"}, "/tmp/ctxloom-wt-m-abc", t.TempDir())
 	require.NoError(t, err)
-	assert.Equal(t, mount{Host: "/repo/.git", Container: "/ctr/repo/.git"}, m,
+	assert.Equal(t, []mount{{Host: "/repo/.git", Container: "/ctr/repo/.git"}}, ms,
 		"the .git common-dir is mirrored through the SAME mapper the project mount uses so gitdir resolves in-container")
 }
 
@@ -44,10 +41,12 @@ func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
 	const common = "/repo/.git"
 	worktreeDir := filepath.Join(os.TempDir(), "ctxloom-wt-m-xyz")
 
-	gitMount, err := gitCommonDirMount(context.Background(),
+	gitMounts, err := gitDirMounts(context.Background(),
 		fakeRuntime{name: "docker", available: true},
-		&git.Fake{CommonDirValue: common}, worktreeDir)
+		&git.Fake{CommonDirValue: common}, worktreeDir, t.TempDir())
 	require.NoError(t, err)
+	require.NotEmpty(t, gitMounts)
+	gitMount := gitMounts[0]
 
 	// buildRunnerSpec is what the runner launch renders: workDir = the
 	// worktree, the workspace's mounts carrying the gitdir mirror.

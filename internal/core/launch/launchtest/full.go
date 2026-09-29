@@ -41,7 +41,6 @@ func FullLaunch(t *testing.T) launch.Launch {
 				Home:  []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
 			},
 			Workspace: "/proj/.worktrees/harp-1",
-			Container: &launch.ContainerCell{Runtime: launch.RuntimeRootless, Image: "ctxloom-agent:fixture", Home: "/home/agent"},
 		},
 		Home:    []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
 		Package: composite.Carrier{Inline: enc.Bytes, Digest: enc.Digest},

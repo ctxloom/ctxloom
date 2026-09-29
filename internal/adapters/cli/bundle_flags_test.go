@@ -78,7 +78,13 @@ func TestBundleSubcommandFlags(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.cmd.Name(), func(t *testing.T) {
-			local := tc.cmd.Flags()
+			// LocalFlags, not Flags: cobra MERGES the ancestors' persistent
+			// flags into Flags() the first time anything asks (Execute,
+			// InheritedFlags, help rendering), and never un-merges them. Flags()
+			// therefore answers "what has this process touched", not "what does
+			// this command register" — LocalFlags excludes the inherited set
+			// whether or not the merge has happened.
+			local := tc.cmd.LocalFlags()
 			var registered []string
 			local.VisitAll(func(f *pflag.Flag) {
 				if f.Name != "help" { // cobra injects this one

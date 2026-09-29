@@ -132,10 +132,7 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 	if err != nil {
 		return launch.Launch{}, err
 	}
-	cell, err := decodeCell(w.GetCell())
-	if err != nil {
-		return launch.Launch{}, err
-	}
+	cell := decodeCell(w.GetCell())
 	index, err := decodeIndex(w.GetIndex())
 	if err != nil {
 		return launch.Launch{}, err
@@ -216,14 +213,11 @@ func encodeCell(c launch.Cell) *pb.Cell {
 		Home:      encodeHome(c.Home),
 		UnsetEnv:  c.Unset,
 	}
-	if c.Container != nil {
-		out.Container = &pb.ContainerCell{Runtime: string(c.Container.Runtime), Image: c.Container.Image, Home: c.Container.Home}
-	}
 	return out
 }
 
-func decodeCell(w *pb.Cell) (launch.Cell, error) {
-	out := launch.Cell{
+func decodeCell(w *pb.Cell) launch.Cell {
+	return launch.Cell{
 		Placement: launch.Placement{
 			Paths: present.Advised(decodePaths(w.GetPaths())),
 			Env:   w.GetEnv(),
@@ -232,14 +226,6 @@ func decodeCell(w *pb.Cell) (launch.Cell, error) {
 		},
 		Workspace: w.GetWorkspace(),
 	}
-	if c := w.GetContainer(); c != nil {
-		runtime, err := launch.ParseRuntimeAxis(c.GetRuntime())
-		if err != nil {
-			return launch.Cell{}, fmt.Errorf("coordgrpc: container cell: %w", err)
-		}
-		out.Container = &launch.ContainerCell{Runtime: runtime, Image: c.GetImage(), Home: c.GetHome()}
-	}
-	return out, nil
 }
 
 func encodePaths(p present.Paths) *pb.Paths {

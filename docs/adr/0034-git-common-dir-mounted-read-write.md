@@ -13,7 +13,7 @@ only the worktree therefore has no resolvable git: every git call fails with
 
 This affects two independent call sites:
 
-- `isolation.gitCommonDirMount`, for container-worktree agent runs;
+- `isolation.gitDirMounts`, for container agent runs on a linked checkout;
 - the `_run` recipe, which drives the devcontainer for builds and gates.
 
 The second had no such mount at all, so container gates and builds silently
@@ -43,9 +43,17 @@ common dir, `.git/hooks` held live `pre-commit`, `prepare-commit-msg` and
 ## Decision
 
 Mount the whole git common dir **read-write, at its identical absolute path**,
-at both call sites. Accept the resulting exposure rather than narrowing it.
+at both call sites. Accept the resulting exposure rather than narrowing it,
+with one exception at the agent call site: its `worktrees/` registry is masked
+by an empty read-only directory, and the checkout's own admin dir is mounted
+back into it. The registry is the part of the common dir that belongs to OTHER
+checkouts and that git acts on by itself: `git worktree prune`, and gc's
+automatic prune, delete every registration whose checkout is not visible, and
+no other checkout is mounted into an agent's container. Option 2 remains
+rejected for everything else: config, packed-refs and refs are updated by
+lock-and-rename inside the common dir, which a file-by-file mount breaks.
 
-`isolation.gitCommonDirMount` owns the rationale. Other sites cite it; they do
+`isolation.gitDirMounts` owns the rationale. Other sites cite it; they do
 not restate it. A rule copied into several places is the expensive kind of
 documentation debt — one copy gets retired and the others keep asserting it.
 
@@ -53,9 +61,11 @@ documentation debt — one copy gets retired and the others keep asserting it.
 
 The exposure is real and is accepted knowingly, not overlooked:
 
-- A container can reach every other worktree's admin dir and the main
-  checkout's refs, objects, and index. The blast radius is the repository, not
-  the container's own tree.
+- A container can reach the main checkout's refs, objects, and index. The blast
+  radius is the repository, not the container's own tree. An agent container
+  cannot reach other worktrees' admin dirs, so its git also cannot see which
+  branches they have checked out, and does not refuse to check out or delete
+  one of those.
 - `.git/hooks` is writable, and hooks execute **on the host** at the next git
   operation in any worktree. This is the sharpest edge of the accepted risk.
 - The reflog is writable, which is the recovery path the worktree lifecycle
@@ -73,10 +83,12 @@ mounts `.git` read-write, because `.git` sits inside the directory that becomes
 the workspace mount. Read-only for worktrees alone would have made the worktree
 path stricter than the ordinary path — an inconsistency, not a principle.
 
-`TestGitCommonDirMount_WholeCommonDirReadWrite` pins the posture in both
-directions: read-only breaks linked-worktree container runs, and a non-identical
-mount path breaks the `gitdir:` pointer. Any future narrowing must therefore be
-deliberate; it cannot happen accidentally in a sweep.
+`TestMountBase_HidesOtherWorktreesRegistry` pins the agent call site's posture
+in both directions: the registry is unreachable and read-only, while the
+checkout's admin dir and the common dir's config, packed-refs, hooks, objects
+and refs resolve read-write through the runtime's path mapping. Any further
+narrowing must therefore be deliberate; it cannot happen accidentally in a
+sweep.
 
 **Revisit trigger:** per-agent git isolation becoming a requirement, or agents
 ceasing to be trusted by construction. Either flips this back to Proposed for

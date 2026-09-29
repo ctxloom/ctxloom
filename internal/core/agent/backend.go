@@ -443,13 +443,6 @@ type ExecuteRequest struct {
 	DryRun      bool
 	Permissions PermissionMode
 	Temperature float32
-	// CellKind is the resolved isolation cell this run executes in, decided
-	// by the launch's cell (cli.cellKindOf). It is carried for diagnostics and
-	// for the env a cell-aware backend computes; it is NOT what an argv site
-	// switches on. Where a surface
-	// lands, and therefore what the engine is told about it, is the launch
-	// plan's decision, delivered by the runner and handed here as Presented.
-	CellKind CellKind
 
 	// Stdin and Resize carry the frontend's terminal input into an interactive
 	// run (over the bidi Run stream): Stdin is the keystroke byte stream, Resize

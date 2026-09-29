@@ -94,10 +94,10 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 // the labels the loaded config declares.
 //
 // no-auth-engine is bound to a backend name nothing registers, so it reaches
-// engineContainerSpecFor's fail-closed default arm and has NO container auth.
+// engineContainerSpecFor's fail-closed default arm and declares NO container story.
 // It is a label rather than a backend deliberately: every backend in the
-// registry today HAS container auth, so a label pointing at an unmapped engine
-// is the only reachable subject for the container-auth refusal — and it is a
+// registry today DECLARES a container story, so a label pointing at an unmapped engine
+// is the only reachable subject for the container-story refusal — and it is a
 // real one, since `llm.configs.<label>.type` accepts any string a user types.
 const llmLabelsFixture = `version: 5
 llm:
@@ -614,13 +614,13 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 	assert.False(t, ok, "a refused write must not half-apply a binding")
 }
 
-// TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth pins the
-// binding-time half of the container-auth rule: container auth is keyed on the
+// TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerStory pins the
+// binding-time half of the container-story rule: the container story is keyed on the
 // ENGINE, and an engine with no mapping (llmLabelsFixture's no-auth-engine,
-// whose type nothing registers) has no credentials to give a containerized run. Before this check the pair was
+// whose type nothing registers) declares no container story, so a containerized run cannot start. Before this check the pair was
 // happily written and `agent list` showed a normal-looking agent; the failure
-// arrived at the first launch, from isolation, as "no container auth is
-// registered for this engine" — a config defect reported by a subsystem the
+// arrived at the first launch, from isolation, as "no container story is
+// declared for this engine" — a config defect reported by a subsystem the
 // user never named.
 //
 // The message is asserted as a PAYLOAD, not just as an error: a refusal that
@@ -630,7 +630,7 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 // containerized at all" — credentials are missing from a rootful container for
 // exactly the reason they are missing from a rootless one. A single-mode table
 // would stay green while the gate quietly stopped covering half the axis.
-func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testing.T) {
+func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerStory(t *testing.T) {
 	for _, mode := range []string{"container-rootless", "container-rootful"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, llmLabelsFixture)
@@ -641,12 +641,12 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 				Profiles: ptr([]string{"default"}),
 				Runtime:  ptr(mode),
 			})
-			require.Errorf(t, err, "an engine with no container auth + `runtime: %s` has no way to authenticate and must be refused at write time", mode)
+			require.Errorf(t, err, "an engine with no container story + `runtime: %s` has no way to authenticate and must be refused at write time", mode)
 			msg := err.Error()
 			assert.Contains(t, msg, "editor", "the refusal must name the agent it refused")
 			assert.Contains(t, msg, "no-auth-engine", "the refusal must name the engine that cannot be containerized")
-			assert.Contains(t, msg, "container auth", "the refusal must say WHAT is missing, not just that something is wrong")
-			for _, supported := range isolation.ContainerAuthEngines() {
+			assert.Contains(t, msg, noContainerStory, "the refusal must say WHAT is missing, not just that something is wrong")
+			for _, supported := range isolation.ContainerStoryEngines() {
 				assert.Containsf(t, msg, supported, "the refusal must name the supported set, including %q", supported)
 			}
 			assert.Contains(t, msg, "runtime: host", "the refusal must name the way out")
@@ -661,7 +661,7 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 
 // TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn is the edit half,
 // and the one a narrower fix would miss: neither `--runtime container` nor an
-// engine without container auth is wrong on its own — the PAIR is. So each field is validated
+// engine without a container story is wrong on its own — the PAIR is. So each field is validated
 // against the value the OTHER one already holds (the same rule the surface
 // preference above follows), from either direction, and a live binding is never
 // left half-updated into a shape that cannot launch.
@@ -702,7 +702,7 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 					LLM:     ptr(engine),
 					Runtime: ptr(mode),
 				})
-				require.NoErrorf(t, err, "engine %q has container auth, so `runtime: %s` must be accepted", engine, mode)
+				require.NoErrorf(t, err, "engine %q declares a container story, so `runtime: %s` must be accepted", engine, mode)
 			}
 
 			// An agent with NO llm on the binding is left alone: its engine comes

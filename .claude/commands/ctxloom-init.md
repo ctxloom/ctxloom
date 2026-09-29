@@ -256,7 +256,7 @@ can ask 4b-runtime honestly:
   with exactly the values that engine may be given, plus a `no container
   runtime:` line saying why when the container axes are absent. Read it; do
   not carry your own list of "engines that support containers" and do not
-  guess from the engine's name. An engine with no container auth is REFUSED
+  guess from the engine's name. An engine with no container story is REFUSED
   by `agent create --runtime container-rootless` at write time, so offering
   it would just collect a choice the next command throws away.
 

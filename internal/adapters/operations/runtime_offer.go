@@ -14,13 +14,13 @@ import (
 // for one engine label, plus the reason the CONTAINER axes are absent when they
 // are.
 //
-// It exists so the interview and the writer cannot disagree. validateContainerAuth
+// It exists so the interview and the writer cannot disagree. validateContainerStory
 // REFUSES `runtime: container-rootless`/`container-rootful` for an engine with no
-// container-auth mapping at WRITE time, so an interview that offered a container
+// container-story mapping at WRITE time, so an interview that offered a container
 // axis for such an engine would collect a choice the very next `agent create`
 // rejects — a confusing interview, not a broken config, but confusing on the one
 // question the user has least context to re-derive. The offer therefore consults
-// the SAME predicate the refusal does (isolation.HasContainerAuth) instead of
+// the SAME predicate the refusal does (isolation.HasContainerStory) instead of
 // carrying its own roster of "engines that can be containerized", which is the
 // kind of second list that drifts the moment a spec is added.
 //
@@ -39,7 +39,7 @@ type RuntimeOffer struct {
 	// `agent create --engine` accepts), not the backend it resolved to.
 	Label string `json:"label"`
 	// Backend is the registered backend Label resolved to — the key
-	// isolation.HasContainerAuth is actually asked about. Reported because a
+	// isolation.HasContainerStory is actually asked about. Reported because a
 	// label and its backend routinely differ (a project's "big" label on
 	// backend "claude-code"), and a withheld container offer is otherwise
 	// unattributable.
@@ -71,12 +71,12 @@ func (o RuntimeOffer) OffersContainer() bool {
 }
 
 // noConfigRuntimeWithheld is the degraded reason: with no config, the label
-// cannot be resolved to a backend, so whether it has container auth is unknown.
+// cannot be resolved to a backend, so whether it declares a container story is unknown.
 // Withholding is the correct DIRECTION for an unknown — offering a container
 // axis that the write may then refuse costs the user a wasted decision, while
 // withholding one that would have been allowed costs a re-run of the interview
 // once the config loads.
-const noConfigRuntimeWithheld = "no config could be loaded, so this engine's backend (and whether it can authenticate inside a container) is unknown"
+const noConfigRuntimeWithheld = "no config could be loaded, so this engine's backend (and whether it declares a container story) is unknown"
 
 // AgentRuntimeOffer answers "which runtime axes may be offered for this engine
 // label". host is ALWAYS offered: it needs nothing installed and no credential
@@ -94,10 +94,10 @@ func AgentRuntimeOffer(reg engine.Registry, cfg *config.Config, label string) Ru
 
 	backend, _ := ResolveBackend(reg, cfg, label)
 	offer.Backend = backend
-	if !isolation.HasContainerAuth(backend) {
+	if !isolation.HasContainerStory(backend) {
 		offer.ContainerWithheld = fmt.Sprintf(
-			"engine %s has no container auth, so a containerized run of it could not authenticate and `agent create --runtime container-rootless` would be refused; engines with container auth: %s",
-			describeEngine(label, backend), strings.Join(isolation.ContainerAuthEngines(), ", "))
+			"engine %s %s, so a containerized run of it cannot start and `agent create --runtime container-rootless` would be refused; engines with a container story: %s",
+			describeEngine(label, backend), noContainerStory, strings.Join(isolation.ContainerStoryEngines(), ", "))
 		return offer
 	}
 
@@ -109,7 +109,7 @@ func AgentRuntimeOffer(reg engine.Registry, cfg *config.Config, label string) Ru
 
 // describeEngine names an engine the way a diagnostic should: the label the
 // user typed, plus the backend it resolved to whenever those differ. Same
-// shape validateContainerAuth's refusal uses, so the interview's explanation
+// shape validateContainerStory's refusal uses, so the interview's explanation
 // and the write's refusal read as one voice.
 func describeEngine(label, backend string) string {
 	if backend != label && backend != "" {

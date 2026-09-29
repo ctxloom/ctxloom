@@ -2015,13 +2015,12 @@ _run +ARGS:
         # error, so the build SUCCEEDS carrying a binary that cannot say what it
         # was built from.
         #
-        # READ-WRITE and whole-common-dir, matching the adjudicated posture in
-        # isolation.gitCommonDirMount — see its DECISION block for why the
-        # exposure is accepted and why a surgical partial mount is not viable
-        # (git needs write access to refs/logs and the packed-refs/objects
-        # layout). Do not re-derive that reasoning here; that function owns it,
-        # and TestGitCommonDirMount_WholeCommonDirReadWrite pins it in both
-        # directions.
+        # READ-WRITE and whole-common-dir: docs/adr/0034 records why the
+        # exposure is accepted and why a file-by-file mount is not viable (git
+        # updates config, packed-refs and refs by lock-and-rename inside the
+        # common dir). The worktrees/ registry is NOT masked here, and no other
+        # checkout is mounted: a `git worktree prune` (or gc's auto-prune) run
+        # in this container deletes every other worktree's registration.
         #
         # --mount, not -v: MEASURED — the `-v src:dst:ro` form mis-parses a
         # destination ending in `.git`, silently landing the bind at a truncated

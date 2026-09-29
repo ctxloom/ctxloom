@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/parentwatch"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
@@ -74,7 +75,7 @@ func runRunner(cmd *cobra.Command, args []string) error {
 
 // divertRunnerDiagnostics sends this runner's warnings to the file its
 // originator names (sessions.EnvDiagnosticsLog) instead of stderr, which is
-// the engine's pty. A file that cannot be opened — a container runner handed
+// the engine's pty. A file that cannot be written — a container runner handed
 // a host path — leaves them on stderr: disturbing the display beats losing
 // them. Returns the restore.
 func divertRunnerDiagnostics(getenv func(string) string) func() {
@@ -82,15 +83,21 @@ func divertRunnerDiagnostics(getenv func(string) string) func() {
 	if path == "" {
 		return func() {}
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
+	if err := iox.WriteFileInPlace(path, iox.AppendInPlace, nil, 0o644); err != nil {
 		return func() {}
 	}
-	restore := clidiag.SetSink(f)
-	return func() {
-		restore()
-		_ = f.Close()
+	return clidiag.SetSink(appendLog(path))
+}
+
+// appendLog is a warning sink that appends each warning to the file it
+// names. Warnings are rare, so each opens, appends and closes.
+type appendLog string
+
+func (p appendLog) Write(b []byte) (int, error) {
+	if err := iox.WriteFileInPlace(string(p), iox.AppendInPlace, b, 0o644); err != nil {
+		return 0, err
 	}
+	return len(b), nil
 }
 
 // runnerContext is the context the runner lives under: it ends on a stop

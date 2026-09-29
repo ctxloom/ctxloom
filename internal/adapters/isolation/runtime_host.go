@@ -65,3 +65,5 @@ func (Host) daemonNameTemplate() string                                 { return
 func (Host) removeOutcome([]byte, error) removeOutcome                  { return removeAlreadyGone }
 func (Host) passesPUID() bool                                           { return false }
 func (Host) gatewayInspectArgs() []string                               { return nil }
+func (Host) containerByIDArgs(string) []string                          { return nil }
+func (Host) selfInspectArgs(string) []string                            { return nil }

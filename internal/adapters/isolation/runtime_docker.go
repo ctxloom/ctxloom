@@ -75,7 +75,16 @@ func (d Docker) removeOutcome(stdout []byte, err error) removeOutcome {
 // starts RootlessKit with --disable-host-loopback — and its bridge lives in
 // RootlessKit's namespace, not on the host, so only the public fallback
 // reaches it. Rootful docker's docker0 gateway is on the host.
+//
+// Self first: when the daemon has confirmed this process is one of its
+// containers, the runner joins that container's network (selfNetworkRoute),
+// ahead of every host route — none of which this process's namespace holds.
 func (d Docker) reachRoute(ctx context.Context) (hostRoute, error) {
+	if d.self != nil {
+		if r, ok, err := selfNetworkRoute(*d.self); err != nil || ok {
+			return r, err
+		}
+	}
 	switch {
 	case platform.ContainersInVM:
 		return hostRoute{dial: "host.docker.internal"}, nil
@@ -138,5 +147,7 @@ func newDockerRuntime(reachable func(string) bool) Docker {
 	if !reachable("docker") {
 		return Docker{}
 	}
-	return Docker{rootless: dockerIsRootless()}
+	d := Docker{rootless: dockerIsRootless()}
+	d.self = resolveSelf(d)
+	return d
 }

@@ -2,6 +2,7 @@ package isolation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -90,7 +91,20 @@ const slirpHostLoopback = "10.0.2.2"
 // loopback. Measured on podman 5.4.2: without these options neither
 // translator reaches the host's 127.0.0.1, and pasta's
 // host.containers.internal lands on a LAN address.
+//
+// Self first, as Docker's. A rootless podman self with no network to join
+// (its container on pasta/slirp4netns) shares its network namespace instead
+// (sharedNamespaceRoute) — warned; every other runtime refuses that case.
 func (p Podman) reachRoute(ctx context.Context) (hostRoute, error) {
+	if p.self != nil {
+		r, ok, err := selfNetworkRoute(*p.self)
+		switch {
+		case errors.Is(err, errNoSelfNetwork) && p.rootless:
+			return sharedNamespaceRoute(*p.self), nil
+		case err != nil || ok:
+			return r, err
+		}
+	}
 	switch {
 	case platform.ContainersInVM && machineVMIsWSL:
 		// Under WSL host.containers.internal lands in the machine VM, and a
@@ -136,5 +150,7 @@ func newPodmanRuntime() Podman {
 		return Podman{rootless: true}
 	}
 	rootless, network, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
-	return Podman{rootless: rootless != "false", rootlessNet: network}
+	p := Podman{rootless: rootless != "false", rootlessNet: network}
+	p.self = resolveSelf(p)
+	return p
 }

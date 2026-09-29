@@ -157,6 +157,13 @@ func TestNewDockerRuntime_ProbesOnlyReachableDaemons(t *testing.T) {
 	resetStrictness(t)
 	prev := dockerSecurityOptions
 	t.Cleanup(func() { dockerSecurityOptions = prev })
+	prevSelf := findSelf
+	t.Cleanup(func() { findSelf = prevSelf })
+	asked := 0
+	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) {
+		asked++
+		return selfContainer{}, false, nil
+	}
 
 	dockerSecurityOptions = func() (string, error) {
 		t.Fatal("the identity probe must not run for an unreachable daemon")
@@ -165,10 +172,12 @@ func TestNewDockerRuntime_ProbesOnlyReachableDaemons(t *testing.T) {
 	rt := newDockerRuntime(func(string) bool { return false })
 	assert.Equal(t, Docker{}, rt)
 	assert.Empty(t, strictness.All())
+	assert.Zero(t, asked, "an unreachable daemon is never asked who this process is")
 
 	dockerSecurityOptions = func() (string, error) { return "[name=rootless]", nil }
 	rt = newDockerRuntime(func(string) bool { return true })
 	assert.Equal(t, Docker{rootless: true}, rt, "a reachable daemon gets the real probe")
+	assert.Equal(t, 1, asked, "and is asked, once, whether this process is one of its containers")
 }
 
 // TestPodmanRootful_DockerCompatibleArgv: rootful podman matches rootful

@@ -118,6 +118,13 @@ type Runtime interface {
 	// gatewayInspectArgs builds the argv printing the default bridge
 	// network's host-side gateway address.
 	gatewayInspectArgs() []string
+	// containerByIDArgs builds the argv printing the full id of every
+	// container, running or not, whose id starts with id — empty when the
+	// daemon has none.
+	containerByIDArgs(id string) []string
+	// selfInspectArgs builds the argv printing selfInspectTemplate for the
+	// container id.
+	selfInspectArgs(id string) []string
 }
 
 // hostRoute is a runtime's answer to reachRoute: the host part a container
@@ -249,7 +256,10 @@ type mount struct {
 // pathMap overrides the host OS's mapper; nil (every production value) is
 // hostMapper via runtimeMapper. Only tests set it, to run the mount sites
 // under a mapper that is not identity on the host they run on.
-type ociRuntime struct{ pathMap pathMapper }
+type ociRuntime struct {
+	pathMap pathMapper
+	self    *selfContainer // nil: this process is not one of the daemon's containers
+}
 
 // RemoveArgs force-removes the container: SIGKILL, then rm. A racing --rm
 // auto-remove leaves nothing under the name, which removeOutcome reads as
@@ -337,6 +347,16 @@ func (ociRuntime) daemonNameTemplate() string { return "{{.Name}}" }
 // gatewayInspectArgs reads the default `bridge` network's IPAM gateway.
 func (ociRuntime) gatewayInspectArgs() []string {
 	return []string{"network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"}
+}
+
+// containerByIDArgs is the docker-CLI-compatible id-filtered listing.
+func (ociRuntime) containerByIDArgs(id string) []string {
+	return []string{"ps", "-a", "-q", "--no-trunc", "--filter", "id=" + id}
+}
+
+// selfInspectArgs is the docker-CLI-compatible narrow container inspect.
+func (ociRuntime) selfInspectArgs(id string) []string {
+	return []string{"container", "inspect", "--format", selfInspectTemplate, id}
 }
 
 // passesPUID is true: every mode relies on the image entrypoint to remap, save

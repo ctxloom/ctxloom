@@ -12,8 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // selfContainer is THIS process's container as the driving daemon reports it:
@@ -139,17 +137,18 @@ func pickSelfNetwork(in selfInspect) selfNetwork {
 	return nets[0]
 }
 
-// resolveSelf is the constructors' one call into findSelf, with the error
-// policy dockerIsRootless also takes: an undecidable answer routes a finding
-// and proceeds as not-self, so today's routes decide — and on a foreign
-// bridge they still refuse (foreignBridgeRemedy), never a silent wrong route.
+// resolveSelf is the constructors' one call into findSelf. An undecidable
+// answer is a warning, once per process, not a finding: proceeding as not-self
+// is safe, because today's routes then decide — and on a foreign bridge they
+// still refuse (foreignBridgeRemedy), never a silent wrong route. A finding
+// here would let strict mode refuse every container run from a container whose
+// CLI merely cannot list its daemon's containers.
 func resolveSelf(rt Runtime) *selfContainer {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	s, ok, err := findSelf(ctx, rt)
 	if err != nil {
-		strictness.Fail(report.KindIsolation,
-			"check that the "+rt.Name()+" CLI can list and inspect containers on its daemon, or pass --degraded to proceed as if ctxloom were not in one of its containers",
+		clidiag.WarnRemedyOnce("ctxloom", selfLookupRemedy(rt.Name()),
 			"cannot tell whether this process runs in one of %s's containers (%v); proceeding as if it does not", rt.Name(), err)
 		return nil
 	}
@@ -157,6 +156,11 @@ func resolveSelf(rt Runtime) *selfContainer {
 		return nil
 	}
 	return &s
+}
+
+// selfLookupRemedy names the likely cause of an undecidable self-lookup.
+func selfLookupRemedy(runtime string) string {
+	return "check that the " + runtime + " CLI can list and inspect containers on its daemon (permission on its socket, or a proxy that forbids listing)"
 }
 
 // errNoSelfNetwork refuses a self whose container has no network a sibling

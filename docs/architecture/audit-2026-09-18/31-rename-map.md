@@ -127,7 +127,6 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/testsupport/parity` | stays | — | Part 0: test-only, outside the rings |
 | `internal/testsupport/procalive` | stays | — | Part 0: test-only, outside the rings |
 | `internal/testsupport/sourcedir` | stays | — | Part 0: test-only, outside the rings |
-| `internal/tmuxhost` | `internal/adapters/tmuxhost` | adapters | JUDGMENT: hosts processes in tmux (a process adapter); retired with vpio at slice 13 → adapters |
 | `internal/transcript` | `internal/adapters/transcript` | adapters | unit A adapters row; package table adapters/transcript/* |
 | `internal/transcript/policy` | `internal/adapters/transcript/policy` | adapters | subpackage keeps its relative path under adapters/transcript |
 | `internal/transcript/vendorreader` | `internal/adapters/transcript/vendorreader` | adapters | subpackage keeps its relative path under adapters/transcript |

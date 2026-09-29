@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/exitstatus"
 	"github.com/ctxloom/ctxloom/internal/shared/procsig"
 )
 
@@ -45,10 +47,15 @@ type chatTransport struct {
 	// the interrupt asked it to) and reports how it exited. nil: nothing to
 	// reap, a clean exit.
 	wait func() error
+	// ended records that the TURN ended the process — a Close, or a reap that
+	// outran its grace and killed it — so its exit status is ctxloom's doing,
+	// not the engine's.
+	ended atomic.Bool
 }
 
 // Close tears the transport down (and unblocks a reader parked on stdout).
 func (t *chatTransport) Close() error {
+	t.ended.Store(true)
 	if t.close != nil {
 		return t.close()
 	}
@@ -172,7 +179,7 @@ func spawnChatTransportGrace(ctx context.Context, binary string, args []string, 
 		return nil, err
 	}
 	reap := sync.OnceValue(cmd.Wait)
-	return &chatTransport{
+	tr := &chatTransport{
 		stdin:  stdin,
 		stdout: stdout,
 		close: func() error {
@@ -180,24 +187,49 @@ func spawnChatTransportGrace(ctx context.Context, binary string, args []string, 
 			_ = cmd.Process.Kill()
 			return reap()
 		},
-		wait: func() error {
-			_ = stdin.Close()
-			return reapWithin(reap, grace, cmd.Process)
-		},
-	}, nil
+	}
+	tr.wait = func() error {
+		_ = stdin.Close()
+		killed, err := reapWithin(reap, grace, cmd.Process)
+		if killed {
+			tr.ended.Store(true)
+		}
+		return err
+	}
+	return tr, nil
 }
 
 // reapWithin reaps a process whose stdout has ended; one that has not exited
-// within grace is killed — its turn is over either way, and a wait that could
-// hang would hold the turn open forever.
-func reapWithin(reap func() error, grace time.Duration, p *os.Process) error {
+// within grace is killed (killed) — its turn is over either way, and a wait
+// that could hang would hold the turn open forever.
+func reapWithin(reap func() error, grace time.Duration, p *os.Process) (killed bool, err error) {
 	done := make(chan error, 1)
 	go func() { done <- reap() }()
 	select {
 	case err := <-done:
-		return err
+		return false, err
 	case <-time.After(grace):
 		_ = p.Kill()
-		return <-done
+		return true, <-done
 	}
+}
+
+// engineExit is the status the turn's process exited with ON ITS OWN
+// (exitstatus.Of — the one computation every launch path shares), nil when
+// there is none to report: the turn ended it (ctx's interrupt, a teardown, a
+// reap past its grace), so a 130 or 137 would be ctxloom's signal read as the
+// engine's failure; or the reap failed without an exit status.
+func engineExit(ctx context.Context, tr *chatTransport, waitErr error) *int {
+	if ctx.Err() != nil || tr.ended.Load() {
+		return nil
+	}
+	code := 0
+	if waitErr != nil {
+		var ee *exec.ExitError
+		if !errors.As(waitErr, &ee) {
+			return nil
+		}
+		code = exitstatus.Of(ee)
+	}
+	return &code
 }

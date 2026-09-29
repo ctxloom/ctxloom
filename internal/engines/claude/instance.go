@@ -307,6 +307,7 @@ func relayTurn(ctx context.Context, tr *chatTransport, events <-chan agent.ChatE
 	}
 	res.Answer = acc.answer()
 	exitErr := tr.Wait()
+	res.ExitCode = engineExit(ctx, tr, exitErr)
 	switch {
 	case relayErr != nil:
 		return res, relayErr

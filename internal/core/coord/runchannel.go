@@ -680,7 +680,7 @@ func (c *Coordinator) serveRoster(caller Identity, req RosterRequest) AgentReply
 // REQUESTER's lineage — only the run's parent may stop it. With NO run_id it
 // is the bulk sweep, whose reason the Stop verb requires.
 func (c *Coordinator) serveStopRun(ctx context.Context, caller Identity, req StopRun) AgentReply {
-	sr := StopRequest{Reason: req.Reason}
+	sr := StopRequest{Reason: req.Reason, Grace: req.Grace}
 	if runID := req.RunID; runID != "" {
 		var rec *RunRecord
 		c.runs.View(func() {

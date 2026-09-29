@@ -290,6 +290,11 @@ type Coordinator struct {
 	// observable still resolves instead of racing its own registration.
 	// Lazily initialized.
 	asks map[string]*pendingAsk
+	// pendingStops holds, per run id, the terminal detail of an agent_stop
+	// whose runner is closing the run: the runner's own RunExited can reach
+	// RunnerExited before the stop's terminal, and must be recorded as the
+	// stop it is. Guarded by mu.
+	pendingStops map[string]string
 	// pausedRuns holds the run ids this coordinator's ControlPause holds at
 	// their runner's gate, keyed by run id so a relaunch (a new run) is never
 	// described as paused. Guarded by mu; lazily initialized.
@@ -423,6 +428,11 @@ type Coordinator struct {
 	// is the ordering the WAIT loop's idle arm exists to survive. Nil in
 	// production (zero cost).
 	drainRequestHook func(runID string)
+	// stopAnsweredHook, if set (tests only, same package), runs synchronously
+	// in stopRun once the runner has answered its StopRun and BEFORE the
+	// stop's own terminal: the seam that lets the runner's RunExited land
+	// first, the interleaving pendingStops exists for. Nil in production.
+	stopAnsweredHook func(runID string)
 
 	closeOnce sync.Once
 	// closed is set at the START of Close, before it looks for listeners to
@@ -1164,7 +1174,7 @@ func (c *Coordinator) AgentRecv(ctx context.Context, caller Identity, wait time.
 // The host-side verb is keyed by harp; reason (optional) becomes the run's
 // terminal detail. The bulk form — every child of the caller — is
 // StopChildren (drain.go).
-func (c *Coordinator) AgentStop(caller Identity, harp, reason string) (string, error) {
+func (c *Coordinator) AgentStop(caller Identity, harp, reason string, grace time.Duration) (string, error) {
 	if caller.IsChild() {
 		return "", errors.New("agent_stop: only the coordinating session may stop its children")
 	}
@@ -1178,7 +1188,7 @@ func (c *Coordinator) AgentStop(caller Identity, harp, reason string) (string, e
 	if rec == nil {
 		return "", fmt.Errorf("agent_stop: unknown session %q: not a child of this session", harp)
 	}
-	return c.stopRun(caller, rec, reason), nil
+	return c.stopRun(caller, rec, reason, grace), nil
 }
 
 // stopRun is the per-run agent_stop both surfaces (AgentStop, serveStopRun)
@@ -1204,7 +1214,7 @@ func (c *Coordinator) AgentStop(caller Identity, harp, reason string) (string, e
 // wording that shipped. A stop landing on an ended run reports the earlier
 // terminal's reason when there was one, so a second agent_stop says WHY it
 // ended, not just that it did.
-func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) string {
+func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string, grace time.Duration) string {
 	c.markStopped(rec.Harp)
 	cancelLaunch := func() {
 		c.cancelLaunch(rec.Harp)
@@ -1227,9 +1237,74 @@ func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) st
 		audit["reason"] = reason
 	}
 	c.audit("agent_stop", caller.Harp, audit)
+	c.setPendingStop(rec.RunID, detail)
+	defer c.setPendingStop(rec.RunID, "")
+	c.stopAtRunner(rec, reason, grace)
 	c.terminateRun(rec.RunID, CauseStopped, detail)
 	cancelLaunch()
 	return fmt.Sprintf("stopped child %s; its execution slot is freed (a later agent_send resumes it as a fresh run)", rec.Harp)
+}
+
+// DefaultStopGrace is how long a stopped run's interrupted turn gets to end
+// when agent_stop names no grace.
+const DefaultStopGrace = 10 * time.Second
+
+// stopAnswerMargin is how much longer than the grace the coordinator waits for
+// the runner's StopRun answer — the close that follows the interrupt.
+const stopAnswerMargin = 5 * time.Second
+
+// stopAtRunner asks rec's runner to stop the run INTERRUPT-THEN-CLOSE
+// (StopRun): the turn in flight is interrupted and given grace to reach its
+// boundary — so its report is written — before the run closes. Bounded by
+// grace + stopAnswerMargin; a run no runner request can reach, a runner that
+// is gone, or one that does not answer in time is simply ended by the
+// terminal that follows, as before.
+func (c *Coordinator) stopAtRunner(rec *RunRecord, reason string, grace time.Duration) {
+	if grace <= 0 {
+		grace = DefaultStopGrace
+	}
+	if !c.runnerReachable(rec) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.baseCtx, grace+stopAnswerMargin)
+	defer cancel()
+	resp, err := c.requestRunner(ctx, rec.CredHash, RunnerRequest{Kind: StopRun{RunID: rec.RunID, Reason: reason, Grace: grace}})
+	if err == nil && resp.Err != nil {
+		c.rep.Warnf("agent_stop %s: the runner refused the graceful stop (%v); ending the run now", rec.Harp, resp.Err)
+	}
+	if hook := c.stopAnsweredHook; hook != nil {
+		hook(rec.RunID)
+	}
+}
+
+// runnerReachable reports whether a runner request can reach rec's run: it
+// was issued to a runner credential, and its harp is one the coordinator
+// delivers to.
+func (c *Coordinator) runnerReachable(rec *RunRecord) bool {
+	return rec.CredHash != "" && c.spoolDeliverTo(rec.Harp)
+}
+
+// setPendingStop records (detail != "") or clears the terminal detail of an
+// agent_stop in progress on runID.
+func (c *Coordinator) setPendingStop(runID, detail string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if detail == "" {
+		delete(c.pendingStops, runID)
+		return
+	}
+	if c.pendingStops == nil {
+		c.pendingStops = make(map[string]string)
+	}
+	c.pendingStops[runID] = detail
+}
+
+// pendingStop is the terminal detail of an agent_stop in progress on runID.
+func (c *Coordinator) pendingStop(runID string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	detail, ok := c.pendingStops[runID]
+	return detail, ok
 }
 
 // injectDigestRunes bounds the mirror notice body: enough for the parent to

@@ -151,9 +151,16 @@ type EngineHost struct {
 	exec      engine.Exec
 	nativeKey string
 	turnBusy  chan struct{}
-	turns     int
-	lastMeta  *agent.TurnMeta
-	ended     bool
+	// turnCancel interrupts the turn in flight: each turn runs under its own
+	// context, a child of the run's, so ending the TURN (InterruptRun, a
+	// stop's first step) leaves the run alive. nil when parked.
+	turnCancel context.CancelFunc
+	turns      int
+	lastMeta   *agent.TurnMeta
+	ended      bool
+	// stopping is set by StopRun: the run is closing, so no turn queued
+	// behind the interrupted one may start.
+	stopping bool
 	// accepted is every delivered message whose turn the engine TOOK,
 	// completed or not — consumed on disk before any terminal signal leaves
 	// this runner (awaitAcceptedAcks).
@@ -186,7 +193,7 @@ type EngineHost struct {
 	// rather than open, so an unpaused run does not so much as select on it.
 	//
 	// It gates the HAND-OFF and nothing else. A turn already inside the engine
-	// runs to its end (no surface ctxloom drives takes an interrupt), and mail
+	// runs to its end (cutting it short is InterruptRun's job), and mail
 	// stays unconsumed in its spool, which is what makes a pause survivable
 	// across a relaunch: nothing was taken that was not delivered.
 	paused chan struct{}
@@ -308,21 +315,15 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 		return eh.resumeRun(kind.ResumeRun)
 	case *agentcoordpb.RunnerRequest_Turn:
 		return eh.turnFrame(kind.Turn)
-	case *agentcoordpb.RunnerRequest_KillRun, *agentcoordpb.RunnerRequest_StopRun:
-		// C1-minimal termination: cancel the engine context (Chat returns,
-		// RunExited flows). The graceful interrupt-then-escalate StopRun
-		// ladder is Wave C2's; the coordinator's terminal path kills the
-		// runner PROCESS either way.
-		eh.mu.Lock()
-		cancel := eh.cancel
-		eh.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
-		if _, isKill := kind.(*agentcoordpb.RunnerRequest_KillRun); isKill {
-			return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_KillRun{KillRun: &agentcoordpb.KillRunResult{}}}
-		}
-		return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}}}
+	case *agentcoordpb.RunnerRequest_InterruptRun:
+		return eh.interruptRun(kind.InterruptRun)
+	case *agentcoordpb.RunnerRequest_StopRun:
+		return eh.stopRun(kind.StopRun)
+	case *agentcoordpb.RunnerRequest_KillRun:
+		// Cancel now: the run's context ends, the turn in flight with it, and
+		// the terminal flows (RunCompleted, RunExited).
+		eh.closeRun()
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_KillRun{KillRun: &agentcoordpb.KillRunResult{}}}
 	default:
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unimplemented, "request kind not offered by this runner")}
 	}
@@ -555,8 +556,11 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 // turn report, the answer to a waiting Turn frame, the idle event and the
 // spool sweep. The turn's process ending IS the boundary; the host parks
 // with the key the next turn resumes by. A process that dies mid-turn — or
-// the run's cancellation — is the run's terminal.
-func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
+// the run's cancellation — is the run's terminal. A turn whose OWN context
+// ended (turnCtx: an interrupt) while the run's did not reaches an ordinary
+// boundary instead, with stop_reason "interrupted": the run lives, and the
+// next turn resumes the key the interrupted one announced.
+func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text string, key string) {
 	eh.mu.Lock()
 	home := eh.home
 	ctx := eh.runCtx
@@ -620,14 +624,21 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 		}
 	}()
 
-	res, err := driver.Turn(ctx, ex, engine.Turn{Prompt: text, Resume: key}, out)
+	res, err := driver.Turn(turnCtx, ex, engine.Turn{Prompt: text, Resume: key}, out)
+	interrupted := turnCtx.Err() != nil && ctx.Err() == nil
 	close(out)
 	<-adapted
 	items.closeOpen()
 
 	tag := eh.endTurn()
 	home.setTurning(false)
+	if res.NativeKey == "" {
+		// A turn cut short returns no result, but the session its engine
+		// announced on the way in is still the one the next turn resumes.
+		res.NativeKey = sessionID
+	}
 	eh.mu.Lock()
+	eh.turnCancel = nil
 	if res.NativeKey != "" {
 		eh.nativeKey = res.NativeKey
 	}
@@ -641,7 +652,7 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 	if res.NativeKey != "" && res.NativeKey != sessionID {
 		eh.announceSession(home, res.NativeKey)
 	}
-	if err != nil || ctx.Err() != nil {
+	if !interrupted && (err != nil || ctx.Err() != nil) {
 		// The run's terminal: a Turn frame waiting on this turn is answered
 		// with the turn's error, then the run ends.
 		if tag.done != nil {
@@ -657,6 +668,9 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 	final := eh.takeTurnFinal()
 	if final == "" {
 		final = res.Answer
+	}
+	if interrupted {
+		final = strings.TrimSpace(interruptedTurnNote + "\n\n" + final)
 	}
 	var denials []agent.PermissionDenial
 	if lastMeta != nil {
@@ -679,6 +693,8 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 	}
 	stop := ""
 	switch {
+	case interrupted:
+		stop = "interrupted"
 	case len(denials) > 0:
 		// The engine's own stop reason reads as a clean end; the turn did not
 		// do all it was asked.

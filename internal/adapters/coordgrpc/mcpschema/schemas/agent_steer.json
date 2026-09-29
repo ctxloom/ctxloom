@@ -11,6 +11,10 @@
         ],
         "type": "string"
       },
+      "interrupt": {
+        "description": "Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. OMIT (false) to let the running turn finish.",
+        "type": "boolean"
+      },
       "text": {
         "description": "The instruction. Delivered verbatim as the child's next turn under a provenance header naming it a steer from you.",
         "type": "string"

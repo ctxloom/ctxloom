@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/procsig"
 )
 
 // This file is the stream-json transport the structured driver
@@ -26,12 +29,22 @@ import (
 var ErrChatMCPTransportUnsupported = agent.ErrChatMCPConfigTransportUnsupported
 
 // chatTransport is the I/O seam for a stream-json conversation: a writable stdin,
-// a readable stdout, and a teardown. Default = a spawned `claude` process; tests
-// inject in-memory pipes so they never spawn anything.
+// a readable stdout, and the process's two endings. Default = a spawned
+// `claude` process; tests inject in-memory pipes so they never spawn anything.
+//
+// The turn's CONTEXT is the interrupt: when it ends, the transport asks the
+// process to stop (procsig.Interrupt) and kills it only after its grace, so
+// stdout reaches EOF either way and the driver reads the process's last words
+// rather than cutting them off.
 type chatTransport struct {
 	stdin  io.WriteCloser
 	stdout io.Reader
-	close  func() error
+	// close ends the process NOW and reaps it — the error paths' teardown.
+	close func() error
+	// wait reaps a process that is ending on its own (stdout reached EOF, or
+	// the interrupt asked it to) and reports how it exited. nil: nothing to
+	// reap, a clean exit.
+	wait func() error
 }
 
 // Close tears the transport down (and unblocks a reader parked on stdout).
@@ -42,25 +55,32 @@ func (t *chatTransport) Close() error {
 	return nil
 }
 
+// Wait reaps the ended process and reports its exit.
+func (t *chatTransport) Wait() error {
+	if t.wait != nil {
+		return t.wait()
+	}
+	return nil
+}
+
+// errTurnProcessDied is a turn whose engine process ended WITHOUT a result
+// frame and exited in failure: it died mid-turn, which ends the run.
+var errTurnProcessDied = errors.New("claude: the turn's process died before it answered")
+
 type chatTransportFunc func(ctx context.Context, binary string, args []string, env map[string]string, workDir string) (*chatTransport, error)
 
 // readChatEvents reads newline-delimited JSON from stdout (no line-length cap —
-// tool outputs can be large) and maps each line to ChatEvents on out, stopping
-// on EOF/error or ctx cancellation. Each entry is stamped with a receipt time
+// tool outputs can be large) and maps each line to ChatEvents on out until EOF
+// or a read error. It is NOT bounded by the turn's context: an interrupted
+// process still has things to say on its way out, and the transport guarantees
+// the EOF (a kill after its grace). Each entry is stamped with a receipt time
 // (see stampEntryTime) since stream-json carries no per-event timestamp.
-func readChatEvents(ctx context.Context, stdout io.Reader, out chan<- agent.ChatEvent, done chan<- struct{}, now func() time.Time) {
-	defer close(done)
+func readChatEvents(stdout io.Reader, out chan<- agent.ChatEvent, now func() time.Time) {
 	br := bufio.NewReaderSize(stdout, 64*1024)
 	for {
 		line, err := br.ReadBytes('\n')
-		if len(line) > 0 {
-			for _, ev := range mapStreamJSONEvent(line) {
-				select {
-				case out <- stampEntryTime(ev, now):
-				case <-ctx.Done():
-					return
-				}
-			}
+		for _, ev := range mapStreamJSONEvent(line) {
+			out <- stampEntryTime(ev, now)
 		}
 		if err != nil {
 			return // EOF or read error (e.g. transport closed)
@@ -115,15 +135,30 @@ const (
 	flagResume      = "--resume"
 )
 
+// turnInterruptGrace is how long an interrupted turn's process gets to unwind
+// before it is killed, and how long the driver keeps relaying its last words.
+const turnInterruptGrace = 10 * time.Second
+
 // spawnChatTransport launches the real `claude` process with piped stdio (NOT a
-// pty). stderr passes through for diagnostics.
+// pty) under the default grace. stderr passes through for diagnostics.
 func spawnChatTransport(ctx context.Context, binary string, args []string, env map[string]string, workDir string) (*chatTransport, error) {
+	return spawnChatTransportGrace(ctx, binary, args, env, workDir, turnInterruptGrace)
+}
+
+// spawnChatTransportGrace is spawnChatTransport with the grace named. ctx
+// ending interrupts the process (procsig.Interrupt, to the process group
+// procsig.SpawnAttr made it lead) and exec kills it once grace has passed
+// (WaitDelay) — the kill fires whether or not anyone is waiting yet.
+func spawnChatTransportGrace(ctx context.Context, binary string, args []string, env map[string]string, workDir string, grace time.Duration) (*chatTransport, error) {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = workDir
 	cmd.Env = os.Environ()
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
+	cmd.SysProcAttr = procsig.SpawnAttr()
+	cmd.Cancel = func() error { return procsig.Interrupt(cmd.Process) }
+	cmd.WaitDelay = grace
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -136,15 +171,33 @@ func spawnChatTransport(ctx context.Context, binary string, args []string, env m
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	reap := sync.OnceValue(cmd.Wait)
 	return &chatTransport{
 		stdin:  stdin,
 		stdout: stdout,
 		close: func() error {
 			_ = stdin.Close()
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
-			return cmd.Wait()
+			_ = cmd.Process.Kill()
+			return reap()
+		},
+		wait: func() error {
+			_ = stdin.Close()
+			return reapWithin(reap, grace, cmd.Process)
 		},
 	}, nil
+}
+
+// reapWithin reaps a process whose stdout has ended; one that has not exited
+// within grace is killed — its turn is over either way, and a wait that could
+// hang would hold the turn open forever.
+func reapWithin(reap func() error, grace time.Duration, p *os.Process) error {
+	done := make(chan error, 1)
+	go func() { done <- reap() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(grace):
+		_ = p.Kill()
+		return <-done
+	}
 }

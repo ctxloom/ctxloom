@@ -38,7 +38,7 @@ var verbBindings = map[string]verbBinding{
 	ToolAgentRecv: {request: nil, transportOnly: []string{"wait"}},
 	ToolAgentStop: {request: coord.StopRequest{},
 		// run_id is the wire's address; serveStopRun resolves it to the harp.
-		fields: map[string]string{"run_id": "Harp", "reason": "Reason"}},
+		fields: map[string]string{"run_id": "Harp", "reason": "Reason", "grace": "Grace"}},
 	ToolAgentReport: {request: coord.ReportRequest{},
 		fields:        map[string]string{"scope": "Scope", "text": "Body"},
 		transportOnly: []string{"artifact_ids", "covers_through_seq", "publish_paths", "step_id", "structured"}},
@@ -46,11 +46,12 @@ var verbBindings = map[string]verbBinding{
 	ToolAgentFetchArtifact: {request: coord.FetchRequest{},
 		fields:        map[string]string{"agent_id": "Harp", "artifact_id": "ArtifactID"},
 		transportOnly: []string{"dest_path"}},
-	ToolAgentSteer:     {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp", "text": "Body"}},
-	ToolAgentAsk:       {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp", "text": "Body"}},
-	ToolAgentSummarize: {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp", "focus": "Body"}},
-	ToolAgentPause:     {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp", "reason": "Body"}},
-	ToolAgentResume:    {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp"}, unbound: []string{"Body"}},
+	ToolAgentSteer: {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp", "text": "Body", "interrupt": "Interrupt"}},
+	// Interrupt is the steer's alone: no other control verb cuts a turn short.
+	ToolAgentAsk:       {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp", "text": "Body"}, unbound: []string{"Interrupt"}},
+	ToolAgentSummarize: {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp", "focus": "Body"}, unbound: []string{"Interrupt"}},
+	ToolAgentPause:     {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp", "reason": "Body"}, unbound: []string{"Interrupt"}},
+	ToolAgentResume:    {request: coord.ControlRequest{}, fields: map[string]string{"harp": "Harp"}, unbound: []string{"Body", "Interrupt"}},
 }
 
 // TestGeneratedSchemas_ProjectTheVerbRequests: every generated tool is bound

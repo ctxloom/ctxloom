@@ -257,52 +257,79 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) []string {
 // with the assistant's answer. The env is the Exec's laid over the
 // process's own (spawnChatTransport merges it onto os.Environ). A nil out
 // relays nothing.
+//
+// ctx ending is an INTERRUPT, not a teardown: the transport asks the process
+// to stop and kills it after its grace, while the driver keeps reading, so
+// what the process says on its way out (its result, its session) is still
+// relayed. The turn then returns ctx's error — it was cut short. A process
+// that ends without a result frame and exits in failure died mid-turn
+// (errTurnProcessDied).
 func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	open, now := d.seams()
 	tr, err := open(ctx, ex.Binary, d.argv(ex, in), ex.Env, ex.WorkDir)
 	if err != nil {
 		return engine.TurnResult{}, err
 	}
 	events := make(chan agent.ChatEvent, 64)
-	readerDone := make(chan struct{})
 	go func() {
-		readChatEvents(ctx, tr.stdout, events, readerDone, now)
-		close(events) // readChatEvents closes readerDone, never its output
+		readChatEvents(tr.stdout, events, now)
+		close(events)
 	}()
 	if err := writeUserMessage(tr.stdin, in.Prompt); err != nil {
 		_ = tr.Close()
-		<-readerDone
+		for range events {
+			// drained, so the reader can return
+		}
 		return engine.TurnResult{}, err
 	}
 	_ = tr.stdin.Close()
+	return relayTurn(ctx, tr, events, out, turnInterruptGrace)
+}
+
+// relayTurn folds and relays the turn's events until the process's stdout
+// ends, then classifies how the turn ended. grace is the interrupt's: a
+// process whose stdout outlives the interrupt by twice it (a grandchild
+// holding stdout open) is torn down, so an interrupted turn always returns.
+func relayTurn(ctx context.Context, tr *chatTransport, events <-chan agent.ChatEvent, out chan<- engine.Event, grace time.Duration) (engine.TurnResult, error) {
+	finished := make(chan struct{})
+	defer close(finished)
+	go closeOverdue(ctx, finished, tr, 2*grace)
+	relay := turnRelay{ctx: ctx, out: out, grace: grace}
 	var res engine.TurnResult
 	var acc turnAccumulator
-	for {
-		select {
-		case <-ctx.Done():
+	var relayErr error
+	for ev := range events {
+		acc.absorb(&res, &ev)
+		if err := relay.send(ev); err != nil && relayErr == nil {
+			relayErr = err
 			_ = tr.Close()
-			<-readerDone
-			return res, ctx.Err()
-		case ev, ok := <-events:
-			if !ok {
-				<-readerDone
-				_ = tr.Close()
-				res.Answer = acc.answer()
-				return res, nil
-			}
-			acc.absorb(&res, &ev)
-			cancelled, err := relayChatEvent(ctx, out, ev)
-			if cancelled {
-				_ = tr.Close()
-				<-readerDone
-				return res, err
-			}
-			if err != nil {
-				return res, err
-			}
 		}
+	}
+	res.Answer = acc.answer()
+	exitErr := tr.Wait()
+	switch {
+	case relayErr != nil:
+		return res, relayErr
+	case ctx.Err() != nil:
+		return res, ctx.Err()
+	case acc.results == 0 && exitErr != nil:
+		return res, fmt.Errorf("%w: %w", errTurnProcessDied, exitErr)
+	}
+	return res, nil
+}
+
+// closeOverdue tears tr down when the turn is still unfinished bound after ctx
+// ended.
+func closeOverdue(ctx context.Context, finished <-chan struct{}, tr *chatTransport, bound time.Duration) {
+	select {
+	case <-finished:
+		return
+	case <-ctx.Done():
+	}
+	select {
+	case <-finished:
+	case <-time.After(bound):
+		_ = tr.Close()
 	}
 }
 
@@ -388,22 +415,44 @@ func (a *turnAccumulator) answer() string {
 	return a.last
 }
 
-// relayChatEvent sends ev on out (a nil out relays nothing). cancelled
-// reports that ctx ended while waiting to send, with ctx's error.
-func relayChatEvent(ctx context.Context, out chan<- engine.Event, ev agent.ChatEvent) (cancelled bool, err error) {
-	if out == nil {
-		return false, nil
+// turnRelay sends a turn's events on out (a nil out relays nothing). Before the
+// interrupt a send waits for the consumer; after it, the consumer still gets
+// the process's last words, but a send waits no longer than the grace in all —
+// a consumer that stopped reading must not hold the turn open.
+type turnRelay struct {
+	ctx      context.Context
+	out      chan<- engine.Event
+	grace    time.Duration
+	deadline <-chan time.Time // armed at the interrupt
+	expired  bool
+}
+
+// send relays ev; the only error is one ev cannot be encoded.
+func (r *turnRelay) send(ev agent.ChatEvent) error {
+	if r.out == nil || r.expired {
+		return nil
 	}
 	payload, err := json.Marshal(ev)
 	if err != nil {
-		return false, fmt.Errorf("claude stream-json event: %w", err)
+		return fmt.Errorf("claude stream-json event: %w", err)
+	}
+	e := engine.Event{Kind: ev.Kind(), Payload: payload}
+	if r.ctx.Err() == nil {
+		select {
+		case r.out <- e:
+			return nil
+		case <-r.ctx.Done():
+		}
+	}
+	if r.deadline == nil {
+		r.deadline = time.After(r.grace)
 	}
 	select {
-	case out <- engine.Event{Kind: ev.Kind(), Payload: payload}:
-		return false, nil
-	case <-ctx.Done():
-		return true, ctx.Err()
+	case r.out <- e:
+	case <-r.deadline:
+		r.expired = true
 	}
+	return nil
 }
 
 var _ engine.Instance = (*instance)(nil)

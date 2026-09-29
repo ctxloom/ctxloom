@@ -156,7 +156,7 @@ func stopDuringArmedRelaunch(t *testing.T) {
 
 	// The stop the operator issues. It observes an ENDED run — the success-
 	// shaped answer the incident got.
-	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "", 0)
 	require.NoError(t, err)
 
 	// Release the relaunch that was already in flight behind the stop.
@@ -180,7 +180,7 @@ func TestAgentStop_StopsRunningLaunchRetryLoop(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 	harp := spinUpRetryLoop(t, c, sp)
 
-	_, err := c.AgentStop(ownerIdentity(), harp, "")
+	_, err := c.AgentStop(ownerIdentity(), harp, "", 0)
 	require.NoError(t, err)
 
 	assertLaunchesStop(t, sp)
@@ -201,7 +201,7 @@ func TestAgentStop_CancelsInFlightLaunch(t *testing.T) {
 	require.Eventually(t, func() bool { return sp.attempts.Load() >= 1 }, 10*time.Second, 10*time.Millisecond,
 		"precondition: a launch must be in flight")
 
-	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "", 0)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return sp.cancelled.Load() >= 1 }, 2*time.Second, 10*time.Millisecond,
@@ -268,7 +268,7 @@ func TestAgentSend_MailRacingTheTerminalIsNotStranded(t *testing.T) {
 	require.Eventually(t, func() bool { return sp.resolves.Load() >= 2 }, 5*time.Second, 10*time.Millisecond,
 		"the message queued behind the terminal was stranded: no relaunch reached Resolve")
 
-	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "", 0)
 	require.NoError(t, err)
 }
 
@@ -348,6 +348,6 @@ func TestAgentSend_MailRacingTheTerminalArmsOneRelaunch(t *testing.T) {
 	c.mu.Unlock()
 	assert.Equal(t, 1, armed, "the tail and the racing send both armed a relaunch for the same ended run")
 
-	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "", 0)
 	require.NoError(t, err)
 }

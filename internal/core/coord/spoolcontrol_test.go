@@ -58,7 +58,7 @@ func TestSpoolSteer_RidesTheFileAndIsConsumedAtTheTurn(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
-	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "stop and rebase first")
+	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "stop and rebase first", false)
 	require.NoError(t, err)
 	require.NotEmpty(t, outcome.MessageID, "a durable steer must return the handle its withdrawal takes")
 
@@ -153,7 +153,7 @@ func TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
-	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "rebase first")
+	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "rebase first", false)
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "rebase first")
 	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "the target must have taken it before the withdrawal")
@@ -671,7 +671,7 @@ func TestSpoolSteer_ToAPausedTargetIsNotReportedAsANewTurn(t *testing.T) {
 	_, err := c.ControlPause(ctx, humanInitiator(), out.Harp, "human is reviewing")
 	require.NoError(t, err)
 
-	outcome, err := c.ControlSteer(ctx, humanInitiator(), out.Harp, "steer while paused")
+	outcome, err := c.ControlSteer(ctx, humanInitiator(), out.Harp, "steer while paused", false)
 	require.NoError(t, err)
 	assert.Equal(t, DeliveryQueued, outcome.Delivery,
 		"a paused target is not woken: the steer waits at its gate, which is a queue, not a new turn")

@@ -36,6 +36,11 @@ func runRoot(t *testing.T, args ...string) (string, error) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		resetRootFormat(t)
+		// rootCommand() clears --help before ITS dispatch, but most of this
+		// package dispatches through rootCmd.Execute() directly and never
+		// gets that reset. A --help this call passed would otherwise turn the
+		// next such dispatch into a help print that exits 0.
+		resetHelpFlag(rootCmd)
 	})
 	err := rootCommand().Execute()
 	return out.String(), err

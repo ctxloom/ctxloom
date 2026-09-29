@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -127,4 +128,86 @@ func TestMountBase_CarriesGitPointerMounts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, targetsOf(hostMounts), "/ctr"+filepath.Join(proj, ".git"))
 	assert.Contains(t, targetsOf(hostMounts), "/ctr"+filepath.Join(projAdmin, "gitdir"))
+}
+
+// hostBehind answers where a container path lands on the host under a mount
+// plan, the way the runtime stacks bind mounts: the mount whose target is the
+// deepest ancestor of the path wins. ok is false when no mount reaches it.
+func hostBehind(mounts []mount, containerPath string) (host string, readOnly, ok bool) {
+	best := -1
+	for i, m := range mounts {
+		rel, err := filepath.Rel(m.Container, containerPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if best < 0 || len(m.Container) > len(mounts[best].Container) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return "", false, false
+	}
+	rel, _ := filepath.Rel(mounts[best].Container, containerPath)
+	return filepath.Join(mounts[best].Host, rel), mounts[best].ReadOnly, true
+}
+
+// A container run must see only THIS checkout's git data. The shared common
+// dir holds the worktrees/ registry of every other checkout, and an
+// in-container `git worktree prune` (or gc's automatic prune) deletes any
+// registration whose back-pointer does not resolve in there — which, where
+// the runtime renames paths, is every other one. So the registry is not
+// reachable from the container at all, on any mapping, while everything git
+// needs to work in this checkout still resolves read-write to the host: its
+// own admin dir, and the common dir's config, packed-refs, hooks, objects
+// and refs (whose lock-and-rename updates need the common dir itself
+// mounted, not its files one by one).
+func TestMountBase_HidesOtherWorktreesRegistry(t *testing.T) {
+	ctx := context.Background()
+	runtimes := map[string]Runtime{
+		"renaming": fakeRuntime{name: "docker", binary: "docker", available: true},
+		"identity": mapperRuntime{fakeRuntime: fakeRuntime{name: "docker", binary: "docker", available: true}, m: identityMapper{}},
+	}
+	for rtName, rt := range runtimes {
+		for _, base := range []string{"worktree", "host"} {
+			t.Run(rtName+"/"+base, func(t *testing.T) {
+				dir, admin := linkedCheckout(t, "")
+				registry := filepath.Dir(admin)
+				common := filepath.Dir(registry)
+				other := filepath.Join(registry, "other")
+				require.NoError(t, os.MkdirAll(other, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(other, "gitdir"), []byte("/elsewhere/.git\n"), 0o644))
+				for _, d := range []string{"objects", "refs", "hooks"} {
+					require.NoError(t, os.MkdirAll(filepath.Join(common, d), 0o755))
+				}
+				for _, f := range []string{"config", "packed-refs", "HEAD"} {
+					require.NoError(t, os.WriteFile(filepath.Join(common, f), nil, 0o644))
+				}
+				f := &git.Fake{CommonDirValue: common}
+
+				var mounts []mount
+				var err error
+				if base == "worktree" {
+					mounts, err = worktreeBase{wt: NewWorktree(f)}.mountBase(ctx, rt, t.TempDir(), dir, t.TempDir(), engineContainerSpec{}, f)
+				} else {
+					mounts, err = hostBase{}.mountBase(ctx, rt, dir, dir, t.TempDir(), engineContainerSpec{}, f)
+				}
+				require.NoError(t, err)
+
+				host, _, ok := hostBehind(mounts, mapped(t, rt, other))
+				if ok {
+					_, statErr := os.Stat(host)
+					assert.ErrorIs(t, statErr, os.ErrNotExist,
+						"another worktree's registration must not be reachable from the container (it resolved to %s)", host)
+				}
+				for _, need := range []string{admin, filepath.Join(admin, "HEAD"),
+					filepath.Join(common, "config"), filepath.Join(common, "packed-refs"),
+					filepath.Join(common, "hooks"), filepath.Join(common, "objects"), filepath.Join(common, "refs")} {
+					host, ro, ok := hostBehind(mounts, mapped(t, rt, need))
+					require.True(t, ok, "%s must be mounted", need)
+					assert.Equal(t, need, host, "%s must resolve to the host's own copy", need)
+					assert.False(t, ro, "%s must be writable: git updates it in place", need)
+				}
+			})
+		}
+	}
 }

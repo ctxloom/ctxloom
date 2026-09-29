@@ -18,6 +18,14 @@ import (
 // to decide whether a still-RUNNING container has been orphaned.
 const labelOwnerPID = "ctxloom.owner-pid"
 
+// labelOwnerPIDNS is the container label key stamping the pid namespace
+// labelOwnerPID was read in (ownerPIDNamespace). A pid names a process only
+// within its namespace: under docker-outside-of-docker, ctxloom processes in
+// different pid namespaces share one daemon, and one of them probing another's
+// pid in its OWN namespace would read a live owner as dead and kill its
+// runner. So the reaper judges only containers stamped with its own namespace.
+const labelOwnerPIDNS = "ctxloom.owner-pidns"
+
 // labelCreatedAt is the container label key stamping the RFC3339 UTC launch
 // time (ownerLabelArgs) — containerReapGraceWindow reads this so a container
 // that has not been running long enough to trust is never reaped.
@@ -46,6 +54,7 @@ func ownerLabelArgs() []string {
 	return []string{
 		"--label", fmt.Sprintf("%s=%d", labelOwnerPID, os.Getpid()),
 		"--label", fmt.Sprintf("%s=%s", labelCreatedAt, time.Now().UTC().Format(time.RFC3339)),
+		"--label", labelOwnerPIDNS + "=" + ownerPIDNamespace(),
 	}
 }
 
@@ -80,7 +89,8 @@ const (
 	// removed.
 	ContainerReaped ContainerReapVerdict = "reaped"
 	// ContainerSkipped: left running — no ctxloom-iso- name prefix, no/
-	// unparsable owner-pid or created-at label, still inside the grace
+	// unparsable owner-pid or created-at label, an owner-pidns other than
+	// this process's own (or none), still inside the grace
 	// window, the owner is alive or its liveness could not be confirmed, or
 	// the remove itself failed. Every one of these is "never touched, on
 	// doubt" — see classifyContainer's doc.
@@ -170,6 +180,8 @@ func ReapOrphanedContainers(ctx context.Context, rt Runtime) ContainerReapResult
 //   - it must carry a present, parsable, positive owner-pid label — absent
 //     or unparsable is treated exactly like "cannot prove the owner dead",
 //     never as "no owner, safe to reap";
+//   - it must carry an owner-pidns label equal to this process's own pid
+//     namespace — a pid from another namespace names nothing here;
 //   - it must carry a present, parsable created-at label at least
 //     containerReapGraceWindow old — a container that cannot prove its own
 //     age is left alone, and one still within the window is left alone even
@@ -200,6 +212,12 @@ func classifyContainer(now time.Time, info ContainerInfo) ContainerCandidate {
 		return c
 	}
 	c.OwnerPID = pid
+
+	if ns, ok := info.Labels[labelOwnerPIDNS]; !ok || ns != ownerPIDNamespace() {
+		c.Verdict = ContainerSkipped
+		c.Reason = "owner-pid was read in another pid namespace (or names none) — it cannot be judged from here"
+		return c
+	}
 
 	createdRaw, ok := info.Labels[labelCreatedAt]
 	if !ok {

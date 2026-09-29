@@ -123,3 +123,28 @@ func TestControlSteer_InterruptOnAnIdleTargetDoesNotCutTheSteer(t *testing.T) {
 		assert.NotContains(t, m.Body, "interrupted before it finished", "no turn was cut: the target was idle")
 	}
 }
+
+// TestStopChildren_InterruptsEachRunningTurnThenCloses: the BULK agent_stop is
+// interrupt-then-close too. A running child is interrupted and given its grace
+// — its turn reaches its boundary and REPORTS that it was cut short — rather
+// than being left to run until the drain bound forces it. The bound is set far
+// past the caller's deadline, so a sweep that only waits for it fails here.
+func TestStopChildren_InterruptsEachRunningTurnThenCloses(t *testing.T) {
+	c, sp, out := heldChild(t)
+	c.drainBound = time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+
+	res, err := c.Stop(ctx, ownerIdentity(), StopRequest{Reason: "fan-out complete", Grace: 5 * time.Second})
+	require.NoError(t, err, "the sweep must settle on the interrupt, not wait out the drain bound")
+	require.Len(t, res.Children, 1)
+	assert.Equal(t, StopOutcomeInterrupted, res.Children[0].Outcome, "its turn was cut short, and the result says so")
+	assert.Contains(t, res.Children[0].Detail, "fan-out complete")
+	assert.Equal(t, CauseStopped, runCause(c, out.RunID))
+	assert.Empty(t, readAuditKind(t, c, "drain_force"), "nothing waited for the bound: the interrupt ended the turn")
+
+	results := recvKind(t, c, KindResult, conformanceWait)
+	require.Len(t, results, 1, "the interrupted turn's report never reached the parent")
+	assert.Contains(t, results[0].Body, "interrupted before it finished")
+	awaitRelease(t, sp, 0)
+}

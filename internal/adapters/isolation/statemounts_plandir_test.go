@@ -65,13 +65,13 @@ func TestSessionStateMounts_PlanDirOutlivesTheContainer(t *testing.T) {
 	// The two directories as the in-container MCP server sees them: resolved
 	// under the container's home, read back as the Linux container's slash
 	// paths.
-	pointHomeAt(t, c.home)
+	testsupport.PointHomeAt(t, c.home)
 	containerPlanDir, err := paths.HarpPlansDir(harp)
 	require.NoError(t, err)
 	containerHarpDir, err := paths.HarpDir(harp)
 	require.NoError(t, err)
 	containerPlanDir, containerHarpDir = filepath.ToSlash(containerPlanDir), filepath.ToSlash(containerHarpDir)
-	pointHomeAt(t, hostHome)
+	testsupport.PointHomeAt(t, hostHome)
 
 	require.NotEqual(t, containerHarpDir, containerPlanDir,
 		"the plan dir must not BE the harp top level — that identity is the defect")

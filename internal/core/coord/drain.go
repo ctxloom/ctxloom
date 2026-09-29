@@ -171,7 +171,7 @@ type drainChild struct{ harp, runID, agent string }
 // drainTracked is the set a drain accounts for: every harp's current run that
 // is live at the moment the drain begins, read from the folds (the
 // authoritative state), never from the runtime attachment map. keep selects
-// which of them; nil keeps every one (the shutdown drain).
+// which of them; nil keeps every one.
 func (c *Coordinator) drainTracked(keep func(*RunRecord) bool) []drainChild {
 	var tracked []drainChild
 	c.runs.View(func() {

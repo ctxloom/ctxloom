@@ -300,11 +300,3 @@ func stubGateway(t *testing.T, out string, err error) *[]string {
 	t.Cleanup(func() { probeExec = orig })
 	return &got
 }
-
-// pointHomeAt repoints the user's home at dir for the rest of the test: HOME
-// and USERPROFILE together, since os.UserHomeDir reads the latter on Windows.
-func pointHomeAt(t *testing.T, dir string) {
-	t.Helper()
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
-}

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/vtemu"
 )
 
 // This file reproduces two defects observed in a live session whose surround
@@ -58,10 +60,10 @@ func TestSurround_BarPaintClobbersChildSavedCursor(t *testing.T) {
 	h.child("Z")
 	h.feed()
 
-	if got := h.emu.grid[9][4]; got != 'Z' {
+	if got := h.emu.Cell(9, 4); got != 'Z' {
 		t.Fatalf("child's saved cursor did not survive an interposed bar paint: "+
 			"marker 'Z' landed elsewhere, row10/col5 (0-idx 9,4) = %q; full row 10 = %q",
-			string(got), h.emu.row(9))
+			string(got), h.emu.Row(9))
 	}
 }
 
@@ -104,12 +106,12 @@ func TestSurround_ResizeGrowLeavesStaleBarGeneration(t *testing.T) {
 	s.SetSize(24, 80) // bar painted on row 24
 	s.SetSize(30, 80) // grow: region 1;29, new bar on row 30 — row 24 left as-is
 
-	emu := newVTEmu(30, 80)
+	emu := vtemu.New(30, 80)
 	emu.Feed(tty.Bytes())
 
 	var barRows []int
-	for i := 0; i < emu.rows; i++ {
-		if strings.Contains(emu.row(i), barMarker) {
+	for i := 0; i < emu.Rows(); i++ {
+		if strings.Contains(emu.Row(i), barMarker) {
 			barRows = append(barRows, i+1)
 		}
 	}

@@ -39,14 +39,14 @@ func TestAuthFor_OnlyTheRegisteredNameResolves(t *testing.T) {
 // inherit another engine's credentials — and a non-registered spelling of a
 // real engine is unmapped.
 func TestEngineContainerSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
-	require.NotEmpty(t, ContainerAuthEngines(), "fixture: the container-auth roster must not be empty")
-	assert.True(t, HasContainerAuth(claude.EngineName), "the registered name resolves")
+	require.NotEmpty(t, ContainerStoryEngines(), "fixture: the container-story roster must not be empty")
+	assert.True(t, HasContainerStory(claude.EngineName), "the registered name resolves")
 
-	assert.False(t, HasContainerAuth(unknownEngineName), "an unmapped engine must reach the fail-closed default")
-	assert.False(t, HasContainerAuth(""), "an empty engine name must reach the fail-closed default")
-	assert.False(t, HasContainerAuth("acp"), "the generic acp backend has no vetted container auth")
+	assert.False(t, HasContainerStory(unknownEngineName), "an unmapped engine must reach the fail-closed default")
+	assert.False(t, HasContainerStory(""), "an empty engine name must reach the fail-closed default")
+	assert.False(t, HasContainerStory("acp"), "the generic acp backend has no declared container story")
 	for _, spelling := range nonRegisteredSpellings() {
-		assert.False(t, HasContainerAuth(spelling), "%q is not the registered name and must miss", spelling)
+		assert.False(t, HasContainerStory(spelling), "%q is not the registered name and must miss", spelling)
 	}
 
 	spec := engineContainerSpecFor(unknownEngineName)

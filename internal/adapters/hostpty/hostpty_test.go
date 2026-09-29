@@ -162,7 +162,9 @@ func TestEnd_LeavesTheChildsLastBytesReadable(t *testing.T) {
 	defer cancel()
 
 	written := filepath.Join(t.TempDir(), "written")
-	s, err := Start(ctx, exec.Command("sh", "-c", "printf LAST-BYTES-9f3a; : > "+written+"; exec sleep 30"))
+	// A short grace: on macOS the SIGTERMed child cannot finish exiting while
+	// its bytes are unread, so End returns on the grace's SIGKILL, not the reap.
+	s, err := start(ctx, exec.Command("sh", "-c", "printf LAST-BYTES-9f3a; : > "+written+"; exec sleep 30"), 300*time.Millisecond)
 	require.NoError(t, err)
 	defer s.Kill()
 	require.Eventually(t, func() bool { _, err := os.Stat(written); return err == nil }, 5*time.Second, 5*time.Millisecond)

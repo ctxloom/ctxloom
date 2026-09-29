@@ -18,34 +18,34 @@ import (
 //
 // The claim under test is an AGREEMENT, not a lookup: the offer must never
 // present an axis that the very next `agent create` refuses. That is what makes
-// gating on isolation.HasContainerAuth load-bearing rather than decorative, and
+// gating on isolation.HasContainerStory load-bearing rather than decorative, and
 // TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts below asserts the
 // agreement against the real writer instead of restating the predicate.
 // =============================================================================
 
-// noContainerAuthConfig is a project whose only engine label is bound to a
+// noContainerStoryConfig is a project whose only engine label is bound to a
 // backend name nothing registers. The LABEL is what the engine-membership check
-// reads, so that check passes and the container-auth refusal is the one thing
+// reads, so that check passes and the container-story refusal is the one thing
 // left to fail on; the unregistered backend it resolves to reaches
 // engineContainerSpecFor's fail-closed default arm and therefore has no
-// container auth. A label is the only reachable subject for this gate — every
-// backend in the registry has container auth — and it is a real one, since
+// container story. A label is the only reachable subject for this gate — every
+// backend in the registry declares a container story — and it is a real one, since
 // `llm.configs.<label>.type` accepts any string a user types.
-const noContainerAuthConfig = "version: 6\nllm:\n  configs:\n    editor: { type: unmapped-engine }\n  defaults:\n    primary: editor\n"
+const noContainerStoryConfig = "version: 6\nllm:\n  configs:\n    editor: { type: unmapped-engine }\n  defaults:\n    primary: editor\n"
 
-// TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRuntime
+// TestAgentRuntimeOffer_EngineWithoutContainerStoryIsNotOfferedAContainerRuntime
 // is the gate. An engine that cannot authenticate inside a container gets host
 // and nothing else — offering it a container axis would collect a decision the
 // user has the least context to re-derive, and then throw it away at the write.
-func TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRuntime(t *testing.T) {
-	cfg, _ := loadConfigDir(t, noContainerAuthConfig)
+func TestAgentRuntimeOffer_EngineWithoutContainerStoryIsNotOfferedAContainerRuntime(t *testing.T) {
+	cfg, _ := loadConfigDir(t, noContainerStoryConfig)
 
 	offer := AgentRuntimeOffer(engines.Registry(), cfg, "editor")
 
-	require.False(t, isolation.HasContainerAuth(offer.Backend),
-		"fixture precondition: %q must be a backend with no container auth", offer.Backend)
+	require.False(t, isolation.HasContainerStory(offer.Backend),
+		"fixture precondition: %q must be a backend with no container story", offer.Backend)
 	assert.Equal(t, []isolation.RuntimeAxis{isolation.RuntimeHost}, offer.Runtimes,
-		"an engine with no container auth may be offered host and nothing else")
+		"an engine with no container story may be offered host and nothing else")
 	assert.False(t, offer.OffersContainer(),
 		"no container axis may appear in an offer for an engine that cannot authenticate in one")
 }
@@ -55,7 +55,7 @@ func TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRunti
 // reads as ctxloom having decided against containers, when the real fact is
 // narrow and fixable.
 func TestAgentRuntimeOffer_WithheldContainerSaysWhy(t *testing.T) {
-	cfg, _ := loadConfigDir(t, noContainerAuthConfig)
+	cfg, _ := loadConfigDir(t, noContainerStoryConfig)
 
 	offer := AgentRuntimeOffer(engines.Registry(), cfg, "editor")
 
@@ -65,24 +65,24 @@ func TestAgentRuntimeOffer_WithheldContainerSaysWhy(t *testing.T) {
 		"the reason names the label the user typed")
 	assert.Contains(t, offer.ContainerWithheld, `"unmapped-engine"`,
 		"the reason names the backend the label resolved to, since the two differ here")
-	assert.Contains(t, offer.ContainerWithheld, "container auth",
+	assert.Contains(t, offer.ContainerWithheld, noContainerStory,
 		"the reason states the actual obstacle")
-	for _, engine := range isolation.ContainerAuthEngines() {
+	for _, engine := range isolation.ContainerStoryEngines() {
 		assert.Contains(t, offer.ContainerWithheld, engine,
-			"the reason lists the engines that DO have container auth, so the user has a way forward")
+			"the reason lists the engines that DO declare a container story, so the user has a way forward")
 	}
 }
 
-// TestAgentRuntimeOffer_EngineWithContainerAuthGetsBothAxes proves the gate is
+// TestAgentRuntimeOffer_EngineWithContainerStoryGetsBothAxes proves the gate is
 // not simply off: an engine that CAN authenticate is offered both container
 // axes, and nothing is withheld.
-func TestAgentRuntimeOffer_EngineWithContainerAuthGetsBothAxes(t *testing.T) {
+func TestAgentRuntimeOffer_EngineWithContainerStoryGetsBothAxes(t *testing.T) {
 	cfg, _ := loadConfigDir(t, "version: 6\n")
 
 	offer := AgentRuntimeOffer(engines.Registry(), cfg, "claude-code")
 
-	require.True(t, isolation.HasContainerAuth(offer.Backend),
-		"fixture precondition: %q must have container auth", offer.Backend)
+	require.True(t, isolation.HasContainerStory(offer.Backend),
+		"fixture precondition: %q must declare a container story", offer.Backend)
 	assert.Equal(t, []isolation.RuntimeAxis{
 		isolation.RuntimeHost,
 		isolation.RuntimeContainerRootless,
@@ -113,7 +113,7 @@ func TestAgentRuntimeOffer_NoDefaultIsMarked(t *testing.T) {
 
 // TestAgentRuntimeOffer_NilConfigWithholdsContainer pins the DIRECTION of the
 // degraded answer. With no config the label cannot be resolved to a backend, so
-// whether it has container auth is unknown — and an unknown withholds. Offering
+// whether it declares a container story is unknown — and an unknown withholds. Offering
 // an axis that may then be refused costs the user a wasted decision on the one
 // question they cannot re-derive; withholding one that would have been allowed
 // costs a re-run of an interview that is re-runnable by design.
@@ -128,7 +128,7 @@ func TestAgentRuntimeOffer_NilConfigWithholdsContainer(t *testing.T) {
 }
 
 // TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts is the reason the gate
-// consults HasContainerAuth instead of a hand-kept roster. For EVERY registered
+// consults HasContainerStory instead of a hand-kept roster. For EVERY registered
 // backend, the offer's verdict and the real writer's verdict must match: if the
 // interview offers container-rootless, `agent create --runtime container-rootless`
 // must succeed, and if it withholds it, that same write must be refused.
@@ -157,8 +157,8 @@ func TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts(t *testing.T) {
 			}
 			require.Error(t, err,
 				"%s: the interview withheld container-rootless, so the write must refuse it — an offer the writer accepts but the interview hides is a missing option, and one the interview offers but the writer refuses is a wasted decision", backend)
-			assert.Contains(t, err.Error(), "container auth",
-				"%s: and the refusal must be the container-auth one, not some unrelated failure", backend)
+			assert.Contains(t, err.Error(), noContainerStory,
+				"%s: and the refusal must be the container-story one, not some unrelated failure", backend)
 		})
 	}
 }
@@ -175,7 +175,7 @@ const mockContainerConfig = "version: 6\nllm:\n  configs:\n    fast: { type: moc
 // probed — the interview's offer, the writer's refusal, and the launch's
 // resolution — accepts it, for BOTH ownership modes.
 //
-// mock is DistributionTestOnly, so ContainerAuthEngines() never NAMES it in a
+// mock is DistributionTestOnly, so ContainerStoryEngines() never NAMES it in a
 // refusal's suggestion list; that is a roster fact about what is OFFERED by
 // name, and it must not leak into the capability check that decides
 // acceptance. Asserting acceptance here, rather than agreement between the
@@ -190,7 +190,7 @@ func TestMockBoundToContainer_PassesEveryValidationShortOfADaemon(t *testing.T) 
 			assert.Equal(t, "mock", offer.Backend, "the label resolves to the double")
 			assert.Contains(t, offer.Runtimes, axis, "the interview offers the container axis for mock")
 			assert.Empty(t, offer.ContainerWithheld)
-			assert.NotContains(t, isolation.ContainerAuthEngines(), "mock",
+			assert.NotContains(t, isolation.ContainerStoryEngines(), "mock",
 				"precondition: mock is absent from the OFFERED roster, so acceptance below is decided by capability alone")
 
 			_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{

@@ -157,12 +157,13 @@ func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
 	_, err = sess.Write([]byte{0x1d, 'j', 'q'})
 	require.NoError(t, err)
 
-	// Deadline-poll for the engage signature (DECSC + bare region-reset, the
-	// Controller's synchronous engage handoff) and the real overlay's roster
-	// panel hint line — proving the actual bubbletea Program rendered, not a
-	// stub — rather than waiting for the whole run to finish first.
+	// Deadline-poll for the engage signature (alternate screen + bare
+	// region-reset, the Controller's synchronous engage handoff) and the real
+	// overlay's roster panel hint line — proving the actual bubbletea Program
+	// rendered, not a stub — rather than waiting for the whole run to finish
+	// first.
 	engaged := sess.WaitForOutput(ptyRunTimeout, func(out string) bool {
-		return strings.Contains(out, "\x1b7\x1b[r") && strings.Contains(out, "j/k move")
+		return strings.Contains(out, "\x1b[?1049h\x1b[r") && strings.Contains(out, "j/k move")
 	})
 	require.True(t, engaged, "overlay never engaged/rendered within %s; captured so far: %q", ptyRunTimeout, sess.Output())
 
@@ -198,5 +199,5 @@ func TestRunPTY_PlainTerminalNeverEngages(t *testing.T) {
 	out := sess.Output()
 	assert.NotContains(t, out, "\x1b[1;", "--plain-terminal never establishes the surround's protected region")
 	assert.NotContains(t, out, "^] viewer", "--plain-terminal never paints the bar")
-	assert.NotContains(t, out, "\x1b7\x1b[r", "--plain-terminal never wires the prefix interceptor, so Ctrl-] never engages")
+	assert.NotContains(t, out, "\x1b[?1049h\x1b[r", "--plain-terminal never wires the prefix interceptor, so Ctrl-] never engages")
 }

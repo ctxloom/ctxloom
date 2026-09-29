@@ -339,7 +339,7 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 // follow.
 //
 // The reachable argv: PermissionPlan + ModeInteractive + empty Model + no
-// harp + an isolated cell (which skips the surface flags entirely).
+// harp + no presentations (which skips the surface flags entirely).
 func TestClaudeCode_BuildArgs_PromptIsTerminated(t *testing.T) {
 	backend := NewClaudeCode()
 	const task = "Reply with exactly: PROMPTOK"
@@ -348,7 +348,6 @@ func TestClaudeCode_BuildArgs_PromptIsTerminated(t *testing.T) {
 		Mode:        agent.ModeInteractive,
 		Permissions: agent.PermissionPlan,
 		Prompt:      &agent.Fragment{Content: task},
-		CellKind:    agent.CellKindDirectoryIsolated,
 	})
 
 	require.GreaterOrEqual(t, len(args), 2)
@@ -384,23 +383,20 @@ func TestClaudeCode_BuildArgs_EveryPromptShapeIsTerminated(t *testing.T) {
 		agent.PermissionAcceptEdits, agent.PermissionPlan,
 	} {
 		for _, model := range []string{"", "sonnet"} {
-			for _, cell := range []agent.CellKind{agent.CellKindDirectoryIsolated, agent.CellKindShared} {
-				args := backend.buildArgs(&agent.ExecuteRequest{
-					Mode:        agent.ModeInteractive,
-					Permissions: perm,
-					Model:       model,
-					CellKind:    cell,
-					Prompt:      &agent.Fragment{Content: task},
-				})
-				if !assert.Equal(t, task, args[len(args)-1]) {
-					continue
-				}
-				if !assert.GreaterOrEqual(t, len(args), 2) {
-					continue
-				}
-				assert.Equal(t, "--", args[len(args)-2],
-					"perm=%v model=%q cell=%v", perm, model, cell)
+			args := backend.buildArgs(&agent.ExecuteRequest{
+				Mode:        agent.ModeInteractive,
+				Permissions: perm,
+				Model:       model,
+				Prompt:      &agent.Fragment{Content: task},
+			})
+			if !assert.Equal(t, task, args[len(args)-1]) {
+				continue
 			}
+			if !assert.GreaterOrEqual(t, len(args), 2) {
+				continue
+			}
+			assert.Equal(t, "--", args[len(args)-2],
+				"perm=%v model=%q", perm, model)
 		}
 	}
 }

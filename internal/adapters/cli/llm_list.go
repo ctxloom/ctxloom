@@ -30,7 +30,7 @@ import (
 // command of their own because the agent-creating setup interview already
 // enumerates engines with `llm list` (phase 1), and the runtime question it
 // must ask per agent is answerable only per ENGINE — an interview that offered
-// a container axis for an engine with no container auth would collect a choice
+// a container axis for an engine with no container story would collect a choice
 // `agent create` then refuses. See operations.RuntimeOffer.
 type llmEntry struct {
 	Label             string   `json:"label"`

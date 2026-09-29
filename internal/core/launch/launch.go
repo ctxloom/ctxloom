@@ -211,20 +211,12 @@ type Cell struct {
 	// dial home: zero for a host cell and for a runtime that routes to the
 	// host's loopback. Local to the launching process, like HomeMode: the
 	// coordinator honours it before the runner starts.
-	Listen    present.Listen
-	Container *ContainerCell
-	Cleanup   func() error
+	Listen  present.Listen
+	Cleanup func() error
 	// Handle is what the cells adapter keeps to START a process in this cell:
 	// the prepared environment itself, opaque to core and read back only by
 	// the adapter that made it.
 	Handle any
-}
-
-// ContainerCell is the container half of a cell.
-type ContainerCell struct {
-	Runtime RuntimeAxis
-	Image   string
-	Home    string
 }
 
 // Launch is the resolved launch. Immutable once returned. Everything a runner

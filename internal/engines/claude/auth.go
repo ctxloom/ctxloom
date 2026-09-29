@@ -76,8 +76,16 @@ var cloudVars = append(slices.Clone(providerSwitches),
 // credentials (https://cloud.google.com/docs/authentication/application-default-credentials,
 // what claude's Vertex page has you create with `gcloud auth
 // application-default login`). Shared read-only: a run uses the human's
-// provider login, never changes it.
-var providerStores = []string{".aws", ".config/gcloud"}
+// provider login, never changes it — except the SSO token cache, which the
+// AWS SDK rewrites when it refreshes an SSO login
+// (https://docs.aws.amazon.com/cli/latest/userguide/sso-using-profile.html),
+// so it is shared read-write, nested in the read-only ~/.aws and listed after
+// it: a store mounted before its parent would be shadowed by it.
+var providerStores = []engine.SharedStore{
+	{HomeRel: ".aws", ReadOnly: true},
+	{HomeRel: ".aws/sso/cache"},
+	{HomeRel: ".config/gcloud", ReadOnly: true},
+}
 
 // credentialVars are claude's own credential vars across the stored modes
 // and the gateway; the container passthrough declares them too.
@@ -211,8 +219,7 @@ func existingProviderStores(shell func(string) (string, bool)) []engine.SharedSt
 		return nil
 	}
 	var out []engine.SharedStore
-	for _, rel := range providerStores {
-		st := engine.SharedStore{HomeRel: rel, ReadOnly: true}
+	for _, st := range providerStores {
 		if fi, err := os.Stat(st.HostDir(home)); err == nil && fi.IsDir() {
 			out = append(out, st)
 		}

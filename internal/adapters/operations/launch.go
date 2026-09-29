@@ -25,8 +25,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // This file is the trunk every host-side launch enters: StartRun mints the
@@ -359,13 +361,22 @@ func (c Cells) spec(ctx context.Context, req launch.CellRequest, harp string) (i
 // runCredentials is what the request's agent authenticates with
 // (resolveRunAuth), from the mode the binding declared — settled before the
 // environment exists, so a credential that has to be minted is minted before
-// anything is built. A preview resolves none: it never mints, never reads
-// the store, and shows the placement without them.
+// anything is built. A preview resolves them READ-ONLY (previewRunAuth: it
+// never mints, writes or creates a credential), so the environment sees the
+// stores the run would share; a refusal the run would return is recorded for
+// the dry run's gate and the preview carries on without credentials.
 func (c Cells) runCredentials(ctx context.Context, req launch.CellRequest) (engine.Credentials, error) {
-	if c.preview {
+	in := runAuth{Backend: string(req.Engine.Root().Name), Declared: req.Auth}
+	if !c.preview {
+		return resolveRunAuth(ctx, c.engines, in)
+	}
+	creds, err := previewRunAuth(c.engines, in)
+	if err != nil {
+		remedy, _ := clifmt.RemedyOf(err)
+		strictness.FailAlways(report.KindIsolation, remedy, "refusing to run: %v", err)
 		return engine.Credentials{}, nil
 	}
-	return resolveRunAuth(ctx, c.engines, runAuth{Backend: string(req.Engine.Root().Name), Declared: req.Auth})
+	return creds, nil
 }
 
 // environment is the prepared environment, or the preview's.

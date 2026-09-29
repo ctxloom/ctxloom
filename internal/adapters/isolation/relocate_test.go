@@ -108,6 +108,10 @@ type mapperRuntime struct {
 
 func (r mapperRuntime) mapper() pathMapper { return r.m }
 
+func (r mapperRuntime) exposeMapped(hostPath string, readOnly bool) (mount, error) {
+	return exposeThrough(r.m, hostPath, readOnly)
+}
+
 // A root the runtime cannot route is refused by name, as
 // present.ErrUnreachableRoot — never presented at a guessed path.
 func TestContainerRelocator_UnroutableRootIsErrUnreachableRoot(t *testing.T) {
@@ -164,9 +168,11 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	cw := &containerWorkspace{dir: t.TempDir()}
 	home := t.TempDir()
 	login, provider := filepath.Join(home, ".claude"), filepath.Join(home, ".aws")
+	ssoCache := filepath.Join(provider, "sso", "cache")
 	stores := []sharedStore{
 		{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude"}, hostDir: login},
 		{SharedStore: engine.SharedStore{HomeRel: ".aws", ReadOnly: true}, hostDir: provider},
+		{SharedStore: engine.SharedStore{HomeRel: ".aws/sso/cache"}, hostDir: ssoCache},
 	}
 	sessionHome := filepath.Join(t.TempDir(), "home", "claude")
 	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: sessionHome, homeVar: claudeHomeVar, stores: stores})
@@ -177,6 +183,10 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	argv := strings.Join(c.runtime.RunArgs(c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")
 	assert.Contains(t, argv, "type=bind,source="+login+",target="+defaultContainerHome+"/.claude ", "the login store, read-write")
 	assert.Contains(t, argv, "type=bind,source="+provider+",target="+defaultContainerHome+"/.aws,readonly", "the provider store, read-only")
+	nested := "type=bind,source=" + ssoCache + ",target=" + defaultContainerHome + "/.aws/sso/cache "
+	assert.Contains(t, argv, nested, "a store nested in a read-only one is still read-write")
+	assert.Less(t, strings.Index(argv, "target="+defaultContainerHome+"/.aws,readonly"), strings.Index(argv, nested),
+		"the nested store is mounted after its parent, which would otherwise shadow it")
 	assert.Contains(t, argv, "target=/ctxloom/home/claude", "the session home keeps its own mount")
 	assert.Equal(t, "", pl.Env["STORE_VAR"], "the var points the engine at $HOME")
 }

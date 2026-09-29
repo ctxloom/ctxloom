@@ -236,7 +236,7 @@ func (w *writeLayer) note(name string) { w.names[filepath.Clean(name)] = struct{
 
 func (w *writeLayer) Create(name string) (afero.File, error) {
 	w.note(name)
-	return w.Fs.Create(name)
+	return iox.Create(w.Fs, name)
 }
 
 func (w *writeLayer) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {

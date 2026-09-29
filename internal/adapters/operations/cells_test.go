@@ -377,7 +377,6 @@ func TestCellsPrepare_TheCellIsTheEnvironmentsOutcome(t *testing.T) {
 		env, ok := EnvironmentOf(cell)
 		require.True(t, ok)
 		assert.Equal(t, listening{want}, env, "runtime %s: the handle is the environment itself", runtime)
-		assert.Nil(t, cell.Container, "runtime %s: nothing beside the environment describes the runtime", runtime)
 	}
 }
 

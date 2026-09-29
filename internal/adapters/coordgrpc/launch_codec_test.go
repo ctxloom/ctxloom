@@ -89,3 +89,18 @@ func TestMaxRecvMsgSize_BoundsTheInlinePackagePlusHeadroom(t *testing.T) {
 }
 
 var _ protoreflect.Message = (*pb.Launch)(nil).ProtoReflect()
+
+// TestCell_CarriesNoContainerHalf: nothing ever produced a container half of
+// a cell (the Environment owns the runtime), so neither the Go cell nor its
+// wire form may carry one — a field nobody writes is a field a reader will
+// trust. The wire number and name stay reserved so they cannot be reused
+// with another meaning.
+func TestCell_CarriesNoContainerHalf(t *testing.T) {
+	_, has := reflect.TypeOf(launch.Cell{}).FieldByName("Container")
+	require.False(t, has, "launch.Cell has no container half")
+
+	d := (&pb.Cell{}).ProtoReflect().Descriptor()
+	require.Nil(t, d.Fields().ByNumber(6), "wire Cell field 6 is gone")
+	require.True(t, d.ReservedRanges().Has(protoreflect.FieldNumber(6)), "wire Cell field 6 is reserved")
+	require.True(t, d.ReservedNames().Has("container"), "wire Cell name \"container\" is reserved")
+}

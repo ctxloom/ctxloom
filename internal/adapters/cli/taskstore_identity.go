@@ -15,9 +15,9 @@ import (
 // deliberately a NEW, separate seam from taskops.ResolveProjectIdentity
 // itself, which stays untouched and worktree-distinct for its OTHER caller,
 // internal/adapters/mcp/coord_host.go: the runtime coordinator's state-dir key (an
-// exclusive owner.pid lock) must never merge across worktrees, or two
-// concurrent worktree sessions collide and the loser silently degrades to an
-// ephemeral state dir. "tasks aren't
+// exclusive owner lock, coord.claimOwner) must never merge across worktrees, or
+// two concurrent worktree sessions collide and the loser is refused as a second
+// coordinator. "tasks aren't
 // context" is the whole rationale for redirecting HERE and nowhere else.
 //
 // A redirect failure (a stale worktree pointer, or an unreadable .git file)

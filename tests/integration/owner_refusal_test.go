@@ -4,7 +4,6 @@ package integration
 
 import (
 	"errors"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -31,9 +30,9 @@ const ownerRefusalPollTimeout = 20 * time.Second
 // implies the owner lock is already held.
 const ownerRefusalSentinel = "owner-refusal-sentinel"
 
-// ownerLocks lists every owner lock under the isolated HOME's coordinator
-// state root, so the test can assert on exactly how many processes hold a
-// project claim — on disk, never from a log line.
+// ownerLocks lists every owner lock file under the isolated HOME's
+// coordinator state root: one per project ever claimed. Whether a process
+// HOLDS one is coord.ProbeOwner's answer, never the file's presence.
 func ownerLocks(t *testing.T, home string) []string {
 	t.Helper()
 	root := filepath.Join(home, paths.AppDirName, paths.CoordDirName)
@@ -89,9 +88,12 @@ func TestSecondOwner_IsRefusedLoudly_AndTheFirstKeepsItsState(t *testing.T) {
 	locks := ownerLocks(t, env.HomeDir)
 	require.Len(t, locks, 1, "the first session must hold exactly one owner lock; found %v", locks)
 	lock := locks[0]
-	raw, err := os.ReadFile(lock)
+	owner, err := coord.ProbeOwner(filepath.Dir(lock))
 	require.NoError(t, err)
-	require.Equal(t, strconv.Itoa(first.PID()), strings.TrimSpace(string(raw)), "the owner lock must be stamped with the first session's pid")
+	require.True(t, owner.Held, "the first session must hold the owner lock")
+	require.Equal(t, first.PID(), owner.PID, "the owner must be stamped with the first session's pid")
+	require.Equal(t, coord.OwnerInteractive, owner.Mode)
+	require.False(t, owner.Orphan, "a session with its terminal is not an orphan")
 	journalsBefore := journalsBeside(t, lock)
 	require.NotEmpty(t, journalsBefore, "the first session's coordinator must have opened its journals beside the lock")
 
@@ -105,14 +107,16 @@ func TestSecondOwner_IsRefusedLoudly_AndTheFirstKeepsItsState(t *testing.T) {
 	require.Equal(t, strictness.ExitCodeFatalFindings, exit.ExitCode(), "the second run must exit with the fatal-findings code; output:\n%s", out)
 	require.Contains(t, string(out), "["+string(strictness.ClassOwner)+"]", "the refusal must be a typed finding in its own class; output:\n%s", out)
 	require.Contains(t, string(out), coord.ErrStateOwned.Error(), "the refusal must name the owned state; output:\n%s", out)
+	require.Contains(t, string(out), "pid "+strconv.Itoa(first.PID()), "the refusal must name the owner's pid; output:\n%s", out)
+	require.Contains(t, string(out), owner.Harp, "the refusal must name the owner's session; output:\n%s", out)
 
 	// The loser left the winner alone: same single lock, same pid, journals
 	// still there, and no second state dir claimed anywhere.
 	locksAfter := ownerLocks(t, env.HomeDir)
 	require.Equal(t, locks, locksAfter, "the refused run must not add or remove an owner lock")
-	rawAfter, err := os.ReadFile(lock)
+	ownerAfter, err := coord.ProbeOwner(filepath.Dir(lock))
 	require.NoError(t, err)
-	require.Equal(t, string(raw), string(rawAfter), "the refused run must not restamp the first session's lock")
+	require.Equal(t, owner, ownerAfter, "the refused run must not take or restamp the first session's claim")
 	require.Equal(t, journalsBefore, journalsBeside(t, lock), "the refused run must not touch the first session's journals")
 
 	// The first session ends; its lock is released with it.
@@ -120,7 +124,9 @@ func TestSecondOwner_IsRefusedLoudly_AndTheFirstKeepsItsState(t *testing.T) {
 	require.NoError(t, err)
 	exited, _ := first.Wait(ownerRefusalPollTimeout)
 	require.True(t, exited, "the first session did not exit after quit; output:\n%s", first.Output())
-	require.Empty(t, ownerLocks(t, env.HomeDir), "the first session must release its owner lock on exit")
+	released, err := coord.ProbeOwner(filepath.Dir(lock))
+	require.NoError(t, err)
+	require.False(t, released.Held, "the first session must release its owner lock on exit")
 
 	// With the project unowned, a fresh run claims it normally.
 	third := env.Command(nil, "run", "--one-shot", "-f", "owner-fragment", "third claimant")

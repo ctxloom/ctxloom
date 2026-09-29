@@ -33,7 +33,7 @@ type CoordinatorConstructor func(coord.Options) (*coord.Coordinator, error)
 // ownerHarp is the session owner's harp — the inbox this process drains
 // (coord.Options.OwnerHarp); the hosting site knows it before standing the
 // coordinator up.
-func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string) (*coord.Coordinator, error) {
+func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string, mode coord.OwnerMode) (*coord.Coordinator, error) {
 	cfg, err := app.Config(context.Background())
 	if err != nil {
 		return nil, err
@@ -69,6 +69,7 @@ func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 		// The idle reaper's bound — delegation.idle_timeout, resolved by config.
 		IdleTimeout: cfg.GetDelegationIdleTimeout(),
 		OwnerHarp:   ownerHarp,
+		OwnerMode:   mode,
 	})
 	if err != nil {
 		return nil, err
@@ -208,9 +209,10 @@ func (a *HostApp) RunHost(context.Context, string, string) (operations.RunHost, 
 // credential the host revokes on teardown. A standup failure returns the
 // error for the caller's fail-loud gate; the caller decides degraded
 // behavior. The owner's RUNNER is stamped by StartOwnedRun with its own
-// per-run trio; nothing here rides an environment.
-func HostCoordinatorForSession(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string) (*coord.Coordinator, string, error) {
-	c, err := hostCoordinator(build, app, projectDir, ownerHarp)
+// per-run trio; nothing here rides an environment. mode is stamped as the
+// owner's, and decides whether a later claimant may reclaim it as an orphan.
+func HostCoordinatorForSession(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string, mode coord.OwnerMode) (*coord.Coordinator, string, error) {
+	c, err := hostCoordinator(build, app, projectDir, ownerHarp, mode)
 	if err != nil {
 		return nil, "", err
 	}

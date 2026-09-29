@@ -62,5 +62,5 @@ func TestRecordCoordinatorStartupFinding_SecondOwnerIsItsOwnClass(t *testing.T) 
 	assert.False(t, found[0].NonDegradable)
 	assert.Empty(t, strictness.Mode{Degraded: true}.Actionable(found), "--degraded proceeds without delegation")
 	assert.NotEmpty(t, strictness.Mode{}.Actionable(found), "strict mode refuses")
-	assert.Contains(t, found[0].FixIt, coord.OwnerLockFileName, "the remedy points at where the owner's pid is stamped")
+	assert.Contains(t, found[0].FixIt, "ctxloom doctor", "the remedy points at where the owner can be seen")
 }

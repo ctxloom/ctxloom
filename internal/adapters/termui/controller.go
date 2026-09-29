@@ -303,7 +303,11 @@ func takeScreen(engineOnAlt bool) takeover {
 	if engineOnAlt {
 		return takeover{enter: []byte("\x1b7\x1b[r")}
 	}
-	return takeover{enter: []byte("\x1b[?1049h\x1b[r"), leave: []byte("\x1b[?1049l")}
+	// Leaving restores the engine's cursor; it is saved again at once because
+	// release's region reset homes the cursor and its DECRC must find the
+	// engine's position in the DECSC slot — which a terminal need not share
+	// with 1049's own save.
+	return takeover{enter: []byte("\x1b[?1049h\x1b[r"), leave: []byte("\x1b[?1049l\x1b7")}
 }
 
 // buildOverlay isolates factory panics so a broken viewer degrades instead of

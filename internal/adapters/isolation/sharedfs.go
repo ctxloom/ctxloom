@@ -226,7 +226,7 @@ func probeOneRoot(ctx context.Context, rt Runtime, image, root string) error {
 		Image:   image,
 		Name:    marker,
 		Command: []string{"cat", "/probe/marker"},
-		Mounts:  []mount{{Host: dir, Container: "/probe", ReadOnly: true}},
+		Mounts:  []mount{rt.paths().bind(dir, "/probe", true)},
 	})
 	if errors.Is(err, errNoDaemonSource) {
 		// ctxloom runs in one of the daemon's containers and no mount of that

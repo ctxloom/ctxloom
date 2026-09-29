@@ -186,11 +186,12 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (mount, bool
 	if err := os.MkdirAll(hostTarget, 0o755); err != nil {
 		return mount{}, false, fmt.Errorf("container-worktree: creating the %s mountpoint: %w", paths.AppDirName, err)
 	}
-	target, err := rt.mapper().toContainer(hostTarget)
+	seam := rt.paths()
+	target, err := seam.targetFor(hostTarget)
 	if err != nil {
 		return mount{}, false, fmt.Errorf("container-worktree: the checkout's %s has no route into the container: %w", paths.AppDirName, err)
 	}
-	return rt.expose(source, target, true), true, nil
+	return seam.bind(source, target, true), true, nil
 }
 
 // NewContainerWorktreeFor builds the worktree-in-container policy for a REGISTERED

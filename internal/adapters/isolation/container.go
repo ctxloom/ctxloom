@@ -781,11 +781,12 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		}
 		// The path is host-anchored, so its container side is the runtime's
 		// mapping of it — the same one the project root it sits in takes.
-		inContainer, err := rt.mapper().toContainer(target)
+		seam := rt.paths()
+		inContainer, err := seam.targetFor(target)
 		if err != nil {
 			return nil, fmt.Errorf("container config overlay target %s has no route into the container: %w", target, err)
 		}
-		mounts = append(mounts, rt.expose(host, inContainer, false))
+		mounts = append(mounts, seam.bind(host, inContainer, false))
 	}
 	return mounts, nil
 }

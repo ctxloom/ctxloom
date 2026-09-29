@@ -246,19 +246,20 @@ type relocated struct {
 // relocateRoot is the ONE way the container relocator presents a host path
 // to the engine: the engine-side path and the mount that makes it true are
 // produced together, so a presented root cannot exist without its mount.
-// target "" places the root where the runtime's mapper routes it; a fixed
+// target "" places the root where the runtime's seam routes it; a fixed
 // target (the instance home, $HOME) still has its host side routed, so a
 // source the runtime cannot reach fails here rather than at the daemon,
 // returning the root unreachable: its Host side, no Engine side, no mount.
 func relocateRoot(rt Runtime, host, target string, readOnly bool) (relocated, error) {
-	routed, err := rt.mapper().toContainer(host)
+	seam := rt.paths()
+	routed, err := seam.targetFor(host)
 	if err != nil {
 		return relocated{root: present.Root{Host: host}}, fmt.Errorf("%w: %s: %w", present.ErrUnreachableRoot, host, err)
 	}
 	if target == "" {
 		target = routed
 	}
-	return relocated{root: present.Root{Host: host, Engine: target}, mount: rt.expose(host, target, readOnly)}, nil
+	return relocated{root: present.Root{Host: host, Engine: target}, mount: seam.bind(host, target, readOnly)}, nil
 }
 
 // workspaceEnv is what a prepared workspace provisioned for the run, or nil

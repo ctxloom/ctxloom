@@ -220,12 +220,26 @@ func (r Rooted) Build() Presentation { return r.p }
 // Under reports whether path lies under root: equal to it, or root followed
 // by a path separator. A prefix that merely shares characters with the root
 // ("/home/x" under "/home/xy") is not under it.
-func Under(path, root string) bool {
+//
+// A separator is '/' or the host's own: an engine path inside a container is
+// POSIX whatever the host, and a host path on Windows is separated by ''.
+func Under(path, root string) bool { return underSep(path, root, filepath.Separator) }
+
+// underSep is Under with the host separator a parameter, so the Windows shape
+// is pinned by a test on every OS.
+func underSep(path, root string, hostSep byte) bool {
 	if root == "" {
 		return false
 	}
-	root = strings.TrimSuffix(root, "/")
-	return path == root || strings.HasPrefix(path, root+"/")
+	root = strings.TrimRight(root, "/"+string(hostSep))
+	if path == root {
+		return true
+	}
+	if len(path) <= len(root) || !strings.HasPrefix(path, root) {
+		return false
+	}
+	next := path[len(root)]
+	return next == '/' || next == hostSep
 }
 
 // Reach is a coordinator endpoint in both presentations, as Root is a path:

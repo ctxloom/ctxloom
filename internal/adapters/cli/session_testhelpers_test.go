@@ -26,9 +26,12 @@ import (
 
 // execRootCmd runs the real cobra command tree exactly as a shell invocation
 // would (rootCmd.SetArgs + Execute), capturing stdout into a fresh buffer and
-// restoring rootCmd's IO/args afterward.
+// restoring rootCmd's IO/args afterward. --format is reset on both sides
+// (resetRootFormat), so a test sees the default only when it passes no
+// --format, and never inherits one a neighbour passed.
 func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
 	t.Helper()
+	resetRootFormat(t)
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&bytes.Buffer{})
@@ -37,6 +40,7 @@ func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
+		resetRootFormat(t)
 	})
 	err = rootCmd.Execute()
 	return out.String(), err
@@ -48,6 +52,7 @@ func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
 // command that reported from one that silently did nothing.
 func execRootCmdBoth(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	resetRootFormat(t)
 	var out, errBuf bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&errBuf)
@@ -56,6 +61,7 @@ func execRootCmdBoth(t *testing.T, args ...string) (stdout, stderr string, err e
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
+		resetRootFormat(t)
 	})
 	err = rootCmd.Execute()
 	return out.String(), errBuf.String(), err

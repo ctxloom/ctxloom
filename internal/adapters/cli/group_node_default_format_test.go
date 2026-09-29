@@ -13,8 +13,11 @@ import (
 
 // resetRootFormat puts rootCmd's persistent --format back to its default.
 // rootCmd is package-global and pflag never un-sets a flag a prior test set,
-// so a neighbour's `--format json` otherwise decides this test's answer — the
-// same leak runRoot documents in group_node_test.go.
+// so a neighbour's `--format json` otherwise decides this test's answer. It
+// clears Changed rather than calling Set: Set marks the flag Changed, which
+// pins an explicit text format on every later test instead of restoring the
+// unset default cliemit.Resolve derives from stdout. It also turns off the
+// structured-diagnostics channel a json/yaml/toml --format switched on.
 func resetRootFormat(t *testing.T) {
 	t.Helper()
 	if f := rootCmd.PersistentFlags().Lookup("format"); f != nil {

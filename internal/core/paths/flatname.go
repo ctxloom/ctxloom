@@ -3,6 +3,7 @@ package paths
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -41,26 +42,29 @@ const (
 // the depth, greppable by the file's own basename, and identity decided by
 // the full path.
 //
-// The whole flattened path used to BE the name, which is why every write
-// under an agent worktree — nested inside a session's ephemeral directory —
-// failed with ENAMETOOLONG. Records already on disk under that scheme are
-// renamed by their store on first read.
+// The bound exists because a record or lock for a file nested inside a
+// session's ephemeral directory would otherwise exceed NAME_MAX and fail
+// with ENAMETOOLONG.
+//
+// Every character NTFS forbids in a name component (see ntfsReserved, plus
+// control characters) is escaped in the tail as '%' and two uppercase hex
+// digits, on EVERY OS, so a name means the same file wherever it was
+// written. ':' is the load-bearing one: NTFS does not refuse "C:__proj..." as
+// a name, it writes an alternate data stream of a file called "C", so a
+// record or lock would save and never be found. '%' itself is NOT escaped,
+// so the tail alone is not injective ("a:b" and a literal "a%3Ab" read
+// alike); identity never rests on the tail, because the hash is taken over
+// the UNESCAPED path.
 //
 // The encoding is total and deterministic: one path, however deep, always
 // gets one name. Callers that need spellings of one file to agree (the lock
 // paths do) resolve the path to a canonical form BEFORE calling this.
-//
-// KNOWN GAP (inherited): on Windows an absolute path carries a drive letter
-// (`C:\Users\...`), and `:` survives into the tail untouched. Left as-is
-// rather than patched with logic this package's Unix-only test suite cannot
-// exercise; a Windows-specific fix belongs beside a Windows-only file, with a
-// test that actually runs there.
 func FlatName(path string) string {
 	slashed := filepath.ToSlash(path)
 	sum := sha256.Sum256([]byte(slashed))
 	hash := hex.EncodeToString(sum[:])[:flatHashLen]
 
-	flat := strings.ReplaceAll(slashed, "/", flatSep)
+	flat := escapeNTFSReserved(strings.ReplaceAll(slashed, "/", flatSep))
 	if len(flat) > flatTailMax {
 		flat = flat[len(flat)-flatTailMax:]
 		// Cutting by BYTES can land inside a multi-byte rune; step forward to
@@ -70,4 +74,25 @@ func FlatName(path string) string {
 		}
 	}
 	return flat + flatSep + hash
+}
+
+// ntfsReserved is every printable character NTFS refuses in a name component
+// that the separator replacement does not already remove.
+const ntfsReserved = `<>:"|?*`
+
+// escapeNTFSReserved rewrites each NTFS-reserved or control character as
+// '%' plus its two uppercase hex digits. All of them are ASCII, so the byte
+// scan never splits a multi-byte rune.
+func escapeNTFSReserved(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x20 || strings.IndexByte(ntfsReserved, c) >= 0 {
+			fmt.Fprintf(&b, "%%%02X", c)
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }

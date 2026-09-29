@@ -89,7 +89,11 @@ func TestKillSession_SparesAProcessInAnotherSession(t *testing.T) {
 		t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 		return cmd
 	}
-	target, decoy := start(), start()
+	// Decoy FIRST: pids are handed out ascending, so the sweep meets the decoy
+	// before the target, and a sweep that stops at its first non-match never
+	// reaches the target.
+	decoy := start()
+	target := start()
 
 	require.True(t, slices.Contains(sessionSweepPids(), decoy.Process.Pid),
 		"sanity: the decoy is in the sweep's view, so sparing it is the filter's decision")

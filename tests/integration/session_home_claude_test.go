@@ -4,6 +4,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -27,12 +30,20 @@ import (
 // protocol with one reply; it reports claude's version floor, which the
 // runner checks before launch. Each agent declares `permissions: plan`.
 
-// fakeClaudeScript answers `--version`, records its environment and argv,
-// drains stdin, and speaks enough stream-json for one turn.
-const fakeClaudeScript = `#!/bin/sh
-case "$1" in --version) echo "2.1.283 (Claude Code)"; exit 0;; esac
+// fakeClaudeScript answers `--version` with claude's declared floor (in
+// claude's own "<version> (Claude Code)" shape), records its environment and
+// argv, drains stdin, and speaks enough stream-json for one turn.
+func fakeClaudeScript(t *testing.T) string {
+	t.Helper()
+	e, ok := engines.Registry().Lookup(claude.EngineName)
+	require.True(t, ok, "claude is composed")
+	return fmt.Sprintf(fakeClaudeScriptBody, e.Root().Version.Floor)
+}
+
+const fakeClaudeScriptBody = `#!/bin/sh
+case "$1" in --version) echo "%s (Claude Code)"; exit 0;; esac
 env > "$FAKE_CLAUDE_CAPTURE.env"
-printf '%s\n' "$@" > "$FAKE_CLAUDE_CAPTURE.argv"
+printf '%%s\n' "$@" > "$FAKE_CLAUDE_CAPTURE.argv"
 cat > /dev/null
 echo '{"type":"system","subtype":"init","session_id":"fake-native-session"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"FAKE-CLAUDE-REPLY"}]}}'
@@ -53,7 +64,7 @@ func setupClaudeSessionProject(t *testing.T) (env *testenv.TestEnvironment, capt
 	writeProfile(t, env, "dev", "name: dev\ndescription: dev\nbundles:\n  - local#fragments/rules\n")
 
 	bin := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(fakeClaudeScript), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(fakeClaudeScript(t)), 0o755))
 	capturePath = filepath.Join(t.TempDir(), "capture")
 	env.SetChildEnv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	env.SetChildEnv("FAKE_CLAUDE_CAPTURE", capturePath)

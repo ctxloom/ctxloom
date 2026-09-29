@@ -82,6 +82,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
@@ -427,14 +428,37 @@ func isoMatrixSanitizedPATH(spyDir string) string {
 	return isoSanitizedPATH(spyDir, "/usr/bin", "/bin")
 }
 
+// isoSpyVersionAnswer is the shell prologue that answers engineName's
+// declared version command with its declared floor, ahead of any recording:
+// the runner asks the binary its version before launching and refuses one it
+// cannot show to be at or above the floor, and that probe must neither be
+// refused nor overwrite the dump of the run the scenario asserts on. Empty
+// when the engine declares no floor, since nothing then asks.
+func isoSpyVersionAnswer(engineName string) (string, error) {
+	e, ok := engines.Registry().Lookup(engine.Name(engineName))
+	if !ok {
+		return "", fmt.Errorf("iso matrix: engine %q is not registered", engineName)
+	}
+	v := e.Root().Version
+	if !v.Declared() || v.Floor == "" {
+		return "", nil
+	}
+	return fmt.Sprintf("if [ \"$*\" = %q ]; then echo %q; exit 0; fi\n", strings.Join(v.Args, " "), v.Floor), nil
+}
+
 // installIsoSpy writes the spy script once and symlinks it under each of
 // names, so every engine's exec resolves to the SAME recording behavior.
-func installIsoSpy(dir string, names ...string) error {
+func installIsoSpy(dir, engineName string, names ...string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create spy dir: %w", err)
 	}
+	version, err := isoSpyVersionAnswer(engineName)
+	if err != nil {
+		return err
+	}
+	script := strings.Replace(isoMatrixSpyScript, "#!/bin/sh\n", "#!/bin/sh\n"+version, 1)
 	scriptPath := filepath.Join(dir, ".ctxloom-iso-spy.sh")
-	if err := os.WriteFile(scriptPath, []byte(isoMatrixSpyScript), 0o755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		return fmt.Errorf("write spy script: %w", err)
 	}
 	for _, name := range names {
@@ -535,7 +559,7 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 		return err
 	}
 	spyDir := filepath.Join(w.env.Root, "iso-spy-bin")
-	if err := installIsoSpy(spyDir, binNames...); err != nil {
+	if err := installIsoSpy(spyDir, engine, binNames...); err != nil {
 		return err
 	}
 	w.env.SetEnv("PATH", isoMatrixSanitizedPATH(spyDir))
@@ -601,7 +625,7 @@ func runIsoMatrixOwnerSession(c context.Context, engine string) error {
 		return err
 	}
 	spyDir := filepath.Join(w.env.Root, "iso-spy-bin")
-	if err := installIsoSpy(spyDir, binNames...); err != nil {
+	if err := installIsoSpy(spyDir, engine, binNames...); err != nil {
 		return err
 	}
 	w.env.SetEnv("PATH", isoMatrixSanitizedPATH(spyDir))

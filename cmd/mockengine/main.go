@@ -19,6 +19,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -118,6 +119,11 @@ func run(args []string) int {
 		return 2
 	}
 
+	if version, ok := versionAnswer(personality, vendorArgs); ok {
+		fmt.Fprintln(os.Stdout, version)
+		return 0
+	}
+
 	clis, ok := engines.EngineCLIs(personality)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "mock-engine: backend %q declares no engine CLI to impersonate\n", personality)
@@ -177,6 +183,26 @@ func run(args []string) int {
 		rt.Resize = resizeNotifications(os.Stdout)
 	}
 	return rt.Run()
+}
+
+// versionAnswer is what the personality's binary says when asked its version:
+// the version floor its engine declares, when vendorArgs IS that engine's
+// declared version command. The runner refuses a launch whose engine cannot
+// be shown to be at or above that floor, so a fake that could not answer
+// would be refused before it ever impersonated anything. The floor is the
+// answer — not a version this file picks — so it can never fall below the
+// floor as the floor moves. It is not in the surfaces' argv grammar: the
+// version command is a separate declaration (engine.VersionCommand).
+func versionAnswer(personality string, vendorArgs []string) (string, bool) {
+	e, ok := engines.Registry().Lookup(engine.Name(personality))
+	if !ok {
+		return "", false
+	}
+	v := e.Root().Version
+	if !v.Declared() || v.Floor == "" || !slices.Equal(vendorArgs, v.Args) {
+		return "", false
+	}
+	return v.Floor, true
 }
 
 // consumeMockFlags consumes the mock's own leading flags, returning the

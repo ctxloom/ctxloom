@@ -54,8 +54,7 @@ that sits at the bottom of the tree gets only the reporting half (`agent_send`, 
 ## Why each child gets its own grant, never a union
 
 The MCP servers and permission mode a child runs with come from **that child's own resolved
-[agent](/concepts/agents/) definition** — its own `profiles`, its own `permissions` (or
-`escalation` ladder) — exactly as if you'd typed `ctxloom run --agent <name>` yourself instead
+[agent](/concepts/agents/) definition** — its own `profiles`, its own `permissions` — exactly as if you'd typed `ctxloom run --agent <name>` yourself instead
 of a coordinator spawning it. Nothing about being spawned rather than launched directly widens
 what a child can reach.
 
@@ -80,8 +79,7 @@ that three-day-old run needs to know what it *was actually granted*, not what th
 currently claims it would get if spawned again right now.
 
 So a child's permission mode and MCP server set are written to the coordinator's run journal
-once, **at the moment it's enqueued** — the same discipline already applied to the escalation
-ladder, and for the identical reason. The journey proves this isn't just "append-only files
+once, **at the moment it's enqueued**. The journey proves this isn't just "append-only files
 can't be un-appended" by actually editing the config mid-run: it spawns "fixer" once, records
 its grant, edits `fixer`'s definition to take on `reviewer`'s profile and permission mode, then
 spawns "fixer" again. The **second** spawn's journaled grant genuinely reflects the edit — so the

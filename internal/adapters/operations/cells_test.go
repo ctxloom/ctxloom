@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -419,4 +420,108 @@ func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
 
 	_, err = cells.Prepare(context.Background(), req)
 	require.ErrorIs(t, err, launch.ErrRuntimeUnavailable, "a run refuses on the same finding")
+}
+
+// A PREVIEW sees the credential stores a run would share: a login whose
+// store is missing is the run's refusal, and the dry run records it —
+// same message, same remedy — beside the plan instead of showing a clean
+// setup the run then refuses.
+func TestCellsPrepare_APreviewRecordsTheMissingStoreARunRefuses(t *testing.T) {
+	resetStrictness(t)
+	fakeHostHome(t, "") // no ~/.claude: the login store a run shares is missing
+	req := claudeKind(t)
+	req.ProjectRoot = t.TempDir()
+	req.Auth = string(engine.AuthLogin)
+	req.SessionDir = harpDir(t, "test-harp")
+	cells := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}
+
+	_, runErr := cells.Prepare(context.Background(), req)
+	require.ErrorIs(t, runErr, engine.ErrNoCredential, "precondition: a run refuses on the missing store")
+
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	preview := cells
+	preview.preview = true
+	_, err := preview.Prepare(context.Background(), req)
+	require.NoError(t, err, "a preview carries on past a refusal")
+	found := strictness.Since(mark)
+	require.Len(t, found, 1, "the run's refusal is on the dry run's ledger")
+	assert.Contains(t, found[0].Text, runErr.Error())
+	assert.Equal(t, remedyOf(t, runErr), found[0].Remedy)
+	assert.True(t, found[0].NonDegradable)
+}
+
+// A preview resolves credentials READ-ONLY: it never mints, never stores,
+// and never carries a secret into the placement it shows. Where a run
+// would refuse (unattended, nothing stored) the preview records that
+// refusal; where a run would mint at the human's terminal it refuses
+// nothing, and mints nothing either.
+func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
+	prepareFake := func(t *testing.T) (Cells, launch.CellRequest, *[]engine.Terminal) {
+		t.Helper()
+		resetStrictness(t)
+		reg, seen := installFakeMint(t)
+		eng, ok := reg.Lookup("fake-auth")
+		require.True(t, ok)
+		req := launch.CellRequest{
+			Axes:        launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost},
+			Engine:      eng,
+			Identity:    sessions.Identity{Harp: harpA},
+			HomeMode:    launch.HomeModeHost,
+			ProjectRoot: t.TempDir(),
+			SessionDir:  harpDir(t, harpA),
+			Auth:        string(engine.AuthToken),
+		}
+		return Cells{engines: reg, cfg: config.NewFixture(config.Fixture{}), preview: true}, req, seen
+	}
+	requireNothingStored := func(t *testing.T) {
+		t.Helper()
+		_, err := isolation.StoredCredentials("fake-auth").Read(engine.AuthToken)
+		require.ErrorIs(t, err, engine.ErrNoCredential, "a preview writes no credential")
+	}
+
+	t.Run("attended: the run would mint, so nothing is refused and nothing minted", func(t *testing.T) {
+		cells, req, seen := prepareFake(t)
+		withTerminal(t, engine.Terminal{In: &bytes.Buffer{}, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}, true)
+		mark := strictness.Checkpoint()
+		defer strictness.Close(mark)
+
+		_, err := cells.Prepare(context.Background(), req)
+		require.NoError(t, err)
+		assert.Empty(t, *seen, "a preview never starts the mint flow")
+		assert.Empty(t, strictness.Since(mark), "a run at a terminal mints rather than refuses")
+		requireNothingStored(t)
+	})
+
+	t.Run("unattended: the run's refusal is recorded, nothing minted", func(t *testing.T) {
+		cells, req, seen := prepareFake(t)
+		withTerminal(t, engine.Terminal{}, false)
+		mark := strictness.Checkpoint()
+		defer strictness.Close(mark)
+
+		_, err := cells.Prepare(context.Background(), req)
+		require.NoError(t, err, "a preview carries on past a refusal")
+		found := strictness.Since(mark)
+		require.Len(t, found, 1)
+		assert.Contains(t, found[0].Remedy, "ctxloom auth mint --engine fake-auth --mode token")
+		assert.Empty(t, *seen)
+		requireNothingStored(t)
+
+		run := cells
+		run.preview = false
+		_, err = run.Prepare(context.Background(), req)
+		require.ErrorIs(t, err, engine.ErrNoCredential, "the run refuses on the same inputs")
+		assert.Equal(t, found[0].Remedy, remedyOf(t, err), "with the same remedy")
+	})
+
+	t.Run("stored: the preview places the credential's var, never its secret", func(t *testing.T) {
+		cells, req, _ := prepareFake(t)
+		_, err := isolation.StoreEngineCredential("fake-auth", engine.AuthToken, []byte("stored-secret"))
+		require.NoError(t, err)
+
+		cell, err := cells.Prepare(context.Background(), req)
+		require.NoError(t, err)
+		require.Contains(t, cell.Env, fakeTokenVar, "the preview shows the var the run sets")
+		assert.NotContains(t, cell.Env[fakeTokenVar], "stored-secret", "and never the secret")
+	})
 }

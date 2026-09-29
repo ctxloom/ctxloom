@@ -34,7 +34,7 @@ Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write th
 
 ### agent_pause
 
-Pause one of your delegated children: hold its turn hand-off so nothing NEW is handed to its engine until agent_resume. The turn it is in now finishes — no surface ctxloom drives can interrupt a turn — but anything queued for it, and any mail that arrives meanwhile, waits at the gate in arrival order (mail stays in its inbox, unread, where a relaunched child would find it). Pause is idempotent and the result says whether THIS call paused the child or found it already paused. It is done TO the run by its runner, not delivered as a message, so it takes effect without the child reading anything. Only your OWN children may be paused.
+Pause one of your delegated children: hold its turn hand-off so nothing NEW is handed to its engine until agent_resume. The turn it is in now finishes — cutting a turn short is agent_steer with interrupt — but anything queued for it, and any mail that arrives meanwhile, waits at the gate in arrival order (mail stays in its inbox, unread, where a relaunched child would find it). Pause is idempotent and the result says whether THIS call paused the child or found it already paused. It is done TO the run by its runner, not delivered as a message, so it takes effect without the child reading anything. Only your OWN children may be paused.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|

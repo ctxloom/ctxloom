@@ -213,13 +213,18 @@ func (c claudeAuth) cloudCredentials(shell func(string) (string, bool)) (engine.
 				strings.Join(providerSwitches, ", "), AuthTokenEnv, "ANTHROPIC_BASE_URL", c.engine, strings.Join(others, ", ")),
 			"%s cloud: none of %s is set: %w", c.engine, strings.Join(append(slices.Clone(providerSwitches), AuthTokenEnv), ", "), engine.ErrNoCredential)
 	}
-	var files []string
+	return engine.Credentials{Env: set, Unset: []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}, Stores: existingProviderStores(shell), FileVars: fileVarsIn(set)}, nil
+}
+
+// fileVarsIn are the credentialFileVars env carries.
+func fileVarsIn(env map[string]string) []string {
+	var out []string
 	for _, k := range credentialFileVars {
-		if set[k] != "" {
-			files = append(files, k)
+		if env[k] != "" {
+			out = append(out, k)
 		}
 	}
-	return engine.Credentials{Env: set, Unset: []string{OAuthTokenEnv, APIKeyEnv, SecureStorageEnv, ProfileEnv}, Stores: existingProviderStores(shell), FileVars: files}, nil
+	return out
 }
 
 // existingProviderStores are the providerStores present in the launching

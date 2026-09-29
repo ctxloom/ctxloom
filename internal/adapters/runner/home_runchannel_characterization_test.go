@@ -128,7 +128,9 @@ func TestRunChannelOnce_HandshakeFailures(t *testing.T) {
 }
 
 // TestRunChannelOnce_AttachReissuesThenDetaches: an accepted Hello attaches
-// the stream and reissues, in order, every unacked event, every outstanding
+// the stream, sends the attach Heartbeat FIRST and unconditionally (the
+// coordinator's cue to re-sweep out/ — Coordinator.ConfirmAttach), then
+// reissues, in order, every unacked event, every outstanding
 // request with its original id, and — because a recv is parked — a fresh
 // parked event. When the coordinator ends the stream the error is returned
 // and the stream is detached.
@@ -142,7 +144,7 @@ func TestRunChannelOnce_AttachReissuesThenDetaches(t *testing.T) {
 	h.parked = true
 	h.mu.Unlock()
 
-	srv := &runChannelServer{first: helloAck(true, nil), collect: 4}
+	srv := &runChannelServer{first: helloAck(true, nil), collect: 5}
 	// A frame never sent would leave the fake waiting; tearing the Home down
 	// turns that hang into a failed assertion below.
 	watchdog := time.AfterFunc(conformanceWait, h.cancel)
@@ -155,7 +157,9 @@ func TestRunChannelOnce_AttachReissuesThenDetaches(t *testing.T) {
 	require.Zero(t, srv.hello.GetResumeFromSeq())
 	require.Equal(t, h.helloCapabilities(), srv.hello.GetCapabilities())
 
-	require.Len(t, srv.got, 4)
+	require.Len(t, srv.got, 5)
+	require.Equal(t, "run-1", srv.got[0].GetHeartbeat().GetRunId(), "the attach Heartbeat precedes the reissue")
+	srv.got = srv.got[1:]
 	require.Equal(t, "ctxloom/one", srv.got[0].GetEvent().GetCustom().GetName())
 	require.Equal(t, uint64(1), srv.got[0].GetEvent().GetSeq())
 	require.Equal(t, "ctxloom/two", srv.got[1].GetEvent().GetCustom().GetName())

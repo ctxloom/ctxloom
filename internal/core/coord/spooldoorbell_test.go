@@ -381,11 +381,12 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) TestHom
 	// fixture that waits on the coordinator's half alone hands back a Home
 	// whose stream is still nil, and every unbuffered runner->coordinator
 	// send in that window is dropped ON PURPOSE (Home.trySend's nil-stream
-	// arm) — silently, because fire-and-forget is the design. The same window
-	// exists in the product: a reply written to out/ inside it waits for the
-	// slow sweep (spoolSweepInterval's doc; task unfilled-sublease). This
-	// fixture waits it out so a doorbell test asserts the doorbell, not a race
-	// against the scheduler lost whenever the box is busy.
+	// arm) — silently, because fire-and-forget is the design. In the product
+	// an out/ write in that window is still delivered promptly, by the
+	// re-sweep Coordinator.ConfirmAttach runs when the runner's adoption
+	// Heartbeat arrives — but that would deliver it WITHOUT a doorbell. This
+	// fixture waits the window out so a doorbell test asserts the doorbell,
+	// not the re-sweep.
 	require.Eventually(t, h.Attached, 10*time.Second, 10*time.Millisecond, "the runner's own end of the run channel must be attached, or a send made now is dropped as 'run channel down'")
 	return h
 }

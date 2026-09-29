@@ -23,7 +23,7 @@
 //
 // The family binaries (ltk, taskloom, their packages and internal/shared/
 // tasks) are separate products that share the toolbox and are outside the
-// rings (Part 0); so is internal/testsupport. The walk skips them.
+// rings; so is internal/testsupport. The walk skips them.
 package arch
 
 import (
@@ -207,7 +207,7 @@ type pinnedCall struct {
 	permitted []string
 }
 
-// pinnedCalls are today's spellings of the three symbols Part 1.1 pins.
+// pinnedCalls are today's spellings of the three pinned symbols.
 // sessions.Mint does not exist yet (slice 2 introduces it): today the
 // session identity is minted by the sessions.Store's AssignHarp through the
 // harp allocator, so both are pinned; their sanctioned callers are the
@@ -300,7 +300,7 @@ func scanOneMintOneOwner(t *testing.T) []ringSite {
 // coordinator or opens the config unless named in oneMintOneOwnerAllowed.
 func TestArch_OneMintOneOwner(t *testing.T) {
 	checkRingAllowlist(t, "one-mint-one-owner", scanOneMintOneOwner(t), oneMintOneOwnerAllowed,
-		"Part 1.1: the identity is minted once (sessions.Mint) and the process-wide owners are built by the composition root")
+		"the identity is minted once (sessions.Mint) and the process-wide owners are built by the composition root")
 }
 
 func TestArch_OneMintOneOwner_AllowlistIsLive(t *testing.T) {
@@ -385,7 +385,7 @@ func scanEngineNameLiterals(t *testing.T) []ringSite {
 // string literal only where the engine lives and in config data.
 func TestArch_NoEngineNameInCore(t *testing.T) {
 	checkRingAllowlist(t, "no-engine-name-in-core", scanEngineNameLiterals(t), noEngineNameInCoreAllowed,
-		"Part 1.1: the core reads the engine's declarations and never branches on its name")
+		"the core reads the engine's declarations and never branches on its name")
 }
 
 func TestArch_NoEngineNameInCore_AllowlistIsLive(t *testing.T) {
@@ -405,7 +405,7 @@ const envKeysDeclaringDir = "internal/core/sessions"
 // envReadHomes are the directories that may spell those keys or read the
 // process environment (home, cwd, temp, the current user): the declaring
 // package, the composition roots, the project-root finder and the leaf env
-// libraries. The filesystem adapters Part 1.1 also permits do not exist yet.
+// libraries. The filesystem adapters also permitted do not exist yet.
 var envReadHomes = []string{
 	envKeysDeclaringDir,
 	"cmd",
@@ -414,7 +414,7 @@ var envReadHomes = []string{
 	"internal/shared/envswitch",
 }
 
-// envReadCalls are the process-environment reads Part 1.1 names.
+// envReadCalls are the process-environment reads this rule governs.
 var envReadCalls = [][2]string{
 	{"os", "UserHomeDir"},
 	{"os", "UserConfigDir"},
@@ -458,7 +458,7 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/isolation/imagebuild.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/worktree.go":   "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 
-	// a leaf adapter Part 1.1 does not permit: GitPublisher's working clone is
+	// a leaf adapter not permitted to read the environment: GitPublisher's working clone is
 	// os.MkdirTemp("", …) — a temp-root read; it takes its root as a value once
 	// the composition carries one (launch.HostFacts has no temp root yet)
 	"internal/adapters/remote/git_publisher.go": "the publisher's scratch root becomes a HostFacts value the composition root supplies; no slice carries a temp root yet (measured)",
@@ -578,10 +578,10 @@ func tempUnderCallersRoot(call *ast.CallExpr) bool {
 }
 
 // TestArch_EnvLiteralsOnce is the gate: the CTXLOOM_* keys are spelled once
-// and the process environment is read only where Part 1.1 says.
+// and the process environment is read only by envReadHomes.
 func TestArch_EnvLiteralsOnce(t *testing.T) {
 	checkRingAllowlist(t, "env-literals-once", scanEnvLiterals(t), envLiteralsOnceAllowed,
-		"Part 1.1: core is handed home, cwd and identity as values; only the composition root, projectroot, the fs adapters and the leaf env libraries read the environment")
+		"core is handed home, cwd and identity as values; only the composition root, projectroot, the fs adapters and the leaf env libraries read the environment")
 }
 
 func TestArch_EnvLiteralsOnce_AllowlistIsLive(t *testing.T) {

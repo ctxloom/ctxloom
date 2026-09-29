@@ -95,7 +95,7 @@ func newsLaunch(call *ast.CallExpr, inLaunch bool) bool {
 // wire codec, no production code constructs a launch.Launch.
 func TestArch_OneLaunchConstructor(t *testing.T) {
 	checkRingAllowlist(t, "one-launch-constructor", scanLaunchConstructions(t), oneLaunchConstructorAllowed,
-		"Part 1.1: launch.Resolve is the one constructor; a launch assembled by hand carries none of its guarantees")
+		"launch.Resolve is the one constructor; a launch assembled by hand carries none of its guarantees")
 }
 
 func TestArch_OneLaunchConstructor_AllowlistIsLive(t *testing.T) {

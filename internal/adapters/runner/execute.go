@@ -59,6 +59,11 @@ type Deps struct {
 	Configure func(body map[string]any) error
 	// Driver drives the engine once the launch is delivered.
 	Driver Driver
+	// EngineVersion asks the hosted engine's installed binary its version,
+	// checked against the floor the engine declares (Definition.Version)
+	// before anything is delivered. nil asks nothing: a composition with no
+	// binary to ask (a double).
+	EngineVersion func(ctx context.Context) (string, error)
 	// Unsetenv removes a variable from this process's environment, which
 	// every engine spawn starts from: how a launch's Cell.Unset is honoured.
 	// Injected like MainDeps.Unsetenv, so the refusal is testable; nil
@@ -107,6 +112,9 @@ var (
 func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	l, inst, err := prepareLaunch(deps, l)
 	if err != nil {
+		return Outcome{}, err
+	}
+	if err := checkVersionFloor(ctx, deps); err != nil {
 		return Outcome{}, err
 	}
 	if err := scrubEngineEnv(deps, l.Cell.Unset); err != nil {
@@ -175,6 +183,33 @@ func prepareLaunch(deps Deps, l launch.Launch) (launch.Launch, engine.Instance, 
 		return l, nil, engine.ErrUnsupported{Engine: hosted, Capability: "drive"}
 	}
 	return l, inst, nil
+}
+
+// checkVersionFloor refuses an installed engine below the floor its
+// definition declares — a fatal finding carrying the remedy, reported before
+// anything is delivered, rather than a run that fails later on a surface the
+// old release does not have. A version that cannot be read is refused the
+// same way: it cannot be shown to be new enough.
+func checkVersionFloor(ctx context.Context, deps Deps) error {
+	cmd := deps.Kind.Root().Version
+	if deps.EngineVersion == nil || cmd.Floor == "" {
+		return nil
+	}
+	name := string(deps.Kind.Root().Name)
+	version, err := deps.EngineVersion(ctx)
+	if err == nil {
+		err = cmd.CheckFloor(name, version)
+	}
+	if err == nil {
+		return nil
+	}
+	remedy := fmt.Sprintf("install %s %s or newer where this run executes", name, cmd.Floor)
+	var below *engine.BelowFloorError
+	if errors.As(err, &below) {
+		remedy = below.Remedy()
+	}
+	report.To(deps.Reporter).Report(report.Finding{Kind: report.KindConfig, Text: err.Error(), Remedy: remedy})
+	return fmt.Errorf("runner: %w", err)
 }
 
 // configureLabel hands the label's body to the composed Configure, when both

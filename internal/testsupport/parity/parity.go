@@ -383,13 +383,7 @@ func fillValue(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
 		bag.bools++
 		bag.boolPaths = append(bag.boolPaths, path)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if fv.Type().Implements(textMarshalerType) {
-			fillTextEnum(t, fv, path, bag)
-			return
-		}
-		n := int64(700000 + bag.next())
-		fv.SetInt(n)
-		bag.scalars = append(bag.scalars, scalarSentinel{path: path, value: float64(n)})
+		fillInt(t, fv, path, bag)
 	case reflect.Float32, reflect.Float64:
 		f := 900000 + float64(bag.next())
 		fv.SetFloat(f)
@@ -422,6 +416,19 @@ func fillValue(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
 		t.Fatalf("parity gate: field %s has unsupported kind %s (%s) — teach fillValue about it "+
 			"rather than letting the gate silently stop covering this field", path, fv.Kind(), fv.Type())
 	}
+}
+
+// fillInt stamps an int-kinded field: a unique number, unless the field
+// persists by name (see fillTextEnum).
+func fillInt(t *testing.T, fv reflect.Value, path string, bag *sentinelBag) {
+	t.Helper()
+	if fv.Type().Implements(textMarshalerType) {
+		fillTextEnum(t, fv, path, bag)
+		return
+	}
+	n := int64(700000 + bag.next())
+	fv.SetInt(n)
+	bag.scalars = append(bag.scalars, scalarSentinel{path: path, value: float64(n)})
 }
 
 var textMarshalerType = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()

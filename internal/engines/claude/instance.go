@@ -353,24 +353,30 @@ func (a *turnAccumulator) absorb(res *engine.TurnResult, ev *agent.ChatEvent) {
 		}
 		a.reasons[ev.Denied.ToolCallID] = ev.Denied.Reason
 	case ev.Complete != nil:
-		a.last = strings.Join(a.segment, "")
-		a.segment = nil
-		a.results++
-		for _, d := range ev.Complete.Denials {
-			if a.seenCall[d.ToolCallID] {
-				continue
-			}
-			if a.seenCall == nil {
-				a.seenCall = map[string]bool{}
-			}
-			a.seenCall[d.ToolCallID] = true
-			if d.Reason == "" {
-				d.Reason = a.reasons[d.ToolCallID]
-			}
-			a.denials = append(a.denials, d)
-		}
-		ev.Complete.Denials = slices.Clone(a.denials)
+		a.complete(ev.Complete)
 	}
+}
+
+// complete closes one result frame: its text becomes the answer so far, and
+// its Denials are replaced by the turn's, each first-seen call once.
+func (a *turnAccumulator) complete(m *agent.TurnMeta) {
+	a.last = strings.Join(a.segment, "")
+	a.segment = nil
+	a.results++
+	for _, d := range m.Denials {
+		if a.seenCall[d.ToolCallID] {
+			continue
+		}
+		if a.seenCall == nil {
+			a.seenCall = map[string]bool{}
+		}
+		a.seenCall[d.ToolCallID] = true
+		if d.Reason == "" {
+			d.Reason = a.reasons[d.ToolCallID]
+		}
+		a.denials = append(a.denials, d)
+	}
+	m.Denials = slices.Clone(a.denials)
 }
 
 // answer is the turn's answer: the last result's text, or — a process that

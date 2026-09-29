@@ -80,7 +80,7 @@ func TestDecider_PersistsByName(t *testing.T) {
 // outside the vocabulary is an error on write rather than a "decider(N)"
 // that no reader could parse back.
 func TestDecider_UnknownIsRefusedBothWays(t *testing.T) {
-	var d Decider = DeciderHuman
+	d := DeciderHuman
 	err := json.Unmarshal([]byte(`"committee"`), &d)
 	require.ErrorIs(t, err, ErrUnknownDecider)
 	assert.Equal(t, DeciderHuman, d, "a refused name leaves the destination untouched")

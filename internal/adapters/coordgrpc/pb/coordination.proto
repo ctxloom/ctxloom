@@ -305,6 +305,8 @@ message RunnerRequest {
     PauseRun pause_run = 14;
     ResumeRun resume_run = 15;
     Turn turn = 16;
+    // Cut the turn in flight short; the run lives. Answered by status alone.
+    InterruptRun interrupt_run = 17;
     CustomRequest custom = 90;
   }
 }
@@ -649,13 +651,13 @@ message StartRunResult {
   int64 pid = 2;
 }
 
-// Stop a run. The runtime realizes this as an immediate kill: the engine
-// process (or container) is terminated, the slot frees, and the run's
-// terminal record is synthesized. There is NO grace escalation — see the
-// removed `grace` field below.
+// Stop a run. To the RUNNER it is interrupt-then-close: the turn in flight is
+// interrupted, given `grace` to end, and the run is then closed (its terminal
+// reported); a parked run closes at once. The coordinator ends the run's
+// record and reclaims the runner after that answer, or when it does not come.
 message StopRun {
   option (message_schema) = {
-    doc: "Stop delegated child sessions. This verb has TWO SHAPES, chosen by whether run_id is given. (1) run_id GIVEN: stop that ONE child run. (2) run_id OMITTED: stop EVERY live child of this session — the bulk sweep. Omitting run_id is NOT \"stop nothing\" and there is no default target: it addresses all of your live children at once (each is asked to exit at its turn boundary and forced when the drain bound elapses), and the result names every child with its outcome. Because of that, the omitted-run_id shape REQUIRES reason — an accidental omission is refused rather than stopping everything silently. In both shapes a stopped child's engine (or container) is killed, its execution slot frees immediately (the spawn queue advances), its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history. Use the sweep to reclaim slots and containers held by children that have finished (they stay open, resumable, until stopped); a run_id captured at spawn is STALE after any resume, so the sweep never asks you for one."
+    doc: "Stop delegated child sessions. This verb has TWO SHAPES, chosen by whether run_id is given. (1) run_id GIVEN: stop that ONE child run. (2) run_id OMITTED: stop EVERY live child of this session — the bulk sweep. Omitting run_id is NOT \"stop nothing\" and there is no default target: it addresses all of your live children at once (each is asked to exit at its turn boundary and forced when the drain bound elapses), and the result names every child with its outcome. Because of that, the omitted-run_id shape REQUIRES reason — an accidental omission is refused rather than stopping everything silently. With a run_id, a turn the child is running is INTERRUPTED and given grace to end before its engine (or container) is killed; in both shapes its execution slot frees, its credential is revoked, and the stop is journaled. The session stays resumable — a later agent_send relaunches its harp as a fresh run primed with its recorded history. Use the sweep to reclaim slots and containers held by children that have finished (they stay open, resumable, until stopped); a run_id captured at spawn is STALE after any resume, so the sweep never asks you for one."
   };
 
   string run_id = 1 [(field_schema) = {
@@ -665,12 +667,12 @@ message StopRun {
     doc: "Why you are stopping. REQUIRED when run_id is omitted (the bulk sweep stops every live child of this session and is never done silently); optional when run_id is given. Recorded on each run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on (\"superseded by a narrower brief\", \"fan-out complete; reclaiming idle workers\")",
     example: "\"superseded by a narrower brief\""
   }];
-  // 3 was grace (google.protobuf.Duration), REMOVED:
-  // no code path ever read it. The parent->coordinator stop is a hard kill
-  // and the runner-control direction never implemented the SIGINT-then-
-  // SIGTERM escalation the field implied, so advertising it to the model
-  // promised an unwind window that does not exist.
+  // 3 was an earlier grace no code path read; never reuse the number.
   reserved 3;
+  google.protobuf.Duration grace = 4 [(field_schema) = {
+    doc: "How long the child's running turn gets to end after it is interrupted, before its engine is killed (run_id given only; the bulk sweep has its own bound). OMIT for the default, 10 s.",
+    example: "\"10s\""
+  }];
 }
 
 message StopRunResult {
@@ -709,8 +711,8 @@ message KillRun {
 message KillRunResult {}
 
 // Hold the run's turn hand-off. The engine keeps whatever it is doing now —
-// no turn is interrupted, because no surface ctxloom drives supports that —
-// but nothing NEW is handed to it, and anything already queued waits at the
+// no turn is interrupted (that is InterruptRun) — but nothing NEW is handed
+// to it, and anything already queued waits at the
 // gate in arrival order until ResumeRun.
 //
 // Mail is unaffected and that is deliberate: under the spool it stays in the
@@ -731,6 +733,14 @@ message PauseRunResult {
 // Release a paused run: turns held at the gate are handed to the engine in
 // arrival order.
 message ResumeRun {
+  string run_id = 1;
+}
+
+// Interrupt the run's turn in flight: the engine is asked to stop
+// (procsig.Interrupt) and killed after its grace; the turn ends with
+// stop_reason "interrupted" and the run parks, alive, for its next turn. A run
+// with no turn in flight is unaffected.
+message InterruptRun {
   string run_id = 1;
 }
 
@@ -1360,6 +1370,9 @@ message ControlSteer {
   string text = 2 [(field_schema) = {
     required: true,
     doc: "The instruction. Delivered verbatim as the child's next turn under a provenance header naming it a steer from you."
+  }];
+  bool interrupt = 3 [(field_schema) = {
+    doc: "Cut the child's running turn short first, so this instruction becomes its next turn now rather than at its next boundary. The interrupted turn's work so far stands; the child is not stopped. OMIT (false) to let the running turn finish."
   }];
 }
 

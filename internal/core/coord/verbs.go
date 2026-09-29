@@ -138,16 +138,21 @@ type SendResult struct {
 
 // StopRequest is agent_stop: one child by Harp, or — with no harp — every
 // live child, for which a Reason is required so an accidental omission
-// stops nothing.
+// stops nothing. Grace (one child only) is how long its interrupted turn gets
+// to end before it is killed; zero means DefaultStopGrace.
 type StopRequest struct {
-	Harp   string `json:"harp,omitempty"`
-	Reason string `json:"reason,omitempty"`
+	Harp   string        `json:"harp,omitempty"`
+	Reason string        `json:"reason,omitempty"`
+	Grace  time.Duration `json:"grace,omitempty"`
 }
 
-// Validate refuses the bulk shape with no reason.
+// Validate refuses the bulk shape with no reason, and a negative grace.
 func (r StopRequest) Validate() error {
 	if r.Harp == "" && strings.TrimSpace(r.Reason) == "" {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, ErrStopReasonRequired)
+	}
+	if r.Grace < 0 {
+		return fmt.Errorf("%w: agent_stop: grace %s is negative", ErrInvalidRequest, r.Grace)
 	}
 	return nil
 }
@@ -209,11 +214,13 @@ var controlVerbs = []string{ControlVerbSteer, ControlVerbQuestion, ControlVerbSu
 
 // ControlRequest is one control action on a target the initiator owns:
 // Verb names the action, Harp the target, Body the instruction, question,
-// focus or reason the verb takes (pause and resume take none).
+// focus or reason the verb takes (pause and resume take none). Interrupt, on
+// a steer only, cuts the target's running turn short first.
 type ControlRequest struct {
-	Verb string `json:"verb"`
-	Harp string `json:"harp"`
-	Body string `json:"body,omitempty"`
+	Verb      string `json:"verb"`
+	Harp      string `json:"harp"`
+	Body      string `json:"body,omitempty"`
+	Interrupt bool   `json:"interrupt,omitempty"`
 }
 
 // Validate requires a known verb, a target, and a body for the verbs that

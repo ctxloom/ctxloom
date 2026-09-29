@@ -38,6 +38,7 @@ type Session struct {
 	cmd       *exec.Cmd
 	stopCtx   func()
 	exited    chan struct{}
+	ended     chan struct{} // closed once terminate has returned
 	closeOnce sync.Once
 	code      int
 	waitErr   error
@@ -80,8 +81,9 @@ func start(ctx context.Context, cmd *exec.Cmd, grace time.Duration) (*Session, e
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Session{master: master, cmd: cmd, stopCtx: cancel, exited: make(chan struct{})}
+	s := &Session{master: master, cmd: cmd, stopCtx: cancel, exited: make(chan struct{}), ended: make(chan struct{})}
 	go func() {
+		defer close(s.ended)
 		<-ctx.Done()
 		// The ctx is the "ask to end" handle, not the teardown handle: on
 		// cancellation end the child so a parked pty read cannot outlive the
@@ -148,11 +150,15 @@ func (s *Session) ExitErr() error {
 
 // End ends the child and leaves the master open: the handle for a party that
 // ends the run while another still reads its output. It returns once the
-// child is gone (see terminate). The child's last bytes stay readable to EIO,
-// and Wait or Kill releases the master.
+// child has exited or, past the grace, been SIGKILLed (see terminate) — not
+// once it is reaped: on macOS a killed child's exit still waits for its
+// output to be read, and End's caller is not the reader, so waiting for the
+// reap there deadlocks. Exited, ExitErr and Wait observe the reap. The
+// child's last bytes stay readable to EIO, and Wait or Kill releases the
+// master.
 func (s *Session) End() {
 	s.stopCtx()
-	<-s.exited
+	<-s.ended
 }
 
 // terminate asks the child to end with SIGTERM, so a runner unwinds through

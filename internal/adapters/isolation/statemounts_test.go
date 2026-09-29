@@ -443,7 +443,7 @@ func TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir(t *testing.T) {
 	// container, since renderRunSpec sets HOME=defaultContainerHome for every
 	// container run. The resolver joins with the HOST separator, so its
 	// answer is read back as the slash path the Linux container sees.
-	pointHomeAt(t, defaultContainerHome)
+	testsupport.PointHomeAt(t, defaultContainerHome)
 	containerLockPath, err := paths.HomePathFor(protected)
 	require.NoError(t, err)
 	containerLockPath = filepath.ToSlash(containerLockPath)
@@ -452,7 +452,7 @@ func TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir(t *testing.T) {
 	// REAL host's $HOME, never the container's — only the mount TARGET
 	// names the container path), and would otherwise try to MkdirAll a
 	// locks dir under the fake container home on this host's filesystem.
-	pointHomeAt(t, realHome)
+	testsupport.PointHomeAt(t, realHome)
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
 	c.state = SessionState{Harp: "brisk-teal-otter"}

@@ -104,6 +104,17 @@ func ScrubbedEnv(t *testing.T) []string {
 	return env
 }
 
+// PointHomeAt repoints the user's home at dir for the rest of the test:
+// HOME and USERPROFILE together, since os.UserHomeDir reads the latter on
+// Windows — a test that sets HOME alone shares the runner's real home there.
+// Unlike Isolate it clears nothing else, so a test can move the home it
+// already isolated (e.g. between a host and a container view).
+func PointHomeAt(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 // WriteFile creates path's parent directory and then writes data atomically,
 // matching the MkdirAll-then-iox sequence a production writer uses (e.g.
 // internal/adapters/operations/signer.go#appendAllowedSignersLine) — so a fixture

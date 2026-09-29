@@ -842,7 +842,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 		return nil
 	}
 	if len(sources) == 0 {
-		return fmt.Errorf("container image %q is not present (no local build recipe for this engine; provide the image, or configure isolation_images)", c.image)
+		return c.imageUnbuildable()
 	}
 	selfExe, err := resolveSelfExe()
 	if err != nil {

@@ -191,6 +191,11 @@ func Preview(ctx context.Context, s Spec) Environment {
 		desc.Runtime, desc.Reach = RuntimeUnavailable, ReachUnknown
 		return previewEnvironment{placement: unrouted(previewLayout(s, stores)), desc: desc}
 	}
+	if c, ok := p.(Container); ok {
+		if err := c.launchGate(ctx, c.inspectImage); err != nil {
+			refuseLostContainer(err, s.harp, s.axes.Runtime)
+		}
+	}
 	pl, _, err := p.relocator().relocate(previewLayout(s, stores))
 	if err != nil {
 		recordRefusal(err)

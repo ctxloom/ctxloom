@@ -642,26 +642,55 @@ func gitIdentityEnv(agentID string) []string {
 	}
 }
 
-// prepareContainerScratch runs the container degrade gate — a launchable
-// runtime, the required image present (or locally buildable, see
-// ensureImage), and an engine that declared a container story — then provisions the host
-// scratch root under the session's ephemeral dir. Any gate failure returns an error so the
-// caller degrades (the top-level run → None; a fan-out member → a bare worktree).
-// It is the shared front-half of BOTH the top-level Container workspace and the
-// worktree-in-container composition; each layers its own extra mounts (config
-// overlay / .git gitdir mirror) on top.
-func (c Container) prepareContainerScratch(ctx context.Context) (containerScratch, error) {
+// launchGate is the container gate's checks that create nothing, in the
+// run's order: a launchable runtime, the image (image: ensureImage for a run,
+// inspectImage for a preview), a user-owned image's identity contract, and a
+// declared container story. It returns the first refusal, as the run does;
+// the identity contract records its own finding.
+func (c Container) launchGate(ctx context.Context, image func(context.Context) error) error {
 	if c.runtime == nil || !c.runtime.Available() {
-		return containerScratch{}, fmt.Errorf("container runtime %q cannot launch", runtimeName(c.runtime))
+		return fmt.Errorf("container runtime %q cannot launch", runtimeName(c.runtime))
 	}
-	if err := c.ensureImage(ctx); err != nil {
-		return containerScratch{}, err
+	if err := image(ctx); err != nil {
+		return err
 	}
 	// The image is present — but a USER-OWNED run-as-is image must also satisfy
 	// the identity contract BEFORE anything starts: a wrong-identity container
 	// LAUNCHES fine (invisible to the fatal launch gate) and then root-owns
 	// every file it writes into the bind-mounted project.
 	c.checkRunAsIsIdentity(ctx)
+	if !c.engineSpec.declared {
+		return report.Error{Msg: "container: " + noContainerHint, Fix: noContainerRemedy}
+	}
+	return nil
+}
+
+// inspectImage is ensureImage with nothing pulled or built: the refusal a run
+// meets when the image is absent and there is no recipe to build it. An
+// absent image WITH a recipe is built by the run, so it is no refusal.
+func (c Container) inspectImage(ctx context.Context) error {
+	if sources, _, _ := c.containerBuildSources(""); len(sources) == 0 && !c.imagePresent(ctx) {
+		return c.imageUnbuildable()
+	}
+	return nil
+}
+
+// imageUnbuildable is the refusal of an absent image with no local recipe.
+func (c Container) imageUnbuildable() error {
+	return fmt.Errorf("container image %q is not present (no local build recipe for this engine; provide the image, or configure isolation_images)", c.image)
+}
+
+// prepareContainerScratch runs the container degrade gate (launchGate) and
+// then provisions the host scratch root under the session's ephemeral dir and
+// the session-state mounts. Any gate failure returns an error so the caller
+// refuses the run (prepareChain's refuseLostContainer).
+// It is the shared front-half of BOTH the top-level Container workspace and the
+// worktree-in-container composition; each layers its own extra mounts (config
+// overlay / .git gitdir mirror) on top.
+func (c Container) prepareContainerScratch(ctx context.Context) (containerScratch, error) {
+	if err := c.launchGate(ctx, c.ensureImage); err != nil {
+		return containerScratch{}, err
+	}
 	// The shared-filesystem probe used to run HERE, against a single throwaway
 	// tempdir under os.TempDir() — which only ever proved THAT directory's own
 	// sharing status, never the REAL roots this run bind-mounts (a partially
@@ -689,10 +718,6 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		// actually created.
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
-	}
-	if !c.engineSpec.declared {
-		_ = os.RemoveAll(root)
-		return containerScratch{}, report.Error{Msg: "container: " + noContainerHint, Fix: noContainerRemedy}
 	}
 	// Session-state persistence is part of the container gate: a run whose
 	// state dirs cannot be prepared errors here so the caller's degrade chain

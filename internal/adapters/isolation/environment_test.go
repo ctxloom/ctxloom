@@ -163,9 +163,10 @@ func TestPreview_ReportsEveryProblemAndContinues(t *testing.T) {
 		assert.NotEmpty(t, f.Remedy, "every finding names its fix: %s", f.Text)
 		texts = append(texts, f.Text)
 	}
-	require.Len(t, found, 2, "both problems, not the first: %q", texts)
-	assert.Contains(t, found[0].Text, project, "the unroutable root, by name")
-	assert.Contains(t, found[1].Text, errNoHomeRoute.Error(), "the missing route home")
+	require.Len(t, found, 3, "every problem, not the first: %q", texts)
+	assert.Contains(t, found[0].Text, "identity contract cannot be verified", "the container gate: the fake runtime's run-as-is image has no config to verify")
+	assert.Contains(t, found[1].Text, project, "the unroutable root, by name")
+	assert.Contains(t, found[2].Text, errNoHomeRoute.Error(), "the missing route home")
 
 	root := env.Placement().Paths.Paths().ProjectRoot
 	assert.Equal(t, present.Root{Host: project}, root, "an unreachable root has no Engine side — never a guessed path")
@@ -307,4 +308,56 @@ func treeOf(t *testing.T, roots ...string) []string {
 	}
 	sort.Strings(all)
 	return all
+}
+
+// finding is what a dry run's gate lists of one strictness finding.
+type finding struct {
+	text, remedy  string
+	nonDegradable bool
+}
+
+func findingsSince(mark strictness.Mark) []finding {
+	var out []finding
+	for _, f := range strictness.Since(mark) {
+		out = append(out, finding{f.Text, f.Remedy, f.NonDegradable})
+	}
+	return out
+}
+
+// A container preview runs the run's container gate — inspecting, never
+// pulling or building — and records exactly the refusals the run records on
+// the same inputs, so a dry run is never clean where the run refuses: an
+// image that is absent with no recipe to build it, and an engine that
+// declares no container story (behind a user-owned image whose identity
+// contract cannot be verified, which the run refuses on too).
+func TestPreview_RecordsTheContainerGateARunRefusesOn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rt   Runtime
+		eng  func(t *testing.T) engine.Engine
+	}{
+		{"image absent, nothing to build it from", fakeRuntime{name: "docker", binary: "false", available: true}, claudeEngine},
+		{"engine with no container story", containerRuntime, func(*testing.T) engine.Engine { return mock.NewNamed("storyless") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := fakeHostHome(t, tokenFixture)
+			project := t.TempDir()
+			withFakeContainerRuntime(t, tc.rt)
+			s := envSpec(t, containerAxes, tc.eng(t), home, project)
+
+			mark := strictness.Checkpoint()
+			env, err := Prepare(context.Background(), s)
+			if err == nil {
+				require.NoError(t, env.Cleanup())
+			}
+			run := findingsSince(mark)
+			strictness.Close(mark)
+			require.NotEmpty(t, run, "precondition: the run refuses")
+
+			mark = strictness.Checkpoint()
+			defer strictness.Close(mark)
+			_ = Preview(context.Background(), s)
+			assert.Equal(t, run, findingsSince(mark), "the dry run records what the run refuses on")
+		})
+	}
 }

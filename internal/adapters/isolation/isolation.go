@@ -637,6 +637,20 @@ func resolveAndBind(ctx context.Context, p policy, projectDir, agentID string) (
 	return ws, nil
 }
 
+// refuseLostContainer records a container that could not start as the
+// non-degradable finding the run is refused on — for a run (prepareChain)
+// and for its preview (Preview), through this one call. A refusal that names
+// its own fix is more specific than the generic image/runtime remedy, and
+// wins.
+func refuseLostContainer(err error, agentID string, requested RuntimeAxis) {
+	remedy, ok := clifmt.RemedyOf(err)
+	if !ok {
+		remedy = isolationRemedy
+	}
+	strictness.FailAlways(report.KindIsolation, remedy,
+		"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v%s", agentID, err, containerSelectionHint(requested))
+}
+
 // prepareChain tries each policy's PrepareWorkspace in order and returns the first
 // that succeeds with its workspace, warning at each degrade. The chain always ends
 // in None (which never fails), so a member always gets a workspace; the trailing
@@ -678,15 +692,7 @@ func prepareChain(ctx context.Context, chain []policy, requested RuntimeAxis, pr
 		// None so the WORKSPACE resolution has an answer to return; what stops
 		// the run is the non-degradable finding, not a missing workspace.
 		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
-			// A refusal that names its own fix (unresolvable container auth
-			// names the credential to provide) is more specific than the
-			// generic image/runtime remedy, and wins.
-			remedy, ok := clifmt.RemedyOf(err)
-			if !ok {
-				remedy = isolationRemedy
-			}
-			strictness.FailAlways(report.KindIsolation, remedy,
-				"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v%s", agentID, err, containerSelectionHint(requested))
+			refuseLostContainer(err, agentID, requested)
 			continue
 		}
 		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)

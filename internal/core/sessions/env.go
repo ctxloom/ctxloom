@@ -31,6 +31,13 @@ const (
 	// (spawn.StartRunner), because a container runner inherits nothing from
 	// the host's environment.
 	EnvRunnerOwnerLossWindow = "CTXLOOM_RUNNER_OWNER_LOSS_WINDOW"
+	// EnvDiagnosticsLog is the file an INTERACTIVE runner writes its
+	// diagnostics to instead of its stderr. That stderr is the engine's pty,
+	// which the originator composites onto a terminal it has handed to its
+	// terminal UI, so a warning printed there lands in the middle of the
+	// engine's screen. The originator sets it to the session's diagnostics
+	// log, where its own warnings go for the same reason.
+	EnvDiagnosticsLog = "CTXLOOM_DIAGNOSTICS_LOG"
 	// EnvHarp carries the run's session harp to the ENGINE process and its
 	// hook subprocesses; it names the session dir and the spool.
 	EnvHarp = "CTXLOOM_SESSION_HARP"

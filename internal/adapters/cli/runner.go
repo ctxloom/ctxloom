@@ -12,7 +12,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/parentwatch"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
@@ -45,6 +47,7 @@ func runRunner(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer stop()
+	defer divertRunnerDiagnostics(os.Getenv)()
 	return runner.Main(ctx, runner.MainDeps{
 		Reporter: App().Reporter,
 		Harness:  engineName,
@@ -67,6 +70,27 @@ func runRunner(cmd *cobra.Command, args []string) error {
 			return runnerDepsFor(backend, engineName, host, runnermcp.Endpoint{Home: home, Reporter: App().Reporter})
 		},
 	})
+}
+
+// divertRunnerDiagnostics sends this runner's warnings to the file its
+// originator names (sessions.EnvDiagnosticsLog) instead of stderr, which is
+// the engine's pty. A file that cannot be opened — a container runner handed
+// a host path — leaves them on stderr: disturbing the display beats losing
+// them. Returns the restore.
+func divertRunnerDiagnostics(getenv func(string) string) func() {
+	path := getenv(sessions.EnvDiagnosticsLog)
+	if path == "" {
+		return func() {}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return func() {}
+	}
+	restore := clidiag.SetSink(f)
+	return func() {
+		restore()
+		_ = f.Close()
+	}
 }
 
 // runnerContext is the context the runner lives under: it ends on a stop

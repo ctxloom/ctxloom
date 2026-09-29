@@ -190,45 +190,47 @@ func (s *Screen) moveTo(r, c int) {
 	s.wrapPending = false
 }
 
+// escActions are the two-byte escapes that act on the screen.
+var escActions = map[byte]func(*Screen){
+	'7': func(s *Screen) { s.buffer().saved = s.cur },
+	'8': func(s *Screen) { sv := s.buffer().saved; s.moveTo(sv.r, sv.c) },
+	'c': (*Screen).reset,
+	'D': (*Screen).lineFeed,
+	'E': func(s *Screen) { s.cur.c = 0; s.lineFeed() },
+	'M': (*Screen).reverseIndex,
+	'=': func(*Screen) {}, // keypad modes: no cell effect
+	'>': func(*Screen) {},
+}
+
 func (s *Screen) stepEscape(b []byte) int {
 	if len(b) < 2 {
 		return 0
 	}
-	switch b[1] {
-	case '[':
+	switch {
+	case b[1] == '[':
 		return s.stepCSI(b)
-	case ']', 'P', 'X', '^', '_':
+	case strings.IndexByte("]PX^_", b[1]) >= 0:
 		return skipString(b)
-	case '7':
-		s.buffer().saved = s.cur
-	case '8':
-		sv := s.buffer().saved
-		s.moveTo(sv.r, sv.c)
-	case 'c':
-		// RIS resets the terminal, not this model's bookkeeping: the unread
-		// input Feed is walking and the Unhandled record survive it.
-		pending, seen := s.buf, s.unhandled
-		*s = *New(s.rows, s.cols)
-		s.buf, s.unhandled = pending, seen
-	case 'D':
-		s.lineFeed()
-	case 'E':
-		s.cur.c = 0
-		s.lineFeed()
-	case 'M':
-		s.reverseIndex()
-	case '=', '>':
-		// keypad modes: no cell effect
-	default:
-		if b[1] >= 0x20 && b[1] <= 0x2f { // ESC intermediate final (charset designation)
-			if len(b) < 3 {
-				return 0
-			}
-			return 3
+	case b[1] >= 0x20 && b[1] <= 0x2f: // ESC intermediate final (charset designation)
+		if len(b) < 3 {
+			return 0
 		}
+		return 3
+	}
+	if act, ok := escActions[b[1]]; ok {
+		act(s)
+	} else {
 		s.unhandled[fmt.Sprintf("ESC %q", b[1])]++
 	}
 	return 2
+}
+
+// reset is RIS. It resets the terminal, not this model's bookkeeping: the
+// unread input Feed is walking and the Unhandled record survive it.
+func (s *Screen) reset() {
+	pending, seen := s.buf, s.unhandled
+	*s = *New(s.rows, s.cols)
+	s.buf, s.unhandled = pending, seen
 }
 
 // skipString consumes an OSC/DCS/APC/PM/SOS string up to BEL or ST.
@@ -275,29 +277,27 @@ func (q csi) n(i, def int) int {
 	return v
 }
 
+// span returns the end of the run of bytes in [lo, hi] starting at i.
+func span(b []byte, i int, lo, hi byte) int {
+	for i < len(b) && b[i] >= lo && b[i] <= hi {
+		i++
+	}
+	return i
+}
+
 func parseCSI(b []byte) (csi, int) {
-	i := 2
-	var q csi
-	for i < len(b) && b[i] >= 0x3c && b[i] <= 0x3f {
-		q.prefix += string(b[i])
-		i++
+	p := span(b, 2, 0x3c, 0x3f)   // private prefix
+	pe := span(b, p, 0x30, 0x3b)  // parameters
+	ie := span(b, pe, 0x20, 0x2f) // intermediates
+	if ie >= len(b) {
+		return csi{}, 0
 	}
-	start := i
-	for i < len(b) && b[i] >= 0x30 && b[i] <= 0x3b {
-		i++
-	}
-	params := string(b[start:i])
-	istart := i
-	for i < len(b) && b[i] >= 0x20 && b[i] <= 0x2f {
-		i++
-	}
-	q.inter = string(b[istart:i])
-	if i >= len(b) {
-		return q, 0
-	}
-	q.final = b[i]
-	q.params = strings.Split(params, ";")
-	return q, i + 1
+	return csi{
+		prefix: string(b[2:p]),
+		params: strings.Split(string(b[p:pe]), ";"),
+		inter:  string(b[pe:ie]),
+		final:  b[ie],
+	}, ie + 1
 }
 
 func (s *Screen) stepCSI(b []byte) int {
@@ -317,22 +317,17 @@ func (s *Screen) stepCSI(b []byte) int {
 	return n
 }
 
-// isInert is the prefixed/intermediate sequences with no effect on cells:
-// DECRQM queries, keyboard-protocol pushes/pops/queries, modifyOtherKeys,
-// cursor style.
-func isInert(q csi) bool {
-	switch {
-	case q.inter == "$" && q.final == 'p':
-		return true
-	case (q.prefix == "=" || q.prefix == ">" || q.prefix == "<" || q.prefix == "?") && q.final == 'u':
-		return true
-	case q.prefix == ">" && q.final == 'm':
-		return true
-	case q.inter == " " && q.final == 'q':
-		return true
-	}
-	return false
+// inert is the prefixed/intermediate sequences with no effect on cells,
+// keyed prefix+intermediates+final: DECRQM queries, keyboard-protocol
+// pushes/pops/queries, modifyOtherKeys, cursor style.
+var inert = map[string]bool{
+	"$p": true, "?$p": true,
+	"=u": true, ">u": true, "<u": true, "?u": true,
+	">m": true,
+	" q": true,
 }
+
+func isInert(q csi) bool { return inert[q.prefix+q.inter+string(q.final)] }
 
 func (s *Screen) privateModes(q csi) {
 	set := q.final == 'h'
@@ -385,75 +380,76 @@ func (s *Screen) switchScreen(toAlt, cursorSave, clear bool) {
 	}
 }
 
+// csiActions are the unprefixed control sequences, by final byte.
+var csiActions = map[byte]func(*Screen, csi){
+	'H': func(s *Screen, q csi) { s.moveTo(q.n(0, 1)-1, q.n(1, 1)-1) },
+	'A': func(s *Screen, q csi) { s.moveTo(s.cur.r-q.n(0, 1), s.cur.c) },
+	'B': func(s *Screen, q csi) { s.moveTo(s.cur.r+q.n(0, 1), s.cur.c) },
+	'C': func(s *Screen, q csi) { s.moveTo(s.cur.r, s.cur.c+q.n(0, 1)) },
+	'D': func(s *Screen, q csi) { s.moveTo(s.cur.r, s.cur.c-q.n(0, 1)) },
+	'E': func(s *Screen, q csi) { s.moveTo(s.cur.r+q.n(0, 1), 0) },
+	'F': func(s *Screen, q csi) { s.moveTo(s.cur.r-q.n(0, 1), 0) },
+	'G': func(s *Screen, q csi) { s.moveTo(s.cur.r, q.n(0, 1)-1) },
+	'd': func(s *Screen, q csi) { s.moveTo(q.n(0, 1)-1, s.cur.c) },
+	'r': (*Screen).setMargins,
+	'K': func(s *Screen, q csi) { s.eraseLine(q.n(0, 0)) },
+	'J': func(s *Screen, q csi) { s.eraseScreen(q.n(0, 0)) },
+	'X': func(s *Screen, q csi) { s.fill(s.cur.r, s.cur.c, min(s.cur.c+q.n(0, 1), s.cols)) },
+	'@': func(s *Screen, q csi) { s.shiftRow(q.n(0, 1), true) },
+	'P': func(s *Screen, q csi) { s.shiftRow(q.n(0, 1), false) },
+	'L': func(s *Screen, q csi) { s.insertLines(q.n(0, 1)) },
+	'M': func(s *Screen, q csi) { s.deleteLines(q.n(0, 1)) },
+	'S': func(s *Screen, q csi) { repeat(q.n(0, 1), s.scrollUp) },
+	'T': func(s *Screen, q csi) { repeat(q.n(0, 1), s.scrollDown) },
+	'b': func(s *Screen, q csi) { repeat(q.n(0, 1), func() { s.put(s.last) }) },
+	's': func(s *Screen, _ csi) { s.buffer().saved = s.cur },
+	'u': func(s *Screen, _ csi) { sv := s.buffer().saved; s.moveTo(sv.r, sv.c) },
+	'h': (*Screen).ansiModes,
+	'l': (*Screen).ansiModes,
+	// SGR, window ops, reports: no cell effect
+	'm': func(*Screen, csi) {},
+	't': func(*Screen, csi) {},
+	'n': func(*Screen, csi) {},
+	'c': func(*Screen, csi) {},
+	'q': func(*Screen, csi) {},
+}
+
+func init() {
+	csiActions['f'] = csiActions['H']
+	csiActions['e'] = csiActions['B']
+	csiActions['a'] = csiActions['C']
+	csiActions['`'] = csiActions['G']
+}
+
+func repeat(n int, f func()) {
+	for range n {
+		f()
+	}
+}
+
 func (s *Screen) plainCSI(q csi) {
-	switch q.final {
-	case 'H', 'f':
-		s.moveTo(q.n(0, 1)-1, q.n(1, 1)-1)
-	case 'A':
-		s.moveTo(s.cur.r-q.n(0, 1), s.cur.c)
-	case 'B', 'e':
-		s.moveTo(s.cur.r+q.n(0, 1), s.cur.c)
-	case 'C', 'a':
-		s.moveTo(s.cur.r, s.cur.c+q.n(0, 1))
-	case 'D':
-		s.moveTo(s.cur.r, s.cur.c-q.n(0, 1))
-	case 'E':
-		s.moveTo(s.cur.r+q.n(0, 1), 0)
-	case 'F':
-		s.moveTo(s.cur.r-q.n(0, 1), 0)
-	case 'G', '`':
-		s.moveTo(s.cur.r, q.n(0, 1)-1)
-	case 'd':
-		s.moveTo(q.n(0, 1)-1, s.cur.c)
-	case 'r':
-		t, bo := q.n(0, 1), q.n(1, s.rows)
-		if t < bo && bo <= s.rows {
-			s.top, s.bot = t-1, bo-1
-			s.moveTo(0, 0)
+	if act, ok := csiActions[q.final]; ok {
+		act(s, q)
+		return
+	}
+	s.unhandled[fmt.Sprintf("CSI %c", q.final)]++
+}
+
+func (s *Screen) setMargins(q csi) {
+	t, bo := q.n(0, 1), q.n(1, s.rows)
+	if t < bo && bo <= s.rows {
+		s.top, s.bot = t-1, bo-1
+		s.moveTo(0, 0)
+	}
+}
+
+// ansiModes: insert (4) and newline (20) change what bytes do to the cells,
+// and are not modeled; the others have no cell effect.
+func (s *Screen) ansiModes(q csi) {
+	for i := range q.params {
+		if v := q.n(i, 0); v == 4 || v == 20 {
+			s.unhandled[fmt.Sprintf("CSI %d%c", v, q.final)]++
 		}
-	case 'K':
-		s.eraseLine(q.n(0, 0))
-	case 'J':
-		s.eraseScreen(q.n(0, 0))
-	case 'X':
-		s.fill(s.cur.r, s.cur.c, min(s.cur.c+q.n(0, 1), s.cols))
-	case '@':
-		s.shiftRow(q.n(0, 1), true)
-	case 'P':
-		s.shiftRow(q.n(0, 1), false)
-	case 'L':
-		s.insertLines(q.n(0, 1))
-	case 'M':
-		s.deleteLines(q.n(0, 1))
-	case 'S':
-		for range q.n(0, 1) {
-			s.scrollUp()
-		}
-	case 'T':
-		for range q.n(0, 1) {
-			s.scrollDown()
-		}
-	case 'b':
-		for range q.n(0, 1) {
-			s.put(s.last)
-		}
-	case 's':
-		s.buffer().saved = s.cur
-	case 'u':
-		sv := s.buffer().saved
-		s.moveTo(sv.r, sv.c)
-	case 'h', 'l':
-		// ANSI modes: insert (4) and newline (20) change what bytes do to
-		// the cells, and are not modeled
-		for i := range q.params {
-			if v := q.n(i, 0); v == 4 || v == 20 {
-				s.unhandled[fmt.Sprintf("CSI %d%c", v, q.final)]++
-			}
-		}
-	case 'm', 't', 'n', 'c', 'q':
-		// SGR, window ops, reports: no cell effect
-	default:
-		s.unhandled[fmt.Sprintf("CSI %c", q.final)]++
 	}
 }
 

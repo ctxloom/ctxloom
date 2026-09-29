@@ -361,3 +361,30 @@ func TestPreview_RecordsTheContainerGateARunRefusesOn(t *testing.T) {
 		})
 	}
 }
+
+// A worktree preview shows the cwd the run gets: the checkout it would
+// create, at the path it creates it, and nothing on disk — or, for a project
+// that is no git repository (the run degrades to the shared tree), the live
+// project.
+func TestPreview_WorktreeShowsTheCwdTheRunGets(t *testing.T) {
+	axes := launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost}
+	for _, tc := range []struct {
+		name    string
+		project func(t *testing.T) string
+	}{
+		{"a git project: the checkout", gitRepo},
+		{"no git repository: the live project", func(t *testing.T) string { return t.TempDir() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := fakeHostHome(t, tokenFixture)
+			project := tc.project(t)
+			s := envSpec(t, axes, claudeEngine(t), home, project)
+
+			previewed := Preview(context.Background(), s).Placement().Paths.Paths().ProjectRoot.Host
+			require.NoDirExists(t, sessionDir(home, harpA), "a preview creates nothing on disk")
+
+			ran := prepared(t, s).Placement().Paths.Paths().ProjectRoot.Host
+			assert.Equal(t, ran, previewed, "the preview shows the cwd the run gets")
+		})
+	}
+}

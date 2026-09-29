@@ -164,10 +164,14 @@ func recordRefusal(err error) {
 }
 
 // Preview is Prepare's relocation with no effects on disk: no checkout, no
-// scratch, no session home created. A container preview PROBES the runtime
-// read-only — its selection (info) and its route home (network inspect) — so
-// Describe and Listen show the real runtime and reach. Start and Interactive
-// return ErrPreviewEnvironment; Cleanup is a no-op.
+// scratch, no session home created. A worktree preview shows the checkout
+// the run would create as its cwd. A container preview PROBES the runtime
+// read-only — its selection (info), the run's container gate with the image
+// inspected rather than pulled or built (launchGate), and its route home
+// (network inspect) — so Describe and Listen show the real runtime and
+// reach. The shared-filesystem probe is NOT run: it writes a marker into
+// each mount root and starts a container. Start and Interactive return
+// ErrPreviewEnvironment; Cleanup is a no-op.
 //
 // A preview does NOT stop at the first problem. Every refusal a run would hit
 // is recorded as the finding the run raises — through the same call, not a
@@ -182,6 +186,12 @@ func Preview(ctx context.Context, s Spec) Environment {
 	if err != nil {
 		recordRefusal(err)
 	}
+	l := previewLayout(s, stores)
+	if s.axes.WantsWorktree() {
+		w := NewWorktree(nil)
+		w.state = s.state
+		l.cwd = w.previewCwd(s.project, s.harp)
+	}
 	p := chainFor(s.axes, s.backend(), s.img)[0]
 	if s.axes.WantsContainer() && !IsContainerPolicyName(p.Name()) {
 		// chainFor recorded the refusal. p is the host fallback the run
@@ -189,14 +199,14 @@ func Preview(ctx context.Context, s Spec) Environment {
 		// routes any root.
 		_, desc := p.preview(ctx)
 		desc.Runtime, desc.Reach = RuntimeUnavailable, ReachUnknown
-		return previewEnvironment{placement: unrouted(previewLayout(s, stores)), desc: desc}
+		return previewEnvironment{placement: unrouted(l), desc: desc}
 	}
 	if c, ok := p.(Container); ok {
 		if err := c.launchGate(ctx, c.inspectImage); err != nil {
 			refuseLostContainer(err, s.harp, s.axes.Runtime)
 		}
 	}
-	pl, _, err := p.relocator().relocate(previewLayout(s, stores))
+	pl, _, err := p.relocator().relocate(l)
 	if err != nil {
 		recordRefusal(err)
 	}

@@ -82,3 +82,41 @@ func TestRenderOwnedRunEvents_MissingResultFailsClosed(t *testing.T) {
 	require.ErrorAs(t, err, &exit, "a terminal event with no Result must not report success")
 	assert.Equal(t, 1, exit.Code)
 }
+
+// TestRenderOwnedRunEvents_FailedRunExitsWithTheEngineStatus: a run that did
+// not succeed exits with the engine's own status when the engine produced one
+// — its code, or 128+signum for a signal — so a script wrapping `ctxloom run`
+// sees what it would have seen running the engine directly. With no engine
+// status, or a zero one on a run that still failed, the failure is ctxloom's
+// own classification and exits 1 rather than 0.
+func TestRenderOwnedRunEvents_FailedRunExitsWithTheEngineStatus(t *testing.T) {
+	code := func(v int32) *int32 { return &v }
+	for _, tc := range []struct {
+		name   string
+		status agentcoordpb.Result_RunStatus
+		exit   *int32
+		want   int
+	}{
+		{"engine exit code", agentcoordpb.Result_RUN_STATUS_FAILED, code(3), 3},
+		{"engine killed by a signal", agentcoordpb.Result_RUN_STATUS_FAILED, code(143), 143},
+		{"no engine status", agentcoordpb.Result_RUN_STATUS_FAILED, nil, 1},
+		{"zero status on a failed run", agentcoordpb.Result_RUN_STATUS_FAILED, code(0), 1},
+		{"cancelled, no engine status", agentcoordpb.Result_RUN_STATUS_CANCELLED, nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			events := make(chan *agentcoordpb.AgentEvent, 1)
+			events <- &agentcoordpb.AgentEvent{
+				RunId: "run-1",
+				Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
+					Result: &agentcoordpb.Result{Status: tc.status, ExitCode: tc.exit},
+				}},
+			}
+			_, err := renderOwnedRunEvents(ctx, io.Discard, formatText, "run-1", events, nil, true)
+			var exit *ExitError
+			require.ErrorAs(t, err, &exit)
+			assert.Equal(t, tc.want, exit.Code)
+		})
+	}
+}

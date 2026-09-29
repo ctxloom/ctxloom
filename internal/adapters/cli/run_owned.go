@@ -187,11 +187,13 @@ type ownedRenderResult struct {
 // REASONING/LOG channels are excluded — the host renders the answer, not the
 // scratchpad, exactly like accumulateFinalText.
 //
+// A run that did not succeed returns an *ExitError carrying
+// failedRunExitCode.
+//
 // The accumulator is LOCAL by construction: every read by another
 // goroutine goes through turnIdle or the return value, so there is no shared
-// buffer to race on. capture is always true for this arm's one remaining
-// caller (runOneshotViaCoord); it stays a parameter because every test below
-// drives this renderer directly and several assert on the RETURNED text.
+// buffer to race on. capture is false only where the answer is not wanted:
+// the interactive run reads just the terminal outcome (ownedRunOutcome).
 func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- string, capture bool) (string, error) {
 	// Reject a format this renderer cannot honor BEFORE consuming the stream,
 	// on the text/json pair the streaming commands support (format.go):
@@ -289,12 +291,26 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				} else if r.GetStatus() != agentcoordpb.Result_RUN_STATUS_FAILED {
 					clidiag.Warn("ctxloom", "run did not succeed: %s", r.GetStatus())
 				}
-				return answer.String(), &ExitError{Code: 1}
+				return answer.String(), &ExitError{Code: failedRunExitCode(r)}
 			}
 		case <-ctx.Done():
 			return answer.String(), ctx.Err()
 		}
 	}
+}
+
+// failedRunExitCode is the exit status of a run that did not succeed: the
+// engine's own status when the engine ran and exited non-zero (its code, or
+// 128+signum for a signal — ptyrunner.ExitStatusFor), so `ctxloom run` is a
+// transparent wrapper around it. Otherwise 1: the run failed without an engine
+// status to report (cancelled, never launched, synthesized), and a zero one
+// cannot stand for a failure. ctxloom's own refusals exit before the engine
+// launches and never reach here.
+func failedRunExitCode(r *agentcoordpb.Result) int {
+	if r != nil && r.ExitCode != nil && *r.ExitCode != 0 {
+		return int(*r.ExitCode)
+	}
+	return 1
 }
 
 // wireEvents projects the coordinator's in-process watch onto the wire's

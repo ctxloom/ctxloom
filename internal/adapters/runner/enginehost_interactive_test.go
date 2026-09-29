@@ -56,6 +56,18 @@ func interactiveLaunch(harp, workDir string) launch.Launch {
 	return l
 }
 
+// runCompleted is the last RunCompleted the host emitted, nil if none. The
+// caller holds f.mu.
+func (f *fakeEngineHome) runCompleted() *agentcoordpb.RunCompleted {
+	var completed *agentcoordpb.RunCompleted
+	for _, ev := range f.events {
+		if rc, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted); ok {
+			completed = rc.RunCompleted
+		}
+	}
+	return completed
+}
+
 // TestDrive_InteractiveLaunchDrivesTheTerminalNotTheChat: an INTERACTIVE
 // launch is driven on the runner's own terminal — the pty slave the
 // originator holds the master of, or the container's -it tty — through the
@@ -96,14 +108,11 @@ func TestDrive_InteractiveLaunchDrivesTheTerminalNotTheChat(t *testing.T) {
 	home.mu.Lock()
 	defer home.mu.Unlock()
 	assert.Equal(t, 0, home.exited[0].Code)
-	var completed *agentcoordpb.RunCompleted
-	for _, ev := range home.events {
-		if rc, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted); ok {
-			completed = rc.RunCompleted
-		}
-	}
+	completed := home.runCompleted()
 	require.NotNil(t, completed, "the engine's exit is the run's terminal")
 	assert.Equal(t, agentcoordpb.Result_RUN_STATUS_SUCCEEDED, completed.GetResult().GetStatus())
+	require.NotNil(t, completed.GetResult().ExitCode, "an engine that exited reports its status, zero included")
+	assert.Equal(t, int32(0), completed.GetResult().GetExitCode())
 }
 
 // errEngineDidNotStart is a terminal's failure to run the engine at all.
@@ -129,15 +138,39 @@ func TestDrive_InteractiveEngineFailureIsTheRunsFailure(t *testing.T) {
 	home.mu.Lock()
 	defer home.mu.Unlock()
 	assert.Equal(t, 3, home.exited[0].Code)
-	var completed *agentcoordpb.RunCompleted
-	for _, ev := range home.events {
-		if rc, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted); ok {
-			completed = rc.RunCompleted
-		}
-	}
+	completed := home.runCompleted()
 	require.NotNil(t, completed, "the engine's failure is the run's terminal")
 	assert.Equal(t, agentcoordpb.Result_RUN_STATUS_FAILED, completed.GetResult().GetStatus())
 	assert.Equal(t, errEngineDidNotStart.Error(), completed.GetResult().GetError().GetMessage(), "the run names why the engine did not run")
+	assert.Nil(t, completed.GetResult().ExitCode, "an engine that never ran has no exit status to report")
+}
+
+// TestDrive_InteractiveEngineExitStatusRidesTheResult: an engine that ran and
+// exited non-zero — its own code, or 128+signum for a signal — fails the run
+// and carries that status on the Result, which is what `ctxloom run` exits
+// with.
+func TestDrive_InteractiveEngineExitStatusRidesTheResult(t *testing.T) {
+	home := &fakeEngineHome{}
+	term := newFakeTerminal(143, nil)
+	eh := newTestEngineHost(context.Background(), &scriptedChat{}, "claude-code", "run-1")
+	t.Cleanup(eh.Close)
+	eh.BindHome(home)
+	eh.BindTerminal(term)
+	require.NoError(t, eh.Drive(context.Background(), Turn{Launch: interactiveLaunch("harp-x", t.TempDir())}))
+	close(term.release)
+	require.Eventually(t, func() bool {
+		home.mu.Lock()
+		defer home.mu.Unlock()
+		return len(home.exited) == 1
+	}, conformanceWait, 10*time.Millisecond)
+	home.mu.Lock()
+	defer home.mu.Unlock()
+	assert.Equal(t, 143, home.exited[0].Code)
+	completed := home.runCompleted()
+	require.NotNil(t, completed)
+	assert.Equal(t, agentcoordpb.Result_RUN_STATUS_FAILED, completed.GetResult().GetStatus())
+	require.NotNil(t, completed.GetResult().ExitCode)
+	assert.Equal(t, int32(143), completed.GetResult().GetExitCode())
 }
 
 // TestDrive_InteractiveLaunchWithoutATerminalIsRefused: a runner composed

@@ -83,8 +83,8 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the spool cross-boundary integration test")
 	coord.ResetStrictness(t)
 
-	// Outside the checkout, on a real filesystem the daemon can see —
-	// dockergate.BindFixtureRoot names all three constraints.
+	// Outside the checkout, where the daemon can see it —
+	// dockergate.BindFixtureRoot names both constraints.
 	fixture, err := os.MkdirTemp(dockergate.BindFixtureRoot(), "ctxloom-spool-xb-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -98,7 +98,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	sp.SetEngineCaps(coord.RunnerCapabilities(true))
 	c := coord.NewTestCoordinator(t, sp, nil)
 	// AFTER the constructor, which gives every coordinator test a private
-	// HOME of its own and would otherwise replace this one with a tmpfs dir.
+	// HOME of its own and would otherwise replace this one with it.
 	// Nothing has resolved a spool path yet: that happens on each write.
 	t.Setenv("HOME", fixture)
 

@@ -72,8 +72,8 @@ func TestSpoolCrossMount_HostAndContainerShareOneSpool(t *testing.T) {
 	probeDir := t.TempDir()
 	buildProbe(t, filepath.Join(probeDir, containerProbeName))
 
-	// The fixture home lives outside the checkout, on a real filesystem the
-	// daemon can see — dockergate.BindFixtureRoot names all three constraints.
+	// The fixture home lives outside the checkout, where the daemon can see
+	// it — dockergate.BindFixtureRoot names both constraints.
 	fixture, err := os.MkdirTemp(dockergate.BindFixtureRoot(), "ctxloom-spool-xmount-")
 	require.NoError(t, err)
 	t.Cleanup(func() {

@@ -2,6 +2,7 @@ package fsstatic_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -112,5 +114,67 @@ func TestDeliver_KeepsTheModeAnApproachWrote(t *testing.T) {
 		info, err := os.Stat(filepath.Join(project, rel))
 		require.NoError(t, err, rel)
 		fileperm.Equal(t, want, info.Mode(), rel)
+	}
+}
+
+// inPlaceWriter is a context approach that opens the file at path for writing
+// IN PLACE through the overlay it is handed and writes to it — the write the
+// overlay refuses. It embeds the mock's approach for everything else.
+type inPlaceWriter struct {
+	engine.ContextApproach
+	path string
+	open func(fs afero.Fs, path string) (afero.File, error)
+}
+
+func (a inPlaceWriter) DeliverContext(_ present.Start, _ present.RootKind, _ engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
+	f, err := a.open(fs, a.path)
+	if err != nil {
+		return present.Delivered{}, err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.Write([]byte("written in place\n"))
+	return present.Delivered{}, err
+}
+
+// TestDeliver_RefusesAnInPlaceWriteToAnExistingFile: an approach that opens a
+// file already standing under the target for writing — appending, writing
+// over it, or truncating it through Create — is refused with
+// ErrInPlaceWrite, and the file keeps its bytes and its mode. Allowed, afero
+// would copy it up into the layer with no mode, and the landing would chmod
+// the real file to 0.
+func TestDeliver_RefusesAnInPlaceWriteToAnExistingFile(t *testing.T) {
+	opens := map[string]func(afero.Fs, string) (afero.File, error){
+		"append": func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0) },
+		"write":  func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_WRONLY, 0) },
+		"create": iox.Create,
+	}
+	for name, open := range opens {
+		t.Run(name, func(t *testing.T) {
+			fs := afero.NewOsFs()
+			project := t.TempDir()
+			existing := filepath.Join(project, mock.ContextFileName)
+			require.NoError(t, os.WriteFile(existing, []byte("theirs\n"), 0o644))
+			rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+			require.NoError(t, err)
+
+			root := mock.New().Root()
+			root.Context = inPlaceWriter{ContextApproach: root.Context, path: existing, open: open}
+			pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
+			items := pkg.EngineItems(root.Name)
+			pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootProjectRoot}}
+			plan, err := delivery.Route(items, root, pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
+			require.NoError(t, err)
+
+			_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, root, delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
+			require.True(t, errors.Is(err, fsstatic.ErrInPlaceWrite), "want ErrInPlaceWrite, got %v", err)
+			require.ErrorContains(t, err, existing, "the refusal names the file")
+
+			got, err := os.ReadFile(existing)
+			require.NoError(t, err)
+			require.Equal(t, "theirs\n", string(got), "the refused write left the file byte for byte")
+			info, err := os.Stat(existing)
+			require.NoError(t, err)
+			fileperm.Equal(t, 0o644, info.Mode(), "the refused write left the mode")
+		})
 	}
 }

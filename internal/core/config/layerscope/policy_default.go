@@ -1,7 +1,6 @@
 package layerscope
 
-// DefaultPolicy is ctxloom's table: the key×scope assignment from the
-// config-layer-scope design doc's "The key × layer table", grounded in
+// DefaultPolicy is ctxloom's table: the key×scope assignment, grounded in
 // resources/schema/input/config-schema.json. It is exhaustive against that
 // schema by test (see internal/core/config's layerscope_policy_test.go): a key the
 // schema knows and this table does not is a test failure, so no new schema

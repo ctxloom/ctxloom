@@ -48,8 +48,7 @@ func (r LayeringRule) Violates(dep string) bool {
 // signal, and the later, innocent change gets the error. These rows move the
 // signal to the reversal.
 //
-// The ring rows pin the decided architecture's rings (docs/architecture/
-// audit-2026-09-18/30-decided-architecture.md, Part 1): each allowlisted edge
+// The ring rows pin the decided architecture's rings: each allowlisted edge
 // is MEASURED, one entry per edge, and its reason names the slice in which it
 // leaves — a ratchet, not a claim.
 var LayeringRules = []LayeringRule{
@@ -88,8 +87,7 @@ var LayeringRules = []LayeringRule{
 		Forbid: []string{"internal/engines/claude"},
 	},
 	{
-		// THE DECIDED ARCHITECTURE'S CORE RING (docs/architecture/audit-2026-09-18/
-		// 30-decided-architecture.md, Part 1.0): the packages that become
+		// THE DECIDED ARCHITECTURE'S CORE RING: the packages that become
 		// internal/core/* import only each other and the toolbox. The rename
 		// slice made the ring a directory, so `from` and `except` are the
 		// prefix. `forbid` is every in-repo root, so anything that is neither core

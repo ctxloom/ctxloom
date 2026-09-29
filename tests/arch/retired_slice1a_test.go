@@ -14,9 +14,7 @@ import (
 	"testing"
 )
 
-// THE DECIDED ARCHITECTURE'S DELETION LEDGER, slice 1a (docs/architecture/
-// audit-2026-09-18/30-decided-architecture.md, Part 3.1 and Part 4.1 row 1a):
-// the symbols, files and wire fields the pure-deletion slice retires. Each
+// THE DECIDED ARCHITECTURE'S DELETION LEDGER, slice 1a: the symbols, files and wire fields the pure-deletion slice retires. Each
 // is asserted ABSENT so that it cannot quietly regrow — a deleted helper
 // re-added "because it was handy" is the regression this gate exists for.
 //
@@ -82,7 +80,7 @@ var retiredSlice1aFiles = []string{
 }
 
 // reservedStartRunFields are the StartRun wire fields nothing reads on either
-// side of the runner channel today (audit 11-dataflow-review U14). Each is
+// side of the runner channel today. Each is
 // asserted reserved by number and absent by name. The four fields Launch
 // superseded (harness, input, parent_run_id, role) are written and read by
 // nobody since slice 8 but stay on the message under the additive rule; they

@@ -125,9 +125,8 @@ type Config struct {
 	// The dirty-tree-commit human acknowledgement used to live here as a
 	// config-only bool field. It moved to paths.DirtyTreeCommitAckPath (an
 	// internal/shared/admission.Store file under .ctxloom/state/) — see
-	// config.DirtyTreeCommitAcknowledged/SetDirtyTreeCommitAck and the
-	// config-layer-scope design doc's "Consent leaves the chain": a config
-	// key is reachable from THREE channels an agent can write (a home file,
+	// config.DirtyTreeCommitAcknowledged/SetDirtyTreeCommitAck. Consent leaves
+	// the chain because a config key is reachable from THREE channels an agent can write (a home file,
 	// an environment variable, an argv), and prior human consent needs a
 	// home with none. ScopeNever in internal/core/config/layerscope names the
 	// scope this key would have needed and why no layer may carry it.

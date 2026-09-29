@@ -2,7 +2,7 @@
 
 `confload` is the config-chain library shared by the ctxloom family of binaries. It closes the precedence chain `home file < project file < env vars < --config-set flags` on top of koanf, `yaml.v3` and `pflag`, and it owns two contracts nobody else may re-implement: the merge semantics (presence beats truthiness, maps deep-merge, everything else replaces) and the override path resolution that turns `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME` into `["agents","mycoder","runtime"]`.
 
-It is domain-free but not pure. No product's schema lives here: schema knowledge arrives only through the `Product` hooks (`KnownPath`, `ValidateValue`, `ScopeAllows`, `MergeFunc`). But `Product.Load` reads files, and its warnings go out through the `clidiag` global rather than back to the caller. That is why it is not a toolbox member the core ring may import. The ruling is in `docs/architecture/audit-2026-09-18/30-decided-architecture.md`, under "3.3 Decisions and their reasons".
+It is domain-free but not pure. No product's schema lives here: schema knowledge arrives only through the `Product` hooks (`KnownPath`, `ValidateValue`, `ScopeAllows`, `MergeFunc`). But `Product.Load` reads files, and its warnings go out through the `clidiag` global rather than back to the caller. That is why it is not a toolbox member the core ring may import. The core-ring row of `archrules.LayeringRules` enforces it.
 
 For ctxloom, config flows confload (the generic chain) → `internal/adapters/configload` (ctxloom's product: its hooks, layer policy and decoding) → `*config.Config` (`internal/core/config`) → core. Only the decoded value reaches core.
 

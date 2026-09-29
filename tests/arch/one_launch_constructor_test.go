@@ -9,8 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
-// one-launch-constructor (docs/architecture/audit-2026-09-18/
-// 30-decided-architecture.md, Part 1.1): the resolved launch has ONE
+// one-launch-constructor: the resolved launch has ONE
 // constructor, launch.Resolve. Outside its own package and the wire codec
 // that decodes one back, no production code BUILDS a launch.Launch — by
 // composite literal with fields, by new, or by declaring a variable of the

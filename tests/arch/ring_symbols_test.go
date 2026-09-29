@@ -1,7 +1,6 @@
 //go:build arch
 
-// THE DECIDED ARCHITECTURE'S SYMBOL RULES (docs/architecture/audit-2026-09-18/
-// 30-decided-architecture.md, Part 1.1): the invariants that are about WHO
+// THE DECIDED ARCHITECTURE'S SYMBOL RULES: the invariants that are about WHO
 // MAY NAME A SYMBOL rather than who may import a package, and so cannot be a
 // archrules.LayeringRule row. Each is an AST walk over the module's production files
 // with a shrinking, reasoned allowlist in the same shape as the other symbol

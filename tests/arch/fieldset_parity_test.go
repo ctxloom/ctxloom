@@ -1,7 +1,6 @@
 //go:build arch
 
-// FIELD-SET PARITY (docs/architecture/audit-2026-09-18/30-decided-
-// architecture.md, Part 0 invariant 2): every value that crosses a process
+// FIELD-SET PARITY: every value that crosses a process
 // boundary is carried once, typed, by a codec whose two ends carry the same
 // field set. This is the harness the migration's codecs register into as
 // they land — the launch on the coordination wire, the identity in the

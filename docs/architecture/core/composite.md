@@ -8,9 +8,7 @@ consumer reads (`composite.Assemble`, the one constructor). It never knows
 which engine, where files land, or the session: it imports `bundles`,
 `profiles`, `trust`, `wire` and `engine`, none of which import it.
 
-The plan this lands is `docs/architecture/audit-2026-09-18/30-decided-architecture.md`
-Part 1.3 (the package half; the trust half landed in slice 5); Part 2.3 is the
-item's flow. What diverges from Part 1.3 is listed at the end.
+Where the package diverges from the design it was built to is listed at the end.
 
 ## Who asks, who reads
 
@@ -117,7 +115,7 @@ it holds, by bundle then by name, with its kind, description and premise —
 not the selection, so the runner's `search_library` and the `ctxloom://`
 resources can be served with no config owner.
 
-## What diverges from Part 1.3, and why
+## What diverges from the design, and why
 
 - **`Selection` carries more than the plan's sketch:** `Explicit`, `Tags` /
   `MissingTags`, `Bundles`, `Hooks` (per profile, with its source ref),

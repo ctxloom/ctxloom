@@ -488,7 +488,7 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, second.Queued)
 
-	disp, err := c.AgentStop(ownerIdentity(), first.Harp, "")
+	disp, err := c.AgentStop(ownerIdentity(), first.Harp, "", 0)
 	require.NoError(t, err)
 	assert.Contains(t, disp, "freed")
 	assert.Equal(t, StateEnded, rosterState(c, first.Harp))
@@ -496,10 +496,21 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond,
 		"stopping the running child frees the slot for the queued one")
 
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-	require.NoError(t, err)
-	require.NotEmpty(t, msgs)
-	assert.Equal(t, KindExited, msgs[0].Kind)
+	// A stop is interrupt-then-close: the parent hears the exit AND the running
+	// turn's report that it was cut short. They are routed independently, so
+	// they are collected in whatever order they land.
+	byKind := map[string]Message{}
+	deadline := time.Now().Add(conformanceWait)
+	for len(byKind) < 2 && time.Now().Before(deadline) {
+		msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+		require.NoError(t, err)
+		for _, m := range msgs {
+			byKind[m.Kind] = m
+		}
+	}
+	require.Contains(t, byKind, KindExited)
+	require.Contains(t, byKind, KindResult)
+	assert.Contains(t, byKind[KindResult].Body, "interrupted before it finished")
 }
 
 // TestAgentStop_MidStartRunIsAStopNotALaunchFailure forces the interleaving
@@ -541,7 +552,7 @@ func TestAgentStop_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 	c.mu.Unlock()
 	require.NotNil(t, attached, "StartRun is in flight, so the launch attempt has not settled")
 
-	disp, err := c.AgentStop(ownerIdentity(), first.Harp, "")
+	disp, err := c.AgentStop(ownerIdentity(), first.Harp, "", 0)
 	require.NoError(t, err)
 	assert.Contains(t, disp, "stopped child")
 	assert.Equal(t, StateEnded, rosterState(c, first.Harp))

@@ -100,7 +100,7 @@ func TestAgentStop_OnAnEndedRunStillStopsTheRelaunch(t *testing.T) {
 	// the retry loop's own terminal.
 	c.terminateRun(out.RunID, CauseRunnerExit, "engine exited between turns")
 
-	msg, err := c.AgentStop(ownerIdentity(), out.Harp, "")
+	msg, err := c.AgentStop(ownerIdentity(), out.Harp, "", 0)
 	if !assert.NoError(t, err, "a stop landing on an ended run must not be an error — the child is still stoppable") {
 		return
 	}

@@ -238,6 +238,9 @@ func (r ControlRequest) Validate() error {
 	if err := requireNonEmpty(r.Verb, "harp", r.Harp); err != nil {
 		return err
 	}
+	if r.Interrupt && r.Verb != ControlVerbSteer {
+		return fmt.Errorf("%w: %s: interrupt is a steer's alone", ErrInvalidRequest, r.Verb)
+	}
 	switch r.Verb {
 	case ControlVerbSteer, ControlVerbQuestion, ControlVerbSummarize:
 		return requireNonEmpty(r.Verb, "body", r.Body)

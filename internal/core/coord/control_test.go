@@ -60,7 +60,7 @@ func TestControlSteer_RefusesSelfTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.ControlSteer(context.Background(), ControlInitiator{Kind: kindAgent, Harp: out.Harp}, out.Harp, "steer myself")
+	_, err = c.ControlSteer(context.Background(), ControlInitiator{Kind: kindAgent, Harp: out.Harp}, out.Harp, "steer myself", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot control itself")
 	assert.Zero(t, c.pendingCount(out.Harp), "a refused steer must queue nothing anywhere")
@@ -78,7 +78,7 @@ func TestControlSteer_AgentInitiatorControlsOnlyItsOwnChildren(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.ControlSteer(context.Background(), ControlInitiator{Kind: kindAgent, Harp: "some-other-parent"}, out.Harp, "not yours")
+	_, err = c.ControlSteer(context.Background(), ControlInitiator{Kind: kindAgent, Harp: "some-other-parent"}, out.Harp, "not yours", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not the parent")
 	assert.Zero(t, c.pendingCount(out.Harp))
@@ -93,7 +93,7 @@ func TestControlSteer_RefusesUnrecognisedInitiator(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.ControlSteer(context.Background(), ControlInitiator{Kind: ControlInitiatorKind("99"), Harp: "x"}, out.Harp, "who am I")
+	_, err = c.ControlSteer(context.Background(), ControlInitiator{Kind: ControlInitiatorKind("99"), Harp: "x"}, out.Harp, "who am I", false)
 	require.Error(t, err)
 	assert.Zero(t, c.pendingCount(out.Harp),
 		"an initiator this build does not recognise must not fall into the human branch and deliver anyway")
@@ -115,6 +115,6 @@ func TestCapUnavailable_IsACause(t *testing.T) {
 // injectAsHuman is a human steer reduced to its delivery mode — what the
 // viewer's inject line reports.
 func injectAsHuman(c *Coordinator, harp, text string) (string, error) {
-	out, err := c.ControlSteer(context.Background(), ControlInitiator{Kind: InitiatorHuman}, harp, text)
+	out, err := c.ControlSteer(context.Background(), ControlInitiator{Kind: InitiatorHuman}, harp, text, false)
 	return out.Delivery, err
 }

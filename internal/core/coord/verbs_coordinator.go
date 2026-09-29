@@ -74,7 +74,7 @@ func (c *Coordinator) Stop(ctx context.Context, caller Identity, req StopRequest
 		}
 		return StopResult{Disposition: msg, Children: stopped}, nil
 	}
-	disposition, err := c.AgentStop(caller, req.Harp, req.Reason)
+	disposition, err := c.AgentStop(caller, req.Harp, req.Reason, req.Grace)
 	if err != nil {
 		return StopResult{}, err
 	}
@@ -126,7 +126,7 @@ func (c *Coordinator) Control(ctx context.Context, by ControlInitiator, req Cont
 	}
 	switch req.Verb {
 	case ControlVerbSteer:
-		out, err := c.ControlSteer(ctx, by, req.Harp, req.Body)
+		out, err := c.ControlSteer(ctx, by, req.Harp, req.Body, req.Interrupt)
 		if err != nil {
 			return ControlResult{}, err
 		}

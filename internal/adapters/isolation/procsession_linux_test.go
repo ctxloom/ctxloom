@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
@@ -38,7 +39,10 @@ func ownTreePids() []int {
 	all := procPids()
 	parent := make(map[int]int, len(all))
 	for _, pid := range all {
-		parent[pid] = procStatInt(pid, statPPID)
+		parent[pid] = -1
+		if st, err := procpin.ReadStat(pid); err == nil {
+			parent[pid] = st.PPID
+		}
 	}
 	var mine []int
 	for _, pid := range all {

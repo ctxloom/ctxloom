@@ -47,7 +47,7 @@ func TestRecordCoordinatorStartupFinding_Degradable(t *testing.T) {
 }
 
 // TestRecordCoordinatorStartupFinding_SecondOwnerIsItsOwnClass: a project
-// another live session already owns is refused in ClassOwner, naming the
+// another live session already owns is refused in its own kind (report.KindOwner), naming the
 // owned state, and stays degradable — --degraded launches the second session
 // without delegation, never as a second owner.
 func TestRecordCoordinatorStartupFinding_SecondOwnerIsItsOwnClass(t *testing.T) {
@@ -63,5 +63,5 @@ func TestRecordCoordinatorStartupFinding_SecondOwnerIsItsOwnClass(t *testing.T) 
 	assert.False(t, found[0].NonDegradable)
 	assert.Empty(t, strictness.Mode{Degraded: true}.Actionable(found), "--degraded proceeds without delegation")
 	assert.NotEmpty(t, strictness.Mode{}.Actionable(found), "strict mode refuses")
-	assert.Contains(t, found[0].Remedy, coord.OwnerLockFileName, "the remedy points at where the owner's pid is stamped")
+	assert.Contains(t, found[0].Remedy, "ctxloom doctor", "the remedy points at where the owner can be seen")
 }

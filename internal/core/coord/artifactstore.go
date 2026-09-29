@@ -31,7 +31,7 @@ import (
 // produced them, so no single-writer serialization is required — atomic
 // temp-then-rename is sufficient even under concurrent uploads of the same
 // content (see writeAtomic). This is why the store does NOT fight
-// statedir.go's owner.pid lock: that lock exists for journals that are NOT
+// the owner lock (claimOwner): that lock exists for journals that are NOT
 // safe to share across processes; content-addressed blobs are.
 const artifactStoreDirName = "artifacts"
 

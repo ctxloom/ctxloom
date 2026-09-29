@@ -124,6 +124,12 @@ func (e *TestEnvironment) RunPTYFrom(bin string, cols, rows int, extraEnv []stri
 // key or 'q'.
 func (s *PTYSession) Write(p []byte) (int, error) { return s.pty.Write(p) }
 
+// Hangup closes the terminal's master end under the live process — what a
+// terminal emulator that dies does to the session it hosted: the kernel
+// hangs the slave up, SIGHUP reaches the foreground process, and its tty
+// reads and writes fail from then on. Close still reaps afterwards.
+func (s *PTYSession) Hangup() error { return s.pty.Close() }
+
 // Output returns everything captured off the pty so far.
 func (s *PTYSession) Output() string { return s.out.String() }
 

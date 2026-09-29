@@ -119,6 +119,7 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/realpath",
 			"internal/shared/harp",
 			"internal/shared/pidalive",
+			"internal/shared/procpin",
 			"internal/shared/errs",
 			"internal/shared/refuri",
 			"internal/shared/schema",

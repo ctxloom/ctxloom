@@ -266,5 +266,3 @@ and the engine.
   second.
 - **`ReportRunExited`'s `terminalEventSeen` parameter is a literal `true`** at its one
   production call site (`enginehost.go`).
-- **`claimOwner` ignores the lock file's write and close errors** (`statedir.go`),
-  so a zero-byte `owner.pid` for a live owner reads as stale to the next claimant.

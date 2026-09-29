@@ -5,7 +5,9 @@ package isolation
 import (
 	"os"
 	"strconv"
-	"strings"
+	"syscall"
+
+	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 )
 
 // killSession SIGKILLs every process whose /proc session id equals sid. A
@@ -33,16 +35,15 @@ func killSession(sid int) {
 		// them — the target can exit in between and the kernel can hand its
 		// number to an unrelated process, which would then take the SIGKILL.
 		// The handle names the process that existed at this instant (see
-		// procHandle), so a signal can only ever reach that one.
-		h, ok := pinProcess(pid)
+		// procpin.Handle), so a signal can only ever reach that one.
+		h, ok := procpin.Pin(pid)
 		if !ok {
 			continue // already gone: nothing left to kill
 		}
-		if procStatInt(pid, statSession) != sid {
-			h.close()
-			continue
+		if st, err := procpin.ReadStat(pid); err == nil && st.Session == sid {
+			_ = h.Signal(syscall.SIGKILL)
 		}
-		h.kill()
+		h.Close()
 	}
 }
 
@@ -66,34 +67,4 @@ func procPids() []int {
 		}
 	}
 	return pids
-}
-
-// Fields of /proc/<pid>/stat, counted from the state field that follows comm.
-const (
-	statPPID    = 1
-	statSession = 3
-)
-
-// procStatInt reads one integer field of /proc/<pid>/stat (proc(5)), -1 when
-// it cannot. The comm field can itself contain parens, so the fields after it
-// are located from the LAST ')', matching the approach in procalive's
-// isZombie.
-func procStatInt(pid, field int) int {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return -1
-	}
-	i := strings.LastIndexByte(string(data), ')')
-	if i < 0 || i+2 >= len(data) {
-		return -1
-	}
-	fields := strings.Fields(string(data[i+2:]))
-	if field >= len(fields) {
-		return -1
-	}
-	v, err := strconv.Atoi(fields[field])
-	if err != nil {
-		return -1
-	}
-	return v
 }

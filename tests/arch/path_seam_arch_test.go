@@ -32,22 +32,37 @@ const pathSeamFile = "pathseam.go"
 // (an error-path return), not an exposure, and passes. _test.go files are
 // exempt: a test states the mount it expects.
 func TestArch_MountsAreBuiltByThePathSeam(t *testing.T) {
-	root := moduleRoot(t)
+	findings, scanned, sawSeam := isolationMountLiterals(t, moduleRoot(t))
+	if !sawSeam {
+		t.Fatalf("%s/%s not found — the seam moved; point pathSeamFile at the file that now holds pathSeam.bind", isolationDir, pathSeamFile)
+	}
+	if scanned < 20 {
+		t.Fatalf("only %d production files scanned in %s — the sweep is too small to be believed", scanned, isolationDir)
+	}
+	for _, f := range findings {
+		t.Errorf("mount literal outside the path seam: %s\n"+
+			"    build it with the runtime's seam: rt.paths().bind(host, target, readOnly) for a target you "+
+			"decided, rt.paths().expose(host, readOnly) to route the host path.", f)
+	}
+}
+
+// isolationMountLiterals sweeps isolationDir's production files other than
+// the seam's own, returning each mount literal's file:line (sorted), how many
+// files it parsed, and whether it saw the seam's file at all.
+func isolationMountLiterals(t *testing.T, root string) (findings []string, scanned int, sawSeam bool) {
+	t.Helper()
 	dir := filepath.Join(root, isolationDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fset := token.NewFileSet()
-	var findings []string
-	var scanned int
-	sawSeam := false
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !isNonTestGoFile(name) {
+		switch {
+		case e.IsDir() || !isNonTestGoFile(name):
 			continue
-		}
-		if name == pathSeamFile {
+		case name == pathSeamFile:
 			sawSeam = true
 			continue
 		}
@@ -61,18 +76,8 @@ func TestArch_MountsAreBuiltByThePathSeam(t *testing.T) {
 			findings = append(findings, isolationDir+"/"+name+":"+strconv.Itoa(fset.Position(pos).Line))
 		}
 	}
-	if !sawSeam {
-		t.Fatalf("%s/%s not found — the seam moved; point pathSeamFile at the file that now holds pathSeam.bind", isolationDir, pathSeamFile)
-	}
-	if scanned < 20 {
-		t.Fatalf("only %d production files scanned in %s — the sweep is too small to be believed", scanned, isolationDir)
-	}
 	sort.Strings(findings)
-	for _, f := range findings {
-		t.Errorf("mount literal outside the path seam: %s\n"+
-			"    build it with the runtime's seam: rt.paths().bind(host, target, readOnly) for a target you "+
-			"decided, rt.paths().expose(host, readOnly) to route the host path.", f)
-	}
+	return findings, scanned, sawSeam
 }
 
 // mountLiterals returns the position of every mount composite literal in f

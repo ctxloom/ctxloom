@@ -248,7 +248,7 @@ func (w *writeLayer) OpenFile(name string, flag int, perm os.FileMode) (afero.Fi
 
 func (w *writeLayer) Rename(oldname, newname string) error {
 	w.note(newname)
-	return w.Fs.Rename(oldname, newname)
+	return iox.Rename(w.Fs, oldname, newname)
 }
 
 // files lists every noted name the layer still holds as a regular file,
@@ -256,7 +256,7 @@ func (w *writeLayer) Rename(oldname, newname string) error {
 func (w *writeLayer) files() []string {
 	var out []string
 	for name := range w.names {
-		if info, err := w.Fs.Stat(name); err == nil && info.Mode().IsRegular() {
+		if info, err := w.Stat(name); err == nil && info.Mode().IsRegular() {
 			out = append(out, name)
 		}
 	}

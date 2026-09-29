@@ -48,12 +48,19 @@ type liveLaunch struct {
 }
 
 // launchInteractive runs spec through RunLaunchSpec on its own goroutine.
-func launchInteractive(spec agent.LaunchSpec, stdin io.Reader, resize <-chan agent.WindowSize) *liveLaunch {
+// The launch's context ends with the test, so an engine a failing test
+// leaves waiting is killed rather than outliving it.
+func launchInteractive(t *testing.T, spec agent.LaunchSpec, stdin io.Reader, resize <-chan agent.WindowSize) *liveLaunch {
+	ctx, cancel := context.WithCancel(context.Background())
 	l := &liveLaunch{out: &ptyTranscript{}, done: make(chan struct{})}
 	go func() {
 		defer close(l.done)
-		l.code, l.err = RunLaunchSpec(context.Background(), spec, stdin, l.out, io.Discard, resize)
+		l.code, l.err = RunLaunchSpec(ctx, spec, stdin, l.out, io.Discard, resize)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-l.done
+	})
 	return l
 }
 
@@ -90,8 +97,8 @@ func (l *liveLaunch) wait(t *testing.T) (int32, error) {
 }
 
 // An interactive launch hosts the engine on a pty the runner owns: the
-// engine's stdin and stdout are a terminal already sized to the viewer's
-// window before its first paint, it runs where and with what the spec says,
+// engine's stdin and stdout are a terminal sized to the viewer's window, it
+// runs where and with what the spec says,
 // the viewer's keystrokes reach it, the stdin owner's cleanup runs exactly
 // once, and the launch reports the engine's own exit status. Nothing about it
 // needs the run to be named, or any program besides the engine.
@@ -119,21 +126,25 @@ exit 5`
 		},
 	}
 	// The viewer's size is queued before the launch, as the frontend sends it
-	// first: the engine must paint at it, not at the pty's default.
+	// first. That it lands BEFORE the child starts is ptyrunner's contract
+	// (TestRunInteractive_SizesPTYBeforeChildStarts); this pins that the
+	// launch relays the caller's sizes to the engine's terminal at all.
 	resize := make(chan agent.WindowSize, 1)
 	resize <- agent.WindowSize{Rows: 31, Cols: 97}
 
-	l := launchInteractive(spec, stdinR, resize)
+	l := launchInteractive(t, spec, stdinR, resize)
 	l.waitFor(t, "READY")
-	_, err := stdinW.Write([]byte("typed-by-the-viewer\n"))
-	require.NoError(t, err)
+	// Typed off the test's goroutine: a launch that never reads stdin must
+	// fail the wait below, not park this write forever.
+	go func() { _, _ = stdinW.Write([]byte("typed-by-the-viewer\n")) }()
+	l.waitFor(t, "GOT:typed-by-the-viewer")
 	code, err := l.wait(t)
 
 	require.NoError(t, err)
 	assert.Equal(t, int32(5), code, "the launch reports the engine's own exit status")
 	got := l.out.String()
 	assert.Contains(t, got, "ON-A-TTY", "the engine's stdin and stdout are a terminal")
-	assert.Contains(t, got, "SIZE 31 97", "the engine starts at the viewer's size")
+	assert.Contains(t, got, "SIZE 31 97", "the engine's terminal has the viewer's size")
 	realWorkDir, err := filepath.EvalSymlinks(workDir)
 	require.NoError(t, err)
 	assert.Contains(t, got, "CWD "+realWorkDir, "the engine runs in the spec's working directory")
@@ -166,7 +177,7 @@ while [ ! -e "$STOP" ]; do sleep 0.02; done`
 	resize := make(chan agent.WindowSize, 2)
 	resize <- agent.WindowSize{Rows: 12, Cols: 40}
 
-	l := launchInteractive(spec, nil, resize)
+	l := launchInteractive(t, spec, nil, resize)
 	l.waitFor(t, "ENGINE 12x40")
 	before := vtemu.New(12, 40)
 	before.Feed([]byte(l.out.String()))

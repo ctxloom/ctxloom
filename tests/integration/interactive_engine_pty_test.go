@@ -27,18 +27,16 @@ import (
 
 // fakeInteractiveClaudeBody reports claude's version floor (checked before
 // launch), says whether it was handed a terminal, echoes one typed line, and
-// exits with a status no other path produces, so the test can tell the
-// engine's own exit from a launch failure.
+// exits cleanly. A run reports any engine failure, and any launch failure, as
+// a non-zero exit, so only an engine that ran and ended cleanly exits 0.
 const fakeInteractiveClaudeBody = `#!/bin/sh
 case "$1" in --version) echo "%s (Claude Code)"; exit 0;; esac
 if [ -t 0 ] && [ -t 1 ]; then echo "FAKE-ENGINE-ON-A-TTY"; fi
 echo "FAKE-ENGINE-READY"
 IFS= read -r line
 echo "FAKE-ENGINE-GOT:$line"
-exit 7
+exit 0
 `
-
-const fakeEngineExitCode = 7
 
 // pathWithout returns the process PATH with every executable called name
 // hidden. An entry holding one is replaced by a mirror of its OTHER entries,
@@ -117,5 +115,5 @@ func TestRunPTY_InteractiveEngineRunsOnAPlainPtyWithoutTmux(t *testing.T) {
 
 	exited, _ := sess.Wait(ptyRunTimeout)
 	require.True(t, exited, "ctxloom run did not exit within %s; captured so far: %q", ptyRunTimeout, sess.Output())
-	assert.Equal(t, fakeEngineExitCode, sess.ExitCode(), "the run exits with the engine's own status; captured: %q", sess.Output())
+	assert.Equal(t, 0, sess.ExitCode(), "the run ends with the engine's clean exit; captured: %q", sess.Output())
 }

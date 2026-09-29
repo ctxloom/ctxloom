@@ -63,7 +63,7 @@ func TestEnd_TheContainersLastBytesSurviveTheRelay(t *testing.T) {
 		TTY:     true,
 	}
 	pol := NewContainerFor(rt, "mock")
-	s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), rt.RunArgs(spec)...), name, removeOnExit(pol, name))
+	s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), mustRunArgs(t, rt, spec)...), name, removeOnExit(pol, name))
 	require.NoError(t, err)
 	t.Cleanup(func() { s.Kill(); _ = exec.Command(rt.Binary(), "rm", "-f", name).Run() })
 

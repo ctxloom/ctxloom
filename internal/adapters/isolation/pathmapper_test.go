@@ -43,7 +43,7 @@ func TestBuildRunSpec_DriveLetterMapper_TranslatesWorkDirAndProjectMount(t *test
 	assert.Equal(t, "/mnt/c/Users/ben/my proj", spec.WorkDir)
 	assert.Contains(t, spec.Mounts, mount{Host: hostProj, Container: "/mnt/c/Users/ben/my proj"})
 
-	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
+	argv := strings.Join(mustRunArgs(t, Docker{rootless: true}, spec), " ")
 	assert.Contains(t, argv, "-w /mnt/c/Users/ben/my proj")
 	assert.Contains(t, argv, `source=C:\Users\ben\my proj,target=/mnt/c/Users/ben/my proj`)
 	assert.NotContains(t, argv, `target=C:\`, "the target must never carry a Windows path")

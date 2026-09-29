@@ -21,7 +21,7 @@ func (Host) Binary() string { return "" }
 func (Host) Available() bool { return true }
 
 // RunArgs is a noop — Host does not launch a container.
-func (Host) RunArgs(RunSpec) []string { return nil }
+func (Host) RunArgs(RunSpec) ([]string, error) { return nil, nil }
 
 // RemoveArgs is a noop — Host has nothing to tear down.
 func (Host) RemoveArgs(string) []string { return nil }
@@ -65,3 +65,5 @@ func (Host) daemonNameTemplate() string                                 { return
 func (Host) removeOutcome([]byte, error) removeOutcome                  { return removeAlreadyGone }
 func (Host) passesPUID() bool                                           { return false }
 func (Host) gatewayInspectArgs() []string                               { return nil }
+func (Host) containerByIDArgs(string) []string                          { return nil }
+func (Host) selfInspectArgs(string) []string                            { return nil }

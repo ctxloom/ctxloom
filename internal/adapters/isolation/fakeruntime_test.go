@@ -10,15 +10,17 @@ type fakeRuntime struct {
 	available bool
 }
 
-func (f fakeRuntime) Name() string             { return f.name }
-func (f fakeRuntime) Binary() string           { return f.binary }
-func (f fakeRuntime) Available() bool          { return f.available }
-func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
-func (fakeRuntime) RemoveArgs(string) []string { return nil }
+func (f fakeRuntime) Name() string                    { return f.name }
+func (f fakeRuntime) Binary() string                  { return f.binary }
+func (f fakeRuntime) Available() bool                 { return f.available }
+func (fakeRuntime) RunArgs(RunSpec) ([]string, error) { return nil, nil }
+func (fakeRuntime) RemoveArgs(string) []string        { return nil }
 
 // reachRoute is empty: a fake runner's env passes through un-re-minted.
 func (fakeRuntime) reachRoute(context.Context) (hostRoute, error) { return hostRoute{}, nil }
 func (fakeRuntime) gatewayInspectArgs() []string                  { return ociRuntime{}.gatewayInspectArgs() }
+func (fakeRuntime) containerByIDArgs(id string) []string          { return ociRuntime{}.containerByIDArgs(id) }
+func (fakeRuntime) selfInspectArgs(id string) []string            { return ociRuntime{}.selfInspectArgs(id) }
 
 // The CLI grammar is the shared OCI default, so a call site routed through the
 // seam renders the same argv against the fake as against a real runtime.

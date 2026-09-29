@@ -3,6 +3,7 @@ package isolation
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -159,6 +160,10 @@ func (c Container) describe(route hostRoute) Description {
 	switch {
 	case route.listen.Public:
 		reach = route.dial + " (public)"
+	case strings.HasPrefix(route.network, sharedNamespacePrefix):
+		reach = "loopback (sharing this process's container network namespace)"
+	case route.dial != "" && route.dial == route.listen.Addr && route.network != "":
+		reach = fmt.Sprintf("%s (container network %s)", route.dial, route.network)
 	case route.dial != "":
 		reach = route.dial
 	}

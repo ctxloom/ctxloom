@@ -300,3 +300,20 @@ func stubGateway(t *testing.T, out string, err error) *[]string {
 	t.Cleanup(func() { probeExec = orig })
 	return &got
 }
+
+// mustRunArgs renders rt's run argv for spec, failing the test on a render
+// error (a mount source the daemon has no name for).
+func mustRunArgs(t testing.TB, rt Runtime, spec RunSpec) []string {
+	t.Helper()
+	args, err := rt.RunArgs(spec)
+	require.NoError(t, err)
+	return args
+}
+
+// mustRender renders spec's shared tail with identity sources.
+func mustRender(t testing.TB, spec RunSpec) []string {
+	t.Helper()
+	args, err := renderRunSpec(spec, sharedSource{})
+	require.NoError(t, err)
+	return args
+}

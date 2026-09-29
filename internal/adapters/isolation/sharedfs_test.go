@@ -20,8 +20,9 @@ import (
 // shared fake returns nil), so the probe's mount reaches the exec stub.
 type probeRuntime struct{ fakeRuntime }
 
-func (p probeRuntime) RunArgs(spec RunSpec) []string {
-	return append([]string{"run", "--rm", "--name", spec.Name}, renderRunSpec(spec)...)
+func (p probeRuntime) RunArgs(spec RunSpec) ([]string, error) {
+	tail, err := renderRunSpec(spec, sharedSource{})
+	return append([]string{"run", "--rm", "--name", spec.Name}, tail...), err
 }
 
 // stubProbeExec swaps the probe's exec seam for the test and restores it.

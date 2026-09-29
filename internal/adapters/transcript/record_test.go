@@ -91,7 +91,22 @@ func TestPayloadFromChatEvent_AllVariants(t *testing.T) {
 		assert.Nil(t, session)
 		assert.Nil(t, complete)
 		require.NotNil(t, denied)
-		assert.Equal(t, DeniedPayload{ToolName: "Bash", ToolCallID: "toolu_1", Reason: "needs approval", Decider: int(agent.DeciderTimeout)}, *denied)
+		assert.Equal(t, DeniedPayload{ToolName: "Bash", ToolCallID: "toolu_1", Reason: "needs approval", Decider: agent.DeciderTimeout}, *denied)
+
+		// On disk the decider is its NAME, and the line reads back as itself.
+		line, err := json.Marshal(Record{V: SchemaVersion, Kind: KindDenied, Denied: denied})
+		require.NoError(t, err)
+		assert.Contains(t, string(line), `"decider":"timeout"`)
+		var back Record
+		require.NoError(t, json.Unmarshal(line, &back))
+		require.NotNil(t, back.Denied)
+		assert.Equal(t, *denied, *back.Denied)
+	})
+
+	t.Run("a denied line naming an unknown decider does not decode", func(t *testing.T) {
+		var rec Record
+		err := json.Unmarshal([]byte(`{"v":1,"kind":"denied","denied":{"tool_name":"Bash","decider":"committee"}}`), &rec)
+		require.ErrorIs(t, err, agent.ErrUnknownDecider)
 	})
 
 	t.Run("complete carries the turn's denials", func(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
@@ -243,4 +244,42 @@ func TestFixtureRoster_IsNotEmpty(t *testing.T) {
 	manifest := readFixtureManifest(t)
 	assert.ElementsMatch(t, manifest, allFixtureEngines,
 		"the fixture directory and MANIFEST.json must describe the same set — a fixture with no manifest entry has undocumented provenance, and a manifest entry with no fixture is a stale claim")
+}
+
+// TestSchema_DeciderEnumIsTheVocabulary binds the published schema's decider
+// enum to agent.Decider: the names are read from the type itself (every member
+// from zero up, until marshalling refuses), so a member added, dropped or
+// renamed on either side fails here rather than shipping a schema that
+// rejects — or admits — what the writer does not emit.
+func TestSchema_DeciderEnumIsTheVocabulary(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "transcript.schema.json"))
+	require.NoError(t, err)
+	var doc struct {
+		Defs struct {
+			DeniedPayload struct {
+				Properties struct {
+					Decider struct {
+						Type string   `json:"type"`
+						Enum []string `json:"enum"`
+					} `json:"decider"`
+				} `json:"properties"`
+			} `json:"deniedPayload"`
+		} `json:"$defs"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+
+	var names []string
+	for d := agent.Decider(0); ; d++ {
+		raw, err := json.Marshal(d)
+		if err != nil {
+			require.ErrorIs(t, err, agent.ErrUnknownDecider)
+			break
+		}
+		var name string
+		require.NoError(t, json.Unmarshal(raw, &name), "a decider is written as a JSON string")
+		names = append(names, name)
+	}
+	require.NotEmpty(t, names)
+	assert.Equal(t, "string", doc.Defs.DeniedPayload.Properties.Decider.Type)
+	assert.Equal(t, names, doc.Defs.DeniedPayload.Properties.Decider.Enum)
 }

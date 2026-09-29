@@ -33,8 +33,7 @@ func containerNameFromRoster(t *testing.T, c *Coordinator, runID string) string 
 // (isolation.RunnerHandle.Name — stood in for here since this test never
 // launches a real container) must reach the roster projection
 // (AgentIdentity.ContainerName via listRunsSnapshot in consumer.go) — the
-// human-usable `docker logs -f`/`docker attach` handle when tmux is
-// unavailable.
+// human-usable `docker logs -f`/`docker attach` handle on a containerized run.
 func TestStartOwnedRun_SurfacesContainerNameOnRoster(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)

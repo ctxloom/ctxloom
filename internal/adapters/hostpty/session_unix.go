@@ -22,7 +22,7 @@ func sessionAttrs() *syscall.SysProcAttr {
 // rawInput turns off the slave's INPUT processing, before the child exists
 // to read it. This pty is a byte transport: the frontend already holds the
 // human's terminal in raw mode and the runner relays what it reads, verbatim,
-// into the engine's own pane. A fresh pty is COOKED — the kernel echoes every
+// into the engine's own pty. A fresh pty is COOKED — the kernel echoes every
 // input byte straight back out the master (terminal query replies and mouse
 // reports painted as `^[[<35;…M` into the engine's prompt), holds input until
 // a newline, rewrites CR to LF and turns ^C into a SIGINT aimed at the runner.

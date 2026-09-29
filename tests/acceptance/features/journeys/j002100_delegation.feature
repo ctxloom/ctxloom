@@ -189,8 +189,8 @@ Feature: Coordinator delegates isolated work
   #
   # The ruling that replaced the ladder goes FURTHER than this scenario did:
   # ctxloom must NEVER answer a permission request at all. The first-party LLM client
-  # handles them natively, and a human reaches that client's own prompt through
-  # the agent's tmux window. Nothing here should be reintroduced to re-assert a
+  # handles them natively, and a human reaches that client's own prompt in the
+  # terminal the run is on. Nothing here should be reintroduced to re-assert a
   # verdict on the operator's behalf.
 
 

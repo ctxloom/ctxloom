@@ -34,8 +34,8 @@
 //
 // PERMISSIONS ARE BYPASS ON PURPOSE. The design gives approval mediation to P5;
 // a cell that had to answer a permission prompt would be measuring two
-// capabilities and attributing a red to neither. A one-shot must declare a
-// headless-safe posture anyway: the floor refuses one that would prompt.
+// capabilities and attributing a red to neither. A posture that would prompt
+// still launches, but its tool calls are denied and the turn comes back BLOCKED.
 //
 // WHY THE GATES AND THE RUN ARE COPIES OF THE FLOOR'S, NOT AN ABSTRACTION OVER
 // THEM. The Given step below repeats engine-matrix's gate stack (probeEngine,

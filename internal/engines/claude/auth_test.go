@@ -174,6 +174,39 @@ func TestClaudeAuth_Credentials_CloudSharesTheProviderDirsThatExist(t *testing.T
 	}
 }
 
+// AWS SSO refreshes its access token by rewriting the cache under
+// ~/.aws/sso/cache, so a read-only ~/.aws would break an SSO login at its
+// first refresh. cloud therefore shares that one directory read-write, NESTED
+// in the read-only ~/.aws and declared after it (a mount placed before its
+// parent would be shadowed by it) — and only when it exists, like every
+// provider store.
+func TestClaudeAuth_Credentials_CloudSharesTheSSOCacheReadWrite(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".aws", "sso", "cache"), 0o700))
+	bedrock := shellOf(map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "HOME": home})
+
+	got, err := testAuth().Credentials(engine.AuthCloud, bedrock, memStore{})
+	require.NoError(t, err)
+	assert.Equal(t, []engine.SharedStore{{HomeRel: ".aws", ReadOnly: true}, {HomeRel: ".aws/sso/cache"}}, got.Stores,
+		"the SSO cache is shared read-write, after the read-only ~/.aws it is nested in")
+}
+
+// The provider stores belong to cloud alone: a mode that does not read the
+// provider's files maps none of them, even when the human has every one.
+func TestClaudeAuth_Credentials_OnlyCloudSharesProviderStores(t *testing.T) {
+	home := t.TempDir()
+	for _, dir := range []string{filepath.Join(".aws", "sso", "cache"), filepath.Join(".config", "gcloud"), ".claude"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(home, dir), 0o700))
+	}
+	for _, mode := range []engine.AuthMode{engine.AuthLogin, engine.AuthToken, engine.AuthAPIKey} {
+		got, err := testAuth().Credentials(mode, shellOf(map[string]string{"HOME": home}), memStore{engine.AuthToken: "t", engine.AuthAPIKey: "k"})
+		require.NoError(t, err, mode)
+		for _, st := range got.Stores {
+			assert.NotContains(t, providerStores, st, "%s must not share the provider store %q", mode, st.HomeRel)
+		}
+	}
+}
+
 // Token and api-key share no store of the human's: their credential is
 // ctxloom's own, carried in the env.
 func TestClaudeAuth_Credentials_StoredModesShareNoStore(t *testing.T) {

@@ -223,8 +223,10 @@ runtime name:
   `present.ErrUnreachableRoot` with the remedy to run the Linux build inside the
   WSL distro that holds the project.
 
-One rule for every mount site: the container side of a HOST-anchored path is
-`mapper().toContainer(host)`; the container side of a CONTAINER-anchored path
+Every mount is built by the runtime's path seam (`pathSeam`, from
+`Runtime.paths()`), and nowhere else — `TestArch_MountsAreBuiltByThePathSeam`
+refuses a mount literal outside it. The container side of a HOST-anchored path
+is the seam's `targetFor(host)` (`expose` binds it there); the container side of a CONTAINER-anchored path
 (under the instance home or `$HOME`) is `path.Join` over a POSIX root;
 `filepath` never builds a container path. `Prepare` routes the requested
 environment's roots once, with no effects, before the workspace chain, so an
@@ -232,9 +234,11 @@ unroutable project is refused as unreachable rather than read as an
 unstartable container. `mountArgs` renders each `--mount` as one CSV record,
 because both runtimes parse it with `encoding/csv`.
 
-Docker-outside-of-docker is **not** this seam: there this process's paths are
-not the daemon's, which is a rewrite of the SOURCE, applied to `mount.Host`,
-and would compose with the target mapper rather than replace it.
+Docker-outside-of-docker is the seam's OTHER rule: there this process's paths
+are not the daemon's, so the bind SOURCE is rewritten (`sourceFor`, through
+this process's own container mounts) while the target is not. Targets never
+read that rule; it is applied only when `mountArgs` renders the argv, which is
+where a path the daemon has no name for is refused.
 
 A Windows host's container reaches the coordinator through the runtime's own
 route (`reachRoute`): Docker Desktop's `host.docker.internal`; a podman

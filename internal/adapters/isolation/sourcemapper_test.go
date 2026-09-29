@@ -74,10 +74,10 @@ func TestSelfMountSource_ResolvesSymlinksFirst(t *testing.T) {
 	assert.Equal(t, "/daemon/side/sub", got)
 }
 
-func TestSources_SelfDecides(t *testing.T) {
-	assert.Equal(t, sharedSource{}, ociRuntime{}.sources(), "not a container of the daemon: it shares our mount namespace")
+func TestPaths_SelfDecidesSource(t *testing.T) {
+	assert.Equal(t, sharedSource{}, ociRuntime{}.paths().source, "not a container of the daemon: it shares our mount namespace")
 	s := selfContainer{id: selfID, mounts: ciMounts.mounts}
-	assert.Equal(t, ciMounts, ociRuntime{self: &s}.sources())
+	assert.Equal(t, ciMounts, ociRuntime{self: &s}.paths().source)
 	got, err := sharedSource{}.toDaemon("/any/path")
 	require.NoError(t, err)
 	assert.Equal(t, "/any/path", got)
@@ -88,7 +88,7 @@ func TestSources_SelfDecides(t *testing.T) {
 // runner name every file by the same path (the cross-view invariant spool
 // refs, present.Mapped and delivery rest on).
 func TestMountArgs_SourceTranslatedTargetKept(t *testing.T) {
-	args, err := mountArgs([]mount{{Host: "/__w/ctxloom/ctxloom", Container: "/__w/ctxloom/ctxloom"}}, ciMounts)
+	args, err := mountArgs([]mount{{Host: "/__w/ctxloom/ctxloom", Container: "/__w/ctxloom/ctxloom"}}, pathSeam{source: ciMounts})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--mount", "type=bind,source=/home/runner/work/ctxloom/ctxloom,target=/__w/ctxloom/ctxloom"}, args)
 }

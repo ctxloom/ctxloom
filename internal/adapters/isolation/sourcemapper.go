@@ -10,9 +10,9 @@ import (
 
 // sourceMapper names, on the daemon's filesystem, the file this process sees
 // at p: the bind SOURCE, where pathMapper decides the TARGET. The two are
-// separate seams on purpose — under docker-outside-of-docker the source must
-// change while the target must not, so the runner names every file by the same
-// path ctxloom does.
+// separate rules of pathSeam on purpose — under docker-outside-of-docker the
+// source must change while the target must not, so the runner names every file
+// by the same path ctxloom does.
 type sourceMapper interface {
 	toDaemon(p string) (string, error)
 }
@@ -50,15 +50,6 @@ func (s selfMountSource) toDaemon(p string) (string, error) {
 	}
 	m := s.mounts[best]
 	return path.Join(m.source, strings.TrimPrefix(p, path.Clean(m.destination))), nil
-}
-
-// sources returns this runtime's bind-source translation: through self's
-// mounts when this process is one of the daemon's containers, else identity.
-func (rt ociRuntime) sources() sourceMapper {
-	if rt.self == nil {
-		return sharedSource{}
-	}
-	return selfMountSource{mounts: rt.self.mounts}
 }
 
 // daemonSourceRemedy is the fix for a path the daemon has no name for.

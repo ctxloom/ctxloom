@@ -106,11 +106,7 @@ type mapperRuntime struct {
 	m pathMapper
 }
 
-func (r mapperRuntime) mapper() pathMapper { return r.m }
-
-func (r mapperRuntime) exposeMapped(hostPath string, readOnly bool) (mount, error) {
-	return exposeThrough(r.m, hostPath, readOnly)
-}
+func (r mapperRuntime) paths() pathSeam { return pathSeam{target: r.m} }
 
 // A root the runtime cannot route is refused by name, as
 // present.ErrUnreachableRoot — never presented at a guessed path.

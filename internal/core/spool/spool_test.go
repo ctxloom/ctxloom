@@ -6,17 +6,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 const testHarp = "ugly-icy-squid"
 
-// hostHome points $HOME at a temp dir so every paths.* lookup in this test
-// resolves inside it, and returns that root.
+// hostHome points the user's home at a temp dir so every paths.* lookup in
+// this test resolves inside it, and returns that root.
 func hostHome(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	return home
+	return testsupport.Isolate(t)
 }
 
 // TestRefValidate_RefusesTraversal is the chokepoint test: refs arrive from a
@@ -90,14 +90,14 @@ func TestHomeMapper_CrossViewResolution(t *testing.T) {
 	tail := filepath.Join(".ctxloom", "sessions", testHarp, "persist", "spool", "in", ref.Name)
 
 	hostRoot := t.TempDir()
-	t.Setenv("HOME", hostRoot)
+	testsupport.PointHomeAt(t, hostRoot)
 	hostPath, err := m.Resolve(ref)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(hostRoot, tail), hostPath,
 		"host view must be $HOME-relative under the persist dir")
 
 	containerRoot := filepath.Join(t.TempDir(), "container-home")
-	t.Setenv("HOME", containerRoot)
+	testsupport.PointHomeAt(t, containerRoot)
 	containerPath, err := m.Resolve(ref)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(containerRoot, tail), containerPath,

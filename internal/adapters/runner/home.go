@@ -739,6 +739,15 @@ func (h *Home) attachAndReissue(stream runChannelStream) {
 	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
 	parked := h.parked
 	h.mu.Unlock()
+	// ATTACH CONFIRMATION, sent unconditionally: the coordinator swept this
+	// child's out/ when it READ the Hello, but this side adopts the stream
+	// only now, so an out/ write in between rang into no stream. The
+	// coordinator cannot see adoption until a frame arrives, and an idle
+	// runner would otherwise send none — so this one is always sent, and the
+	// coordinator re-sweeps out/ on it (Coordinator.ConfirmAttach).
+	h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Heartbeat{
+		Heartbeat: &agentcoordpb.Heartbeat{RunId: h.cfg.RunID},
+	}})
 	// The reissue batch holds sendMu so no fresh emit can interleave a
 	// higher seq into it (see emitEvent).
 	for _, ev := range events {

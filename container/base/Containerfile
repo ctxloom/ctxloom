@@ -17,36 +17,7 @@
 # the CLI no longer vendors its own), curl + ca-certificates (fetches, the
 # opencode installer), unzip (installer archives), jq (ubiquitous in hook scripts),
 # strace (the read-observation isolation probe wraps the engine exec in it —
-# harmless without CAP_SYS_PTRACE, which only the probe run grants), tmux (see
-# below).
-#
-# WHY tmux IS HERE, and what it is NOT for. It hosts processes on a real pty in
-# their own tmux window (internal/adapters/tmuxhost). For a CONTAINERIZED engine that
-# process runs in the container, so tmux has to be here or the capability
-# simply cannot work there.
-#
-# It IS also the path by which a human watches a containerized agent, via
-# `<runtime> exec -it <container> tmux -L <socket> attach`. This reverses an
-# earlier note here which claimed that option had been "considered and
-# rejected" in favour of relaying the engine's pty over the coordinator; the
-# relay was built and then dropped. The rejection rested on a true statement
-# about the WRONG command: a host-side `tmux attach` indeed cannot see a socket
-# inside the container, but `exec` does not attach from the host — it starts
-# the client INSIDE the container, alongside the server, and is initiated from
-# the host, so nothing new has to point inward. A relay would have meant owning
-# a bespoke wire protocol forever to reach something exec already reaches.
-#
-# The nesting objection is real but is not disqualifying: attaching from within
-# the operator's own tmux nests one client in another, so the inner session
-# needs the doubled prefix. That is an ergonomic cost tmux is designed for, and
-# it is paid by the operator at attach time rather than by this codebase in
-# perpetuity.
-#
-# Bind-mounting the socket directory was also rejected: the tmux client/server
-# protocol is version-coupled, so a host tmux built against a different version
-# than this image's fails at the handshake, and the socket carries the
-# container's uid mapping besides. Running the server on the host is not
-# possible at all -- tmux cannot spawn a process into another namespace.
+# harmless without CAP_SYS_PTRACE, which only the probe run grants).
 FROM node:22-slim
 
 # Default TERM so interactive agent runs get color/ANSI. The runtime starts
@@ -59,5 +30,5 @@ ENV TERM=xterm-256color \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        git ripgrep curl ca-certificates unzip jq strace tmux \
+        git ripgrep curl ca-certificates unzip jq strace \
     && rm -rf /var/lib/apt/lists/*

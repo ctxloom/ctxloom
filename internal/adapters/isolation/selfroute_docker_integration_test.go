@@ -21,7 +21,7 @@ import (
 // Off-container there is nothing to identify, and it skips.
 func TestSelfRoute_TakenInsideADaemonContainer(t *testing.T) {
 	if len(containerprobe.SelfIDCandidates()) == 0 {
-		t.Skip("this process shows no trace of running in a container")
+		dockergate.SkipCapability(t, "this process shows no trace of running in a container")
 	}
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the docker-outside-of-docker self-route test")
 	d := newDockerRuntime(runtimeReachable)

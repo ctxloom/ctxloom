@@ -33,8 +33,8 @@ func resetStrictness(t *testing.T) {
 func ownerIdentity() Identity { return Identity{Harp: "coordinator-harp", Depth: 0} }
 
 // TestAgentRun_HonorsAgentIntent pins intent honoring: the composed context
-// leads the first turn ahead of the briefing, the declared headless-safe
-// permission enum resolves, the runtime axis is reported, and the child's
+// leads the first turn ahead of the briefing, the declared permission enum
+// resolves, the runtime axis is reported, and the child's
 // ambient identity + coordinator reach-back trio reach the engine env — with
 // the credential present ONLY in env, never surfaced elsewhere.
 func TestAgentRun_HonorsAgentIntent(t *testing.T) {
@@ -79,43 +79,38 @@ func TestAgentRun_UnknownAgentIsHardError(t *testing.T) {
 	assert.Contains(t, err.Error(), `agent "ghost" not found`)
 }
 
-// TestAgentRun_D3RefusesNonHeadless pins the D3 gate as the one floor
-// applies it: a child with no headless-safe posture is refused when its
-// launch resolves — agent_run is async, so the refusal surfaces on the
-// parent's mailbox with the typed reason — and no runner ever spawns.
-func TestAgentRun_D3RefusesNonHeadless(t *testing.T) {
-	for _, tc := range []struct{ name, perm, reason string }{
-		{"absent enum", "", "declares no permissions"},
-		{"non-headless enum", "default", "not headless-safe"},
+// TestAgentRun_ChildTakesItsPosture pins D3 as it now stands: a child is
+// never refused for its posture — nobody at its engine answers a prompt, so
+// the engine denies what the posture leaves open — and launches at exactly
+// what it declared, or the host default when it declared nothing.
+func TestAgentRun_ChildTakesItsPosture(t *testing.T) {
+	for _, tc := range []struct {
+		name, perm string
+		want       agent.PermissionMode
+	}{
+		{"absent enum", "", agent.PermissionDefault},
+		{"prompting enum", "acceptEdits", agent.PermissionAcceptEdits},
+		{"dontAsk", "dontAsk", agent.PermissionDontAsk},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{"loose": {perm: tc.perm, profiles: []string{"p1"}}}, nil)
 			c := newTestCoordinator(t, sp, nil)
-			out, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
-			require.NoError(t, err, "agent_run is async: the floor's refusal surfaces on the mailbox, not here")
-			msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
+			_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
 			require.NoError(t, err)
-			var bodies []string
-			for _, m := range msgs {
-				if m.From == out.Harp {
-					bodies = append(bodies, m.Body)
-				}
-			}
-			joined := strings.Join(bodies, "\n")
-			assert.Contains(t, joined, tc.reason)
-			assert.Contains(t, joined, `set permissions: plan|bypass on agent "loose"`)
-			assert.Equal(t, 0, sp.spawnCount(), "a refused agent never launches")
+			require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
+			require.Eventually(t, func() bool { return len(sp.chat(0).RecordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
+			assert.Equal(t, tc.want, sp.lastPerm())
 		})
 	}
 }
 
-// TestAgentRun_D3DegradedDowngradesToPlan pins the degraded arm: --degraded
-// narrows a child to the most restrictive headless-safe posture, never
-// widens it.
-func TestAgentRun_D3DegradedDowngradesToPlan(t *testing.T) {
+// TestAgentRun_D3DegradedDropsAMisspellingToPlan pins the degraded arm: a
+// declaration that does not parse is dropped to the most restrictive
+// posture under --degraded, never widened.
+func TestAgentRun_D3DegradedDropsAMisspellingToPlan(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"loose": {profiles: []string{"p1"}}}, nil)
+	sp := newFakeSpawner(map[string]fakeAgent{"loose": {perm: "plann", profiles: []string{"p1"}}}, nil)
 	sp.degraded = true
 	c := newTestCoordinator(t, sp, nil)
 
@@ -124,7 +119,7 @@ func TestAgentRun_D3DegradedDowngradesToPlan(t *testing.T) {
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool { return len(sp.chat(0).RecordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
-	assert.Equal(t, agent.PermissionPlan, sp.lastPerm(), "degraded narrows a child to the most restrictive headless-safe posture")
+	assert.Equal(t, agent.PermissionPlan, sp.lastPerm(), "degraded narrows a misspelt posture to the most restrictive one")
 }
 
 // TestAgentRun_QueuePastCap pins D4/D5: the second spawn past cap=1 enqueues

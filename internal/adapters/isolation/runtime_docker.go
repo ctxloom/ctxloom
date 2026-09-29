@@ -37,7 +37,7 @@ func (Docker) Available() bool { return runtimeReachable("docker") }
 
 // RunArgs renders the spec into a `docker run` argv: the rootless-specific
 // identity HEAD plus the shared renderRunSpec tail (via ociRuntime.runArgs).
-func (d Docker) RunArgs(spec RunSpec) []string {
+func (d Docker) RunArgs(spec RunSpec) ([]string, error) {
 	args := []string{"run", "--rm", "--name", spec.Name}
 	args = append(args, initArgs()...)
 	args = append(args, ownerLabelArgs()...)
@@ -75,7 +75,15 @@ func (d Docker) removeOutcome(stdout []byte, err error) removeOutcome {
 // starts RootlessKit with --disable-host-loopback — and its bridge lives in
 // RootlessKit's namespace, not on the host, so only the public fallback
 // reaches it. Rootful docker's docker0 gateway is on the host.
+//
+// Those are the HOST routes; the self route precedes them (selfFirst), and a
+// self with no joinable network is refused.
 func (d Docker) reachRoute(ctx context.Context) (hostRoute, error) {
+	return selfFirst(d.self, false, func() (hostRoute, error) { return d.hostReach(ctx) })
+}
+
+// hostReach is Docker's route to a coordinator on the daemon's host.
+func (d Docker) hostReach(ctx context.Context) (hostRoute, error) {
 	switch {
 	case platform.ContainersInVM:
 		return hostRoute{dial: "host.docker.internal"}, nil
@@ -138,5 +146,7 @@ func newDockerRuntime(reachable func(string) bool) Docker {
 	if !reachable("docker") {
 		return Docker{}
 	}
-	return Docker{rootless: dockerIsRootless()}
+	d := Docker{rootless: dockerIsRootless()}
+	d.self = resolveSelf(d)
+	return d
 }

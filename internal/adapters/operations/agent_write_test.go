@@ -417,41 +417,6 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 	assert.Equal(t, []string{"y", "z"}, sub.Profiles, "profiles replaced, not unioned")
 }
 
-// TestGetAgent_SurfacesEscalation proves the approval-policy ladder —
-// previously invisible from every read path (AgentEntry had no Escalation
-// field) — is now visible via GetAgent/ListAgents, and survives a SetAgent
-// write that does not name it (the merge landed on the write side; this
-// pins the read half of the same fix).
-func TestGetAgent_SurfacesEscalation(t *testing.T) {
-	cfg, appDir := loadConfigDir(t, `version: 5
-agents:
-  dev:
-    profiles: [x]
-    escalation:
-      - action: auto_accept
-        kinds: [COMMAND_EXECUTION]
-`)
-	mgr := managerFor(t, appDir)
-
-	entry, err := GetAgent(cfg, "dev")
-	require.NoError(t, err)
-	require.Len(t, entry.Escalation, 1, "escalation ladder must be readable, not invisible")
-	assert.Equal(t, "auto_accept", entry.Escalation[0].Action)
-
-	list := ListAgents(cfg)
-	require.Len(t, list, 1)
-	require.Len(t, list[0].Escalation, 1, "ListAgents must surface it too")
-
-	// A write that doesn't name Escalation must not wipe it.
-	_, err = SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
-	require.NoError(t, err)
-	reloaded, err := configload.Load(configload.WithAppDir(appDir))
-	require.NoError(t, err)
-	entry, err = GetAgent(reloaded, "dev")
-	require.NoError(t, err)
-	assert.Len(t, entry.Escalation, 1, "escalation must survive an unrelated field write")
-}
-
 // TestGetAgent_CarriesEveryDeclaredAxis is the read-path class gate: every
 // axis a binding may declare must reach AgentEntry, from both read functions.
 // `agent show` and `agent list --format json` are how a user checks what a
@@ -467,9 +432,6 @@ agents:
     permissions: bypass
     driving: oneshot
     engine_home: session
-    escalation:
-      - action: auto_accept
-        kinds: [TOOL_USE]
 `)
 
 	entry, err := GetAgent(cfg, "dev")
@@ -486,8 +448,6 @@ agents:
 			assert.Equal(t, "bypass", got.Permissions)
 			assert.Equal(t, agents.DrivingOneshot, got.Driving)
 			assert.Equal(t, string(agents.HomeModeSession), got.HomeMode)
-			require.Len(t, got.Escalation, 1)
-			assert.Equal(t, "auto_accept", got.Escalation[0].Action)
 		})
 	}
 }

@@ -27,7 +27,7 @@ type argvLine struct {
 // argvMatrix composes the argv for the fixed launch matrix: a launch whose
 // runner delivered every out-of-cwd surface (the three flag-carrying
 // presentations), one that delivered the MCP config alone, and a bare
-// launch × interactive/oneshot × four postures × with/without a model. The
+// launch × interactive/oneshot × every posture × with/without a model. The
 // presentations are what the runner hands Execute (ExecuteRequest.Presented)
 // after its static writer delivered the launch's package.
 func argvMatrix(t *testing.T) []argvLine {
@@ -54,7 +54,7 @@ func argvMatrix(t *testing.T) []argvLine {
 	var lines []argvLine
 	for _, l := range launches {
 		for _, mode := range []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot} {
-			for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits} {
+			for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits, agent.PermissionDontAsk, agent.PermissionAuto} {
 				for _, model := range []string{"", "claude-opus-5"} {
 					req := &agent.ExecuteRequest{
 						Mode:        mode,
@@ -129,7 +129,7 @@ func TestChatArgs_Parity_Golden(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
 	var out strings.Builder
-	for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits} {
+	for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits, agent.PermissionDontAsk, agent.PermissionAuto} {
 		for _, model := range []string{"", "claude-opus-5"} {
 			for _, resume := range []string{"", "native-key-1"} {
 				for _, mcp := range []string{"", "<HOME>/.mcp.json"} {

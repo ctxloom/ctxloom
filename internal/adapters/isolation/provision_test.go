@@ -43,7 +43,7 @@ func TestBuildRunnerSpec_WiresAuthAndMounts(t *testing.T) {
 	assert.Contains(t, spec.Mounts, overlayMount)
 
 	// Rendered argv: the credential mount is read-only; the auth env is an -e.
-	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
+	argv := strings.Join(mustRunArgs(t, Docker{rootless: true}, spec), " ")
 	assert.Contains(t, argv, "--mount type=bind,source="+credMount.Host+",target=/root/.claude/.credentials.json,readonly")
 	assert.Contains(t, argv, "-e ANTHROPIC_API_KEY=scoped")
 	assert.Contains(t, argv, "--mount type=bind,source="+overlayMount.Host+",target="+overlayMount.Container)
@@ -53,7 +53,7 @@ func TestBuildRunnerSpec_WiresAuthAndMounts(t *testing.T) {
 // coordinator's reach-back, so a run spec never publishes a `-p` host port.
 func TestBuildRunnerSpec_PublishesNoPort(t *testing.T) {
 	spec := runnerSpecFor(Docker{}, "mock", t.TempDir(), nil, nil)
-	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
+	argv := strings.Join(mustRunArgs(t, Docker{rootless: true}, spec), " ")
 	assert.NotContains(t, argv, "-p ", "no host port is published")
 	assert.NotContains(t, argv, "0.0.0.0", "no port is ever published")
 }

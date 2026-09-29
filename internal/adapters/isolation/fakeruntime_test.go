@@ -10,15 +10,17 @@ type fakeRuntime struct {
 	available bool
 }
 
-func (f fakeRuntime) Name() string             { return f.name }
-func (f fakeRuntime) Binary() string           { return f.binary }
-func (f fakeRuntime) Available() bool          { return f.available }
-func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
-func (fakeRuntime) RemoveArgs(string) []string { return nil }
+func (f fakeRuntime) Name() string                    { return f.name }
+func (f fakeRuntime) Binary() string                  { return f.binary }
+func (f fakeRuntime) Available() bool                 { return f.available }
+func (fakeRuntime) RunArgs(RunSpec) ([]string, error) { return nil, nil }
+func (fakeRuntime) RemoveArgs(string) []string        { return nil }
 
 // reachRoute is empty: a fake runner's env passes through un-re-minted.
 func (fakeRuntime) reachRoute(context.Context) (hostRoute, error) { return hostRoute{}, nil }
 func (fakeRuntime) gatewayInspectArgs() []string                  { return ociRuntime{}.gatewayInspectArgs() }
+func (fakeRuntime) containerByIDArgs(id string) []string          { return ociRuntime{}.containerByIDArgs(id) }
+func (fakeRuntime) selfInspectArgs(id string) []string            { return ociRuntime{}.selfInspectArgs(id) }
 
 // The CLI grammar is the shared OCI default, so a call site routed through the
 // seam renders the same argv against the fake as against a real runtime.
@@ -52,30 +54,16 @@ func (fakeRuntime) removeOutcome(stdout []byte, err error) removeOutcome {
 }
 func (fakeRuntime) passesPUID() bool { return ociRuntime{}.passesPUID() }
 
-// Expose is the OCI identity bind mount, so tests that route delivery mounts
-// through the runtime (sessionStateMounts, gitDirMounts) see the same mount
-// the literal produced.
-func (fakeRuntime) expose(host, target string, readOnly bool) mount {
-	return mount{Host: host, Container: target, ReadOnly: readOnly}
-}
-
-// ExposeMapped mirrors ociRuntime's real behavior: it routes hostPath through
-// f.mapper() rather than hardcoding Host==Container, so a call site that
-// skips ExposeMapped/mapper() entirely produces output distinguishable from
-// one that used it (see prefixMapper's doc, pathmapper_test.go).
-func (f fakeRuntime) exposeMapped(hostPath string, readOnly bool) (mount, error) {
-	return exposeThrough(f.mapper(), hostPath, readOnly)
-}
-
-// mapper is a non-identity prefixMapper — deliberately NOT identityMapper.
-// Under identity, exposeMapped(p) == mount{p, p} whether or not a call site
-// actually threads its path through the mapper, so a deleted mapper() call
-// is byte-identical to a correct one and every container test that exercises
-// this fake was structurally unable to prove the mapper seam is reachable.
-// prefixMapper breaks that: it is injective (distinct host paths stay
-// distinct after mapping), so a test comparing against the ACTUAL mapped
-// value catches a call site that silently reverts to the raw host path.
-func (fakeRuntime) mapper() pathMapper { return prefixMapper{prefix: "/ctr"} }
+// paths routes targets through a non-identity prefixMapper — deliberately NOT
+// identityMapper. Under identity, expose(p) == mount{p, p} whether or not a
+// call site actually threads its path through the target rule, so a call site
+// that binds the raw host path is byte-identical to a correct one and every
+// container test that exercises this fake was structurally unable to prove
+// the seam is reachable. prefixMapper breaks that: it is injective (distinct
+// host paths stay distinct after mapping), so a test comparing against the
+// ACTUAL mapped value catches a call site that silently reverts to the raw
+// host path.
+func (fakeRuntime) paths() pathSeam { return pathSeam{target: prefixMapper{prefix: "/ctr"}} }
 
 // Enumerate is a no-op default for the many tests that never exercise the
 // container-reap sweep; container_reap_test.go defines its own fake that

@@ -436,7 +436,8 @@ func TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance(t *testing.T) {
 }
 
 // headlessPermissionsQuestion is the interview's headless-posture question as
-// the human approved it, verbatim (2026-09-23).
+// the human approved it, verbatim, except option 3's consequence, which must
+// state the rule as it is: a headless run is never refused for its posture.
 const headlessPermissionsQuestion = "Your default agent sometimes runs HEADLESS — a one-shot (`ctxloom run --one-shot`)\n" +
 	"or a delegated run — where no human is present to answer a permission prompt.\n" +
 	"Interactive sessions are unaffected: they auto-approve file edits (acceptEdits)\n" +
@@ -445,8 +446,9 @@ const headlessPermissionsQuestion = "Your default agent sometimes runs HEADLESS 
 	"\n" +
 	"  1) plan — read-only: it can look and answer, but cannot change anything (Recommended)\n" +
 	"  2) bypass — it may do anything, including edits and commands, without asking\n" +
-	"  3) none — declare nothing now; headless runs of this agent are refused until\n" +
-	"     you set `permissions:` on it (ctxloom agent edit default --permissions <plan|bypass>)\n" +
+	"  3) none — declare nothing now; headless runs take the engine's default posture,\n" +
+	"     and anything it would ask you about is denied (set one later with\n" +
+	"     ctxloom agent edit default --permissions <posture>)\n" +
 	"\n" +
 	"> (1-3, Enter for recommended):"
 

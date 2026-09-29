@@ -26,10 +26,10 @@ import (
 // root. filepath never builds a container path — on Windows it would emit
 // backslashes the daemon rejects.
 //
-// Not this seam: docker-outside-of-docker, where this process's paths are
+// Not this rule: docker-outside-of-docker, where this process's paths are
 // not the daemon's. That rewrites the SOURCE (the daemon's name for our
-// path) and would be a separate runtime seam applied to mount.Host,
-// composable with this one; overloading toContainer would conflate the two.
+// path) — sourceMapper, the other rule pathSeam carries; overloading
+// toContainer would conflate the two.
 type pathMapper interface {
 	// toContainer maps a host path to the in-container path the SAME resource
 	// is mounted/reached at. It fails for a host path the runtime cannot
@@ -43,16 +43,6 @@ type pathMapper interface {
 type identityMapper struct{}
 
 func (identityMapper) toContainer(hostPath string) (string, error) { return hostPath, nil }
-
-// runtimeMapper returns m if set, else the host OS's mapper, so a runtime
-// value built without one (Docker{}, a probed runtime) still maps correctly
-// on its OS — there is no constructor to forget.
-func runtimeMapper(m pathMapper) pathMapper {
-	if m == nil {
-		return hostMapper()
-	}
-	return m
-}
 
 var (
 	// errUNCPath refuses a share or device path (\\server\share, \\wsl$\...,

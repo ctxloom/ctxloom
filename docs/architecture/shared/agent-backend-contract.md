@@ -135,7 +135,6 @@ classDiagram
 | `WireMode` | `internal/core/agent/permissions.go:86` | `ParsePermissionMode` with `ok` discarded — the deliberate fail-safe-default policy. |
 | `ResolveDefault` | `internal/core/agent/permissions.go:98` | First parseable of the layered sources, else the engine's declared host default. |
 | `PermissionMode.CollapsePlanIfUnenforced` | `internal/core/agent/permissions.go:116` | Downgrades `plan` → `default` when the engine cannot enforce plan mode. |
-| `PermissionMode.SafeHeadless` | `internal/core/agent/permissions.go:127` | Whether this posture can run with no human present. |
 | `ApplyLocalCLIConfig` | `internal/core/agent/localcli.go:9` | Applies per-backend binary/args/env overrides onto a `BaseBackend`. |
 | `GetPromptContent` | `internal/core/agent/base.go:185` | Nil-safe read of a prompt field; the nil guard is the whole point (7 call sites). |
 | `IsManaged` | `internal/core/agent/predicate.go:13` | Ownership test — is this command line one ctxloom installed, by exec-token identity. |

@@ -307,8 +307,9 @@ func TestEngineRegistry_SingleRoleMarkedEntryServesBothRoles(t *testing.T) {
 
 // TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent: the interview's
 // headless-posture answer becomes the default seed agent's `permissions:`.
-// Only a headless-safe posture is accepted — the answer exists so the
-// agent's headless runs are not refused — and no answer writes none.
+// Any posture is accepted (a headless run is no longer refused for one: the
+// engine denies what nothing resolves), canonicalised; a misspelling is
+// refused; no answer writes none.
 func TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent(t *testing.T) {
 	seed := func(t *testing.T, posture string) agents.Agent {
 		t.Helper()
@@ -322,11 +323,11 @@ func TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent(t *testing.T) {
 	}
 	assert.Equal(t, "plan", seed(t, "plan").Permissions)
 	assert.Equal(t, "bypass", seed(t, "bypass").Permissions)
+	assert.Equal(t, "acceptEdits", seed(t, "accept-edits").Permissions)
+	assert.Equal(t, "dontAsk", seed(t, "dontask").Permissions)
 	assert.Empty(t, seed(t, "").Permissions, "no answer declares nothing")
 
-	for _, bad := range []string{"acceptEdits", "default", "yolo"} {
-		_, err := BuildInitialConfig("mock", "", bad)
-		require.Error(t, err, "%q is not a headless posture", bad)
-		assert.ErrorContains(t, err, bad)
-	}
+	_, err := BuildInitialConfig("mock", "", "yolo")
+	require.Error(t, err, "a misspelling is not a posture")
+	assert.ErrorContains(t, err, "yolo")
 }

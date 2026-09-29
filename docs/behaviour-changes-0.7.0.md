@@ -158,23 +158,19 @@ gets a reader written for a version that has none.
 
 **Interactive sessions** default to `acceptEdits`: file edits are approved
 automatically and claude asks before anything else. Set `permissions:` on an
-agent, or pass `--permissions default|acceptEdits|plan|bypass`, to choose
-another. `bypass` is only ever used when you declare it.
+agent, or pass `--permissions <posture>` (`ctxloom run --help` lists them), to
+choose another. `bypass` is only ever used when you declare it.
 
 **Headless runs** (`ctxloom run --one-shot`, and delegated agent runs) have no
-one to answer a prompt, so a posture that would prompt is refused rather than
-widened. The refusal names the remedy:
+one to answer a prompt, so claude denies every call its posture would have
+asked about. A run is never refused or widened for its posture: a one-shot
+warns at startup, and a delegated child's turn that hit a denial reaches its
+parent as `BLOCKED on <tool>: <reason>` rather than as a finished result.
+`ctxloom init` asks which posture the default agent's headless runs use:
+`plan` (the recommended answer), `bypass`, or none.
 
-    launch: the declared permission posture cannot be honoured: a headless
-    run has no human to answer an engine prompt and "acceptEdits" would block
-    on one; declare permissions: plan|bypass on agent "default"
-
-With `--degraded` the run is launched at `plan` (read-only) instead, and says
-so. `ctxloom init` now asks which posture the default agent's headless runs
-may use: `plan` (the recommended answer), `bypass`, or none. An existing
-config gets no answer written for it, so give the agent one with
-`ctxloom agent edit default --permissions plan` (or `bypass`) if you run it
-headless.
+**claude 2.1.283 or newer** is required: an older claude is refused at launch
+with the upgrade as its remedy.
 
 ## 9. Signed content uses the signed release format
 

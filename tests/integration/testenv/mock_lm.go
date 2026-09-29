@@ -111,9 +111,9 @@ func (m *MockLM) WriteConfig() error {
 	configs := yamlx.EnsureMap(llm, "configs")
 	mockNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	yamlx.MapSet(mockNode, "type", yamlx.ScalarNode("mock"))
-	// A headless run (--one-shot) declaring no headless-safe posture is
-	// refused, and the mock's host default prompts; the scenarios drive
-	// one-shots through this label, so it declares the posture they run at.
+	// The mock's host default prompts, and a headless run (--one-shot) has
+	// nobody to answer; the scenarios drive one-shots through this label, so
+	// it declares the posture they run at.
 	yamlx.MapSet(mockNode, "permissions", yamlx.ScalarNode("bypass"))
 	control := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	yamlx.MapSet(control, "CTXLOOM_MOCK_RECORD_FILE", quotedYAMLString(m.RecordedInputPath))

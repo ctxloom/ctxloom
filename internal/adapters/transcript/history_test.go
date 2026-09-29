@@ -101,19 +101,18 @@ func TestCanonicalHistory_RoundTrip_RealPayload(t *testing.T) {
 
 		sess, err := h.GetSession(ctx, harp)
 		require.NoError(t, err)
-		// The permission line (kind=="permission") must NOT surface as a
-		// conversation entry — it's a forwarded request, not turn content —
-		// so this fixture's 7 entry-kind lines (user/assistant from the
-		// PERMISSION turn; user/thinking/tool_use/tool_result/assistant from
-		// the TOOLS turn) must be exactly what comes back, proving a
-		// KindPermission line is handled without corrupting or dropping its
-		// neighbors.
+		// The denied line (kind=="denied") must NOT surface as a
+		// conversation entry — it's a refusal, not turn content — so this
+		// fixture's 7 entry-kind lines (user/assistant from the denial turn;
+		// user/thinking/tool_use/tool_result/assistant from the TOOLS turn)
+		// must be exactly what comes back, proving a KindDenied line is
+		// handled without corrupting or dropping its neighbors.
 		require.Len(t, sess.Entries, 7)
 		byType := entriesByType(sess.Entries)
 		require.Len(t, byType["user"], 2)
-		assert.Contains(t, byType["user"][0].Content, "PERMISSION")
+		assert.Contains(t, byType["user"][0].Content, "mock:deny=")
 		require.Len(t, byType["assistant"], 2)
-		assert.Equal(t, "mock chat: permission granted", byType["assistant"][0].Content)
+		assert.Equal(t, "mock chat: mock_tool was denied", byType["assistant"][0].Content)
 		require.Len(t, byType["thinking"], 1)
 		require.Len(t, byType["tool_use"], 1)
 		assert.Equal(t, "mock_tool", byType["tool_use"][0].ToolName)

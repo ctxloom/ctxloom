@@ -219,16 +219,13 @@ func (m *Monitor) verdict(t Target, ev Evidence, now time.Time) (State, string) 
 	return StateHealthy, fmt.Sprintf("seq %d, %d assistant turn(s), entry types: %s", tx.MaxSeq, tx.AssistantEntries, joinOrNone(tx.EntryTypes))
 }
 
-// approvalRung: AWAITING APPROVAL outranks everything. Two independent
-// sources, either sufficient — getting this wrong turns a working system into
-// one that kills its own children, so whichever half is wired up wrongly must
-// not be able to cause that on its own.
-func (m *Monitor) approvalRung(t Target, ev Evidence, _ time.Time) (State, string) {
+// approvalRung: AWAITING APPROVAL outranks everything — getting this wrong
+// turns a working system into one that kills its own children. The roster is
+// its one source: a transcript records what an engine did, and no record
+// kind says "waiting on a human".
+func (m *Monitor) approvalRung(t Target, _ Evidence, _ time.Time) (State, string) {
 	if t.AwaitingApproval {
 		return StateAwaitingApproval, fmt.Sprintf("parked on an approval rung (roster state %q) — an approval can legitimately hold a child for minutes", orUnknown(t.RosterState))
-	}
-	if ev.Transcript.PendingPermission {
-		return StateAwaitingApproval, "the transcript's last record is a permission request with nothing after it — waiting on a decision"
 	}
 	return "", ""
 }

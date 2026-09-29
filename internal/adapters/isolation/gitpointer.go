@@ -41,9 +41,9 @@ func gitDirMounts(ctx context.Context, rt Runtime, g git.Git, dir, scratchRoot s
 	if err != nil {
 		return nil, fmt.Errorf("resolve git common dir for container gitdir mount: %w", err)
 	}
-	// exposeMapped (not expose(common, common, ...)) routes through the
-	// runtime's pathMapper — the SAME translation the project root gets.
-	commonMount, err := rt.exposeMapped(common, false)
+	// expose (not bind(common, common, ...)) routes through the runtime's
+	// target rule — the SAME translation the project root gets.
+	commonMount, err := rt.paths().expose(common, false)
 	if err != nil {
 		return nil, fmt.Errorf("git common dir %s has no route into the container: %w", common, err)
 	}
@@ -86,15 +86,16 @@ func gitRegistryMask(rt Runtime, common, dir, scratchRoot string) ([]mount, erro
 	if err := os.MkdirAll(mountpoint, 0o755); err != nil {
 		return nil, fmt.Errorf("git worktree registry mask: %w", err)
 	}
-	target, err := rt.mapper().toContainer(registry)
+	seam := rt.paths()
+	target, err := seam.targetFor(registry)
 	if err != nil {
 		return nil, fmt.Errorf("git worktree registry %s has no route into the container: %w", registry, err)
 	}
-	mounts := []mount{rt.expose(mask, target, true)}
+	mounts := []mount{seam.bind(mask, target, true)}
 	if !own {
 		return mounts, nil
 	}
-	adminMount, err := rt.exposeMapped(filepath.Clean(admin), false)
+	adminMount, err := seam.expose(filepath.Clean(admin), false)
 	if err != nil {
 		return nil, fmt.Errorf("git admin dir %s has no route into the container: %w", admin, err)
 	}
@@ -152,8 +153,8 @@ func gitPointerMounts(rt Runtime, dir, scratchRoot string) ([]mount, error) {
 	if err != nil || !ok || !filepath.IsAbs(admin) {
 		return nil, err
 	}
-	m := rt.mapper()
-	mappedAdmin, err := m.toContainer(admin)
+	seam := rt.paths()
+	mappedAdmin, err := seam.targetFor(admin)
 	if err != nil {
 		return nil, fmt.Errorf("git admin dir %s has no route into the container: %w", admin, err)
 	}
@@ -161,7 +162,7 @@ func gitPointerMounts(rt Runtime, dir, scratchRoot string) ([]mount, error) {
 		return nil, nil
 	}
 	backPointer := filepath.Join(admin, "gitdir")
-	targets, err := mapAll(m, dotGit, backPointer)
+	targets, err := mapAll(seam, dotGit, backPointer)
 	if err != nil {
 		return nil, fmt.Errorf("git pointer for %s has no route into the container: %w", dir, err)
 	}
@@ -176,7 +177,7 @@ func gitPointerMounts(rt Runtime, dir, scratchRoot string) ([]mount, error) {
 	if err := iox.WriteFileAtomic(backFile, []byte(targets[0]+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("git back-pointer: %w", err)
 	}
-	return []mount{rt.expose(pointerFile, targets[0], true), rt.expose(backFile, targets[1], true)}, nil
+	return []mount{seam.bind(pointerFile, targets[0], true), seam.bind(backFile, targets[1], true)}, nil
 }
 
 // readGitfile returns the git dir a .git FILE points to. ok is false for no
@@ -200,11 +201,12 @@ func readGitfile(dotGit string) (gitdir string, ok bool, err error) {
 	return gitdir, true, nil
 }
 
-// mapAll maps each host path through m, failing on the first it cannot route.
-func mapAll(m pathMapper, hosts ...string) ([]string, error) {
+// mapAll routes each host path through s's target rule, failing on the first
+// it cannot route.
+func mapAll(s pathSeam, hosts ...string) ([]string, error) {
 	out := make([]string, len(hosts))
 	for i, h := range hosts {
-		c, err := m.toContainer(h)
+		c, err := s.targetFor(h)
 		if err != nil {
 			return nil, err
 		}

@@ -308,8 +308,11 @@ func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
 	route, err := rt.reachRoute(ctx)
 	if err != nil {
 		remedy := noHostReachRemedy
-		if errors.Is(err, errBridgeNotLocal) {
+		switch {
+		case errors.Is(err, errBridgeNotLocal):
 			remedy = foreignBridgeRemedy
+		case errors.Is(err, errNoSelfNetwork):
+			remedy = noSelfNetworkRemedy
 		}
 		strictness.FailAlways(report.KindIsolation, remedy, "refusing to run a container that cannot dial home: %v", err)
 		return hostRoute{}, err
@@ -320,8 +323,10 @@ func settleReach(ctx context.Context, rt Runtime) (hostRoute, error) {
 // noHostReachRemedy names the ways a container gets a route to the host.
 const noHostReachRemedy = "give the host a default route, or use a runtime whose containers reach the host privately: a rootless translator with a loopback route (pasta, slirp4netns) or a rootful bridge"
 
-// foreignBridgeRemedy names the one situation errBridgeNotLocal arises in.
-const foreignBridgeRemedy = "ctxloom appears to be running inside a container that drives a container daemon it shares no network with (docker-outside-of-docker, e.g. a devcontainer or CI job container using the host's socket); running container agents from there is not supported — run ctxloom on the daemon's host, or use runtime: host"
+// foreignBridgeRemedy names the one situation errBridgeNotLocal arises in:
+// ctxloom in a container its daemon does NOT know. One the daemon knows takes
+// the self route (selfNetworkRoute) before any bridge is consulted.
+const foreignBridgeRemedy = "ctxloom appears to be running inside a container, but the container daemon it drives does not list that container (a daemon reached over TCP, a docker-in-docker sidecar, or a container ctxloom could not identify), so it shares no network with that daemon's containers — run ctxloom on the daemon's host or in a container of that same daemon, or use runtime: host"
 
 // remintReach re-mints the runner's reach-back for its container: the
 // coordinator's host-side URL on spawnEnv becomes the URL the runtime's route
@@ -427,7 +432,7 @@ func sharedFSGateError(rt Runtime, perr error) error {
 	if errors.As(perr, &mism) {
 		hint := "bind mounts of this process's paths cannot resolve through the daemon"
 		if InContainer() {
-			hint += "; this looks like a dev container using the host's daemon (docker-outside-of-docker) — enable the docker-in-docker feature, or drop `runtime: container`"
+			hint += "; this looks like a container driving its host's daemon (docker-outside-of-docker) — put that path on a bind mount or volume of this container, enable docker-in-docker, or drop `runtime: container`"
 		}
 		return fmt.Errorf("container runtime %s does not share this process's filesystem (%s): %w", runtimeName(rt), hint, perr)
 	}
@@ -776,11 +781,12 @@ func containerConfigOverlay(rt Runtime, projectDir, scratchRoot string, overlayD
 		}
 		// The path is host-anchored, so its container side is the runtime's
 		// mapping of it — the same one the project root it sits in takes.
-		inContainer, err := rt.mapper().toContainer(target)
+		seam := rt.paths()
+		inContainer, err := seam.targetFor(target)
 		if err != nil {
 			return nil, fmt.Errorf("container config overlay target %s has no route into the container: %w", target, err)
 		}
-		mounts = append(mounts, rt.expose(host, inContainer, false))
+		mounts = append(mounts, seam.bind(host, inContainer, false))
 	}
 	return mounts, nil
 }

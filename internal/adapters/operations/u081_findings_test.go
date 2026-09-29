@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -26,10 +25,9 @@ import (
 
 // TestSetAgent_OmittedFieldsSurvive is the CORRECTED contract for `agent set`
 // on an EXISTING binding: a request that carries only the field the user
-// actually named must leave every other field alone. The old behaviour was a
-// whole-record replace, so `ctxloom agent set dev --runtime container` wiped
-// the engine, the profiles, the permission posture and the
-// approval-escalation ladder — none of which the user mentioned.
+// actually named must leave every other field alone: `ctxloom agent set dev
+// --runtime container` must not touch the engine, the profiles or the
+// permission posture.
 func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(t, appDir)
@@ -41,16 +39,6 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 		Permissions: ptr("acceptEdits"),
 	})
 	require.NoError(t, err)
-
-	// An escalation ladder the request type cannot even express, written by
-	// hand into config.yaml the way a user or a bundle would.
-	_, uerr := mgr.Update(context.Background(), func(d *config.Draft) error {
-		a := d.Agents["dev"]
-		a.Escalation = []agents.EscalationRung{{Action: "surface_to_human", Role: "parent"}}
-		d.Agents["dev"] = a
-		return nil
-	})
-	require.NoError(t, uerr)
 
 	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -70,7 +58,6 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	assert.Equal(t, "claude-code", got.LLM, "engine must survive an unrelated set")
 	assert.Equal(t, []string{"go-developer"}, got.Profiles, "profiles must survive an unrelated set")
 	assert.Equal(t, "acceptEdits", got.Permissions, "permissions must survive an unrelated set")
-	assert.Len(t, got.Escalation, 1, "the escalation ladder must survive an unrelated set")
 }
 
 // TestSetAgent_ExplicitEmptyClears proves "unset" and "clear" stay

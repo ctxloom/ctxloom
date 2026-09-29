@@ -107,17 +107,15 @@ func TestLoad_SeveralUnknownKeys_OneWarningEach(t *testing.T) {
 	assert.Contains(t, text, "config.compaction_chunk")
 }
 
-// An unknown key inside an ARRAY ELEMENT still resolves its known-keys list. The
-// dotted path has to carry the array INDEX as a segment; with arrays unwalkable
-// the enumeration comes back empty and the warning that most needs a suggestion
-// gets none.
-func TestLoad_UnknownKeyInsideArrayElement_StillSuggests(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nagents:\n  coder:\n    escalation:\n      - role: parent\n        actoin: ask\n")
+// An agent's `escalation:` key configures nothing — the approval ladder it
+// described does not exist — so it is an unknown key like any other: named on
+// load, never silently accepted as if it did something.
+func TestLoad_AgentEscalationKey_IsUnknown(t *testing.T) {
+	cfg := loadYAML(t, "version: 6\nagents:\n  coder:\n    profiles: [p]\n    escalation:\n      - action: auto_accept\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].Text, "agents.coder.escalation.0.actoin", "the dotted path carries the array index")
-	assert.Contains(t, warns[0].Text, "did you mean `action`?")
+	assert.Contains(t, warns[0].Text, "agents.coder.escalation")
 }
 
 // An unknown key inside an llm.configs.<label> entry sits behind the

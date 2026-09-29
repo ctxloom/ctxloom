@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -178,10 +177,6 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			Runtime:     "container",
 			Permissions: "acceptEdits",
 			Driving:     "oneshot",
-			Escalation: []agents.EscalationRung{
-				{Kinds: []string{"COMMAND_EXECUTION", "FILE_CHANGE"}, Action: "surface_to_human"},
-				{Action: "auto_accept"},
-			},
 		}
 		resolved := &operations.ResolvedAgent{
 			Label: "claude-code", Backend: "claude", Model: "opus",
@@ -199,9 +194,6 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			"Runtime: container\n",
 			"Permissions: acceptEdits\n",
 			"Driving: oneshot\n",
-			"Escalation: 2 rung(s)\n",
-			"  - COMMAND_EXECUTION,FILE_CHANGE: surface_to_human\n",
-			"  - all kinds: auto_accept\n",
 			"Resolved llm: claude-code (backend: claude, model: opus)\n",
 			"Resolved permissions: bypass\n",
 			"Composed fragments: 3\n",
@@ -220,7 +212,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		assert.Contains(t, out, "Engine (declared): (project default)\n")
 		assert.Contains(t, out, "Resolved llm: default\n")
 		assert.Contains(t, out, "Composed fragments: 0\n")
-		for _, unwanted := range []string{"Runtime:", "Permissions:", "Driving:", "Escalation:", "backend:", "Resolved permissions:"} {
+		for _, unwanted := range []string{"Runtime:", "Permissions:", "Driving:", "backend:", "Resolved permissions:"} {
 			assert.NotContains(t, out, unwanted)
 		}
 	})
@@ -354,8 +346,8 @@ func TestCheckAgentExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
 
 // buildSetAgentRequest must send ONLY the flags the caller typed: a nil field
 // means "not named", which SetAgent keeps at its existing value. An unset flag
-// leaking through as a non-nil zero value is how `agent edit dev --runtime
-// container` used to wipe dev's engine, profiles and escalation ladder.
+// leaking through as a non-nil zero value would wipe every field the caller
+// did not name.
 func TestBuildSetAgentRequest_OnlySendsChangedFlags(t *testing.T) {
 	cmd := &cobra.Command{}
 	registerAgentWriteFlags(cmd)
@@ -495,29 +487,4 @@ func TestRunAgentList_CannotRenderAnEnginelessAgent(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), `"x"`)
 	assert.NotContains(t, string(raw), "null", "no row can carry a null llm AND null profiles once the loader refuses the shell")
-}
-
-// TestAgentShow_JSONEscalationKeysMatchTheConfigKeys: agents.EscalationRung
-// carried only yaml tags, so `agent show --format json` rendered its rungs as
-// Kinds/Action while the config file and every sibling key are snake_case.
-// The json names are the yaml names, so what a user writes is what jq reads.
-func TestAgentShow_JSONEscalationKeysMatchTheConfigKeys(t *testing.T) {
-	cmd, out := formatCmd("json")
-	require.NoError(t, emit(cmd, agentShowJSON{Definition: &operations.AgentEntry{
-		Name: "dev",
-		Escalation: []agents.EscalationRung{{
-			Kinds: []string{"FILE_CHANGE"}, Action: "relay_to_role", Role: "parent", Timeout: "5m",
-		}},
-	}}, nil))
-
-	var got struct {
-		Definition struct {
-			Escalation []map[string]any `json:"escalation"`
-		} `json:"definition"`
-	}
-	require.NoError(t, json.Unmarshal(out.Bytes(), &got), out.String())
-	require.Len(t, got.Definition.Escalation, 1)
-	assert.Equal(t, map[string]any{
-		"kinds": []any{"FILE_CHANGE"}, "action": "relay_to_role", "role": "parent", "timeout": "5m",
-	}, got.Definition.Escalation[0])
 }

@@ -3,9 +3,7 @@ package isolation
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os/exec"
 	"slices"
 	"sort"
 	"strings"
@@ -213,20 +211,16 @@ func ApplyImagePrune(ctx context.Context, rt Runtime, plan ImagePrunePlan) Image
 	return res
 }
 
-// pruneProbe runs one runtime CLI call under the sweep's timeout, folding the
-// CLI's stderr into a failure so the report carries the runtime's reason.
+// pruneProbe runs one runtime CLI call under the sweep's timeout, naming the
+// call in a failure (probeExec already carries the CLI's reason).
 func pruneProbe(ctx context.Context, rt Runtime, args []string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, imagePruneProbeTimeout)
 	defer cancel()
 	out, err := probeExec(cctx, rt.Binary(), args)
-	if err == nil {
-		return out, nil
+	if err != nil {
+		return out, fmt.Errorf("%s %s: %w", rt.Binary(), args[0], err)
 	}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) && len(strings.TrimSpace(string(ee.Stderr))) > 0 {
-		return out, fmt.Errorf("%s %s: %w: %s", rt.Binary(), args[0], err, strings.TrimSpace(string(ee.Stderr)))
-	}
-	return out, fmt.Errorf("%s %s: %w", rt.Binary(), args[0], err)
+	return out, nil
 }
 
 // imageCandidateFilters select what PlanImagePrune inspects: the two

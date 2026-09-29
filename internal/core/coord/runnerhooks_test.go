@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -48,7 +49,7 @@ type TestHome interface {
 	UploadArtifact(ctx context.Context, artifactID, name, mediaType string, sha256Sum [32]byte, size int64, r io.Reader) (*agentcoordpb.ArtifactReceipt, error)
 	DownloadArtifact(ctx context.Context, agentID, artifactID, destPath string) (shaHex string, size int64, err error)
 	SweepSpoolIn()
-	ReportTurnResult(text, inReplyTo string) error
+	ReportTurnResult(text, inReplyTo string, blocked []agent.PermissionDenial) error
 	RingSpool(ref spool.Ref) error
 }
 

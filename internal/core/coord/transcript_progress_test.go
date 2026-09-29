@@ -272,21 +272,3 @@ func TestTranscriptProgress_MissingTranscriptIsAVerdictNotAnError(t *testing.T) 
 	assert.True(t, old.stalled(), "past the launch grace, zero events is a stall; got:\n%s", old)
 	assert.Contains(t, old.reason(), "no canonical transcript exists")
 }
-
-// The definition's explicit carve-out: an agent awaiting approval is ALIVE and
-// must never be reaped. Asserted with every absence rule below the approval
-// rung primed to condemn it — no assistant turn, and silent for 45 minutes.
-func TestTranscriptProgress_ParkedOnApprovalIsNotStalled(t *testing.T) {
-	base := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
-	path := writeProgressFixture(t,
-		progressEntry(0, base, "user", "please edit the file"),
-		transcript.Record{V: transcript.SchemaVersion, Harp: "fixture-harp", Engine: "mock",
-			Seq: 1, TS: base.Add(time.Second), Kind: transcript.KindPermission,
-			Permission: &transcript.PermissionPayload{ID: "perm-1", ToolName: "edit"}},
-	)
-
-	v := assessFixture(path, base.Add(45*time.Minute), base.Add(-time.Hour))
-	assert.True(t, v.parked())
-	assert.False(t, v.stalled(), "an agent awaiting approval is ALIVE and must never be reaped; got:\n%s", v)
-	assert.False(t, v.progressing(), "it genuinely has produced no assistant turn yet")
-}

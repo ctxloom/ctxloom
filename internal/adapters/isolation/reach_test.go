@@ -92,15 +92,70 @@ func TestReachRoute_NoRouteAtAll(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoHostReach)
 }
 
-// TestPodmanNetworkArgs: the rootless translator is kept and its loopback
-// route opened; the run argv carries it, rootful podman carries none.
-func TestPodmanNetworkArgs(t *testing.T) {
-	pasta := strings.Join(Podman{rootless: true, rootlessNet: "pasta"}.RunArgs(sampleSpec()), " ")
-	assert.Contains(t, pasta, "--network=pasta:--map-host-loopback,169.254.1.3")
-	slirp := strings.Join(Podman{rootless: true, rootlessNet: "slirp4netns"}.RunArgs(sampleSpec()), " ")
-	assert.Contains(t, slirp, "--network=slirp4netns:allow_host_loopback=true")
-	assert.NotContains(t, strings.Join(Podman{}.RunArgs(sampleSpec()), " "), "--network")
-	assert.NotContains(t, strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " "), "--network")
+// TestRunNetwork_TheRouteDecidesIt: a run's --network has ONE producer, the
+// route home. Podman's rootless translators keep the user's network and open
+// its loopback route; every other route leaves the runtime's default. The
+// runtime's own argv head never decides it.
+func TestRunNetwork_TheRouteDecidesIt(t *testing.T) {
+	if platform.ContainersInVM {
+		t.Skip("in a VM every runtime answers its alias; this pins the shared-kernel routes")
+	}
+	stubPrimary(t, "192.0.2.10")
+	stubLocal(t, true, nil)
+	stubGateway(t, "10.88.0.1\n", nil)
+	cases := []struct {
+		name string
+		rt   Runtime
+		want string
+	}{
+		{"pasta", Podman{rootless: true, rootlessNet: "pasta"}, "pasta:--map-host-loopback,169.254.1.3"},
+		{"slirp4netns", Podman{rootless: true, rootlessNet: "slirp4netns"}, "slirp4netns:allow_host_loopback=true"},
+		{"podman rootless unknown network", Podman{rootless: true}, ""},
+		{"podman rootful", Podman{}, ""},
+		{"docker rootful", Docker{}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			route, err := tc.rt.reachRoute(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, route.network)
+		})
+	}
+	assert.NotContains(t, strings.Join(mustRunArgs(t, Podman{rootless: true, rootlessNet: "pasta"}, sampleSpec()), " "), "--network",
+		"the argv head never decides the network; the spec carries the route's")
+}
+
+// TestRenderRunSpec_NetworkRenderedOnceBeforeTheImage: RunSpec.Network renders
+// exactly once, as a run flag (before the image); empty renders none.
+func TestRenderRunSpec_NetworkRenderedOnceBeforeTheImage(t *testing.T) {
+	spec := sampleSpec()
+	spec.Network = "ctxloom-net"
+	for _, rt := range []Runtime{Docker{}, Podman{rootless: true, rootlessNet: "pasta"}} {
+		args := mustRunArgs(t, rt, spec)
+		n, at, img := 0, -1, -1
+		for i, a := range args {
+			if a == "--network=ctxloom-net" {
+				n++
+				at = i
+			}
+			if a == spec.Image && img < 0 {
+				img = i
+			}
+		}
+		assert.Equal(t, 1, n, "%s: one --network", rt.Name())
+		assert.Less(t, at, img, "%s: --network is a run flag, before the image", rt.Name())
+	}
+	assert.NotContains(t, strings.Join(mustRunArgs(t, Docker{}, sampleSpec()), " "), "--network")
+}
+
+// TestBuildRunnerSpec_CarriesTheRoutesNetwork: the runner joins the network
+// its route home names.
+func TestBuildRunnerSpec_CarriesTheRoutesNetwork(t *testing.T) {
+	c := NewContainerFor(fakeRuntime{name: "docker", binary: "docker", available: true}, "mock").WithImage("img")
+	cw := newRunnerTestWorkspace()
+	placeRoots(c, cw)
+	cw.reach = hostRoute{dial: "172.18.0.5", network: "github_network_abc"}
+	assert.Equal(t, "github_network_abc", c.buildRunnerSpec("mock", "name", cw, nil).Network)
 }
 
 // TestRemintReach: the coordinator's host-side URL is re-minted to the URL

@@ -21,26 +21,14 @@ func (Host) Binary() string { return "" }
 func (Host) Available() bool { return true }
 
 // RunArgs is a noop — Host does not launch a container.
-func (Host) RunArgs(RunSpec) []string { return nil }
+func (Host) RunArgs(RunSpec) ([]string, error) { return nil, nil }
 
 // RemoveArgs is a noop — Host has nothing to tear down.
 func (Host) RemoveArgs(string) []string { return nil }
 
-// expose renders the identity bind mount, same as the OCI runtimes — the host
-// path IS the exposed path (no container namespace to remap into).
-func (Host) expose(host, target string, readOnly bool) mount {
-	return mount{Host: host, Container: target, ReadOnly: readOnly}
-}
-
-// exposeMapped is the identity mount for Host specifically — Host has no
-// container namespace to remap into (Host.mapper() is always identityMapper).
-func (Host) exposeMapped(hostPath string, readOnly bool) (mount, error) {
-	return exposeThrough(identityMapper{}, hostPath, readOnly)
-}
-
-// mapper is always identity — Host launches no container, so there is no
-// host↔container path translation to perform.
-func (Host) mapper() pathMapper { return identityMapper{} }
+// paths is identity on both rules — Host launches no container, so there is
+// no host↔container path translation to perform.
+func (Host) paths() pathSeam { return newPathSeam(identityMapper{}, nil) }
 
 // Enumerate is a noop — Host launches no containers, so there is never
 // anything to list.
@@ -65,3 +53,5 @@ func (Host) daemonNameTemplate() string                                 { return
 func (Host) removeOutcome([]byte, error) removeOutcome                  { return removeAlreadyGone }
 func (Host) passesPUID() bool                                           { return false }
 func (Host) gatewayInspectArgs() []string                               { return nil }
+func (Host) containerByIDArgs(string) []string                          { return nil }
+func (Host) selfInspectArgs(string) []string                            { return nil }

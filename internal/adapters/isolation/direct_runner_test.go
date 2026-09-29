@@ -76,7 +76,7 @@ func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 	assert.Contains(t, spec.Env, "IS_SANDBOX=1", "the container-is-the-boundary base env is preserved")
 
 	// Rendered argv: no -p publish, and the trio is a bare -e.
-	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
+	argv := strings.Join(mustRunArgs(t, Docker{rootless: true}, spec), " ")
 	assert.NotContains(t, argv, "-p ", "no port publish rendered")
 	assert.Contains(t, argv, "-e CTXLOOM_COORD_CRED ", "the trio renders as a bare-name -e")
 	assert.NotContains(t, argv, "super-secret-token", "the credential value never enters the rendered argv")
@@ -90,7 +90,7 @@ type scriptRuntime struct {
 	args []string
 }
 
-func (s scriptRuntime) RunArgs(RunSpec) []string { return s.args }
+func (s scriptRuntime) RunArgs(RunSpec) ([]string, error) { return s.args, nil }
 
 // TestStartDirectRunner_StderrTailSurfacesOnExit is the failure-path gate: a
 // runner that dies (the container that never dials home) surfaces its stderr

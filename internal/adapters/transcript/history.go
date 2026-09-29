@@ -221,7 +221,7 @@ func warnSkippedTranscript(harp, path string, err error) {
 // reconstructs the agent.Session it represents: KindEntry lines fold into
 // Session.Entries verbatim (callers wanting only the main thread — memory
 // distillation, session-load replay — filter via agent.MainThreadEntries,
-// backend.go:171); KindSession/KindComplete/KindPermission lines are envelope
+// backend.go:171); KindSession/KindComplete/KindDenied lines are envelope
 // metadata, not conversation turns, so they do NOT become entries, but their
 // ts still contributes to the returned StartTime/EndTime span (a session
 // commonly opens on a KindSession header before the first entry and closes on

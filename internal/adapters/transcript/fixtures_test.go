@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
@@ -165,29 +166,24 @@ func TestFixtures_RealPayloadSurvives(t *testing.T) {
 		assert.True(t, sawAssistant)
 	})
 
-	t.Run("mock: real forwarded permission request, answered, then a tool turn", func(t *testing.T) {
+	t.Run("mock: a denial turn, then a tool turn", func(t *testing.T) {
 		_, recs := readFixtureLines(t, "mock")
-		var perms []Record
-		var sawGranted bool
+		var denied []Record
+		var footer *CompletePayload
 		for _, r := range recs {
 			switch {
-			case r.Kind == KindPermission:
-				perms = append(perms, r)
-			case r.Kind == KindEntry && r.Entry.Type == "assistant" && r.Entry.Content == "mock chat: permission granted":
-				sawGranted = true
+			case r.Kind == KindDenied:
+				denied = append(denied, r)
+			case r.Kind == KindComplete && footer == nil:
+				footer = r.Complete
 			}
 		}
-		require.Len(t, perms, 1, "the mock's PERMISSION turn forwards exactly one request")
-		p := perms[0].Permission
-		require.NotNil(t, p)
-		assert.Equal(t, "mock-perm-1", p.ID)
-		assert.Equal(t, "mock_tool", p.ToolName)
-		assert.JSONEq(t, `{"action":"scripted"}`, string(p.ToolInput))
-		assert.Equal(t, []PermissionOption{
-			{ID: "allow", Kind: "allow_once", Name: "Allow"},
-			{ID: "reject", Kind: "reject_once", Name: "Reject"},
-		}, p.Options)
-		assert.True(t, sawGranted, "the answered permission must be followed by the mock's granted reply")
+		require.Len(t, denied, 1, "the denial turn records exactly one denied line")
+		want := DeniedPayload{ToolName: "mock_tool", ToolCallID: "mock-deny-1", Reason: "mock: mock_tool is denied by policy", Decider: agent.DeciderPolicy}
+		require.NotNil(t, denied[0].Denied)
+		assert.Equal(t, want, *denied[0].Denied)
+		require.NotNil(t, footer)
+		assert.Equal(t, []DeniedPayload{want}, footer.Denials, "the turn's footer carries its denials")
 
 		byType := map[string]int{}
 		for _, r := range recs {
@@ -248,4 +244,42 @@ func TestFixtureRoster_IsNotEmpty(t *testing.T) {
 	manifest := readFixtureManifest(t)
 	assert.ElementsMatch(t, manifest, allFixtureEngines,
 		"the fixture directory and MANIFEST.json must describe the same set — a fixture with no manifest entry has undocumented provenance, and a manifest entry with no fixture is a stale claim")
+}
+
+// TestSchema_DeciderEnumIsTheVocabulary binds the published schema's decider
+// enum to agent.Decider: the names are read from the type itself (every member
+// from zero up, until marshalling refuses), so a member added, dropped or
+// renamed on either side fails here rather than shipping a schema that
+// rejects — or admits — what the writer does not emit.
+func TestSchema_DeciderEnumIsTheVocabulary(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "transcript.schema.json"))
+	require.NoError(t, err)
+	var doc struct {
+		Defs struct {
+			DeniedPayload struct {
+				Properties struct {
+					Decider struct {
+						Type string   `json:"type"`
+						Enum []string `json:"enum"`
+					} `json:"decider"`
+				} `json:"properties"`
+			} `json:"deniedPayload"`
+		} `json:"$defs"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+
+	var names []string
+	for d := agent.Decider(0); ; d++ {
+		raw, err := json.Marshal(d)
+		if err != nil {
+			require.ErrorIs(t, err, agent.ErrUnknownDecider)
+			break
+		}
+		var name string
+		require.NoError(t, json.Unmarshal(raw, &name), "a decider is written as a JSON string")
+		names = append(names, name)
+	}
+	require.NotEmpty(t, names)
+	assert.Equal(t, "string", doc.Defs.DeniedPayload.Properties.Decider.Type)
+	assert.Equal(t, names, doc.Defs.DeniedPayload.Properties.Decider.Enum)
 }

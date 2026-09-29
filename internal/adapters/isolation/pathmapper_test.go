@@ -43,15 +43,15 @@ func TestBuildRunSpec_DriveLetterMapper_TranslatesWorkDirAndProjectMount(t *test
 	assert.Equal(t, "/mnt/c/Users/ben/my proj", spec.WorkDir)
 	assert.Contains(t, spec.Mounts, mount{Host: hostProj, Container: "/mnt/c/Users/ben/my proj"})
 
-	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
+	argv := strings.Join(mustRunArgs(t, Docker{rootless: true}, spec), " ")
 	assert.Contains(t, argv, "-w /mnt/c/Users/ben/my proj")
 	assert.Contains(t, argv, `source=C:\Users\ben\my proj,target=/mnt/c/Users/ben/my proj`)
 	assert.NotContains(t, argv, `target=C:\`, "the target must never carry a Windows path")
 }
 
-// exposeMapped routes the target through the SAME mapper the project root
+// expose routes the target through the SAME rule the project root
 // takes, so the git common-dir mirror and the project never disagree.
-func TestOciRuntime_ExposeMapped_RoutesThroughMapper(t *testing.T) {
+func TestPathSeam_Expose_RoutesThroughTarget(t *testing.T) {
 	assert.Equal(t, mount{Host: `C:\Users\foo\proj\.git`, Container: "/mnt/c/Users/foo/proj/.git", ReadOnly: true},
 		exposedMapped(t, windowsDocker, `C:\Users\foo\proj\.git`, true))
 }

@@ -137,3 +137,31 @@ func TestMapStreamJSONEvent_EmptyThinking_EmittedAsMarker(t *testing.T) {
 	assert.Equal(t, agent.EntryTypeThinking, evs[0].Entry.Type)
 	assert.Equal(t, "", evs[0].Entry.Content)
 }
+
+// TestMapStreamJSON_PermissionDenied: claude's system/permission_denied frame
+// (the live 2.1.283 shape: tool_name, tool_use_id, message) is a denial the
+// engine decided — it surfaces as ChatEvent.Denied, never dropped.
+func TestMapStreamJSON_PermissionDenied(t *testing.T) {
+	evs := mapStreamJSONEvent([]byte(`{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"toolu_01Qa","message":"Output redirection to 'b.txt' needs approval."}`))
+	require.Len(t, evs, 1)
+	require.NotNil(t, evs[0].Denied)
+	assert.Equal(t, agent.PermissionDenial{ToolName: "Bash", ToolCallID: "toolu_01Qa", Reason: "Output redirection to 'b.txt' needs approval.", Decider: agent.DeciderPolicy}, *evs[0].Denied)
+	assert.Equal(t, "denied", evs[0].Kind())
+}
+
+// TestMapStreamJSON_ResultPermissionDenials: result.permission_denials (the
+// live shape: tool_name, tool_use_id, tool_input — no reason) rides the
+// completion as TurnMeta.Denials; an empty list is no denials.
+func TestMapStreamJSON_ResultPermissionDenials(t *testing.T) {
+	evs := mapStreamJSONEvent([]byte(`{"type":"result","subtype":"success","stop_reason":"end_turn","permission_denials":[{"tool_name":"Write","tool_use_id":"toolu_012f","tool_input":{"file_path":"w.txt","content":"red"}},{"tool_name":"Bash","tool_use_id":"toolu_01Fn","tool_input":{"command":"echo red > w.txt"}}]}`))
+	require.Len(t, evs, 1)
+	require.NotNil(t, evs[0].Complete)
+	assert.Equal(t, []agent.PermissionDenial{
+		{ToolName: "Write", ToolCallID: "toolu_012f", Decider: agent.DeciderPolicy},
+		{ToolName: "Bash", ToolCallID: "toolu_01Fn", Decider: agent.DeciderPolicy},
+	}, evs[0].Complete.Denials)
+
+	evs = mapStreamJSONEvent([]byte(`{"type":"result","subtype":"success","permission_denials":[]}`))
+	require.Len(t, evs, 1)
+	assert.Empty(t, evs[0].Complete.Denials)
+}

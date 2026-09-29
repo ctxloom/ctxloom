@@ -27,16 +27,8 @@ import (
 // either way. The /proc sweep is this file's; darwin enumerates the same
 // session through kern.proc.all instead (procsession_darwin.go).
 func killSession(sid int) {
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		// Pin the process BEFORE deciding about it. procSessionID and the kill
+	for _, pid := range sessionSweepPids() {
+		// Pin the process BEFORE deciding about it. The session read and the kill
 		// are two separate steps, and a pid is not a stable identity across
 		// them — the target can exit in between and the kernel can hand its
 		// number to an unrelated process, which would then take the SIGKILL.
@@ -46,7 +38,7 @@ func killSession(sid int) {
 		if !ok {
 			continue // already gone: nothing left to kill
 		}
-		if procSessionID(pid) != sid {
+		if procStatInt(pid, statSession) != sid {
 			h.close()
 			continue
 		}
@@ -54,11 +46,39 @@ func killSession(sid int) {
 	}
 }
 
-// procSessionID reads a process's session id from /proc/<pid>/stat (field 6;
-// proc(5)) — the comm field can itself contain parens, so the fields after
-// it are located from the LAST ')', matching the approach in procalive's
+// sessionSweepPids is the set of pids killSession considers. It is a variable
+// because the session-id comparison is the sweep's ONLY guard against
+// signalling a stranger, so this package's tests narrow it to their own
+// process tree: a mutation test that negates that comparison must not be able
+// to SIGKILL the machine (procsession_linux_test.go).
+var sessionSweepPids = procPids
+
+// procPids lists every pid in /proc; nil when /proc is unreadable.
+func procPids() []int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	pids := make([]int, 0, len(entries))
+	for _, e := range entries {
+		if pid, err := strconv.Atoi(e.Name()); err == nil {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+// Fields of /proc/<pid>/stat, counted from the state field that follows comm.
+const (
+	statPPID    = 1
+	statSession = 3
+)
+
+// procStatInt reads one integer field of /proc/<pid>/stat (proc(5)), -1 when
+// it cannot. The comm field can itself contain parens, so the fields after it
+// are located from the LAST ')', matching the approach in procalive's
 // isZombie.
-func procSessionID(pid int) int {
+func procStatInt(pid, field int) int {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return -1
@@ -67,15 +87,13 @@ func procSessionID(pid int) int {
 	if i < 0 || i+2 >= len(data) {
 		return -1
 	}
-	// After the comm field: state(1) ppid(2) pgrp(3) session(4) — indices
-	// 0..3 in this 0-based slice.
 	fields := strings.Fields(string(data[i+2:]))
-	if len(fields) < 4 {
+	if field >= len(fields) {
 		return -1
 	}
-	sid, err := strconv.Atoi(fields[3])
+	v, err := strconv.Atoi(fields[field])
 	if err != nil {
 		return -1
 	}
-	return sid
+	return v
 }

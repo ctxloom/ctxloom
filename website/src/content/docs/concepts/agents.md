@@ -19,12 +19,6 @@ agents:
     profiles: [default, go-developer]
     runtime: container-rootless
     permissions: acceptEdits
-    escalation:
-      - kinds: [FILE_CHANGE]
-        action: auto_accept
-      - action: relay_to_role   # everything else goes up
-        role: parent
-        timeout: 5m
 ```
 
 Agents are also the unit ctxloom's coordinator/child [delegation](/concepts/agent-delegation/)
@@ -36,8 +30,7 @@ An agent names:
 - **`llm`** — the LLM config label or engine to run. It overrides the constituent profiles' own `llm:`; omit it to use the project default.
 - **`profiles`** — one or more profiles that compose into a single assembled context.
 - **`runtime`** (optional) — where the engine process executes: `host`, `container-rootless`, or `container-rootful` (the two container values name WHO OWNS the container runtime daemon and are not interchangeable — a rootful daemon maps the engine's writes to a different uid than a rootless one). Omit to inherit the project's `runtime:` default.
-- **`permissions`** (optional) — the launch-time permission posture the engine starts in: `default`, `acceptEdits`, `plan`, or `bypass`. Omit it and the agent inherits the engine label's configured posture, then **this project directory's [`permissions:` default](/guides/configuration/#permissions)**, then the engine's built-in default. `run --permissions` overrides it for one session. Declaring it here always beats the project default — a project-wide `bypass` never widens a `reviewer` that asked for `plan`.
-- **`escalation`** (optional, config-file only) — an ordered ladder of rungs deciding what happens when the agent raises an approval request. Each rung names the request `kinds` it matches (`COMMAND_EXECUTION`, `FILE_CHANGE`, `TOOL_USE`, `PERMISSION_ESCALATION`, `ARTIFACT_REVIEW`, `CUSTOM`; empty matches all), an `action` (`auto_accept`, `auto_decline`, `relay_to_role`, `surface_to_human`), a `role` for the relaying actions (only `parent` today), and a `timeout` after which a relayed request falls through to the next matching rung. The ladder bottoms out at *decline* when no rung resolves a request. Omit it and the ladder is derived from `permissions`.
+- **`permissions`** (optional) — the launch-time permission posture the engine starts in: `default`, `acceptEdits`, `plan`, `bypass`, `dontAsk` (deny whatever the rules do not allow) or `auto` (the engine's own classifier decides). A headless run (a one-shot or a delegated child) has nobody to answer a prompt, so the engine denies whatever its posture would have asked about, and a delegated child's parent hears that turn as *blocked*. Omit it and the agent inherits the engine label's configured posture, then **this project directory's [`permissions:` default](/guides/configuration/#permissions)**, then the engine's built-in default. `run --permissions` overrides it for one session. Declaring it here always beats the project default — a project-wide `bypass` never widens a `reviewer` that asked for `plan`.
 
 Whether an agent gets the coordinator-only MCP tools (the ones that spawn, observe, control or stop other children, such as `agent_run`, `roster` and `agent_stop`) is **not** an agent-binding setting — it follows from where the agent sits in the delegation tree, not from anything you write on the binding. See the `delegation.depth` project setting on the [Configuration](/reference/config/) page: the session owner is depth 0 and always gets the tools; its subagents are depth 1 and, at the default cap, do not. A leaf still reports to its parent via `agent_send`/`agent_recv`/`agent_report`.
 
@@ -54,7 +47,7 @@ ctxloom agent show dev
 ctxloom agent remove reviewer --yes
 ```
 
-`ctxloom agent edit <name>` changes an existing binding with the same flags. The flags cover every field except `escalation`, which has no flag: write the ladder into the binding's block in `config.yaml`.
+`ctxloom agent edit <name>` changes an existing binding with the same flags.
 
 `ctxloom init prompt` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, review lenses), and writes the bindings with `ctxloom agent create`. `ctxloom init` runs this as part of its setup interview; `init prompt` re-enters it any time.
 
@@ -150,7 +143,7 @@ An explicit base always beats auto-detection, and a devcontainer or user base th
 
 `isolation_images` in config names fully user-provided images that run as-is and are never built. An override must honor the **identity contract**: it runs the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install `ctxloom-entrypoint` as its `ENTRYPOINT`) and bakes no `USER` — otherwise the container would start with the image's own identity and root-own the files it writes into your mounted project. A violating image is a fatal startup finding; `--degraded` launches it anyway with the image's own identity.
 
-`ctxloom container check` diagnoses the environment before you commit to containerized agents: whether this process is itself inside a container, which runtime (docker/podman) is reachable, whether the image exists, and whether the runtime's daemon shares your filesystem — the probe that catches docker-outside-of-docker setups where bind mounts silently resolve against the wrong filesystem. Run it inside a dev container to learn whether to enable docker-in-docker or keep agents on `runtime: host`.
+`ctxloom container check` diagnoses the environment before you commit to containerized agents: whether this process is itself inside a container, which runtime (docker/podman) is reachable, whether the image exists, and whether the runtime's daemon shares your filesystem — the probe that catches docker-outside-of-docker setups where bind mounts silently resolve against the wrong filesystem. Run it inside a dev container to learn whether its agents can use the host's daemon through a mounted socket (docker-outside-of-docker: ctxloom joins its agents to its own container network, and every path they mount — the project, `~/.ctxloom` — must be on a bind mount or volume of the dev container), need docker-in-docker, or should stay on `runtime: host`.
 
 ### Tooling declarations
 

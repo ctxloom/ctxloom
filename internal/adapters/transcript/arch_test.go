@@ -17,8 +17,7 @@ import (
 //
 // record.go:9-12 claims the on-disk payload structs mirror agent.ChatEvent's
 // variants "field-for-field". Nothing enforced that claim, and it had already
-// silently failed TWICE (ChatSessionInfo.Resumable, PermissionRequest.
-// ToolCallID) before anyone noticed. Each new agent field must today be
+// silently failed TWICE before anyone noticed. Each new agent field must today be
 // edited in four places (agent type → payload struct → to-payload converter →
 // from-payload converter); this gate turns "someone forgot one of the four"
 // from a silent on-disk data loss into a build failure.
@@ -67,13 +66,13 @@ func parityPairs() []parity.Pair {
 			},
 		},
 		{
-			Name:       "PermissionRequest↔PermissionPayload",
-			AgentType:  agent.PermissionRequest{},
-			MirrorType: PermissionPayload{},
+			Name:       "PermissionDenial↔DeniedPayload",
+			AgentType:  agent.PermissionDenial{},
+			MirrorType: DeniedPayload{},
 			Exempt:     map[string]string{},
 			Convert: func(v reflect.Value) any {
-				p := v.Addr().Interface().(*agent.PermissionRequest)
-				return permissionPayload(p)
+				d := v.Addr().Interface().(*agent.PermissionDenial)
+				return deniedPayload(d)
 			},
 		},
 	}
@@ -114,9 +113,9 @@ func TestArch_TranscriptPayload_BoolFieldsLandDistinctly(t *testing.T) {
 // SCOPE — and why it is one pair and not four. This package writes four
 // payloads but reads back exactly ONE. entriesFromRecord (history.go) is the
 // only payload → agent converter in the repo: KindSession/KindComplete/
-// KindPermission lines are envelope metadata that ParseTranscriptFile reads
+// KindDenied lines are envelope metadata that ParseTranscriptFile reads
 // for their `ts` alone and never reconstitutes into agent.ChatSessionInfo /
-// agent.TurnMeta / agent.PermissionRequest. Those three are write-only today,
+// agent.TurnMeta / agent.PermissionDenial. Those three are write-only today,
 // so there is no read side to gate — gating a converter that does not exist
 // would be a gate satisfiable by the wrong evidence. When a reader is added
 // for any of them, it gets a pair here.

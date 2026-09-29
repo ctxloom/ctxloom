@@ -235,19 +235,19 @@ func unsetVersionStamp(t *testing.T) {
 	t.Cleanup(func() { SetBinaryVersion(orig) })
 }
 
-// mapped is rt's mapper applied to host, failing the test where it cannot
+// mapped is rt's target rule applied to host, failing the test where it cannot
 // route — for assertions that compare against the mapped path.
 func mapped(t *testing.T, rt Runtime, host string) string {
 	t.Helper()
-	p, err := rt.mapper().toContainer(host)
+	p, err := rt.paths().targetFor(host)
 	require.NoError(t, err)
 	return p
 }
 
-// exposedMapped is rt.exposeMapped, failing the test where it cannot route.
+// exposedMapped is rt.paths().expose, failing the test where it cannot route.
 func exposedMapped(t *testing.T, rt Runtime, host string, readOnly bool) mount {
 	t.Helper()
-	m, err := rt.exposeMapped(host, readOnly)
+	m, err := rt.paths().expose(host, readOnly)
 	require.NoError(t, err)
 	return m
 }
@@ -299,4 +299,21 @@ func stubGateway(t *testing.T, out string, err error) *[]string {
 	}
 	t.Cleanup(func() { probeExec = orig })
 	return &got
+}
+
+// mustRunArgs renders rt's run argv for spec, failing the test on a render
+// error (a mount source the daemon has no name for).
+func mustRunArgs(t testing.TB, rt Runtime, spec RunSpec) []string {
+	t.Helper()
+	args, err := rt.RunArgs(spec)
+	require.NoError(t, err)
+	return args
+}
+
+// mustRender renders spec's shared tail with identity sources.
+func mustRender(t testing.TB, spec RunSpec) []string {
+	t.Helper()
+	args, err := renderRunSpec(spec, pathSeam{})
+	require.NoError(t, err)
+	return args
 }

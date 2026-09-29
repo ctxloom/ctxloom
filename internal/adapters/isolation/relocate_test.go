@@ -106,11 +106,7 @@ type mapperRuntime struct {
 	m pathMapper
 }
 
-func (r mapperRuntime) mapper() pathMapper { return r.m }
-
-func (r mapperRuntime) exposeMapped(hostPath string, readOnly bool) (mount, error) {
-	return exposeThrough(r.m, hostPath, readOnly)
-}
+func (r mapperRuntime) paths() pathSeam { return pathSeam{target: r.m} }
 
 // A root the runtime cannot route is refused by name, as
 // present.ErrUnreachableRoot — never presented at a guessed path.
@@ -180,7 +176,7 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	_, err = c.environment(cw, pl, roots)
 	require.NoError(t, err)
 
-	argv := strings.Join(c.runtime.RunArgs(c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")
+	argv := strings.Join(mustRunArgs(t, c.runtime, c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")
 	assert.Contains(t, argv, "type=bind,source="+login+",target="+defaultContainerHome+"/.claude ", "the login store, read-write")
 	assert.Contains(t, argv, "type=bind,source="+provider+",target="+defaultContainerHome+"/.aws,readonly", "the provider store, read-only")
 	nested := "type=bind,source=" + ssoCache + ",target=" + defaultContainerHome + "/.aws/sso/cache "

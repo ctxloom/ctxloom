@@ -147,12 +147,14 @@
     },
     "permissions": {
       "type": "string",
-      "description": "Project default for the launch-time permission posture of engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. 'default' (prompt on each gated call), 'acceptEdits' (auto-accept file edits, prompt for the rest), 'plan' (read-only), 'bypass' (skip all in-engine prompting). Resolution: `run --permissions` > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's declared host default (a headless run refuses one that would prompt) — so a narrower posture declared anywhere above always wins, and a declared project default beats a silent engine fallback. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them.",
+      "description": "Project default for the launch-time permission posture of engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. 'default' (prompt on each gated call), 'acceptEdits' (auto-accept file edits, prompt for the rest), 'plan' (read-only), 'bypass' (skip all in-engine prompting), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). Resolution: `run --permissions` > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's declared host default — so a narrower posture declared anywhere above always wins, and a declared project default beats a silent engine fallback. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them.",
       "enum": [
         "default",
         "acceptEdits",
         "plan",
-        "bypass"
+        "bypass",
+        "dontAsk",
+        "auto"
       ]
     },
     "delegation": {
@@ -241,54 +243,10 @@
               "default",
               "acceptEdits",
               "plan",
-              "bypass"
+              "bypass",
+              "dontAsk",
+              "auto"
             ]
-          },
-          "escalation": {
-            "type": "array",
-            "description": "The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely \u2014 no merge.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "kinds": {
-                  "type": "array",
-                  "description": "ApprovalRequest kinds this rung matches. Empty matches every kind (a catch-all rung).",
-                  "items": {
-                    "type": "string",
-                    "enum": [
-                      "COMMAND_EXECUTION",
-                      "FILE_CHANGE",
-                      "TOOL_USE",
-                      "PERMISSION_ESCALATION",
-                      "ARTIFACT_REVIEW",
-                      "CUSTOM"
-                    ]
-                  }
-                },
-                "action": {
-                  "type": "string",
-                  "description": "The rung's disposition.",
-                  "enum": [
-                    "auto_accept",
-                    "auto_decline",
-                    "relay_to_role",
-                    "surface_to_human"
-                  ]
-                },
-                "role": {
-                  "type": "string",
-                  "description": "The relay_to_role/surface_to_human target. Only \"parent\" is addressable in this window (flat-hub topology); empty defaults to \"parent\". Not meaningful for auto_accept/auto_decline."
-                },
-                "timeout": {
-                  "type": "string",
-                  "description": "Bounds a relay_to_role/surface_to_human rung's wait (Go duration syntax, e.g. \"5m\"). Empty uses the resolver's default. Refused on auto_accept/auto_decline, which resolve immediately."
-                }
-              },
-              "required": [
-                "action"
-              ],
-              "additionalProperties": false
-            }
           },
           "driving": {
             "type": "string",
@@ -394,7 +352,9 @@
                 "default",
                 "acceptEdits",
                 "plan",
-                "bypass"
+                "bypass",
+                "dontAsk",
+                "auto"
               ],
               "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
             },
@@ -439,7 +399,9 @@
                 "default",
                 "acceptEdits",
                 "plan",
-                "bypass"
+                "bypass",
+                "dontAsk",
+                "auto"
               ],
               "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
             },

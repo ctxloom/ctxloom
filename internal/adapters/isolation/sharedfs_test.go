@@ -20,8 +20,9 @@ import (
 // shared fake returns nil), so the probe's mount reaches the exec stub.
 type probeRuntime struct{ fakeRuntime }
 
-func (p probeRuntime) RunArgs(spec RunSpec) []string {
-	return append([]string{"run", "--rm", "--name", spec.Name}, renderRunSpec(spec)...)
+func (p probeRuntime) RunArgs(spec RunSpec) ([]string, error) {
+	tail, err := renderRunSpec(spec, pathSeam{})
+	return append([]string{"run", "--rm", "--name", spec.Name}, tail...), err
 }
 
 // stubProbeExec swaps the probe's exec seam for the test and restores it.
@@ -149,14 +150,27 @@ func TestSharedFSProbe_DefinitiveOutcomesMemoized(t *testing.T) {
 	})
 }
 
+// TestProbeExec_AFailureCarriesTheCLIsStderr: a runtime CLI that fails says
+// WHY on stderr; an error reading only "exit status 1" (what CI showed for
+// findSelf's listing) hides it. The *exec.ExitError stays reachable, since
+// callers classify on its Stderr (removeOutcome).
+func TestProbeExec_AFailureCarriesTheCLIsStderr(t *testing.T) {
+	_, err := probeExec(context.Background(), "sh", []string{"-c", "echo '  permission denied on the socket  ' >&2; exit 1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exit status 1")
+	assert.Contains(t, err.Error(), ": permission denied on the socket", "the CLI's stderr, trimmed, is the reason")
+	var ee *exec.ExitError
+	assert.True(t, errors.As(err, &ee), "the exit error stays reachable")
+}
+
 // TestSharedFSProbe_RunFailureSurfacesStderr: a run failure is
 // reported as its REAL cause — docker's stderr — not as a phantom fs-sharing
 // mismatch, and it is not a definitive (memoizable) verdict.
 func TestSharedFSProbe_RunFailureSurfacesStderr(t *testing.T) {
 	stubProbeExec(t, func(string) (string, error) {
-		// A real *exec.ExitError with populated .Stderr (what .Output() yields).
+		// A real CLI failure, as probeExec reports it.
 		_, err := exec.Command("sh", "-c", "echo 'Cannot connect to the daemon socket' >&2; exit 1").Output()
-		return "", err
+		return "", withStderr(err)
 	})
 	rt := probeRuntime{fakeRuntime{name: "docker", binary: "docker", available: true}}
 	err := sharedFSProbe(context.Background(), rt, "img", []string{t.TempDir()})

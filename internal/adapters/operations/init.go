@@ -199,8 +199,8 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {
 	if headlessPermissions != "" {
 		m, ok := enginepkg.ParsePermissionMode(headlessPermissions)
-		if !ok || !m.SafeHeadless() {
-			return nil, fmt.Errorf("headless posture %q: the default agent's headless runs need %s or %s", headlessPermissions, enginepkg.PermissionPlan, enginepkg.PermissionBypass)
+		if !ok {
+			return nil, fmt.Errorf("headless posture %q is not a posture (known: %s)", headlessPermissions, strings.Join(enginepkg.PermissionModeNames(), "|"))
 		}
 		headlessPermissions = m.String()
 	}

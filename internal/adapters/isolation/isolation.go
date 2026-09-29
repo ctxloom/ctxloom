@@ -414,7 +414,7 @@ func RuntimeNames() []string { return launch.RuntimeNames() }
 // given one" rather than "docker isn't installed".
 func noRuntimeHint() string {
 	if InContainer() {
-		return " (this process is inside a container without a nested runtime — enable the dev container docker-in-docker feature, or accept the host)"
+		return " (this process is inside a container without a runtime — mount the host's container socket into it, enable the dev container docker-in-docker feature, or accept the host)"
 	}
 	return ""
 }

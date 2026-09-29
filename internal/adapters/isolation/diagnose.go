@@ -152,7 +152,7 @@ func diagnoseProbe(ctx context.Context, rt Runtime, image string, roots []string
 		d.SharedFS = "mismatch: " + perr.Error()
 		g := "the daemon does NOT share this process's filesystem: containerized agents cannot mount this project"
 		if d.InContainer {
-			g += " — this looks like docker-outside-of-docker; enable the dev container docker-in-docker feature, or keep agents on `runtime: host`"
+			g += " — this looks like docker-outside-of-docker; put the paths agents mount (the project, ~/.ctxloom) on bind mounts or volumes of this container, enable the dev container docker-in-docker feature, or keep agents on `runtime: host`"
 		}
 		d.Guidance = append(d.Guidance, g)
 		return

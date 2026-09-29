@@ -13,11 +13,11 @@ import (
 // stdioTerminal is the runner's Terminal over the process's own stdio: the
 // pty slave the originator holds the master of (adapters/hostpty), or the
 // container's -it tty. The engine is driven through the backend's
-// interactive Execute — its tmux pane, with the runner's stdin typed into
-// it and the pane's bytes relayed to the runner's stdout — over the
-// projection and the presentations the runner delivered, never a Setup of
-// its own. The injector wraps the pair so coordinator mail is typed into
-// the pane between the human's keystrokes (runner.TerminalInjector).
+// interactive Execute — on its own pty, with the runner's stdin copied into
+// it and its output relayed to the runner's stdout — over the projection
+// and the presentations the runner delivered, never a Setup of its own. The
+// injector wraps the pair so coordinator mail is typed into the engine
+// between the human's keystrokes (runner.TerminalInjector).
 type stdioTerminal struct {
 	backend  agent.Backend
 	injector *runner.TerminalInjector

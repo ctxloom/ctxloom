@@ -198,7 +198,7 @@ func (c Container) harpStateMounts() ([]mount, error) {
 	// only reaches here through a hand-built spec, which then simply
 	// has no native store to persist.
 	if c.engineSpec.transcriptStoreRel != "" {
-		mounts = append(mounts, c.runtime.expose(
+		mounts = append(mounts, c.runtime.paths().bind(
 			store,
 			path.Join(c.home, c.engineSpec.transcriptStoreRel),
 			false,
@@ -209,7 +209,7 @@ func (c Container) harpStateMounts() ([]mount, error) {
 		if err := os.MkdirAll(host, 0o755); err != nil {
 			return nil, fmt.Errorf("container session-state mounts: %w", err)
 		}
-		mounts = append(mounts, c.runtime.expose(
+		mounts = append(mounts, c.runtime.paths().bind(
 			host,
 			path.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, dir),
 			false,
@@ -251,7 +251,7 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 			if err := ensureFile(src); err != nil {
 				return nil, fmt.Errorf("container task-store mount: %w", err)
 			}
-			mounts = append(mounts, c.runtime.expose(
+			mounts = append(mounts, c.runtime.paths().bind(
 				src,
 				path.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)),
 				false,
@@ -275,7 +275,7 @@ func (c Container) locksDirMount() (mount, error) {
 	if err := os.MkdirAll(locksDir, 0o755); err != nil {
 		return mount{}, fmt.Errorf("container lock-dir mount: %w", err)
 	}
-	return c.runtime.expose(
+	return c.runtime.paths().bind(
 		locksDir,
 		path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName),
 		false,

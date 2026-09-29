@@ -34,7 +34,7 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	mcp := present.Presentation{HostPath: "/h/.mcp.json", EnginePath: "/h/.mcp.json", Args: []string{flagMCPConfig, "/h/.mcp.json"}}
 	ex, err := inst.Exec([]present.Presentation{mcp})
 	require.NoError(t, err)
-	require.Equal(t, "--permission-mode plan --disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --model claude-opus-5 --print --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
+	require.Equal(t, "--permission-mode plan --disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --permission-prompts none --model claude-opus-5 --print --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
 	drivers := inst.Drivers()
 	require.Len(t, drivers, 1)
 	d, ok := drivers[0].(*streamJSONDriver)
@@ -72,6 +72,41 @@ func TestInstance_ExecPinsClassicScreen(t *testing.T) {
 			continue
 		}
 		require.NotContains(t, cli.SetEnv, classicScreenEnv, "%v", cli.Surface)
+	}
+}
+
+// TestInstance_HeadlessChildDefaults: a structured (headless) run has no human
+// at the engine, so it says so to claude — --permission-prompts none: deny
+// what the posture and rules leave open instead of asking nobody — and turns
+// off background tasks, which would otherwise outlive the per-turn process
+// and answer into a turn nobody is reading. An interactive run has a human
+// and carries neither. Both are declared on the surface they ride.
+func TestInstance_HeadlessChildDefaults(t *testing.T) {
+	kind, err := Build()
+	require.NoError(t, err)
+	for _, mode := range kind.Root().Modes {
+		for _, perm := range []engine.PermissionMode{engine.PermissionDefault, engine.PermissionAcceptEdits, engine.PermissionPlan, engine.PermissionBypass, engine.PermissionDontAsk, engine.PermissionAuto} {
+			s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: perm, Prompt: "p"}
+			inst, err := kind.Instance(s)
+			require.NoError(t, err)
+			ex, err := inst.Exec(nil)
+			require.NoError(t, err)
+			argv := strings.Join(ex.Args, " ")
+			if mode == engine.Structured {
+				require.Contains(t, argv, flagPermissionPrompts+" none", "%v %v", mode, perm)
+				require.Equal(t, "1", ex.Env[disableBackgroundTasksEnv], "%v %v", mode, perm)
+				continue
+			}
+			require.NotContains(t, argv, flagPermissionPrompts, "%v %v", mode, perm)
+			require.NotContains(t, ex.Env, disableBackgroundTasksEnv, "%v %v", mode, perm)
+		}
+	}
+	for _, cli := range ClaudeEngineCLIs() {
+		if cli.Surface == agent.CLISurfaceOneshot {
+			require.Contains(t, cli.SetEnv, disableBackgroundTasksEnv)
+			continue
+		}
+		require.NotContains(t, cli.SetEnv, disableBackgroundTasksEnv, "%v", cli.Surface)
 	}
 }
 

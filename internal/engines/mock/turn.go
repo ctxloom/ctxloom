@@ -25,6 +25,10 @@ import (
 //     produces — thinking, tool_use, tool_result, assistant — before
 //     completing. A liveness check asserts entry-type VARIETY, which is only
 //     meaningful against a stub that can produce more than one type.
+//   - "mock:deny=<tool>": an ENGINE-POLICY DENIAL — the tool_use, the refusal
+//     as it happens (ChatEvent.Denied) and the completion carrying it
+//     (TurnMeta.Denials): what claude reports when its posture refuses a
+//     call nobody can approve.
 //   - "HANG": a STALLED engine — the turn is taken (hooks fire, the record is
 //     written) and then emits nothing at all until its context ends. A
 //     liveness check's red direction needs an engine that goes silent.
@@ -132,10 +136,21 @@ func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string) err
 			}
 		}
 	}
+	meta := &agent.TurnMeta{StopReason: "end_turn"}
+	if tool, ok := deniedToolIn(prompt); ok {
+		denial := agent.PermissionDenial{ToolName: tool, ToolCallID: "mock-deny-1", Reason: "mock: " + tool + " is denied by policy", Decider: agent.DeciderPolicy}
+		if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: tool, ToolCallID: denial.ToolCallID, ToolInput: json.RawMessage(`{}`)}}); err != nil {
+			return err
+		}
+		if err := send(agent.ChatEvent{Denied: &denial}); err != nil {
+			return err
+		}
+		meta.Denials = []agent.PermissionDenial{denial}
+	}
 	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: answer}}); err != nil {
 		return err
 	}
-	return send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}})
+	return send(agent.ChatEvent{Complete: meta})
 }
 
 // toolsTurn is the entry vocabulary a TOOLS turn relays before its answer.

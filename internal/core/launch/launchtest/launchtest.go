@@ -1,6 +1,5 @@
-// Package launchtest is the fixture for launch.Resolve's design-by-test body
-// (docs/architecture/audit-2026-09-18/30-decided-architecture.md, Part 4.2
-// C): a Deps built from an in-memory config generation, a fixture engine
+// Package launchtest is the fixture for launch.Resolve's design-by-test body:
+// a Deps built from an in-memory config generation, a fixture engine
 // kind, a fake Cells, a sequence endpoint minter and a MemStore. It lives in
 // core so the launch tests need no adapter; every port on Deps is a double
 // here and a real adapter in production.

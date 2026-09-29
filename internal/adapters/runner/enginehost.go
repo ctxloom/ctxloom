@@ -67,7 +67,7 @@ var _ engineHome = (*Home)(nil)
 // decodes the wire launch (the codec is adapters/coordgrpc's), redeems and
 // decodes the package, delivers it into the cell, and drives the engine back
 // through Drive. adapters/runner implements it; the host lives here until
-// the engine-host files move beside Execute (Part 4.1, slice 14a).
+// the engine-host files move beside Execute (slice 14a).
 type Runner interface {
 	Execute(ctx context.Context, wire *agentcoordpb.Launch) error
 }

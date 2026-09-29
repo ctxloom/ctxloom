@@ -10,7 +10,7 @@ import (
 
 // Host is the Runner the engine host hands a StartRun's launch to: it
 // decodes the wire launch through the one codec and executes it. It stands
-// where the RunnerChannel client will (adapters/coordgrpc, Part 4.1, slice
+// where the RunnerChannel client will (adapters/coordgrpc, slice
 // 10), which is why this file — and only this file — sees the proto.
 type Host struct {
 	Deps Deps

@@ -19,8 +19,7 @@ import (
 // THE HOLE THIS CLOSES. A config key is reachable from the env layer
 // (CTXLOOM_CONFIG_DIRTY_TREE_COMMIT_ACK=true) and --config-set, both of which
 // an agent can set for itself via any child process it can spawn — VERIFIED
-// against a build of this tree (config-layer-scope design doc, "Already wrong
-// #1"). commitDirtyTree's own doc said the flag must be read "ONLY from the
+// against a build of this tree. commitDirtyTree's own doc said the flag must be read "ONLY from the
 // PROJECT config"; the config chain has no such thing as "only" one layer.
 //
 // THE SHAPE is internal/shared/admission's Store — the SAME mechanism

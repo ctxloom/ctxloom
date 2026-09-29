@@ -47,7 +47,7 @@ An engine is two halves on one port (`internal/core/engine`):
   payload codec). `adapters/isolation` reads those facts off the engine
   (`isolation.FactsOf`), and `adapters/runner.Execute` binds the Instance
   before delivering. `core/engine/conformance` asserts both halves
-  (Part 4.2 test A in full) for every kind.
+  for every kind.
 - **The composition root and the seam's remainder.** `engines.Compose()`
   builds the shipped kinds once per process (`engines.Registry()` is what
   every adapter that resolves an engine by name reads; `engines.Use` is the

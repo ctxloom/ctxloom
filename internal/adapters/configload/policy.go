@@ -54,8 +54,7 @@ func scopeAllows(source confload.OverrideSource, path []string) (bool, string) {
 // key deep-merges across layers exactly as confload.Merge documents, EXCEPT
 // "agents" — a build of this tree let a home config silently contribute
 // permissions/coordinator/runtime fields into a project's same-named agent,
-// producing a binding neither file describes (config-layer-scope design doc,
-// "Already wrong #2"). Per-leaf scope alone cannot fix this: `permissions` and
+// producing a binding neither file describes. Per-leaf scope alone cannot fix this: `permissions` and
 // `profiles` legitimately have DIFFERENT scopes (Shared vs. Shared, but
 // `runtime` is Machine), so a leaf-by-leaf deep merge fuses fields from
 // different layers into one binding neither author wrote.

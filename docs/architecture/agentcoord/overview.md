@@ -284,8 +284,6 @@ engine's native prompt by attaching to the agent's window.
 ## Where the known gaps live
 
 This page does not carry a divergence index. Stated-vs-actual findings for this
-seam are in the task log under `area:bus` (`taskloom list --tag-query area:bus`)
-and, as a dated snapshot with call graphs, in
-`docs/architecture/audit-2026-09-18/04-coordination-bus.md` §4 (F1–F12) and
-`10-synthesis.md` A3. A finding recorded here and there would drift; the task log is
-the copy that gets closed.
+seam are in the task log under `area:bus` (`taskloom list --tag-query area:bus`).
+A finding recorded here and there would drift; the task log is the copy that
+gets closed.

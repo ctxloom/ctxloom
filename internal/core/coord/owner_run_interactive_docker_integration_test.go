@@ -1,6 +1,6 @@
 //go:build docker_integration
 
-// The GATE for a container INTERACTIVE turn (Part 4.1, slice 13): the runner
+// The GATE for a container INTERACTIVE turn (slice 13): the runner
 // is the container's FOREGROUND process, attached to the pty the originator
 // holds — no keepalive to exec into, no handoff file, no listener. Every
 // assertion reads a delivered PAYLOAD (the engine's echo of typed input over

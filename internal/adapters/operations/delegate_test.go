@@ -431,8 +431,8 @@ func TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 
 // ackedFixture builds a *config.Config carrying a REAL, on-disk dirty-tree-
 // commit acknowledgement — the ack no longer lives on config.Fixture itself
-// (config-layer-scope: it moved to its own admission-store file outside the
-// config chain entirely), so proving the "commit" handler's authorized path
+// (it moved to its own admission-store file outside the config chain
+// entirely), so proving the "commit" handler's authorized path
 // requires writing a genuine record via config.SetDirtyTreeCommitAck and
 // injecting the SAME (fs, appDir) pair commitDirtyTree reads through
 // (cfg.FS()/cfg.GetAppDir()) — constructing a Fixture alone can no longer

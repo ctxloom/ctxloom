@@ -24,15 +24,9 @@ This journey proves that boundary holds, and — just as important — that it i
 AUDITABLE. It is not enough for the boundary to exist somewhere deep in the
 spawn code; an operator looking at the coordinator's own run journal later
 must be able to see, for any given run, exactly which permission mode and
-which MCP servers it was actually granted. Before the work this journey stands
-on, that journal recorded a run's escalation ladder, its runtime, its
-credential hash — but nothing about what tools or posture the child actually
-got. The privilege boundary was real, but it was invisible to anyone auditing
-from outside the process. That gap is now closed: the journal records the
-same class of fact for permissions and MCP servers that it already recorded
-for the escalation ladder, and for the identical reason — so a later edit to
-the config can never rewrite, after the fact, what a live run was actually
-given.
+which MCP servers it was actually granted. The journal records both at
+enqueue, beside the run's runtime — so a later edit to the config can never
+rewrite, after the fact, what a live run was actually given.
 
 One honest limit shapes how this journey is written, and it is worth stating
 plainly rather than leaving a reader to discover it: `tests/acceptance` only

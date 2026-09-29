@@ -33,19 +33,13 @@ type AgentEntry struct {
 	// written; empty inherits the project `runtime:` default.
 	Runtime string `json:"runtime,omitempty"`
 	// Permissions is the agent's declared permission posture
-	// (default|acceptEdits|plan|bypass), as written; empty inherits the engine
+	// (engine.PermissionModeNames), as written; empty inherits the engine
 	// label's default and finally the built-in default.
 	Permissions string `json:"permissions,omitempty"`
 	// Driving is the agent's declared per-turn execution axis
 	// (conversational|oneshot), as written; empty means conversational (the
 	// default — see agents.Agent.Driving).
 	Driving agents.DrivingMode `json:"driving,omitempty"`
-	// Escalation is the agent's declared approval-policy ladder, as written
-	// (previously invisible here — settable only by hand-editing YAML and
-	// undetectable from `agent list`/`agent show`). Empty means the ladder is
-	// derived from Permissions at resolve time (see agents.Agent.Escalation's
-	// doc).
-	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 	// HomeMode is the agent's declared per-engine engine-home policy
 	// (session|host), as written; empty (undeclared) defaults to session at
 	// resolve time — see agents.Agent.HomeMode's doc.
@@ -70,7 +64,6 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Runtime:     s.Runtime,
 			Permissions: s.Permissions,
 			Driving:     s.Driving,
-			Escalation:  s.Escalation,
 			HomeMode:    s.HomeMode,
 			Auth:        s.Auth,
 		})
@@ -95,7 +88,6 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Runtime:     sub.Runtime,
 		Permissions: sub.Permissions,
 		Driving:     sub.Driving,
-		Escalation:  sub.Escalation,
 		HomeMode:    sub.HomeMode,
 		Auth:        sub.Auth,
 	}, nil
@@ -106,7 +98,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 // default / the composed profiles' llm); Profiles compose into one context;
 // Runtime is optional (one of isolation.RuntimeNames — host |
 // container-rootless | container-rootful; empty inherits the project
-// `runtime:` default); Permissions is optional (default|acceptEdits|plan|bypass;
+// `runtime:` default); Permissions is optional (engine.PermissionModeNames;
 // empty inherits the engine label's default). The workspace axis is deliberately
 // NOT settable here — it is a session trait chosen at invocation time, never
 // stored on a binding.
@@ -451,11 +443,9 @@ func validateContainerAuth(reg engine.Registry, cfg *config.Config, name string,
 // never mutated. The bind itself is a per-FIELD update applied to the
 // transaction's fresh Draft: a nil request field means "the caller did not
 // name this field" and keeps whatever the existing binding holds, while an
-// explicitly-supplied empty value clears it. It used to be a whole-binding
-// REPLACE, which meant `ctxloom agent set dev --runtime container` silently
-// destroyed dev's engine, profiles, and permission posture, and
-// — worst, because the request type cannot even express it — its approval
-// escalation ladder. Merging inside Update also keeps the read-modify-write
+// explicitly-supplied empty value clears it — never a whole-binding replace,
+// which would destroy every field the request did not name. Merging inside
+// Update also keeps the read-modify-write
 // under the same lock, so a concurrent writer cannot land
 // between the read of the existing record and the write of the merged one.
 //
@@ -505,8 +495,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 		}
 		// Start from the record as it stands RIGHT NOW inside the transaction
 		// (not from cfg, which was loaded before the lock), so every field the
-		// request does not name — including Escalation, which SetAgentRequest
-		// has no way to carry — survives untouched.
+		// request does not name survives untouched.
 		entry = d.Agents[name]
 		if req.Profiles != nil {
 			entry.Profiles = canonicalizeProfileRefs(*req.Profiles, aliasToURLResolver(cfg))
@@ -558,7 +547,6 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 		Runtime:     entry.Runtime,
 		Permissions: entry.Permissions,
 		Driving:     entry.Driving,
-		Escalation:  entry.Escalation,
 		HomeMode:    entry.HomeMode,
 		Auth:        entry.Auth,
 	}, nil
@@ -662,11 +650,6 @@ type ResolvedAgent struct {
 	// the engine's declared host default, so a blank-declared agent's real
 	// posture is visible rather than ""; --permissions overrides it.
 	EffectivePermissions string `json:"effectivePermissions,omitempty"`
-	// Escalation is the agent's DECLARED approval-request ladder (may be
-	// empty — the coordinator derives a preset ladder from Permissions when
-	// so). Raw, unvalidated config; the coordinator's
-	// spawn-time ladder builder validates and converts it.
-	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 	// Driving mirrors agents.Agent.Driving: the agent's declared per-turn
 	// execution axis (conversational|oneshot; empty = conversational). The
 	// coordinator's per-engine resume-capability gate (coord.resolveResumeMode)
@@ -826,7 +809,6 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		Runtime:              runtime,
 		Permissions:          sub.Permissions,
 		EffectivePermissions: effectivePerm.String(),
-		Escalation:           sub.Escalation,
 		Driving:              sub.Driving,
 		HomeMode:             configHome,
 		Auth:                 authMode,

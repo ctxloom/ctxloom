@@ -250,15 +250,14 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 }
 
 // LoadAgents folded the `agents:` config-key entries into its merged
-// map with a plain struct copy, so every returned Agent's Profiles and
-// Escalation slices still pointed at the shared config.Config's storage. That bypasses
+// map with a plain struct copy, so every returned Agent's Profiles slice
+// still pointed at the shared config.Config's storage. That bypasses
 // the copy-on-read policy accessors.go exists to enforce — and the package
 // already owns the right helper (cloneAgent), it simply was not on this path.
 //
-// It matters more than an ordinary aliasing hole: Agent.Escalation is the
-// permission ladder a delegated child runs under, and Agent.Profiles decides
-// which context that child is given. A caller that filters or reorders either
-// in place would be rewriting them for every other holder of the ambient
+// It matters more than an ordinary aliasing hole: Agent.Profiles decides
+// which context a delegated child is given. A caller that filters or reorders
+// it in place would be rewriting it for every other holder of the ambient
 // config.Config, silently.
 
 // Agent(name) re-runs LoadAgents on every lookup, and one command reaches it

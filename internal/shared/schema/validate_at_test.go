@@ -87,16 +87,15 @@ func TestValidateAt_SilentWhereItHasNoAnswer(t *testing.T) {
 // TestValidateAt_ValidatesTheValueNotASyntheticDocument pins WHY the value is
 // validated against its own sub-schema rather than wrapped in a one-key
 // document and run through ValidateBytes: an object with `required` members
-// would then fail over keys the override never mentioned. An
-// agents.<name>.escalation rung requires `action`, so setting only `role` must
-// NOT be reported as a missing action.
+// would then fail over keys the override never mentioned. A rung requires
+// `action`, so setting only `role` must NOT be reported as a missing action.
 func TestValidateAt_ValidatesTheValueNotASyntheticDocument(t *testing.T) {
-	v, err := NewConfigValidator()
+	v, err := NewValidatorFromSchema(rungSchema)
 	require.NoError(t, err)
 
-	rolePath := []string{"agents", "reviewer", "escalation", "0", "role"}
+	rolePath := []string{"agents", "reviewer", "rungs", "0", "role"}
 	require.True(t, v.KnownPath(rolePath), "fixture check: the path resolves, so this row is not vacuous")
-	require.Error(t, v.ValidateBytes([]byte("agents:\n  reviewer:\n    escalation:\n      - role: parent\n")),
+	require.Error(t, v.ValidateBytes([]byte("agents:\n  reviewer:\n    rungs:\n      - role: parent\n")),
 		"fixture check: as a whole document this really does fail the required-action rule")
 	assert.NoError(t, v.ValidateAt(rolePath, "parent"),
 		"an override that named only role must not be reported as a missing action")

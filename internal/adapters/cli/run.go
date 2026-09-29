@@ -1510,7 +1510,7 @@ func init() {
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
 	runCmd.Flags().StringVar(&runAgent, "agent", "", "Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)")
 	runCmd.Flags().StringVar(&runWorkspace, "workspace", "", "Session workspace axis (none|worktree; empty = project default)")
-	runCmd.Flags().StringVar(&runPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)")
+	runCmd.Flags().StringVar(&runPermissions, "permissions", "", "Permission posture: "+strings.Join(agent.PermissionModeNames(), "|")+" (overrides the agent/config default)")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "profile")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "fragment")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "tag")

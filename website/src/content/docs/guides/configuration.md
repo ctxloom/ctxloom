@@ -103,8 +103,7 @@ agents:
     llm: claude-code          # an llm.configs label (engine + model)
     profiles: [developer]
     runtime: container-rootless # optional; host|container-rootless|container-rootful
-    permissions: acceptEdits  # optional; default|acceptEdits|plan|bypass
-    escalation: []            # optional; ordered approval-request ladder, overrides the permissions-derived default
+    permissions: acceptEdits  # optional; see the Agents concept page for the postures
 
 # Profiles are files, one per profile, under .ctxloom/profiles/<name>.yaml.
 # config.yaml has no profiles: key.

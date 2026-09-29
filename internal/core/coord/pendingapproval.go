@@ -7,13 +7,10 @@ import (
 
 // PendingApproval is the shape the terminal UI's approvals pane reads.
 //
-// NOTHING PRODUCES ONE. The orchestrator-routed escalation ladder that used
-// to park approvals for a human decision is gone: ctxloom no longer brokers a
-// second approval UI, because a human can attach to the agent's own tmux
-// window and answer the ENGINE'S NATIVE prompt. The type survives only so
-// internal/adapters/cli/tui and internal/adapters/termui keep compiling until they are deleted
-// (that deletion is gated on `ctxloom attach` being proven in use); it goes
-// with them. internal/adapters/cli/run_terminal_ui.go no longer wires the pane, so
+// NOTHING PRODUCES ONE yet. A delegated child is headless: nobody answers
+// its engine's prompts, so the engine denies what the child's posture leaves
+// open and the runner reports that turn BLOCKED. No approval route reaches a
+// human, so internal/adapters/cli/run_terminal_ui.go wires no pane and
 // tui.Sources.PendingApprovals is nil — its documented "pane disabled" state.
 type PendingApproval struct {
 	MessageID string

@@ -23,7 +23,7 @@ type LLMConfig struct {
 	// runtime label resolution.
 	Role string `mapstructure:"role" yaml:"role,omitempty"`
 	// Permissions is this backend's launch-time permission posture
-	// (default|acceptEdits|plan|bypass). Empty defers to the resolver's built-in
+	// (engine.PermissionModeNames). Empty defers to the resolver's built-in
 	// default (claude-code → bypass, others → default). An agent binding and the
 	// `run --permissions` flag override it.
 	Permissions string         `mapstructure:"permissions" yaml:"permissions,omitempty"`

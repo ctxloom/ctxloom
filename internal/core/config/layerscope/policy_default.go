@@ -14,7 +14,6 @@ func DefaultPolicy() Policy {
 		{Path: "agents.*.profiles", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		{Path: "agents.*.llm", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		{Path: "agents.*.driving", Scope: ScopeShared, Note: "which context this project's roles compose"},
-		{Path: "agents.*.escalation", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		// DIVERGES from the design doc's literal table (which lists this as
 		// ScopeMachine): reclassified to Shared. Reasoning, in full, belongs
 		// in the human-facing report for this change (it is a deliberate,

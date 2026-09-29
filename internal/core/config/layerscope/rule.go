@@ -107,7 +107,7 @@ type Violation struct {
 //
 // Flatten treats a slice/array value as a single leaf (it only recurses into
 // map[string]any), which is exactly the granularity Rule.Path addresses: a
-// whole list (agents.*.escalation, isolation_engines, ...) is one value at one
+// whole list (agents.*.profiles, isolation_engines, ...) is one value at one
 // path, never inspected element-by-element.
 func (p Policy) Check(l Layer, values map[string]any) []Violation {
 	if len(values) == 0 {

@@ -206,7 +206,6 @@ in slice 9.
 | `turnFrame` | `RunnerRequest.Turn` → one engine turn, answered with `TurnResult{native_key, answer}` at its boundary |
 | `adapt` | native event stream → plane-1 `AgentEvent`s; at a one-shot boundary it parks (no terminal); otherwise → `RunCompleted` → `RunExited` |
 | `frameCoordinatorMessage` | `PeerMessage` → engine turn text |
-| `resolveApproval` | see [approvals.md](approvals.md) |
 | `usageFromMeta` / `usdToMicros` / `nonNegU64` | `TurnMeta` → `Usage`, with round-half-even micro-USD and NaN/Inf/negative guards |
 
 `EngineHost.runTurn` drives `Instance.Drivers()[0].Turn(ctx, ex, engine.Turn{Prompt, Resume}, out)`

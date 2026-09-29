@@ -103,9 +103,8 @@ func aliasProbeFixture() Fixture {
 	f.LM.Configs["fast"] = LLMConfig{Type: "claude-code", Body: map[string]any{"model": "m"}}
 	f.Editor = EditorConfig{Command: "vi", Args: []string{"-p"}}
 	f.Agents["worker"] = agents.Agent{
-		LLM:        "fast",
-		Profiles:   []string{"p"},
-		Escalation: []agents.EscalationRung{{Kinds: []string{"TOOL_USE"}, Action: "auto_accept"}},
+		LLM:      "fast",
+		Profiles: []string{"p"},
 	}
 	f.AppPaths = []string{"/tmp/app"}
 	f.Warnings = []Warning{{Kind: WarnKindUnknownKey, Text: "w"}}

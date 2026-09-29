@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
@@ -117,38 +118,48 @@ func TestDeliver_KeepsTheModeAnApproachWrote(t *testing.T) {
 	}
 }
 
-// inPlaceWriter is a context approach that opens the file at path for writing
-// IN PLACE through the overlay it is handed and writes to it — the write the
-// overlay refuses. It embeds the mock's approach for everything else.
+// inPlaceWriter is a context approach that changes the file at path IN PLACE
+// through the overlay it is handed — the change the overlay refuses. It
+// embeds the mock's approach for everything else.
 type inPlaceWriter struct {
 	engine.ContextApproach
-	path string
-	open func(fs afero.Fs, path string) (afero.File, error)
+	path   string
+	change func(fs afero.Fs, path string) error
 }
 
 func (a inPlaceWriter) DeliverContext(_ present.Start, _ present.RootKind, _ engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
-	f, err := a.open(fs, a.path)
-	if err != nil {
-		return present.Delivered{}, err
-	}
-	defer func() { _ = f.Close() }()
-	_, err = f.Write([]byte("written in place\n"))
-	return present.Delivered{}, err
+	return present.Delivered{}, a.change(fs, a.path)
 }
 
-// TestDeliver_RefusesAnInPlaceWriteToAnExistingFile: an approach that opens a
-// file already standing under the target for writing — appending, writing
-// over it, or truncating it through Create — is refused with
-// ErrInPlaceWrite, and the file keeps its bytes and its mode. Allowed, afero
-// would copy it up into the layer with no mode, and the landing would chmod
-// the real file to 0.
-func TestDeliver_RefusesAnInPlaceWriteToAnExistingFile(t *testing.T) {
-	opens := map[string]func(afero.Fs, string) (afero.File, error){
-		"append": func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0) },
-		"write":  func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_WRONLY, 0) },
-		"create": iox.Create,
+// writeOpened opens path through open and writes to it.
+func writeOpened(open func(afero.Fs, string) (afero.File, error)) func(afero.Fs, string) error {
+	return func(fs afero.Fs, p string) error {
+		f, err := open(fs, p)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		_, err = f.Write([]byte("written in place\n"))
+		return err
 	}
-	for name, open := range opens {
+}
+
+// TestDeliver_RefusesAnInPlaceWriteToAnExistingFile: an approach that changes
+// a file already standing under the target in place — appending, writing
+// over it, truncating it through Create, or setting its times or owner — is
+// refused with ErrInPlaceWrite, and the file keeps its bytes and its mode.
+// Allowed, afero would copy it up into the layer with no mode, and the
+// landing would chmod the real file to 0.
+func TestDeliver_RefusesAnInPlaceWriteToAnExistingFile(t *testing.T) {
+	stamp := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
+	changes := map[string]func(afero.Fs, string) error{
+		"append":  writeOpened(func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0) }),
+		"write":   writeOpened(func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_WRONLY, 0) }),
+		"create":  writeOpened(iox.Create),
+		"chtimes": func(fs afero.Fs, p string) error { return fs.Chtimes(p, stamp, stamp) },
+		"chown":   func(fs afero.Fs, p string) error { return fs.Chown(p, os.Getuid(), os.Getgid()) },
+	}
+	for name, change := range changes {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewOsFs()
 			project := t.TempDir()
@@ -158,7 +169,7 @@ func TestDeliver_RefusesAnInPlaceWriteToAnExistingFile(t *testing.T) {
 			require.NoError(t, err)
 
 			root := mock.New().Root()
-			root.Context = inPlaceWriter{ContextApproach: root.Context, path: existing, open: open}
+			root.Context = inPlaceWriter{ContextApproach: root.Context, path: existing, change: change}
 			pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
 			items := pkg.EngineItems(root.Name)
 			pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootProjectRoot}}

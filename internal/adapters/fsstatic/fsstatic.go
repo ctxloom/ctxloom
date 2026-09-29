@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/spf13/afero"
 
@@ -31,10 +32,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-// ErrInPlaceWrite refuses an approach that opens a file already standing on
-// the target for writing in place. The supported write is a temp file
-// renamed into place (iox.WriteFileAtomicFs and the helpers built on it).
-var ErrInPlaceWrite = errors.New("an approach may not open an existing file for writing in place; write it to a temp file and rename it into place (iox.WriteFileAtomicFs)")
+// ErrInPlaceWrite refuses an approach that changes a file already standing on
+// the target in place: opening it for writing, or setting its times or owner.
+// The supported write is a temp file renamed into place
+// (iox.WriteFileAtomicFs and the helpers built on it).
+var ErrInPlaceWrite = errors.New("an approach may not change an existing file in place; write it to a temp file and rename it into place (iox.WriteFileAtomicFs)")
 
 // Static is the writer over one filesystem.
 type Static struct{ fs afero.Fs }
@@ -226,11 +228,12 @@ func deliverAs[A any](a present.Approach, deliver func(A) (present.Delivered, er
 
 // overlay is what an approach delivers through: afero's CopyOnWriteFs over
 // the target with the write layer on top, REFUSING to open a file that
-// stands on the target for writing.
+// stands on the target for writing, or to set its times or owner.
 //
-// That refusal is the whole reason this type exists. afero serves such an
-// open by copying the file up through the layer's Create, which carries no
-// mode, so landFile would chmod the real file to 0. No approach writes in
+// That refusal is the whole reason this type exists. afero serves each of
+// those by copying the file up through the layer's Create, which carries no
+// mode, so landFile would chmod the real file to 0. Chmod is left alone: it
+// copies up too, but then sets the mode itself. No approach writes in
 // place — each writes a temp file and renames it — so the capability is
 // removed rather than repaired.
 type overlay struct {
@@ -248,7 +251,7 @@ const writeFlags = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREATE | os.O_TR
 
 func (o *overlay) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
 	if flag&writeFlags != 0 {
-		if err := o.refuseInPlace(name); err != nil {
+		if err := o.refuseInPlace("open for writing", name); err != nil {
 			return nil, err
 		}
 	}
@@ -258,19 +261,33 @@ func (o *overlay) OpenFile(name string, flag int, perm os.FileMode) (afero.File,
 // Create is overridden because afero's Create calls its OWN OpenFile, which
 // would bypass the refusal.
 func (o *overlay) Create(name string) (afero.File, error) {
-	if err := o.refuseInPlace(name); err != nil {
+	if err := o.refuseInPlace("create", name); err != nil {
 		return nil, err
 	}
 	return iox.Create(o.CopyOnWriteFs, name)
 }
 
+func (o *overlay) Chtimes(name string, atime, mtime time.Time) error {
+	if err := o.refuseInPlace("chtimes", name); err != nil {
+		return err
+	}
+	return o.CopyOnWriteFs.Chtimes(name, atime, mtime)
+}
+
+func (o *overlay) Chown(name string, uid, gid int) error {
+	if err := o.refuseInPlace("chown", name); err != nil {
+		return err
+	}
+	return o.CopyOnWriteFs.Chown(name, uid, gid)
+}
+
 // refuseInPlace refuses name when the base holds it; a name the base does
 // not hold is a new file.
-func (o *overlay) refuseInPlace(name string) error {
+func (o *overlay) refuseInPlace(op, name string) error {
 	if _, err := o.base.Stat(name); err != nil {
 		return nil
 	}
-	return &os.PathError{Op: "open for writing", Path: name, Err: ErrInPlaceWrite}
+	return &os.PathError{Op: op, Path: name, Err: ErrInPlaceWrite}
 }
 
 // writeLayer is the overlay's write layer, noting every name the overlay

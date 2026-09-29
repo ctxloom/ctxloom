@@ -79,9 +79,12 @@ func TestCredentials_ContainerBindsAFileNamedTwiceOnce(t *testing.T) {
 }
 
 // A var naming no file a container can bind — missing, a directory, or a
-// relative path — refuses the run, typed, with a remedy naming the var.
+// relative path — refuses the run, typed, with a remedy naming the var. The
+// relative one EXISTS from the cwd, so it is refused for being relative.
 func TestCredentials_ContainerRefusesACredentialFileItCannotBind(t *testing.T) {
 	home := fakeHostHome(t, "")
+	cloudFileFixture(t, home, "adc.json")
+	t.Chdir(home)
 	for name, p := range map[string]string{
 		"missing":   filepath.Join(home, "absent.json"),
 		"directory": home,

@@ -44,30 +44,35 @@ ctxloom command edit my-bundle#commands/review
 
 ## Engine Authentication
 
-Every claude that ctxloom launches, on the host or in a container, top-level or delegated, authenticates in the mode its agent declares (`auth:` — `login`, `token`, `api-key` or `cloud`; undeclared is `token`). Only that mode's credential reaches claude: a value you export for the declared mode wins over the stored one, and the other credential variables below are removed from the run's environment, along with any cloud-provider switch (`CLAUDE_CODE_USE_BEDROCK` and its siblings) for every mode but `cloud`. Nothing is copied into a session home or mounted into a container.
+Every claude that ctxloom launches, on the host or in a container, top-level or delegated, authenticates in the mode its agent declares (`auth:` — `login`, `token`, `api-key` or `cloud`; undeclared is `token`). Only that mode's credential reaches claude: a value you export for the declared mode wins over the stored one, and the other credential variables below are removed from the run's environment, along with any cloud-provider switch (`CLAUDE_CODE_USE_BEDROCK` and its siblings) for every mode but `cloud`. Nothing is copied into a session home. What a container run additionally mounts and rewrites is under [Containerized Agents](#containerized-agents).
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Set for an `auth: login` agent on the host, to exactly where your own claude keeps its credential, so the run shares your login and its refresh. Refused for a container agent |
+| `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Set for an `auth: login` agent, so the run shares your login and its refresh: on the host, to exactly where your own claude keeps its credential; in a container, to empty, pointing claude at the store mounted under its `$HOME` (see [Containerized Agents](#containerized-agents)). Removed for every other mode |
 | `CLAUDE_CODE_OAUTH_TOKEN` | An `auth: token` agent's credential: the long-lived token `claude setup-token` prints. ctxloom mints it at your terminal the first time a run needs it (or with `ctxloom auth mint --mode token`) and keeps it owner-only at `~/.ctxloom/auth/claude-code.token`. A run with no terminal and nothing stored is refused, naming that command |
 | `ANTHROPIC_API_KEY` | An `auth: api-key` agent's credential. Store it with `ctxloom auth set --mode api-key` (read from stdin, never argv); it lives at `~/.ctxloom/auth/claude-code.api-key` |
 | `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | A gateway's bearer and endpoint. Passed through for an `auth: cloud` agent; the bearer is removed for every other mode |
-| `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY` and the provider's own variables | An `auth: cloud` agent's configuration, passed through from your shell as claude's provider pages document them. In a container, `~/.aws` and `~/.config/gcloud` are mounted read-only at the same place under `$HOME` (`~/.aws/sso/cache` read-write, so an SSO login can refresh); a file named by `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` or `GOOGLE_APPLICATION_CREDENTIALS` is mounted read-only on its own and the variable is pointed at it there, and the run is refused when the variable does not name an existing file by its absolute path |
+| `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY` and the provider's own variables | An `auth: cloud` agent's configuration, passed through from your shell as claude's provider pages document them. For a container run, see [Containerized Agents](#containerized-agents) |
 
-`ctxloom auth status` lists what is stored and who can read it (the file mode on unix, the ACL verdict on Windows), never the value. A binding selecting `engine_home: host` runs claude against your real `~/.claude` in place, still in the mode it declares.
+`ctxloom auth status` lists what is stored and who can read it (the file mode on unix, the ACL verdict on Windows), never the value. A binding selecting `engine_home: host` runs a host claude against your real `~/.claude` in place, still in the mode it declares; in a container it gets the container's own `$HOME`.
 
 ## Containerized Agents
 
-Agents with `runtime: container-rootless` or `runtime: container-rootful` pass a scoped set of host variables through to the engine inside the image:
+Agents with `runtime: container-rootless` or `runtime: container-rootful` start the engine with a fresh `$HOME` and a scoped environment; your shell's environment does not cross wholesale.
+
+The credential is whatever the agent's `auth:` mode resolves to on the host, exactly as under [Engine Authentication](#engine-authentication), and rides the engine's environment into the container, never the command line. The variables that section removes are absent. On top of that, each mode adds, for claude:
+
+| `auth:` | In the container |
+|---------|------------------|
+| `login` | The directory your claude keeps its credential in (the `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CLAUDE_CONFIG_DIR` your shell sets, else `~/.claude`) is mounted **read-write** at the container's `$HOME/.claude`, and `CLAUDE_SECURESTORAGE_CONFIG_DIR` is set empty so claude reads it there. The whole directory crosses: the agent can use and refresh your login, and a `/logout` inside it signs you out. Refused when that directory does not exist, and refused on macOS, where the login lives in the Keychain and no container can reach it; the error suggests `auth: token` or `runtime: host` |
+| `token` | `CLAUDE_CODE_OAUTH_TOKEN` only. Nothing is mounted |
+| `api-key` | `ANTHROPIC_API_KEY` only. Nothing is mounted |
+| `cloud` | The provider or gateway variables your shell exports. Each of `~/.aws` and `~/.config/gcloud` that exists is mounted **read-only** at the same place under `$HOME`, with `~/.aws/sso/cache` mounted read-write inside it so an SSO login can refresh. A file named by `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` or `GOOGLE_APPLICATION_CREDENTIALS` is mounted read-only on its own and the variable is rewritten to its path inside the container; the run is refused when the variable does not name an existing regular file by its absolute path (a host run does not check) |
+
+`ANTHROPIC_MODEL` and `ANTHROPIC_SMALL_FAST_MODEL` are not forwarded from your shell, and `ANTHROPIC_BASE_URL` only as part of `auth: cloud`.
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Selects setup-token auth and is passed through by name; the stored token counts (see Engine Authentication). When none of this, `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set, the container run is refused |
-| `ANTHROPIC_API_KEY` | Selects API-key auth and is passed through |
-| `ANTHROPIC_AUTH_TOKEN` | Also selects token-based auth on its own, for a gateway that authenticates with `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` and no API key. Passed through |
-| `ANTHROPIC_BASE_URL` | Forwarded when present, if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set |
-| `ANTHROPIC_MODEL` | Forwarded when present, if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set. Selects the model for a containerized claude run |
-| `ANTHROPIC_SMALL_FAST_MODEL` | Forwarded when present, if `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set |
 | `TERM`, `COLORTERM` | Forwarded so the engine renders with the host terminal's actual capabilities instead of the image default (or `dumb`, which drops color and cursor control) |
 | `PUID`, `PGID` | *Not* read from your environment. The isolation runtime sets them and passes them into the container: your own uid/gid on Linux and macOS, and on Windows (which has no POSIX uid) the image's own `ctxloom` user. The image's entrypoint remaps its baked-in `ctxloom` user to them and drops privileges before the engine starts, so files the engine writes into the bind-mounted project are owned by you, not by root. If the remap can't be performed (no usable `gosu`/`setpriv` in the image) the entrypoint refuses to run the engine as root and the launch fails; `--degraded` does not change that. Rootless Docker never sets these, because container-root there already is the launching user |
 

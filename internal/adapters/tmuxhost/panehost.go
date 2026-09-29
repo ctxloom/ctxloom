@@ -324,7 +324,7 @@ func (p *pane) tail(ctx context.Context) {
 
 // paneExitCode folds a finished pane's ExitStatus into the single code a
 // viewer is told, mapping a signal death to 128+signum the way a shell does
-// and ptyrunner.ExitStatusFor already does for the pty path. Both launch
+// and exitstatus.Of already does for the pty path. Both launch
 // modes must classify a killed engine identically or the exit code a caller
 // sees depends on which one happened to run it.
 //

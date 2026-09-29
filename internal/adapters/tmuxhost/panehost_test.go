@@ -338,7 +338,7 @@ func TestPaneExitCode_SignalDeathIsNeverSuccess(t *testing.T) {
 
 // TestPaneExitCode_KnownSignalsUseShellNumbering pins the actual mapping, not
 // merely that it is non-zero — 128+signum is the convention
-// ptyrunner.ExitStatusFor already uses, and the two launch paths must agree.
+// exitstatus.Of already uses, and the two launch paths must agree.
 func TestPaneExitCode_KnownSignalsUseShellNumbering(t *testing.T) {
 	for sig, want := range map[string]int32{"SIGHUP": 129, "SIGINT": 130, "SIGKILL": 137, "SIGTERM": 143} {
 		s := sig

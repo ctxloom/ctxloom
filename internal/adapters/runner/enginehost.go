@@ -529,7 +529,7 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 		code, err := term.Run(ctx, t)
 		result := &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED}
 		if err == nil && ctx.Err() == nil {
-			// The engine ran and exited: its status (ptyrunner.ExitStatusFor)
+			// The engine ran and exited: its status (exitstatus.Of)
 			// is what `ctxloom run` exits with. A terminal error means the
 			// engine never ran, and its code is ctxloom's, not the engine's.
 			exit := int32(code)

@@ -301,7 +301,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 
 // failedRunExitCode is the exit status of a run that did not succeed: the
 // engine's own status when the engine ran and exited non-zero (its code, or
-// 128+signum for a signal — ptyrunner.ExitStatusFor), so `ctxloom run` is a
+// 128+signum for a signal — exitstatus.Of), so `ctxloom run` is a
 // transparent wrapper around it. Otherwise 1: the run failed without an engine
 // status to report (cancelled, never launched, synthesized), and a zero one
 // cannot stand for a failure. ctxloom's own refusals exit before the engine

@@ -96,7 +96,7 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 // mounts (transcript survival).
 func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
-	cenv, err := preparedContainer(ctx, "docker", coord.ContainerAuthBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
+	cenv, err := preparedContainer(ctx, "docker", coord.ContainerStoryBackend(plan), s.image, s.projectDir, isolation.SessionStateFromEnv(env))
 	if err != nil {
 		return coord.Resolved{}, err
 	}

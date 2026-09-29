@@ -392,7 +392,7 @@ temp dir for a sentinel.
 A container adds no auth question of its own: `engine.ContainerSpec` says how
 the image is built, and its run authenticates exactly as a host run does.
 Whether an engine may run in a container at all is whether it declares a
-container story (`isolation.HasContainerAuth` / `ContainerAuthEngines`); an
+container story (`isolation.HasContainerStory` / `ContainerStoryEngines`); an
 unmapped or empty backend reaches the default spec, which **fails closed** at
 the container gate (`noContainerHint`).
 
@@ -596,9 +596,9 @@ pushed into `internal/adapters/isolation` at registration; isolation keeps no ta
 
 The default arm is undeclared: an engine with no container declaration has
 its containerized run refused at the container gate
-(`prepareContainerScratch`). `isolation.HasContainerAuth(backend)` /
-`ContainerAuthEngines()` read the same declarations so the refusal can happen
-*earlier*, at configuration time: `operations.validateContainerAuth` (run from
+(`prepareContainerScratch`). `isolation.HasContainerStory(backend)` /
+`ContainerStoryEngines()` read the same declarations so the refusal can happen
+*earlier*, at configuration time: `operations.validateContainerStory` (run from
 `validateAgentAxes`, i.e. `agent create`/`agent edit`/`SetAgent`) rejects a
 binding whose resulting `{engine, runtime: container-*}` pair names an engine
 with no mapping, naming the supported set in the error.
@@ -695,7 +695,7 @@ image another is between building and running.
 
 **Credential and coverage gaps**
 
-- ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerAuth`) and the launch aborts; `operations.validateContainerAuth` refuses such a binding at write time so the abort is not the first the user hears of it.
+- ~~**The default (unprofiled) container profile authenticates with claude credentials**~~ — **RESOLVED.** The default arm used to return `resolveClaudeContainerAuth`, passing `ANTHROPIC_*` and copy-mounting `~/.claude` into *any* unrecognized engine's container (reachable at the time: a generic `acp` backend was registered, and the ACP container transport passed an unrecognized or empty engine name through unchanged). It now fails **closed** (`noContainerHint`) and the launch aborts; `operations.validateContainerStory` refuses such a binding at write time so the abort is not the first the user hears of it.
 - ~~**A backend in neither `credentialSeedSpecs` nor a curated-home registry gets a worktree with zero engine-global isolation and no finding at all**~~ — **PARTIALLY RESOLVED.** `Worktree.PrepareWorkspace` now records a `strictness.Fail(KindIsolation)` for any backend that is neither in `credentialSeedSpecs` nor named in `backendsWithNoGlobalState` — closing the gap for every unmapped engine. `backendsWithNoGlobalState` carries exactly one, independently-verified exemption (`mock`, which provably touches no engine-global state), not a silent carve-out; an empty backend (no agent context at all) stays silent by design.
 - **The curated-HOME allowlist** that used to symlink `~/.gitconfig`/`~/.ssh` into a worktree's per-agent home **has been removed along with the whole curated-home mechanism** — `Worktree` now relies solely on `credentialSeedSpecs`' scoped env vars (`Worktree.prepareHomeVarDirs`), which is why `.gitconfig`/`.ssh` identity is left on the *shared* worktree checkout instead of being copied or symlinked per agent. Whether that removal fully retired the class of bug the old allowlist was tracking (over-broad `.ssh` exposure) was not re-verified here.
 - **The worktree reaper's scope is `~/.ctxloom/sessions/*/ephemeral/` only** (`ReapOrphanedWorktrees`); worktrees on the `os.TempDir()` fallback are permanently unreapable, and nothing sweeps the sibling `ctxloom-tmp-*` dirs.

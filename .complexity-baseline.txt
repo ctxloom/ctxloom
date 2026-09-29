@@ -203,7 +203,7 @@
 ./internal/opencode/settings.go|applyManaged cfg map [ string ] json . RawMessage , m managedConfig|1|30|applyManaged|121-240
 ./internal/opencode/settings.go|stripManagedSkillPath cfg map [ string ] json . RawMessage , path string|1|12|stripManagedSkillPath|416-453
 ./internal/adapters/operations/agents.go|validateAgentAxes cfg * config . Config , name string , req SetAgentRequest|1|17|validateAgentAxes|205-261
-./internal/adapters/operations/agents.go|validateContainerAuth cfg * config . Config , name string , req SetAgentRequest|1|11|validateContainerAuth|282-330
+./internal/adapters/operations/agents.go|validateContainerStory cfg * config . Config , name string , req SetAgentRequest|1|11|validateContainerStory|282-330
 ./internal/adapters/operations/bundle_distill.go|DistillBundleFile ctx context . Context , req DistillBundleFileRequest|1|14|DistillBundleFile|74-138
 ./internal/adapters/operations/bundle_transfer.go|ExportBundle _ context . Context , cfg * config . Config , req ExportBundleRequest|1|14|ExportBundle|52-115
 ./internal/adapters/operations/bundle_transfer.go|ImportBundle _ context . Context , cfg * config . Config , req ImportBundleRequest|1|14|ImportBundle|254-324

@@ -113,7 +113,7 @@ func ComposableEngines() []string {
 // story, gets the default spec, which fails the container gate CLOSED
 // (declared false): its containerized run aborts rather than run an engine
 // nobody vetted for a container. Config validation
-// (operations.validateAgentAxes, via HasContainerAuth) refuses `runtime:
+// (operations.validateAgentAxes, via HasContainerStory) refuses `runtime:
 // container` for such a backend at WRITE time; this arm is the last line for
 // the paths that never went through a binding.
 func engineContainerSpecFor(backend string) engineContainerSpec {
@@ -150,16 +150,15 @@ const (
 	noContainerRemedy = "declare Container in the engine's descriptor rather than inherit the default, or run this engine with `runtime: host`"
 )
 
-// HasContainerAuth reports whether a `runtime: container` run of backend (a
-// REGISTERED backend name) can run and authenticate at all: whether the
-// engine declares a container story. Its credentials are the run's own
-// (engine.Auth.Credentials), which every environment satisfies, so the
-// container adds no auth question of its own. False means the engine
+// HasContainerStory reports whether a `runtime: container` run of backend (a
+// REGISTERED backend name) can run at all: whether the engine declares a
+// container story. Credentials are not part of the question: they are the
+// run's own (engine.Auth.Credentials), which every environment satisfies. False means the engine
 // reaches engineContainerSpecFor's fail-closed default. A CAPABILITY question, answered whatever the
 // engine's shipping policy. Exported for config validation
 // (operations.validateAgentAxes), which refuses the binding at write time
 // rather than letting the launch discover it.
-func HasContainerAuth(backend string) bool {
+func HasContainerStory(backend string) bool {
 	r, ok := engineContainerDeclared(backend)
 	if !ok {
 		return false
@@ -168,16 +167,16 @@ func HasContainerAuth(backend string) bool {
 	return ok
 }
 
-// ContainerAuthEngines lists the backend names a user may bind `runtime:
+// ContainerStoryEngines lists the backend names a user may bind `runtime:
 // container` to — every engine that declares a container story and is
 // OFFERED (DistributionDefault or DistributionOptIn), sorted. It is the
 // supported set a rejection message names, so a test double is excluded
-// even though HasContainerAuth reports its capability: an opt-in engine is
+// even though HasContainerStory reports its capability: an opt-in engine is
 // a legitimate thing to ask for by name, a double is not. (This is the one
 // place the offered set differs from the default image set — the composable
 // roster is stricter, DistributionDefault only, because composing is
 // unasked-for and offering is not.)
-func ContainerAuthEngines() []string {
+func ContainerStoryEngines() []string {
 	var names []string
 	for name, r := range registeredEngineContainers() {
 		if r.distribution == engine.DistributionTestOnly {

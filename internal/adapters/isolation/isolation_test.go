@@ -609,7 +609,7 @@ func TestParseWorkspaceAxis(t *testing.T) {
 func TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe(t *testing.T) {
 	const engine = "vendorless-chain"
 	registerVendorlessFixture(t, engine, coreengine.DistributionTestOnly)
-	require.NotContains(t, ContainerAuthEngines(), engine, "precondition: the double is not on the offered roster")
+	require.NotContains(t, ContainerStoryEngines(), engine, "precondition: the double is not on the offered roster")
 	require.NotContains(t, composableEngines(), engine, "precondition: nor on the composed one")
 
 	for _, axis := range []RuntimeAxis{RuntimeContainerRootless, RuntimeContainerRootful} {

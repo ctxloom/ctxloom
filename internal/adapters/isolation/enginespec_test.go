@@ -90,10 +90,10 @@ func TestEngineContainerSpecFor_DeclaredAbsentFailsClosed(t *testing.T) {
 		f.Distribution = engine.DistributionDefault
 	})
 
-	assert.False(t, HasContainerAuth(name))
+	assert.False(t, HasContainerStory(name))
 	assert.False(t, engineContainerSpecFor(name).declared)
 	assert.NotContains(t, composableEngines(), name)
-	assert.NotContains(t, ContainerAuthEngines(), name)
+	assert.NotContains(t, ContainerStoryEngines(), name)
 	r, ok := engineContainerDeclared(name)
 	require.True(t, ok, "a declared absence is still a registration")
 	assert.NotEmpty(t, r.container.AbsentReason())
@@ -112,11 +112,11 @@ func TestRosters_ReadCapabilityAndPolicy(t *testing.T) {
 	assert.NotContains(t, composableEngines(), "roster-optin", "opt-in composes only when asked for")
 	assert.NotContains(t, composableEngines(), "roster-testonly", "a double is never composed")
 
-	assert.Contains(t, ContainerAuthEngines(), "roster-default")
-	assert.Contains(t, ContainerAuthEngines(), "roster-optin", "an opt-in engine is a legitimate thing to bind to by name")
-	assert.NotContains(t, ContainerAuthEngines(), "roster-testonly", "a double is never offered")
+	assert.Contains(t, ContainerStoryEngines(), "roster-default")
+	assert.Contains(t, ContainerStoryEngines(), "roster-optin", "an opt-in engine is a legitimate thing to bind to by name")
+	assert.NotContains(t, ContainerStoryEngines(), "roster-testonly", "a double is never offered")
 	for _, name := range []string{"roster-default", "roster-optin", "roster-testonly"} {
-		assert.True(t, HasContainerAuth(name), "%s: capability is reported whatever the policy", name)
+		assert.True(t, HasContainerStory(name), "%s: capability is reported whatever the policy", name)
 	}
 	assert.Equal(t, composableEngines(), ComposableEngines())
 }
@@ -160,29 +160,29 @@ func TestEngineContainerSpecFor_EverySpecMapsATranscriptStore(t *testing.T) {
 	}
 }
 
-// TestContainerAuthEngines_MatchesTheTable pins the two halves of the exported
+// TestContainerStoryEngines_MatchesTheTable pins the two halves of the exported
 // auth surface config validation refuses bindings with:
 //
-//  1. every engine ContainerAuthEngines() advertises really does declare a
-//     container story (HasContainerAuth true), so a rejection message
+//  1. every engine ContainerStoryEngines() advertises really does declare a
+//     container story (HasContainerStory true), so a rejection message
 //     can never name an engine the launch would then refuse; and
 //  2. the engines with NO mapping — the generic "acp" backend, the empty
 //     string the deleted image-only constructors used to pass, and any typo —
 //     report false, which is what makes the refusal fire at all.
 //
-// HasContainerAuth and ContainerAuthEngines read the same declarations, so
+// HasContainerStory and ContainerStoryEngines read the same declarations, so
 // (1) is a real check of the registrations and not of a copy of them.
-func TestContainerAuthEngines_MatchesTheTable(t *testing.T) {
-	require.NotEmpty(t, ContainerAuthEngines(), "the supported set a refusal names must not be empty")
-	for _, name := range ContainerAuthEngines() {
-		assert.True(t, HasContainerAuth(name),
-			"ContainerAuthEngines() advertises %q, so it must declare a container story", name)
+func TestContainerStoryEngines_MatchesTheTable(t *testing.T) {
+	require.NotEmpty(t, ContainerStoryEngines(), "the supported set a refusal names must not be empty")
+	for _, name := range ContainerStoryEngines() {
+		assert.True(t, HasContainerStory(name),
+			"ContainerStoryEngines() advertises %q, so it must declare a container story", name)
 		assert.True(t, engineContainerSpecFor(name).declared,
 			"backend %q must reach its OWN declaration, not the fail-closed default", name)
 	}
 	for _, name := range []string{"acp", "", "no-such-engine"} {
-		assert.False(t, HasContainerAuth(name),
-			"backend %q has no container-auth mapping, so a `runtime: container` binding for it must be refusable", name)
+		assert.False(t, HasContainerStory(name),
+			"backend %q declares no container story, so a `runtime: container` binding for it must be refusable", name)
 	}
 	assert.False(t, engineContainerSpecFor("acp").declared,
 		"the generic acp backend reaches the fail-closed default arm — the case config validation exists to catch before launch")

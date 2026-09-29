@@ -183,36 +183,3 @@ type SurfaceInputs struct {
 	// settings surface — see its doc for the deny-tools semantics.
 	DenyTools []string
 }
-
-// CellKind is the resolved isolation cell a run executes in, decided from
-// the launch's cell (cli.cellKindOf) and carried on ExecuteRequest so an
-// engine's env knows which cell it runs in. The zero value is CellKindShared.
-type CellKind int
-
-const (
-	// CellKindShared is the user's live cwd — a shared directory (isolation None).
-	CellKindShared CellKind = iota
-	// CellKindDirectoryIsolated is a per-agent git worktree (isolation Worktree).
-	CellKindDirectoryIsolated
-	// CellKindProcessIsolated is a container (isolation Container, both tiers).
-	CellKindProcessIsolated
-)
-
-// String renders the CellKind for diagnostics. An UNDECLARED value renders as
-// "unknown(<n>)", never as the zero value: "shared" asserts a run has NO
-// isolation, which is the wrong thing to report for a cell this build does not
-// recognise. (The wire decode clamps unknown enum values to Shared deliberately
-// — that is a decoding policy with its own doc; this is the rendering of a value
-// that never went through it.)
-func (k CellKind) String() string {
-	switch k {
-	case CellKindShared:
-		return "shared"
-	case CellKindDirectoryIsolated:
-		return "directory-isolated"
-	case CellKindProcessIsolated:
-		return "process-isolated"
-	default:
-		return fmt.Sprintf("unknown(%d)", int(k))
-	}
-}

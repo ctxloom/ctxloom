@@ -61,7 +61,6 @@ classDiagram
     class Delivery { <<interface>> Deliver(start) Delivered }
     class Delivered { <<interface>> Cleanup() error }
     class IsolatedCell { Deliver(Delivery) }
-    class CellKind { <<enum>> shared, dirIsolated, procIsolated }
 
     Declaration *-- Presentations
     Presentations --> Construct : name keyed
@@ -177,11 +176,6 @@ Every path a `present.Start` enters a `Delivery` through checks `rooted` first:
 an unresolved project root is refused once with `ErrUnrootedDelivery`, because
 a `""` root joined into a well-known path yields a bare relative path that
 looks well-formed and lands wherever the process happens to be.
-
-`CellKind` is the plugin-side mirror of the wire cell enum; its values are
-decoded from the wire, and a test pins them to the proto's. The directory- and
-process-isolated kinds deliver identically — the distinction is the launcher's,
-not the seam's.
 
 ## The write seam
 

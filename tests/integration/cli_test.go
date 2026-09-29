@@ -208,8 +208,17 @@ variables:
 	assert.Contains(t, recorded, "The version is 1.21")
 }
 
+// storeClaudeToken stores the token the default claude-code agent
+// authenticates with. A dry run resolves credentials read-only and refuses
+// where the run would, and an unattended run with nothing stored refuses.
+func storeClaudeToken(t *testing.T, env *testenv.TestEnvironment) {
+	t.Helper()
+	require.NoError(t, env.RunWithStdin("sk-ant-oat01-fixture\n", "auth", "set", "--engine", "claude-code", "--mode", "token"))
+}
+
 func TestRun_DryRun(t *testing.T) {
 	env := setupTestEnv(t)
+	storeClaudeToken(t, env)
 
 	writeFragment(t, env, "dry-frag", []string{"dry"}, "Dry run content.")
 
@@ -242,6 +251,7 @@ func TestRun_DryRun(t *testing.T) {
 // test exercises the dry-run preview with one of the three legal values.
 func TestRun_Agent_DryRun(t *testing.T) {
 	env := setupTestEnv(t)
+	storeClaudeToken(t, env)
 
 	writeFragment(t, env, "agent-frag", []string{"agent"}, "Agent-composed content.")
 	writeProfile(t, env, "agent-profile", `name: agent-profile

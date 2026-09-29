@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -564,9 +565,31 @@ func worktreeScratchPath(base, prefix, agentID string) string {
 func (w Worktree) checkoutPath(agentID string) string {
 	base := w.scratchBase()
 	if safePathSegment(w.state.Harp) {
-		return filepath.Join(base, fmt.Sprintf("%s-%s", worktreeScratchPrefix, sanitizeAgentID(agentID)))
+		return stableCheckout(base, agentID)
 	}
 	return worktreeScratchPath(base, worktreeScratchPrefix, agentID)
+}
+
+// stableCheckout is the deterministic checkout path under base for agentID.
+func stableCheckout(base, agentID string) string {
+	return filepath.Join(base, fmt.Sprintf("%s-%s", worktreeScratchPrefix, sanitizeAgentID(agentID)))
+}
+
+// previewCwd is the cwd a run of this worktree gets, computed with no
+// effects (nothing created, not even the session's ephemeral dir): the
+// checkout checkoutPath names, or projectDir where the run falls back to
+// the shared tree (no git repository). Without a safe session harp the run's
+// checkout path carries a random suffix nothing can predict, so projectDir
+// is shown there too.
+func (w Worktree) previewCwd(projectDir, agentID string) string {
+	if !safePathSegment(w.state.Harp) || !w.git.IsRepo(projectDir) {
+		return projectDir
+	}
+	base, err := paths.HarpEphemeralDir(w.state.Harp)
+	if err != nil {
+		return projectDir
+	}
+	return stableCheckout(base, agentID)
 }
 
 // reuseExistingCheckout decides what ResolveWorkspace does when checkoutPath

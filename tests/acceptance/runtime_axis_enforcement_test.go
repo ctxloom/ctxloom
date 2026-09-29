@@ -7,8 +7,8 @@
 // (doctor's own feature file, cli/doctor.feature, is titled "why its exit
 // code is not the verdict" and pins, as tested behaviour, that NO check
 // content ever changes doctor's exit code — warn IS its fail-loud signal).
-// `run --dry-run` is the hermetic control instead: it needs no engine
-// credentials, and internal/adapters/cli/run.go's runRun calls gateStartup() (gate 1,
+// `run --dry-run` is the hermetic control instead: it spawns no engine, and
+// internal/adapters/cli/run.go's runRun calls gateStartup() (gate 1,
 // which is where config.go's schema-validation warnings become a fatal
 // ClassConfig finding — internal/core/config/warnings.go's
 // WarningKind.StrictnessClass) BEFORE the --dry-run early return, so gate 1
@@ -59,6 +59,9 @@ func TestRuntimeAxis_ConfigFileControl(t *testing.T) {
 			// container-rootless axis is refused (exit 3) wherever no rootless
 			// runtime is reachable, which is a different claim from this one.
 			require.NoError(t, env.StubRootlessContainerRuntime())
+			// A dry run resolves the agent's credential read-only and refuses
+			// where the run would: unattended with nothing stored, it would.
+			require.NoError(t, env.RunWithStdin("sk-ant-oat01-fixture\n", "auth", "set", "--engine", "claude-code", "--mode", "token"))
 			_ = env.Run("run", "--agent", "probe", "--dry-run", "hi")
 			exit := env.LastExitCode()
 

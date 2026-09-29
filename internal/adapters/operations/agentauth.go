@@ -100,7 +100,7 @@ func mintAndResolve(ctx context.Context, a engine.Auth, backend string, mode eng
 	remedy := credentialRemedy(backend, mode)
 	t, ok := attendedTerminal()
 	if !ok {
-		return engine.Credentials{}, report.Errorf(remedy, "%s auth %s needs a stored credential and this run has no terminal to mint one at: %w", backend, mode, engine.ErrNoCredential)
+		return engine.Credentials{}, unattendedMintRefusal(backend, mode)
 	}
 	fmt.Fprintf(t.Err, "ctxloom: %s auth %s has no stored credential; starting %s's own flow to mint one\n", backend, mode, backend)
 	secret, err := a.Mint(ctx, mode, t)
@@ -114,6 +114,45 @@ func mintAndResolve(ctx context.Context, a engine.Auth, backend string, mode eng
 	fmt.Fprintf(t.Err, "ctxloom: stored the %s %s credential in %s (owner-only)\n", backend, mode, path)
 	return a.Credentials(mode, os.LookupEnv, store)
 }
+
+// unattendedMintRefusal is a run's refusal of a minted mode with nothing
+// stored and no terminal to mint at.
+func unattendedMintRefusal(backend string, mode engine.AuthMode) error {
+	return report.Errorf(credentialRemedy(backend, mode), "%s auth %s needs a stored credential and this run has no terminal to mint one at: %w", backend, mode, engine.ErrNoCredential)
+}
+
+// previewRunAuth is resolveRunAuth for a --dry-run, and it is READ-ONLY: it
+// reads the shell and the credential store (whether a credential is stored,
+// whether a declared store exists) and NEVER mints, writes or creates a
+// credential. It returns the refusal a run would return on the same inputs:
+// the engine's own, or — for a minted mode with nothing stored and no
+// terminal — the unattended one. Where a run would mint at the human's
+// terminal the run refuses nothing, so neither does the preview; it resolves
+// no credential instead. Every credential VALUE is redacted: a preview shows
+// the variables a run sets and the stores it shares, never a secret.
+func previewRunAuth(reg engine.Registry, in runAuth) (engine.Credentials, error) {
+	a, mode, err := checkAgentAuth(reg, in.Backend, in.Declared)
+	if err != nil || a == nil {
+		return engine.Credentials{}, err
+	}
+	creds, err := a.Credentials(mode, os.LookupEnv, isolation.StoredCredentials(in.Backend))
+	if errors.Is(err, engine.ErrNoCredential) && mode.Minted() {
+		if _, attended := attendedTerminal(); attended {
+			return engine.Credentials{}, nil
+		}
+		return engine.Credentials{}, unattendedMintRefusal(in.Backend, mode)
+	}
+	if err != nil {
+		return engine.Credentials{}, err
+	}
+	for k := range creds.Env {
+		creds.Env[k] = redactedCredential
+	}
+	return creds, nil
+}
+
+// redactedCredential stands in for a credential value in a preview.
+const redactedCredential = "<redacted>"
 
 // credentialRemedy names the commands that store a credential for mode.
 func credentialRemedy(backend string, mode engine.AuthMode) string {

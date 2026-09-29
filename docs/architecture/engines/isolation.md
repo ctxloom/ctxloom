@@ -98,19 +98,6 @@ requested worktree is never dropped because the container failed.
 `""` means unset (host default), and a non-empty unknown runtime raises a fatal
 finding.
 
-### Cells — the engine-side mirror
-
-`agent.CellKind` is what actually reaches the engine backend: `CellKindShared`
-(zero), `CellKindDirectoryIsolated`, `CellKindProcessIsolated` — note this is a
-THREE-value enum, one per **workspace posture** the backend can observe (shared /
-worktree / container), not a mirror of the six-value runtime-ownership space:
-`CellKindProcessIsolated` covers a container cell in **either** ownership mode,
-since ownership is a host-side launch decision the backend itself never needs to
-see. A backend's `buildArgs` switches on it directly rather than inferring the
-cell from `WorkDir` — claude gates its out-of-cwd launch flags on
-`CellKindShared`, since an isolated cell reads the engine's well-known files in
-its private cwd instead.
-
 ## Container mechanics
 
 ### Image build — two stages

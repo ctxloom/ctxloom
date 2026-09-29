@@ -7,7 +7,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -51,7 +50,6 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 		Model:       turn.Launch.Label.Model,
 		Env:         turn.Launch.EngineEnv(),
 		Permissions: turn.Launch.Permission,
-		CellKind:    cellKindOf(turn.Launch.Cell),
 		Stdin:       stdin,
 		Resize:      turnResize(ctx, t.stdin),
 		Session:     &session,
@@ -100,17 +98,4 @@ func turnResize(ctx context.Context, f *os.File) <-chan agent.WindowSize {
 		}
 	}()
 	return out
-}
-
-// cellKindOf projects the cell onto the writers' cell kind: a container is
-// process-isolated, a workspace apart from the project root is
-// directory-isolated, the project root itself is shared.
-func cellKindOf(c launch.Cell) agent.CellKind {
-	switch {
-	case c.Container != nil:
-		return agent.CellKindProcessIsolated
-	case c.Workspace != "" && c.Workspace != c.Paths.Paths().ProjectRoot.Host:
-		return agent.CellKindDirectoryIsolated
-	}
-	return agent.CellKindShared
 }

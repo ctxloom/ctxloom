@@ -70,7 +70,7 @@ var pasteMeasuredTargets = map[pasteTarget]bool{
 // IT HAS NO PRODUCTION CALLER YET, AND THAT IS NOT A SIGN IT IS DEAD. Do not
 // delete it as an unused seam. The reason is simply that nothing hosts an
 // engine in a pane yet: the interactive engine is run on a hand-rolled pty by
-// internal/shared/ptyrunner (via backends.RunLaunchSpec's spec.Interactive
+// internal/shared/ptyrunner (via runner.RunLaunchSpec's spec.Interactive
 // branch), and a pty is not a pane, so there is no window for this type to
 // paste into. Give PaneHost a production caller and this type acquires one
 // with it.

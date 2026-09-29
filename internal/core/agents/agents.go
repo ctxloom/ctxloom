@@ -112,7 +112,7 @@ type Agent struct {
 	// boundary; the coordinator resumes by native session key on the next
 	// mailbox delivery — the one-shot+resume-key model, see the
 	// one-shot-resume plan). Slice 2 lands the axis + validation + per-engine
-	// resume-capability gating (coord.resolveResumeMode) ONLY: the one-shot
+	// resume-capability gating (spawn.resolveResumeMode) ONLY: the one-shot
 	// turn loop itself is Slice 4 (v0.8) — see the coordinator's gate for the
 	// current-release-behavior decision on a resume-capable engine. An empty
 	// string parses as DrivingConversational; any other value must be one of
@@ -234,7 +234,7 @@ const (
 	// engine process stays warm across turns — today's only model.
 	DrivingConversational DrivingMode = "conversational"
 	// DrivingOneshot asks for the turn-boundary teardown+resume-by-key model.
-	// Resolving it requires a resume-capable backend (coord.resolveResumeMode)
+	// Resolving it requires a resume-capable backend (spawn.resolveResumeMode)
 	// and, in 0.7, additionally fails loud everywhere (Slice 4, the turn loop
 	// that would actually honor it, is v0.8) — see that gate's doc for why an
 	// accepted-but-inert value was rejected in favor of a hard error.

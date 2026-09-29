@@ -188,7 +188,7 @@ func pumpEngineInput(c *termui.Controller) *syncBuf {
 // REAL tui.Overlay exactly as run_terminal_ui.go:77 does, driven over a real
 // pty pair. It re-proves controller_test.go's
 // TestController_EngageHoldReplayNudge invariants (prefix engages; engine
-// output held during engagement; the atomic release ordering: panel clear →
+// output held during engagement; the atomic release ordering: engine screen →
 // scroll region restore → engine cursor restore (DECRC) → held-output
 // replay; a post-release resize nudge) against the GENUINE bubbletea Program
 // and a GENUINE pty, not the fake.
@@ -253,8 +253,8 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	waitForComposition(t, "the real overlay auto-opened the roster row's feed", func() bool {
 		return slices.Contains(watched.watchedHarps(), "perky-same-chevy")
 	})
-	assert.Contains(t, tty.String(), "\x1b7\x1b[r",
-		"engage saves the engine cursor and hands the overlay the full scroll region")
+	assert.Contains(t, tty.String(), "\x1b[?1049h\x1b[r",
+		"engage moves to the alternate screen (saving the engine's screen and cursor) with the full scroll region")
 
 	// Engine output during engagement is held (never reaches the pty).
 	before := tty.String()
@@ -269,12 +269,12 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	waitForComposition(t, "held output replayed", func() bool { return strings.Contains(tty.String(), "HELD-OUTPUT") })
 
 	out := tty.String()
-	clearAt := strings.LastIndex(out, "\x1b[16;1H\x1b[J") // drawable-panelRows+1 = (24-1)-8+1
+	leaveAt := strings.LastIndex(out, "\x1b[?1049l")
 	regionAt := strings.LastIndex(out, "\x1b[1;23r")
 	cursorAt := strings.LastIndex(out, "\x1b8")
 	replayAt := strings.Index(out, "HELD-OUTPUT")
-	require.GreaterOrEqual(t, clearAt, 0, "panel region cleared")
-	assert.Less(t, clearAt, regionAt, "region re-established after the clear")
+	require.GreaterOrEqual(t, leaveAt, 0, "release leaves the alternate screen")
+	assert.Less(t, leaveAt, regionAt, "region re-established on the engine's screen")
 	assert.Less(t, regionAt, cursorAt, "engine cursor restored (DECRC) after the bar repaint")
 	assert.Less(t, cursorAt, replayAt, "the replay lands on a fully restored screen")
 

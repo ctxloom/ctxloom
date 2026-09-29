@@ -292,6 +292,22 @@ func TestModel_FirstKeyFEntersFullScreen(t *testing.T) {
 	assert.Equal(t, m.geo.Rows, m.totalHeight(), "full screen uses the whole terminal")
 }
 
+// Over an engine that is itself on the alternate screen, full screen would
+// have to leave an alternate screen on quit — the engine's — so it is
+// refused, the panel stays, and the human is told why.
+func TestModel_FirstKeyFOverAnAltScreenEngineStaysInThePanel(t *testing.T) {
+	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
+	m := newTestModel(f)
+	m.geo.EngineOnAltScreen = true
+	m = openSelected(t, m, f)
+
+	m, cmd := step(t, m, keyMsg("f"))
+	assert.Nil(t, cmd)
+	assert.False(t, m.full)
+	assert.False(t, m.View().AltScreen, "the overlay must never switch screens here")
+	assert.Equal(t, fullScreenUnavailable, m.errMsg)
+}
+
 func TestModel_LaterFTogglesFollow(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f), f)

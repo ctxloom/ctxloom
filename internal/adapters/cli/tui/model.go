@@ -453,6 +453,10 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.firstKey = false
 		switch key {
 		case "f": // prefix-then-f: full screen
+			if m.geo.EngineOnAltScreen {
+				m.reportErr(fullScreenUnavailable)
+				return m, nil
+			}
 			m.full = true
 			m.resize()
 			// v2 has no EnterAltScreen command: the alt screen is a property
@@ -633,6 +637,10 @@ func controlPending(req coord.ControlRequest) string {
 	}
 	return "resuming " + req.Harp + "…"
 }
+
+// fullScreenUnavailable is why prefix-then-f stays in the panel over an
+// engine that is itself on the alternate screen (termui.OverlayGeometry).
+const fullScreenUnavailable = "full screen unavailable: the engine is using the alternate screen"
 
 // approvalsNotHere is why the approvals view will not open when no approvals
 // source is wired — which is always, in production (coord.PendingApproval):

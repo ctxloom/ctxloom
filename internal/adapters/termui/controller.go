@@ -3,6 +3,7 @@ package termui
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -42,6 +43,11 @@ type OverlayGeometry struct {
 	// PanelRows is the quick panel's height: the overlay's bottom PanelRows
 	// rows of the DRAWABLE screen (Rows above).
 	PanelRows int
+	// EngineOnAltScreen: the engine is itself on the alternate screen, so
+	// the overlay draws over it in place (takeScreen). Leaving an alternate
+	// screen there would take the engine off its own, so the overlay must not
+	// enter one of its own for full screen.
+	EngineOnAltScreen bool
 }
 
 // panelRows is the quick-panel height policy: the bottom third, at least 8
@@ -97,10 +103,11 @@ type Controller struct {
 	opts  Options
 	ttyMu sync.Mutex
 
-	ic   *interceptor
-	gate *outputGate
-	sur  *surround
-	rt   *resizeTranslator
+	ic    *interceptor
+	gate  *outputGate
+	guard *vtGuard
+	sur   *surround
+	rt    *resizeTranslator
 
 	// sessionMu serializes engagements: held from engage until the overlay's
 	// teardown finishes, so a re-engage cannot overlap a release in flight.
@@ -138,6 +145,7 @@ func New(opts Options) *Controller {
 	// The guard runs inside the gate under the shared tty lock; its callbacks
 	// are the surround's *Locked accessors (same mutex, no re-entry).
 	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
+	c.guard = guard
 	c.gate = newOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, guard, c.sur.FlushLocked)
 	// SetEngineIdle/SetPaintSafe inlined: construction-only writes, before any
 	// goroutine starts.
@@ -255,16 +263,47 @@ func (c *Controller) engage() io.Writer {
 	c.overlayMu.Unlock()
 	c.sur.Suspend()
 	c.gate.Hold()
-	// Save the engine's cursor (DECSC), then hand the overlay the FULL
-	// screen: with the surround's DECSTBM still active, the overlay's
-	// bottom-row repaints would scroll the engine's held screen out from
-	// under it one line per frame. Release re-establishes the region.
+	// Take the screen, and hand the overlay the FULL scroll region: with the
+	// surround's DECSTBM still active, the overlay's bottom-row repaints would
+	// scroll the screen one line per frame. Release re-establishes the region.
 	c.ttyMu.Lock()
-	_, _ = c.opts.TTY.Write([]byte("\x1b7\x1b[r"))
+	tk := takeScreen(c.guard.altScreen)
+	_, _ = c.opts.TTY.Write(tk.enter)
 	c.ttyMu.Unlock()
+	geo.EngineOnAltScreen = tk.leave == nil
 	pr, pw := io.Pipe()
-	go c.runOverlay(ov, pr, geo)
+	go c.runOverlay(ov, pr, geo, tk)
 	return pw
+}
+
+// takeover is how one engagement takes the screen from the engine and how
+// release gives it back.
+type takeover struct {
+	enter []byte
+	// leave returns to the engine's screen; nil when the overlay drew over it
+	// in place.
+	leave []byte
+}
+
+// takeScreen picks the takeover for an engine on the main screen or, when
+// engineOnAlt, on the alternate one.
+//
+// The overlay goes to the ALTERNATE screen: 1049 saves the cursor and leaves
+// every cell of the engine's screen as it was, so leaving it IS the restore —
+// for any engine, including one that only writes lines and has nothing to
+// repaint on a nudge. Drawing in place instead erased whatever the panel
+// covered, and nothing brought it back.
+//
+// An engine already on the alternate screen cannot be kept that way: 1049
+// would pull it off its own screen. There the overlay draws in place over it
+// (the engine's cursor saved by DECSC), release clears the panel region, and
+// the nudge that follows is what repaints it — which a full-screen program,
+// the only kind that uses the alternate screen, does on a resize.
+func takeScreen(engineOnAlt bool) takeover {
+	if engineOnAlt {
+		return takeover{enter: []byte("\x1b7\x1b[r")}
+	}
+	return takeover{enter: []byte("\x1b[?1049h\x1b[r"), leave: []byte("\x1b[?1049l")}
 }
 
 // buildOverlay isolates factory panics so a broken viewer degrades instead of
@@ -281,7 +320,7 @@ func (c *Controller) buildOverlay() (ov Overlay, err error) {
 // runOverlay hosts one engagement on its own goroutine and always tears down:
 // interceptor back to passthrough, held output replayed behind the screen
 // restore, bar resumed, engine nudged to repaint.
-func (c *Controller) runOverlay(ov Overlay, pr *io.PipeReader, geo OverlayGeometry) {
+func (c *Controller) runOverlay(ov Overlay, pr *io.PipeReader, geo OverlayGeometry, tk takeover) {
 	defer c.sessionMu.Unlock()
 	err := func() (err error) {
 		defer func() {
@@ -297,27 +336,32 @@ func (c *Controller) runOverlay(ov Overlay, pr *io.PipeReader, geo OverlayGeomet
 	c.overlay = nil
 	c.overlayMu.Unlock()
 	c.ic.Disengage()
-	c.release(geo)
+	c.release(geo, tk)
 	if err != nil {
 		c.degrade(err)
 	}
 }
 
 // release restores the screen after an overlay, as ONE atomic tty write via
-// the gate's release preamble: clear the panel region, re-establish the
-// surround's scroll region + bar, restore the engine's saved cursor (DECRC),
-// then replay the held engine output (with the truncation notice on
-// overflow). A repaint nudge through the resize seam follows so a
-// full-screen engine redraws cleanly.
-func (c *Controller) release(geo OverlayGeometry) {
+// the gate's release preamble: return to the engine's screen (or clear the
+// panel region an in-place takeover drew over), re-establish the surround's
+// scroll region + bar, restore the engine's saved cursor (DECRC), then replay
+// the held engine output (with the truncation notice on overflow). A repaint
+// nudge through the resize seam follows so a full-screen engine redraws
+// cleanly.
+func (c *Controller) release(geo OverlayGeometry, tk takeover) {
 	if c.closed.Load() {
-		// Close owns the final restore; don't repaint a handed-back terminal.
-		if err := c.gate.Release(nil); err != nil {
+		// Close owns the final restore; don't repaint a handed-back terminal —
+		// but do hand back the engine's screen, which nothing else leaves.
+		if err := c.gate.Release(tk.leave); err != nil {
 			c.warn("output gate release: %v", err)
 		}
 		return
 	}
-	pre := panelClearSeq(geo)
+	pre := slices.Clone(tk.leave)
+	if pre == nil {
+		pre = panelClearSeq(geo)
+	}
 	pre = append(pre, c.sur.ResumeSequence()...)
 	pre = append(pre, "\x1b8"...)
 	if err := c.gate.Release(pre); err != nil {
@@ -328,9 +372,7 @@ func (c *Controller) release(geo OverlayGeometry) {
 }
 
 // panelClearSeq erases the overlay's panel region (its bottom PanelRows
-// rows). The full-screen presentation exits its alt screen before Run
-// returns, so the main screen is already back; clearing the panel region
-// also erases any quick-panel frame that preceded the switch to full screen.
+// rows), for a takeover that drew over the engine's screen in place.
 func panelClearSeq(geo OverlayGeometry) []byte {
 	b := make([]byte, 0, 48)
 	b = append(b, "\x1b["...)

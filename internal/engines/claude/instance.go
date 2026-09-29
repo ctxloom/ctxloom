@@ -156,11 +156,16 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 }
 
 // execArgs is the argv up to the prompt: the label's args, the permission
-// posture, the model, the session name (interactive) or --print, every
+// posture (a structured run adds --permission-prompts none: nobody is at
+// the engine to answer, so claude denies what the posture leaves open), the
+// model, the session name (interactive) or --print, every
 // presentation's args in delivery order, then the resumed native key.
 func (i *instance) execArgs(presented []present.Presentation) []string {
 	args := slices.Clone(i.s.Label.Args)
 	args = append(args, permissionArgs(i.s.Permission, i.s.MCPServers)...)
+	if i.s.Mode == engine.Structured {
+		args = append(args, flagPermissionPrompts, "none")
+	}
 	if i.s.Label.Model != "" {
 		args = append(args, flagModel, i.s.Label.Model)
 	}
@@ -182,7 +187,9 @@ func (i *instance) execArgs(presented []present.Presentation) []string {
 
 // execEnv is the engine-native env: the relocated home vars, every
 // presentation's env channel, and the classic-screen switch when
-// interactive.
+// interactive — or, when structured, background tasks off: the turn's
+// process ends at its result, and a task left running past it would answer
+// into a turn nobody reads.
 func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 	env := map[string]string{}
 	for _, h := range i.s.Home {
@@ -193,6 +200,8 @@ func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 	}
 	if i.s.Mode == engine.Interactive {
 		env[classicScreenEnv] = "1"
+	} else {
+		env[disableBackgroundTasksEnv] = "1"
 	}
 	return env
 }

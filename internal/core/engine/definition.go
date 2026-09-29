@@ -239,8 +239,7 @@ type PermissionFacts struct {
 	// genuinely read-only, non-prompting mode; false = no such tier, and the
 	// resolver collapses plan to default.
 	ReadOnlyPlan bool
-	// HostDefault is the posture a run takes when nothing declared one; a
-	// headless run refuses it unless it is SafeHeadless.
+	// HostDefault is the posture a run takes when nothing declared one.
 	HostDefault PermissionMode
 	// HostDefaultReason is shown to the user (under -v) when HostDefault is
 	// the posture a run resolved to.

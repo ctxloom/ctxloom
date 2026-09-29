@@ -43,12 +43,10 @@
 // coordinator's state ONLY — config loading, the selection builder, and
 // surface delivery have no read model and stay event-free.
 //
-// D3 (children never prompt): a delegated child must declare a
-// headless-safe permission_mode (bypass|plan) — the launch resolver's one
-// floor (launch.Resolve, its child arm) refuses a child that would block,
-// when the child's launch resolves, and it gates what a child may attempt
-// headless at all. The coordinator does NOT broker an approval UI on top of
-// it: it
+// D3 (children never prompt): a delegated child runs headless in whatever
+// posture it declared; nobody is at its engine, so the engine denies what
+// the posture and rules leave open, and the runner reports such a turn to
+// the parent as BLOCKED. The coordinator does NOT broker an approval UI: it
 // neither decides a child's engine permission requests nor relays them for
 // a human to decide.
 package coord

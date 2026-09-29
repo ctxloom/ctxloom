@@ -76,12 +76,19 @@ func TestPlanStillDeniesMutatingBuiltins(t *testing.T) {
 // nothing else filters them there.
 func TestNonPlanModesEmitNoGrant(t *testing.T) {
 	for _, mode := range []agent.PermissionMode{
-		agent.PermissionBypass, agent.PermissionAcceptEdits, agent.PermissionDefault,
+		agent.PermissionBypass, agent.PermissionAcceptEdits, agent.PermissionDefault, agent.PermissionDontAsk, agent.PermissionAuto,
 	} {
 		args := permissionArgs(mode, []string{"ctxloom", "taskloom"})
 		assert.Equal(t, -1, indexOf(args, flagAllowedTools),
 			"%s must not emit %s: it has no readOnlyHint gate to filter the server", mode, flagAllowedTools)
 	}
+}
+
+// TestClaudeOwnPosturesMapToPermissionMode: dontAsk and auto are claude's
+// own --permission-mode values and ride the flag verbatim.
+func TestClaudeOwnPosturesMapToPermissionMode(t *testing.T) {
+	assert.Equal(t, []string{flagPermissionMode, "dontAsk"}, permissionArgs(agent.PermissionDontAsk, nil))
+	assert.Equal(t, []string{flagPermissionMode, "auto"}, permissionArgs(agent.PermissionAuto, nil))
 }
 
 func grantedTools(t *testing.T, args []string) []string {

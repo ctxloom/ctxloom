@@ -665,8 +665,8 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 }
 
 // warnPosture says out loud when the posture the run launches with is not
-// what the flag asked for, when a one-shot at plan has nobody to approve a
-// gated call, and (under -v) when the engine's declared host default is
+// what the flag asked for, when a one-shot has nobody to approve a gated
+// call, and (under -v) when the engine's declared host default is
 // what decided it.
 func (st *runState) warnPosture() {
 	if runPermissions != "" {
@@ -674,8 +674,8 @@ func (st *runState) warnPosture() {
 			clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", requested, st.backendName, st.permMode)
 		}
 	}
-	if st.launch.Mode == engine.Structured && st.permMode == agent.PermissionPlan {
-		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
+	if st.launch.Mode == engine.Structured && st.permMode != agent.PermissionBypass {
+		clidiag.Warn("ctxloom", "--one-shot with %s permissions has no human to approve a gated call; the engine denies every call the posture would ask about, so those steps will not run", st.permMode)
 	}
 	pf := operations.EnginePermissionFacts(App().Engines(), st.backendName)
 	if runPermissions == "" && runVerbosity > 0 && pf.HostDefaultReason != "" && st.permMode == pf.HostDefault {

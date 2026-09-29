@@ -49,7 +49,7 @@ func TestPermissionMode_ZeroIsNotRequested(t *testing.T) {
 }
 
 func TestPermissionMode_StringAndParse_RoundTrip(t *testing.T) {
-	for _, m := range []PermissionMode{PermissionDefault, PermissionAcceptEdits, PermissionPlan, PermissionBypass} {
+	for _, m := range []PermissionMode{PermissionDefault, PermissionAcceptEdits, PermissionPlan, PermissionBypass, PermissionDontAsk, PermissionAuto} {
 		got, ok := ParsePermissionMode(m.String())
 		require.True(t, ok, "%s must parse back", m)
 		assert.Equal(t, m, got)
@@ -59,10 +59,23 @@ func TestPermissionMode_StringAndParse_RoundTrip(t *testing.T) {
 
 func TestPermissionMode_Names_AreTheParseableSpellings(t *testing.T) {
 	names := PermissionModeNames()
-	require.Len(t, names, 4)
+	require.Len(t, names, 6)
 	for _, n := range names {
 		_, ok := ParsePermissionMode(n)
 		assert.True(t, ok, "%q is advertised but does not parse", n)
+	}
+}
+
+// TestPermissionMode_ClaudeSpellings pins the claude-aligned spellings of the
+// two postures that exist only because claude names them: dontAsk (deny what
+// the rules leave open) and auto (claude's classifier decides).
+func TestPermissionMode_ClaudeSpellings(t *testing.T) {
+	assert.Equal(t, "dontAsk", PermissionDontAsk.String())
+	assert.Equal(t, "auto", PermissionAuto.String())
+	for s, want := range map[string]PermissionMode{"dontAsk": PermissionDontAsk, "dontask": PermissionDontAsk, "dont-ask": PermissionDontAsk, "auto": PermissionAuto} {
+		got, ok := ParsePermissionMode(s)
+		require.True(t, ok, "%q must parse", s)
+		assert.Equal(t, want, got, "%q", s)
 	}
 }
 
@@ -78,11 +91,6 @@ func TestParsePermissionMode_UnsetAndUnknown_AreNotDeclarations(t *testing.T) {
 }
 
 func TestPermissionMode_Predicates(t *testing.T) {
-	assert.True(t, PermissionBypass.AllowsWithoutPrompt())
-	assert.False(t, PermissionAcceptEdits.AllowsWithoutPrompt(), "acceptEdits is edit-scoped, not a blanket allow")
-	assert.True(t, PermissionBypass.SafeHeadless())
-	assert.True(t, PermissionPlan.SafeHeadless())
-	assert.False(t, PermissionDefault.SafeHeadless())
 	assert.Equal(t, PermissionDefault, PermissionPlan.CollapsePlanIfUnenforced(false))
 	assert.Equal(t, PermissionPlan, PermissionPlan.CollapsePlanIfUnenforced(true))
 	assert.Equal(t, PermissionBypass, PermissionBypass.CollapsePlanIfUnenforced(false), "only plan collapses")

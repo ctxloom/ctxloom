@@ -29,14 +29,13 @@
 // Nothing here sets a flag the product does not offer, and nothing here
 // reaches around the resolver.
 //
-// AND THE ONE-SHOT INTERACTION MATTERS. The floor refuses a Structured run
-// whose resolved posture is not SafeHeadless — there is no human to answer a
-// prompt — which is why P5's approval probe cannot use this
-// invocation at all. Plan IS SafeHeadless (agent.PermissionMode.SafeHeadless),
-// and all four backends declare enforcesReadOnlyPlan TRUE, so
+// AND THE ONE-SHOT INTERACTION MATTERS. A Structured run has no human to
+// answer a prompt, so the engine denies every gated call — which is why P5's
+// approval probe cannot use this invocation at all. Every backend declares
+// enforcesReadOnlyPlan TRUE, so
 // CollapsePlanIfUnenforced leaves it alone and the ONESHOT floor does not fire:
 // plan survives into the run intact. That is the shifty-scroll ruling, and
-// runState.warnPlanOneshotCancels is production announcing it — its warning on
+// runState.warnPosture is production announcing it — its warning on
 // stderr is the cheapest confirmation, per cell, that the posture arrived.
 package acceptance
 
@@ -291,7 +290,7 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 
 // p4SawPlanOneshotWarning reports whether production announced, on this run's
 // stderr, that a plan posture reached a headless one-shot —
-// runState.warnPlanOneshotCancels. It is printed as evidence beside every cell
+// runState.warnPosture. It is printed as evidence beside every cell
 // and READ BY NOTHING ELSE: no verdict in this probe branches on it, and none
 // may, because it is a human-readable sentence a release is free to rewrite.
 // Matched on the stable middle of the sentence rather than its whole text so a

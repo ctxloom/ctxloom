@@ -196,25 +196,22 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 }
 
 // floorChild is the fake's stand-in for the launch resolver's floor on a
-// delegated child (launch.Resolve, the child arm of its permission floor):
-// a declared headless-safe posture passes; anything else is refused, or
-// narrowed to plan under --degraded. The fake applies it where the real
-// spawner's StartEngine resolves the launch, so a test observes the
-// refusal at the same point production raises it.
+// delegated child (launch.Resolve's permission floor): a declared posture
+// passes as declared, none takes the host default, and only a declaration
+// that does not parse is refused — or dropped to plan under --degraded. The
+// fake applies it where the real spawner's StartEngine resolves the launch,
+// so a test observes the outcome at the same point production reaches it.
 func floorChild(degraded bool, agentName, declared string) (agent.PermissionMode, error) {
-	if declared != "" {
-		if mode, ok := agent.ParsePermissionMode(declared); ok && mode.SafeHeadless() {
-			return mode, nil
-		}
+	if declared == "" {
+		return agent.PermissionDefault, nil
+	}
+	if mode, ok := agent.ParsePermissionMode(declared); ok {
+		return mode, nil
 	}
 	if degraded {
-		return agent.PermissionPlan, nil
+		return agent.PermissionFloor, nil
 	}
-	reason := "declares no permissions"
-	if declared != "" {
-		reason = fmt.Sprintf("declares permissions %q, which is not headless-safe", declared)
-	}
-	return 0, fmt.Errorf("%w: agent %q %s: a delegated run has no human to answer an engine prompt; set permissions: plan|bypass on agent %q", launch.ErrPermissionUnhonoured, agentName, reason, agentName)
+	return 0, fmt.Errorf("%w: agent %q declares permissions %q, which is not a posture", launch.ErrPermissionUnhonoured, agentName, declared)
 }
 
 func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {

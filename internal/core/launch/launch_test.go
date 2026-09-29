@@ -84,44 +84,36 @@ func TestResolve_Permission_FlooredOnce(t *testing.T) {
 	require.ErrorContains(t, err, "plann")
 }
 
-// TestResolve_Permission_HeadlessOneRule: a Structured run that would block
-// on a prompt has no human at the engine, whoever launched it. The
+// TestResolve_Permission_HeadlessTakesItsPosture: a Structured run has no
+// human at the engine, and that is no longer a reason to refuse or reshape
+// its posture — the engine denies what nothing resolves (claude's
+// --permission-prompts none) and the denial is surfaced, so the run launches
+// at exactly the posture it declared, or the engine's host default. The
 // originator's own run (depth 0) and a delegated child (depth > 0) follow
-// ONE rule: refused, never silently widened to bypass; the refusal names
-// the door the run was selected by. --degraded launches it at the floor
-// and SAYS so.
-func TestResolve_Permission_HeadlessOneRule(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.WithAgent("silent"))
+// ONE rule, and --degraded changes nothing about a posture that resolved.
+func TestResolve_Permission_HeadlessTakesItsPosture(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("silent"), launchtest.WithAgent("careful", launchtest.Permissions("acceptEdits")))
 	child := env.Identity
 	child.Depth = 1
-	for _, tc := range []struct {
-		name string
-		id   sessions.Identity
-	}{
-		{"originator at depth 0", env.Identity},
-		{"delegated child", child},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: tc.id, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
-			require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "a headless run declaring no headless-safe posture is refused, never widened to bypass")
-			require.ErrorContains(t, err, `on agent "silent"`, "an agent-selected run is told to declare the posture on its agent")
-
+	for _, id := range []sessions.Identity{env.Identity, child} {
+		for _, degraded := range []bool{false, true} {
 			var got report.Findings
 			deps := env.Deps
 			deps.Reporter = &got
-			l, err := launch.Resolve(context.Background(), deps, launch.Source{Identity: tc.id, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true})
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
-			require.Equal(t, engine.PermissionPlan, l.Permission, "degraded narrows to the most restrictive headless-safe posture")
-			require.Len(t, got, 1, "the drop to the floor is announced, never silent")
-			require.Contains(t, got[0].Text, "--degraded")
-			require.Contains(t, got[0].Text, "plan")
-		})
-	}
+			l, err := launch.Resolve(context.Background(), deps, launch.Source{Identity: id, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: degraded})
+			require.NoError(t, err, "depth %d degraded %v: a headless run is never refused for its posture", id.Depth, degraded)
+			discard := l
+			t.Cleanup(func() { _ = launch.Discard(context.Background(), discard) })
+			require.Equal(t, engine.PermissionDefault, l.Permission, "the host default stands: never floored to plan, never widened to bypass")
+			require.Empty(t, got, "nothing was dropped, so nothing is announced")
 
-	_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
-	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
-	require.ErrorContains(t, err, "--permissions", "a run selected with no agent is told to pass the flag")
+			l, err = launch.Resolve(context.Background(), deps, launch.Source{Identity: id, Agent: "careful", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: degraded})
+			require.NoError(t, err)
+			discardCareful := l
+			t.Cleanup(func() { _ = launch.Discard(context.Background(), discardCareful) })
+			require.Equal(t, engine.PermissionAcceptEdits, l.Permission, "a declared prompting posture is honoured as declared")
+		}
+	}
 }
 
 // TestResolve_MCPEndpoint_PerSession_StableAcrossResume: the endpoint is
@@ -340,22 +332,23 @@ func (emptyAssembler) LabelEnv(*config.Snapshot, string) map[string]string { ret
 
 // TestResolve_Permission_PlanCollapsesOnEveryPath: on an engine with no
 // read-only tier a declared plan is not enforced and collapses to default —
-// on an interactive run, and on every structured run, which is then REFUSED
-// rather than launched at a posture it cannot honour. One floor, no path
-// skips the collapse.
+// on an interactive run, and on every structured run alike. One floor, no
+// path skips the collapse.
 func TestResolve_Permission_PlanCollapsesOnEveryPath(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("planner", launchtest.Permissions("plan")), launchtest.NoReadOnlyPlan())
 	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Interactive, WorkDir: env.Project})
 	require.NoError(t, err)
 	require.Equal(t, engine.PermissionDefault, l.Permission, "interactive: plan collapses to default, which prompts")
 
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
-	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "the originator's structured run: collapsed, then refused, never floored up to bypass")
-
 	child := env.Identity
 	child.Depth = 1
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
-	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "a delegated child declaring an unenforceable plan is refused, never launched with a flag the engine ignores")
+	for _, id := range []sessions.Identity{env.Identity, child} {
+		l, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: id, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
+		require.NoError(t, err)
+		discard := l
+		t.Cleanup(func() { _ = launch.Discard(context.Background(), discard) })
+		require.Equal(t, engine.PermissionDefault, l.Permission, "depth %d: structured collapses the same way, never launched with a flag the engine ignores", id.Depth)
+	}
 }
 
 // TestResolve_Carrier_ChosenBySize_RedeemsToTheSamePackage: Resolve measures
@@ -402,22 +395,6 @@ func (m memStore) Put(ctx context.Context, digest [32]byte, b []byte) (string, e
 	return string(digest[:]), nil
 }
 func (m memStore) Get(ctx context.Context, loc string) ([]byte, error) { return m[loc], nil }
-
-// TestResolve_Permission_DegradedNeverLaunchesAnUnenforcedPlan: --degraded
-// drops a headless prompting run to plan only where plan IS read-only. On an
-// engine with no read-only tier that drop would be a promise nothing keeps,
-// so the run is refused, and the refusal names the only honest postures.
-func TestResolve_Permission_DegradedNeverLaunchesAnUnenforcedPlan(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.WithAgent("silent"), launchtest.NoReadOnlyPlan())
-	child := env.Identity
-	child.Depth = 1
-	for _, id := range []sessions.Identity{env.Identity, child} {
-		_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: id, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true})
-		require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "depth %d", id.Depth)
-		require.ErrorContains(t, err, "does not enforce read-only plan")
-		require.ErrorContains(t, err, "bypass")
-	}
-}
 
 // TestResolve_Permission_DegradedUnparseableIsAnnounced: a declaration that
 // does not parse still drops to the floor under --degraded, but says so —

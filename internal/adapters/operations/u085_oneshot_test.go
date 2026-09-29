@@ -56,8 +56,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 		AppPaths:  []string{appDir},
 		Workspace: "worktree",
 		// bypass: this test is about the withheld-executable warning, not
-		// permission resolution — headless-safe so effectiveMemberPermission's
-		// refusal doesn't collide with unrelated coverage.
+		// permission resolution.
 		LM: config.LMConfig{
 			Configs:  map[string]config.LLMConfig{"claude-code": {Type: "claude-code", Permissions: "bypass"}},
 			Defaults: config.RoleDefaults{Primary: "claude-code"},

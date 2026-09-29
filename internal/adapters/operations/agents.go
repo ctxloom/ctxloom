@@ -660,8 +660,7 @@ type ResolvedAgent struct {
 	// EffectivePermissions is the posture an interactive run resolves to WITHOUT a
 	// --permissions flag: declared → engine-label config → project default →
 	// the engine's declared host default, so a blank-declared agent's real
-	// posture is visible rather than "". A headless run is refused unless this
-	// is headless-safe; --permissions overrides it.
+	// posture is visible rather than ""; --permissions overrides it.
 	EffectivePermissions string `json:"effectivePermissions,omitempty"`
 	// Escalation is the agent's DECLARED approval-request ladder (may be
 	// empty — the coordinator derives a preset ladder from Permissions when

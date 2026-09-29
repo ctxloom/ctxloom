@@ -76,15 +76,14 @@ func (d Docker) removeOutcome(stdout []byte, err error) removeOutcome {
 // RootlessKit's namespace, not on the host, so only the public fallback
 // reaches it. Rootful docker's docker0 gateway is on the host.
 //
-// Self first: when the daemon has confirmed this process is one of its
-// containers, the runner joins that container's network (selfNetworkRoute),
-// ahead of every host route — none of which this process's namespace holds.
+// Those are the HOST routes; the self route precedes them (selfFirst), and a
+// self with no joinable network is refused.
 func (d Docker) reachRoute(ctx context.Context) (hostRoute, error) {
-	if d.self != nil {
-		if r, ok, err := selfNetworkRoute(*d.self); err != nil || ok {
-			return r, err
-		}
-	}
+	return selfFirst(d.self, false, func() (hostRoute, error) { return d.hostReach(ctx) })
+}
+
+// hostReach is Docker's route to a coordinator on the daemon's host.
+func (d Docker) hostReach(ctx context.Context) (hostRoute, error) {
 	switch {
 	case platform.ContainersInVM:
 		return hostRoute{dial: "host.docker.internal"}, nil

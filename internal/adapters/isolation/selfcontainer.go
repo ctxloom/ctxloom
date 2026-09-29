@@ -182,6 +182,27 @@ func selfNetworkRoute(s selfContainer) (hostRoute, bool, error) {
 	return hostRoute{dial: s.network.ip, listen: present.Listen{Addr: s.network.ip}, network: s.network.name}, true, nil
 }
 
+// selfFirst is every OCI runtime's route home: when the daemon has confirmed
+// this process is one of its containers, the runner joins that container's
+// network (selfNetworkRoute), ahead of every host route — none of which this
+// process's namespace holds. A self with no joinable network shares its
+// namespace where shareNamespace allows it, and is refused otherwise; a self
+// on the host network, and a process that is no container of the daemon's,
+// take host().
+func selfFirst(self *selfContainer, shareNamespace bool, host func() (hostRoute, error)) (hostRoute, error) {
+	if self == nil {
+		return host()
+	}
+	r, ok, err := selfNetworkRoute(*self)
+	switch {
+	case errors.Is(err, errNoSelfNetwork) && shareNamespace:
+		return sharedNamespaceRoute(*self), nil
+	case err != nil || ok:
+		return r, err
+	}
+	return host()
+}
+
 // sharedNamespacePrefix is the --network value that runs a container in
 // another container's network namespace.
 const sharedNamespacePrefix = "container:"

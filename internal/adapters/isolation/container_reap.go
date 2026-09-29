@@ -171,6 +171,25 @@ func ReapOrphanedContainers(ctx context.Context, rt Runtime) ContainerReapResult
 	return result
 }
 
+// ownerPIDOf reads the owner pid a container's labels carry. why is non-empty
+// when that pid cannot be judged from this process: absent, unparsable, or
+// read in another pid namespace (pid is still returned for that last one, for
+// the report).
+func ownerPIDOf(labels map[string]string) (pid int, why string) {
+	pidRaw, ok := labels[labelOwnerPID]
+	if !ok {
+		return 0, "no owner-pid label — the owner cannot be proven dead"
+	}
+	pid, err := strconv.Atoi(pidRaw)
+	if err != nil || pid <= 0 {
+		return 0, "owner-pid label is unparsable"
+	}
+	if ns, ok := labels[labelOwnerPIDNS]; !ok || ns != ownerPIDNamespace() {
+		return pid, "owner-pid was read in another pid namespace (or names none) — it cannot be judged from here"
+	}
+	return pid, ""
+}
+
 // classifyContainer decides whether one ContainerInfo is reapable, applying
 // every safety rule in one place and touching nothing:
 //
@@ -199,23 +218,11 @@ func classifyContainer(now time.Time, info ContainerInfo) ContainerCandidate {
 		return c
 	}
 
-	pidRaw, ok := info.Labels[labelOwnerPID]
-	if !ok {
-		c.Verdict = ContainerSkipped
-		c.Reason = "no owner-pid label — the owner cannot be proven dead"
-		return c
-	}
-	pid, err := strconv.Atoi(pidRaw)
-	if err != nil || pid <= 0 {
-		c.Verdict = ContainerSkipped
-		c.Reason = "owner-pid label is unparsable"
-		return c
-	}
+	pid, why := ownerPIDOf(info.Labels)
 	c.OwnerPID = pid
-
-	if ns, ok := info.Labels[labelOwnerPIDNS]; !ok || ns != ownerPIDNamespace() {
+	if why != "" {
 		c.Verdict = ContainerSkipped
-		c.Reason = "owner-pid was read in another pid namespace (or names none) — it cannot be judged from here"
+		c.Reason = why
 		return c
 	}
 

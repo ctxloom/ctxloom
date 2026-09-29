@@ -2,7 +2,6 @@ package isolation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -92,19 +91,16 @@ const slirpHostLoopback = "10.0.2.2"
 // translator reaches the host's 127.0.0.1, and pasta's
 // host.containers.internal lands on a LAN address.
 //
-// Self first, as Docker's. A rootless podman self with no network to join
-// (its container on pasta/slirp4netns) shares its network namespace instead
-// (sharedNamespaceRoute) — warned; every other runtime refuses that case.
+// Those are the HOST routes; the self route precedes them (selfFirst). A
+// rootless podman self with no network to join (its container on
+// pasta/slirp4netns) shares its network namespace instead — the owner's
+// ruling, warned; every other runtime refuses that case.
 func (p Podman) reachRoute(ctx context.Context) (hostRoute, error) {
-	if p.self != nil {
-		r, ok, err := selfNetworkRoute(*p.self)
-		switch {
-		case errors.Is(err, errNoSelfNetwork) && p.rootless:
-			return sharedNamespaceRoute(*p.self), nil
-		case err != nil || ok:
-			return r, err
-		}
-	}
+	return selfFirst(p.self, p.rootless, func() (hostRoute, error) { return p.hostReach(ctx) })
+}
+
+// hostReach is Podman's route to a coordinator on the daemon's host.
+func (p Podman) hostReach(ctx context.Context) (hostRoute, error) {
 	switch {
 	case platform.ContainersInVM && machineVMIsWSL:
 		// Under WSL host.containers.internal lands in the machine VM, and a

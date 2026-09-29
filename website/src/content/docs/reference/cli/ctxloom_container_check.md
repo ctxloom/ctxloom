@@ -25,8 +25,10 @@ Report whether containerized agents ('runtime: container') can launch here:
 Diagnostic only: no probe outcome fails the command, and nothing is built or
 changed — read the report, not the exit code. A usage error is still an error
 (an unknown backend argument, or a --format this build cannot render).
-Run it inside a dev container to learn whether to enable docker-in-docker
-or keep agents on 'runtime: host'.
+Run it inside a dev container to learn whether its agents can use the host's
+daemon through a mounted socket (docker-outside-of-docker: every path they
+mount must be on a bind mount or volume of the dev container), need
+docker-in-docker, or should stay on 'runtime: host'.
 
 ```
 ctxloom container check [backend] [flags]

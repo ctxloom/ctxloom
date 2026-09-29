@@ -10,11 +10,11 @@ type fakeRuntime struct {
 	available bool
 }
 
-func (f fakeRuntime) Name() string             { return f.name }
-func (f fakeRuntime) Binary() string           { return f.binary }
-func (f fakeRuntime) Available() bool          { return f.available }
-func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
-func (fakeRuntime) RemoveArgs(string) []string { return nil }
+func (f fakeRuntime) Name() string                    { return f.name }
+func (f fakeRuntime) Binary() string                  { return f.binary }
+func (f fakeRuntime) Available() bool                 { return f.available }
+func (fakeRuntime) RunArgs(RunSpec) ([]string, error) { return nil, nil }
+func (fakeRuntime) RemoveArgs(string) []string        { return nil }
 
 // reachRoute is empty: a fake runner's env passes through un-re-minted.
 func (fakeRuntime) reachRoute(context.Context) (hostRoute, error) { return hostRoute{}, nil }

@@ -43,7 +43,7 @@ func (Podman) Available() bool { return runtimeReachable("podman") }
 // image entrypoint remap ctxloom to the launching uid/gid (PUID/PGID) and drop
 // to it; rootless additionally needs keep-id so that uid maps to itself on the
 // host instead of a subuid.
-func (p Podman) RunArgs(spec RunSpec) []string {
+func (p Podman) RunArgs(spec RunSpec) ([]string, error) {
 	args := []string{"run", "--rm", "--name", spec.Name}
 	args = append(args, initArgs()...)
 	args = append(args, ownerLabelArgs()...)

@@ -37,8 +37,9 @@ type Runtime interface {
 	// RunArgs builds the full argv (after Binary) that starts the container in the
 	// FOREGROUND with stdout/stderr attached — no -d, and -t only when the spec
 	// says so (RunSpec.TTY: an interactive launch's runner on the originator's
-	// pty).
-	RunArgs(spec RunSpec) []string
+	// pty). It fails for a mount source the daemon has no name for
+	// (errNoDaemonSource).
+	RunArgs(spec RunSpec) ([]string, error)
 	// RemoveArgs builds the argv that force-removes the named container (teardown).
 	RemoveArgs(name string) []string
 	// expose renders one host↔target exposure into a mount for this runtime:
@@ -369,8 +370,12 @@ func (ociRuntime) passesPUID() bool { return true }
 // shared, runtime-agnostic TAIL (env, mounts, workdir, image, in-container
 // command) rendered by renderRunSpec. The single append site both Docker and
 // Podman funnel through.
-func (ociRuntime) runArgs(head []string, spec RunSpec) []string {
-	return append(head, renderRunSpec(spec)...)
+func (rt ociRuntime) runArgs(head []string, spec RunSpec) ([]string, error) {
+	tail, err := renderRunSpec(spec, rt.sources())
+	if err != nil {
+		return nil, err
+	}
+	return append(head, tail...), nil
 }
 
 // expose renders one exposure as a bind mount — the OCI primitive, shared by
@@ -462,7 +467,8 @@ func identityEnvArgs() []string {
 // renderRunSpec renders the runtime-agnostic tail of a run argv (env, mounts,
 // workdir, image, in-container command) shared by Docker and Podman. The
 // runtime-specific head (--rm/--name/--user) is prepended by each RunArgs.
-func renderRunSpec(spec RunSpec) []string {
+// src names each mount's source on the daemon (mountArgs).
+func renderRunSpec(spec RunSpec, src sourceMapper) ([]string, error) {
 	var args []string
 	if spec.TTY {
 		args = append(args, "-i", "-t")
@@ -498,7 +504,11 @@ func renderRunSpec(spec RunSpec) []string {
 	for _, e := range spec.Env {
 		args = append(args, "-e", e)
 	}
-	args = append(args, mountArgs(runMounts(spec))...)
+	mounts, err := mountArgs(runMounts(spec), src)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, mounts...)
 	if spec.WorkDir != "" {
 		args = append(args, "-w", spec.WorkDir)
 	}
@@ -512,7 +522,7 @@ func renderRunSpec(spec RunSpec) []string {
 		command = append(straceWrapPrefix(spec.Trace), spec.Command...)
 	}
 	args = append(args, command...)
-	return args
+	return args, nil
 }
 
 // runMounts is the spec's mounts, plus — PROBE-ONLY — the trace dir bound
@@ -541,16 +551,25 @@ func runMounts(spec RunSpec) []mount {
 // (specgenutilexternal.FindMountType) both split it with encoding/csv, so a
 // path holding a comma or a quote is quoted here or it splits into fields
 // that are not there.
-func mountArgs(mounts []mount) []string {
+//
+// The SOURCE is src's name for m.Host on the daemon; the TARGET is
+// m.Container untouched. m.Host itself stays the path as THIS process sees it,
+// which every mount planner, the shared-fs probe's roots and scratch reaping
+// rely on, so the translation happens here, at render, and nowhere else.
+func mountArgs(mounts []mount, src sourceMapper) ([]string, error) {
 	var args []string
 	for _, m := range mounts {
-		fields := []string{"type=bind", "source=" + m.Host, "target=" + m.Container}
+		source, err := src.toDaemon(m.Host)
+		if err != nil {
+			return nil, err
+		}
+		fields := []string{"type=bind", "source=" + source, "target=" + m.Container}
 		if m.ReadOnly {
 			fields = append(fields, "readonly")
 		}
 		args = append(args, "--mount", csvRecord(fields))
 	}
-	return args
+	return args, nil
 }
 
 // csvRecord renders fields as one CSV record, the inverse of the reader the

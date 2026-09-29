@@ -118,7 +118,7 @@ func TestRunNetwork_TheRouteDecidesIt(t *testing.T) {
 			assert.Equal(t, tc.want, route.network)
 		})
 	}
-	assert.NotContains(t, strings.Join(Podman{rootless: true, rootlessNet: "pasta"}.RunArgs(sampleSpec()), " "), "--network",
+	assert.NotContains(t, strings.Join(mustRunArgs(t, Podman{rootless: true, rootlessNet: "pasta"}, sampleSpec()), " "), "--network",
 		"the argv head never decides the network; the spec carries the route's")
 }
 
@@ -128,7 +128,7 @@ func TestRenderRunSpec_NetworkRenderedOnceBeforeTheImage(t *testing.T) {
 	spec := sampleSpec()
 	spec.Network = "ctxloom-net"
 	for _, rt := range []Runtime{Docker{}, Podman{rootless: true, rootlessNet: "pasta"}} {
-		args := rt.RunArgs(spec)
+		args := mustRunArgs(t, rt, spec)
 		n, at, img := 0, -1, -1
 		for i, a := range args {
 			if a == "--network=ctxloom-net" {
@@ -142,7 +142,7 @@ func TestRenderRunSpec_NetworkRenderedOnceBeforeTheImage(t *testing.T) {
 		assert.Equal(t, 1, n, "%s: one --network", rt.Name())
 		assert.Less(t, at, img, "%s: --network is a run flag, before the image", rt.Name())
 	}
-	assert.NotContains(t, strings.Join(Docker{}.RunArgs(sampleSpec()), " "), "--network")
+	assert.NotContains(t, strings.Join(mustRunArgs(t, Docker{}, sampleSpec()), " "), "--network")
 }
 
 // TestBuildRunnerSpec_CarriesTheRoutesNetwork: the runner joins the network

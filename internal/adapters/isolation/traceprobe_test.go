@@ -94,7 +94,7 @@ func TestRenderRunSpec_TraceProbe(t *testing.T) {
 		Command: []string{"ctxloom", "llm", "host", "claude-code"},
 		Trace:   tp,
 	}
-	args := renderRunSpec(spec)
+	args := mustRender(t, spec)
 	joined := strings.Join(args, " ")
 
 	// The mechanism is a seccomp override, never CAP_SYS_PTRACE.
@@ -133,7 +133,7 @@ func TestRenderRunSpec_NoTraceProbe_NoSeccompOverride(t *testing.T) {
 		Command: []string{"ctxloom", "llm", "host", "claude-code"},
 		// Trace deliberately nil — the production zero value.
 	}
-	args := renderRunSpec(spec)
+	args := mustRender(t, spec)
 	joined := strings.Join(args, " ")
 	if strings.Contains(joined, "SYS_PTRACE") || strings.Contains(joined, "cap-add") {
 		t.Fatalf("a production run (nil Trace) MUST NOT get a ptrace capability; got %v", args)
@@ -152,9 +152,9 @@ func TestRenderRunSpec_NoTraceProbe_NoSeccompOverride(t *testing.T) {
 func TestRunArgs_NoTraceProbe_NoSeccompOverride(t *testing.T) {
 	spec := RunSpec{Image: "img", Name: "c1", Command: []string{"ctxloom"}}
 	for _, rt := range []Runtime{Docker{}, Docker{rootless: true}, Podman{}, Podman{rootless: true}} {
-		j := strings.Join(rt.RunArgs(spec), " ")
+		j := strings.Join(mustRunArgs(t, rt, spec), " ")
 		if strings.Contains(j, "SYS_PTRACE") || strings.Contains(j, "security-opt") || strings.Contains(j, "seccomp") {
-			t.Errorf("%s.RunArgs(nil-Trace) must not grant ptrace nor override seccomp; got %v", rt.Name(), rt.RunArgs(spec))
+			t.Errorf("%s.RunArgs(nil-Trace) must not grant ptrace nor override seccomp; got %v", rt.Name(), mustRunArgs(t, rt, spec))
 		}
 	}
 }
@@ -168,7 +168,7 @@ func TestRunArgs_TraceProbe_AppliesSeccomp(t *testing.T) {
 		Command: []string{"ctxloom"},
 		Trace:   &TraceProbe{HostDir: "/h", ContainerDir: "/ctxloom-probe-trace", OutFile: "reads.strace", Syscalls: "openat", SeccompProfile: "/h/probe-seccomp.json"},
 	}
-	j := strings.Join(Docker{}.RunArgs(spec), " ")
+	j := strings.Join(mustRunArgs(t, Docker{}, spec), " ")
 	if !strings.Contains(j, "--security-opt seccomp=/h/probe-seccomp.json") {
 		t.Error("Docker.RunArgs(Trace) must apply the probe seccomp profile")
 	}

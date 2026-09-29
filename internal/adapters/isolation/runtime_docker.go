@@ -37,7 +37,7 @@ func (Docker) Available() bool { return runtimeReachable("docker") }
 
 // RunArgs renders the spec into a `docker run` argv: the rootless-specific
 // identity HEAD plus the shared renderRunSpec tail (via ociRuntime.runArgs).
-func (d Docker) RunArgs(spec RunSpec) []string {
+func (d Docker) RunArgs(spec RunSpec) ([]string, error) {
 	args := []string{"run", "--rm", "--name", spec.Name}
 	args = append(args, initArgs()...)
 	args = append(args, ownerLabelArgs()...)

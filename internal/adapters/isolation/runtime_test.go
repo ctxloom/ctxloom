@@ -37,7 +37,7 @@ func sampleSpec() RunSpec {
 // project mount, socket mount, workdir, image, and in-container command must
 // all render.
 func TestDockerRootless_RunsAsMappedRoot(t *testing.T) {
-	args := Docker{rootless: true}.RunArgs(sampleSpec())
+	args := mustRunArgs(t, Docker{rootless: true}, sampleSpec())
 	joined := strings.Join(args, " ")
 
 	assert.Equal(t, []string{"run", "--rm", "--name", "ctxloom-iso-m-abc"}, args[:4], "run head")
@@ -65,7 +65,7 @@ func TestRunArgs_AuthSecretValueNotInArgv(t *testing.T) {
 
 	spec := sampleSpec()
 	spec.Env = append(spec.Env, "ANTHROPIC_API_KEY")
-	args := Docker{rootless: true}.RunArgs(spec)
+	args := mustRunArgs(t, Docker{rootless: true}, spec)
 	joined := strings.Join(args, " ")
 
 	assert.Contains(t, joined, "-e ANTHROPIC_API_KEY", "the auth var crosses by NAME")
@@ -81,7 +81,7 @@ func TestRunArgs_AuthSecretValueNotInArgv(t *testing.T) {
 // socket and every project write land host-user-owned. No --user: the
 // entrypoint needs root to usermod.
 func TestDockerRootful_PassesIdentityEnv(t *testing.T) {
-	joined := strings.Join(Docker{rootless: false}.RunArgs(sampleSpec()), " ")
+	joined := strings.Join(mustRunArgs(t, Docker{rootless: false}, sampleSpec()), " ")
 	assert.Contains(t, joined, wantPUIDArg(), "launching uid crosses for the remap")
 	assert.Contains(t, joined, wantPGIDArg(), "launching gid crosses for the remap")
 	assert.NotContains(t, joined, "--user", "the entrypoint, not --user, sets identity")
@@ -105,9 +105,9 @@ func TestDockerRootful_PassesIdentityEnv(t *testing.T) {
 // come back just as easily via a runtime's own argv head.
 func TestIdentityEnvArgs_NeverAllowsRoot(t *testing.T) {
 	resetStrictness(t)
-	assert.NotContains(t, strings.Join(Docker{}.RunArgs(sampleSpec()), " "),
+	assert.NotContains(t, strings.Join(mustRunArgs(t, Docker{}, sampleSpec()), " "),
 		"CTXLOOM_ALLOW_ROOT", "docker run must never carry the root escape hatch")
-	assert.NotContains(t, strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " "),
+	assert.NotContains(t, strings.Join(mustRunArgs(t, Podman{rootless: true}, sampleSpec()), " "),
 		"CTXLOOM_ALLOW_ROOT", "podman run must never carry the root escape hatch")
 }
 
@@ -183,7 +183,7 @@ func TestNewDockerRuntime_ProbesOnlyReachableDaemons(t *testing.T) {
 // TestPodmanRootful_DockerCompatibleArgv: rootful podman matches rootful
 // docker — identity env for the entrypoint remap, no keep-id, no --user.
 func TestPodmanRootful_DockerCompatibleArgv(t *testing.T) {
-	args := Podman{}.RunArgs(sampleSpec())
+	args := mustRunArgs(t, Podman{}, sampleSpec())
 	joined := strings.Join(args, " ")
 	assert.Equal(t, []string{"run", "--rm", "--name", "ctxloom-iso-m-abc"}, args[:4])
 	assert.NotContains(t, joined, "keep-id")
@@ -199,7 +199,7 @@ func TestPodmanRootful_DockerCompatibleArgv(t *testing.T) {
 // (keep-id's default user is the host uid, which could not usermod) so the
 // entrypoint can remap ctxloom to PUID/PGID and drop to it.
 func TestPodmanRootless_KeepIDAsRoot(t *testing.T) {
-	joined := strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " ")
+	joined := strings.Join(mustRunArgs(t, Podman{rootless: true}, sampleSpec()), " ")
 	assert.Contains(t, joined, "--userns=keep-id", "launching uid maps to itself")
 	assert.Contains(t, joined, "--user 0:0", "enter as namespaced root for the remap")
 	assert.Contains(t, joined, wantPUIDArg())
@@ -217,7 +217,7 @@ func TestHost_IsNonContainer(t *testing.T) {
 	assert.Equal(t, "host", h.Name())
 	assert.Empty(t, h.Binary())
 	assert.True(t, h.Available(), "the host can always run a subprocess")
-	assert.Nil(t, h.RunArgs(sampleSpec()))
+	assert.Nil(t, mustRunArgs(t, h, sampleSpec()))
 	assert.Nil(t, h.RemoveArgs("c1"))
 	infos, err := h.Enumerate(context.Background(), containerNamePrefix)
 	assert.NoError(t, err)
@@ -232,7 +232,7 @@ func TestHost_IsNonContainer(t *testing.T) {
 func TestDockerAndPodmanRunArgs_StampOwnerLabels(t *testing.T) {
 	pidLabel := fmt.Sprintf("--label %s=%d", labelOwnerPID, os.Getpid())
 	for _, rt := range []Runtime{Docker{rootless: true}, Docker{rootless: false}, Podman{rootless: true}, Podman{rootless: false}} {
-		joined := strings.Join(rt.RunArgs(sampleSpec()), " ")
+		joined := strings.Join(mustRunArgs(t, rt, sampleSpec()), " ")
 		assert.Contains(t, joined, pidLabel, "%s: owner-pid label", rt.Name())
 		assert.Contains(t, joined, "--label "+labelCreatedAt+"=", "%s: created-at label", rt.Name())
 	}
@@ -374,7 +374,7 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 
 	spec := runnerSpecFor(Docker{}, "claude-code", t.TempDir(), nil, nil)
 	require.Equal(t, defaultContainerHome, spec.Home)
-	assert.Contains(t, strings.Join(renderRunSpec(spec), " "), "-e HOME="+defaultContainerHome,
+	assert.Contains(t, strings.Join(mustRender(t, spec), " "), "-e HOME="+defaultContainerHome,
 		"a spec carrying a home must render the fresh-HOME env flag")
 }
 
@@ -383,7 +383,7 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 // same answer.
 func TestPassesPUID(t *testing.T) {
 	assert.False(t, Docker{rootless: true}.passesPUID())
-	assert.NotContains(t, strings.Join(Docker{rootless: true}.RunArgs(sampleSpec()), " "), "PUID=")
+	assert.NotContains(t, strings.Join(mustRunArgs(t, Docker{rootless: true}, sampleSpec()), " "), "PUID=")
 	assert.True(t, Docker{}.passesPUID())
 	assert.True(t, Podman{}.passesPUID())
 	assert.True(t, Podman{rootless: true}.passesPUID())

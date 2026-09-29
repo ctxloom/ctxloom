@@ -180,7 +180,7 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	_, err = c.environment(cw, pl, roots)
 	require.NoError(t, err)
 
-	argv := strings.Join(c.runtime.RunArgs(c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")
+	argv := strings.Join(mustRunArgs(t, c.runtime, c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")
 	assert.Contains(t, argv, "type=bind,source="+login+",target="+defaultContainerHome+"/.claude ", "the login store, read-write")
 	assert.Contains(t, argv, "type=bind,source="+provider+",target="+defaultContainerHome+"/.aws,readonly", "the provider store, read-only")
 	nested := "type=bind,source=" + ssoCache + ",target=" + defaultContainerHome + "/.aws/sso/cache "

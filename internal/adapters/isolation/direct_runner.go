@@ -72,7 +72,11 @@ func (c Container) interactiveRunner(_ context.Context, backendName string, ws w
 	// The runner process runs under RunnerTerm (the last -e wins over the
 	// workspace's TERM); the engine's env carries the human's terminal.
 	spec.Env = append(spec.Env, "TERM="+RunnerTerm)
-	cmd := exec.Command(c.runtime.Binary(), c.runtime.RunArgs(spec)...)
+	args, err := c.runtime.RunArgs(spec)
+	if err != nil {
+		return nil, "", err
+	}
+	cmd := exec.Command(c.runtime.Binary(), args...)
 	cmd.Env = append(os.Environ(), envPairs(spawnEnv)...)
 	return cmd, name, nil
 }
@@ -149,7 +153,11 @@ const runnerWaitDelay = 10 * time.Second
 // goroutine started here Waits it exactly once, and RunnerHandle.Wait reads
 // that one outcome (surfacing the stderr tail on failure).
 func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*RunnerHandle, error) {
-	cmd := exec.Command(rt.Binary(), rt.RunArgs(spec)...)
+	args, err := rt.RunArgs(spec)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(rt.Binary(), args...)
 	if len(spawnEnv) > 0 {
 		kv := make([]string, 0, len(spawnEnv))
 		for k, v := range spawnEnv {

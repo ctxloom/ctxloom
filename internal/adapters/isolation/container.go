@@ -432,7 +432,7 @@ func sharedFSGateError(rt Runtime, perr error) error {
 	if errors.As(perr, &mism) {
 		hint := "bind mounts of this process's paths cannot resolve through the daemon"
 		if InContainer() {
-			hint += "; this looks like a dev container using the host's daemon (docker-outside-of-docker) — enable the docker-in-docker feature, or drop `runtime: container`"
+			hint += "; this looks like a container driving its host's daemon (docker-outside-of-docker) — put that path on a bind mount or volume of this container, enable docker-in-docker, or drop `runtime: container`"
 		}
 		return fmt.Errorf("container runtime %s does not share this process's filesystem (%s): %w", runtimeName(rt), hint, perr)
 	}

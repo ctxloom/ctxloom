@@ -29,10 +29,10 @@ func TestRunArgs_EveryContainerRuntimeAsksForAnInit(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"docker-rootless", Docker{rootless: true}.RunArgs(spec)},
-		{"docker-rootful", Docker{rootless: false}.RunArgs(spec)},
-		{"podman-rootless", Podman{rootless: true}.RunArgs(spec)},
-		{"podman-rootful", Podman{rootless: false}.RunArgs(spec)},
+		{"docker-rootless", mustRunArgs(t, Docker{rootless: true}, spec)},
+		{"docker-rootful", mustRunArgs(t, Docker{rootless: false}, spec)},
+		{"podman-rootless", mustRunArgs(t, Podman{rootless: true}, spec)},
+		{"podman-rootful", mustRunArgs(t, Podman{rootless: false}, spec)},
 	} {
 		t.Run(rt.name, func(t *testing.T) {
 			require.NotEmpty(t, rt.args, "a container runtime must render a run argv")

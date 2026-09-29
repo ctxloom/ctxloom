@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/exitstatus"
 	"github.com/ctxloom/ctxloom/internal/shared/ptyrunner"
 	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 )
@@ -75,7 +76,7 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 			// which is not a valid exit status and reaches the user as a
 			// truncated 255. Both launch modes must classify a killed engine
 			// the same way or the exit code depends on which one ran.
-			return int32(ptyrunner.ExitStatusFor(exitErr)), nil
+			return int32(exitstatus.Of(exitErr)), nil
 		}
 		if errors.Is(err, exec.ErrWaitDelay) {
 			// The process itself succeeded; only its output pipes were still

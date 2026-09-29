@@ -157,7 +157,11 @@ type EngineHost struct {
 	turnCancel context.CancelFunc
 	turns      int
 	lastMeta   *agent.TurnMeta
-	ended      bool
+	// lastExit is the LAST turn's engine exit status (TurnResult.ExitCode),
+	// overwritten every turn: an earlier turn's status must not stand in for
+	// a turn whose process ctxloom ended itself.
+	lastExit *int
+	ended    bool
 	// stopping is set by StopRun: the run is closing, so no turn queued
 	// behind the interrupted one may start.
 	stopping bool
@@ -529,7 +533,7 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 		code, err := term.Run(ctx, t)
 		result := &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED}
 		if err == nil && ctx.Err() == nil {
-			// The engine ran and exited: its status (ptyrunner.ExitStatusFor)
+			// The engine ran and exited: its status (exitstatus.Of)
 			// is what `ctxloom run` exits with. A terminal error means the
 			// engine never ran, and its code is ctxloom's, not the engine's.
 			exit := int32(code)
@@ -654,6 +658,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	if lastMeta != nil {
 		eh.lastMeta = lastMeta
 	}
+	eh.lastExit = res.ExitCode
 	eh.turns++
 	eh.accepted = appendMail(eh.accepted, tag)
 	eh.mu.Unlock()
@@ -740,11 +745,12 @@ func (eh *EngineHost) finish(home engineHome, turnErr, ctxErr error) {
 	accepted := eh.accepted
 	turns := eh.turns
 	meta := eh.lastMeta
+	lastExit := eh.lastExit
 	key := eh.nativeKey
 	eh.mu.Unlock()
 	awaitAcceptedAcks(eh.rep, home, accepted)
 	eh.closeRecorder()
-	result, exitCode := terminalResult(turnErr, ctxErr, meta, turns)
+	result, exitCode := terminalResult(turnErr, ctxErr, meta, turns, lastExit)
 	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
 		Result: result,
 	}}})
@@ -799,7 +805,10 @@ func awaitAcceptedAcks(rep report.Reporter, home engineHome, accepted []string) 
 // driver returned, ctxErr the run context's own state. Cancellation wins
 // over the error the driver reports for it — a cancelled engine's error IS
 // the cancellation, not a failure — and only a genuine failure exits non-zero.
-func terminalResult(turnErr, ctxErr error, lastMeta *agent.TurnMeta, turns int) (*agentcoordpb.Result, int) {
+// engineExit, the last turn's engine exit status, rides the Result as
+// information and never moves the status: a turn that answered and then
+// exited non-zero still answered.
+func terminalResult(turnErr, ctxErr error, lastMeta *agent.TurnMeta, turns int, engineExit *int) (*agentcoordpb.Result, int) {
 	status := agentcoordpb.Result_RUN_STATUS_SUCCEEDED
 	text := ""
 	exitCode := 0
@@ -817,6 +826,10 @@ func terminalResult(turnErr, ctxErr error, lastMeta *agent.TurnMeta, turns int) 
 		Text:     text,
 		Usage:    usageFromMeta(lastMeta),
 		NumTurns: uint32(turns),
+	}
+	if engineExit != nil {
+		code := int32(*engineExit)
+		result.ExitCode = &code
 	}
 	if turnErr != nil && ctxErr == nil {
 		// The engine's own account of its death rides the error slot too, so

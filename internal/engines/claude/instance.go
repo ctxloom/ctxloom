@@ -277,7 +277,8 @@ func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.T
 	}()
 	if err := writeUserMessage(tr.stdin, in.Prompt); err != nil {
 		_ = tr.Close()
-		for range events { //nolint:revive // drained so the reader can return
+		for range events {
+			// drained, so the reader can return
 		}
 		return engine.TurnResult{}, err
 	}

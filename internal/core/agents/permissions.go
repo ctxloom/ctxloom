@@ -116,7 +116,7 @@ func (p *Permissions) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	*p = Permissions{}
-	if err := p.NeutralPermissions.decode(node); err != nil {
+	if err := p.decode(node); err != nil {
 		return err
 	}
 	for i := 0; i+1 < len(node.Content); i += 2 {
@@ -141,7 +141,7 @@ func (p *Permissions) UnmarshalYAML(node *yaml.Node) error {
 
 // MarshalYAML writes the neutral keys and the engine blocks side by side.
 func (p Permissions) MarshalYAML() (any, error) {
-	out := p.NeutralPermissions.fields()
+	out := p.fields()
 	for name, block := range p.Engines {
 		out[name] = block
 	}
@@ -156,7 +156,7 @@ func (p Permissions) MarshalJSON() ([]byte, error) {
 
 // Clone copies the block, engine blocks included.
 func (p Permissions) Clone() Permissions {
-	p.NeutralPermissions = p.NeutralPermissions.clone()
+	p.NeutralPermissions = p.clone()
 	if p.Engines != nil {
 		engines := make(map[string]map[string]any, len(p.Engines))
 		for k, v := range p.Engines {
@@ -205,7 +205,7 @@ func (l *LabelPermissions) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	*l = LabelPermissions{}
-	if err := l.NeutralPermissions.decode(node); err != nil {
+	if err := l.decode(node); err != nil {
 		return err
 	}
 	for i := 0; i+1 < len(node.Content); i += 2 {
@@ -227,7 +227,7 @@ func (l *LabelPermissions) UnmarshalYAML(node *yaml.Node) error {
 
 // MarshalYAML writes the neutral and engine keys flat.
 func (l LabelPermissions) MarshalYAML() (any, error) {
-	out := l.NeutralPermissions.fields()
+	out := l.fields()
 	maps.Copy(out, l.Engine)
 	return out, nil
 }
@@ -240,7 +240,7 @@ func (l LabelPermissions) MarshalJSON() ([]byte, error) {
 
 // Clone copies the block.
 func (l LabelPermissions) Clone() LabelPermissions {
-	l.NeutralPermissions = l.NeutralPermissions.clone()
+	l.NeutralPermissions = l.clone()
 	l.Engine = cloneDoc(l.Engine)
 	return l
 }

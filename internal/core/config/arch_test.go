@@ -109,6 +109,7 @@ var intentionalOpenSchemaMaps = map[string]bool{
 	"mock_control":     true, // llm.configs.*.mock_control: the mock engine's arbitrary test-control map
 	"servers":          true, // mcp.servers: user-named MCP server labels
 	"ext":              true, // hooks.ext: engine-named passthrough labels
+	"labelPermissions": true, // llm.configs.*.permissions: the label's engine's own keys, which that engine's model refuses unknown ones of at load
 }
 
 // walkSchemaObjects recursively visits every object schema in a decoded JSON

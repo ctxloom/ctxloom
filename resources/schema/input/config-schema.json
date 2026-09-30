@@ -358,7 +358,7 @@
     "labelPermissions": {
       "type": "object",
       "additionalProperties": true,
-      "description": "An llm label's permissions block: the engine-neutral fields and, flat beside them, the keys of the label's engine (its type) \u2014 for claude-code: mode, after_plan, allow, deny, ask. The label's engine validates its keys at load. An agent binding overrides it, key by key.",
+      "description": "An llm label's permissions block: the engine-neutral fields and, flat beside them, the keys of the label's engine (its type), which that engine names and validates at load. An agent binding overrides it, key by key.",
       "properties": {
         "approver": {
           "type": "string",
@@ -391,7 +391,7 @@
     },
     "bindingPermissions": {
       "type": "object",
-      "description": "An agent binding's permissions block: the engine-neutral fields, and one block per engine keyed by the engine's name (e.g. claude-code: {mode: plan, after_plan: acceptEdits, deny: [...]}) \u2014 a binding's engine is known only when it resolves, and one binding may carry blocks for several. Each engine validates its own block at load. A binding with engine blocks but none for the engine it resolves to is refused at launch. Each field left empty inherits the engine label's, then the project's, then the engine's default.",
+      "description": "An agent binding's permissions block: the engine-neutral fields, and one block per engine keyed by the engine's name (e.g. claude-code: {mode: plan}) \u2014 a binding's engine is known only when it resolves, and one binding may carry blocks for several. Each engine validates its own block at load. A binding with engine blocks but none for the engine it resolves to is refused at launch. Each field left empty inherits the engine label's, then the project's, then the engine's default.",
       "properties": {
         "approver": {
           "type": "string",

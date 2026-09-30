@@ -37,7 +37,7 @@ Schema for ctxloom config.yaml files
 | `isolation_engines` | string[] | Selects which engine fragments compose into the shared multi-engine agent image: each registered engine installs via its OWN official installer, in one independently-cacheable Containerfile layer. Empty/unset = every known engine (the biggest image, "one instance runs any engine"); an unrecognized name is dropped with a warning. |
 | `isolation_images` | map → string | Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (e.g. claude-code). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER — except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity — its writes into the mounted project would land root-owned or otherwise not yours — is a fatal startup finding; --degraded launches it anyway with the image's own identity. |
 | `llm` | object | Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role→label map |
-| `permissions` | projectPermissions | Project default permissions block for engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. Resolution, field by field: `run --permissions` (mode only) > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's declared host default. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them. |
+| `permissions` | neutralPermissions | Project default permissions block for engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. The engine-neutral fields only; each resolves the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's default. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them. |
 | `runtime` | string | Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container-rootless' and 'container-rootful' run it inside the backend's agent image, and name WHO OWNS the container runtime daemon — they are not interchangeable, because a rootful daemon maps the engine's writes to a different uid than a rootless one, so a run that picked the wrong one produces files the other side cannot edit. There is deliberately no bare 'container': it could only be satisfied by guessing an ownership mode. An agent binding's own `runtime` overrides this default. A value outside this set is REFUSED, never degraded: asserted past the parser it would read as not-a-container — the bare host — so a run that asked for a container boundary would execute outside one, unsandboxed, having said so to nobody. Independent of `workspace` — the two axes are never bound together. Allowed values: `host`, `container-rootless`, `container-rootful`. |
 | `session_purge_age` | string | How old an ended session must be before `ctxloom session sweep --yes` purges it - its transcript and essence, never the files you wrote: an offset in the same grammar as session_reap_age - 30d, 12w, 720h. NO default: unset, the sweep reports what it would purge and purges nothing. `session sweep --purge-older-than` overrides it for one invocation. A session never distilled is never purged by a sweep. A fact about this machine's disk, so it is honoured from ~/.ctxloom/config.yaml (or CTXLOOM_CONFIG_SESSION_PURGE_AGE) and never from the committed project file. A value the grammar cannot parse is REFUSED. |
 | `session_reap_age` | string | How old a session must be before `ctxloom clean` reclaims its disposable store (~/.ctxloom/sessions/<harp>/ephemeral): an offset in `clean --older-than`'s grammar - 30d, 12w, 720h. Default 30d when unset. `clean --older-than` overrides it for one invocation. persist/ is never taken on this age alone; that needs `clean --include-persist`. A session carrying a top-level file named `keep` is never reclaimed. A fact about this machine's disk, so it is honoured from ~/.ctxloom/config.yaml (or CTXLOOM_CONFIG_SESSION_REAP_AGE) and never from the committed project file. A value the grammar cannot parse is REFUSED, never resolved to the default. |
@@ -54,7 +54,8 @@ Schema for ctxloom config.yaml files
 | `driving` | string | Per-turn execution axis: conversational (persistent engine process across turns, the default and today's only behavior) or oneshot (engine process ends at each turn boundary; resumed by native session key — requires a resume-capable engine). Allowed values: `conversational`, `oneshot`. |
 | `engine_home` | string | Engine-home axis for this agent: WHICH HOME its engine runs against. The third isolation axis, a peer of runtime (which isolates the PROCESS) and workspace (which isolates the FILES): this one isolates the engine's config AND identity — its credentials, memory, plugins, personal MCP registrations, global agents and steering, everything the engine keeps in its home directory. "session" (the default, also when omitted) points the engine at a ctxloom-controlled, PER-SESSION home under ~/.ctxloom/sessions/<harp>/home/<engine leaf> — on the host the engine is told that path; in a container it is mounted and the engine is told the mount target — holding no credential: the engine authenticates as the agent's auth mode says (see auth). "host" is the UNSAFE selection: it keeps the home the runtime gives the engine — your real host home (its credentials, memory, plugins, personal MCP registrations, global agents and steering, written back to by the run), or a container's own fresh $HOME — and the dry-run plan and the launch banner name it unsafe. A declared value wins on every invocation path this binding resolves through — a bare run under default_agent, run --agent, a delegated child, a oneshot fan member alike; a run with NO agent binding at all (no --agent, no default_agent) gets the session home too. Validated when written — an unknown value is refused, naming the two valid ones. Allowed values: `host`, `session`. |
 | `llm` | string | llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model — it is not an engine, and it carries no credentials (an engine reads those from the ambient environment; the retired key 'env' is refused at load). The retired spelling 'engine' is refused at load |
-| `permissions` | permissions | This agent's permissions block; each field left empty inherits the engine label's, then the project's, then the built-in default. |
+| `may_delegate` | string[] | The agents (roles) this agent may launch with agent_run. Unset or empty permits any; a list permits exactly those, and agent_run refuses any other, naming the ones allowed. Each must name an agent in `agents`, or the config is refused at load. |
+| `permissions` | bindingPermissions | This agent's permissions block: the neutral fields, and one block per engine. |
 | `profiles` | string[] | Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>). |
 | `roots` | map → string | Root selection for this binding: under which of the roots the engine's approach for a surface kind offers, that kind's items land. Keys are surface kinds (context, mcp, settings, hooks, commands, skills); values are roots (session-home, project-root, work-dir). Omitted takes each approach's default, and every default is the session home: a session delivers only into its own home, and neither the project tree nor the user's real home is written. project-root and work-dir are the UNSAFE options: selecting one writes that kind's engine files into the shared project tree (or the working directory), which every concurrent session using that tree reads and races on; it is reached only by this selection, never fallen back to, and a run that takes it says so (the dry-run plan and the launch banner name the route unsafe). Validated against the bound engine's declared approaches when written (ctxloom agent set --root kind=root) — a root the approach does not offer is refused, naming the ones it does. |
 | `runtime` | string | Runtime axis for this agent: where its engine process executes. The two container values name WHO OWNS the container runtime daemon and are not interchangeable — see the top-level `runtime` default for why there is no bare 'container'. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/acp --workspace, or an agent_run spawn's workspace field), never declared on an agent. Allowed values: `host`, `container-rootless`, `container-rootful`. |
@@ -140,6 +141,17 @@ Interactive-run terminal layer: the prefix-key agent-observation viewer and the 
 
 Reusable schema types referenced by the fields above.
 
+### bindingPermissions
+
+An agent binding's permissions block: the engine-neutral fields, and one block per engine keyed by the engine's name (e.g. claude-code: {mode: plan}) — a binding's engine is known only when it resolves, and one binding may carry blocks for several. Each engine validates its own block at load. A binding with engine blocks but none for the engine it resolves to is refused at launch. Each field left empty inherits the engine label's, then the project's, then the engine's default.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `approval_timeout` | string | How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m. |
+| `approver` | string | Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody — the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one. Allowed values: `human`, `none`, `reviewer`. |
+| `network` | boolean | Whether the engine's sandboxed commands may reach the network. |
+| `sandbox` | string | What the engine's own commands may touch: 'read-only', 'workspace-write' (the working tree only) or 'full' (whatever contains the process is the boundary). Each engine maps it to its own mechanism and refuses a value it cannot enforce where the agent runs; undeclared, the engine's default applies. Allowed values: `read-only`, `workspace-write`, `full`. |
+
 ### hook
 
 A hook definition
@@ -167,6 +179,17 @@ Hooks configuration
 | `ext` | map → map → hookArray | Engine-namespaced passthrough hooks (keyed by engine name): each engine's NATIVE event names, written to its settings untranslated |
 | `unified` | unifiedHooks | Unified hooks (translated per-backend) |
 
+### labelPermissions
+
+An llm label's permissions block: the engine-neutral fields and, flat beside them, the keys of the label's engine (its type), which that engine names and validates at load. An agent binding overrides it, key by key.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `approval_timeout` | string | How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m. |
+| `approver` | string | Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody — the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one. Allowed values: `human`, `none`, `reviewer`. |
+| `network` | boolean | Whether the engine's sandboxed commands may reach the network. |
+| `sandbox` | string | What the engine's own commands may touch: 'read-only', 'workspace-write' (the working tree only) or 'full' (whatever contains the process is the boundary). Each engine maps it to its own mechanism and refuses a value it cannot enforce where the agent runs; undeclared, the engine's default applies. Allowed values: `read-only`, `workspace-write`, `full`. |
+
 ### llmConfig
 
 One labeled backend config. `type` is the discriminator and may be omitted (it defaults to claude-code — see LLMConfig.EffectiveType); the remaining fields are that backend's own config. anyOf (not oneOf): an entry without `type` is shape-compatible with several branches and must still validate.
@@ -178,7 +201,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `args` | string[] |  |
 | `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
-| `permissions` | permissions | This label's permissions block; each field left empty inherits the project's, then the built-in default. An agent binding overrides it, field by field. |
+| `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `claude-code`. |
 
@@ -188,34 +211,20 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 |-------|------|-------------|
 | `mock_control` | map → string | The mock engine's TEST-CONTROL knobs (CTXLOOM_MOCK_RESPONSE, CTXLOOM_MOCK_RECORD_FILE, CTXLOOM_MOCK_EXIT_CODE, ...), handed to the mock through the run request's env. Test control, not credentials: no real engine's entry carries an environment map — an engine reads its credentials from the ambient environment, and the retired key 'env' is refused at load. |
 | `model` | string |  |
-| `permissions` | permissions | This label's permissions block; each field left empty inherits the project's, then the built-in default. An agent binding overrides it, field by field. |
+| `permissions` | labelPermissions | This label's permissions block: the neutral fields and its engine's keys, flat. |
 | `role` | string | Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `mock`. |
 
-### permissions
+### neutralPermissions
 
-A permissions block: the launch-time posture, the engine-native rules, and who answers what they leave open. Every field is optional; one left empty inherits from the next rung (agent binding > llm label > project > the engine's built-in default), field by field — the rules from the agent binding and the llm label only. An unknown key refuses the whole config: a misspelled deny that vanished would leave the denial undeclared.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `after_plan` | string | Makes a 'plan' posture plan-first: the posture an approved plan continues at. Requires the resolved mode to be plan, must not exceed the launching session's ceiling, and is never bypass. Allowed values: `default`, `acceptEdits`. |
-| `allow` | string[] | Rules the engine allows without asking, in the engine's own rule syntax (claude: Tool or Tool(content), e.g. Bash(npm test), mcp__server__tool). Validated by the engine at launch. |
-| `approval_timeout` | string | How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m. |
-| `approver` | string | Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody — the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one. Allowed values: `human`, `none`, `reviewer`. |
-| `ask` | string[] | Rules that always go to the approver, even when an allow or a grant would cover them. |
-| `deny` | string[] | Rules the engine denies. A deny beats any allow or session grant. |
-| `mode` | string | The starting posture: 'default' (the approver answers each gated call), 'acceptEdits' (file edits unasked, the rest to the approver), 'plan' (read-only), 'bypass' (nothing asked), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). `run --permissions` overrides it. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`, `dontAsk`, `auto`. |
-
-### projectPermissions
-
-The project's permissions block: the engine-neutral fields only (mode, after_plan, approver, approval_timeout). Rules (allow, deny, ask) are engine grammar and are declared where an engine is known — an agent binding or an llm label; a project-level rule is refused at launch, naming where to put it.
+The project's permissions block: the engine-neutral fields only. An engine's mode and rules are engine grammar, declared where an engine is known — an agent binding's block for that engine, or an llm label; one written here is refused at load, naming where it goes.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `after_plan` | string | Makes a 'plan' posture plan-first: the posture an approved plan continues at. Requires the resolved mode to be plan, must not exceed the launching session's ceiling, and is never bypass. Allowed values: `default`, `acceptEdits`. |
 | `approval_timeout` | string | How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m. |
 | `approver` | string | Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody — the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one. Allowed values: `human`, `none`, `reviewer`. |
-| `mode` | string | The starting posture: 'default' (the approver answers each gated call), 'acceptEdits' (file edits unasked, the rest to the approver), 'plan' (read-only), 'bypass' (nothing asked), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). `run --permissions` overrides it. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`, `dontAsk`, `auto`. |
+| `network` | boolean | Whether the engine's sandboxed commands may reach the network. |
+| `sandbox` | string | What the engine's own commands may touch: 'read-only', 'workspace-write' (the working tree only) or 'full' (whatever contains the process is the boundary). Each engine maps it to its own mechanism and refuses a value it cannot enforce where the agent runs; undeclared, the engine's default applies. Allowed values: `read-only`, `workspace-write`, `full`. |
 
 ### unifiedHooks
 

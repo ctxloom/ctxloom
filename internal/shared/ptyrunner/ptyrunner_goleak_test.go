@@ -25,7 +25,8 @@ import (
 //   - the stdin copier, started only when stdin != nil. It parks in
 //     stdin.Read, which cannot observe close(done); running the caller's
 //     stdinCleanup is the only thing that unparks it.
-//   - the resize applier, started only when resize != nil. It selects on done.
+//   - the resize applier, started only when resize != nil. RunInteractive
+//     stops and joins it before reporting.
 //
 // Passing nil for either argument means the corresponding goroutine is never
 // created, and goleak then confirms nothing about it — a leak check over

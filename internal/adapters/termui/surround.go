@@ -87,9 +87,9 @@ type surround struct {
 	hasApprovals bool
 	// now measures the oldest request's age at paint time; the controller's
 	// clock.
-	now func() time.Time
-	dirty        atomic.Bool
-	buf          []byte // render scratch, reused (guarded by mu)
+	now   func() time.Time
+	dirty atomic.Bool
+	buf   []byte // render scratch, reused (guarded by mu)
 }
 
 // newSurround builds the bar renderer. mu is the tty lock shared with the

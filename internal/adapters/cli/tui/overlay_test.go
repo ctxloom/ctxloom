@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -242,6 +243,8 @@ func (b *blockingQuitter) Quit() {
 	close(b.entered)
 	<-b.release
 }
+
+func (b *blockingQuitter) Send(tea.Msg) {}
 
 // Abort must not hold the overlay's lock while Quit blocks. Run takes that same
 // lock immediately after p.Run returns, so an Abort parked inside Quit with the

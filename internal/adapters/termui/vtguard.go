@@ -394,6 +394,19 @@ func (g *vtGuard) insertReassert() {
 	g.out = append(g.out, g.reassert()...)
 }
 
+// abandonPending drops a held-back sequence or rune tail whose continuation
+// was discarded (a released hold that was not replayed). Those bytes were
+// never written, so the terminal's parser is at ground and so is the guard.
+// A string (OSC/DCS) already streamed through cannot be taken back and is
+// left as it is.
+func (g *vtGuard) abandonPending() {
+	g.tail = g.tail[:0]
+	if g.state == vtEsc || g.state == vtCSI {
+		g.state = vtGround
+		g.seq = g.seq[:0]
+	}
+}
+
 // Flush returns any bytes currently held back inside the guard — a pending
 // incomplete escape/CSI sequence (g.seq) and/or a held UTF-8 rune tail
 // (g.tail) — and clears that held state. Unlike Filter, this

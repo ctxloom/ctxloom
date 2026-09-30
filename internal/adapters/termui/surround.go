@@ -78,10 +78,9 @@ type surround struct {
 	restored   bool // Restore ran: terminal handed back, never paint again
 	roster     []RosterEntry
 	hasRoster  bool
-	// approvals is the last known count of approvals parked for the human
-	// (Controller.Options.FetchApprovals). Tracked separately from roster so
-	// SetApprovals can detect the 0→N transition that rings the bell without
-	// caring whether SetRoster has ever been called.
+	// approvals is the count of approvals parked for the human
+	// (Controller.SetApprovals). Tracked separately from roster so the digest
+	// shows it whether or not SetRoster has ever been called.
 	approvals    int
 	hasApprovals bool
 	dirty        atomic.Bool
@@ -219,25 +218,24 @@ func (s *surround) SetRoster(roster []RosterEntry) {
 	s.RequestPaint()
 }
 
-// SetApprovals stores the latest pending-approval count and requests a
-// repaint, exactly like SetRoster. On a 0→N transition — ONLY that
-// transition, never a later N→N tick reporting the same nonzero count — it
-// also writes one BEL byte directly under the shared tty lock so a
-// disengaged human hears it (the surround bar is the one surface visible
-// while the overlay isn't engaged, per the slice 3 plan's two-surface
-// reality). The bell is a standalone C0 control byte, not part of any
-// escape/CSI sequence the output gate's guard tracks, so it is safe to write
-// unconditionally under mu rather than routing through paintSafe.
-func (s *surround) SetApprovals(n int) {
+// SetApprovals stores the pending-approval count and requests a repaint,
+// exactly like SetRoster. With ring it also writes one BEL under the shared
+// tty lock — but only while the bar is showing (not suspended under an
+// overlay, not handed back), and reports whether it rang. The bell is a
+// standalone C0 byte, not part of any escape/CSI sequence the output gate's
+// guard tracks, so it is safe to write unconditionally under mu rather than
+// routing through paintSafe.
+func (s *surround) SetApprovals(n int, ring bool) (rang bool) {
 	s.mu.Lock()
-	bell := n > 0 && s.approvals == 0
 	s.approvals = n
 	s.hasApprovals = true
-	if bell && s.active && !s.suspended && !s.restored {
+	rang = ring && s.active && !s.suspended && !s.restored
+	if rang {
 		_, _ = s.w.Write([]byte{'\a'})
 	}
 	s.mu.Unlock()
 	s.RequestPaint()
+	return rang
 }
 
 // RequestPaint repaints now if the engine is idle, else marks the bar dirty

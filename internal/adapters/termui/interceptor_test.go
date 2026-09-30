@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func newHarness(chunks ...string) *ixHarness {
 			return h.engageSink()
 		},
 		AbortLiteral: func() { h.aborted++ },
-	})
+	}, time.Now)
 	return h
 }
 

@@ -10,15 +10,24 @@ import (
 
 // outputGate sits between the plugin client's output consumer and the tty:
 // open, it writes through (and lets the surround flush a pending repaint on
-// the writer's coattails — see surround); held, engine bytes land in the
-// bounded ring instead of the screen. Release replays the held bytes behind a
-// caller-supplied restore sequence, atomically with the held→open flip so no
-// concurrent engine write can jump the replay.
+// the writer's coattails — see surround); held, engine bytes land in a
+// bounded hold buffer instead of the screen, and the engine is never made to
+// wait (an unread pty would stall it). Release restores the screen behind a
+// caller-supplied sequence, atomically with the held→open flip so no
+// concurrent engine write can jump the restore.
 type outputGate struct {
 	mu   *sync.Mutex // the shared tty lock (surround paints under the same one)
 	dst  io.Writer
-	ring *ring
 	held bool
+
+	// hold is the engine output held while an overlay is up, grown as it
+	// arrives up to holdCap. Past holdCap the whole hold is dropped
+	// (overflowed): a replay has to start where the engine's stream started,
+	// and a drop-oldest tail starts wherever eviction left it — mid-sequence
+	// or mid-rune — which the terminal then prints as text.
+	hold       []byte
+	holdCap    int
+	overflowed bool
 
 	// guard filters every child byte bound for the tty: it clamps/repairs
 	// scroll-region clobbers and holds back trailing partial escape
@@ -35,10 +44,29 @@ type outputGate struct {
 	lastWrite atomic.Int64 // unix nanos of the last passthrough write
 }
 
+// holdMode is how Release gives the screen back.
+type holdMode int
+
+const (
+	// holdReplay returns to the exact screen the held bytes were produced
+	// against and replays them in order.
+	holdReplay holdMode = iota
+	// holdDiscardRedraw drops the held bytes and clears the screen for the
+	// engine to repaint (the release nudge makes it).
+	holdDiscardRedraw
+)
+
+// restore is what the caller writes around a release, one sequence per mode.
+type restore struct {
+	replay []byte // holdReplay: before the held bytes
+	clear  []byte // holdDiscardRedraw: first; leaves the cursor home on a blank screen
+	resume []byte // holdDiscardRedraw: after the overflow notice (region, bar, engine cursor)
+}
+
 // newOutputGate wraps dst. mu is the tty lock shared with the surround;
 // guard and afterWrite may be nil.
-func newOutputGate(mu *sync.Mutex, dst io.Writer, holdCapacity int, guard *vtGuard, afterWrite func()) *outputGate {
-	return &outputGate{mu: mu, dst: dst, ring: newRing(holdCapacity), guard: guard, afterWrite: afterWrite}
+func newOutputGate(mu *sync.Mutex, dst io.Writer, guard *vtGuard, afterWrite func()) *outputGate {
+	return &outputGate{mu: mu, dst: dst, guard: guard, afterWrite: afterWrite}
 }
 
 // Write implements the engine-output path.
@@ -46,7 +74,8 @@ func (g *outputGate) Write(p []byte) (int, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.held {
-		return g.ring.Write(p)
+		g.holdLocked(p)
+		return len(p), nil
 	}
 	out := p
 	if g.guard != nil {
@@ -65,68 +94,109 @@ func (g *outputGate) Write(p []byte) (int, error) {
 	return len(p), err
 }
 
-// Hold diverts engine output into the ring (viewer engaged). Idempotent.
-func (g *outputGate) Hold() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.held = true
+func (g *outputGate) holdLocked(p []byte) {
+	if g.overflowed {
+		return
+	}
+	if len(g.hold)+len(p) > g.holdCap {
+		g.overflowed = true
+		g.hold = nil
+		return
+	}
+	g.hold = append(g.hold, p...)
 }
 
-// Release reopens the gate: writes pre (the screen-restore sequence), replays
-// the held bytes, and appends a truncation notice when the ring overflowed —
-// all under the tty lock. pre is written unconditionally, even when the gate
-// was never held: nothing guarantees a caller never hits that
-// path, and a failing-to-restore terminal with no diagnostic is a worse
-// outcome than one extra write. Only the ring replay is conditional on having
-// been held.
-//
-// Returns the first write failure encountered, if any: a failing
-// tty used to silently lose the entire replay — the ring is drained
-// unconditionally above, so those bytes exist nowhere else once Release
-// returns, and nothing signaled that they were gone. Callers should surface
-// a non-nil error (Controller's Close/release do, via Options.Warn) rather
-// than swallow it a second time.
-func (g *outputGate) Release(pre []byte) error {
+// Hold diverts engine output into a hold of at most capacity bytes (viewer
+// engaged). Idempotent while held.
+func (g *outputGate) Hold(capacity int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	var errs []error
-	if len(pre) > 0 {
-		// pre is the controller's own restore sequence — trusted, never filtered.
-		if _, err := g.dst.Write(pre); err != nil {
-			errs = append(errs, fmt.Errorf("writing restore sequence: %w", err))
-		}
-	}
 	if g.held {
-		g.held = false
-		data, dropped := g.ring.Drain()
-		if g.guard != nil && len(data) > 0 {
-			// The replay is child bytes like any other: same clamping, same
-			// holdback, so a region clobber recorded while the viewer was open
-			// can't slip through on release.
-			data = g.guard.Filter(data)
-		}
-		if len(data) > 0 {
-			if _, err := g.dst.Write(data); err != nil {
-				errs = append(errs, fmt.Errorf("writing %d bytes of held engine output: %w", len(data), err))
-			}
-		}
-		if dropped > 0 {
-			if _, err := fmt.Fprintf(g.dst, "\r\n\x1b[7m ctxloom: %d bytes of engine output dropped while the viewer was open \x1b[0m\r\n", dropped); err != nil {
-				errs = append(errs, fmt.Errorf("writing drop notice: %w", err))
-			}
-		}
+		return
 	}
-	// Run the bar-flush hook exactly as Write does, so a bar marked
-	// dirty by the replay itself (the guard's Filter above can call
-	// barDamaged) gets repainted on this same write cycle instead of staying
-	// blank until the engine's next write — which, for an idle engine, may be
-	// never.
+	g.held, g.holdCap, g.overflowed, g.hold = true, capacity, false, nil
+}
+
+// Release reopens the gate under the tty lock and reports the mode it used:
+// mode as asked, except that an overflowed hold is always redrawn — there is
+// nothing whole left to replay. An open gate (never held) just writes
+// r.replay: nothing guarantees a caller never hits that path, and a terminal
+// left unrestored with no diagnostic is worse than one extra write.
+//
+// Returns every write failure, joined: the held bytes exist nowhere else once
+// Release returns, so a failing tty must not lose them silently. Callers
+// surface a non-nil error (Controller's Close/release do, via Options.Warn).
+func (g *outputGate) Release(mode holdMode, r restore) (holdMode, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var w errWriter
+	w.dst = g.dst
+	if !g.held {
+		w.write(r.replay, "restore sequence")
+		mode = holdReplay
+	} else {
+		mode = g.releaseHeldLocked(&w, mode, r)
+	}
+	// Run the bar-flush hook exactly as Write does, so a bar marked dirty by
+	// the replay itself (the guard's Filter can call barDamaged) is repainted
+	// on this same write cycle instead of staying blank until the engine's
+	// next write — which, for an idle engine, may be never.
 	if g.afterWrite != nil {
 		g.afterWrite()
 	}
 	g.lastWrite.Store(nowNanos())
-	return errors.Join(errs...)
+	return mode, w.err()
 }
+
+func (g *outputGate) releaseHeldLocked(w *errWriter, mode holdMode, r restore) holdMode {
+	data, overflowed, capacity := g.hold, g.overflowed, g.holdCap
+	g.held, g.hold, g.overflowed = false, nil, false
+	if overflowed {
+		mode = holdDiscardRedraw
+	}
+	if mode == holdDiscardRedraw {
+		if g.guard != nil {
+			g.guard.abandonPending()
+		}
+		w.write(r.clear, "clear sequence")
+		if overflowed {
+			w.write(overflowNotice(capacity), "overflow notice")
+		}
+		w.write(r.resume, "resume sequence")
+		return mode
+	}
+	w.write(r.replay, "restore sequence")
+	if g.guard != nil && len(data) > 0 {
+		// The replay is child bytes like any other: same clamping, same
+		// holdback, so a region clobber recorded while the viewer was open
+		// can't slip through on release.
+		data = g.guard.Filter(data)
+	}
+	w.write(data, "held engine output")
+	return mode
+}
+
+func overflowNotice(capacity int) []byte {
+	return fmt.Appendf(nil, "\x1b[7m ctxloom: engine output while the overlay was open exceeded %d KiB; screen redrawn \x1b[0m", capacity>>10)
+}
+
+// errWriter writes every piece it is given, even after one fails, and keeps
+// each failure.
+type errWriter struct {
+	dst  io.Writer
+	errs []error
+}
+
+func (w *errWriter) write(p []byte, what string) {
+	if len(p) == 0 {
+		return
+	}
+	if _, err := w.dst.Write(p); err != nil {
+		w.errs = append(w.errs, fmt.Errorf("writing %s (%d bytes): %w", what, len(p), err))
+	}
+}
+
+func (w *errWriter) err() error { return errors.Join(w.errs...) }
 
 // LastWriteNanos reports when the last passthrough write hit the tty — the
 // surround's engine-idle heuristic.

@@ -212,7 +212,7 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 		Bar: termui.BarInfo{Harp: "self-session", Engine: "claude-code", PrefixHint: "^]"},
 		// The exact production wiring (run_terminal_ui.go:77): the overlay
 		// factory closes over the real tui.NewOverlay constructor.
-		NewOverlay: func() termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix) },
+		NewOverlay: func(termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix) },
 		Warn:       func(format string, args ...any) { warns <- fmt.Sprintf(format, args...) },
 	})
 	defer c.Close()
@@ -323,7 +323,7 @@ func TestOverlayComposition_RealOverlayPanicDegradesPermanently(t *testing.T) {
 		Prefix:     compPrefix,
 		Surround:   true,
 		Bar:        termui.BarInfo{Harp: "h1"},
-		NewOverlay: func() termui.Overlay { return tui.NewOverlay(ctx, panicSrc, compPrefix) },
+		NewOverlay: func(termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, panicSrc, compPrefix) },
 		Warn:       func(format string, args ...any) { warns <- fmt.Sprintf(format, args...) },
 	})
 	defer c.Close()

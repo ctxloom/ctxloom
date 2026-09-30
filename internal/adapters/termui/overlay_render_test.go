@@ -67,7 +67,7 @@ func newRenderHarness(t *testing.T) *renderHarness {
 	c := termui.New(termui.Options{
 		Stdin: slave, TTY: slave, Resize: resize, Prefix: compPrefix, Surround: true,
 		Bar:        termui.BarInfo{Harp: "self-session", Engine: "mock", PrefixHint: "^]"},
-		NewOverlay: func() termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix) },
+		NewOverlay: func(termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix) },
 	})
 	t.Cleanup(c.Close)
 	pumpEngineInput(c)

@@ -18,6 +18,7 @@ type resizeTranslator struct {
 	out     chan *agent.WindowSize
 	reserve int
 	onSize  func(rows, cols int) // surround SetSize (real size); may be nil
+	clock   Clock
 
 	mu         sync.Mutex
 	rows, cols uint16 // last REAL size seen
@@ -39,13 +40,14 @@ type resizeTranslator struct {
 // the engine's first paint could possibly land. Non-blocking: if nothing is
 // buffered yet (GetSize failed, or a test source fed after construction),
 // this is a no-op and the async path below carries it exactly as before.
-func newResizeTranslator(src <-chan *agent.WindowSize, reserve int, onSize func(rows, cols int)) *resizeTranslator {
+func newResizeTranslator(src <-chan *agent.WindowSize, reserve int, onSize func(rows, cols int), clock Clock) *resizeTranslator {
 	t := &resizeTranslator{
 		// Small buffer: Nudge sends a wiggle pair and must not block the
 		// disengage path if the run stream already died.
 		out:     make(chan *agent.WindowSize, 4),
 		reserve: reserve,
 		onSize:  onSize,
+		clock:   clock,
 	}
 	select {
 	case ws, ok := <-src:
@@ -120,8 +122,8 @@ func (t *resizeTranslator) Current() (rows, cols int) {
 // so it's a bounded wait long enough for the intermediate size to travel the
 // send→gate hop chain out to the pty and for the child to receive and act on
 // the resulting SIGWINCH — local IPC plus a signal handler, single-digit
-// milliseconds in the worst realistic case. Nudge fires once per Ctrl-]
-// overlay close (not a hot path), so a bounded sleep here is the pragmatic
+// milliseconds in the worst realistic case. Nudge fires once per overlay
+// close (not a hot path), so a bounded wait on the clock is the pragmatic
 // fix over reworking wire-level signaling.
 const nudgeWiggleSeparation = 50 * time.Millisecond
 
@@ -153,31 +155,25 @@ func (t *resizeTranslator) Nudge() {
 		wiggleRows = eff.Rows + 1
 	}
 	t.send(&agent.WindowSize{Rows: wiggleRows, Cols: eff.Cols})
-	// Off the caller's goroutine: Nudge runs inside Controller.release, under
-	// the controller's sessionMu (held for the whole overlay teardown), and
-	// a re-engage blocks on that same lock — a synchronous sleep here would
-	// hold up the NEXT Ctrl-] press for nudgeWiggleSeparation for no reason.
+	// On a timer, not the caller's goroutine: Nudge runs inside
+	// Controller.release, under the controller's session lock (held for the
+	// whole overlay teardown), and a re-engage waits on that same lock — a
+	// synchronous wait here would hold up the NEXT engagement for
+	// nudgeWiggleSeparation for no reason.
 	//
-	// The restore half must NOT re-send the `eff` captured
-	// above: that's the size at Nudge-call time, and a genuine SIGWINCH can
-	// land in the nudgeWiggleSeparation window and update t.rows/t.cols
-	// before this goroutine wakes. Sending the stale captured size then
-	// would overtake (FIFO, same out channel) the real resize and leave the
-	// child pty sized to a value the terminal no longer has, with nothing to
-	// correct it until the next SIGWINCH. Re-read the CURRENT size under the
-	// lock and re-translate it here instead: if nothing changed this is a
-	// harmless duplicate of `eff`; if a real resize did land, this re-asserts
-	// the CURRENT size rather than clobbering it.
-	go func() {
-		time.Sleep(nudgeWiggleSeparation)
+	// The restore half must NOT re-send the `eff` captured above: a genuine
+	// SIGWINCH can land in the separation window and update t.rows/t.cols,
+	// and the stale captured size would then overtake (FIFO, same out
+	// channel) the real resize, leaving the child pty sized to a value the
+	// terminal no longer has until the next SIGWINCH. Re-read the CURRENT
+	// size instead: unchanged, it is a harmless duplicate of `eff`; changed,
+	// it re-asserts the current size rather than clobbering it.
+	t.clock.AfterFunc(nudgeWiggleSeparation, func() {
 		t.mu.Lock()
 		rows, cols := t.rows, t.cols
 		t.mu.Unlock()
-		if rows == 0 {
-			return
-		}
 		t.send(t.Translate(&agent.WindowSize{Rows: rows, Cols: cols}))
-	}()
+	})
 }
 
 // send is latest-wins like watchResize: a full buffer means the consumer is

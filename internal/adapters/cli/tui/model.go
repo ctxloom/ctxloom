@@ -247,6 +247,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case rosterTickMsg:
 		return m, tea.Batch(m.fetchRosterCmd(), rosterTick())
+	case feedOpenedMsg, feedErrMsg, feedEventMsg, feedClosedMsg:
+		return m.applyFeedMsg(msg)
+	case controlResultMsg:
+		return m.applyControlResult(msg)
+	case geometryMsg:
+		return m.applyGeometry(termui.OverlayGeometry(msg))
+	}
+	return m, nil
+}
+
+func (m Model) applyFeedMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
 	case feedOpenedMsg:
 		return m.applyFeedOpened(msg)
 	case feedErrMsg:
@@ -255,10 +267,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyFeedEvent(msg)
 	case feedClosedMsg:
 		return m.applyFeedClosed(msg)
-	case controlResultMsg:
-		return m.applyControlResult(msg)
 	}
 	return m, nil
+}
+
+// geometryMsg carries a new terminal geometry into a running overlay
+// (Overlay.Resize).
+type geometryMsg termui.OverlayGeometry
+
+// applyGeometry relays the model out and tells the renderer the size it now
+// owns — the panel's height, or the whole drawable area in full screen —
+// the same way the switch to full screen does (ownTerminalCmd).
+func (m Model) applyGeometry(geo termui.OverlayGeometry) (tea.Model, tea.Cmd) {
+	m.geo = geo
+	m.resize()
+	w, h := geo.Cols, m.totalHeight()
+	return m, func() tea.Msg { return tea.WindowSizeMsg{Width: w, Height: h} }
 }
 
 func (m Model) applyFeedErr(msg feedErrMsg) (tea.Model, tea.Cmd) {

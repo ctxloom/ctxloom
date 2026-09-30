@@ -23,6 +23,9 @@ type Overlay struct {
 	mu      sync.Mutex
 	prog    progQuitter
 	aborted bool
+	// resized is a geometry that arrived before the program could take it;
+	// Run delivers it once the program exists.
+	resized *termui.OverlayGeometry
 }
 
 // progQuitter is the running program's quit handle. *tea.Program satisfies it;
@@ -30,7 +33,10 @@ type Overlay struct {
 // is the case Abort has to survive — Program.Quit sends onto an UNBUFFERED
 // channel and blocks until the event loop drains it, which it cannot do before
 // Run reaches that loop or after it has left it.
-type progQuitter interface{ Quit() }
+type progQuitter interface {
+	Quit()
+	Send(tea.Msg)
+}
 
 // NewOverlay builds one engagement's overlay. ctx bounds the feed watches
 // (the run's context, so an exiting run releases them).
@@ -73,7 +79,11 @@ func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry
 		return nil
 	}
 	o.prog = p
+	pending := o.resized
 	o.mu.Unlock()
+	if pending != nil {
+		go p.Send(geometryMsg(*pending))
+	}
 	_, err := p.Run()
 	o.mu.Lock()
 	o.prog = nil
@@ -99,6 +109,25 @@ func (o *Overlay) Abort() {
 		prog.Quit()
 	}
 }
+
+// Resize relays the overlay out for a new terminal size (termui calls it on
+// every resize while engaged). Send blocks until the event loop takes the
+// message, so it runs off the caller's goroutine — the resize translator's —
+// which must never wait on a viewer.
+func (o *Overlay) Resize(geo termui.OverlayGeometry) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.prog == nil {
+		o.resized = &geo
+		return
+	}
+	go o.prog.Send(geometryMsg(geo))
+}
+
+// Armed and Notify are the summoned modal's: the roster/feed view is never
+// summoned, so it has no inert window to end and no banner to show.
+func (o *Overlay) Armed(int)            {}
+func (o *Overlay) Notify(termui.Notice) {}
 
 // onlcr is the writer bubbletea draws through: the output post-processing
 // bubbletea assumes and the terminal does not do, behind a type that hides

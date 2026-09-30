@@ -128,18 +128,7 @@ func WriteRecord(file string, in Record) error {
 	for _, s := range in.Skills {
 		_, _ = fmt.Fprintf(&input, "%s\n", s)
 	}
-	if p := in.Posture; p != nil {
-		input.WriteString("=== Posture ===\n")
-		_, _ = fmt.Fprintf(&input, "mode=%s\n", postureMode(*p))
-		for _, g := range p.Grants {
-			_, _ = fmt.Fprintf(&input, "grant=%s\n", g)
-		}
-		trust := "untrusted"
-		if p.Trust == engine.TrustTrusted {
-			trust = "trusted"
-		}
-		_, _ = fmt.Fprintf(&input, "trust=%s\n", trust)
-	}
+	writePosture(&input, in.Posture)
 	input.WriteString("=== Context ===\n")
 	input.WriteString(in.Context)
 	input.WriteString("\n=== Prompt ===\n")
@@ -184,4 +173,22 @@ func Response(custom string, hasCustom bool, contextStr, prompt string, mode int
 		response.WriteString("[mock] distilled=Compressed content for testing\n")
 	}
 	return response.String()
+}
+
+// writePosture renders a structured turn's posture section; nothing for a
+// run that has none.
+func writePosture(b *strings.Builder, p *engine.TurnPosture) {
+	if p == nil {
+		return
+	}
+	b.WriteString("=== Posture ===\n")
+	_, _ = fmt.Fprintf(b, "mode=%s\n", postureMode(*p))
+	for _, g := range p.Grants {
+		_, _ = fmt.Fprintf(b, "grant=%s\n", g)
+	}
+	trust := "untrusted"
+	if p.Trust == engine.TrustTrusted {
+		trust = "trusted"
+	}
+	_, _ = fmt.Fprintf(b, "trust=%s\n", trust)
 }

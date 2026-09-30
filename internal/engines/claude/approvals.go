@@ -87,22 +87,9 @@ func errUnknownEvent(event string) error {
 // the tool's: AskUserQuestion is a question, ExitPlanMode a plan, anything
 // else a tool call.
 func (approvalCodec) DecodeAsk(event string, payload []byte) (engine.PermissionAsk, error) {
-	if event != hookEventPermissionRequest && event != hookEventPreToolUse {
-		return engine.PermissionAsk{}, errUnknownEvent(event)
-	}
-	var p hookAsk
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return engine.PermissionAsk{}, fmt.Errorf("claude approval payload: %w", err)
-	}
-	if p.ToolName == "" {
-		return engine.PermissionAsk{}, errNoToolName
-	}
-	if event == hookEventPreToolUse && p.ToolUseID == "" {
-		return engine.PermissionAsk{}, errNoToolUseID
-	}
-	input, err := canonicalJSON(p.ToolInput)
+	p, input, err := readAsk(event, payload)
 	if err != nil {
-		return engine.PermissionAsk{}, fmt.Errorf("claude approval tool_input: %w", err)
+		return engine.PermissionAsk{}, err
 	}
 	ask := engine.PermissionAsk{Kind: engine.AskTool, Tool: p.ToolName, Input: input, ToolUseID: p.ToolUseID}
 	ask.Suggestions, ask.SuggestsSetMode = decodeSuggestions(p.Suggestions)
@@ -118,6 +105,38 @@ func (approvalCodec) DecodeAsk(event string, payload []byte) (engine.PermissionA
 		return engine.PermissionAsk{}, err
 	}
 	return ask, nil
+}
+
+// readAsk parses an approval hook payload for event and canonicalises its
+// tool input.
+func readAsk(event string, payload []byte) (hookAsk, json.RawMessage, error) {
+	var p hookAsk
+	if event != hookEventPermissionRequest && event != hookEventPreToolUse {
+		return p, nil, errUnknownEvent(event)
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return p, nil, fmt.Errorf("claude approval payload: %w", err)
+	}
+	if err := p.validate(event); err != nil {
+		return p, nil, err
+	}
+	input, err := canonicalJSON(p.ToolInput)
+	if err != nil {
+		return p, nil, fmt.Errorf("claude approval tool_input: %w", err)
+	}
+	return p, input, nil
+}
+
+// validate refuses a payload naming no tool, and a PreToolUse payload with
+// no call id (PreToolUse always carries one).
+func (p hookAsk) validate(event string) error {
+	if p.ToolName == "" {
+		return errNoToolName
+	}
+	if event == hookEventPreToolUse && p.ToolUseID == "" {
+		return errNoToolUseID
+	}
+	return nil
 }
 
 // decodeSuggestions keeps what a human may grant: the rules of claude's

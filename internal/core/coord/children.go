@@ -1199,7 +1199,19 @@ func (c *Coordinator) onTurnIdle(role, runID string) {
 
 // failChild reports a launch failure to the parent's mailbox — the spawn verb
 // already returned (async), so the mailbox is where the coordinator learns.
+//
+// A launch that fails while an agent_stop is pending on its run failed
+// BECAUSE of that stop — the runner, told to close the run, refuses the
+// StartRun still on the wire — so it ends as the stop, exactly as the
+// runner's own RunExited does (RunnerExited). Per-run or bulk, a stop during
+// launch is a stop; the parent is never told a child it stopped "failed to
+// launch".
 func (c *Coordinator) failChild(rt *childRt, err error) {
+	if stop, stopping := c.pendingStop(rt.runID); stopping {
+		c.terminateRun(rt.runID, CauseStopped, stop)
+		c.markAttached(rt)
+		return
+	}
 	c.rep.Warnf("agent_run: child %s (%s) failed to launch: %v", rt.harp, rt.agentName, err)
 	// Count it BEFORE the terminal: terminateRun's leftover-mail tail reads
 	// this count to decide whether another relaunch is warranted at all.

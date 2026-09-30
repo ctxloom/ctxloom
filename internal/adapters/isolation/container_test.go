@@ -104,7 +104,7 @@ func TestContainerName_SanitizesAndScopes(t *testing.T) {
 }
 
 // TestResolveContainer_DegradesWithoutRuntime documents the two-place degrade,
-// driven HERMETICALLY through the selectRuntimeProbe seam (never a real
+// driven HERMETICALLY through the surveyRuntimes seam (never a real
 // docker/podman daemon): with a launchable runtime Resolve returns the container
 // policy; with no runtime it degrades to None AND records the fatal
 // ClassIsolation finding an explicitly-requested-but-unsatisfiable container
@@ -114,7 +114,7 @@ func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
 
-		p := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})[0]
+		p := chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})[0]
 		assert.Equal(t, "container", p.Name(), "a launchable runtime resolves to the container policy")
 		assert.Empty(t, strictness.All(), "a satisfied container request records no finding")
 	})
@@ -123,7 +123,7 @@ func TestResolveContainer_DegradesWithoutRuntime(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
-		p := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})[0]
+		p := chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})[0]
 		assert.Equal(t, "none", p.Name(), "no runtime degrades to none")
 
 		findings := strictness.All()

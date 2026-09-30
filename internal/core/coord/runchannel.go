@@ -182,6 +182,9 @@ func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.Canc
 		completed:   make(chan struct{}),
 		caps:        caps,
 	}
+	if hook := c.attachRunHook; hook != nil {
+		hook(id.Harp)
+	}
 	c.mu.Lock()
 	if prev := c.chans[id.Harp]; prev != nil {
 		prev.cancel() // one RunChannel per role; newest wins (reconnect)

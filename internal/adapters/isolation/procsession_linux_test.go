@@ -34,27 +34,20 @@ func init() {
 }
 
 // ownTreePids is procPids narrowed to strict descendants of this process.
+// killSession signals single pinned pids here, so the group rule darwin needs
+// (groupSafeScope) would only hide in-tree targets.
 func ownTreePids() []int {
-	self := os.Getpid()
 	all := procPids()
-	parent := make(map[int]int, len(all))
-	for _, pid := range all {
-		parent[pid] = -1
+	rows := make([]procRow, len(all))
+	for i, pid := range all {
+		ppid := -1
 		if st, err := procpin.ReadStat(pid); err == nil {
-			parent[pid] = st.PPID
+			ppid = st.PPID
 		}
+		rows[i] = procRow{pid: pid, ppid: ppid}
 	}
-	var mine []int
-	for _, pid := range all {
-		// The step bound breaks a cycle a pid reused mid-snapshot could form.
-		for p, n := parent[pid], 0; p > 0 && n < len(all); p, n = parent[p], n+1 {
-			if p == self {
-				mine = append(mine, pid)
-				break
-			}
-		}
-	}
-	return mine
+	mine := descendantsOf(rows, os.Getpid())
+	return slices.DeleteFunc(all, func(pid int) bool { return !mine[pid] })
 }
 
 // TestIsolateRunner_ForeignRunnerDiesWithItsHost pins that PR_SET_PDEATHSIG

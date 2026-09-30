@@ -59,7 +59,7 @@ Run 'ctxloom <command> --help' for details on any command.
 ### SEE ALSO
 
 * [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Inspect local agents (engine↔profile bindings)
-* [ctxloom auth](/reference/cli/ctxloom_auth/)	 - Store the credentials ctxloom-launched engines authenticate with
+* [ctxloom auth](/reference/cli/ctxloom_auth/)	 - Show how engines authenticate and whether each credential is exported
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 * [ctxloom clean](/reference/cli/ctxloom_clean/)	 - Remove this project's regenerable cache, keeping everything a clone cannot restore
 * [ctxloom command](/reference/cli/ctxloom_command/)	 - Manage commands

@@ -107,17 +107,6 @@ func toleratedSIDs() ([]string, error) {
 	return out, nil
 }
 
-func describe(p string, info fs.FileInfo) (string, error) {
-	why, err := violation(p, info)
-	if err != nil {
-		return "", err
-	}
-	if why == "" {
-		return "owner-only", nil
-	}
-	return "exposed: " + why, nil
-}
-
 // currentUserSID is the SID of the user this process runs as.
 func currentUserSID() (*windows.SID, error) {
 	u, err := windows.GetCurrentProcessToken().GetTokenUser()

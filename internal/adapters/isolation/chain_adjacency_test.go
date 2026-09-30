@@ -50,7 +50,7 @@ func TestChainFor_NeverPlacesAContainerAfterAContainer(t *testing.T) {
 			resetStrictness(t)
 			stubRuntimeProbe(t, rt)
 
-			chain := chainFor(tc.axes, "claude-code", ImageConfig{})
+			chain := chainFor(surveyRuntimes(), tc.axes, "claude-code", ImageConfig{})
 			require.Len(t, chain, tc.wantLen,
 				"chainFor built a shape this invariant has never inspected; extend the table before trusting it")
 			assert.Equal(t, tc.wantHead, IsContainerPolicyName(chain[0].Name()),

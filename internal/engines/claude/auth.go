@@ -1,14 +1,8 @@
 package claude
 
 import (
-	"bytes"
-	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -95,25 +89,21 @@ var providerStores = []engine.SharedStore{
 	{HomeRel: ".config/gcloud", ReadOnly: true},
 }
 
-// credentialVars are claude's own credential vars across the stored modes
-// and the gateway; the container passthrough declares them too.
+// credentialVars are claude's own credential vars across the env modes and
+// the gateway; the container passthrough declares them too.
 var credentialVars = []string{OAuthTokenEnv, APIKeyEnv, AuthTokenEnv}
 
-// modeVar is the var each stored mode's credential is handed to claude in.
+// modeVar is the var each env mode's credential is read from in the
+// launching env and handed to claude in.
 var modeVar = map[engine.AuthMode]string{
 	engine.AuthToken:  OAuthTokenEnv,
 	engine.AuthAPIKey: APIKeyEnv,
 }
 
-// setupTokenPattern is the token `claude setup-token` prints.
-var setupTokenPattern = regexp.MustCompile(`sk-ant-oat[0-9]*-[A-Za-z0-9_-]+`)
-
-// claudeAuth is claude's auth capability: its modes, the precedence between
-// the vars that carry them, and minting through `claude setup-token`.
+// claudeAuth is claude's auth capability: its modes and the precedence
+// between the vars that carry them.
 type claudeAuth struct {
-	// binary is the claude executable Mint runs.
-	binary string
-	// engine is the registered name the remedies' ctxloom commands name.
+	// engine is the registered name refusals name.
 	engine string
 }
 
@@ -122,13 +112,13 @@ func (claudeAuth) Modes() []engine.AuthMode {
 }
 
 // Credentials: the declared mode decides. Only that mode's credential
-// reaches claude, a value the launching env exports for THAT mode wins over
-// the stored one, and everything that would outrank or replace it is unset.
+// reaches claude, read from the launching env, and everything that would
+// outrank or replace it is unset.
 //
 // login shares the human's own credential storage (loginStore). Every other
 // mode unsets SecureStorageEnv: "" is not "unset" for it but HOME/.claude,
 // the human's real credential.
-func (c claudeAuth) Credentials(mode engine.AuthMode, shell func(string) (string, bool), stored engine.CredentialReader) (engine.Credentials, error) {
+func (c claudeAuth) Credentials(mode engine.AuthMode, shell func(string) (string, bool)) (engine.Credentials, error) {
 	switch mode {
 	case engine.AuthLogin:
 		return engine.Credentials{
@@ -142,9 +132,9 @@ func (c claudeAuth) Credentials(mode engine.AuthMode, shell func(string) (string
 	if !ok {
 		return engine.Credentials{}, fmt.Errorf("claude: %w: %q", engine.ErrAuthModeUnsupported, mode)
 	}
-	secret, err := c.modeCredential(mode, v, shell, stored)
-	if err != nil {
-		return engine.Credentials{}, err
+	secret, ok := shell(v)
+	if !ok || secret == "" {
+		return engine.Credentials{}, report.Errorf(modeRemedy[mode], "%s %s: %s is not exported: %w", c.engine, mode, v, engine.ErrNoCredential)
 	}
 	unset := append(slices.DeleteFunc(slices.Clone(credentialVars), func(s string) bool { return s == v }), providerSwitches...)
 	return engine.Credentials{
@@ -164,30 +154,21 @@ func loginStore(shell func(string) (string, bool)) engine.SharedStore {
 	return engine.SharedStore{Var: SecureStorageEnv, Value: sharedStorage(shell), HomeRel: loginStoreHomeRel}
 }
 
-// modeCredential is the shell's export of v when non-empty, else the stored
-// credential for mode, trimmed.
-func (c claudeAuth) modeCredential(mode engine.AuthMode, v string, shell func(string) (string, bool), stored engine.CredentialReader) (string, error) {
-	if s, ok := shell(v); ok && s != "" {
-		return s, nil
-	}
-	secret, err := stored.Read(mode)
-	if errors.Is(err, engine.ErrNoCredential) {
-		fix := fmt.Sprintf("store one with `ctxloom auth set --engine %s --mode %s` (read from stdin), or export %s", c.engine, mode, v)
-		if mode.Minted() {
-			fix = fmt.Sprintf("run `ctxloom auth mint --engine %s --mode %s` at a terminal, or %s", c.engine, mode, fix)
-		}
-		return "", report.Errorf(fix, "%s %s (neither %s exported nor one stored): %w", c.engine, mode, v, err)
-	}
-	if err != nil {
-		return "", fmt.Errorf("%s %s: %w", c.engine, mode, err)
-	}
-	return string(bytes.TrimSpace(secret)), nil
+// modeRemedy is how the human supplies each env mode's credential. The
+// token is minted by the human with claude's own flow and kept in their
+// environment or secret manager: Anthropic's terms forbid a third party to
+// "collect, store, or intermediate Claude.ai credentials or session tokens"
+// (https://code.claude.com/docs/en/legal-and-compliance), so no ctxloom
+// command takes one.
+var modeRemedy = map[engine.AuthMode]string{
+	engine.AuthToken:  "run `claude setup-token` and export " + OAuthTokenEnv + " (or store it in your secret manager)",
+	engine.AuthAPIKey: "export " + APIKeyEnv,
 }
 
 // cloudCredentials passes the human's cloud or gateway configuration
 // through from the shell, refusing when nothing selects one, and shares each
 // provider credential directory the human has (providerStores) read-only.
-// The stored modes' vars and the login's storage are unset: a provider
+// The env modes' vars and the login's storage are unset: a provider
 // switch outranks them anyway, but a gateway bearer does not outrank
 // nothing.
 func (c claudeAuth) cloudCredentials(shell func(string) (string, bool)) (engine.Credentials, error) {
@@ -254,91 +235,4 @@ func sharedStorage(shell func(string) (string, bool)) string {
 	}
 	v, _ := shell(ConfigDirEnv)
 	return v
-}
-
-// Mint runs `claude setup-token` on the human's terminal and returns the
-// token it prints. Its output still reaches the terminal as it is produced,
-// with the token itself replaced (tokenRedactor): the credential is stored,
-// never echoed.
-func (a claudeAuth) Mint(ctx context.Context, mode engine.AuthMode, term engine.Terminal) ([]byte, error) {
-	if mode != engine.AuthToken {
-		return nil, fmt.Errorf("claude %s: %w", mode, engine.ErrMintUnsupported)
-	}
-	var captured bytes.Buffer
-	shown := &tokenRedactor{w: orDiscard(term.Out)}
-	cmd := exec.CommandContext(ctx, a.binary, "setup-token")
-	cmd.Stdin = term.In
-	cmd.Stdout = io.MultiWriter(shown, &captured)
-	cmd.Stderr = orDiscard(term.Err)
-	err := cmd.Run()
-	shown.flush()
-	if err != nil {
-		return nil, fmt.Errorf("claude setup-token: %w", err)
-	}
-	tok := setupTokenPattern.Find(captured.Bytes())
-	if tok == nil {
-		return nil, errNoTokenPrinted
-	}
-	return tok, nil
-}
-
-var errNoTokenPrinted = errors.New("claude setup-token finished without printing a token")
-
-// redactedToken replaces a minted token in what the human sees.
-const redactedToken = "[token stored by ctxloom]"
-
-// tokenRedactor writes through to w immediately, with any setup-token
-// replaced, holding back only a trailing fragment that could still grow
-// into one (a prefix of it, or a token not yet terminated), so a token split
-// across writes is still caught while a prompt with no newline is shown at
-// once.
-type tokenRedactor struct {
-	w   io.Writer
-	buf []byte
-}
-
-// tokenPrefix is what every setup-token starts with.
-const tokenPrefix = "sk-ant-oat"
-
-// openTokenTail matches a token still running at the end of the buffer.
-var openTokenTail = regexp.MustCompile(`sk-ant-oat[0-9]*-?[A-Za-z0-9_-]*$`)
-
-func (r *tokenRedactor) Write(p []byte) (int, error) {
-	r.buf = append(r.buf, p...)
-	hold := heldFrom(r.buf)
-	if hold > 0 {
-		if _, err := r.w.Write(setupTokenPattern.ReplaceAll(r.buf[:hold], []byte(redactedToken))); err != nil {
-			return len(p), err
-		}
-	}
-	r.buf = append([]byte(nil), r.buf[hold:]...)
-	return len(p), nil
-}
-
-// heldFrom is where the fragment that could still become a token begins:
-// len(buf) when none does.
-func heldFrom(buf []byte) int {
-	if loc := openTokenTail.FindIndex(buf); loc != nil {
-		return loc[0]
-	}
-	for k := min(len(tokenPrefix)-1, len(buf)); k > 0; k-- {
-		if bytes.HasSuffix(buf, []byte(tokenPrefix[:k])) {
-			return len(buf) - k
-		}
-	}
-	return len(buf)
-}
-
-func (r *tokenRedactor) flush() {
-	if len(r.buf) > 0 {
-		_, _ = r.w.Write(setupTokenPattern.ReplaceAll(r.buf, []byte(redactedToken)))
-		r.buf = nil
-	}
-}
-
-func orDiscard(w io.Writer) io.Writer {
-	if w == nil {
-		return io.Discard
-	}
-	return w
 }

@@ -118,24 +118,24 @@ func TestChainFor_NonContainer(t *testing.T) {
 	// (warnUnknownAxes); reset so it never bleeds into a later test.
 	resetStrictness(t)
 	for _, axes := range []Axes{{}, {Workspace: WorkspaceShared, Runtime: RuntimeHost}} {
-		chain := chainFor(axes, "claude-code", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), axes, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1, "axes %+v", axes)
 		assert.IsType(t, None{}, chain[0])
 	}
 
-	wt := chainFor(Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})
+	wt := chainFor(surveyRuntimes(), Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})
 	require.Len(t, wt, 2)
 	assert.IsType(t, Worktree{}, wt[0], "a worktree workspace leads with the bare worktree")
 	assert.IsType(t, None{}, wt[1], "then degrades to none on a non-git repo")
 
-	unknown := chainFor(Axes{Workspace: "bogus", Runtime: "bogus"}, "claude-code", ImageConfig{})
+	unknown := chainFor(surveyRuntimes(), Axes{Workspace: "bogus", Runtime: "bogus"}, "claude-code", ImageConfig{})
 	require.Len(t, unknown, 1)
 	assert.IsType(t, None{}, unknown[0], "unknown axis values act as the axis defaults")
 }
 
 // TestChainFor_Container pins the runtime-axis chains (with a runtime AVAILABLE)
 // and their independence from the workspace axis. It drives the probe
-// HERMETICALLY through the selectRuntimeProbe seam — never a real docker/podman
+// HERMETICALLY through the surveyRuntimes seam — never a real docker/podman
 // daemon — so the chain shape is deterministic on any host: {worktree,
 // container} leads with worktree-in-container then degrades the RUNTIME axis
 // first (the worktree survives) before None; {none, container} leads with the
@@ -147,14 +147,14 @@ func TestChainFor_Container(t *testing.T) {
 	resetStrictness(t)
 	stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
 
-	both := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
+	both := chainFor(surveyRuntimes(), Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 	require.Len(t, both, 3)
 	assert.IsType(t, Container{}, both[0], "{worktree, container} leads with a container (worktree base)")
 	assert.Equal(t, "container-worktree", both[0].Name(), "the worktree-base container reports the composed name")
 	assert.IsType(t, Worktree{}, both[1], "the runtime axis degrades first; the worktree survives")
 	assert.IsType(t, None{}, both[2], "then none")
 
-	live := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
+	live := chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 	require.Len(t, live, 2)
 	assert.IsType(t, Container{}, live[0], "{none, container} mounts the LIVE project dir")
 	assert.IsType(t, None{}, live[1], "and degrades to none — never into an unrequested worktree")
@@ -178,7 +178,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// worktree prepares → chain stops there.
 	failing := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, &git.Fake{CommonDirValue: common})
 	working := NewWorktree(&git.Fake{CommonDirValue: common})
-	pol, ws := prepareChain(ctx, []policy{failing, working, None{}}, RuntimeContainerRootless, "/proj", "m")
+	pol, ws := prepareChain(ctx, []policy{failing, working, None{}}, surveyRuntimes(), RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws)
 	// Safety net registered BEFORE the assertions below can fail/panic and skip
 	// the manual, non-deferred ws.Cleanup() call at the end of this block (see
@@ -195,7 +195,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 			NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, nonRepo),
 			NewWorktree(nonRepo),
 			None{},
-		}, RuntimeContainerRootless, "/proj", "m")
+		}, surveyRuntimes(), RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws2)
 	requireCleanWorkspace(t, ws2)
 	assert.Equal(t, "none", pol2.Name(), "worktree→none on a non-git repo")

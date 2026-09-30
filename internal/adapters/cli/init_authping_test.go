@@ -287,7 +287,7 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 			err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, engine, t.TempDir())
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), engine, "error must name the engine that failed")
-			assert.Contains(t, err.Error(), engineAuthFixHint(engine),
+			assert.Contains(t, err.Error(), engineAuthFixHint(App().Engines(), engine),
 				"error must name THIS engine's specific fix, as production states it")
 		})
 	}
@@ -357,7 +357,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 	err := launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)
 	require.Error(t, err, "a failed ping must fail init loud, not degrade")
 	assert.False(t, launchCalled, "the engine must never be launched after a failed auth ping")
-	assert.Contains(t, err.Error(), "ctxloom auth mint --engine claude-code --mode token")
+	assert.Contains(t, err.Error(), "ctxloom auth status")
 }
 
 // TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint: a healthy

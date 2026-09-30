@@ -638,12 +638,13 @@ func gitIdentityEnv(agentID string) []string {
 }
 
 // launchGate is the container gate's checks that create nothing, in the
-// run's order: a launchable runtime, the image (image: ensureImage for a run,
+// run's order: a launchable runtime (selection's verdict, read — the engine is
+// not asked again), the image (image: ensureImage for a run,
 // inspectImage for a preview), a user-owned image's identity contract, and a
 // declared container story. It returns the first refusal, as the run does;
 // the identity contract records its own finding.
 func (c Container) launchGate(ctx context.Context, image func(context.Context) error) error {
-	if c.runtime == nil || !c.runtime.Available() {
+	if c.runtime == nil || !c.runtime.launchable() {
 		return fmt.Errorf("container runtime %q cannot launch", runtimeName(c.runtime))
 	}
 	if err := image(ctx); err != nil {

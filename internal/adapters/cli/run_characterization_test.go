@@ -15,9 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -73,12 +71,11 @@ func runCLIFixture(t *testing.T) string {
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".ctxloom"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".ctxloom", "config.yaml"),
 		[]byte(fmt.Sprintf("version: %d\neditor:\n  command: \"true\"\n", config.CurrentConfigVersion)), 0o644))
-	// The default agent authenticates with a stored token. A dry run resolves
-	// credentials read-only and refuses where the run would, and an
-	// unattended run with nothing stored refuses: without this every preview
-	// here would be the credential's refusal, not the plan under test.
-	_, err = isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte("sk-ant-oat01-fixture"))
-	require.NoError(t, err)
+	// The default agent authenticates with a token from the launching env. A
+	// dry run refuses where the run would, and a run with none exported
+	// refuses: without this every preview here would be the credential's
+	// refusal, not the plan under test.
+	t.Setenv(claude.OAuthTokenEnv, "sk-ant-oat01-fixture")
 	resetApp()
 
 	for _, argv := range [][]string{

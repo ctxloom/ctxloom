@@ -1,0 +1,3 @@
+{"type":"atis-latch","atis":"","sessionId":"9cf7f97c-b58f-4877-8120-dc0aa44b2b14"}
+{"type":"cost-state","sessionId":"9cf7f97c-b58f-4877-8120-dc0aa44b2b14","totalCostUSD":231.47289100000026,"totalAPIDuration":12687838,"totalAPIDurationWithoutRetries":12686302,"totalToolDuration":175360,"totalLinesAdded":4323,"totalLinesRemoved":773,"totalDuration":166632179,"startTime":1788646492004,"modelUsage":{"claude-opus-4-8":{"inputTokens":4,"outputTokens":190,"thinkingTokens":40,"cacheReadInputTokens":73931,"cacheCreationInputTokens":21285,"webSearchRequests":0,"costUSD":0.25458549999999996}},"hasUnknownModelCost":false}
+{"type":"user","sessionId":"9cf7f97c-b58f-4877-8120-dc0aa44b2b14","message":{"role":"user","content":"hello"}}

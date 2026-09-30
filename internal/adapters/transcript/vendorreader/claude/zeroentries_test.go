@@ -99,6 +99,28 @@ func TestConvert_DroppedVendorContentIsReported(t *testing.T) {
 		"dropped vendor content must be reported, naming what was dropped")
 }
 
+// The drop report is only worth reading if it stays quiet about lines that
+// are KNOWN to carry no conversation. atis-latch and cost-state are claude's
+// own session bookkeeping (see testdata/MANIFEST.json for their real source);
+// left out of adminLineTypes they warn on nearly every real transcript, and a
+// warning that always fires is one nobody reads.
+func TestConvert_KnownAdminLinesAreNeitherReportedNorEmitted(t *testing.T) {
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	recs := runConvert(t, "admin-line-types-fixture.jsonl")
+
+	assert.Empty(t, buf.String(), "known admin line types must not be reported as dropped vendor content")
+	var entries []string
+	for _, r := range recs {
+		if r.Kind == transcript.KindEntry {
+			entries = append(entries, r.Entry.Content)
+		}
+	}
+	assert.Equal(t, []string{"hello"}, entries, "only the user line may become an entry; the admin lines contribute nothing")
+}
+
 // A vendor `usage` shape ctxloom does not control (Anthropic
 // renames/drops a key) degrades every counter to its Go zero value via plain
 // json.Unmarshal, with no error — and previously no test pinned that this is

@@ -182,7 +182,11 @@ func decodeContentBlocks(raw json.RawMessage) []contentBlock {
 // blocks, shaping a tool_use/tool_result entry, flushing a pending Complete
 // boundary, and the outer scan/stream/flush shell itself) lives once in the
 // reader package, not copied here.
-func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
+//
+// The accounting is returned as well as acted on (reportDrops, checkFloor) so
+// a caller auditing real transcripts can read the counts themselves rather
+// than parse the warning they were rendered into.
+func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) (importAccounting, error) {
 	c := &converter{record: vendorreader.RecordFunc(rec, "claude")}
 	err := vendorreader.ConvertJSONLLines(ctx, rec, lines, "claude", scanSessionInfo(lines),
 		func(raw []byte) error {
@@ -199,25 +203,22 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 				c.conversational++
 				return c.handleAssistant(l)
 			}
-			// Every other Type (progress, queue-operation, system,
-			// attachment, last-prompt, mode, permission-mode, ai-title,
-			// custom-title, file-history-snapshot, agent-name, pr-link,
-			// worktree-state, file-history-delta, agent-color) contributes no
-			// entries: see line's doc comment. Those are ADMINISTRATIVE, so
+			// Every other Type contributes no entries: see line's doc
+			// comment. adminLineTypes are ADMINISTRATIVE, so
 			// contributing nothing is correct and silent — but a type this
 			// build has never heard of is vendor content going on the floor,
 			// and gets counted so the operator hears about it.
 			if !adminLineTypes[l.Type] {
-				c.drops.add("line:" + l.Type)
+				c.unknownLines.add(l.Type)
 			}
 			return nil
 		},
 		c.flushPending)
 	if err != nil {
-		return err
+		return c.importAccounting, err
 	}
 	c.reportDrops()
-	return c.checkFloor(len(lines))
+	return c.importAccounting, c.checkFloor(len(lines))
 }
 
 // adminLineTypes is claude's own UI/session bookkeeping — line types that
@@ -230,7 +231,8 @@ var adminLineTypes = map[string]bool{
 	"permission-mode": true, "ai-title": true, "custom-title": true,
 	"file-history-snapshot": true, "agent-name": true, "pr-link": true,
 	"worktree-state": true, "file-history-delta": true, "agent-color": true,
-	"summary": true, "x-ctxloom-meta": true,
+	"summary": true, "x-ctxloom-meta": true, "atis-latch": true,
+	"cost-state": true,
 }
 
 // checkFloor is the answer to "can this reader produce zero entries and
@@ -260,10 +262,12 @@ func (c *converter) checkFloor(total int) error {
 // represent. Dropping is the honest outcome for a block type ctxloom's
 // canonical schema has no field for — dropping it SILENTLY is not.
 func (c *converter) reportDrops() {
-	if c.drops.total() == 0 {
+	n := c.unknownLines.total() + c.droppedBlocks.total()
+	if n == 0 {
 		return
 	}
-	clidiag.Warn("ctxloom", "claude transcript import: dropped %d vendor content item(s) with no canonical representation (%s)", c.drops.total(), c.drops.summary())
+	labels := append(c.unknownLines.labels("line:"), c.droppedBlocks.labels("block:")...)
+	clidiag.Warn("ctxloom", "claude transcript import: dropped %d vendor content item(s) with no canonical representation (%s)", n, strings.Join(labels, ", "))
 }
 
 // dropTally counts, by a short label, vendor content that went on the floor.
@@ -291,21 +295,21 @@ func (d *dropTally) total() int {
 	return n
 }
 
-// summary renders the tally as a stable, sorted "label×N, label×N" string.
-func (d *dropTally) summary() string {
+// labels renders the tally as sorted "<prefix><label>×N" items.
+func (d *dropTally) labels(prefix string) []string {
 	if d == nil || len(d.counts) == 0 {
-		return ""
+		return nil
 	}
-	labels := make([]string, 0, len(d.counts))
+	keys := make([]string, 0, len(d.counts))
 	for k := range d.counts {
-		labels = append(labels, k)
+		keys = append(keys, k)
 	}
-	sort.Strings(labels)
-	parts := make([]string, 0, len(labels))
-	for _, l := range labels {
-		parts = append(parts, fmt.Sprintf("%s×%d", l, d.counts[l]))
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, fmt.Sprintf("%s%s×%d", prefix, k, d.counts[k]))
 	}
-	return strings.Join(parts, ", ")
+	return out
 }
 
 // scanSessionInfo scans for session-level metadata, latching each field onto
@@ -386,14 +390,21 @@ type converter struct {
 	pending   *agent.TurnMeta
 	pendingID string
 
-	// Import accounting, read by checkFloor/reportDrops once the stream is
-	// done: how many lines this adapter claimed to understand, how many it
-	// could not parse at all, how many canonical entries actually came out,
-	// and what vendor content was dropped along the way.
+	importAccounting
+}
+
+// importAccounting is read by checkFloor/reportDrops once the stream is done,
+// and returned by convertLines: how many lines this adapter claimed to
+// understand, how many it could not parse at all, how many canonical entries
+// actually came out, and what vendor content was dropped along the way —
+// whole lines of a type this build does not know, and message content blocks
+// of a type it does not model.
+type importAccounting struct {
 	conversational int
 	malformed      int
 	entries        int
-	drops          dropTally
+	unknownLines   dropTally
+	droppedBlocks  dropTally
 }
 
 // flushPending records a still-open Complete boundary at end of file — a
@@ -416,7 +427,7 @@ func (c *converter) handleUser(l line) error {
 		return nil
 	}
 	blocks := decodeContentBlocks(l.Message.Content)
-	evs := messageEntries("user", l.IsMeta, blocks, l.ToolUseResult, &c.drops)
+	evs := messageEntries("user", l.IsMeta, blocks, l.ToolUseResult, &c.droppedBlocks)
 	return c.recordAll(evs, l.IsSidechain)
 }
 
@@ -431,7 +442,7 @@ func (c *converter) handleAssistant(l line) error {
 		return nil
 	}
 	blocks := decodeContentBlocks(l.Message.Content)
-	evs := messageEntries("assistant", false, blocks, l.ToolUseResult, &c.drops)
+	evs := messageEntries("assistant", false, blocks, l.ToolUseResult, &c.droppedBlocks)
 	if err := c.recordAll(evs, l.IsSidechain); err != nil {
 		return err
 	}
@@ -541,7 +552,7 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock, toolUseResu
 			// fatal (vendorreader.VendorAdapter's degrade-to-partial contract).
 			// It is COUNTED, though — a drop nobody can observe is indistinguishable
 			// from content that was never there.
-			drops.add("block:" + b.Type)
+			drops.add(b.Type)
 		}
 	}
 	flushText()

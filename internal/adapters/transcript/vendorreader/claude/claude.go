@@ -45,9 +45,8 @@ var _ vendorreader.VendorAdapter = Adapter{}
 // and there is deliberately no default to fall through to.
 //
 // The 2.x line is one format as far as this adapter is concerned: a
-// project-scoped JSONL file per session, one JSON object per line. The lock
-// pins 2.1.214 and this host runs 2.1.225 — the range covers both, and
-// covering the whole major line is the claim that claude-code has not
+// project-scoped JSONL file per session, one JSON object per line. The range
+// covers the lock's pin and whatever 2.x a user happens to run, and covering the whole major line is the claim that claude-code has not
 // reshaped its per-line schema within 2.x. It stops at 3.0.0 because a major
 // bump is exactly where a vendor is entitled to reshape it, and an unbounded
 // range would assert compatibility with a format nobody has seen.
@@ -64,7 +63,7 @@ var _ vendorreader.VendorAdapter = Adapter{}
 var VersionedAdapters = []vendorreader.VersionedAdapter{{
 	Adapter:          Adapter{},
 	Range:            vendorreader.VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
-	ValidatedVersion: "2.1.214",
+	ValidatedVersion: "2.1.285",
 }}
 
 // Convert reads the claude transcript JSONL file at src and appends its
@@ -80,5 +79,6 @@ func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string)
 	if err != nil {
 		return err
 	}
-	return convertLines(ctx, rec, lines)
+	_, err = convertLines(ctx, rec, lines)
+	return err
 }

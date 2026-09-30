@@ -19,6 +19,8 @@ name: Engine Drift Detect
 # `ubuntu-latest` runner (which already ships Node/npm, curl, and `gh`) is
 # both simpler and correct. The devcontainer only becomes necessary for the
 # later capture/validate/self-heal stages, which run `just test-vendor-*`.
+# Until validate runs here, it is a local step: `just validate-vendor-claude`
+# runs the real reader over the invoking user's own transcripts.
 # The one thing the bare runner does lack is `just` itself, since every step
 # below is a recipe (build/ci.justfile); ./.github/actions/setup-just installs
 # the pinned one.

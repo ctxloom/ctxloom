@@ -20,6 +20,13 @@
     "harp/seq/ts": "harp and ts are stamped by the test's Recorder construction (NewRecorder's clock is not caller-configurable) — ts reflects wall-clock test-run time, so the golden comparison in claude_test.go zeroes/ignores ts rather than pinning it; seq is deterministic (0..N in file order) and IS asserted verbatim."
   },
 
+  "admin-line-types-fixture.jsonl": {
+    "real_source": "~/.claude/projects/-home-babbitt-workspace-hew/9cf7f97c-b58f-4877-8120-dc0aa44b2b14.jsonl — a real claude-code session on this box; atis-latch and cost-state lines recur across many real transcripts here.",
+    "real_fields": "the atis-latch line (every field, byte-for-byte) and the cost-state line's every top-level field and value.",
+    "shortened": "cost-state's modelUsage map, trimmed to its first model's entry; the adapter never reads it.",
+    "synthetic_lines_added_for_coverage": "one minimal user line ('hello'), so 'the admin lines contribute nothing' is distinguishable from 'the file converted to nothing' — real user lines in the source session carry session prose not worth copying."
+  },
+
   "mapping_test.go's inline payloads": {
     "provenance": "A handful of small structural cases (empty content, empty thinking, tool_use with no input) need no real source — they are the degenerate/zero-value shape, not a distinct real payload variant. The tool_result array-content case (text + tool_reference + image elements) is SHAPED from a real tool_result content array observed on this box (an MCP tool-listing result), with its exact tool_name/values shortened/redacted rather than copied verbatim, since the point under test is the DROP behavior for non-text element types, not those elements' own content. The sidechain-propagation fixture in mapping_test.go is a shortened copy of a real subagent capture at ~/.claude/projects/-home-babbitt-workspace-ctxloom-ctxloom-main/10d9f2b3-7e75-4794-8fea-54b4143dbf6d/subagents/agent-a0f0c165cd7295cfd.jsonl line 3 (real message.id, real tool_use id/name, real input command text, real usage counts)."
   }

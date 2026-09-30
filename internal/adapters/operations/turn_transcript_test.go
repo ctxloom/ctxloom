@@ -51,7 +51,7 @@ func TestResolveTurnTranscript_SelectsTheReaderForTheSessionsOwnEngine(t *testin
 		version string
 		want    any
 	}{
-		{"claude-code", "2.1.214", claudereader.VersionedAdapters[0].Adapter},
+		{"claude-code", claudereader.VersionedAdapters[0].ValidatedVersion, claudereader.VersionedAdapters[0].Adapter},
 	}
 	for _, tc := range tests {
 		t.Run(tc.backend, func(t *testing.T) {

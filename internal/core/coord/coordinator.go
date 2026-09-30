@@ -157,9 +157,12 @@ type Coordinator struct {
 	queueF   *queueFold
 	rosterF  *rosterFold
 	reportsF *reportsFold
-	items    *Store
-	itemsF   *itemsFold
-	auditJ   *Store
+	// approvals is the root's approval queue; its facts and grants fold ride
+	// the runs journal.
+	approvals *ApprovalQueue
+	items     *Store
+	itemsF    *itemsFold
+	auditJ    *Store
 	// artifacts (E1b) is the content-addressed blob store backing
 	// ArtifactTransferService — NOT a journal (see artifactstore.go for why
 	// it needs no single-writer serialization); it lives alongside the
@@ -643,11 +646,12 @@ func acquireStateDir(opts Options) (stateDirClaim, error) {
 // store opened so far is closed by closePartial.
 func (c *Coordinator) openJournals() error {
 	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(c.rep)
-	runs, err := openStore(filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF)
+	runs, err := openStore(filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF, newGrantsFold())
 	if err != nil {
 		return err
 	}
 	c.runs = runs
+	c.approvals = NewApprovalQueue(runs, c.now, c.pushGrants)
 	c.itemsF = newItemsFold()
 	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
 	// common case is none, a fresh project) seeds the fold and replay

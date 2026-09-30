@@ -622,6 +622,8 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req AgentRequest) Agent
 			return AgentReply{Err: err}
 		}
 		return AgentReply{Result: res}
+	case ApprovalRequest:
+		return AgentReply{Result: c.parkApproval(caller, kind)}
 	default:
 		return AgentReply{Err: ErrUnsupportedRequest}
 	}

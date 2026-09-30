@@ -1,0 +1,64 @@
+package coord
+
+import (
+	"context"
+	"fmt"
+	"slices"
+)
+
+// Approvals is the root's approval queue: the one source a presenter reads
+// and the one place a request is answered.
+func (c *Coordinator) Approvals() *ApprovalQueue { return c.approvals }
+
+// parkApproval serves a run's ApprovalRequest: the request parks in the
+// queue, stamped with who is asking, until it is decided. Park's context is
+// the coordinator's own — the asking run's end withdraws the request through
+// terminateRun, and the coordinator closing withdraws them all.
+func (c *Coordinator) parkApproval(caller Identity, req ApprovalRequest) ApprovalDecision {
+	p := PendingApproval{Kind: ApprovalKindOf(req.Ask.Kind), Ask: req.Ask, Ceiling: req.Ceiling}
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(caller.Harp); r != nil {
+			p.Agent = r.Agent
+		}
+		p.Lineage = c.lineageOf(caller.Harp)
+	})
+	return c.approvals.Park(c.baseCtx, caller, p, req.Timeout)
+}
+
+// lineageOf is harp's delegation chain, root first. Call inside runs.View.
+func (c *Coordinator) lineageOf(harp string) []string {
+	chain := []string{harp}
+	for r := c.runsF.currentRun(harp); r != nil && !r.TopLevel(); r = c.runsF.currentRun(r.ParentHarp) {
+		if slices.Contains(chain, r.ParentHarp) {
+			break
+		}
+		chain = append(chain, r.ParentHarp)
+	}
+	slices.Reverse(chain)
+	return chain
+}
+
+// pushGrants hands harp's live run its full remaining grant set. A harp with
+// no run to reach has nothing to update: the grant set is the journal's.
+func (c *Coordinator) pushGrants(harp string, rules []string) error {
+	var rec *RunRecord
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil {
+			cp := *r
+			rec = &cp
+		}
+	})
+	if rec == nil || rec.Ended || !c.runnerReachable(rec) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(c.baseCtx, DefaultRequestTimeout)
+	defer cancel()
+	resp, err := c.requestRunner(ctx, rec.CredHash, RunnerRequest{Kind: SetGrants{RunID: rec.RunID, Rules: rules}})
+	if err != nil {
+		return fmt.Errorf("set grants on %s: %w", harp, err)
+	}
+	if resp.Err != nil {
+		return fmt.Errorf("set grants on %s: the run refused: %w", harp, resp.Err)
+	}
+	return nil
+}

@@ -30,8 +30,8 @@ func oneshotTestConfig(t *testing.T) *config.Config {
 				// bypass: these are the profile/context/output-flow tests,
 				// not permission-resolution tests (the launch package pins
 				// the floor).
-				"claude-fast": {Type: "claude-code", Permissions: agents.Permissions{Mode: "bypass"}},
-				"agy-code":    {Type: "mock", Permissions: agents.Permissions{Mode: "bypass"}},
+				"claude-fast": {Type: "claude-code", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypass"}}},
+				"agy-code":    {Type: "mock", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypass"}}},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},
@@ -226,6 +226,6 @@ func TestOneShot_InternalSourceDeclaresItsOwnPosture(t *testing.T) {
 	})
 	o, err := testOneShot(t, cfg, opPipe(cfg, loader), &stubEngine{out: "ok"}, InternalSource("plain", "", ""))
 	require.NoError(t, err, "an internal one-shot on a label declaring no posture must still launch")
-	assert.Equal(t, engine.PermissionPlan, o.Launch.Permission.Mode,
+	assert.Equal(t, "plan", o.Launch.Permission.Posture.Document["mode"],
 		"an internal one-shot only reads and answers; its payload may carry a transcript, so it never runs at bypass")
 }

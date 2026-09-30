@@ -410,28 +410,28 @@ enum Mode {
   MODE_STRUCTURED = 2;
 }
 
-// PermissionPolicy is engine.PermissionPolicy.
+// PermissionPolicy is engine.PermissionPolicy: who answers, the sandbox, and
+// the engine's resolved posture as its own document (posture, read only by
+// the engine named by engine — core never interprets it).
 message PermissionPolicy {
-  PermissionMode mode = 1;
-  PermissionMode after_plan = 2;     // UNSPECIFIED: not plan-first
-  PermissionMode ceiling = 3;
-  repeated string allow = 4;         // engine-native rules
-  repeated string deny = 5;
-  repeated string ask = 6;
+  // 1-6 were the core mode enum, the plan continuation, the ceiling and the
+  // rule lists: the mode and rules are engine grammar, carried in posture.
+  reserved 1, 2, 3, 4, 5, 6;
   Approver approver = 7;
   google.protobuf.Duration approval_timeout = 8;
+  Sandbox sandbox = 9;
+  bool network = 10;
+  string engine = 11;
+  google.protobuf.Struct posture = 12;
 }
 
-// PermissionMode is engine.PermissionMode, value for value (the codec
-// converts by value; coordgrpc's parity test pins the correspondence).
-enum PermissionMode {
-  PERMISSION_MODE_UNSPECIFIED = 0;   // engine.PermissionNotRequested
-  PERMISSION_MODE_DEFAULT = 1;
-  PERMISSION_MODE_ACCEPT_EDITS = 2;
-  PERMISSION_MODE_PLAN = 3;
-  PERMISSION_MODE_BYPASS = 4;
-  PERMISSION_MODE_DONT_ASK = 5;
-  PERMISSION_MODE_AUTO = 6;
+// Sandbox is engine.Sandbox. UNSPECIFIED never rides a resolved launch; the
+// decoder refuses it rather than guess a bound.
+enum Sandbox {
+  SANDBOX_UNSPECIFIED = 0;
+  SANDBOX_READ_ONLY = 1;
+  SANDBOX_WORKSPACE_WRITE = 2;
+  SANDBOX_FULL = 3;
 }
 
 // Approver is engine.Approver. UNSPECIFIED never rides a resolved launch;
@@ -440,6 +440,7 @@ enum Approver {
   APPROVER_UNSPECIFIED = 0;
   APPROVER_HUMAN = 1;
   APPROVER_NONE = 2;
+  APPROVER_REVIEWER = 3;
 }
 
 // Axes are launch.Axes: the two isolation axes, each a spelled value.
@@ -1046,11 +1047,13 @@ message ApprovalRequest {
   bytes input = 3;                    // the tool call's input, canonical JSON
   string tool_use_id = 4;
   repeated string suggestions = 5;    // engine-native session rules on offer
-  string suggests_set_mode = 6;       // a PermissionMode name, or empty
+  string suggests_set_mode = 6;       // a posture in the asker's engine's vocabulary, or empty
   PlanProposal plan = 7;
   repeated Question questions = 8;
-  string ceiling = 9;                 // the highest PermissionMode an allow may set
+  // 9 was the ceiling an allow could set; transitions replace it.
+  reserved 9;
   google.protobuf.Duration timeout = 10;  // unset = the default; capped
+  repeated string transitions = 11;   // the postures an allow may set, in the asker's engine's vocabulary
 }
 
 message PlanProposal {
@@ -1081,7 +1084,7 @@ message QuestionAnswer {
 message ApprovalDecision {
   bool allow = 1;
   repeated string session_rules = 2;  // allow-for-session: session scope only
-  string set_mode = 3;                // a PermissionMode name, or empty
+  string set_mode = 3;                // one of the request's transitions, or empty
   repeated QuestionAnswer answers = 4;
   string message = 5;                 // deny note or plan feedback
   string decider = 6;
@@ -1114,7 +1117,7 @@ message SpawnAgentRequest {
   // e.g. "test-writer"
   string role = 1 [(field_schema) = {
     required: true,
-    doc: "Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored; see `ctxloom agent list`)",
+    doc: "Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permissions are honored; see `ctxloom agent list`)",
     example: "\"code-reviewer\""
   }];
   // child task input
@@ -1348,10 +1351,9 @@ message ListRunsResult {
     // the SPAWNING run's run_id, so a roster consumer can render the
     // delegation tree without re-deriving it from the event log.
     string parent_run_id = 7;
-    // permission_mode is the child's resolved permission mode's kind name
-    // (agent.PermissionMode.String(): "bypass"|"plan"|"default"|
-    // "acceptEdits"), fixed at enqueue. Empty for a run journaled
-    // before this field existed.
+    // permission_mode is the posture the child's binding declared for its
+    // engine, in that engine's vocabulary, fixed at enqueue. Empty when it
+    // declared none.
     string permission_mode = 8;
     // mcp_servers are the child's resolved MCP server NAMES ONLY —
     // never command, args, or env, which can carry a secret. Composed

@@ -127,7 +127,7 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 	if agentName != progressAgentName {
 		return nil, &unknownAgentError{agentName}
 	}
-	perm := agent.PermissionBypass
+	perm := "bypass"
 	return &coord.SpawnPlan{
 		AgentName:  agentName,
 		Backend:    "mock",
@@ -151,7 +151,7 @@ func (s *progressSpawner) AssignSession(projectDir, backend string) (string, err
 func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
 	if s.mode == progressSpawnDark {
-		l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
+		l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", "bypass")
 		// What the coordinator settled for this start rides the launch, as the
 		// production resolver stamps it: the run id (Start encodes it into the
 		// reach-back; a runner handed none refuses to host) and the first turn
@@ -174,7 +174,7 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	}
 	s.cells[start.Identity.Harp] = preparedContainerCell{env: cenv, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, "bypass")
 	// What the coordinator settled for this start rides the launch, as the
 	// production resolver stamps it: the run id (Start encodes it into the
 	// reach-back; a runner handed none refuses to host) and the first turn

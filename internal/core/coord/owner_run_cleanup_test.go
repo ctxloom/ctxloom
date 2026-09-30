@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // sudsy-patio: StartOwnedRun's issueStartRun failure path (owner_run.go:159-161)
@@ -56,7 +55,7 @@ func TestStartOwnedRun_CleansUpOnIssueStartRunFailure(t *testing.T) {
 		return OwnedRunner{Kill: func() { killCalled.Store(true) }}, nil
 	}
 
-	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "hello")
+	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", "bypass"), false), starter, "hello")
 
 	require.Error(t, err, "a runner that never dials home must fail the owner run")
 	assert.Nil(t, outcome)

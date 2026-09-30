@@ -66,7 +66,7 @@ func (s *exitSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, 
 	}
 	s.cells[start.Identity.Harp] = preparedContainerCell{env: cenv, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, "bypass")
 	l.Identity = start.Identity
 	l.Prompt = start.Prompt
 	l.Cell.Env = env

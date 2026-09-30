@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -51,7 +50,7 @@ func TestAgentRecv_FromAnEndedRunIsRefused(t *testing.T) {
 	owner, ok := c.Identify(token)
 	require.True(t, ok)
 	starter, started := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-	out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "do the thing")
+	out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "do the thing")
 	require.NoError(t, err)
 	require.True(t, *started)
 	run := Identity{Harp: ownerHarp, RunID: out.RunID}

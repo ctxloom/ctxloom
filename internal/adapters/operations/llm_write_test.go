@@ -32,7 +32,7 @@ func TestSetLLM_CreatesAndPersists(t *testing.T) {
 	assert.Equal(t, "big", entry.Label)
 	assert.Equal(t, "mock", entry.Type)
 	assert.Equal(t, "o1", entry.Model)
-	assert.Equal(t, "bypass", entry.Permissions.Mode)
+	assert.Equal(t, map[string]any{"mode": "bypass"}, entry.Permissions.Engine, "the label's engine's key, flat")
 
 	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -96,7 +96,14 @@ func TestSetLLM_EditOnlyChangesNamedFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "mock", entry.Type, "an unnamed field must survive an edit that names a different one")
 	assert.Equal(t, "o1", entry.Model)
-	assert.Equal(t, "plan", entry.Permissions.Mode)
+	assert.Equal(t, map[string]any{"mode": "plan"}, entry.Permissions.Engine)
+
+	_, err = SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Permissions: ptr("acceptEdits")})
+	require.Error(t, err, "the label's engine (mock) takes no acceptEdits; nothing is written")
+	assert.ErrorContains(t, err, "acceptEdits")
+	entry, err = SetLLM(context.Background(), mgr, SetLLMRequest{Label: "big", Permissions: ptr("")})
+	require.NoError(t, err)
+	assert.Empty(t, entry.Permissions.Engine, "empty clears it")
 }
 
 // TestRemoveLLM_DeletesAndPersists proves the removal round-trips.

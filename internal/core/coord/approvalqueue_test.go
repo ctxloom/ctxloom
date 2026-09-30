@@ -498,7 +498,7 @@ func TestApprovalQueue_ApprovedPlanIsJournaled(t *testing.T) {
 	}}
 	done := parkAsync(ctx, q, req, time.Minute)
 	id := awaitEvent(t, events, QueueAdded).ID
-	require.NoError(t, q.Answer(id, ApprovalDecision{Allow: true, SetMode: engine.Provide(engine.PermissionAcceptEdits)}))
+	require.NoError(t, q.Answer(id, ApprovalDecision{Allow: true, SetMode: engine.Provide("acceptEdits")}))
 	<-done
 
 	planSum := sha256.Sum256([]byte("# plan\n1. do it"))

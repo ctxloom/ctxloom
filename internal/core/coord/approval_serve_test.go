@@ -20,7 +20,7 @@ func childOf(out *RunOutcome) Identity { return Identity{Harp: out.Harp, RunID: 
 // askNow is an approval request from out's CURRENT turn, stamped as
 // HandleRequest stamps one arriving on the wire.
 func askNow(c *Coordinator, out *RunOutcome, ask engine.PermissionAsk) AgentRequest {
-	return AgentRequest{Kind: ApprovalRequest{Ask: ask, Ceiling: engine.PermissionDefault, turn: c.approvals.turnOf(out.RunID)}}
+	return AgentRequest{Kind: ApprovalRequest{Ask: ask, Transitions: []string{"default"}, turn: c.approvals.turnOf(out.RunID)}}
 }
 
 // TestApprovalRequest_ParksAtTheRootAndAnswersTheRun: a run's approval request
@@ -43,7 +43,7 @@ func TestApprovalRequest_ParksAtTheRootAndAnswersTheRun(t *testing.T) {
 	go func() {
 		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_Approval{Approval: &agentcoordpb.ApprovalRequest{
 			Kind: agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, Tool: "Bash", Input: []byte(`{"command":"make"}`),
-			ToolUseId: "toolu_7", Ceiling: "acceptEdits", Timeout: durationpb.New(20 * time.Minute),
+			ToolUseId: "toolu_7", Transitions: []string{"default", "acceptEdits"}, Timeout: durationpb.New(20 * time.Minute),
 		}}})
 		replied <- result{resp, err}
 	}()
@@ -59,7 +59,7 @@ func TestApprovalRequest_ParksAtTheRootAndAnswersTheRun(t *testing.T) {
 	assert.Equal(t, []string{ownerIdentity().Harp, out.Harp}, p.Lineage, "root → … → the asking harp")
 	assert.Equal(t, "Bash", p.Ask.Tool)
 	assert.JSONEq(t, `{"command":"make"}`, string(p.Ask.Input))
-	assert.Equal(t, engine.PermissionAcceptEdits, p.Ceiling)
+	assert.Equal(t, []string{"default", "acceptEdits"}, p.Transitions, "the engine's transitions reach the presenter")
 	assert.Equal(t, 20*time.Minute, p.Deadline.Sub(p.Since))
 
 	require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{Allow: true, Message: "fine"}))
@@ -126,7 +126,7 @@ func TestApprovalRequest_TurnEndDropsIt(t *testing.T) {
 	replied := make(chan result, 1)
 	go func() {
 		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_Approval{Approval: &agentcoordpb.ApprovalRequest{
-			Kind: agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, Tool: "Bash", Input: []byte(`{}`), Ceiling: "default",
+			Kind: agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, Tool: "Bash", Input: []byte(`{}`),
 		}}})
 		replied <- result{resp, err}
 	}()
@@ -168,8 +168,8 @@ func TestApprovalRequest_AskFromAnEndedRunNeverParks(t *testing.T) {
 
 	// Both asked during the run's FIRST turn (turn 0): the run's end forgets
 	// its turn count, so only the run's own end can refuse them.
-	late := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, Ceiling: engine.PermissionDefault}}
-	later := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Read"}, Ceiling: engine.PermissionDefault}}
+	late := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}}}
+	later := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Read"}}}
 	_, err := c.Stop(ctx, ownerIdentity(), StopRequest{Harp: out.Harp, Reason: "enough"})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return c.runEnded(out.RunID) }, conformanceWait, 10*time.Millisecond)

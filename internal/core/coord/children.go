@@ -14,7 +14,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"

@@ -107,7 +107,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfigWithDefault(root, map[string]agents.Agent{
-		"default": {LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container-rootless", Permissions: agents.Permissions{Mode: "plan"}},
+		"default": {LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container-rootless", Permissions: agents.Permissions{Engines: map[string]map[string]any{"mock": {"mode": "plan"}}}},
 	}, "default")
 
 	// The "default profile set" every non-run consumer reads matches the agent.
@@ -121,7 +121,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	assert.Contains(t, res.Context, "FRAG-TWO")
 	assert.Equal(t, "slow", res.Label)
 	assert.Equal(t, launch.RuntimeRootless, res.Runtime, "the default agent's runtime rides the bare launch")
-	assert.Equal(t, "plan", res.Permissions.Mode, "the default agent's permissions ride the bare launch")
+	assert.Equal(t, "plan", res.EffectivePermissions, "the default agent's permissions ride the bare launch")
 }
 
 // TestResolveAgent_MissingDefaultAgentDegrades pins the fault-tolerant half: a
@@ -155,13 +155,15 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfig(root, map[string]agents.Agent{
 		"claude-blank": {LLM: "primary", Profiles: []string{"p1"}},
-		"mock-plan":    {LLM: "fast", Profiles: []string{"p1"}, Permissions: agents.Permissions{Mode: "plan"}},
+		"mock-plan":    {LLM: "fast", Profiles: []string{"p1"}, Permissions: agents.Permissions{Engines: map[string]map[string]any{"mock": {"mode": "plan"}}}},
+		"other-block":  {LLM: "fast", Profiles: []string{"p1"}, Permissions: agents.Permissions{Engines: map[string]map[string]any{"claude-code": {"mode": "bypass"}}}},
 		"mock-blank":   {LLM: "fast", Profiles: []string{"p1"}},
 	})
 	cases := map[string]string{
 		"claude-blank": "acceptEdits", // claude-code's host default made visible
 		"mock-plan":    "plan",        // declared value surfaces
 		"mock-blank":   "default",     // non-claude blank → prompt
+		"other-block":  "",            // no block for its engine: the launch refuses it
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -212,7 +212,7 @@ func (f *fakeEngineHome) payloadKinds() []string {
 }
 
 func testStartRun(runID string) *agentcoordpb.StartRun {
-	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", agent.PermissionBypass)
+	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
 	l.Identity.RunID = runID
 	l.Identity.Depth = 1
 	l.Prompt = "CTX\n\ndo the thing"
@@ -477,7 +477,7 @@ func TestEngineHost_StartRun_WithoutAHarpIsRefused(t *testing.T) {
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
-	l := ownerLaunch("", "claude-code", "fast", "claude-sonnet-5", "/work", agent.PermissionBypass)
+	l := ownerLaunch("", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
 	l.Prompt = "no harp here"
 	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{
 		StartRun: &agentcoordpb.StartRun{RunId: "run-1", Launch: coordgrpc.EncodeLaunch(l)},

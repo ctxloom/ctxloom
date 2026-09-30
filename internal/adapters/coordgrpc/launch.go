@@ -5,6 +5,7 @@
 package coordgrpc
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -167,61 +168,96 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 	return l, nil
 }
 
-// encodePolicy projects the resolved policy; modes cross by value (the
-// wire enum IS engine.PermissionMode's numbering), an unprovided
-// after_plan as UNSPECIFIED.
+var (
+	approverToWire = map[engine.Approver]pb.Approver{
+		engine.ApproverHuman:    pb.Approver_APPROVER_HUMAN,
+		engine.ApproverNone:     pb.Approver_APPROVER_NONE,
+		engine.ApproverReviewer: pb.Approver_APPROVER_REVIEWER,
+	}
+	sandboxToWire = map[engine.Sandbox]pb.Sandbox{
+		engine.SandboxReadOnly:       pb.Sandbox_SANDBOX_READ_ONLY,
+		engine.SandboxWorkspaceWrite: pb.Sandbox_SANDBOX_WORKSPACE_WRITE,
+		engine.SandboxFull:           pb.Sandbox_SANDBOX_FULL,
+	}
+)
+
+// encodePolicy projects the resolved policy. The posture document crosses
+// as a Struct, made JSON-shaped first (an engine's rule lists are []string,
+// which a Struct cannot hold as such); a document that cannot cross is
+// left off, and the engine refuses the posture it did not receive.
 func encodePolicy(p engine.PermissionPolicy) *pb.PermissionPolicy {
 	out := &pb.PermissionPolicy{
-		Mode:            pb.PermissionMode(p.Mode),
-		Ceiling:         pb.PermissionMode(p.Ceiling),
-		Allow:           p.Allow,
-		Deny:            p.Deny,
-		Ask:             p.Ask,
-		Approver:        pb.Approver_APPROVER_HUMAN,
+		Approver:        approverToWire[p.Approver],
 		ApprovalTimeout: durationpb.New(p.ApprovalTimeout),
+		Sandbox:         sandboxToWire[p.Sandbox],
+		Network:         p.Network,
+		Engine:          string(p.Posture.Engine),
 	}
-	if p.Approver == engine.ApproverNone {
-		out.Approver = pb.Approver_APPROVER_NONE
-	}
-	if after, ok := p.AfterPlan.Get(); ok {
-		out.AfterPlan = pb.PermissionMode(after)
+	if p.Posture.Document != nil {
+		if doc, err := jsonShaped(p.Posture.Document); err == nil {
+			out.Posture, _ = structpb.NewStruct(doc)
+		}
 	}
 	return out
 }
 
-// errNoPolicy / errNoApprover refuse a launch whose policy the runner
-// would otherwise have to guess.
+// jsonShaped is doc as JSON would read it back: lists as []any, numbers as
+// float64 — the shapes a Struct holds.
+func jsonShaped(doc map[string]any) (map[string]any, error) {
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	return out, json.Unmarshal(b, &out)
+}
+
+// errNoPolicy / errNoApprover / errNoSandbox / errNoEngine refuse a launch
+// whose policy the runner would otherwise have to guess.
 var (
 	errNoPolicy   = errors.New("coordgrpc: the launch carries no permission policy")
 	errNoApprover = errors.New("coordgrpc: the launch's permission policy names no approver")
+	errNoSandbox  = errors.New("coordgrpc: the launch's permission policy names no sandbox")
+	errNoEngine   = errors.New("coordgrpc: the launch's permission posture names no engine")
 )
 
-// decodePolicy reads the policy back. No policy, or an approver the wire
-// does not name, is refused: whether a human is asked is not guessed.
+// decodePolicy reads the policy back. No policy, an approver or a sandbox
+// the wire does not name, or a posture naming no engine, is refused:
+// whether a human is asked, and what bounds the engine, is not guessed.
 func decodePolicy(w *pb.PermissionPolicy) (engine.PermissionPolicy, error) {
 	if w == nil {
 		return engine.PermissionPolicy{}, errNoPolicy
 	}
 	p := engine.PermissionPolicy{
-		Mode:            engine.PermissionMode(w.GetMode()),
-		Ceiling:         engine.PermissionMode(w.GetCeiling()),
-		Allow:           w.GetAllow(),
-		Deny:            w.GetDeny(),
-		Ask:             w.GetAsk(),
+		Posture:         engine.Posture{Engine: engine.Name(w.GetEngine())},
 		ApprovalTimeout: w.GetApprovalTimeout().AsDuration(),
+		Network:         w.GetNetwork(),
 	}
-	switch w.GetApprover() {
-	case pb.Approver_APPROVER_HUMAN:
-		p.Approver = engine.ApproverHuman
-	case pb.Approver_APPROVER_NONE:
-		p.Approver = engine.ApproverNone
-	default:
+	if p.Posture.Engine == "" {
+		return engine.PermissionPolicy{}, errNoEngine
+	}
+	if doc := w.GetPosture(); doc != nil {
+		p.Posture.Document = doc.AsMap()
+	}
+	var ok bool
+	if p.Approver, ok = fromWire(approverToWire, w.GetApprover()); !ok {
 		return engine.PermissionPolicy{}, errNoApprover
 	}
-	if after := w.GetAfterPlan(); after != pb.PermissionMode_PERMISSION_MODE_UNSPECIFIED {
-		p.AfterPlan = engine.Provide(engine.PermissionMode(after))
+	if p.Sandbox, ok = fromWire(sandboxToWire, w.GetSandbox()); !ok {
+		return engine.PermissionPolicy{}, errNoSandbox
 	}
 	return p, nil
+}
+
+// fromWire inverts a to-wire table.
+func fromWire[K comparable, V comparable](table map[K]V, v V) (K, bool) {
+	for k, w := range table {
+		if w == v {
+			return k, true
+		}
+	}
+	var zero K
+	return zero, false
 }
 
 func encodeIdentity(id sessions.Identity) *pb.Identity {

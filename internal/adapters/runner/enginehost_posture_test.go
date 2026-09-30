@@ -10,14 +10,13 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // startRunAt is testStartRun with the launch's policy replaced.
 func startRunAt(runID string, p engine.PermissionPolicy) *agentcoordpb.StartRun {
-	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", agent.PermissionBypass)
+	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
 	l.Identity.RunID = runID
 	l.Identity.Depth = 1
 	l.Prompt = "do the thing"
@@ -43,18 +42,12 @@ func firstTurnPosture(t *testing.T, p engine.PermissionPolicy) engine.TurnPostur
 	return sc.Turns[0].Posture
 }
 
-// Every turn carries the run's posture: the resolved mode — which is how
-// it reaches a process resumed by key, where a mode does not survive.
-func TestEngineHost_TurnCarriesTheLaunchPosture(t *testing.T) {
-	got := firstTurnPosture(t, engine.PermissionPolicy{Mode: engine.PermissionAcceptEdits, Ceiling: engine.PermissionAcceptEdits, Approver: engine.ApproverNone})
-	assert.Equal(t, engine.TurnPosture{Mode: engine.PermissionAcceptEdits}, got)
-
-	planFirst := engine.PermissionPolicy{Mode: engine.PermissionPlan, AfterPlan: engine.Provide(engine.PermissionAcceptEdits), Ceiling: engine.PermissionAcceptEdits}
-	assert.Equal(t, engine.PermissionPlan, firstTurnPosture(t, planFirst).Mode, "a plan-first run starts its first turn in plan")
-}
-
-// Bypass never rides a turn: it stays on the launch argv.
-func TestEngineHost_BypassTurnAsksForNoMode(t *testing.T) {
-	got := firstTurnPosture(t, engine.PermissionPolicy{Mode: engine.PermissionBypass, Ceiling: engine.PermissionBypass})
-	assert.Equal(t, engine.TurnPosture{}, got)
+// The runner reads no posture: a first turn asks for no mode of its own,
+// whatever the launch's policy, and the engine runs it at the posture its
+// session carries.
+func TestEngineHost_FirstTurnAsksForNoModeOfItsOwn(t *testing.T) {
+	for _, mode := range []string{"acceptEdits", "plan", "bypass"} {
+		p := engine.PermissionPolicy{Posture: engine.Posture{Engine: "claude-code", Document: map[string]any{"mode": mode}}, Approver: engine.ApproverNone, Sandbox: engine.SandboxFull}
+		assert.Equalf(t, engine.TurnPosture{}, firstTurnPosture(t, p), "%s", mode)
+	}
 }

@@ -138,8 +138,8 @@ func toolReq(id, harp, tool, input string, left time.Duration) coord.PendingAppr
 	return coord.PendingApproval{
 		ID: coord.ApprovalID(id), Kind: coord.ApprovalTool,
 		From: coord.Identity{Harp: harp}, Agent: "coder", Lineage: []string{"root", harp},
-		Ask:     engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: json.RawMessage(input)},
-		Ceiling: engine.PermissionAcceptEdits, Since: apprBase, Deadline: apprBase.Add(left),
+		Ask:         engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: json.RawMessage(input)},
+		Transitions: []string{"default", "acceptEdits"}, Since: apprBase, Deadline: apprBase.Add(left),
 	}
 }
 
@@ -345,23 +345,23 @@ func TestApprovals_AnAnswerToAResolvedRequestSaysNothingWasApplied(t *testing.T)
 	assert.Contains(t, h.screen(), "it had already resolved — nothing was applied")
 }
 
-// TestApprovals_ScopePickerNeverOffersBypassOrBeyondTheCeiling is T13's
-// first case: only the engine's session rules, and a suggested mode only
-// when a human approval may grant it under the ceiling. The decision carries
-// the rule and nothing else — never a destination, never a mode it did not
-// show.
-func TestApprovals_ScopePickerNeverOffersBypassOrBeyondTheCeiling(t *testing.T) {
+// TestApprovals_ScopePickerOffersOnlyTheEnginesTransitions is T13's first
+// case: only the engine's session rules, and a suggested mode only when the
+// engine offers that transition from the asker's posture. The decision
+// carries the rule and nothing else — never a destination, never a mode it
+// did not show.
+func TestApprovals_ScopePickerOffersOnlyTheEnginesTransitions(t *testing.T) {
 	p := bashReq("a", "wiry-otter", "git status", 5*time.Minute)
 	p.Ask.Suggestions = []string{"Bash(git status:*)"}
-	p.Ask.SuggestsSetMode = engine.Provide(engine.PermissionBypass)
-	p.Ceiling = engine.PermissionBypass
-	assert.Equal(t, []scopeOption{{rule: "Bash(git status:*)"}}, scopeOptions(p), "bypass is never offered, whatever the ceiling")
+	p.Ask.SuggestsSetMode = engine.Provide("bypass")
+	p.Transitions = []string{"default", "acceptEdits"}
+	assert.Equal(t, []scopeOption{{rule: "Bash(git status:*)"}}, scopeOptions(p), "a mode the engine offers no transition to is not offered")
 
-	p.Ask.SuggestsSetMode = engine.Provide(engine.PermissionAcceptEdits)
-	p.Ceiling = engine.PermissionDefault
-	assert.Len(t, scopeOptions(p), 1, "a mode above the ceiling is not offered")
-	p.Ceiling = engine.PermissionAcceptEdits
-	assert.Len(t, scopeOptions(p), 2, "a mode within the ceiling is")
+	p.Ask.SuggestsSetMode = engine.Provide("acceptEdits")
+	p.Transitions = []string{"default"}
+	assert.Len(t, scopeOptions(p), 1, "a mode outside the transitions is not offered")
+	p.Transitions = []string{"default", "acceptEdits"}
+	assert.Len(t, scopeOptions(p), 2, "a transition the engine offers is")
 
 	h := newApprHarness(t, newFakeQueue(p))
 	h.keys("right", "right", "enter")
@@ -372,29 +372,17 @@ func TestApprovals_ScopePickerNeverOffersBypassOrBeyondTheCeiling(t *testing.T) 
 	assert.Equal(t, coord.ApprovalDecision{Allow: true, SessionRules: []string{"Bash(git status:*)"}}, h.q.calls()[0].d)
 }
 
-func TestPostureWithin(t *testing.T) {
-	for _, m := range []engine.PermissionMode{engine.PermissionBypass, engine.PermissionAuto, engine.PermissionPlan, engine.PermissionDontAsk} {
-		assert.False(t, postureWithin(m, engine.PermissionBypass), "%s is never granted by an approval", m)
-	}
-	assert.True(t, postureWithin(engine.PermissionDefault, engine.PermissionDefault))
-	assert.False(t, postureWithin(engine.PermissionDefault, engine.PermissionPlan), "a plan ceiling grants nothing")
-	assert.False(t, postureWithin(engine.PermissionAcceptEdits, engine.PermissionDefault))
-	assert.False(t, postureWithin(engine.PermissionAcceptEdits, engine.PermissionDontAsk))
-	assert.True(t, postureWithin(engine.PermissionAcceptEdits, engine.PermissionAcceptEdits))
-	assert.True(t, postureWithin(engine.PermissionAcceptEdits, engine.PermissionAuto))
-}
-
-func planReq(id, harp string, ceiling engine.PermissionMode) coord.PendingApproval {
+func planReq(id, harp string, transitions ...string) coord.PendingApproval {
 	return coord.PendingApproval{
 		ID: coord.ApprovalID(id), Kind: coord.ApprovalPlan, From: coord.Identity{Harp: harp}, Agent: "planner",
-		Ask:     engine.PermissionAsk{Kind: engine.AskPlan, Tool: "ExitPlanMode", Plan: &engine.PlanProposal{Markdown: "# Plan\n- step one\n- step two", Path: "/tmp/plan.md"}},
-		Ceiling: ceiling, Since: apprBase, Deadline: apprBase.Add(10 * time.Minute),
+		Ask:         engine.PermissionAsk{Kind: engine.AskPlan, Tool: "ExitPlanMode", Plan: &engine.PlanProposal{Markdown: "# Plan\n- step one\n- step two", Path: "/tmp/plan.md"}},
+		Transitions: transitions, Since: apprBase, Deadline: apprBase.Add(10 * time.Minute),
 	}
 }
 
 // TestApprovals_PlanRejectRequiresFeedback is T13's second case.
 func TestApprovals_PlanRejectRequiresFeedback(t *testing.T) {
-	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", engine.PermissionAcceptEdits)))
+	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", "default", "acceptEdits")))
 	assert.Contains(t, h.screen(), "step one", "the plan is shown")
 	h.keys("right", "right", "enter")
 	h.keys("tab", "enter")
@@ -411,19 +399,20 @@ func TestApprovals_PlanRejectRequiresFeedback(t *testing.T) {
 	assert.Equal(t, coord.ApprovalDecision{Message: "split step two"}, h.q.calls()[0].d)
 }
 
-// TestApprovals_PlanApproveOffersOnlyPosturesWithinTheCeiling: the posture
-// picker is capped by the ceiling, starts on default, and a move puts focus
-// back on Back.
-func TestApprovals_PlanApproveOffersOnlyPosturesWithinTheCeiling(t *testing.T) {
-	assert.Equal(t, []engine.PermissionMode{engine.PermissionDefault}, planPostures(engine.PermissionDefault))
-	assert.Empty(t, planPostures(engine.PermissionPlan))
+// TestApprovals_PlanApproveOffersTheEnginesTransitions: the posture picker
+// lists exactly the engine's transitions, starts on the first, and a move
+// puts focus back on Back; none leaves nothing to approve into.
+func TestApprovals_PlanApproveOffersTheEnginesTransitions(t *testing.T) {
+	none := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron")))
+	none.keys("right", "enter")
+	assert.Contains(t, none.screen(), "offers no posture to continue in")
 
-	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", engine.PermissionBypass)))
+	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", "default", "acceptEdits")))
 	h.keys("right", "enter", "tab", "down")
 	assert.Contains(t, h.screen(), "[ Back ]", "choosing another posture put focus back on Back")
 	h.keys("tab", "enter")
 	require.Len(t, h.q.calls(), 1)
-	assert.Equal(t, coord.ApprovalDecision{Allow: true, SetMode: engine.Provide(engine.PermissionAcceptEdits)}, h.q.calls()[0].d)
+	assert.Equal(t, coord.ApprovalDecision{Allow: true, SetMode: engine.Provide("acceptEdits")}, h.q.calls()[0].d)
 }
 
 func questionReq(id, harp string) coord.PendingApproval {

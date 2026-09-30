@@ -64,7 +64,7 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*coord.
 	if agentName != directAgentName {
 		return nil, assertUnknownAgent(agentName)
 	}
-	perm := agent.PermissionBypass
+	perm := "bypass"
 	return &coord.SpawnPlan{
 		AgentName:  agentName,
 		Backend:    "mock",
@@ -106,7 +106,7 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnP
 	}
 	s.cells[start.Identity.Harp] = preparedContainerCell{env: cenv, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", cenv.Placement().Paths.Paths().ProjectRoot.Host, "bypass")
 	// What the coordinator settled for this start rides the launch, as the
 	// production resolver stamps it: the run id (Start encodes it into the
 	// reach-back; a runner handed none refuses to host) and the first turn

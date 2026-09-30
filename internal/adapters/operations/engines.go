@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"context"
 	"fmt"
 
@@ -60,15 +61,38 @@ func IsTestOnlyEngine(reg engine.Registry, name string) bool {
 	return ok && e.Root().Distribution == engine.DistributionTestOnly
 }
 
-// EnginePermissionFacts reads the named engine's declared permission facts
-// off its Definition. An unregistered name has the zero facts, which
-// resolve to prompt-per-call and collapse plan.
-func EnginePermissionFacts(reg engine.Registry, name string) engine.PermissionFacts {
-	e, ok := reg.Lookup(engine.Name(name))
+// EffectivePosture names the posture an unflagged run of backend resolves
+// to over a binding's and a label's declarations, in the engine's own
+// vocabulary (its PermissionModel resolves and names it); "" when the
+// engine has no permission model, or the declarations are ones the launch
+// refuses.
+func EffectivePosture(reg engine.Registry, backend string, binding agents.Permissions, label agents.LabelPermissions) string {
+	kind, ok := reg.Lookup(engine.Name(backend))
 	if !ok {
-		return engine.PermissionFacts{}
+		return ""
 	}
-	return e.Root().Permissions
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		return ""
+	}
+	var decls []engine.Declaration
+	if block, ok := binding.Engines[backend]; ok {
+		decls = append(decls, engine.Declaration{Document: block, From: "the agent"})
+	} else if len(binding.Engines) > 0 {
+		return ""
+	}
+	if len(label.Engine) > 0 {
+		decls = append(decls, engine.Declaration{Document: label.Engine, From: "the llm label"})
+	}
+	doc, err := model.Resolve(engine.PostureRequest{Declared: decls})
+	if err != nil {
+		return ""
+	}
+	name, err := model.Decode(doc)
+	if err != nil {
+		return ""
+	}
+	return name
 }
 
 // EngineBinary is the native client binary the named engine's interactive

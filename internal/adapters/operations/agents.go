@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -98,8 +97,8 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 // default / the composed profiles' llm); Profiles compose into one context;
 // Runtime is optional (one of isolation.RuntimeNames — host |
 // container-rootless | container-rootful; empty inherits the project
-// `runtime:` default); Permissions is optional (engine.PermissionModeNames;
-// empty inherits the engine label's default). The workspace axis is deliberately
+// `runtime:` default); Permissions is optional (a mode of the engine the
+// agent binds, written into that engine's block; empty clears it). The workspace axis is deliberately
 // NOT settable here — it is a session trait chosen at invocation time, never
 // stored on a binding.
 type SetAgentRequest struct {
@@ -128,17 +127,16 @@ type SetAgentRequest struct {
 	Roots       map[string]string `json:"roots,omitempty"`
 	Permissions *string           `json:"permissions,omitempty"`
 	// Driving sets the per-turn execution axis (conversational|oneshot);
-	// empty = conversational (the default, see agents.Agent.Driving). Unlike
-	// Runtime/Permissions below, an unknown value here is REJECTED (SetAgent
-	// returns an error, nothing is persisted) rather than warned-and-stored —
-	// see agents.ValidateDriving's doc for why.
+	// empty = conversational (the default, see agents.Agent.Driving). An
+	// unknown value here is REJECTED (SetAgent returns an error, nothing is
+	// persisted) — see agents.ValidateDriving's doc for why.
 	Driving *string `json:"driving,omitempty"`
 	// HomeMode sets the binding's per-engine engine-home policy
 	// (session|host); empty (undeclared) defaults to session at resolve
 	// time, and host is the unsafe selection.
-	// Unlike Runtime/Permissions, an unknown value here is REJECTED (SetAgent
-	// returns an error, nothing is persisted) — the same treatment Surfaces
-	// gets, and for the same reason: see agents.Agent.HomeMode's doc.
+	// An unknown value here is REJECTED (SetAgent returns an error, nothing
+	// is persisted) — the same treatment Surfaces gets, and for the same
+	// reason: see agents.Agent.HomeMode's doc.
 	HomeMode *string `json:"engine_home,omitempty"`
 	// Auth sets the binding's auth mode (login|token|api-key); empty
 	// (undeclared) is token at resolve time. An unknown mode, or one the
@@ -155,30 +153,62 @@ func orKeep[T any](set *T, existing T) T {
 	return *set
 }
 
-// A binding write's axes split two ways, and which side an axis falls on is a
-// judgement about what an unknown value DOES. warnAgentAxisTypos holds the
-// advisory half, validateAgentAxes the refusing half; SetAgent runs both before
-// it opens its write transaction.
-//
-// warnAgentAxisTypos covers the axis whose unknown value is CAUGHT rather than
-// substituted at run time (Permissions → agent.ResolveDefault refuses it as a
-// fatal finding and floors to read-only), so it is stored as written per fault
-// tolerance — but warned about NOW, so a typo surfaces at write time rather
-// than at the first run.
-//
-// Runtime used to live here too (warn-and-store, "it will run on the host").
-// It does not anymore: an unknown runtime doesn't just degrade, it silently
-// SUBSTITUTES the isolation boundary the user asked for with none at all, and
-// the substituted config then fails schema validation at the next load — see
-// validateAgentAxes for the refusal.
-func warnAgentAxisTypos(name string, req SetAgentRequest) {
-	if req.Permissions != nil && *req.Permissions != "" {
-		if _, ok := agent.ParsePermissionMode(*req.Permissions); !ok {
-			clidiag.Warn("ctxloom",
-				"agent %q declares unknown permissions %q (known: %s); every run of it is refused as a fatal config finding, and under --degraded it is floored to %q (read-only)",
-				name, *req.Permissions, strings.Join(agent.PermissionModeNames(), "|"), agent.PermissionFloor)
-		}
+// errPermissionsNeedEngine refuses a --permissions write whose engine this
+// write does not settle: the mode is the engine's grammar, and lands in
+// that engine's block.
+var errPermissionsNeedEngine = errors.New("permissions: the mode is checked against, and written into the block of, the engine this agent binds, and this write binds none")
+
+// permissionMode is the key an engine's permission document names its mode
+// by, for the --permissions write.
+const permissionMode = "mode"
+
+// agentPermissionEngine is the engine whose permissions block a
+// --permissions write lands in: the one this write results in, which must
+// take the mode (its PermissionModel validates it). "" when the request
+// sets no permissions. Refused, writing nothing, when it cannot be checked:
+// the config loader would refuse what it cannot honour.
+func agentPermissionEngine(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) (string, error) {
+	if req.Permissions == nil {
+		return "", nil
 	}
+	backend, _ := ResolveBackend(reg, cfg, resultingAgentEngine(cfg, name, req))
+	kind, ok := reg.Lookup(engine.Name(backend))
+	if !ok {
+		return "", report.Errorf("set --llm in the same command, so the mode can be checked against the engine it binds",
+			"agent %q: %w", name, errPermissionsNeedEngine)
+	}
+	if *req.Permissions == "" {
+		return backend, nil
+	}
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		return "", fmt.Errorf("agent %q: engine %s takes no permission mode (%s)", name, backend, kind.Permissions().AbsentReason())
+	}
+	if err := model.Validate(map[string]any{permissionMode: *req.Permissions}); err != nil {
+		return "", fmt.Errorf("agent %q: %w", name, err)
+	}
+	return backend, nil
+}
+
+// setBlockMode writes mode into p's block for backend; "" clears it,
+// dropping a block left empty.
+func setBlockMode(p *agents.Permissions, backend, mode string) {
+	block := p.Engines[backend]
+	if mode == "" {
+		delete(block, permissionMode)
+		if len(block) == 0 {
+			delete(p.Engines, backend)
+		}
+		return
+	}
+	if block == nil {
+		block = map[string]any{}
+	}
+	block[permissionMode] = mode
+	if p.Engines == nil {
+		p.Engines = map[string]map[string]any{}
+	}
+	p.Engines[backend] = block
 }
 
 // validateAgentAxes covers the axes an unknown value BREAKS rather than
@@ -486,8 +516,11 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 	// Pre-flight, both halves BEFORE the Update transaction opens, so
 	// a refusal writes nothing and a typo'd `agent edit` cannot half-apply over
 	// a live binding.
-	warnAgentAxisTypos(name, req)
 	if err := validateAgentAxes(reg, cfg, name, req); err != nil {
+		return nil, err
+	}
+	permEngine, err := agentPermissionEngine(reg, cfg, name, req)
+	if err != nil {
 		return nil, err
 	}
 
@@ -497,7 +530,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 	// remote rename would strand. Bare/local names stay verbatim (decision A). This
 	// replaces the old verbatim store.
 	var entry agents.Agent
-	_, err := app.Update(ctx, func(d *config.Draft) error {
+	_, err = app.Update(ctx, func(d *config.Draft) error {
 		if d.Agents == nil {
 			d.Agents = make(map[string]agents.Agent)
 		}
@@ -528,7 +561,10 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 			}
 		}
 		entry.Runtime = orKeep(req.Runtime, entry.Runtime)
-		entry.Permissions.Mode = orKeep(req.Permissions, entry.Permissions.Mode)
+		if req.Permissions != nil {
+			entry.Permissions = entry.Permissions.Clone()
+			setBlockMode(&entry.Permissions, permEngine, *req.Permissions)
+		}
 		if req.Driving != nil {
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
@@ -649,14 +685,14 @@ type ResolvedAgent struct {
 	// the runtime axis resolves here: the WORKSPACE axis is a session trait
 	// the invocation supplies; the two meet in isolation.Axes at launch.
 	Runtime launch.RuntimeAxis `json:"runtime,omitempty"`
-	// Permissions is the agent's DECLARED launch-time permission posture (may be
-	// empty). The run resolver applies the engine-label default and the built-in
-	// fallback on top; the `run --permissions` flag overrides it.
+	// Permissions is the agent's DECLARED permission block (may be empty).
+	// The run resolver applies the label's keys and the engine's default
+	// under it; the `run --permissions` flag overrides the mode.
 	Permissions agents.Permissions `json:"permissions,omitempty"`
-	// EffectivePermissions is the posture an interactive run resolves to WITHOUT a
-	// --permissions flag: declared → engine-label config → project default →
-	// the engine's declared host default, so a blank-declared agent's real
-	// posture is visible rather than ""; --permissions overrides it.
+	// EffectivePermissions is the posture a run resolves to WITHOUT a
+	// --permissions flag, named by the engine (EffectivePosture), so a
+	// blank-declared agent's real posture is visible rather than "";
+	// --permissions overrides it.
 	EffectivePermissions string `json:"effectivePermissions,omitempty"`
 	// Driving mirrors agents.Agent.Driving: the agent's declared per-turn
 	// execution axis (conversational|oneshot; empty = conversational). The
@@ -790,19 +826,9 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 
 	configHome, authMode := resolvedHomeAndAuth(name, sub)
 
-	// The interactive base an unflagged run resolves to (declared → label →
-	// PROJECT DEFAULT → built-in default), so a blank claude-code posture shows
-	// its real bypass. The project default belongs in this list because this
-	// field's whole job is to print what an unflagged run WILL do: omitting a
-	// rung the run itself consults would make `agent show` report a posture the
-	// launch does not use.
-	//
-	// An unhonourable declaration already reported itself as a fatal finding
-	// inside ResolveDefault and came back floored; this call reports what the
-	// launch would use, so it prints the floor rather than re-diagnosing it.
-	effectivePerm, _ := agent.ResolveDefault(report.To(strictness.Sink("ctxloom")),
-		[]string{sub.Permissions.Mode, labelEntry.Permissions.Mode, cfg.GetPermissions().Mode},
-		EnginePermissionFacts(reg, backend).HostDefault)
+	// What an unflagged run resolves to, in the engine's own words; the
+	// launch, not this listing, refuses a declaration it cannot honour.
+	effectivePerm := EffectivePosture(reg, backend, sub.Permissions, labelEntry.Permissions)
 
 	return &ResolvedAgent{
 		Name:                 name,
@@ -816,7 +842,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 		Fragments:            ctxResult.FragmentsLoaded,
 		Runtime:              runtime,
 		Permissions:          sub.Permissions,
-		EffectivePermissions: effectivePerm.String(),
+		EffectivePermissions: effectivePerm,
 		Driving:              sub.Driving,
 		HomeMode:             configHome,
 		Auth:                 authMode,

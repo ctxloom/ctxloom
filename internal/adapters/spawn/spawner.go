@@ -7,6 +7,7 @@ package spawn
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -240,19 +241,29 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 	}
 
 	plan := &coord.SpawnPlan{
-		AgentName:  agentName,
-		Backend:    backend,
-		Label:      label,
-		Profiles:   binding.Profiles,
-		Runtime:    runtime,
-		Permission: binding.Permissions.Mode,
-		ResumeMode: resumeMode,
-		Snapshot:   snap,
+		AgentName: agentName,
+		Backend:   backend,
+		Label:     label,
+		Profiles:  binding.Profiles,
+		Runtime:   runtime,
+		// The roster's name for the posture the launch will resolve to;
+		// the launch is authoritative once it exists.
+		Permission:  operations.EffectivePosture(s.app.Engines(), backend, binding.Permissions, labelPermissions(cfg, label)),
+		MayDelegate: slices.Clone(binding.MayDelegate),
+		ResumeMode:  resumeMode,
+		Snapshot:    snap,
 	}
 	// coord.Resolved once here (not per StartEngine call) so the enqueue journal
 	// and the launch see the IDENTICAL composed set.
 	plan.MCPServers = s.childMCPServers(plan)
 	return plan, nil
+}
+
+// labelPermissions is the label's permissions block; none for a label the
+// config does not declare.
+func labelPermissions(cfg *config.Config, label string) agents.LabelPermissions {
+	entry, _ := cfg.GetLLMEntry(label)
+	return entry.Permissions
 }
 
 // resolveSpawnResumeMode is the per-engine resume-capability gate. It FAILS
@@ -325,9 +336,6 @@ func childSource(plan *coord.SpawnPlan, start coord.SpawnStart, projectDir strin
 		WorkDir:   projectDir,
 		Workspace: workspace,
 		DirtyTree: plan.DirtyTreeHandler,
-		// The launching run's ceiling caps this child's (the coordinator
-		// read it off the journal); zero for a child of the root session.
-		ParentCeiling: plan.ParentCeiling,
 	}
 	if start.Resumed || start.Rebind {
 		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}, RebindEndpoint: start.Rebind}

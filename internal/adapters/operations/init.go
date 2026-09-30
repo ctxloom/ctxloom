@@ -143,6 +143,23 @@ func validateInitRequest(reg enginepkg.Registry, req InitializeProjectRequest) e
 	if !EngineExists(reg, req.Engine) {
 		return fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(EngineNames(reg), ", "))
 	}
+	return validateHeadlessPosture(reg, req.Engine, req.HeadlessPermissions)
+}
+
+// validateHeadlessPosture refuses a headless posture the chosen engine's
+// permission model does not take; none is fine.
+func validateHeadlessPosture(reg enginepkg.Registry, name, posture string) error {
+	if posture == "" {
+		return nil
+	}
+	kind, _ := reg.Lookup(enginepkg.Name(name))
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		return fmt.Errorf("headless posture %q: engine %s takes no permission mode (%s)", posture, name, kind.Permissions().AbsentReason())
+	}
+	if err := model.Validate(map[string]any{permissionMode: posture}); err != nil {
+		return fmt.Errorf("headless posture: %w", err)
+	}
 	return nil
 }
 
@@ -197,13 +214,6 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // part of this scaffold at all — see InitializeProject, which writes it to
 // paths.DirtyTreeCommitAckPath instead.
 func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {
-	if headlessPermissions != "" {
-		m, ok := enginepkg.ParsePermissionMode(headlessPermissions)
-		if !ok {
-			return nil, fmt.Errorf("headless posture %q is not a posture (known: %s)", headlessPermissions, strings.Join(enginepkg.PermissionModeNames(), "|"))
-		}
-		headlessPermissions = m.String()
-	}
 	scaffoldData, err := readResource(resources.GetInitConfig, "init scaffold")
 	if err != nil {
 		return nil, err
@@ -248,8 +258,12 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 			HomeMode:    string(agents.HomeModeSession),
 			Auth:        string(enginepkg.AuthLogin),
 			Profiles:    []string{SeedProfileName},
-			Permissions: agents.Permissions{Mode: headlessPermissions},
 		},
+	}
+	if headlessPermissions != "" {
+		seed := f.Agents[SeedProfileName]
+		setBlockMode(&seed.Permissions, engine, headlessPermissions)
+		f.Agents[SeedProfileName] = seed
 	}
 	return yaml.Marshal(config.NewFixture(f).Authored())
 }

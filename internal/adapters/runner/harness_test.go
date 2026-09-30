@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
@@ -37,7 +36,7 @@ func resetStrictness(t *testing.T) {
 // ownerIdentity is the coordinating session's identity (depth 0).
 func ownerIdentity() coord.Identity { return coord.Identity{Harp: coordharness.OwnerHarp, Depth: 0} }
 
-func ownerLaunch(harp, backend, label, model, workDir string, perm agent.PermissionMode) launch.Launch {
+func ownerLaunch(harp, backend, label, model, workDir, perm string) launch.Launch {
 	return launchtest.Structured(harp, backend, label, model, workDir, perm)
 }
 

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -86,11 +85,11 @@ func TestAgentRun_UnknownAgentIsHardError(t *testing.T) {
 func TestAgentRun_ChildTakesItsPosture(t *testing.T) {
 	for _, tc := range []struct {
 		name, perm string
-		want       agent.PermissionMode
+		want       string
 	}{
-		{"absent enum", "", agent.PermissionDefault},
-		{"prompting enum", "acceptEdits", agent.PermissionAcceptEdits},
-		{"dontAsk", "dontAsk", agent.PermissionDontAsk},
+		{"absent", "", "default"},
+		{"prompting", "acceptEdits", "acceptEdits"},
+		{"read-only", "plan", "plan"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetStrictness(t)
@@ -119,7 +118,7 @@ func TestAgentRun_D3DegradedDropsAMisspellingToPlan(t *testing.T) {
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool { return len(sp.chat(0).RecordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)
-	assert.Equal(t, agent.PermissionPlan, sp.lastPerm(), "degraded narrows a misspelt posture to the most restrictive one")
+	assert.Equal(t, "plan", sp.lastPerm(), "degraded narrows a misspelt posture to the most restrictive one")
 }
 
 // TestAgentRun_QueuePastCap pins D4/D5: the second spawn past cap=1 enqueues

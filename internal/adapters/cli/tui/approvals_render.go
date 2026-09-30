@@ -429,7 +429,7 @@ func scopeLabel(o scopeOption) string {
 		return sanitizeForDisplay(o.rule)
 	}
 	m, _ := o.mode.Get()
-	return "mode " + m.String() + " for the rest of this run"
+	return "mode " + sanitizeForDisplay(m) + " for the rest of this run"
 }
 
 func answerLines(s *subState, _ int) []string {
@@ -462,10 +462,10 @@ func choiceMark(multi, on bool) string {
 func approveLines(s *subState, _ int) []string {
 	out := []string{"Approve " + sanitizeForDisplay(s.harp) + "'s plan — then continue in:", ""}
 	if len(s.postures) == 0 {
-		out = append(out, "no posture is within this agent's ceiling ("+s.p.Ceiling.String()+")")
+		out = append(out, "this agent's engine offers no posture to continue in")
 	}
 	for i, m := range s.postures {
-		out = append(out, cursorMark(i == s.cursor)+m.String())
+		out = append(out, cursorMark(i == s.cursor)+sanitizeForDisplay(m))
 	}
 	return append(out, "", "note (optional):", "> "+sanitizeForDisplay(s.text)+"_")
 }

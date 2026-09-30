@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // StartOwnedRun validated Harp, Backend and start — but not the
@@ -46,7 +45,7 @@ func TestStartOwnedRun_RejectsEmptyOneshotPrompt(t *testing.T) {
 	sc := &scriptedChat{}
 	starter, started := ownerRunStarter(ctx, sc, "claude-code")
 
-	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), true), starter, "")
+	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", "bypass"), true), starter, "")
 
 	assert.Error(t, err,
 		"a one-shot owner run with an empty prompt reported success while delivering no payload at all")
@@ -79,7 +78,7 @@ func TestStartOwnedRun_AllowsEmptyStructuredPrompt(t *testing.T) {
 	sc := &scriptedChat{}
 	starter, _ := ownerRunStarter(ctx, sc, "claude-code")
 
-	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "")
+	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", "bypass"), false), starter, "")
 	require.NoError(t, err, "a structured owner run takes its turns via SendOwnedRunTurn: an empty lead is legitimate")
 	assert.NotNil(t, outcome)
 }

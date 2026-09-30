@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // The runner-launch failure path wrapped the error for failChild
@@ -33,7 +32,7 @@ func TestStartOwnedRun_LaunchFailureReturnsTheWrappedError(t *testing.T) {
 	boom := errors.New("no such image: ctxloom-agent-claude")
 	starter := func(context.Context, map[string]string) (OwnedRunner, error) { return OwnedRunner{}, boom }
 
-	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", "bypass"), false), starter, "hello")
 
 	if !assert.Error(t, err) {
 		return
@@ -86,7 +85,7 @@ func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) 
 		return OwnedRunner{Kill: func() {}}, nil
 	}
 
-	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", "bypass"), false), starter, "hello")
 	if !assert.Error(t, err, "a runner that never dials home must fail the owner run") {
 		return
 	}
@@ -156,7 +155,7 @@ func TestStartOwnedRun_FlagsAreSetBeforeTheRunnerCanExist(t *testing.T) {
 		return OwnedRunner{}, errors.New("stop here: the flags have already been observed")
 	}
 
-	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), true), starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", "bypass"), true), starter, "hello")
 	if !assert.Error(t, err) {
 		return
 	}

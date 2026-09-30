@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // An owner run whose runner process is already DEAD must fail at once, not
@@ -52,7 +51,7 @@ func TestStartOwnedRun_RunnerDeathBeforeDialHomeFailsFast(t *testing.T) {
 	}
 
 	begin := time.Now()
-	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", "bypass"), false), starter, "hello")
 	elapsed := time.Since(begin)
 
 	require.Error(t, err, "a runner that died before dialing home must fail the owner run")

@@ -288,16 +288,25 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("planner")
 	require.True(t, ok)
-	assert.Equal(t, "plan", sub.Permissions.Mode)
+	assert.Equal(t, map[string]map[string]any{"claude-code": {"mode": "plan"}}, sub.Permissions.Engines, "the mode lands in the block of the engine the agent binds")
 
-	// Unknown value: stored verbatim, never an error.
-	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "odd", Profiles: ptr([]string{"default"}), Permissions: ptr("wildwest")})
-	require.NoError(t, err, "unknown permissions warns, never errors")
+	// A mode the engine does not take is refused, and nothing is written:
+	// the loader would refuse it at every later load.
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "odd", LLM: ptr("claude-code"), Profiles: ptr([]string{"default"}), Permissions: ptr("wildwest")})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "wildwest")
 	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	sub, ok = final.Agent("odd")
-	require.True(t, ok)
-	assert.Equal(t, "wildwest", sub.Permissions.Mode, "stored as written")
+	_, ok = final.Agent("odd")
+	assert.False(t, ok, "nothing persisted")
+
+	// Clearing it drops the emptied block.
+	_, err = SetAgent(context.Background(), mgr, final, SetAgentRequest{Name: "planner", Permissions: ptr("")})
+	require.NoError(t, err)
+	cleared, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, _ = cleared.Agent("planner")
+	assert.True(t, sub.Permissions.IsZero())
 }
 
 // TestSetAgent_PersistsDriving proves the driving axis written by
@@ -430,7 +439,8 @@ agents:
     profiles: [x, y]
     runtime: container-rootless
     permissions:
-      mode: bypass
+      claude-code:
+        mode: bypass
     driving: oneshot
     engine_home: session
 `)
@@ -446,7 +456,7 @@ agents:
 			assert.Equal(t, "claude-code", got.LLM)
 			assert.Equal(t, []string{"x", "y"}, got.Profiles)
 			assert.Equal(t, "container-rootless", got.Runtime)
-			assert.Equal(t, "bypass", got.Permissions.Mode)
+			assert.Equal(t, map[string]map[string]any{"claude-code": {"mode": "bypass"}}, got.Permissions.Engines)
 			assert.Equal(t, agents.DrivingOneshot, got.Driving)
 			assert.Equal(t, string(agents.HomeModeSession), got.HomeMode)
 		})

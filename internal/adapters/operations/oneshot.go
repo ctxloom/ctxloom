@@ -223,7 +223,7 @@ func (l *LazyOneShot) End() {
 // that cannot enforce plan the run is refused. A caller that is not
 // distilling (the setup probe) overrides Permission.
 func InternalSource(label, model, workDir string) launch.Source {
-	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir, Permission: engine.PermissionPlan}
+	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir, Permission: "plan"}
 }
 
 // ErrOneShotNoWorkDir refuses an internal one-shot with no working

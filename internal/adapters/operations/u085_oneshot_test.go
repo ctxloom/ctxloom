@@ -59,7 +59,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 		// bypass: this test is about the withheld-executable warning, not
 		// permission resolution.
 		LM: config.LMConfig{
-			Configs:  map[string]config.LLMConfig{"claude-code": {Type: "claude-code", Permissions: agents.Permissions{Mode: "bypass"}}},
+			Configs:  map[string]config.LLMConfig{"claude-code": {Type: "claude-code", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypass"}}}},
 			Defaults: config.RoleDefaults{Primary: "claude-code"},
 		},
 	}))

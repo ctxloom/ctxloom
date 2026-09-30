@@ -424,6 +424,15 @@ test-coverage: cover
 test-vendor-claude:
     go test -trimpath -race ./internal/adapters/transcript/vendorreader/claude/...
 
+# The drift pipeline's validate phase, run locally: the REAL claude reader over
+# the invoking user's own claude transcripts (copied to a temp dir first, never
+# read in place), printing per-version AGGREGATES only — never transcript
+# content. Fails if a file at or above the pinned CLAUDE_CODE_CLI_VERSION has a
+# parse error or an unknown line type; that result is what a pin bump cites.
+# The sandboxed test binary rewrites HOME, hence the path resolved here.
+validate-vendor-claude root=(env("HOME") / ".claude/projects"):
+    VALIDATE_VENDOR_CLAUDE_ROOT="{{root}}" go test -trimpath -count=1 -v -run '^TestValidateLocalClaudeTranscripts$' ./internal/adapters/transcript/vendorreader/claude/
+
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
 # doesn't touch CGO/treesitter, just the generated proto stubs (`just build`

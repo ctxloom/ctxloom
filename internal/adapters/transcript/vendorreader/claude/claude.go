@@ -80,5 +80,6 @@ func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string)
 	if err != nil {
 		return err
 	}
-	return convertLines(ctx, rec, lines)
+	_, err = convertLines(ctx, rec, lines)
+	return err
 }

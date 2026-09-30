@@ -358,6 +358,9 @@ func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
 	case CustomTurnStarted:
 		c.onTurnStarted(ch.role, ch.id.RunID)
 	case CustomTurnIdle:
+		// Keyed by the channel's run: a late boundary from an ended run's
+		// channel must not drop what the harp's next run asks.
+		c.approvals.endTurn(ch.id.RunID)
 		c.onTurnIdle(ch.role, ch.id.RunID)
 	}
 }
@@ -495,6 +498,12 @@ func (c *Coordinator) HandleRequest(ch *RunChannel, req AgentRequest) {
 	tr := &inflightReq{}
 	c.reqTrack[key] = tr
 	c.mu.Unlock()
+	if ar, ok := req.Kind.(ApprovalRequest); ok {
+		// Stamped here, on the receive path, so the stamp is ordered with
+		// the run's turn-end events; the park itself runs concurrently.
+		ar.turn = c.approvals.turnOf(ch.id.RunID)
+		req.Kind = ar
+	}
 
 	// ch.id is the role's stable identity (same credential across reconnect);
 	// the reply is routed to whatever channel is CURRENT at completion, not

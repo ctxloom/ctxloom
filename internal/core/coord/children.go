@@ -1439,7 +1439,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// accumulate across the process's lifetime.
 	c.clearReqTrack(rec.Harp)
 	// Nobody is left to act on a decision: withdraw what the run parked.
-	c.approvals.cancelFrom(rec.Harp)
+	c.approvals.cancelFrom(rec.Harp, runID)
 	// The pause gate lived in the ended run's runner; the record of it ends here.
 	c.setRunPaused(runID, false)
 

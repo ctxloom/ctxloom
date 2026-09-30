@@ -239,7 +239,7 @@ func TestApprovalQueue_CancelFromEndsOnlyThatHarp(t *testing.T) {
 		synctest.Wait()
 		require.Len(t, q.Pending(), 2)
 
-		q.cancelFrom(askerID.Harp)
+		q.cancelFrom(askerID.Harp, askerID.RunID)
 		d := <-mine
 		assert.False(t, d.Allow)
 		assert.Equal(t, agent.DeciderCancelled, d.Decider)
@@ -248,6 +248,79 @@ func TestApprovalQueue_CancelFromEndsOnlyThatHarp(t *testing.T) {
 		assert.Equal(t, "sibling", pending[0].From.Harp)
 		cancel()
 		<-other
+	})
+}
+
+// TestApprovalQueue_EndTurnDropsThatTurnsAsks: the turn that asked has ended
+// — interrupted, steered, or otherwise finished while its run goes on — so
+// its request is dropped as cancelled, journaled like any decision, gone from
+// the human's list, and no later answer lands. Another run's request stays.
+func TestApprovalQueue_EndTurnDropsThatTurnsAsks(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		q, _, path := newTestQueue(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		mine := parkAsync(ctx, q, toolAsk("Bash"), time.Minute)
+		other := make(chan ApprovalDecision, 1)
+		go func() {
+			other <- q.Park(ctx, Identity{Harp: askerID.Harp, RunID: "run-2", Depth: 1}, toolAsk("Edit"), time.Minute)
+		}()
+		synctest.Wait()
+		require.Len(t, q.Pending(), 2)
+		var id ApprovalID
+		for _, p := range q.Pending() {
+			if p.From.RunID == askerID.RunID {
+				id = p.ID
+			}
+		}
+
+		q.endTurn(askerID.RunID)
+		d := <-mine
+		assert.False(t, d.Allow)
+		assert.Equal(t, agent.DeciderCancelled, d.Decider)
+		pending := q.Pending()
+		require.Len(t, pending, 1, "only the ended turn's request is dropped")
+		assert.Equal(t, "run-2", pending[0].From.RunID)
+		require.ErrorIs(t, q.Answer(id, ApprovalDecision{Allow: true}), ErrApprovalResolved)
+
+		facts := readFacts(t, path)
+		require.Equal(t, []string{factApprovalParked, factApprovalParked, factApprovalDecided}, factKinds(facts))
+		var decided map[string]any
+		require.NoError(t, json.Unmarshal(facts[2].Data, &decided))
+		assert.Equal(t, string(id), decided["id"])
+		assert.Equal(t, "cancelled", decided["decider"])
+		cancel()
+		<-other
+	})
+}
+
+// TestApprovalQueue_AskFromAnEndedTurnNeverParks forces the ordering the
+// coordinator's concurrent dispatch allows: the request arrives during its
+// turn, the turn ends, and only then does the request reach Park. It is
+// dropped at once — never listed, and the next turn's request still parks.
+func TestApprovalQueue_AskFromAnEndedTurnNeverParks(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		q, _, path := newTestQueue(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		late := toolAsk("Bash")
+		late.turn = q.turnOf(askerID.RunID)
+		q.endTurn(askerID.RunID)
+
+		d := q.Park(ctx, askerID, late, time.Minute)
+		assert.False(t, d.Allow)
+		assert.Equal(t, agent.DeciderCancelled, d.Decider)
+		assert.Empty(t, q.Pending())
+		assert.Equal(t, []string{factApprovalParked, factApprovalDecided}, factKinds(readFacts(t, path)))
+
+		next := toolAsk("Edit")
+		next.turn = q.turnOf(askerID.RunID)
+		done := make(chan ApprovalDecision, 1)
+		go func() { done <- q.Park(ctx, askerID, next, time.Minute) }()
+		synctest.Wait()
+		require.Len(t, q.Pending(), 1, "the next turn's request parks")
+		cancel()
+		<-done
 	})
 }
 

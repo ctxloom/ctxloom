@@ -68,6 +68,9 @@ type PendingApproval struct {
 	Ask             engine.PermissionAsk
 	Ceiling         engine.PermissionMode
 	Since, Deadline time.Time
+	// turn is the asking run's turn when the coordinator received the
+	// request (turnOf); a request whose turn has since ended never parks.
+	turn uint64
 }
 
 // ApprovalDecision resolves one parked request. Presenters fill everything
@@ -133,6 +136,8 @@ type ApprovalRequest struct {
 	Ask     engine.PermissionAsk
 	Ceiling engine.PermissionMode
 	Timeout time.Duration
+	// turn is set by the coordinator as the request arrives; never on the wire.
+	turn uint64
 }
 
 // Clock is the queue's command time.
@@ -168,6 +173,9 @@ type ApprovalQueue struct {
 	pending  map[ApprovalID]*parkedApproval
 	resolved map[ApprovalID]struct{}
 	subs     map[chan QueueEvent]struct{}
+	// turns counts each live run's ended turns: a request stamped with an
+	// older count was asked by a turn that is already over.
+	turns map[string]uint64
 
 	// revokeMu serialises revokes so each push carries the set the journal
 	// is about to hold.
@@ -197,6 +205,7 @@ func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, ru
 		pending:    make(map[ApprovalID]*parkedApproval),
 		resolved:   make(map[ApprovalID]struct{}),
 		subs:       make(map[chan QueueEvent]struct{}),
+		turns:      make(map[string]uint64),
 	}
 }
 
@@ -241,6 +250,15 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 	}
 	p := &parkedApproval{req: req, answer: make(chan ApprovalDecision, 1)}
 	q.mu.Lock()
+	if q.turns[from.RunID] != req.turn {
+		// The turn ended between the request's arrival and this park: it
+		// was dropped with that turn, only later than the ones already
+		// parked.
+		q.resolved[req.ID] = struct{}{}
+		q.mu.Unlock()
+		_ = q.settle(p, turnEnded)
+		return <-p.answer
+	}
 	q.pending[req.ID] = p
 	n := len(q.pending)
 	q.mu.Unlock()
@@ -293,12 +311,43 @@ func (q *ApprovalQueue) unanswerable(id ApprovalID) error {
 	return fmt.Errorf("%w: %s", ErrNoSuchApproval, id)
 }
 
-// cancelFrom withdraws every request harp has parked: its run has ended.
-func (q *ApprovalQueue) cancelFrom(harp string) {
+// cancelFrom withdraws every request harp has parked: its run, runID, has
+// ended, and so has any count of its turns.
+func (q *ApprovalQueue) cancelFrom(harp, runID string) {
+	q.mu.Lock()
+	delete(q.turns, runID)
+	q.mu.Unlock()
+	q.withdraw(func(from Identity) bool { return from.Harp == harp },
+		ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking run ended"})
+}
+
+// turnEnded is the decision on a request whose turn ended first.
+var turnEnded = ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking turn ended"}
+
+// turnOf is runID's current turn, to stamp on a request as it arrives —
+// in arrival order with the run's turn-end events, which endTurn counts.
+func (q *ApprovalQueue) turnOf(runID string) uint64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.turns[runID]
+}
+
+// endTurn drops what runID's ending turn asked: an interrupted or finished
+// turn cannot take an answer, and asks are never carried into the next one.
+// A request of that turn still on its way to Park is dropped there.
+func (q *ApprovalQueue) endTurn(runID string) {
+	q.mu.Lock()
+	q.turns[runID]++
+	q.mu.Unlock()
+	q.withdraw(func(from Identity) bool { return from.RunID == runID }, turnEnded)
+}
+
+// withdraw settles every parked request whose asker matches with d.
+func (q *ApprovalQueue) withdraw(match func(Identity) bool, d ApprovalDecision) {
 	q.mu.Lock()
 	var mine []*parkedApproval
 	for id, p := range q.pending {
-		if p.req.From.Harp == harp {
+		if match(p.req.From) {
 			delete(q.pending, id)
 			q.resolved[id] = struct{}{}
 			mine = append(mine, p)
@@ -306,7 +355,7 @@ func (q *ApprovalQueue) cancelFrom(harp string) {
 	}
 	q.mu.Unlock()
 	for _, p := range mine {
-		_ = q.settle(p, ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking run ended"})
+		_ = q.settle(p, d)
 	}
 }
 

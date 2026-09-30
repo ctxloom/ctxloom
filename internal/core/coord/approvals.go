@@ -12,10 +12,11 @@ func (c *Coordinator) Approvals() *ApprovalQueue { return c.approvals }
 
 // parkApproval serves a run's ApprovalRequest: the request parks in the
 // queue, stamped with who is asking, until it is decided. Park's context is
-// the coordinator's own — the asking run's end withdraws the request through
-// terminateRun, and the coordinator closing withdraws them all.
+// the coordinator's own — the asking turn's end withdraws the request (the
+// turn-idle event), as does the asking run's end (terminateRun), and the
+// coordinator closing withdraws them all.
 func (c *Coordinator) parkApproval(caller Identity, req ApprovalRequest) ApprovalDecision {
-	p := PendingApproval{Kind: ApprovalKindOf(req.Ask.Kind), Ask: req.Ask, Ceiling: req.Ceiling}
+	p := PendingApproval{Kind: ApprovalKindOf(req.Ask.Kind), Ask: req.Ask, Ceiling: req.Ceiling, turn: req.turn}
 	c.runs.View(func() {
 		if r := c.runsF.currentRun(caller.Harp); r != nil {
 			p.Agent = r.Agent

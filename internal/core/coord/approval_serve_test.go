@@ -17,6 +17,12 @@ import (
 
 func childOf(out *RunOutcome) Identity { return Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1} }
 
+// askNow is an approval request from out's CURRENT turn, stamped as
+// HandleRequest stamps one arriving on the wire.
+func askNow(c *Coordinator, out *RunOutcome, ask engine.PermissionAsk) AgentRequest {
+	return AgentRequest{Kind: ApprovalRequest{Ask: ask, Ceiling: engine.PermissionDefault, turn: c.approvals.turnOf(out.RunID)}}
+}
+
 // TestApprovalRequest_ParksAtTheRootAndAnswersTheRun: a run's approval request
 // travels the wire to the coordinator, parks in the ROOT's queue stamped with
 // who is asking (agent, lineage), and the human's answer is the run's reply.
@@ -24,7 +30,7 @@ func TestApprovalRequest_ParksAtTheRootAndAnswersTheRun(t *testing.T) {
 	resetStrictness(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "task")
+	out, home := awaitCutoverChildIdle(t, c, sp, "task")
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
 	events := c.Approvals().Subscribe(ctx)
@@ -72,16 +78,14 @@ func TestApprovalRequest_RunEndWithdrawsIt(t *testing.T) {
 	resetStrictness(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, _ := awaitCutoverChild(t, c, sp, "task")
+	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
 	events := c.Approvals().Subscribe(ctx)
 
 	replied := make(chan AgentReply, 1)
 	go func() {
-		replied <- c.serveAgentRequest(childOf(out), AgentRequest{Kind: ApprovalRequest{
-			Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{}`)}, Ceiling: engine.PermissionDefault,
-		}})
+		replied <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{}`)}))
 	}()
 	awaitEvent(t, events, QueueAdded)
 
@@ -101,6 +105,53 @@ func TestApprovalRequest_RunEndWithdrawsIt(t *testing.T) {
 	assert.Empty(t, c.Approvals().Pending())
 }
 
+// TestApprovalRequest_TurnEndDropsIt: the asking TURN ends while its run
+// goes on — here the engine host's turn-idle boundary, as an interrupt or a
+// steer produces it — and the coordinator drops the request from that event
+// alone: the run gets a cancelled deny, the human's list no longer shows it,
+// and the human's late answer is refused.
+func TestApprovalRequest_TurnEndDropsIt(t *testing.T) {
+	resetStrictness(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, home := awaitCutoverChildIdle(t, c, sp, "task")
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	events := c.Approvals().Subscribe(ctx)
+
+	type result struct {
+		resp *agentcoordpb.CoordinatorResponse
+		err  error
+	}
+	replied := make(chan result, 1)
+	go func() {
+		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_Approval{Approval: &agentcoordpb.ApprovalRequest{
+			Kind: agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, Tool: "Bash", Input: []byte(`{}`), Ceiling: "default",
+		}}})
+		replied <- result{resp, err}
+	}()
+	id := awaitEvent(t, events, QueueAdded).ID
+
+	c.mu.Lock()
+	ch := c.chans[out.Harp]
+	c.mu.Unlock()
+	require.NotNil(t, ch)
+	c.HandleEvent(ch, Event{Payload: CustomEvent{Name: CustomTurnIdle, Value: map[string]any{"stop_reason": "interrupted"}}})
+
+	var r result
+	select {
+	case r = <-replied:
+	case <-ctx.Done():
+		t.Fatal("the asking turn ended and its request is still parked")
+	}
+	require.NoError(t, r.err)
+	require.Zero(t, r.resp.GetStatus().GetCode(), r.resp.GetStatus().GetMessage())
+	assert.False(t, r.resp.GetApproval().GetAllow())
+	assert.Equal(t, agent.DeciderCancelled.String(), r.resp.GetApproval().GetDecider())
+	assert.Empty(t, c.Approvals().Pending())
+	require.ErrorIs(t, c.Approvals().Answer(id, ApprovalDecision{Allow: true}), ErrApprovalResolved)
+}
+
 // grantFor parks one request from out's run and answers it allow-for-session.
 func grantFor(t *testing.T, c *Coordinator, out *RunOutcome, rule string) Grant {
 	t.Helper()
@@ -109,9 +160,7 @@ func grantFor(t *testing.T, c *Coordinator, out *RunOutcome, rule string) Grant 
 	events := c.Approvals().Subscribe(ctx)
 	done := make(chan AgentReply, 1)
 	go func() {
-		done <- c.serveAgentRequest(childOf(out), AgentRequest{Kind: ApprovalRequest{
-			Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, Ceiling: engine.PermissionDefault,
-		}})
+		done <- c.serveAgentRequest(childOf(out), askNow(c, out, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}))
 	}()
 	id := awaitEvent(t, events, QueueAdded).ID
 	require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{Allow: true, SessionRules: []string{rule}}))
@@ -128,7 +177,7 @@ func TestApprovals_RevokeGoesToTheLiveRunFirst(t *testing.T) {
 	resetStrictness(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, _ := awaitCutoverChild(t, c, sp, "task")
+	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	g := grantFor(t, c, out, "Bash(ls:*)")
 
 	err := c.Approvals().Revoke(out.Harp, g.ID)
@@ -143,7 +192,7 @@ func TestApprovals_RevokeOnAnEndedRunIsJournaledOnly(t *testing.T) {
 	resetStrictness(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
-	out, _ := awaitCutoverChild(t, c, sp, "task")
+	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	g := grantFor(t, c, out, "Bash(ls:*)")
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()

@@ -44,7 +44,7 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 		// identically, and so does this guard.
 		stubRuntimeProbe(t, Host{})
 
-		chain := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootless}, "claude", ImageConfig{})
 		require.NotEmpty(t, chain)
 
 		assertRefusesUnderDegraded(t,
@@ -55,7 +55,7 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
-		chainFor(Axes{Runtime: RuntimeContainerRootless, Workspace: WorkspaceWorktree}, "claude", ImageConfig{})
+		chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootless, Workspace: WorkspaceWorktree}, "claude", ImageConfig{})
 
 		// A surviving worktree is NOT a substitute for the container: it is a
 		// workspace, not a boundary. Keeping it must not soften the refusal.

@@ -221,7 +221,7 @@ func TestWorktree_CleanupIdempotent(t *testing.T) {
 
 // TestResolveWorktree wires the workspace axis through chainFor's lead policy.
 func TestResolveWorktree(t *testing.T) {
-	p := chainFor(Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})[0]
+	p := chainFor(surveyRuntimes(), Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})[0]
 	assert.Equal(t, "worktree", p.Name())
 	assert.IsType(t, Worktree{}, p)
 }

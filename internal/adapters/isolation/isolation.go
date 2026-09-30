@@ -419,22 +419,22 @@ func noRuntimeHint() string {
 	return ""
 }
 
-// containerSelectionHint is the way into a container this host CAN give,
-// appended to a refusal of the one that was asked for. It names every
-// container ownership mode other than refused that the run-path probe
-// (selectRuntimeProbe) can serve, with the explicit selection that opts into
-// it — never a substitution made for the user: the two ownership modes differ
-// in UID mapping, so choosing the other one is the user's decision, and
-// selecting it is how they make it. With nothing reachable it says what to
-// install or start.
-func containerSelectionHint(refused RuntimeAxis) string {
+// selectionHint is the way into a container this host CAN give, appended to
+// a refusal of the one that was asked for. It names every container ownership
+// mode other than refused that this launch's survey can serve — from the
+// probes selection already took, never fresh ones — with the explicit
+// selection that opts into it: never a substitution made for the user, since
+// the two ownership modes differ in UID mapping, so choosing the other one is
+// the user's decision, and selecting it is how they make it. With nothing
+// reachable it says what to install or start.
+func (survey runtimeSurvey) selectionHint(refused RuntimeAxis) string {
 	var reachable []string
 	var pick RuntimeAxis
 	for _, axis := range []RuntimeAxis{RuntimeContainerRootless, RuntimeContainerRootful} {
 		if axis == refused {
 			continue
 		}
-		rt := selectRuntimeProbe("", axis)
+		rt := survey(axis)
 		if _, isHost := rt.(Host); isHost {
 			continue
 		}
@@ -444,7 +444,7 @@ func containerSelectionHint(refused RuntimeAxis) string {
 	if len(reachable) == 0 {
 		// The refused ownership itself is reachable (it failed to START):
 		// nothing else to offer, and nothing to install.
-		if _, isHost := selectRuntimeProbe("", refused).(Host); !isHost {
+		if _, isHost := survey(refused).(Host); !isHost {
 			return ""
 		}
 		return "; no container runtime is reachable on this host — install docker or podman and start it (its daemon, or the rootless service), then run again"
@@ -483,20 +483,13 @@ func warnUnknownAxes(a Axes) {
 // ImageConfig is launch.ImageConfig under this package's established name.
 type ImageConfig = launch.ImageConfig
 
-// selectRuntimeProbe is chainFor's seam onto the host runtime probe
-// (SelectRuntime), a package var so tests drive the no-runtime fatal path
-// hermetically — SelectRuntime probes the REAL host (docker/podman CLIs +
-// daemons), which a unit test must never depend on. Mirrors the sharedFSCheck
-// seam in sharedfs.go.
-//
-// It carries the DEMANDED runtime axis, not just a runtime-name preference:
-// selection must reject a runtime whose container ownership is not the one
-// asked for, because handing back the other ownership mode is the silent
-// substitution the two container values exist to prevent.
-var selectRuntimeProbe = SelectRuntime
-
-// chainFor builds the ordered degrade chain for the requested axes. The
-// runtime probe runs ONCE; each degrade step drops exactly one axis:
+// chainFor builds the ordered degrade chain for the requested axes, selecting
+// from the launch's survey — the runtime is probed ONCE per launch, and the
+// same survey answers the refusal's hint and prepareChain's. The survey
+// carries the DEMANDED ownership into selection, not just a runtime-name
+// preference: handing back the other ownership mode is the silent
+// substitution the two container values exist to prevent. Each degrade step
+// drops exactly one axis:
 //
 //	{worktree, container} → Container{worktreeBase} → Worktree → None
 //	{none,     container} → Container{hostBase} (live dir) → None
@@ -505,7 +498,7 @@ var selectRuntimeProbe = SelectRuntime
 //
 // A container tier never degrades INTO a worktree that wasn't requested, and
 // a requested worktree is never dropped just because the container failed.
-func chainFor(axes Axes, backend string, img ImageConfig) []policy {
+func chainFor(survey runtimeSurvey, axes Axes, backend string, img ImageConfig) []policy {
 	warnUnknownAxes(axes)
 
 	if axes.WantsContainer() {
@@ -516,7 +509,7 @@ func chainFor(axes Axes, backend string, img ImageConfig) []policy {
 		// the boundary it asked for, and both take the SAME fatal path below.
 		// Substituting the other ownership mode is never an option, in strict
 		// mode or under --degraded.
-		rt := selectRuntimeProbe("", axes.Runtime)
+		rt := survey(axes.Runtime)
 		if _, isHost := rt.(Host); !isHost {
 			if axes.WantsWorktree() {
 				return []policy{NewContainerWorktreeFor(rt, backend, img, nil), NewWorktree(nil), None{}}
@@ -544,10 +537,10 @@ func chainFor(axes Axes, backend string, img ImageConfig) []policy {
 		// degrade DOWN THE CHAIN — the exact host fallback being refused.
 		if axes.WantsWorktree() {
 			strictness.FailAlways(report.KindIsolation, isolationRemedy,
-				"runtime: %s requested but no container runtime is available with that ownership; refusing to keep the worktree on the HOST without the container boundary that was asked for%s%s", axes.Runtime, containerSelectionHint(axes.Runtime), noRuntimeHint())
+				"runtime: %s requested but no container runtime is available with that ownership; refusing to keep the worktree on the HOST without the container boundary that was asked for%s%s", axes.Runtime, survey.selectionHint(axes.Runtime), noRuntimeHint())
 		} else {
 			strictness.FailAlways(report.KindIsolation, isolationRemedy,
-				"runtime: %s requested but no container runtime is available with that ownership; refusing to run on the HOST without the container boundary that was asked for%s%s", axes.Runtime, containerSelectionHint(axes.Runtime), noRuntimeHint())
+				"runtime: %s requested but no container runtime is available with that ownership; refusing to run on the HOST without the container boundary that was asked for%s%s", axes.Runtime, survey.selectionHint(axes.Runtime), noRuntimeHint())
 		}
 	}
 	if axes.WantsWorktree() {
@@ -642,20 +635,20 @@ func resolveAndBind(ctx context.Context, p policy, projectDir, agentID string) (
 // and for its preview (Preview), through this one call. A refusal that names
 // its own fix is more specific than the generic image/runtime remedy, and
 // wins.
-func refuseLostContainer(err error, agentID string, requested RuntimeAxis) {
+func refuseLostContainer(err error, agentID string, requested RuntimeAxis, survey runtimeSurvey) {
 	remedy, ok := clifmt.RemedyOf(err)
 	if !ok {
 		remedy = isolationRemedy
 	}
 	strictness.FailAlways(report.KindIsolation, remedy,
-		"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v%s", agentID, err, containerSelectionHint(requested))
+		"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v%s", agentID, err, survey.selectionHint(requested))
 }
 
 // prepareChain tries each policy's PrepareWorkspace in order and returns the first
 // that succeeds with its workspace, warning at each degrade. The chain always ends
 // in None (which never fails), so a member always gets a workspace; the trailing
 // fallback is defensive against an empty/all-failing chain.
-func prepareChain(ctx context.Context, chain []policy, requested RuntimeAxis, projectDir, agentID string) (policy, workspace) {
+func prepareChain(ctx context.Context, chain []policy, survey runtimeSurvey, requested RuntimeAxis, projectDir, agentID string) (policy, workspace) {
 	for i, p := range chain {
 		ws, err := p.prepareWorkspace(ctx, projectDir, agentID)
 		if err == nil {
@@ -692,7 +685,7 @@ func prepareChain(ctx context.Context, chain []policy, requested RuntimeAxis, pr
 		// None so the WORKSPACE resolution has an answer to return; what stops
 		// the run is the non-degradable finding, not a missing workspace.
 		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
-			refuseLostContainer(err, agentID, requested)
+			refuseLostContainer(err, agentID, requested, survey)
 			continue
 		}
 		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)

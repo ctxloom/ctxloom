@@ -116,16 +116,16 @@ func TestResolve_DefaultsAndDegrades(t *testing.T) {
 		{},
 		{Workspace: WorkspaceShared, Runtime: RuntimeHost},
 	} {
-		p := chainFor(axes, "claude-code", ImageConfig{})[0]
+		p := chainFor(surveyRuntimes(), axes, "claude-code", ImageConfig{})[0]
 		assert.IsType(t, None{}, p, "axes %+v resolve to None", axes)
 	}
 	// Unknown axis values still degrade the POLICY to the axis defaults (a bad
 	// runtime ALSO records a fatal finding, asserted elsewhere; the returned lead
 	// policy is unchanged).
-	assert.IsType(t, None{}, chainFor(Axes{Workspace: "podracer", Runtime: "hyperdrive"}, "claude-code", ImageConfig{})[0],
+	assert.IsType(t, None{}, chainFor(surveyRuntimes(), Axes{Workspace: "podracer", Runtime: "hyperdrive"}, "claude-code", ImageConfig{})[0],
 		"unknown axis values degrade to None")
 	// Independence: an unknown RUNTIME never drops a requested worktree.
-	assert.IsType(t, Worktree{}, chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{})[0],
+	assert.IsType(t, Worktree{}, chainFor(surveyRuntimes(), Axes{Workspace: WorkspaceWorktree, Runtime: "hyperdrive"}, "claude-code", ImageConfig{})[0],
 		"an unknown runtime axis degrades alone; the workspace axis survives")
 }
 
@@ -196,7 +196,7 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 		// gate's scan window (not merely that some finding exists somewhere).
 		mark := strictness.Checkpoint()
 
-		policy, ws := prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
+		policy, ws := prepareChain(context.Background(), containerChain, surveyRuntimes(), RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws, "the run always gets a workspace — the degrade never blocks the LLM")
 		assert.IsType(t, None{}, policy, "the boundary is lost, so the workspace falls back to the host")
 
@@ -236,7 +236,7 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 		// fatal — a container→non-container transition, not the benign
 		// worktree→none workspace-axis degrade.
 		chain := []policy{failingPolicy{name: "container-worktree"}, passingPolicy{name: (Worktree{}).Name()}, None{}}
-		policy, ws := prepareChain(context.Background(), chain, RuntimeContainerRootless, "/project", "agent-a")
+		policy, ws := prepareChain(context.Background(), chain, surveyRuntimes(), RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.Equal(t, "worktree", policy.Name(), "the requested worktree survives the lost container boundary")
 
@@ -256,7 +256,7 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 	t.Run("degraded: the finding survives Actionable, so the run still refuses", func(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeCandidates(t)
-		policy, ws := prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
+		policy, ws := prepareChain(context.Background(), containerChain, surveyRuntimes(), RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.IsType(t, None{}, policy, "the chain still resolves a workspace; the GATE is what refuses")
 
@@ -271,7 +271,7 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeCandidates(t, ownedBy("docker", RuntimeContainerRootless), ownedBy("podman", RuntimeContainerRootful))
 
-		prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
+		prepareChain(context.Background(), containerChain, surveyRuntimes(), RuntimeContainerRootless, "/project", "agent-a")
 		all := strictness.All()
 		require.Len(t, all, 1)
 		assert.Contains(t, all[0].Text, "container-rootful (podman)",
@@ -286,15 +286,15 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 		resetStrictness(t)
 
 		workspaceChain := []policy{failingPolicy{name: (Worktree{}).Name()}, None{}}
-		policy, _ := prepareChain(context.Background(), workspaceChain, RuntimeHost, "/project", "agent-a")
+		policy, _ := prepareChain(context.Background(), workspaceChain, surveyRuntimes(), RuntimeHost, "/project", "agent-a")
 		assert.IsType(t, None{}, policy)
 		assert.Empty(t, strictness.All(),
 			"a lost worktree degrades gracefully — only a lost CONTAINER boundary is fatal")
 	})
 }
 
-// stubRuntimeProbe swaps chainFor's runtime probe for one returning rt, and
-// restores the real SelectRuntime on cleanup. Hermetic: the real probe shells
+// stubRuntimeProbe swaps the launch's runtime survey for one returning rt, and
+// restores the real surveyRuntimes on cleanup. Hermetic: the real probe shells
 // out to docker/podman on the host.
 //
 // It answers rt for EVERY demanded ownership, which deliberately bypasses the
@@ -303,15 +303,15 @@ func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 // stubRuntimeCandidates) and leave this seam alone.
 func stubRuntimeProbe(t *testing.T, rt Runtime) {
 	t.Helper()
-	prev := selectRuntimeProbe
-	selectRuntimeProbe = func(string, RuntimeAxis) Runtime { return rt }
-	t.Cleanup(func() { selectRuntimeProbe = prev })
+	prev := surveyRuntimes
+	surveyRuntimes = func() runtimeSurvey { return func(RuntimeAxis) Runtime { return rt } }
+	t.Cleanup(func() { surveyRuntimes = prev })
 }
 
 // stubRuntimeCandidates replaces the candidate table the REAL SelectRuntime
 // walks, so the ownership filter itself runs under test. Each entry pairs an
 // available runtime with the ownership its probe reports — the pairing the
-// production table derives from dockerIsRootless()/podmanIsRootless(), which
+// production table derives from probeOwnership, which
 // shell out and would otherwise make every ownership assertion a report on
 // whatever daemon this machine happens to run.
 func stubRuntimeCandidates(t *testing.T, cands ...runtimeCandidate) {
@@ -329,7 +329,7 @@ func ownedBy(name string, owns RuntimeAxis) runtimeCandidate {
 }
 
 // TestChainFor_NoRuntime_Fatal pins chainFor's no-runtime fatal path
-// hermetically (via the selectRuntimeProbe seam): an EXPLICITLY-requested
+// hermetically (via the surveyRuntimes seam): an EXPLICITLY-requested
 // container with no reachable runtime records a non-degradable ClassIsolation
 // finding — the choke owner aborts on it in both modes — while the chain still degrades
 // so the run gets a workspace (never blocks). The workspace axis must survive
@@ -339,7 +339,7 @@ func TestChainFor_NoRuntime_Fatal(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
-		chain := chainFor(Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0], "no runtime → the container tier never enters the chain")
 
@@ -363,7 +363,7 @@ func TestChainFor_NoRuntime_Fatal(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
-		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 		require.NotEmpty(t, chain)
 		assert.IsType(t, Worktree{}, chain[0], "the runtime axis degrades ALONE; the requested worktree stays")
 
@@ -381,7 +381,7 @@ func TestChainFor_NoRuntime_Fatal(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
 
-		chain := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0], "the chain still resolves a workspace; the GATE refuses")
 		all := strictness.All()
@@ -409,35 +409,31 @@ func TestChainFor_NoRuntime_Fatal(t *testing.T) {
 // to answer the diagnostic question rather than inheriting the silent
 // fall-through.
 func TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution(t *testing.T) {
-	type probed struct {
-		prefer string
-		want   RuntimeAxis
+	var seen []RuntimeAxis
+	prev := surveyRuntimes
+	surveyRuntimes = func() runtimeSurvey {
+		return func(want RuntimeAxis) Runtime {
+			seen = append(seen, want)
+			return Docker{}
+		}
 	}
-	var seen []probed
-	prev := selectRuntimeProbe
-	selectRuntimeProbe = func(prefer string, want RuntimeAxis) Runtime {
-		seen = append(seen, probed{prefer, want})
-		return Docker{}
-	}
-	t.Cleanup(func() { selectRuntimeProbe = prev })
+	t.Cleanup(func() { surveyRuntimes = prev })
 
 	for _, axes := range []Axes{
 		{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless},
 		{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootful},
 	} {
-		chainFor(axes, "claude-code", ImageConfig{})
+		chainFor(surveyRuntimes(), axes, "claude-code", ImageConfig{})
 	}
 
 	require.Len(t, seen, 2, "the container tiers must actually probe for a runtime")
-	for _, p := range seen {
-		assert.Empty(t, p.prefer,
-			"the run path must probe with auto-detect; a preference expressed here would be silently substituted by SelectRuntime's fall-through, which only selectBuildRuntime guards against")
-	}
+	// The auto-detect half is structural: a runtimeSurvey takes no preference,
+	// so the run path cannot express one to be silently substituted.
 	// The OWNERSHIP demand, by contrast, must ride through: it is the whole
 	// point of the two container values, and a run that probes with anything
 	// but the axis it was asked for can be handed the other mode.
-	assert.Equal(t, RuntimeContainerRootless, seen[0].want)
-	assert.Equal(t, RuntimeContainerRootful, seen[1].want)
+	assert.Equal(t, RuntimeContainerRootless, seen[0])
+	assert.Equal(t, RuntimeContainerRootful, seen[1])
 }
 
 // TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName pins that the
@@ -493,7 +489,7 @@ func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
 	// all-failing chain still yields a workspace rather than a nil one.
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	policy, ws := prepareChain(cancelled, []policy{failingPolicy{name: "worktree"}}, RuntimeHost, "/proj", "agent-a")
+	policy, ws := prepareChain(cancelled, []policy{failingPolicy{name: "worktree"}}, surveyRuntimes(), RuntimeHost, "/proj", "agent-a")
 	assert.Equal(t, None{}.Name(), policy.Name())
 	require.NotNil(t, ws)
 	assert.Equal(t, "/proj", ws.Dir())
@@ -617,7 +613,7 @@ func TestChainFor_TestOnlyVendorlessEngine_ReachesTheRuntimeProbe(t *testing.T) 
 			resetStrictness(t)
 			stubRuntimeProbe(t, fakeRuntime{name: "docker", binary: "docker", available: true})
 
-			chain := chainFor(Axes{Workspace: WorkspaceShared, Runtime: axis}, engine, ImageConfig{})
+			chain := chainFor(surveyRuntimes(), Axes{Workspace: WorkspaceShared, Runtime: axis}, engine, ImageConfig{})
 
 			require.NotEmpty(t, chain)
 			c, ok := chain[0].(Container)

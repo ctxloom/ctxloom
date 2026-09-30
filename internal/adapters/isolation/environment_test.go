@@ -39,10 +39,16 @@ var containerRuntime = fakeRuntime{name: "docker", binary: "true", available: tr
 // the shared-filesystem probe pass, so a container Prepare runs hermetically.
 func withFakeContainerRuntime(t *testing.T, rt Runtime) {
 	t.Helper()
-	sel, fsCheck := selectRuntimeProbe, sharedFSCheck
-	selectRuntimeProbe = func(string, RuntimeAxis) Runtime { return rt }
+	stubRuntimeProbe(t, rt)
+	passSharedFS(t)
+}
+
+// passSharedFS makes the shared-filesystem probe pass.
+func passSharedFS(t *testing.T) {
+	t.Helper()
+	fsCheck := sharedFSCheck
 	sharedFSCheck = func(context.Context, Runtime, string, []string) error { return nil }
-	t.Cleanup(func() { selectRuntimeProbe, sharedFSCheck = sel, fsCheck })
+	t.Cleanup(func() { sharedFSCheck = fsCheck })
 }
 
 // envSpec is a Spec for eng under axes, in harp's session under home, with a

@@ -13,6 +13,7 @@ type fakeRuntime struct {
 func (f fakeRuntime) Name() string                    { return f.name }
 func (f fakeRuntime) Binary() string                  { return f.binary }
 func (f fakeRuntime) Available() bool                 { return f.available }
+func (f fakeRuntime) launchable() bool                { return f.available }
 func (fakeRuntime) RunArgs(RunSpec) ([]string, error) { return nil, nil }
 func (fakeRuntime) RemoveArgs(string) []string        { return nil }
 

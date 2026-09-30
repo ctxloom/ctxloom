@@ -103,7 +103,8 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	if err != nil {
 		return nil, err
 	}
-	chain := withSessionState(chainFor(s.axes, s.backend(), s.img), s.state)
+	survey := surveyRuntimes()
+	chain := withSessionState(chainFor(survey, s.axes, s.backend(), s.img), s.state)
 	// The requested environment's roots are routed first, with no effects:
 	// the chain's own container mounts map paths too, and a root failing
 	// there would read as an unstartable container rather than as the root
@@ -114,7 +115,7 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	if _, _, err := head.relocate(previewLayout(s, stores)); errors.Is(err, present.ErrUnreachableRoot) {
 		return nil, refuseUnreachable(err)
 	}
-	p, ws := prepareChain(ctx, chain, s.axes.Runtime, s.project, s.harp)
+	p, ws := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.harp)
 	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores)
 	pl, roots, err := p.relocator().relocate(l)
 	if err != nil {
@@ -192,7 +193,8 @@ func Preview(ctx context.Context, s Spec) Environment {
 		w.state = s.state
 		l.cwd = w.previewCwd(s.project, s.harp)
 	}
-	p := chainFor(s.axes, s.backend(), s.img)[0]
+	survey := surveyRuntimes()
+	p := chainFor(survey, s.axes, s.backend(), s.img)[0]
 	if s.axes.WantsContainer() && !IsContainerPolicyName(p.Name()) {
 		// chainFor recorded the refusal. p is the host fallback the run
 		// refuses to take, so only its workspace axis is shown: no runtime
@@ -203,7 +205,7 @@ func Preview(ctx context.Context, s Spec) Environment {
 	}
 	if c, ok := p.(Container); ok {
 		if err := c.launchGate(ctx, c.inspectImage); err != nil {
-			refuseLostContainer(err, s.harp, s.axes.Runtime)
+			refuseLostContainer(err, s.harp, s.axes.Runtime, survey)
 		}
 	}
 	pl, _, err := p.relocator().relocate(l)

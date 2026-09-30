@@ -10,12 +10,15 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/hostnet"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Runtime is the pluggable container launcher — proper polymorphism, NOT
@@ -30,11 +33,16 @@ type Runtime interface {
 	// Binary is the runtime CLI resolved for exec (e.g. "docker"). Empty for Host.
 	Binary() string
 	// Available reports whether this runtime can launch a container NOW: the CLI
-	// is on PATH and its daemon is reachable. Drives runtime selection: when
-	// nothing is available a requested container is a non-degradable fatal
-	// finding (ClassIsolation, exit 3): the run is refused, never moved to the
-	// host.
+	// is on PATH and its daemon is reachable. It ASKS the engine, every call —
+	// the question for a caller holding no selection (a doctor, an init check).
+	// A launch never asks it: selection probed once and its verdict rides in
+	// the selected value (launchable).
 	Available() bool
+	// launchable is selection's reachability verdict, carried in the value it
+	// selected, so the launch that follows reads it rather than probing the
+	// engine again (a second ask is a window for a slow engine to flip the
+	// answer). False on any value selection did not probe reachable.
+	launchable() bool
 	// RunArgs builds the full argv (after Binary) that starts the container in the
 	// FOREGROUND with stdout/stderr attached — no -d, and -t only when the spec
 	// says so (RunSpec.TTY: an interactive launch's runner on the originator's
@@ -249,9 +257,12 @@ type mount struct {
 // hostMapper via newPathSeam. Only tests set it, to run the mount sites
 // under a mapper that is not identity on the host they run on.
 type ociRuntime struct {
-	pathMap pathMapper
-	self    *selfContainer // nil: this process is not one of the daemon's containers
+	pathMap   pathMapper
+	self      *selfContainer // nil: this process is not one of the daemon's containers
+	reachable bool           // selection's verdict (launchable); set only by the engine probe
 }
+
+func (o ociRuntime) launchable() bool { return o.reachable }
 
 // RemoveArgs force-removes the container: SIGKILL, then rm. A racing --rm
 // auto-remove leaves nothing under the name, which removeOutcome reads as
@@ -562,6 +573,39 @@ func csvRecord(fields []string) string {
 // step it guards would have succeeded refuses runs the engine could serve.
 const runtimeProbeTimeout = 15 * time.Second
 
+// engineInfo is the one exec every selection probe of an engine goes through:
+// `<bin> info` (format "") answers reachability, `<bin> info --format <format>`
+// ownership. A missing CLI is an error like a down daemon. A package var so
+// tests count and fail the probes without a daemon.
+var engineInfo = func(ctx context.Context, bin, format string) (string, error) {
+	if _, err := exec.LookPath(bin); err != nil {
+		return "", err
+	}
+	args := []string{"info"}
+	if format != "" {
+		args = append(args, "--format", format)
+	}
+	out, err := exec.CommandContext(ctx, bin, args...).Output()
+	return string(out), err
+}
+
+// errProbeTimeout is an engine probe that got no answer within
+// runtimeProbeTimeout.
+var errProbeTimeout = errors.New("did not answer within " + runtimeProbeTimeout.String())
+
+// askEngine runs one engineInfo probe under runtimeProbeTimeout, reporting a
+// timeout as errProbeTimeout so the caller can say "not answering" rather
+// than "absent".
+func askEngine(bin, format string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), runtimeProbeTimeout)
+	defer cancel()
+	out, err := engineInfo(ctx, bin, format)
+	if err != nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
+		return "", fmt.Errorf("`%s info`: %w", bin, errProbeTimeout)
+	}
+	return out, err
+}
+
 // runtimeReachable reports whether a container runtime CLI is on PATH and its
 // daemon answers `<bin> info`. Any failure (missing binary, daemon down, no
 // answer within runtimeProbeTimeout) → false → the runtime is not selected, and
@@ -570,20 +614,44 @@ const runtimeProbeTimeout = 15 * time.Second
 // the refusal otherwise reads as "no runtime installed" about an engine that
 // is present and merely not answering.
 func runtimeReachable(bin string) bool {
-	if _, err := exec.LookPath(bin); err != nil {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), runtimeProbeTimeout)
-	defer cancel()
-	// `info` succeeds only when the daemon/engine is reachable; discard its output.
-	cmd := exec.CommandContext(ctx, bin, "info")
-	cmd.Stdout, cmd.Stderr = nil, nil
-	err := cmd.Run()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	_, err := askEngine(bin, "")
+	if errors.Is(err, errProbeTimeout) {
 		clidiag.WarnRemedyOnce("ctxloom", fmt.Sprintf("check that `%s info` answers; a wedged engine needs restarting", bin),
 			"`%s info` did not answer within %s; treating %s as unreachable", bin, runtimeProbeTimeout, bin)
 	}
 	return err == nil
+}
+
+// ownershipUndecided is the probed ownership of an engine whose ownership
+// check failed, timed out, or answered something unreadable. It equals no
+// container axis value, so it satisfies no ownership demand.
+const ownershipUndecided RuntimeAxis = ""
+
+// probeOwnership asks a REACHABLE engine, once, whether it is rootless — the
+// ONE ownership path every engine shares; each supplies only its `info`
+// template and how to read the answer. It returns the probed axis and the raw
+// answer (for an engine that reads more from the same call).
+//
+// There is no per-engine default. An undecided check yields
+// ownershipUndecided and a finding: assuming either mode is how a rootless
+// request gets served by a rootful engine or the reverse — the substitution
+// the two container axis values exist to forbid. An undecided engine
+// therefore serves no run that demands an ownership (SelectRuntime), while an
+// ownership-free question (ProbeRuntime) still sees it. The finding is
+// degradable: the refusal of a run nothing else can serve is chainFor's,
+// and that one holds under --degraded.
+func probeOwnership(bin, format string, rootless func(answer string) (bool, error)) (RuntimeAxis, string) {
+	out, err := askEngine(bin, format)
+	if err == nil {
+		var r bool
+		if r, err = rootless(out); err == nil {
+			return ownershipAxis(r), out
+		}
+	}
+	strictness.Fail(report.KindIsolation,
+		fmt.Sprintf("check that `%s info --format '%s'` answers, then retry; or pass --degraded to proceed without %s (a run no other runtime serves with the ownership it demands is still refused)", bin, format, bin),
+		"cannot determine whether %s is rootless or rootful (%v); it serves no run that demands a container ownership", bin, err)
+	return ownershipUndecided, out
 }
 
 // InContainer reports whether THIS process is already running inside a
@@ -614,7 +682,7 @@ func inContainerFrom(stat func(string) error, readFile func(string) ([]byte, err
 
 // ownershipAxis maps a PROBED rootless-ness onto the runtime-axis value that
 // runtime satisfies. The single mapping site: ownership is recorded where it
-// is probed (dockerIsRootless / podmanIsRootless), never re-derived later from
+// is probed (probeOwnership), never re-derived later from
 // a runtime's type or name, where it could drift from the very flag its run
 // argv is built with (Docker.RunArgs / Podman.RunArgs both branch on it).
 func ownershipAxis(rootless bool) RuntimeAxis {
@@ -625,9 +693,11 @@ func ownershipAxis(rootless bool) RuntimeAxis {
 }
 
 // runtimeCandidate is one selectable container runtime: the name a config
-// preference names it by, and a probe that constructs it AND reports the
-// container ownership it provides. probe shells out to the runtime CLI, so it
-// is called lazily — only until a candidate is accepted.
+// preference names it by, and a probe that constructs it — carrying its
+// reachability verdict (launchable) — AND reports the container ownership it
+// provides (ownershipUndecided when its check did not say). probe shells out
+// to the runtime CLI, so it is called lazily — only until a candidate is
+// accepted.
 type runtimeCandidate struct {
 	name  string
 	probe func() (Runtime, RuntimeAxis)
@@ -637,32 +707,25 @@ type runtimeCandidate struct {
 // A package var, and a func rather than a slice literal, so tests drive
 // selection — including the ownership filter — hermetically: the real probes
 // exec `docker info` / `podman info` against live daemons, which a unit test
-// must never depend on. Mirrors the dockerSecurityOptions / sharedFSCheck /
-// selectRuntimeProbe seams.
+// must never depend on. Mirrors the engineInfo / sharedFSCheck seams.
 var runtimeCandidates = func() []runtimeCandidate {
 	return []runtimeCandidate{
-		{Docker{}.Name(), func() (Runtime, RuntimeAxis) {
-			d := newDockerRuntime(runtimeReachable)
-			return d, ownershipAxis(d.rootless)
-		}},
-		{Podman{}.Name(), func() (Runtime, RuntimeAxis) {
-			p := newPodmanRuntime()
-			return p, ownershipAxis(p.rootless)
-		}},
+		{Docker{}.Name(), func() (Runtime, RuntimeAxis) { return newDockerRuntime(runtimeReachable) }},
+		{Podman{}.Name(), func() (Runtime, RuntimeAxis) { return newPodmanRuntime(runtimeReachable) }},
 	}
 }
 
 // selectRuntimeWhere walks the candidates — config preference first, then
-// detection order — and returns the first that is launchable AND accepted by
-// ok, or Host{} when none is. It never errors: a runtime that cannot serve is
-// simply not selected, and the caller decides the consequence (chainFor makes
-// an EXPLICITLY-requested container that lands on Host a non-degradable fatal
-// ClassIsolation finding). SelectRuntime and ProbeRuntime differ ONLY in ok.
-func selectRuntimeWhere(prefer string, ok func(owns RuntimeAxis) bool) Runtime {
-	candidates := runtimeCandidates()
+// detection order — and returns the first whose probe found it launchable AND
+// whose ownership ok accepts, or Host{} when none is. It never errors: a
+// runtime that cannot serve is simply not selected, and the caller decides the
+// consequence (chainFor makes an EXPLICITLY-requested container that lands on
+// Host a non-degradable fatal ClassIsolation finding). SelectRuntime and
+// ProbeRuntime differ ONLY in ok.
+func selectRuntimeWhere(candidates []runtimeCandidate, prefer string, ok func(owns RuntimeAxis) bool) Runtime {
 	pick := func(c runtimeCandidate) Runtime {
 		rt, owns := c.probe()
-		if rt.Available() && ok(owns) {
+		if rt.launchable() && ok(owns) {
 			return rt
 		}
 		return nil
@@ -686,6 +749,23 @@ func selectRuntimeWhere(prefer string, ok func(owns RuntimeAxis) bool) Runtime {
 	return Host{}
 }
 
+// runtimeSurvey answers ONE launch's ownership demands (the selection, and
+// the hint a refusal names) from one probe of each engine: every candidate is
+// probed at most once, however many demands ask. A fresh survey per launch —
+// never a process-wide memo, which would serve a long-lived coordinator's
+// later launches a verdict an engine has since changed.
+type runtimeSurvey func(want RuntimeAxis) Runtime
+
+// surveyRuntimes starts a launch's survey over the production candidates. A
+// package var so tests hand chainFor a survey that answers without probing.
+var surveyRuntimes = func() runtimeSurvey {
+	candidates := runtimeCandidates()
+	for i := range candidates {
+		candidates[i].probe = sync.OnceValues(candidates[i].probe)
+	}
+	return func(want RuntimeAxis) Runtime { return selectRuntime(candidates, "", want) }
+}
+
 // SelectRuntime picks the container runtime that can serve a run DEMANDING the
 // want ownership. prefer is an explicit runtime name ("docker" | "podman");
 // empty means auto-detect (docker, then podman).
@@ -703,10 +783,16 @@ func selectRuntimeWhere(prefer string, ok func(owns RuntimeAxis) bool) Runtime {
 // container. The genuinely unconstrained question ("what runtime is reachable
 // on this host?") is ProbeRuntime, which has to be asked for by name.
 func SelectRuntime(prefer string, want RuntimeAxis) Runtime {
+	return selectRuntime(runtimeCandidates(), prefer, want)
+}
+
+// selectRuntime is SelectRuntime over given candidates (a survey's memoized
+// ones, or a fresh set).
+func selectRuntime(candidates []runtimeCandidate, prefer string, want RuntimeAxis) Runtime {
 	if !IsContainerRuntimeAxis(want) {
 		return Host{}
 	}
-	return selectRuntimeWhere(prefer, func(owns RuntimeAxis) bool { return owns == want })
+	return selectRuntimeWhere(candidates, prefer, func(owns RuntimeAxis) bool { return owns == want })
 }
 
 // ProbeRuntime picks the first launchable container runtime with NO ownership
@@ -716,5 +802,5 @@ func SelectRuntime(prefer string, want RuntimeAxis) Runtime {
 // whichever ownership the host happens to offer, which is what SelectRuntime's
 // filter exists to stop. Returns Host{} when nothing can launch.
 func ProbeRuntime(prefer string) Runtime {
-	return selectRuntimeWhere(prefer, func(RuntimeAxis) bool { return true })
+	return selectRuntimeWhere(runtimeCandidates(), prefer, func(RuntimeAxis) bool { return true })
 }

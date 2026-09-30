@@ -9,7 +9,7 @@ import (
 // startHostRunner is StartRunner's seam onto the bare self-invoked host runner
 // spawn, a package var so the launch-failure path is unit-testable without
 // actually forking a `ctxloom runner` subprocess. Mirrors the
-// selectRuntimeProbe / sharedFSCheck seams.
+// surveyRuntimes / sharedFSCheck seams.
 var startHostRunner = StartHostRunner
 
 // None is the default, host isolation policy. The workspace IS the live

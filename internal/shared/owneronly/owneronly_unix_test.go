@@ -55,14 +55,3 @@ func TestCheck_RefusesAnythingLooserThanOwnerOnly(t *testing.T) {
 		})
 	}
 }
-
-// On unix the human-facing account is the mode itself.
-func TestDescribe_IsTheMode(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "secret")
-	require.NoError(t, os.WriteFile(f, []byte("x"), FileMode))
-	info, err := os.Stat(f)
-	require.NoError(t, err)
-	got, err := Describe(f, info)
-	require.NoError(t, err)
-	assert.Equal(t, "mode 0600", got)
-}

@@ -40,7 +40,7 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
 		Vars:           []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
-		Auth:           engine.Provide[engine.Auth](claudeAuth{binary: "claude", engine: string(c.Name)}),
+		Auth:           engine.Provide[engine.Auth](claudeAuth{engine: string(c.Name)}),
 		InstanceConfig: claudeInstanceConfig{},
 	}
 }

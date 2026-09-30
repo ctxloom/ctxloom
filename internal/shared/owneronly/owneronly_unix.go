@@ -20,7 +20,3 @@ func violation(_ string, info fs.FileInfo) (string, error) {
 	}
 	return "", nil
 }
-
-func describe(_ string, info fs.FileInfo) (string, error) {
-	return fmt.Sprintf("mode %04o", info.Mode().Perm()), nil
-}

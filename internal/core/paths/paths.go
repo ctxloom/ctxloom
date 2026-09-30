@@ -355,12 +355,6 @@ const (
 	// describes.
 	HomeRecordsDirName = "records"
 
-	// HomeAuthDirName holds each engine's stored credentials, one
-	// owner-only file per engine and auth mode (HomeEngineCredentialPath).
-	// Home-rooted because a credential authenticates the user, not a
-	// project.
-	HomeAuthDirName = "auth"
-
 	// EngineTranscriptLinkPrefix names the leaf every per-vendor-log
 	// convenience symlink at a harp dir's ROOT starts with (see
 	// HarpEngineTranscriptLinkPath). A harp accumulates one vendor transcript
@@ -417,7 +411,6 @@ const (
 	whatDistrustedSigners = "the user distrust record"
 	whatHomeRecords       = "the home records directory"
 	whatCompanionPin      = "the admitted-companion pin"
-	whatEngineCredential  = "the stored engine credential"
 )
 
 // homeUnder resolves ~/<AppDirName>/<segments...>, naming what failed in the
@@ -439,19 +432,6 @@ func homeUnder(what string, segments ...string) (string, error) {
 // companions.PinAdmittedCompanions writes admitted companions into.
 func HomeCompanionPinDir() (string, error) {
 	return homeUnder(whatCompanionPin, CacheDir, CompanionPinCacheDir)
-}
-
-// HomeEngineCredentialPath returns ~/.ctxloom/auth/<engine>.<mode>, the
-// owner-only file holding engine's stored credential for one auth mode. A
-// pure path join; the writer creates the directory.
-func HomeEngineCredentialPath(engine, mode string) (string, error) {
-	return homeUnder(whatEngineCredential, HomeAuthDirName, EngineCredentialFileName(engine, mode))
-}
-
-// EngineCredentialFileName is the leaf of engine's stored credential for one
-// auth mode inside HomeAuthDirName: <engine>.<mode>.
-func EngineCredentialFileName(engine, mode string) string {
-	return engine + "." + mode
 }
 
 func HomeSessionsDir() (string, error) {
@@ -1282,10 +1262,6 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, HomeRecordsDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "the audit trail of what `util config-write` changed in foreign JSON config files (hew §9.7 application records) — the files themselves are unaffected; only the record of having changed them is gone",
-		},
-		{
-			Rel: filepath.Join(AppDirName, HomeAuthDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "every stored engine credential (ctxloom auth mint / ctxloom auth set); a run whose agent needs one mints it again at a terminal, and an unattended one is refused until it is",
 		},
 	}
 }

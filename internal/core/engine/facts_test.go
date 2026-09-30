@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -15,11 +14,8 @@ import (
 type fakeAuth struct{ modes []AuthMode }
 
 func (f fakeAuth) Modes() []AuthMode { return f.modes }
-func (fakeAuth) Credentials(AuthMode, func(string) (string, bool), CredentialReader) (Credentials, error) {
+func (fakeAuth) Credentials(AuthMode, func(string) (string, bool)) (Credentials, error) {
 	return Credentials{}, nil
-}
-func (fakeAuth) Mint(context.Context, AuthMode, Terminal) ([]byte, error) {
-	return nil, ErrMintUnsupported
 }
 
 func validHome() HomeSpec {
@@ -100,15 +96,6 @@ func TestParseAuthMode(t *testing.T) {
 	require.ErrorAs(t, err, &r)
 	for _, m := range AuthModeNames() {
 		assert.Contains(t, r.Remedy(), m)
-	}
-}
-
-// Only a token and an API key are ctxloom's to store; only the token is the
-// engine's to mint.
-func TestAuthMode_StoredAndMinted(t *testing.T) {
-	for m, want := range map[AuthMode][2]bool{AuthLogin: {false, false}, AuthToken: {true, true}, AuthAPIKey: {true, false}, AuthCloud: {false, false}} {
-		assert.Equal(t, want[0], m.Stored(), "Stored %s", m)
-		assert.Equal(t, want[1], m.Minted(), "Minted %s", m)
 	}
 }
 

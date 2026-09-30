@@ -119,14 +119,17 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/workspace", goNames: isolation.WorkspaceNames},
 	{path: "properties/dirty_tree_handler", goNames: launch.DirtyTreeHandlerNames},
 	{path: "properties/runtime", goNames: launch.RuntimeNames},
-	{path: "properties/permissions", goNames: agentaxis.PermissionModeNames},
 
 	// Per-agent binding overrides of the same axes.
 	{path: "properties/agents/additionalProperties/properties/runtime", goNames: launch.RuntimeNames},
-	{path: "properties/agents/additionalProperties/properties/permissions", goNames: agentaxis.PermissionModeNames},
 	{path: "properties/agents/additionalProperties/properties/driving", goNames: agents.DrivingModeNames},
 	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},
 	{path: "properties/agents/additionalProperties/properties/auth", goNames: engine.AuthModeNames},
+
+	// The one permissions block every rung (project, agent, label) shares.
+	{path: "$defs/permissions/properties/mode", goNames: agentaxis.PermissionModeNames},
+	{path: "$defs/permissions/properties/after_plan", goNames: engine.AfterPlanNames},
+	{path: "$defs/permissions/properties/approver", goNames: engine.ApproverNames},
 
 	// $defs/hook: claude-code's own hook-handler type vocabulary, passed
 	// through verbatim (ClaudeCodeHookWriter.addHook defaults it to
@@ -139,8 +142,7 @@ var schemaEnumBindings = []schemaEnumBinding{
 }
 
 func init() {
-	// $defs/llmConfig/anyOf has one branch per backend. `permissions` mirrors
-	// the same ctxloom-owned vocabulary as everywhere else; `role` is a
+	// $defs/llmConfig/anyOf has one branch per backend. `role` is a
 	// shipped-registry marker the schema's own description says is "ignored
 	// at runtime" — no Go vocabulary backs it, by design, so it is excluded
 	// rather than bound.
@@ -158,7 +160,6 @@ func init() {
 				path:          prefix + "/role",
 				excludeReason: "a shipped-registry marker the schema itself says is ignored at runtime; no Go vocabulary backs it",
 			},
-			schemaEnumBinding{path: prefix + "/permissions", goNames: agentaxis.PermissionModeNames},
 		)
 	}
 }

@@ -39,6 +39,12 @@ func (m PermissionMode) Within(ceiling PermissionMode) bool {
 	return r != 0 && c != 0 && r <= c
 }
 
+// AfterPlanNames lists the postures an approved plan may continue at: a
+// plan-first session's after_plan, and the modes an answer may switch to.
+func AfterPlanNames() []string {
+	return []string{PermissionDefault.String(), PermissionAcceptEdits.String()}
+}
+
 // Approver is who answers a request the agent's rules and posture leave
 // open.
 type Approver int

@@ -2,6 +2,7 @@ package launch
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -125,8 +126,8 @@ func resolveAfterPlan(rungs []permissionRung, mode engine.PermissionMode) (engin
 			continue
 		}
 		after, ok := engine.ParsePermissionMode(v)
-		if !ok || (after != engine.PermissionDefault && after != engine.PermissionAcceptEdits) {
-			return none, fmt.Errorf("%w: after_plan %q from %s is not a posture an approved plan may continue at (known: default|acceptEdits)", ErrPermissionUnhonoured, v, r.from)
+		if !ok || !slices.Contains(engine.AfterPlanNames(), after.String()) {
+			return none, fmt.Errorf("%w: after_plan %q from %s is not a posture an approved plan may continue at (known: %s)", ErrPermissionUnhonoured, v, r.from, strings.Join(engine.AfterPlanNames(), "|"))
 		}
 		if declared, ok := engine.ParsePermissionMode(r.block.Mode); ok && declared != engine.PermissionPlan {
 			return none, fmt.Errorf("%w: after_plan from %s continues a plan, but %s declares mode %s — declare mode: plan beside it", ErrPermissionUnhonoured, r.from, r.from, declared)

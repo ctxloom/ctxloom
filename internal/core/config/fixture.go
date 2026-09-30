@@ -40,7 +40,7 @@ type Fixture struct {
 	Workspace                    string
 	DirtyTreeHandler             string
 	Runtime                      string
-	Permissions                  agents.Permissions
+	Permissions                  agents.NeutralPermissions
 	Delegation                   DelegationConfig
 	IsolationImages              map[string]string
 	IsolationBaseContainerfile   string

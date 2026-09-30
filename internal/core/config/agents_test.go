@@ -120,7 +120,8 @@ agents:
     profiles: [go-developer]
     runtime: container-rootless
     permissions:
-      mode: bypass
+      claude-code:
+        mode: bypass
     driving: oneshot
     engine_home: session
     surfaces:
@@ -145,7 +146,7 @@ agents:
 	assert.Equal(t, "claude-code", dev.LLM)
 	assert.Equal(t, []string{"go-developer"}, dev.Profiles)
 	assert.Equal(t, "container-rootless", dev.Runtime)
-	assert.Equal(t, "bypass", dev.Permissions.Mode)
+	assert.Equal(t, "bypass", dev.Permissions.Engines["claude-code"]["mode"])
 	assert.Equal(t, agents.DrivingOneshot, dev.Driving)
 	// Binding.HomeMode stays a RAW string on purpose — a hand-edited
 	// config.yaml can hold anything, and agents.ParseHomeMode is what turns it

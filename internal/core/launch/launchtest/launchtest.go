@@ -59,19 +59,18 @@ type fixture struct {
 	// projectRuntime and projectPermissions are the project-level defaults
 	// (config.yaml's `runtime:` and `permissions:`).
 	projectRuntime     string
-	projectPermissions agents.Permissions
+	projectPermissions agents.NeutralPermissions
 	// labelPermissions is the "guarded" label's permissions block.
-	labelPermissions agents.Permissions
+	labelPermissions agents.LabelPermissions
 	// noApprovals makes the fixture engine declare no approval codec.
 	noApprovals bool
+	// noPermissionModel makes the fixture engine declare no permission model.
+	noPermissionModel bool
 	// projectDirtyTree is the project-level `dirty_tree_handler:` default.
 	projectDirtyTree string
 	// profileLLM is the label the "base" profile declares, reported by the
 	// assembler double.
 	profileLLM string
-	// noReadOnlyPlan makes the fixture engine declare no read-only tier, so
-	// a declared plan collapses to default.
-	noReadOnlyPlan bool
 	// noStructured drops Structured from the fixture engine's Modes.
 	noStructured bool
 	// relocatableHome makes the fixture engine declare a relocatable home
@@ -105,7 +104,9 @@ func Runtime(r launch.RuntimeAxis) AgentOption {
 
 // Permissions sets the binding's declared permission mode.
 func Permissions(p string) AgentOption {
-	return func(d *agentDecl) { d.binding.Permissions = agents.Permissions{Mode: p} }
+	return func(d *agentDecl) {
+		d.binding.Permissions = agents.Permissions{Engines: map[string]map[string]any{string(EngineName): {"mode": p}}}
+	}
 }
 
 // PermissionBlock sets the binding's whole permissions block.
@@ -149,21 +150,19 @@ func RuntimesAvailable(axes ...launch.RuntimeAxis) Option {
 // ProjectRuntime sets the project's `runtime:` default, unparsed.
 func ProjectRuntime(s string) Option { return func(f *fixture) { f.projectRuntime = s } }
 
-// ProjectPermissions sets the project's `permissions:` mode.
-func ProjectPermissions(s string) Option {
-	return func(f *fixture) { f.projectPermissions = agents.Permissions{Mode: s} }
-}
-
 // ProjectPermissionBlock sets the project's whole `permissions:` block.
-func ProjectPermissionBlock(p agents.Permissions) Option {
+func ProjectPermissionBlock(p agents.NeutralPermissions) Option {
 	return func(f *fixture) { f.projectPermissions = p }
 }
 
 // GuardedLabelPermissions replaces the "guarded" label's permissions block
 // (mode plan unless this says otherwise).
-func GuardedLabelPermissions(p agents.Permissions) Option {
+func GuardedLabelPermissions(p agents.LabelPermissions) Option {
 	return func(f *fixture) { f.labelPermissions = p }
 }
+
+// NoPermissionModel makes the fixture engine declare no permission model.
+func NoPermissionModel() Option { return func(f *fixture) { f.noPermissionModel = true } }
 
 // NoApprovals makes the fixture engine declare no approval codec.
 func NoApprovals() Option { return func(f *fixture) { f.noApprovals = true } }
@@ -171,8 +170,6 @@ func NoApprovals() Option { return func(f *fixture) { f.noApprovals = true } }
 // ProjectDirtyTree sets the project's `dirty_tree_handler:` default, unparsed.
 func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirtyTree = s } }
 
-// NoReadOnlyPlan makes the fixture engine declare no read-only tier.
-func NoReadOnlyPlan() Option { return func(f *fixture) { f.noReadOnlyPlan = true } }
 
 // RelocatableHome makes the fixture engine declare a relocatable home, the
 // way an engine with its own config dir does: a session-home run advises
@@ -189,7 +186,7 @@ func ProfileLLM(label string) Option { return func(f *fixture) { f.profileLLM = 
 // MemStore; and a fake for every port.
 func Deps(t *testing.T, opts ...Option) Env {
 	t.Helper()
-	f := &fixture{agents: map[string]agentDecl{}, available: map[launch.RuntimeAxis]bool{launch.RuntimeHost: true}, labelPermissions: agents.Permissions{Mode: "plan"}}
+	f := &fixture{agents: map[string]agentDecl{}, available: map[launch.RuntimeAxis]bool{launch.RuntimeHost: true}, labelPermissions: agents.LabelPermissions{Engine: map[string]any{"mode": "plan"}}}
 	for _, o := range opts {
 		o(f)
 	}
@@ -223,7 +220,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 	if f.noStructured {
 		modes = []engine.Mode{engine.Interactive}
 	}
-	reg, err := engine.NewRegistry(newFixtureEngine(modes, !f.noReadOnlyPlan, f.relocatableHome, !f.noApprovals))
+	reg, err := engine.NewRegistry(newFixtureEngine(modes, f.relocatableHome, !f.noApprovals, !f.noPermissionModel))
 	require.NoError(t, err)
 
 	store := sessions.NewMemStore()
@@ -296,24 +293,28 @@ const EngineName engine.Name = "fixture"
 // drops Structured.
 type fixtureEngine struct {
 	engine.Base
-	home      engine.HomeSpec
-	approvals engine.Declared[engine.ApprovalCodec]
+	home        engine.HomeSpec
+	approvals   engine.Declared[engine.ApprovalCodec]
+	permissions engine.Declared[engine.PermissionModel]
 }
 
-func newFixtureEngine(modes []engine.Mode, readOnlyPlan, relocatableHome, approvals bool) engine.Engine {
+func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals, permissionModel bool) engine.Engine {
 	a := &approach{}
 	d := engine.Definition{
 		Name:         EngineName,
 		Distribution: engine.DistributionDefault,
 		Modes:        modes,
-		Permissions:  engine.PermissionFacts{ReadOnlyPlan: readOnlyPlan, HostDefault: engine.PermissionDefault},
 		ModelAliases: map[string]string{"fast-model": "fixture-fast-2"},
 		Context:      a, MCP: a, Settings: a, Hooks: a, Commands: a, Skills: a,
 	}
 	for _, m := range modes {
 		d.CLI = append(d.CLI, engine.CLIGrammar{Mode: m, Binary: "fixture", Positional: 1})
 	}
-	e := fixtureEngine{Base: engine.Base{Definition: d}, approvals: engine.Absent[engine.ApprovalCodec]("NoApprovals: the fixture declares no codec")}
+	e := fixtureEngine{Base: engine.Base{Definition: d}, approvals: engine.Absent[engine.ApprovalCodec]("NoApprovals: the fixture declares no codec"),
+		permissions: engine.Absent[engine.PermissionModel]("NoPermissionModel: the fixture declares none")}
+	if permissionModel {
+		e.permissions = engine.Provide[engine.PermissionModel](FixtureModel{})
+	}
 	if approvals {
 		e.approvals = engine.Provide[engine.ApprovalCodec](fixtureCodec{})
 	}
@@ -357,10 +358,8 @@ func (fixtureCodec) DecodeAsk(string, []byte) (engine.PermissionAsk, error) {
 	return engine.PermissionAsk{}, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
 }
 
-// Permissions: the doubles declare no permission model unless a test gives one.
-func (fixtureEngine) Permissions() engine.Declared[engine.PermissionModel] {
-	return engine.Absent[engine.PermissionModel]("a test double declares no permission model")
-}
+// Permissions is FixtureModel unless NoPermissionModel declared it absent.
+func (e fixtureEngine) Permissions() engine.Declared[engine.PermissionModel] { return e.permissions }
 func (fixtureCodec) EncodeAnswer(string, engine.PermissionAsk, engine.PermissionAnswer) ([]byte, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
 }

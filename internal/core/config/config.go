@@ -156,7 +156,7 @@ type Config struct {
 	// implementation detail: a home-wide permissive default would silently
 	// re-grant every project on the machine the posture a human granted exactly
 	// one of them.
-	permissions agents.Permissions
+	permissions agents.NeutralPermissions
 	// delegation groups the two agent-delegation limits — see
 	// DelegationConfig's doc for why they are grouped (both are limits ON
 	// delegation) despite differing in kind (one a resource ceiling, the
@@ -323,26 +323,26 @@ type Config struct {
 // pendingUpgrade, homePendingUpgrade) are deliberately absent here, exactly
 // mirroring their old yaml:"-" tag: configDoc IS the persisted-fields subset.
 type configDoc struct {
-	Version                      int                     `yaml:"version"`
-	LM                           LMConfig                `yaml:"llm,omitempty"`
-	Editor                       EditorConfig            `yaml:"editor,omitempty"`
-	Settings                     SettingsConfig          `yaml:"config,omitempty"`
-	Sync                         SyncConfig              `yaml:"sync,omitempty"`
-	Agents                       map[string]agents.Agent `yaml:"agents,omitempty"`
-	DefaultAgent                 string                  `yaml:"default_agent,omitempty"`
-	Workspace                    string                  `yaml:"workspace,omitempty"`
-	DirtyTreeHandler             string                  `yaml:"dirty_tree_handler,omitempty"`
-	Runtime                      string                  `yaml:"runtime,omitempty"`
-	Permissions                  agents.Permissions      `yaml:"permissions,omitempty"`
-	Delegation                   DelegationConfig        `yaml:"delegation,omitempty"`
-	IsolationImages              map[string]string       `yaml:"isolation_images,omitempty"`
-	IsolationBaseContainerfile   string                  `yaml:"isolation_base_containerfile,omitempty"`
-	IsolationDevcontainerBase    *bool                   `yaml:"isolation_devcontainer_base,omitempty"`
-	IsolationDevcontainerService string                  `yaml:"isolation_devcontainer_service,omitempty"`
-	IsolationEngines             []string                `yaml:"isolation_engines,omitempty"`
-	UI                           UIConfig                `yaml:"ui,omitempty"`
-	SessionReapAge               string                  `yaml:"session_reap_age,omitempty"`
-	SessionPurgeAge              string                  `yaml:"session_purge_age,omitempty"`
+	Version                      int                       `yaml:"version"`
+	LM                           LMConfig                  `yaml:"llm,omitempty"`
+	Editor                       EditorConfig              `yaml:"editor,omitempty"`
+	Settings                     SettingsConfig            `yaml:"config,omitempty"`
+	Sync                         SyncConfig                `yaml:"sync,omitempty"`
+	Agents                       map[string]agents.Agent   `yaml:"agents,omitempty"`
+	DefaultAgent                 string                    `yaml:"default_agent,omitempty"`
+	Workspace                    string                    `yaml:"workspace,omitempty"`
+	DirtyTreeHandler             string                    `yaml:"dirty_tree_handler,omitempty"`
+	Runtime                      string                    `yaml:"runtime,omitempty"`
+	Permissions                  agents.NeutralPermissions `yaml:"permissions,omitempty"`
+	Delegation                   DelegationConfig          `yaml:"delegation,omitempty"`
+	IsolationImages              map[string]string         `yaml:"isolation_images,omitempty"`
+	IsolationBaseContainerfile   string                    `yaml:"isolation_base_containerfile,omitempty"`
+	IsolationDevcontainerBase    *bool                     `yaml:"isolation_devcontainer_base,omitempty"`
+	IsolationDevcontainerService string                    `yaml:"isolation_devcontainer_service,omitempty"`
+	IsolationEngines             []string                  `yaml:"isolation_engines,omitempty"`
+	UI                           UIConfig                  `yaml:"ui,omitempty"`
+	SessionReapAge               string                    `yaml:"session_reap_age,omitempty"`
+	SessionPurgeAge              string                    `yaml:"session_purge_age,omitempty"`
 }
 
 // MarshalYAML emits d as a plain map, so every key is written sorted at every

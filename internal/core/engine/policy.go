@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -104,6 +105,19 @@ const (
 	DefaultApprovalTimeout = 15 * time.Minute
 	MaxApprovalTimeout     = 60 * time.Minute
 )
+
+// ParseApprovalTimeout reads an approval_timeout spelling: a duration above
+// zero and at most MaxApprovalTimeout.
+func ParseApprovalTimeout(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(strings.TrimSpace(s))
+	if err != nil {
+		return 0, fmt.Errorf("approval_timeout %q is not a duration (e.g. 20m)", s)
+	}
+	if d <= 0 || d > MaxApprovalTimeout {
+		return 0, fmt.Errorf("approval_timeout %q must be above 0 and at most %dm", s, int(MaxApprovalTimeout.Minutes()))
+	}
+	return d, nil
+}
 
 // PermissionPolicy is a session's resolved permission posture: where it
 // starts, how far a plan approval or a mode change may take it, the

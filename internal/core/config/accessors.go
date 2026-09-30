@@ -51,6 +51,7 @@ func cloneWarnings(w []Warning) []Warning {
 func cloneAgent(a agents.Agent) agents.Agent {
 	a.Profiles = slices.Clone(a.Profiles)
 	a.Permissions = a.Permissions.Clone()
+	a.MayDelegate = slices.Clone(a.MayDelegate)
 	return a
 }
 
@@ -150,7 +151,7 @@ func (c *Config) GetRuntime() string { return c.runtime }
 // (or an explicit one-invocation --config-set): layerscope scopes the key
 // Shared, so a home config or an environment variable carrying it is dropped
 // with a warning before the merge. See Config.permissions' own doc.
-func (c *Config) GetPermissions() agents.Permissions { return c.permissions.Clone() }
+func (c *Config) GetPermissions() agents.NeutralPermissions { return c.permissions.Clone() }
 
 // GetDelegationConcurrency returns delegation.concurrency: the project-wide
 // RESOURCE ceiling on concurrently EXECUTING delegated child turns (0/unset

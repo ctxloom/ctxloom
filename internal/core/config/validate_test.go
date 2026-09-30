@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -34,10 +35,30 @@ func (stubKind) Approvals() engine.Declared[engine.ApprovalCodec] {
 	return engine.Absent[engine.ApprovalCodec]("a test double approves nothing")
 }
 
-// Permissions: the doubles declare no permission model unless a test gives one.
+// Permissions: every stub declares stubModel, which refuses the key "bad".
 func (stubKind) Permissions() engine.Declared[engine.PermissionModel] {
-	return engine.Absent[engine.PermissionModel]("a test double declares no permission model")
+	return engine.Provide[engine.PermissionModel](stubModel{})
 }
+
+type stubModel struct{}
+
+func (stubModel) Keys() []string     { return []string{"mode"} }
+func (stubModel) Postures() []string { return []string{"on"} }
+func (stubModel) Validate(doc map[string]any) error {
+	if _, bad := doc["bad"]; bad {
+		return errStubBad
+	}
+	return nil
+}
+func (stubModel) Resolve(engine.PostureRequest) (map[string]any, error) { return map[string]any{}, nil }
+func (stubModel) Floor() map[string]any                                 { return map[string]any{} }
+func (stubModel) Decode(map[string]any) (string, error)                 { return "on", nil }
+func (stubModel) Transitions(map[string]any) []string                   { return nil }
+func (stubModel) Sandboxes(string) []engine.Sandbox                     { return []engine.Sandbox{engine.SandboxFull} }
+func (stubModel) DefaultSandbox() engine.Sandbox                        { return engine.SandboxFull }
+func (stubModel) Reviewer() bool                                        { return false }
+
+var errStubBad = errors.New("stub: bad key")
 
 // registryOf composes stub kinds; the first named ships by default.
 func registryOf(names ...engine.Name) engine.Registry {

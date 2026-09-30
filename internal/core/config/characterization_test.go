@@ -52,7 +52,7 @@ func characterizationCases() []characterizationCase {
 			f := fullyPopulatedFixture()
 			f.Delegation.IdleTimeout = "10m"
 			f.LM.Defaults = RoleDefaults{Primary: "fast", Fast: "fast"}
-			f.LM.Configs["fast"] = LLMConfig{Type: "claude-code", Role: "fast", Permissions: agents.Permissions{Mode: "plan"}, Body: map[string]any{"model": "m1"}}
+			f.LM.Configs["fast"] = LLMConfig{Type: "claude-code", Role: "fast", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "plan"}}, Body: map[string]any{"model": "m1"}}
 			f.Editor.Args = []string{"-n"}
 			f.Agents["worker"] = agents.Agent{LLM: "fast"}
 			return NewFixture(f)
@@ -182,9 +182,8 @@ llm:
         fast: fast
         primary: fast
 permissions:
-    deny:
-        - Bash
-    mode: plan
+    approver: none
+    network: false
 runtime: container
 session_purge_age: 180d
 session_reap_age: 45d
@@ -230,9 +229,8 @@ llm:
         fast: fast
         primary: fast
 permissions:
-    deny:
-        - Bash
-    mode: plan
+    approver: none
+    network: false
 runtime: container
 session_purge_age: 180d
 session_reap_age: 45d
@@ -264,9 +262,8 @@ llm:
         fast: fast
         primary: fast
 permissions:
-    deny:
-        - Bash
-    mode: plan
+    approver: none
+    network: false
 sync:
     auto_sync: true
 ui:
@@ -309,9 +306,8 @@ llm:
         fast: fast
         primary: fast
 permissions:
-    deny:
-        - Bash
-    mode: plan
+    approver: none
+    network: false
 runtime: container
 session_purge_age: 180d
 session_reap_age: 45d

@@ -31,6 +31,7 @@ package agents
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -100,11 +101,18 @@ type Agent struct {
 	// field, project `workspace:` default), never bound to the agent.
 	// Resolution lives in operations.resolveAgentBinding.
 	Runtime string `yaml:"runtime,omitempty"`
-	// Permissions is the agent's permission posture and rules — the second
-	// safety axis a binding declares alongside Runtime. Each field it leaves
-	// empty inherits the engine label's, then the project's, then the
-	// built-in default. The `run --permissions` flag overrides its mode.
+	// Permissions is the agent's permission block — the second safety axis
+	// a binding declares alongside Runtime: the neutral fields, and one block
+	// per engine. Each neutral field it leaves empty inherits the engine
+	// label's, then the project's, then the engine's default; the engine
+	// resolves its own block over the label's keys. `run --permissions`
+	// overrides the mode.
 	Permissions Permissions `yaml:"permissions,omitempty"`
+	// MayDelegate names the roles (agent bindings) this agent may launch
+	// with agent_run. Unset or empty permits any; a list permits exactly
+	// those. Checked where agent_run is served, against the CALLER's own
+	// binding.
+	MayDelegate []string `yaml:"may_delegate,omitempty"`
 	// Driving is the agent's per-turn execution axis: conversational (the
 	// zero value/default — the engine process stays warm across turns, the
 	// model today) or oneshot (a turn ends its engine process at the turn
@@ -308,3 +316,9 @@ var ErrRetiredCoordinatorKey = errors.New(
 	"agent uses the removed key 'coordinator:'; delegation privilege is no longer declared per " +
 		"binding — a run may spawn while its depth is below delegation.depth (the session owner " +
 		"is depth 0, its subagents depth 1), so raise delegation.depth to allow deeper trees")
+
+// Delegates reports whether this agent may launch role: any role when
+// MayDelegate is unset or empty, else exactly the roles it lists.
+func (a Agent) Delegates(role string) bool {
+	return len(a.MayDelegate) == 0 || slices.Contains(a.MayDelegate, role)
+}

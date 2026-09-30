@@ -23,11 +23,11 @@ type LLMConfig struct {
 	// is authored data, persisted like any other field, and never affects
 	// runtime label resolution.
 	Role string `mapstructure:"role" yaml:"role,omitempty"`
-	// Permissions is this label's permission posture and rules; each field
-	// it leaves empty defers to the project's, then the engine's built-in
-	// default. An agent binding and the `run --permissions` flag override it.
-	Permissions agents.Permissions `mapstructure:"permissions" yaml:"permissions,omitempty"`
-	Body        map[string]any     `mapstructure:",remain" yaml:",inline"`
+	// Permissions is this label's permission block: the neutral fields and,
+	// flat beside them, the keys of the label's engine (its type), which that
+	// engine validates. An agent binding overrides it, key by key.
+	Permissions agents.LabelPermissions `mapstructure:"permissions" yaml:"permissions,omitempty"`
+	Body        map[string]any          `mapstructure:",remain" yaml:",inline"`
 }
 
 // RoleDefaults maps a role to the config label that plays it. Roles select

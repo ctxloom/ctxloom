@@ -106,6 +106,28 @@ var justRecipeHeader = regexp.MustCompile(`^@?([A-Za-z_][A-Za-z0-9_-]*)[^:=]*:([
 //     string literal, since the argv is assembled across statements.
 func scanGremlinsInvocations(t *testing.T, root string) gremlinsScan {
 	t.Helper()
+	var sc gremlinsScan
+	var textFiles []string
+	for _, f := range gremlinsScanFiles(t, root) {
+		if strings.HasSuffix(f, ".go") {
+			scanGoArgv(t, root, f, &sc)
+		} else {
+			textFiles = append(textFiles, f)
+		}
+	}
+	// The wrapping recipes must be known before any command line is judged:
+	// `just <recipe>` launches gremlins only if that recipe's body does.
+	sc.recipes = gremlinsWrappingRecipes(t, textFiles)
+	for _, f := range textFiles {
+		scanShellFile(t, root, f, &sc)
+	}
+	return sc
+}
+
+// gremlinsScanFiles expands gremlinsScanRoots into every regular file under
+// them.
+func gremlinsScanFiles(t *testing.T, root string) []string {
+	t.Helper()
 	var files []string
 	for _, r := range gremlinsScanRoots {
 		matches, err := filepath.Glob(filepath.Join(root, r))
@@ -113,35 +135,38 @@ func scanGremlinsInvocations(t *testing.T, root string) gremlinsScan {
 			t.Fatal(err)
 		}
 		for _, m := range matches {
-			err := filepath.WalkDir(m, func(p string, d fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if !d.IsDir() {
-					files = append(files, p)
-				}
-				return nil
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			files = append(files, walkFiles(t, m)...)
 		}
 	}
+	return files
+}
 
-	var sc gremlinsScan
-	var textFiles []string
-	for _, f := range files {
-		if strings.HasSuffix(f, ".go") {
-			scanGoArgv(t, root, f, &sc)
-		} else {
-			textFiles = append(textFiles, f)
+// walkFiles lists the regular files at or under p.
+func walkFiles(t *testing.T, p string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(p, func(f string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
+		if !d.IsDir() {
+			files = append(files, f)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
+	return files
+}
 
-	// Pass 1 derives the wrapping recipes; pass 2 judges every command line.
+// gremlinsWrappingRecipes names every just recipe whose body invokes
+// gremlins; such a recipe forwards its arguments to it.
+func gremlinsWrappingRecipes(t *testing.T, files []string) map[string]bool {
+	t.Helper()
 	recipes := map[string]bool{}
-	for _, f := range textFiles {
-		if base := filepath.Base(f); base != "justfile" && !strings.HasSuffix(base, ".justfile") {
+	for _, f := range files {
+		if !isJustfile(f) {
 			continue
 		}
 		recipe := ""
@@ -155,23 +180,32 @@ func scanGremlinsInvocations(t *testing.T, root string) gremlinsScan {
 			}
 		}
 	}
-	for _, f := range textFiles {
-		rel, _ := filepath.Rel(root, f)
-		for _, cmd := range commandLines(t, f) {
-			start := gremlinsArgStart(cmd, recipes)
-			if start < 0 {
-				continue
-			}
-			sc.shellInvocations++
-			for _, tk := range cmd[start:] {
-				if isIntegrationFlag(strings.Trim(tk.text, `"'`)) {
-					sc.hits = append(sc.hits, rel+":"+strconv.Itoa(tk.lineNo))
-				}
+	return recipes
+}
+
+func isJustfile(path string) bool {
+	base := filepath.Base(path)
+	return base == "justfile" || strings.HasSuffix(base, ".justfile")
+}
+
+// scanShellFile counts each command line of path that launches gremlins,
+// directly or through a wrapping recipe in sc.recipes, and records every
+// integration flag it hands gremlins.
+func scanShellFile(t *testing.T, root, path string, sc *gremlinsScan) {
+	t.Helper()
+	rel, _ := filepath.Rel(root, path)
+	for _, cmd := range commandLines(t, path) {
+		start := gremlinsArgStart(cmd, sc.recipes)
+		if start < 0 {
+			continue
+		}
+		sc.shellInvocations++
+		for _, tk := range cmd[start:] {
+			if isIntegrationFlag(strings.Trim(tk.text, `"'`)) {
+				sc.hits = append(sc.hits, rel+":"+strconv.Itoa(tk.lineNo))
 			}
 		}
 	}
-	sc.recipes = recipes
-	return sc
 }
 
 // cmdToken is one whitespace-separated word of a command line, with the
@@ -190,37 +224,51 @@ func commandLines(t *testing.T, path string) [][]cmdToken {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out [][]cmdToken
-	var cur []cmdToken
+	var j cmdJoiner
 	s := bufio.NewScanner(bytes.NewReader(raw))
 	s.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for n := 1; s.Scan(); n++ {
-		line := s.Text()
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") && len(cur) == 0 {
-			continue
-		}
-		cont := strings.HasSuffix(trimmed, `\`)
-		body := strings.TrimSuffix(trimmed, `\`)
-		fields := strings.Fields(body)
-		if len(fields) == 0 && len(cur) == 0 {
-			continue
-		}
-		for _, w := range fields {
-			cur = append(cur, cmdToken{text: w, lineNo: n, line: line})
-		}
-		if !cont {
-			out = append(out, cur)
-			cur = nil
-		}
+		j.add(s.Text(), n)
 	}
 	if err := s.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if len(cur) > 0 {
-		out = append(out, cur)
+	return j.finish()
+}
+
+// cmdJoiner accumulates physical lines into logical command lines.
+type cmdJoiner struct {
+	out [][]cmdToken
+	cur []cmdToken
+}
+
+// add takes physical line n. A comment or blank line between commands is
+// dropped; one inside a `\` continuation is taken as part of it.
+func (j *cmdJoiner) add(line string, n int) {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "#") && len(j.cur) == 0 {
+		return
 	}
-	return out
+	cont := strings.HasSuffix(trimmed, `\`)
+	fields := strings.Fields(strings.TrimSuffix(trimmed, `\`))
+	if len(fields) == 0 && len(j.cur) == 0 {
+		return
+	}
+	for _, w := range fields {
+		j.cur = append(j.cur, cmdToken{text: w, lineNo: n, line: line})
+	}
+	if !cont {
+		j.out = append(j.out, j.cur)
+		j.cur = nil
+	}
+}
+
+// finish flushes a trailing continuation the file ended inside.
+func (j *cmdJoiner) finish() [][]cmdToken {
+	if len(j.cur) > 0 {
+		j.out = append(j.out, j.cur)
+	}
+	return j.out
 }
 
 // gremlinsArgStart returns the index of the first argument gremlins receives

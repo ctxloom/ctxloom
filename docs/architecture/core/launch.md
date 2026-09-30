@@ -59,15 +59,17 @@ prompt), `ErrContextEmpty` (named profiles that assembled to nothing),
 refusals, passed through), and `delivery.ErrUncarried` / `delivery.Unrootable`
 from the router.
 
-**The floor.** `Source.Permission`'s zero value is `PermissionNotRequested`
-— "the flag was not given" — and the chain reads the first DECLARED rung:
-the flag, the binding, the label, the project default, else the engine's
-declared host default; plan collapses to default on an engine with no
-read-only tier. A Structured run that would block on a prompt has no human
-at the engine: the originator's own run (depth 0) is widened to bypass —
-the human invoked it and owns the terminal — while a delegated child
-(depth > 0) is REFUSED rather than widened; `Source.Degraded` narrows
-either case to `engine.PermissionFloor`. Nothing downstream re-decides it.
+**The permission policy.** `resolvePolicy` settles it once. The engine's
+`PermissionModel` resolves its own document from the binding's block for
+that engine and the label's keys, `Source.Permission` (the `--permissions`
+flag, in the engine's vocabulary) over both; core carries the result as an
+opaque `engine.Posture` and never reads it. A binding with blocks but none
+for the resolved engine is refused, or under `Source.Degraded` runs at the
+engine's `Floor`. The neutral fields (approver, approval timeout, sandbox,
+network) are each the first of the binding, the label and the project that
+declares one, else the engine's default; the sandbox must be one the engine
+enforces on the settled runtime, with no degraded fallback. Nothing
+downstream re-decides it.
 
 ## What diverges from the design, and why
 

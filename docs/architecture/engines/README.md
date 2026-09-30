@@ -20,8 +20,8 @@ An engine is two halves on one port (`internal/core/engine`):
   `Definition` declares one typed approach per surface kind (`Context`, `MCP`,
   `Settings`, `Hooks`, `Commands`, `Skills`), the optional `Dynamic` approach,
   the modes and their argv grammars (`CLI`, derived from the L1 `EngineCLI`),
-  the permission facts (the host default posture, whether `plan` is
-  read-only) and the export schema. `Base` derives every view
+  and the export schema; the engine's permission model rides beside it
+  (`Engine.Permissions`). `Base` derives every view
   (`Surfaces`, `Carries`, `Static`), decides static-vs-dynamic delegation
   once (`Delegate`), and `Validate`s coherence in the ONE plain constructor
   each engine package exposes (`claude.Build`, `mock.New`/`mock.Build`).

@@ -119,7 +119,7 @@ type mountPlan struct {
 // the runner for that workspace. All strategies (none | worktree |
 // container) satisfy this one interface, so the fan-out picks a strategy per
 // agent without engine-specific logic. The run's approval posture resolves
-// wholly from config/CLI/agent (agent.PermissionMode), independent of which
+// wholly from config/CLI/agent (launch.resolvePolicy), independent of which
 // strategy is in play — an approvals axis on policy was tried and deleted as
 // dead: none of the three strategies' resolvers ever consulted it.
 type policy interface {

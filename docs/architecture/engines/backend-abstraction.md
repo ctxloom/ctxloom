@@ -66,7 +66,8 @@ the Definition, never a name.
 
 The adapters' name-keyed questions are `operations`' (`engine_*.go`):
 `EngineExists`, `EngineNames`, `EngineNamesWhere`, `DefaultEngineName`,
-`IsTestOnlyEngine`, `EnginePermissionFacts`, `EngineBinary` (the interactive
+`IsTestOnlyEngine`, `EffectivePosture`/`PostureName`/`PostureNames` (named
+by the engine's permission model), `EngineBinary` (the interactive
 grammar's binary), `EngineAvailability`/`EngineAvailable` (resolved on PATH
 or the login-shell PATH), `ProbeEngineVersion` (the shared cached prober
 over `Definition.Version`), `DecodeEngineConfig`, `KnownApproachNames`. None

@@ -318,8 +318,9 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 }
 
 // childSource is what a delegated child's launch is asked from: the plan's
-// selection, the coordinator's identity and first turn, the launching run's
-// ceiling as the cap, and the resume arm on a resume or rebind. A child
+// selection, the coordinator's identity and first turn, and the resume arm
+// on a resume or rebind — never its permissions, which are its own
+// binding's. A child
 // defaults to its OWN worktree when neither the call nor the project chose a
 // workspace: needing a private cwd is a property of how the parent fans,
 // and the shared checkout is never the silent default for a child.

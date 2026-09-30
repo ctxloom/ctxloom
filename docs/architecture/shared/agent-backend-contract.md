@@ -127,14 +127,6 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `PermissionMode` | `internal/core/agent/permissions.go:15` | Generalized launch-time permission posture (default / acceptEdits / plan / bypass). Referenced by 50+ files. |
-| `PermissionMode.String` | `internal/core/agent/permissions.go:36` | Canonical wire spelling. |
-| `PermissionMode.AllowsWithoutPrompt` | `internal/core/agent/permissions.go:53` | True only for `PermissionBypass`. |
-| `ParsePermissionMode` | `internal/core/agent/permissions.go:61` | Lenient string → mode with an `ok` bool distinguishing unset from explicit-default. |
-| `PermissionModeNames` | `internal/core/agent/permissions.go:78` | The four CLI spellings, for flag help/completion. |
-| `WireMode` | `internal/core/agent/permissions.go:86` | `ParsePermissionMode` with `ok` discarded — the deliberate fail-safe-default policy. |
-| `ResolveDefault` | `internal/core/agent/permissions.go:98` | First parseable of the layered sources, else the engine's declared host default. |
-| `PermissionMode.CollapsePlanIfUnenforced` | `internal/core/agent/permissions.go:116` | Downgrades `plan` → `default` when the engine cannot enforce plan mode. |
 | `ApplyLocalCLIConfig` | `internal/core/agent/localcli.go:9` | Applies per-backend binary/args/env overrides onto a `BaseBackend`. |
 | `GetPromptContent` | `internal/core/agent/base.go:185` | Nil-safe read of a prompt field; the nil guard is the whole point (7 call sites). |
 | `IsManaged` | `internal/core/agent/predicate.go:13` | Ownership test — is this command line one ctxloom installed, by exec-token identity. |

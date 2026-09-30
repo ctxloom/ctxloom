@@ -252,13 +252,11 @@ promise:
   which writes the project `.mcp.json` directly; it runs only when selected by name.
 
 Two limits follow, and neither is hypothetical. **The approval gate belongs to the engine, not
-to us.** An agent running with `permissions: {mode: bypass}` is launched with Claude Code's
-skip-permissions flag, which disables that gate, and a bundle-delivered server then starts
-without a prompt. Bypass is also what Claude Code gets on the host when nothing declares a
-posture: the engine's declared host default is `bypass` until approval prompts can be routed
-to a human. So all this takes is a publisher you trusted and an agent whose `permissions:` you
-never set. `bypass` covers more than file edits; it also means "run what my trusted bundles
-declare." **And a server name you already use can be displaced.** When ctxloom writes the
+to us.** An agent running with `permissions: {claude-code: {mode: bypass}}` is launched with
+Claude Code's skip-permissions flag, which disables that gate, and a bundle-delivered server
+then starts without a prompt. So all this takes is a publisher you trusted and an agent
+declared at `bypass`. `bypass` covers more than file edits; it also means "run what my trusted
+bundles declare." **And a server name you already use can be displaced.** When ctxloom writes the
 project `.mcp.json`, a bundle server whose name matches an entry you wrote replaces that entry
 for as long as ctxloom declares it. ctxloom records the bytes it replaced and restores them
 when it stops declaring that server or is uninstalled. If you edit an entry ctxloom manages,

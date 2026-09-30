@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -339,4 +340,53 @@ func TestStopChildren_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 	assert.Equal(t, StopOutcomeStopped, stopped[0].Outcome)
 	assert.Equal(t, StateEnded, rosterState(c, out.Harp))
 	assert.Equal(t, CauseStopped, runCause(c, out.RunID))
+}
+
+// TestStopChildren_MidStartRunIsAStopNotALaunchFailure is the bulk copy of
+// TestAgentStop_MidStartRunIsAStopNotALaunchFailure: a stop that lands while
+// the child's StartRun is still on the wire is a STOP, whichever form of
+// agent_stop sent it. The sweep reads the child as executing and asks its
+// runner to close the run; the StartRun held at the runner is released only
+// once the runner has answered that stop, so the launch is then refused ("the
+// run has ended") and fails while the stop is still pending — the losing
+// interleaving, forced. The terminal must be the stop, carrying its reason.
+func TestStopChildren_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp.bindHold = make(chan struct{})
+	sp.bindEntered = make(chan struct{}, 1)
+	c := newTestCoordinator(t, sp, nil)
+	c.drainBound = time.Minute
+	var release sync.Once
+	releaseHold := func() { release.Do(func() { close(sp.bindHold) }) }
+	t.Cleanup(releaseHold)
+	c.stopAnsweredHook = func(string) { releaseHold() }
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	require.NoError(t, err)
+	select {
+	case <-sp.bindEntered:
+	case <-time.After(conformanceWait):
+		t.Fatal("the child's StartRun never reached the runner")
+	}
+	require.Equal(t, StateExecuting, rosterState(c, out.Harp), "precondition: the sweep must find the child mid-launch")
+
+	ctx, cancel := context.WithTimeout(context.Background(), drainWait)
+	defer cancel()
+	stopped, err := c.StopChildren(ctx, ownerIdentity(), "fan-out complete")
+	require.NoError(t, err)
+	require.Len(t, stopped, 1)
+	assert.Equal(t, StopOutcomeStopped, stopped[0].Outcome)
+	assert.Contains(t, stopped[0].Detail, "fan-out complete", "the reason reaches the child's terminal detail")
+	assert.Equal(t, CauseStopped, runCause(c, out.RunID), "a launch the stop refused is the stop, not a launch failure")
+
+	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	require.NoError(t, err)
+	var kinds []string
+	for _, m := range msgs {
+		if m.From == out.Harp {
+			kinds = append(kinds, m.Kind)
+		}
+	}
+	assert.Equal(t, []string{KindExited}, kinds, "the parent is told the child was stopped, never that it failed to launch: %+v", msgs)
 }

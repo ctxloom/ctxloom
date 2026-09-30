@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -63,7 +64,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 		return nil
 	}
 	src := terminalUISources(sessionCoord, id.WorkDir, id.Harp)
-	return termui.New(termui.Options{
+	ui := termui.New(termui.Options{
 		Stdin:    stdin,
 		TTY:      os.Stdout,
 		Resize:   resize,
@@ -80,7 +81,20 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 		NewOverlay:  func(start termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, prefix, start) },
 		Warn:        func(format string, args ...any) { clidiag.Warn("ctxloom", format, args...) },
 	})
+	// The modal is how a pending approval reaches the human: the root's queue
+	// is presented here, on the originator's terminal, and nowhere else.
+	if src.Approvals != nil {
+		go func() { _ = modalPresenter{ui: ui, clock: systemClock{}}.Present(ctx, src.Approvals) }()
+	}
+	return ui
 }
+
+// systemClock is real time for the presenter (termui's own is unexported).
+type systemClock struct{}
+
+func (systemClock) Now() time.Time { return time.Now() }
+
+func (systemClock) AfterFunc(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 
 // terminalUISources wires the overlay's data seams to the session index, the
 // per-harp feed resolver, and the harp session dir. The contexts the closures
@@ -91,7 +105,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 // separate process, which reaches a coordinator over ConsumerService —
 // operations.WatchSessionFeed).
 func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string) tui.Sources {
-	return tui.Sources{
+	src := tui.Sources{
 		Roster: func(ctx context.Context) ([]tui.RosterRow, error) {
 			index, err := operations.ListSessionsForProject(workDir)
 			if err != nil {
@@ -121,6 +135,12 @@ func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string
 			return sessionCoord.Control(ctx, coord.ControlInitiator{Kind: coord.InitiatorHuman}, req)
 		},
 	}
+	// Set only when a queue exists: a nil *ApprovalQueue in the interface
+	// would read as a source to everything that checks it.
+	if sessionCoord != nil && sessionCoord.Approvals() != nil {
+		src.Approvals = sessionCoord.Approvals()
+	}
+	return src
 }
 
 // surroundRoster adapts the coordinator's native roster onto the surround

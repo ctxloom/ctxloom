@@ -71,6 +71,11 @@ func TestTerminalUISources_NilCoordinatorControlIsNotInjectable(t *testing.T) {
 		"no coordinator hosted: Control degrades to the typed refusal, not a nil-pointer panic")
 }
 
+func TestTerminalUISources_NilCoordinatorHasNoApprovalSource(t *testing.T) {
+	src := terminalUISources(nil, "/irrelevant", "self-harp")
+	assert.Nil(t, src.Approvals, "no coordinator hosted: no approval source — never a typed nil the view would call")
+}
+
 func TestSurroundRoster_NilCoordinatorIsEmptyNotError(t *testing.T) {
 	rows, err := surroundRoster(nil)
 	require.NoError(t, err)

@@ -11,8 +11,8 @@ import (
 //
 // The split is a security boundary, not a naming convention. A reserved kind is
 // one a receiving model is expected to act on BECAUSE the coordinator authored
-// it — approval_request is relayed to a human as a trust decision — so a sender
-// able to set it phishes that decision. The kind also renders into the
+// it — a steer is an instruction from the parent, user_injected is the human
+// speaking — so a sender able to set one borrows that authority. The kind also renders into the
 // provenance header of a delivered turn (FrameCoordinatorDelivery), which is
 // why nothing outside this set may reach the frame.
 const (
@@ -41,10 +41,6 @@ const (
 	// turn-boundary bridge's kind: this one is specifically a report's arrival,
 	// and the reports fold remains the store of record for its content.
 	KindReport = "report"
-
-	// KindApprovalRequest is COORDINATOR-RESERVED so a sender cannot mint one.
-	// Nothing produces it: the coordinator does not relay approvals.
-	KindApprovalRequest = "approval_request"
 
 	// KindSteer is COORDINATOR-RESERVED: an instruction injected into a
 	// running target (control.go's ControlSteer). Under the spool cutover a
@@ -82,7 +78,7 @@ var senderMailKinds = []string{KindMessage, KindResult, KindError, KindQuestion}
 // would let the sender borrow the coordinator's authority. Owned here for the
 // same reason senderMailKinds is; the wire enum's reserved members are held
 // to this list.
-var reservedMailKinds = []string{KindApprovalRequest, KindUserInjected, KindUserControl, KindExited, KindSteer, KindReport, KindSummarize}
+var reservedMailKinds = []string{KindUserInjected, KindUserControl, KindExited, KindSteer, KindReport, KindSummarize}
 
 // SenderMailKinds is the sender-allowed vocabulary, in wire order.
 func SenderMailKinds() []string { return append([]string(nil), senderMailKinds...) }
@@ -178,18 +174,17 @@ const SpoolKindUnkinded = "unkinded"
 // inverse is DERIVED from it below instead of hand-written, so the two
 // directions cannot disagree.
 var mailKindToSpool = map[string]string{
-	KindUnset:           SpoolKindUnkinded,
-	KindMessage:         KindMessage,
-	KindResult:          KindResult,
-	KindError:           KindError,
-	KindQuestion:        KindQuestion,
-	KindApprovalRequest: KindApprovalRequest,
-	KindUserInjected:    KindUserInjected,
-	KindExited:          KindExited,
-	KindSteer:           KindSteer,
-	KindSummarize:       KindSummarize,
-	KindReport:          KindReport,
-	KindUserControl:     KindUserControl,
+	KindUnset:        SpoolKindUnkinded,
+	KindMessage:      KindMessage,
+	KindResult:       KindResult,
+	KindError:        KindError,
+	KindQuestion:     KindQuestion,
+	KindUserInjected: KindUserInjected,
+	KindExited:       KindExited,
+	KindSteer:        KindSteer,
+	KindSummarize:    KindSummarize,
+	KindReport:       KindReport,
+	KindUserControl:  KindUserControl,
 }
 
 // spoolKindToMail inverts mailKindToSpool, built once at init. A collision is

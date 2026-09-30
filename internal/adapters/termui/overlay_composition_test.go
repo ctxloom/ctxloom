@@ -160,7 +160,6 @@ func realOverlaySources(harp string) (tui.Sources, *recordedSources) {
 				Cancel: func() {},
 			}, nil
 		},
-		Now: time.Now,
 	}, rec
 }
 

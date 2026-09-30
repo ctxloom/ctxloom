@@ -127,14 +127,11 @@ func TestModel_FooterNamesEveryControlKey(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f), f)
 	footer := m.footerLine(400)
-	for _, hint := range []string{"i inject", "? ask", "s summarize", "p pause", "r resume", "a approvals"} {
+	for _, hint := range []string{"i inject", "? ask", "s summarize", "p pause", "r resume"} {
 		assert.Contains(t, footer, hint)
 	}
 	assert.NotContains(t, footer, "save", "the transcript export was removed; the footer must not advertise it")
 	assert.NotContains(t, footer, "copy", "the OSC-52 copy was removed; the footer must not advertise it")
-
-	m.src.PendingApprovals = nil
-	assert.NotContains(t, m.footerLine(400), "a approvals", "a pane that is not wired must not be advertised")
 
 	m, _ = step(t, m, keyMsg("?"))
 	assert.Contains(t, m.render(), "ask → h1:", "the input line names the verb and its target")

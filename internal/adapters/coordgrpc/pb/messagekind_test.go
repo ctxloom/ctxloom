@@ -51,13 +51,12 @@ func TestLegacySenderKindNames_MatchTheStringVocabulary(t *testing.T) {
 // repoint the string guard's reserved list at the enum with the same confidence.
 func TestLegacyKindName_CoversTheReservedVocabulary(t *testing.T) {
 	for k, want := range map[MessageKind]string{
-		MessageKind_MESSAGE_KIND_APPROVAL_REQUEST: "approval_request",
-		MessageKind_MESSAGE_KIND_USER_INJECTED:    "user_injected",
-		MessageKind_MESSAGE_KIND_USER_CONTROL:     "user_control",
-		MessageKind_MESSAGE_KIND_EXITED:           "exited",
-		MessageKind_MESSAGE_KIND_STEER:            "steer",
-		MessageKind_MESSAGE_KIND_REPORT:           "report",
-		MessageKind_MESSAGE_KIND_SUMMARIZE:        "summarize",
+		MessageKind_MESSAGE_KIND_USER_INJECTED: "user_injected",
+		MessageKind_MESSAGE_KIND_USER_CONTROL:  "user_control",
+		MessageKind_MESSAGE_KIND_EXITED:        "exited",
+		MessageKind_MESSAGE_KIND_STEER:         "steer",
+		MessageKind_MESSAGE_KIND_REPORT:        "report",
+		MessageKind_MESSAGE_KIND_SUMMARIZE:     "summarize",
 	} {
 		if got := LegacyKindName(k); got != want {
 			t.Errorf("LegacyKindName(%v) = %q, want %q", k, got, want)
@@ -97,7 +96,7 @@ func TestMessageKindForLegacyName_RefusesUnknownSpellings(t *testing.T) {
 // membership is pinned here as copied literals in enum-declaration order — the
 // order the refusal text enumerates.
 func TestLegacyReservedKindNames_CoversTheReservedVocabulary(t *testing.T) {
-	want := []string{"approval_request", "user_injected", "user_control", "exited", "steer", "report", "summarize"}
+	want := []string{"user_injected", "user_control", "exited", "steer", "report", "summarize"}
 	got := LegacyReservedKindNames()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("reserved legacy spellings are %v, want %v", got, want)

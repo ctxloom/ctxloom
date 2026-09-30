@@ -7,8 +7,8 @@
 //   - mail `kind` becomes the MessageKind ENUM, carried by
 //     PeerSendRequest.kind (7) and PeerMessage.kind (8). The
 //     `structured["kind"]` free-string convention is RETIRED — that string was
-//     the injection vector (a sender could name the coordinator-reserved
-//     `approval_request` and have it interpolated into a delivered frame). An
+//     the injection vector (a sender could name a coordinator-reserved kind
+//     and have it interpolated into a delivered frame). An
 //     enum validates at DECODE, renders as a name from a closed set, and is
 //     attribute-eligible by construction. This BREAKS `agent_recv`'s output
 //     shape: `kind` moves out of `structured` and onto the message. A
@@ -307,6 +307,9 @@ message RunnerRequest {
     Turn turn = 16;
     // Cut the turn in flight short; the run lives. Answered by status alone.
     InterruptRun interrupt_run = 17;
+    // Replace the run's session grants with rules, from its next turn.
+    // Answered by status alone.
+    SetGrants set_grants = 18;
     CustomRequest custom = 90;
   }
 }
@@ -744,6 +747,13 @@ message InterruptRun {
   string run_id = 1;
 }
 
+// SetGrants hands a run its complete set of session grants (engine-native
+// rules); the run applies them from its next turn.
+message SetGrants {
+  string run_id = 1;
+  repeated string rules = 2;
+}
+
 message ResumeRunResult {
   // Whether this request is what released the run, as opposed to finding it
   // already running.
@@ -995,46 +1005,62 @@ message CoordinatorResponse {
   reserved 90;
 }
 
-// Agent needs a decision before proceeding; it parks the affected item,
-// emits StatusChanged{PHASE_WAITING_APPROVAL}, and blocks on this request
-// (Codex server-initiated approval flow, generalized).
+// A run's engine asks the root human for a decision: a tool call its rules
+// left open, a question, or a plan. The coordinator parks it in its approval
+// queue (coord.ApprovalQueue) and answers with ApprovalDecision when the human
+// decides, the timeout elapses (deny), or the run ends (deny). Nothing on any
+// wire ANSWERS a request: the decision is made in the root's process.
 message ApprovalRequest {
   enum ApprovalKind {
     APPROVAL_KIND_UNSPECIFIED = 0;
-    APPROVAL_KIND_COMMAND_EXECUTION = 1;
-    APPROVAL_KIND_FILE_CHANGE = 2;
-    APPROVAL_KIND_TOOL_USE = 3;
-    APPROVAL_KIND_PERMISSION_ESCALATION = 4;
-    // Antigravity-style plan gate: the agent published an artifact
-    // (typically an ARTIFACT_KIND_IMPLEMENTATION_PLAN) and parks until
-    // it's reviewed. Whether a given artifact kind gates at all is
-    // coordinator policy ("always proceed" == auto-accept), not wire
-    // protocol.
-    APPROVAL_KIND_ARTIFACT_REVIEW = 5;
-    APPROVAL_KIND_CUSTOM = 6;
+    APPROVAL_KIND_TOOL = 1;
+    APPROVAL_KIND_QUESTION = 2;
+    APPROVAL_KIND_PLAN = 3;
   }
   ApprovalKind kind = 1;
-  string title = 2;                    // one-line human summary
-  google.protobuf.Struct payload = 3;  // argv, unified diff, scopes...
-  string item_id = 4;                  // the parked step/tool_call
-  // Set for APPROVAL_KIND_ARTIFACT_REVIEW: which artifact (at which
-  // revision) gates.
-  string artifact_id = 5;
-  uint32 artifact_revision = 6;
+  string tool = 2;
+  bytes input = 3;                    // the tool call's input, canonical JSON
+  string tool_use_id = 4;
+  repeated string suggestions = 5;    // engine-native session rules on offer
+  string suggests_set_mode = 6;       // a PermissionMode name, or empty
+  PlanProposal plan = 7;
+  repeated Question questions = 8;
+  string ceiling = 9;                 // the highest PermissionMode an allow may set
+  google.protobuf.Duration timeout = 10;  // unset = the default; capped
 }
 
-// Decision vocabulary follows Codex app-server.
+message PlanProposal {
+  string markdown = 1;
+  string path = 2;
+}
+
+message Question {
+  string header = 1;
+  string text = 2;
+  repeated QuestionOption options = 3;
+  bool multi_select = 4;
+}
+
+message QuestionOption {
+  string label = 1;
+  string description = 2;
+}
+
+message QuestionAnswer {
+  string question = 1;          // the question text verbatim
+  repeated string labels = 2;   // chosen option labels verbatim
+  string other = 3;             // free text
+}
+
+// The decision on one ApprovalRequest. decider names who decided (human,
+// timeout, cancelled, refused, ...), in the agent.Decider vocabulary.
 message ApprovalDecision {
-  enum Decision {
-    DECISION_UNSPECIFIED = 0;
-    DECISION_ACCEPT = 1;
-    DECISION_ACCEPT_FOR_SESSION = 2;  // pre-approves like-kind requests this run
-    DECISION_DECLINE = 3;
-    DECISION_CANCEL = 4;              // also cancels the parked parent item
-  }
-  Decision decision = 1;
-  string note = 2;
-  google.protobuf.Struct amendment = 3;  // amended params, if any
+  bool allow = 1;
+  repeated string session_rules = 2;  // allow-for-session: session scope only
+  string set_mode = 3;                // a PermissionMode name, or empty
+  repeated QuestionAnswer answers = 4;
+  string message = 5;                 // deny note or plan feedback
+  string decider = 6;
 }
 
 // A question that must ultimately reach a human (the coordinator may
@@ -1121,8 +1147,8 @@ message SpawnAgentResult {
 //
 // It replaces the `structured["kind"]` free-string convention, which was
 // sender-controlled over an OPEN vocabulary that included the
-// coordinator-reserved `approval_request` — so a child could mint what read as
-// an approval prompt. Three properties come from making it an enum rather than
+// coordinator-reserved kinds — so a child could mint what read as a
+// coordinator notice. Three properties come from making it an enum rather than
 // validating strings at each call site: an unrecognised value is a
 // DECODE-time reject, not a string to sanitise; the value renders as a NAME
 // from a closed set, which makes it attribute-eligible in a generated
@@ -1163,11 +1189,6 @@ enum MessageKind {
 
   // A question awaiting the recipient's answer (sender-allowed).
   MESSAGE_KIND_QUESTION = 4;
-
-  // COORDINATOR-RESERVED: a relayed escalation-ladder ApprovalRequest,
-  // waiting on the recipient's decision. `agent_send` MUST refuse this from
-  // a sender — minting it is exactly the forgery the enum closes.
-  MESSAGE_KIND_APPROVAL_REQUEST = 10;
 
   // COORDINATOR-RESERVED: the mirror notice a human injection always sends to
   // the target's PARENT, so a coordinator's picture of its child never

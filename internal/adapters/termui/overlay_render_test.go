@@ -62,7 +62,6 @@ func newRenderHarness(t *testing.T) *renderHarness {
 			mu.Unlock()
 			return &tui.Feed{Source: "live", Events: make(chan operations.SessionFeedEvent), Errs: make(chan error, 1), Cancel: func() {}}, nil
 		},
-		Now: time.Now,
 	}
 	resize := make(chan *agent.WindowSize, 4)
 	c := termui.New(termui.Options{

@@ -41,7 +41,7 @@ func TestConfig_Validate_Permissions(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := config.NewFixture(tc.f).Validate(reg)
-			require.Error(t, err)
+			require.ErrorIs(t, err, config.ErrPermissions)
 			for _, w := range tc.want {
 				assert.Contains(t, err.Error(), w)
 			}

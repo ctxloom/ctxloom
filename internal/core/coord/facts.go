@@ -31,10 +31,6 @@ const (
 	// name cannot be known at enqueue, only after spawn. Never posted for a
 	// host-runtime run.
 	factRunContainer = "run.container"
-	// factRunCeiling records the permission ceiling a run's launch resolved
-	// to — known only once the launch resolves, after enqueue. A child the
-	// run launches is capped there, after a restart as before one.
-	factRunCeiling = "run.ceiling"
 	// factRunResumable records the run engine's LIVE resume capability (ACP's
 	// initialize-time loadSession bit, surfaced via ChatSessionInfo.Resumable)
 	// — the one-shot resume gate's live half (one-shot-resume plan, Slice 4 /
@@ -154,6 +150,9 @@ type runEnqueued struct {
 	// change what a live run was asked for. Kind name, not a wire number,
 	// so runs.jsonl stays jq-legible.
 	Permission string `json:"permission,omitempty"`
+	// MayDelegate is the binding's may_delegate as enqueued: the roles this
+	// run may launch; empty permits any.
+	MayDelegate []string `json:"may_delegate,omitempty"`
 	// MCPServers is the child's resolved MCP server NAMES ONLY (Wave F1) —
 	// never command, args, or env, which can carry a secret (the SAME
 	// boundary CredHash already holds for the bearer token: this journal
@@ -176,12 +175,6 @@ type runEnded struct {
 	RunID  string `json:"run_id"`
 	Cause  string `json:"cause"`
 	Detail string `json:"detail,omitempty"`
-}
-
-// runCeilingFact is factRunCeiling's payload: the ceiling's kind name.
-type runCeilingFact struct {
-	RunID   string `json:"run_id"`
-	Ceiling string `json:"ceiling"`
 }
 
 // runContainer is factRunContainer's payload.

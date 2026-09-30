@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -93,6 +94,10 @@ func (c *Config) EffectiveType(entry LLMConfig) string {
 	return entry.Type
 }
 
+// ErrPermissions refuses, at load, a permission declaration or a
+// may_delegate no launch could honour.
+var ErrPermissions = errors.New("config: permissions")
+
 // validatePermissions refuses, at load, a permission declaration no launch
 // could honour: a neutral value outside its vocabulary; an agent's block
 // for an engine ctxloom does not know, or one that engine refuses; an llm
@@ -130,17 +135,17 @@ func (c *Config) validatePermissions(reg engine.Registry) error {
 func checkNeutral(at string, n agents.NeutralPermissions) error {
 	if n.Approver != "" {
 		if _, ok := engine.ParseApprover(n.Approver); !ok {
-			return fmt.Errorf("config: %s: approver %q (known: %s)", at, n.Approver, strings.Join(engine.ApproverNames(), "|"))
+			return fmt.Errorf("%w: %s: approver %q (known: %s)", ErrPermissions, at, n.Approver, strings.Join(engine.ApproverNames(), "|"))
 		}
 	}
 	if n.Sandbox != "" {
 		if _, ok := engine.ParseSandbox(n.Sandbox); !ok {
-			return fmt.Errorf("config: %s: sandbox %q (known: %s)", at, n.Sandbox, strings.Join(engine.SandboxNames(), "|"))
+			return fmt.Errorf("%w: %s: sandbox %q (known: %s)", ErrPermissions, at, n.Sandbox, strings.Join(engine.SandboxNames(), "|"))
 		}
 	}
 	if n.ApprovalTimeout != "" {
 		if _, err := engine.ParseApprovalTimeout(n.ApprovalTimeout); err != nil {
-			return fmt.Errorf("config: %s: %w", at, err)
+			return fmt.Errorf("%w: %s: %w", ErrPermissions, at, err)
 		}
 	}
 	return nil
@@ -153,17 +158,17 @@ func checkEngineDoc(reg engine.Registry, at, name string, doc map[string]any) er
 	}
 	kind, ok := reg.Lookup(engine.Name(name))
 	if !ok {
-		return fmt.Errorf("config: %s: no engine %q; ctxloom knows: %s", at, name, strings.Join(engineNames(reg), ", "))
+		return fmt.Errorf("%w: %s: no engine %q; ctxloom knows: %s", ErrPermissions, at, name, strings.Join(engineNames(reg), ", "))
 	}
 	model, ok := kind.Permissions().Get()
 	if !ok {
 		if len(doc) == 0 {
 			return nil
 		}
-		return fmt.Errorf("config: %s: engine %s declares no permission keys (%s)", at, name, kind.Permissions().AbsentReason())
+		return fmt.Errorf("%w: %s: engine %s declares no permission keys (%s)", ErrPermissions, at, name, kind.Permissions().AbsentReason())
 	}
 	if err := model.Validate(doc); err != nil {
-		return fmt.Errorf("config: %s: %w", at, err)
+		return fmt.Errorf("%w: %s: %w", ErrPermissions, at, err)
 	}
 	return nil
 }
@@ -174,7 +179,7 @@ func (c *Config) validateMayDelegate() error {
 	for _, name := range names {
 		for _, role := range c.agents[name].MayDelegate {
 			if !slices.Contains(names, role) {
-				return fmt.Errorf("config: agents.%s.may_delegate: %q names no agent binding (agents: %s)", name, role, strings.Join(names, ", "))
+				return fmt.Errorf("%w: agents.%s.may_delegate: %q names no agent binding (agents: %s)", ErrPermissions, name, role, strings.Join(names, ", "))
 			}
 		}
 	}

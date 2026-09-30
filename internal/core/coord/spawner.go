@@ -34,11 +34,10 @@ type SpawnPlan struct {
 	// declaration (empty when it declared none), or an owner run's floored
 	// posture. The launch resolver decides the effective one.
 	Permission string
-	// ParentCeiling caps the child's launch at the launching run's own
-	// ceiling (launch.Source.ParentCeiling); zero when the launching
-	// session is the root, which nothing caps.
-	ParentCeiling engine.PermissionMode
-	Degraded      []string
+	// MayDelegate is the binding's may_delegate: the roles this run may
+	// launch with agent_run; empty permits any.
+	MayDelegate []string
+	Degraded    []string
 	// MCPServers is the child's composed MCP server set, resolved once at
 	// the verb so a later config edit cannot retroactively change a live
 	// run's privileges and so the journal, the launch and StartEngine read

@@ -16,7 +16,7 @@ func (c *Coordinator) Approvals() *ApprovalQueue { return c.approvals }
 // turn-idle event), as does the asking run's end (terminateRun), and the
 // coordinator closing withdraws them all.
 func (c *Coordinator) parkApproval(caller Identity, req ApprovalRequest) ApprovalDecision {
-	p := PendingApproval{Kind: ApprovalKindOf(req.Ask.Kind), Ask: req.Ask, Ceiling: req.Ceiling, turn: req.turn}
+	p := PendingApproval{Kind: ApprovalKindOf(req.Ask.Kind), Ask: req.Ask, Transitions: req.Transitions, turn: req.turn}
 	c.runs.View(func() {
 		if r := c.runsF.currentRun(caller.Harp); r != nil {
 			p.Agent = r.Agent

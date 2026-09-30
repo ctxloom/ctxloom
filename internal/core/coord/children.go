@@ -253,9 +253,8 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if err := c.admitAgentRun(caller, agentName, prompt); err != nil {
 		return nil, err
 	}
-	ceiling, err := c.parentCeiling(caller.Depth+1, caller.RunID)
-	if err != nil {
-		return nil, fmt.Errorf("agent_run: refused: %w", err)
+	if err := c.admitDelegation(caller, agentName); err != nil {
+		return nil, err
 	}
 
 	// EVERYTHING FROM HERE TO enqueueRun IS THE TRACELESS SPAN. The run has
@@ -284,7 +283,6 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	}
 	plan.Workspace = workspace
 	plan.DirtyTreeHandler = dirtyTreeHandler
-	plan.ParentCeiling = ceiling
 
 	harp, err := c.spawner.AssignSession(c.projectDir, plan.Backend)
 	if err != nil {
@@ -351,48 +349,27 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	}, nil
 }
 
-// errNoParentCeiling refuses a launch whose parent's ceiling is not on
-// record: it could not be capped, and an uncapped grandchild is the one
-// thing the cap exists to prevent.
-var errNoParentCeiling = errors.New("the launching run's permission ceiling is not on record, so a child it launches cannot be capped at it")
+// ErrDelegationRefused refuses an agent_run the caller's binding does not
+// permit: its may_delegate names the roles it may launch, and this is not
+// one of them.
+var ErrDelegationRefused = errors.New("agent_run: refused by may_delegate")
 
-// parentCeiling is the cap on a run launched at depth by the run parentRunID:
-// none when the parent is the root session (depth 1 — the human's own
-// session is capped by nothing), else the ceiling the parent's launch
-// resolved to, as journaled.
-func (c *Coordinator) parentCeiling(depth int, parentRunID string) (engine.PermissionMode, error) {
-	if depth <= 1 {
-		return engine.PermissionNotRequested, nil
-	}
-	var recorded string
+// admitDelegation refuses a role the caller's own binding does not list in
+// its may_delegate, naming the ones it does. A caller whose run the
+// coordinator did not enqueue from a binding (the root session) or whose
+// binding lists none may launch any.
+func (c *Coordinator) admitDelegation(caller Identity, role string) error {
+	var agent string
+	var allowed []string
 	c.runs.View(func() {
-		if r := c.runsF.run(parentRunID); r != nil {
-			recorded = r.Ceiling
+		if r := c.runsF.currentRun(caller.Harp); r != nil {
+			agent, allowed = r.Agent, slices.Clone(r.MayDelegate)
 		}
 	})
-	m, ok := engine.ParsePermissionMode(recorded)
-	if !ok {
-		return 0, fmt.Errorf("%w (run %q)", errNoParentCeiling, parentRunID)
+	if len(allowed) == 0 || slices.Contains(allowed, role) {
+		return nil
 	}
-	return m, nil
-}
-
-// recordCeiling journals the ceiling a run's launch resolved to; a run
-// relaunched at the same ceiling (a rebind, a resume) writes nothing.
-func (c *Coordinator) recordCeiling(runID string, ceiling engine.PermissionMode) {
-	if ceiling == engine.PermissionNotRequested {
-		return
-	}
-	name := ceiling.String()
-	if err := c.runs.Exec(func() ([]Fact, error) {
-		r := c.runsF.run(runID)
-		if r == nil || r.Ceiling == name {
-			return nil, nil
-		}
-		return []Fact{factAt(factRunCeiling, c.now(), runCeilingFact{RunID: runID, Ceiling: name})}, nil
-	}); err != nil {
-		c.rep.Warnf("coordinator: record the run's permission ceiling: %v", err)
-	}
+	return fmt.Errorf("%w: agent %q may launch only %s, not %q", ErrDelegationRefused, agent, strings.Join(allowed, ", "), role)
 }
 
 // admitAgentRun refuses an agent_run before anything is resolved: a
@@ -560,10 +537,11 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			// own agent resolution, a resumed run's freshly re-resolved
 			// plan, or an owned run's synthetic plan, which never sets it —
 			// zero value ResumeModePersistent, correctly never OneShot).
-			OneShot:    plan.ResumeMode == ResumeModeOneShot,
-			Prompt:     prompt,
-			Resume:     resume,
-			Permission: plan.Permission,
+			OneShot:     plan.ResumeMode == ResumeModeOneShot,
+			Prompt:      prompt,
+			Resume:      resume,
+			Permission:  plan.Permission,
+			MayDelegate: plan.MayDelegate,
 			// Names only, sorted: an operator auditing a live delegation sees
 			// WHAT a child can reach; command, args and env — any of which can
 			// carry a credential — never enter the journal, and the journaled
@@ -861,7 +839,6 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		c.failChild(rt, err)
 		return
 	}
-	c.recordCeiling(rt.runID, resolved.Launch.Permission.Ceiling)
 	if err := c.honourListen(resolved.Launch.Cell.Listen); err != nil {
 		c.failChild(rt, fmt.Errorf("agent_run: the child's runner has no listener to dial home to: %w", err))
 		return
@@ -1764,12 +1741,6 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	}
 	plan, err := c.spawner.Resolve(lctx, rec.Agent)
 	if err != nil {
-		c.failResume(harp, rec, err)
-		return
-	}
-	// The cap is the parent's journaled ceiling, as it was at the first
-	// launch: a resume is the same run identity, capped the same way.
-	if plan.ParentCeiling, err = c.parentCeiling(rec.Depth, rec.ParentRunID); err != nil {
 		c.failResume(harp, rec, err)
 		return
 	}

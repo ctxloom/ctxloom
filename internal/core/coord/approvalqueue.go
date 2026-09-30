@@ -64,9 +64,12 @@ type PendingApproval struct {
 	// Lineage is the asker's delegation chain, root → … → the asking harp.
 	Lineage []string
 	// WorkDir is for display only.
-	WorkDir         string
-	Ask             engine.PermissionAsk
-	Ceiling         engine.PermissionMode
+	WorkDir string
+	Ask     engine.PermissionAsk
+	// Transitions are the postures an allow may move the asker to, in its
+	// engine's vocabulary (PermissionModel.Transitions); none offers no
+	// posture change.
+	Transitions     []string
 	Since, Deadline time.Time
 	// turn is the asking run's turn when the coordinator received the
 	// request (turnOf); a request whose turn has since ended never parks.
@@ -80,8 +83,8 @@ type ApprovalDecision struct {
 	Allow        bool
 	SessionRules []string
 	// SetMode is a posture change riding the allow (plan posture, or the
-	// engine's own set-mode suggestion); never beyond the request's Ceiling.
-	SetMode engine.Declared[engine.PermissionMode]
+	// engine's own set-mode suggestion); one of the request's Transitions.
+	SetMode engine.Declared[string]
 	Answers []engine.QuestionAnswer
 	Message string
 	Decider agent.Decider
@@ -133,9 +136,9 @@ const (
 // request the coordinator parks in its queue and answers with the
 // ApprovalDecision. Timeout is the asker's declared hold; the queue bounds it.
 type ApprovalRequest struct {
-	Ask     engine.PermissionAsk
-	Ceiling engine.PermissionMode
-	Timeout time.Duration
+	Ask         engine.PermissionAsk
+	Transitions []string
+	Timeout     time.Duration
 	// turn is set by the coordinator as the request arrives; never on the wire.
 	turn uint64
 }
@@ -391,7 +394,7 @@ func (q *ApprovalQueue) claim(id ApprovalID) bool {
 // delivered as a deny: nothing is allowed off the record.
 func (q *ApprovalQueue) settle(p *parkedApproval, d ApprovalDecision) error {
 	if !d.Allow {
-		d.SessionRules, d.SetMode = nil, engine.Declared[engine.PermissionMode]{}
+		d.SessionRules, d.SetMode = nil, engine.Declared[string]{}
 	}
 	var granted bool
 	err := q.store.Exec(func() ([]Fact, error) {
@@ -418,10 +421,7 @@ func (q *ApprovalQueue) settle(p *parkedApproval, d ApprovalDecision) error {
 // journal's writer window, so the grants fold it reads is quiescent.
 func (q *ApprovalQueue) decisionFacts(req PendingApproval, d ApprovalDecision) []Fact {
 	now, harp := q.now(), req.From.Harp
-	var setMode string
-	if m, ok := d.SetMode.Get(); ok {
-		setMode = m.String()
-	}
+	setMode, _ := d.SetMode.Get()
 	facts := []Fact{factAt(factApprovalDecided, now, approvalDecided{
 		ID: req.ID, Harp: harp, Decider: d.Decider, Allow: d.Allow, Rules: d.SessionRules,
 		SetMode: setMode, Answers: d.Answers, Message: d.Message,

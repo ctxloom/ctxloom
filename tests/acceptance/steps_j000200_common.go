@@ -359,7 +359,9 @@ func repointDefaultAgentAtMock(w *World) error {
 	if err := w.env.Run("agent", "show", "default"); err == nil {
 		verb = "edit"
 	}
-	return runOK(w, "agent", verb, "default", "--llm", "mock", "--profiles", "default")
+	// --permissions writes the mock's own block: a binding that keeps only
+	// its previous engine's block is refused on the engine it now binds.
+	return runOK(w, "agent", verb, "default", "--llm", "mock", "--profiles", "default", "--permissions", "bypass")
 }
 
 // freshInitStubDir and freshInitStubRan are where the fresh-init interview's

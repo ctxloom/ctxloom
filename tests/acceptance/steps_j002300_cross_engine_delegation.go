@@ -186,9 +186,7 @@ func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec,
     llm: %s
 %s    profiles:
       - %s
-    permissions:
-      mode: bypass
-`, workspace, dirtyLine, s.Name, llmKey, runtimeLine, s.Profile)
+%s`, workspace, dirtyLine, s.Name, llmKey, runtimeLine, s.Profile, permissionsBlock(a.engine, "bypass"))
 }
 
 // j002300WriteAgent writes one agent's bundle + profile files.

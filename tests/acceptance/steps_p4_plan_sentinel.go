@@ -21,7 +21,7 @@
 //
 // THE POSTURE RIDES PRODUCTION'S OWN SURFACE, and it is worth stating exactly
 // which one, because a probe that applied its posture through a back door would
-// measure the back door. `permissions: plan` on the agent binding is read by
+// measure the back door. `permissions: {mode: plan}` on the agent binding is read by
 // the launch resolver's one floor (launch.Resolve: flag > agent binding > llm
 // label > project default > the engine's host default), carried on the Launch
 // and projected onto pb.RunOptions.PermissionMode (coordgrpc.EncodeLaunch),
@@ -187,7 +187,7 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 		// The direct one-shot run, the same public surface an operator types.
 		// The posture is NOT on the command line: it rides the agent binding in
 		// config.yaml, which is the surface a project actually commits and the
-		// rung of the precedence chain a user pinning `permissions: plan` is
+		// rung of the precedence chain a user pinning `permissions: {mode: plan}` is
 		// relying on.
 		cmd := w.env.Command(nil, "run", "--agent", p4Agent,
 			"--workspace", p.workspace, "--one-shot", p4Prompt())

@@ -367,7 +367,7 @@
             "human",
             "none"
           ],
-          "description": "Who answers a request the rules and posture leave open: 'human' (default) escalates it to the human at the root session; 'none' denies it."
+          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session, or 'none', nobody — the request is denied."
         },
         "approval_timeout": {
           "type": "string",

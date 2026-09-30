@@ -53,7 +53,9 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		var cfg struct {
 			DefaultAgent string `yaml:"default_agent"`
 			Agents       map[string]struct {
-				Permissions string `yaml:"permissions"`
+				Permissions struct {
+					Mode string `yaml:"mode"`
+				} `yaml:"permissions"`
 			} `yaml:"agents"`
 		}
 		if err := yaml.Unmarshal([]byte(body), &cfg); err != nil {
@@ -63,8 +65,8 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		if cfg.DefaultAgent == "" || !ok {
 			return fmt.Errorf("config.yaml names no default agent it defines (default_agent %q):\n%s", cfg.DefaultAgent, body)
 		}
-		if agent.Permissions != want {
-			return fmt.Errorf("default agent %q has permissions %q, want %q:\n%s", cfg.DefaultAgent, agent.Permissions, want, body)
+		if agent.Permissions.Mode != want {
+			return fmt.Errorf("default agent %q has permissions mode %q, want %q:\n%s", cfg.DefaultAgent, agent.Permissions.Mode, want, body)
 		}
 		return nil
 	})

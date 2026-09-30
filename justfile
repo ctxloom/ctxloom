@@ -1063,7 +1063,7 @@ capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run ONE cell of the plan-sentinel probe (P4 of the capability ladder,
-# features/probes/capability_plan_sentinel.feature): does `permissions: plan` actually
+# features/probes/capability_plan_sentinel.feature): does `permissions: {mode: plan}` actually
 # stop a write. POSTURE is control|plan, or "pair" to run BOTH — and pair is
 # what you almost always want.
 # WHY PAIR IS THE DEFAULT ANSWER. The plan cell's claim is negative: a file that

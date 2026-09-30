@@ -49,7 +49,7 @@ func WireMode(s string) PermissionMode { return engine.WireMode(s) }
 // source that does not parse is a declaration that MISSED: the user asked for
 // something, so continuing down the chain hands them a posture nobody chose —
 // on an engine whose host default is bypass, the bottom of that chain is
-// bypass, so `permissions: plann` (an obvious `plan`) resolved to full
+// bypass, so `permissions: {mode: plann}` (an obvious `plan`) resolved to full
 // --dangerously-skip-permissions. A missed declaration therefore
 // STOPS the chain, reports a fatal ClassConfig finding, and floors to
 // PermissionFloor. honoured is false in exactly that case, so a caller must

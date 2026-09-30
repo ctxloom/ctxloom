@@ -349,7 +349,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 // truth for which backend and model the live lane drives an engine with —
 // exactly what matrixConfigYAML and probeConfigYAML do, for the same reason.
 //
-// permissions: bypass, deliberately. P3 is not a permission probe (that is P4)
+// permissions mode bypass, deliberately. P3 is not a permission probe (that is P4)
 // and an approval prompt on a headless turn would hang the cell and report as a
 // timeout, which reads like an engine defect. The hook itself is unaffected by
 // the tier: it is exec'd by the engine's own harness, not by a tool call the

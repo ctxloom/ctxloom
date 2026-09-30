@@ -109,7 +109,7 @@ func TestResolveDefault_UnsetIsUnchanged(t *testing.T) {
 }
 
 // TestResolveDefault_UnparseableFloorsAndFails pins the silent-escalation fix:
-// `permissions: plann` used to be SKIPPED like an unset source, so resolution
+// `permissions: {mode: plann}` used to be SKIPPED like an unset source, so resolution
 // walked on down the chain and landed on the engine's host stopgap —
 // bypass, i.e. --dangerously-skip-permissions, from a value that obviously
 // meant the read-only posture. A declaration that missed now stops the chain at

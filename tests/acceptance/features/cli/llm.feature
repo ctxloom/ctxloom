@@ -244,8 +244,8 @@ Feature: llm — the named engine configurations
         ctxloom llm edit big --permissions bypass <flags>
         """
       Then the command succeeds
-      And the output reports "permissions" as "<the posture>"
-      And the file ".ctxloom/config.yaml" contains "permissions: bypass"
+      And the output reports "permissions.mode" as "<the posture>"
+      And the file ".ctxloom/config.yaml" contains "mode: bypass"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the posture |

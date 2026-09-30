@@ -103,14 +103,16 @@ agents:
     llm: claude-code          # an llm.configs label (engine + model)
     profiles: [developer]
     runtime: container-rootless # optional; host|container-rootless|container-rootful
-    permissions: acceptEdits  # optional; see the Agents concept page for the postures
+    permissions:              # optional; see the Agents concept page for every field
+      mode: acceptEdits
 
 # Profiles are files, one per profile, under .ctxloom/profiles/<name>.yaml.
 # config.yaml has no profiles: key.
 
 # The default permission posture for agents run IN THIS DIRECTORY.
 # Only ever read from this project file — see "Permissions" below.
-permissions: acceptEdits      # default|acceptEdits|plan|bypass
+permissions:
+  mode: acceptEdits           # default|acceptEdits|plan|bypass|dontAsk|auto
 
 # Isolation defaults
 workspace: none               # session workspace axis: none|worktree
@@ -191,7 +193,9 @@ that question **once per project directory**:
 
 ```yaml
 # .ctxloom/config.yaml — in the project you want it to apply to
-permissions: bypass       # default | acceptEdits | plan | bypass
+permissions:
+  mode: bypass              # default | acceptEdits | plan | bypass | dontAsk | auto
+  deny: ["Bash(git push *)"]
 ```
 
 Every agent launched in this directory now starts at that posture, with no
@@ -215,17 +219,22 @@ The postures:
 | `acceptEdits` | Auto-accepts file edits, prompts for the rest |
 | `plan` | Read-only: it may inspect, not mutate |
 | `bypass` | No in-engine prompting at all |
+| `dontAsk` | Denies whatever the rules do not allow |
+| `auto` | The engine's own classifier decides |
 
-Anything more specific wins. The full order, nearest first:
+The block also carries `after_plan`, the `allow` / `deny` / `ask` rules,
+`approver` and `approval_timeout` — see the Agents concept page.
+
+Anything more specific wins, field by field. The full order, nearest first:
 
 ```
-run --permissions  >  the agent binding's `permissions`
+run --permissions  >  the agent binding's `permissions`   (the mode only)
                    >  the engine label's `permissions`
                    >  this project default
                    >  the engine's own built-in default
 ```
 
-So a `reviewer` agent declaring `permissions: plan` stays read-only in a
+So a `reviewer` agent declaring `mode: plan` stays read-only in a
 project whose default is `bypass` — a project default can never widen a
 posture you wrote down somewhere more specific. It is precedence, not
 "strictest wins": a binding may equally declare a *wider* posture than the
@@ -233,7 +242,7 @@ project default, exactly as it can today against the built-in one.
 
 Declaring the project default also settles what would otherwise be an engine's
 own choice — claude-code runs at `bypass` on the host when nobody has said
-otherwise, so `permissions: plan` in a claude-code project is the difference
+otherwise, so `mode: plan` in a claude-code project is the difference
 between read-only and unrestricted.
 
 :::caution

@@ -29,7 +29,7 @@ func warningsOfKind(cfg *config.Config, kind config.WarningKind) []string {
 }
 
 // TestLoad_ConfigSetEnumTypoIsSchemaChecked closes the asymmetry between the
-// two doors into the same key: `permissions: plann` written into config.yaml
+// two doors into the same key: `permissions: {mode: plann}` written into config.yaml
 // was refused by the per-layer schema validation, while the same value passed
 // as --config-set reached the merged document having been checked against
 // nothing at all. Both must now produce a validate-kind warning, which the
@@ -105,7 +105,7 @@ agents:
 
 	overrides := confload.Overrides{Flags: map[string]any{
 		"agents.reviewer.permissions.mode": "plan",
-		"llm.configs.big.model":       "opus",
+		"llm.configs.big.model":            "opus",
 	}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)

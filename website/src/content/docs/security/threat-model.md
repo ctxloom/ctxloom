@@ -252,7 +252,7 @@ promise:
   which writes the project `.mcp.json` directly; it runs only when selected by name.
 
 Two limits follow, and neither is hypothetical. **The approval gate belongs to the engine, not
-to us.** An agent running with `permissions: bypass` is launched with Claude Code's
+to us.** An agent running with `permissions: {mode: bypass}` is launched with Claude Code's
 skip-permissions flag, which disables that gate, and a bundle-delivered server then starts
 without a prompt. Bypass is also what Claude Code gets on the host when nothing declares a
 posture: the engine's declared host default is `bypass` until approval prompts can be routed

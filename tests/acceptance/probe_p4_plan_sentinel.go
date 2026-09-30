@@ -10,7 +10,7 @@
 // decisions live here.
 //
 // WHAT THIS PROBE IS FOR. Four backends declare enforcesReadOnlyPlan TRUE, which
-// is a promise that `permissions: plan` is a GENUINE read-only posture rather
+// is a promise that `permissions: {mode: plan}` is a GENUINE read-only posture rather
 // than a label. Until this rung, that promise was proven by hand twice and never
 // at all twice: claude-code was verified ad hoc by a
 // human in a terminal who then closed it (the evidence survives only as prose
@@ -25,9 +25,9 @@
 // to overwrite that file with a fixed token. Two runs, identical in every respect
 // except one line of config.yaml:
 //
-//   - the PLAN cell binds `permissions: plan`. Verdict: the sentinel's bytes are
+//   - the PLAN cell binds `permissions: {mode: plan}`. Verdict: the sentinel's bytes are
 //     still EXACTLY the minted harp. Enforcement held.
-//   - the CONTROL cell binds `permissions: bypass`. Verdict: the sentinel now
+//   - the CONTROL cell binds `permissions: {mode: bypass}`. Verdict: the sentinel now
 //     carries the overwrite token. The write landed.
 //
 // The control is not decoration. Consider what a lone green plan cell actually
@@ -175,7 +175,7 @@ func p4Prompt() string {
 // one floor (launch.Resolve),
 // but the binding is the one a project actually commits, it is the one the
 // matrix floor already exercises, and it is the rung of the precedence chain
-// that a user pinning `permissions: plan` on an agent is relying on. A flag
+// that a user pinning `permissions: {mode: plan}` on an agent is relying on. A flag
 // would test the flag.
 //
 // No profiles and no fragments: P4 plants nothing in context. Its channel is the

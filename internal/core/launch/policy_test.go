@@ -37,17 +37,17 @@ func resolvePolicy(t *testing.T, env launchtest.Env, src launch.Source) (engine.
 func TestResolvePolicy_FieldByField(t *testing.T) {
 	env := launchtest.Deps(t,
 		launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{Allow: []string{"Read"}, Approver: "none"})),
-		launchtest.GuardedLabelPermissions(agents.Permissions{Mode: "acceptEdits", Deny: []string{"Bash(rm *)"}, Allow: []string{"Glob"}}),
-		launchtest.ProjectPermissionBlock(agents.Permissions{Ask: []string{"WebFetch"}, ApprovalTimeout: "20m", Allow: []string{"Grep"}, Deny: []string{"Write"}}),
+		launchtest.GuardedLabelPermissions(agents.Permissions{Mode: "acceptEdits", Deny: []string{"Bash(rm *)"}, Allow: []string{"Glob"}, Ask: []string{"WebFetch"}}),
+		launchtest.ProjectPermissionBlock(agents.Permissions{ApprovalTimeout: "20m", Approver: "human"}),
 	)
 	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev", Label: "guarded"})
 	require.NoError(t, err)
 	assert.Equal(t, engine.PermissionAcceptEdits, p.Mode, "the label's mode")
 	assert.Equal(t, []string{"Read"}, p.Allow, "the agent's allow, not a union")
 	assert.Equal(t, []string{"Bash(rm *)"}, p.Deny, "the label's deny")
-	assert.Equal(t, []string{"WebFetch"}, p.Ask, "the project's ask")
+	assert.Equal(t, []string{"WebFetch"}, p.Ask, "the label's ask")
 	assert.Equal(t, engine.ApproverNone, p.Approver)
-	assert.Equal(t, 20*time.Minute, p.ApprovalTimeout)
+	assert.Equal(t, 20*time.Minute, p.ApprovalTimeout, "the project's timeout")
 	assert.Equal(t, engine.PermissionAcceptEdits, p.Ceiling, "no after_plan: the ceiling is the mode")
 	_, planFirst := p.AfterPlan.Get()
 	assert.False(t, planFirst)
@@ -168,4 +168,32 @@ func TestResolvePolicy_ParentCeilingCaps(t *testing.T) {
 	p, err = resolvePolicy(t, env, launch.Source{Agent: "wide"})
 	require.NoError(t, err, "a root launch has no parent to cap it")
 	assert.Equal(t, engine.PermissionBypass, p.Ceiling)
+}
+
+// Rules are engine grammar, so they are declared only where an engine is
+// known — an agent binding or an llm label. A project-level rule is refused,
+// naming where it belongs; the project's engine-neutral fields still apply.
+func TestResolvePolicy_ProjectRulesAreRefused(t *testing.T) {
+	for name, block := range map[string]agents.Permissions{
+		"allow": {Allow: []string{"Read"}},
+		"deny":  {Mode: "plan", Deny: []string{"Bash"}},
+		"ask":   {Ask: []string{"WebFetch"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := launchtest.Deps(t, launchtest.WithAgent("a"), launchtest.ProjectPermissionBlock(block))
+			_, err := resolvePolicy(t, env, launch.Source{Agent: "a"})
+			require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
+			for _, w := range []string{"project config", name, "agents.<name>.permissions." + name, "llm.configs.<label>.permissions." + name} {
+				assert.Contains(t, err.Error(), w)
+			}
+		})
+	}
+	env := launchtest.Deps(t, launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Deny: []string{"Bash"}})),
+		launchtest.ProjectPermissionBlock(agents.Permissions{Mode: "plan", AfterPlan: "acceptEdits", Approver: "none", ApprovalTimeout: "5m"}))
+	p, err := resolvePolicy(t, env, launch.Source{Agent: "a"})
+	require.NoError(t, err, "the project's engine-neutral fields are accepted")
+	assert.Equal(t, engine.PermissionPlan, p.Mode)
+	assert.Equal(t, engine.ApproverNone, p.Approver)
+	assert.Equal(t, 5*time.Minute, p.ApprovalTimeout)
+	assert.Equal(t, []string{"Bash"}, p.Deny)
 }

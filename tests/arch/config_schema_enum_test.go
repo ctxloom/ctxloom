@@ -130,6 +130,9 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "$defs/permissions/properties/mode", goNames: agentaxis.PermissionModeNames},
 	{path: "$defs/permissions/properties/after_plan", goNames: engine.AfterPlanNames},
 	{path: "$defs/permissions/properties/approver", goNames: engine.ApproverNames},
+	{path: "$defs/projectPermissions/properties/mode", goNames: agentaxis.PermissionModeNames},
+	{path: "$defs/projectPermissions/properties/after_plan", goNames: engine.AfterPlanNames},
+	{path: "$defs/projectPermissions/properties/approver", goNames: engine.ApproverNames},
 
 	// $defs/hook: claude-code's own hook-handler type vocabulary, passed
 	// through verbatim (ClaudeCodeHookWriter.addHook defaults it to

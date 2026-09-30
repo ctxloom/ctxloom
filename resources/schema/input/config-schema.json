@@ -146,7 +146,7 @@
       ]
     },
     "permissions": {
-      "$ref": "#/$defs/permissions",
+      "$ref": "#/$defs/projectPermissions",
       "description": "Project default permissions block for engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. Resolution, field by field: `run --permissions` (mode only) > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's declared host default. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them."
     },
     "delegation": {
@@ -312,10 +312,50 @@
     }
   },
   "$defs": {
+    "projectPermissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The project's permissions block: the engine-neutral fields only (mode, after_plan, approver, approval_timeout). Rules (allow, deny, ask) are engine grammar and are declared where an engine is known — an agent binding or an llm label; a project-level rule is refused at launch, naming where to put it.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypass",
+            "dontAsk",
+            "auto"
+          ],
+          "description": "The starting posture: 'default' (the approver answers each gated call), 'acceptEdits' (file edits unasked, the rest to the approver), 'plan' (read-only), 'bypass' (nothing asked), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). `run --permissions` overrides it."
+        },
+        "after_plan": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits"
+          ],
+          "description": "Makes a 'plan' posture plan-first: the posture an approved plan continues at. Requires the resolved mode to be plan, must not exceed the launching session's ceiling, and is never bypass."
+        },
+        "approver": {
+          "type": "string",
+          "enum": [
+            "human",
+            "none"
+          ],
+          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session, or 'none', nobody — the request is denied."
+        },
+        "approval_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$",
+          "description": "How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m."
+        }
+      }
+    },
     "permissions": {
       "type": "object",
       "additionalProperties": false,
-      "description": "A permissions block: the launch-time posture, the engine-native rules, and who answers what they leave open. Every field is optional; one left empty inherits from the next rung (agent binding > llm label > project > the engine's built-in default), field by field. An unknown key refuses the whole config: a misspelled deny that vanished would leave the denial undeclared.",
+      "description": "A permissions block: the launch-time posture, the engine-native rules, and who answers what they leave open. Every field is optional; one left empty inherits from the next rung (agent binding > llm label > project > the engine's built-in default), field by field — the rules from the agent binding and the llm label only. An unknown key refuses the whole config: a misspelled deny that vanished would leave the denial undeclared.",
       "properties": {
         "mode": {
           "type": "string",

@@ -13,9 +13,12 @@ import (
 )
 
 // permissionRung is one declared permissions block, and how to name it.
+// noRules marks a rung where no engine is known — the project — so it may
+// declare only engine-neutral fields: rules are engine grammar.
 type permissionRung struct {
-	block agents.Permissions
-	from  string
+	block   agents.Permissions
+	from    string
+	noRules bool
 }
 
 // permissionRungs are the declared blocks, highest first: the binding, the
@@ -23,9 +26,9 @@ type permissionRung struct {
 // the mode alone.
 func permissionRungs(sel selection, label string, labelPerm agents.Permissions, cfg *config.Config) []permissionRung {
 	return []permissionRung{
-		{sel.permissions, fmt.Sprintf("agent %q", sel.agent)},
-		{labelPerm, fmt.Sprintf("llm label %q", label)},
-		{cfg.GetPermissions(), "the project config"},
+		{block: sel.permissions, from: fmt.Sprintf("agent %q", sel.agent)},
+		{block: labelPerm, from: fmt.Sprintf("llm label %q", label)},
+		{block: cfg.GetPermissions(), from: "the project config", noRules: true},
 	}
 }
 
@@ -42,7 +45,7 @@ func first(rungs []permissionRung, get func(agents.Permissions) string) (string,
 // firstRules returns the first rung that declares the rule list get reads.
 func firstRules(rungs []permissionRung, get func(agents.Permissions) []string) ([]string, string) {
 	for _, r := range rungs {
-		if rules := get(r.block); len(rules) > 0 {
+		if rules := get(r.block); len(rules) > 0 && !r.noRules {
 			return rules, r.from
 		}
 	}
@@ -191,6 +194,17 @@ func resolveTimeout(rungs []permissionRung) (time.Duration, error) {
 	return d, nil
 }
 
+// refuseRulesWithoutEngine refuses a rule list declared on a rung where no
+// engine is known, naming where it belongs.
+func refuseRulesWithoutEngine(rungs []permissionRung, name string, get func(agents.Permissions) []string) error {
+	for _, r := range rungs {
+		if rules := get(r.block); r.noRules && len(rules) > 0 {
+			return fmt.Errorf("%w: %s rules (%s) from %s: rules are engine grammar, declared where an engine is known — move them to agents.<name>.permissions.%s or llm.configs.<label>.permissions.%s", ErrPermissionUnhonoured, name, strings.Join(rules, ", "), r.from, name, name)
+		}
+	}
+	return nil
+}
+
 // resolveRules sets each rule list from the first rung that declares it,
 // every rule validated by the engine's approval codec — which an engine
 // without one cannot do, so it can carry no rules.
@@ -206,6 +220,9 @@ func resolveRules(p *engine.PermissionPolicy, rungs []permissionRung, eng engine
 	}
 	codec, hasCodec := eng.Approvals().Get()
 	for _, l := range lists {
+		if err := refuseRulesWithoutEngine(rungs, l.name, l.get); err != nil {
+			return err
+		}
 		rules, from := firstRules(rungs, l.get)
 		if len(rules) > 0 && !hasCodec {
 			return fmt.Errorf("%w: engine %s has no approval codec to validate the permission rules %s from %s", ErrPermissionUnhonoured, eng.Root().Name, strings.Join(rules, ", "), from)

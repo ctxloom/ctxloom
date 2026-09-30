@@ -195,7 +195,6 @@ that question **once per project directory**:
 # .ctxloom/config.yaml — in the project you want it to apply to
 permissions:
   mode: bypass              # default | acceptEdits | plan | bypass | dontAsk | auto
-  deny: ["Bash(git push *)"]
 ```
 
 Every agent launched in this directory now starts at that posture, with no
@@ -222,8 +221,11 @@ The postures:
 | `dontAsk` | Denies whatever the rules do not allow |
 | `auto` | The engine's own classifier decides |
 
-The block also carries `after_plan`, the `allow` / `deny` / `ask` rules,
-`approver` and `approval_timeout` — see the Agents concept page.
+The project block also takes `after_plan`, `approver` and `approval_timeout`.
+Rules (`allow` / `deny` / `ask`) are written in an engine's own grammar, so
+they belong on an agent binding or an llm label, where the engine is known; a
+project-level rule is refused at launch, naming where to move it. See the
+Agents concept page.
 
 Anything more specific wins, field by field. The full order, nearest first:
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -104,7 +103,7 @@ func (d Docker) Enumerate(ctx context.Context, namePrefix string) ([]ContainerIn
 // var so tests drive the undecidable-probe path hermetically (mirrors the
 // resolveSelfExe / sharedFSCheck seams).
 var dockerSecurityOptions = func() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), runtimeProbeTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.SecurityOptions}}").Output()
 	return string(out), err

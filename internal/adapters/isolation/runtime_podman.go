@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 )
@@ -139,7 +138,7 @@ func (p Podman) Enumerate(ctx context.Context, namePrefix string) ([]ContainerIn
 // keep-id under rootless silently wrecks bind-mount ownership, the worse
 // failure.
 func newPodmanRuntime() Podman {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), runtimeProbeTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "podman", "info", "--format", "{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}").Output()
 	if err != nil {

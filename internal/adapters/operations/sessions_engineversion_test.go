@@ -41,11 +41,11 @@ func TestAssignSession_RecordsTheProbedEngineVersion(t *testing.T) {
 		"the version must be in the INDEX, not just the returned value — a later process is what reads it")
 }
 
-// A version AHEAD of .github/engine-versions.env's pin (claude installed at
-// 2.1.225 against a 2.1.214 pin on this host) is recorded as-is. Recording is
-// not validation: what was actually running gets written down, and whether an
-// adapter covers it is the read path's decision, made once, in one place.
-func TestAssignSession_RecordsAVersionAheadOfThePin(t *testing.T) {
+// A version that differs from .github/engine-versions.env's pin is recorded
+// as-is. Recording is not validation: what was actually running gets written
+// down, and whether an adapter covers it is the read path's decision, made
+// once, in one place.
+func TestAssignSession_RecordsAVersionOtherThanThePin(t *testing.T) {
 	testsupport.Isolate(t)
 	stubProbe(t, "2.1.225", nil)
 

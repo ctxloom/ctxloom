@@ -114,7 +114,9 @@ func (m *MockLM) WriteConfig() error {
 	// The mock's host default prompts, and a headless run (--one-shot) has
 	// nobody to answer; the scenarios drive one-shots through this label, so
 	// it declares the posture they run at.
-	yamlx.MapSet(mockNode, "permissions", yamlx.ScalarNode("bypass"))
+	perms := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	yamlx.MapSet(perms, "mode", yamlx.ScalarNode("bypass"))
+	yamlx.MapSet(mockNode, "permissions", perms)
 	control := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	yamlx.MapSet(control, "CTXLOOM_MOCK_RECORD_FILE", quotedYAMLString(m.RecordedInputPath))
 	if !m.echo {

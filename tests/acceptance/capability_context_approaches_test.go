@@ -284,7 +284,7 @@ func TestApproachConfigYAML_ActuallyPinsTheApproach(t *testing.T) {
 			parsed := parseMatrixBinding(t, rendered)
 			require.Equal(t, map[string]string{"context": approach}, parsed.Surfaces,
 				"the fixture must actually deliver the pin. An unparsed `surfaces:` key is silent: the run takes the engine's default and the cell claims an approach nobody selected.\n%s", binding)
-			require.Equal(t, "bypass", parsed.Permissions,
+			require.Equal(t, "bypass", parsed.Permissions.Mode,
 				"the pin must be ADDED to P0's binding, not replace parts of it — a P1 cell differs from a P0 cell by exactly one block")
 		})
 	}

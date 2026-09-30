@@ -65,6 +65,19 @@ type Model struct {
 	status    string // the last action's outcome, or a roster-owned note
 	errMsg    string // the last action's failure
 	rosterErr string // the roster fetch's failure, while it persists
+
+	// approvals: the approvals view is open (summoned, or the a key), and
+	// holds the keymap.
+	approvals bool
+	appr      approvalsModel
+	// summoned: termui opened this overlay for an approval. It owns the whole
+	// screen from the first frame and is inert until armed.
+	summoned     bool
+	arming       bool
+	armDiscarded int
+	// banner is an approval that arrived while the roster view was open
+	// (Overlay.Notify): the human is told, and focus stays where it is.
+	banner string
 }
 
 // The roster pane owns these two status lines. It refreshes every
@@ -161,9 +174,18 @@ func (m Model) totalHeight() int {
 func (m Model) contentHeight() int { return max(m.totalHeight()-2, 1) }
 func (m Model) feedWidth() int     { return max(m.geo.Cols-rosterPaneWidth-1, 20) }
 
-// Init starts the roster fetch and its refresh tick.
+// Init starts the roster fetch and its refresh tick — or, for a summoned
+// modal, only the approvals view's queue pump and tick: the modal shows no
+// roster.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchRosterCmd(), rosterTick())
+	if m.summoned {
+		return m.appr.initCmds()
+	}
+	cmds := []tea.Cmd{m.fetchRosterCmd(), rosterTick()}
+	if m.approvals {
+		cmds = append(cmds, m.appr.initCmds())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) fetchRosterCmd() tea.Cmd {
@@ -253,6 +275,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyControlResult(msg)
 	case geometryMsg:
 		return m.applyGeometry(termui.OverlayGeometry(msg))
+	case armedMsg:
+		m.arming, m.armDiscarded = false, int(msg)
+		return m, nil
+	case noticeMsg:
+		if !m.approvals {
+			m.banner = "⚑ " + sanitizeForDisplay(string(msg)) + " — a to review"
+		}
+		return m, nil
+	case tea.PasteMsg:
+		if m.approvals {
+			m.appr = m.appr.paste(msg.Content)
+		}
+		return m, nil
+	case queueEventMsg, approvalsTickMsg, answerResultMsg, revokeResultMsg:
+		return m.applyApprovalsMsg(msg)
 	}
 	return m, nil
 }
@@ -401,6 +438,9 @@ func (m Model) applyFeedClosed(msg feedClosedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.approvals {
+		return m.updateApprovalsKey(msg)
+	}
 	if m.composeVerb != "" {
 		return m.updateComposeKey(msg)
 	}
@@ -474,6 +514,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "i", "?", "s", "p", "r":
 		return m.openControl(controlKeys[key])
+	case "a":
+		return m.openApprovals(false)
 	}
 	return m, nil
 }
@@ -681,7 +723,10 @@ var (
 // engine's screen underneath.
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
-	v.AltScreen = m.full
+	// A summoned modal is drawn on the screen termui already took for it
+	// (termui's takeScreen): entering an alternate screen of its own would,
+	// over an engine on the alternate screen, take the engine off it.
+	v.AltScreen = m.full && !m.summoned
 	return v
 }
 
@@ -707,17 +752,23 @@ func (m Model) render() string {
 	if total < 1 {
 		return ""
 	}
+	if m.approvals {
+		return strings.Join(m.appr.render(m.geo.Cols, total, apprChrome{arming: m.arming, armDiscarded: m.armDiscarded}), "\n")
+	}
 	cols := m.geo.Cols
 	contentH := max(total-2, 0)
 
 	feedW := m.feedWidth()
 
-	header := padCell(" agents", rosterPaneWidth) + "│" + padCell(" "+m.feedTitle(), feedW)
+	header := styleHeader.Render(padCell(padCell(" agents", rosterPaneWidth)+"│"+padCell(" "+m.feedTitle(), feedW), cols))
+	if m.banner != "" {
+		header = styleSelected.Render(padCell(" "+m.banner, cols))
+	}
 	rosterLines := m.rosterLines(contentH)
 	feedLines := splitPad(m.vp.View(), contentH)
 
 	out := make([]string, 0, total)
-	out = append(out, styleHeader.Render(padCell(header, cols)))
+	out = append(out, header)
 	for i := 0; i < contentH; i++ {
 		row := padCell(rosterLines[i], rosterPaneWidth) + "│" + padCell(feedLines[i], feedW)
 		out = append(out, padCell(row, cols))
@@ -766,7 +817,7 @@ func (m Model) footerLine(cols int) string {
 		// dimmed — it is the focused input.
 		return padCell(" "+controlLabel(m.composeVerb)+" → "+m.composeHarp+": "+m.composeText+"_ · enter send · esc cancel", cols)
 	}
-	hints := " j/k move · enter feed · i inject · ? ask · s summarize · p pause · r resume · " +
+	hints := " j/k move · enter feed · a approvals · i inject · ? ask · s summarize · p pause · r resume · " +
 		"x expand · f follow · g/G ends · " + strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
 	// The note leads: it is the outcome of the key just pressed, and the key
 	// list is what an ordinary width truncates.

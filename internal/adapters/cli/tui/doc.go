@@ -15,4 +15,11 @@
 // starts a verb (controlKeys), a verb that carries text opens an input line
 // that owns the keymap while open (updateComposeKey), and sendControl makes
 // the round trip.
+//
+// Approvals ride Sources.Approvals, the root's coord.ApprovalSource: the
+// approvals view lists the parked requests and is the only place one is
+// answered. termui summons it as the full-screen modal (OverlayStart.Summoned)
+// or the human opens it from the roster view; either way its keymap is the
+// modal's fourth focus lock (see approvalsModel), and every child-supplied
+// string it shows passes sanitizeForDisplay.
 package tui

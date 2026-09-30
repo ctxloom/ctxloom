@@ -29,7 +29,7 @@ import (
 // Controller's engage/hold/replay/nudge/degrade lifecycle against a
 // fakeOverlay; what was uncovered is the REAL seam production wires at
 // run_terminal_ui.go:77 (NewOverlay: func() termui.Overlay { return
-// tui.NewOverlay(ctx, src, prefix) }) — the actual bubbletea Program running
+// tui.NewOverlay(ctx, src, prefix, start) }) — the actual bubbletea Program running
 // behind the Controller, over a REAL pty (aymanbagabas/go-pty; no tmux/
 // teatest/vt10x per the playbook's binding principles). Because tui imports
 // termui (roster.go), this file is package termui_test (an external test
@@ -212,7 +212,7 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 		Bar: termui.BarInfo{Harp: "self-session", Engine: "claude-code", PrefixHint: "^]"},
 		// The exact production wiring (run_terminal_ui.go:77): the overlay
 		// factory closes over the real tui.NewOverlay constructor.
-		NewOverlay: func(termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix) },
+		NewOverlay: func(start termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix, start) },
 		Warn:       func(format string, args ...any) { warns <- fmt.Sprintf(format, args...) },
 	})
 	defer c.Close()
@@ -323,7 +323,7 @@ func TestOverlayComposition_RealOverlayPanicDegradesPermanently(t *testing.T) {
 		Prefix:     compPrefix,
 		Surround:   true,
 		Bar:        termui.BarInfo{Harp: "h1"},
-		NewOverlay: func(termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, panicSrc, compPrefix) },
+		NewOverlay: func(start termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, panicSrc, compPrefix, start) },
 		Warn:       func(format string, args ...any) { warns <- fmt.Sprintf(format, args...) },
 	})
 	defer c.Close()

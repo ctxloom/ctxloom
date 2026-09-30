@@ -77,7 +77,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 			PrefixHint: termui.CaretHint(prefix),
 		},
 		FetchRoster: func() ([]termui.RosterEntry, error) { return surroundRoster(sessionCoord) },
-		NewOverlay:  func(termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, prefix) },
+		NewOverlay:  func(start termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, prefix, start) },
 		Warn:        func(format string, args ...any) { clidiag.Warn("ctxloom", format, args...) },
 	})
 }

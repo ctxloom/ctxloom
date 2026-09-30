@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -22,6 +23,12 @@ type Sources struct {
 	// coordinator (coord.Coordinator.Control). Nil when no coordinator is
 	// hosted; every control key then says so rather than opening.
 	Control func(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error)
+	// Approvals is the root's approval queue: what the approvals view lists
+	// and the only place it answers. Nil when no coordinator is hosted; the
+	// view then says so rather than opening.
+	Approvals coord.ApprovalSource
+	// Now is the view's clock for countdowns and tombstones; nil is real time.
+	Now func() time.Time
 }
 
 // RosterRow is one line of the agents pane.

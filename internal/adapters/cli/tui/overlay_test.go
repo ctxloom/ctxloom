@@ -80,7 +80,7 @@ func waitForOverlay(t *testing.T, what string, cond func() bool) {
 // altscreen will be automatically exited when the program quits").
 func TestOverlay_RunEngageKeystrokeAltScreenQuitRestores(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "perky-same-chevy", State: "live"})
-	o := NewOverlay(context.Background(), f.sources(), 0x1d)
+	o := NewOverlay(context.Background(), f.sources(), 0x1d, termui.OverlayStart{})
 
 	pr, pw := io.Pipe()
 	defer pw.Close()
@@ -133,7 +133,7 @@ func TestOverlay_RunKeystrokeNavigatesRoster(t *testing.T) {
 		RosterRow{Harp: "h1", State: "live"},
 		RosterRow{Harp: "h2", State: "executing"},
 	)
-	o := NewOverlay(context.Background(), f.sources(), 0x1d)
+	o := NewOverlay(context.Background(), f.sources(), 0x1d, termui.OverlayStart{})
 
 	pr, pw := io.Pipe()
 	defer pw.Close()
@@ -185,7 +185,7 @@ func TestOverlay_RunKeystrokeNavigatesRoster(t *testing.T) {
 // ("ctrl+c" backs out, same as q), never as a delivered SIGINT.
 func TestOverlay_CtrlCIsAKeystrokeNotASignal(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
-	o := NewOverlay(context.Background(), f.sources(), 0x1d)
+	o := NewOverlay(context.Background(), f.sources(), 0x1d, termui.OverlayStart{})
 
 	pr, pw := io.Pipe()
 	defer pw.Close()
@@ -212,7 +212,7 @@ func TestOverlay_CtrlCIsAKeystrokeNotASignal(t *testing.T) {
 // writes ahead of the abort check lands on the tty).
 func TestOverlay_AbortBeforeRunIsSafe(t *testing.T) {
 	f := newFakeSources(t.TempDir())
-	o := NewOverlay(context.Background(), f.sources(), 0x1d)
+	o := NewOverlay(context.Background(), f.sources(), 0x1d, termui.OverlayStart{})
 	o.Abort() // before Run — must be a safe no-op-marking call
 
 	pr, pw := io.Pipe()
@@ -255,7 +255,7 @@ func (b *blockingQuitter) Send(tea.Msg) {}
 // terminal.
 func TestOverlay_AbortDoesNotHoldTheLockWhileQuitBlocks(t *testing.T) {
 	f := newFakeSources(t.TempDir())
-	o := NewOverlay(context.Background(), f.sources(), 0x1d)
+	o := NewOverlay(context.Background(), f.sources(), 0x1d, termui.OverlayStart{})
 	bq := &blockingQuitter{entered: make(chan struct{}), release: make(chan struct{})}
 	o.prog = bq
 	defer close(bq.release)
@@ -305,12 +305,11 @@ func (r *recordingSender) Send(msg tea.Msg) { r.sent <- msg }
 // Resize reaches the program once it runs; one that arrives before is kept
 // for Run, never dropped.
 func TestOverlay_ResizeReachesTheProgram(t *testing.T) {
-	o := NewOverlay(context.Background(), newFakeSources(t.TempDir()).sources(), 0x1d)
+	o := NewOverlay(context.Background(), newFakeSources(t.TempDir()).sources(), 0x1d, termui.OverlayStart{})
 	geo := termui.OverlayGeometry{Cols: 90, Rows: 20, PanelRows: 8}
 	o.Resize(geo)
 	o.mu.Lock()
-	require.NotNil(t, o.resized, "a resize before the program exists is kept")
-	assert.Equal(t, geo, *o.resized)
+	assert.Equal(t, []tea.Msg{geometryMsg(geo)}, o.early, "a resize before the program exists is kept")
 	rs := &recordingSender{sent: make(chan tea.Msg, 1)}
 	o.prog = rs
 	o.mu.Unlock()

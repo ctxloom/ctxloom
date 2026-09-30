@@ -290,7 +290,7 @@ func TestSummon_WaitsForATeardownThenTakesTheScreen(t *testing.T) {
 	h := newSummonHarness(t, nil)
 	h.c.session.Lock() // a teardown in flight
 	shown, retry, err := h.c.trySummon(OverlayStart{Summoned: true})
-	require.NoError(t, err, "a teardown in flight is a wait, not a failure")
+	assert.NoError(t, err, "a teardown in flight is a wait, not a failure")
 	assert.False(t, shown)
 	assert.Zero(t, retry, "woken by the teardown's end, not a timer")
 

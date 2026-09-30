@@ -284,17 +284,19 @@ at one you already have. See [Configuration → LLMs](/guides/configuration/#llm
 
 ctxloom runs claude in a per-session home that holds no login. The agent `ctxloom init` sets up
 for `ctxloom run` uses your own login in place. Every other agent authenticates with a
-long-lived token by default, which ctxloom mints at your terminal the first time a run needs it
-and stores owner-only under `~/.ctxloom/auth`. You can also mint it ahead of time, or store an
-API key for an agent that declares `auth: api-key`:
+long-lived token by default, which you mint yourself and export; ctxloom reads it from the
+environment it is launched in and never stores it:
 
 ```bash
-ctxloom auth mint --mode token     # runs `claude setup-token` and stores the token
-ctxloom auth set --mode api-key    # paste a key; read from stdin, never argv
+claude setup-token                          # claude's own flow; prints a one-year token
+export CLAUDE_CODE_OAUTH_TOKEN=<the token>  # or export it from your secret manager
+ctxloom auth status                         # is each mode's credential exported?
 ```
 
-A run with no terminal that needs a token nobody stored is refused and tells you which command
-to run. See [Environment Variables](/reference/environment/#engine-authentication).
+An agent that declares `auth: api-key` reads `ANTHROPIC_API_KEY` the same way. A run whose
+credential is not exported is refused and tells you what to export. Agents on your subscription
+share its usage limits with your own interactive use. See
+[Environment Variables](/reference/environment/#engine-authentication).
 
 ### Signing and publishing (needs SSH)
 

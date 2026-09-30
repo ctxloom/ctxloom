@@ -79,23 +79,38 @@ agent's `auth:` setting:
   a container by mounting the directory that holds it (not on macOS, where it
   lives in the Keychain).
   `ctxloom init` gives the default agent this one.
-- `token` (the default) uses a long-lived token the engine mints. For claude
-  that is `claude setup-token`. ctxloom runs it for you at your terminal the
-  first time a run needs one and keeps the token owner-only under
-  `~/.ctxloom/auth`. A run with no terminal, such as a delegated agent, is
-  refused instead and tells you to run `ctxloom auth mint --mode token`.
-- `api-key` uses a key you store with `ctxloom auth set --mode api-key`.
+- `token` (the default) uses a long-lived token you mint yourself with the
+  engine's own flow and export. For claude: run `claude setup-token`, then
+  export the token it prints as `CLAUDE_CODE_OAUTH_TOKEN` (or keep it in your
+  secret manager and export it from there). A run with none exported is
+  refused and tells you so.
+- `api-key` uses a key you export (for claude, `ANTHROPIC_API_KEY`).
 - `cloud` uses a cloud provider or gateway you have set up in your own shell
   (for claude: Amazon Bedrock, Google Vertex, Microsoft Foundry, Claude
   Platform on AWS, or a gateway's `ANTHROPIC_AUTH_TOKEN` and
-  `ANTHROPIC_BASE_URL`). ctxloom stores nothing for it.
+  `ANTHROPIC_BASE_URL`).
 
-Only the declared mode's credential reaches the engine. A value you export
-for that mode wins over the stored one; the engine's other credential
-variables are removed from the run's environment. An invalid choice (an
+ctxloom never collects, stores or mints a credential: it reads the declared
+mode's credential from the environment it is launched in and hands it to the
+agent. Anthropic does not allow a third party to "collect, store, or
+intermediate Claude.ai credentials or session tokens"
+([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)).
+`ctxloom auth status` shows whether each mode's credential is exported.
+
+Only the declared mode's credential reaches the engine; the engine's other
+credential variables are removed from the run's environment. An invalid choice (an
 unknown mode, or one the agent's engine doesn't support) is refused when you
 write it and when the agent launches, and the error lists the modes that
 engine supports. `auth:` applies on `engine_home: host` too.
+
+Agents on your subscription (`token` or `login`) draw from the same usage
+limits as your own interactive use: Pro and Max limits are shared across
+Claude and Claude Code
+([Help Center](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-or-max-plan)),
+and non-interactive `claude -p` runs, which is how ctxloom drives children,
+draw from your subscription's limits
+([Help Center](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)).
+A fan-out of agents spends them in parallel.
 
 Selecting `engine_home: host` is the unsafe choice, because it hands the
 engine your own login and registrations and lets it write them back, and the

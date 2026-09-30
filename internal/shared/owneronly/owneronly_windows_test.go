@@ -36,22 +36,17 @@ func TestEnsureDir_TheDACLIsProtected(t *testing.T) {
 }
 
 // SYSTEM and Administrators beside the owner are tolerated (ruled
-// 2026-09-25): such a path passes the check and is described owner-only.
+// 2026-09-25): such a path passes the check.
 func TestCheck_ToleratesSystemAndAdministrators(t *testing.T) {
 	dir, f := ownerOnlyFixture(t)
 	grantWellKnownRead(t, f, windows.WinLocalSystemSid)
 	grantWellKnownRead(t, f, windows.WinBuiltinAdministratorsSid)
 
 	require.NoError(t, Check(dir, f))
-	info, err := os.Stat(f)
-	require.NoError(t, err)
-	got, err := Describe(f, info)
-	require.NoError(t, err)
-	assert.Equal(t, "owner-only", got)
 }
 
 // Anyone else granted access is exposure, refused as an *ExposedError, and
-// the description names who.
+// the refusal names who.
 func TestCheck_RefusesAPathOthersCanRead(t *testing.T) {
 	for _, target := range []string{"file", "dir"} {
 		t.Run(target, func(t *testing.T) {
@@ -66,11 +61,7 @@ func TestCheck_RefusesAPathOthersCanRead(t *testing.T) {
 			var exposed *ExposedError
 			require.True(t, errors.As(err, &exposed), "got %v", err)
 			assert.Equal(t, loose, exposed.Path)
-			info, err := os.Stat(loose)
-			require.NoError(t, err)
-			got, err := Describe(loose, info)
-			require.NoError(t, err)
-			assert.Equal(t, "exposed: grants access to S-1-1-0", got)
+			assert.Equal(t, "grants access to S-1-1-0", exposed.Why)
 		})
 	}
 }

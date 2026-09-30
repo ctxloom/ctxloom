@@ -1,18 +1,15 @@
 package operations
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -23,121 +20,78 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
-// fakeMintAuth is an engine auth whose token lands in FAKE_TOKEN and whose
-// mint returns minted, recording each terminal it was handed.
-type fakeMintAuth struct {
-	minted string
-	mu     *sync.Mutex
-	seen   *[]engine.Terminal
-}
+// fakeEnvAuth is an engine auth that reads each mode's credential from its
+// own var in the launching env, refusing with its own remedy when it is not
+// exported.
+type fakeEnvAuth struct{}
 
-const fakeTokenVar = "FAKE_TOKEN"
+const (
+	fakeTokenVar = "FAKE_TOKEN"
+	fakeKeyVar   = "FAKE_KEY"
+)
 
-func (fakeMintAuth) Modes() []engine.AuthMode {
+var fakeModeVar = map[engine.AuthMode]string{engine.AuthToken: fakeTokenVar, engine.AuthAPIKey: fakeKeyVar}
+
+func (fakeEnvAuth) Modes() []engine.AuthMode {
 	return []engine.AuthMode{engine.AuthToken, engine.AuthAPIKey}
 }
 
-func (fakeMintAuth) Credentials(mode engine.AuthMode, _ func(string) (string, bool), stored engine.CredentialReader) (engine.Credentials, error) {
-	v, err := stored.Read(mode)
-	if err != nil {
-		return engine.Credentials{}, fmt.Errorf("fake: %w", err)
+func (fakeEnvAuth) Credentials(mode engine.AuthMode, shell func(string) (string, bool)) (engine.Credentials, error) {
+	v := fakeModeVar[mode]
+	secret, ok := shell(v)
+	if !ok || secret == "" {
+		return engine.Credentials{}, report.Errorf("export "+v, "fake %s: %w", mode, engine.ErrNoCredential)
 	}
-	return engine.Credentials{Env: map[string]string{fakeTokenVar: string(v)}}, nil
+	return engine.Credentials{Env: map[string]string{v: secret}}, nil
 }
 
-func (f fakeMintAuth) Mint(_ context.Context, mode engine.AuthMode, term engine.Terminal) ([]byte, error) {
-	if mode != engine.AuthToken {
-		return nil, engine.ErrMintUnsupported
-	}
-	f.mu.Lock()
-	*f.seen = append(*f.seen, term)
-	f.mu.Unlock()
-	return []byte(f.minted), nil
-}
-
-// installFakeMint stands a fake-auth engine in front of the registry and the
-// store, under a scratch HOME, and returns the registry and the recorded
-// terminals.
-func installFakeMint(t *testing.T) (engine.Registry, *[]engine.Terminal) {
+// installFakeAuth stands a fake-auth engine in front of the registry, under
+// a scratch HOME, with none of its vars exported.
+func installFakeAuth(t *testing.T) engine.Registry {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	seen := &[]engine.Terminal{}
-	auth := fakeMintAuth{minted: "minted-secret", mu: &sync.Mutex{}, seen: seen}
-	reg := enginefixture.Install(t, enginefixture.Kind("fake-auth", mock.WithHome(engine.HomeSpec{
+	testsupport.Isolate(t)
+	for _, v := range fakeModeVar {
+		t.Setenv(v, "")
+		require.NoError(t, os.Unsetenv(v))
+	}
+	return enginefixture.Install(t, enginefixture.Kind("fake-auth", mock.WithHome(engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: "FAKE_HOME", Subdir: ".fake"}},
-		Auth: engine.Provide[engine.Auth](auth),
+		Auth: engine.Provide[engine.Auth](fakeEnvAuth{}),
 	})))
-	return reg, seen
 }
 
-// withTerminal sets what attendedTerminal answers for the test.
-func withTerminal(t *testing.T, term engine.Terminal, ok bool) {
-	t.Helper()
-	prev := attendedTerminal
-	attendedTerminal = func() (engine.Terminal, bool) { return term, ok }
-	t.Cleanup(func() { attendedTerminal = prev })
-}
-
-// A run whose agent needs a credential that is not stored mints it at the
-// human's terminal through the ENGINE's own Mint, stores it owner-only, and
-// launches with it; the next run reads the stored one and mints nothing.
-func TestResolveRunAuth_MintsWhenNeededAtATerminalAndStores(t *testing.T) {
-	reg, seen := installFakeMint(t)
-	var errOut bytes.Buffer
-	term := engine.Terminal{In: bytes.NewBufferString(""), Out: &errOut, Err: &errOut}
-	withTerminal(t, term, true)
-
-	env, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthToken)})
+// A run's credential is the one the launching env exports for the agent's
+// mode, handed over as the engine's Credentials say.
+func TestResolveRunAuth_ReadsTheCredentialFromTheLaunchingEnv(t *testing.T) {
+	reg := installFakeAuth(t)
+	t.Setenv(fakeTokenVar, "env-secret")
+	env, err := resolveRunAuth(reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthToken)})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{fakeTokenVar: "minted-secret"}, env.Env)
-	require.Len(t, *seen, 1, "minted once, on the terminal it was handed")
-	assert.Same(t, &errOut, (*seen)[0].Err.(*bytes.Buffer))
-	assert.Contains(t, errOut.String(), "owner-only")
-	assert.NotContains(t, errOut.String(), "minted-secret", "the credential is never echoed")
-
-	got, err := isolation.StoredCredentials("fake-auth").Read(engine.AuthToken)
-	require.NoError(t, err)
-	assert.Equal(t, "minted-secret", string(got), "stored for every later run")
-
-	_, err = resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthToken)})
-	require.NoError(t, err)
-	assert.Len(t, *seen, 1, "a stored credential is read, never minted again")
+	assert.Equal(t, map[string]string{fakeTokenVar: "env-secret"}, env.Env)
 }
 
-// UNATTENDED: no terminal, so nothing prompts. The run is refused with the
-// typed absence and the commands that would provide the credential, and the
-// engine's Mint is never called.
-func TestResolveRunAuth_UnattendedRefusesNamingTheRemedy(t *testing.T) {
-	reg, seen := installFakeMint(t)
-	withTerminal(t, engine.Terminal{}, false)
-
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthToken)})
-	require.ErrorIs(t, err, engine.ErrNoCredential)
-	assert.Contains(t, remedyOf(t, err), "ctxloom auth mint --engine fake-auth --mode token")
-	assert.Contains(t, err.Error(), "no terminal")
-	assert.Empty(t, *seen, "an unattended run never starts the mint flow")
-}
-
-// A mode the engine does not mint is never minted, even at a terminal: its
-// missing credential is the engine's own refusal.
-func TestResolveRunAuth_AnUnmintedModeIsNeverMinted(t *testing.T) {
-	reg, seen := installFakeMint(t)
-	withTerminal(t, engine.Terminal{Err: &bytes.Buffer{}}, true)
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthAPIKey)})
-	require.ErrorIs(t, err, engine.ErrNoCredential)
-	assert.Empty(t, *seen, "Mint is never called for an api-key")
+// A credential the launching env does not export is the ENGINE's refusal,
+// typed and with the engine's own remedy — never a ctxloom command, since
+// ctxloom stores no credential — at a terminal or not: nothing prompts.
+func TestResolveRunAuth_AMissingCredentialIsTheEnginesRefusal(t *testing.T) {
+	reg := installFakeAuth(t)
+	for _, mode := range []engine.AuthMode{engine.AuthToken, engine.AuthAPIKey} {
+		_, err := resolveRunAuth(reg, runAuth{Backend: "fake-auth", Declared: string(mode)})
+		require.ErrorIs(t, err, engine.ErrNoCredential, mode)
+		assert.Equal(t, "export "+fakeModeVar[mode], remedyOf(t, err), mode)
+	}
 }
 
 func TestResolveRunAuth_RefusesAModeTheEngineLacks(t *testing.T) {
-	reg, _ := installFakeMint(t)
-	_, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthLogin)})
+	reg := installFakeAuth(t)
+	_, err := resolveRunAuth(reg, runAuth{Backend: "fake-auth", Declared: string(engine.AuthLogin)})
 	require.ErrorIs(t, err, engine.ErrAuthModeUnsupported)
 }
 
 // Nothing to resolve: an engine that declares no auth.
 func TestResolveRunAuth_NothingToResolve(t *testing.T) {
 	reg := enginefixture.Install(t, enginefixture.Kind("no-auth"))
-	env, err := resolveRunAuth(context.Background(), reg, runAuth{Backend: "no-auth"})
+	env, err := resolveRunAuth(reg, runAuth{Backend: "no-auth"})
 	require.NoError(t, err)
 	assert.Zero(t, env)
 }
@@ -150,7 +104,7 @@ func TestResolveRunAuth_LoginSharesTheHumansStorage(t *testing.T) {
 	fakeHostHome(t, tokenFixture)
 	t.Setenv(claude.OAuthTokenEnv, tokenFixture)
 	t.Setenv(claude.ConfigDirEnv, "/home/me/./.claude-work/")
-	creds, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthLogin)})
+	creds, err := resolveRunAuth(engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthLogin)})
 	require.NoError(t, err)
 	assert.Empty(t, creds.Env)
 	require.Len(t, creds.Stores, 1)
@@ -160,29 +114,35 @@ func TestResolveRunAuth_LoginSharesTheHumansStorage(t *testing.T) {
 	assert.Subset(t, creds.Unset, []string{claude.OAuthTokenEnv, claude.APIKeyEnv, claude.AuthTokenEnv})
 }
 
-// A claude token agent gets the stored token, with an exported API key
-// unset: the declared mode decides.
-func TestResolveRunAuth_ClaudeTokenFromTheStore(t *testing.T) {
+// A claude token agent gets the token the launching env exports, with an
+// exported API key unset: the declared mode decides.
+func TestResolveRunAuth_ClaudeTokenFromTheLaunchingEnv(t *testing.T) {
 	fakeHostHome(t, "")
 	t.Setenv(claude.APIKeyEnv, "sk-ant-api-shell")
-	_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
-	require.NoError(t, err)
-	env, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthToken)})
+	t.Setenv(claude.OAuthTokenEnv, tokenFixture)
+	env, err := resolveRunAuth(engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthToken)})
 	require.NoError(t, err)
 	assert.Equal(t, tokenFixture, env.Env[claude.OAuthTokenEnv])
 	assert.Empty(t, env.Stores, "a token shares nothing of the human's")
 	assert.Contains(t, env.Unset, claude.APIKeyEnv)
 	assert.Contains(t, env.Unset, claude.SecureStorageEnv)
-	assert.Empty(t, os.Getenv(claude.OAuthTokenEnv), "the stored token never enters this process's env")
 }
 
-// A mode ctxloom stores nothing for is never minted: cloud with nothing
-// selected is the engine's own refusal, at a terminal or not.
-func TestResolveRunAuth_CloudIsNeverMinted(t *testing.T) {
+// A claude token agent with no token exported is refused with claude's
+// remedy: the human mints it with `claude setup-token` and exports it.
+func TestResolveRunAuth_ClaudeTokenMissingNamesSetupToken(t *testing.T) {
 	fakeHostHome(t, "")
-	withTerminal(t, engine.Terminal{Err: &bytes.Buffer{}}, true)
 	t.Setenv("PATH", t.TempDir())
-	_, err := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthCloud)})
+	_, err := resolveRunAuth(engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthToken)})
+	require.ErrorIs(t, err, engine.ErrNoCredential)
+	assert.Contains(t, remedyOf(t, err), "claude setup-token")
+	assert.Contains(t, remedyOf(t, err), "export "+claude.OAuthTokenEnv)
+}
+
+// cloud with nothing selected is the engine's own refusal.
+func TestResolveRunAuth_CloudWithNothingSelectedIsRefused(t *testing.T) {
+	fakeHostHome(t, "")
+	_, err := resolveRunAuth(engines.Registry(), runAuth{Backend: claude.EngineName, Declared: string(engine.AuthCloud)})
 	require.ErrorIs(t, err, engine.ErrNoCredential)
 	requireRemedyNamingModes(t, err, engine.AuthCloud)
 }
@@ -193,7 +153,9 @@ func requireRemedyNamingModes(t *testing.T, err error, refused engine.AuthMode) 
 	t.Helper()
 	var r report.Remediable
 	require.ErrorAs(t, err, &r)
-	a, ok := isolation.AuthFor(claude.EngineName)
+	kind, ok := engines.Registry().Lookup(claude.EngineName)
+	require.True(t, ok)
+	a, ok := kind.Home().Auth.Get()
 	require.True(t, ok)
 	for _, m := range a.Modes() {
 		if m != refused {
@@ -206,7 +168,6 @@ func requireRemedyNamingModes(t *testing.T, err error, refused engine.AuthMode) 
 // typed error at write time (agent create/edit) and at run time (a launch).
 func TestAuthSelection_WriteAndRunRefuseAlike(t *testing.T) {
 	fakeHostHome(t, "")
-	withTerminal(t, engine.Terminal{}, false)
 	for _, tc := range []struct {
 		name     string
 		llm      string
@@ -224,7 +185,7 @@ func TestAuthSelection_WriteAndRunRefuseAlike(t *testing.T) {
 				Name: "a", LLM: ptr(tc.llm), Profiles: ptr([]string{"x"}), Auth: ptr(tc.mode),
 			})
 			require.ErrorIs(t, werr, tc.sentinel, "write")
-			_, rerr := resolveRunAuth(context.Background(), engines.Registry(), runAuth{Backend: tc.llm, Declared: tc.mode})
+			_, rerr := resolveRunAuth(engines.Registry(), runAuth{Backend: tc.llm, Declared: tc.mode})
 			require.ErrorIs(t, rerr, tc.sentinel, "run")
 			for _, err := range []error{werr, rerr} {
 				var r report.Remediable
@@ -233,6 +194,19 @@ func TestAuthSelection_WriteAndRunRefuseAlike(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A token binding is recorded with no token exported — it is read where a
+// run is launched, not where the config is edited — and the run is refused.
+func TestAuthSelection_ATokenIsCheckedAtRunNotAtWrite(t *testing.T) {
+	fakeHostHome(t, "")
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name: "a", LLM: ptr("claude-code"), Profiles: ptr([]string{"x"}), Auth: ptr("token"),
+	})
+	require.NoError(t, err, "write")
+	_, err = resolveRunAuth(engines.Registry(), runAuth{Backend: "claude-code", Declared: "token"})
+	require.ErrorIs(t, err, engine.ErrNoCredential, "run")
 }
 
 // remedyOf is the remedy err carries, failing when it carries none.

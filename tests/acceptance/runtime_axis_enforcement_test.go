@@ -59,9 +59,9 @@ func TestRuntimeAxis_ConfigFileControl(t *testing.T) {
 			// container-rootless axis is refused (exit 3) wherever no rootless
 			// runtime is reachable, which is a different claim from this one.
 			require.NoError(t, env.StubRootlessContainerRuntime())
-			// A dry run resolves the agent's credential read-only and refuses
-			// where the run would: unattended with nothing stored, it would.
-			require.NoError(t, env.RunWithStdin("sk-ant-oat01-fixture\n", "auth", "set", "--engine", "claude-code", "--mode", "token"))
+			// A dry run refuses where the run would: with no token exported,
+			// it would.
+			env.SetChildEnv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-fixture")
 			_ = env.Run("run", "--agent", "probe", "--dry-run", "hi")
 			exit := env.LastExitCode()
 

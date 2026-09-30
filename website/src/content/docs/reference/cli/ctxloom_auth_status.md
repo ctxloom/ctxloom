@@ -9,43 +9,50 @@ This page is generated from `ctxloom auth status --help`.
 
 ## ctxloom auth status
 
-Show which credentials are stored and who can read them (never the credential)
+Show whether each auth mode's credential is present in the environment (never its value)
 
 ### Synopsis
 
-Store the credentials ctxloom-launched engines authenticate with.
+How ctxloom-launched engines authenticate, and whether the credential each
+auth mode reads is present in your environment.
 
 Each agent declares how its engine authenticates with 'auth:' on its binding
 (ctxloom agent edit <name> --auth <mode>):
 
+  token    a long-lived token YOU mint with the engine's own flow and export
+           (claude: run 'claude setup-token', then export
+           CLAUDE_CODE_OAUTH_TOKEN, or keep it in your secret manager and
+           export it from there). The default for an agent that declares
+           nothing.
   login    your own login, shared: the same credential and the same
            refresh as your own engine (claude: CLAUDE_SECURESTORAGE_CONFIG_DIR).
            In place on the host; a container mounts it (claude: ~/.claude),
            except on macOS, where it is the Keychain. Refused when missing.
            'ctxloom init' gives the default agent this mode.
-  token    a long-lived token the engine mints (claude: 'claude setup-token',
-           a year, never refreshed). The default for an agent that declares
-           nothing.
-  api-key  a pay-per-use key you supply (claude: ANTHROPIC_API_KEY).
+  api-key  a pay-per-use key you export (claude: ANTHROPIC_API_KEY).
   cloud    a cloud provider or gateway configured in your own shell (claude:
            Amazon Bedrock, Claude Platform on AWS, Google Vertex, Microsoft
-           Foundry, or ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL). Nothing
-           is stored or minted for it.
+           Foundry, or ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL).
 
-The declared mode decides. Only that mode's credential reaches the engine: a
-value you export for THAT mode wins over the stored one, and every other
-credential the engine reads is removed from the run's environment — including
-one you exported yourself. An invalid mode is refused, naming the modes the
-engine supports.
+ctxloom never collects, stores or mints a credential: it READS the declared
+mode's credential from the environment it is launched in and hands it to the
+agent (a container receives it the same way). Anthropic does not allow a third
+party to "collect, store, or intermediate Claude.ai credentials or session
+tokens" (https://code.claude.com/docs/en/legal-and-compliance). A run whose
+credential is not exported is refused, naming what to export.
 
-ctxloom mints a token the first time a run needs one, at your terminal, and
-stores it owner-only under ~/.ctxloom/auth. A run with no terminal (a
-delegated agent, an unattended run) never prompts: it is refused, naming
-'ctxloom auth mint'. Credentials never enter a config file or a repository.
+The declared mode decides. Only that mode's credential reaches the engine, and
+every other credential the engine reads is removed from the run's environment
+— including one you exported yourself. An invalid mode is refused, naming the
+modes the engine supports.
 
-  ctxloom auth mint --mode token     # run the engine's own mint flow, store the token
-  ctxloom auth set --mode api-key    # paste a key; read from stdin, never argv
-  ctxloom auth status                # what is stored, and who can read it
+Agents on a subscription (token or login) draw from the same usage limits as
+your own interactive use: Pro and Max limits are shared across Claude and
+Claude Code (https://support.claude.com/en/articles/11145838), and 'claude -p'
+draws from the subscription's limits
+(https://support.claude.com/en/articles/15036540).
+
+  ctxloom auth status    # per engine and mode: is the credential exported?
 
 ```
 ctxloom auth status [flags]
@@ -63,5 +70,5 @@ ctxloom auth status [flags]
 
 ### SEE ALSO
 
-* [ctxloom auth](/reference/cli/ctxloom_auth/)	 - Store the credentials ctxloom-launched engines authenticate with
+* [ctxloom auth](/reference/cli/ctxloom_auth/)	 - Show how engines authenticate and whether each credential is exported
 

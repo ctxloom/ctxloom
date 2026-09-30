@@ -311,24 +311,21 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the environment variable "ANTHROPIC_API_KEY" is set to ""
       When I run "ctxloom agent edit developer --auth api-key"
       Then the command fails
-      And the output contains "ctxloom auth set --engine claude-code --mode api-key"
+      And the output contains "export ANTHROPIC_API_KEY"
       And the file ".ctxloom/config.yaml" does not contain "auth:"
-      When I run "ctxloom auth set --engine claude-code --mode api-key" with input:
-        """
-        sk-acceptance-fixture-not-a-real-key
-        """
-      Then the command succeeds
-      When Alice switches this binding to the key she just stored:
+      When the environment variable "ANTHROPIC_API_KEY" is set to "sk-acceptance-fixture-not-a-real-key"
+      And Alice switches this binding to the key she just exported:
         """
         ctxloom agent edit developer --auth api-key
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" contains "auth: api-key"
 
-    # A minted token is the other case: its absence is NOT refused, because a
-    # run mints it at a terminal (`auth mint`). Refusing it here would make the
-    # default mode undeclarable on a fresh machine.
-    Scenario: A token binding is recorded with nothing stored, since a run mints it
+    # A token is the other case: its absence is NOT refused, because it is
+    # read where a run is LAUNCHED (often injected there by a secret manager),
+    # not in the shell that edits the config. Refusing it here would make the
+    # default mode undeclarable on a fresh machine; a run without one refuses.
+    Scenario: A token binding is recorded with no token exported, since the run reads it
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create developer --llm claude-code --profiles dev"

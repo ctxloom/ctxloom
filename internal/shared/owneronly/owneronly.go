@@ -67,13 +67,6 @@ func Check(paths ...string) error {
 	return nil
 }
 
-// Describe is the platform's account of who can read p, for a human: its
-// mode on unix; on Windows, where a mode says nothing, the ACL verdict
-// ("owner-only", or "exposed: " and to whom).
-func Describe(p string, info fs.FileInfo) (string, error) {
-	return describe(p, info)
-}
-
 // exposure names the grantees of an access list beyond the owner and the
 // tolerated principals, "" when there are none. It is the platform-neutral
 // half of the Windows check (violation there reads the ACL and hands the SIDs

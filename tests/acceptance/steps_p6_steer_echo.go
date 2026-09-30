@@ -166,9 +166,10 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				}
 			}
 
-			// Every cell, host or container, authenticates from the stored
-			// setup-token seedLiveCredentials sets on the child env; a
-			// container receives it by name. Nothing is linked or copied.
+			// Every cell, host or container, authenticates from the exported
+			// setup-token the child env inherits (seedLiveCredentials refuses
+			// without one); a container receives it by name. Nothing is linked
+			// or copied.
 			return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
 		})
 

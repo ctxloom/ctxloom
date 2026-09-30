@@ -251,29 +251,40 @@ func TestApprovalQueue_CancelFromEndsOnlyThatHarp(t *testing.T) {
 	})
 }
 
-// TestApprovalQueue_AnswerRacesTheDeadline forces the answer and the timeout
-// onto the same instant: exactly one of them decides, and Answer's return says
-// which — nil means the human's decision reached the asker, ErrApprovalResolved
-// means the timeout's did.
+// TestApprovalQueue_AnswerRacesTheDeadline forces both orderings of an answer
+// and the timeout: exactly one decides, one decision is journaled, and
+// Answer's return says which — nil means the human's decision reached the
+// asker, ErrApprovalResolved means the timeout's did.
 func TestApprovalQueue_AnswerRacesTheDeadline(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		q, _, path := newTestQueue(t)
-		done := parkAsync(context.Background(), q, toolAsk("Bash"), time.Minute)
-		synctest.Wait()
-		id := q.Pending()[0].ID
-		time.Sleep(time.Minute) // the deadline instant: the timer is due now
-		err := q.Answer(id, ApprovalDecision{Allow: true})
-		d := <-done
-		if err == nil {
-			assert.Equal(t, agent.DeciderHuman, d.Decider)
-			assert.True(t, d.Allow)
-		} else {
-			require.ErrorIs(t, err, ErrApprovalResolved)
+	t.Run("the-timeout-settles-first", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			q, _, path := newTestQueue(t)
+			done := parkAsync(context.Background(), q, toolAsk("Bash"), time.Minute)
+			synctest.Wait()
+			id := q.Pending()[0].ID
+			time.Sleep(time.Minute)
+			synctest.Wait() // the park has expired and settled
+			require.ErrorIs(t, q.Answer(id, ApprovalDecision{Allow: true}), ErrApprovalResolved)
+			d := <-done
 			assert.Equal(t, agent.DeciderTimeout, d.Decider)
 			assert.False(t, d.Allow)
-		}
-		assert.Equal(t, []string{factApprovalParked, factApprovalDecided}, factKinds(readFacts(t, path)),
-			"one decision journaled, whichever won")
+			assert.Equal(t, []string{factApprovalParked, factApprovalDecided}, factKinds(readFacts(t, path)))
+		})
+	})
+	t.Run("the-answer-lands-while-the-park-expires", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			q, _, path := newTestQueue(t)
+			q.expireHook = func(id ApprovalID) {
+				assert.NoError(t, q.Answer(id, ApprovalDecision{Allow: true}), "the request is still pending: the answer wins")
+			}
+			done := parkAsync(context.Background(), q, toolAsk("Bash"), time.Minute)
+			synctest.Wait()
+			time.Sleep(time.Minute)
+			d := <-done
+			assert.Equal(t, agent.DeciderHuman, d.Decider)
+			assert.True(t, d.Allow)
+			assert.Equal(t, []string{factApprovalParked, factApprovalDecided}, factKinds(readFacts(t, path)))
+		})
 	})
 }
 
@@ -444,14 +455,18 @@ func TestApprovalQueue_RejectedPlanIsNotApproved(t *testing.T) {
 // TestApprovalQueue_UnjournaledParkFailsClosed: a request the journal cannot
 // record is denied at once — every request is journaled or it is not asked.
 func TestApprovalQueue_UnjournaledParkFailsClosed(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "runs.jsonl")
-	store := openQueueStore(t, path)
-	q := NewApprovalQueue(store, time.Now, (&grantPush{}).push)
-	require.NoError(t, store.Close())
-	d := q.Park(context.Background(), askerID, toolAsk("Bash"), time.Minute)
-	assert.False(t, d.Allow)
-	assert.Equal(t, agent.DeciderRefused, d.Decider)
-	assert.Empty(t, q.Pending())
+	synctest.Test(t, func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "runs.jsonl")
+		store := openQueueStore(t, path)
+		q := NewApprovalQueue(store, time.Now, (&grantPush{}).push)
+		require.NoError(t, store.Close())
+		start := time.Now()
+		d := q.Park(context.Background(), askerID, toolAsk("Bash"), time.Minute)
+		assert.Zero(t, time.Since(start), "refused at once, never parked")
+		assert.False(t, d.Allow)
+		assert.Equal(t, agent.DeciderRefused, d.Decider)
+		assert.Empty(t, q.Pending())
+	})
 }
 
 // TestApprovalQueue_IsTheSource: the queue is what a presenter consumes.

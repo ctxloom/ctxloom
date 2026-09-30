@@ -172,6 +172,10 @@ type ApprovalQueue struct {
 	// revokeMu serialises revokes so each push carries the set the journal
 	// is about to hold.
 	revokeMu sync.Mutex
+
+	// expireHook, when set (tests), runs after a park's timer or context has
+	// fired and before it claims the request — where an answer can still win.
+	expireHook func(ApprovalID)
 }
 
 type parkedApproval struct {
@@ -252,6 +256,9 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 		d = ApprovalDecision{Decider: agent.DeciderTimeout, Message: fmt.Sprintf("no decision within %s", timeout)}
 	case <-ctx.Done():
 		d = ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the request was withdrawn"}
+	}
+	if q.expireHook != nil {
+		q.expireHook(req.ID)
 	}
 	if q.claim(req.ID) {
 		q.settle(p, d)

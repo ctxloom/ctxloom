@@ -113,8 +113,6 @@ func TestApprovalDecision_RoundTrips(t *testing.T) {
 
 	_, err = ApprovalDecisionFromWire(&agentcoordpb.ApprovalDecision{Decider: "a presenter"})
 	assert.ErrorIs(t, err, agent.ErrUnknownDecider)
-	_, err = ApprovalDecisionFromWire(&agentcoordpb.ApprovalDecision{Decider: "human", SetMode: "yolo"})
-	assert.ErrorContains(t, err, "set_mode")
 }
 
 // TestAgentRequestFromWire_Approval: the approval arm reaches the

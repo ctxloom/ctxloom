@@ -357,6 +357,7 @@
     },
     "labelPermissions": {
       "type": "object",
+      "additionalProperties": true,
       "description": "An llm label's permissions block: the engine-neutral fields and, flat beside them, the keys of the label's engine (its type) \u2014 for claude-code: mode, after_plan, allow, deny, ask. The label's engine validates its keys at load. An agent binding overrides it, key by key.",
       "properties": {
         "approver": {
@@ -422,6 +423,7 @@
       },
       "additionalProperties": {
         "type": "object",
+        "additionalProperties": true,
         "description": "One engine's permission keys, validated by that engine."
       }
     },

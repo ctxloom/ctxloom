@@ -1,6 +1,7 @@
 package agents_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -111,4 +112,18 @@ func TestAgent_MayDelegate(t *testing.T) {
 	assert.False(t, a.Delegates("developer"))
 	assert.True(t, agents.Agent{}.Delegates("anything"), "unset permits any role")
 	assert.True(t, agents.Agent{MayDelegate: []string{}}.Delegates("anything"), "empty permits any role")
+}
+
+// JSON is the config's own shape: `agent list --format json` shows the block
+// as it is written, an empty one as {}.
+func TestPermissions_JSONIsTheConfigShape(t *testing.T) {
+	b, err := json.Marshal(agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Sandbox: "full"}, Engines: map[string]map[string]any{"claude-code": {"mode": "plan"}}})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"sandbox":"full","claude-code":{"mode":"plan"}}`, string(b))
+	b, err = json.Marshal(agents.Permissions{})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{}`, string(b))
+	b, err = json.Marshal(agents.LabelPermissions{NeutralPermissions: agents.NeutralPermissions{Approver: "none"}, Engine: map[string]any{"mode": "plan"}})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"approver":"none","mode":"plan"}`, string(b))
 }

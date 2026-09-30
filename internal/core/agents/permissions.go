@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -147,6 +148,12 @@ func (p Permissions) MarshalYAML() (any, error) {
 	return out, nil
 }
 
+// MarshalJSON writes the config's own shape (MarshalYAML's).
+func (p Permissions) MarshalJSON() ([]byte, error) {
+	doc, _ := p.MarshalYAML()
+	return json.Marshal(doc)
+}
+
 // Clone copies the block, engine blocks included.
 func (p Permissions) Clone() Permissions {
 	p.NeutralPermissions = p.NeutralPermissions.clone()
@@ -223,6 +230,12 @@ func (l LabelPermissions) MarshalYAML() (any, error) {
 	out := l.NeutralPermissions.fields()
 	maps.Copy(out, l.Engine)
 	return out, nil
+}
+
+// MarshalJSON writes the config's own shape (MarshalYAML's).
+func (l LabelPermissions) MarshalJSON() ([]byte, error) {
+	doc, _ := l.MarshalYAML()
+	return json.Marshal(doc)
 }
 
 // Clone copies the block.

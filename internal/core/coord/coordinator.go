@@ -433,6 +433,13 @@ type Coordinator struct {
 	// stop's own terminal: the seam that lets the runner's RunExited land
 	// first, the interleaving pendingStops exists for. Nil in production.
 	stopAnsweredHook func(runID string)
+	// attachRunHook, if set (tests only, same package), runs synchronously in
+	// AttachRun once the Hello is verified and BEFORE the channel is
+	// registered in c.chans. The run channel dials on its own goroutine,
+	// unordered against the runner channel StartRun rides, so a child can be
+	// "up" with its run channel not yet attached; parking here makes that
+	// window a fact a test can hold open. Nil in production.
+	attachRunHook func(harp string)
 
 	closeOnce sync.Once
 	// closed is set at the START of Close, before it looks for listeners to

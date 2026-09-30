@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -247,6 +248,44 @@ func TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep(t *testing.T) {
 	assert.Equal(t, out.Harp, msgs[0].From, "the sender is the spool the file was found in")
 	awaitSpoolCount(t, out.Harp, spool.DirOut, 0, "after the sweep routed it")
 	assert.False(t, handedOver(ref.Name), "the delivery must have come from the tick, never from the refused bell")
+}
+
+// TestSpoolDoorbell_CutoverChildReturnsWithItsRunChannelAttached forces the
+// interleaving the RefusedForgedHarp test lost under load: the child's run
+// channel attaches on its own dial, unordered against the StartRun that makes
+// the child "up", so the attach is HELD here until awaitCutoverChild either
+// returns or reports that it is waiting for it. A fixture that returns without
+// the attach hands its caller a nil c.chans entry every time, not just on a
+// loaded box.
+func TestSpoolDoorbell_CutoverChildReturnsWithItsRunChannelAttached(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	sp.attachWaiting = make(chan struct{}, 1)
+	c := newCutoverCoordinator(t, sp, 0)
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unhold := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unhold)
+	c.attachRunHook = func(string) { <-release }
+
+	returned := make(chan struct{})
+	var ch *RunChannel
+	go func() {
+		defer close(returned)
+		out, _ := awaitCutoverChild(t, c, sp, "first task")
+		c.mu.Lock()
+		ch = c.chans[out.Harp]
+		c.mu.Unlock()
+	}()
+	select {
+	case <-sp.attachWaiting:
+	case <-returned:
+	}
+	unhold()
+	<-returned
+	require.NotNil(t, ch, "awaitCutoverChild returned before the child's run channel attached")
 }
 
 // TestSpoolDoorbell_DropsWhenItCannotBeSent pins the fire-and-forget ruling on

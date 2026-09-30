@@ -81,6 +81,11 @@ type fakeSpawner struct {
 	// order — the seam a plane-2 test needs to drain the runner-LOCAL
 	// agent_recv a control body is parked in.
 	engineHomes []TestHome
+	// attachWaiting, when set, is signalled by awaitCutoverChild as it begins
+	// waiting for the child's run channel to attach — the seam that lets a
+	// test holding the attach (Coordinator.attachRunHook) release it only once
+	// the fixture is committed to waiting for it.
+	attachWaiting chan struct{}
 	// engineStderrTail, when set, is threaded onto each EngineSpawn.StderrTail
 	// — the runner's captured stderr tail. It stands in for a docker-direct
 	// runner's ring (the container's streamed stderr): a runner-loss test uses

@@ -3,7 +3,6 @@ package termui
 import (
 	"bytes"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 
@@ -45,7 +44,7 @@ func release(g *outputGate, mode holdMode, pre string) error {
 	return err
 }
 
-var testRestore = restore{replay: []byte("<replay>"), clear: []byte("<clear>"), resume: []byte("<resume>")}
+var testRestore = restore{replay: []byte("<replay>"), clear: []byte("<clear>"), notice: []byte("<notice>"), resume: []byte("<resume>")}
 
 // TestOutputGate_OverflowNeverReplaysATornTail pins that an overflowed hold is
 // DISCARDED, not replayed from wherever eviction left it: the old drop-oldest
@@ -68,10 +67,7 @@ func TestOutputGate_OverflowNeverReplaysATornTail(t *testing.T) {
 	assert.NotContains(t, out, "<replay>")
 	assert.NotContains(t, out, "RED", "no held byte is replayed")
 	assert.NotContains(t, out, "31m", "no torn sequence tail reaches the screen")
-	assert.True(t, strings.HasPrefix(out, "<clear>"), "the screen is cleared first: %q", out)
-	assert.True(t, strings.HasSuffix(out, "<resume>"), "and the region, bar and cursor come back last: %q", out)
-	assert.Contains(t, out, "ctxloom: engine output while the overlay was open exceeded",
-		"the loss is said on the screen, between the clear and the resume")
+	assert.Equal(t, "<clear><notice><resume>", out, "cleared, the loss said, then region, bar and cursor back")
 }
 
 func TestOutputGate_DiscardRedrawWithoutOverflowDropsTheHoldQuietly(t *testing.T) {

@@ -93,6 +93,12 @@ func TestInputTok_LoneTrailingEsc(t *testing.T) {
 	got, _ = tokenize(t, true, "x\x1b")
 	assert.Equal(t, []emitted{{tokKey, "x"}, {tokKey, "\x1b"}}, got, "routing treats a read ending in a lone ESC as the Esc key")
 
+	got, _ = tokenize(t, true, "\xc3", "\xa9")
+	assert.Equal(t, []emitted{{tokKey, "é"}}, got, "routing emits only a lone ESC early — never half a rune")
+
+	got, _ = tokenize(t, true, "é\xc3", "\xa9")
+	assert.Equal(t, []emitted{{tokKey, "é"}, {tokKey, "é"}}, got, "a truncated rune is never folded into the grapheme before it")
+
 	got, _ = tokenize(t, false, "\x1b", "[A")
 	assert.Equal(t, []emitted{{tokKey, "\x1b[A"}}, got, "a carried ESC completed by the next read is one sequence")
 

@@ -113,7 +113,7 @@ func (t *inputTok) next(buf []byte, loneEsc bool) (int, tokKind) {
 	}
 	seq, _, n, st := ansi.DecodeSequence(buf, ansi.NormalState, nil)
 	if st != ansi.NormalState || cutShort(buf, seq, n) {
-		if loneEsc && len(buf) == 1 {
+		if loneEsc && len(buf) == 1 && buf[0] == ansi.ESC {
 			return 1, tokKey
 		}
 		return 0, tokKey
@@ -130,14 +130,25 @@ func (t *inputTok) next(buf []byte, loneEsc bool) (int, tokKind) {
 }
 
 // cutShort reports a token the decoder ended at the read's edge where only
-// the next read can say whether it is whole: a rune missing bytes, or a
-// string whose ESC \ terminator is split (the decoder takes the lone ESC as
-// cancelling it).
+// the next read can say whether it is whole: a rune missing bytes (the
+// decoder reports a lone lead byte as zero bytes, and folds a truncated rune
+// into the grapheme before it), or a string whose ESC \ terminator is split
+// (the decoder takes the lone ESC as cancelling it).
 func cutShort(buf, seq []byte, n int) bool {
-	if n == len(buf) {
-		return buf[0] >= utf8.RuneSelf && !utf8.FullRune(buf)
+	if buf[0] >= 0xC0 && (n == 0 || n == len(buf)) {
+		return endsMidRune(buf)
 	}
 	return n == len(buf)-1 && buf[n] == ansi.ESC && isStringSeq(seq)
+}
+
+// endsMidRune reports whether b ends in the leading bytes of a rune.
+func endsMidRune(b []byte) bool {
+	for i := len(b) - 1; i >= max(0, len(b)-utf8.UTFMax); i-- {
+		if utf8.RuneStart(b[i]) {
+			return !utf8.FullRune(b[i:])
+		}
+	}
+	return false
 }
 
 // pasteNext emits paste content up to the end marker, holding back a tail

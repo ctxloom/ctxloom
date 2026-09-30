@@ -605,3 +605,8 @@ func TestController_CloseDuringEngagementLeavesTheAltScreen(t *testing.T) {
 	h.c.Close()
 	assert.Contains(t, h.tty.String()[engagedAt:], "\x1b[?1049l", "closing mid-engagement returns to the engine's screen")
 }
+
+func TestOverflowNotice_NeverWraps(t *testing.T) {
+	assert.Equal(t, "\x1b[7m"+overflowText+"\x1b[0m", string(overflowNotice(200)))
+	assert.Equal(t, "\x1b[7m"+overflowText[:20]+"\x1b[0m", string(overflowNotice(20)), "cut to the width")
+}

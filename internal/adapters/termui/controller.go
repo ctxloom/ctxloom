@@ -511,6 +511,7 @@ func (c *Controller) release(e *engagement) {
 	r := restore{
 		replay: slices.Concat(back, resume),
 		clear:  slices.Concat(e.tk.leave, []byte("\x1b[H\x1b[2J")),
+		notice: overflowNotice(e.geo.Cols),
 		resume: resume,
 	}
 	if _, err := c.gate.Release(mode, r); err != nil {
@@ -518,6 +519,21 @@ func (c *Controller) release(e *engagement) {
 		c.warn("output gate release: %v", err)
 	}
 	c.rt.Nudge()
+}
+
+// overflowText is said on the cleared screen when a hold overflowed: what the
+// engine wrote in the meantime is gone, and anything that scrolled away with
+// it is not in the scrollback.
+const overflowText = "ctxloom: engine output overflowed while the overlay was open; screen redrawn"
+
+// overflowNotice is overflowText in reverse video, cut to the width so it
+// never wraps onto the engine's rows.
+func overflowNotice(cols int) []byte {
+	text := overflowText
+	if cols > 0 && len(text) > cols {
+		text = text[:cols]
+	}
+	return slices.Concat([]byte("\x1b[7m"), []byte(text), []byte("\x1b[0m"))
 }
 
 // panelClearSeq erases the overlay's panel region (its bottom PanelRows

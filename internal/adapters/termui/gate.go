@@ -60,7 +60,8 @@ const (
 type restore struct {
 	replay []byte // holdReplay: before the held bytes
 	clear  []byte // holdDiscardRedraw: first; leaves the cursor home on a blank screen
-	resume []byte // holdDiscardRedraw: after the overflow notice (region, bar, engine cursor)
+	notice []byte // holdDiscardRedraw after an overflow: said on the cleared screen's first row
+	resume []byte // holdDiscardRedraw: after the notice (region, bar, engine cursor)
 }
 
 // newOutputGate wraps dst. mu is the tty lock shared with the surround;
@@ -149,7 +150,7 @@ func (g *outputGate) Release(mode holdMode, r restore) (holdMode, error) {
 }
 
 func (g *outputGate) releaseHeldLocked(w *errWriter, mode holdMode, r restore) holdMode {
-	data, overflowed, capacity := g.hold, g.overflowed, g.holdCap
+	data, overflowed := g.hold, g.overflowed
 	g.held, g.hold, g.overflowed = false, nil, false
 	if overflowed {
 		mode = holdDiscardRedraw
@@ -160,7 +161,7 @@ func (g *outputGate) releaseHeldLocked(w *errWriter, mode holdMode, r restore) h
 		}
 		w.write(r.clear, "clear sequence")
 		if overflowed {
-			w.write(overflowNotice(capacity), "overflow notice")
+			w.write(r.notice, "overflow notice")
 		}
 		w.write(r.resume, "resume sequence")
 		return mode
@@ -174,10 +175,6 @@ func (g *outputGate) releaseHeldLocked(w *errWriter, mode holdMode, r restore) h
 	}
 	w.write(data, "held engine output")
 	return mode
-}
-
-func overflowNotice(capacity int) []byte {
-	return fmt.Appendf(nil, "\x1b[7m ctxloom: engine output while the overlay was open exceeded %d KiB; screen redrawn \x1b[0m", capacity>>10)
 }
 
 // errWriter writes every piece it is given, even after one fails, and keeps

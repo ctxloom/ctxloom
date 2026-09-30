@@ -244,10 +244,10 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 // every launch runs) against the engine this write results in — on every
 // runtime alike —
 // then asks the engine whether the credential is available now: a mode whose
-// credential the human must supply (an API key, a cloud provider's
-// variables) is refused until it is, with the engine's own remedy. A missing
-// token is not refused: a run mints it at a terminal. Nothing is persisted
-// on a refusal.
+// credential the launching env must hold (a token, an API key, a cloud
+// provider's variables) is refused until it does, with the engine's own
+// remedy — the same refusal a run would meet. Nothing is persisted on a
+// refusal.
 func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
 	if req.Auth == nil || *req.Auth == "" {
 		return nil
@@ -261,10 +261,7 @@ func validateAgentAuth(reg engine.Registry, cfg *config.Config, name string, req
 	if err != nil || a == nil {
 		return wrapAgentErr(name, err)
 	}
-	_, err = a.Credentials(mode, os.LookupEnv, isolation.StoredCredentials(backend))
-	if errors.Is(err, engine.ErrNoCredential) && mode.Minted() {
-		return nil // a run mints it
-	}
+	_, err = a.Credentials(mode, os.LookupEnv)
 	return wrapAgentErr(name, err)
 }
 

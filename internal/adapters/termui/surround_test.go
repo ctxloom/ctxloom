@@ -213,29 +213,26 @@ func TestRosterDigest_ShowsApprovalWarningWhenPending(t *testing.T) {
 	assert.True(t, strings.HasPrefix(rosterDigest(withRoster, 3), "⚠3 "), "the warning is the LEADING element")
 }
 
-// TestSurround_ApprovalsBellOnZeroToNTransitionOnly pins the BEL discipline:
-// exactly once on 0→N, never on a later N→N tick reporting the same nonzero
-// count, and never on N→0.
-func TestSurround_ApprovalsBellOnZeroToNTransitionOnly(t *testing.T) {
+// TestSurround_ApprovalsBellRingsOnlyWhenAskedAndVisible pins that the bar
+// rings exactly when told to, and only while it is showing — the policy of
+// WHEN to ring is the controller's.
+func TestSurround_ApprovalsBellRingsOnlyWhenAskedAndVisible(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h"})
 	s.SetSize(24, 80)
 	tty.Reset()
 
-	s.SetApprovals(2)
-	assert.Equal(t, 1, strings.Count(tty.String(), "\a"), "0→N rings the bell exactly once")
+	assert.True(t, s.SetApprovals(2, true))
+	assert.Equal(t, 1, strings.Count(tty.String(), "\a"), "asked to ring, it rings once")
 
 	tty.Reset()
-	s.SetApprovals(2) // N→N: same nonzero count again
-	assert.NotContains(t, tty.String(), "\a", "a repeated tick at the same count must not ring again")
+	assert.False(t, s.SetApprovals(2, false))
+	assert.NotContains(t, tty.String(), "\a")
 
+	s.Suspend()
 	tty.Reset()
-	s.SetApprovals(0) // N→0
-	assert.NotContains(t, tty.String(), "\a", "clearing to zero must not ring")
-
-	tty.Reset()
-	s.SetApprovals(3) // 0→N again
-	assert.Contains(t, tty.String(), "\a", "a fresh 0→N transition rings again")
+	assert.False(t, s.SetApprovals(3, true), "a suspended bar does not ring, and says so")
+	assert.NotContains(t, tty.String(), "\a")
 }
 
 // TestSurround_ApprovalsPaintsWarningPrefix confirms the count actually
@@ -247,10 +244,10 @@ func TestSurround_ApprovalsPaintsWarningPrefix(t *testing.T) {
 	s.SetSize(24, 80)
 	tty.Reset()
 
-	s.SetApprovals(2)
+	s.SetApprovals(2, false)
 	assert.Contains(t, tty.String(), "⚠2 ", "the painted bar carries the approval warning")
 
 	tty.Reset()
-	s.SetApprovals(0)
+	s.SetApprovals(0, false)
 	assert.NotContains(t, tty.String(), "⚠", "clearing to zero clears the warning from the bar")
 }

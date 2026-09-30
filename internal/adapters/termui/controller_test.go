@@ -7,7 +7,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,6 +39,11 @@ type fakeOverlay struct {
 	release chan error
 	ui      lockedBuffer
 	aborts  chan struct{}
+	resizes chan OverlayGeometry
+	armed   chan int
+	notices chan Notice
+	// frame, when set, is written to the tty as Run starts: the first frame.
+	frame string
 }
 
 func newFakeOverlay() *fakeOverlay {
@@ -47,14 +51,24 @@ func newFakeOverlay() *fakeOverlay {
 		started: make(chan OverlayGeometry, 1),
 		release: make(chan error, 1),
 		aborts:  make(chan struct{}, 4),
+		resizes: make(chan OverlayGeometry, 4),
+		armed:   make(chan int, 4),
+		notices: make(chan Notice, 4),
 	}
 }
 
-func (f *fakeOverlay) Run(in io.Reader, _ io.Writer, geo OverlayGeometry) error {
+func (f *fakeOverlay) Run(in io.Reader, tty io.Writer, geo OverlayGeometry) error {
+	if f.frame != "" {
+		_, _ = io.WriteString(tty, f.frame)
+	}
 	f.started <- geo
 	go func() { _, _ = io.Copy(&f.ui, in) }()
 	return <-f.release
 }
+
+func (f *fakeOverlay) Resize(geo OverlayGeometry) { f.resizes <- geo }
+func (f *fakeOverlay) Armed(discarded int)        { f.armed <- discarded }
+func (f *fakeOverlay) Notify(n Notice)            { f.notices <- n }
 
 func (f *fakeOverlay) Abort() {
 	f.aborts <- struct{}{}
@@ -96,7 +110,7 @@ func newCtlHarness(t *testing.T, mutate func(*Options)) *ctlHarness {
 		Prefix:     testPrefix,
 		Surround:   true,
 		Bar:        BarInfo{Harp: "perky-same-chevy", Engine: "claude-code", PrefixHint: "^]"},
-		NewOverlay: func() Overlay { return h.overlay },
+		NewOverlay: func(OverlayStart) Overlay { return h.overlay },
 		Warn:       func(format string, args ...any) { h.warns <- fmt.Sprintf(format, args...) },
 	}
 	if mutate != nil {
@@ -318,7 +332,7 @@ func TestController_OverlayErrorDegradesToPlainTerminal(t *testing.T) {
 
 func TestController_FactoryPanicDegrades(t *testing.T) {
 	h := newCtlHarness(t, func(o *Options) {
-		o.NewOverlay = func() Overlay { panic("factory exploded") }
+		o.NewOverlay = func(OverlayStart) Overlay { panic("factory exploded") }
 	})
 	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
@@ -364,31 +378,50 @@ func TestController_CloseWhileEngagedFlushesHeldOutput(t *testing.T) {
 		"held engine output must not vanish when the run ends mid-engagement")
 }
 
-// TestController_ApprovalPollFeedsBarAndRingsBellOnce wires FetchApprovals
-// through the SAME poller FetchRoster already runs on (no separate ticker)
-// and pins the observable end-to-end effect: the bar shows the "⚠N " prefix,
-// and the bell rings exactly once for the 0→N transition even though the
-// poller ticks several more times at the same nonzero count.
-func TestController_ApprovalPollFeedsBarAndRingsBellOnce(t *testing.T) {
-	var n atomic.Int32
-	h := newCtlHarness(t, func(o *Options) {
-		o.RosterInterval = 5 * time.Millisecond
-		o.FetchRoster = func() ([]RosterEntry, error) { return nil, nil }
-		o.FetchApprovals = func() int { return int(n.Load()) }
-	})
+// TestController_SetApprovalsRingsPerArrivalRateLimited pins the bell
+// discipline: every ARRIVAL may ring (a second child's request is not
+// silent), a burst rings once per approvalBellInterval, a count change that
+// is not an arrival never rings, and the bar carries the count.
+func TestController_SetApprovalsRingsPerArrivalRateLimited(t *testing.T) {
+	clk := newFakeClock()
+	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
+	_ = h.drainTranslated(t)
+	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+	bells := func() int { return strings.Count(h.tty.String(), "\a") }
+
+	h.c.SetApprovals(1, true)
+	assert.Equal(t, 1, bells(), "an arrival rings")
+	assert.Contains(t, h.tty.String(), "⚠1", "the bar carries the count")
+
+	h.c.SetApprovals(2, true)
+	assert.Equal(t, 1, bells(), "a second arrival inside the interval is folded into the first bell")
+
+	clk.Advance(approvalBellInterval)
+	h.c.SetApprovals(3, true)
+	assert.Equal(t, 2, bells(), "an arrival after the interval rings again — even at a nonzero count")
+
+	clk.Advance(approvalBellInterval)
+	h.c.SetApprovals(2, false)
+	assert.Equal(t, 2, bells(), "a resolution is not an arrival")
+}
+
+// TestController_SuppressedBellDoesNotSpendTheInterval pins that a bell the
+// bar could not ring (suspended under an overlay) does not count against the
+// rate limit: the next arrival on a visible bar still rings.
+func TestController_SuppressedBellDoesNotSpendTheInterval(t *testing.T) {
+	clk := newFakeClock()
+	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
 	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
-	n.Store(2)
-	waitFor(t, "approval indicator on the bar", func() bool { return strings.Contains(h.tty.String(), "⚠2") })
-	// Give the poller (5ms interval) several more ticks at the SAME count —
-	// only the 0→N transition may have rung.
-	waitFor(t, "settles at one bell", func() bool { return strings.Contains(h.tty.String(), "⚠2") })
-	time.Sleep(30 * time.Millisecond)
-	assert.Equal(t, 1, strings.Count(h.tty.String(), "\a"), "bell rings exactly once for the 0→N transition")
-
-	h.c.Close()
+	h.c.sur.Suspend()
+	h.c.SetApprovals(1, true)
+	assert.NotContains(t, h.tty.String(), "\a", "no bell while the bar is suspended")
+	_ = h.c.sur.ResumeSequence()
+	h.c.SetApprovals(2, true)
+	assert.Contains(t, h.tty.String(), "\a")
 }
 
 func TestController_RosterPollFeedsBar(t *testing.T) {
@@ -571,4 +604,9 @@ func TestController_CloseDuringEngagementLeavesTheAltScreen(t *testing.T) {
 
 	h.c.Close()
 	assert.Contains(t, h.tty.String()[engagedAt:], "\x1b[?1049l", "closing mid-engagement returns to the engine's screen")
+}
+
+func TestOverflowNotice_NeverWraps(t *testing.T) {
+	assert.Equal(t, "\x1b[7m"+overflowText+"\x1b[0m", string(overflowNotice(200)))
+	assert.Equal(t, "\x1b[7m"+overflowText[:20]+"\x1b[0m", string(overflowNotice(20)), "cut to the width")
 }

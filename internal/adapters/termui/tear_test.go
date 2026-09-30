@@ -73,7 +73,7 @@ func newTearHarness(t *testing.T, rows, cols int) *tearHarness {
 			Model:      "claude-opus-4-8",
 			PrefixHint: "^]",
 		},
-		NewOverlay: func() Overlay { return newFakeOverlay() },
+		NewOverlay: func(OverlayStart) Overlay { return newFakeOverlay() },
 	})
 	src <- &agent.WindowSize{Rows: uint16(rows), Cols: uint16(cols)}
 	waitFor(t, "surround establish", func() bool {

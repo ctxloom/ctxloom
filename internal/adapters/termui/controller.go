@@ -1,6 +1,7 @@
 package termui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -12,10 +13,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
-// Overlay is the prefix-engaged viewer. The bubbletea implementation lives in
-// internal/adapters/cli/tui; this package only orchestrates its lifecycle so the hot
-// path never links the TUI framework, and tests drive the controller with a
-// fake.
+// Overlay is a viewer the controller hands the terminal to: prefix-opened,
+// or summoned by code (Summon). The bubbletea implementation lives in
+// internal/adapters/cli/tui; this package only orchestrates its lifecycle so
+// the hot path never links the TUI framework, and tests drive the controller
+// with a fake.
 type Overlay interface {
 	// Run blocks until the overlay exits (user backed out, or Abort). input
 	// delivers the viewer-routed keystrokes; tty is the raw terminal writer
@@ -24,10 +26,40 @@ type Overlay interface {
 	// Abort asks a running overlay to exit — the double-press-literal path.
 	// Must be safe before/after Run.
 	Abort()
+	// Resize relays out a running overlay for a new terminal size (the
+	// geometry is recomputed exactly as for Run). Must be safe before/after
+	// Run.
+	Resize(geo OverlayGeometry)
+	// Armed ends a summoned overlay's inert window: keys reach it from here
+	// on. discarded is how many keys the window swallowed.
+	Armed(discarded int)
+	// Notify tells an engaged overlay that something asked for the screen
+	// (Summon) and was not given it.
+	Notify(n Notice)
+}
+
+// Notice is what Notify delivers.
+type Notice struct{ Text string }
+
+// OverlayStart says how an engagement began.
+type OverlayStart struct {
+	// Summoned: opened by code, not the prefix — full screen from the first
+	// frame, and the arming window applies.
+	Summoned bool
+	// View names the view to open: "" roster/feed, "approvals".
+	View string
 }
 
 // OverlayFactory builds a fresh overlay per engagement.
-type OverlayFactory func() Overlay
+type OverlayFactory func(OverlayStart) Overlay
+
+var (
+	// ErrUIUnavailable: the terminal layer is degraded or closed.
+	ErrUIUnavailable = errors.New("termui: terminal layer unavailable")
+	// ErrOverlayEngaged: an overlay already holds the terminal; it was told
+	// (Notify) instead.
+	ErrOverlayEngaged = errors.New("termui: an overlay is already engaged")
+)
 
 // OverlayGeometry is the overlay's DRAWABLE terminal size: Rows is the real
 // terminal's row count with the surround's reserved bottom row already
@@ -82,26 +114,32 @@ type Options struct {
 	FetchRoster    func() ([]RosterEntry, error)
 	RosterInterval time.Duration
 
-	// FetchApprovals returns how many approvals are currently parked for the
-	// human (coord.Coordinator.PendingApprovals, adapted to a count so this
-	// dependency-light package never sees a coord type — see doc.go). Polled
-	// on the SAME cadence as FetchRoster (RosterInterval), inside the same
-	// poller goroutine — no separate ticker. nil disables the indicator.
-	FetchApprovals func() int
-
 	// Warn streams UI-layer degradation notices (never fatal). nil = silent.
 	Warn func(format string, args ...any)
 
-	// HoldCapacity bounds the engine-output hold ring; default 256 KiB.
+	// HoldCapacity bounds the engine output held under a prefix-opened
+	// overlay; default 256 KiB.
 	HoldCapacity int
+	// ModalHoldCapacity bounds it under a summoned one, which may stay up for
+	// as long as an approval's timeout while the engine keeps working;
+	// default 8 MiB. Both grow with what is held. Past the bound the hold is
+	// dropped and the screen redrawn on release.
+	ModalHoldCapacity int
+
+	// Present times the summoned modal's focus locks.
+	Present PresentPolicy
+	// Clock is nil for real time; tests inject one.
+	Clock Clock
 }
 
 // Controller wires the interceptor, surround, output gate, and resize
 // translation around the plugin client's existing seams. Construct with New,
 // hand Stdin/Stdout/Resize to client.Run, and Close on every exit path.
 type Controller struct {
-	opts  Options
-	ttyMu sync.Mutex
+	opts    Options
+	clock   Clock
+	present PresentPolicy
+	ttyMu   sync.Mutex
 
 	ic    *interceptor
 	gate  *outputGate
@@ -109,15 +147,24 @@ type Controller struct {
 	sur   *surround
 	rt    *resizeTranslator
 
-	// sessionMu serializes engagements: held from engage until the overlay's
+	// session serializes engagements: held from engage until the overlay's
 	// teardown finishes, so a re-engage cannot overlap a release in flight.
-	sessionMu sync.Mutex
+	session sync.Mutex
+	// overlayMu guards eng and gen; eng is the live engagement (nil when
+	// none), published once built and never mutated after.
 	overlayMu sync.Mutex
-	overlay   Overlay
+	eng       *engagement
+	gen       uint64
+	// changed fires when an engagement starts or ends and when the layer
+	// degrades or closes — the wake-up for a waiting Summon.
+	changed signal
 
-	uiOff      atomic.Bool
-	closed     atomic.Bool
-	stopRoster chan struct{}
+	bellMu   sync.Mutex
+	lastBell time.Time
+
+	uiOff  atomic.Bool
+	closed atomic.Bool
+	done   chan struct{} // closed by Close
 	// rosterDone is closed when pollRoster's goroutine has exited (at once
 	// when there is no poller); Close waits on it so no poll iteration can
 	// touch the surround after Close returns.
@@ -126,6 +173,15 @@ type Controller struct {
 	// rosterFails counts consecutive FetchRoster failures; touched only from
 	// pollRoster's own goroutine, never concurrently.
 	rosterFails int
+}
+
+// engagement is one overlay's hold on the terminal.
+type engagement struct {
+	ov    Overlay
+	start OverlayStart
+	geo   OverlayGeometry
+	tk    takeover
+	gen   uint64
 }
 
 // rosterFailWarnThreshold is how many consecutive FetchRoster failures
@@ -144,13 +200,22 @@ func New(opts Options) *Controller {
 	if opts.HoldCapacity <= 0 {
 		opts.HoldCapacity = 256 << 10
 	}
-	c := &Controller{opts: opts, stopRoster: make(chan struct{}), rosterDone: make(chan struct{})}
+	if opts.ModalHoldCapacity <= 0 {
+		opts.ModalHoldCapacity = 8 << 20
+	}
+	if opts.Clock == nil {
+		opts.Clock = realClock{}
+	}
+	c := &Controller{
+		opts: opts, clock: opts.Clock, present: opts.Present.normalized(),
+		done: make(chan struct{}), rosterDone: make(chan struct{}),
+	}
 	c.sur = newSurround(&c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
 	// The guard runs inside the gate under the shared tty lock; its callbacks
 	// are the surround's *Locked accessors (same mutex, no re-entry).
 	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
 	c.guard = guard
-	c.gate = newOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, guard, c.sur.FlushLocked)
+	c.gate = newOutputGate(&c.ttyMu, opts.TTY, guard, c.sur.FlushLocked)
 	// SetEngineIdle/SetPaintSafe inlined: construction-only writes, before any
 	// goroutine starts.
 	c.sur.lastEngineWrite = c.gate.LastWriteNanos
@@ -164,11 +229,11 @@ func New(opts Options) *Controller {
 	// the surround and child both draw onto a clean screen. ED 2 (not 3) keeps the
 	// that output in scrollback rather than nuking it.
 	_, _ = io.WriteString(opts.TTY, "\x1b[H\x1b[2J")
-	c.rt = newResizeTranslator(opts.Resize, c.sur.reserve, c.sur.SetSize)
+	c.rt = newResizeTranslator(opts.Resize, c.sur.reserve, c.onSize, c.clock)
 	c.ic = newInterceptor(opts.Stdin, opts.Prefix, InterceptorCallbacks{
 		Engage:       c.engage,
 		AbortLiteral: c.abortLiteral,
-	})
+	}, c.clock.Now)
 	if opts.FetchRoster != nil {
 		go c.pollRoster()
 	} else {
@@ -194,22 +259,20 @@ func (c *Controller) Close() {
 	if c.closed.Swap(true) {
 		return
 	}
-	close(c.stopRoster)
+	close(c.done)
+	c.changed.fire()
 	// Join, not just signal: a ticker that already fired races the closed
 	// channel, so one more poll iteration may be in flight; it must finish
 	// before the restore below and before Close returns.
 	<-c.rosterDone
-	c.overlayMu.Lock()
-	ov := c.overlay
-	c.overlayMu.Unlock()
-	if ov != nil {
-		ov.Abort()
+	if e := c.engaged(); e != nil {
+		e.ov.Abort()
 	}
 	// Serialize with a teardown in flight so the overlay's release can't
 	// repaint after the final restore.
-	c.sessionMu.Lock()
-	defer c.sessionMu.Unlock()
-	if err := c.gate.Release(nil); err != nil {
+	c.session.Lock()
+	defer c.session.Unlock()
+	if _, err := c.gate.Release(holdReplay, restore{}); err != nil {
 		// A failing tty on the final restore used to silently lose
 		// the whole held-output replay; surface it instead of swallowing it a
 		// second time here.
@@ -236,54 +299,98 @@ func (c *Controller) warn(format string, args ...any) {
 func (c *Controller) degrade(err error) {
 	c.uiOff.Store(true)
 	c.ic.Off()
+	c.changed.fire()
 	c.warn("terminal viewer failed; continuing with a plain terminal (engine session unaffected): %v", err)
 }
 
-// engage opens the viewer: hold engine output, suspend the bar, save the
-// engine's cursor, and hand the interceptor the overlay's input sink. Runs on
-// the stdin pump goroutine (inside interceptor.Read's dispatch); the overlay
+// engage opens the prefix viewer: hold engine output, suspend the bar, take
+// the screen, and hand the interceptor the overlay's input sink. Runs on the
+// stdin pump goroutine (inside interceptor.Read's dispatch); the overlay
 // itself runs on its own goroutine. Returns nil when the viewer cannot start
 // — the interceptor then drops back to passthrough.
 func (c *Controller) engage() io.Writer {
-	if c.uiOff.Load() || c.closed.Load() || c.opts.NewOverlay == nil {
+	if c.unavailable() {
 		return nil
 	}
 	// Serialize with a previous engagement's teardown (released by runOverlay).
-	c.sessionMu.Lock()
-	ov, err := c.buildOverlay()
-	if err != nil {
-		c.sessionMu.Unlock()
-		c.degrade(err)
+	c.session.Lock()
+	e, err := c.prepare(OverlayStart{})
+	if e == nil {
+		c.session.Unlock()
+		if err != nil {
+			c.degrade(err)
+		}
+		c.changed.fire()
 		return nil
+	}
+	pr, pw := io.Pipe()
+	c.show(e, pr)
+	return pw
+}
+
+func (c *Controller) unavailable() bool {
+	return c.uiOff.Load() || c.closed.Load() || c.opts.NewOverlay == nil
+}
+
+// prepare builds one engagement's overlay and geometry without touching the
+// screen. Called with the session held. A nil engagement with a nil error
+// means there is no terminal size yet to lay anything out in.
+func (c *Controller) prepare(start OverlayStart) (*engagement, error) {
+	ov, err := c.buildOverlay(start)
+	if err != nil {
+		return nil, err
 	}
 	rows, cols := c.rt.Current()
-	if rows == 0 { // no size event yet — can't lay out a panel
-		c.sessionMu.Unlock()
-		return nil
+	if rows == 0 {
+		return nil, nil
 	}
-	// The overlay draws only the DRAWABLE rows — the same
-	// reservation-subtracted height the engine's own viewport gets
-	// (resizeTranslator.Translate is the single source of truth for that
-	// subtraction) — so its content can never reach the surround's reserved
-	// bottom row.
-	drawable := int(c.rt.Translate(&agent.WindowSize{Rows: uint16(rows), Cols: uint16(cols)}).Rows)
-	geo := OverlayGeometry{Cols: cols, Rows: drawable, PanelRows: panelRows(drawable)}
 	c.overlayMu.Lock()
-	c.overlay = ov
+	c.gen++
+	gen := c.gen
 	c.overlayMu.Unlock()
+	return &engagement{ov: ov, start: start, geo: c.geometry(rows, cols), gen: gen}, nil
+}
+
+// geometry is the overlay's DRAWABLE area for a real terminal size: the rows
+// the engine's own viewport gets (the same reservation predicate
+// resizeTranslator.Translate applies), so overlay content can never reach
+// the surround's reserved bottom row.
+func (c *Controller) geometry(rows, cols int) OverlayGeometry {
+	if reserveActive(rows, c.sur.reserve) {
+		rows -= c.sur.reserve
+	}
+	return OverlayGeometry{Cols: cols, Rows: rows, PanelRows: panelRows(rows)}
+}
+
+// show hands the terminal to a prepared engagement and starts its overlay.
+// The session is held and stays held until runOverlay's teardown.
+func (c *Controller) show(e *engagement, pr *io.PipeReader) {
 	c.sur.Suspend()
-	c.gate.Hold()
+	capacity := c.opts.HoldCapacity
+	if e.start.Summoned {
+		capacity = c.opts.ModalHoldCapacity
+	}
+	c.gate.Hold(capacity)
 	// Take the screen, and hand the overlay the FULL scroll region: with the
 	// surround's DECSTBM still active, the overlay's bottom-row repaints would
 	// scroll the screen one line per frame. Release re-establishes the region.
 	c.ttyMu.Lock()
-	tk := takeScreen(c.guard.altScreen)
-	_, _ = c.opts.TTY.Write(tk.enter)
+	e.tk = takeScreen(c.guard.altScreen, e.start.Summoned)
+	_, _ = c.opts.TTY.Write(e.tk.enter)
 	c.ttyMu.Unlock()
-	geo.EngineOnAltScreen = tk.leave == nil
-	pr, pw := io.Pipe()
-	go c.runOverlay(ov, pr, geo, tk)
-	return pw
+	e.geo.EngineOnAltScreen = e.tk.leave == nil
+	c.overlayMu.Lock()
+	c.eng = e
+	c.overlayMu.Unlock()
+	c.changed.fire()
+	go c.runOverlay(e, pr)
+}
+
+// engaged returns the live engagement, if any.
+func (c *Controller) engaged() *engagement {
+	c.overlayMu.Lock()
+	defer c.overlayMu.Unlock()
+	return c.eng
 }
 
 // takeover is how one engagement takes the screen from the engine and how
@@ -309,8 +416,14 @@ type takeover struct {
 // (the engine's cursor saved by DECSC), release clears the panel region, and
 // the nudge that follows is what repaints it — which a full-screen program,
 // the only kind that uses the alternate screen, does on a resize.
-func takeScreen(engineOnAlt bool) takeover {
-	if engineOnAlt {
+//
+// A summoned overlay is full screen from its first frame, so over an engine
+// on the alternate screen it starts from a cleared one.
+func takeScreen(engineOnAlt, full bool) takeover {
+	switch {
+	case engineOnAlt && full:
+		return takeover{enter: []byte("\x1b7\x1b[r\x1b[H\x1b[2J")}
+	case engineOnAlt:
 		return takeover{enter: []byte("\x1b7\x1b[r")}
 	}
 	// Leaving restores the engine's cursor; it is saved again at once because
@@ -322,67 +435,105 @@ func takeScreen(engineOnAlt bool) takeover {
 
 // buildOverlay isolates factory panics so a broken viewer degrades instead of
 // unwinding the stdin pump.
-func (c *Controller) buildOverlay() (ov Overlay, err error) {
+func (c *Controller) buildOverlay(start OverlayStart) (ov Overlay, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("overlay construction panicked: %v", r)
 		}
 	}()
-	return c.opts.NewOverlay(), nil
+	return c.opts.NewOverlay(start), nil
 }
 
 // runOverlay hosts one engagement on its own goroutine and always tears down:
-// interceptor back to passthrough, held output replayed behind the screen
-// restore, bar resumed, engine nudged to repaint.
-func (c *Controller) runOverlay(ov Overlay, pr *io.PipeReader, geo OverlayGeometry, tk takeover) {
-	defer c.sessionMu.Unlock()
+// interceptor back to passthrough, screen restored, bar resumed, engine
+// nudged to repaint.
+func (c *Controller) runOverlay(e *engagement, pr *io.PipeReader) {
+	// Fire after the unlock (defers run last-first), so a Summon woken by it
+	// finds the session free.
+	defer c.changed.fire()
+	defer c.session.Unlock()
+	tty := c.opts.TTY
+	if e.start.Summoned {
+		tty = &frameWatch{w: tty, first: func() { c.startArming(e) }}
+	}
 	err := func() (err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				err = fmt.Errorf("overlay panicked: %v", r)
 			}
 		}()
-		return ov.Run(pr, c.opts.TTY, geo)
+		return e.ov.Run(pr, tty, e.geo)
 	}()
 	// Unblock/void the interceptor's sink writes before flipping state.
 	pr.CloseWithError(io.ErrClosedPipe)
 	c.overlayMu.Lock()
-	c.overlay = nil
+	c.eng = nil
 	c.overlayMu.Unlock()
 	c.ic.Disengage()
-	c.release(geo, tk)
+	c.release(e)
 	if err != nil {
 		c.degrade(err)
 	}
 }
 
-// release restores the screen after an overlay, as ONE atomic tty write via
-// the gate's release preamble: return to the engine's screen (or clear the
-// panel region an in-place takeover drew over), re-establish the surround's
-// scroll region + bar, restore the engine's saved cursor (DECRC), then replay
-// the held engine output (with the truncation notice on overflow). A repaint
-// nudge through the resize seam follows so a full-screen engine redraws
-// cleanly.
-func (c *Controller) release(geo OverlayGeometry, tk takeover) {
+// release restores the screen after an overlay as ONE atomic tty write (the
+// gate's Release), in one of two ways:
+//
+//   - replay: return to the engine's screen (or clear the panel region an
+//     in-place takeover drew over), re-establish the surround's scroll region
+//     and bar, restore the engine's saved cursor (DECRC), then the held
+//     engine output — byte-exact, against the very screen it was written for;
+//   - redraw: when a summoned full-screen overlay drew over an engine on the
+//     alternate screen (nothing of its screen survives to replay onto), or
+//     when the hold overflowed (what survives is not whole): clear the
+//     screen, re-establish region + bar + cursor, drop the held output.
+//
+// Either way a repaint nudge through the resize seam follows, and it is what
+// brings a redrawn screen back.
+func (c *Controller) release(e *engagement) {
+	mode := holdReplay
+	if e.start.Summoned && e.geo.EngineOnAltScreen {
+		mode = holdDiscardRedraw
+	}
 	if c.closed.Load() {
 		// Close owns the final restore; don't repaint a handed-back terminal —
 		// but do hand back the engine's screen, which nothing else leaves.
-		if err := c.gate.Release(tk.leave); err != nil {
+		if _, err := c.gate.Release(mode, restore{replay: e.tk.leave, clear: e.tk.leave}); err != nil {
 			c.warn("output gate release: %v", err)
 		}
 		return
 	}
-	pre := slices.Clone(tk.leave)
-	if pre == nil {
-		pre = panelClearSeq(geo)
+	resume := slices.Concat(c.sur.ResumeSequence(), []byte("\x1b8"))
+	back := e.tk.leave
+	if back == nil {
+		back = panelClearSeq(e.geo)
 	}
-	pre = append(pre, c.sur.ResumeSequence()...)
-	pre = append(pre, "\x1b8"...)
-	if err := c.gate.Release(pre); err != nil {
+	r := restore{
+		replay: slices.Concat(back, resume),
+		clear:  slices.Concat(e.tk.leave, []byte("\x1b[H\x1b[2J")),
+		notice: overflowNotice(e.geo.Cols),
+		resume: resume,
+	}
+	if _, err := c.gate.Release(mode, r); err != nil {
 		// Surface a failing tty write instead of discarding it.
 		c.warn("output gate release: %v", err)
 	}
 	c.rt.Nudge()
+}
+
+// overflowText is said on the cleared screen when a hold overflowed: what the
+// engine wrote in the meantime is gone, and anything that scrolled away with
+// it is not in the scrollback.
+const overflowText = "ctxloom: engine output overflowed while the overlay was open; screen redrawn"
+
+// overflowNotice is overflowText in reverse video, cut to the width so it
+// never wraps onto the engine's rows.
+func overflowNotice(cols int) []byte {
+	text := overflowText
+	if cols > 0 && len(text) > cols {
+		text = text[:cols]
+	}
+	return slices.Concat([]byte("\x1b[7m"), []byte(text), []byte("\x1b[0m"))
 }
 
 // panelClearSeq erases the overlay's panel region (its bottom PanelRows
@@ -399,12 +550,22 @@ func panelClearSeq(geo OverlayGeometry) []byte {
 // emitted the literal prefix byte and returned to passthrough; close the
 // just-opened overlay.
 func (c *Controller) abortLiteral() {
-	c.overlayMu.Lock()
-	ov := c.overlay
-	c.overlayMu.Unlock()
-	if ov != nil {
-		ov.Abort()
+	if e := c.engaged(); e != nil {
+		e.ov.Abort()
 	}
+}
+
+// onSize is the resize translator's real-size hook: the surround's region
+// and bar, then a running overlay's layout.
+func (c *Controller) onSize(rows, cols int) {
+	c.sur.SetSize(rows, cols)
+	e := c.engaged()
+	if e == nil {
+		return
+	}
+	geo := c.geometry(rows, cols)
+	geo.EngineOnAltScreen = e.geo.EngineOnAltScreen
+	e.ov.Resize(geo)
 }
 
 // pollRoster feeds the bar's children digest at a gentle cadence. Fetch
@@ -417,7 +578,7 @@ func (c *Controller) pollRoster() {
 	c.rosterFetch()
 	for {
 		select {
-		case <-c.stopRoster:
+		case <-c.done:
 			return
 		case <-tick.C:
 			c.rosterFetch()
@@ -425,16 +586,12 @@ func (c *Controller) pollRoster() {
 	}
 }
 
-// rosterFetch performs one FetchRoster call (and, on the same tick, one
-// FetchApprovals call — the plan's "poll on the existing roster cadence",
-// not a separate ticker). On success FetchRoster feeds the bar and resets
-// the consecutive-failure streak. On failure it keeps the last-good
-// snapshot (documented intent, unchanged) but counts the streak and warns
-// exactly once when it reaches rosterFailWarnThreshold — silence
-// beyond that point used to make a permanently broken coordinator connection
-// indistinguishable from a stable roster. FetchApprovals has no error return
-// (PendingApprovals is an in-process call, not a dial) so it has no failure
-// path to count.
+// rosterFetch performs one FetchRoster call. On success it feeds the bar and
+// resets the consecutive-failure streak. On failure it keeps the last-good
+// snapshot but counts the streak and warns exactly once when it reaches
+// rosterFailWarnThreshold — silence beyond that point used to make a
+// permanently broken coordinator connection indistinguishable from a stable
+// roster.
 func (c *Controller) rosterFetch() {
 	roster, err := c.opts.FetchRoster()
 	if err != nil {
@@ -442,11 +599,25 @@ func (c *Controller) rosterFetch() {
 		if c.rosterFails == rosterFailWarnThreshold {
 			c.warn("roster poll: %d consecutive failures, most recent: %v", c.rosterFails, err)
 		}
-	} else {
-		c.rosterFails = 0
-		c.sur.SetRoster(roster)
+		return
 	}
-	if c.opts.FetchApprovals != nil {
-		c.sur.SetApprovals(c.opts.FetchApprovals())
+	c.rosterFails = 0
+	c.sur.SetRoster(roster)
+}
+
+// approvalBellInterval rate-limits the arrival bell: a burst of requests
+// rings once, not once per request.
+const approvalBellInterval = 10 * time.Second
+
+// SetApprovals sets the bar's count of approvals waiting on the human. An
+// arrival rings the bell — at most once per approvalBellInterval, and only
+// while the bar is showing (a modal on screen is its own signal).
+func (c *Controller) SetApprovals(n int, arrived bool) {
+	c.bellMu.Lock()
+	defer c.bellMu.Unlock()
+	now := c.clock.Now()
+	ring := arrived && (c.lastBell.IsZero() || now.Sub(c.lastBell) >= approvalBellInterval)
+	if c.sur.SetApprovals(n, ring) {
+		c.lastBell = now
 	}
 }

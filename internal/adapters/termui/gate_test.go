@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,7 @@ import (
 func TestOutputGate_PassthroughWhenOpen(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, 64, nil, nil)
+	g := newOutputGate(&mu, &tty, nil, nil)
 	_, _ = g.Write([]byte("engine says hi"))
 	assert.Equal(t, "engine says hi", tty.String())
 }
@@ -21,15 +22,15 @@ func TestOutputGate_PassthroughWhenOpen(t *testing.T) {
 func TestOutputGate_HoldDivertsAndReleaseReplays(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, 64, nil, nil)
+	g := newOutputGate(&mu, &tty, nil, nil)
 
 	_, _ = g.Write([]byte("before|"))
-	g.Hold()
+	g.Hold(64)
 	_, _ = g.Write([]byte("held-1|"))
 	_, _ = g.Write([]byte("held-2"))
 	assert.Equal(t, "before|", tty.String(), "held bytes must not reach the tty")
 
-	require.NoError(t, g.Release([]byte("<restore>")))
+	require.NoError(t, release(g, holdReplay, "<restore>"))
 	assert.Equal(t, "before|<restore>held-1|held-2", tty.String(),
 		"release writes the restore sequence, then the held bytes in order")
 
@@ -37,20 +38,92 @@ func TestOutputGate_HoldDivertsAndReleaseReplays(t *testing.T) {
 	assert.Equal(t, "before|<restore>held-1|held-2|after", tty.String())
 }
 
-func TestOutputGate_ReleaseWithOverflowAppendsTruncationNotice(t *testing.T) {
+// release is Release with one restore sequence for both modes, returning
+// only the error (the mode is asserted where it matters).
+func release(g *outputGate, mode holdMode, pre string) error {
+	_, err := g.Release(mode, restore{replay: []byte(pre), clear: []byte(pre)})
+	return err
+}
+
+var testRestore = restore{replay: []byte("<replay>"), clear: []byte("<clear>"), notice: []byte("<notice>"), resume: []byte("<resume>")}
+
+// TestOutputGate_OverflowNeverReplaysATornTail pins that an overflowed hold is
+// DISCARDED, not replayed from wherever eviction left it: the old drop-oldest
+// ring handed back a tail starting at an arbitrary byte, which could be the
+// middle of a CSI (here: the eviction point falls inside "\x1b[31m"), and the
+// guard — at ground — printed the fragment as text.
+func TestOutputGate_OverflowNeverReplaysATornTail(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, 8, nil, nil)
+	g := newOutputGate(&mu, &tty, nil, nil)
 
-	g.Hold()
-	_, _ = g.Write([]byte("0123456789abcdef")) // 16 into 8: oldest dropped
-	require.NoError(t, g.Release(nil))
+	g.Hold(8)
+	_, _ = g.Write([]byte("abcde\x1b[31"))
+	_, _ = g.Write([]byte("mRED"))
+	used, err := g.Release(holdReplay, testRestore)
+	require.NoError(t, err)
 
 	out := tty.String()
-	assert.Contains(t, out, "89abcdef", "the newest bytes survive")
-	assert.NotContains(t, out, "01234567", "the oldest bytes are gone")
-	assert.Contains(t, out, "8 bytes of engine output dropped",
-		"overflow surfaces as a visible truncation notice")
+	assert.Equal(t, holdDiscardRedraw, used, "an overflowed hold is redrawn whatever the caller preferred")
+	assert.NotContains(t, out, "<replay>")
+	assert.NotContains(t, out, "RED", "no held byte is replayed")
+	assert.NotContains(t, out, "31m", "no torn sequence tail reaches the screen")
+	assert.Equal(t, "<clear><notice><resume>", out, "cleared, the loss said, then region, bar and cursor back")
+}
+
+func TestOutputGate_DiscardRedrawWithoutOverflowDropsTheHoldQuietly(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	g := newOutputGate(&mu, &tty, nil, nil)
+
+	g.Hold(64)
+	_, _ = g.Write([]byte("held"))
+	used, err := g.Release(holdDiscardRedraw, testRestore)
+	require.NoError(t, err)
+	assert.Equal(t, holdDiscardRedraw, used)
+	assert.Equal(t, "<clear><resume>", tty.String(), "the held bytes are dropped, with no overflow notice")
+}
+
+func TestOutputGate_ReplayWritesReplayThenHeldBytes(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	g := newOutputGate(&mu, &tty, nil, nil)
+
+	g.Hold(64)
+	_, _ = g.Write([]byte("held"))
+	used, err := g.Release(holdReplay, testRestore)
+	require.NoError(t, err)
+	assert.Equal(t, holdReplay, used)
+	assert.Equal(t, "<replay>held", tty.String())
+}
+
+// TestOutputGate_HoldGrowsLazily pins that a large hold capacity (the modal's
+// 8 MiB) is a bound, not an allocation made at every engagement.
+func TestOutputGate_HoldGrowsLazily(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	g := newOutputGate(&mu, &tty, nil, nil)
+	g.Hold(8 << 20)
+	_, _ = g.Write([]byte("tiny"))
+	assert.Less(t, cap(g.hold), 1<<16, "the buffer grows with what is held")
+}
+
+// TestOutputGate_DiscardAbandonsTheGuardsUnwrittenSequence pins that a
+// discard also drops the guard's held-back partial sequence: its
+// continuation was in the discarded bytes, so keeping it would splice the
+// engine's next write onto the front of a sequence that no longer exists.
+func TestOutputGate_DiscardAbandonsTheGuardsUnwrittenSequence(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	g := newOutputGate(&mu, &tty, newVTGuard(nil, nil, nil), nil)
+
+	_, _ = g.Write([]byte("x\x1b[3")) // held back inside the guard, never written
+	g.Hold(64)
+	_, _ = g.Write([]byte("1m"))
+	_, err := g.Release(holdDiscardRedraw, restore{})
+	require.NoError(t, err)
+	_, _ = g.Write([]byte("text"))
+	assert.Equal(t, "xtext", tty.String(), "the engine's next write starts at ground")
 }
 
 // TestOutputGate_ReleaseWhenOpenStillWritesPre pins that Release used to
@@ -63,16 +136,16 @@ func TestOutputGate_ReleaseWithOverflowAppendsTruncationNotice(t *testing.T) {
 func TestOutputGate_ReleaseWhenOpenStillWritesPre(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, 64, nil, nil)
-	require.NoError(t, g.Release([]byte("<restore>")))
+	g := newOutputGate(&mu, &tty, nil, nil)
+	require.NoError(t, release(g, holdReplay, "<restore>"))
 	assert.Equal(t, "<restore>", tty.String(), "pre must be written even when the gate was never held")
 }
 
 func TestOutputGate_ReleaseWhenOpenWithNoPreWritesNothing(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, 64, nil, nil)
-	require.NoError(t, g.Release(nil))
+	g := newOutputGate(&mu, &tty, nil, nil)
+	require.NoError(t, release(g, holdReplay, ""))
 	assert.Empty(t, tty.String(), "releasing an open gate with no pre writes nothing")
 }
 
@@ -103,12 +176,12 @@ func TestOutputGate_Release_ReturnsWriteErrors(t *testing.T) {
 	var mu sync.Mutex
 	boom := errors.New("boom: tty gone")
 	fw := &failWriter{okCount: 0, err: boom} // every dst.Write from here fails
-	g := newOutputGate(&mu, fw, 64, nil, nil)
+	g := newOutputGate(&mu, fw, nil, nil)
 
-	g.Hold()
+	g.Hold(64)
 	_, _ = g.Write([]byte("held bytes"))
 
-	err := g.Release([]byte("<restore>"))
+	err := release(g, holdReplay, "<restore>")
 	require.Error(t, err, "a failing tty write during Release must not be silently discarded")
 	assert.ErrorIs(t, err, boom)
 }
@@ -124,17 +197,16 @@ func TestOutputGate_Release_PartialFailureStillAttemptsEveryWrite(t *testing.T) 
 	// okCount 0: the "pre" restore-sequence write (the very first dst.Write
 	// Release makes) already fails.
 	fw := &failWriter{okCount: 0, err: boom}
-	g := newOutputGate(&mu, fw, 8, nil, nil)
+	g := newOutputGate(&mu, fw, nil, nil)
 
-	g.Hold()
-	_, _ = g.Write([]byte("0123456789abcdef")) // overflow: also exercises the drop-notice write
+	g.Hold(8)
+	_, _ = g.Write([]byte("0123456789abcdef")) // overflow: exercises the notice write
 
-	err := g.Release([]byte("<restore>"))
+	_, err := g.Release(holdReplay, testRestore)
 	require.Error(t, err)
-	// Both the held-bytes replay and the drop notice are separate dst.Write
-	// calls after the failed "pre" write; failWriter fails all of them, so
-	// the aggregated error must report more than just the first.
-	assert.GreaterOrEqual(t, fw.calls, 3, "restore + replay + drop-notice must all still be attempted despite the first failing")
+	// clear, notice and resume are separate dst.Write calls; failWriter
+	// fails all of them, so every one must still have been attempted.
+	assert.GreaterOrEqual(t, fw.calls, 3, "clear + notice + resume must all still be attempted despite the first failing")
 }
 
 // TestOutputGate_Release_CallsAfterWrite pins that Release never called
@@ -146,11 +218,11 @@ func TestOutputGate_Release_CallsAfterWrite(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	calls := 0
-	g := newOutputGate(&mu, &tty, 64, nil, func() { calls++ })
+	g := newOutputGate(&mu, &tty, nil, func() { calls++ })
 
-	g.Hold()
+	g.Hold(64)
 	_, _ = g.Write([]byte("held"))
-	require.NoError(t, g.Release([]byte("<restore>")))
+	require.NoError(t, release(g, holdReplay, "<restore>"))
 	assert.Equal(t, 1, calls, "Release must run afterWrite exactly as Write does")
 }
 
@@ -166,7 +238,7 @@ func TestOutputGate_FlushGuard_WritesPendingBytes(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	guard := newVTGuard(nil, nil, nil)
-	g := newOutputGate(&mu, &tty, 64, guard, nil)
+	g := newOutputGate(&mu, &tty, guard, nil)
 
 	_, _ = g.Write([]byte("x\x1b")) // trailing incomplete escape: held inside the guard
 	assert.Equal(t, "x", tty.String(), "an incomplete escape must not reach the tty yet")
@@ -178,7 +250,7 @@ func TestOutputGate_FlushGuard_WritesPendingBytes(t *testing.T) {
 func TestOutputGate_FlushGuard_NoopWithoutGuard(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
-	g := newOutputGate(&mu, &tty, 64, nil, nil)
+	g := newOutputGate(&mu, &tty, nil, nil)
 	require.NoError(t, g.FlushGuard())
 	assert.Empty(t, tty.String())
 }
@@ -187,7 +259,7 @@ func TestOutputGate_FlushGuard_NoopWhenNothingPending(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	guard := newVTGuard(nil, nil, nil)
-	g := newOutputGate(&mu, &tty, 64, guard, nil)
+	g := newOutputGate(&mu, &tty, guard, nil)
 	_, _ = g.Write([]byte("plain text"))
 	require.NoError(t, g.FlushGuard())
 	assert.Equal(t, "plain text", tty.String())
@@ -197,11 +269,39 @@ func TestOutputGate_AfterWriteHookRidesPassthroughOnly(t *testing.T) {
 	var mu sync.Mutex
 	var tty bytes.Buffer
 	calls := 0
-	g := newOutputGate(&mu, &tty, 64, nil, func() { calls++ })
+	g := newOutputGate(&mu, &tty, nil, func() { calls++ })
 
 	_, _ = g.Write([]byte("a"))
 	assert.Equal(t, 1, calls)
-	g.Hold()
+	g.Hold(64)
 	_, _ = g.Write([]byte("b"))
 	assert.Equal(t, 1, calls, "held writes never trigger the bar flush hook")
+}
+
+// TestOutputGate_HoldNeverBlocksTheEngine pins that holding never
+// backpressures: the engine's pty is read on, whatever is held and however
+// far past the bound — an unread pty stalls the engine for as long as the
+// overlay is up.
+func TestOutputGate_HoldNeverBlocksTheEngine(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	g := newOutputGate(&mu, &tty, nil, nil)
+	g.Hold(1 << 10)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		chunk := bytes.Repeat([]byte("x"), 4096)
+		for range 256 {
+			n, err := g.Write(chunk)
+			if n != len(chunk) || err != nil {
+				return
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a held gate blocked the engine's writes")
+	}
+	assert.Empty(t, tty.String())
 }

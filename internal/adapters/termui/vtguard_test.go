@@ -275,3 +275,26 @@ func TestVTGuard_AbortedStringReprocessesEscape(t *testing.T) {
 	assert.Equal(t, "\x1b]0;tit\x1b[1;23r", filterAll(g, "\x1b]0;tit\x1b[r"))
 	assert.True(t, g.SafeForPaint())
 }
+
+// TestVTGuard_TracksTheEnginesAlternateScreen is T10: the flag the takeover
+// strategy is chosen by follows every alternate-screen spelling, a combined
+// parameter list, RIS, and a sequence split across writes.
+func TestVTGuard_TracksTheEnginesAlternateScreen(t *testing.T) {
+	g := newVTGuard(func() int { return 0 }, func() []byte { return nil }, func() {})
+	steps := []struct {
+		in   string
+		want bool
+	}{
+		{"\x1b[?1049h", true}, {"\x1b[?1049l", false},
+		{"\x1b[?47h", true}, {"\x1b[?47l", false},
+		{"\x1b[?1047h", true}, {"\x1b[?1047l", false},
+		{"\x1b[?1;1049h", true}, {"\x1bc", false}, // RIS
+		{"\x1b[?10", false}, {"49h", true}, // split across writes
+		{"\x1b[?1h", true}, // another private mode leaves it alone
+		{"\x1b[!p", true},  // DECSTR is a soft reset: it does not leave the alternate screen
+	}
+	for _, s := range steps {
+		g.Filter([]byte(s.in))
+		assert.Equal(t, s.want, g.altScreen, "after %q", s.in)
+	}
+}

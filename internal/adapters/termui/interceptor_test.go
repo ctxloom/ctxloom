@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func newHarness(chunks ...string) *ixHarness {
 			return h.engageSink()
 		},
 		AbortLiteral: func() { h.aborted++ },
-	})
+	}, time.Now)
 	return h
 }
 
@@ -192,4 +193,38 @@ func TestInterceptor_ReadNeverReturnsZeroNil(t *testing.T) {
 	assert.Equal(t, "\x1drest", string(buf[:n]))
 	assert.Equal(t, 1, h.engaged)
 	assert.Equal(t, 1, h.aborted)
+}
+
+// TestInterceptor_ReplyLongerThanTheReadIsDeliveredWhole pins that a terminal
+// reply routed to the engine from under a viewer reaches it whole even when
+// it completes in a read shorter than itself and the caller's buffer is
+// smaller still: the excess waits for the next Read, never dropped.
+func TestInterceptor_ReplyLongerThanTheReadIsDeliveredWhole(t *testing.T) {
+	h := newHarness(string([]byte{testPrefix})+"j", "\x1b[12;4", "0R")
+	var out bytes.Buffer
+	buf := make([]byte, 3)
+	for {
+		n, err := h.ic.Read(buf)
+		out.Write(buf[:n])
+		if err != nil {
+			require.ErrorIs(t, err, io.EOF)
+			break
+		}
+	}
+	assert.Equal(t, "\x1b[12;40R", out.String())
+	assert.Equal(t, "j", h.ui.String())
+}
+
+// TestInterceptor_DisengageDropsAPartialViewerToken pins that a key sequence
+// the viewer was still collecting when it closed does not complete in the
+// engine: its first bytes went nowhere, so its tail must not arrive as keys.
+func TestInterceptor_DisengageDropsAPartialViewerToken(t *testing.T) {
+	h := newHarness(string([]byte{testPrefix}) + "j\x1b[1;5")
+	assert.Empty(t, h.drain(t))
+	h.ic.Disengage()
+	h.ic.src = &chunkReader{chunks: [][]byte{[]byte("5")}}
+	assert.Equal(t, "5", h.drain(t), "the engine gets what follows, parsed from ground")
+	h.ic.mu.Lock()
+	defer h.ic.mu.Unlock()
+	assert.True(t, h.ic.tok.atBoundary(false))
 }

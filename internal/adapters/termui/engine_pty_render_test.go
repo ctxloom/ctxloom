@@ -59,7 +59,7 @@ type ptyEngineHarness struct {
 // it through runner.RunLaunchSpec: the controller's engine-bound input is the
 // engine's stdin, its engine-output seam the engine's stdout, and its
 // translated window sizes the engine's resize stream.
-func newPTYEngineHarness(t *testing.T, label string, alt bool) *ptyEngineHarness {
+func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*termui.Options)) *ptyEngineHarness {
 	t.Helper()
 	ptyDev, slave, tty := newComposedPTY(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -80,11 +80,15 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool) *ptyEngineHarness
 		},
 	}
 	resize := make(chan *agent.WindowSize, 4)
-	c := termui.New(termui.Options{
+	o := termui.Options{
 		Stdin: slave, TTY: slave, Resize: resize, Prefix: compPrefix, Surround: true,
 		Bar:        termui.BarInfo{Harp: "self-session", Engine: "mock", PrefixHint: "^]"},
-		NewOverlay: func() termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix) },
-	})
+		NewOverlay: func(termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix) },
+	}
+	for _, f := range opts {
+		f(&o)
+	}
+	c := termui.New(o)
 	t.Cleanup(c.Close)
 	resize <- &agent.WindowSize{Rows: renderRows, Cols: renderCols}
 	waitForComposition(t, "surround establish", func() bool { return strings.Contains(tty.String(), "\x1b[1;23r") })

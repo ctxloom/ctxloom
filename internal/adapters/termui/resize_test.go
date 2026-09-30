@@ -25,7 +25,7 @@ func recvSize(t *testing.T, ch <-chan *agent.WindowSize) *agent.WindowSize {
 func TestResizeTranslator_ReservesRows_InitialAndSigwinch(t *testing.T) {
 	src := make(chan *agent.WindowSize, 4)
 	var sizes [][2]int
-	rt := newResizeTranslator(src, 1, func(rows, cols int) { sizes = append(sizes, [2]int{rows, cols}) })
+	rt := newResizeTranslator(src, 1, func(rows, cols int) { sizes = append(sizes, [2]int{rows, cols}) }, realClock{})
 
 	src <- &agent.WindowSize{Rows: 24, Cols: 80} // watchResize's initial emit
 	ws := recvSize(t, rt.Out())
@@ -67,7 +67,7 @@ func TestResizeTranslator_EstablishesSurroundRegionSynchronously(t *testing.T) {
 	src := make(chan *agent.WindowSize, 1)
 	src <- &agent.WindowSize{Rows: 24, Cols: 80} // watchResize's pre-buffered initial emit
 
-	rt := newResizeTranslator(src, sur.reserve, sur.SetSize)
+	rt := newResizeTranslator(src, sur.reserve, sur.SetSize, realClock{})
 
 	assert.Contains(t, tty.String(), "\x1b[1;23r",
 		"DECSTBM must already be on the tty by the time newResizeTranslator returns")
@@ -83,7 +83,7 @@ func TestResizeTranslator_EstablishesSurroundRegionSynchronously(t *testing.T) {
 
 func TestResizeTranslator_TinyTerminalForwardsUntranslated(t *testing.T) {
 	src := make(chan *agent.WindowSize, 1)
-	rt := newResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil, realClock{})
 	src <- &agent.WindowSize{Rows: 5, Cols: 80} // below minRowsForReserve
 	ws := recvSize(t, rt.Out())
 	assert.Equal(t, uint16(5), ws.Rows, "no reservation below the threshold — matches the surround's predicate")
@@ -92,7 +92,7 @@ func TestResizeTranslator_TinyTerminalForwardsUntranslated(t *testing.T) {
 
 func TestResizeTranslator_ZeroReserveIsIdentity(t *testing.T) {
 	src := make(chan *agent.WindowSize, 1)
-	rt := newResizeTranslator(src, 0, nil)
+	rt := newResizeTranslator(src, 0, nil, realClock{})
 	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	ws := recvSize(t, rt.Out())
 	assert.Equal(t, uint16(24), ws.Rows)
@@ -101,12 +101,14 @@ func TestResizeTranslator_ZeroReserveIsIdentity(t *testing.T) {
 
 func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
 	src := make(chan *agent.WindowSize, 1)
-	rt := newResizeTranslator(src, 1, nil)
+	clk := newFakeClock()
+	rt := newResizeTranslator(src, 1, nil, clk)
 	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain the initial translated size
 
 	rt.Nudge()
 	first := recvSize(t, rt.Out())
+	clk.Advance(nudgeWiggleSeparation)
 	second := recvSize(t, rt.Out())
 	assert.Equal(t, uint16(22), first.Rows,
 		"wiggle one row SMALLER than the engine viewport (same-size TIOCSWINSZ raises no SIGWINCH)")
@@ -114,74 +116,49 @@ func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
 	close(src)
 }
 
-// TestResizeTranslator_NudgeSeparatesWiggleSteps pins that SIGWINCH
-// is a non-queued signal, so the wiggle's two TIOCSWINSZ ioctls — the shrink
-// then the restore — must not land back-to-back with no separation, or they
-// can coalesce into a single delivery. The child's handler then runs once,
-// reads TIOCGWINSZ, sees only the FINAL (unchanged) size, concludes nothing
-// happened, and skips its repaint — corrupting whatever it had drawn where
-// the overlay used to be (claude's bottom input bar, in the live incident).
-// This asserts a genuine time gap between the two sizes landing on Out(),
-// not just their values, since a same-size wiggle sent with zero separation
-// degenerates back into exactly the bug Nudge exists to fix.
+// TestResizeTranslator_NudgeSeparatesWiggleSteps pins that SIGWINCH is a
+// non-queued signal, so the wiggle's two TIOCSWINSZ ioctls — the shrink then
+// the restore — must not land back-to-back, or they can coalesce into one
+// delivery: the child's handler runs once, reads only the FINAL (unchanged)
+// size, and skips the repaint (claude's bottom input bar, in the live
+// incident). The restore must wait out nudgeWiggleSeparation on the clock.
 func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
+	clk := newFakeClock()
 	src := make(chan *agent.WindowSize, 1)
-	rt := newResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil, clk)
 	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain the initial translated size
 
-	start := time.Now()
 	rt.Nudge()
-	first := recvSize(t, rt.Out())
-	t1 := time.Since(start)
-	second := recvSize(t, rt.Out())
-	t2 := time.Since(start)
-
-	assert.Equal(t, uint16(22), first.Rows)
-	assert.Equal(t, uint16(23), second.Rows)
-	assert.Greater(t, t2-t1, 10*time.Millisecond,
-		"the wiggle's shrink and restore must be genuinely separated in time so the "+
-			"child's non-queued SIGWINCH handler has a chance to observe the intermediate "+
-			"size before the final one lands — sent back-to-back, the two can coalesce into "+
-			"one delivery that reports no change")
+	assert.Equal(t, uint16(22), recvSize(t, rt.Out()).Rows, "the shrink goes at once")
+	clk.Advance(nudgeWiggleSeparation - time.Millisecond)
+	assert.Empty(t, rt.Out(), "the restore must not land before the separation has elapsed")
+	clk.Advance(time.Millisecond)
+	assert.Equal(t, uint16(23), recvSize(t, rt.Out()).Rows, "then the true engine size")
 	close(src)
 }
 
-// TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale pins the fix
-// for the restore half: the deferred restore send must not
-// re-assert the size captured at Nudge-call time if a genuine resize lands
-// during the nudgeWiggleSeparation window. The stale send would overtake
-// (same FIFO Out() channel) the real resize and leave the child pty sized to
-// a value the terminal no longer has, until the next SIGWINCH. This injects
-// a real resize partway through the wiggle window and asserts the LAST size
-// delivered on Out() is the real resize's translated size, not the
-// pre-Nudge value.
+// TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale pins that the
+// deferred restore re-reads the size: a genuine resize landing inside the
+// wiggle window must not be overtaken (same FIFO Out() channel) by the size
+// captured at Nudge-call time, which would leave the child pty sized to a
+// value the terminal no longer has until the next SIGWINCH.
 func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
+	clk := newFakeClock()
 	src := make(chan *agent.WindowSize, 4)
-	rt := newResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil, clk)
 	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain initial translated size (23)
 
-	rt.Nudge() // schedules shrink now (22) + a restore at +nudgeWiggleSeparation
-	first := recvSize(t, rt.Out())
-	assert.Equal(t, uint16(22), first.Rows, "wiggle shrink")
+	rt.Nudge()
+	assert.Equal(t, uint16(22), recvSize(t, rt.Out()).Rows, "wiggle shrink")
 
-	// Inject a real resize inside the wiggle window, well before the
-	// restore goroutine wakes.
-	time.Sleep(nudgeWiggleSeparation / 3)
-	src <- &agent.WindowSize{Rows: 30, Cols: 80} // real SIGWINCH-driven resize
-	real := recvSize(t, rt.Out())
-	assert.Equal(t, uint16(29), real.Rows, "the real resize's translated size")
+	src <- &agent.WindowSize{Rows: 30, Cols: 80} // a real resize inside the window
+	assert.Equal(t, uint16(29), recvSize(t, rt.Out()).Rows, "the real resize's translated size")
 
-	// Wait past the restore's scheduled delivery. It must re-assert the
-	// CURRENT effective size (29, a harmless duplicate), never the STALE
-	// size captured when Nudge was called (23).
-	restored := recvSize(t, rt.Out())
-	assert.Equal(t, uint16(29), restored.Rows,
-		"the deferred restore must send the CURRENT effective size, not the "+
-			"value captured at Nudge-call time, or it clobbers a real resize "+
-			"that landed during the wiggle window")
-
+	clk.Advance(nudgeWiggleSeparation)
+	assert.Equal(t, uint16(29), recvSize(t, rt.Out()).Rows,
+		"the deferred restore sends the CURRENT effective size, never the one captured at Nudge-call time")
 	close(src)
 }
 
@@ -192,14 +169,16 @@ func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
 // (eff.Rows==1) the post-overlay repaint never happened. Nudge must still
 // produce a genuine transition even here (wiggling upward instead).
 func TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight(t *testing.T) {
+	clk := newFakeClock()
 	src := make(chan *agent.WindowSize, 1)
-	rt := newResizeTranslator(src, 5, nil)
+	rt := newResizeTranslator(src, 5, nil, clk)
 	src <- &agent.WindowSize{Rows: 6, Cols: 80}
 	first := recvSize(t, rt.Out())
 	require.Equal(t, uint16(1), first.Rows, "test setup: eff.Rows must be exactly 1")
 
 	rt.Nudge()
 	wiggle := recvSize(t, rt.Out())
+	clk.Advance(nudgeWiggleSeparation)
 	restore := recvSize(t, rt.Out())
 	assert.NotEqual(t, wiggle.Rows, restore.Rows,
 		"the wiggle step must genuinely differ from the restore so the child's SIGWINCH handler observes a change")
@@ -209,7 +188,7 @@ func TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight(t *testing.T) {
 
 func TestResizeTranslator_NudgeBeforeAnySizeIsNoop(t *testing.T) {
 	src := make(chan *agent.WindowSize)
-	rt := newResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil, realClock{})
 	rt.Nudge()
 	select {
 	case ws := <-rt.Out():
@@ -221,7 +200,7 @@ func TestResizeTranslator_NudgeBeforeAnySizeIsNoop(t *testing.T) {
 
 func TestResizeTranslator_OutClosesWithSource(t *testing.T) {
 	src := make(chan *agent.WindowSize)
-	rt := newResizeTranslator(src, 1, nil)
+	rt := newResizeTranslator(src, 1, nil, realClock{})
 	close(src) // watchResize closes on ctx done
 	select {
 	case _, ok := <-rt.Out():

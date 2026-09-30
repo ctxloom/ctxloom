@@ -10,8 +10,12 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 )
 
 // This file is the integration harness for tui/overlay.go's Run: a REAL
@@ -243,6 +247,8 @@ func (b *blockingQuitter) Quit() {
 	<-b.release
 }
 
+func (b *blockingQuitter) Send(tea.Msg) {}
+
 // Abort must not hold the overlay's lock while Quit blocks. Run takes that same
 // lock immediately after p.Run returns, so an Abort parked inside Quit with the
 // lock held wedges the pair permanently — and Run is what restores the engine's
@@ -271,5 +277,49 @@ func TestOverlay_AbortDoesNotHoldTheLockWhileQuitBlocks(t *testing.T) {
 	case <-free:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Abort holds the overlay lock while blocked inside Quit; Run cannot finish and the terminal is never restored")
+	}
+}
+
+// A resize reaches a running overlay: the model lays out for the new
+// geometry and tells the renderer the size it now owns (the panel's height).
+func TestModel_GeometryMsgRelaysOut(t *testing.T) {
+	m := newTestModel(newFakeSources(t.TempDir()))
+	geo := termui.OverlayGeometry{Cols: 90, Rows: 29, PanelRows: 9}
+	next, cmd := m.Update(geometryMsg(geo))
+	got := next.(Model)
+	lines := strings.Split(got.render(), "\n")
+	assert.Len(t, lines, 9, "the panel is the new panel height")
+	for _, l := range lines {
+		assert.LessOrEqual(t, ansi.StringWidth(l), 90, "no line wider than the new width")
+	}
+	require.NotNil(t, cmd)
+	assert.Equal(t, tea.WindowSizeMsg{Width: 90, Height: 9}, cmd())
+}
+
+// recordingSender stands in for the program to capture what Resize sends.
+type recordingSender struct{ sent chan tea.Msg }
+
+func (r *recordingSender) Quit()            {}
+func (r *recordingSender) Send(msg tea.Msg) { r.sent <- msg }
+
+// Resize reaches the program once it runs; one that arrives before is kept
+// for Run, never dropped.
+func TestOverlay_ResizeReachesTheProgram(t *testing.T) {
+	o := NewOverlay(context.Background(), newFakeSources(t.TempDir()).sources(), 0x1d)
+	geo := termui.OverlayGeometry{Cols: 90, Rows: 20, PanelRows: 8}
+	o.Resize(geo)
+	o.mu.Lock()
+	require.NotNil(t, o.resized, "a resize before the program exists is kept")
+	assert.Equal(t, geo, *o.resized)
+	rs := &recordingSender{sent: make(chan tea.Msg, 1)}
+	o.prog = rs
+	o.mu.Unlock()
+
+	o.Resize(geo)
+	select {
+	case msg := <-rs.sent:
+		assert.Equal(t, geometryMsg(geo), msg)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the running program never got the geometry")
 	}
 }

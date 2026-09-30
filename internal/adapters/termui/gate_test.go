@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -275,4 +276,32 @@ func TestOutputGate_AfterWriteHookRidesPassthroughOnly(t *testing.T) {
 	g.Hold(64)
 	_, _ = g.Write([]byte("b"))
 	assert.Equal(t, 1, calls, "held writes never trigger the bar flush hook")
+}
+
+// TestOutputGate_HoldNeverBlocksTheEngine pins that holding never
+// backpressures: the engine's pty is read on, whatever is held and however
+// far past the bound — an unread pty stalls the engine for as long as the
+// overlay is up.
+func TestOutputGate_HoldNeverBlocksTheEngine(t *testing.T) {
+	var mu sync.Mutex
+	var tty bytes.Buffer
+	g := newOutputGate(&mu, &tty, nil, nil)
+	g.Hold(1 << 10)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		chunk := bytes.Repeat([]byte("x"), 4096)
+		for range 256 {
+			n, err := g.Write(chunk)
+			if n != len(chunk) || err != nil {
+				return
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a held gate blocked the engine's writes")
+	}
+	assert.Empty(t, tty.String())
 }

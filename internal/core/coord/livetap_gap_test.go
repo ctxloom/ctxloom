@@ -187,7 +187,6 @@ func TestLiveTap_GapNoticeReachesTheOverlay(t *testing.T) {
 		Watch: func(context.Context, string) (*tui.Feed, error) {
 			return &tui.Feed{Source: feed.Source, Events: feed.Events, Errs: feed.Errs, Cancel: func() {}}, nil
 		},
-		Now: time.Now,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

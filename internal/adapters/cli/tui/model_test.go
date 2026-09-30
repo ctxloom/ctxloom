@@ -69,7 +69,6 @@ func (f *fakeSources) sources() Sources {
 				},
 			}, nil
 		},
-		Now: func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },
 		Control: func(_ context.Context, req coord.ControlRequest) (coord.ControlResult, error) {
 			f.mu.Lock()
 			f.controlled = append(f.controlled, req)

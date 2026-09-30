@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -23,15 +22,6 @@ type Sources struct {
 	// coordinator (coord.Coordinator.Control). Nil when no coordinator is
 	// hosted; every control key then says so rather than opening.
 	Control func(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error)
-	// Now is the export-filename clock; nil means time.Now.
-	Now func() time.Time
-}
-
-func (s Sources) now() time.Time {
-	if s.Now != nil {
-		return s.Now()
-	}
-	return time.Now()
 }
 
 // RosterRow is one line of the agents pane.

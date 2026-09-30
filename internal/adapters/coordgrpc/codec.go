@@ -602,41 +602,43 @@ func RunHelloFromWire(h *agentcoordpb.Hello) coord.RunHello {
 // request); what the request may say is each verb's Validate.
 func AgentRequestFromWire(req *agentcoordpb.AgentRequest) (coord.AgentRequest, error) {
 	out := coord.AgentRequest{RequestID: req.GetRequestId(), Timeout: durationFromWire(req.GetTimeout())}
+	kind, err := agentRequestKindFromWire(req)
+	if err != nil {
+		return out, err
+	}
+	out.Kind = kind
+	return out, nil
+}
+
+// agentRequestKindFromWire decodes the request's kind arm.
+func agentRequestKindFromWire(req *agentcoordpb.AgentRequest) (coord.AgentRequestKind, error) {
 	switch k := req.GetKind().(type) {
 	case *agentcoordpb.AgentRequest_SpawnAgent:
-		sr, err := spawnRequestFromWire(k.SpawnAgent)
-		if err != nil {
-			return out, err
-		}
-		out.Kind = sr
+		return requestKind(spawnRequestFromWire(k.SpawnAgent))
 	case *agentcoordpb.AgentRequest_ListRuns:
-		out.Kind = coord.RosterRequest{Role: k.ListRuns.GetRole(), IncludeTerminal: k.ListRuns.GetIncludeTerminal()}
+		return coord.RosterRequest{Role: k.ListRuns.GetRole(), IncludeTerminal: k.ListRuns.GetIncludeTerminal()}, nil
 	case *agentcoordpb.AgentRequest_StopRun:
-		out.Kind = coord.StopRun{RunID: k.StopRun.GetRunId(), Reason: k.StopRun.GetReason(), Grace: durationFromWire(k.StopRun.GetGrace())}
+		return coord.StopRun{RunID: k.StopRun.GetRunId(), Reason: k.StopRun.GetReason(), Grace: durationFromWire(k.StopRun.GetGrace())}, nil
 	case *agentcoordpb.AgentRequest_ControlRun:
-		cr, err := controlRequestFromWire(k.ControlRun)
-		if err != nil {
-			return out, err
-		}
-		out.Kind = cr
+		return requestKind(controlRequestFromWire(k.ControlRun))
 	case *agentcoordpb.AgentRequest_Host:
-		hr, err := hostRequestFromWire(k.Host)
-		if err != nil {
-			return out, err
-		}
-		out.Kind = hr
+		return requestKind(hostRequestFromWire(k.Host))
 	case *agentcoordpb.AgentRequest_Approval:
-		ar, err := ApprovalRequestFromWire(k.Approval)
-		if err != nil {
-			return out, err
-		}
-		out.Kind = ar
+		return requestKind(ApprovalRequestFromWire(k.Approval))
 	case *agentcoordpb.AgentRequest_PeerSend:
-		return out, coord.ErrPeerSendIsLocal
+		return nil, coord.ErrPeerSendIsLocal
 	default:
-		return out, coord.ErrUnsupportedRequest
+		return nil, coord.ErrUnsupportedRequest
 	}
-	return out, nil
+}
+
+// requestKind widens one arm's typed decode to the sealed kind; a failed
+// decode yields no kind at all.
+func requestKind[K coord.AgentRequestKind](k K, err error) (coord.AgentRequestKind, error) {
+	if err != nil {
+		return nil, err
+	}
+	return k, nil
 }
 
 // spawnRequestFromWire decodes a spawn: the role names the agent, and the
@@ -746,42 +748,53 @@ func AgentReplyToWire(r coord.AgentReply) *agentcoordpb.CoordinatorResponse {
 		return out
 	}
 	out.Status = OKStatus(r.Message)
-	switch res := r.Result.(type) {
+	if err := setAgentResult(out, r.Result); err != nil {
+		out.Status = StatusErr(codes.Internal, err.Error())
+		out.Kind = nil
+	}
+	return out
+}
+
+// setAgentResult encodes the answer into out's result arm; an answer the
+// wire cannot carry is an error, and out then carries none.
+func setAgentResult(out *agentcoordpb.CoordinatorResponse, res coord.AgentResult) error {
+	switch res := res.(type) {
 	case coord.SpawnResult:
 		out.Kind = &agentcoordpb.CoordinatorResponse_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentResult{ChildRunId: res.RunID, ChildAgentId: res.Harp}}
 	case coord.RunsSnapshot:
 		out.Kind = &agentcoordpb.CoordinatorResponse_ListRuns{ListRuns: RunsSnapshotToWire(res)}
 	case coord.StopResult:
-		result := &agentcoordpb.StopRunResult{}
-		for _, sc := range res.Children {
-			result.Children = append(result.Children, &agentcoordpb.StopRunResult_Child{
-				Harp: sc.Harp, RunId: sc.RunID, Agent: sc.Agent, Outcome: sc.Outcome, Detail: sc.Detail,
-			})
-		}
-		out.Kind = &agentcoordpb.CoordinatorResponse_StopRun{StopRun: result}
+		out.Kind = &agentcoordpb.CoordinatorResponse_StopRun{StopRun: stopResultToWire(res)}
 	case coord.ControlResult:
 		cr, err := controlResultToWire(res)
 		if err != nil {
-			out.Status = StatusErr(codes.Internal, err.Error())
-			return out
+			return err
 		}
 		out.Kind = &agentcoordpb.CoordinatorResponse_ControlRun{ControlRun: cr}
 	case coord.HostResult:
 		body := &structpb.Struct{}
 		if err := protojson.Unmarshal(res.Body, body); err != nil {
-			out.Status = StatusErr(codes.Internal, fmt.Sprintf("encode result: %v", err))
-			return out
+			return fmt.Errorf("encode result: %v", err)
 		}
 		out.Kind = &agentcoordpb.CoordinatorResponse_Host{Host: &agentcoordpb.HostResult{Body: body}}
 	case coord.ApprovalDecision:
 		d, err := ApprovalDecisionToWire(res)
 		if err != nil {
-			out.Status = StatusErr(codes.Internal, err.Error())
-			return out
+			return err
 		}
 		out.Kind = &agentcoordpb.CoordinatorResponse_Approval{Approval: d}
 	}
-	return out
+	return nil
+}
+
+func stopResultToWire(res coord.StopResult) *agentcoordpb.StopRunResult {
+	result := &agentcoordpb.StopRunResult{}
+	for _, sc := range res.Children {
+		result.Children = append(result.Children, &agentcoordpb.StopRunResult_Child{
+			Harp: sc.Harp, RunId: sc.RunID, Agent: sc.Agent, Outcome: sc.Outcome, Detail: sc.Detail,
+		})
+	}
+	return result
 }
 
 func controlResultToWire(res coord.ControlResult) (*agentcoordpb.ControlRunResult, error) {

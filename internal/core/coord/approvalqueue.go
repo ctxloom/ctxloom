@@ -261,7 +261,9 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 		q.expireHook(req.ID)
 	}
 	if q.claim(req.ID) {
-		q.settle(p, d)
+		// A decision the journal refused reaches the asker as a refused
+		// deny; there is nobody else to tell.
+		_ = q.settle(p, d)
 	}
 	// Claimed or not, exactly one settle delivers on answer.
 	return <-p.answer
@@ -304,7 +306,7 @@ func (q *ApprovalQueue) cancelFrom(harp string) {
 	}
 	q.mu.Unlock()
 	for _, p := range mine {
-		q.settle(p, ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking run ended"})
+		_ = q.settle(p, ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking run ended"})
 	}
 }
 

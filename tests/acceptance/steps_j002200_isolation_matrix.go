@@ -1416,6 +1416,6 @@ func isoExportSetupToken(w *World, eng string) error {
 	if err != nil {
 		return err
 	}
-	w.env.SetEnv(vars[0], isoFixtureSetupToken)
+	w.env.SetChildEnv(vars[0], isoFixtureSetupToken)
 	return nil
 }

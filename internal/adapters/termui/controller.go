@@ -452,7 +452,7 @@ func (c *Controller) runOverlay(e *engagement, pr *io.PipeReader) {
 	// finds the session free.
 	defer c.changed.fire()
 	defer c.session.Unlock()
-	var tty io.Writer = c.opts.TTY
+	tty := c.opts.TTY
 	if e.start.Summoned {
 		tty = &frameWatch{w: tty, first: func() { c.startArming(e) }}
 	}
@@ -481,8 +481,8 @@ func (c *Controller) runOverlay(e *engagement, pr *io.PipeReader) {
 //
 //   - replay: return to the engine's screen (or clear the panel region an
 //     in-place takeover drew over), re-establish the surround's scroll region
-//     + bar, restore the engine's saved cursor (DECRC), then the held engine
-//     output — byte-exact, against the very screen it was written for;
+//     and bar, restore the engine's saved cursor (DECRC), then the held
+//     engine output — byte-exact, against the very screen it was written for;
 //   - redraw: when a summoned full-screen overlay drew over an engine on the
 //     alternate screen (nothing of its screen survives to replay onto), or
 //     when the hold overflowed (what survives is not whole): clear the

@@ -219,7 +219,7 @@ func TestInterceptor_ReplyLongerThanTheReadIsDeliveredWhole(t *testing.T) {
 // the viewer was still collecting when it closed does not complete in the
 // engine: its first bytes went nowhere, so its tail must not arrive as keys.
 func TestInterceptor_DisengageDropsAPartialViewerToken(t *testing.T) {
-	h := newHarness(string([]byte{testPrefix})+"j\x1b[1;5")
+	h := newHarness(string([]byte{testPrefix}) + "j\x1b[1;5")
 	assert.Empty(t, h.drain(t))
 	h.ic.Disengage()
 	h.ic.src = &chunkReader{chunks: [][]byte{[]byte("5")}}

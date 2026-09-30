@@ -50,10 +50,10 @@ func (m *paintedModal) Run(in io.Reader, tty io.Writer, geo termui.OverlayGeomet
 	return nil
 }
 
-func (m *paintedModal) Abort()                          { m.once.Do(func() { close(m.quit) }) }
-func (m *paintedModal) Resize(termui.OverlayGeometry)   {}
-func (m *paintedModal) Armed(int)                       {}
-func (m *paintedModal) Notify(termui.Notice)            {}
+func (m *paintedModal) Abort()                        { m.once.Do(func() { close(m.quit) }) }
+func (m *paintedModal) Resize(termui.OverlayGeometry) {}
+func (m *paintedModal) Armed(int)                     {}
+func (m *paintedModal) Notify(termui.Notice)          {}
 func (m *paintedModal) factory() func(*termui.Options) {
 	return func(o *termui.Options) {
 		o.NewOverlay = func(start termui.OverlayStart) termui.Overlay {

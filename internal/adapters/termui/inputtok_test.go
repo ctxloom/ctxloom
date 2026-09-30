@@ -36,29 +36,29 @@ func TestInputTok_Classifies(t *testing.T) {
 	}{
 		{"a", tokKey},
 		{"\r", tokKey},
-		{"\x1b[A", tokKey},              // arrow
-		{"\x1b[1;5C", tokKey},           // ctrl+right
-		{"\x1b[97;5u", tokKey},          // kitty key event (no '?')
-		{"\x1bOP", tokKey},              // SS3 F1
-		{"\x1ba", tokKey},               // alt+a
-		{"é", tokKey},                   // one rune
-		{"\x1b[12;40R", tokReport},      // CPR
-		{"\x1b[?12;40R", tokReport},     // DECXCPR
-		{"\x1b[?62;22c", tokReport},     // DA1
-		{"\x1b[>41;354;0c", tokReport},  // DA2
-		{"\x1b[0n", tokReport},          // DSR
-		{"\x1b[?2026;2$y", tokReport},   // DECRPM
-		{"\x1b[I", tokReport},           // focus in
-		{"\x1b[O", tokReport},           // focus out
-		{"\x1b[?1u", tokReport},         // kitty flags reply
+		{"\x1b[A", tokKey},                              // arrow
+		{"\x1b[1;5C", tokKey},                           // ctrl+right
+		{"\x1b[97;5u", tokKey},                          // kitty key event (no '?')
+		{"\x1bOP", tokKey},                              // SS3 F1
+		{"\x1ba", tokKey},                               // alt+a
+		{"é", tokKey},                                   // one rune
+		{"\x1b[12;40R", tokReport},                      // CPR
+		{"\x1b[?12;40R", tokReport},                     // DECXCPR
+		{"\x1b[?62;22c", tokReport},                     // DA1
+		{"\x1b[>41;354;0c", tokReport},                  // DA2
+		{"\x1b[0n", tokReport},                          // DSR
+		{"\x1b[?2026;2$y", tokReport},                   // DECRPM
+		{"\x1b[I", tokReport},                           // focus in
+		{"\x1b[O", tokReport},                           // focus out
+		{"\x1b[?1u", tokReport},                         // kitty flags reply
 		{"\x1b]11;rgb:0000/0000/0000\x1b\\", tokReport}, // OSC 11, ST
 		{"\x1b]10;rgb:ffff/ffff/ffff\a", tokReport},     // OSC 10, BEL
 		{"\x1bP>|xterm(390)\x1b\\", tokReport},          // XTVERSION (DCS)
 		{"\x1b_Gi=1;OK\x1b\\", tokReport},               // kitty graphics (APC)
-		{"\x1b[<0;10;5M", tokMouse},     // SGR press
-		{"\x1b[<0;10;5m", tokMouse},     // SGR release
-		{"\x1b[32;10;5M", tokMouse},     // urxvt
-		{"\x1b[M !!", tokMouse},         // X10: CSI M + three raw bytes
+		{"\x1b[<0;10;5M", tokMouse},                     // SGR press
+		{"\x1b[<0;10;5m", tokMouse},                     // SGR release
+		{"\x1b[32;10;5M", tokMouse},                     // urxvt
+		{"\x1b[M !!", tokMouse},                         // X10: CSI M + three raw bytes
 	}
 	for _, tc := range cases {
 		got, tk := tokenize(t, false, tc.in)

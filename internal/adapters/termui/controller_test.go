@@ -67,8 +67,8 @@ func (f *fakeOverlay) Run(in io.Reader, tty io.Writer, geo OverlayGeometry) erro
 }
 
 func (f *fakeOverlay) Resize(geo OverlayGeometry) { f.resizes <- geo }
-func (f *fakeOverlay) Armed(discarded int)       { f.armed <- discarded }
-func (f *fakeOverlay) Notify(n Notice)           { f.notices <- n }
+func (f *fakeOverlay) Armed(discarded int)        { f.armed <- discarded }
+func (f *fakeOverlay) Notify(n Notice)            { f.notices <- n }
 
 func (f *fakeOverlay) Abort() {
 	f.aborts <- struct{}{}

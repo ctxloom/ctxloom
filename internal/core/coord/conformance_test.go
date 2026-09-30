@@ -165,10 +165,15 @@ func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
-	childCaller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
+	// A caller the coordinator launched: its ceiling is on record, so the
+	// grandchild can be capped at it.
+	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate", "", "")
+	require.NoError(t, err)
+	childHome(t, c, child.RunID)
+	childCaller := c.inProject(Identity{Harp: child.Harp, RunID: child.RunID, Depth: 1})
 	out, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return sp.spawnCount() == 2 }, conformanceWait, 10*time.Millisecond)
 
 	var rec *RunRecord
 	c.runs.View(func() {
@@ -178,8 +183,8 @@ func TestAgentRun_GrandchildAllowed(t *testing.T) {
 		}
 	})
 	require.NotNil(t, rec)
-	assert.Equal(t, "some-child", rec.ParentHarp)
-	assert.Equal(t, "run-child", rec.ParentRunID, "the grandchild's durable lineage names the SPAWNING run, not just its harp")
+	assert.Equal(t, child.Harp, rec.ParentHarp)
+	assert.Equal(t, child.RunID, rec.ParentRunID, "the grandchild's durable lineage names the SPAWNING run, not just its harp")
 	assert.Equal(t, 2, rec.Depth)
 }
 

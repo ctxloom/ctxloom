@@ -291,16 +291,28 @@ func (s *spawner) RecordEngineVersion(ctx context.Context, harp, backend string)
 // runner process.
 var startEngine = operations.StartEngine
 
-// ResolveLaunch resolves the child's launch against the spawn's generation.
-// A delegated child defaults to its OWN worktree when neither the call nor
-// the project chose a workspace: needing a private cwd is a property of how
-// the parent fans, and the shared checkout is never the silent default for a
-// child.
+// ResolveLaunch resolves the child's launch (childSource) against the
+// spawn's generation.
 func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	deps, err := operations.LaunchDepsFor(s.app.LaunchFacts(), plan.Snapshot)
 	if err != nil {
 		return coord.Resolved{}, err
 	}
+	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), childSource(plan, start, s.projectDir))
+	if err != nil {
+		return coord.Resolved{}, err
+	}
+	plan.Launch = l
+	return coord.Resolved{Launch: l}, nil
+}
+
+// childSource is what a delegated child's launch is asked from: the plan's
+// selection, the coordinator's identity and first turn, the launching run's
+// ceiling as the cap, and the resume arm on a resume or rebind. A child
+// defaults to its OWN worktree when neither the call nor the project chose a
+// workspace: needing a private cwd is a property of how the parent fans,
+// and the shared checkout is never the silent default for a child.
+func childSource(plan *coord.SpawnPlan, start coord.SpawnStart, projectDir string) launch.Source {
 	workspace := plan.Workspace
 	if workspace == "" && plan.Snapshot.Config.GetWorkspace() == "" {
 		workspace = launch.WorkspaceWorktree
@@ -310,19 +322,17 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 		Agent:     plan.AgentName,
 		Mode:      launch.StructuredMode(),
 		Prompt:    start.Prompt,
-		WorkDir:   s.projectDir,
+		WorkDir:   projectDir,
 		Workspace: workspace,
 		DirtyTree: plan.DirtyTreeHandler,
+		// The launching run's ceiling caps this child's (the coordinator
+		// read it off the journal); zero for a child of the root session.
+		ParentCeiling: plan.ParentCeiling,
 	}
 	if start.Resumed || start.Rebind {
 		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}, RebindEndpoint: start.Rebind}
 	}
-	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), src)
-	if err != nil {
-		return coord.Resolved{}, err
-	}
-	plan.Launch = l
-	return coord.Resolved{Launch: l}, nil
+	return src
 }
 
 // Start starts the runner for a resolved launch through StartRunner over the

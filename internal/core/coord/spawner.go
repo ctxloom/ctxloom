@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
@@ -33,7 +34,11 @@ type SpawnPlan struct {
 	// declaration (empty when it declared none), or an owner run's floored
 	// posture. The launch resolver decides the effective one.
 	Permission string
-	Degraded   []string
+	// ParentCeiling caps the child's launch at the launching run's own
+	// ceiling (launch.Source.ParentCeiling); zero when the launching
+	// session is the root, which nothing caps.
+	ParentCeiling engine.PermissionMode
+	Degraded      []string
 	// MCPServers is the child's composed MCP server set, resolved once at
 	// the verb so a later config edit cannot retroactively change a live
 	// run's privileges and so the journal, the launch and StartEngine read

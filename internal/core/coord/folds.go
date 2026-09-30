@@ -66,6 +66,9 @@ type RunRecord struct {
 	// enqueue. Only meaningful while the run is live: the container is
 	// force-removed on teardown.
 	ContainerName string
+	// Ceiling is the permission ceiling the run's launch resolved to
+	// (factRunCeiling), as its kind name; empty until the launch resolves.
+	Ceiling string
 }
 
 // TopLevel reports whether the run is a session's OWN run rather than a
@@ -110,6 +113,8 @@ func (f *runsFold) apply(fact Fact) {
 		applyDecoded(fact, f.applyEnded)
 	case factRunContainer:
 		applyDecoded(fact, f.applyContainer)
+	case factRunCeiling:
+		applyDecoded(fact, f.applyCeiling)
 	case factRunResumable:
 		applyDecoded(fact, f.applyResumable)
 	case factRunReaped:
@@ -181,6 +186,12 @@ func (f *runsFold) applyEnded(p runEnded, at time.Time) {
 func (f *runsFold) applyContainer(p runContainer, _ time.Time) {
 	if r := f.runs[p.RunID]; r != nil {
 		r.ContainerName = p.ContainerName
+	}
+}
+
+func (f *runsFold) applyCeiling(p runCeilingFact, _ time.Time) {
+	if r := f.runs[p.RunID]; r != nil {
+		r.Ceiling = p.Ceiling
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
@@ -252,6 +253,10 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if err := c.admitAgentRun(caller, agentName, prompt); err != nil {
 		return nil, err
 	}
+	ceiling, err := c.parentCeiling(caller.Depth+1, caller.RunID)
+	if err != nil {
+		return nil, fmt.Errorf("agent_run: refused: %w", err)
+	}
 
 	// EVERYTHING FROM HERE TO enqueueRun IS THE TRACELESS SPAN. The run has
 	// no id yet, so nothing can be journaled against it, nothing appears in
@@ -279,6 +284,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	}
 	plan.Workspace = workspace
 	plan.DirtyTreeHandler = dirtyTreeHandler
+	plan.ParentCeiling = ceiling
 
 	harp, err := c.spawner.AssignSession(c.projectDir, plan.Backend)
 	if err != nil {
@@ -343,6 +349,50 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		Queued:   queued,
 		Degraded: plan.Degraded,
 	}, nil
+}
+
+// errNoParentCeiling refuses a launch whose parent's ceiling is not on
+// record: it could not be capped, and an uncapped grandchild is the one
+// thing the cap exists to prevent.
+var errNoParentCeiling = errors.New("the launching run's permission ceiling is not on record, so a child it launches cannot be capped at it")
+
+// parentCeiling is the cap on a run launched at depth by the run parentRunID:
+// none when the parent is the root session (depth 1 — the human's own
+// session is capped by nothing), else the ceiling the parent's launch
+// resolved to, as journaled.
+func (c *Coordinator) parentCeiling(depth int, parentRunID string) (engine.PermissionMode, error) {
+	if depth <= 1 {
+		return engine.PermissionNotRequested, nil
+	}
+	var recorded string
+	c.runs.View(func() {
+		if r := c.runsF.run(parentRunID); r != nil {
+			recorded = r.Ceiling
+		}
+	})
+	m, ok := engine.ParsePermissionMode(recorded)
+	if !ok {
+		return 0, fmt.Errorf("%w (run %q)", errNoParentCeiling, parentRunID)
+	}
+	return m, nil
+}
+
+// recordCeiling journals the ceiling a run's launch resolved to; a run
+// relaunched at the same ceiling (a rebind, a resume) writes nothing.
+func (c *Coordinator) recordCeiling(runID string, ceiling engine.PermissionMode) {
+	if ceiling == engine.PermissionNotRequested {
+		return
+	}
+	name := ceiling.String()
+	if err := c.runs.Exec(func() ([]Fact, error) {
+		r := c.runsF.run(runID)
+		if r == nil || r.Ceiling == name {
+			return nil, nil
+		}
+		return []Fact{factAt(factRunCeiling, c.now(), runCeilingFact{RunID: runID, Ceiling: name})}, nil
+	}); err != nil {
+		c.rep.Warnf("coordinator: record the run's permission ceiling: %v", err)
+	}
 }
 
 // admitAgentRun refuses an agent_run before anything is resolved: a
@@ -811,6 +861,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		c.failChild(rt, err)
 		return
 	}
+	c.recordCeiling(rt.runID, resolved.Launch.Permission.Ceiling)
 	if err := c.honourListen(resolved.Launch.Cell.Listen); err != nil {
 		c.failChild(rt, fmt.Errorf("agent_run: the child's runner has no listener to dial home to: %w", err))
 		return
@@ -1713,6 +1764,12 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	}
 	plan, err := c.spawner.Resolve(lctx, rec.Agent)
 	if err != nil {
+		c.failResume(harp, rec, err)
+		return
+	}
+	// The cap is the parent's journaled ceiling, as it was at the first
+	// launch: a resume is the same run identity, capped the same way.
+	if plan.ParentCeiling, err = c.parentCeiling(rec.Depth, rec.ParentRunID); err != nil {
 		c.failResume(harp, rec, err)
 		return
 	}

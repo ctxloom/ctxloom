@@ -47,6 +47,9 @@ type fakeSpawner struct {
 	// "started and failed".
 	launchErr error
 	perms     []agent.PermissionMode
+	// parentCeilings records each ResolveLaunch's plan.ParentCeiling, in
+	// call order: the cap the coordinator handed the child's launch.
+	parentCeilings []engine.PermissionMode
 	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
 	// live gRPC listeners) around it. chats/kills record per spawn.
@@ -246,6 +249,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	s.mu.Lock()
 	s.identities = append(s.identities, start.Identity)
 	s.perms = append(s.perms, perm)
+	s.parentCeilings = append(s.parentCeilings, plan.ParentCeiling)
 	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
 	s.rebindFlags = append(s.rebindFlags, start.Rebind)
@@ -792,3 +796,11 @@ func ownerRun(l launch.Launch, oneShot bool) OwnerRun {
 // scriptedChat is the shared scripted engine double, under the name this
 // suite has always used for it.
 type scriptedChat = scriptedchat.Chat
+
+// resolvedParentCeilings returns every ResolveLaunch's parent ceiling, in
+// call order.
+func (s *fakeSpawner) resolvedParentCeilings() []engine.PermissionMode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]engine.PermissionMode(nil), s.parentCeilings...)
+}

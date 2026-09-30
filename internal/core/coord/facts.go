@@ -31,6 +31,10 @@ const (
 	// name cannot be known at enqueue, only after spawn. Never posted for a
 	// host-runtime run.
 	factRunContainer = "run.container"
+	// factRunCeiling records the permission ceiling a run's launch resolved
+	// to — known only once the launch resolves, after enqueue. A child the
+	// run launches is capped there, after a restart as before one.
+	factRunCeiling = "run.ceiling"
 	// factRunResumable records the run engine's LIVE resume capability (ACP's
 	// initialize-time loadSession bit, surfaced via ChatSessionInfo.Resumable)
 	// — the one-shot resume gate's live half (one-shot-resume plan, Slice 4 /
@@ -172,6 +176,12 @@ type runEnded struct {
 	RunID  string `json:"run_id"`
 	Cause  string `json:"cause"`
 	Detail string `json:"detail,omitempty"`
+}
+
+// runCeilingFact is factRunCeiling's payload: the ceiling's kind name.
+type runCeilingFact struct {
+	RunID   string `json:"run_id"`
+	Ceiling string `json:"ceiling"`
 }
 
 // runContainer is factRunContainer's payload.

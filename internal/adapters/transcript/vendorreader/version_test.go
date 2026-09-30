@@ -14,8 +14,8 @@ type namedAdapter struct{ name string }
 
 func (namedAdapter) Convert(context.Context, transcript.Recorder, string) error { return nil }
 
-// claudeLine mirrors the real claude-code declaration: the whole 2.x line,
-// with .github/engine-versions.env's 2.1.214 pin inside it.
+// claudeLine is shaped like the real claude-code declaration: the whole 2.x
+// line, with a validated version inside it.
 func claudeLine() []VersionedAdapter {
 	return []VersionedAdapter{{
 		Adapter:          namedAdapter{"claude-2x"},
@@ -24,9 +24,8 @@ func claudeLine() []VersionedAdapter {
 	}}
 }
 
-// The installed claude on this project's dev host (2.1.225) is AHEAD of the
-// lock's pin (2.1.214). That must read fine: the pin is what was validated,
-// not a ceiling on what a user may have.
+// A recorded version AHEAD of the validated one must read fine: the pin is
+// what was validated, not a ceiling on what a user may have.
 func TestSelectAdapter_VersionAheadOfThePinButInsideTheRange(t *testing.T) {
 	got, err := SelectAdapter("claude-code", "2.1.225", "harp", claudeLine())
 	require.NoError(t, err)

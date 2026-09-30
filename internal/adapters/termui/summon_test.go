@@ -270,7 +270,9 @@ func TestSummon_UnavailableAndCancelled(t *testing.T) {
 	h.waitTimers(t, 1)
 	h.c.Close()
 	require.ErrorIs(t, recvErr(t, done), ErrUIUnavailable, "Close during the wait ends it")
+	h.clk.Advance(time.Hour) // every other gate open: only the closed layer refuses
 	require.ErrorIs(t, recvErr(t, h.summon(context.Background())), ErrUIUnavailable)
+	notStarted(t, h.overlay, "a closed layer showed an overlay")
 }
 
 func TestSummon_DegradedIsUnavailable(t *testing.T) {
@@ -287,6 +289,11 @@ func TestSummon_DegradedIsUnavailable(t *testing.T) {
 func TestSummon_WaitsForATeardownThenTakesTheScreen(t *testing.T) {
 	h := newSummonHarness(t, nil)
 	h.c.session.Lock() // a teardown in flight
+	shown, retry, err := h.c.trySummon(OverlayStart{Summoned: true})
+	require.NoError(t, err, "a teardown in flight is a wait, not a failure")
+	assert.False(t, shown)
+	assert.Zero(t, retry, "woken by the teardown's end, not a timer")
+
 	done := h.summon(context.Background())
 	notStarted(t, h.overlay, "took the screen during a teardown")
 	h.c.session.Unlock()

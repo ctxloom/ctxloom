@@ -533,8 +533,7 @@ func TestDoctorCheckLocalTierState_RightState_AllPresent(t *testing.T) {
 // case this check exists for: a project immediately after `ctxloom init`
 // (setupProject's own shape) has NONE of the PresenceMustExist local-only
 // state yet, and the report names every one of them plus its Lost text — the
-// thing a fresh clone has no way to learn today, per the config-layer-scope
-// design doc. PresenceIfUsed rows (the RootHome stores) are asserted absent
+// thing a fresh clone has no way to learn today. PresenceIfUsed rows (the RootHome stores) are asserted absent
 // from the report by the companion test below — a fresh project says
 // nothing about them, which is not the same claim as "they are present".
 func TestDoctorCheckLocalTierState_WrongState_FreshInitMissesEvery(t *testing.T) {

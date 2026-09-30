@@ -203,3 +203,30 @@ func TestExitErr_ReportsTheExitAndLeavesTheMasterOpen(t *testing.T) {
 	<-drained
 	require.Contains(t, out.String(), "LAST")
 }
+
+// TestWait_ReportsTheShellStatus: Wait's code is the one every launch path
+// reports (exitstatus.Of) — an ordinary exit's own code, and 128+signum for a
+// child that died on a signal, never os/exec's raw -1, which is no exit status
+// at all and reaches a user truncated to 255.
+func TestWait_ReportsTheShellStatus(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		script string
+		want   int
+	}{
+		{"exit", "exit 3", 3},
+		{"signal", "kill -KILL $$", 137},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s, err := Start(ctx, exec.Command("sh", "-c", tt.script))
+			require.NoError(t, err)
+			defer s.Kill()
+			_, _ = io.ReadAll(s.Master())
+			code, err := s.Wait()
+			require.NoError(t, err)
+			require.Equal(t, tt.want, code)
+		})
+	}
+}

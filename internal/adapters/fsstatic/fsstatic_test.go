@@ -2,9 +2,11 @@ package fsstatic_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
@@ -17,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fileperm"
 )
 
@@ -112,5 +115,77 @@ func TestDeliver_KeepsTheModeAnApproachWrote(t *testing.T) {
 		info, err := os.Stat(filepath.Join(project, rel))
 		require.NoError(t, err, rel)
 		fileperm.Equal(t, want, info.Mode(), rel)
+	}
+}
+
+// inPlaceWriter is a context approach that changes the file at path IN PLACE
+// through the overlay it is handed — the change the overlay refuses. It
+// embeds the mock's approach for everything else.
+type inPlaceWriter struct {
+	engine.ContextApproach
+	path   string
+	change func(fs afero.Fs, path string) error
+}
+
+func (a inPlaceWriter) DeliverContext(_ present.Start, _ present.RootKind, _ engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
+	return present.Delivered{}, a.change(fs, a.path)
+}
+
+// writeOpened opens path through open and writes to it.
+func writeOpened(open func(afero.Fs, string) (afero.File, error)) func(afero.Fs, string) error {
+	return func(fs afero.Fs, p string) error {
+		f, err := open(fs, p)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		_, err = f.Write([]byte("written in place\n"))
+		return err
+	}
+}
+
+// TestDeliver_RefusesAnInPlaceWriteToAnExistingFile: an approach that changes
+// a file already standing under the target in place — appending, writing
+// over it, truncating it through Create, or setting its times or owner — is
+// refused with ErrInPlaceWrite, and the file keeps its bytes and its mode.
+// Allowed, afero would copy it up into the layer with no mode, and the
+// landing would chmod the real file to 0.
+func TestDeliver_RefusesAnInPlaceWriteToAnExistingFile(t *testing.T) {
+	stamp := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
+	changes := map[string]func(afero.Fs, string) error{
+		"append":  writeOpened(func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0) }),
+		"write":   writeOpened(func(fs afero.Fs, p string) (afero.File, error) { return fs.OpenFile(p, os.O_WRONLY, 0) }),
+		"create":  writeOpened(iox.Create),
+		"chtimes": func(fs afero.Fs, p string) error { return fs.Chtimes(p, stamp, stamp) },
+		"chown":   func(fs afero.Fs, p string) error { return fs.Chown(p, os.Getuid(), os.Getgid()) },
+	}
+	for name, change := range changes {
+		t.Run(name, func(t *testing.T) {
+			fs := afero.NewOsFs()
+			project := t.TempDir()
+			existing := filepath.Join(project, mock.ContextFileName)
+			require.NoError(t, os.WriteFile(existing, []byte("theirs\n"), 0o644))
+			rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+			require.NoError(t, err)
+
+			root := mock.New().Root()
+			root.Context = inPlaceWriter{ContextApproach: root.Context, path: existing, change: change}
+			pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
+			items := pkg.EngineItems(root.Name)
+			pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootProjectRoot}}
+			plan, err := delivery.Route(items, root, pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
+			require.NoError(t, err)
+
+			_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, root, delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
+			require.True(t, errors.Is(err, fsstatic.ErrInPlaceWrite), "want ErrInPlaceWrite, got %v", err)
+			require.ErrorContains(t, err, existing, "the refusal names the file")
+
+			got, err := os.ReadFile(existing)
+			require.NoError(t, err)
+			require.Equal(t, "theirs\n", string(got), "the refused write left the file byte for byte")
+			info, err := os.Stat(existing)
+			require.NoError(t, err)
+			fileperm.Equal(t, 0o644, info.Mode(), "the refused write left the mode")
+		})
 	}
 }

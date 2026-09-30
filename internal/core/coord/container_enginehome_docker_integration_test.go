@@ -54,8 +54,17 @@ import (
 
 const claudeShimImage = "ctxloom-coord-claudeshim-itest:latest"
 
-// buildClaudeShimImage layers mockengine over the bus image as `claude`, so
-// the claude-code runner's exec resolves without a vendor binary.
+// buildClaudeShimImage layers a `claude` stand-in over the bus image, so the
+// claude-code runner's exec resolves without a vendor binary.
+//
+// The stand-in answers the engine's declared version command through
+// mockengine, and takes every other invocation — the structured driver's
+// stream-json turn — by draining stdin and exiting clean. mockengine cannot
+// take that turn itself: the driver's protocol flags are outside the declared
+// oneshot grammar, so it refuses the argv and exits in failure, and a turn
+// whose process fails without a result ends the run, taking the container
+// (and the surfaces this test inspects in it) with it. A clean turn parks the
+// run instead, and the container stays up to be looked into.
 func buildClaudeShimImage(t *testing.T) string {
 	t.Helper()
 	base := buildBusIntegrationImage(t)
@@ -68,7 +77,13 @@ func buildClaudeShimImage(t *testing.T) string {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static mockengine: %v\n%s", err, out)
 	}
-	shim := "#!/bin/sh\nexec /usr/local/bin/mockengine --" + claude.EngineName + " \"$@\"\n"
+	eng, ok := engines.Registry().Lookup(claude.EngineName)
+	require.True(t, ok, "the claude engine is registered")
+	version := eng.Root().Version
+	require.True(t, version.Declared(), "claude declares its version command")
+	shim := "#!/bin/sh\n" +
+		"if [ \"$*\" = \"" + strings.Join(version.Args, " ") + "\" ]; then exec /usr/local/bin/mockengine --" + claude.EngineName + " \"$@\"; fi\n" +
+		"exec cat >/dev/null\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "claude"), []byte(shim), 0o755))
 	dockerfile := "FROM " + base + "\nCOPY mockengine /usr/local/bin/mockengine\nCOPY claude /usr/local/bin/claude\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644))

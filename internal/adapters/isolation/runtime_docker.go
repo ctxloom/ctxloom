@@ -5,11 +5,8 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Docker launches containers via the docker CLI. rootless records whether the
@@ -100,53 +97,28 @@ func (d Docker) Enumerate(ctx context.Context, namePrefix string) ([]ContainerIn
 	return d.enumerate(ctx, d.Binary(), namePrefix)
 }
 
-// dockerSecurityOptions probes the docker daemon's security options; a package
-// var so tests drive the undecidable-probe path hermetically (mirrors the
-// resolveSelfExe / sharedFSCheck seams).
-var dockerSecurityOptions = func() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.SecurityOptions}}").Output()
-	return string(out), err
-}
+// dockerOwnershipFormat is the `docker info` template whose answer names
+// "rootless" among the daemon's security options when the daemon is rootless.
+const dockerOwnershipFormat = "{{.SecurityOptions}}"
 
-// dockerIsRootless reports whether the docker daemon is rootless (its `info`
-// SecurityOptions list "rootless"). Called only for a REACHABLE daemon
-// (newDockerRuntime gates on reachability), so a probe failure here is a
-// genuinely undecidable identity direction — not a missing CLI or a down
-// daemon — and it must not pick one silently: the answer decides whether PUID
-// is injected, i.e. who OWNS every file the run writes. INVARIANT on error:
-// assume ROOTFUL (inject PUID) and route a finding. Wrongly assuming rootful
-// under a rootless daemon skews project-file ownership to a subordinate uid —
-// wrong, but confined to the launching user's privileges; wrongly assuming
-// rootless under a rootful daemon would run the engine as REAL root and
-// root-own project files — strictly worse. Strict mode collects the finding
-// (the choke owner aborts pre-launch); --degraded proceeds on the assumption
-// with the streamed warning.
-func dockerIsRootless() bool {
-	out, err := dockerSecurityOptions()
-	if err != nil {
-		strictness.Fail(report.KindIsolation,
-			"check `docker info --format '{{.SecurityOptions}}'` against the daemon and retry, or pass --degraded to proceed assuming a rootful daemon",
-			"cannot determine whether the docker daemon is rootless (%v); assuming rootful — if it is actually rootless, files the container writes will land owned by a subordinate uid", err)
-		return false
-	}
-	return strings.Contains(out, "rootless")
-}
+// dockerRootless reads dockerOwnershipFormat's answer. Every answer is
+// readable: the list names rootless or it does not.
+func dockerRootless(answer string) (bool, error) { return strings.Contains(answer, "rootless"), nil }
 
-// newDockerRuntime constructs the Docker runtime for selection. The rootless
-// identity probe runs only when the daemon is REACHABLE: an unreachable
-// docker is never selected (Available gates selection), so probing it would
-// only manufacture a spurious identity finding on docker-less or daemon-down
+// newDockerRuntime probes docker for selection: reachability, then — only
+// for a reachable daemon — its ownership through the shared probeOwnership.
+// An unreachable docker is never selected, so asking it more would only
+// manufacture a spurious ownership finding on docker-less or daemon-down
 // hosts where podman serves the run. It returns the CONCRETE Docker so the
-// candidate table can read the probed rootless-ness straight off it rather
-// than re-deriving ownership downstream, where it could drift from the flag
-// the run argv is actually built with.
-func newDockerRuntime(reachable func(string) bool) Docker {
+// ownership its argv is built with (rootless) and the ownership selection
+// filters on are the same probe's answer, never re-derived downstream.
+func newDockerRuntime(reachable func(string) bool) (Docker, RuntimeAxis) {
 	if !reachable("docker") {
-		return Docker{}
+		return Docker{}, ownershipUndecided
 	}
-	d := Docker{rootless: dockerIsRootless()}
+	owns, _ := probeOwnership("docker", dockerOwnershipFormat, dockerRootless)
+	d := Docker{rootless: owns == RuntimeContainerRootless}
+	d.reachable = true
 	d.self = resolveSelf(d)
-	return d
+	return d, owns
 }

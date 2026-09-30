@@ -24,7 +24,7 @@ func TestSelfRoute_TakenInsideADaemonContainer(t *testing.T) {
 		dockergate.SkipCapability(t, "this process shows no trace of running in a container")
 	}
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the docker-outside-of-docker self-route test")
-	d := newDockerRuntime(runtimeReachable)
+	d, _ := newDockerRuntime(runtimeReachable)
 	require.NotNil(t, d.self, "this process runs in a container but the daemon it drives did not confirm it as one of its own")
 	route, err := d.reachRoute(context.Background())
 	require.NoError(t, err)

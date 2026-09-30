@@ -148,6 +148,9 @@ type RunChannel struct {
 	// must never double-close on a concurrent late arrival).
 	completed     chan struct{}
 	completedOnce sync.Once
+
+	// attachConfirmed fires ConfirmAttach's re-sweep once per channel.
+	attachConfirmed sync.Once
 }
 
 // Role is the harp this channel serves.
@@ -179,6 +182,9 @@ func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.Canc
 		completed:   make(chan struct{}),
 		caps:        caps,
 	}
+	if hook := c.attachRunHook; hook != nil {
+		hook(id.Harp)
+	}
 	c.mu.Lock()
 	if prev := c.chans[id.Harp]; prev != nil {
 		prev.cancel() // one RunChannel per role; newest wins (reconnect)
@@ -200,6 +206,21 @@ func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.Canc
 	// delivers mail written for it before it dialed home.)
 	c.spoolReactor.Mark(id.Harp)
 	return ch, nil
+}
+
+// ConfirmAttach is the wire adapter's report that a frame arrived on ch after
+// the HelloAck went out — the only proof that the runner holds the stream,
+// since the runner adopts it on READING the HelloAck and the Ack's send
+// success proves only the transport. The runner always sends one frame on
+// adopting (a Heartbeat), so this fires on every attach.
+//
+// It re-sweeps the child's out/ ONCE per channel: AttachRun's sweep runs at
+// Hello, before the runner adopts, and a reply the runner writes between the
+// two rings into no stream and is dropped. Every out/ write after this point
+// rings on a stream the runner holds, so one re-sweep closes the window; a
+// sweep per frame would buy nothing but load.
+func (c *Coordinator) ConfirmAttach(ch *RunChannel) {
+	ch.attachConfirmed.Do(func() { c.spoolReactor.Mark(ch.role) })
 }
 
 // HandleEvent processes plane-1 events: the ctxloom custom events
@@ -662,7 +683,7 @@ func (c *Coordinator) serveRoster(caller Identity, req RosterRequest) AgentReply
 // REQUESTER's lineage — only the run's parent may stop it. With NO run_id it
 // is the bulk sweep, whose reason the Stop verb requires.
 func (c *Coordinator) serveStopRun(ctx context.Context, caller Identity, req StopRun) AgentReply {
-	sr := StopRequest{Reason: req.Reason}
+	sr := StopRequest{Reason: req.Reason, Grace: req.Grace}
 	if runID := req.RunID; runID != "" {
 		var rec *RunRecord
 		c.runs.View(func() {

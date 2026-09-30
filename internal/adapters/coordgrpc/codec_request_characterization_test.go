@@ -38,6 +38,8 @@ func TestAgentRequestFromWire_DecodesEveryKind(t *testing.T) {
 			coord.RosterRequest{Role: "finder", IncludeTerminal: true}},
 		{"stop run", &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: "r-1", Reason: "done"}},
 			coord.StopRun{RunID: "r-1", Reason: "done"}},
+		{"stop run with grace", &agentcoordpb.AgentRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: "r-1", Grace: durationpb.New(7 * time.Second)}},
+			coord.StopRun{RunID: "r-1", Grace: 7 * time.Second}},
 		{"control run", &agentcoordpb.AgentRequest_ControlRun{ControlRun: &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Steer{Steer: &agentcoordpb.ControlSteer{Harp: "h", Text: "left"}}}},
 			coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "h", Body: "left"}},
 	}
@@ -104,6 +106,8 @@ func TestControlRequestFromWire_DecodesEveryVerb(t *testing.T) {
 	}{
 		{"steer", &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Steer{Steer: &agentcoordpb.ControlSteer{Harp: "h", Text: "t"}}},
 			coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "h", Body: "t"}},
+		{"steer with interrupt", &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Steer{Steer: &agentcoordpb.ControlSteer{Harp: "h", Text: "t", Interrupt: true}}},
+			coord.ControlRequest{Verb: coord.ControlVerbSteer, Harp: "h", Body: "t", Interrupt: true}},
 		{"question", &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Question{Question: &agentcoordpb.ControlQuestion{Harp: "h", Text: "q"}}},
 			coord.ControlRequest{Verb: coord.ControlVerbQuestion, Harp: "h", Body: "q"}},
 		{"summarize", &agentcoordpb.ControlRun{Verb: &agentcoordpb.ControlRun_Summarize{Summarize: &agentcoordpb.ControlSummarize{Harp: "h", Focus: "f"}}},
@@ -139,4 +143,20 @@ func TestControlRequestFromWire_DecodesEveryVerb(t *testing.T) {
 			assert.Equal(t, coord.ControlRequest{}, got)
 		})
 	}
+}
+
+// TestRunnerRequestToWire_InterruptAndStop: the two process-control requests
+// the coordinator issues to end a turn or a run reach the runner with every
+// field — the run id the runner re-checks, and the stop's reason and grace.
+func TestRunnerRequestToWire_InterruptAndStop(t *testing.T) {
+	interrupt := RunnerRequestToWire(coord.RunnerRequest{RequestID: "rq-1", Kind: coord.InterruptRun{RunID: "r-1"}}, nil)
+	assert.Equal(t, "rq-1", interrupt.GetRequestId())
+	require.NotNil(t, interrupt.GetInterruptRun())
+	assert.Equal(t, "r-1", interrupt.GetInterruptRun().GetRunId())
+
+	stop := RunnerRequestToWire(coord.RunnerRequest{Kind: coord.StopRun{RunID: "r-2", Reason: "done", Grace: 4 * time.Second}}, nil)
+	require.NotNil(t, stop.GetStopRun())
+	assert.Equal(t, "r-2", stop.GetStopRun().GetRunId())
+	assert.Equal(t, "done", stop.GetStopRun().GetReason())
+	assert.Equal(t, 4*time.Second, stop.GetStopRun().GetGrace().AsDuration())
 }

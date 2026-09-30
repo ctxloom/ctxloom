@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -429,8 +428,8 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
 // config.yaml + default remotes.yaml) to the operations core, then publishes
-// the generation that holds the scaffold — the one Reload after a scaffold
-// (Part 1.8). Every post-scaffold step (addPersonalRemotes,
+// the generation that holds the scaffold — the one Reload after a scaffold.
+// Every post-scaffold step (addPersonalRemotes,
 // cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) and the
 // discovery launch read that generation; nothing in this process observes
 // the pre-scaffold state again.
@@ -669,15 +668,19 @@ func printDiscoveryPostureHint(cfg *config.Config) {
 const authPingTask = "Reply with exactly: ok"
 
 // engineAuthFixHint names the fix for a failed auth probe. An engine that
-// declares auth (Engine.Home().Auth) gets the commands that mint or store
-// its credential; one that declares none — or is not registered at all —
-// gets a generic but actionable fix rather than a blank, since the probe
-// still failed.
-func engineAuthFixHint(engine string) string {
-	if _, ok := isolation.AuthFor(engine); !ok {
+// declares auth (Engine.Home().Auth) gets pointed at the credential its
+// mode reads from the environment, which `ctxloom auth status` names; one
+// that declares none — or is not registered at all — gets a generic but
+// actionable fix rather than a blank, since the probe still failed.
+func engineAuthFixHint(reg enginepkg.Registry, name string) string {
+	kind, ok := reg.Lookup(enginepkg.Name(name))
+	if ok {
+		_, ok = kind.Home().Auth.Get()
+	}
+	if !ok {
 		return "authenticate the engine (subscription login or its API-key env var) and try again"
 	}
-	return fmt.Sprintf("run `ctxloom auth mint --engine %s --mode token` at a terminal, or store an API key with `ctxloom auth set --engine %s --mode api-key`", engine, engine)
+	return fmt.Sprintf("export the credential the agent's auth mode reads — `ctxloom auth status` shows, for %s, which variable each mode reads and whether it is set — and try again", name)
 }
 
 // authPingHosts is a test seam: nil runs the probe on the command's
@@ -756,7 +759,7 @@ const (
 // load-bearing part of this message; the hint is a guess and is phrased as one.
 func probeFailure(engine, what string, err error) error {
 	return fmt.Errorf("%s isn't ready to launch: %s (%v) — %s, %s; if it is, the engine refused this launch for some other reason and `ctxloom doctor` runs the full check",
-		engine, what, err, probeAuthGuess, engineAuthFixHint(engine))
+		engine, what, err, probeAuthGuess, engineAuthFixHint(App().Engines(), engine))
 }
 
 // launchEngineWithPrompt starts the engine's own raw CLI/TUI on the resolved

@@ -197,16 +197,20 @@ run the engine as root, and ctxloom passes no way to override that** — the
 "run as root with the project mounted". Rootless podman additionally gets
 `--userns=keep-id`.
 
-**Network**: the only `--network` flag is rootless podman's translator option
-(`Podman.networkArgs`), which opens its route to the host's loopback; no network
+**Network**: a runner's `--network` (`RunSpec.Network`) has one producer, the
+route home (`hostRoute.network`, from `reachRoute`), so where a runner dials and
+which network it sits on cannot disagree. It is set only where that route needs
+it: rootless podman's translator option that opens a route to the host's
+loopback, or — when this process itself runs in a container — the network of
+its own container that a sibling can join (`pickSelfNetwork`). No network
 isolation is applied or claimed. The runner spec (`Container.buildRunnerSpec`) has no
 socket mount and no published port at all; "the absences are the security
 contract".
 
 ### Host path mapping
 
-The mount SOURCE is always the host path as this process sees it; the runtime
-translates it (Docker Desktop and podman machine both take a native `C:\...`
+The mount SOURCE is the host path as this process sees it (except under
+docker-outside-of-docker, below); the runtime translates it (Docker Desktop and podman machine both take a native `C:\...`
 source). The TARGET is a name ctxloom chooses in the container, through the
 runtime's `pathMapper`, and the mapper varies by **host OS only** — chosen at
 compile time by `hostMapper` in the `hostos_{unix,windows}.go` twins, never by
@@ -285,11 +289,12 @@ typed — `ErrUnknownAuthMode`, `ErrAuthModeUnsupported`, `ErrEngineHasNoAuth` �
 and carries a remedy (`report.Errorf`) naming the modes that engine's
 `Auth.Modes` returns. Whether the credential is available is the engine's own
 answer (`Auth.Credentials` returning `ErrNoCredential` with its remedy); write
-time asks it too, and tolerates only a missing minted credential, which a run
-mints.
+time asks it too, and tolerates only a missing token, which is read where a
+run is launched (often from a secret manager), not where the config is
+edited — the run refuses it instead.
 
-**The engine owns the meaning.** Which variables carry a mode, the precedence
-between them, and minting live behind `engine.Auth` on the engine's
+**The engine owns the meaning.** Which variables carry a mode and the
+precedence between them live behind `engine.Auth` on the engine's
 `HomeSpec`. `Credentials` returns an `engine.Credentials`, which names nothing
 about where the run executes: `Env` is laid over the engine's environment,
 every name in `Unset` is REMOVED from it, and `Stores` are the human's own
@@ -304,8 +309,8 @@ documented precedence (https://code.claude.com/docs/en/authentication,
 "Authentication precedence": a cloud-provider switch, then
 `ANTHROPIC_AUTH_TOKEN`, then `ANTHROPIC_API_KEY`, then `apiKeyHelper`, then
 `CLAUDE_CODE_OAUTH_TOKEN`, then a named `ANTHROPIC_PROFILE`, then `/login`).
-Each mode sets its own credential (a value the human exported for THAT mode
-wins over the stored one) and unsets whatever would outrank or replace it:
+Each mode sets its own credential, read from the launching env, and unsets
+whatever would outrank or replace it:
 
 - `login` shares one read-write store: `CLAUDE_SECURESTORAGE_CONFIG_DIR` with
   exactly the string the launching env's claude resolves its storage from —
@@ -316,8 +321,9 @@ wins over the stored one) and unsets whatever would outrank or replace it:
   lock pair as the human's claude; `TestClaudeSecureStorage_FollowsTheVar`
   (`just test-conformance`) pins that the installed claude honours it on
   Linux.
-- `token` sets `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token
-  `claude setup-token` mints; claude never refreshes it or writes it to disk.
+- `token` sets `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token the human
+  mints with `claude setup-token` and exports; claude never refreshes it or
+  writes it to disk.
 - `api-key` sets `ANTHROPIC_API_KEY`.
 - `cloud` passes the provider's own variables through from the shell (the set
   is claude's `cloudVars`, taken from claude's Bedrock, Claude Platform on AWS,
@@ -327,41 +333,38 @@ wins over the stored one) and unsets whatever would outrank or replace it:
   (`providerStores`: `~/.aws`, the AWS shared config and credentials;
   `~/.config/gcloud`, gcloud's application-default credentials), read-only
   except `~/.aws/sso/cache`, which the AWS SDK rewrites on an SSO refresh and
-  is therefore a read-write store nested in the read-only `~/.aws`. A file
-  named by `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` or
-  `GOOGLE_APPLICATION_CREDENTIALS` still passes through as a host path, which
-  a container cannot open unless it lies inside one of those stores.
+  is therefore a read-write store nested in the read-only `~/.aws`. A
+  variable that names a credential file (claude's `credentialFileVars`) is
+  declared in `engine.Credentials.FileVars`: the host keeps the human's path,
+  and a container binds that one file read-only where the runtime's path seam
+  routes it and points the variable there (`containerRelocator.relocateFiles`),
+  refusing a path the seam cannot route (`present.ErrUnreachableRoot`) or one
+  naming no absolute, existing regular file.
 
 Every mode but `login` unsets `CLAUDE_SECURESTORAGE_CONFIG_DIR`: `""` would be
 `$HOME/.claude`, the human's own credential.
 
-Why only long-lived credentials are stored: an OAuth refresh token is
-single-use and rotating. Native claude sessions stay in step only because
+Why the env modes carry only long-lived credentials: an OAuth refresh token
+is single-use and rotating. Native claude sessions stay in step only because
 they share one credentials file AND one lock beside the config dir. A copy
 has its own lock, went stale, and a refresh from one revoked the rest. A
 credential nobody refreshes has no second holder to fall out of step with.
 
-**Storage.** `isolation.StoreEngineCredential` writes one owner-only file per
-engine and mode through `iox.WriteFileAtomic` at
-`paths.HomeEngineCredentialPath` (`~/.ctxloom/auth/<engine>.<mode>`), for the
-modes `AuthMode.Stored` names; a login or a cloud provider is the human's own
-and is never stored. Owner-only is the shared per-OS seam `owneronly`
-(`owneronly.EnsureDir`, `owneronly.Check`): mode `0600` in a `0700` directory
-on unix; on Windows a protected DACL granting the current user, where an
-existing ACL that also grants SYSTEM and Administrators is accepted. The same
-seam protects a session home and the engine config written into it
-(`isolation.PrepareInstanceHome`). A read
-(`isolation.StoredCredentials`) refuses a credential others can reach rather
-than use it or treat it as absent. `ctxloom auth status` shows each stored
-mode and who can read it: the mode on unix, the owner-only or exposed verdict
-on Windows. Intake is `ctxloom auth mint` (the engine's `Mint`, whose output
-reaches the terminal with the token itself replaced) or `ctxloom auth set`
-(stdin, never argv).
+**No credential store.** ctxloom never collects, stores or mints a
+credential: Anthropic does not allow a third party to "collect, store, or
+intermediate Claude.ai credentials or session tokens"
+(https://code.claude.com/docs/en/legal-and-compliance). The human mints a
+token with the engine's own flow and exports it, or a key, where ctxloom is
+launched; `engine.Auth.Credentials` takes only the mode and the launching
+env. `ctxloom auth status` reports, per engine and env-carried mode, whether
+the credential is exported (variable names, never values) and the engine's
+remedy when it is not.
 
 **Resolution and delivery.** `operations.Cells.Prepare` resolves the run's
 `engine.Credentials` (`resolveRunAuth`) BEFORE the environment exists, with
 no input about where it will run, and hands them to the environment
-(`isolation.SpecBuilder.Credentials`). A preview resolves none. The
+(`isolation.SpecBuilder.Credentials`). A preview resolves the same
+credentials with every value redacted (`previewRunAuth`). The
 environment makes each piece true where the engine runs:
 
 - the HOST sets each store's var to its value in place, so the run and the
@@ -380,22 +383,20 @@ environment makes each piece true where the engine runs:
 removes those names from its own
 environment before it drives the engine (`runner.Deps.Unsetenv`, refusing with
 `ErrEngineEnvUnscrubbed` when it cannot). Nothing enters the ctxloom process's
-env. A MINTED credential (`AuthMode.Minted`: the token) that is neither
-exported nor stored is minted when the human is at a terminal and refused when
-not, naming `ctxloom auth mint`: an unattended run never prompts and never
-starts logged out. Any other missing credential is the engine's own refusal.
+env. A credential the launching env does not export is the engine's own
+refusal, with its remedy (claude's token: run `claude setup-token` and export
+`CLAUDE_CODE_OAUTH_TOKEN`): nothing prompts, and no run starts logged out.
 
-**Where a credential may and may not be.** It lives in the owner-only store,
-in the coordinator's and runner's memory, in the StartRun message between
+**Where a credential may and may not be.** It lives in the environment
+ctxloom was launched in, in the coordinator's and runner's memory, in the StartRun message between
 them, and in the engine process's environment. It is never journalled (a run
 fact records `cred_hash` and MCP server names, never an env), never in a
 container's `run` argv (it reaches the in-container engine through the
-launch's env over the wire), and never in a file an
-interactive launch writes: `tmuxhost.writeLauncher` keeps argv in its script
-but feeds the environment through a FIFO the script sources, unlinked once
-read. `TestRun_TheStoredCredentialIsNeverLoggedPersistedOrEchoed` scans a
-run's output, the ctxloom home outside the store, the project and the run's
-temp dir for a sentinel.
+launch's env over the wire), and never in a file: an interactive launch
+(`runner.RunLaunchSpec`) hands the environment straight to the engine process
+it runs on a pty, and writes no launcher script. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
+run's output, the ctxloom home, the project and the run's temp dir for a
+sentinel.
 
 A container adds no auth question of its own: `engine.ContainerSpec` says how
 the image is built, and its run authenticates exactly as a host run does.
@@ -424,9 +425,8 @@ darwin/arm64 and no more. Each claim below is sourced or marked.
   (claude's `SecureStorageEnv` doc); it is UNVERIFIED on macOS, and so is
   whether a session-home run sharing the login this way reaches the human's
   Keychain item.
-- **`token`, `api-key`.** ctxloom's own file store, `0600` files in a `0700`
-  `~/.ctxloom/auth` (the unix side of `owneronly`). ctxloom itself
-  never uses the Keychain.
+- **`token`, `api-key`.** Read from the launching environment; ctxloom
+  stores nothing and never uses the Keychain.
 - **`cloud`.** The provider's variables from the human's shell; nothing
   stored.
 - **Refused: a container agent declaring `login`.** The Keychain cannot be
@@ -438,12 +438,10 @@ darwin/arm64 and no more. Each claim below is sourced or marked.
   agent's store is mounted. Both refuse a missing store.
 - **Where an implementation plugs in.** `engine.Auth.Credentials` decides the
   env and the shared stores per mode; `loginStoreHomeRel` is the per-OS answer
-  to where claude's login lives; the per-OS store behind
-  `StoreEngineCredential` / `StoredCredentials` holds ctxloom's own. OPEN,
-  not decided, for a macOS container with
-  `login`: mint a token for container runs of a `login` agent; or export the
-  Keychain item into an owner-only file mounted for the run (which reopens
-  the copy-and-refresh problem above).
+  to where claude's login lives. OPEN, not decided, for a macOS container
+  with `login`: the human declares `auth: token` for container runs; or the
+  Keychain item is exported into an owner-only file mounted for the run
+  (which reopens the copy-and-refresh problem above).
 
 ## Engine config homes
 

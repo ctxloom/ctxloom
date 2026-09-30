@@ -70,10 +70,21 @@ type TurnRequest struct {
 	Turn engine.Turn
 }
 
-func (StartRun) runnerRequestKind()    {}
-func (PauseRun) runnerRequestKind()    {}
-func (ResumeRun) runnerRequestKind()   {}
-func (TurnRequest) runnerRequestKind() {}
+// InterruptRun cuts the run's turn in flight short; the run lives and parks
+// for its next turn.
+type InterruptRun struct {
+	RunID string
+}
+
+func (StartRun) runnerRequestKind()     {}
+func (PauseRun) runnerRequestKind()     {}
+func (ResumeRun) runnerRequestKind()    {}
+func (TurnRequest) runnerRequestKind()  {}
+func (InterruptRun) runnerRequestKind() {}
+
+// StopRun is ALSO the runner request that ends one run: interrupt its turn in
+// flight, wait up to Grace for it to end, then close the run.
+func (StopRun) runnerRequestKind() {}
 
 // RunnerResponse answers one RunnerRequest. Err is the runner's refusal (nil
 // on success); the adapter wraps the wire's UNAVAILABLE in
@@ -167,10 +178,12 @@ type RosterRequest struct {
 
 // StopRun is agent_stop on the wire: by run id (the caller must be the run's
 // parent), or with no run id the bulk sweep of the caller's children, whose
-// reason the Stop verb requires.
+// reason the Stop verb requires. Grace is how long a stopped run's turn in
+// flight gets to end once interrupted; zero means DefaultStopGrace.
 type StopRun struct {
 	RunID  string
 	Reason string
+	Grace  time.Duration
 }
 
 func (SpawnRequest) agentRequestKind()   {}

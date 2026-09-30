@@ -104,6 +104,4 @@ such a tree before it becomes a read (`bundles.ErrTreeBundleWithheld`).
   and a pin advance onto one is neither refused nor verified — there is
   nothing to verify. The publisher republishes as a tree.
 
-The normative statement of the cascade is `docs/trust-model.md`; the plan
-this lands is `docs/architecture/audit-2026-09-18/30-decided-architecture.md`,
-Part 1.3.
+The normative statement of the cascade is `docs/trust-model.md`.

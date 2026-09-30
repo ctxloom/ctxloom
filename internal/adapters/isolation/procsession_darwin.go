@@ -51,10 +51,7 @@ const szomb = 5
 // comes from the same kern.proc.all snapshot. POSIX process groups never
 // span sessions, so killing these groups kills exactly the session.
 func sessionGroups(sid int) []int {
-	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
-	if err != nil {
-		return nil
-	}
+	procs := sessionSweepProcs()
 	seen := make(map[int]bool)
 	var groups []int
 	for i := range procs {
@@ -73,4 +70,20 @@ func sessionGroups(sid int) []int {
 		groups = append(groups, pgid)
 	}
 	return groups
+}
+
+// sessionSweepProcs is the process table sessionGroups considers. It is a
+// variable because the session comparison is the sweep's ONLY guard against
+// signalling a stranger, and here a stranger is a whole process GROUP: this
+// package's tests narrow it to their own tree (procsession_darwin_test.go) so
+// a mutant that negates that comparison cannot SIGKILL the machine.
+var sessionSweepProcs = allProcs
+
+// allProcs snapshots kern.proc.all; nil when the table cannot be read.
+func allProcs() []unix.KinfoProc {
+	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	if err != nil {
+		return nil
+	}
+	return procs
 }

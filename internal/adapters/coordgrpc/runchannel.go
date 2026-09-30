@@ -90,6 +90,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 				recvErr <- rerr
 				return
 			}
+			c.ConfirmAttach(ch)
 			handleAgentFrame(c, ch, frame)
 		}
 	})
@@ -116,7 +117,9 @@ func handleAgentFrame(c *coord.Coordinator, ch *coord.RunChannel, frame *agentco
 		}
 		c.HandleRequest(ch, req)
 	case *agentcoordpb.AgentFrame_Heartbeat:
-		// Plane-3 liveness; RunnerChannel owns loss detection.
+		// Nothing beyond ConfirmAttach, which every frame reaches first: the
+		// runner sends one on adopting the stream; RunnerChannel owns loss
+		// detection.
 	case *agentcoordpb.AgentFrame_Hello:
 		// Duplicate hello on a live stream: tolerated.
 	case *agentcoordpb.AgentFrame_SpoolChanged:

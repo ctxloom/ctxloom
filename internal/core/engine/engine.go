@@ -187,4 +187,10 @@ type Event struct {
 type TurnResult struct {
 	NativeKey string // the key the NEXT turn resumes by
 	Answer    string
+	// ExitCode is the status the turn's engine process exited with ON ITS
+	// OWN — information, never the turn's verdict: a turn that answered and
+	// then exited non-zero still answered. nil when there is no such status:
+	// the turn ended the process itself (an interrupt, a teardown), so the
+	// status would be ctxloom's doing, not the engine's.
+	ExitCode *int
 }

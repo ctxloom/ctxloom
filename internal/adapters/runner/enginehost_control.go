@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 
@@ -127,18 +128,26 @@ func waitGate(ctx, runCtx context.Context, gate <-chan struct{}) error {
 // engine busy, and recording the user turn. Called under the enqueue lock.
 func (eh *EngineHost) startTurn(tag turnTag, text string) error {
 	eh.mu.Lock()
-	if eh.ended {
+	if eh.ended || eh.stopping {
 		eh.mu.Unlock()
 		return errors.New("engine host: the run has ended; no engine takes a turn")
 	}
 	eh.pendingTags = append(eh.pendingTags, tag)
 	next := make(chan struct{})
 	eh.turnBusy = next
+	// The turn's context exists before the turn does, under the same lock
+	// that publishes it busy: an interrupt that arrives the instant the turn
+	// is handed off still finds it.
+	turnCtx, turnCancel := context.WithCancel(eh.runCtx)
+	eh.turnCancel = turnCancel
 	rec := eh.rec
 	key := eh.nativeKey
 	eh.mu.Unlock()
 	transcript.RecordUserText(rec, text)
-	eh.goTracked(func() { eh.runTurn(next, text, key) })
+	eh.goTracked(func() {
+		defer turnCancel()
+		eh.runTurn(turnCtx, next, text, key)
+	})
 	return nil
 }
 
@@ -268,5 +277,68 @@ func (eh *EngineHost) turnFrame(t *agentcoordpb.Turn) *agentcoordpb.RunnerRespon
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_Turn{Turn: &agentcoordpb.TurnResult{NativeKey: res.NativeKey, Answer: res.Answer}}}
 	case <-eh.baseCtx.Done():
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Canceled, "turn: the runner is shutting down")}
+	}
+}
+
+// interruptedTurnNote heads an interrupted turn's automatic report, so the
+// parent reads "cut short" — never the no-output error an empty report is.
+const interruptedTurnNote = "[this turn was interrupted before it finished]"
+
+// interruptTurn interrupts the turn in flight, if any, and returns its
+// boundary (nil before the first turn; already closed when parked).
+func (eh *EngineHost) interruptTurn() <-chan struct{} {
+	eh.mu.Lock()
+	cancel := eh.turnCancel
+	busy := eh.turnBusy
+	eh.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return busy
+}
+
+// interruptRun answers InterruptRun: the turn in flight is cut short and
+// parks at its boundary; the run lives. With no turn in flight it does
+// nothing. Answered at once — the turn's end is reported by its own idle.
+func (eh *EngineHost) interruptRun(req *agentcoordpb.InterruptRun) *agentcoordpb.RunnerResponse {
+	if resp := eh.checkRunID(req.GetRunId(), "InterruptRun"); resp != nil {
+		return resp
+	}
+	eh.interruptTurn()
+	return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus("")}
+}
+
+// stopRun answers StopRun: INTERRUPT-THEN-CLOSE. Nothing new starts, the turn
+// in flight is interrupted and given the request's grace to reach its
+// boundary (its report and idle written), and the run is then closed — its
+// terminal flows from the run's cancellation. Answered once closed.
+func (eh *EngineHost) stopRun(req *agentcoordpb.StopRun) *agentcoordpb.RunnerResponse {
+	if resp := eh.checkRunID(req.GetRunId(), "StopRun"); resp != nil {
+		return resp
+	}
+	eh.mu.Lock()
+	eh.stopping = true
+	eh.mu.Unlock()
+	if busy := eh.interruptTurn(); busy != nil {
+		grace := time.NewTimer(req.GetGrace().AsDuration())
+		defer grace.Stop()
+		select {
+		case <-busy:
+		case <-grace.C:
+		case <-eh.baseCtx.Done():
+		}
+	}
+	eh.closeRun()
+	return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}}}
+}
+
+// closeRun cancels the run's context: the turn in flight ends with it and the
+// run's terminal is reported (Drive's watcher, or the turn's own end).
+func (eh *EngineHost) closeRun() {
+	eh.mu.Lock()
+	cancel := eh.cancel
+	eh.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }

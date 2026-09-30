@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+
+	"github.com/ctxloom/ctxloom/internal/shared/exitstatus"
 )
 
 // Session is a live child on a pty. The caller reads and writes Master() as
@@ -105,7 +107,7 @@ func start(ctx context.Context, cmd *exec.Cmd, grace time.Duration) (*Session, e
 		}
 		var ee *exec.ExitError
 		if errors.As(werr, &ee) {
-			s.code = ee.ExitCode()
+			s.code = exitstatus.Of(ee)
 			return
 		}
 		s.waitErr = werr

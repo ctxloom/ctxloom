@@ -954,7 +954,7 @@ func TestSelectBuildRuntime_ExplicitPreferMustBeHonored(t *testing.T) {
 
 // stubBuildRuntimeProbe swaps the BUILD path's runtime probe for one returning
 // rt. Deliberately a separate helper from stubRuntimeProbe: a build and a run
-// go through different seams (buildRuntimeProbe / selectRuntimeProbe) because
+// go through different seams (buildRuntimeProbe / surveyRuntimes) because
 // only the run carries an ownership demand, and stubbing the wrong one leaves
 // the real probe in place — which on a developer box with a live daemon looks
 // GREEN while asserting nothing about the code under test.

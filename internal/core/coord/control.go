@@ -142,15 +142,28 @@ func (c *Coordinator) controlTarget(by ControlInitiator, harp string) (*RunRecor
 // ControlSteer delivers an instruction into a running target: a durable
 // `steer` file in the target's own in/ spool (steerViaSpool), which survives
 // a relaunch, is visible in in/ while unread, and can be withdrawn
-// (WithdrawSteer) until the target takes it.
+// (WithdrawSteer) until the target takes it. With interrupt, the target's
+// turn in flight is cut short FIRST (InterruptRun), so the steer is its next
+// turn now rather than at the boundary the running turn would reach on its
+// own. The order is load-bearing: delivered first, the steer could wake an
+// idle target into a turn of its own that the interrupt would then cut.
 //
-// Sequence, fixed: guards → the write → mirror.
-func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, harp, text string) (SteerOutcome, error) {
+// Sequence, fixed: guards → interrupt → the write → mirror.
+func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, harp, text string, interrupt bool) (SteerOutcome, error) {
 	rec, err := c.controlTarget(by, harp)
 	if err != nil {
 		return SteerOutcome{}, err
 	}
-	c.audit("agent_steer", by.auditName(), map[string]string{"harp": harp})
+	audit := map[string]string{"harp": harp}
+	if interrupt {
+		audit["interrupt"] = "true"
+	}
+	c.audit("agent_steer", by.auditName(), audit)
+	if interrupt {
+		if err := c.interruptAtRunner(ctx, rec); err != nil {
+			return SteerOutcome{}, err
+		}
+	}
 
 	sender := by.auditName()
 	outcome, err := c.steerViaSpool(sender, harp, text)
@@ -167,6 +180,28 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 		}
 	}
 	return outcome, nil
+}
+
+// interruptAtRunner cuts rec's turn in flight short (InterruptRun). A run no
+// runner request can reach has no turn to cut — an ended target is resumed by
+// the steer itself — so only the runner's own refusal is an error.
+func (c *Coordinator) interruptAtRunner(ctx context.Context, rec *RunRecord) error {
+	if rec.Ended || !c.runnerReachable(rec) {
+		return nil
+	}
+	if _, has := ctx.Deadline(); !has {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, DefaultRequestTimeout)
+		defer cancel()
+	}
+	resp, err := c.requestRunner(ctx, rec.CredHash, RunnerRequest{Kind: InterruptRun{RunID: rec.RunID}})
+	if err != nil {
+		return nil
+	}
+	if resp.Err != nil {
+		return fmt.Errorf("steer %s: the interrupt was refused: %w", rec.Harp, resp.Err)
+	}
+	return nil
 }
 
 // steerAsMail is the body of the durable steer: the delivery question ("does

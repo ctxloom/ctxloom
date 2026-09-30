@@ -848,7 +848,7 @@ func TestSetAgent_ValidatesAuthAgainstTheEnginesModes(t *testing.T) {
 }
 
 func TestSetAgent_RefusesAModeTheEngineLacks(t *testing.T) {
-	installFakeMint(t)
+	installFakeAuth(t)
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name: "fake", LLM: ptr("fake-auth"), Profiles: ptr([]string{"x"}), Auth: ptr("login"),

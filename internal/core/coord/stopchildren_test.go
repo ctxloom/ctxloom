@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,9 +46,10 @@ func outcomeByHarp(out []StoppedChild) map[string]StoppedChild {
 
 // TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach is the
 // settling condition in one: N live children in different states, one call
-// with no run_id, every child ended within the bound, each NAMED with its
-// outcome, the roster showing none live afterwards, and every engine's Close
-// fired (the container-release seam).
+// with no run_id, every child ended within the bound — the running one
+// interrupted rather than waited out — each NAMED with its outcome, the roster
+// showing none live afterwards, and every engine's Close fired (the
+// container-release seam).
 func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{}) // never closed: the running child never yields
@@ -61,25 +63,22 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 			return &scriptedChat{}
 		})
 	c := newTestCoordinator(t, sp, nil)
-	c.drainBound = 300 * time.Millisecond
+	c.drainBound = time.Minute // far past the test: a sweep that waits for it fails
 
 	running := spawnGatedChild(t, sp, c)
 	idle := spawnOneChild(t, c)
 	require.Eventually(t, func() bool { return rosterState(c, idle) == StateIdle }, conformanceWait, 5*time.Millisecond)
 	require.Equal(t, StateExecuting, rosterState(c, running))
 
-	started := time.Now()
-	out, err := c.StopChildren(context.Background(), ownerIdentity(), "sweeping idle workers before the next fan-out")
-	require.NoError(t, err)
-	elapsed := time.Since(started)
-
-	assert.GreaterOrEqual(t, elapsed, c.drainBound, "a running turn gets the whole bound before it is forced")
-	assert.Less(t, elapsed, drainWait, "the sweep settles at the bound, not on the turn")
+	ctx, cancel := context.WithTimeout(context.Background(), drainWait)
+	defer cancel()
+	out, err := c.StopChildren(ctx, ownerIdentity(), "sweeping idle workers before the next fan-out")
+	require.NoError(t, err, "the running turn is interrupted, not waited out to the bound")
 
 	require.Len(t, out, 2, "the result names EVERY child that was live, not a count: %+v", out)
 	by := outcomeByHarp(out)
 	assert.Equal(t, StopOutcomeStopped, by[idle].Outcome, "a child between turns ends at once")
-	assert.Equal(t, StopOutcomeInterrupted, by[running].Outcome, "a child still running at the bound is forced and says so")
+	assert.Equal(t, StopOutcomeStopped, by[running].Outcome, "an interrupted turn ends inside the bound: nothing is forced")
 	for _, sc := range out {
 		assert.NotEmpty(t, sc.RunID, "each entry carries the run that was ended: %+v", sc)
 		assert.Equal(t, "worker", sc.Agent)
@@ -103,53 +102,7 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 		assert.Equal(t, "sweeping idle workers before the next fan-out", s.Detail["reason"])
 		assert.Equal(t, ownerIdentity().Harp, s.Actor)
 	}
-	forced := readAuditKind(t, c, "drain_force")
-	require.Len(t, forced, 1, "the force at the bound is on the record")
-	assert.Equal(t, running, forced[0].Detail["harp"])
-}
-
-// TestStopChildren_InFlightTurnEndsAtItsBoundaryNotBefore: the bulk stop
-// REQUESTS exit first. A turn shorter than the bound is not cut off — it
-// reaches its boundary, its result is bridged, and the child ends THERE as
-// stopped, not interrupted.
-func TestStopChildren_InFlightTurnEndsAtItsBoundaryNotBefore(t *testing.T) {
-	resetStrictness(t)
-	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{Gate: gate} })
-	c := newTestCoordinator(t, sp, nil)
-	c.drainBound = time.Minute // far past the test: a sweep that waits for it fails
-
-	harp := spawnGatedChild(t, sp, c)
-
-	done := make(chan []StoppedChild, 1)
-	go func() {
-		out, err := c.StopChildren(context.Background(), ownerIdentity(), "done with this batch")
-		require.NoError(t, err)
-		done <- out
-	}()
-	select {
-	case <-done:
-		t.Fatal("the sweep settled while a turn was still in flight and the bound had not elapsed")
-	case <-time.After(100 * time.Millisecond):
-	}
-	assert.Equal(t, StateExecuting, rosterState(c, harp), "the running turn is left alone until its boundary")
-
-	close(gate) // the turn completes on its own
-
-	var out []StoppedChild
-	select {
-	case out = <-done:
-	case <-time.After(drainWait):
-		t.Fatal("the sweep did not settle once the turn reached its boundary")
-	}
-	require.Len(t, out, 1)
-	assert.Equal(t, StopOutcomeStopped, out[0].Outcome, "a turn that reached its boundary inside the bound was not interrupted")
-	assert.Equal(t, StateEnded, rosterState(c, harp))
-	assert.Equal(t, CauseStopped, currentRunCause(c, harp))
-	results := recvKind(t, c, "result", conformanceWait)
-	assert.NotEmpty(t, results, "the completed turn's result still reaches the parent")
-	awaitRelease(t, sp, 0)
+	assert.Empty(t, readAuditKind(t, c, "drain_force"), "nothing was forced")
 }
 
 // TestStopChildren_ParkedChildIsEnded: a child parked in agent_recv is waiting
@@ -251,7 +204,7 @@ func TestStopChildren_SweptChildStaysResumableButIsNotAutoRelaunched(t *testing.
 	out, err := c.StopChildren(context.Background(), ownerIdentity(), "abandoning this line")
 	require.NoError(t, err)
 	require.Len(t, out, 1)
-	assert.Equal(t, StopOutcomeInterrupted, out[0].Outcome)
+	assert.Equal(t, StopOutcomeStopped, out[0].Outcome, "its turn was interrupted, not forced at the bound")
 
 	launches := func() int {
 		sp.mu.Lock()
@@ -308,7 +261,9 @@ func TestStopChildren_NoLiveChildrenIsEmptyNotAnError(t *testing.T) {
 // on its own mid-sweep with mail still queued is ordinarily relaunched by
 // terminateRun's leftover-mail tail. Under a sweep it is not — the sweep
 // marked it stopped — and the result names it with the cause it actually
-// died of, not repainted as a stop.
+// died of, not repainted as a stop. The death is forced in the request hook:
+// after the sweep marked it, before its runner is asked to stop it, which
+// would otherwise end it first.
 func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
@@ -316,6 +271,9 @@ func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
+	c.drainRequestHook = func(runID string) {
+		c.terminateRun(runID, CauseRunnerExit, "engine crashed during the sweep")
+	}
 
 	harp := spawnGatedChild(t, sp, c)
 	_, err := c.AgentSend(ownerIdentity(), harp, KindMessage, "one more thing", nil, "")
@@ -328,12 +286,6 @@ func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 		require.NoError(t, err)
 		done <- out
 	}()
-	require.Eventually(t, func() bool { return len(readAuditKind(t, c, "drain_request")) == 1 }, conformanceWait, 10*time.Millisecond,
-		"the sweep must have requested the running child's exit before it dies")
-	var runID string
-	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
-	c.terminateRun(runID, CauseRunnerExit, "engine crashed during the sweep")
-
 	var out []StoppedChild
 	select {
 	case out = <-done:
@@ -388,4 +340,53 @@ func TestStopChildren_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 	assert.Equal(t, StopOutcomeStopped, stopped[0].Outcome)
 	assert.Equal(t, StateEnded, rosterState(c, out.Harp))
 	assert.Equal(t, CauseStopped, runCause(c, out.RunID))
+}
+
+// TestStopChildren_MidStartRunIsAStopNotALaunchFailure is the bulk copy of
+// TestAgentStop_MidStartRunIsAStopNotALaunchFailure: a stop that lands while
+// the child's StartRun is still on the wire is a STOP, whichever form of
+// agent_stop sent it. The sweep reads the child as executing and asks its
+// runner to close the run; the StartRun held at the runner is released only
+// once the runner has answered that stop, so the launch is then refused ("the
+// run has ended") and fails while the stop is still pending — the losing
+// interleaving, forced. The terminal must be the stop, carrying its reason.
+func TestStopChildren_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
+	sp.bindHold = make(chan struct{})
+	sp.bindEntered = make(chan struct{}, 1)
+	c := newTestCoordinator(t, sp, nil)
+	c.drainBound = time.Minute
+	var release sync.Once
+	releaseHold := func() { release.Do(func() { close(sp.bindHold) }) }
+	t.Cleanup(releaseHold)
+	c.stopAnsweredHook = func(string) { releaseHold() }
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
+	require.NoError(t, err)
+	select {
+	case <-sp.bindEntered:
+	case <-time.After(conformanceWait):
+		t.Fatal("the child's StartRun never reached the runner")
+	}
+	require.Equal(t, StateExecuting, rosterState(c, out.Harp), "precondition: the sweep must find the child mid-launch")
+
+	ctx, cancel := context.WithTimeout(context.Background(), drainWait)
+	defer cancel()
+	stopped, err := c.StopChildren(ctx, ownerIdentity(), "fan-out complete")
+	require.NoError(t, err)
+	require.Len(t, stopped, 1)
+	assert.Equal(t, StopOutcomeStopped, stopped[0].Outcome)
+	assert.Contains(t, stopped[0].Detail, "fan-out complete", "the reason reaches the child's terminal detail")
+	assert.Equal(t, CauseStopped, runCause(c, out.RunID), "a launch the stop refused is the stop, not a launch failure")
+
+	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+	require.NoError(t, err)
+	var kinds []string
+	for _, m := range msgs {
+		if m.From == out.Harp {
+			kinds = append(kinds, m.Kind)
+		}
+	}
+	assert.Equal(t, []string{KindExited}, kinds, "the parent is told the child was stopped, never that it failed to launch: %+v", msgs)
 }

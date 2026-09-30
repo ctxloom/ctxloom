@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -177,15 +176,14 @@ func TestCellsPrepare_SessionHome(t *testing.T) {
 
 // A claude CHILD of a mock-engine owner. The owner's session keeps no claude
 // home at all, and the child's cell still prepares: its agent's token mode
-// resolves to the stored token in the CELL's env, never this process's, with
-// every other credential blanked. Nothing is read from the owner's session
+// resolves to the launching env's token in the CELL's env, with every other
+// credential blanked. Nothing is read from the owner's session
 // home, so the engine the owner runs is irrelevant.
 func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing.T) {
 	resetStrictness(t)
 	fakeHostHome(t, "")
 	t.Setenv(claude.APIKeyEnv, "sk-ant-api-shell")
-	_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
-	require.NoError(t, err)
+	t.Setenv(claude.OAuthTokenEnv, tokenFixture)
 
 	ownerHome, err := paths.HarpSessionEngineHomes(harpB)
 	require.NoError(t, err)
@@ -204,22 +202,20 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerNeedsNothingFromTheOwner(t *testing
 
 	assert.Empty(t, strictness.All(), "the child's home is not refused")
 	assert.Equal(t, claudeInstanceDir(t, workDir, harpA), cell.Env[claude.ConfigDirEnv])
-	assert.Equal(t, tokenFixture, cell.Env[claude.OAuthTokenEnv], "the agent's mode resolved to the stored token")
+	assert.Equal(t, tokenFixture, cell.Env[claude.OAuthTokenEnv], "the agent's mode resolved to the exported token")
 	assert.NotContains(t, cell.Env, claude.APIKeyEnv)
 	assert.Contains(t, cell.Unset, claude.APIKeyEnv, "the shell's key is unset: the declared mode decides")
-	assert.Empty(t, os.Getenv(claude.OAuthTokenEnv), "the stored token never enters this process's env")
 	assert.NoFileExists(t, filepath.Join(cell.Env[claude.ConfigDirEnv], ".credentials.json"))
 	assert.NoDirExists(t, ownerHome, "the owner's session home is never consulted")
 }
 
-// UNATTENDED with nothing stored: the cell is refused before anything is
-// built, naming the command that mints the credential.
-func TestCellsPrepare_UnattendedWithNoCredentialIsRefused(t *testing.T) {
+// With no token exported the cell is refused before anything is built,
+// naming how the human mints and exports one.
+func TestCellsPrepare_WithNoTokenExportedIsRefused(t *testing.T) {
 	resetStrictness(t)
 	fakeHostHome(t, "")
-	withTerminal(t, engine.Terminal{}, false)
-	// No engine binary is reachable: a regression that tried to mint here
-	// fails on a missing binary instead of starting a real login flow.
+	// No engine binary is reachable: a regression that ran claude's own
+	// login flow here fails on a missing binary instead.
 	t.Setenv("PATH", t.TempDir())
 
 	req := claudeKind(t)
@@ -230,7 +226,7 @@ func TestCellsPrepare_UnattendedWithNoCredentialIsRefused(t *testing.T) {
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
 	_, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 	require.ErrorIs(t, err, engine.ErrNoCredential)
-	assert.Contains(t, remedyOf(t, err), "ctxloom auth mint --engine claude-code --mode token")
+	assert.Contains(t, remedyOf(t, err), "claude setup-token")
 	root, perr := paths.HarpSessionEngineHomes(harpA)
 	require.NoError(t, perr)
 	assert.NoDirExists(t, root, "nothing is built for a refused run")
@@ -265,8 +261,8 @@ func claudeInstanceDir(t *testing.T, workDir, harp string) string {
 
 // Auth is purely per agent: a binding that selects the human's real home
 // (engine_home: host) still authenticates in its declared mode. A token
-// agent there gets the stored token and the login's storage var unset; with
-// nothing stored and no terminal it is refused like any other token agent.
+// agent there gets the exported token and the login's storage var unset;
+// with none exported it is refused like any other token agent.
 func TestCellsPrepare_HostHomeAppliesTheDeclaredAuth(t *testing.T) {
 	prepare := func(t *testing.T) (launch.Cell, error) {
 		req := claudeKind(t)
@@ -281,20 +277,18 @@ func TestCellsPrepare_HostHomeAppliesTheDeclaredAuth(t *testing.T) {
 		}
 		return cell, err
 	}
-	t.Run("stored token", func(t *testing.T) {
+	t.Run("exported token", func(t *testing.T) {
 		resetStrictness(t)
 		fakeHostHome(t, "")
-		_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
-		require.NoError(t, err)
+		t.Setenv(claude.OAuthTokenEnv, tokenFixture)
 		cell, err := prepare(t)
 		require.NoError(t, err)
 		assert.Equal(t, tokenFixture, cell.Env[claude.OAuthTokenEnv])
 		assert.Contains(t, cell.Unset, claude.SecureStorageEnv)
 	})
-	t.Run("nothing stored, unattended", func(t *testing.T) {
+	t.Run("nothing exported", func(t *testing.T) {
 		resetStrictness(t)
 		fakeHostHome(t, "")
-		withTerminal(t, engine.Terminal{}, false)
 		t.Setenv("PATH", t.TempDir())
 		_, err := prepare(t)
 		require.ErrorIs(t, err, engine.ErrNoCredential)
@@ -392,11 +386,10 @@ func (listening) Listen() present.Listen { return present.Listen{Addr: "10.0.0.1
 // best-effort outcome. The real cell, over the same findings, refuses.
 func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
 	resetStrictness(t)
-	// The run authenticates first: a stored token, so the refusal it meets
-	// is the environment's, not the credential's.
+	// The run authenticates first: an exported token, so the refusal it
+	// meets is the environment's, not the credential's.
 	fakeHostHome(t, "")
-	_, err := isolation.StoreEngineCredential(claude.EngineName, engine.AuthToken, []byte(tokenFixture))
-	require.NoError(t, err)
+	t.Setenv(claude.OAuthTokenEnv, tokenFixture)
 	refusing := func(context.Context, launch.CellRequest, isolation.Spec) (isolation.Environment, error) {
 		strictness.FailAlways(report.KindIsolation, "the fix", "the requested boundary cannot be provided")
 		return stubEnvironment{}, nil
@@ -414,7 +407,7 @@ func TestCellsPrepare_APreviewRecordsWhatARunRefuses(t *testing.T) {
 	defer strictness.Close(mark)
 	preview := cells
 	preview.preview = true
-	_, err = preview.Prepare(context.Background(), req)
+	_, err := preview.Prepare(context.Background(), req)
 	require.NoError(t, err, "a preview carries on past a refusal")
 	require.Len(t, strictness.Since(mark), 1, "the finding stays on the ledger for the dry run's gate")
 
@@ -451,16 +444,14 @@ func TestCellsPrepare_APreviewRecordsTheMissingStoreARunRefuses(t *testing.T) {
 	assert.True(t, found[0].NonDegradable)
 }
 
-// A preview resolves credentials READ-ONLY: it never mints, never stores,
-// and never carries a secret into the placement it shows. Where a run
-// would refuse (unattended, nothing stored) the preview records that
-// refusal; where a run would mint at the human's terminal it refuses
-// nothing, and mints nothing either.
+// A preview resolves credentials READ-ONLY and never carries a secret into
+// the placement it shows. Where a run would refuse (nothing exported) the
+// preview records that refusal, with the run's remedy.
 func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
-	prepareFake := func(t *testing.T) (Cells, launch.CellRequest, *[]engine.Terminal) {
+	prepareFake := func(t *testing.T) (Cells, launch.CellRequest) {
 		t.Helper()
 		resetStrictness(t)
-		reg, seen := installFakeMint(t)
+		reg := installFakeAuth(t)
 		eng, ok := reg.Lookup("fake-auth")
 		require.True(t, ok)
 		req := launch.CellRequest{
@@ -472,30 +463,11 @@ func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
 			SessionDir:  harpDir(t, harpA),
 			Auth:        string(engine.AuthToken),
 		}
-		return Cells{engines: reg, cfg: config.NewFixture(config.Fixture{}), preview: true}, req, seen
-	}
-	requireNothingStored := func(t *testing.T) {
-		t.Helper()
-		_, err := isolation.StoredCredentials("fake-auth").Read(engine.AuthToken)
-		require.ErrorIs(t, err, engine.ErrNoCredential, "a preview writes no credential")
+		return Cells{engines: reg, cfg: config.NewFixture(config.Fixture{}), preview: true}, req
 	}
 
-	t.Run("attended: the run would mint, so nothing is refused and nothing minted", func(t *testing.T) {
-		cells, req, seen := prepareFake(t)
-		withTerminal(t, engine.Terminal{In: &bytes.Buffer{}, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}, true)
-		mark := strictness.Checkpoint()
-		defer strictness.Close(mark)
-
-		_, err := cells.Prepare(context.Background(), req)
-		require.NoError(t, err)
-		assert.Empty(t, *seen, "a preview never starts the mint flow")
-		assert.Empty(t, strictness.Since(mark), "a run at a terminal mints rather than refuses")
-		requireNothingStored(t)
-	})
-
-	t.Run("unattended: the run's refusal is recorded, nothing minted", func(t *testing.T) {
-		cells, req, seen := prepareFake(t)
-		withTerminal(t, engine.Terminal{}, false)
+	t.Run("nothing exported: the run's refusal is recorded", func(t *testing.T) {
+		cells, req := prepareFake(t)
 		mark := strictness.Checkpoint()
 		defer strictness.Close(mark)
 
@@ -503,9 +475,7 @@ func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
 		require.NoError(t, err, "a preview carries on past a refusal")
 		found := strictness.Since(mark)
 		require.Len(t, found, 1)
-		assert.Contains(t, found[0].Remedy, "ctxloom auth mint --engine fake-auth --mode token")
-		assert.Empty(t, *seen)
-		requireNothingStored(t)
+		assert.Equal(t, "export "+fakeTokenVar, found[0].Remedy)
 
 		run := cells
 		run.preview = false
@@ -514,14 +484,13 @@ func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
 		assert.Equal(t, found[0].Remedy, remedyOf(t, err), "with the same remedy")
 	})
 
-	t.Run("stored: the preview places the credential's var, never its secret", func(t *testing.T) {
-		cells, req, _ := prepareFake(t)
-		_, err := isolation.StoreEngineCredential("fake-auth", engine.AuthToken, []byte("stored-secret"))
-		require.NoError(t, err)
+	t.Run("exported: the preview places the credential's var, never its secret", func(t *testing.T) {
+		cells, req := prepareFake(t)
+		t.Setenv(fakeTokenVar, "env-secret")
 
 		cell, err := cells.Prepare(context.Background(), req)
 		require.NoError(t, err)
 		require.Contains(t, cell.Env, fakeTokenVar, "the preview shows the var the run sets")
-		assert.NotContains(t, cell.Env[fakeTokenVar], "stored-secret", "and never the secret")
+		assert.NotContains(t, cell.Env[fakeTokenVar], "env-secret", "and never the secret")
 	})
 }

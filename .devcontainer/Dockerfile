@@ -9,18 +9,9 @@ FROM ubuntu:24.04
 # `just test-docker-integration` reach the host/CI runner's Docker daemon —
 # GitHub-hosted runners bind-mount /var/run/docker.sock into job containers,
 # so the CLI is the only thing missing to actually exercise
-# internal/adapters/isolation's docker-gated container_integration_test.go /
-# container_worktree_integration_test.go (see justfile test-docker-integration).
-# Those tests self-skip when docker is unreachable, so this is a "make it
-# possible to pass" addition, not a hard requirement.
-# tmux is a TEST DEPENDENCY, not a convenience. internal/adapters/tmuxhost's tests drive a
-# real tmux server, and without the binary they SKIP rather than fail — so the
-# package reports ok, the suite goes green, and the tmux-backed behaviour is
-# never exercised at all. That is how three of four rename mutations survived a
-# green gate, and how an acceptance scenario ran red in this image while passing
-# on a host that happened to have tmux installed. The acceptance image inherits
-# from this one (acceptance.Dockerfile is FROM ${BASE_IMAGE}), so this line is
-# what makes the gate mean the same thing in both places.
+# internal/adapters/isolation's docker-gated integration tests (see justfile
+# test-docker-integration). Those tests self-skip when docker is unreachable,
+# so this is a "make it possible to pass" addition, not a hard requirement.
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
@@ -38,7 +29,6 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
     python3 \
     python3-pip \
-    tmux \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \

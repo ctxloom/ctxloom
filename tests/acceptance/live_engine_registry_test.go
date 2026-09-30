@@ -419,53 +419,22 @@ func treeSnapshot(t *testing.T, root string) map[string]string {
 	return out
 }
 
-const fakeStoredToken = "sk-ant-oat01-fake-for-this-test"
-
-// seedFakeRealHome builds a throwaway stand-in for the developer's real HOME
-// carrying the stored setup-token each mappable engine requires, and clears
-// the vars that would take the env path instead.
+// seedFakeRealHome builds a throwaway stand-in for the developer's real HOME,
+// with a claude login in it that must never be copied, and clears the vars
+// that would take the env path.
 func seedFakeRealHome(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	realHome := t.TempDir()
-	p := filepath.Join(realHome, ".ctxloom", "auth", "claude-code.token")
+	p := filepath.Join(realHome, ".claude", ".credentials.json")
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(fakeStoredToken+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(`{"claudeAiOauth":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return realHome
-}
-
-// The mapper hands the child the STORED setup-token under the engine's token
-// var, by exact name and exact value.
-func TestMapCredentials_HandTheStoredTokenToTheChild(t *testing.T) {
-	realHome := seedFakeRealHome(t)
-	mappings, err := liveAgents["claude"].mapCreds(realHome)
-	if err != nil {
-		t.Fatalf("mapCreds: %v", err)
-	}
-	assert.Equal(t, []credentialMapping{{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Value: fakeStoredToken}}, mappings)
-}
-
-// The whole gate path end to end: the stored token lands on the child env,
-// and nothing whatsoever is written — not into the isolated HOME, not into
-// the real one.
-func TestSeedLiveCredentials_SetsTheStoredTokenOnTheChild(t *testing.T) {
-	realHome := seedFakeRealHome(t)
-	fakeHome := t.TempDir()
-	before := treeSnapshot(t, realHome)
-
-	got, setEnv := recordEnv()
-	if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv); err != nil {
-		t.Fatalf("seedLiveCredentials: %v", err)
-	}
-
-	assert.Equal(t, map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": fakeStoredToken}, got)
-	assert.Empty(t, treeSnapshot(t, fakeHome), "nothing is copied into the isolated HOME")
-	assert.Equal(t, before, treeSnapshot(t, realHome), "nothing in the real HOME is written, moved or removed")
 }
 
 // An exported token or API key rides the inherited env, so no var is set and
@@ -486,18 +455,21 @@ func TestSeedLiveCredentials_EnvPathMapsAndCopiesNothing(t *testing.T) {
 	}
 }
 
-// No stored token is a NAMED failure naming the file and the fix, never a
-// silent skip that yields a mysteriously unauthenticated run, and it sets no
-// env var.
-func TestSeedLiveCredentials_NoStoredTokenIsLoud(t *testing.T) {
-	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
-	t.Setenv("ANTHROPIC_API_KEY", "")
+// No exported token is a NAMED failure naming the fix, never a silent skip
+// that yields a mysteriously unauthenticated run: it sets no env var, and the
+// developer's login in the real HOME is neither copied nor touched.
+func TestSeedLiveCredentials_NoExportedTokenIsLoud(t *testing.T) {
+	realHome := seedFakeRealHome(t)
+	fakeHome := t.TempDir()
+	before := treeSnapshot(t, realHome)
 	got, setEnv := recordEnv()
-	err := seedLiveCredentials("claude", liveAgents["claude"], t.TempDir(), t.TempDir(), setEnv)
+	err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "claude-code.token")
-	assert.Contains(t, err.Error(), "ctxloom auth mint --mode token")
+	assert.Contains(t, err.Error(), "claude setup-token")
+	assert.Contains(t, err.Error(), "CLAUDE_CODE_OAUTH_TOKEN")
 	assert.Empty(t, got)
+	assert.Empty(t, treeSnapshot(t, fakeHome), "nothing is copied into the isolated HOME")
+	assert.Equal(t, before, treeSnapshot(t, realHome), "nothing in the real HOME is written, moved or removed")
 }
 
 // TestSeedLiveCredentials_NoRealHomeIsLoud: reaching the seed with no captured

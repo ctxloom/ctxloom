@@ -51,8 +51,7 @@ import (
 // notifyParentOfFinalReport), and that notice is ordinary mail, so it takes
 // whichever route this file chooses for the recipient like any other. The
 // report and the notice are two different things: one is the content, the other
-// is the wake. They were previously the same thing only in the sense that
-// neither reached a waiting parent.
+// is the wake.
 //
 // THE SESSION OWNER is a spool recipient too. Its in/ is read by its
 // turn-start hook and in-process by AgentRecv. The owner is identified by
@@ -64,10 +63,15 @@ import (
 // would sit in a directory nothing ever reads.
 
 // spoolSweepInterval is the slow reconciliation cadence on BOTH sides: the
-// backstop for a doorbell dropped on a stream that never went down (the
-// saturated-pump case). It is a tunable constant rather than config surface —
-// nothing hangs on the exact number, because the startup and reconnect sweeps
-// already bound every case where a doorbell could be missed for longer.
+// backstop for any doorbell that no other sweep covers. The startup and
+// reconnect sweeps cover a doorbell dropped while the channel was DOWN,
+// including one dropped inside the RunChannel attach window (after
+// AttachRun's out/ sweep at Hello, before the runner adopts the stream on
+// HelloAck): Coordinator.ConfirmAttach re-sweeps out/ on the first frame the
+// adopted stream carries, which the runner always sends. This timer is the
+// only cover for one dropped on a stream that never went down (the
+// saturated-pump case). A tunable constant rather than config surface: it
+// bounds latency in that case, never correctness.
 const spoolSweepInterval = 30 * time.Second
 
 // SpoolReactor serialises one side's spool reading.

@@ -19,7 +19,8 @@ import (
 //	                   answered as a daemon that owns no container of this
 //	                   process's. Without it, a test run inside a container
 //	                   (CI's job container) has a self-id candidate, and a
-//	                   failing listing is an undecidable self — fatal.
+//	                   failing listing is an undecidable self — a warning on
+//	                   the stderr a test may assert on.
 //	`image inspect` -> 1, so isolation.Container.imagePresent reports absent.
 //
 // Everything else fails, because nothing else should be reached by a caller

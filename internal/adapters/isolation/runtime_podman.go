@@ -3,9 +3,8 @@ package isolation
 import (
 	"context"
 	"fmt"
-	"os/exec"
+	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 )
@@ -132,21 +131,33 @@ func (p Podman) Enumerate(ctx context.Context, namePrefix string) ([]ContainerIn
 	return p.enumerate(ctx, p.Binary(), namePrefix)
 }
 
-// newPodmanRuntime probes the engine once (`podman info`) for whether it is
-// rootless and which rootless network it uses. Best-effort: on any error it
-// assumes rootless with an unknown network — podman is rootless by default,
-// and keep-id under a rootful engine errors loudly at launch while a missing
-// keep-id under rootless silently wrecks bind-mount ownership, the worse
-// failure.
-func newPodmanRuntime() Podman {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", "info", "--format", "{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}").Output()
+// podmanOwnershipFormat is the `podman info` template answering whether the
+// engine is rootless and, in the same call, its rootless network command.
+const podmanOwnershipFormat = "{{.Host.Security.Rootless}} {{.Host.RootlessNetworkCmd}}"
+
+// podmanRootless reads podmanOwnershipFormat's first field: "true" or
+// "false", and anything else is unreadable.
+func podmanRootless(answer string) (bool, error) {
+	field, _, _ := strings.Cut(strings.TrimSpace(answer), " ")
+	r, err := strconv.ParseBool(field)
 	if err != nil {
-		return Podman{rootless: true}
+		return false, fmt.Errorf("unreadable rootless answer %q", field)
 	}
-	rootless, network, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
-	p := Podman{rootless: rootless != "false", rootlessNet: network}
+	return r, nil
+}
+
+// newPodmanRuntime probes podman for selection exactly as newDockerRuntime
+// probes docker: reachability, then — only for a reachable engine — its
+// ownership through the shared probeOwnership, whose one call also names the
+// rootless network (reachRoute).
+func newPodmanRuntime(reachable func(string) bool) (Podman, RuntimeAxis) {
+	if !reachable("podman") {
+		return Podman{}, ownershipUndecided
+	}
+	owns, answer := probeOwnership("podman", podmanOwnershipFormat, podmanRootless)
+	_, network, _ := strings.Cut(strings.TrimSpace(answer), " ")
+	p := Podman{rootless: owns == RuntimeContainerRootless, rootlessNet: network}
+	p.reachable = true
 	p.self = resolveSelf(p)
-	return p
+	return p, owns
 }

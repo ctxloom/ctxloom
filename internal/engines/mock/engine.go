@@ -302,11 +302,9 @@ func (m Mock) Transcripts() []engine.TranscriptReader { return m.transcripts }
 // (hooks.go).
 func (m Mock) Hooks() engine.HookCodec { return hookCodec{m.Name} }
 
-// Wake types the wake into the mock's pane. Its input line is a cooked-mode
-// line buffer with no prompt glyph and no decorations, so it is empty
-// exactly when nothing is on it.
+// Wake is declared absent: the mock has no out-of-band way to start a turn.
 func (m Mock) Wake() engine.Declared[engine.WakeSpec] {
-	return engine.Provide[engine.WakeSpec](engine.TypedWakeSpec{Composer: func(line string) bool { return line == "" }})
+	return engine.Absent[engine.WakeSpec]("the mock listens on nothing a wake could post to")
 }
 
 // Instance is where REQUIREDNESS is checked, loudly: the mock cannot run a

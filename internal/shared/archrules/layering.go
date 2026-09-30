@@ -48,8 +48,7 @@ func (r LayeringRule) Violates(dep string) bool {
 // signal, and the later, innocent change gets the error. These rows move the
 // signal to the reversal.
 //
-// The ring rows pin the decided architecture's rings (docs/architecture/
-// audit-2026-09-18/30-decided-architecture.md, Part 1): each allowlisted edge
+// The ring rows pin the decided architecture's rings: each allowlisted edge
 // is MEASURED, one entry per edge, and its reason names the slice in which it
 // leaves — a ratchet, not a claim.
 var LayeringRules = []LayeringRule{
@@ -88,15 +87,14 @@ var LayeringRules = []LayeringRule{
 		Forbid: []string{"internal/engines/claude"},
 	},
 	{
-		// THE DECIDED ARCHITECTURE'S CORE RING (docs/architecture/audit-2026-09-18/
-		// 30-decided-architecture.md, Part 1.0): the packages that become
+		// THE DECIDED ARCHITECTURE'S CORE RING: the packages that become
 		// internal/core/* import only each other and the toolbox. The rename
 		// slice made the ring a directory, so `from` and `except` are the
 		// prefix. `forbid` is every in-repo root, so anything that is neither core
 		// nor toolbox is forbidden by default — a new package needs no row.
 		// The allowlist is the MEASURED import list, one edge per entry,
 		// each naming the slice in which it leaves; it is a ratchet, not a
-		// claim (Part 0, invariant 9), and TestArch_LayeringAllowlist_IsLive
+		// claim, and TestArch_LayeringAllowlist_IsLive
 		// deletes an entry the moment its import is gone.
 		Name: "core-imports-only-core",
 		From: []string{
@@ -106,7 +104,7 @@ var LayeringRules = []LayeringRule{
 		Except: []string{
 			// core (the from-set again: core may import core)
 			"internal/core",
-			// the toolbox (Part 0: domain-free leaf libraries), listed by
+			// the toolbox (domain-free leaf libraries), listed by
 			// member rather than as the internal/shared prefix: a package
 			// that merely sits under that directory is not thereby a
 			// toolbox member core may reach.
@@ -130,11 +128,11 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/owneronly",
 		},
 		Allowed: map[string]string{
-			// core/profiles — Part 1.0 lists remote; the others were MEASURED,
-			// not listed.
+			// core/profiles — the remote edge was planned; the others were
+			// MEASURED.
 			"internal/core/profiles -> internal/adapters/remote": "slice 5: the pull-walk reader moves to adapters/remote",
-			"internal/core/profiles -> internal/shared/upgrade":  "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (Part 1.0: slice 5); slice 5 landed without the move, which is still open",
-			"internal/core/profiles -> resources":                "top-level resources/ is DATA a reader adapter supplies, not toolbox, and the core ring does not import it — ruled 2026-09-22 (Part 3.3); cutting this edge is task row decent-porthole",
+			"internal/core/profiles -> internal/shared/upgrade":  "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
+			"internal/core/profiles -> resources":                "top-level resources/ is DATA a reader adapter supplies, not toolbox, and the core ring does not import it — ruled 2026-09-22; cutting this edge is task row decent-porthole",
 
 			// core/bundles
 			"internal/core/bundles -> internal/adapters/content":            "slice 5: readers become adapters behind bundles.Reader",
@@ -143,19 +141,19 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/remote":             "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
-			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (Part 1.0: slice 5); slice 5 landed without the move, which is still open",
+			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (slice 5); slice 5 landed without the move, which is still open",
 
 			// core/config
 			"internal/core/config -> internal/shared/admission": "slice 5: admission is decided by composite.Trust",
 
-			// shared/agent → its contract half becomes core/engine. Part 1.0 also
-			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
-			// excepted, so those two are not violations.
+			// shared/agent → its contract half becomes core/engine. Its
+			// lockwait and iox edges reach the toolbox, which is excepted, so they
+			// are not violations.
 			"internal/core/agent -> internal/shared/ledger": "slice 12: shared/ledger is deleted",
 		},
 	},
 	{
-		// THE ADAPTER RING (Part 1.1): adapters import core; they do not import
+		// THE ADAPTER RING: adapters import core; they do not import
 		// each other or the engines. The two sanctioned edges — cli → operations
 		// (the CLI is a pure frontend over the application services) and a
 		// package's own subpackage (cli → cli/tui; runner → runner/mcp) — are
@@ -173,7 +171,7 @@ var LayeringRules = []LayeringRule{
 			"internal/engines",
 		},
 		Allowed: map[string]string{
-			// sanctioned (Part 1.1): the trust adapters compose each other at the
+			// sanctioned: the trust adapters compose each other at the
 			// root — config.Sources.TrustPorts builds the generation's three ports
 			// from the config's trust root (already the port), the countersignature
 			// stores and the lockfile.
@@ -186,21 +184,21 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/configload":             "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
 			"internal/adapters/operations -> internal/adapters/companions":             "slice 7: the process is composed at cmd/*; the companion Prober is injected",
 			"internal/adapters/operations -> internal/adapters/fsstatic":               "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (DeliverProject, RemoveProject)",
-			"internal/adapters/fsstatic -> internal/adapters/confpatch":                "sanctioned (Part 1.4): the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
+			"internal/adapters/fsstatic -> internal/adapters/confpatch":                "sanctioned: the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
 			"internal/adapters/cli -> internal/adapters/fsstatic":                      "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and composes the runner's static writer",
 			"internal/adapters/cli -> internal/adapters/fsstore":                       "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and roots the runner's claim store",
 			"internal/adapters/cli -> internal/adapters/runner":                        "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root",
 			"internal/adapters/cli -> internal/adapters/hostpty":                       "composition root (cmd/*): the interactive owner's runner is started on its pty by spawn.Runtimes composed there; until then `ctxloom run` starts it itself",
 			"internal/adapters/cli -> internal/adapters/attach":                        "composition root (cmd/*): the interactive owner's container runner is attached on its pty by spawn.Runtimes composed there; until then `ctxloom run` attaches it itself",
-			"internal/adapters/attach -> internal/adapters/hostpty":                    "sanctioned (Part 1.5): attach is the container's shape of the SAME pty-held runner hostpty owns for the host; one master for the frontend, wherever the runner runs",
+			"internal/adapters/attach -> internal/adapters/hostpty":                    "sanctioned: attach is the container's shape of the SAME pty-held runner hostpty owns for the host; one master for the frontend, wherever the runner runs",
 			"internal/adapters/runner -> internal/adapters/coordgrpc":                  "slice 10: the runner's RunnerChannel client is coordgrpc's, which decodes the frame and calls runner.Execute; until then runner.Host decodes it",
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":               "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/configload":                    "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
 			"internal/adapters/cli -> internal/adapters/companions":                    "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
 			"internal/adapters/cli -> internal/adapters/companions/loadout":            "ctxloom is its own companion: the CLI owns `ctxloom loadout`'s place in the documented tree while cmd/ctxloom owns the embedded bytes; removed when the companion-side loadout package (cobra + envelope encode, no other adapter) moves out of adapters",
-			// sanctioned (Part 1.1): the CLI is a frontend over operations; a
+			// sanctioned: the CLI is a frontend over operations; a
 			// package may import its own subpackage.
-			"internal/adapters/cli -> internal/adapters/operations":                                         "sanctioned: cli → operations is one of the two adapter-to-adapter edges Part 0 keeps",
+			"internal/adapters/cli -> internal/adapters/operations":                                         "sanctioned: cli → operations is one of the two sanctioned adapter-to-adapter edges",
 			"internal/adapters/cli -> internal/adapters/cli/tui":                                            "sanctioned: a package's own subpackage",
 			"internal/adapters/transcript/vendorreader/claude -> internal/adapters/transcript/vendorreader": "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript/vendorreader/mock -> internal/adapters/transcript/vendorreader":   "sanctioned: a package's own parent tree (transcript/*)",
@@ -218,35 +216,34 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":                                   "sanctioned: cli/tui is the watch UI on the coordination proto",
 			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "the host relay's distill handlers bound their work to mcpschema.DistillBudget, the one number both sides of the relay share",
-			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":                                "sanctioned: runner/mcp is the session endpoint and speaks the wire (Part 1.1's proto-only-in-adapters)",
+			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":                                "sanctioned: runner/mcp is the session endpoint and speaks the wire (the proto lives only in adapters)",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/mcpschema":                         "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
 
 			// edges the prefix form surfaced (packages unit A's explicit
 			// lists did not name); each MEASURED, with the slice that
-			// removes it where Part 1.1 names one
-			"internal/adapters/cli -> internal/adapters/contextmetrics":                 "measured; Part 1.1 does not place contextmetrics — no slice names this edge",
+			// removes it where one is named
+			"internal/adapters/cli -> internal/adapters/contextmetrics":                 "measured; no ring placement is decided for contextmetrics — no slice names this edge",
 			"internal/adapters/operations -> internal/adapters/coordgrpc/discover":      "slice 10 remainder: the endpoint file's reader (discover.List) becomes operations' when the servers leave core",
-			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then",
 			"internal/adapters/cli -> internal/adapters/coordgrpc":                      "slice 13: the CLI hands the Launch to the spawner and stops encoding the run-start message itself",
-			"internal/adapters/cli -> internal/adapters/gitignore":                      "measured; Part 1.1 does not place gitignore — no slice names this edge",
+			"internal/adapters/cli -> internal/adapters/gitignore":                      "measured; no ring placement is decided for gitignore — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/projectroot":                    "slice 7: launch.HostFacts carries the project root from cmd/*",
-			"internal/adapters/cli -> internal/adapters/selfexec":                       "slice 13: hostpty spawns the runner; the self-exec path is a HostFacts value (measured; Part 1.1 does not place selfexec)",
-			"internal/adapters/isolation -> internal/adapters/selfexec":                 "composition root (cmd/*): the runner binary is launch.HostFacts.Binary handed to spawn.Runtimes; until then the host cell's runner command resolves its own self-exec path (measured; Part 1.1 does not place selfexec)",
-			"internal/adapters/cli -> internal/adapters/tmuxhost":                       "slice 13: tmuxhost goes with vpio; adapters/hostpty replaces it",
-			"internal/adapters/cli -> internal/adapters/turnchange":                     "measured; Part 1.1 does not place turnchange — no slice names this edge",
+			"internal/adapters/cli -> internal/adapters/selfexec":                       "slice 13: hostpty spawns the runner; the self-exec path is a HostFacts value (measured; no ring placement is decided for selfexec)",
+			"internal/adapters/isolation -> internal/adapters/selfexec":                 "composition root (cmd/*): the runner binary is launch.HostFacts.Binary handed to spawn.Runtimes; until then the host cell's runner command resolves its own self-exec path (measured; no ring placement is decided for selfexec)",
+			"internal/adapters/cli -> internal/adapters/turnchange":                     "measured; no ring placement is decided for turnchange — no slice names this edge",
 			"internal/adapters/content -> internal/adapters/signing":                    "slice 5: one verifier behind the trust ports",
 			"internal/adapters/content/remotetree -> internal/adapters/remote":          "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
-			"internal/adapters/isolation -> internal/adapters/git":                      "measured; Part 1.1 does not place git — no slice names this edge",
-			"internal/adapters/isolation -> internal/adapters/gitignore":                "measured; Part 1.1 does not place gitignore — no slice names this edge",
-			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "the host relay's context_status handler reads contextmetrics (measured; Part 1.1 does not place contextmetrics)",
+			"internal/adapters/isolation -> internal/adapters/git":                      "measured; no ring placement is decided for git — no slice names this edge",
+			"internal/adapters/isolation -> internal/adapters/gitignore":                "measured; no ring placement is decided for gitignore — no slice names this edge",
+			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "the host relay's context_status handler reads contextmetrics (measured; no ring placement is decided for contextmetrics)",
 			"internal/adapters/operations -> internal/adapters/content":                 "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/content/remotetree":      "slice 5: readers become adapters behind bundles.Reader",
-			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":            "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":            "slice 13: allowlisted until then",
 			"internal/adapters/operations -> internal/adapters/engineversion":           "slice 11b: the version command is the engine's own, on the instance half of the port",
-			"internal/adapters/operations -> internal/adapters/git":                     "measured; Part 1.1 does not place git — no slice names this edge",
-			"internal/adapters/operations -> internal/adapters/gitignore":               "measured; Part 1.1 does not place gitignore — no slice names this edge (the doctor's gitignore-posture row reads its detector)",
+			"internal/adapters/operations -> internal/adapters/git":                     "measured; no ring placement is decided for git — no slice names this edge",
+			"internal/adapters/operations -> internal/adapters/gitignore":               "measured; no ring placement is decided for gitignore — no slice names this edge (the doctor's gitignore-posture row reads its detector)",
 			"internal/adapters/operations -> internal/adapters/projectroot":             "slice 7: launch.HostFacts carries the project root from cmd/*",
-			"internal/adapters/remote -> internal/adapters/git":                         "measured; Part 1.1 does not place git — no slice names this edge",
+			"internal/adapters/remote -> internal/adapters/git":                         "measured; no ring placement is decided for git — no slice names this edge",
 			"internal/adapters/turnchange -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",
 
 			// cli reaching past operations
@@ -255,7 +252,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/isolation":        "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
 			"internal/adapters/cli -> internal/adapters/mcp":              "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/mcp",
 			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
-			"internal/adapters/cli -> internal/adapters/remote":           "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; Part 1.1 places these behind operations and no slice names them",
+			"internal/adapters/cli -> internal/adapters/remote":           "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; they belong behind operations and no slice names them",
 			"internal/adapters/cli -> internal/adapters/signing":          "measured: init and `signer trust` spell signing.NamespacePublish, the trust namespace they write into; leaves when the namespace is a value operations hands back",
 			"internal/adapters/cli -> internal/adapters/signing/agentkey": "measured: the signing frontends (review, sign, bundle push) hold the *agentkey.Discoverer operations.SignerDiscoverer composes and render agentkey's own candidate listing and hardware-key posture over operations.ResolveLocalSigner; a rendering vocabulary, not an orchestration",
 			"internal/adapters/cli -> internal/adapters/termui":           "slice 13: termui sits over the pty master the runner owns",
@@ -284,7 +281,7 @@ var LayeringRules = []LayeringRule{
 
 			// adapters/spawn — the production coord.Spawner, composed at cmd/*. It
 			// SELECTS over the App's generations, RESOLVES through the launch trunk
-			// and STARTS runners through isolation; Part 1.1 gives it launch.Deps
+			// and STARTS runners through isolation; its target is launch.Deps
 			// and a Runtimes port instead, both handed in at cmd/*.
 			"internal/adapters/spawn -> internal/adapters/operations": "slice 13: spawn holds launch.Deps and the session store, not the App; the launch trunk's operations are reached through them",
 			"internal/adapters/spawn -> internal/adapters/isolation":  "slice 13: spawn.Runtimes is the port; isolation implements it and is injected at cmd/*",
@@ -319,12 +316,12 @@ var LayeringRules = []LayeringRule{
 
 			// isolation, memory, and the leaf adapters
 			"internal/adapters/companions -> internal/adapters/signing":                   "slice 4: adapters/companions probes; signing is reached through the trust ports",
-			"internal/adapters/content/attest -> internal/adapters/signing":               "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge Part 1.1 does not resolve; measured",
+			"internal/adapters/content/attest -> internal/adapters/signing":               "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge no decision resolves yet; measured",
 			"internal/adapters/transcript/vendorreader/claude -> internal/engines/claude": "slice 11b: the claude reader becomes an engine.TranscriptReader the engine package supplies (Engine.Transcripts)",
 		},
 	},
 	{
-		// THE ENGINES RING (Part 1.1, `engines-import-nothing-above-the-port`):
+		// THE ENGINES RING (`engines-import-nothing-above-the-port`):
 		// an engine package imports the port (core/engine) and the leaves its
 		// vocabulary names, and no adapter. core/agent still carries the
 		// instance half's remaining contract (agent.Backend, agent.Hosted, the
@@ -363,8 +360,8 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "sanctioned: mcpschema projects the proto into the tool schemas, beside it under coordgrpc",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":              "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
-			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                 "slice 13: allowlisted until then per Part 1.0",
-			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":          "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                 "slice 13: allowlisted until then",
+			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":          "slice 13: allowlisted until then",
 		},
 	},
 	{

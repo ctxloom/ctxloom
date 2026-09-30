@@ -229,7 +229,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
 	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
 	"mcp serve": {skip: "serve: runs the stdio MCP server"},
-	"attach":    {skip: "interactive: replaces this process with a tmux client attached to a run's pane; renders no result of its own"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
@@ -251,8 +250,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// five encodings to agree on.
 	"companion list": {extraArgs: noExtraArgs},
 	"auth status":    {extraArgs: noExtraArgs},
-	"auth set":       {skip: "reads a secret from stdin; covered by auth_test.go"},
-	"auth mint":      {skip: "runs the engine's interactive mint flow on a terminal; covered by auth_test.go"},
 	// Both mutate the personal consent record and need a real binary on PATH
 	// to resolve and hash; exercised end to end in trust_cli.feature instead.
 	"companion trust":   {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},

@@ -73,6 +73,19 @@ type drainPolicy struct {
 	// forceCause / forceDetail record a child still running at the bound.
 	forceCause  string
 	forceDetail func(bound time.Duration) string
+	// stop, when set, makes the REQUEST for a running turn INTERRUPT-THEN-
+	// CLOSE rather than a mark alone: each such child's runner is sent the
+	// per-run agent_stop's StopRun, all at once, so its turn is cut short and
+	// given the grace to report before the run closes. The bound still forces
+	// whatever that does not end. Only an operator's stop asks this: the
+	// shutdown drain and a FINAL let the turn finish.
+	stop *stopAsk
+}
+
+// stopAsk is what a drain's REQUEST hands each running child's runner.
+type stopAsk struct {
+	reason string
+	grace  time.Duration
 }
 
 // shutdownPolicy is BeginDrain's: the coordinator is going away.
@@ -93,10 +106,11 @@ func shutdownPolicy() drainPolicy {
 // `reason`, so the terminal cause is CauseStopped throughout (the roster,
 // the parent's notice and the relaunch gate all treat it as the operator's
 // own stop), and the detail says whether the turn was cut short.
-func stopPolicy(caller, reason string) drainPolicy {
+func stopPolicy(caller, reason string, grace time.Duration) drainPolicy {
 	by := fmt.Sprintf("stopped by %s: %s", caller, reason)
 	return drainPolicy{
 		label:      "agent_stop by " + caller,
+		stop:       &stopAsk{reason: reason, grace: grace},
 		endCause:   CauseStopped,
 		endDetail:  func(where string) string { return by + " (ended " + where + ")" },
 		forceCause: CauseStopped,
@@ -222,7 +236,10 @@ func (c *Coordinator) drainWake() {
 // (childRt.exitRequested; for the shutdown drain the admission flag says the
 // same of every run), and the turn-boundary handlers on both engine paths
 // (onTurnBoundary, onTurnIdle) end a marked child instead of parking it idle.
-// A parked child is left alone or ended, per the policy.
+// Under a policy with a stop ask the turn is also INTERRUPTED — its runner is
+// sent the per-run StopRun (interruptThenClose) — so it reaches that boundary
+// now, reporting, instead of when it would have. A parked child is left alone
+// or ended, per the policy.
 //
 // WAIT: the runner re-reads the folds whenever a child moves and settles as
 // soon as no child is still running. A child that parks mid-drain joins the
@@ -238,6 +255,11 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 	p := d.policy
 	c.drainRequest(d, p)
 	exited, interrupted, parked := c.drainWait(d, bound, p)
+	if p.stop != nil {
+		for _, ch := range d.tracked {
+			c.setPendingStop(ch.runID, "")
+		}
+	}
 	outcome := DrainOutcome{
 		Exited:      sortedCopy(exited),
 		Interrupted: sortedCopy(interrupted),
@@ -261,6 +283,9 @@ func (c *Coordinator) drainRequest(d *Drain, p drainPolicy) {
 				hook(ch.runID)
 			}
 			c.requestExit(ch.runID, p)
+			if p.stop != nil {
+				c.interruptThenClose(ch, p)
+			}
 		case StateIdle:
 			c.terminateRun(ch.runID, p.endCause, p.endDetail("between turns"))
 		default: // StateQueued: never admitted past the cap, so nothing to wait for
@@ -409,6 +434,30 @@ func (c *Coordinator) drainAtBoundary(rt *childRt, p *drainPolicy) {
 	c.terminateRun(rt.runID, p.endCause, p.endDetail("at its turn boundary"))
 }
 
+// interruptThenClose sends ch's runner the per-run stop (stopAtRunner) on its
+// own goroutine, so every child of one sweep is interrupted at once and each
+// gets the whole grace. A child no runner request can reach is left to the
+// mark and the bound. The stop's terminal detail is pending first, so a close
+// the runner reports before the turn's boundary lands is recorded as this
+// stop, not as a runner exit — and it says only that the runner closed it:
+// whether a turn was still running to be cut is the runner's to know, and the
+// child's own report tells the parent.
+func (c *Coordinator) interruptThenClose(ch drainChild, p drainPolicy) {
+	var rec *RunRecord
+	c.runs.View(func() {
+		if r := c.runsF.run(ch.runID); r != nil {
+			cp := *r
+			rec = &cp
+		}
+	})
+	if rec == nil || rec.Ended || !c.runnerReachable(rec) {
+		return
+	}
+	c.setPendingStop(ch.runID, p.endDetail("when its runner closed it"))
+	ask := *p.stop
+	c.goTracked(func() { c.stopAtRunner(rec, ask.reason, ask.grace) })
+}
+
 // ---------------------------------------------------------------------------
 // agent_stop's BULK form.
 // ---------------------------------------------------------------------------
@@ -419,9 +468,12 @@ func (c *Coordinator) drainAtBoundary(rt *childRt, p *drainPolicy) {
 // (one wording, whichever entry the stop arrived by).
 var ErrStopReasonRequired = errors.New("agent_stop: reason is required when no child (harp / run_id) is named: that form stops EVERY live child of this session; say why")
 
-// A StoppedChild's Outcome: the child ended without a turn being cut short
-// (between turns, at its turn boundary, before it started, or while parked),
-// or it was still running when the drain bound elapsed and was forced.
+// A StoppedChild's Outcome: the child ended inside the drain bound (between
+// turns, at its turn boundary — a running turn having been interrupted first
+// where its runner could be asked — before it started, or while parked), or it
+// was still running when the bound elapsed and was forced. Whether a turn was
+// cut short is the child's own report to its parent, not this field: the stop
+// cannot see whether the turn had already ended when the interrupt landed.
 const (
 	StopOutcomeStopped     = "stopped"
 	StopOutcomeInterrupted = "interrupted"
@@ -451,7 +503,10 @@ type StoppedChild struct {
 // armed relaunch turns back, leftover mail does not relaunch it — the mark
 // only, not cancelLaunch's cancel, which on the legacy path would kill the
 // very turn the REQUEST lets finish), the stop is audited per child with the
-// reason, and the terminal is CauseStopped with the reason in its detail. The child stays resumable by an explicit
+// reason, and the terminal is CauseStopped with the reason in its detail. A
+// running turn is interrupted-then-closed exactly as the per-run form does it,
+// every child at once, each with DefaultStopGrace (Stop passes the request's
+// grace instead); the bound only forces what that does not end. The child stays resumable by an explicit
 // agent_send, exactly as after the per-run form. Admission is NOT closed:
 // this is a sweep so the session can spawn again, not the shutdown drain.
 //
@@ -462,19 +517,19 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 	if reason == "" {
 		return nil, ErrStopReasonRequired
 	}
-	return c.stopChildren(ctx, caller, reason)
+	return c.stopChildren(ctx, caller, reason, 0)
 }
 
 // stopChildren is StopChildren's body once the reason is settled — Stop's
 // bulk arm reaches it through StopRequest.Validate, which owns the same
 // refusal for that shape.
-func (c *Coordinator) stopChildren(ctx context.Context, caller Identity, reason string) ([]StoppedChild, error) {
+func (c *Coordinator) stopChildren(ctx context.Context, caller Identity, reason string, grace time.Duration) ([]StoppedChild, error) {
 	tracked := c.drainTracked(func(r *RunRecord) bool { return r.ParentHarp == caller.Harp })
 	for _, ch := range tracked {
 		c.markStopped(ch.harp)
 		c.audit("agent_stop", caller.Harp, map[string]string{"harp": ch.harp, "run_id": ch.runID, "reason": reason})
 	}
-	d := newDrain(stopPolicy(caller.Harp, reason), tracked)
+	d := newDrain(stopPolicy(caller.Harp, reason, grace), tracked)
 	c.startDrain(d)
 	select {
 	case <-d.Done():

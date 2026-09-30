@@ -74,7 +74,18 @@ func awaitCutoverChild(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt str
 	require.NoError(t, c.awaitChildUp(ctx, out.Harp), "the migrated child never came up")
 	require.Eventually(t, func() bool { return sp.engineHome(0) != nil }, conformanceWait, 10*time.Millisecond,
 		"the runner half never appeared")
-	return out, sp.engineHome(0)
+	home := sp.engineHome(0)
+	// "Up" is StartRun round-tripped on the RUNNER channel; the RUN channel
+	// dials on its own goroutine, unordered against it, so neither wait above
+	// implies c.chans[out.Harp]. Home.Attached is the runner reading the
+	// HelloAck, which AttachRun registers the channel before sending — so it
+	// implies both halves (see dialHome).
+	if sp.attachWaiting != nil {
+		sp.attachWaiting <- struct{}{}
+	}
+	require.Eventually(t, home.Attached, conformanceWait, 10*time.Millisecond,
+		"the child's run channel never attached")
+	return out, home
 }
 
 // awaitCutoverChildIdle is awaitCutoverChild plus a wait for the child's FIRST

@@ -1,8 +1,7 @@
 package delivery_test
 
-// Part 4.2 test B — the delivery interface. Adapted from the decided
-// architecture's body where this module's landed signatures differ from the
-// design module's: Route takes engine.Items (pkg.EngineItems), the fixture
+// The delivery interface's design-by-test body, adapted where this module's
+// landed signatures differ from the design's: Route takes engine.Items (pkg.EngineItems), the fixture
 // helpers take bodies, the session home is present.Paths.SessionHome, and a plan
 // is routed over the roots of the target it is delivered to (Route refuses
 // a root the cell lacks, so the unrootable case is a plan routed over a

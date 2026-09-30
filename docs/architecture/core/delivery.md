@@ -66,9 +66,9 @@ select the project file there.
 
 No credential is delivered into a home. A launch authenticates from what
 its agent's `auth:` mode resolves to (`engine.Auth.Credentials`), which the
-environment makes true where the engine runs; the session home holds none. A mode whose credential is
-neither exported nor stored is minted at a terminal or, unattended, refused
-naming `ctxloom auth mint`. See
+environment makes true where the engine runs; the session home holds none. A mode whose credential the
+launching environment does not export is refused with the engine's remedy;
+ctxloom never mints or stores one. See
 [isolation](../engines/isolation.md#credential-delivery).
 
 ## Who delivers, and under which writer

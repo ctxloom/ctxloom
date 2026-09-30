@@ -14,7 +14,7 @@ import (
 
 // Backend is the mock kind's agent.Backend: the in-process double that
 // echoes prompts and context and calls no model. Its Execute is the
-// interactive pane's path and the legacy one-shot's; the structured drive
+// interactive path and the legacy one-shot's; the structured drive
 // is the kind's own driver (turn.go). fragments and managed are what a
 // launch delivered to this backend, which Execute's echo and record file
 // report; the runner's delivery hands none through this type, so both are

@@ -164,6 +164,12 @@ func (c *Coordinator) RunnerExited(credHash string, exited RunExited) {
 		return
 	}
 	c.bindNativeSession(harp, exited.HarnessSessionID)
+	if stop, stopping := c.pendingStop(runID); stopping {
+		// The runner closed the run because an agent_stop asked it to: the
+		// exit IS the stop, and is recorded as one.
+		c.terminateRun(runID, CauseStopped, stop)
+		return
+	}
 	detail := ""
 	switch {
 	case exited.Signal != "":

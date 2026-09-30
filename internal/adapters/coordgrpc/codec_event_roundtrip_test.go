@@ -48,3 +48,31 @@ func TestEvent_RoundTripsEveryPayloadVariant(t *testing.T) {
 		})
 	}
 }
+
+// TestResult_ExitCodeRoundTripsPresence pins the engine exit status's
+// presence, not only its value: an unset code means no engine exit produced
+// the result, and a set zero is an engine that exited cleanly — the two must
+// not collapse into each other on the wire.
+func TestResult_ExitCodeRoundTripsPresence(t *testing.T) {
+	code := func(v int32) *int32 { return &v }
+	for _, tc := range []struct {
+		name string
+		exit *int32
+	}{
+		{"unset", nil},
+		{"zero", code(0)},
+		{"engine code", code(3)},
+		{"signal", code(143)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := &coord.Result{Status: coord.RunStatusFailed, ExitCode: tc.exit}
+			wire := resultToWire(in)
+			if tc.exit == nil {
+				assert.Nil(t, wire.ExitCode, "an unset code stays unset on the wire")
+			} else if assert.NotNil(t, wire.ExitCode, "a set code is present on the wire") {
+				assert.Equal(t, *tc.exit, *wire.ExitCode)
+			}
+			assert.Equal(t, in, resultFromWire(wire))
+		})
+	}
+}

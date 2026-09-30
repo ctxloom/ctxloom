@@ -91,18 +91,13 @@ func credSpec(t *testing.T, eng engine.Engine, home, harp string, m agents.HomeM
 	return s
 }
 
-// noStored is a credential store holding nothing.
-type noStored struct{}
-
-func (noStored) Read(engine.AuthMode) ([]byte, error) { return nil, engine.ErrNoCredential }
-
 // claudeCredentials is claude's REAL Credentials for mode, from the
 // launching env as the test has set it.
 func claudeCredentials(t *testing.T, mode engine.AuthMode) engine.Credentials {
 	t.Helper()
 	a, ok := claudeEngine(t).Home().Auth.Get()
 	require.True(t, ok)
-	c, err := a.Credentials(mode, os.LookupEnv, noStored{})
+	c, err := a.Credentials(mode, os.LookupEnv)
 	require.NoError(t, err)
 	return c
 }

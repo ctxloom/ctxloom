@@ -41,6 +41,12 @@ type InstanceHomeReport struct {
 	Warnings []string
 }
 
+// ensureOwnerOnlyDir is owneronly.EnsureDir, indirected so a test can make
+// it fail: no ACL a test can write stops an elevated Windows administrator
+// (the account CI runs as) from replacing a DACL, so the failure has no
+// honest on-disk fixture there.
+var ensureOwnerOnlyDir = owneronly.EnsureDir
+
 // PrepareInstanceHome readies a session's engine home: it asks the ENGINE
 // to generate its own instance config (claude's field-scoped .claude.json).
 // Every byte-level edit of a vendor's format happens inside that vendor's

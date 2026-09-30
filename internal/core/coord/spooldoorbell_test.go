@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -249,6 +250,44 @@ func TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep(t *testing.T) {
 	assert.False(t, handedOver(ref.Name), "the delivery must have come from the tick, never from the refused bell")
 }
 
+// TestSpoolDoorbell_CutoverChildReturnsWithItsRunChannelAttached forces the
+// interleaving the RefusedForgedHarp test lost under load: the child's run
+// channel attaches on its own dial, unordered against the StartRun that makes
+// the child "up", so the attach is HELD here until awaitCutoverChild either
+// returns or reports that it is waiting for it. A fixture that returns without
+// the attach hands its caller a nil c.chans entry every time, not just on a
+// loaded box.
+func TestSpoolDoorbell_CutoverChildReturnsWithItsRunChannelAttached(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	sp.attachWaiting = make(chan struct{}, 1)
+	c := newCutoverCoordinator(t, sp, 0)
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unhold := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unhold)
+	c.attachRunHook = func(string) { <-release }
+
+	returned := make(chan struct{})
+	var ch *RunChannel
+	go func() {
+		defer close(returned)
+		out, _ := awaitCutoverChild(t, c, sp, "first task")
+		c.mu.Lock()
+		ch = c.chans[out.Harp]
+		c.mu.Unlock()
+	}()
+	select {
+	case <-sp.attachWaiting:
+	case <-returned:
+	}
+	unhold()
+	<-returned
+	require.NotNil(t, ch, "awaitCutoverChild returned before the child's run channel attached")
+}
+
 // TestSpoolDoorbell_DropsWhenItCannotBeSent pins the fire-and-forget ruling on
 // every path that cannot deliver right now. The assertion that matters is
 // double: RingSpool RETURNS (no error, no block — a blocking doorbell would
@@ -381,9 +420,12 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) TestHom
 	// fixture that waits on the coordinator's half alone hands back a Home
 	// whose stream is still nil, and every unbuffered runner->coordinator
 	// send in that window is dropped ON PURPOSE (Home.trySend's nil-stream
-	// arm) — silently, because fire-and-forget is the design. That is a
-	// fixture defect, not a product one: it turns "the doorbell arrived" into
-	// a race against the scheduler, lost whenever the box is busy.
+	// arm) — silently, because fire-and-forget is the design. In the product
+	// an out/ write in that window is still delivered promptly, by the
+	// re-sweep Coordinator.ConfirmAttach runs when the runner's adoption
+	// Heartbeat arrives — but that would deliver it WITHOUT a doorbell. This
+	// fixture waits the window out so a doorbell test asserts the doorbell,
+	// not the re-sweep.
 	require.Eventually(t, h.Attached, 10*time.Second, 10*time.Millisecond, "the runner's own end of the run channel must be attached, or a send made now is dropped as 'run channel down'")
 	return h
 }

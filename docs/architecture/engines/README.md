@@ -47,7 +47,7 @@ An engine is two halves on one port (`internal/core/engine`):
   payload codec). `adapters/isolation` reads those facts off the engine
   (`isolation.FactsOf`), and `adapters/runner.Execute` binds the Instance
   before delivering. `core/engine/conformance` asserts both halves
-  (Part 4.2 test A in full) for every kind.
+  for every kind.
 - **The composition root and the seam's remainder.** `engines.Compose()`
   builds the shipped kinds once per process (`engines.Registry()` is what
   every adapter that resolves an engine by name reads; `engines.Use` is the
@@ -61,9 +61,9 @@ An engine is two halves on one port (`internal/core/engine`):
   standalone mock impersonates is `agent.EngineCLIProvider` on the same
   value (`engines.EngineCLIs`). Both leave with `agent.Backend`. The
   structured drive is per turn (`Instance.Drivers()[0].Turn`); the
-  interactive pane is the hosted engine's `Backend.Execute` over the
-  runner's launcher (`runner.RunLaunchSpec`, a tmux pane on the runner's
-  terminal). The managed-hooks assembly is `operations/managedhooks`.
+  interactive launch is the hosted engine's `Backend.Execute` over the
+  runner's launcher (`runner.RunLaunchSpec`, a plain pty via
+  `ptyrunner.RunInteractive`). The managed-hooks assembly is `operations/managedhooks`.
 
 Core code reads an engine's facts off the Definition (through the
 registry) and never branches on its name: `tests/arch`'s
@@ -95,7 +95,7 @@ flowchart LR
     CFG["config + profiles<br/>+ bundles"] --> LNCH["launch.Resolve → launch.Launch<br/>(the package, the cell, the label)"]
     LNCH --> CH(["RunnerChannel.StartRun<br/>(the coordinator → the runner)"])
     CH --> RUN["runner.Execute: Kind.Instance(session),<br/>delivery.Static over the plan"]
-    RUN --> INT["interactive: Hosted.Backend.Execute<br/>over runner.RunLaunchSpec (tmux pane)"]
+    RUN --> INT["interactive: Hosted.Backend.Execute<br/>over runner.RunLaunchSpec (pty)"]
     RUN --> STR["structured: Instance.Drivers()[0].Turn<br/>over Instance.Exec"]
     INT --> ENG["vendor engine process"]
     STR --> ENG

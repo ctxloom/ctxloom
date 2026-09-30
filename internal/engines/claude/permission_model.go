@@ -3,7 +3,6 @@ package claude
 import (
 	"errors"
 	"fmt"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -253,7 +252,7 @@ func (m permissionModel) Transitions(doc map[string]any) []string {
 // tree nobody has verified, native Windows has no sandbox, and an engine
 // sandbox inside a container cell is unverified — so those are full only.
 func (permissionModel) Sandboxes(runtimeAxis string) []engine.Sandbox {
-	if runtimeAxis == "host" && (runtime.GOOS == "linux" || runtime.GOOS == "darwin") {
+	if runtimeAxis == "host" && hostSandbox {
 		return []engine.Sandbox{engine.SandboxWorkspaceWrite, engine.SandboxFull}
 	}
 	return []engine.Sandbox{engine.SandboxFull}

@@ -201,7 +201,7 @@ A permissions block: the launch-time posture, the engine-native rules, and who a
 | `after_plan` | string | Makes a 'plan' posture plan-first: the posture an approved plan continues at. Requires the resolved mode to be plan, must not exceed the launching session's ceiling, and is never bypass. Allowed values: `default`, `acceptEdits`. |
 | `allow` | string[] | Rules the engine allows without asking, in the engine's own rule syntax (claude: Tool or Tool(content), e.g. Bash(npm test), mcp__server__tool). Validated by the engine at launch. |
 | `approval_timeout` | string | How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m. |
-| `approver` | string | Who answers a request the rules and posture leave open: 'human' (default), the human at the root session, or 'none', nobody — the request is denied. Allowed values: `human`, `none`. |
+| `approver` | string | Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody — the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one. Allowed values: `human`, `none`, `reviewer`. |
 | `ask` | string[] | Rules that always go to the approver, even when an allow or a grant would cover them. |
 | `deny` | string[] | Rules the engine denies. A deny beats any allow or session grant. |
 | `mode` | string | The starting posture: 'default' (the approver answers each gated call), 'acceptEdits' (file edits unasked, the rest to the approver), 'plan' (read-only), 'bypass' (nothing asked), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). `run --permissions` overrides it. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`, `dontAsk`, `auto`. |
@@ -214,7 +214,7 @@ The project's permissions block: the engine-neutral fields only (mode, after_pla
 |-------|------|-------------|
 | `after_plan` | string | Makes a 'plan' posture plan-first: the posture an approved plan continues at. Requires the resolved mode to be plan, must not exceed the launching session's ceiling, and is never bypass. Allowed values: `default`, `acceptEdits`. |
 | `approval_timeout` | string | How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m. |
-| `approver` | string | Who answers a request the rules and posture leave open: 'human' (default), the human at the root session, or 'none', nobody — the request is denied. Allowed values: `human`, `none`. |
+| `approver` | string | Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody — the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one. Allowed values: `human`, `none`, `reviewer`. |
 | `mode` | string | The starting posture: 'default' (the approver answers each gated call), 'acceptEdits' (file edits unasked, the rest to the approver), 'plan' (read-only), 'bypass' (nothing asked), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). `run --permissions` overrides it. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`, `dontAsk`, `auto`. |
 
 ### unifiedHooks

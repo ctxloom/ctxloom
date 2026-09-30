@@ -341,9 +341,10 @@
           "type": "string",
           "enum": [
             "human",
-            "none"
+            "none",
+            "reviewer"
           ],
-          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session, or 'none', nobody — the request is denied."
+          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody — the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one."
         },
         "approval_timeout": {
           "type": "string",
@@ -405,9 +406,10 @@
           "type": "string",
           "enum": [
             "human",
-            "none"
+            "none",
+            "reviewer"
           ],
-          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session, or 'none', nobody — the request is denied."
+          "description": "Who answers a request the rules and posture leave open: 'human' (default), the human at the root session; 'none', nobody — the request is denied; or 'reviewer', the engine's own reviewer (a classifier), where the engine has one."
         },
         "approval_timeout": {
           "type": "string",

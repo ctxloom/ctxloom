@@ -54,7 +54,7 @@ func TestParseApprover(t *testing.T) {
 		_, ok := engine.ParseApprover(in)
 		assert.Falsef(t, ok, "%q is not an approver", in)
 	}
-	assert.Equal(t, []string{"human", "none"}, engine.ApproverNames())
+	assert.Equal(t, []string{"human", "none", "reviewer"}, engine.ApproverNames())
 }
 
 func TestApprovalTimeoutBounds(t *testing.T) {

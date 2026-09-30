@@ -208,24 +208,43 @@ var reportCSI = map[[2]byte]bool{
 }
 
 func classifyCSI(seq []byte) (tokKind, int) {
+	final, params := csiParts(seq)
+	if final == '~' && string(params) == "200" {
+		return tokPasteBegin, 0
+	}
+	marker := privateMarker(params)
+	if extra, ok := mouseReport(marker, final, params); ok {
+		return tokMouse, extra
+	}
+	return csiReplyKind(marker, final, params), 0
+}
+
+// csiParts splits a complete CSI into its final byte and everything between.
+func csiParts(seq []byte) (final byte, params []byte) {
 	body := seq[1:]
 	if seq[0] == ansi.ESC {
 		body = seq[2:]
 	}
-	final, params := body[len(body)-1], body[:len(body)-1]
-	var marker byte
+	return body[len(body)-1], body[:len(body)-1]
+}
+
+func privateMarker(params []byte) byte {
 	if len(params) > 0 && params[0] >= '<' && params[0] <= '?' {
-		marker = params[0]
+		return params[0]
 	}
+	return 0
+}
+
+// mouseReport recognises the mouse encodings: X10 (CSI M, then three raw
+// bytes), SGR (CSI < … M/m) and urxvt (CSI b;x;y M).
+func mouseReport(marker, final byte, params []byte) (extra int, ok bool) {
 	switch {
-	case string(body) == "200~":
-		return tokPasteBegin, 0
 	case final == 'M' && len(params) == 0:
-		return tokMouse, 3 // X10
+		return 3, true
 	case (final == 'M' || final == 'm') && (marker == '<' || marker == 0):
-		return tokMouse, 0 // SGR, urxvt
+		return 0, true
 	}
-	return csiReplyKind(marker, final, params), 0
+	return 0, false
 }
 
 // csiReplyKind separates a terminal reply from a key. The CPR shape

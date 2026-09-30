@@ -632,7 +632,7 @@ func discoveryPermissionMode(cfg *config.Config) (mode agent.PermissionMode, dec
 	if cfg == nil {
 		return agent.PermissionDefault, false
 	}
-	if m, ok := agent.ParsePermissionMode(cfg.GetPermissions()); ok {
+	if m, ok := agent.ParsePermissionMode(cfg.GetPermissions().Mode); ok {
 		return m, true
 	}
 	return agent.PermissionDefault, false

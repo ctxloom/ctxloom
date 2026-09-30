@@ -496,7 +496,8 @@ func isoMatrixConfigYAML(engineType, engineHome, auth string) string {
   configs:
     iso:
       type: %s
-      permissions: bypass
+      permissions:
+        mode: bypass
   defaults:
     primary: iso
     fast: iso

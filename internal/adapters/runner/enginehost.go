@@ -149,6 +149,7 @@ type EngineHost struct {
 	// turn — and refuses every later turn.
 	driver    engine.StructuredDriver
 	exec      engine.Exec
+	posture   engine.TurnPosture // every turn's permission posture (turnPosture)
 	nativeKey string
 	turnBusy  chan struct{}
 	// turnCancel interrupts the turn in flight: each turn runs under its own
@@ -415,6 +416,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	eh.started = true
 	eh.driver = t.Instance.Drivers()[0]
 	eh.exec = t.Exec
+	eh.posture = turnPosture(t.Launch.Permission)
 	eh.nativeKey = t.Launch.Resume.NativeKey
 	ctx, cancel := context.WithCancel(eh.baseCtx)
 	eh.cancel = cancel
@@ -559,6 +561,17 @@ func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) e
 	return nil
 }
 
+// turnPosture is the posture a run's turns carry: the launch's mode —
+// bypass excepted, which stays on the launch argv and never changes per
+// turn. Session grants and the per-turn trust verdict are not held here
+// yet: the zero values are none and untrusted.
+func turnPosture(p engine.PermissionPolicy) engine.TurnPosture {
+	if p.Mode == engine.PermissionBypass {
+		return engine.TurnPosture{}
+	}
+	return engine.TurnPosture{Mode: p.Mode}
+}
+
 // runTurn is ONE structured turn: a discrete engine process through the
 // instance's driver, its native events adapted onto plane-1 as they arrive
 // (Message items follow the contract's started→delta*→completed lifecycle,
@@ -578,6 +591,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	ctx := eh.runCtx
 	driver := eh.driver
 	ex := eh.exec
+	posture := eh.posture
 	rec := eh.rec
 	eh.mu.Unlock()
 
@@ -636,7 +650,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 		}
 	}()
 
-	res, err := driver.Turn(turnCtx, ex, engine.Turn{Prompt: text, Resume: key}, out)
+	res, err := driver.Turn(turnCtx, ex, engine.Turn{Prompt: text, Resume: key, Posture: posture}, out)
 	interrupted := turnCtx.Err() != nil && ctx.Err() == nil
 	close(out)
 	<-adapted
@@ -965,7 +979,7 @@ func runStartedConfig(rep report.Reporter, t Turn) *structpb.Struct {
 		"harness":                         string(t.Launch.Engine),
 		"model":                           t.Launch.Label.Model,
 		"workspace":                       t.Launch.Cell.Workspace,
-		"permission_mode":                 t.Launch.Permission.String(),
+		"permission_mode":                 t.Launch.Permission.Mode.String(),
 		"resumed_from_harness_session_id": t.Launch.Resume.NativeKey,
 	})
 	if err != nil {

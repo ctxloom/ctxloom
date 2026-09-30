@@ -184,7 +184,7 @@ func p4Prompt() string {
 func p4ConfigYAML(a liveAgent, llmKey string, posture p4Posture, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
-	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles: []\n    permissions: %s\n",
+	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles: []\n    permissions:\n      mode: %s\n",
 		p4Agent, llmKey, p4PermissionValue(posture))
 	b.WriteString(runtimeBindingLine(runtime))
 	return b.String()

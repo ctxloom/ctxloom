@@ -248,7 +248,7 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 			HomeMode:    string(agents.HomeModeSession),
 			Auth:        string(enginepkg.AuthLogin),
 			Profiles:    []string{SeedProfileName},
-			Permissions: headlessPermissions,
+			Permissions: agents.Permissions{Mode: headlessPermissions},
 		},
 	}
 	return yaml.Marshal(config.NewFixture(f).Authored())

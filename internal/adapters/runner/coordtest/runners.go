@@ -231,7 +231,7 @@ type recordingDriver struct {
 
 func (d recordingDriver) Drive(ctx context.Context, t runner.Turn) error {
 	d.rec.mu.Lock()
-	d.rec.req = Request{Permissions: t.Launch.Permission, WorkDir: t.Exec.WorkDir, MCPServers: t.MCPServers}
+	d.rec.req = Request{Permissions: t.Launch.Permission.Mode, WorkDir: t.Exec.WorkDir, MCPServers: t.MCPServers}
 	d.rec.gotDrive = true
 	d.rec.mu.Unlock()
 	return d.Driver.Drive(ctx, t)

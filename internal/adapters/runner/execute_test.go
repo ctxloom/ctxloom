@@ -295,7 +295,7 @@ func newDeliveryEnv(t *testing.T) *deliveryEnv {
 			Configs:  map[string]config.LLMConfig{"primary": {Type: string(mock.Name)}},
 			Defaults: config.RoleDefaults{Primary: "primary"},
 		},
-		Agents:       map[string]agents.Agent{"x": {Name: "x", Profiles: []string{"base"}, Permissions: "bypass"}},
+		Agents:       map[string]agents.Agent{"x": {Name: "x", Profiles: []string{"base"}, Permissions: agents.Permissions{Mode: "bypass"}}},
 		DefaultAgent: "x",
 	})
 	store := launchtest.MemStore{}
@@ -457,7 +457,7 @@ func keys(m map[string]string) []string {
 // the writer honours — while everything else stays under the session home.
 func TestExecute_ABindingsRootSelection_LandsTheKindAtTheSharedRoot(t *testing.T) {
 	env := newDeliveryEnv(t)
-	shared := agents.Agent{Name: "shared", Profiles: []string{"base"}, Permissions: "bypass", Roots: map[string]string{"mcp": "project-root"}}
+	shared := agents.Agent{Name: "shared", Profiles: []string{"base"}, Permissions: agents.Permissions{Mode: "bypass"}, Roots: map[string]string{"mcp": "project-root"}}
 	env.deps.Snapshot.Config = config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs:  map[string]config.LLMConfig{"primary": {Type: string(mock.Name)}},

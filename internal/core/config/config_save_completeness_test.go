@@ -41,7 +41,7 @@ func fullyPopulatedFixture() Fixture {
 		Workspace:                    "worktree",
 		DirtyTreeHandler:             "commit",
 		Runtime:                      "container",
-		Permissions:                  "plan",
+		Permissions:                  agents.Permissions{Mode: "plan", Deny: []string{"Bash"}},
 		Delegation:                   DelegationConfig{Concurrency: 7, Depth: 2},
 		IsolationImages:              map[string]string{"claude-code": "example.invalid/img:tag"},
 		IsolationBaseContainerfile:   "Containerfile.base",

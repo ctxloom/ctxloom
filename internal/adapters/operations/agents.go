@@ -35,7 +35,7 @@ type AgentEntry struct {
 	// Permissions is the agent's declared permission posture
 	// (engine.PermissionModeNames), as written; empty inherits the engine
 	// label's default and finally the built-in default.
-	Permissions string `json:"permissions,omitempty"`
+	Permissions agents.Permissions `json:"permissions,omitempty"`
 	// Driving is the agent's declared per-turn execution axis
 	// (conversational|oneshot), as written; empty means conversational (the
 	// default — see agents.Agent.Driving).
@@ -528,7 +528,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 			}
 		}
 		entry.Runtime = orKeep(req.Runtime, entry.Runtime)
-		entry.Permissions = orKeep(req.Permissions, entry.Permissions)
+		entry.Permissions.Mode = orKeep(req.Permissions, entry.Permissions.Mode)
 		if req.Driving != nil {
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
@@ -652,7 +652,7 @@ type ResolvedAgent struct {
 	// Permissions is the agent's DECLARED launch-time permission posture (may be
 	// empty). The run resolver applies the engine-label default and the built-in
 	// fallback on top; the `run --permissions` flag overrides it.
-	Permissions string `json:"permissions,omitempty"`
+	Permissions agents.Permissions `json:"permissions,omitempty"`
 	// EffectivePermissions is the posture an interactive run resolves to WITHOUT a
 	// --permissions flag: declared → engine-label config → project default →
 	// the engine's declared host default, so a blank-declared agent's real
@@ -801,7 +801,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 	// inside ResolveDefault and came back floored; this call reports what the
 	// launch would use, so it prints the floor rather than re-diagnosing it.
 	effectivePerm, _ := agent.ResolveDefault(report.To(strictness.Sink("ctxloom")),
-		[]string{sub.Permissions, labelEntry.Permissions, cfg.GetPermissions()},
+		[]string{sub.Permissions.Mode, labelEntry.Permissions.Mode, cfg.GetPermissions().Mode},
 		EnginePermissionFacts(reg, backend).HostDefault)
 
 	return &ResolvedAgent{

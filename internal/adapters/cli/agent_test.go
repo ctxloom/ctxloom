@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -175,7 +176,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			LLM:         "claude-code",
 			Profiles:    []string{"p1", "p2"},
 			Runtime:     "container",
-			Permissions: "acceptEdits",
+			Permissions: agents.Permissions{Mode: "acceptEdits"},
 			Driving:     "oneshot",
 		}
 		resolved := &operations.ResolvedAgent{

@@ -100,12 +100,11 @@ type Agent struct {
 	// field, project `workspace:` default), never bound to the agent.
 	// Resolution lives in operations.resolveAgentBinding.
 	Runtime string `yaml:"runtime,omitempty"`
-	// Permissions is the agent's launch-time permission posture
-	// (engine.PermissionModeNames) — the second safety axis a binding
-	// declares alongside Runtime. Empty inherits the engine label's configured
-	// permissions and finally the built-in default. The `run --permissions` flag
-	// overrides it.
-	Permissions string `yaml:"permissions,omitempty"`
+	// Permissions is the agent's permission posture and rules — the second
+	// safety axis a binding declares alongside Runtime. Each field it leaves
+	// empty inherits the engine label's, then the project's, then the
+	// built-in default. The `run --permissions` flag overrides its mode.
+	Permissions Permissions `yaml:"permissions,omitempty"`
 	// Driving is the agent's per-turn execution axis: conversational (the
 	// zero value/default — the engine process stays warm across turns, the
 	// model today) or oneshot (a turn ends its engine process at the turn

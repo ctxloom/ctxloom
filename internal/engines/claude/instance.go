@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path"
@@ -150,26 +151,41 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 		binary = "claude"
 	}
 	interactive := i.s.Mode == engine.Interactive
-	ex := engine.Exec{Binary: binary, Args: i.execArgs(presented), Env: i.execEnv(presented), WorkDir: i.s.WorkDir, Interactive: interactive}
+	args, err := i.execArgs(presented)
+	if err != nil {
+		return engine.Exec{}, err
+	}
+	ex := engine.Exec{Binary: binary, Args: args, Env: i.execEnv(presented), WorkDir: i.s.WorkDir, Interactive: interactive}
 	i.attachPrompt(&ex)
 	return ex, nil
 }
 
+// errSettingsTwice refuses an argv naming --settings twice: claude keeps
+// only the LAST one given (measured on 2.1.285: the first document is
+// dropped whole, not merged), so a second one would silently discard what
+// the first carries.
+var errSettingsTwice = errors.New("claude: the launch would name --settings twice, and claude keeps only the last one — a presentation already names a settings file; deliver settings to the session home instead")
+
 // execArgs is the argv up to the prompt: the label's args, the permission
-// posture (a structured run adds --permission-prompts none: nobody is at
-// the engine to answer, so claude denies what the posture leaves open), the
-// model, the session name (interactive) or --print, every
-// presentation's args in delivery order, then the resumed native key.
-func (i *instance) execArgs(presented []present.Presentation) []string {
+// posture (headless: permissionArgs; interactive: the human's own session,
+// interactivePermissionArgs), the model, the session name (interactive) or
+// --print, every presentation's args in delivery order, then the resumed
+// native key. It refuses an argv naming --settings twice.
+func (i *instance) execArgs(presented []present.Presentation) ([]string, error) {
 	args := slices.Clone(i.s.Label.Args)
-	args = append(args, permissionArgs(i.s.Permission, i.s.MCPServers)...)
-	if i.s.Mode == engine.Structured {
-		args = append(args, flagPermissionPrompts, "none")
+	interactive := i.s.Mode == engine.Interactive
+	if interactive {
+		posture, err := interactivePermissionArgs(i.s.Permission, i.s.MCPServers)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, posture...)
+	} else {
+		args = append(args, permissionArgs(i.s.Permission, i.s.MCPServers)...)
 	}
 	if i.s.Label.Model != "" {
 		args = append(args, flagModel, i.s.Label.Model)
 	}
-	interactive := i.s.Mode == engine.Interactive
 	if interactive && i.s.Identity.Harp != "" {
 		args = append(args, flagName, i.s.Identity.Harp)
 	}
@@ -182,7 +198,21 @@ func (i *instance) execArgs(presented []present.Presentation) []string {
 	if i.key != "" {
 		args = append(args, flagResume, i.key)
 	}
-	return args
+	if countFlag(args, flagSettings) > 1 {
+		return nil, errSettingsTwice
+	}
+	return args, nil
+}
+
+// countFlag counts the occurrences of flag in args.
+func countFlag(args []string, flag string) int {
+	n := 0
+	for _, a := range args {
+		if a == flag {
+			n++
+		}
+	}
+	return n
 }
 
 // execEnv is the engine-native env: the relocated home vars, every
@@ -239,8 +269,10 @@ func (i *instance) Resume(key string) error {
 // session is findable in claude's /resume picker.
 type streamJSONDriver struct{ inst *instance }
 
-// argv is the per-turn process's argv: Exec plus the protocol.
-func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) []string {
+// argv is the per-turn process's argv: Exec plus the protocol, and the
+// turn's posture as the process's one --settings (turnSettings). It refuses
+// an Exec that already names --settings: the turn's would replace it.
+func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error) {
 	args := slices.Clone(ex.Args)
 	args = append(args, flagInputFormat, "stream-json", flagOutputFormat, "stream-json", flagVerbose)
 	if in.Resume != "" && !slices.Contains(ex.Args, flagResume) {
@@ -249,7 +281,17 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) []string {
 	if harp := d.inst.s.Identity.Harp; harp != "" {
 		args = append(args, flagName, harp)
 	}
-	return args
+	doc, err := turnSettings(d.inst.s.Permission, d.inst.s.MCPServers, in.Posture)
+	if err != nil {
+		return nil, err
+	}
+	if doc != "" {
+		if slices.Contains(ex.Args, flagSettings) {
+			return nil, errSettingsTwice
+		}
+		args = append(args, flagSettings, doc)
+	}
+	return args, nil
 }
 
 // Turn spawns one stream-json process, writes the one user message, relays
@@ -265,8 +307,12 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) []string {
 // that ends without a result frame and exits in failure died mid-turn
 // (errTurnProcessDied).
 func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
+	argv, err := d.argv(ex, in)
+	if err != nil {
+		return engine.TurnResult{}, err
+	}
 	open, now := d.seams()
-	tr, err := open(ctx, ex.Binary, d.argv(ex, in), ex.Env, ex.WorkDir)
+	tr, err := open(ctx, ex.Binary, argv, ex.Env, ex.WorkDir)
 	if err != nil {
 		return engine.TurnResult{}, err
 	}

@@ -135,7 +135,7 @@ func TestRemoveLLM_UnknownLabelErrors(t *testing.T) {
 // user override IS removable — IsLLMUserAuthored must not blanket-refuse
 // every default-shaped name, only the ones the user never actually wrote.
 func TestRemoveLLM_UserDeclaredOverrideOfADefaultName_Succeeds(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  configs:\n    claude-code: { permissions: bypass }\n")
+	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  configs:\n    claude-code: { permissions: { mode: bypass } }\n")
 	mgr := managerFor(t, appDir)
 	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)

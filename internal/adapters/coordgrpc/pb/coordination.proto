@@ -357,11 +357,12 @@ message StartRun {
 // Every value the runner needs crosses here once, typed; the runner
 // re-derives nothing.
 message Launch {
+  // 6 was the bare PermissionMode posture; the whole policy rides 19.
+  reserved 6;
   Identity identity = 1;             // harp, run_id, depth, one_shot, project
   string engine = 2;
   LabelConfig label = 3;
   Mode mode = 5;
-  PermissionMode permission = 6;     // an ENUM on the wire, never a string
   Axes axes = 7;
   Cell cell = 8;
   repeated HomeBinding home = 9;
@@ -374,6 +375,7 @@ message Launch {
   ResumeRef resume = 16;
   map<string, string> env = 17;      // engine passthrough only
   Axes declared = 18;                // the axes as ASKED (empty where nothing declared them); axes is what they settled to
+  PermissionPolicy permission = 19;  // resolved ONCE by the resolver; the runner honours exactly what it is told
 }
 
 // Identity is sessions.Identity: minted once, carried typed, never re-read
@@ -408,14 +410,36 @@ enum Mode {
   MODE_STRUCTURED = 2;
 }
 
-// PermissionMode is engine.PermissionMode: floored ONCE by the resolver; the
-// runner honours exactly what it is told.
+// PermissionPolicy is engine.PermissionPolicy.
+message PermissionPolicy {
+  PermissionMode mode = 1;
+  PermissionMode after_plan = 2;     // UNSPECIFIED: not plan-first
+  PermissionMode ceiling = 3;
+  repeated string allow = 4;         // engine-native rules
+  repeated string deny = 5;
+  repeated string ask = 6;
+  Approver approver = 7;
+  google.protobuf.Duration approval_timeout = 8;
+}
+
+// PermissionMode is engine.PermissionMode, value for value (the codec
+// converts by value; coordgrpc's parity test pins the correspondence).
 enum PermissionMode {
-  PERMISSION_MODE_UNSPECIFIED = 0;   // engine.PermissionNotRequested: never on a resolved launch
+  PERMISSION_MODE_UNSPECIFIED = 0;   // engine.PermissionNotRequested
   PERMISSION_MODE_DEFAULT = 1;
   PERMISSION_MODE_ACCEPT_EDITS = 2;
   PERMISSION_MODE_PLAN = 3;
   PERMISSION_MODE_BYPASS = 4;
+  PERMISSION_MODE_DONT_ASK = 5;
+  PERMISSION_MODE_AUTO = 6;
+}
+
+// Approver is engine.Approver. UNSPECIFIED never rides a resolved launch;
+// the decoder refuses it rather than guess who approves.
+enum Approver {
+  APPROVER_UNSPECIFIED = 0;
+  APPROVER_HUMAN = 1;
+  APPROVER_NONE = 2;
 }
 
 // Axes are launch.Axes: the two isolation axes, each a spelled value.

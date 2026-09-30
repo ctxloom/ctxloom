@@ -43,7 +43,7 @@ func TestResolve_EverySource_OneResolver(t *testing.T) {
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
 			tc.want.Assert(t, l)
 			require.Equal(t, tc.src.Identity, l.Identity, "the identity the caller minted is the one the launch carries")
-			require.NotZero(t, l.Permission, "the permission is decided here, not downstream")
+			require.NotZero(t, l.Permission.Mode, "the permission is decided here, not downstream")
 			require.NotEmpty(t, l.MCP.URL, "the session endpoint is minted here, not by the runner")
 			require.NotNil(t, l.Plan.Static, "a plan exists even when empty")
 		})
@@ -104,14 +104,14 @@ func TestResolve_Permission_HeadlessTakesItsPosture(t *testing.T) {
 			require.NoError(t, err, "depth %d degraded %v: a headless run is never refused for its posture", id.Depth, degraded)
 			discard := l
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), discard) })
-			require.Equal(t, engine.PermissionDefault, l.Permission, "the host default stands: never floored to plan, never widened to bypass")
+			require.Equal(t, engine.PermissionDefault, l.Permission.Mode, "the host default stands: never floored to plan, never widened to bypass")
 			require.Empty(t, got, "nothing was dropped, so nothing is announced")
 
 			l, err = launch.Resolve(context.Background(), deps, launch.Source{Identity: id, Agent: "careful", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: degraded})
 			require.NoError(t, err)
 			discardCareful := l
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), discardCareful) })
-			require.Equal(t, engine.PermissionAcceptEdits, l.Permission, "a declared prompting posture is honoured as declared")
+			require.Equal(t, engine.PermissionAcceptEdits, l.Permission.Mode, "a declared prompting posture is honoured as declared")
 		}
 	}
 }
@@ -199,7 +199,7 @@ func TestResolve_InternalSource_BindsNoAgent(t *testing.T) {
 	require.Empty(t, pkg.Selection.Profiles, "no binding: no profiles composed")
 	require.Empty(t, pkg.Context.Text)
 	require.NotNil(t, l.Plan.Static, "a plan exists even when empty")
-	require.Equal(t, engine.PermissionBypass, l.Permission)
+	require.Equal(t, engine.PermissionBypass, l.Permission.Mode)
 	require.NotEmpty(t, l.MCP.URL)
 }
 
@@ -250,7 +250,7 @@ func TestResolve_Permission_TheChain(t *testing.T) {
 		src.Identity, src.Mode, src.WorkDir = env.Identity, engine.Interactive, env.Project
 		l, err := launch.Resolve(context.Background(), env.Deps, src)
 		require.NoError(t, err)
-		return l.Permission
+		return l.Permission.Mode
 	}
 	require.Equal(t, engine.PermissionBypass, at(launch.Source{Agent: "dev"}), "the project default fills an undeclared binding")
 	require.Equal(t, engine.PermissionPlan, at(launch.Source{Agent: "strict"}), "the binding beats the project default")
@@ -338,7 +338,7 @@ func TestResolve_Permission_PlanCollapsesOnEveryPath(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("planner", launchtest.Permissions("plan")), launchtest.NoReadOnlyPlan())
 	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Interactive, WorkDir: env.Project})
 	require.NoError(t, err)
-	require.Equal(t, engine.PermissionDefault, l.Permission, "interactive: plan collapses to default, which prompts")
+	require.Equal(t, engine.PermissionDefault, l.Permission.Mode, "interactive: plan collapses to default, which prompts")
 
 	child := env.Identity
 	child.Depth = 1
@@ -347,7 +347,7 @@ func TestResolve_Permission_PlanCollapsesOnEveryPath(t *testing.T) {
 		require.NoError(t, err)
 		discard := l
 		t.Cleanup(func() { _ = launch.Discard(context.Background(), discard) })
-		require.Equal(t, engine.PermissionDefault, l.Permission, "depth %d: structured collapses the same way, never launched with a flag the engine ignores", id.Depth)
+		require.Equal(t, engine.PermissionDefault, l.Permission.Mode, "depth %d: structured collapses the same way, never launched with a flag the engine ignores", id.Depth)
 	}
 }
 
@@ -417,7 +417,7 @@ func TestResolve_Permission_DegradedUnparseableIsAnnounced(t *testing.T) {
 			l, err := launch.Resolve(context.Background(), deps, launch.Source{Identity: tc.env.Identity, Agent: tc.agent, Mode: engine.Interactive, Prompt: "x", WorkDir: tc.env.Project, Degraded: true})
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
-			require.Equal(t, engine.PermissionPlan, l.Permission)
+			require.Equal(t, engine.PermissionPlan, l.Permission.Mode)
 			require.Len(t, got, 1, "the drop to the floor is announced, never silent")
 			require.Contains(t, got[0].Text, `"`+tc.bad+`"`)
 			require.Contains(t, got[0].Text, tc.from)

@@ -86,7 +86,7 @@ func buildArgsMatrix(presented []present.Presentation) []argvCase {
 					Identity:   sessions.Identity{Harp: "perky-same-chevy"},
 					Label:      engine.LabelConfig{Label: EngineName, Model: matrixModel},
 					Mode:       engine.Mode(mode.m),
-					Permission: perm.p,
+					Permission: engine.PermissionPolicy{Mode: perm.p},
 					Prompt:     "do the thing",
 					MCPServers: []string{"probe"},
 				}

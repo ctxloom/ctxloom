@@ -146,16 +146,8 @@
       ]
     },
     "permissions": {
-      "type": "string",
-      "description": "Project default for the launch-time permission posture of engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. 'default' (prompt on each gated call), 'acceptEdits' (auto-accept file edits, prompt for the rest), 'plan' (read-only), 'bypass' (skip all in-engine prompting), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). Resolution: `run --permissions` > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's declared host default — so a narrower posture declared anywhere above always wins, and a declared project default beats a silent engine fallback. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them.",
-      "enum": [
-        "default",
-        "acceptEdits",
-        "plan",
-        "bypass",
-        "dontAsk",
-        "auto"
-      ]
+      "$ref": "#/$defs/permissions",
+      "description": "Project default permissions block for engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. Resolution, field by field: `run --permissions` (mode only) > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's declared host default. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them."
     },
     "delegation": {
       "type": "object",
@@ -237,16 +229,8 @@
             ]
           },
           "permissions": {
-            "type": "string",
-            "description": "Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default.",
-            "enum": [
-              "default",
-              "acceptEdits",
-              "plan",
-              "bypass",
-              "dontAsk",
-              "auto"
-            ]
+            "$ref": "#/$defs/permissions",
+            "description": "This agent's permissions block; each field left empty inherits the engine label's, then the project's, then the built-in default."
           },
           "driving": {
             "type": "string",
@@ -328,6 +312,70 @@
     }
   },
   "$defs": {
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A permissions block: the launch-time posture, the engine-native rules, and who answers what they leave open. Every field is optional; one left empty inherits from the next rung (agent binding > llm label > project > the engine's built-in default), field by field. An unknown key refuses the whole config: a misspelled deny that vanished would leave the denial undeclared.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypass",
+            "dontAsk",
+            "auto"
+          ],
+          "description": "The starting posture: 'default' (the approver answers each gated call), 'acceptEdits' (file edits unasked, the rest to the approver), 'plan' (read-only), 'bypass' (nothing asked), 'dontAsk' (deny whatever the rules do not allow), 'auto' (the engine's own classifier decides). `run --permissions` overrides it."
+        },
+        "after_plan": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits"
+          ],
+          "description": "Makes a 'plan' posture plan-first: the posture an approved plan continues at. Requires the resolved mode to be plan, must not exceed the launching session's ceiling, and is never bypass."
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Rules the engine allows without asking, in the engine's own rule syntax (claude: Tool or Tool(content), e.g. Bash(npm test), mcp__server__tool). Validated by the engine at launch."
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Rules the engine denies. A deny beats any allow or session grant."
+        },
+        "ask": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Rules that always go to the approver, even when an allow or a grant would cover them."
+        },
+        "approver": {
+          "type": "string",
+          "enum": [
+            "human",
+            "none"
+          ],
+          "description": "Who answers a request the rules and posture leave open: 'human' (default) escalates it to the human at the root session; 'none' denies it."
+        },
+        "approval_timeout": {
+          "type": "string",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$",
+          "description": "How long a request waits for the approver before it is denied, as a duration ('20m'). Default 15m; at most 60m."
+        }
+      }
+    },
     "llmConfig": {
       "type": "object",
       "description": "One labeled backend config. `type` is the discriminator and may be omitted (it defaults to claude-code \u2014 see LLMConfig.EffectiveType); the remaining fields are that backend's own config. anyOf (not oneOf): an entry without `type` is shape-compatible with several branches and must still validate.",
@@ -347,16 +395,8 @@
               "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
             },
             "permissions": {
-              "type": "string",
-              "enum": [
-                "default",
-                "acceptEdits",
-                "plan",
-                "bypass",
-                "dontAsk",
-                "auto"
-              ],
-              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+              "$ref": "#/$defs/permissions",
+              "description": "This label's permissions block; each field left empty inherits the project's, then the built-in default. An agent binding overrides it, field by field."
             },
             "model": {
               "type": "string",
@@ -394,16 +434,8 @@
               "description": "Marks this entry as the backend type's default primary/fast pick in the shipped registry, where init reads it to select an engine's pair; ignored at runtime."
             },
             "permissions": {
-              "type": "string",
-              "enum": [
-                "default",
-                "acceptEdits",
-                "plan",
-                "bypass",
-                "dontAsk",
-                "auto"
-              ],
-              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+              "$ref": "#/$defs/permissions",
+              "description": "This label's permissions block; each field left empty inherits the project's, then the built-in default. An agent binding overrides it, field by field."
             },
             "model": {
               "type": "string"

@@ -179,7 +179,7 @@ func mcpProbeBundleYAML(binaryPath, fixtureDir string) string {
 func mcpProbeConfigYAML(a liveAgent, llmKey, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
-	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions: bypass\n",
+	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions:\n      mode: bypass\n",
 		mcpProbeAgent, llmKey, mcpProbeAgent)
 	b.WriteString(runtimeBindingLine(runtime))
 	return b.String()

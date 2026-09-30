@@ -42,7 +42,7 @@ func projectPermConfig(root, projectPerm string, subs map[string]agents.Agent, l
 		AppPaths:    []string{filepath.Join(root, ".ctxloom")},
 		LM:          config.LMConfig{Configs: labels, Defaults: config.RoleDefaults{Primary: "primary"}},
 		Agents:      subs,
-		Permissions: projectPerm,
+		Permissions: agents.Permissions{Mode: projectPerm},
 	})
 }
 
@@ -66,7 +66,7 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 
 	t.Run("the agent's own declaration beats the project default", func(t *testing.T) {
 		cfg := projectPermConfig(root, "bypass", map[string]agents.Agent{
-			"careful": {LLM: "fast", Profiles: []string{"p1"}, Permissions: "plan"},
+			"careful": {LLM: "fast", Profiles: []string{"p1"}, Permissions: agents.Permissions{Mode: "plan"}},
 		}, nil)
 
 		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "careful", "")
@@ -79,7 +79,7 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 		cfg := projectPermConfig(root, "bypass", map[string]agents.Agent{
 			"blank": {LLM: "careful", Profiles: []string{"p1"}},
 		}, map[string]config.LLMConfig{
-			"careful": {Type: "mock", Permissions: "plan"},
+			"careful": {Type: "mock", Permissions: agents.Permissions{Mode: "plan"}},
 		})
 
 		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "blank", "")

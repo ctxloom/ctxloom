@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -93,10 +94,10 @@ func AvailableLLMNames(reg engine.Registry, cfg *config.Config) []string {
 // carries no credentials: an engine's are ambient, never ctxloom's
 // (config.RetiredLLMEnvKey), so there is nothing on this type to withhold.
 type LLMEntry struct {
-	Label       string `json:"label"`
-	Type        string `json:"type,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Permissions string `json:"permissions,omitempty"`
+	Label       string             `json:"label"`
+	Type        string             `json:"type,omitempty"`
+	Model       string             `json:"model,omitempty"`
+	Permissions agents.Permissions `json:"permissions,omitempty"`
 }
 
 // llmEntryFromConfig projects a config.LLMConfig into the CRUD-facing
@@ -185,7 +186,7 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 		if req.Type != nil {
 			entry.Type = *req.Type
 		}
-		entry.Permissions = orKeep(req.Permissions, entry.Permissions)
+		entry.Permissions.Mode = orKeep(req.Permissions, entry.Permissions.Mode)
 		if req.Model != nil {
 			if entry.Body == nil {
 				entry.Body = map[string]any{}

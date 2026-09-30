@@ -58,7 +58,7 @@ func TestIsLLMUserAuthored_ExplicitOverrideOfADefaultName_IsUserAuthored(t *test
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(
-		"version: 6\nllm:\n  configs:\n    claude-code: { permissions: bypass }\n"), 0644))
+		"version: 6\nllm:\n  configs:\n    claude-code: { permissions: { mode: bypass } }\n"), 0644))
 
 	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
 	require.NoError(t, err)

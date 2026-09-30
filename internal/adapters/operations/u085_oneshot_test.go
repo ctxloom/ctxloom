@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
@@ -58,7 +59,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 		// bypass: this test is about the withheld-executable warning, not
 		// permission resolution.
 		LM: config.LMConfig{
-			Configs:  map[string]config.LLMConfig{"claude-code": {Type: "claude-code", Permissions: "bypass"}},
+			Configs:  map[string]config.LLMConfig{"claude-code": {Type: "claude-code", Permissions: agents.Permissions{Mode: "bypass"}}},
 			Defaults: config.RoleDefaults{Primary: "claude-code"},
 		},
 	}))

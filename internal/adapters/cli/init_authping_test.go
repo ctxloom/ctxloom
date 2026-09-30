@@ -185,7 +185,7 @@ func discoveryLaunch(t *testing.T, cfg *config.Config) launch.Launch {
 func TestDiscoveryLaunch_StatesDefaultPermissionExplicitly(t *testing.T) {
 	t.Run("undeclared project default keeps the pinned default", func(t *testing.T) {
 		l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}}))
-		assert.Equal(t, agent.PermissionDefault, l.Permission,
+		assert.Equal(t, agent.PermissionDefault, l.Permission.Mode,
 			"an undeclared setup session must never launch at bypass: the vendor TUI's native approval prompts are the consent surface")
 		assert.Equal(t, engine.Interactive, l.Mode)
 	})
@@ -193,16 +193,16 @@ func TestDiscoveryLaunch_StatesDefaultPermissionExplicitly(t *testing.T) {
 	t.Run("a declared project default rides the launch", func(t *testing.T) {
 		for _, want := range []agent.PermissionMode{agent.PermissionBypass, agent.PermissionPlan, agent.PermissionAcceptEdits} {
 			t.Run(want.String(), func(t *testing.T) {
-				l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}, Permissions: want.String()}))
-				assert.Equal(t, want, l.Permission, "a project that declared its own posture must launch setup at it, not at the pinned default")
+				l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}, Permissions: agents.Permissions{Mode: want.String()}}))
+				assert.Equal(t, want, l.Permission.Mode, "a project that declared its own posture must launch setup at it, not at the pinned default")
 				assert.Equal(t, engine.Interactive, l.Mode)
 			})
 		}
 	})
 
 	t.Run("an unparseable project default falls back to the pinned default", func(t *testing.T) {
-		l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}, Permissions: "byapss"}))
-		assert.Equal(t, agent.PermissionDefault, l.Permission, "a misspelled posture must never resolve to anything wider than the pinned default")
+		l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}, Permissions: agents.Permissions{Mode: "byapss"}}))
+		assert.Equal(t, agent.PermissionDefault, l.Permission.Mode, "a misspelled posture must never resolve to anything wider than the pinned default")
 	})
 }
 
@@ -254,7 +254,7 @@ func TestPrintDiscoveryPostureHint(t *testing.T) {
 	t.Run("a declared posture silences the hint", func(t *testing.T) {
 		cfg := config.NewFixture(config.Fixture{
 			AppPaths:    []string{t.TempDir()},
-			Permissions: "bypass",
+			Permissions: agents.Permissions{Mode: "bypass"},
 		})
 
 		out := captureStdout(t, func() { printDiscoveryPostureHint(cfg) })
@@ -401,7 +401,7 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 	// GetConfig, so whether the hint is due depends on whether the project this
 	// suite runs inside has declared a posture of its own. Silence is the
 	// correct output when it has.
-	if cfg, cerr := GetConfig(); cerr != nil || cfg.GetPermissions() == "" {
+	if cfg, cerr := GetConfig(); cerr != nil || cfg.GetPermissions().Mode == "" {
 		assert.Contains(t, out, "permissions:",
 			"a handoff running at the pinned default must tell the user the project-scoped posture key exists")
 	}

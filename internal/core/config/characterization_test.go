@@ -52,7 +52,7 @@ func characterizationCases() []characterizationCase {
 			f := fullyPopulatedFixture()
 			f.Delegation.IdleTimeout = "10m"
 			f.LM.Defaults = RoleDefaults{Primary: "fast", Fast: "fast"}
-			f.LM.Configs["fast"] = LLMConfig{Type: "claude-code", Role: "fast", Permissions: "plan", Body: map[string]any{"model": "m1"}}
+			f.LM.Configs["fast"] = LLMConfig{Type: "claude-code", Role: "fast", Permissions: agents.Permissions{Mode: "plan"}, Body: map[string]any{"model": "m1"}}
 			f.Editor.Args = []string{"-n"}
 			f.Agents["worker"] = agents.Agent{LLM: "fast"}
 			return NewFixture(f)
@@ -174,13 +174,17 @@ llm:
     configs:
         fast:
             model: m1
-            permissions: plan
+            permissions:
+                mode: plan
             role: fast
             type: claude-code
     defaults:
         fast: fast
         primary: fast
-permissions: plan
+permissions:
+    deny:
+        - Bash
+    mode: plan
 runtime: container
 session_purge_age: 180d
 session_reap_age: 45d
@@ -218,13 +222,17 @@ llm:
     configs:
         fast:
             model: m1
-            permissions: plan
+            permissions:
+                mode: plan
             role: fast
             type: claude-code
     defaults:
         fast: fast
         primary: fast
-permissions: plan
+permissions:
+    deny:
+        - Bash
+    mode: plan
 runtime: container
 session_purge_age: 180d
 session_reap_age: 45d
@@ -248,13 +256,17 @@ llm:
     configs:
         fast:
             model: m1
-            permissions: plan
+            permissions:
+                mode: plan
             role: fast
             type: claude-code
     defaults:
         fast: fast
         primary: fast
-permissions: plan
+permissions:
+    deny:
+        - Bash
+    mode: plan
 sync:
     auto_sync: true
 ui:
@@ -289,13 +301,17 @@ llm:
     configs:
         fast:
             model: m1
-            permissions: plan
+            permissions:
+                mode: plan
             role: fast
             type: claude-code
     defaults:
         fast: fast
         primary: fast
-permissions: plan
+permissions:
+    deny:
+        - Bash
+    mode: plan
 runtime: container
 session_purge_age: 180d
 session_reap_age: 45d

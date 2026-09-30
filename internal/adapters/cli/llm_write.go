@@ -144,7 +144,7 @@ func renderLLMWritten(out io.Writer, entry *operations.LLMEntry, edited bool) er
 	if entry.Model != "" {
 		w.Printf(", model: %s", entry.Model)
 	}
-	if entry.Permissions != "" {
+	if !entry.Permissions.IsZero() {
 		w.Printf(", permissions: %s", entry.Permissions)
 	}
 	w.Println(")")

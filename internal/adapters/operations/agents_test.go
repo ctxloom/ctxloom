@@ -107,7 +107,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfigWithDefault(root, map[string]agents.Agent{
-		"default": {LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container-rootless", Permissions: "plan"},
+		"default": {LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container-rootless", Permissions: agents.Permissions{Mode: "plan"}},
 	}, "default")
 
 	// The "default profile set" every non-run consumer reads matches the agent.
@@ -155,7 +155,7 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfig(root, map[string]agents.Agent{
 		"claude-blank": {LLM: "primary", Profiles: []string{"p1"}},
-		"mock-plan":    {LLM: "fast", Profiles: []string{"p1"}, Permissions: "plan"},
+		"mock-plan":    {LLM: "fast", Profiles: []string{"p1"}, Permissions: agents.Permissions{Mode: "plan"}},
 		"mock-blank":   {LLM: "fast", Profiles: []string{"p1"}},
 	})
 	cases := map[string]string{

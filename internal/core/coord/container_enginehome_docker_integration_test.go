@@ -131,7 +131,7 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 			Defaults: config.RoleDefaults{Primary: "primary"},
 		},
 		Agents: map[string]agents.Agent{"x": {
-			Name: "x", Profiles: []string{"base"}, Permissions: "bypass",
+			Name: "x", Profiles: []string{"base"}, Permissions: agents.Permissions{Mode: "bypass"},
 			Runtime: string(containerAxes("docker").Runtime),
 		}},
 		DefaultAgent:    "x",

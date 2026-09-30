@@ -8,8 +8,11 @@ package launchtest
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -56,7 +59,11 @@ type fixture struct {
 	// projectRuntime and projectPermissions are the project-level defaults
 	// (config.yaml's `runtime:` and `permissions:`).
 	projectRuntime     string
-	projectPermissions string
+	projectPermissions agents.Permissions
+	// labelPermissions is the "guarded" label's permissions block.
+	labelPermissions agents.Permissions
+	// noApprovals makes the fixture engine declare no approval codec.
+	noApprovals bool
 	// projectDirtyTree is the project-level `dirty_tree_handler:` default.
 	projectDirtyTree string
 	// profileLLM is the label the "base" profile declares, reported by the
@@ -96,8 +103,13 @@ func Runtime(r launch.RuntimeAxis) AgentOption {
 	return func(d *agentDecl) { d.binding.Runtime = string(r) }
 }
 
-// Permissions sets the binding's declared permission posture.
+// Permissions sets the binding's declared permission mode.
 func Permissions(p string) AgentOption {
+	return func(d *agentDecl) { d.binding.Permissions = agents.Permissions{Mode: p} }
+}
+
+// PermissionBlock sets the binding's whole permissions block.
+func PermissionBlock(p agents.Permissions) AgentOption {
 	return func(d *agentDecl) { d.binding.Permissions = p }
 }
 
@@ -137,8 +149,24 @@ func RuntimesAvailable(axes ...launch.RuntimeAxis) Option {
 // ProjectRuntime sets the project's `runtime:` default, unparsed.
 func ProjectRuntime(s string) Option { return func(f *fixture) { f.projectRuntime = s } }
 
-// ProjectPermissions sets the project's `permissions:` default.
-func ProjectPermissions(s string) Option { return func(f *fixture) { f.projectPermissions = s } }
+// ProjectPermissions sets the project's `permissions:` mode.
+func ProjectPermissions(s string) Option {
+	return func(f *fixture) { f.projectPermissions = agents.Permissions{Mode: s} }
+}
+
+// ProjectPermissionBlock sets the project's whole `permissions:` block.
+func ProjectPermissionBlock(p agents.Permissions) Option {
+	return func(f *fixture) { f.projectPermissions = p }
+}
+
+// GuardedLabelPermissions replaces the "guarded" label's permissions block
+// (mode plan unless this says otherwise).
+func GuardedLabelPermissions(p agents.Permissions) Option {
+	return func(f *fixture) { f.labelPermissions = p }
+}
+
+// NoApprovals makes the fixture engine declare no approval codec.
+func NoApprovals() Option { return func(f *fixture) { f.noApprovals = true } }
 
 // ProjectDirtyTree sets the project's `dirty_tree_handler:` default, unparsed.
 func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirtyTree = s } }
@@ -161,7 +189,7 @@ func ProfileLLM(label string) Option { return func(f *fixture) { f.profileLLM = 
 // MemStore; and a fake for every port.
 func Deps(t *testing.T, opts ...Option) Env {
 	t.Helper()
-	f := &fixture{agents: map[string]agentDecl{}, available: map[launch.RuntimeAxis]bool{launch.RuntimeHost: true}}
+	f := &fixture{agents: map[string]agentDecl{}, available: map[launch.RuntimeAxis]bool{launch.RuntimeHost: true}, labelPermissions: agents.Permissions{Mode: "plan"}}
 	for _, o := range opts {
 		o(f)
 	}
@@ -179,7 +207,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 			Configs: map[string]config.LLMConfig{
 				"primary": {Type: string(EngineName)},
 				"fast":    {Type: string(EngineName), Body: map[string]any{"model": "fast-model"}},
-				"guarded": {Type: string(EngineName), Permissions: "plan"},
+				"guarded": {Type: string(EngineName), Permissions: f.labelPermissions},
 			},
 			Defaults: config.RoleDefaults{Primary: "primary", Fast: "fast"},
 		},
@@ -195,7 +223,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 	if f.noStructured {
 		modes = []engine.Mode{engine.Interactive}
 	}
-	reg, err := engine.NewRegistry(newFixtureEngine(modes, !f.noReadOnlyPlan, f.relocatableHome))
+	reg, err := engine.NewRegistry(newFixtureEngine(modes, !f.noReadOnlyPlan, f.relocatableHome, !f.noApprovals))
 	require.NoError(t, err)
 
 	store := sessions.NewMemStore()
@@ -232,7 +260,7 @@ func (e Env) LastCellRequest() launch.CellRequest { return e.cells.last }
 type Expect struct {
 	Engine     engine.Name
 	Label      string
-	Permission engine.PermissionMode
+	Permission engine.PermissionMode // the resolved policy's mode
 	Axes       launch.Axes
 }
 
@@ -242,7 +270,7 @@ func (e Expect) Assert(t *testing.T, l launch.Launch) {
 	t.Helper()
 	require.Equal(t, e.Engine, l.Engine)
 	require.Equal(t, e.Label, l.Label.Label)
-	require.Equal(t, e.Permission, l.Permission)
+	require.Equal(t, e.Permission, l.Permission.Mode)
 	if e.Axes != (launch.Axes{}) {
 		require.Equal(t, e.Axes, l.Axes)
 	}
@@ -268,10 +296,11 @@ const EngineName engine.Name = "fixture"
 // drops Structured.
 type fixtureEngine struct {
 	engine.Base
-	home engine.HomeSpec
+	home      engine.HomeSpec
+	approvals engine.Declared[engine.ApprovalCodec]
 }
 
-func newFixtureEngine(modes []engine.Mode, readOnlyPlan, relocatableHome bool) engine.Engine {
+func newFixtureEngine(modes []engine.Mode, readOnlyPlan, relocatableHome, approvals bool) engine.Engine {
 	a := &approach{}
 	d := engine.Definition{
 		Name:         EngineName,
@@ -284,7 +313,10 @@ func newFixtureEngine(modes []engine.Mode, readOnlyPlan, relocatableHome bool) e
 	for _, m := range modes {
 		d.CLI = append(d.CLI, engine.CLIGrammar{Mode: m, Binary: "fixture", Positional: 1})
 	}
-	e := fixtureEngine{Base: engine.Base{Definition: d}}
+	e := fixtureEngine{Base: engine.Base{Definition: d}, approvals: engine.Absent[engine.ApprovalCodec]("NoApprovals: the fixture declares no codec")}
+	if approvals {
+		e.approvals = engine.Provide[engine.ApprovalCodec](fixtureCodec{})
+	}
 	if relocatableHome {
 		e.home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: ".fixture"}}, Auth: engine.Absent[engine.Auth]("the fixture authenticates against no vendor")}
 		if err := e.home.Validate(); err != nil {
@@ -310,6 +342,33 @@ func (fixtureEngine) Transcripts() []engine.TranscriptReader { return nil }
 func (fixtureEngine) Hooks() engine.HookCodec                { return nil }
 func (fixtureEngine) Wake() engine.Declared[engine.WakeSpec] {
 	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
+}
+
+// Approvals is the fixture codec unless NoApprovals declared it absent.
+func (e fixtureEngine) Approvals() engine.Declared[engine.ApprovalCodec] { return e.approvals }
+
+// fixtureCodec validates rules only: a rule starting with "!" is not one.
+type fixtureCodec struct{}
+
+// ErrFixtureRule is the fixture codec's refusal of a rule.
+var ErrFixtureRule = errors.New("fixture: not a rule")
+
+func (fixtureCodec) DecodeAsk(string, []byte) (engine.PermissionAsk, error) {
+	return engine.PermissionAsk{}, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
+}
+func (fixtureCodec) EncodeAnswer(string, engine.PermissionAsk, engine.PermissionAnswer) ([]byte, error) {
+	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
+}
+func (fixtureCodec) HostCall(json.RawMessage) (engine.HostCall, error) {
+	return engine.HostCall{}, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
+}
+func (fixtureCodec) HostDeny(string) (string, error) { return "", nil }
+func (fixtureCodec) RepoSurfaces() []string          { return nil }
+func (fixtureCodec) ValidateRule(rule string) error {
+	if strings.HasPrefix(rule, "!") {
+		return ErrFixtureRule
+	}
+	return nil
 }
 
 func (fixtureEngine) Exports(items engine.Items) (engine.Exports, error) {
@@ -441,7 +500,7 @@ func Structured(harp, backend, label, model, workDir string, perm agent.Permissi
 		Engine:     engine.Name(backend),
 		Label:      engine.LabelConfig{Label: label, Model: model},
 		Mode:       engine.Structured,
-		Permission: perm,
+		Permission: engine.PermissionPolicy{Mode: perm, Ceiling: perm},
 		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}})}, Workspace: workDir, Cleanup: func() error { return nil }},
 		Package:    carrier,
 	}

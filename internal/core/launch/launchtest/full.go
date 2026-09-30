@@ -3,6 +3,7 @@ package launchtest
 import (
 	"crypto/sha256"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -28,12 +29,16 @@ func FullLaunch(t *testing.T) launch.Launch {
 		SessionHome: present.Root{Host: "/home/u/.ctxloom/sessions/harp-1/home/.engine", Engine: "/home/agent/.engine"},
 	})
 	return launch.Launch{
-		Identity:   sessions.Identity{Harp: "harp-1", RunID: "run-1", Depth: 1, OneShot: true, Project: "proj-1"},
-		Engine:     EngineName,
-		Label:      engine.LabelConfig{Label: "primary", Model: "fixture-fast-2", Binary: "fixture", Args: []string{"--flag"}, Body: map[string]any{"model": "fixture-fast-2", "thinking": "low"}},
-		Mode:       engine.Structured,
-		Permission: engine.PermissionPlan,
-		Axes:       launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeRootless},
+		Identity: sessions.Identity{Harp: "harp-1", RunID: "run-1", Depth: 1, OneShot: true, Project: "proj-1"},
+		Engine:   EngineName,
+		Label:    engine.LabelConfig{Label: "primary", Model: "fixture-fast-2", Binary: "fixture", Args: []string{"--flag"}, Body: map[string]any{"model": "fixture-fast-2", "thinking": "low"}},
+		Mode:     engine.Structured,
+		Permission: engine.PermissionPolicy{
+			Mode: engine.PermissionPlan, AfterPlan: engine.Provide(engine.PermissionAcceptEdits), Ceiling: engine.PermissionAcceptEdits,
+			Allow: []string{"Read"}, Deny: []string{"Bash(rm *)"}, Ask: []string{"WebFetch"},
+			Approver: engine.ApproverNone, ApprovalTimeout: 20 * time.Minute,
+		},
+		Axes: launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeRootless},
 		Cell: launch.Cell{
 			Placement: launch.Placement{
 				Paths: paths,

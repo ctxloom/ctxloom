@@ -113,7 +113,7 @@ func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "version: %d\nworkspace: none\nllm:\n  configs:\n    fast:\n      type: mock\n  defaults:\n    primary: fast\n    fast: fast\nagents:\n", config.CurrentConfigVersion)
 	for _, s := range specs {
-		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n    permissions: bypass\n", s.Name, s.Profile)
+		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n    permissions:\n      mode: bypass\n", s.Name, s.Profile)
 	}
 	return b.String()
 }
@@ -186,7 +186,8 @@ func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec,
     llm: %s
 %s    profiles:
       - %s
-    permissions: bypass
+    permissions:
+      mode: bypass
 `, workspace, dirtyLine, s.Name, llmKey, runtimeLine, s.Profile)
 }
 

@@ -25,8 +25,13 @@ type Source struct {
 	Workspace  WorkspaceAxis
 	DirtyTree  DirtyTreeHandler
 	Permission engine.PermissionMode // the flag; zero = not requested
-	Resume     Resume
-	Degraded   bool
+	// ParentCeiling is the launching session's own ceiling when a child
+	// launches a child: this launch may start no wider, and its ceiling is
+	// capped there. Zero is a launch with no such parent — the human's own
+	// session, or a child it launched — which nothing caps.
+	ParentCeiling engine.PermissionMode
+	Resume        Resume
+	Degraded      bool
 	// Env is the caller's engine passthrough (`run --env`); the identity
 	// carriers are stamped by Resolve and never taken from here.
 	Env map[string]string

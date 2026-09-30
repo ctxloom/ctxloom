@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -89,7 +90,7 @@ func EncodeLaunch(l launch.Launch) *pb.Launch {
 		Engine:     string(l.Engine),
 		Label:      encodeLabel(l.Label),
 		Mode:       encodeMode(l.Mode),
-		Permission: pb.PermissionMode(l.Permission),
+		Permission: encodePolicy(l.Permission),
 		Declared:   &pb.Axes{Workspace: string(l.Declared.Workspace), Runtime: string(l.Declared.Runtime)},
 		Axes:       &pb.Axes{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
 		Cell:       encodeCell(l.Cell),
@@ -137,12 +138,16 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 	if err != nil {
 		return launch.Launch{}, err
 	}
+	policy, err := decodePolicy(w.GetPermission())
+	if err != nil {
+		return launch.Launch{}, err
+	}
 	l := launch.Launch{
 		Identity:   decodeIdentity(w.GetIdentity()),
 		Engine:     engine.Name(w.GetEngine()),
 		Label:      label,
 		Mode:       decodeMode(w.GetMode()),
-		Permission: engine.PermissionMode(w.GetPermission()),
+		Permission: policy,
 		Declared:   declared,
 		Axes:       launch.Axes{Workspace: workspace, Runtime: runtime},
 		Cell:       cell,
@@ -160,6 +165,63 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 		return launch.Launch{}, fmt.Errorf("coordgrpc: launch identity: %w", err)
 	}
 	return l, nil
+}
+
+// encodePolicy projects the resolved policy; modes cross by value (the
+// wire enum IS engine.PermissionMode's numbering), an unprovided
+// after_plan as UNSPECIFIED.
+func encodePolicy(p engine.PermissionPolicy) *pb.PermissionPolicy {
+	out := &pb.PermissionPolicy{
+		Mode:            pb.PermissionMode(p.Mode),
+		Ceiling:         pb.PermissionMode(p.Ceiling),
+		Allow:           p.Allow,
+		Deny:            p.Deny,
+		Ask:             p.Ask,
+		Approver:        pb.Approver_APPROVER_HUMAN,
+		ApprovalTimeout: durationpb.New(p.ApprovalTimeout),
+	}
+	if p.Approver == engine.ApproverNone {
+		out.Approver = pb.Approver_APPROVER_NONE
+	}
+	if after, ok := p.AfterPlan.Get(); ok {
+		out.AfterPlan = pb.PermissionMode(after)
+	}
+	return out
+}
+
+// errNoPolicy / errNoApprover refuse a launch whose policy the runner
+// would otherwise have to guess.
+var (
+	errNoPolicy   = errors.New("coordgrpc: the launch carries no permission policy")
+	errNoApprover = errors.New("coordgrpc: the launch's permission policy names no approver")
+)
+
+// decodePolicy reads the policy back. No policy, or an approver the wire
+// does not name, is refused: whether a human is asked is not guessed.
+func decodePolicy(w *pb.PermissionPolicy) (engine.PermissionPolicy, error) {
+	if w == nil {
+		return engine.PermissionPolicy{}, errNoPolicy
+	}
+	p := engine.PermissionPolicy{
+		Mode:            engine.PermissionMode(w.GetMode()),
+		Ceiling:         engine.PermissionMode(w.GetCeiling()),
+		Allow:           w.GetAllow(),
+		Deny:            w.GetDeny(),
+		Ask:             w.GetAsk(),
+		ApprovalTimeout: w.GetApprovalTimeout().AsDuration(),
+	}
+	switch w.GetApprover() {
+	case pb.Approver_APPROVER_HUMAN:
+		p.Approver = engine.ApproverHuman
+	case pb.Approver_APPROVER_NONE:
+		p.Approver = engine.ApproverNone
+	default:
+		return engine.PermissionPolicy{}, errNoApprover
+	}
+	if after := w.GetAfterPlan(); after != pb.PermissionMode_PERMISSION_MODE_UNSPECIFIED {
+		p.AfterPlan = engine.Provide(engine.PermissionMode(after))
+	}
+	return p, nil
 }
 
 func encodeIdentity(id sessions.Identity) *pb.Identity {

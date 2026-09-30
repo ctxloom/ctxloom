@@ -40,7 +40,7 @@ type Fixture struct {
 	Workspace                    string
 	DirtyTreeHandler             string
 	Runtime                      string
-	Permissions                  string
+	Permissions                  agents.Permissions
 	Delegation                   DelegationConfig
 	IsolationImages              map[string]string
 	IsolationBaseContainerfile   string
@@ -142,7 +142,7 @@ func NewFixture(f Fixture) *Config {
 		workspace:                    f.Workspace,
 		dirtyTreeHandler:             f.DirtyTreeHandler,
 		runtime:                      f.Runtime,
-		permissions:                  f.Permissions,
+		permissions:                  f.Permissions.Clone(),
 		delegation:                   f.Delegation,
 		isolationImages:              maps.Clone(f.IsolationImages),
 		isolationBaseContainerfile:   f.IsolationBaseContainerfile,

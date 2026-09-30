@@ -220,11 +220,11 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		},
 		{
 			"llm config entry with permissions posture",
-			"llm:\n  configs:\n    main:\n      type: claude-code\n      permissions: plan\n",
+			"llm:\n  configs:\n    main:\n      type: claude-code\n      permissions:\n        mode: plan\n",
 		},
 		{
 			"agent-level permissions posture",
-			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    permissions: bypass\n",
+			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    permissions:\n      mode: bypass\n",
 		},
 		{
 			"per-backend isolation image overrides",

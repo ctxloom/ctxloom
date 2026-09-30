@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -79,6 +80,9 @@ type Record struct {
 	// HomeEnvKeys are the engine home-relocation variables to echo when
 	// set, so a test can prove what config-home env the engine received.
 	HomeEnvKeys []string
+	// Posture is the permission posture a structured turn ran at; nil for
+	// a run that has none (the mock binary's own launches).
+	Posture *engine.TurnPosture
 }
 
 // WriteRecord renders one record to file. WHERE THE ENGINE RAN is recorded
@@ -123,6 +127,18 @@ func WriteRecord(file string, in Record) error {
 	input.WriteString("=== Skills ===\n")
 	for _, s := range in.Skills {
 		_, _ = fmt.Fprintf(&input, "%s\n", s)
+	}
+	if p := in.Posture; p != nil {
+		input.WriteString("=== Posture ===\n")
+		_, _ = fmt.Fprintf(&input, "mode=%s\n", postureMode(*p))
+		for _, g := range p.Grants {
+			_, _ = fmt.Fprintf(&input, "grant=%s\n", g)
+		}
+		trust := "untrusted"
+		if p.Trust == engine.TrustTrusted {
+			trust = "trusted"
+		}
+		_, _ = fmt.Fprintf(&input, "trust=%s\n", trust)
 	}
 	input.WriteString("=== Context ===\n")
 	input.WriteString(in.Context)

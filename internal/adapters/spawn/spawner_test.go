@@ -100,7 +100,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
+	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      mode: plan\n")
 
 	s := newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 
@@ -117,7 +117,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 
 	// The mid-session mutation: config.yaml gains a BRAND NEW agent that
 	// never existed in the snapshot captured at newProdSpawner time.
-	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n  fresh:\n    llm: claude-code\n    permissions: bypass\n")
+	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      mode: plan\n  fresh:\n    llm: claude-code\n    permissions:\n      mode: bypass\n")
 
 	_, err = s.Resolve(context.Background(), "fresh")
 	require.NoError(t, err, "a hot-reloaded agent must resolve without a coordinator restart")
@@ -143,7 +143,7 @@ func TestProdSpawner_ResolveFallsBackToPublishedGenerationOnReloadFailure(t *tes
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
+	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      mode: plan\n")
 
 	s := newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	writeSpawnerConfig(t, appDir, "version: 6\nagents: [unclosed\n  : nonsense\n")
@@ -172,28 +172,28 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 	}
 
 	t.Run("absent driving resolves persistent, unchanged from today", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n")
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      mode: bypass\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err)
 		assert.Equal(t, coord.ResumeModePersistent, plan.ResumeMode)
 	})
 
 	t.Run("driving: conversational resolves persistent", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n    driving: conversational\n")
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      mode: bypass\n    driving: conversational\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err)
 		assert.Equal(t, coord.ResumeModePersistent, plan.ResumeMode)
 	})
 
 	t.Run("unknown driving value FAILS LOUD at resolve, not merely at the write edge", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n    driving: bogus\n")
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      mode: bypass\n    driving: bogus\n")
 		_, err := s.Resolve(context.Background(), "dev")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bogus")
 	})
 
 	t.Run("driving: oneshot on a non-resumable engine fails loud with the capability reason", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: mock\n    permissions: bypass\n    driving: oneshot\n")
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: mock\n    permissions:\n      mode: bypass\n    driving: oneshot\n")
 		_, err := s.Resolve(context.Background(), "dev")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "resume-capable")
@@ -201,7 +201,7 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 	})
 
 	t.Run("driving: oneshot on a SUPPORTED migrated engine (claude-code) now RESOLVES to coord.ResumeModeOneShot (Slice 4 landed)", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n    driving: oneshot\n")
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions:\n      mode: bypass\n    driving: oneshot\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err, "the one-shot turn loop is wired end to end for claude-code (Slice 4)")
 		assert.Equal(t, coord.ResumeModeOneShot, plan.ResumeMode)

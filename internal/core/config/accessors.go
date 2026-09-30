@@ -50,6 +50,7 @@ func cloneWarnings(w []Warning) []Warning {
 
 func cloneAgent(a agents.Agent) agents.Agent {
 	a.Profiles = slices.Clone(a.Profiles)
+	a.Permissions = a.Permissions.Clone()
 	return a
 }
 
@@ -66,6 +67,7 @@ func cloneAgentsMap(m map[string]agents.Agent) map[string]agents.Agent {
 
 func cloneLLMConfigEntry(l LLMConfig) LLMConfig {
 	l.Body = deepCopyBody(l.Body)
+	l.Permissions = l.Permissions.Clone()
 	return l
 }
 
@@ -139,18 +141,16 @@ func (c *Config) GetDirtyTreeHandler() string { return c.dirtyTreeHandler }
 // container).
 func (c *Config) GetRuntime() string { return c.runtime }
 
-// GetPermissions returns the PROJECT-DIR-SCOPED default launch-time permission
-// posture (default | acceptEdits | plan | bypass), as written; empty means the
-// project declared none. It is the fourth rung of the resolution chain
-// (--permissions flag > agent binding > engine label > THIS > engine built-in),
-// so a narrower posture declared anywhere above always wins while a declared
-// project posture still beats a silent engine fallback.
+// GetPermissions returns the PROJECT-DIR-SCOPED default permissions block,
+// as written; a zero block means the project declared none. It is the rung
+// below every explicit declaration (--permissions flag > agent binding >
+// engine label > THIS > engine built-in), field by field.
 //
 // The value can only ever have come from THIS project's .ctxloom/config.yaml
 // (or an explicit one-invocation --config-set): layerscope scopes the key
 // Shared, so a home config or an environment variable carrying it is dropped
 // with a warning before the merge. See Config.permissions' own doc.
-func (c *Config) GetPermissions() string { return c.permissions }
+func (c *Config) GetPermissions() agents.Permissions { return c.permissions.Clone() }
 
 // GetDelegationConcurrency returns delegation.concurrency: the project-wide
 // RESOURCE ceiling on concurrently EXECUTING delegated child turns (0/unset

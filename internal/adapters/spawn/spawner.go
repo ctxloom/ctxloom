@@ -245,7 +245,7 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 		Label:      label,
 		Profiles:   binding.Profiles,
 		Runtime:    runtime,
-		Permission: binding.Permissions,
+		Permission: binding.Permissions.Mode,
 		ResumeMode: resumeMode,
 		Snapshot:   snap,
 	}

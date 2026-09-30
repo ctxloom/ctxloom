@@ -91,7 +91,7 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		}
 		for _, f := range []struct{ key, value string }{
 			{"runtime", s.Runtime},
-			{"permissions", s.Permissions},
+			{"permissions", s.Permissions.String()},
 			{"driving", string(s.Driving)},
 			{"engine_home", s.HomeMode},
 			{"auth", s.Auth},
@@ -194,7 +194,7 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	if def.Runtime != "" {
 		w.Printf("Runtime: %s\n", def.Runtime)
 	}
-	if def.Permissions != "" {
+	if !def.Permissions.IsZero() {
 		w.Printf("Permissions: %s\n", def.Permissions)
 	}
 	if def.Driving != "" {
@@ -495,7 +495,7 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	if entry.Runtime != "" {
 		w.Printf(", runtime: %s", entry.Runtime)
 	}
-	if entry.Permissions != "" {
+	if !entry.Permissions.IsZero() {
 		w.Printf(", permissions: %s", entry.Permissions)
 	}
 	if entry.Driving != "" {

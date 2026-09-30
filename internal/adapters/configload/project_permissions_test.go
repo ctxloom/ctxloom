@@ -26,9 +26,9 @@ import (
 // project config that declares the key is read back through the accessor the
 // resolution chain consults.
 func TestProjectPermissions_HonoredFromProjectLayer(t *testing.T) {
-	cfg := writeLayers(t, "", "version: 6\npermissions: bypass\n")
+	cfg := writeLayers(t, "", "version: 6\npermissions:\n  mode: bypass\n")
 
-	assert.Equal(t, "bypass", cfg.GetPermissions(),
+	assert.Equal(t, "bypass", cfg.GetPermissions().Mode,
 		"a project config's declared permission posture must be honored")
 }
 
@@ -45,11 +45,11 @@ func TestProjectPermissions_HonoredFromProjectLayer(t *testing.T) {
 // the rule entirely) makes home's grant stick and turns this red.
 func TestProjectPermissions_HomeLayerIsIgnored(t *testing.T) {
 	cfg := writeLayers(t,
-		"version: 6\npermissions: bypass\n",
+		"version: 6\npermissions:\n  mode: bypass\n",
 		"version: 6\n",
 	)
 
-	assert.Equal(t, "", cfg.GetPermissions(),
+	assert.Equal(t, "", cfg.GetPermissions().Mode,
 		"a HOME config must never grant a project's permission posture: per-project consent is the whole point, and a home-wide permissive default re-grants every project on the machine")
 
 	// Dropped LOUDLY, never silently: the human who wrote it in the wrong file
@@ -78,7 +78,7 @@ func TestProjectPermissions_EnvCannotGrantIt(t *testing.T) {
 		WithOverrides(confload.Overrides{Env: map[string]any{"PERMISSIONS": "bypass"}}))
 	require.NoError(t, err)
 
-	assert.Equal(t, "", cfg.GetPermissions(),
+	assert.Equal(t, "", cfg.GetPermissions().Mode,
 		"an environment variable must never grant the project permission posture — env is the one channel every spawned child inherits")
 }
 

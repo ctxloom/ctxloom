@@ -635,7 +635,7 @@ func (st *runState) bindLaunch(l launch.Launch, opened operations.Opened) {
 	st.label = l.Label.Label
 	st.backendName = string(l.Engine)
 	st.labelModel = l.Label.Model
-	st.permMode = l.Permission
+	st.permMode = l.Permission.Mode
 	st.managed = opened.Managed
 	if env, ok := operations.EnvironmentOf(l.Cell); ok {
 		st.env = env

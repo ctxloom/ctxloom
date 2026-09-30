@@ -26,7 +26,7 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 		Identity:   sessions.Identity{Harp: "perky-same-chevy"},
 		Label:      engine.LabelConfig{Label: EngineName, Model: "claude-opus-5"},
 		Mode:       engine.Structured,
-		Permission: engine.PermissionPlan,
+		Permission: engine.PermissionPolicy{Mode: engine.PermissionPlan},
 		MCPServers: []string{"probe"},
 	}
 	inst, err := kind.Instance(s)
@@ -34,18 +34,22 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	mcp := present.Presentation{HostPath: "/h/.mcp.json", EnginePath: "/h/.mcp.json", Args: []string{flagMCPConfig, "/h/.mcp.json"}}
 	ex, err := inst.Exec([]present.Presentation{mcp})
 	require.NoError(t, err)
-	require.Equal(t, "--permission-mode plan --disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --permission-prompts none --model claude-opus-5 --print --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
+	require.Equal(t, "--disallowedTools Bash,Edit,Write,NotebookEdit --allowedTools mcp__probe --permission-prompts none --model claude-opus-5 --print --mcp-config /h/.mcp.json", strings.Join(ex.Args, " "))
 	drivers := inst.Drivers()
 	require.Len(t, drivers, 1)
 	d, ok := drivers[0].(*streamJSONDriver)
 	require.True(t, ok)
-	require.Equal(t, strings.Join(ex.Args, " ")+" --input-format stream-json --output-format stream-json --verbose --resume native-key-1 --name perky-same-chevy",
-		strings.Join(d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-1"}), " "))
+	argv, err := d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-1", Posture: engine.TurnPosture{Mode: engine.PermissionPlan}})
+	require.NoError(t, err)
+	require.Equal(t, strings.Join(ex.Args, " ")+` --input-format stream-json --output-format stream-json --verbose --resume native-key-1 --name perky-same-chevy --settings {"permissions":{"defaultMode":"plan"}}`,
+		strings.Join(argv, " "))
 	require.NoError(t, inst.Resume("native-key-2"))
 	ex, err = inst.Exec([]present.Presentation{mcp})
 	require.NoError(t, err)
 	require.Contains(t, strings.Join(ex.Args, " "), "--resume native-key-2", "a resumed instance continues its native session on the next Exec")
-	require.Equal(t, strings.Count(strings.Join(d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-2"}), " "), "--resume"), 1, "the driver adds no second --resume")
+	argv, err = d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-2"})
+	require.NoError(t, err)
+	require.Equal(t, strings.Count(strings.Join(argv, " "), "--resume"), 1, "the driver adds no second --resume")
 }
 
 // TestInstance_ExecPinsClassicScreen: an interactive launch carries the
@@ -55,7 +59,7 @@ func TestInstance_ExecPinsClassicScreen(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
 	for _, mode := range kind.Root().Modes {
-		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionBypass, Prompt: "p"}
+		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionPolicy{Mode: engine.PermissionBypass}, Prompt: "p"}
 		inst, err := kind.Instance(s)
 		require.NoError(t, err)
 		ex, err := inst.Exec(nil)
@@ -86,7 +90,7 @@ func TestInstance_HeadlessChildDefaults(t *testing.T) {
 	require.NoError(t, err)
 	for _, mode := range kind.Root().Modes {
 		for _, perm := range []engine.PermissionMode{engine.PermissionDefault, engine.PermissionAcceptEdits, engine.PermissionPlan, engine.PermissionBypass, engine.PermissionDontAsk, engine.PermissionAuto} {
-			s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: perm, Prompt: "p"}
+			s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionPolicy{Mode: perm}, Prompt: "p"}
 			inst, err := kind.Instance(s)
 			require.NoError(t, err)
 			ex, err := inst.Exec(nil)
@@ -116,7 +120,7 @@ func TestInstance_ExecParsesAgainstOwnGrammar(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
 	for _, mode := range kind.Root().Modes {
-		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionBypass, Prompt: "p"}
+		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionPolicy{Mode: engine.PermissionBypass}, Prompt: "p"}
 		inst, err := kind.Instance(s)
 		require.NoError(t, err)
 		ex, err := inst.Exec(nil)

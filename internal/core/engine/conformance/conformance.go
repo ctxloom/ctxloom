@@ -147,6 +147,10 @@ func checkEngineFacts(t *testing.T, eng engine.Engine, def engine.Base) {
 	if spec, ok := eng.Wake().Get(); ok {
 		require.NotNil(t, spec, "a provided wake is a spec")
 	}
+	require.True(t, eng.Approvals().Decided(), "an engine declares its approval codec, or declares it absent with the reason")
+	if c, ok := eng.Approvals().Get(); ok {
+		require.NotNil(t, c, "a provided approval codec is a codec")
+	}
 }
 
 // checkModeInstance asserts one mode's instance: Instance binds a session,
@@ -189,7 +193,7 @@ func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Sessio
 		Identity:   sessions.Identity{Harp: "conformance-" + string(def.Name)},
 		Label:      engine.LabelConfig{Label: string(def.Name)},
 		Mode:       mode,
-		Permission: def.Permissions.HostDefault,
+		Permission: engine.PermissionPolicy{Mode: def.Permissions.HostDefault},
 		Roots: present.Paths{
 			ProjectRoot: present.Root{Host: filepath.Join(dir, "project"), Engine: filepath.Join(dir, "project")},
 			SessionHome: present.Root{Host: home, Engine: home},

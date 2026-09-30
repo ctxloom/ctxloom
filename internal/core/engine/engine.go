@@ -131,6 +131,10 @@ type Engine interface {
 	// Wake is how an idle session of this engine is made to start a turn
 	// (see WakeSpec). An engine with an Interactive mode must decide it.
 	Wake() Declared[WakeSpec]
+	// Approvals is the engine's approval codec. Undeclared, a session whose
+	// approver is the human cannot be launched on this engine: there is
+	// no way to put its requests to one.
+	Approvals() Declared[ApprovalCodec]
 }
 
 // Instance is one engine kind bound to one session.
@@ -175,6 +179,8 @@ type StructuredDriver interface {
 type Turn struct {
 	Prompt string
 	Resume string // native key; "" on the first turn
+	// Posture is the permission posture this turn's process runs at.
+	Posture TurnPosture
 }
 
 // Event is one structured-protocol event the driver relays.

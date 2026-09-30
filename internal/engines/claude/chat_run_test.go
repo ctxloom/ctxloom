@@ -49,11 +49,13 @@ func turnArgv(t *testing.T, s engine.Session, in engine.Turn, presented ...prese
 	require.NoError(t, err)
 	ex, err := inst.Exec(presented)
 	require.NoError(t, err)
-	return (&streamJSONDriver{inst: inst.(*instance)}).argv(ex, in)
+	argv, err := (&streamJSONDriver{inst: inst.(*instance)}).argv(ex, in)
+	require.NoError(t, err)
+	return argv
 }
 
 func structured(model string, perm agent.PermissionMode) engine.Session {
-	return engine.Session{Mode: engine.Structured, Label: engine.LabelConfig{Model: model}, Permission: perm}
+	return engine.Session{Mode: engine.Structured, Label: engine.LabelConfig{Model: model}, Permission: engine.PermissionPolicy{Mode: perm}}
 }
 
 func TestTurnArgs_StreamJSONFlags(t *testing.T) {

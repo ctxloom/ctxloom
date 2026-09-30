@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -29,8 +30,8 @@ func oneshotTestConfig(t *testing.T) *config.Config {
 				// bypass: these are the profile/context/output-flow tests,
 				// not permission-resolution tests (the launch package pins
 				// the floor).
-				"claude-fast": {Type: "claude-code", Permissions: "bypass"},
-				"agy-code":    {Type: "mock", Permissions: "bypass"},
+				"claude-fast": {Type: "claude-code", Permissions: agents.Permissions{Mode: "bypass"}},
+				"agy-code":    {Type: "mock", Permissions: agents.Permissions{Mode: "bypass"}},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},

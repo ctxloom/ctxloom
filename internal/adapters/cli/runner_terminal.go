@@ -49,7 +49,7 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 		Mode:        agent.ModeInteractive,
 		Model:       turn.Launch.Label.Model,
 		Env:         turn.Launch.EngineEnv(),
-		Permissions: turn.Launch.Permission,
+		Permissions: turn.Launch.Permission.Mode,
 		Stdin:       stdin,
 		Resize:      turnResize(ctx, t.stdin),
 		Session:     &session,

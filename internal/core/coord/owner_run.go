@@ -112,7 +112,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		Backend:    string(l.Engine),
 		Label:      l.Label.Label,
 		Runtime:    runtime,
-		Permission: l.Permission.String(),
+		Permission: l.Permission.Mode.String(),
 		MCPServers: spec.MCPServers,
 		Launch:     l,
 	}

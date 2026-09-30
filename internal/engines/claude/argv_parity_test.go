@@ -135,7 +135,7 @@ func TestChatArgs_Parity_Golden(t *testing.T) {
 						Identity:   sessions.Identity{Harp: "perky-same-chevy"},
 						Label:      engine.LabelConfig{Label: EngineName, Model: model},
 						Mode:       engine.Structured,
-						Permission: perm,
+						Permission: engine.PermissionPolicy{Mode: perm},
 					}
 					var presented []present.Presentation
 					if mcp != "" {
@@ -150,7 +150,14 @@ func TestChatArgs_Parity_Golden(t *testing.T) {
 					}
 					ex, err := inst.Exec(presented)
 					require.NoError(t, err)
-					argv := (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{})
+					// The posture the runner hands a first turn: the launch's mode,
+					// bypass excepted (it stays on the argv).
+					posture := engine.TurnPosture{Mode: perm}
+					if perm == agent.PermissionBypass {
+						posture.Mode = engine.PermissionNotRequested
+					}
+					argv, err := (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{Posture: posture})
+					require.NoError(t, err)
 					fmt.Fprintf(&out, "%s/model=%q/resume=%q/mcp=%q: %s\n", perm, model, resume, mcp, strings.Join(argv, " "))
 				}
 			}

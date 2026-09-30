@@ -429,7 +429,8 @@ agents:
     llm: claude-code
     profiles: [x, y]
     runtime: container-rootless
-    permissions: bypass
+    permissions:
+      mode: bypass
     driving: oneshot
     engine_home: session
 `)

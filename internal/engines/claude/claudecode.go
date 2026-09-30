@@ -2,7 +2,9 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -95,7 +97,7 @@ func (b *ClaudeCode) session(req *agent.ExecuteRequest) engine.Session {
 		Identity:   sessions.Identity{Harp: req.Env[sessionHarpEnv]},
 		Label:      engine.LabelConfig{Label: EngineName, Model: req.Model, Binary: b.BinaryPath, Args: b.Args},
 		Mode:       req.Mode,
-		Permission: req.Permissions,
+		Permission: engine.PermissionPolicy{Mode: req.Permissions},
 		Prompt:     agent.GetPromptContent(req.Prompt),
 		WorkDir:    b.WorkDir(),
 	}
@@ -151,10 +153,20 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 // substrate so the two can't drift.
 const sessionHarpEnv = agent.SessionHarpEnv
 
-// permissionArgs maps the generalized permission posture onto claude's flags.
-// bypass is the blanket skip; acceptEdits/plan/dontAsk/auto use
-// --permission-mode (the posture's String() IS claude's spelling); default
-// leaves the engine's normal prompting and adds nothing.
+// permissionArgs is a HEADLESS launch's posture on claude's argv: only what
+// never changes between turns. bypass is the blanket skip; plain plan (no
+// after_plan) keeps its read-only belt and MCP grant (below); every other
+// mode rides each turn's --settings (turnSettings), so there is one
+// mechanism for it and a later turn can change it. Nobody sits at a
+// headless engine, so --permission-prompts none denies what the posture and
+// rules leave open — whoever the approver is, until ctxloom serves the
+// permission host that reaches them.
+//
+// A plan-first posture (plan with after_plan) drops the belt and the argv
+// grant: an approved plan must be able to execute (claude's plan mode is
+// read-only on its own), and an argv grant would outlive the plan turn as
+// blanket permission for the server — the MCP grant rides the plan turns'
+// --settings instead.
 //
 // plan ALSO gets a conservative --disallowedTools belt-and-suspenders
 // (LIVE VERIFIED against authenticated claude 2.1.210: `--permission-mode
@@ -208,17 +220,18 @@ const sessionHarpEnv = agent.SessionHarpEnv
 // separately. A server attached but not named is a server a plan agent
 // cannot reach.
 
-func permissionArgs(mode agent.PermissionMode, mcpServers []string) []string {
-	switch mode {
-	case agent.PermissionBypass:
+func permissionArgs(p engine.PermissionPolicy, mcpServers []string) []string {
+	return append(postureArgs(p, mcpServers), flagPermissionPrompts, "none")
+}
+
+// postureArgs are the posture flags every launch carries, headless or not:
+// bypass's blanket skip, and plain plan's read-only belt with its MCP grant.
+func postureArgs(p engine.PermissionPolicy, mcpServers []string) []string {
+	switch {
+	case p.Mode == engine.PermissionBypass:
 		return []string{flagSkipPermissions}
-	case agent.PermissionAcceptEdits, agent.PermissionDontAsk, agent.PermissionAuto:
-		return []string{flagPermissionMode, mode.String()}
-	case agent.PermissionPlan:
-		args := []string{
-			flagPermissionMode, "plan",
-			flagDisallowedTools, "Bash,Edit,Write,NotebookEdit",
-		}
+	case p.Mode == engine.PermissionPlan && !isPlanFirst(p):
+		args := []string{flagDisallowedTools, "Bash,Edit,Write,NotebookEdit"}
 		// No attached servers means no grant to make. Emitting the flag with
 		// an empty value would declare "grant nothing" to a VARIADIC parser
 		// sitting next to a positional — the argv hazard buildArgs documents.
@@ -228,6 +241,65 @@ func permissionArgs(mode agent.PermissionMode, mcpServers []string) []string {
 		return args
 	}
 	return nil
+}
+
+// interactivePermissionArgs is the human's own session's posture: the mode
+// on --permission-mode (its String() IS claude's spelling; default adds
+// nothing), the posture flags, and the declared rules on one inline
+// --settings. Nobody is told to deny prompts: the human answers them.
+func interactivePermissionArgs(p engine.PermissionPolicy, mcpServers []string) ([]string, error) {
+	var args []string
+	switch p.Mode {
+	case engine.PermissionAcceptEdits, engine.PermissionDontAsk, engine.PermissionAuto, engine.PermissionPlan:
+		args = append(args, flagPermissionMode, p.Mode.String())
+	}
+	args = append(args, postureArgs(p, mcpServers)...)
+	doc, err := settingsDocument(permissionsDoc{Allow: p.Allow, Deny: p.Deny, Ask: p.Ask})
+	if err != nil || doc == "" {
+		return args, err
+	}
+	return append(args, flagSettings, doc), nil
+}
+
+// isPlanFirst reports a plan posture that continues past an approved plan.
+func isPlanFirst(p engine.PermissionPolicy) bool {
+	_, ok := p.AfterPlan.Get()
+	return p.Mode == engine.PermissionPlan && ok
+}
+
+// permissionsDoc is the permissions member of a claude settings document.
+type permissionsDoc struct {
+	DefaultMode string   `json:"defaultMode,omitempty"`
+	Allow       []string `json:"allow,omitempty"`
+	Deny        []string `json:"deny,omitempty"`
+	Ask         []string `json:"ask,omitempty"`
+}
+
+// settingsDocument renders a settings document carrying only permissions,
+// as the inline JSON --settings takes; "" when there is nothing to say.
+func settingsDocument(p permissionsDoc) (string, error) {
+	if p.DefaultMode == "" && len(p.Allow)+len(p.Deny)+len(p.Ask) == 0 {
+		return "", nil
+	}
+	b, err := json.Marshal(map[string]permissionsDoc{"permissions": p})
+	return string(b), err
+}
+
+// turnSettings is one headless turn's --settings: the turn's mode (never
+// bypass, which stays on the argv), the declared rules, and the grants
+// ctxloom holds for the run — plus, on a plan-first session's plan turn,
+// the MCP grant plan needs (see postureArgs). A declared deny or ask still
+// wins over a grant: claude evaluates deny, then ask, then allow.
+func turnSettings(p engine.PermissionPolicy, mcpServers []string, t engine.TurnPosture) (string, error) {
+	doc := permissionsDoc{Deny: p.Deny, Ask: p.Ask}
+	if t.Mode != engine.PermissionNotRequested && t.Mode != engine.PermissionBypass {
+		doc.DefaultMode = t.Mode.String()
+	}
+	doc.Allow = append(slices.Clone(p.Allow), t.Grants...)
+	if t.Mode == engine.PermissionPlan && isPlanFirst(p) {
+		doc.Allow = append(doc.Allow, agent.QualifyMCPServers(mcpServers)...)
+	}
+	return settingsDocument(doc)
 }
 
 // buildArgs is the request's argv: Instance.Exec's, and nothing composed

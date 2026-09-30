@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"gopkg.in/yaml.v3"
@@ -22,12 +23,11 @@ type LLMConfig struct {
 	// is authored data, persisted like any other field, and never affects
 	// runtime label resolution.
 	Role string `mapstructure:"role" yaml:"role,omitempty"`
-	// Permissions is this backend's launch-time permission posture
-	// (engine.PermissionModeNames). Empty defers to the resolver's built-in
-	// default (claude-code → bypass, others → default). An agent binding and the
-	// `run --permissions` flag override it.
-	Permissions string         `mapstructure:"permissions" yaml:"permissions,omitempty"`
-	Body        map[string]any `mapstructure:",remain" yaml:",inline"`
+	// Permissions is this label's permission posture and rules; each field
+	// it leaves empty defers to the project's, then the engine's built-in
+	// default. An agent binding and the `run --permissions` flag override it.
+	Permissions agents.Permissions `mapstructure:"permissions" yaml:"permissions,omitempty"`
+	Body        map[string]any     `mapstructure:",remain" yaml:",inline"`
 }
 
 // RoleDefaults maps a role to the config label that plays it. Roles select

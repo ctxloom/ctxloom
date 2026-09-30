@@ -77,6 +77,9 @@ func (stub) Hooks() engine.HookCodec                { return nil }
 func (stub) Wake() engine.Declared[engine.WakeSpec] {
 	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
 }
+func (stub) Approvals() engine.Declared[engine.ApprovalCodec] {
+	return engine.Absent[engine.ApprovalCodec]("a test double approves nothing")
+}
 
 func stubEngine(name engine.Name, dist engine.Distribution) engine.Engine {
 	return stub{engine.Base{Definition: engine.Definition{Name: name, Distribution: dist}}}

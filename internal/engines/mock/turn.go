@@ -46,7 +46,7 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 	if err := d.fireTurnHooks(ctx, ex, hooks, in.Prompt); err != nil {
 		return engine.TurnResult{}, err
 	}
-	if err := recordTurn(ex, in.Prompt); err != nil {
+	if err := recordTurn(ex, in.Prompt, in.Posture); err != nil {
 		return engine.TurnResult{}, err
 	}
 	if err := exitCodeErr(ex); err != nil {
@@ -76,7 +76,7 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 		}
 	}
 	answer := mockAnswer(ex, in.Prompt)
-	if err := sendTurnEvents(send, in.Prompt, answer); err != nil {
+	if err := sendTurnEvents(send, in.Prompt, answer, in.Posture); err != nil {
 		return engine.TurnResult{}, err
 	}
 	return engine.TurnResult{NativeKey: sessionKey, Answer: answer}, nil
@@ -123,10 +123,10 @@ func mockAnswer(ex engine.Exec, prompt string) string {
 	return answer
 }
 
-// sendTurnEvents relays the turn: the resumable session, a TOOLS turn's
-// entries, the answer, and the completion.
-func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string) error {
-	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true}}); err != nil {
+// sendTurnEvents relays the turn: the resumable session at the turn's
+// mode, a TOOLS turn's entries, the answer, and the completion.
+func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string, posture engine.TurnPosture) error {
+	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: postureMode(posture)}}); err != nil {
 		return err
 	}
 	if strings.Contains(prompt, "TOOLS") {
@@ -172,12 +172,12 @@ func toolsTurn(text string) []agent.ChatEvent {
 // left on disk, read back off the FILES — the context file the exec's argv
 // names, the deny list its sibling settings file carries, the skills its
 // sibling skills dir holds — never a Setup of the mock's own.
-func recordTurn(ex engine.Exec, prompt string) error {
+func recordTurn(ex engine.Exec, prompt string, posture engine.TurnPosture) error {
 	file := Env(ex.Env, EnvRecordFile)
 	if file == "" {
 		return nil
 	}
-	rec := Record{Mode: 1, WorkDir: ex.WorkDir, Env: ex.Env, Prompt: prompt}
+	rec := Record{Mode: 1, WorkDir: ex.WorkDir, Env: ex.Env, Prompt: prompt, Posture: &posture}
 	if contextFile := argOf(ex, contextFlag); contextFile != "" {
 		if body, err := os.ReadFile(contextFile); err == nil {
 			rec.Context = string(body)
@@ -187,6 +187,15 @@ func recordTurn(ex engine.Exec, prompt string) error {
 		rec.Skills = deliveredSkills(filepath.Join(root, skillsRel))
 	}
 	return WriteRecord(file, rec)
+}
+
+// postureMode is the mode a turn's posture asks for, as the session
+// reports it; "" when it asks for none.
+func postureMode(p engine.TurnPosture) string {
+	if p.Mode == engine.PermissionNotRequested {
+		return ""
+	}
+	return p.Mode.String()
 }
 
 // argOf reads the value following flag on the exec's argv; "" when absent.

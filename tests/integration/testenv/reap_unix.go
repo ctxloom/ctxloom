@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/ctxloom/ctxloom/internal/shared/procpin"
 )
 
 // PluginChildrenOf snapshots the live direct children of ppid that look like
@@ -50,30 +52,14 @@ func PluginChildrenOf(ppid int) []int {
 	return pids
 }
 
-// procPPID reads a process's parent pid from /proc/<pid>/stat (field 4;
-// proc(5)). Mirrors isolation's procStatInt — the comm field can itself contain parens, so fields after it are located
-// from the LAST ')'.
+// procPPID reads a process's parent pid through procpin.ReadStat; an
+// unreadable stat (the process exited, or no /proc) is -1, never a match.
 func procPPID(pid int) int {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	st, err := procpin.ReadStat(pid)
 	if err != nil {
 		return -1
 	}
-	i := strings.LastIndexByte(string(data), ')')
-	if i < 0 || i+2 >= len(data) {
-		return -1
-	}
-	// After the comm field, this 0-based slice is: state[0] ppid[1] pgrp[2]
-	// session[3] — index 0 is the state CHAR ("S", "R", ...), not ppid; ppid
-	// is index 1. (isolation's procStatInt reads session at its index, statSession.)
-	fields := strings.Fields(string(data[i+2:]))
-	if len(fields) < 2 {
-		return -1
-	}
-	ppid, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return -1
-	}
-	return ppid
+	return st.PPID
 }
 
 // looksLikeLLMServe reports whether pid's argv is a "... llm serve <label>"

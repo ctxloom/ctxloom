@@ -26,6 +26,8 @@ func TestValidateAt_RefusesWhatTheFileDoorRefuses(t *testing.T) {
 		{"agent permissions typo", []string{"agents", "reviewer", "permissions"}, "plann"},
 		{"project permissions typo", []string{"permissions"}, "plann"},
 		{"llm label permissions typo", []string{"llm", "configs", "big", "permissions"}, "plann"},
+		{"agent sandbox enum typo", []string{"agents", "reviewer", "permissions", "sandbox"}, "wide-open"},
+		{"project approver enum typo", []string{"permissions", "approver"}, "boss"},
 		{"a string key handed a list by the comma coercion", []string{"llm", "configs", "big", "model"}, []any{"opus", "sonnet"}},
 		{"a string key handed an int by the numeric coercion", []string{"llm", "configs", "big", "model"}, 5},
 		{"an integer key handed a bool by the 0/1 coercion", []string{"delegation", "concurrency"}, true},
@@ -50,7 +52,7 @@ func TestValidateAt_AcceptsLegitimateValues(t *testing.T) {
 		path  []string
 		value any
 	}{
-		{"a legal enum member", []string{"agents", "reviewer", "permissions"}, "plan"},
+		{"a legal enum member", []string{"agents", "reviewer", "permissions", "sandbox"}, "workspace-write"},
 		{"a legal string", []string{"llm", "configs", "big", "model"}, "opus"},
 		{"a legal integer", []string{"delegation", "concurrency"}, 4},
 		{"a legal list", []string{"agents", "reviewer", "profiles"}, []any{"default"}},

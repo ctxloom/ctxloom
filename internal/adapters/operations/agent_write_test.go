@@ -288,7 +288,7 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("planner")
 	require.True(t, ok)
-	assert.Equal(t, "plan", sub.Permissions)
+	assert.Equal(t, "plan", sub.Permissions.Mode)
 
 	// Unknown value: stored verbatim, never an error.
 	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "odd", Profiles: ptr([]string{"default"}), Permissions: ptr("wildwest")})
@@ -297,7 +297,7 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok = final.Agent("odd")
 	require.True(t, ok)
-	assert.Equal(t, "wildwest", sub.Permissions, "stored as written")
+	assert.Equal(t, "wildwest", sub.Permissions.Mode, "stored as written")
 }
 
 // TestSetAgent_PersistsDriving proves the driving axis written by
@@ -446,7 +446,7 @@ agents:
 			assert.Equal(t, "claude-code", got.LLM)
 			assert.Equal(t, []string{"x", "y"}, got.Profiles)
 			assert.Equal(t, "container-rootless", got.Runtime)
-			assert.Equal(t, "bypass", got.Permissions)
+			assert.Equal(t, "bypass", got.Permissions.Mode)
 			assert.Equal(t, agents.DrivingOneshot, got.Driving)
 			assert.Equal(t, string(agents.HomeModeSession), got.HomeMode)
 		})

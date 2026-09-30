@@ -32,7 +32,7 @@ func TestSetLLM_CreatesAndPersists(t *testing.T) {
 	assert.Equal(t, "big", entry.Label)
 	assert.Equal(t, "mock", entry.Type)
 	assert.Equal(t, "o1", entry.Model)
-	assert.Equal(t, "bypass", entry.Permissions)
+	assert.Equal(t, "bypass", entry.Permissions.Mode)
 
 	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestSetLLM_EditOnlyChangesNamedFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "mock", entry.Type, "an unnamed field must survive an edit that names a different one")
 	assert.Equal(t, "o1", entry.Model)
-	assert.Equal(t, "plan", entry.Permissions)
+	assert.Equal(t, "plan", entry.Permissions.Mode)
 }
 
 // TestRemoveLLM_DeletesAndPersists proves the removal round-trips.

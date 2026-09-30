@@ -150,7 +150,7 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotNil(t, stub.gotLaunch)
-	assert.Equal(t, agent.PermissionBypass, stub.gotLaunch.Permission,
+	assert.Equal(t, agent.PermissionBypass, stub.gotLaunch.Permission.Mode,
 		"the ping must carry an explicit bypass posture on the launch, not rely on the label's configured (or unset) permissions")
 }
 

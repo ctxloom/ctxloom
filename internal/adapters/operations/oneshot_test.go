@@ -226,6 +226,6 @@ func TestOneShot_InternalSourceDeclaresItsOwnPosture(t *testing.T) {
 	})
 	o, err := testOneShot(t, cfg, opPipe(cfg, loader), &stubEngine{out: "ok"}, InternalSource("plain", "", ""))
 	require.NoError(t, err, "an internal one-shot on a label declaring no posture must still launch")
-	assert.Equal(t, engine.PermissionPlan, o.Launch.Permission,
+	assert.Equal(t, engine.PermissionPlan, o.Launch.Permission.Mode,
 		"an internal one-shot only reads and answers; its payload may carry a transcript, so it never runs at bypass")
 }

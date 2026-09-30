@@ -57,7 +57,7 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	assert.Equal(t, "container-rootless", got.Runtime, "the named field must change")
 	assert.Equal(t, "claude-code", got.LLM, "engine must survive an unrelated set")
 	assert.Equal(t, []string{"go-developer"}, got.Profiles, "profiles must survive an unrelated set")
-	assert.Equal(t, "acceptEdits", got.Permissions, "permissions must survive an unrelated set")
+	assert.Equal(t, "acceptEdits", got.Permissions.Mode, "permissions must survive an unrelated set")
 }
 
 // TestSetAgent_ExplicitEmptyClears proves "unset" and "clear" stay

@@ -321,10 +321,10 @@ func TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent(t *testing.T) {
 		require.True(t, ok)
 		return a
 	}
-	assert.Equal(t, "plan", seed(t, "plan").Permissions)
-	assert.Equal(t, "bypass", seed(t, "bypass").Permissions)
-	assert.Equal(t, "acceptEdits", seed(t, "accept-edits").Permissions)
-	assert.Equal(t, "dontAsk", seed(t, "dontask").Permissions)
+	assert.Equal(t, "plan", seed(t, "plan").Permissions.Mode)
+	assert.Equal(t, "bypass", seed(t, "bypass").Permissions.Mode)
+	assert.Equal(t, "acceptEdits", seed(t, "accept-edits").Permissions.Mode)
+	assert.Equal(t, "dontAsk", seed(t, "dontask").Permissions.Mode)
 	assert.Empty(t, seed(t, "").Permissions, "no answer declares nothing")
 
 	_, err := BuildInitialConfig("mock", "", "yolo")

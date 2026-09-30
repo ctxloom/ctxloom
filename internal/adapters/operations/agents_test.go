@@ -121,7 +121,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	assert.Contains(t, res.Context, "FRAG-TWO")
 	assert.Equal(t, "slow", res.Label)
 	assert.Equal(t, launch.RuntimeRootless, res.Runtime, "the default agent's runtime rides the bare launch")
-	assert.Equal(t, "plan", res.Permissions, "the default agent's permissions ride the bare launch")
+	assert.Equal(t, "plan", res.Permissions.Mode, "the default agent's permissions ride the bare launch")
 }
 
 // TestResolveAgent_MissingDefaultAgentDegrades pins the fault-tolerant half: a

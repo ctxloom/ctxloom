@@ -429,7 +429,7 @@ darwin/arm64 and no more. Each claim below is sourced or marked.
   stores nothing and never uses the Keychain.
 - **`cloud`.** The provider's variables from the human's shell; nothing
   stored.
-- **Refused: a container agent declaring `login`.** The Keychain cannot be
+- **Refused: a macOS container agent declaring `login`.** The Keychain cannot be
   mounted into a container. claude's darwin build declares its login store
   with no place under `$HOME` (`loginStoreHomeRel` is `""`), and the
   container environment refuses any store it cannot place

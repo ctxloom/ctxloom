@@ -178,7 +178,6 @@ func TestAuthSelection_WriteAndRunRefuseAlike(t *testing.T) {
 		{"any mode on an engine with no auth", "mock", "token", engine.ErrEngineHasNoAuth},
 		{"cloud with nothing selected", "claude-code", "cloud", engine.ErrNoCredential},
 		{"api-key with no key", "claude-code", "api-key", engine.ErrNoCredential},
-		{"token with no token", "claude-code", "token", engine.ErrNoCredential},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
@@ -195,6 +194,19 @@ func TestAuthSelection_WriteAndRunRefuseAlike(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A token binding is recorded with no token exported — it is read where a
+// run is launched, not where the config is edited — and the run is refused.
+func TestAuthSelection_ATokenIsCheckedAtRunNotAtWrite(t *testing.T) {
+	fakeHostHome(t, "")
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name: "a", LLM: ptr("claude-code"), Profiles: ptr([]string{"x"}), Auth: ptr("token"),
+	})
+	require.NoError(t, err, "write")
+	_, err = resolveRunAuth(engines.Registry(), runAuth{Backend: "claude-code", Declared: "token"})
+	require.ErrorIs(t, err, engine.ErrNoCredential, "run")
 }
 
 // remedyOf is the remedy err carries, failing when it carries none.

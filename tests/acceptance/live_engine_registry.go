@@ -35,8 +35,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
@@ -74,11 +72,11 @@ type liveAgent struct {
 	// tests prove context DELIVERY, not model quality, and a bigger model
 	// proves nothing extra while costing real money on every run.
 	config string
-	// mapCreds returns the env-var-to-real-directory pointers that make this
-	// engine authenticate from inside an otherwise-isolated run by setting
-	// env vars on the child (claude: its stored setup-token). It NEVER
+	// mapCreds returns the env vars that make this engine authenticate from
+	// inside an otherwise-isolated run by setting them on the child. It NEVER
 	// writes, copies, moves or chmods a credential file, and errors loudly
-	// when the real credential material is absent.
+	// when the real credential material is absent (claude: it has none to
+	// map — its token is exported or the run is refused).
 	mapCreds func(realHome string) ([]credentialMapping, error)
 	// copyCreds is the LEGACY copy path. It copies just the auth files from
 	// the real HOME into the isolated one, and errors when it copied zero
@@ -336,23 +334,13 @@ type credentialMapping struct {
 	Value  string
 }
 
-// mapClaudeCredentials hands a live claude the developer's STORED setup-token
-// (what `ctxloom auth mint --mode token` wrote under the real HOME) as
-// CLAUDE_CODE_OAUTH_TOKEN. Every ctxloom-launched claude authenticates from
-// that one token; it never refreshes, so the run can share it with the
-// developer's own sessions without consuming anything. It FAILS LOUD when no
-// token is stored, naming the file and the fix. It only reads.
-func mapClaudeCredentials(realHome string) ([]credentialMapping, error) {
-	p := filepath.Join(realHome, paths.AppDirName, paths.HomeAuthDirName, paths.EngineCredentialFileName(claude.EngineName, string(engine.AuthToken)))
-	raw, err := os.ReadFile(p)
-	if err != nil {
-		return nil, fmt.Errorf("map claude credentials: no stored setup-token at %s (run `ctxloom auth mint --mode token`): %w", p, err)
-	}
-	tok := strings.TrimSpace(string(raw))
-	if tok == "" {
-		return nil, fmt.Errorf("map claude credentials: the stored setup-token at %s is empty", p)
-	}
-	return []credentialMapping{{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Value: tok}}, nil
+// mapClaudeCredentials is reached only when neither CLAUDE_CODE_OAUTH_TOKEN
+// nor ANTHROPIC_API_KEY is exported (seedLiveCredentials takes the env path
+// first), and there is nothing else to map: ctxloom stores no claude
+// credential, and copying the developer's login is what the copy path's
+// policy forbids. So it FAILS LOUD, naming the fix. It reads nothing.
+func mapClaudeCredentials(string) ([]credentialMapping, error) {
+	return nil, fmt.Errorf("map claude credentials: %s is not exported — mint a token with `claude setup-token` and export it (ctxloom stores none)", claude.OAuthTokenEnv)
 }
 
 // seedLiveCredentials is THE single door every @live scenario gate goes

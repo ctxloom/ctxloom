@@ -81,7 +81,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
@@ -751,18 +750,18 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return w.env.WriteHomeFile(rel, body+"\n")
 	})
 
-	// The per-engine form of "Alice can authenticate": she has stored a
-	// setup-token the way the docs tell her to (`ctxloom auth mint` or
-	// `ctxloom auth set --mode token` writes this file). Her own shell's token var is emptied so the stored
-	// one is what the run gets: an exported token wins over the store.
+	// The per-engine form of "Alice can authenticate": she has minted a
+	// setup-token herself (`claude setup-token`) and exported it the way the
+	// docs tell her to. ctxloom reads it from the environment it is launched
+	// in; it stores none.
 	ctx.Step(`^Alice has whatever credentials "([^"]*)" needs to authenticate$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		return isoStoreSetupToken(w, engine)
+		return isoExportSetupToken(w, engine)
 	})
 
-	ctx.Step(`^Alice has stored a "([^"]*)" setup-token$`, func(c context.Context, engine string) error {
+	ctx.Step(`^Alice has exported a "([^"]*)" setup-token$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		return isoStoreSetupToken(w, engine)
+		return isoExportSetupToken(w, engine)
 	})
 
 	ctx.Step(`^Alice has no "([^"]*)" credentials or API key on the host$`, func(c context.Context, engine string) error {
@@ -1299,7 +1298,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The setup-token is blanked on the host even when one is stored: claude
+	// The setup-token is blanked on the host even when one is exported: claude
 	// reads it ahead of any credential, so it would shadow the shared login.
 	ctx.Step(`^the spy "([^"]*)" process was handed no setup-token$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
@@ -1410,25 +1409,13 @@ func isoCheckInstanceClaudeConfig(got, workDir string) error {
 	return nil
 }
 
-// isoStoreSetupToken stores the fixture setup-token for engine where
-// `ctxloom auth mint` would (paths.HomeEngineCredentialPath, mode token),
-// owner-only file in an owner-only directory, and empties engine's token var
-// so the stored token is the one the run gets.
-func isoStoreSetupToken(w *World, eng string) error {
+// isoExportSetupToken exports the fixture setup-token in engine's token var
+// for the run, as the human does after minting one.
+func isoExportSetupToken(w *World, eng string) error {
 	vars, err := isoAuthEnvVars(eng)
 	if err != nil {
 		return err
 	}
-	rel := filepath.Join(paths.AppDirName, paths.HomeAuthDirName, paths.EngineCredentialFileName(eng, string(engine.AuthToken)))
-	if err := w.env.WriteHomeFile(rel, isoFixtureSetupToken); err != nil {
-		return err
-	}
-	if err := os.Chmod(filepath.Dir(filepath.Join(w.env.HomeDir, rel)), 0o700); err != nil {
-		return err
-	}
-	if err := os.Chmod(filepath.Join(w.env.HomeDir, rel), 0o600); err != nil {
-		return err
-	}
-	w.env.SetEnv(vars[0], "")
+	w.env.SetEnv(vars[0], isoFixtureSetupToken)
 	return nil
 }

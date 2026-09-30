@@ -59,7 +59,7 @@ func engineDeclaredEnv(t *testing.T, e engine.Engine) []string {
 			out = append(out, name)
 			return "", false
 		}
-		creds, err := a.Credentials(mode, shell, storedCredential{})
+		creds, err := a.Credentials(mode, shell)
 		if err != nil && !errors.Is(err, engine.ErrNoCredential) {
 			require.NoError(t, err, "mode %s", mode)
 		}
@@ -74,12 +74,4 @@ func engineDeclaredEnv(t *testing.T, e engine.Engine) []string {
 		}
 	}
 	return out
-}
-
-// storedCredential holds a credential for every mode, so Credentials takes
-// each mode's stored path and names the var it would set.
-type storedCredential struct{}
-
-func (storedCredential) Read(engine.AuthMode) ([]byte, error) {
-	return []byte("fixture-credential"), nil
 }

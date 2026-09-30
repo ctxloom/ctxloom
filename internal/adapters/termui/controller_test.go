@@ -390,19 +390,19 @@ func TestController_SetApprovalsRingsPerArrivalRateLimited(t *testing.T) {
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 	bells := func() int { return strings.Count(h.tty.String(), "\a") }
 
-	h.c.SetApprovals(1, true)
+	h.c.SetApprovals(1, clk.Now().Add(-65*time.Second), true)
 	assert.Equal(t, 1, bells(), "an arrival rings")
-	assert.Contains(t, h.tty.String(), "⚠1", "the bar carries the count")
+	assert.Contains(t, h.tty.String(), "⚑ 1 · oldest 01:05", "the bar carries the count and the oldest age, on the controller's clock")
 
-	h.c.SetApprovals(2, true)
+	h.c.SetApprovals(2, clk.Now(), true)
 	assert.Equal(t, 1, bells(), "a second arrival inside the interval is folded into the first bell")
 
 	clk.Advance(approvalBellInterval)
-	h.c.SetApprovals(3, true)
+	h.c.SetApprovals(3, clk.Now(), true)
 	assert.Equal(t, 2, bells(), "an arrival after the interval rings again — even at a nonzero count")
 
 	clk.Advance(approvalBellInterval)
-	h.c.SetApprovals(2, false)
+	h.c.SetApprovals(2, clk.Now(), false)
 	assert.Equal(t, 2, bells(), "a resolution is not an arrival")
 }
 
@@ -417,10 +417,10 @@ func TestController_SuppressedBellDoesNotSpendTheInterval(t *testing.T) {
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
 	h.c.sur.Suspend()
-	h.c.SetApprovals(1, true)
+	h.c.SetApprovals(1, clk.Now(), true)
 	assert.NotContains(t, h.tty.String(), "\a", "no bell while the bar is suspended")
 	_ = h.c.sur.ResumeSequence()
-	h.c.SetApprovals(2, true)
+	h.c.SetApprovals(2, clk.Now(), true)
 	assert.Contains(t, h.tty.String(), "\a")
 }
 

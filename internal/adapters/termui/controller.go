@@ -211,6 +211,7 @@ func New(opts Options) *Controller {
 		done: make(chan struct{}), rosterDone: make(chan struct{}),
 	}
 	c.sur = newSurround(&c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
+	c.sur.now = c.clock.Now
 	// The guard runs inside the gate under the shared tty lock; its callbacks
 	// are the surround's *Locked accessors (same mutex, no re-entry).
 	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
@@ -609,15 +610,16 @@ func (c *Controller) rosterFetch() {
 // rings once, not once per request.
 const approvalBellInterval = 10 * time.Second
 
-// SetApprovals sets the bar's count of approvals waiting on the human. An
-// arrival rings the bell — at most once per approvalBellInterval, and only
-// while the bar is showing (a modal on screen is its own signal).
-func (c *Controller) SetApprovals(n int, arrived bool) {
+// SetApprovals sets the bar's count of approvals waiting on the human and
+// when the one waiting longest arrived (zero: unknown), whose age the bar
+// shows. An arrival rings the bell — at most once per approvalBellInterval,
+// and only while the bar is showing (a modal on screen is its own signal).
+func (c *Controller) SetApprovals(n int, oldest time.Time, arrived bool) {
 	c.bellMu.Lock()
 	defer c.bellMu.Unlock()
 	now := c.clock.Now()
 	ring := arrived && (c.lastBell.IsZero() || now.Sub(c.lastBell) >= approvalBellInterval)
-	if c.sur.SetApprovals(n, ring) {
+	if c.sur.SetApprovals(n, oldest, ring) {
 		c.lastBell = now
 	}
 }

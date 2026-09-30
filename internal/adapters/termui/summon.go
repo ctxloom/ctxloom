@@ -7,23 +7,20 @@ import (
 	"time"
 )
 
-// summonNotice is what an already-engaged overlay is told when Summon cannot
-// take the screen from it.
-var summonNotice = Notice{Text: "⚑ approval waiting"}
-
 // Summon presents a summoned (code-opened) overlay: full screen, inert while
 // arming. It returns nil once the overlay has the screen, ctx's error when
 // ctx ends first, ErrUIUnavailable when the layer is degraded or closed (or
 // closes while waiting), and ErrOverlayEngaged — after telling that overlay
-// (Notify) — when one is already up: focus never moves from an overlay the
-// human is using.
+// notice (Notify) — when one is already up: focus never moves from an
+// overlay the human is using. The notice is the caller's because only the
+// caller knows who is asking.
 //
 // It takes the screen only when stdin has been quiet for Present.QuietFor,
 // at an input boundary (not mid-sequence, not inside a paste), with no
 // teardown in flight. There is no deadline that forces it: a human typing
 // without pause keeps the terminal, and the request is signalled by the bar
 // and bell instead.
-func (c *Controller) Summon(ctx context.Context, start OverlayStart) error {
+func (c *Controller) Summon(ctx context.Context, start OverlayStart, notice Notice) error {
 	start.Summoned = true
 	for {
 		if c.unavailable() {
@@ -31,7 +28,7 @@ func (c *Controller) Summon(ctx context.Context, start OverlayStart) error {
 		}
 		changed := c.changed.wait()
 		if e := c.engaged(); e != nil {
-			e.ov.Notify(summonNotice)
+			e.ov.Notify(notice)
 			return ErrOverlayEngaged
 		}
 		shown, retry, err := c.trySummon(start)

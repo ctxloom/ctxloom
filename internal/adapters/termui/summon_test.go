@@ -44,10 +44,13 @@ func (h *summonHarness) typeToEngine(t *testing.T, s string) {
 	waitFor(t, "engine received "+s, func() bool { return h.engine.String() == want })
 }
 
+// testNotice is what the tests' Summon asks an engaged overlay to show.
+var testNotice = Notice{Text: "approval from wiry-otter"}
+
 // summon runs Summon on its own goroutine; the result arrives on the channel.
 func (h *summonHarness) summon(ctx context.Context) <-chan error {
 	done := make(chan error, 1)
-	go func() { done <- h.c.Summon(ctx, OverlayStart{View: "approvals"}) }()
+	go func() { done <- h.c.Summon(ctx, OverlayStart{View: "approvals"}, testNotice) }()
 	return done
 }
 
@@ -249,7 +252,7 @@ func TestSummon_NeverTakesTheScreenFromAnOverlay(t *testing.T) {
 	require.ErrorIs(t, err, ErrOverlayEngaged)
 	select {
 	case n := <-h.overlay.notices:
-		assert.Equal(t, summonNotice, n)
+		assert.Equal(t, testNotice, n, "the engaged overlay is told what the caller said — the asking harp")
 	default:
 		t.Fatal("the engaged overlay was not told")
 	}

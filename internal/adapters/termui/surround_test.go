@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -198,19 +199,29 @@ func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 }
 
 func TestRosterDigest_Empty(t *testing.T) {
-	assert.Equal(t, "no agents", rosterDigest([]RosterEntry{}, 0))
+	assert.Equal(t, "no agents", rosterDigest([]RosterEntry{}, ""))
 }
 
-// TestRosterDigest_ShowsApprovalWarningWhenPending pins the "⚠N " prefix:
-// present (and leading) when approvals > 0, absent when 0 — including on an
-// otherwise-empty roster, where the digest still owes the human a warning.
-func TestRosterDigest_ShowsApprovalWarningWhenPending(t *testing.T) {
-	assert.Equal(t, "no agents", rosterDigest(nil, 0), "no warning prefix when nothing is pending")
-	assert.Equal(t, "⚠2 no agents", rosterDigest(nil, 2), "the warning leads even an empty roster")
+// TestApprovalsDigest pins the bar's approvals element: "⚑ N · oldest mm:ss"
+// while anything is pending (the age of the request waiting longest), nothing
+// at zero, and no age when none was given.
+func TestApprovalsDigest(t *testing.T) {
+	assert.Equal(t, "", approvalsDigest(0, 0, true), "nothing pending, nothing shown")
+	assert.Equal(t, "⚑ 2 · oldest 03:12", approvalsDigest(2, 192*time.Second, true))
+	assert.Equal(t, "⚑ 1 · oldest 00:00", approvalsDigest(1, -time.Second, true), "a clock step backwards never shows a negative age")
+	assert.Equal(t, "⚑ 1 · oldest 61:05", approvalsDigest(1, 61*time.Minute+5*time.Second, true), "minutes keep counting past the hour")
+	assert.Equal(t, "⚑ 3", approvalsDigest(3, 0, false), "no arrival known, no age")
+}
 
+// TestRosterDigest_ApprovalsLead pins that the approvals element leads the
+// digest — even on an otherwise-empty roster, where the digest still owes the
+// human the signal — and is absent when nothing is pending.
+func TestRosterDigest_ApprovalsLead(t *testing.T) {
+	assert.Equal(t, "no agents", rosterDigest(nil, ""), "no approvals element when nothing is pending")
+	assert.Equal(t, "⚑ 2 · oldest 00:07 │ no agents", rosterDigest(nil, "⚑ 2 · oldest 00:07"))
 	withRoster := []RosterEntry{{Harp: "kid", State: "executing"}}
-	assert.NotContains(t, rosterDigest(withRoster, 0), "⚠")
-	assert.True(t, strings.HasPrefix(rosterDigest(withRoster, 3), "⚠3 "), "the warning is the LEADING element")
+	assert.NotContains(t, rosterDigest(withRoster, ""), "⚑")
+	assert.True(t, strings.HasPrefix(rosterDigest(withRoster, "⚑ 3"), "⚑ 3 │ "), "the approvals element is the LEADING one")
 }
 
 // TestSurround_ApprovalsBellRingsOnlyWhenAskedAndVisible pins that the bar
@@ -222,32 +233,40 @@ func TestSurround_ApprovalsBellRingsOnlyWhenAskedAndVisible(t *testing.T) {
 	s.SetSize(24, 80)
 	tty.Reset()
 
-	assert.True(t, s.SetApprovals(2, true))
+	assert.True(t, s.SetApprovals(2, time.Time{}, true))
 	assert.Equal(t, 1, strings.Count(tty.String(), "\a"), "asked to ring, it rings once")
 
 	tty.Reset()
-	assert.False(t, s.SetApprovals(2, false))
+	assert.False(t, s.SetApprovals(2, time.Time{}, false))
 	assert.NotContains(t, tty.String(), "\a")
 
 	s.Suspend()
 	tty.Reset()
-	assert.False(t, s.SetApprovals(3, true), "a suspended bar does not ring, and says so")
+	assert.False(t, s.SetApprovals(3, time.Time{}, true), "a suspended bar does not ring, and says so")
 	assert.NotContains(t, tty.String(), "\a")
 }
 
-// TestSurround_ApprovalsPaintsWarningPrefix confirms the count actually
-// reaches the painted bar row, not just rosterDigest in isolation.
-func TestSurround_ApprovalsPaintsWarningPrefix(t *testing.T) {
+// TestSurround_ApprovalsPaintsCountAndOldestAge confirms the count and the
+// oldest request's age actually reach the painted bar row, measured on the
+// bar's own clock at paint time.
+func TestSurround_ApprovalsPaintsCountAndOldestAge(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
 	s.lastEngineWrite = func() int64 { return 0 } // engine idle forever
 	s.SetSize(24, 80)
 	tty.Reset()
 
-	s.SetApprovals(2, false)
-	assert.Contains(t, tty.String(), "⚠2 ", "the painted bar carries the approval warning")
+	s.SetApprovals(2, now.Add(-75*time.Second), false)
+	assert.Contains(t, tty.String(), "⚑ 2 · oldest 01:15", "the painted bar carries the count and the oldest age")
 
 	tty.Reset()
-	s.SetApprovals(0, false)
-	assert.NotContains(t, tty.String(), "⚠", "clearing to zero clears the warning from the bar")
+	now = now.Add(time.Second)
+	s.RequestPaint()
+	assert.Contains(t, tty.String(), "⚑ 2 · oldest 01:16", "a repaint re-measures the age")
+
+	tty.Reset()
+	s.SetApprovals(0, time.Time{}, false)
+	assert.NotContains(t, tty.String(), "⚑", "clearing to zero clears the element from the bar")
 }

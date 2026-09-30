@@ -85,6 +85,7 @@ type summonCall struct {
 type presenterUIFake struct {
 	mu      sync.Mutex
 	bars    []barCall
+	notes   []string
 	summons chan summonCall
 }
 
@@ -98,6 +99,11 @@ func (f *presenterUIFake) ui() presenterUI {
 			f.summons <- summonCall{start: start, notice: n, ctx: ctx}
 			<-ctx.Done()
 			return ctx.Err()
+		},
+		noteBar: func(text string, d time.Duration) {
+			f.mu.Lock()
+			f.notes = append(f.notes, text)
+			f.mu.Unlock()
 		},
 		setApprovals: func(n int, oldest time.Time, arrived bool) {
 			f.mu.Lock()
@@ -114,6 +120,12 @@ func (f *presenterUIFake) lastBar() barCall {
 		return barCall{n: -1}
 	}
 	return f.bars[len(f.bars)-1]
+}
+
+func (f *presenterUIFake) noteList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.notes...)
 }
 
 func (f *presenterUIFake) barCount() int {
@@ -222,6 +234,19 @@ func TestPresenter_NothingPendingWithdrawsTheSummon(t *testing.T) {
 	r.ui.noSummon(t)
 }
 
+// TestPresenter_ATimedOutRequestLeavesABarNote: nobody decided it, so the
+// bar says so once the modal is gone; a withdrawn or decided request does not.
+func TestPresenter_ATimedOutRequestLeavesABarNote(t *testing.T) {
+	src := newPresenterSource(pending("a", "wiry-otter", t0, t0.Add(9*time.Minute)), pending("b", "calm-heron", t0, t0.Add(9*time.Minute)), pending("c", "kind-otter", t0, t0.Add(9*time.Minute)))
+	r := startPresenter(t, src)
+	r.ui.nextSummon(t)
+	src.resolve("a", agent.DeciderHuman)
+	src.resolve("b", agent.DeciderCancelled)
+	src.resolve("c", agent.DeciderTimeout)
+	require.Eventually(t, func() bool { return len(r.ui.noteList()) > 0 }, 5*time.Second, time.Millisecond)
+	assert.Equal(t, []string{"approval resolved (timed out)"}, r.ui.noteList())
+}
+
 // TestPresenter_TheBarsAgeKeepsCounting: while anything is pending the bar
 // is refreshed every second, with no bell.
 func TestPresenter_TheBarsAgeKeepsCounting(t *testing.T) {
@@ -306,7 +331,8 @@ func (l *lockedTTY) String() string {
 
 // TestModalPresenter_SummonsTheModalOnTheRealController joins the presenter
 // to a real terminal layer: an arrival puts "⚑ 1 · oldest" on the bar and
-// the approvals modal on the screen, summoned.
+// the approvals modal on the screen, summoned; its timing out leaves the
+// note on the bar.
 func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 	clk := fakeclock.New()
 	starts := make(chan termui.OverlayStart, 4)
@@ -353,4 +379,7 @@ func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "⚑ 1 · oldest 00:05") }, 5*time.Second, time.Millisecond)
 	modal.Abort()
+	src.resolve("a", agent.DeciderTimeout)
+	require.Eventually(t, func() bool { return strings.Contains(tty.String(), "approval resolved (timed out)") }, 5*time.Second, time.Millisecond,
+		"nobody decided it: the bar says so; tail %q", func() string { t := tty.String(); return t[max(len(t)-600, 0):] }())
 }

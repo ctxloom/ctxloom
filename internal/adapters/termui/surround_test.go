@@ -175,6 +175,27 @@ func TestSurround_RosterRepaintWhenIdle(t *testing.T) {
 		"digest counts by state and names the latest transition")
 }
 
+// TestSurround_ADeferredPaintIsNotLostWhenTheEngineGoesIdle: a repaint
+// deferred because the engine had just written still reaches the bar when
+// the engine writes nothing more — the gate's flush only comes with the next
+// engine write, and an idle engine may never make one. (The gate's release
+// after an overlay counts as a write, so a bar change right after an overlay
+// closed was lost this way.)
+func TestSurround_ADeferredPaintIsNotLostWhenTheEngineGoesIdle(t *testing.T) {
+	tty := &lockedBuffer{}
+	var mu sync.Mutex
+	s := newSurround(&mu, tty, true, BarInfo{Harp: "h"})
+	wrote := nowNanos()
+	s.lastEngineWrite = func() int64 { return wrote } // just wrote, then never again
+	s.SetSize(24, 80)
+	before := len(tty.String())
+	s.SetApprovals(0, time.Time{}, false)
+	s.SetNote("approval resolved (timed out)")
+	waitFor(t, "the deferred paint", func() bool {
+		return strings.Contains(tty.String()[before:], "approval resolved (timed out)")
+	})
+}
+
 func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 	var tty bytes.Buffer
 	s := newTestSurround(&tty, BarInfo{Harp: "h"})
@@ -184,6 +205,7 @@ func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 	defer func() { nowNanos = restore }()
 
 	s.lastEngineWrite = func() int64 { return now - 1 } // engine wrote 1ns ago: busy
+	s.engineBusyWindow = time.Hour                      // keep the idle-flush timer out of this test
 	s.SetSize(24, 80)
 	tty.Reset()
 

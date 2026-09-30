@@ -162,6 +162,12 @@ type Controller struct {
 	bellMu   sync.Mutex
 	lastBell time.Time
 
+	// noteMu guards the bar note's lifetime: noteGen names the note on the
+	// bar, so a replaced note's timer cannot clear its replacement.
+	noteMu   sync.Mutex
+	noteGen  uint64
+	noteStop func() bool
+
 	uiOff  atomic.Bool
 	closed atomic.Bool
 	done   chan struct{} // closed by Close
@@ -604,6 +610,27 @@ func (c *Controller) rosterFetch() {
 	}
 	c.rosterFails = 0
 	c.sur.SetRoster(roster)
+}
+
+// NoteBar shows text on the bar for d, measured on the controller's clock; a
+// later note replaces it. A note is a statement after the fact ("approval
+// resolved (timed out)"), never a request for attention: it does not ring.
+func (c *Controller) NoteBar(text string, d time.Duration) {
+	c.noteMu.Lock()
+	defer c.noteMu.Unlock()
+	if c.noteStop != nil {
+		c.noteStop()
+	}
+	c.noteGen++
+	gen := c.noteGen
+	c.sur.SetNote(text)
+	c.noteStop = c.clock.AfterFunc(d, func() {
+		c.noteMu.Lock()
+		defer c.noteMu.Unlock()
+		if c.noteGen == gen {
+			c.sur.SetNote("")
+		}
+	})
 }
 
 // approvalBellInterval rate-limits the arrival bell: a burst of requests

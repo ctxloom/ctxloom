@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
@@ -20,7 +21,7 @@ type modalPresenter struct {
 
 // Present runs until ctx ends. It implements coord.ApprovalPresenter.
 func (p modalPresenter) Present(ctx context.Context, src coord.ApprovalSource) error {
-	return presentApprovals(ctx, src, presenterUI{summon: p.ui.Summon, setApprovals: p.ui.SetApprovals}, p.clock)
+	return presentApprovals(ctx, src, presenterUI{summon: p.ui.Summon, setApprovals: p.ui.SetApprovals, noteBar: p.ui.NoteBar}, p.clock)
 }
 
 var _ coord.ApprovalPresenter = modalPresenter{}
@@ -29,6 +30,7 @@ var _ coord.ApprovalPresenter = modalPresenter{}
 type presenterUI struct {
 	summon       func(ctx context.Context, start termui.OverlayStart, n termui.Notice) error
 	setApprovals func(n int, oldest time.Time, arrived bool)
+	noteBar      func(text string, d time.Duration)
 }
 
 const (
@@ -37,6 +39,12 @@ const (
 	// warnBefore is when a request still waiting gets one more summon and
 	// one more bell.
 	warnBefore = 2 * time.Minute
+	// timedOutNote is what the bar says after a request nobody decided.
+	timedOutNote = "approval resolved (timed out)"
+	// timedOutNoteFor outlasts the tombstone the modal shows first (the
+	// modal closes only after it), so the note is still there when the bar
+	// comes back.
+	timedOutNoteFor = 15 * time.Second
 )
 
 // presentApprovals is the presenter's policy:
@@ -45,7 +53,8 @@ const (
 //     replacing a summon still waiting for the human's typing pause;
 //   - a hidden modal comes back only for a new request, or once per request
 //     at warnBefore left (with one more bell);
-//   - nothing pending withdraws a waiting summon.
+//   - nothing pending withdraws a waiting summon;
+//   - a request that timed out leaves a note on the bar: nobody decided it.
 func presentApprovals(ctx context.Context, src coord.ApprovalSource, ui presenterUI, clock termui.Clock) error {
 	events := src.Subscribe(ctx)
 	p := &presenter{src: src, ui: ui, clock: clock, warned: map[coord.ApprovalID]bool{}}
@@ -108,6 +117,9 @@ func (p *presenter) onEvent(ctx context.Context, ev coord.QueueEvent) {
 			}
 		}
 	case coord.QueueResolved:
+		if ev.Decider == agent.DeciderTimeout {
+			p.ui.noteBar(timedOutNote, timedOutNoteFor)
+		}
 		if len(p.bar(false)) == 0 {
 			p.stopSummon()
 		}

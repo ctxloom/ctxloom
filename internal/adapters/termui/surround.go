@@ -65,6 +65,8 @@ type surround struct {
 	// this window is deferred to the gate's afterWrite flush.
 	engineBusyWindow time.Duration
 	lastEngineWrite  func() int64 // gate.LastWriteNanos; nil = always paint
+	// idleFlushArmed: a deferred repaint has its timer armed (flushWhenIdle).
+	idleFlushArmed atomic.Bool
 
 	// paintSafe reports whether the tty byte stream currently ends at a
 	// boundary a bar paint may follow (the gate guard's SafeForPaint). A
@@ -85,6 +87,8 @@ type surround struct {
 	approvals    int
 	oldest       time.Time
 	hasApprovals bool
+	// note is a transient line the bar leads with (Controller.NoteBar).
+	note string
 	// now measures the oldest request's age at paint time; the controller's
 	// clock.
 	now   func() time.Time
@@ -252,12 +256,31 @@ func (s *surround) RequestPaint() {
 	if s.lastEngineWrite != nil {
 		if since := nowNanos() - s.lastEngineWrite(); since < int64(s.engineBusyWindow) {
 			s.dirty.Store(true)
+			s.flushWhenIdle(time.Duration(int64(s.engineBusyWindow) - since))
 			return
 		}
 	}
 	s.mu.Lock()
 	s.paintLocked()
 	s.mu.Unlock()
+}
+
+// flushWhenIdle repaints a deferred bar once the engine's busy window has
+// passed. The gate's afterWrite flush comes only with the engine's next
+// write, and an idle engine may never make one — the gate's own release after
+// an overlay counts as a write, so without this a bar change just after an
+// overlay closed stayed off the screen. One timer at a time; if the engine
+// is busy again when it fires, RequestPaint defers (and re-arms) as before.
+func (s *surround) flushWhenIdle(d time.Duration) {
+	if !s.idleFlushArmed.CompareAndSwap(false, true) {
+		return
+	}
+	time.AfterFunc(d, func() {
+		s.idleFlushArmed.Store(false)
+		if s.dirty.CompareAndSwap(true, false) {
+			s.RequestPaint()
+		}
+	})
 }
 
 // FlushLocked is the gate's afterWrite hook: repaint a dirty bar between
@@ -354,10 +377,25 @@ func (s *surround) appendBarBody(b []byte) []byte {
 }
 
 func (s *surround) rosterDigestLocked() string {
-	if !s.hasRoster && !s.hasApprovals {
-		return ""
+	digest := ""
+	if s.hasRoster || s.hasApprovals {
+		digest = rosterDigest(s.roster, approvalsDigest(s.approvals, s.now().Sub(s.oldest), !s.oldest.IsZero()))
 	}
-	return rosterDigest(s.roster, approvalsDigest(s.approvals, s.now().Sub(s.oldest), !s.oldest.IsZero()))
+	switch {
+	case s.note == "":
+		return digest
+	case digest == "":
+		return s.note
+	}
+	return s.note + " │ " + digest
+}
+
+// SetNote sets (or, with "", clears) the bar's note and requests a repaint.
+func (s *surround) SetNote(text string) {
+	s.mu.Lock()
+	s.note = text
+	s.mu.Unlock()
+	s.RequestPaint()
 }
 
 // appendBarContent renders ` harp · agent · engine/model │ digest │ hint `

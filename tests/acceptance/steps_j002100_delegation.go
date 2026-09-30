@@ -567,9 +567,8 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 	})
 
 	// --- FAILURE PATH: the mail `kind` vocabulary as a security boundary.
-	// `kind` is not a label — approval_request reads to a recipient as a
-	// trust decision on a child's behalf, so a sender able to set
-	// it phishes that decision. The vocabulary is closed at the one ingress
+	// `kind` is not a label — user_injected reads to a recipient as the
+	// human speaking, so a sender able to set it borrows that authority. The vocabulary is closed at the one ingress
 	// every sender funnels through, which is why the refusal below is the
 	// same refusal a delegated child gets.
 	ctx.Step(`^the agent sends "([^"]*)"'s remembered session a message of kind "([^"]*)"$`,

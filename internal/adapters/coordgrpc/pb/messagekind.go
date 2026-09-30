@@ -9,10 +9,10 @@ package agentcoord
 //
 // Why this is not a call-site check. `structured["kind"]` used to be a free
 // string, so every producer and every consumer had to agree on the vocabulary
-// by convention — and one of them didn't: a child could send
-// kind="approval_request" and the coordinator's delivery framing interpolated
-// it verbatim, minting what read to the receiving model as a genuine approval
-// prompt. Making it an enum moves rejection to DECODE and rendering to a NAME
+// by convention — and one of them didn't: a child could send a
+// coordinator-reserved kind and the coordinator's delivery framing
+// interpolated it verbatim, minting what read to the receiving model as a
+// genuine coordinator notice. Making it an enum moves rejection to DECODE and rendering to a NAME
 // from a closed set. What remains is the reserved/sender-allowed split, and it
 // belongs here, next to the enum, so a new value cannot be added without
 // landing in one of the two lists below.
@@ -70,7 +70,7 @@ func (k MessageKind) recognised() bool {
 
 // LegacyKindName is one enum value's spelling in the mailbox's string
 // vocabulary: the enum name with its MESSAGE_KIND_ prefix stripped and
-// lowercased. MESSAGE_KIND_APPROVAL_REQUEST -> "approval_request".
+// lowercased. MESSAGE_KIND_USER_INJECTED -> "user_injected".
 //
 // The enum is the SINGLE vocabulary; the mailbox, the spool frontmatter and
 // the journal spell its members as these strings, and coord (which imports

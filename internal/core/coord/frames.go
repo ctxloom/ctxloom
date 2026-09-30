@@ -76,11 +76,18 @@ type InterruptRun struct {
 	RunID string
 }
 
+// SetGrants replaces the run's session grants, from its next turn.
+type SetGrants struct {
+	RunID string
+	Rules []string
+}
+
 func (StartRun) runnerRequestKind()     {}
 func (PauseRun) runnerRequestKind()     {}
 func (ResumeRun) runnerRequestKind()    {}
 func (TurnRequest) runnerRequestKind()  {}
 func (InterruptRun) runnerRequestKind() {}
+func (SetGrants) runnerRequestKind()    {}
 
 // StopRun is ALSO the runner request that ends one run: interrupt its turn in
 // flight, wait up to Grace for it to end, then close the run.
@@ -186,11 +193,12 @@ type StopRun struct {
 	Grace  time.Duration
 }
 
-func (SpawnRequest) agentRequestKind()   {}
-func (RosterRequest) agentRequestKind()  {}
-func (StopRun) agentRequestKind()        {}
-func (ControlRequest) agentRequestKind() {}
-func (HostRequest) agentRequestKind()    {}
+func (SpawnRequest) agentRequestKind()    {}
+func (RosterRequest) agentRequestKind()   {}
+func (StopRun) agentRequestKind()         {}
+func (ControlRequest) agentRequestKind()  {}
+func (HostRequest) agentRequestKind()     {}
+func (ApprovalRequest) agentRequestKind() {}
 
 // ErrNotAChild refuses a stop naming a run that is not the caller's child.
 var ErrNotAChild = errors.New("agent_stop: the run is not a child of this session")
@@ -238,11 +246,12 @@ type AgentReply struct {
 // AgentResult is the sealed set of plane-2 answers.
 type AgentResult interface{ agentResult() }
 
-func (SpawnResult) agentResult()   {}
-func (RunsSnapshot) agentResult()  {}
-func (StopResult) agentResult()    {}
-func (ControlResult) agentResult() {}
-func (HostResult) agentResult()    {}
+func (SpawnResult) agentResult()      {}
+func (RunsSnapshot) agentResult()     {}
+func (StopResult) agentResult()       {}
+func (ControlResult) agentResult()    {}
+func (HostResult) agentResult()       {}
+func (ApprovalDecision) agentResult() {}
 
 // OutFrame is one frame the coordinator pushes down a run channel: exactly
 // one of the three is set. Acks are cumulative, replies are correlated, and
@@ -309,27 +318,4 @@ var ControlInitiatorKinds = []ControlInitiatorKind{InitiatorUnspecified, Initiat
 // posture toward a value a newer build may spell.
 func ParseControlInitiatorKind(name string) (ControlInitiatorKind, bool) {
 	return parseMember(ControlInitiatorKinds, InitiatorUnspecified, name)
-}
-
-// ApprovalKind classifies a pending approval.
-type ApprovalKind string
-
-const (
-	ApprovalUnspecified          ApprovalKind = "APPROVAL_KIND_UNSPECIFIED"
-	ApprovalCommandExecution     ApprovalKind = "APPROVAL_KIND_COMMAND_EXECUTION"
-	ApprovalFileChange           ApprovalKind = "APPROVAL_KIND_FILE_CHANGE"
-	ApprovalToolUse              ApprovalKind = "APPROVAL_KIND_TOOL_USE"
-	ApprovalPermissionEscalation ApprovalKind = "APPROVAL_KIND_PERMISSION_ESCALATION"
-	ApprovalArtifactReview       ApprovalKind = "APPROVAL_KIND_ARTIFACT_REVIEW"
-	ApprovalCustom               ApprovalKind = "APPROVAL_KIND_CUSTOM"
-)
-
-// ApprovalKinds is every member, in wire order.
-var ApprovalKinds = []ApprovalKind{ApprovalUnspecified, ApprovalCommandExecution, ApprovalFileChange, ApprovalToolUse, ApprovalPermissionEscalation, ApprovalArtifactReview, ApprovalCustom}
-
-// ParseApprovalKind resolves a member by its wire name. An unknown name is the
-// vocabulary's unspecified member and ok is false — the receiving side's
-// posture toward a value a newer build may spell.
-func ParseApprovalKind(name string) (ApprovalKind, bool) {
-	return parseMember(ApprovalKinds, ApprovalUnspecified, name)
 }

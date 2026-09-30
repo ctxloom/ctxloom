@@ -480,7 +480,6 @@ type Message struct {
 	// JSON here so the mailbox fold stays proto-free;
 	// the gRPC/MCP edges convert to/from structpb.Struct.
 	Structured json.RawMessage `json:"structured,omitempty"`
-	// InReplyTo correlates this message to an earlier one's ID (e.g. an
-	// approval_request's relay and the parent's ApprovalDecision reply).
+	// InReplyTo correlates this message to an earlier one's ID.
 	InReplyTo string `json:"in_reply_to,omitempty"`
 }

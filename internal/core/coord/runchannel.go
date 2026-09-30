@@ -452,10 +452,10 @@ type reqKey struct {
 // reconnect. reply==nil means the dispatch is still running: a reissue that
 // finds it must NOT start a second dispatch — the running one answers on
 // whichever channel is current when it completes (respondRole). This is the
-// trust-critical case: an approval relay parks for minutes waiting on a
-// human, and a reconnect in that window must not mint a second relay +
-// ladder walk that races the first (a human ACCEPT then answered on the dead
-// channel while the live channel bottoms out at DECLINE).
+// trust-critical case: an approval request parks for minutes waiting on the
+// human, and a reconnect in that window must not park a second request that
+// races the first (the human's allow answered on the dead channel while the
+// live one times out to a deny).
 type inflightReq struct {
 	reply *AgentReply
 }
@@ -465,7 +465,7 @@ type inflightReq struct {
 // it survives a reconnect: a completed request re-delivers its SAME reply on
 // the current channel; an in-flight one is NOT re-dispatched — the original
 // dispatch answers on whichever channel is live when it finishes. Handlers run
-// on their own goroutine — a spawn (or a human-facing approval relay) can take
+// on their own goroutine — a spawn (or an approval request waiting on the human) can take
 // seconds to minutes and must not block the stream's recv loop.
 func (c *Coordinator) HandleRequest(ch *RunChannel, req AgentRequest) {
 	reqID := req.RequestID
@@ -564,7 +564,7 @@ func (c *Coordinator) respond(ch *RunChannel, reply AgentReply) {
 
 // respondRole queues a reply on the role's CURRENT live channel — the
 // reconnect-safe sibling of respond. A dispatch that outlived the channel it
-// arrived on (an approval relay that waited minutes for a human, across a
+// arrived on (an approval request that waited minutes for the human, across a
 // reconnect) must answer on whatever channel is live NOW, never the dead one it
 // started on. No live channel: drop it — the runner reissues on its next
 // reconnect and reqTrack re-delivers the cached reply then.
@@ -579,7 +579,7 @@ func (c *Coordinator) respondRole(role string, reply AgentReply) {
 }
 
 // clearReqTrack drops a role's plane-2 idempotency records at the terminal
-// seam (terminateRun) — alongside the ACCEPT_FOR_SESSION cache. A resumed harp
+// seam (terminateRun). A resumed harp
 // gets a fresh run and re-dispatches cleanly; the records must not accumulate
 // across the process's lifetime.
 func (c *Coordinator) clearReqTrack(role string) {

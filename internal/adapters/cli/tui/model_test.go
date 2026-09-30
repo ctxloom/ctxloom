@@ -13,22 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
-
-// answerCall records one AnswerApproval invocation, for asserting the exact
-// (messageID, harp, decision, note) a key drove.
-type answerCall struct {
-	messageID string
-	harp      string
-	decision  agentcoordpb.ApprovalDecision_Decision
-	note      string
-}
 
 // fakeSources records watches/cancels/control requests and lets tests push
 // feed events and script the control outcome.
@@ -45,10 +35,6 @@ type fakeSources struct {
 	controlled []coord.ControlRequest // every Control call, in order
 	controlOut coord.ControlResult    // scripted result; a steer with no Delivery reports DeliveryQueued
 	controlErr error
-
-	approvals []coord.PendingApproval // scripted PendingApprovals() return
-	answered  []answerCall            // AnswerApproval calls, in order
-	answerErr error                   // scripted AnswerApproval error
 }
 
 func newFakeSources(dir string, rows ...RosterRow) *fakeSources {
@@ -97,18 +83,6 @@ func (f *fakeSources) sources() Sources {
 				out.Delivery = coord.DeliveryQueued
 			}
 			return out, nil
-		},
-		PendingApprovals: func() []coord.PendingApproval {
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			return append([]coord.PendingApproval(nil), f.approvals...)
-		},
-		AnswerApproval: func(messageID, harp string, decision agentcoordpb.ApprovalDecision_Decision, note string) error {
-			f.mu.Lock()
-			f.answered = append(f.answered, answerCall{messageID: messageID, harp: harp, decision: decision, note: note})
-			err := f.answerErr
-			f.mu.Unlock()
-			return err
 		},
 	}
 }

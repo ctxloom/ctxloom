@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
@@ -26,17 +25,6 @@ type Sources struct {
 	Control func(ctx context.Context, req coord.ControlRequest) (coord.ControlResult, error)
 	// Now is the export-filename clock; nil means time.Now.
 	Now func() time.Time
-	// PendingApprovals lists approvals parked for this human's decision
-	// (coord.Coordinator.PendingApprovals). Nil disables the approvals
-	// surface entirely (the "a" key hints unavailable rather than opening).
-	PendingApprovals func() []coord.PendingApproval
-	// AnswerApproval resolves one parked approval. decision is one of
-	// DECISION_ACCEPT, DECISION_ACCEPT_FOR_SESSION, DECISION_DECLINE. note
-	// travels to the child (may be empty). messageID+childHarp are latched
-	// at the keypress that triggers the answer, exactly like Inject latches
-	// its target harp.
-	AnswerApproval func(messageID, childHarp string,
-		decision agentcoordpb.ApprovalDecision_Decision, note string) error
 }
 
 func (s Sources) now() time.Time {

@@ -552,6 +552,8 @@ func RunnerRequestToWire(req coord.RunnerRequest, encodeLaunch func(coord.StartR
 		out.Kind = &agentcoordpb.RunnerRequest_InterruptRun{InterruptRun: &agentcoordpb.InterruptRun{RunId: k.RunID}}
 	case coord.StopRun:
 		out.Kind = &agentcoordpb.RunnerRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: k.RunID, Reason: k.Reason, Grace: durationToWire(k.Grace)}}
+	case coord.SetGrants:
+		out.Kind = &agentcoordpb.RunnerRequest_SetGrants{SetGrants: &agentcoordpb.SetGrants{RunId: k.RunID, Rules: k.Rules}}
 	}
 	return out
 }
@@ -623,6 +625,12 @@ func AgentRequestFromWire(req *agentcoordpb.AgentRequest) (coord.AgentRequest, e
 			return out, err
 		}
 		out.Kind = hr
+	case *agentcoordpb.AgentRequest_Approval:
+		ar, err := ApprovalRequestFromWire(k.Approval)
+		if err != nil {
+			return out, err
+		}
+		out.Kind = ar
 	case *agentcoordpb.AgentRequest_PeerSend:
 		return out, coord.ErrPeerSendIsLocal
 	default:
@@ -765,6 +773,13 @@ func AgentReplyToWire(r coord.AgentReply) *agentcoordpb.CoordinatorResponse {
 			return out
 		}
 		out.Kind = &agentcoordpb.CoordinatorResponse_Host{Host: &agentcoordpb.HostResult{Body: body}}
+	case coord.ApprovalDecision:
+		d, err := ApprovalDecisionToWire(res)
+		if err != nil {
+			out.Status = StatusErr(codes.Internal, err.Error())
+			return out
+		}
+		out.Kind = &agentcoordpb.CoordinatorResponse_Approval{Approval: d}
 	}
 	return out
 }
@@ -866,16 +881,6 @@ func ControlInitiatorKindFromWire(k agentcoordpb.ControlInitiatorKind) coord.Con
 // ControlInitiatorKindToWire encodes an initiator kind.
 func ControlInitiatorKindToWire(k coord.ControlInitiatorKind) agentcoordpb.ControlInitiatorKind {
 	return agentcoordpb.ControlInitiatorKind(agentcoordpb.ControlInitiatorKind_value[string(k)])
-}
-
-// ApprovalKindFromWire decodes an approval kind.
-func ApprovalKindFromWire(k agentcoordpb.ApprovalRequest_ApprovalKind) coord.ApprovalKind {
-	return parsed(coord.ParseApprovalKind(k.String()))
-}
-
-// ApprovalKindToWire encodes an approval kind.
-func ApprovalKindToWire(k coord.ApprovalKind) agentcoordpb.ApprovalRequest_ApprovalKind {
-	return agentcoordpb.ApprovalRequest_ApprovalKind(agentcoordpb.ApprovalRequest_ApprovalKind_value[string(k)])
 }
 
 // --- mail --------------------------------------------------------------------------------

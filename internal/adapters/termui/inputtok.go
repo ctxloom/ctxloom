@@ -57,9 +57,11 @@ func (t *inputTok) atBoundary(quiet bool) bool {
 }
 
 // track advances the boundary state over bytes that go straight to the
-// engine. The common read — plain typing at ground — costs one IndexByte.
+// engine. The common read — plain typing, or the body of a paste — costs one
+// IndexByte: with nothing carried and no ESC, no sequence can start and no
+// paste can end.
 func (t *inputTok) track(p []byte) {
-	if len(t.pend) == 0 && !t.inPaste && bytes.IndexByte(p, ansi.ESC) < 0 &&
+	if len(t.pend) == 0 && bytes.IndexByte(p, ansi.ESC) < 0 &&
 		(len(p) == 0 || p[len(p)-1] < utf8.RuneSelf) {
 		return
 	}

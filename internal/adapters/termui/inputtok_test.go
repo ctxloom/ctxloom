@@ -147,7 +147,7 @@ func TestInputTok_TrackFastPath(t *testing.T) {
 	assert.True(t, tk.atBoundary(false))
 	tk.track([]byte("\x1b[200~"))
 	tk.track([]byte("paste with no escape in this read"))
-	assert.False(t, tk.atBoundary(true), "the fast path must not skip a paste in progress")
+	assert.False(t, tk.atBoundary(true), "a paste in progress stays in progress across a read with no escape")
 	tk.track([]byte("\x1b[201~"))
 	assert.True(t, tk.atBoundary(false))
 }

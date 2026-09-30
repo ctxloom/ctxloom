@@ -131,7 +131,7 @@ func TestValidateLocalClaudeTranscripts(t *testing.T) {
 
 type versionStats struct {
 	files, records, readErrors, convertErrors, malformed int
-	unknownLines, droppedBlocks                           map[string]int
+	unknownLines, droppedBlocks                          map[string]int
 	unclassifiedToolContent, toolUses, toolResults       int
 	unansweredUses, orphanResults, turns                 int
 }

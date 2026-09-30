@@ -123,14 +123,6 @@ var (
 	ErrNoSuchGrant      = errors.New("coord: no such grant")
 )
 
-const (
-	// DefaultApprovalTimeout is how long a request waits for the human when
-	// its agent declared no timeout. Expiry denies.
-	DefaultApprovalTimeout = 15 * time.Minute
-	// MaxApprovalTimeout caps any declared timeout: a hook holding the
-	// engine longer than this is unproven.
-	MaxApprovalTimeout = 60 * time.Minute
-)
 
 // ApprovalRequest is a run asking the root human to decide: the plane-2
 // request the coordinator parks in its queue and answers with the
@@ -234,9 +226,9 @@ func storeFold[F fold](s *Store) F {
 // request holds longer than the cap.
 func approvalTimeout(d time.Duration) time.Duration {
 	if d <= 0 {
-		return DefaultApprovalTimeout
+		return engine.DefaultApprovalTimeout
 	}
-	return min(d, MaxApprovalTimeout)
+	return min(d, engine.MaxApprovalTimeout)
 }
 
 // Park holds from's request until the human answers it, its timeout elapses

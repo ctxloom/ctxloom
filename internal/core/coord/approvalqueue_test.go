@@ -185,11 +185,11 @@ func TestApprovalQueue_TimeoutBounds(t *testing.T) {
 		in   time.Duration
 		want time.Duration
 	}{
-		{"unset-is-the-default", 0, DefaultApprovalTimeout},
-		{"negative-is-the-default", -time.Second, DefaultApprovalTimeout},
+		{"unset-is-the-default", 0, engine.DefaultApprovalTimeout},
+		{"negative-is-the-default", -time.Second, engine.DefaultApprovalTimeout},
 		{"within-the-cap-is-kept", 20 * time.Minute, 20 * time.Minute},
-		{"at-the-cap-is-kept", MaxApprovalTimeout, MaxApprovalTimeout},
-		{"over-the-cap-is-capped", 2 * time.Hour, MaxApprovalTimeout},
+		{"at-the-cap-is-kept", engine.MaxApprovalTimeout, engine.MaxApprovalTimeout},
+		{"over-the-cap-is-capped", 2 * time.Hour, engine.MaxApprovalTimeout},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -206,8 +206,6 @@ func TestApprovalQueue_TimeoutBounds(t *testing.T) {
 			})
 		})
 	}
-	assert.Equal(t, 15*time.Minute, DefaultApprovalTimeout)
-	assert.Equal(t, 60*time.Minute, MaxApprovalTimeout)
 }
 
 // TestApprovalQueue_CancelDenies: the asker's context ending (its run gone)

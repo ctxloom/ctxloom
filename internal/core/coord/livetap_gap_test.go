@@ -17,9 +17,9 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"

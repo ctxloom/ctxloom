@@ -317,14 +317,16 @@ func TestOverlayComposition_RealOverlayPanicDegradesPermanently(t *testing.T) {
 	resize := make(chan *agent.WindowSize, 4)
 	warns := make(chan string, 4)
 	c := termui.New(termui.Options{
-		Stdin:      slave,
-		TTY:        slave,
-		Resize:     resize,
-		Prefix:     compPrefix,
-		Surround:   true,
-		Bar:        termui.BarInfo{Harp: "h1"},
-		NewOverlay: func(start termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, panicSrc, compPrefix, start) },
-		Warn:       func(format string, args ...any) { warns <- fmt.Sprintf(format, args...) },
+		Stdin:    slave,
+		TTY:      slave,
+		Resize:   resize,
+		Prefix:   compPrefix,
+		Surround: true,
+		Bar:      termui.BarInfo{Harp: "h1"},
+		NewOverlay: func(start termui.OverlayStart) termui.Overlay {
+			return tui.NewOverlay(ctx, panicSrc, compPrefix, start)
+		},
+		Warn: func(format string, args ...any) { warns <- fmt.Sprintf(format, args...) },
 	})
 	defer c.Close()
 	engine := pumpEngineInput(c)

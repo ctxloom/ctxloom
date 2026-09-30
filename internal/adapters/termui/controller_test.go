@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -383,7 +384,7 @@ func TestController_CloseWhileEngagedFlushesHeldOutput(t *testing.T) {
 // silent), a burst rings once per approvalBellInterval, a count change that
 // is not an arrival never rings, and the bar carries the count.
 func TestController_SetApprovalsRingsPerArrivalRateLimited(t *testing.T) {
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
 	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
@@ -410,7 +411,7 @@ func TestController_SetApprovalsRingsPerArrivalRateLimited(t *testing.T) {
 // bar could not ring (suspended under an overlay) does not count against the
 // rate limit: the next arrival on a visible bar still rings.
 func TestController_SuppressedBellDoesNotSpendTheInterval(t *testing.T) {
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
 	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)

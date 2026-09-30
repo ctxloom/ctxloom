@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -101,7 +102,7 @@ func TestResizeTranslator_ZeroReserveIsIdentity(t *testing.T) {
 
 func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
 	src := make(chan *agent.WindowSize, 1)
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	rt := newResizeTranslator(src, 1, nil, clk)
 	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain the initial translated size
@@ -123,7 +124,7 @@ func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
 // size, and skips the repaint (claude's bottom input bar, in the live
 // incident). The restore must wait out nudgeWiggleSeparation on the clock.
 func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	src := make(chan *agent.WindowSize, 1)
 	rt := newResizeTranslator(src, 1, nil, clk)
 	src <- &agent.WindowSize{Rows: 24, Cols: 80}
@@ -144,7 +145,7 @@ func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
 // captured at Nudge-call time, which would leave the child pty sized to a
 // value the terminal no longer has until the next SIGWINCH.
 func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	src := make(chan *agent.WindowSize, 4)
 	rt := newResizeTranslator(src, 1, nil, clk)
 	src <- &agent.WindowSize{Rows: 24, Cols: 80}
@@ -169,7 +170,7 @@ func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
 // (eff.Rows==1) the post-overlay repaint never happened. Nudge must still
 // produce a genuine transition even here (wiggling upward instead).
 func TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight(t *testing.T) {
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	src := make(chan *agent.WindowSize, 1)
 	rt := newResizeTranslator(src, 5, nil, clk)
 	src <- &agent.WindowSize{Rows: 6, Cols: 80}

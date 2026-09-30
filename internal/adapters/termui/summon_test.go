@@ -11,17 +11,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 )
 
 // summonHarness is a controller on a fake clock with the real stdin pump.
 type summonHarness struct {
 	*ctlHarness
-	clk *fakeClock
+	clk *fakeclock.Clock
 }
 
 func newSummonHarness(t *testing.T, mutate func(*Options)) *summonHarness {
 	t.Helper()
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	h := newCtlHarness(t, func(o *Options) {
 		o.Clock = clk
 		if mutate != nil {

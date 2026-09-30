@@ -15,84 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 )
-
-// presenterClock is a termui.Clock the test advances by hand.
-type presenterClock struct {
-	mu     sync.Mutex
-	now    time.Time
-	timers []*presenterTimer
-}
-
-type presenterTimer struct {
-	at   time.Time
-	f    func()
-	done bool
-}
-
-func newPresenterClock() *presenterClock {
-	return &presenterClock{now: time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)}
-}
-
-func (c *presenterClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
-}
-
-func (c *presenterClock) AfterFunc(d time.Duration, f func()) func() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	t := &presenterTimer{at: c.now.Add(d), f: f}
-	c.timers = append(c.timers, t)
-	return func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		stopped := !t.done
-		t.done = true
-		return stopped
-	}
-}
-
-// armed counts the timers waiting to fire.
-func (c *presenterClock) armed() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	n := 0
-	for _, t := range c.timers {
-		if !t.done {
-			n++
-		}
-	}
-	return n
-}
-
-// advance moves time forward by d and fires what fell due, in order.
-func (c *presenterClock) advance(d time.Duration) {
-	c.mu.Lock()
-	end := c.now.Add(d)
-	c.mu.Unlock()
-	for {
-		c.mu.Lock()
-		sort.SliceStable(c.timers, func(i, j int) bool { return c.timers[i].at.Before(c.timers[j].at) })
-		var next *presenterTimer
-		for _, t := range c.timers {
-			if !t.done && !t.at.After(end) {
-				next = t
-				break
-			}
-		}
-		if next == nil {
-			c.now = end
-			c.mu.Unlock()
-			return
-		}
-		next.done = true
-		c.now = next.at
-		c.mu.Unlock()
-		next.f()
-	}
-}
 
 // presenterSource is a coord.ApprovalSource whose events the test sends.
 type presenterSource struct {
@@ -226,7 +150,7 @@ func pending(id, harp string, since, deadline time.Time) coord.PendingApproval {
 type presenterRun struct {
 	src *presenterSource
 	ui  *presenterUIFake
-	clk *presenterClock
+	clk *fakeclock.Clock
 	// finished closes when presentApprovals returns, with err its result.
 	finished chan struct{}
 	err      error
@@ -236,7 +160,7 @@ type presenterRun struct {
 func startPresenter(t *testing.T, src *presenterSource) *presenterRun {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &presenterRun{src: src, ui: newPresenterUIFake(), clk: newPresenterClock(), finished: make(chan struct{}), stop: cancel}
+	r := &presenterRun{src: src, ui: newPresenterUIFake(), clk: fakeclock.New(), finished: make(chan struct{}), stop: cancel}
 	go func() {
 		defer close(r.finished)
 		r.err = presentApprovals(ctx, src, r.ui.ui(), r.clk)
@@ -251,10 +175,10 @@ func startPresenter(t *testing.T, src *presenterSource) *presenterRun {
 // waitTick waits until the presenter has armed its tick.
 func (r *presenterRun) waitTick(t *testing.T) {
 	t.Helper()
-	require.Eventually(t, func() bool { return r.clk.armed() > 0 }, 5*time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return r.clk.Pending() > 0 }, 5*time.Second, time.Millisecond)
 }
 
-var t0 = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+var t0 = fakeclock.Epoch
 
 // TestPresenter_StartsWithTheBarAndTheModalForWhatIsAlreadyPending: a
 // presenter that starts over parked requests shows them at once — the bar's
@@ -306,7 +230,7 @@ func TestPresenter_TheBarsAgeKeepsCounting(t *testing.T) {
 	r.ui.nextSummon(t)
 	r.waitTick(t)
 	before := r.ui.barCount()
-	r.clk.advance(time.Second)
+	r.clk.Advance(time.Second)
 	require.Eventually(t, func() bool { return r.ui.barCount() > before }, 5*time.Second, time.Millisecond)
 	assert.Equal(t, barCall{n: 1, oldest: t0}, r.ui.lastBar())
 }
@@ -319,14 +243,14 @@ func TestPresenter_TheTwoMinuteWarningRingsAndSummonsOnce(t *testing.T) {
 	r.ui.nextSummon(t)
 	for i := 0; i < 2; i++ {
 		r.waitTick(t)
-		r.clk.advance(time.Second)
+		r.clk.Advance(time.Second)
 	}
 	warn := r.ui.nextSummon(t)
 	assert.Equal(t, termui.Notice{Text: "approval from wiry-otter"}, warn.notice)
 	require.Eventually(t, func() bool { return r.ui.lastBar().arrived }, 5*time.Second, time.Millisecond, "the warning rings")
 	for i := 0; i < 5; i++ {
 		r.waitTick(t)
-		r.clk.advance(time.Second)
+		r.clk.Advance(time.Second)
 	}
 	r.ui.noSummon(t)
 }
@@ -384,7 +308,7 @@ func (l *lockedTTY) String() string {
 // to a real terminal layer: an arrival puts "⚑ 1 · oldest" on the bar and
 // the approvals modal on the screen, summoned.
 func TestModalPresenter_SummonsTheModalOnTheRealController(t *testing.T) {
-	clk := newPresenterClock()
+	clk := fakeclock.New()
 	starts := make(chan termui.OverlayStart, 4)
 	modal := &fakeModal{quit: make(chan struct{})}
 	stdinR, stdinW := io.Pipe()

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -383,26 +384,26 @@ func TestController_CloseWhileEngagedFlushesHeldOutput(t *testing.T) {
 // silent), a burst rings once per approvalBellInterval, a count change that
 // is not an arrival never rings, and the bar carries the count.
 func TestController_SetApprovalsRingsPerArrivalRateLimited(t *testing.T) {
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
 	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 	bells := func() int { return strings.Count(h.tty.String(), "\a") }
 
-	h.c.SetApprovals(1, true)
+	h.c.SetApprovals(1, clk.Now().Add(-65*time.Second), true)
 	assert.Equal(t, 1, bells(), "an arrival rings")
-	assert.Contains(t, h.tty.String(), "⚠1", "the bar carries the count")
+	assert.Contains(t, h.tty.String(), "⚑ 1 · oldest 01:05", "the bar carries the count and the oldest age, on the controller's clock")
 
-	h.c.SetApprovals(2, true)
+	h.c.SetApprovals(2, clk.Now(), true)
 	assert.Equal(t, 1, bells(), "a second arrival inside the interval is folded into the first bell")
 
 	clk.Advance(approvalBellInterval)
-	h.c.SetApprovals(3, true)
+	h.c.SetApprovals(3, clk.Now(), true)
 	assert.Equal(t, 2, bells(), "an arrival after the interval rings again — even at a nonzero count")
 
 	clk.Advance(approvalBellInterval)
-	h.c.SetApprovals(2, false)
+	h.c.SetApprovals(2, clk.Now(), false)
 	assert.Equal(t, 2, bells(), "a resolution is not an arrival")
 }
 
@@ -410,17 +411,17 @@ func TestController_SetApprovalsRingsPerArrivalRateLimited(t *testing.T) {
 // bar could not ring (suspended under an overlay) does not count against the
 // rate limit: the next arrival on a visible bar still rings.
 func TestController_SuppressedBellDoesNotSpendTheInterval(t *testing.T) {
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	h := newCtlHarness(t, func(o *Options) { o.Clock = clk })
 	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
 	h.c.sur.Suspend()
-	h.c.SetApprovals(1, true)
+	h.c.SetApprovals(1, clk.Now(), true)
 	assert.NotContains(t, h.tty.String(), "\a", "no bell while the bar is suspended")
 	_ = h.c.sur.ResumeSequence()
-	h.c.SetApprovals(2, true)
+	h.c.SetApprovals(2, clk.Now(), true)
 	assert.Contains(t, h.tty.String(), "\a")
 }
 

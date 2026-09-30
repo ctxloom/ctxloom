@@ -67,7 +67,7 @@ func (m *paintedModal) factory() func(*termui.Options) {
 
 func summonModal(t *testing.T, c *termui.Controller, m *paintedModal) {
 	t.Helper()
-	require.NoError(t, c.Summon(context.Background(), termui.OverlayStart{View: "approvals"}))
+	require.NoError(t, c.Summon(context.Background(), termui.OverlayStart{View: "approvals"}, termui.Notice{Text: "approval from wiry-otter"}))
 	select {
 	case <-m.shown:
 	case <-time.After(5 * time.Second):

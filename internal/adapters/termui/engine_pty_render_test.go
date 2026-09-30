@@ -83,7 +83,7 @@ func newPTYEngineHarness(t *testing.T, label string, alt bool, opts ...func(*ter
 	o := termui.Options{
 		Stdin: slave, TTY: slave, Resize: resize, Prefix: compPrefix, Surround: true,
 		Bar:        termui.BarInfo{Harp: "self-session", Engine: "mock", PrefixHint: "^]"},
-		NewOverlay: func(termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix) },
+		NewOverlay: func(start termui.OverlayStart) termui.Overlay { return tui.NewOverlay(ctx, src, compPrefix, start) },
 	}
 	for _, f := range opts {
 		f(&o)

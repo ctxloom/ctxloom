@@ -19,13 +19,15 @@ type Overlay struct {
 	ctx    context.Context
 	src    Sources
 	prefix byte
+	start  termui.OverlayStart
 
 	mu      sync.Mutex
 	prog    progQuitter
 	aborted bool
-	// resized is a geometry that arrived before the program could take it;
-	// Run delivers it once the program exists.
-	resized *termui.OverlayGeometry
+	// early holds what arrived before the program could take it (a resize,
+	// the end of arming, a notice); Run delivers it, in order, once the
+	// program exists.
+	early []tea.Msg
 }
 
 // progQuitter is the running program's quit handle. *tea.Program satisfies it;
@@ -39,9 +41,10 @@ type progQuitter interface {
 }
 
 // NewOverlay builds one engagement's overlay. ctx bounds the feed watches
-// (the run's context, so an exiting run releases them).
-func NewOverlay(ctx context.Context, src Sources, prefix byte) *Overlay {
-	return &Overlay{ctx: ctx, src: src, prefix: prefix}
+// (the run's context, so an exiting run releases them). start is how termui
+// opened it: by the prefix, or summoned for an approval.
+func NewOverlay(ctx context.Context, src Sources, prefix byte, start termui.OverlayStart) *Overlay {
+	return &Overlay{ctx: ctx, src: src, prefix: prefix, start: start}
 }
 
 // Run drives the overlay to completion. input is the interceptor-routed
@@ -49,15 +52,23 @@ func NewOverlay(ctx context.Context, src Sources, prefix byte) *Overlay {
 // own raw-mode handling); tty is the raw terminal writer, on a screen the
 // controller has already taken over (termui's takeScreen). The quick panel
 // draws in the bottom PanelRows rows; prefix-then-f draws on the alt screen
-// (tea leaves it on quit), unless the engine is itself on it.
+// (tea leaves it on quit), unless the engine is itself on it. A summoned
+// overlay is the approvals modal: the whole drawable screen from its first
+// frame, on the screen termui took for it (its takeover leaves the cursor
+// home, so nothing is written before that frame — the frame is what starts
+// termui's arming).
 func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry) error {
 	watchCtx, cancel := context.WithCancel(o.ctx)
 	defer cancel()
 	m := NewModel(watchCtx, o.src, geo, o.prefix)
-	// Park the cursor at the panel's top-left: the standard renderer paints
-	// downward from where it starts, and the controller cleared/held
-	// everything beneath.
-	if _, err := io.WriteString(tty, "\x1b["+strconv.Itoa(geo.Rows-geo.PanelRows+1)+";1H"); err != nil {
+	height := geo.PanelRows
+	if o.start.Summoned {
+		m, _ = m.openApprovals(true)
+		height = geo.Rows
+	} else if _, err := io.WriteString(tty, "\x1b["+strconv.Itoa(geo.Rows-geo.PanelRows+1)+";1H"); err != nil {
+		// Park the cursor at the panel's top-left: the standard renderer
+		// paints downward from where it starts, and the controller
+		// cleared/held everything beneath.
 		return fmt.Errorf("position overlay: %w", err)
 	}
 	p := tea.NewProgram(m,
@@ -71,7 +82,8 @@ func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry
 		// renderer then believes it owns all Rows rows and erases to end of
 		// screen on every frame, wiping the engine's output above the panel —
 		// which is the composition this overlay exists inside.
-		tea.WithWindowSize(geo.Cols, geo.PanelRows),
+		// A summoned modal owns every drawable row, so it is sized to them.
+		tea.WithWindowSize(geo.Cols, height),
 	)
 	o.mu.Lock()
 	if o.aborted {
@@ -79,10 +91,15 @@ func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry
 		return nil
 	}
 	o.prog = p
-	pending := o.resized
+	early := o.early
+	o.early = nil
 	o.mu.Unlock()
-	if pending != nil {
-		go p.Send(geometryMsg(*pending))
+	if len(early) > 0 {
+		go func() {
+			for _, msg := range early {
+				p.Send(msg)
+			}
+		}()
 	}
 	_, err := p.Run()
 	o.mu.Lock()
@@ -114,20 +131,29 @@ func (o *Overlay) Abort() {
 // every resize while engaged). Send blocks until the event loop takes the
 // message, so it runs off the caller's goroutine — the resize translator's —
 // which must never wait on a viewer.
-func (o *Overlay) Resize(geo termui.OverlayGeometry) {
+func (o *Overlay) Resize(geo termui.OverlayGeometry) { o.deliver(geometryMsg(geo)) }
+
+// Armed ends a summoned modal's inert window: the model shows the modal as
+// live and how many keys the window discarded.
+func (o *Overlay) Armed(discarded int) { o.deliver(armedMsg(discarded)) }
+
+// Notify shows an approval that asked for the screen while this overlay held
+// it, as a banner; focus stays where the human has it.
+func (o *Overlay) Notify(n termui.Notice) { o.deliver(noticeMsg(n.Text)) }
+
+// deliver hands msg to the running program, or keeps it for Run when the
+// program does not exist yet. Send blocks until the event loop takes the
+// message, so it runs off the caller's goroutine — termui's, which must never
+// wait on a viewer.
+func (o *Overlay) deliver(msg tea.Msg) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.prog == nil {
-		o.resized = &geo
+		o.early = append(o.early, msg)
 		return
 	}
-	go o.prog.Send(geometryMsg(geo))
+	go o.prog.Send(msg)
 }
-
-// Armed and Notify are the summoned modal's: the roster/feed view is never
-// summoned, so it has no inert window to end and no banner to show.
-func (o *Overlay) Armed(int)            {}
-func (o *Overlay) Notify(termui.Notice) {}
 
 // onlcr is the writer bubbletea draws through: the output post-processing
 // bubbletea assumes and the terminal does not do, behind a type that hides

@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -190,7 +191,7 @@ func TestLiveTap_GapNoticeReachesTheOverlay(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ov := tui.NewOverlay(ctx, src, 0x1d)
+	ov := tui.NewOverlay(ctx, src, 0x1d, termui.OverlayStart{})
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	var tty syncBuf

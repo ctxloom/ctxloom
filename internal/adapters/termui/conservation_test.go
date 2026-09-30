@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -96,7 +97,7 @@ func ambiguousCut(stream string, toks []propToken, off int) bool {
 }
 
 func checkConservation(t *testing.T, iter int, stream string, toks []propToken, cuts []int, j, arm int) {
-	clk := newFakeClock()
+	clk := fakeclock.New()
 	ic := newInterceptor(nil, testPrefix, InterceptorCallbacks{}, clk.Now)
 	var engine, modal bytes.Buffer
 	switchAt, switched, armRead := -1, false, -1

@@ -162,6 +162,12 @@ type Controller struct {
 	bellMu   sync.Mutex
 	lastBell time.Time
 
+	// noteMu guards the bar note's lifetime: noteGen names the note on the
+	// bar, so a replaced note's timer cannot clear its replacement.
+	noteMu   sync.Mutex
+	noteGen  uint64
+	noteStop func() bool
+
 	uiOff  atomic.Bool
 	closed atomic.Bool
 	done   chan struct{} // closed by Close
@@ -211,6 +217,7 @@ func New(opts Options) *Controller {
 		done: make(chan struct{}), rosterDone: make(chan struct{}),
 	}
 	c.sur = newSurround(&c.ttyMu, opts.TTY, opts.Surround, opts.Bar)
+	c.sur.now = c.clock.Now
 	// The guard runs inside the gate under the shared tty lock; its callbacks
 	// are the surround's *Locked accessors (same mutex, no re-entry).
 	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
@@ -605,19 +612,41 @@ func (c *Controller) rosterFetch() {
 	c.sur.SetRoster(roster)
 }
 
+// NoteBar shows text on the bar for d, measured on the controller's clock; a
+// later note replaces it. A note is a statement after the fact ("approval
+// resolved (timed out)"), never a request for attention: it does not ring.
+func (c *Controller) NoteBar(text string, d time.Duration) {
+	c.noteMu.Lock()
+	defer c.noteMu.Unlock()
+	if c.noteStop != nil {
+		c.noteStop()
+	}
+	c.noteGen++
+	gen := c.noteGen
+	c.sur.SetNote(text)
+	c.noteStop = c.clock.AfterFunc(d, func() {
+		c.noteMu.Lock()
+		defer c.noteMu.Unlock()
+		if c.noteGen == gen {
+			c.sur.SetNote("")
+		}
+	})
+}
+
 // approvalBellInterval rate-limits the arrival bell: a burst of requests
 // rings once, not once per request.
 const approvalBellInterval = 10 * time.Second
 
-// SetApprovals sets the bar's count of approvals waiting on the human. An
-// arrival rings the bell — at most once per approvalBellInterval, and only
-// while the bar is showing (a modal on screen is its own signal).
-func (c *Controller) SetApprovals(n int, arrived bool) {
+// SetApprovals sets the bar's count of approvals waiting on the human and
+// when the one waiting longest arrived (zero: unknown), whose age the bar
+// shows. An arrival rings the bell — at most once per approvalBellInterval,
+// and only while the bar is showing (a modal on screen is its own signal).
+func (c *Controller) SetApprovals(n int, oldest time.Time, arrived bool) {
 	c.bellMu.Lock()
 	defer c.bellMu.Unlock()
 	now := c.clock.Now()
 	ring := arrived && (c.lastBell.IsZero() || now.Sub(c.lastBell) >= approvalBellInterval)
-	if c.sur.SetApprovals(n, ring) {
+	if c.sur.SetApprovals(n, oldest, ring) {
 		c.lastBell = now
 	}
 }

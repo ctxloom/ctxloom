@@ -353,7 +353,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 		},
 	}
 
-	ov := tui.NewOverlay(ctx, src, 0x1d)
+	ov := tui.NewOverlay(ctx, src, 0x1d, termui.OverlayStart{})
 	pr, pw := io.Pipe()
 	defer pw.Close()
 	var tty syncBuf

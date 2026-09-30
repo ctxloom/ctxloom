@@ -65,6 +65,8 @@ type surround struct {
 	// this window is deferred to the gate's afterWrite flush.
 	engineBusyWindow time.Duration
 	lastEngineWrite  func() int64 // gate.LastWriteNanos; nil = always paint
+	// idleFlushArmed: a deferred repaint has its timer armed (flushWhenIdle).
+	idleFlushArmed atomic.Bool
 
 	// paintSafe reports whether the tty byte stream currently ends at a
 	// boundary a bar paint may follow (the gate guard's SafeForPaint). A
@@ -79,12 +81,19 @@ type surround struct {
 	roster     []RosterEntry
 	hasRoster  bool
 	// approvals is the count of approvals parked for the human
-	// (Controller.SetApprovals). Tracked separately from roster so the digest
-	// shows it whether or not SetRoster has ever been called.
+	// (Controller.SetApprovals), and oldest when the longest-waiting one
+	// arrived. Tracked separately from roster so the digest shows it whether
+	// or not SetRoster has ever been called.
 	approvals    int
+	oldest       time.Time
 	hasApprovals bool
-	dirty        atomic.Bool
-	buf          []byte // render scratch, reused (guarded by mu)
+	// note is a transient line the bar leads with (Controller.NoteBar).
+	note string
+	// now measures the oldest request's age at paint time; the controller's
+	// clock.
+	now   func() time.Time
+	dirty atomic.Bool
+	buf   []byte // render scratch, reused (guarded by mu)
 }
 
 // newSurround builds the bar renderer. mu is the tty lock shared with the
@@ -101,6 +110,7 @@ func newSurround(mu *sync.Mutex, w io.Writer, enabled bool, info BarInfo) *surro
 		reserve:          reserve,
 		info:             info,
 		engineBusyWindow: 30 * time.Millisecond,
+		now:              time.Now,
 	}
 }
 
@@ -218,16 +228,18 @@ func (s *surround) SetRoster(roster []RosterEntry) {
 	s.RequestPaint()
 }
 
-// SetApprovals stores the pending-approval count and requests a repaint,
+// SetApprovals stores the pending-approval count and the oldest request's
+// arrival and requests a repaint,
 // exactly like SetRoster. With ring it also writes one BEL under the shared
 // tty lock — but only while the bar is showing (not suspended under an
 // overlay, not handed back), and reports whether it rang. The bell is a
 // standalone C0 byte, not part of any escape/CSI sequence the output gate's
 // guard tracks, so it is safe to write unconditionally under mu rather than
 // routing through paintSafe.
-func (s *surround) SetApprovals(n int, ring bool) (rang bool) {
+func (s *surround) SetApprovals(n int, oldest time.Time, ring bool) (rang bool) {
 	s.mu.Lock()
 	s.approvals = n
+	s.oldest = oldest
 	s.hasApprovals = true
 	rang = ring && s.active && !s.suspended && !s.restored
 	if rang {
@@ -244,12 +256,31 @@ func (s *surround) RequestPaint() {
 	if s.lastEngineWrite != nil {
 		if since := nowNanos() - s.lastEngineWrite(); since < int64(s.engineBusyWindow) {
 			s.dirty.Store(true)
+			s.flushWhenIdle(time.Duration(int64(s.engineBusyWindow) - since))
 			return
 		}
 	}
 	s.mu.Lock()
 	s.paintLocked()
 	s.mu.Unlock()
+}
+
+// flushWhenIdle repaints a deferred bar once the engine's busy window has
+// passed. The gate's afterWrite flush comes only with the engine's next
+// write, and an idle engine may never make one — the gate's own release after
+// an overlay counts as a write, so without this a bar change just after an
+// overlay closed stayed off the screen. One timer at a time; if the engine
+// is busy again when it fires, RequestPaint defers (and re-arms) as before.
+func (s *surround) flushWhenIdle(d time.Duration) {
+	if !s.idleFlushArmed.CompareAndSwap(false, true) {
+		return
+	}
+	time.AfterFunc(d, func() {
+		s.idleFlushArmed.Store(false)
+		if s.dirty.CompareAndSwap(true, false) {
+			s.RequestPaint()
+		}
+	})
 }
 
 // FlushLocked is the gate's afterWrite hook: repaint a dirty bar between
@@ -346,10 +377,25 @@ func (s *surround) appendBarBody(b []byte) []byte {
 }
 
 func (s *surround) rosterDigestLocked() string {
-	if !s.hasRoster && !s.hasApprovals {
-		return ""
+	digest := ""
+	if s.hasRoster || s.hasApprovals {
+		digest = rosterDigest(s.roster, approvalsDigest(s.approvals, s.now().Sub(s.oldest), !s.oldest.IsZero()))
 	}
-	return rosterDigest(s.roster, s.approvals)
+	switch {
+	case s.note == "":
+		return digest
+	case digest == "":
+		return s.note
+	}
+	return s.note + " │ " + digest
+}
+
+// SetNote sets (or, with "", clears) the bar's note and requests a repaint.
+func (s *surround) SetNote(text string) {
+	s.mu.Lock()
+	s.note = text
+	s.mu.Unlock()
+	s.RequestPaint()
 }
 
 // appendBarContent renders ` harp · agent · engine/model │ digest │ hint `
@@ -404,20 +450,40 @@ func fitWidth(b []byte, start, width int) []byte {
 
 // rosterDigest summarizes orchestrator-held children for the bar: counts by
 // state glyph (● executing, ◐ waiting: queued/parked/idle, ✓ ended) plus the
-// latest transition, prefixed with a "⚠N " approval warning when N (the
-// human's pending-approval count) is greater than zero — always the LEADING
-// element, since it names the thing most likely to need the human's
-// attention right now. Empty roster reads "no agents".
-func rosterDigest(roster []RosterEntry, approvals int) string {
+// latest transition, led by the approvals element when there is one — it
+// names the thing most likely to need the human's attention right now. Empty
+// roster reads "no agents".
+func rosterDigest(roster []RosterEntry, approvals string) string {
 	body := rosterDigestBody(roster)
-	if approvals <= 0 {
+	if approvals == "" {
 		return body
 	}
-	return "⚠" + strconv.Itoa(approvals) + " " + body
+	return approvals + " │ " + body
 }
 
-// rosterDigestBody is the roster-only half of rosterDigest, unchanged from
-// before the approvals warning was added.
+// approvalsDigest is the bar's approvals element, "⚑ N · oldest mm:ss": how
+// many requests wait on the human and how long the oldest has waited ("" when
+// none does; no age when hasAge is false).
+func approvalsDigest(n int, age time.Duration, hasAge bool) string {
+	if n <= 0 {
+		return ""
+	}
+	out := "⚑ " + strconv.Itoa(n)
+	if !hasAge {
+		return out
+	}
+	secs := int(max(age, 0) / time.Second)
+	return out + " · oldest " + twoDigits(secs/60) + ":" + twoDigits(secs%60)
+}
+
+func twoDigits(n int) string {
+	if n < 10 {
+		return "0" + strconv.Itoa(n)
+	}
+	return strconv.Itoa(n)
+}
+
+// rosterDigestBody is the roster's own half of rosterDigest.
 func rosterDigestBody(roster []RosterEntry) string {
 	if len(roster) == 0 {
 		return "no agents"

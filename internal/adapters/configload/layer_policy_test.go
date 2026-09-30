@@ -102,14 +102,14 @@ func TestLoad_ConfigSetCanStillMintAPrivilegedAgent_ByDesign(t *testing.T) {
 	testsupport.WriteFile(t, fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{
-		"agents.evil.permissions.mode": "bypass",
+		"agents.evil.permissions.claude-code.mode": "bypass",
 	}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	evil, exists := cfg.GetConfiguredAgents()["evil"]
 	require.True(t, exists, "--config-set targets ScopeShared, which explicitly keeps flag reach")
-	assert.Equal(t, "bypass", evil.Permissions.Mode)
+	assert.Equal(t, "bypass", evil.Permissions.Engines["claude-code"]["mode"])
 }
 
 // ===== Escalation path 3: home cannot escalate a project's same-named agent =
@@ -121,7 +121,8 @@ func TestLoad_EscalationPath3_HomeCannotEscalateProjectAgent(t *testing.T) {
 agents:
   reviewer:
     permissions:
-      mode: bypass
+      claude-code:
+        mode: bypass
     runtime: container
 `), 0o644))
 
@@ -142,7 +143,7 @@ agents:
 
 	// MUTATION TARGET: with agentBindingMergeFunc removed (falling back to
 	// koanf's default deep merge), these two would leak in from home.
-	assert.Equal(t, "", reviewer.Permissions.Mode, "home must not be able to grant a permission bypass to the project's agent")
+	assert.True(t, reviewer.Permissions.IsZero(), "home must not be able to grant a permission bypass to the project's agent")
 	assert.Equal(t, "", reviewer.Runtime, "home's runtime must not leak in either -- the whole binding comes from the layer that named it")
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "the project's own field must survive untouched")
 
@@ -269,13 +270,13 @@ agents:
     llm: claude-code
 `), 0644)
 
-	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions.mode": "bypass"}}
+	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions.claude-code.mode": "bypass"}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok)
-	assert.Equal(t, "bypass", reviewer.Permissions.Mode, "the override itself must still apply")
+	assert.Equal(t, "bypass", reviewer.Permissions.Engines["claude-code"]["mode"], "the override itself must still apply")
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "a sibling field the override never touched must survive")
 	assert.Equal(t, "claude-code", reviewer.LLM, "same for a second untouched sibling field")
 }

@@ -44,16 +44,15 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 		prompt = &agent.Fragment{Content: turn.Prompt}
 	}
 	req := &agent.ExecuteRequest{
-		Prompt:      prompt,
-		WorkDir:     turn.Launch.Cell.Workspace,
-		Mode:        agent.ModeInteractive,
-		Model:       turn.Launch.Label.Model,
-		Env:         turn.Launch.EngineEnv(),
-		Permissions: turn.Launch.Permission.Mode,
-		Stdin:       stdin,
-		Resize:      turnResize(ctx, t.stdin),
-		Session:     &session,
-		Presented:   turn.Presented,
+		Prompt:    prompt,
+		WorkDir:   turn.Launch.Cell.Workspace,
+		Mode:      agent.ModeInteractive,
+		Model:     turn.Launch.Label.Model,
+		Env:       turn.Launch.EngineEnv(),
+		Stdin:     stdin,
+		Resize:    turnResize(ctx, t.stdin),
+		Session:   &session,
+		Presented: turn.Presented,
 	}
 	// The process's stdin is the terminal, owned by this process for its
 	// whole life: no StdinCleanup — nothing downstream may close it.

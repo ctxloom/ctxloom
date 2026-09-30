@@ -42,7 +42,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	agentaxis "github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -126,13 +125,14 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},
 	{path: "properties/agents/additionalProperties/properties/auth", goNames: engine.AuthModeNames},
 
-	// The one permissions block every rung (project, agent, label) shares.
-	{path: "$defs/permissions/properties/mode", goNames: agentaxis.PermissionModeNames},
-	{path: "$defs/permissions/properties/after_plan", goNames: engine.AfterPlanNames},
-	{path: "$defs/permissions/properties/approver", goNames: engine.ApproverNames},
-	{path: "$defs/projectPermissions/properties/mode", goNames: agentaxis.PermissionModeNames},
-	{path: "$defs/projectPermissions/properties/after_plan", goNames: engine.AfterPlanNames},
-	{path: "$defs/projectPermissions/properties/approver", goNames: engine.ApproverNames},
+	// The engine-neutral permission fields, at every rung (project, label,
+	// binding); an engine's own keys are its model's to validate.
+	{path: "$defs/neutralPermissions/properties/approver", goNames: engine.ApproverNames},
+	{path: "$defs/neutralPermissions/properties/sandbox", goNames: engine.SandboxNames},
+	{path: "$defs/labelPermissions/properties/approver", goNames: engine.ApproverNames},
+	{path: "$defs/labelPermissions/properties/sandbox", goNames: engine.SandboxNames},
+	{path: "$defs/bindingPermissions/properties/approver", goNames: engine.ApproverNames},
+	{path: "$defs/bindingPermissions/properties/sandbox", goNames: engine.SandboxNames},
 
 	// $defs/hook: claude-code's own hook-handler type vocabulary, passed
 	// through verbatim (ClaudeCodeHookWriter.addHook defaults it to

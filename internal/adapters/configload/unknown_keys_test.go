@@ -149,7 +149,7 @@ func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 // its old kind and its raw text: this change narrows the unknown-key case out of
 // config.WarnKindValidate, it does not swallow the rest.
 func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      mode: nonsense\n")
+	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      e:\n        mode: nonsense\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a bad enum is not an unknown key")
 	require.Len(t, cfg.GetWarnings(), 1)

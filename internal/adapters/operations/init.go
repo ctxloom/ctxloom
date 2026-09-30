@@ -253,11 +253,11 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 	f.DefaultAgent = SeedProfileName
 	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
-			LLM:         primaryLabel,
-			Runtime:     "host",
-			HomeMode:    string(agents.HomeModeSession),
-			Auth:        string(enginepkg.AuthLogin),
-			Profiles:    []string{SeedProfileName},
+			LLM:      primaryLabel,
+			Runtime:  "host",
+			HomeMode: string(agents.HomeModeSession),
+			Auth:     string(enginepkg.AuthLogin),
+			Profiles: []string{SeedProfileName},
 		},
 	}
 	if headlessPermissions != "" {

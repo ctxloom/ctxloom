@@ -176,7 +176,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			LLM:         "claude-code",
 			Profiles:    []string{"p1", "p2"},
 			Runtime:     "container",
-			Permissions: agents.Permissions{Mode: "acceptEdits"},
+			Permissions: agents.Permissions{Engines: map[string]map[string]any{"claude-code": {"mode": "acceptEdits"}}},
 			Driving:     "oneshot",
 		}
 		resolved := &operations.ResolvedAgent{
@@ -193,7 +193,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			"Agent: full\n",
 			"Engine (declared): claude-code\n",
 			"Runtime: container\n",
-			"Permissions: acceptEdits\n",
+			"Permissions: claude-code={mode=acceptEdits}\n",
 			"Driving: oneshot\n",
 			"Resolved llm: claude-code (backend: claude, model: opus)\n",
 			"Resolved permissions: bypass\n",

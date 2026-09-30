@@ -35,7 +35,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -64,13 +63,12 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*coord.
 	if agentName != directAgentName {
 		return nil, assertUnknownAgent(agentName)
 	}
-	perm := "bypass"
 	return &coord.SpawnPlan{
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
 		Runtime:    containerAxes("docker").Runtime,
-		Permission: perm.String(),
+		Permission: "bypass",
 	}, nil
 }
 

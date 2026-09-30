@@ -369,8 +369,8 @@ func lastRunes(s string, n int) string {
 func hookProbeConfigYAML(a liveAgent, llmKey, engine, runtime string) string {
 	var b strings.Builder
 	b.WriteString(a.config)
-	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n    permissions:\n      mode: bypass\n",
-		hookProbeAgent, llmKey, hookProbeAgent)
+	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - %s-profile\n%s",
+		hookProbeAgent, llmKey, hookProbeAgent, permissionsBlock(a.engine, "bypass"))
 	if hookProbeNeedsSessionHome(engine) {
 		b.WriteString("    engine_home: session\n")
 	}

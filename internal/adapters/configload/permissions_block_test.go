@@ -30,26 +30,27 @@ func parseRefusal(t *testing.T, doc string) string {
 // A permissions block is a privilege grant, so a key the block does not
 // know refuses the whole document rather than being dropped the way an
 // unknown key elsewhere is: a `dney:` that vanished would leave the denial
-// undeclared while the launch reports success.
+// undeclared while the launch reports success. A binding's non-neutral key
+// must be an engine's block; the project knows no engine at all.
 func TestLoad_PermissionsBlockRefusesAnUnknownKey(t *testing.T) {
-	for _, doc := range []string{
-		"version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      mode: plan\n      dney: [Bash]\n",
-		"version: 6\nagents:\n  a:\n    llm: e\npermissions:\n  aprover: none\n",
-		"version: 6\nagents:\n  a:\n    llm: e\nllm:\n  configs:\n    x:\n      type: mock\n      permissions:\n        timeout: 5m\n",
-	} {
-		assert.Contains(t, parseRefusal(t, doc), "mode, after_plan, allow, deny, ask, approver, approval_timeout")
-	}
+	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      dney: [Bash]\n"),
+		`"dney" is not a neutral key`)
+	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\npermissions:\n  aprover: none\n"),
+		"the project's permissions take only approver, approval_timeout, sandbox, network")
+	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\npermissions:\n  mode: bypass\n"),
+		"declare it at agents.<name>.permissions.<engine>.mode")
 }
 
 func TestLoad_PermissionsScalarIsRefusedWithTheBlockSpelling(t *testing.T) {
-	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions: bypass\n"), "permissions: {mode: bypass}")
+	assert.Contains(t, parseRefusal(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions: bypass\n"), "permissions: {<engine>: {mode: bypass}}")
 }
 
 func TestLoad_PermissionsBlockLoads(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      mode: plan\n      after_plan: acceptEdits\n      deny: [\"Bash(rm *)\"]\n      approver: none\n      approval_timeout: 20m\n")
+	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions:\n      approver: none\n      approval_timeout: 20m\n      sandbox: full\n      network: false\n      e:\n        mode: plan\n        after_plan: acceptEdits\n        deny: [\"Bash(rm *)\"]\n")
 	a, ok := cfg.Agent("a")
 	require.True(t, ok)
-	assert.Equal(t, []string{"Bash(rm *)"}, a.Permissions.Deny)
+	assert.Equal(t, map[string]map[string]any{"e": {"mode": "plan", "after_plan": "acceptEdits", "deny": []any{"Bash(rm *)"}}}, a.Permissions.Engines)
+	assert.Equal(t, "none", a.Permissions.Approver)
 	assert.Empty(t, unknownKeyWarnings(cfg), "every key of a full block is known to the schema")
 	for _, w := range cfg.GetWarnings() {
 		assert.NotContains(t, w.Text, "permissions", "a valid block raises no schema warning: %s", w.Text)

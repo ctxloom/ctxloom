@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 )
 
 // NOTE on assertion style: see mailbox_takefail_test.go's cute-brink note —

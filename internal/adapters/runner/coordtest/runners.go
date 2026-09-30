@@ -198,13 +198,11 @@ type Engine struct {
 	texts    []string
 }
 
-// Request is what the runner composed for the engine: the floored
-// permission, the cell's working directory and the MCP servers the engine
-// was pointed at.
+// Request is what the runner composed for the engine: the cell's working
+// directory and the MCP servers the engine was pointed at.
 type Request struct {
-	Permissions agent.PermissionMode
-	WorkDir     string
-	MCPServers  []agent.ChatMCPServer
+	WorkDir    string
+	MCPServers []agent.ChatMCPServer
 }
 
 // Request returns what the runner composed, and whether the drive has been
@@ -231,7 +229,7 @@ type recordingDriver struct {
 
 func (d recordingDriver) Drive(ctx context.Context, t runner.Turn) error {
 	d.rec.mu.Lock()
-	d.rec.req = Request{Permissions: t.Launch.Permission.Mode, WorkDir: t.Exec.WorkDir, MCPServers: t.MCPServers}
+	d.rec.req = Request{WorkDir: t.Exec.WorkDir, MCPServers: t.MCPServers}
 	d.rec.gotDrive = true
 	d.rec.mu.Unlock()
 	return d.Driver.Drive(ctx, t)

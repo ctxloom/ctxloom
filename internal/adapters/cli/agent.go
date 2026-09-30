@@ -684,7 +684,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringArrayVar(&agentSetRoots, "root", nil,
 		"Root selection for this agent: kind=root (repeatable; roots: session-home|project-root|work-dir). Validated against the roots the agent's engine offers for that kind; project-root is the shared root, selected here and never fallen back to.")
-	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: "+strings.Join(agent.PermissionModeNames(), "|")+" (empty = engine/built-in default)")
+	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission mode, in the vocabulary of the engine this agent binds, written into that engine's block (empty clears it)")
 	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
 		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)")
 	cmd.Flags().StringVar(&agentSetAuth, "auth", "",

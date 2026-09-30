@@ -224,7 +224,7 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		},
 		{
 			"agent-level permissions posture",
-			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    permissions:\n      mode: bypass\n",
+			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    permissions:\n      fast:\n        mode: bypass\n",
 		},
 		{
 			"per-backend isolation image overrides",

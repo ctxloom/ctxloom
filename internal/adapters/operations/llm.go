@@ -93,9 +93,9 @@ func AvailableLLMNames(reg engine.Registry, cfg *config.Config) []string {
 // carries no credentials: an engine's are ambient, never ctxloom's
 // (config.RetiredLLMEnvKey), so there is nothing on this type to withhold.
 type LLMEntry struct {
-	Label       string             `json:"label"`
-	Type        string             `json:"type,omitempty"`
-	Model       string             `json:"model,omitempty"`
+	Label       string                  `json:"label"`
+	Type        string                  `json:"type,omitempty"`
+	Model       string                  `json:"model,omitempty"`
 	Permissions agents.LabelPermissions `json:"permissions,omitempty"`
 }
 

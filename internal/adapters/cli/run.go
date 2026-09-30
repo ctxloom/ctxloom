@@ -405,7 +405,7 @@ type runState struct {
 	label       string
 	backendName string
 	labelModel  string
-	permMode    agent.PermissionMode
+	permMode    string // the resolved posture, in the engine's words
 	managed     *agent.ManagedConfig
 	activeHarp  string
 	// env is the cell's prepared environment: where and how the runner is
@@ -565,10 +565,6 @@ func (st *runState) source() (launch.Source, error) {
 	if err != nil {
 		return launch.Source{}, err
 	}
-	perm := agent.PermissionNotRequested
-	if runPermissions != "" {
-		perm, _ = agent.ParsePermissionMode(runPermissions)
-	}
 	src := launch.Source{
 		Agent:      runAgent,
 		Profiles:   nil,
@@ -578,7 +574,7 @@ func (st *runState) source() (launch.Source, error) {
 		Prompt:     st.prompt,
 		WorkDir:    st.workDir,
 		Workspace:  workspace,
-		Permission: perm,
+		Permission: runPermissions,
 		Degraded:   App().Strictness.Degraded,
 		Env:        map[string]string{},
 	}
@@ -635,7 +631,7 @@ func (st *runState) bindLaunch(l launch.Launch, opened operations.Opened) {
 	st.label = l.Label.Label
 	st.backendName = string(l.Engine)
 	st.labelModel = l.Label.Model
-	st.permMode = l.Permission.Mode
+	st.permMode = operations.PostureName(App().Engines(), l.Permission.Posture)
 	st.managed = opened.Managed
 	if env, ok := operations.EnvironmentOf(l.Cell); ok {
 		st.env = env
@@ -672,33 +668,46 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 }
 
 // warnPosture says out loud when the posture the run launches with is not
-// what the flag asked for, when a one-shot has nobody to approve a gated
-// call, and (under -v) when the engine's declared host default is
-// what decided it.
+// what the flag asked for, and when a one-shot has nobody to approve a gated
+// call.
 func (st *runState) warnPosture() {
-	if runPermissions != "" {
-		if requested, ok := agent.ParsePermissionMode(runPermissions); ok && requested != st.permMode {
-			clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", requested, st.backendName, st.permMode)
-		}
+	if runPermissions != "" && runPermissions != st.permMode {
+		clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", runPermissions, st.backendName, st.permMode)
 	}
-	if st.launch.Mode == engine.Structured && st.permMode != agent.PermissionBypass {
+	if st.launch.Mode == engine.Structured && st.permMode != permissionBypass {
 		clidiag.Warn("ctxloom", "--one-shot with %s permissions has no human to approve a gated call; the engine denies every call the posture would ask about, so those steps will not run", st.permMode)
-	}
-	pf := operations.EnginePermissionFacts(App().Engines(), st.backendName)
-	if runPermissions == "" && runVerbosity > 0 && pf.HostDefaultReason != "" && st.permMode == pf.HostDefault {
-		clidiag.Warn("ctxloom", "%s", pf.HostDefaultReason)
 	}
 }
 
-// validateFlags is the friction-up-front window: a typed value that isn't a
-// known posture is a hard error before any work, so a typo can't silently
-// resolve to a more permissive default. Config-sourced postures stay
-// fault-tolerant.
+// permissionBypass is the posture that asks nobody, as the engines that
+// have one spell it.
+const permissionBypass = "bypass"
+
+// validateFlags is the friction-up-front window: a typed value that no
+// engine names is a hard error before any work, so a typo can't silently
+// resolve to anything else — not even, under --degraded, the floor. Config-
+// sourced postures, and a mode the resolved engine in particular does not
+// take, are the engine's to refuse when the launch resolves.
 func (st *runState) validateFlags() error {
-	if err := validatePermissionFlag(runPermissions); err != nil {
+	if err := validatePermissionFlag(operations.PostureNames(App().Engines()), runPermissions); err != nil {
 		return err
 	}
 	return validateResumeFlags(runResumeSession, runResumeDistill)
+}
+
+// validatePermissionFlag refuses a typed --permissions value that is not a
+// mode any engine names (known: every registered engine's Postures),
+// ignoring case. An empty flag is no override.
+func validatePermissionFlag(known []string, flag string) error {
+	if flag == "" {
+		return nil
+	}
+	for _, k := range known {
+		if strings.EqualFold(k, flag) {
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown --permissions %q; valid: %s", flag, strings.Join(known, "|"))
 }
 
 // loadConfig loads this run's configuration and settles every upgrade offer it
@@ -1438,27 +1447,10 @@ func convertVendorTranscriptOnExit(harp string) {
 	}
 }
 
-// validatePermissionFlag rejects an explicitly-typed --permissions value that
-// isn't a known posture, up front (friction like an unknown --llm). A typo such
-// as "plann" must not silently fall through to a more permissive default — on
-// claude-code that would be the host bypass, the opposite of the restraint the
-// user typed. An empty flag is no override. Config-sourced agent/label postures
-// stay fault-tolerant (warn + fall through) — only the value typed now is strict.
-func validatePermissionFlag(flag string) error {
-	if flag == "" {
-		return nil
-	}
-	if _, ok := agent.ParsePermissionMode(flag); !ok {
-		return fmt.Errorf("unknown --permissions %q; valid: %s",
-			flag, strings.Join(agent.PermissionModeNames(), "|"))
-	}
-	return nil
-}
-
 // completePermissionModes offers the permission-posture values for shell
 // completion of `run --permissions`.
 func completePermissionModes(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return agent.PermissionModeNames(), cobra.ShellCompDirectiveNoFileComp
+	return operations.PostureNames(App().Engines()), cobra.ShellCompDirectiveNoFileComp
 }
 
 // validateExplicitLLM validates a non-empty --llm override (friction-up-front):
@@ -1517,7 +1509,7 @@ func init() {
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
 	runCmd.Flags().StringVar(&runAgent, "agent", "", "Run a named local agent binding: its composed profiles, engine, and runtime (excludes -p/-f/-t)")
 	runCmd.Flags().StringVar(&runWorkspace, "workspace", "", "Session workspace axis (none|worktree; empty = project default)")
-	runCmd.Flags().StringVar(&runPermissions, "permissions", "", "Permission posture: "+strings.Join(agent.PermissionModeNames(), "|")+" (overrides the agent/config default)")
+	runCmd.Flags().StringVar(&runPermissions, "permissions", "", "Permission mode, in the resolved engine's own vocabulary (overrides the agent/label mode)")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "profile")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "fragment")
 	runCmd.MarkFlagsMutuallyExclusive("agent", "tag")

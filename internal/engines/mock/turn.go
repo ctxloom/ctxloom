@@ -189,7 +189,6 @@ func recordTurn(ex engine.Exec, prompt string, posture engine.TurnPosture) error
 	return WriteRecord(file, rec)
 }
 
-
 // argOf reads the value following flag on the exec's argv; "" when absent.
 func argOf(ex engine.Exec, flag string) string {
 	for i, a := range ex.Args {

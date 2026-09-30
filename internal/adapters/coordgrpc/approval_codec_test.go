@@ -26,15 +26,15 @@ func fullApprovalRequest() coord.ApprovalRequest {
 			Input:           json.RawMessage(`{"questions":[{"question":"which?"}]}`),
 			ToolUseID:       "toolu_9",
 			Suggestions:     []string{"Bash(ls:*)"},
-			SuggestsSetMode: engine.Provide(engine.PermissionAcceptEdits),
+			SuggestsSetMode: engine.Provide("acceptEdits"),
 			Plan:            &engine.PlanProposal{Markdown: "# p", Path: "/p.md"},
 			Questions: []engine.Question{{
 				Header: "Pick", Text: "which?", MultiSelect: true,
 				Options: []engine.QuestionOption{{Label: "a", Description: "first"}, {Label: "b"}},
 			}},
 		},
-		Ceiling: engine.PermissionAcceptEdits,
-		Timeout: 20 * time.Minute,
+		Transitions: []string{"default", "acceptEdits"},
+		Timeout:     20 * time.Minute,
 	}
 }
 
@@ -44,14 +44,14 @@ func TestApprovalRequest_RoundTrips(t *testing.T) {
 	want := fullApprovalRequest()
 	wire := ApprovalRequestToWire(want)
 	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION, wire.GetKind())
-	assert.Equal(t, "acceptEdits", wire.GetCeiling())
+	assert.Equal(t, []string{"default", "acceptEdits"}, wire.GetTransitions())
 	assert.Equal(t, "acceptEdits", wire.GetSuggestsSetMode())
 	got, err := ApprovalRequestFromWire(wire)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 
 	for _, kind := range []engine.AskKind{engine.AskTool, engine.AskQuestion, engine.AskPlan} {
-		req := coord.ApprovalRequest{Ask: engine.PermissionAsk{Kind: kind}, Ceiling: engine.PermissionDefault}
+		req := coord.ApprovalRequest{Ask: engine.PermissionAsk{Kind: kind}}
 		back, err := ApprovalRequestFromWire(ApprovalRequestToWire(req))
 		require.NoError(t, err)
 		assert.Equal(t, kind, back.Ask.Kind)
@@ -71,9 +71,6 @@ func TestApprovalRequestFromWire_Refuses(t *testing.T) {
 	}{
 		{"unspecified-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = agentcoordpb.ApprovalRequest_APPROVAL_KIND_UNSPECIFIED }, "kind"},
 		{"unknown-kind", func(r *agentcoordpb.ApprovalRequest) { r.Kind = 99 }, "kind"},
-		{"missing-ceiling", func(r *agentcoordpb.ApprovalRequest) { r.Ceiling = "" }, "ceiling"},
-		{"unknown-ceiling", func(r *agentcoordpb.ApprovalRequest) { r.Ceiling = "everything" }, "ceiling"},
-		{"unknown-set-mode", func(r *agentcoordpb.ApprovalRequest) { r.SuggestsSetMode = "yolo" }, "suggests_set_mode"},
 		{"input-not-json", func(r *agentcoordpb.ApprovalRequest) { r.Input = []byte("{nope") }, "input"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,7 +89,7 @@ func TestApprovalDecision_RoundTrips(t *testing.T) {
 	want := coord.ApprovalDecision{
 		Allow:        true,
 		SessionRules: []string{"Bash(ls:*)"},
-		SetMode:      engine.Provide(engine.PermissionAcceptEdits),
+		SetMode:      engine.Provide("acceptEdits"),
 		Answers:      []engine.QuestionAnswer{{Question: "which?", Labels: []string{"a", "b"}, Other: "and c"}},
 		Message:      "go",
 		Decider:      agent.DeciderHuman,

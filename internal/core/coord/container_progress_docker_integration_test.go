@@ -79,7 +79,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -127,13 +126,12 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 	if agentName != progressAgentName {
 		return nil, &unknownAgentError{agentName}
 	}
-	perm := "bypass"
 	return &coord.SpawnPlan{
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
 		Runtime:    containerAxes("docker").Runtime,
-		Permission: perm.String(),
+		Permission: "bypass",
 		// The production resolver's allowlist (viaStartRunBackends) does NOT
 		// list "mock"; this spawner resolves it directly, so the test drives
 		// the real path with a deterministic, credential-free engine.

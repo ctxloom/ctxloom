@@ -79,7 +79,7 @@ func TestBuildSetLLMRequest_ExplicitEmptyIsSentAsAClear(t *testing.T) {
 }
 
 func TestRenderLLMWritten_NamesWhichVerbRan(t *testing.T) {
-	entry := &operations.LLMEntry{Label: "big", Type: "mock", Model: "o1", Permissions: agents.Permissions{Mode: "bypass"}}
+	entry := &operations.LLMEntry{Label: "big", Type: "mock", Model: "o1", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypass"}}}
 
 	var created bytes.Buffer
 	require.NoError(t, renderLLMWritten(&created, entry, false))

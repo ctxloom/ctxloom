@@ -1,9 +1,11 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"maps"
+	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -88,11 +90,40 @@ func EffectivePosture(reg engine.Registry, backend string, binding agents.Permis
 	if err != nil {
 		return ""
 	}
-	name, err := model.Decode(doc)
+	return PostureName(reg, engine.Posture{Engine: engine.Name(backend), Document: doc})
+}
+
+// PostureName names a resolved posture in its engine's own words; "" when
+// the engine has no permission model or cannot read the document.
+func PostureName(reg engine.Registry, p engine.Posture) string {
+	kind, ok := reg.Lookup(p.Engine)
+	if !ok {
+		return ""
+	}
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		return ""
+	}
+	name, err := model.Decode(p.Document)
 	if err != nil {
 		return ""
 	}
 	return name
+}
+
+// PostureNames are every registered engine's mode vocabulary, deduplicated
+// and sorted: what `run --permissions` may name before the engine is known.
+func PostureNames(reg engine.Registry) []string {
+	seen := map[string]bool{}
+	for _, n := range reg.Names(nil) {
+		kind, _ := reg.Lookup(n)
+		if model, ok := kind.Permissions().Get(); ok {
+			for _, p := range model.Postures() {
+				seen[p] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // EngineBinary is the native client binary the named engine's interactive

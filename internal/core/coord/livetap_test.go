@@ -204,7 +204,7 @@ func (s *liveTapSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPla
 		Engine:     engine.Name(plan.Backend),
 		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
 		Mode:       engine.Structured,
-		Permission: engine.PermissionPolicy{Mode: "bypass", Ceiling: "bypass"},
+		Permission: engine.PermissionPolicy{Posture: engine.Posture{Engine: engine.Name(plan.Backend), Document: map[string]any{"mode": "bypass"}}, Sandbox: engine.SandboxFull},
 		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: "/work"}})}, Workspace: "/work", Cleanup: func() error { return nil }},
 		Package:    carrier,
 		Prompt:     start.Prompt,

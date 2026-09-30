@@ -1,7 +1,6 @@
 package coordgrpc_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,16 +22,21 @@ func TestEncodeLaunch_EveryPolicyFieldIsPopulated(t *testing.T) {
 	}
 }
 
-// The wire enum carries engine.PermissionMode by value: each value's wire
-// name is the mode's own.
-func TestPermissionMode_WireEnumIsTheEngineVocabulary(t *testing.T) {
-	for m := engine.PermissionDefault; m <= engine.PermissionAuto; m++ {
-		name := pb.PermissionMode(m).String()
-		want := "PERMISSION_MODE_" + strings.ToUpper(map[engine.PermissionMode]string{
-			engine.PermissionDefault: "default", engine.PermissionAcceptEdits: "accept_edits", engine.PermissionPlan: "plan",
-			engine.PermissionBypass: "bypass", engine.PermissionDontAsk: "dont_ask", engine.PermissionAuto: "auto",
-		}[m])
-		assert.Equalf(t, want, name, "%s", m)
+// Every approver and sandbox crosses as itself, and the engine's document
+// crosses as JSON reads it back — a rule list's []string as []any, which
+// the engine's own reader takes.
+func TestLaunchPolicy_RoundTrips(t *testing.T) {
+	for _, a := range []engine.Approver{engine.ApproverHuman, engine.ApproverNone, engine.ApproverReviewer} {
+		for _, sb := range []engine.Sandbox{engine.SandboxReadOnly, engine.SandboxWorkspaceWrite, engine.SandboxFull} {
+			l := launchtest.FullLaunch(t)
+			l.Permission.Approver, l.Permission.Sandbox = a, sb
+			l.Permission.Posture.Document = map[string]any{"mode": "plan", "deny": []string{"Bash(rm *)"}}
+			back, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(l))
+			require.NoError(t, err)
+			want := l.Permission
+			want.Posture.Document = map[string]any{"mode": "plan", "deny": []any{"Bash(rm *)"}}
+			assert.Equalf(t, want, back.Permission, "%s %s", a, sb)
+		}
 	}
 }
 
@@ -48,4 +52,14 @@ func TestDecodeLaunch_RefusesAnUnspecifiedApprover(t *testing.T) {
 	wire.Permission = nil
 	_, err = coordgrpc.DecodeLaunch(wire)
 	require.Error(t, err, "a launch with no policy is refused")
+
+	wire = coordgrpc.EncodeLaunch(launchtest.FullLaunch(t))
+	wire.GetPermission().Sandbox = pb.Sandbox_SANDBOX_UNSPECIFIED
+	_, err = coordgrpc.DecodeLaunch(wire)
+	require.ErrorContains(t, err, "sandbox", "nobody guesses what bounds the engine")
+
+	wire = coordgrpc.EncodeLaunch(launchtest.FullLaunch(t))
+	wire.GetPermission().Engine = ""
+	_, err = coordgrpc.DecodeLaunch(wire)
+	require.ErrorContains(t, err, "engine", "a posture names the engine that reads it")
 }

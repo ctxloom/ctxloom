@@ -44,18 +44,18 @@ agents:
     profiles: [default]
 `), 0644)
 
-	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions.mode": "plann"}}
+	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions.claude-code.mode": "plann"}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok, "fixture check: the override must have reached the binding")
-	assert.Equal(t, "plann", reviewer.Permissions.Mode,
+	assert.Equal(t, "plann", reviewer.Permissions.Engines["claude-code"]["mode"],
 		"the refused value is still applied, so the consumer's own fail-closed handling sees what was typed")
 
 	found := warningsOfKind(cfg, config.WarnKindValidate)
 	require.Len(t, found, 1, "exactly one validate warning for the one bad override")
-	assert.Contains(t, found[0], "agents.reviewer.permissions.mode", "the warning must name the key that broke")
+	assert.Contains(t, found[0], "agents.reviewer.permissions.claude-code", "the warning must name the key that broke")
 	assert.Contains(t, strings.ToLower(found[0]), "config-set", "and the override that set it")
 }
 
@@ -104,14 +104,14 @@ agents:
 `), 0644)
 
 	overrides := confload.Overrides{Flags: map[string]any{
-		"agents.reviewer.permissions.mode": "plan",
-		"llm.configs.big.model":            "opus",
+		"agents.reviewer.permissions.claude-code.mode": "plan",
+		"llm.configs.big.model":                        "opus",
 	}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok)
-	require.Equal(t, "plan", reviewer.Permissions.Mode, "fixture check: the overrides really did apply")
+	require.Equal(t, "plan", reviewer.Permissions.Engines["claude-code"]["mode"], "fixture check: the overrides really did apply")
 	assert.Empty(t, cfg.GetWarnings(), "a legitimate override must produce no warning of any kind")
 }

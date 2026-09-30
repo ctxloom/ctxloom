@@ -314,9 +314,9 @@ func TestP4ConfigYAML_CarriesThePostureOntoTheProductionBindingSurface(t *testin
 	plan := p4ConfigYAML(a, "claude", p4Plan, "host")
 	control := p4ConfigYAML(a, "claude", p4Control, "host")
 
-	assert.Contains(t, plan, "permissions:\n      mode: plan",
+	assert.Contains(t, plan, permissionsBlock(a.engine, "plan"),
 		"the plan cell must bind permissions mode plan on the agent — the production surface a project commits, not a harness substitute")
-	assert.Contains(t, control, "permissions:\n      mode: bypass")
+	assert.Contains(t, control, permissionsBlock(a.engine, "bypass"))
 	assert.NotEqual(t, plan, control,
 		"the pair must differ; two identical configs would make the control a duplicate of the cell it is supposed to contrast with")
 

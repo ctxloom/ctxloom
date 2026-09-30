@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 )
 
 // FINAL IS THE COMPLETION CONTRACT, AND NOTHING ACTED ON IT. An agent files a

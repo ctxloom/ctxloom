@@ -53,7 +53,8 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		var cfg struct {
 			DefaultAgent string `yaml:"default_agent"`
 			Agents       map[string]struct {
-				Permissions struct {
+				// One block per engine; init writes the chosen engine's.
+				Permissions map[string]struct {
 					Mode string `yaml:"mode"`
 				} `yaml:"permissions"`
 			} `yaml:"agents"`
@@ -65,8 +66,12 @@ func registerFreshInitSteps(ctx *godog.ScenarioContext) {
 		if cfg.DefaultAgent == "" || !ok {
 			return fmt.Errorf("config.yaml names no default agent it defines (default_agent %q):\n%s", cfg.DefaultAgent, body)
 		}
-		if agent.Permissions.Mode != want {
-			return fmt.Errorf("default agent %q has permissions mode %q, want %q:\n%s", cfg.DefaultAgent, agent.Permissions.Mode, want, body)
+		var got string
+		for _, block := range agent.Permissions {
+			got = block.Mode
+		}
+		if len(agent.Permissions) > 1 || got != want {
+			return fmt.Errorf("default agent %q has permissions %v, want one engine block with mode %q:\n%s", cfg.DefaultAgent, agent.Permissions, want, body)
 		}
 		return nil
 	})

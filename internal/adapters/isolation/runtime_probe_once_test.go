@@ -22,7 +22,7 @@ type countingRuntime struct {
 	live *atomic.Int32
 }
 
-func (r countingRuntime) Available() bool { r.live.Add(1); return r.fakeRuntime.available }
+func (r countingRuntime) Available() bool { r.live.Add(1); return r.available }
 
 // countedCandidate is a candidate whose selection probe counts its calls and
 // answers a launchable countingRuntime owned in mode owns.

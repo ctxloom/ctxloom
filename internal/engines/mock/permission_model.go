@@ -123,7 +123,13 @@ func (m permissionModel) Decode(doc map[string]any) (string, error) {
 	return s, nil
 }
 
-func (permissionModel) Transitions(map[string]any) []string { return nil }
+// Transitions: a plan continues at default; a bypass session moves nowhere.
+func (permissionModel) Transitions(doc map[string]any) []string {
+	if doc["mode"] == "bypass" {
+		return nil
+	}
+	return []string{"default"}
+}
 func (permissionModel) Sandboxes(string) []engine.Sandbox {
 	return []engine.Sandbox{engine.SandboxFull}
 }

@@ -182,7 +182,7 @@ func writePosture(b *strings.Builder, p *engine.TurnPosture) {
 		return
 	}
 	b.WriteString("=== Posture ===\n")
-	_, _ = fmt.Fprintf(b, "mode=%s\n", postureMode(*p))
+	_, _ = fmt.Fprintf(b, "mode=%s\n", p.Mode)
 	for _, g := range p.Grants {
 		_, _ = fmt.Fprintf(b, "grant=%s\n", g)
 	}

@@ -37,14 +37,14 @@ func postureTurn(t *testing.T, ex engine.Exec, posture engine.TurnPosture) []age
 func TestTurn_HonoursThePosture(t *testing.T) {
 	record := filepath.Join(t.TempDir(), "record.txt")
 	ex := engine.Exec{Env: map[string]string{EnvRecordFile: record}}
-	events := postureTurn(t, ex, engine.TurnPosture{Mode: engine.PermissionAcceptEdits, Grants: []string{"Bash(ls)", "Read"}, Trust: engine.TrustTrusted})
+	events := postureTurn(t, ex, engine.TurnPosture{Mode: "plan", Grants: []string{"Bash(ls)", "Read"}, Trust: engine.TrustTrusted})
 	require.NotEmpty(t, events)
 	require.NotNil(t, events[0].Session)
-	assert.Equal(t, "acceptEdits", events[0].Session.PermissionMode)
+	assert.Equal(t, "plan", events[0].Session.PermissionMode)
 
 	got, err := os.ReadFile(record)
 	require.NoError(t, err)
-	assert.Contains(t, string(got), "=== Posture ===\nmode=acceptEdits\ngrant=Bash(ls)\ngrant=Read\ntrust=trusted\n")
+	assert.Contains(t, string(got), "=== Posture ===\nmode=plan\ngrant=Bash(ls)\ngrant=Read\ntrust=trusted\n")
 }
 
 func TestTurn_NoPostureAsksForNoMode(t *testing.T) {
@@ -65,10 +65,10 @@ func TestMock_ProvidesAnApprovalCodec(t *testing.T) {
 	_, err = c.DecodeAsk("ask", []byte(`{"input":{}}`))
 	assert.Error(t, err, "an ask names its tool")
 
-	raw, err := c.EncodeAnswer("ask", ask, engine.PermissionAnswer{Allow: true, SessionRules: []string{"Bash(ls)"}, SetMode: engine.Provide(engine.PermissionAcceptEdits)})
+	raw, err := c.EncodeAnswer("ask", ask, engine.PermissionAnswer{Allow: true, SessionRules: []string{"Bash(ls)"}, SetMode: engine.Provide("default")})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"allow":true,"session_rules":["Bash(ls)"],"set_mode":"acceptEdits"}`, string(raw))
-	_, err = c.EncodeAnswer("ask", ask, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(engine.PermissionBypass)})
+	assert.JSONEq(t, `{"allow":true,"session_rules":["Bash(ls)"],"set_mode":"default"}`, string(raw))
+	_, err = c.EncodeAnswer("ask", ask, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide("bypass")})
 	assert.Error(t, err, "an answer never switches to bypass")
 
 	assert.NoError(t, c.ValidateRule("Bash(ls)"))

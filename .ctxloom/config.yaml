@@ -2,7 +2,8 @@ agents:
     developer:
         llm: claude-code
         permissions:
-            mode: bypass
+            claude-code:
+                mode: bypass
         profiles:
             - default
         runtime: container-rootless
@@ -14,14 +15,16 @@ agents:
     finder:
         llm: claude-fast
         permissions:
-            mode: bypass
+            claude-code:
+                mode: bypass
         profiles:
             - finder
         runtime: container-rootless
     orchestrator:
         llm: claude-code
         permissions:
-            mode: bypass
+            claude-code:
+                mode: bypass
         profiles:
             - orchestrator
         runtime: host

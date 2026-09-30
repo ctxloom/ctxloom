@@ -198,7 +198,7 @@ func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Sessio
 		Identity:   sessions.Identity{Harp: "conformance-" + string(def.Name)},
 		Label:      engine.LabelConfig{Label: string(def.Name)},
 		Mode:       mode,
-		Permission: engine.PermissionPolicy{Mode: def.Permissions.HostDefault},
+		Permission: DefaultPolicy(t, eng),
 		Roots: present.Paths{
 			ProjectRoot: present.Root{Host: filepath.Join(dir, "project"), Engine: filepath.Join(dir, "project")},
 			SessionHome: present.Root{Host: home, Engine: home},
@@ -210,6 +210,19 @@ func SessionFor(t *testing.T, eng engine.Engine, mode engine.Mode) engine.Sessio
 		s.Home = append(s.Home, engine.HomeBinding{Var: v.Name, Path: filepath.Join(home, v.Subdir)})
 	}
 	return s
+}
+
+// DefaultPolicy is the policy a launch declaring nothing resolves to on
+// eng: its model's posture with nothing declared, its default sandbox.
+func DefaultPolicy(t *testing.T, eng engine.Engine) engine.PermissionPolicy {
+	t.Helper()
+	p := engine.PermissionPolicy{Posture: engine.Posture{Engine: eng.Root().Name}, Sandbox: engine.SandboxFull}
+	if model, ok := eng.Permissions().Get(); ok {
+		doc, err := model.Resolve(engine.PostureRequest{})
+		require.NoError(t, err)
+		p.Posture.Document, p.Sandbox = doc, model.DefaultSandbox()
+	}
+	return p
 }
 
 // PresentAll delivers every kind the engine carries through its typed

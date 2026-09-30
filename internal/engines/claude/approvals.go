@@ -143,9 +143,9 @@ func (p hookAsk) validate(event string) error {
 // allow-rule suggestions (their destination is the encoder's to set, and it
 // is always session), and an accept-edits or default mode change. Directory
 // additions and deny rules are not grants; a bypass change is never offered.
-func decodeSuggestions(in []suggestion) ([]string, engine.Declared[engine.PermissionMode]) {
+func decodeSuggestions(in []suggestion) ([]string, engine.Declared[string]) {
 	var rules []string
-	var mode engine.Declared[engine.PermissionMode]
+	var mode engine.Declared[string]
 	for _, s := range in {
 		switch {
 		case s.Type == "addRules" && s.Behavior == "allow":
@@ -163,13 +163,15 @@ func decodeSuggestions(in []suggestion) ([]string, engine.Declared[engine.Permis
 	return rules, mode
 }
 
-// settableMode is a mode an answer may switch the engine to.
-func settableMode(s string) (engine.PermissionMode, bool) {
-	m, ok := engine.ParsePermissionMode(s)
-	if !ok || (m != engine.PermissionAcceptEdits && m != engine.PermissionDefault) {
-		return 0, false
+// settableMode is a mode an answer may switch the engine to: one an
+// approved plan may continue at, in claude's spelling.
+func settableMode(s string) (string, bool) {
+	for _, m := range afterPlanModes() {
+		if strings.EqualFold(strings.TrimSpace(s), m) {
+			return m, true
+		}
 	}
-	return m, true
+	return "", false
 }
 
 // nativeQuestion is one AskUserQuestion question.
@@ -268,10 +270,11 @@ func sessionPermissions(a engine.PermissionAnswer) ([]suggestion, error) {
 		out = append(out, add)
 	}
 	if m, ok := a.SetMode.Get(); ok {
-		if _, settable := settableMode(m.String()); !settable {
-			return nil, fmt.Errorf("claude approval: an answer may change mode only to %s or %s, not %s", engine.PermissionAcceptEdits, engine.PermissionDefault, m)
+		mode, settable := settableMode(m)
+		if !settable {
+			return nil, fmt.Errorf("claude approval: an answer may change mode only to %s, not %s", strings.Join(afterPlanModes(), " or "), m)
 		}
-		out = append(out, suggestion{Type: "setMode", Mode: m.String(), Destination: settingsDestinationSession})
+		out = append(out, suggestion{Type: "setMode", Mode: mode, Destination: settingsDestinationSession})
 	}
 	return out, nil
 }

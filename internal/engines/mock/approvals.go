@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -50,7 +51,7 @@ func (approvalCodec) DecodeAsk(_ string, payload []byte) (engine.PermissionAsk, 
 }
 
 // EncodeAnswer writes {allow, session_rules, set_mode, message}; a mode
-// change other than accept-edits or default is refused.
+// change the mock's model offers no transition to is refused.
 func (approvalCodec) EncodeAnswer(_ string, _ engine.PermissionAsk, a engine.PermissionAnswer) ([]byte, error) {
 	out := struct {
 		Allow        bool     `json:"allow"`
@@ -59,10 +60,10 @@ func (approvalCodec) EncodeAnswer(_ string, _ engine.PermissionAsk, a engine.Per
 		Message      string   `json:"message,omitempty"`
 	}{Allow: a.Allow, SessionRules: a.SessionRules, Message: a.Message}
 	if m, ok := a.SetMode.Get(); ok {
-		if m != engine.PermissionAcceptEdits && m != engine.PermissionDefault {
-			return nil, fmt.Errorf("mock approval: an answer may change mode only to %s or %s, not %s", engine.PermissionAcceptEdits, engine.PermissionDefault, m)
+		if settable := (permissionModel{}).Transitions(nil); !slices.Contains(settable, m) {
+			return nil, fmt.Errorf("mock approval: an answer may change mode only to %s, not %s", strings.Join(settable, "|"), m)
 		}
-		out.SetMode = m.String()
+		out.SetMode = m
 	}
 	return json.Marshal(out)
 }

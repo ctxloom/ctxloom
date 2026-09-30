@@ -126,7 +126,7 @@ func mockAnswer(ex engine.Exec, prompt string) string {
 // sendTurnEvents relays the turn: the resumable session at the turn's
 // mode, a TOOLS turn's entries, the answer, and the completion.
 func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string, posture engine.TurnPosture) error {
-	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: postureMode(posture)}}); err != nil {
+	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: posture.Mode}}); err != nil {
 		return err
 	}
 	if strings.Contains(prompt, "TOOLS") {
@@ -189,14 +189,6 @@ func recordTurn(ex engine.Exec, prompt string, posture engine.TurnPosture) error
 	return WriteRecord(file, rec)
 }
 
-// postureMode is the mode a turn's posture asks for, as the session
-// reports it; "" when it asks for none.
-func postureMode(p engine.TurnPosture) string {
-	if p.Mode == engine.PermissionNotRequested {
-		return ""
-	}
-	return p.Mode.String()
-}
 
 // argOf reads the value following flag on the exec's argv; "" when absent.
 func argOf(ex engine.Exec, flag string) string {

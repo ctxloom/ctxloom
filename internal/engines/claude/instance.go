@@ -30,7 +30,11 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 	if c.Context == nil {
 		return nil, engine.ErrUnsupported{Engine: c.Name, Capability: "context"}
 	}
-	return &instance{c: c, s: s}, nil
+	pos, err := postureOf(s.Permission, s.Mode == engine.Interactive)
+	if err != nil {
+		return nil, err
+	}
+	return &instance{c: c, s: s, pos: pos}, nil
 }
 
 // Home: CLAUDE_CONFIG_DIR relocates claude's config into a session home,
@@ -127,6 +131,7 @@ func (hookCodec) Decode(event string, payload []byte) (engine.HookEvent, error) 
 type instance struct {
 	c   Claude
 	s   engine.Session
+	pos posture
 	key string
 }
 
@@ -175,13 +180,13 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 	args := slices.Clone(i.s.Label.Args)
 	interactive := i.s.Mode == engine.Interactive
 	if interactive {
-		posture, err := interactivePermissionArgs(i.s.Permission, i.s.MCPServers)
+		posture, err := interactivePermissionArgs(i.pos, i.s.MCPServers)
 		if err != nil {
 			return nil, err
 		}
 		args = append(args, posture...)
 	} else {
-		args = append(args, permissionArgs(i.s.Permission, i.s.MCPServers)...)
+		args = append(args, permissionArgs(i.pos, i.s.MCPServers)...)
 	}
 	if i.s.Label.Model != "" {
 		args = append(args, flagModel, i.s.Label.Model)
@@ -281,7 +286,7 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error
 	if harp := d.inst.s.Identity.Harp; harp != "" {
 		args = append(args, flagName, harp)
 	}
-	doc, err := turnSettings(d.inst.s.Permission, d.inst.s.MCPServers, in.Posture)
+	doc, err := turnSettings(d.inst.pos, d.inst.s.MCPServers, in.Posture)
 	if err != nil {
 		return nil, err
 	}

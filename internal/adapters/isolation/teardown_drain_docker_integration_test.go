@@ -45,6 +45,15 @@ func TestEnd_TheContainersLastBytesSurviveTheRelay(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container attach End drain test")
 	rt := ProbeRuntime("docker")
 
+	// The image is made present before the measured run: under a TTY the CLI's
+	// own stderr shares the master with the container's output, so a pull at
+	// run time would put its progress text into the stream being counted.
+	const image = "alpine:latest"
+	if exec.Command(rt.Binary(), "image", "inspect", image).Run() != nil {
+		out, err := exec.Command(rt.Binary(), "pull", image).CombinedOutput()
+		require.NoError(t, err, "pull %s before the measured run: %s", image, out)
+	}
+
 	sig := t.TempDir()
 	written := filepath.Join(sig, "written")
 	suffix := make([]byte, 4)
@@ -56,7 +65,7 @@ func TestEnd_TheContainersLastBytesSurviveTheRelay(t *testing.T) {
 	// report the exit (the marker file — the runner's RunCompleted), exit.
 	script := fmt.Sprintf("head -c %d /dev/zero | tr '\\0' x; printf %s; : > /sig/written", payloadBytes, endMark)
 	spec := RunSpec{
-		Image:   "alpine:latest",
+		Image:   image,
 		Name:    name,
 		Command: []string{"sh", "-c", script},
 		Mounts:  []mount{{Host: sig, Container: "/sig"}},

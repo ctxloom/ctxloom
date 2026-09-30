@@ -356,6 +356,11 @@ var ErrFixtureRule = errors.New("fixture: not a rule")
 func (fixtureCodec) DecodeAsk(string, []byte) (engine.PermissionAsk, error) {
 	return engine.PermissionAsk{}, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
 }
+
+// Permissions: the doubles declare no permission model unless a test gives one.
+func (fixtureEngine) Permissions() engine.Declared[engine.PermissionModel] {
+	return engine.Absent[engine.PermissionModel]("a test double declares no permission model")
+}
 func (fixtureCodec) EncodeAnswer(string, engine.PermissionAsk, engine.PermissionAnswer) ([]byte, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
 }

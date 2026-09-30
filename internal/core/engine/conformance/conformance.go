@@ -148,6 +148,11 @@ func checkEngineFacts(t *testing.T, eng engine.Engine, def engine.Base) {
 		require.NotNil(t, spec, "a provided wake is a spec")
 	}
 	require.True(t, eng.Approvals().Decided(), "an engine declares its approval codec, or declares it absent with the reason")
+	require.True(t, eng.Permissions().Decided(), "an engine declares its permission model, or declares it absent with the reason")
+	if m, ok := eng.Permissions().Get(); ok {
+		require.NotEmpty(t, m.Postures(), "a permission model names its postures")
+		require.Contains(t, m.Sandboxes("host"), m.DefaultSandbox(), "an engine's default sandbox is one it can enforce")
+	}
 	if c, ok := eng.Approvals().Get(); ok {
 		require.NotNil(t, c, "a provided approval codec is a codec")
 	}

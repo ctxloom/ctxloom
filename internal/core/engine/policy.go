@@ -57,6 +57,9 @@ const (
 	// ApproverNone denies whatever the rules and posture leave open; nobody
 	// is asked.
 	ApproverNone
+	// ApproverReviewer hands what is left open to the engine's own reviewer
+	// (a classifier), where the engine has one (PermissionModel.Reviewer).
+	ApproverReviewer
 )
 
 // String renders the config spelling; an out-of-range value is visibly bad.
@@ -66,6 +69,8 @@ func (a Approver) String() string {
 		return "human"
 	case ApproverNone:
 		return "none"
+	case ApproverReviewer:
+		return "reviewer"
 	default:
 		return "approver(" + strconv.Itoa(int(a)) + ")"
 	}
@@ -80,13 +85,17 @@ func ParseApprover(s string) (Approver, bool) {
 		return ApproverHuman, true
 	case "none":
 		return ApproverNone, true
+	case "reviewer":
+		return ApproverReviewer, true
 	default:
 		return 0, false
 	}
 }
 
 // ApproverNames lists the accepted spellings, for help and refusals.
-func ApproverNames() []string { return []string{ApproverHuman.String(), ApproverNone.String()} }
+func ApproverNames() []string {
+	return []string{ApproverHuman.String(), ApproverNone.String(), ApproverReviewer.String()}
+}
 
 // DefaultApprovalTimeout is how long a request waits for the human when the
 // agent declares no timeout; MaxApprovalTimeout is the longest an agent may

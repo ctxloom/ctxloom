@@ -135,6 +135,9 @@ type Engine interface {
 	// approver is the human cannot be launched on this engine: there is
 	// no way to put its requests to one.
 	Approvals() Declared[ApprovalCodec]
+	// Permissions is the engine's permission model. Undeclared, no posture
+	// can be resolved for it and a launch on it is refused.
+	Permissions() Declared[PermissionModel]
 }
 
 // Instance is one engine kind bound to one session.

@@ -34,6 +34,11 @@ func (stubKind) Approvals() engine.Declared[engine.ApprovalCodec] {
 	return engine.Absent[engine.ApprovalCodec]("a test double approves nothing")
 }
 
+// Permissions: the doubles declare no permission model unless a test gives one.
+func (stubKind) Permissions() engine.Declared[engine.PermissionModel] {
+	return engine.Absent[engine.PermissionModel]("a test double declares no permission model")
+}
+
 // registryOf composes stub kinds; the first named ships by default.
 func registryOf(names ...engine.Name) engine.Registry {
 	kinds := make([]engine.Engine, 0, len(names))

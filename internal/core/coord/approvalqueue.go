@@ -123,7 +123,6 @@ var (
 	ErrNoSuchGrant      = errors.New("coord: no such grant")
 )
 
-
 // ApprovalRequest is a run asking the root human to decide: the plane-2
 // request the coordinator parks in its queue and answers with the
 // ApprovalDecision. Timeout is the asker's declared hold; the queue bounds it.

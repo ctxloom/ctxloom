@@ -59,7 +59,7 @@ func TestRespond_ResponseIsDeliveredOnceTheFullPumpDrains(t *testing.T) {
 
 // handleAgentRequest's cached-response re-delivery is one of the two paths that
 // runs on the receive goroutine, so it must return promptly even when the pump
-// is full: an approval relay's reissue after a reconnect must not freeze the new
+// is full: an approval request's reissue after a reconnect must not freeze the new
 // channel's inbound traffic.
 func TestHandleAgentRequest_CachedRedeliveryDoesNotStallOnAFullPump(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)

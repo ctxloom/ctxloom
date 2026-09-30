@@ -75,7 +75,7 @@ func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentReque
 	return &agentcoordpb.CoordinatorResponse{
 		Status: coordgrpc.OKStatus(""),
 		Kind: &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{
-			Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, Note: "fakeEngineHome default",
+			Allow: false, Message: "fakeEngineHome default",
 		}},
 	}, nil
 }

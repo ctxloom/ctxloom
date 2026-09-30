@@ -1,10 +1,7 @@
 package tui
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,7 +12,6 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -60,15 +56,6 @@ type Model struct {
 	composeVerb string // the open input line's control verb ("" = closed): keys type into it
 	composeHarp string // the explicit target, latched when the line opens
 	composeText string
-
-	approving   bool                    // the approvals view is open: keys drive it, not the roster/feed
-	approvals   []coord.PendingApproval // the last fetched pending list
-	approvalSel int                     // selection into approvals
-
-	approvalNoting     bool // the decline-note line is open: keys type into it
-	approvalNoteText   string
-	approvalTargetID   string // latched messageID for the in-flight answer
-	approvalTargetHarp string // latched harp for the in-flight answer
 
 	// The hint bar carries one line, chosen in this order: the last action's
 	// failure, the roster's own failure, then status. Each slot is owned by
@@ -131,12 +118,6 @@ type controlResultMsg struct {
 	req coord.ControlRequest
 	res coord.ControlResult
 	err error
-}
-type approvalResultMsg struct {
-	messageID string
-	harp      string
-	decision  agentcoordpb.ApprovalDecision_Decision
-	err       error
 }
 
 // NewModel builds the overlay model. prefixByte is the interceptor's key;
@@ -265,9 +246,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rosterErr = fmt.Sprintf("roster: %v", msg.err)
 		return m, nil
 	case rosterTickMsg:
-		if m.approving {
-			m = m.refreshApprovals()
-		}
 		return m, tea.Batch(m.fetchRosterCmd(), rosterTick())
 	case feedOpenedMsg:
 		return m.applyFeedOpened(msg)
@@ -279,8 +257,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyFeedClosed(msg)
 	case controlResultMsg:
 		return m.applyControlResult(msg)
-	case approvalResultMsg:
-		return m.applyApprovalResult(msg)
 	}
 	return m, nil
 }
@@ -327,47 +303,6 @@ func changedOr(changed bool, did, didNot string) string {
 		return did
 	}
 	return didNot
-}
-
-// applyApprovalResult lands the outcome of an answerApprovalCmd round trip.
-// A failure — including the already_resolved race (another answerer won, or
-// the rung timed out first) — surfaces as its own text via reportErr; it is
-// never swallowed. A success refreshes the pending list so an answered
-// approval disappears from the view immediately, rather than waiting for the
-// next tick.
-func (m Model) applyApprovalResult(msg approvalResultMsg) (tea.Model, tea.Cmd) {
-	if msg.err != nil {
-		m.reportErr(fmt.Sprintf("approval %s: %v", msg.messageID, msg.err))
-		return m, nil
-	}
-	m.reportOK(fmt.Sprintf("approval %s: %s", msg.messageID, msg.decision.String()))
-	if m.approving {
-		m = m.refreshApprovals()
-	}
-	return m, nil
-}
-
-// refreshApprovals re-fetches the pending list (a plain in-process call, no
-// I/O) and clamps the selection. An approval resolved elsewhere (another
-// answerer, or a timeout) simply disappears from the next fetch. An empty
-// list closes the view — symmetric with openApprovals refusing to open on an
-// empty list — rather than leaving a blank panel open.
-func (m Model) refreshApprovals() Model {
-	if m.src.PendingApprovals == nil {
-		return m
-	}
-	m.approvals = m.src.PendingApprovals()
-	if len(m.approvals) == 0 {
-		m.approving = false
-		m.approvalNoting = false
-		m.approvalNoteText = ""
-		m.reportOK("no pending approvals")
-		return m
-	}
-	if m.approvalSel >= len(m.approvals) {
-		m.approvalSel = len(m.approvals) - 1
-	}
-	return m
 }
 
 // applyRoster adopts a refreshed roster, keeping the selection on the harp it
@@ -445,9 +380,6 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.composeVerb != "" {
 		return m.updateComposeKey(msg)
 	}
-	if m.approving {
-		return m.updateApprovalKey(msg)
-	}
 	key := msg.String()
 	if m.firstKey {
 		m.firstKey = false
@@ -518,8 +450,6 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "i", "?", "s", "p", "r":
 		return m.openControl(controlKeys[key])
-	case "a":
-		return m.openApprovals()
 	}
 	return m, nil
 }
@@ -642,145 +572,6 @@ func controlPending(req coord.ControlRequest) string {
 // engine that is itself on the alternate screen (termui.OverlayGeometry).
 const fullScreenUnavailable = "full screen unavailable: the engine is using the alternate screen"
 
-// approvalsNotHere is why the approvals view will not open when no approvals
-// source is wired — which is always, in production (coord.PendingApproval):
-// approvals are answered in the engine's own prompt, not in this viewer.
-const approvalsNotHere = "no approvals pane here: answer approvals in the engine's own prompt"
-
-// openApprovals opens the approvals view — a FULL body-region view (like the
-// feed view, not a floating box: render() has no z-order primitive) listing
-// every approval parked for this human, with the selected one's detail. It
-// only opens on a non-empty list: an empty one hints instead, so the human
-// is never staring at a panel with nothing in it.
-func (m Model) openApprovals() (tea.Model, tea.Cmd) {
-	if m.src.PendingApprovals == nil {
-		m.reportErr(approvalsNotHere)
-		return m, nil
-	}
-	list := m.src.PendingApprovals()
-	if len(list) == 0 {
-		m.reportOK("no pending approvals")
-		return m, nil
-	}
-	m.approving = true
-	m.approvals = list
-	m.approvalSel = 0
-	m.reportOK("")
-	return m, nil
-}
-
-// updateApprovalKey owns every key while the approvals view is open. The
-// note line (declining) is nested state, checked first exactly like
-// updateComposeKey's own printable-vs-binding precedence.
-func (m Model) updateApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.approvalNoting {
-		return m.updateApprovalNoteKey(msg)
-	}
-	switch msg.String() {
-	case m.prefixKey, "ctrl+c":
-		return m.quit()
-	case "esc":
-		m.approving = false
-		m.approvals = nil
-		m.approvalSel = 0
-		return m, nil
-	case "j", "down":
-		if m.approvalSel < len(m.approvals)-1 {
-			m.approvalSel++
-		}
-		return m, nil
-	case "k", "up":
-		if m.approvalSel > 0 {
-			m.approvalSel--
-		}
-		return m, nil
-	case "y":
-		return m.answerSelected(agentcoordpb.ApprovalDecision_DECISION_ACCEPT, "")
-	case "s":
-		return m.answerSelected(agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION, "")
-	case "n":
-		return m.openApprovalNote()
-	}
-	return m, nil
-}
-
-// answerSelected latches the CURRENTLY selected approval's target
-// (messageID+harp) at the keypress — exactly why openControl latches
-// composeHarp at open — so a list refresh mid-flight (the async answer, or a
-// background rosterTickMsg) cannot silently retarget an answer already in
-// flight.
-func (m Model) answerSelected(decision agentcoordpb.ApprovalDecision_Decision, note string) (tea.Model, tea.Cmd) {
-	if m.approvalSel < 0 || m.approvalSel >= len(m.approvals) {
-		return m, nil
-	}
-	sel := m.approvals[m.approvalSel]
-	m.status = "answering " + sel.MessageID + "…"
-	return m, m.answerApprovalCmd(sel.MessageID, sel.Harp, decision, note)
-}
-
-// openApprovalNote opens the decline-note line, latching the target from the
-// current selection (the note itself is composed over several keystrokes,
-// during which a background refresh must not retarget it).
-func (m Model) openApprovalNote() (tea.Model, tea.Cmd) {
-	if m.approvalSel < 0 || m.approvalSel >= len(m.approvals) {
-		return m, nil
-	}
-	sel := m.approvals[m.approvalSel]
-	m.approvalNoting = true
-	m.approvalTargetID = sel.MessageID
-	m.approvalTargetHarp = sel.Harp
-	m.approvalNoteText = ""
-	return m, nil
-}
-
-// updateApprovalNoteKey mirrors updateComposeKey's printable-accumulation
-// idiom: enter sends DECISION_DECLINE with the note (empty is legal — the
-// decline itself, not the note, is the decision), esc backs out to the LIST
-// (not the whole overlay) without calling AnswerApproval at all.
-func (m Model) updateApprovalNoteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if msg.Text != "" {
-		m.approvalNoteText += msg.Text
-		return m, nil
-	}
-	switch msg.String() {
-	case m.prefixKey, "ctrl+c":
-		return m.quit()
-	case "esc":
-		m.approvalNoting = false
-		m.approvalNoteText = ""
-		return m, nil
-	case "enter":
-		note := m.approvalNoteText
-		id, harp := m.approvalTargetID, m.approvalTargetHarp
-		m.approvalNoting = false
-		m.approvalNoteText = ""
-		m.status = "answering " + id + "…"
-		return m, m.answerApprovalCmd(id, harp, agentcoordpb.ApprovalDecision_DECISION_DECLINE, note)
-	case "backspace":
-		if r := []rune(m.approvalNoteText); len(r) > 0 {
-			m.approvalNoteText = string(r[:len(r)-1])
-		}
-	}
-	return m, nil
-}
-
-// answerApprovalCmd runs the coordinator round trip off the update loop; the
-// outcome — resolved, or the bus's typed error (including the
-// already_resolved race) — renders inline on arrival via applyApprovalResult.
-func (m Model) answerApprovalCmd(messageID, harp string, decision agentcoordpb.ApprovalDecision_Decision, note string) tea.Cmd {
-	answer := m.src.AnswerApproval
-	if answer == nil {
-		return func() tea.Msg {
-			return approvalResultMsg{messageID: messageID, harp: harp, decision: decision,
-				err: errors.New(approvalsNotHere)}
-		}
-	}
-	return func() tea.Msg {
-		err := answer(messageID, harp, decision, note)
-		return approvalResultMsg{messageID: messageID, harp: harp, decision: decision, err: err}
-	}
-}
-
 func (m Model) quit() (tea.Model, tea.Cmd) {
 	if m.feed != nil && m.feed.Cancel != nil {
 		m.feed.Cancel()
@@ -895,10 +686,6 @@ func (m Model) render() string {
 	cols := m.geo.Cols
 	contentH := max(total-2, 0)
 
-	if m.approving {
-		return m.renderApprovals(total, cols, contentH)
-	}
-
 	feedW := m.feedWidth()
 
 	header := padCell(" agents", rosterPaneWidth) + "│" + padCell(" "+m.feedTitle(), feedW)
@@ -918,108 +705,6 @@ func (m Model) render() string {
 		out = out[:total]
 	}
 	return strings.Join(out, "\n")
-}
-
-// renderApprovals draws the approvals view: a FULL body-region view (like
-// the ordinary render(), sharing its header+content+footer budget), not a
-// floating box over the roster/feed — this package has no z-order primitive
-// and render()'s own "own exactly totalHeight lines" invariant (the overlay
-// paints over a live engine session) applies here identically.
-func (m Model) renderApprovals(total, cols, contentH int) string {
-	header := padCell(fmt.Sprintf(" approvals (%d pending)", len(m.approvals)), cols)
-	lines := m.approvalLines(contentH)
-
-	out := make([]string, 0, total)
-	out = append(out, styleHeader.Render(header))
-	for i := 0; i < contentH; i++ {
-		out = append(out, padCell(lines[i], cols))
-	}
-	out = append(out, m.approvalFooterLine(cols))
-	if len(out) > total {
-		out = out[:total]
-	}
-	return strings.Join(out, "\n")
-}
-
-// approvalLines renders the pending list (selection marked) followed by the
-// SELECTED approval's detail: harp, kind, title, expires-in, and the
-// pretty-printed payload — truncated to the panel's remaining height.
-func (m Model) approvalLines(height int) []string {
-	var lines []string
-	for i, a := range m.approvals {
-		marker := "  "
-		if i == m.approvalSel {
-			marker = "> "
-		}
-		lines = append(lines, marker+a.Harp+" · "+a.Title)
-	}
-	if sel, ok := m.selectedApproval(); ok {
-		lines = append(lines, "")
-		lines = append(lines, "harp: "+sel.Harp)
-		lines = append(lines, "kind: "+string(sel.Kind))
-		lines = append(lines, "title: "+sel.Title)
-		lines = append(lines, "expires in "+formatExpiresIn(sel.Deadline, m.src.now()))
-		lines = append(lines, "payload:")
-		lines = append(lines, prettyPayloadLines(sel.Payload)...)
-	}
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	return lines
-}
-
-// selectedApproval is the approval approvalSel currently points at, if any —
-// a bounds-checked read shared by rendering and the y/s/n key handlers.
-func (m Model) selectedApproval() (coord.PendingApproval, bool) {
-	if m.approvalSel < 0 || m.approvalSel >= len(m.approvals) {
-		return coord.PendingApproval{}, false
-	}
-	return m.approvals[m.approvalSel], true
-}
-
-// formatExpiresIn renders a Deadline relative to now in whole minutes. A
-// zero Deadline (a fake Sources in a test, or a coordinator that predates
-// slice 3) renders "unknown" rather than a nonsense negative duration.
-func formatExpiresIn(deadline, now time.Time) string {
-	if deadline.IsZero() {
-		return "unknown"
-	}
-	d := deadline.Sub(now)
-	if d <= 0 {
-		return "0m (expired)"
-	}
-	return fmt.Sprintf("%dm", int(d.Minutes())+1)
-}
-
-// prettyPayloadLines indents the approval's JSON payload (json.Indent) and
-// splits it into render lines. An empty/malformed payload renders a plain
-// placeholder rather than failing the whole view over one bad field.
-func prettyPayloadLines(payload json.RawMessage) []string {
-	if len(payload) == 0 {
-		return []string{"  (no payload)"}
-	}
-	var buf bytes.Buffer
-	if err := json.Indent(&buf, payload, "  ", "  "); err != nil {
-		return []string{"  " + string(payload)}
-	}
-	return strings.Split("  "+buf.String(), "\n")
-}
-
-// approvalFooterLine is the approvals view's bottom row: the decline-note
-// input while it is open, otherwise the key hints plus the current note —
-// the same hintNote precedence footerLine uses.
-func (m Model) approvalFooterLine(cols int) string {
-	if m.approvalNoting {
-		return padCell(" decline note: "+m.approvalNoteText+"_ · enter send · esc back", cols)
-	}
-	hints := " j/k select · y accept · s accept-for-session · n decline+note · esc back"
-	if note := m.hintNote(); note != "" {
-		hints += "  ─ " + note
-	}
-	return styleDim.Render(padCell(hints, cols))
 }
 
 // feedTitle names the feed under view and what is known about its agent.
@@ -1057,11 +742,7 @@ func (m Model) footerLine(cols int) string {
 		// dimmed — it is the focused input.
 		return padCell(" "+controlLabel(m.composeVerb)+" → "+m.composeHarp+": "+m.composeText+"_ · enter send · esc cancel", cols)
 	}
-	approvals := ""
-	if m.src.PendingApprovals != nil {
-		approvals = "a approvals · "
-	}
-	hints := " j/k move · enter feed · i inject · ? ask · s summarize · p pause · r resume · " + approvals +
+	hints := " j/k move · enter feed · i inject · ? ask · s summarize · p pause · r resume · " +
 		"x expand · f follow · g/G ends · " + strings.ReplaceAll(m.prefixKey, "ctrl+", "^") + "/q back"
 	// The note leads: it is the outcome of the key just pressed, and the key
 	// list is what an ordinary width truncates.

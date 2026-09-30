@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
@@ -51,6 +53,25 @@ const (
 	factSessionCredRevoked = "session.cred.revoked"
 )
 
+// Approval fact kinds, journaled in the run-registry journal beside the runs
+// they belong to. Every request a run parks for the human and every decision
+// on it is recorded; the grant facts are also the grants fold's whole input,
+// so a restarted coordinator rebuilds each harp's session grants from them.
+const (
+	// factApprovalParked records a request parked for the root human.
+	factApprovalParked = "approval.parked"
+	// factApprovalDecided records how a parked request was resolved, and by
+	// whom — exactly one per parked request.
+	factApprovalDecided = "approval.decided"
+	// factGrantAdded records one allow-for-session rule granted to a harp.
+	factGrantAdded = "grant.added"
+	// factGrantRevoked withdraws one grant.
+	factGrantRevoked = "grant.revoked"
+	// factPlanApproved records an approved plan and the posture it executes
+	// under.
+	factPlanApproved = "plan.approved"
+)
+
 // Terminal causes recorded on factRunEnded.
 const (
 	// CauseRunnerLoss is the coordinator-side synthesis: the
@@ -67,7 +88,7 @@ const (
 	// process (a container, on that axis) and its bound endpoint. It is an
 	// EXPECTED, non-error terminal that leaves the harp RESUMABLE — the next mail starts a new incarnation through the
 	// resume arm, reusing the bound endpoint — queues NO "exited" notice to
-	// the parent, and must NOT clear the harp's ACCEPT_FOR_SESSION grants.
+	// the parent.
 	CauseIdleReaped = "idle-reaped"
 	// CauseDrained is a child ended by the coordinator's DRAIN at a point
 	// where no work was cut short: at its own turn boundary (the exit the
@@ -185,6 +206,56 @@ type interaction struct {
 	Kind   string            `json:"kind"`
 	Actor  string            `json:"actor,omitempty"` // caller harp
 	Detail map[string]string `json:"detail,omitempty"`
+}
+
+// approvalParked is factApprovalParked's payload. Input is the tool call's
+// input as the engine sent it (the journal is 0600, like the mailbox).
+type approvalParked struct {
+	ID        ApprovalID      `json:"id"`
+	Harp      string          `json:"harp"`
+	RunID     string          `json:"run_id,omitempty"`
+	Agent     string          `json:"agent,omitempty"`
+	Kind      ApprovalKind    `json:"kind"`
+	Tool      string          `json:"tool,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	Deadline  time.Time       `json:"deadline"`
+}
+
+// approvalDecided is factApprovalDecided's payload.
+type approvalDecided struct {
+	ID      ApprovalID              `json:"id"`
+	Harp    string                  `json:"harp"`
+	Decider agent.Decider           `json:"decider"`
+	Allow   bool                    `json:"allow"`
+	Rules   []string                `json:"rules,omitempty"`
+	SetMode string                  `json:"set_mode,omitempty"`
+	Answers []engine.QuestionAnswer `json:"answers,omitempty"`
+	Message string                  `json:"message,omitempty"`
+}
+
+// grantAdded is factGrantAdded's payload; the grant's time is the fact's.
+type grantAdded struct {
+	ID   string     `json:"id"`
+	Harp string     `json:"harp"`
+	Rule string     `json:"rule"`
+	From ApprovalID `json:"from"`
+}
+
+// grantRevoked is factGrantRevoked's payload.
+type grantRevoked struct {
+	ID   string `json:"id"`
+	Harp string `json:"harp"`
+}
+
+// planApproved is factPlanApproved's payload: the approval that approved the
+// plan, the posture it executes under, and the plan's digest and path.
+type planApproved struct {
+	ID      ApprovalID `json:"id"`
+	Harp    string     `json:"harp"`
+	Posture string     `json:"posture,omitempty"`
+	Digest  string     `json:"digest"`
+	Path    string     `json:"path,omitempty"`
 }
 
 // factAt builds one journal fact with the command-time timestamp — the ONLY

@@ -351,7 +351,6 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 		Watch: func(context.Context, string) (*tui.Feed, error) {
 			return &tui.Feed{Source: feed.Source, Events: feed.Events, Errs: feed.Errs, Cancel: func() {}}, nil
 		},
-		Now: time.Now,
 	}
 
 	ov := tui.NewOverlay(ctx, src, 0x1d)

@@ -277,9 +277,11 @@ false — delete it rather than leave it.
 | I11 | Artifacts move by reference; the receiver verifies sha256 against the manifest before placing bytes. | `Home.DownloadArtifact` (`homeartifacts.go`) |
 | I12 | A run's identity is `(harp, run_id)`; a resume mints a fresh `run_id` under the same harp, and a run's authenticated identity comes from its bearer credential, not from any frame field. | `resumeChild → enqueueRun → newRunID`; `Coordinator.Identify` |
 
-The coordinator brokers no approval UI: nothing produces a `PendingApproval` (its
-doc comment says why), and `AgentRequest.approval` is unserved. A human answers the
-engine's native prompt by attaching to the agent's window.
+A run's `AgentRequest.approval` parks in the ROOT coordinator's approval queue
+(`coord.ApprovalQueue`, served by `Coordinator.parkApproval`) until the human decides,
+its timeout denies it, or the run ends. Only an in-process presenter answers one
+(`coord.ApprovalSource`): no wire request reaches `ApprovalQueue.Answer`
+(`TestNoWirePathAnswersAnApproval`).
 
 ## Where the known gaps live
 

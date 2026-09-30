@@ -17,8 +17,7 @@ import (
 
 // Tests for the INTERACTION-PLANE CUTOVER (spoolcontrol.go): steer as a
 // durable withdrawable file, question/summarize as cooperative correlated
-// asks, pause/resume as runner requests, and the approval relay's hop riding
-// files.
+// asks, and pause/resume as runner requests.
 //
 // Every test redirects HOME (teeHome) before anything resolves a spool path,
 // for the reason that helper's doc gives.

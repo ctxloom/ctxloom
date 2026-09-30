@@ -172,6 +172,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckHarpDurability(),
 			doctorCheckSpoolBacklog(),
 			doctorCheckSpoolCounters(ctx),
+			doctorCheckTTYInjection(),
 		}
 	}
 	return DoctorReport{Checks: checks}, nil

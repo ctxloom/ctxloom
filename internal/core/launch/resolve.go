@@ -59,7 +59,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	perm, err := resolvePolicy(report.To(deps.Reporter), src, permissionRungs(sel, label, labelPerm, cfg), eng)
+	perm, err := resolvePolicy(report.To(deps.Reporter), src, declsFor(sel, label, labelPerm, cfg), eng, axes.Runtime)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -142,10 +142,10 @@ func assembleSelection(ctx context.Context, deps Deps, src Source, sel selection
 // resolveEngineMode is the engine the label names, its label config with the
 // source's model override and the engine's model aliases applied, and its
 // permission — refused when the engine does not declare the source's mode.
-func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) (engine.Engine, engine.LabelConfig, agents.Permissions, error) {
+func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) (engine.Engine, engine.LabelConfig, agents.LabelPermissions, error) {
 	eng, labelCfg, labelPerm, err := selectEngine(deps, cfg, label)
 	if err != nil {
-		return nil, engine.LabelConfig{}, agents.Permissions{}, err
+		return nil, engine.LabelConfig{}, agents.LabelPermissions{}, err
 	}
 	def := eng.Root()
 	if src.Model != "" {
@@ -155,7 +155,7 @@ func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) 
 		labelCfg.Model = alias
 	}
 	if !slices.Contains(def.Modes, src.Mode) {
-		return nil, engine.LabelConfig{}, agents.Permissions{}, fmt.Errorf("%w: %s declares %v, not %v", ErrModeUnsupported, def.Name, def.Modes, src.Mode)
+		return nil, engine.LabelConfig{}, agents.LabelPermissions{}, fmt.Errorf("%w: %s declares %v, not %v", ErrModeUnsupported, def.Name, def.Modes, src.Mode)
 	}
 	return eng, labelCfg, labelPerm, nil
 }
@@ -316,13 +316,13 @@ func parseHomeMode(s string) (HomeMode, error) {
 // that names neither is refused by name, listing what would have resolved;
 // an empty label is the registry's default engine. The third result is the
 // label's declared permissions block, one rung of the policy.
-func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, engine.LabelConfig, agents.Permissions, error) {
+func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, engine.LabelConfig, agents.LabelPermissions, error) {
 	if label == "" {
 		eng, err := deps.Engines.Default()
 		if err != nil {
-			return nil, engine.LabelConfig{}, agents.Permissions{}, fmt.Errorf("%w: %v", ErrNoEngine, err)
+			return nil, engine.LabelConfig{}, agents.LabelPermissions{}, fmt.Errorf("%w: %v", ErrNoEngine, err)
 		}
-		return eng, engine.LabelConfig{}, agents.Permissions{}, nil
+		return eng, engine.LabelConfig{}, agents.LabelPermissions{}, nil
 	}
 	entry, configured := cfg.GetLLMEntry(label)
 	name := engine.Name(label)
@@ -334,7 +334,7 @@ func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, e
 	eng, ok := deps.Engines.Lookup(name)
 	if !ok {
 		known := slices.Sorted(maps.Keys(cfg.GetLMConfig().Configs))
-		return nil, engine.LabelConfig{}, agents.Permissions{}, fmt.Errorf("%w: %q (configured labels: %s; engines: %v)", ErrNoEngine, label, strings.Join(known, ", "), deps.Engines.Names(nil))
+		return nil, engine.LabelConfig{}, agents.LabelPermissions{}, fmt.Errorf("%w: %q (configured labels: %s; engines: %v)", ErrNoEngine, label, strings.Join(known, ", "), deps.Engines.Names(nil))
 	}
 	return eng, engine.LabelConfig{Label: label, Model: model, Body: entry.Body}, entry.Permissions, nil
 }

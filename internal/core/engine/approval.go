@@ -29,9 +29,10 @@ type PermissionAsk struct {
 	// Suggestions are engine-native session rules derived from the engine's
 	// own suggestions — the choices an allow-for-session picker offers.
 	Suggestions []string
-	// SuggestsSetMode is a mode change the engine suggests alongside the
-	// allow (e.g. accept edits for the rest of the session on an edit).
-	SuggestsSetMode Declared[PermissionMode]
+	// SuggestsSetMode is a posture change the engine suggests alongside the
+	// allow (e.g. accept edits for the rest of the session on an edit), in
+	// the engine's own vocabulary.
+	SuggestsSetMode Declared[string]
 	Plan            *PlanProposal
 	Questions       []Question
 }
@@ -68,9 +69,9 @@ type PermissionAnswer struct {
 	// engine's session; an encoder writes them to the session scope ONLY,
 	// never to a settings file.
 	SessionRules []string
-	// SetMode is a mode change carried with an allow: PermissionAcceptEdits
-	// or PermissionDefault only, never PermissionBypass.
-	SetMode Declared[PermissionMode]
+	// SetMode is a posture change carried with an allow: one of the
+	// engine's PermissionModel.Transitions from the session's posture.
+	SetMode Declared[string]
 	// Answers answer an AskQuestion.
 	Answers []QuestionAnswer
 	// Message is a deny's note, or a rejected plan's feedback.

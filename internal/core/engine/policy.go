@@ -1,50 +1,12 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 )
-
-// reach ranks the postures by how much an engine may do without a human
-// saying yes: plan (read-only) < dontAsk (only what the rules allow) <
-// default (the rules, plus whatever the approver allows) < acceptEdits
-// (edits unasked) < auto (the engine's classifier decides) < bypass
-// (nothing asked). It is what a ceiling is measured on; 0 is "not a
-// posture" and is within nothing.
-func (m PermissionMode) reach() int {
-	switch m {
-	case PermissionPlan:
-		return 1
-	case PermissionDontAsk:
-		return 2
-	case PermissionDefault:
-		return 3
-	case PermissionAcceptEdits:
-		return 4
-	case PermissionAuto:
-		return 5
-	case PermissionBypass:
-		return 6
-	default:
-		return 0
-	}
-}
-
-// Within reports whether m reaches no further than ceiling. Neither side
-// may be the zero value or out of range: a posture nobody resolved is
-// within nothing, and nothing is within it.
-func (m PermissionMode) Within(ceiling PermissionMode) bool {
-	r, c := m.reach(), ceiling.reach()
-	return r != 0 && c != 0 && r <= c
-}
-
-// AfterPlanNames lists the postures an approved plan may continue at: a
-// plan-first session's after_plan, and the modes an answer may switch to.
-func AfterPlanNames() []string {
-	return []string{PermissionDefault.String(), PermissionAcceptEdits.String()}
-}
 
 // Approver is who answers a request the agent's rules and posture leave
 // open.
@@ -106,42 +68,36 @@ const (
 	MaxApprovalTimeout     = 60 * time.Minute
 )
 
+// ErrApprovalTimeout refuses an approval_timeout spelling.
+var ErrApprovalTimeout = errors.New("approval_timeout")
+
 // ParseApprovalTimeout reads an approval_timeout spelling: a duration above
 // zero and at most MaxApprovalTimeout.
 func ParseApprovalTimeout(s string) (time.Duration, error) {
 	d, err := time.ParseDuration(strings.TrimSpace(s))
 	if err != nil {
-		return 0, fmt.Errorf("approval_timeout %q is not a duration (e.g. 20m)", s)
+		return 0, fmt.Errorf("%w %q is not a duration (e.g. 20m)", ErrApprovalTimeout, s)
 	}
 	if d <= 0 || d > MaxApprovalTimeout {
-		return 0, fmt.Errorf("approval_timeout %q must be above 0 and at most %dm", s, int(MaxApprovalTimeout.Minutes()))
+		return 0, fmt.Errorf("%w %q must be above 0 and at most %dm", ErrApprovalTimeout, s, int(MaxApprovalTimeout.Minutes()))
 	}
 	return d, nil
 }
 
-// PermissionPolicy is a session's resolved permission posture: where it
-// starts, how far a plan approval or a mode change may take it, the
-// engine-native rules it declares, and who answers what they leave open.
-// It is resolved ONCE, at launch; the runner honours exactly what it is
-// handed.
+// PermissionPolicy is a session's resolved permission policy: the engine's
+// posture (its own document, which only that engine reads), who answers
+// what the posture leaves open, and the sandbox bounding the engine's own
+// commands. It is resolved ONCE, at launch, from the human's config; the
+// runner honours exactly what it is handed.
 type PermissionPolicy struct {
-	// Mode is the starting posture.
-	Mode PermissionMode
-	// AfterPlan, when provided, makes the session plan-first: Mode is
-	// PermissionPlan, and an approved plan continues at this posture. It is
-	// within Ceiling and never PermissionBypass.
-	AfterPlan Declared[PermissionMode]
-	// Ceiling is the furthest a plan approval or a mode change may take the
-	// session — and the furthest a child it launches may start — capped at
-	// the launching session's own ceiling.
-	Ceiling PermissionMode
-	// Allow, Deny and Ask are engine-native rules, validated by the
-	// engine's approval codec.
-	Allow, Deny, Ask []string
-	Approver         Approver
+	Posture  Posture
+	Approver Approver
 	// ApprovalTimeout is how long a request waits for the approver before
 	// it is denied.
 	ApprovalTimeout time.Duration
+	Sandbox         Sandbox
+	// Network lets the sandboxed commands reach the network.
+	Network bool
 }
 
 // WorkspaceTrust is one turn's verdict on the repository the session works
@@ -160,10 +116,9 @@ const (
 // rides Turn, so a posture that changes between turns (a plan approval, a
 // session grant, a trust verdict) reaches the next turn's process.
 type TurnPosture struct {
-	// Mode is the turn's starting mode. Never PermissionBypass: bypass does
-	// not change per turn and stays on the launch argv. The zero value asks
-	// for no mode.
-	Mode PermissionMode
+	// Mode is the turn's starting posture, in the engine's own vocabulary
+	// (PermissionModel.Postures); "" asks for none.
+	Mode string
 	// Grants are the session grants ctxloom holds for the run, as
 	// engine-native rules.
 	Grants []string

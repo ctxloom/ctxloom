@@ -22,7 +22,6 @@ type Definition struct {
 	Name         Name
 	Distribution Distribution
 	Modes        []Mode
-	Permissions  PermissionFacts
 	// The six surface kinds, EXACTLY ONE typed approach each. nil = not
 	// carried. For a kind the engine requires, one is present and nil is
 	// Instance()'s refusal; for an optional kind (MCP among them) nil is
@@ -268,21 +267,6 @@ func (d Base) validateApproaches() error {
 		return fmt.Errorf("%w: %s: the dynamic approach lacks a name or a root", ErrDefinition, d.Name)
 	}
 	return nil
-}
-
-// PermissionFacts is the engine's permission vocabulary as facts.
-type PermissionFacts struct {
-	// Native lists the postures the engine maps to a mechanism of its own.
-	Native []PermissionMode
-	// ReadOnlyPlan is true when the engine maps PermissionPlan to a
-	// genuinely read-only, non-prompting mode; false = no such tier, and the
-	// resolver collapses plan to default.
-	ReadOnlyPlan bool
-	// HostDefault is the posture a run takes when nothing declared one.
-	HostDefault PermissionMode
-	// HostDefaultReason is shown to the user (under -v) when HostDefault is
-	// the posture a run resolved to.
-	HostDefaultReason string
 }
 
 // CLIGrammar declares one mode's argv grammar: the binary, the flags it

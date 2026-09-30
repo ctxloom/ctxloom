@@ -15,23 +15,21 @@ type Source struct {
 	// Fragments and Tags are the explicit-assembly arm's selection beyond
 	// the profile set (`run -f`, `run -t`): named fragments and tag matches
 	// composed with the profiles. Only the profile-set arm reads them.
-	Fragments  []string
-	Tags       []string
-	Label      string
-	Model      string // overrides the label's model for this launch; empty keeps the label's
-	Mode       engine.Mode
-	Prompt     string
-	WorkDir    string
-	Workspace  WorkspaceAxis
-	DirtyTree  DirtyTreeHandler
-	Permission engine.PermissionMode // the flag; zero = not requested
-	// ParentCeiling is the launching session's own ceiling when a child
-	// launches a child: this launch may start no wider, and its ceiling is
-	// capped there. Zero is a launch with no such parent — the human's own
-	// session, or a child it launched — which nothing caps.
-	ParentCeiling engine.PermissionMode
-	Resume        Resume
-	Degraded      bool
+	Fragments []string
+	Tags      []string
+	Label     string
+	Model     string // overrides the label's model for this launch; empty keeps the label's
+	Mode      engine.Mode
+	Prompt    string
+	WorkDir   string
+	Workspace WorkspaceAxis
+	DirtyTree DirtyTreeHandler
+	// Permission is the --permissions flag: a posture in the resolved
+	// engine's own vocabulary, over whatever the config declares; "" is
+	// none.
+	Permission string
+	Resume     Resume
+	Degraded   bool
 	// Env is the caller's engine passthrough (`run --env`); the identity
 	// carriers are stamped by Resolve and never taken from here.
 	Env map[string]string

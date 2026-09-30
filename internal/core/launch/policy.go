@@ -2,6 +2,7 @@ package launch
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -12,161 +13,127 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// permissionRung is one declared permissions block, and how to name it.
-// noRules marks a rung where no engine is known — the project — so it may
-// declare only engine-neutral fields: rules are engine grammar.
-type permissionRung struct {
-	block   agents.Permissions
-	from    string
-	noRules bool
+// permissionDecls are the config's permission declarations for one launch:
+// the agent binding's block, the llm label's, the project's.
+type permissionDecls struct {
+	agent   string
+	binding agents.Permissions
+	label   string
+	labels  agents.LabelPermissions
+	project agents.NeutralPermissions
 }
 
-// permissionRungs are the declared blocks, highest first: the binding, the
-// label, the project. The --permissions flag sits above them all and sets
-// the mode alone.
-func permissionRungs(sel selection, label string, labelPerm agents.Permissions, cfg *config.Config) []permissionRung {
-	return []permissionRung{
-		{block: sel.permissions, from: fmt.Sprintf("agent %q", sel.agent)},
-		{block: labelPerm, from: fmt.Sprintf("llm label %q", label)},
-		{block: cfg.GetPermissions(), from: "the project config", noRules: true},
+func declsFor(sel selection, label string, labelPerm agents.LabelPermissions, cfg *config.Config) permissionDecls {
+	return permissionDecls{agent: sel.agent, binding: sel.permissions, label: label, labels: labelPerm, project: cfg.GetPermissions()}
+}
+
+// neutralRung is one level's neutral fields, and how to name it.
+type neutralRung struct {
+	fields agents.NeutralPermissions
+	from   string
+}
+
+// neutral are the neutral fields' rungs, nearest first.
+func (d permissionDecls) neutral() []neutralRung {
+	return []neutralRung{
+		{d.binding.NeutralPermissions, fmt.Sprintf("agent %q", d.agent)},
+		{d.labels.NeutralPermissions, fmt.Sprintf("llm label %q", d.label)},
+		{d.project, "the project config"},
 	}
 }
 
-// first returns the first rung whose field (read by get) is declared.
-func first(rungs []permissionRung, get func(agents.Permissions) string) (string, string, bool) {
+// first returns the first rung's value of the field get reads.
+func first(rungs []neutralRung, get func(agents.NeutralPermissions) string) (string, string, bool) {
 	for _, r := range rungs {
-		if v := strings.TrimSpace(get(r.block)); v != "" {
+		if v := strings.TrimSpace(get(r.fields)); v != "" {
 			return v, r.from, true
 		}
 	}
 	return "", "", false
 }
 
-// firstRules returns the first rung that declares the rule list get reads.
-func firstRules(rungs []permissionRung, get func(agents.Permissions) []string) ([]string, string) {
-	for _, r := range rungs {
-		if rules := get(r.block); len(rules) > 0 && !r.noRules {
-			return rules, r.from
-		}
-	}
-	return nil, ""
-}
-
-// resolvePolicy is THE permission resolution, applied once. Each field is
-// the first rung's that declares it — the flag (the mode alone), the
-// binding, the label, the project — else the default: the engine's host
-// posture, no rules, the human as approver, the default timeout. Anything
-// declared that cannot be honoured is refused, naming the value and its
-// rung; only an unparseable mode has a --degraded fallback (the floor),
-// because only the mode has a posture that cannot widen what was typed.
-func resolvePolicy(rep report.Reporter, src Source, rungs []permissionRung, eng engine.Engine) (engine.PermissionPolicy, error) {
-	facts := eng.Root().Permissions
-	mode, err := resolveMode(rep, src, rungs, facts)
+// resolvePolicy is THE permission resolution, applied once. The engine
+// resolves its own posture from its block on the binding and the label's
+// keys (the --permissions flag over both); each neutral field is the first
+// of the binding, the label and the project that declares it, else the
+// engine's default. Anything declared that cannot be honoured is refused,
+// naming the value and where it was declared.
+func resolvePolicy(rep report.Reporter, src Source, d permissionDecls, eng engine.Engine, runtime RuntimeAxis) (engine.PermissionPolicy, error) {
+	name := eng.Root().Name
+	p := engine.PermissionPolicy{Posture: engine.Posture{Engine: name}}
+	declared := eng.Permissions()
+	model, hasModel := declared.Get()
+	doc, err := resolvePosture(rep, src, d, name, declared)
 	if err != nil {
 		return engine.PermissionPolicy{}, err
 	}
-	p := engine.PermissionPolicy{Mode: mode, Ceiling: mode}
-	if p.AfterPlan, err = resolveAfterPlan(rungs, mode); err != nil {
-		return engine.PermissionPolicy{}, err
-	}
-	if after, ok := p.AfterPlan.Get(); ok {
-		p.Ceiling = after
-	}
-	if err := capAtParent(p, src.ParentCeiling); err != nil {
-		return engine.PermissionPolicy{}, err
-	}
-	if p.Approver, err = resolveApprover(rungs, eng); err != nil {
+	p.Posture.Document = doc
+	rungs := d.neutral()
+	if p.Approver, err = resolveApprover(rungs, eng, model, hasModel); err != nil {
 		return engine.PermissionPolicy{}, err
 	}
 	if p.ApprovalTimeout, err = resolveTimeout(rungs); err != nil {
 		return engine.PermissionPolicy{}, err
 	}
-	if err := resolveRules(&p, rungs, eng); err != nil {
+	if p.Sandbox, err = resolveSandbox(rungs, name, runtime, model, hasModel); err != nil {
 		return engine.PermissionPolicy{}, err
+	}
+	for _, r := range rungs {
+		if r.fields.Network != nil {
+			p.Network = *r.fields.Network
+			break
+		}
 	}
 	return p, nil
 }
 
-// resolveMode is the starting posture: the first declared, else the
-// engine's host default. A declaration that does not parse is refused, or
-// under --degraded dropped to PermissionFloor with a warning (never
-// widened); plan collapses to default on an engine with no read-only tier.
-// A Structured run keeps whatever resolved: the engine denies what its
-// posture and rules leave open rather than waiting on nobody.
-func resolveMode(rep report.Reporter, src Source, rungs []permissionRung, facts engine.PermissionFacts) (engine.PermissionMode, error) {
-	value, from, ok := src.Permission.String(), "the --permissions flag", src.Permission != engine.PermissionNotRequested
-	if !ok {
-		value, from, ok = first(rungs, func(b agents.Permissions) string { return b.Mode })
+// resolvePosture has the engine resolve its document. A binding that
+// carries engine blocks but none for this engine is refused — or, under
+// --degraded, runs at the engine's floor, announced. An engine without a
+// permission model takes no declaration at all.
+func resolvePosture(rep report.Reporter, src Source, d permissionDecls, name engine.Name, declared engine.Declared[engine.PermissionModel]) (map[string]any, error) {
+	var decls []engine.Declaration
+	block, hasBlock := d.binding.Engines[string(name)]
+	if hasBlock {
+		decls = append(decls, engine.Declaration{Document: block, From: fmt.Sprintf("agent %q", d.agent)})
 	}
+	if len(d.labels.Engine) > 0 {
+		decls = append(decls, engine.Declaration{Document: d.labels.Engine, From: fmt.Sprintf("llm label %q", d.label)})
+	}
+	model, ok := declared.Get()
 	if !ok {
-		if facts.HostDefault == engine.PermissionNotRequested {
-			return engine.PermissionDefault, nil
+		if len(decls) > 0 || src.Permission != "" || len(d.binding.Engines) > 0 {
+			return nil, fmt.Errorf("%w: engine %s takes no permission declaration (%s)", ErrPermissionUnhonoured, name, declared.AbsentReason())
 		}
-		return facts.HostDefault.CollapsePlanIfUnenforced(facts.ReadOnlyPlan), nil
+		return nil, nil
 	}
-	m, parsed := engine.ParsePermissionMode(value)
-	if !parsed {
-		known := strings.Join(engine.PermissionModeNames(), "|")
+	if !hasBlock && len(d.binding.Engines) > 0 {
+		refusal := fmt.Errorf("%w: agent %q declares permissions for %s but none for %s, the engine it resolved to — add permissions.%s", ErrPermissionUnhonoured, d.agent, strings.Join(slices.Sorted(maps.Keys(d.binding.Engines)), ", "), name, name)
 		if !src.Degraded {
-			return 0, fmt.Errorf("%w: %q from %s is not a posture (known: %s)", ErrPermissionUnhonoured, value, from, known)
+			return nil, refusal
 		}
-		rep.Warnf("--degraded: permissions %q from %s is not a posture (known: %s), so this run drops to the %s floor", value, from, known, engine.PermissionFloor)
-		return engine.PermissionFloor, nil
+		rep.Warnf("--degraded: %v; this run drops to %s's floor", refusal, name)
+		return model.Floor(), nil
 	}
-	return m.CollapsePlanIfUnenforced(facts.ReadOnlyPlan), nil
-}
-
-// resolveAfterPlan is the plan-first continuation: the first declared
-// after_plan, which must be default or acceptEdits and must sit on a rung
-// whose own mode (if it declares one) is plan. It applies only when the
-// resolved mode IS plan — a flag, or a collapse, that moved the mode off
-// plan leaves nothing for it to continue from.
-func resolveAfterPlan(rungs []permissionRung, mode engine.PermissionMode) (engine.Declared[engine.PermissionMode], error) {
-	var none engine.Declared[engine.PermissionMode]
-	for _, r := range rungs {
-		v := strings.TrimSpace(r.block.AfterPlan)
-		if v == "" {
-			continue
-		}
-		after, ok := engine.ParsePermissionMode(v)
-		if !ok || !slices.Contains(engine.AfterPlanNames(), after.String()) {
-			return none, fmt.Errorf("%w: after_plan %q from %s is not a posture an approved plan may continue at (known: %s)", ErrPermissionUnhonoured, v, r.from, strings.Join(engine.AfterPlanNames(), "|"))
-		}
-		if declared, ok := engine.ParsePermissionMode(r.block.Mode); ok && declared != engine.PermissionPlan {
-			return none, fmt.Errorf("%w: after_plan from %s continues a plan, but %s declares mode %s — declare mode: plan beside it", ErrPermissionUnhonoured, r.from, r.from, declared)
-		}
-		if mode != engine.PermissionPlan {
-			return none, nil
-		}
-		return engine.Provide(after), nil
+	doc, err := model.Resolve(engine.PostureRequest{Declared: decls, Mode: src.Permission, Degraded: src.Degraded, Warn: rep.Warnf})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPermissionUnhonoured, err)
 	}
-	return none, nil
-}
-
-// capAtParent refuses a posture — the starting mode, or the one an
-// approved plan continues at — wider than the launching session's ceiling.
-// No parent ceiling caps nothing.
-func capAtParent(p engine.PermissionPolicy, parent engine.PermissionMode) error {
-	if parent == engine.PermissionNotRequested {
-		return nil
-	}
-	if !p.Mode.Within(parent) {
-		return fmt.Errorf("%w: mode %s exceeds the launching session's ceiling %s — a child launches no wider than its parent may reach", ErrPermissionUnhonoured, p.Mode, parent)
-	}
-	if after, ok := p.AfterPlan.Get(); ok && !after.Within(parent) {
-		return fmt.Errorf("%w: after_plan %s exceeds the launching session's ceiling %s — a child launches no wider than its parent may reach", ErrPermissionUnhonoured, after, parent)
-	}
-	return nil
+	return doc, nil
 }
 
 // resolveApprover is the first declared approver, else the human. The
-// human is only an approver on an engine that can put a request to one.
-func resolveApprover(rungs []permissionRung, eng engine.Engine) (engine.Approver, error) {
+// human is only an approver on an engine that can put a request to one;
+// the reviewer only on an engine that has one.
+func resolveApprover(rungs []neutralRung, eng engine.Engine, model engine.PermissionModel, hasModel bool) (engine.Approver, error) {
 	a := engine.ApproverHuman
-	if v, from, ok := first(rungs, func(b agents.Permissions) string { return b.Approver }); ok {
+	if v, from, ok := first(rungs, func(n agents.NeutralPermissions) string { return n.Approver }); ok {
 		parsed, known := engine.ParseApprover(v)
 		if !known {
 			return 0, fmt.Errorf("%w: approver %q from %s (known: %s)", ErrPermissionUnhonoured, v, from, strings.Join(engine.ApproverNames(), "|"))
+		}
+		if parsed == engine.ApproverReviewer && (!hasModel || !model.Reviewer()) {
+			return 0, fmt.Errorf("%w: approver reviewer from %s, but engine %s has no reviewer", ErrPermissionUnhonoured, from, eng.Root().Name)
 		}
 		a = parsed
 	}
@@ -177,62 +144,43 @@ func resolveApprover(rungs []permissionRung, eng engine.Engine) (engine.Approver
 	return a, nil
 }
 
-// resolveTimeout is the first declared approval_timeout, else the default;
-// it must be a duration above zero and at most the cap.
-func resolveTimeout(rungs []permissionRung) (time.Duration, error) {
-	v, from, ok := first(rungs, func(b agents.Permissions) string { return b.ApprovalTimeout })
+// resolveTimeout is the first declared approval_timeout, else the default.
+func resolveTimeout(rungs []neutralRung) (time.Duration, error) {
+	v, from, ok := first(rungs, func(n agents.NeutralPermissions) string { return n.ApprovalTimeout })
 	if !ok {
 		return engine.DefaultApprovalTimeout, nil
 	}
-	d, err := time.ParseDuration(v)
+	d, err := engine.ParseApprovalTimeout(v)
 	if err != nil {
-		return 0, fmt.Errorf("%w: approval_timeout %q from %s is not a duration (e.g. 20m)", ErrPermissionUnhonoured, v, from)
-	}
-	if d <= 0 || d > engine.MaxApprovalTimeout {
-		return 0, fmt.Errorf("%w: approval_timeout %q from %s must be above 0 and at most %dm", ErrPermissionUnhonoured, v, from, int(engine.MaxApprovalTimeout.Minutes()))
+		return 0, fmt.Errorf("%w: %v (from %s)", ErrPermissionUnhonoured, err, from)
 	}
 	return d, nil
 }
 
-// refuseRulesWithoutEngine refuses a rule list declared on a rung where no
-// engine is known, naming where it belongs.
-func refuseRulesWithoutEngine(rungs []permissionRung, name string, get func(agents.Permissions) []string) error {
-	for _, r := range rungs {
-		if rules := get(r.block); r.noRules && len(rules) > 0 {
-			return fmt.Errorf("%w: %s rules (%s) from %s: rules are engine grammar, declared where an engine is known — move them to agents.<name>.permissions.%s or llm.configs.<label>.permissions.%s", ErrPermissionUnhonoured, name, strings.Join(rules, ", "), r.from, name, name)
-		}
+// resolveSandbox is the first declared sandbox, else the engine's default;
+// either must be one the engine can enforce on this runtime. It fails
+// closed: there is no degraded fallback, because every fallback from an
+// unenforceable sandbox is a wider one.
+func resolveSandbox(rungs []neutralRung, name engine.Name, runtime RuntimeAxis, model engine.PermissionModel, hasModel bool) (engine.Sandbox, error) {
+	want, from := engine.SandboxFull, fmt.Sprintf("engine %s's default", name)
+	enforceable := []engine.Sandbox{engine.SandboxFull}
+	if hasModel {
+		want = model.DefaultSandbox()
+		enforceable = model.Sandboxes(string(runtime))
 	}
-	return nil
-}
-
-// resolveRules sets each rule list from the first rung that declares it,
-// every rule validated by the engine's approval codec — which an engine
-// without one cannot do, so it can carry no rules.
-func resolveRules(p *engine.PermissionPolicy, rungs []permissionRung, eng engine.Engine) error {
-	lists := []struct {
-		name string
-		get  func(agents.Permissions) []string
-		set  *[]string
-	}{
-		{"allow", func(b agents.Permissions) []string { return b.Allow }, &p.Allow},
-		{"deny", func(b agents.Permissions) []string { return b.Deny }, &p.Deny},
-		{"ask", func(b agents.Permissions) []string { return b.Ask }, &p.Ask},
+	if v, at, ok := first(rungs, func(n agents.NeutralPermissions) string { return n.Sandbox }); ok {
+		parsed, known := engine.ParseSandbox(v)
+		if !known {
+			return 0, fmt.Errorf("%w: sandbox %q from %s (known: %s)", ErrPermissionUnhonoured, v, at, strings.Join(engine.SandboxNames(), "|"))
+		}
+		want, from = parsed, at
 	}
-	codec, hasCodec := eng.Approvals().Get()
-	for _, l := range lists {
-		if err := refuseRulesWithoutEngine(rungs, l.name, l.get); err != nil {
-			return err
-		}
-		rules, from := firstRules(rungs, l.get)
-		if len(rules) > 0 && !hasCodec {
-			return fmt.Errorf("%w: engine %s has no approval codec to validate the permission rules %s from %s", ErrPermissionUnhonoured, eng.Root().Name, strings.Join(rules, ", "), from)
-		}
-		for _, r := range rules {
-			if err := codec.ValidateRule(r); err != nil {
-				return fmt.Errorf("%w: %s rule %q from %s: %v", ErrPermissionUnhonoured, l.name, r, from, err)
-			}
-		}
-		*l.set = append([]string(nil), rules...)
+	if slices.Contains(enforceable, want) {
+		return want, nil
 	}
-	return nil
+	names := make([]string, len(enforceable))
+	for i, s := range enforceable {
+		names[i] = s.String()
+	}
+	return 0, fmt.Errorf("%w: sandbox %s from %s cannot be enforced by %s on runtime %s (it can enforce: %s)", ErrPermissionUnhonoured, want, from, name, runtime, strings.Join(names, "|"))
 }

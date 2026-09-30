@@ -59,3 +59,48 @@ type QuestionAnswer struct {
 	// Other is free text the human typed instead of, or beside, an option.
 	Other string
 }
+
+// PermissionAnswer is the decision an ask receives, in the neutral
+// vocabulary; the engine's codec encodes it into the native hook answer.
+type PermissionAnswer struct {
+	Allow bool
+	// SessionRules are engine-native rules granted for the rest of the
+	// engine's session; an encoder writes them to the session scope ONLY,
+	// never to a settings file.
+	SessionRules []string
+	// SetMode is a mode change carried with an allow: PermissionAcceptEdits
+	// or PermissionDefault only, never PermissionBypass.
+	SetMode Declared[PermissionMode]
+	// Answers answer an AskQuestion.
+	Answers []QuestionAnswer
+	// Message is a deny's note, or a rejected plan's feedback.
+	Message string
+}
+
+// HostCall is one call the engine made to ctxloom's permission host: the
+// tool it asks about, the call's id and its input.
+type HostCall struct {
+	Tool, ToolUseID string
+	Input           json.RawMessage
+}
+
+// ApprovalCodec is the engine's half of the approval route: neutral in,
+// native out. Nothing outside the engine knows the native formats.
+type ApprovalCodec interface {
+	// DecodeAsk reads a native hook payload for the named hook event into
+	// the neutral ask.
+	DecodeAsk(event string, payload []byte) (PermissionAsk, error)
+	// EncodeAnswer writes the decision for ask as the hook's native stdout.
+	// It refuses an answer the engine must never be handed: a mode change
+	// other than accept-edits or default.
+	EncodeAnswer(event string, ask PermissionAsk, a PermissionAnswer) ([]byte, error)
+	// HostCall reads the arguments of a call to the permission host.
+	HostCall(args json.RawMessage) (HostCall, error)
+	// HostDeny is the permission host's native deny result.
+	HostDeny(message string) (string, error)
+	// RepoSurfaces are the globs, relative to a repository root, of the
+	// executable surfaces the engine loads from a repository.
+	RepoSurfaces() []string
+	// ValidateRule refuses a rule the engine's rule syntax does not accept.
+	ValidateRule(rule string) error
+}

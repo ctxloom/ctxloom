@@ -20,6 +20,9 @@ func (Host) Binary() string { return "" }
 // fails; it is the fault-tolerant floor).
 func (Host) Available() bool { return true }
 
+// launchable is always true, as Available.
+func (Host) launchable() bool { return true }
+
 // RunArgs is a noop — Host does not launch a container.
 func (Host) RunArgs(RunSpec) ([]string, error) { return nil, nil }
 

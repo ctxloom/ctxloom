@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -111,72 +110,36 @@ func TestIdentityEnvArgs_NeverAllowsRoot(t *testing.T) {
 		"CTXLOOM_ALLOW_ROOT", "podman run must never carry the root escape hatch")
 }
 
-// TestDockerIsRootless_ProbeErrorRoutesAFinding: the daemon's rootless-ness
-// decides whether PUID is injected — i.e. who OWNS every file the run writes
-// — so an undecidable probe must not pick a direction silently. It assumes
-// rootful (the least damaging wrong guess: subuid-skewed ownership under a
-// rootless daemon, vs running the engine as REAL root under a rootful one)
-// and routes a ClassIsolation finding: strict collects it (the choke owner
-// aborts), degraded streams the warning and proceeds on the assumption.
-func TestDockerIsRootless_ProbeErrorRoutesAFinding(t *testing.T) {
-	resetStrictness(t)
-	prev := dockerSecurityOptions
-	t.Cleanup(func() { dockerSecurityOptions = prev })
-
-	dockerSecurityOptions = func() (string, error) { return "", errors.New("probe timed out") }
-	assert.False(t, dockerIsRootless(), "least-damaging default: rootful")
-	found := strictness.All()
-	require.Len(t, found, 1)
-	assert.Equal(t, report.KindIsolation, found[0].Kind)
-	assert.Contains(t, found[0].Text, "rootless")
-	assert.Contains(t, found[0].Remedy, "--degraded")
-
-	// A successful probe never records: both answers are decisions, not faults.
-	strictness.Reset()
-	dockerSecurityOptions = func() (string, error) { return "[name=rootless name=seccomp]", nil }
-	assert.True(t, dockerIsRootless())
-	dockerSecurityOptions = func() (string, error) { return "[name=seccomp]", nil }
-	assert.False(t, dockerIsRootless())
-	assert.Empty(t, strictness.All())
-
-	// Degraded: the assumption is warned about AND collected — degraded
-	// suppresses fatality, not recording, so the run can still account for the
-	// boundary it assumed rather than verified.
-	strictness.Reset()
-	dockerSecurityOptions = func() (string, error) { return "", errors.New("probe timed out") }
-	assert.False(t, dockerIsRootless())
-	assert.NotEmpty(t, strictness.All())
-}
-
 // TestNewDockerRuntime_ProbesOnlyReachableDaemons: with no reachable docker
-// the rootless probe must not run at all — the runtime is never selected
-// (Available gates selection), so probing would only manufacture a spurious
-// identity finding on docker-less/daemon-down hosts (e.g. podman machines),
-// aborting strict-mode container runs that docker plays no part in.
+// the ownership probe must not run at all — the runtime is never selected, so
+// probing would only manufacture a spurious ownership finding on
+// docker-less/daemon-down hosts (e.g. podman machines), aborting strict-mode
+// container runs that docker plays no part in.
 func TestNewDockerRuntime_ProbesOnlyReachableDaemons(t *testing.T) {
 	resetStrictness(t)
-	prev := dockerSecurityOptions
-	t.Cleanup(func() { dockerSecurityOptions = prev })
-	prevSelf := findSelf
-	t.Cleanup(func() { findSelf = prevSelf })
+	a := &engineAnswers{ownership: func() (string, error) {
+		t.Fatal("the ownership probe must not run for an unreachable daemon")
+		return "", nil
+	}}
+	stubEngine(t, a)
 	asked := 0
 	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) {
 		asked++
 		return selfContainer{}, false, nil
 	}
 
-	dockerSecurityOptions = func() (string, error) {
-		t.Fatal("the identity probe must not run for an unreachable daemon")
-		return "", nil
-	}
-	rt := newDockerRuntime(func(string) bool { return false })
+	rt, owns := newDockerRuntime(func(string) bool { return false })
 	assert.Equal(t, Docker{}, rt)
+	assert.Equal(t, ownershipUndecided, owns)
 	assert.Empty(t, strictness.All())
 	assert.Zero(t, asked, "an unreachable daemon is never asked who this process is")
 
-	dockerSecurityOptions = func() (string, error) { return "[name=rootless]", nil }
-	rt = newDockerRuntime(func(string) bool { return true })
-	assert.Equal(t, Docker{rootless: true}, rt, "a reachable daemon gets the real probe")
+	a.ownership = func() (string, error) { return "[name=rootless]", nil }
+	rt, owns = newDockerRuntime(func(string) bool { return true })
+	want := Docker{rootless: true}
+	want.reachable = true
+	assert.Equal(t, want, rt, "a reachable daemon gets the real probe")
+	assert.Equal(t, RuntimeContainerRootless, owns)
 	assert.Equal(t, 1, asked, "and is asked, once, whether this process is one of its containers")
 }
 

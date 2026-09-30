@@ -158,7 +158,7 @@ func TestProbeRuntime_IsUnconstrainedByOwnership(t *testing.T) {
 
 // TestChainFor_OwnershipMismatch_Fatal is the run-path half of the contract,
 // driven through the REAL SelectRuntime (the runtimeCandidates seam, not the
-// selectRuntimeProbe one) so the ownership filter actually runs.
+// surveyRuntimes one) so the ownership filter actually runs.
 //
 // Three things are asserted that no other test covers:
 //
@@ -178,7 +178,7 @@ func TestChainFor_OwnershipMismatch_Fatal(t *testing.T) {
 		resetStrictness(t)
 		onlyRootless(t)
 
-		chain := chainFor(Axes{Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0],
 			"the reachable ROOTLESS runtime must not enter the chain for a ROOTFUL request")
@@ -199,7 +199,7 @@ func TestChainFor_OwnershipMismatch_Fatal(t *testing.T) {
 		resetStrictness(t)
 		onlyRootless(t)
 
-		chain := chainFor(Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), Axes{Workspace: WorkspaceWorktree, Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
 		require.NotEmpty(t, chain)
 		assert.IsType(t, Worktree{}, chain[0], "the requested worktree survives an ownership mismatch")
 
@@ -212,7 +212,7 @@ func TestChainFor_OwnershipMismatch_Fatal(t *testing.T) {
 		resetStrictness(t)
 		onlyRootless(t)
 
-		chain := chainFor(Axes{Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 1)
 		assert.IsType(t, None{}, chain[0],
 			"--degraded does not authorize the OTHER ownership mode, which is the same silent substitution wearing a flag")
@@ -226,7 +226,7 @@ func TestChainFor_OwnershipMismatch_Fatal(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeCandidates(t, ownedBy("docker", RuntimeContainerRootful))
 
-		chain := chainFor(Axes{Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
+		chain := chainFor(surveyRuntimes(), Axes{Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})
 		require.Len(t, chain, 2)
 		assert.True(t, IsContainerPolicyName(chain[0].Name()),
 			"sanity: the fixture CAN produce a container, so the mismatch cases above are about ownership and not about a broken stub")

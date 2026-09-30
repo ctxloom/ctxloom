@@ -261,9 +261,9 @@ func TestResolveSelf_UndecidableIsAWarningAndNotSelf(t *testing.T) {
 	t.Cleanup(clidiag.ResetWarnOnce)
 	var warned bytes.Buffer
 	t.Cleanup(clidiag.SetSink(&warned))
-	prev := dockerSecurityOptions
-	t.Cleanup(func() { dockerSecurityOptions = prev })
-	dockerSecurityOptions = func() (string, error) { return "[name=seccomp]", nil }
+	prevInfo := engineInfo
+	t.Cleanup(func() { engineInfo = prevInfo })
+	engineInfo = func(context.Context, string, string) (string, error) { return "[name=seccomp]", nil }
 	stubSelfCandidates(t, selfID)
 	scriptExec(t, map[string]func() (string, error){
 		dockerPS + selfID: func() (string, error) { return "", errors.New("permission denied on the socket") },
@@ -272,7 +272,7 @@ func TestResolveSelf_UndecidableIsAWarningAndNotSelf(t *testing.T) {
 	mark := strictness.Checkpoint()
 	t.Cleanup(func() { strictness.Close(mark) })
 	for range 2 {
-		d := newDockerRuntime(func(string) bool { return true })
+		d, _ := newDockerRuntime(func(string) bool { return true })
 		assert.Nil(t, d.self, "an undecidable lookup proceeds as not-self")
 	}
 	assert.Empty(t, strictness.Since(mark), "an undecidable self-lookup is not a finding")

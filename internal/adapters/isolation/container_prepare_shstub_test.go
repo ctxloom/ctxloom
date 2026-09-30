@@ -142,7 +142,7 @@ func TestContainer_HarplessRunIsRefused(t *testing.T) {
 
 			mark := strictness.Checkpoint()
 			done := captureStderr(t)
-			policy, fallback := prepareChain(context.Background(), []policy{c, None{}}, RuntimeContainerRootless, proj, "member-harpless")
+			policy, fallback := prepareChain(context.Background(), []policy{c, None{}}, surveyRuntimes(), RuntimeContainerRootless, proj, "member-harpless")
 			_ = done()
 			found := strictness.Since(mark)
 			strictness.Close(mark)

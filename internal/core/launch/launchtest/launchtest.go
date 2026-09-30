@@ -18,7 +18,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -66,6 +65,8 @@ type fixture struct {
 	noApprovals bool
 	// noPermissionModel makes the fixture engine declare no permission model.
 	noPermissionModel bool
+	// reviewer makes the fixture's permission model serve a reviewer.
+	reviewer bool
 	// projectDirtyTree is the project-level `dirty_tree_handler:` default.
 	projectDirtyTree string
 	// profileLLM is the label the "base" profile declares, reported by the
@@ -164,12 +165,15 @@ func GuardedLabelPermissions(p agents.LabelPermissions) Option {
 // NoPermissionModel makes the fixture engine declare no permission model.
 func NoPermissionModel() Option { return func(f *fixture) { f.noPermissionModel = true } }
 
+// FixtureReviewer makes the fixture's permission model serve approver:
+// reviewer.
+func FixtureReviewer() Option { return func(f *fixture) { f.reviewer = true } }
+
 // NoApprovals makes the fixture engine declare no approval codec.
 func NoApprovals() Option { return func(f *fixture) { f.noApprovals = true } }
 
 // ProjectDirtyTree sets the project's `dirty_tree_handler:` default, unparsed.
 func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirtyTree = s } }
-
 
 // RelocatableHome makes the fixture engine declare a relocatable home, the
 // way an engine with its own config dir does: a session-home run advises
@@ -220,7 +224,11 @@ func Deps(t *testing.T, opts ...Option) Env {
 	if f.noStructured {
 		modes = []engine.Mode{engine.Interactive}
 	}
-	reg, err := engine.NewRegistry(newFixtureEngine(modes, f.relocatableHome, !f.noApprovals, !f.noPermissionModel))
+	var model *FixtureModel
+	if !f.noPermissionModel {
+		model = &FixtureModel{HasReviewer: f.reviewer}
+	}
+	reg, err := engine.NewRegistry(newFixtureEngine(modes, f.relocatableHome, !f.noApprovals, model))
 	require.NoError(t, err)
 
 	store := sessions.NewMemStore()
@@ -257,8 +265,15 @@ func (e Env) LastCellRequest() launch.CellRequest { return e.cells.last }
 type Expect struct {
 	Engine     engine.Name
 	Label      string
-	Permission engine.PermissionMode // the resolved policy's mode
+	Permission string // the fixture engine's resolved mode
 	Axes       launch.Axes
+}
+
+// ModeOf is the launch's resolved mode, as the fixture engine (and every
+// shipped one) writes it: its posture document's "mode".
+func ModeOf(l launch.Launch) string {
+	m, _ := l.Permission.Posture.Document["mode"].(string)
+	return m
 }
 
 // Assert checks the launch against the expectation; a zero Axes is not
@@ -267,7 +282,8 @@ func (e Expect) Assert(t *testing.T, l launch.Launch) {
 	t.Helper()
 	require.Equal(t, e.Engine, l.Engine)
 	require.Equal(t, e.Label, l.Label.Label)
-	require.Equal(t, e.Permission, l.Permission.Mode)
+	require.Equal(t, EngineName, l.Permission.Posture.Engine)
+	require.Equal(t, e.Permission, ModeOf(l))
 	if e.Axes != (launch.Axes{}) {
 		require.Equal(t, e.Axes, l.Axes)
 	}
@@ -298,7 +314,8 @@ type fixtureEngine struct {
 	permissions engine.Declared[engine.PermissionModel]
 }
 
-func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals, permissionModel bool) engine.Engine {
+// model nil declares no permission model.
+func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals bool, model *FixtureModel) engine.Engine {
 	a := &approach{}
 	d := engine.Definition{
 		Name:         EngineName,
@@ -312,8 +329,8 @@ func newFixtureEngine(modes []engine.Mode, relocatableHome, approvals, permissio
 	}
 	e := fixtureEngine{Base: engine.Base{Definition: d}, approvals: engine.Absent[engine.ApprovalCodec]("NoApprovals: the fixture declares no codec"),
 		permissions: engine.Absent[engine.PermissionModel]("NoPermissionModel: the fixture declares none")}
-	if permissionModel {
-		e.permissions = engine.Provide[engine.PermissionModel](FixtureModel{})
+	if model != nil {
+		e.permissions = engine.Provide[engine.PermissionModel](*model)
 	}
 	if approvals {
 		e.approvals = engine.Provide[engine.ApprovalCodec](fixtureCodec{})
@@ -490,7 +507,8 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 // host, carrying an empty package inline: the fixture a test hands a runner
 // half (or a coordinator's spawner double) when the launch's contents are
 // not what the test is about.
-func Structured(harp, backend, label, model, workDir string, perm agent.PermissionMode) launch.Launch {
+// perm is the posture's mode, in backend's own vocabulary.
+func Structured(harp, backend, label, model, workDir, perm string) launch.Launch {
 	enc, err := composite.Encode(composite.Package{})
 	if err != nil {
 		panic(err)
@@ -504,7 +522,7 @@ func Structured(harp, backend, label, model, workDir string, perm agent.Permissi
 		Engine:     engine.Name(backend),
 		Label:      engine.LabelConfig{Label: label, Model: model},
 		Mode:       engine.Structured,
-		Permission: engine.PermissionPolicy{Mode: perm, Ceiling: perm},
+		Permission: engine.PermissionPolicy{Posture: engine.Posture{Engine: engine.Name(backend), Document: map[string]any{"mode": perm}}, Sandbox: engine.SandboxFull},
 		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}})}, Workspace: workDir, Cleanup: func() error { return nil }},
 		Package:    carrier,
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
@@ -11,9 +12,9 @@ import (
 // FixtureModel is the fixture engine's permission model: a "mode" key over
 // default|acceptEdits|plan|bypass (default undeclared, plan the floor) and a
 // "deny" list, each key from the nearest declaration, the flag's mode over
-// them. It enforces workspace-write only on the host, and serves no
-// reviewer.
-type FixtureModel struct{}
+// them. It enforces workspace-write only on the host, and serves a reviewer
+// only when HasReviewer says so.
+type FixtureModel struct{ HasReviewer bool }
 
 // ErrFixtureMode refuses a mode outside the fixture's vocabulary.
 var ErrFixtureMode = errors.New("fixture: not a mode")
@@ -27,7 +28,7 @@ func (m FixtureModel) Validate(doc map[string]any) error {
 			return fmt.Errorf("fixture: no key %q", k)
 		}
 		if s, _ := v.(string); k == "mode" && !slices.Contains(m.Postures(), s) {
-			return fmt.Errorf("%w: %q", ErrFixtureMode, v)
+			return fmt.Errorf("%w: %q (known: %s)", ErrFixtureMode, v, strings.Join(m.Postures(), "|"))
 		}
 	}
 	return nil
@@ -50,8 +51,9 @@ func (m FixtureModel) Resolve(req engine.PostureRequest) (map[string]any, error)
 		out["mode"] = "default"
 	}
 	if err := m.Validate(out); err != nil {
+		err = fmt.Errorf("%w (from %s)", err, from(req))
 		if !req.Degraded {
-			return nil, fmt.Errorf("%w (from %s)", err, from(req))
+			return nil, err
 		}
 		if req.Warn != nil {
 			req.Warn("--degraded: %v, so this run drops to the plan floor", err)
@@ -89,4 +91,4 @@ func (FixtureModel) Sandboxes(runtime string) []engine.Sandbox {
 	return []engine.Sandbox{engine.SandboxFull}
 }
 func (FixtureModel) DefaultSandbox() engine.Sandbox { return engine.SandboxFull }
-func (FixtureModel) Reviewer() bool                 { return false }
+func (m FixtureModel) Reviewer() bool               { return m.HasReviewer }

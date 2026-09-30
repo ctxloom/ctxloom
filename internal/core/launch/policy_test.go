@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // resolvePolicy resolves env's agent (optionally over a label) and returns
@@ -30,170 +31,174 @@ func resolvePolicy(t *testing.T, env launchtest.Env, src launch.Source) (engine.
 	return l.Permission, nil
 }
 
-// Each field is taken from the first rung that declares it — the agent,
-// the label, the project — so a binding that declares only its rules
-// inherits its mode, and one that declares only its mode inherits the
-// project's rules.
+// fixtureBlock is a binding block holding the fixture engine's document.
+func fixtureBlock(n agents.NeutralPermissions, doc map[string]any) agents.Permissions {
+	return agents.Permissions{NeutralPermissions: n, Engines: map[string]map[string]any{string(launchtest.EngineName): doc}}
+}
+
+func yes() *bool { b := true; return &b }
+
+// Each neutral field is the first of the binding, the label and the
+// project that declares it; the engine settles its own document from the
+// binding's block over the label's keys.
 func TestResolvePolicy_FieldByField(t *testing.T) {
 	env := launchtest.Deps(t,
-		launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{Allow: []string{"Read"}, Approver: "none"})),
-		launchtest.GuardedLabelPermissions(agents.Permissions{Mode: "acceptEdits", Deny: []string{"Bash(rm *)"}, Allow: []string{"Glob"}, Ask: []string{"WebFetch"}}),
-		launchtest.ProjectPermissionBlock(agents.Permissions{ApprovalTimeout: "20m", Approver: "human"}),
+		launchtest.WithAgent("dev", launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{Approver: "none"}, map[string]any{"deny": []any{"Bash"}}))),
+		launchtest.GuardedLabelPermissions(agents.LabelPermissions{
+			NeutralPermissions: agents.NeutralPermissions{Approver: "human", Sandbox: "workspace-write"},
+			Engine:             map[string]any{"mode": "acceptEdits", "deny": []any{"Edit"}},
+		}),
+		launchtest.ProjectPermissionBlock(agents.NeutralPermissions{ApprovalTimeout: "20m", Sandbox: "full", Network: yes()}),
 	)
 	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev", Label: "guarded"})
 	require.NoError(t, err)
-	assert.Equal(t, engine.PermissionAcceptEdits, p.Mode, "the label's mode")
-	assert.Equal(t, []string{"Read"}, p.Allow, "the agent's allow, not a union")
-	assert.Equal(t, []string{"Bash(rm *)"}, p.Deny, "the label's deny")
-	assert.Equal(t, []string{"WebFetch"}, p.Ask, "the label's ask")
-	assert.Equal(t, engine.ApproverNone, p.Approver)
+	assert.Equal(t, engine.Posture{Engine: launchtest.EngineName, Document: map[string]any{"mode": "acceptEdits", "deny": []any{"Bash"}}}, p.Posture,
+		"the label's mode, the binding's deny: the engine takes each key from the nearest declaration")
+	assert.Equal(t, engine.ApproverNone, p.Approver, "the binding's approver")
+	assert.Equal(t, engine.SandboxWorkspaceWrite, p.Sandbox, "the label's sandbox beats the project's")
 	assert.Equal(t, 20*time.Minute, p.ApprovalTimeout, "the project's timeout")
-	assert.Equal(t, engine.PermissionAcceptEdits, p.Ceiling, "no after_plan: the ceiling is the mode")
-	_, planFirst := p.AfterPlan.Get()
-	assert.False(t, planFirst)
+	assert.True(t, p.Network, "the project's network")
 }
 
+// Nothing declared: the engine's resolved default, the human, the default
+// timeout, the engine's default sandbox, no network.
 func TestResolvePolicy_Defaults(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
 	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
 	require.NoError(t, err)
 	assert.Equal(t, engine.PermissionPolicy{
-		Mode: engine.PermissionDefault, Ceiling: engine.PermissionDefault,
-		Approver: engine.ApproverHuman, ApprovalTimeout: engine.DefaultApprovalTimeout,
-	}, p, "nothing declared: the host default, the human approves, 15 minutes")
+		Posture:         engine.Posture{Engine: launchtest.EngineName, Document: map[string]any{"mode": "default"}},
+		Approver:        engine.ApproverHuman,
+		ApprovalTimeout: engine.DefaultApprovalTimeout,
+		Sandbox:         engine.SandboxFull,
+	}, p)
 }
 
+// The --permissions flag is a mode in the engine's vocabulary, over every
+// declaration; it moves nothing else.
 func TestResolvePolicy_FlagSetsOnlyTheMode(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{Mode: "plan", Deny: []string{"Bash"}})))
-	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev", Permission: engine.PermissionAcceptEdits})
+	env := launchtest.Deps(t, launchtest.WithAgent("dev", launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{Approver: "none"}, map[string]any{"mode": "plan", "deny": []any{"Bash"}}))))
+	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev", Permission: "bypass"})
 	require.NoError(t, err)
-	assert.Equal(t, engine.PermissionAcceptEdits, p.Mode)
-	assert.Equal(t, []string{"Bash"}, p.Deny, "the binding's rules survive a flag")
+	assert.Equal(t, map[string]any{"mode": "bypass", "deny": []any{"Bash"}}, p.Posture.Document)
+	assert.Equal(t, engine.ApproverNone, p.Approver)
 }
 
-func TestResolvePolicy_PlanFirst(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.WithAgent("planner", launchtest.PermissionBlock(agents.Permissions{Mode: "plan", AfterPlan: "acceptEdits"})))
-	p, err := resolvePolicy(t, env, launch.Source{Agent: "planner"})
-	require.NoError(t, err)
-	assert.Equal(t, engine.PermissionPlan, p.Mode)
-	after, ok := p.AfterPlan.Get()
-	require.True(t, ok)
-	assert.Equal(t, engine.PermissionAcceptEdits, after)
-	assert.Equal(t, engine.PermissionAcceptEdits, p.Ceiling, "the ceiling is what an approved plan reaches")
+// A binding carrying engine blocks, none of them for the engine it
+// resolved to, declared nothing that engine can honour: it is refused,
+// naming the blocks it has and the one it lacks — or, under --degraded,
+// runs at the engine's floor, announced.
+func TestResolvePolicy_MissingEngineBlock(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{Engines: map[string]map[string]any{"claude-code": {"mode": "bypass"}}})))
+	_, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
+	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
+	require.ErrorContains(t, err, "claude-code")
+	require.ErrorContains(t, err, "permissions."+string(launchtest.EngineName))
 
-	// A flag that moves the mode off plan leaves nothing for after_plan to
-	// continue from: it is dropped, not refused.
-	p, err = resolvePolicy(t, env, launch.Source{Agent: "planner", Permission: engine.PermissionDefault})
+	var got report.Findings
+	env.Deps.Reporter = &got
+	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev", Degraded: true})
 	require.NoError(t, err)
-	_, ok = p.AfterPlan.Get()
-	assert.False(t, ok)
-	assert.Equal(t, engine.PermissionDefault, p.Ceiling)
+	assert.Equal(t, map[string]any{"mode": "plan"}, p.Posture.Document, "the floor, never the other engine's bypass")
+	require.Len(t, got, 1, "the drop to the floor is announced")
+	assert.Contains(t, got[0].Text, "claude-code")
 }
 
-// On an engine with no read-only tier plan collapses to default, and a
-// plan-first posture with it: there is no plan to approve.
-func TestResolvePolicy_PlanFirstCollapsesWithPlan(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.NoReadOnlyPlan(), launchtest.WithAgent("planner", launchtest.PermissionBlock(agents.Permissions{Mode: "plan", AfterPlan: "acceptEdits"})))
-	p, err := resolvePolicy(t, env, launch.Source{Agent: "planner"})
-	require.NoError(t, err)
-	assert.Equal(t, engine.PermissionDefault, p.Mode)
-	_, ok := p.AfterPlan.Get()
-	assert.False(t, ok)
-	assert.Equal(t, engine.PermissionDefault, p.Ceiling)
-}
-
-// Every declaration that cannot be honoured is refused at launch, naming
-// the value and the rung it came from.
-func TestResolvePolicy_Refusals(t *testing.T) {
+// An engine with no permission model takes no declaration of its own: a
+// block, label keys or the flag are refused; declaring none is fine.
+func TestResolvePolicy_NoModelTakesNoDeclaration(t *testing.T) {
 	for name, tc := range map[string]struct {
 		opts []launchtest.Option
-		want []string
+		src  launch.Source
 	}{
-		"after_plan bypass": {[]launchtest.Option{launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Mode: "plan", AfterPlan: "bypass"}))}, []string{`"bypass"`, "after_plan", `agent "a"`}},
-		"after_plan typo":   {[]launchtest.Option{launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Mode: "plan", AfterPlan: "acceptEdit"}))}, []string{`"acceptEdit"`, "default|acceptEdits"}},
-		"after_plan off plan": {[]launchtest.Option{launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Mode: "default", AfterPlan: "acceptEdits"}))},
-			[]string{"after_plan", "mode: plan"}},
-		"approver":         {[]launchtest.Option{launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Approver: "agent"}))}, []string{`"agent"`, "human|none"}},
-		"timeout syntax":   {[]launchtest.Option{launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{ApprovalTimeout: "soon"}))}, []string{`"soon"`, "approval_timeout"}},
-		"timeout zero":     {[]launchtest.Option{launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{ApprovalTimeout: "0s"}))}, []string{`"0s"`, "60m"}},
-		"timeout over cap": {[]launchtest.Option{launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{ApprovalTimeout: "61m"}))}, []string{`"61m"`, "60m"}},
-		"project timeout":  {[]launchtest.Option{launchtest.WithAgent("a"), launchtest.ProjectPermissionBlock(agents.Permissions{ApprovalTimeout: "2h"})}, []string{`"2h"`, "project config"}},
-		"rule":             {[]launchtest.Option{launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Deny: []string{"Read", "!Bash"}}))}, []string{`"!Bash"`, "deny", `agent "a"`}},
-		"human, no codec":  {[]launchtest.Option{launchtest.NoApprovals(), launchtest.WithAgent("a")}, []string{"approver", "approver: none"}},
-		"rules, no codec":  {[]launchtest.Option{launchtest.NoApprovals(), launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Approver: "none", Allow: []string{"Read"}}))}, []string{"rules", "Read"}},
+		"a block":    {[]launchtest.Option{launchtest.WithAgent("dev", launchtest.Permissions("plan"))}, launch.Source{Agent: "dev"}},
+		"another's":  {[]launchtest.Option{launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{Engines: map[string]map[string]any{"mock": {}}}))}, launch.Source{Agent: "dev"}},
+		"label keys": {[]launchtest.Option{launchtest.WithAgent("dev")}, launch.Source{Agent: "dev", Label: "guarded"}},
+		"the flag":   {[]launchtest.Option{launchtest.WithAgent("dev")}, launch.Source{Agent: "dev", Permission: "plan"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			env := launchtest.Deps(t, tc.opts...)
-			_, err := resolvePolicy(t, env, launch.Source{Agent: "a"})
+			env := launchtest.Deps(t, append(tc.opts, launchtest.NoPermissionModel())...)
+			_, err := resolvePolicy(t, env, tc.src)
 			require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
-			for _, w := range tc.want {
-				assert.Contains(t, err.Error(), w)
-			}
+			require.ErrorContains(t, err, "NoPermissionModel")
 		})
 	}
-}
-
-func TestResolvePolicy_NoCodecNeedsNoApprover(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.NoApprovals(), launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Approver: "none"})))
-	p, err := resolvePolicy(t, env, launch.Source{Agent: "a"})
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.NoPermissionModel())
+	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
 	require.NoError(t, err)
-	assert.Equal(t, engine.ApproverNone, p.Approver)
+	assert.Equal(t, engine.Posture{Engine: launchtest.EngineName}, p.Posture, "no document: the engine has none to resolve")
+	assert.Equal(t, engine.SandboxFull, p.Sandbox)
 }
 
-// A child launched by a child is capped at its parent's ceiling: it may
-// start no wider, and neither an approved plan nor a mode change may take
-// it past it.
-func TestResolvePolicy_ParentCeilingCaps(t *testing.T) {
+// The sandbox must be one the engine can enforce where the run executes:
+// the fixture enforces workspace-write on the host only. There is no
+// degraded fallback — every fallback from a sandbox is a wider one.
+func TestResolvePolicy_SandboxFailsClosed(t *testing.T) {
+	block := launchtest.PermissionBlock(agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Sandbox: "workspace-write"}})
 	env := launchtest.Deps(t,
-		launchtest.WithAgent("wide", launchtest.Permissions("bypass")),
-		launchtest.WithAgent("narrow", launchtest.Permissions("dontAsk")),
-		launchtest.WithAgent("planner", launchtest.PermissionBlock(agents.Permissions{Mode: "plan", AfterPlan: "acceptEdits"})),
-		launchtest.WithAgent("modest", launchtest.PermissionBlock(agents.Permissions{Mode: "plan", AfterPlan: "default"})),
+		launchtest.RuntimesAvailable(launch.RuntimeHost, launch.RuntimeRootless),
+		launchtest.WithAgent("host", launchtest.Runtime(launch.RuntimeHost), block),
+		launchtest.WithAgent("boxed", launchtest.Runtime(launch.RuntimeRootless), block),
+		launchtest.WithAgent("ro", launchtest.PermissionBlock(agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Sandbox: "read-only"}})),
 	)
-	_, err := resolvePolicy(t, env, launch.Source{Agent: "wide", ParentCeiling: engine.PermissionAcceptEdits})
-	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
-	assert.Contains(t, err.Error(), "ceiling")
-
-	_, err = resolvePolicy(t, env, launch.Source{Agent: "planner", ParentCeiling: engine.PermissionDefault})
-	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "after_plan past the parent's ceiling")
-
-	p, err := resolvePolicy(t, env, launch.Source{Agent: "narrow", ParentCeiling: engine.PermissionAcceptEdits})
+	p, err := resolvePolicy(t, env, launch.Source{Agent: "host"})
 	require.NoError(t, err)
-	assert.Equal(t, engine.PermissionDontAsk, p.Ceiling)
-
-	p, err = resolvePolicy(t, env, launch.Source{Agent: "modest", ParentCeiling: engine.PermissionAcceptEdits})
-	require.NoError(t, err)
-	assert.Equal(t, engine.PermissionDefault, p.Ceiling)
-
-	p, err = resolvePolicy(t, env, launch.Source{Agent: "wide"})
-	require.NoError(t, err, "a root launch has no parent to cap it")
-	assert.Equal(t, engine.PermissionBypass, p.Ceiling)
+	assert.Equal(t, engine.SandboxWorkspaceWrite, p.Sandbox)
+	for _, agent := range []string{"boxed", "ro"} {
+		for _, degraded := range []bool{false, true} {
+			_, err := resolvePolicy(t, env, launch.Source{Agent: agent, Degraded: degraded})
+			require.ErrorIsf(t, err, launch.ErrPermissionUnhonoured, "%s degraded=%v", agent, degraded)
+			require.ErrorContainsf(t, err, "cannot be enforced", "%s", agent)
+		}
+	}
 }
 
-// Rules are engine grammar, so they are declared only where an engine is
-// known — an agent binding or an llm label. A project-level rule is refused,
-// naming where it belongs; the project's engine-neutral fields still apply.
-func TestResolvePolicy_ProjectRulesAreRefused(t *testing.T) {
-	for name, block := range map[string]agents.Permissions{
-		"allow": {Allow: []string{"Read"}},
-		"deny":  {Mode: "plan", Deny: []string{"Bash"}},
-		"ask":   {Ask: []string{"WebFetch"}},
+// approver: reviewer needs an engine that has one.
+func TestResolvePolicy_ReviewerNeedsTheEngines(t *testing.T) {
+	block := launchtest.PermissionBlock(agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Approver: "reviewer"}})
+	_, err := resolvePolicy(t, launchtest.Deps(t, launchtest.WithAgent("dev", block)), launch.Source{Agent: "dev"})
+	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
+	require.ErrorContains(t, err, "no reviewer")
+
+	p, err := resolvePolicy(t, launchtest.Deps(t, launchtest.WithAgent("dev", block), launchtest.FixtureReviewer()), launch.Source{Agent: "dev"})
+	require.NoError(t, err)
+	assert.Equal(t, engine.ApproverReviewer, p.Approver)
+}
+
+// Refusals name the value and the rung it came from.
+func TestResolvePolicy_Refusals(t *testing.T) {
+	for name, tc := range map[string]struct {
+		block agents.Permissions
+		want  string
+	}{
+		"mode":     {fixtureBlock(agents.NeutralPermissions{}, map[string]any{"mode": "plann"}), "plann"},
+		"approver": {agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Approver: "boss"}}, `approver "boss" from agent "dev"`},
+		"timeout":  {agents.Permissions{NeutralPermissions: agents.NeutralPermissions{ApprovalTimeout: "2h"}}, `from agent "dev"`},
+		"sandbox":  {agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Sandbox: "jail"}}, `sandbox "jail" from agent "dev"`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			env := launchtest.Deps(t, launchtest.WithAgent("a"), launchtest.ProjectPermissionBlock(block))
-			_, err := resolvePolicy(t, env, launch.Source{Agent: "a"})
+			env := launchtest.Deps(t, launchtest.WithAgent("dev", launchtest.PermissionBlock(tc.block)))
+			_, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
 			require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
-			for _, w := range []string{"project config", name, "agents.<name>.permissions." + name, "llm.configs.<label>.permissions." + name} {
-				assert.Contains(t, err.Error(), w)
-			}
+			require.ErrorContains(t, err, tc.want)
 		})
 	}
-	env := launchtest.Deps(t, launchtest.WithAgent("a", launchtest.PermissionBlock(agents.Permissions{Deny: []string{"Bash"}})),
-		launchtest.ProjectPermissionBlock(agents.Permissions{Mode: "plan", AfterPlan: "acceptEdits", Approver: "none", ApprovalTimeout: "5m"}))
-	p, err := resolvePolicy(t, env, launch.Source{Agent: "a"})
-	require.NoError(t, err, "the project's engine-neutral fields are accepted")
-	assert.Equal(t, engine.PermissionPlan, p.Mode)
+	env0 := launchtest.Deps(t, launchtest.WithAgent("dev", launchtest.PermissionBlock(fixtureBlock(agents.NeutralPermissions{}, map[string]any{"mode": "plann"}))))
+	_, err0 := resolvePolicy(t, env0, launch.Source{Agent: "dev"})
+	require.ErrorIs(t, err0, launchtest.ErrFixtureMode, "the engine's own refusal survives the wrap")
+	env := launchtest.Deps(t, launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{NeutralPermissions: agents.NeutralPermissions{ApprovalTimeout: "2h"}})))
+	_, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
+	require.ErrorIs(t, err, engine.ErrApprovalTimeout, "the timeout's own refusal survives the wrap")
+}
+
+// The human is only an approver on an engine that can put a request to
+// one; approver: none needs nobody.
+func TestResolvePolicy_NoCodecNeedsNoApprover(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.NoApprovals())
+	_, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
+	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured)
+	env = launchtest.Deps(t, launchtest.WithAgent("dev", launchtest.PermissionBlock(agents.Permissions{NeutralPermissions: agents.NeutralPermissions{Approver: "none"}})), launchtest.NoApprovals())
+	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
+	require.NoError(t, err)
 	assert.Equal(t, engine.ApproverNone, p.Approver)
-	assert.Equal(t, 5*time.Minute, p.ApprovalTimeout)
-	assert.Equal(t, []string{"Bash"}, p.Deny)
 }

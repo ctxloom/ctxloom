@@ -117,7 +117,7 @@ func resolvePosture(rep report.Reporter, src Source, d permissionDecls, name eng
 	}
 	doc, err := model.Resolve(engine.PostureRequest{Declared: decls, Mode: src.Permission, Degraded: src.Degraded, Warn: rep.Warnf})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPermissionUnhonoured, err)
+		return nil, fmt.Errorf("%w: %w", ErrPermissionUnhonoured, err)
 	}
 	return doc, nil
 }
@@ -152,7 +152,7 @@ func resolveTimeout(rungs []neutralRung) (time.Duration, error) {
 	}
 	d, err := engine.ParseApprovalTimeout(v)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v (from %s)", ErrPermissionUnhonoured, err, from)
+		return 0, fmt.Errorf("%w: %w (from %s)", ErrPermissionUnhonoured, err, from)
 	}
 	return d, nil
 }

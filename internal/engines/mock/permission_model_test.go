@@ -34,5 +34,6 @@ func TestMockPermissionModel(t *testing.T) {
 	name, err := m.Decode(map[string]any{"mode": "bypass"})
 	require.NoError(t, err)
 	assert.Equal(t, "bypass", name)
-	assert.Empty(t, m.Transitions(doc))
+	assert.Equal(t, []string{"default"}, m.Transitions(doc), "a plan continues at default")
+	assert.Empty(t, m.Transitions(map[string]any{"mode": "bypass"}), "a bypass session moves nowhere")
 }

@@ -26,15 +26,15 @@ func TestResolve_EverySource_OneResolver(t *testing.T) {
 		want launchtest.Expect
 	}{
 		{"agent binding", launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Interactive, Prompt: "x", WorkDir: env.Project},
-			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionPlan, Axes: launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost}}},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: "plan", Axes: launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost}}},
 		{"profile set", launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Interactive, Prompt: "x", WorkDir: env.Project},
-			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionDefault}},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: "default"}},
 		{"label override", launch.Source{Identity: env.Identity, Agent: "dev", Label: "fast", Mode: engine.Interactive, Prompt: "x", WorkDir: env.Project},
-			launchtest.Expect{Engine: launchtest.EngineName, Label: "fast", Permission: engine.PermissionPlan}},
-		{"init probe", launch.Source{Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "ping", WorkDir: env.Project},
-			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: engine.PermissionBypass}},
-		{"internal one-shot", launch.Source{Identity: env.Identity, Agent: "distiller", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "payload", WorkDir: env.Project},
-			launchtest.Expect{Engine: launchtest.EngineName, Label: "fast", Permission: engine.PermissionBypass}},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "fast", Permission: "plan"}},
+		{"init probe", launch.Source{Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Permission: "bypass", Prompt: "ping", WorkDir: env.Project},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "primary", Permission: "bypass"}},
+		{"internal one-shot", launch.Source{Identity: env.Identity, Agent: "distiller", Mode: engine.Structured, Permission: "bypass", Prompt: "payload", WorkDir: env.Project},
+			launchtest.Expect{Engine: launchtest.EngineName, Label: "fast", Permission: "bypass"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -43,7 +43,7 @@ func TestResolve_EverySource_OneResolver(t *testing.T) {
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
 			tc.want.Assert(t, l)
 			require.Equal(t, tc.src.Identity, l.Identity, "the identity the caller minted is the one the launch carries")
-			require.NotZero(t, l.Permission.Mode, "the permission is decided here, not downstream")
+			require.NotEmpty(t, launchtest.ModeOf(l), "the permission is decided here, not downstream")
 			require.NotEmpty(t, l.MCP.URL, "the session endpoint is minted here, not by the runner")
 			require.NotNil(t, l.Plan.Static, "a plan exists even when empty")
 		})
@@ -61,15 +61,15 @@ func TestResolve_Refuses_TheIncompleteShapes(t *testing.T) {
 	require.ErrorContains(t, err, "nobody")
 
 	env = launchtest.Deps(t, launchtest.WithAgent("pty-only", launchtest.NoStructuredDrive()))
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "pty-only", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "pty-only", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 	require.ErrorIs(t, err, launch.ErrModeUnsupported) // fail loud where no native surface exists: Modes, read here, not a driver probe
 
 	env = launchtest.Deps(t, launchtest.WithAgent("boxed", launchtest.Runtime(launch.RuntimeRootful)), launchtest.RuntimesAvailable(launch.RuntimeRootless))
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "boxed", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "boxed", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 	require.ErrorIs(t, err, launch.ErrOwnershipMismatch) // fatal, never a substitution
 
 	env = launchtest.Deps(t, launchtest.WithAgent("imageless", launchtest.Runtime(launch.RuntimeRootless)), launchtest.RuntimesAvailable(launch.RuntimeRootless), launchtest.EngineWithoutContainer())
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "imageless", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "imageless", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 	var unsupported engine.ErrUnsupported
 	require.ErrorAs(t, err, &unsupported) // the engine's own Container() refused; Resolve passes it through untouched
 	require.Equal(t, "container", unsupported.Capability)
@@ -104,14 +104,14 @@ func TestResolve_Permission_HeadlessTakesItsPosture(t *testing.T) {
 			require.NoError(t, err, "depth %d degraded %v: a headless run is never refused for its posture", id.Depth, degraded)
 			discard := l
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), discard) })
-			require.Equal(t, engine.PermissionDefault, l.Permission.Mode, "the host default stands: never floored to plan, never widened to bypass")
+			require.Equal(t, "default", launchtest.ModeOf(l), "the engine default stands: never floored to plan, never widened to bypass")
 			require.Empty(t, got, "nothing was dropped, so nothing is announced")
 
 			l, err = launch.Resolve(context.Background(), deps, launch.Source{Identity: id, Agent: "careful", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: degraded})
 			require.NoError(t, err)
 			discardCareful := l
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), discardCareful) })
-			require.Equal(t, engine.PermissionAcceptEdits, l.Permission.Mode, "a declared prompting posture is honoured as declared")
+			require.Equal(t, "acceptEdits", launchtest.ModeOf(l), "a declared prompting posture is honoured as declared")
 		}
 	}
 }
@@ -122,9 +122,9 @@ func TestResolve_Permission_HeadlessTakesItsPosture(t *testing.T) {
 func TestResolve_MCPEndpoint_PerSession_StableAcrossResume(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
 	env.Deps.Endpoints = &launchtest.StableMinter{}
-	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 	require.NoError(t, err)
-	resumed, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, WorkDir: env.Project,
+	resumed, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", WorkDir: env.Project,
 		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: env.Identity.Harp, NativeKey: "k1"}}})
 	require.NoError(t, err)
 	require.Equal(t, first.MCP, resumed.MCP, "a resumed session keeps its endpoint and credential")
@@ -135,7 +135,7 @@ func TestResolve_MCPEndpoint_PerSession_StableAcrossResume(t *testing.T) {
 	require.Equal(t, first.MCP, entry.MCP, "the endpoint is bound on the session record")
 	require.Equal(t, string(first.Engine), entry.Backend, "the engine Resolve decided is recorded on the session")
 
-	rebound, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, WorkDir: env.Project,
+	rebound, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", WorkDir: env.Project,
 		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: env.Identity.Harp}, RebindEndpoint: true}})
 	require.NoError(t, err)
 	require.NotEqual(t, first.MCP.URL, rebound.MCP.URL, "an explicit rebind mints a fresh address")
@@ -148,7 +148,7 @@ func TestResolve_MCPEndpoint_PerSession_StableAcrossResume(t *testing.T) {
 func TestRebindEndpoint_MintsAndRecordsANewAddressOnly(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
 	env.Deps.Endpoints = &launchtest.StableMinter{}
-	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 	require.NoError(t, err)
 
 	rebound, err := launch.RebindEndpoint(context.Background(), env.Deps, first)
@@ -191,7 +191,7 @@ func TestLaunch_Session_IsTheOnlyProjection(t *testing.T) {
 // the managed surfaces, the headless floor.
 func TestResolve_InternalSource_BindsNoAgent(t *testing.T) {
 	env := launchtest.Deps(t)
-	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Internal: true, Label: "fast", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "distill this", WorkDir: env.Project})
+	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Internal: true, Label: "fast", Mode: engine.Structured, Permission: "bypass", Prompt: "distill this", WorkDir: env.Project})
 	require.NoError(t, err)
 	require.Equal(t, "fast", l.Label.Label)
 	pkg, err := launch.Open(context.Background(), env.Deps, l)
@@ -199,7 +199,7 @@ func TestResolve_InternalSource_BindsNoAgent(t *testing.T) {
 	require.Empty(t, pkg.Selection.Profiles, "no binding: no profiles composed")
 	require.Empty(t, pkg.Context.Text)
 	require.NotNil(t, l.Plan.Static, "a plan exists even when empty")
-	require.Equal(t, engine.PermissionBypass, l.Permission.Mode)
+	require.Equal(t, "bypass", launchtest.ModeOf(l))
 	require.NotEmpty(t, l.MCP.URL)
 }
 
@@ -240,25 +240,22 @@ func TestResolve_Label_Precedence(t *testing.T) {
 	require.Equal(t, "override-model", l.Label.Model, "the caller's model override beats the label's")
 }
 
-// TestResolve_Permission_TheChain: the flag, the binding, the label, the
-// project default, the engine's host default — the first declared wins; an
-// enforcing engine keeps a declared plan.
+// TestResolve_Permission_TheChain: the flag, the binding's block for the
+// engine, the label's keys, the engine's default — the first declared
+// wins. The project declares no mode: it knows no engine.
 func TestResolve_Permission_TheChain(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.WithAgent("strict", launchtest.Permissions("plan")), launchtest.ProjectPermissions("bypass"))
-	at := func(src launch.Source) engine.PermissionMode {
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.WithAgent("strict", launchtest.Permissions("bypass")))
+	at := func(src launch.Source) string {
 		t.Helper()
 		src.Identity, src.Mode, src.WorkDir = env.Identity, engine.Interactive, env.Project
 		l, err := launch.Resolve(context.Background(), env.Deps, src)
 		require.NoError(t, err)
-		return l.Permission.Mode
+		return launchtest.ModeOf(l)
 	}
-	require.Equal(t, engine.PermissionBypass, at(launch.Source{Agent: "dev"}), "the project default fills an undeclared binding")
-	require.Equal(t, engine.PermissionPlan, at(launch.Source{Agent: "strict"}), "the binding beats the project default")
-	require.Equal(t, engine.PermissionPlan, at(launch.Source{Agent: "dev", Label: "guarded"}), "the label beats the project default")
-	require.Equal(t, engine.PermissionAcceptEdits, at(launch.Source{Agent: "strict", Permission: engine.PermissionAcceptEdits}), "the flag beats everything")
-
-	env = launchtest.Deps(t, launchtest.WithAgent("dev"))
-	require.Equal(t, engine.PermissionDefault, at(launch.Source{Agent: "dev"}), "nothing declared anywhere: the engine's host default")
+	require.Equal(t, "default", at(launch.Source{Agent: "dev"}), "nothing declared: the engine's default")
+	require.Equal(t, "plan", at(launch.Source{Agent: "dev", Label: "guarded"}), "the label's keys fill an undeclared binding")
+	require.Equal(t, "bypass", at(launch.Source{Agent: "strict", Label: "guarded"}), "the binding beats the label")
+	require.Equal(t, "acceptEdits", at(launch.Source{Agent: "strict", Permission: "acceptEdits"}), "the flag beats everything")
 }
 
 // TestResolve_Axes_ProjectRuntimeTypoIsRefused: the project's `runtime:`
@@ -330,27 +327,6 @@ func (emptyAssembler) Index(context.Context, *config.Snapshot) (composite.Index,
 }
 func (emptyAssembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
 
-// TestResolve_Permission_PlanCollapsesOnEveryPath: on an engine with no
-// read-only tier a declared plan is not enforced and collapses to default —
-// on an interactive run, and on every structured run alike. One floor, no
-// path skips the collapse.
-func TestResolve_Permission_PlanCollapsesOnEveryPath(t *testing.T) {
-	env := launchtest.Deps(t, launchtest.WithAgent("planner", launchtest.Permissions("plan")), launchtest.NoReadOnlyPlan())
-	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "planner", Mode: engine.Interactive, WorkDir: env.Project})
-	require.NoError(t, err)
-	require.Equal(t, engine.PermissionDefault, l.Permission.Mode, "interactive: plan collapses to default, which prompts")
-
-	child := env.Identity
-	child.Depth = 1
-	for _, id := range []sessions.Identity{env.Identity, child} {
-		l, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: id, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
-		require.NoError(t, err)
-		discard := l
-		t.Cleanup(func() { _ = launch.Discard(context.Background(), discard) })
-		require.Equal(t, engine.PermissionDefault, l.Permission.Mode, "depth %d: structured collapses the same way, never launched with a flag the engine ignores", id.Depth)
-	}
-}
-
 // TestResolve_Carrier_ChosenBySize_RedeemsToTheSamePackage: Resolve measures
 // the encoded package and carries it inline under the ceiling, by claim check
 // above it; the consumer redeems with the adapter the carrier's shape names
@@ -363,12 +339,12 @@ func TestResolve_Carrier_ChosenBySize_RedeemsToTheSamePackage(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
 	env.Deps.Inline, env.Deps.ClaimCheck = inline, claim
 	env.Deps.InlineMax = 1 << 20
-	small, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+	small, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 	require.NoError(t, err)
 	require.Nil(t, small.Package.Claim, "under the ceiling the bytes ride the frame")
 
 	env.Deps.InlineMax = -1 // every package is above the ceiling
-	large, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
+	large, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project})
 	require.NoError(t, err)
 	require.NotNil(t, large.Package.Claim, "above the ceiling a claim rides the frame")
 
@@ -408,16 +384,20 @@ func TestResolve_Permission_DegradedUnparseableIsAnnounced(t *testing.T) {
 		bad   string
 	}{
 		{"agent binding", launchtest.Deps(t, launchtest.WithAgent("typo", launchtest.Permissions("plann"))), "typo", `agent "typo"`, "plann"},
-		{"project config", launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.ProjectPermissions("yolo")), "dev", "project config", "yolo"},
+		{"the flag", launchtest.Deps(t, launchtest.WithAgent("dev")), "dev", "--permissions flag", "yolo"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got report.Findings
 			deps := tc.env.Deps
 			deps.Reporter = &got
-			l, err := launch.Resolve(context.Background(), deps, launch.Source{Identity: tc.env.Identity, Agent: tc.agent, Mode: engine.Interactive, Prompt: "x", WorkDir: tc.env.Project, Degraded: true})
+			src := launch.Source{Identity: tc.env.Identity, Agent: tc.agent, Mode: engine.Interactive, Prompt: "x", WorkDir: tc.env.Project, Degraded: true}
+			if tc.agent == "dev" {
+				src.Permission = tc.bad
+			}
+			l, err := launch.Resolve(context.Background(), deps, src)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
-			require.Equal(t, engine.PermissionPlan, l.Permission.Mode)
+			require.Equal(t, "plan", launchtest.ModeOf(l))
 			require.Len(t, got, 1, "the drop to the floor is announced, never silent")
 			require.Contains(t, got[0].Text, `"`+tc.bad+`"`)
 			require.Contains(t, got[0].Text, tc.from)

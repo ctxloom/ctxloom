@@ -18,7 +18,7 @@ import (
 // carries the mode its caller names (the setup probe: the default agent's).
 func TestResolve_Auth_TheDeclaredModeReachesTheCellVerbatim(t *testing.T) {
 	src := func(env launchtest.Env, agent string) launch.Source {
-		return launch.Source{Identity: env.Identity, Agent: agent, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
+		return launch.Source{Identity: env.Identity, Agent: agent, Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
 	}
 	cases := []struct {
 		name string
@@ -30,13 +30,13 @@ func TestResolve_Auth_TheDeclaredModeReachesTheCellVerbatim(t *testing.T) {
 		{"a binding declaring cloud", func(env launchtest.Env) launch.Source { return src(env, "cloud") }, string(engine.AuthCloud)},
 		{"an unparseable spelling", func(env launchtest.Env) launch.Source { return src(env, "typo") }, "apikey"},
 		{"a launch with no binding (a profile set)", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
+			return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
 		}, ""},
 		{"an internal one-shot naming a mode", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Internal: true, Auth: string(engine.AuthLogin), Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
+			return launch.Source{Identity: env.Identity, Internal: true, Auth: string(engine.AuthLogin), Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
 		}, string(engine.AuthLogin)},
 		{"an internal one-shot naming none", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Internal: true, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
+			return launch.Source{Identity: env.Identity, Internal: true, Mode: engine.Structured, Permission: "bypass", Prompt: "x", WorkDir: env.Project}
 		}, ""},
 	}
 	for _, tc := range cases {

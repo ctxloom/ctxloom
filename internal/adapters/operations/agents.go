@@ -190,6 +190,17 @@ func agentPermissionEngine(reg engine.Registry, cfg *config.Config, name string,
 	return backend, nil
 }
 
+// withBlockMode is p with mode written into its block for backend (see
+// setBlockMode); a nil mode leaves p as it is.
+func withBlockMode(p agents.Permissions, backend string, mode *string) agents.Permissions {
+	if mode == nil {
+		return p
+	}
+	p = p.Clone()
+	setBlockMode(&p, backend, *mode)
+	return p
+}
+
 // setBlockMode writes mode into p's block for backend; "" clears it,
 // dropping a block left empty.
 func setBlockMode(p *agents.Permissions, backend, mode string) {
@@ -561,10 +572,7 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 			}
 		}
 		entry.Runtime = orKeep(req.Runtime, entry.Runtime)
-		if req.Permissions != nil {
-			entry.Permissions = entry.Permissions.Clone()
-			setBlockMode(&entry.Permissions, permEngine, *req.Permissions)
-		}
+		entry.Permissions = withBlockMode(entry.Permissions, permEngine, req.Permissions)
 		if req.Driving != nil {
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}

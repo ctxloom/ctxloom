@@ -87,12 +87,10 @@ func resolvePolicy(rep report.Reporter, src Source, d permissionDecls, eng engin
 	return p, nil
 }
 
-// resolvePosture has the engine resolve its document. A binding that
-// carries engine blocks but none for this engine is refused — or, under
-// --degraded, runs at the engine's floor, announced. An engine without a
-// permission model takes no declaration at all.
-func resolvePosture(rep report.Reporter, src Source, d permissionDecls, name engine.Name, declared engine.Declared[engine.PermissionModel]) (map[string]any, error) {
-	var decls []engine.Declaration
+// declarations are the engine's own documents, nearest first: the
+// binding's block for name, then the label's keys; hasBlock reports the
+// binding's.
+func (d permissionDecls) declarations(name engine.Name) (decls []engine.Declaration, hasBlock bool) {
 	block, hasBlock := d.binding.Engines[string(name)]
 	if hasBlock {
 		decls = append(decls, engine.Declaration{Document: block, From: fmt.Sprintf("agent %q", d.agent)})
@@ -100,6 +98,15 @@ func resolvePosture(rep report.Reporter, src Source, d permissionDecls, name eng
 	if len(d.labels.Engine) > 0 {
 		decls = append(decls, engine.Declaration{Document: d.labels.Engine, From: fmt.Sprintf("llm label %q", d.label)})
 	}
+	return decls, hasBlock
+}
+
+// resolvePosture has the engine resolve its document. A binding that
+// carries engine blocks but none for this engine is refused — or, under
+// --degraded, runs at the engine's floor, announced. An engine without a
+// permission model takes no declaration at all.
+func resolvePosture(rep report.Reporter, src Source, d permissionDecls, name engine.Name, declared engine.Declared[engine.PermissionModel]) (map[string]any, error) {
+	decls, hasBlock := d.declarations(name)
 	model, ok := declared.Get()
 	if !ok {
 		if len(decls) > 0 || src.Permission != "" || len(d.binding.Engines) > 0 {

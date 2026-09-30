@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -202,30 +203,118 @@ func TestTurn_StampsEntriesWithInjectedClock(t *testing.T) {
 	}
 }
 
-// TestTurn_ContextCancel_Returns: cancelling ctx tears the transport down
-// and returns even while the engine's stdout is still open (blocked read).
-func TestTurn_ContextCancel_Returns(t *testing.T) {
-	pr, pw := io.Pipe() // stdout that never produces until closed
-	var stdin bytes.Buffer
-	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+// interruptibleTransport is a transport honouring the real one's contract on
+// an interrupt: when the turn's context ends it says its last words (a result
+// frame, as claude does on SIGINT) and closes stdout. wrote is closed once the
+// init frame is on the pipe; closed counts hard teardowns.
+func interruptibleTransport(t *testing.T, lastWords string) (chatTransportFunc, *int) {
+	t.Helper()
+	closed := new(int)
+	open := func(ctx context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+		pr, pw := io.Pipe()
+		go func() {
+			_, _ = io.WriteString(pw, `{"type":"system","subtype":"init","session_id":"sess-int"}`+"\n")
+			<-ctx.Done()
+			_, _ = io.WriteString(pw, lastWords)
+			_ = pw.Close()
+		}()
 		return &chatTransport{
-			stdin:  nopWriteCloser{&stdin},
+			stdin:  nopWriteCloser{io.Discard},
 			stdout: pr,
-			close:  func() error { _ = pw.Close(); _ = pr.Close(); return nil }, // unblock the reader
+			close:  func() error { *closed++; _ = pw.Close(); return nil },
 		}, nil
 	}
+	return open, closed
+}
+
+// TestTurn_Interrupt_DrainsTheLastWordsAndKeepsTheKey: ending the turn's
+// context is an INTERRUPT, not a teardown. The driver keeps reading until the
+// process ends, so what claude says on its way out (its result frame) is
+// relayed and the native key survives for the next turn's --resume; the turn
+// returns the context's error so the host knows it was cut short. The cancel
+// is injected only once the init frame has been relayed — the turn is provably
+// mid-flight.
+func TestTurn_Interrupt_DrainsTheLastWordsAndKeepsTheKey(t *testing.T) {
+	open, closed := interruptibleTransport(t, `{"type":"result","subtype":"error_during_execution","stop_reason":"interrupted","num_turns":1}`+"\n")
 	d, ex := driverFor(t, structured("", 0), open, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { _, err := d.Turn(ctx, ex, engine.Turn{Prompt: "x"}, nil); done <- err }()
-
-	cancel()
-	select {
-	case err := <-done:
-		assert.ErrorIs(t, err, context.Canceled)
-	case <-time.After(2 * time.Second):
-		t.Fatal("the turn did not return after context cancel")
+	defer cancel()
+	out := make(chan engine.Event, 16)
+	type turnEnd struct {
+		res engine.TurnResult
+		err error
 	}
+	done := make(chan turnEnd, 1)
+	go func() { res, err := d.Turn(ctx, ex, engine.Turn{Prompt: "x"}, out); done <- turnEnd{res, err} }()
+
+	select {
+	case ev := <-out:
+		require.Equal(t, "session", ev.Kind, "the init frame is relayed before the interrupt")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the turn never relayed its init frame")
+	}
+	cancel()
+	var end turnEnd
+	select {
+	case end = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the interrupted turn did not return")
+	}
+	require.ErrorIs(t, end.err, context.Canceled)
+	assert.Equal(t, "sess-int", end.res.NativeKey, "the key the next turn resumes by survives the interrupt")
+	close(out)
+	var complete *agent.TurnMeta
+	for _, ev := range decode(t, out) {
+		if ev.Complete != nil {
+			complete = ev.Complete
+		}
+	}
+	require.NotNil(t, complete, "the result the process gave on its way out is relayed")
+	assert.Equal(t, "interrupted", complete.StopReason)
+	assert.Zero(t, *closed, "an interrupted process is not torn down; it ends on its own")
+}
+
+// crashingTransport ends stdout after what, then reports exit as how the
+// process ended.
+func crashingTransport(what string, exit error) chatTransportFunc {
+	return func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+		return &chatTransport{
+			stdin:  nopWriteCloser{io.Discard},
+			stdout: strings.NewReader(what),
+			close:  func() error { return nil },
+			wait:   func() error { return exit },
+		}, nil
+	}
+}
+
+// TestTurn_ProcessDiedMidTurn_IsTheTurnsError: a process that ends WITHOUT a
+// result frame and exits in failure died mid-turn. That is the turn's error —
+// the host ends the run on it — never a turn that "finished" with whatever it
+// had said so far.
+func TestTurn_ProcessDiedMidTurn_IsTheTurnsError(t *testing.T) {
+	died := errors.New("signal: segmentation fault")
+	open := crashingTransport(
+		`{"type":"system","subtype":"init","session_id":"sess-1"}`+"\n"+
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"half an answ"}]}}`+"\n", died)
+	d, ex := driverFor(t, structured("", 0), open, nil)
+	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
+	require.ErrorIs(t, err, errTurnProcessDied)
+	require.ErrorIs(t, err, died, "the process's own account of its death rides along")
+}
+
+// TestTurn_ResultThenFailedExit_IsACompletedTurn: once the result frame is in
+// hand the turn completed; how the process exited afterwards does not unmake
+// it (claude exits non-zero after an error result, which the result itself
+// already reports).
+func TestTurn_ResultThenFailedExit_IsACompletedTurn(t *testing.T) {
+	open := crashingTransport(
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}`+"\n"+
+			`{"type":"result","subtype":"success","stop_reason":"end_turn","num_turns":1}`+"\n",
+		errors.New("exit status 1"))
+	d, ex := driverFor(t, structured("", 0), open, nil)
+	res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "done", res.Answer)
 }
 
 // TestTurn_TransportOpenError_Propagates: a spawn/open failure surfaces as
@@ -297,4 +386,55 @@ func TestTurn_AccumulatesAcrossResultFrames(t *testing.T) {
 	assert.Equal(t, []agent.PermissionDenial{write}, completes[0].Denials)
 	assert.Equal(t, []agent.PermissionDenial{write, bash}, completes[1].Denials, "the last completion carries the whole turn's denials")
 	assert.Equal(t, 2, completes[1].NumTurns, "the accounting is the last result's")
+}
+
+// TestRelayTurn_StdoutOutlivingTheInterrupt_IsTornDown: a process whose stdout
+// never ends after the interrupt (a grandchild holding it open) is torn down
+// once twice the grace has passed, so an interrupted turn always returns.
+func TestRelayTurn_StdoutOutlivingTheInterrupt_IsTornDown(t *testing.T) {
+	pr, pw := io.Pipe()
+	closed := make(chan struct{})
+	tr := &chatTransport{
+		stdin:  nopWriteCloser{io.Discard},
+		stdout: pr,
+		close:  func() error { close(closed); return pw.Close() },
+	}
+	events := make(chan agent.ChatEvent, 1)
+	go func() { readChatEvents(pr, events, time.Now); close(events) }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan error, 1)
+	go func() { _, err := relayTurn(ctx, tr, events, nil, 50*time.Millisecond); done <- err }()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("an interrupted turn whose stdout never ended did not return")
+	}
+	select {
+	case <-closed:
+	default:
+		t.Fatal("the overdue transport was not torn down")
+	}
+}
+
+// TestRelayTurn_ConsumerGoneAfterInterrupt_IsNotWaitedOn: after the interrupt
+// the process's last words are offered to the consumer for the grace and no
+// longer — a consumer that stopped reading cannot hold the turn open.
+func TestRelayTurn_ConsumerGoneAfterInterrupt_IsNotWaitedOn(t *testing.T) {
+	tr := &chatTransport{stdin: nopWriteCloser{io.Discard}, stdout: strings.NewReader(""), close: func() error { return nil }}
+	events := make(chan agent.ChatEvent, 1)
+	events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "interrupted"}}
+	close(events)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out := make(chan engine.Event) // nobody reads
+	done := make(chan error, 1)
+	go func() { _, err := relayTurn(ctx, tr, events, out, 50*time.Millisecond); done <- err }()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the relay waited on a consumer that stopped reading")
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
+	"github.com/ctxloom/ctxloom/internal/shared/procsig"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 )
 
@@ -25,7 +26,7 @@ type HostRunner struct {
 	stderr *stderrtail.Ring
 	pid    int
 	// stop cancels the command's context, which is how Kill asks the runner
-	// to end: exec runs cmd.Cancel (askToStop) and, if the runner is still
+	// to end: exec runs cmd.Cancel (procsig.Stop) and, if the runner is still
 	// there once WaitDelay has passed, SIGKILLs it.
 	stop     context.CancelFunc
 	killOnce sync.Once
@@ -71,7 +72,7 @@ func startHostRunnerWithGrace(args []string, spawnEnv map[string]string, grace t
 	isolateRunner(cmd)
 	ring := stderrtail.New(stderrtail.DefaultBytes)
 	cmd.Stderr = ring
-	cmd.Cancel = func() error { return askToStop(cmd.Process) }
+	cmd.Cancel = func() error { return procsig.Stop(cmd.Process) }
 	cmd.WaitDelay = grace
 	if err := cmd.Start(); err != nil {
 		stop()
@@ -110,7 +111,7 @@ func hostRunnerCmd(ctx context.Context, args []string, spawnEnv map[string]strin
 }
 
 // Kill stops the runner and reaps its whole session (killSession) —
-// idempotent. It asks first (askToStop) so the runner runs its own teardown
+// idempotent. It asks first (procsig.Stop) so the runner runs its own teardown
 // — ending the engine it hosts, temp cleanup — and SIGKILLs it only if it is still there
 // after hostRunnerWaitDelay; it returns once the runner has been reaped. The
 // session sweep comes last, for whatever the runner's teardown left or a

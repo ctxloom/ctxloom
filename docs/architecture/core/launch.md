@@ -12,9 +12,8 @@ session's MCP endpoint minted once per harp, the prompt and the resume ref.
 `Launch.Session()` is the only constructor of the engine-facing projection
 (`engine.Session`).
 
-The plan this lands is `docs/architecture/audit-2026-09-18/30-decided-architecture.md`
-Part 1.5; the design-by-test body is Part 4.2 C, verbatim in
-`launch_test.go` over the fixture package `launchtest`.
+The design-by-test body is `launch_test.go`, over the fixture package
+`launchtest`.
 
 ## Who asks, who consumes
 
@@ -70,7 +69,7 @@ the human invoked it and owns the terminal — while a delegated child
 (depth > 0) is REFUSED rather than widened; `Source.Degraded` narrows
 either case to `engine.PermissionFloor`. Nothing downstream re-decides it.
 
-## What diverges from Part 1.5, and why
+## What diverges from the design, and why
 
 - **`Deps.Assembler` is still a port; `Package` is still opaque on the
   wire.** `composite.Assemble` is the one assembly behind it (slice 6:
@@ -91,7 +90,7 @@ either case to `engine.PermissionFloor`. Nothing downstream re-decides it.
   records a loss acceptance yet, so every kind the Definition does not
   carry is accepted and listed in `Plan.Losses` — a run that delivers the
   rest is better than none until a binding can say otherwise.
-- **The engine is recorded by Resolve, not by the mint.** Part 1.6's
+- **The engine is recorded by Resolve, not by the mint.** The design's
   `Seed.Engine` assumes the mint knows the engine, but resolution decides it;
   `Store.BindEngine` records it once decided. The coordinator's mint records
   the SELECTED engine (the binding's declared label) so the roster can name

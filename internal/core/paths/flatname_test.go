@@ -95,3 +95,42 @@ func TestProjectPathFor_BoundsADeepRelativePath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Less(t, len(filepath.Base(got)), 255)
 }
+
+func TestFlatName_EscapesNTFSReservedCharactersOnEveryOS(t *testing.T) {
+	// A SHORT drive-letter target: under the tail bound, so the whole path
+	// — drive colon included — reaches the name.
+	short := `C:/proj/CLAUDE.md`
+	name := FlatName(short)
+	assert.False(t, strings.ContainsAny(name, ntfsReserved),
+		"a drive letter's colon must not survive into a filename: %s", name)
+	assert.True(t, strings.Contains(name, "CLAUDE.md"+flatSep),
+		"escaping must keep the basename readable: %s", name)
+
+	for _, r := range ntfsReserved + "\x01\x1f" {
+		got := FlatName("/proj/a" + string(r) + "b")
+		assert.False(t, strings.ContainsAny(got, ntfsReserved),
+			"reserved %q survived into %s", r, got)
+		for _, c := range got {
+			assert.GreaterOrEqual(t, c, rune(0x20), "control char survived into %q", got)
+		}
+	}
+}
+
+// Escaping must not merge targets: the reserved character and a literal
+// spelling of its escape are two different files and must get two names.
+func TestFlatName_EscapeDoesNotCollideWithItsLiteralSpelling(t *testing.T) {
+	colon := FlatName("/proj/a:b")
+	literal := FlatName("/proj/a%3Ab")
+	require.Equal(t, colon[:len(colon)-flatHashLen], literal[:len(literal)-flatHashLen],
+		"fixture: the escaped tail and the literal spelling read the same")
+	assert.NotEqual(t, colon, literal,
+		"the hash is over the UNESCAPED path, so the two still get distinct names")
+}
+
+// A path with no reserved character keeps the exact name it had before
+// escaping existed — records already on disk stay findable.
+func TestFlatName_LeavesOrdinaryPathsUnchanged(t *testing.T) {
+	assert.Equal(t, "__etc__hosts"+flatSep, FlatName("/etc/hosts")[:len("__etc__hosts")+len(flatSep)])
+	assert.Contains(t, FlatName("/home/u/100%_done/x.json"), "100%_done",
+		"only reserved characters are escaped; '%' is legal everywhere and stays")
+}

@@ -1895,27 +1895,21 @@ container_cmd := env_var_or_default("CONTAINER_CMD", "docker")
 # Devcontainer image name
 devcontainer_image := "ctxloom-devcontainer"
 
-# devcontainer_tag keys the image to the TOOL VERSIONS THIS TREE DECLARES, so a
-# worktree can never build against another worktree's toolchain.
+# devcontainer_tag keys the image to ITS CONTENT -- the pins, the Dockerfile, and
+# every file the Dockerfile copies -- so a worktree can never build or gate
+# against another worktree's image. The tag is shared machine-wide: any input
+# left out of the key lets one tree's rebuild silently replace the image every
+# other tree runs under that same name. Two trees with identical inputs SHARE
+# an image; two that differ cannot collide.
 #
-# It used to be ":latest" for every tree. Docker rebuilds a tag when a build arg
-# changes, so with several worktrees pinning different versions in
-# .devcontainer/tool-versions.env the image content reflected whichever tree
-# built MOST RECENTLY -- not the tree being built. Nothing warned, and the
-# second tree's build "succeeded" against a toolchain it never asked for.
-#
-# That is a measurement bug, not an inconvenience: this project verifies by
+# That is a measurement concern, not an inconvenience: this project verifies by
 # running checks against a binary built from the tree under test, and a wrong
 # TOOLCHAIN is invisible where a wrong binary at least has a version stamp.
-# Keying the tag by content means two trees with the same pins SHARE an image
-# (no duplicate builds for the common case) and two trees with different pins
-# cannot collide.
-# The fallback is guarded on the RESULT being non-empty, not on an exit code: a
-# pipeline reports its LAST command's status, so `sha256sum ... | cut || echo`
-# tests cut, which succeeds on empty input. On a host with no sha256sum that
-# spelled the tag as empty, producing "ctxloom-devcontainer:" -- a build that
-# fails obscurely instead of falling back.
-devcontainer_tag := `t=$(sha256sum .devcontainer/tool-versions.env 2>/dev/null | cut -c1-12); [ -n "$t" ] || t=$(shasum -a 256 .devcontainer/tool-versions.env 2>/dev/null | cut -c1-12); [ -n "$t" ] || t=latest; echo "$t"`
+#
+# scripts/devcontainer-tag.sh is the one definition of the key; every recipe
+# naming the image goes through this variable (internal/shared/buildpins
+# asserts both). It fails loudly rather than falling back to a shared name.
+devcontainer_tag := `scripts/devcontainer-tag.sh`
 
 # Build devcontainer image. Tool versions (Go, buf, protoc-gen-go, ...) are
 # NOT hardcoded here or in the Dockerfile — .devcontainer/tool-versions.env is

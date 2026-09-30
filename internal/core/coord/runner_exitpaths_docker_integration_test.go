@@ -320,7 +320,7 @@ func TestRunnerExitPaths(t *testing.T) {
 			t.Run("agent-stop", func(t *testing.T) {
 				r := startExitRun(t, rtc.name, image, 0)
 				persistent := r.persistentMembers(t)
-				_, err := r.c.AgentStop(coord.OwnerIdentity(), r.harp, "exit-path test")
+				_, err := r.c.AgentStop(coord.OwnerIdentity(), r.harp, "exit-path test", 0)
 				require.NoError(t, err)
 				r.requireRunEnded(t, "agent_stop")
 				r.requireContainerGone(t, removalSlack, "agent_stop")

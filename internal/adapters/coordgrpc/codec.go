@@ -371,6 +371,7 @@ func resultFromWire(r *agentcoordpb.Result) *coord.Result {
 		WallTime:         durationFromWire(r.GetWallTime()),
 		NumTurns:         r.GetNumTurns(),
 		ArtifactIDs:      r.GetArtifactIds(),
+		ExitCode:         r.ExitCode,
 	}
 }
 
@@ -389,6 +390,7 @@ func resultToWire(r *coord.Result) *agentcoordpb.Result {
 		WallTime:         durationToWire(r.WallTime),
 		NumTurns:         r.NumTurns,
 		ArtifactIds:      r.ArtifactIDs,
+		ExitCode:         r.ExitCode,
 	}
 }
 
@@ -546,6 +548,10 @@ func RunnerRequestToWire(req coord.RunnerRequest, encodeLaunch func(coord.StartR
 		out.Kind = &agentcoordpb.RunnerRequest_ResumeRun{ResumeRun: &agentcoordpb.ResumeRun{RunId: k.RunID}}
 	case coord.TurnRequest:
 		out.Kind = &agentcoordpb.RunnerRequest_Turn{Turn: &agentcoordpb.Turn{Prompt: k.Turn.Prompt, Resume: k.Turn.Resume}}
+	case coord.InterruptRun:
+		out.Kind = &agentcoordpb.RunnerRequest_InterruptRun{InterruptRun: &agentcoordpb.InterruptRun{RunId: k.RunID}}
+	case coord.StopRun:
+		out.Kind = &agentcoordpb.RunnerRequest_StopRun{StopRun: &agentcoordpb.StopRun{RunId: k.RunID, Reason: k.Reason, Grace: durationToWire(k.Grace)}}
 	}
 	return out
 }
@@ -604,7 +610,7 @@ func AgentRequestFromWire(req *agentcoordpb.AgentRequest) (coord.AgentRequest, e
 	case *agentcoordpb.AgentRequest_ListRuns:
 		out.Kind = coord.RosterRequest{Role: k.ListRuns.GetRole(), IncludeTerminal: k.ListRuns.GetIncludeTerminal()}
 	case *agentcoordpb.AgentRequest_StopRun:
-		out.Kind = coord.StopRun{RunID: k.StopRun.GetRunId(), Reason: k.StopRun.GetReason()}
+		out.Kind = coord.StopRun{RunID: k.StopRun.GetRunId(), Reason: k.StopRun.GetReason(), Grace: durationFromWire(k.StopRun.GetGrace())}
 	case *agentcoordpb.AgentRequest_ControlRun:
 		cr, err := controlRequestFromWire(k.ControlRun)
 		if err != nil {
@@ -681,7 +687,9 @@ func spawnInputString(in *structpb.Struct, key string) (string, error) {
 func controlRequestFromWire(req *agentcoordpb.ControlRun) (coord.ControlRequest, error) {
 	switch v := req.GetVerb().(type) {
 	case *agentcoordpb.ControlRun_Steer:
-		return bodyControl("agent_steer", coord.ControlVerbSteer, v.Steer.GetHarp(), "text", v.Steer.GetText())
+		req, err := bodyControl("agent_steer", coord.ControlVerbSteer, v.Steer.GetHarp(), "text", v.Steer.GetText())
+		req.Interrupt = v.Steer.GetInterrupt()
+		return req, err
 	case *agentcoordpb.ControlRun_Question:
 		return bodyControl("agent_ask", coord.ControlVerbQuestion, v.Question.GetHarp(), "text", v.Question.GetText())
 	case *agentcoordpb.ControlRun_Summarize:

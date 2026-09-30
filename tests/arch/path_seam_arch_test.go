@@ -26,11 +26,12 @@ const pathSeamFile = "pathseam.go"
 // decides where the container sees a host path, its source rule what the
 // daemon calls it. A mount literal written anywhere else picks its own target
 // and skips the seam — which is how translation had grown three paths plus a
-// second seam before it was folded into one. So outside the seam's file, a
-// mount carrying fields is refused, whether spelled mount{...}, &mount{...},
-// or as an element of a []mount{...}. The empty mount{} is a zero value
-// (an error-path return), not an exposure, and passes. _test.go files are
-// exempt: a test states the mount it expects.
+// second seam before it was folded into one. So outside the seam's file, EVERY
+// mount literal is refused, whether spelled mount{...}, &mount{...}, or as an
+// element of a []mount{...} — the empty mount{} included, so the rule needs no
+// judgment about which literals are harmless. A zero value for an error path
+// comes from a named result, not a literal. _test.go files are exempt: a test
+// states the mount it expects.
 func TestArch_MountsAreBuiltByThePathSeam(t *testing.T) {
 	findings, scanned, sawSeam := isolationMountLiterals(t, moduleRoot(t))
 	if !sawSeam {
@@ -42,7 +43,8 @@ func TestArch_MountsAreBuiltByThePathSeam(t *testing.T) {
 	for _, f := range findings {
 		t.Errorf("mount literal outside the path seam: %s\n"+
 			"    build it with the runtime's seam: rt.paths().bind(host, target, readOnly) for a target you "+
-			"decided, rt.paths().expose(host, readOnly) to route the host path.", f)
+			"decided, rt.paths().expose(host, readOnly) to route the host path; for an error path's zero "+
+			"value, name the result (m mount, err error) and return m.", f)
 	}
 }
 
@@ -80,9 +82,9 @@ func isolationMountLiterals(t *testing.T, root string) (findings []string, scann
 	return findings, scanned, sawSeam
 }
 
-// mountLiterals returns the position of every mount composite literal in f
-// that carries fields: typed (mount{...}, including under &), or an elided
-// element of a []mount / [N]mount literal.
+// mountLiterals returns the position of every mount composite literal in f:
+// typed (mount{...}, including under &), or an elided element of a []mount /
+// [N]mount literal.
 func mountLiterals(f *ast.File) []token.Pos {
 	var out []token.Pos
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -90,12 +92,12 @@ func mountLiterals(f *ast.File) []token.Pos {
 		if !ok {
 			return true
 		}
-		if isMountIdent(lit.Type) && len(lit.Elts) > 0 {
+		if isMountIdent(lit.Type) {
 			out = append(out, lit.Pos())
 		}
 		if arr, ok := lit.Type.(*ast.ArrayType); ok && isMountIdent(arr.Elt) {
 			for _, e := range lit.Elts {
-				if el, ok := e.(*ast.CompositeLit); ok && el.Type == nil && len(el.Elts) > 0 {
+				if el, ok := e.(*ast.CompositeLit); ok && el.Type == nil {
 					out = append(out, el.Pos())
 				}
 			}

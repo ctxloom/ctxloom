@@ -179,7 +179,7 @@ Full detail in [isolation](isolation.md). Summary:
 
 | Backend | Host + worktree lever | Container image | Container auth | Gap |
 |---|---|---|---|---|
-| `claude-code` | `CLAUDE_CONFIG_DIR` | `ctxloom-agent:latest` | `CLAUDE_CODE_OAUTH_TOKEN` (the stored setup-token) or `ANTHROPIC_*` env, by name; no credential file is mounted | none |
+| `claude-code` | `CLAUDE_CONFIG_DIR` | `ctxloom-agent:latest` | the agent's `auth:` mode's `engine.Credentials`: `Env` forwarded, each of `Stores` mounted under the container `$HOME` with its var blanked, each of `FileVars` bound read-only on its own with the var rewritten (`containerRelocator`); `login` refused where its store is the macOS Keychain | none |
 | the doubles | none needed — mock's descriptor declares `Home` absent (a bare echo that never touches disk), a NAMED exemption; a double that declared nothing would be refused at registration | `ctxloom-agent:latest`, installing no vendor CLI (its descriptor's install fragment asserts `cat` only) | a `Vendorless` auth declaration — the one plan that never fails to resolve | none |
 
 `composableEngines()` (`internal/adapters/isolation/enginespec.go`) names the engines

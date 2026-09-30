@@ -429,8 +429,8 @@ func resolveSetupEngine(selected string, interactive bool) (engine string, repos
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +
 // config.yaml + default remotes.yaml) to the operations core, then publishes
-// the generation that holds the scaffold — the one Reload after a scaffold
-// (Part 1.8). Every post-scaffold step (addPersonalRemotes,
+// the generation that holds the scaffold — the one Reload after a scaffold.
+// Every post-scaffold step (addPersonalRemotes,
 // cloneConfiguredRemotes, pullSeededDependencies, applyInitHooks) and the
 // discovery launch read that generation; nothing in this process observes
 // the pre-scaffold state again.

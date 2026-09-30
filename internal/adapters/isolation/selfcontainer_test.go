@@ -249,28 +249,55 @@ func TestSettleReach_SelfWithoutANetworkIsRefused(t *testing.T) {
 	}
 }
 
-// TestResolveSelf_ErrorPolicy: a daemon that cannot answer "is this one of
-// yours" routes a finding and leaves the runtime not-self, so today's routes
-// (and their honest refusals) decide; a confirmed self is kept.
-func TestResolveSelf_ErrorPolicy(t *testing.T) {
+// TestResolveSelf_UndecidableIsAWarningAndNotSelf: a daemon whose CLI cannot
+// list containers (socket permission, a restricted proxy) leaves the question
+// "is this one of yours" undecidable. The ruled outcome: construction records
+// NO finding (nothing for strict mode to refuse on), the runtime is not-self so
+// the host routes and their honest refusals decide, and ONE warning — however
+// many times the runtime is built in this process — names the likely cause.
+func TestResolveSelf_UndecidableIsAWarningAndNotSelf(t *testing.T) {
 	resetStrictness(t)
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+	var warned bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&warned))
+	prev := dockerSecurityOptions
+	t.Cleanup(func() { dockerSecurityOptions = prev })
+	dockerSecurityOptions = func() (string, error) { return "[name=seccomp]", nil }
+	stubSelfCandidates(t, selfID)
+	scriptExec(t, map[string]func() (string, error){
+		dockerPS + selfID: func() (string, error) { return "", errors.New("permission denied on the socket") },
+	})
+
+	mark := strictness.Checkpoint()
+	t.Cleanup(func() { strictness.Close(mark) })
+	for range 2 {
+		d := newDockerRuntime(func(string) bool { return true })
+		assert.Nil(t, d.self, "an undecidable lookup proceeds as not-self")
+	}
+	assert.Empty(t, strictness.Since(mark), "an undecidable self-lookup is not a finding")
+	require.NoError(t, strictness.Mode{}.FindingsError(mark), "strict mode must not refuse on it")
+
+	got := warned.String()
+	assert.Equal(t, 1, strings.Count(got, "warning:"), "warned exactly once per process; got %q", got)
+	assert.Contains(t, got, "permission denied on the socket")
+	assert.Contains(t, got, selfLookupRemedy("docker"))
+}
+
+// TestResolveSelf_DecidedAnswersAreKept: a confirmed self is kept and a
+// candidate the daemon does not know is not-self, both silently.
+func TestResolveSelf_DecidedAnswersAreKept(t *testing.T) {
 	orig := findSelf
 	t.Cleanup(func() { findSelf = orig })
-
-	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) {
-		return selfContainer{}, false, errors.New("permission denied on the socket")
-	}
-	mark := strictness.Checkpoint()
-	assert.Nil(t, resolveSelf(Docker{}))
-	found := strictness.Since(mark)
-	require.Len(t, found, 1)
-	assert.Contains(t, found[0].Text, "permission denied on the socket")
+	var warned bytes.Buffer
+	t.Cleanup(clidiag.SetSink(&warned))
 
 	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) { return ciSelf, true, nil }
 	assert.Equal(t, &ciSelf, resolveSelf(Docker{}))
 
 	findSelf = func(context.Context, Runtime) (selfContainer, bool, error) { return selfContainer{}, false, nil }
 	assert.Nil(t, resolveSelf(Docker{}))
+	assert.Empty(t, warned.String())
 }
 
 // TestDescribe_SelfRoutes: the reach names the container network a runner

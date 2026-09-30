@@ -865,8 +865,8 @@ func runManageGitignoreInstall(cmd *cobra.Command, _ []string) error {
 // manageCommitCmd is the scriptable counterpart to `ctxloom init`'s
 // dirty-tree interview question: the ONLY other place allowed to write
 // paths.DirtyTreeCommitAckPath, since the record is no longer a hand-editable
-// config.yaml key (config-layer-scope design doc, "Consent leaves the
-// chain"). Both writers exist because the record must be settable without
+// config.yaml key (see config.DirtyTreeCommitAcknowledged for why consent
+// leaves the config chain). Both writers exist because the record must be settable without
 // re-running init on an already-initialized project.
 var manageCommitCmd = groupNode(&cobra.Command{
 	Use:   "commit",

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/hostnet"
 )
@@ -551,20 +552,38 @@ func csvRecord(fields []string) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
+// runtimeProbeTimeout bounds each engine probe that feeds runtime SELECTION
+// (reachability and ownership). Selection is a FATAL gate — a container request
+// that selects nothing is refused, never run on the host — so this bound exists
+// only to catch a WEDGED engine, never to judge a slow one: a loaded host takes
+// seconds to answer `info` (rootless podman sets up its user namespace and
+// takes its storage lock on every call). It is no stricter than the launch's
+// own container probe (sharedFSProbeTimeout); a gate that gives up before the
+// step it guards would have succeeded refuses runs the engine could serve.
+const runtimeProbeTimeout = 15 * time.Second
+
 // runtimeReachable reports whether a container runtime CLI is on PATH and its
-// daemon answers `<bin> info`. Any failure (missing binary, daemon down) →
-// false → the runtime is not selected, and a requested container becomes a
-// non-degradable fatal finding (ClassIsolation) the choke owner aborts on.
+// daemon answers `<bin> info`. Any failure (missing binary, daemon down, no
+// answer within runtimeProbeTimeout) → false → the runtime is not selected, and
+// a requested container becomes a non-degradable fatal finding
+// (ClassIsolation) the choke owner aborts on. A timeout is warned separately:
+// the refusal otherwise reads as "no runtime installed" about an engine that
+// is present and merely not answering.
 func runtimeReachable(bin string) bool {
 	if _, err := exec.LookPath(bin); err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), runtimeProbeTimeout)
 	defer cancel()
 	// `info` succeeds only when the daemon/engine is reachable; discard its output.
 	cmd := exec.CommandContext(ctx, bin, "info")
 	cmd.Stdout, cmd.Stderr = nil, nil
-	return cmd.Run() == nil
+	err := cmd.Run()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		clidiag.WarnRemedyOnce("ctxloom", fmt.Sprintf("check that `%s info` answers; a wedged engine needs restarting", bin),
+			"`%s info` did not answer within %s; treating %s as unreachable", bin, runtimeProbeTimeout, bin)
+	}
+	return err == nil
 }
 
 // InContainer reports whether THIS process is already running inside a

@@ -262,6 +262,13 @@ ctxloom's own codes, in full. A wrapped engine's exit code passes through
 unchanged, so these are ctxloom's answers only when ctxloom is the one
 answering.
 
+`ctxloom run` reports the engine's status only when the engine ran and exited:
+its exit code, or 128+signum when a signal ended it, as a shell would. The code
+alone cannot separate an engine's own `2` or `3` from ctxloom's; what separates
+them is that ctxloom's refusals and fatal findings happen before the engine
+launches. A run that fails without an engine status (cancelled, never
+launched) exits `1`.
+
 | Code | Meaning |
 | ---- | ------- |
 | `0` | Success: the command ran and delivered its effect. |

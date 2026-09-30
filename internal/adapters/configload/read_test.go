@@ -272,8 +272,8 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 }
 
 func TestResilientStartup_MalformedConfig(t *testing.T) {
-	// A file that is not YAML is refused by name (Part 1.8: only an ABSENT
-	// layer is the shipped default); a startup never proceeds on a config it
+	// A file that is not YAML is refused by name (only an ABSENT layer is
+	// the shipped default); a startup never proceeds on a config it
 	// could not read.
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName

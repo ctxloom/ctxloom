@@ -107,8 +107,7 @@ const (
 	// TierCommitted) and CacheDir (derived, TierDerived): LOCAL-ONLY state,
 	// gitignored, that nothing can reconstruct. Before this tier had a name its
 	// files were placed ad hoc — some at the .ctxloom root, one inside cache/,
-	// one loose — each looking like it belonged to one of the other two
-	// (config-layer-scope design doc, "The .ctxloom classification"). A file
+	// one loose — each looking like it belonged to one of the other two. A file
 	// under here is a fact about THIS checkout on THIS machine that must never
 	// be committed (a clone would arrive carrying somebody else's answer) and
 	// that a cache wipe or a `deps pull` cannot regenerate — see Tier's doc
@@ -164,8 +163,7 @@ const (
 	// DirtyTreeCommitAckFileName is the name (without extension) of the
 	// per-checkout record that a human authorized ctxloom to auto-commit a
 	// dirty tree on their behalf (dirty_tree_handler: "commit") — see
-	// DirtyTreeCommitAckPath. It moved out of config.yaml (config-layer-scope
-	// design doc, "Already wrong #1"): a config value the env layer or
+	// DirtyTreeCommitAckPath. It moved out of config.yaml: a config value the env layer or
 	// --config-set can also set is not a durable human act, and the project
 	// config file is committed and multi-author, so a value living there
 	// would ship a prior authorization to every clone.
@@ -1171,9 +1169,8 @@ func (e Entry) ResolveRoot(appDir, home string) string {
 }
 
 // Layout is the classification of every path this tree's own writers produce
-// under .ctxloom, each appearing exactly once — the table the
-// config-layer-scope design doc's ".ctxloom classification" section derived by
-// hand, given a name so a doctor check (and any future arch test) has
+// under .ctxloom, each appearing exactly once — a classification once derived
+// by hand, given a name so a doctor check (and any future arch test) has
 // something to walk instead of re-deriving it by inspection every time.
 //
 // docs/layout.md is the user-facing account of the same classification — what a

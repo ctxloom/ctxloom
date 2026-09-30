@@ -64,7 +64,7 @@ func TestRunLaunchSpec_NonInteractiveNilStdin(t *testing.T) {
 // 255). The two branches classify a killed engine identically, so the status a
 // user sees does not depend on whether the run happened to be interactive.
 // Skips where there is no POSIX shell to signal itself with — the mapping there
-// is documented as a no-op (see ptyrunner.ExitStatusFor).
+// is documented as a no-op (see exitstatus.Of).
 func TestRunLaunchSpec_NonInteractiveSignalKilledChildYields128PlusSignum(t *testing.T) {
 	shPath, err := exec.LookPath("sh")
 	if err != nil {

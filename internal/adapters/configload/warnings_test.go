@@ -53,7 +53,7 @@ func TestLoad_UnreadableConfigTaggedRead(t *testing.T) {
 	assert.Contains(t, cfg.GetWarnings()[0].Text, "failed to read config")
 }
 
-// Broken YAML in a PRESENT file is a refusal naming the file (Part 1.8: an
+// Broken YAML in a PRESENT file is a refusal naming the file (an
 // absent layer is the shipped default; a present unparsable one is never
 // silently dropped).
 func TestLoad_BrokenYAMLTaggedParse(t *testing.T) {

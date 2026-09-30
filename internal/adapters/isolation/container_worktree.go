@@ -153,16 +153,16 @@ func (b worktreeBase) mountBase(ctx context.Context, rt Runtime, projectDir, dir
 // already implements (its doc: own .ctxloom always wins, no further worktree
 // inspection); overriding it would make a deliberately separate project silently
 // adopt its parent's config.
-func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (mount, bool, error) {
+func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (m mount, ok bool, err error) {
 	hostTarget := filepath.Join(worktreeDir, paths.AppDirName)
 	switch _, err := os.Stat(hostTarget); {
 	case err == nil:
-		return mount{}, false, nil // the checkout's own config wins
+		return m, false, nil // the checkout's own config wins
 	case !errors.Is(err, os.ErrNotExist):
 		// Unreadable is NOT absent: answering "deliver it" would shadow a config
 		// that may be there, and answering "skip" would strand the cell without
 		// one. Fail so the chain degrades loudly instead of guessing.
-		return mount{}, false, fmt.Errorf("container-worktree: reading %s in the worktree: %w", paths.AppDirName, err)
+		return m, false, fmt.Errorf("container-worktree: reading %s in the worktree: %w", paths.AppDirName, err)
 	}
 	source := filepath.Join(projectDir, paths.AppDirName)
 	info, err := os.Stat(source)
@@ -171,11 +171,11 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (mount, bool
 		// The project genuinely has no config. Nothing to deliver, and the
 		// in-container refusal that follows is then CORRECT and about the
 		// project itself, not an artefact of the worktree boundary.
-		return mount{}, false, nil
+		return m, false, nil
 	case err != nil:
-		return mount{}, false, fmt.Errorf("container-worktree: reading the project %s: %w", paths.AppDirName, err)
+		return m, false, fmt.Errorf("container-worktree: reading the project %s: %w", paths.AppDirName, err)
 	case !info.IsDir():
-		return mount{}, false, nil
+		return m, false, nil
 	}
 	// Pre-create the mountpoint as the invoking user, for the reason
 	// containerConfigOverlay spells out: a target the daemon has to create is
@@ -184,12 +184,12 @@ func projectConfigMount(rt Runtime, projectDir, worktreeDir string) (mount, bool
 	// WIP-safe teardown then cannot remove. Empty and untracked, so git never
 	// reports it and the teardown stays WIP-safe.
 	if err := os.MkdirAll(hostTarget, 0o755); err != nil {
-		return mount{}, false, fmt.Errorf("container-worktree: creating the %s mountpoint: %w", paths.AppDirName, err)
+		return m, false, fmt.Errorf("container-worktree: creating the %s mountpoint: %w", paths.AppDirName, err)
 	}
 	seam := rt.paths()
 	target, err := seam.targetFor(hostTarget)
 	if err != nil {
-		return mount{}, false, fmt.Errorf("container-worktree: the checkout's %s has no route into the container: %w", paths.AppDirName, err)
+		return m, false, fmt.Errorf("container-worktree: the checkout's %s has no route into the container: %w", paths.AppDirName, err)
 	}
 	return seam.bind(source, target, true), true, nil
 }

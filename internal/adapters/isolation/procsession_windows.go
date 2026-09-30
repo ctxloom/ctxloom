@@ -3,7 +3,6 @@
 package isolation
 
 import (
-	"os"
 	"os/exec"
 )
 
@@ -16,7 +15,3 @@ func isolateRunner(_ *exec.Cmd) {}
 // unix-style session kill without Job Objects. A hard-killed host runner's
 // orphaned grandchild is the honest gap there.
 func killSession(_ int) {}
-
-// askToStop ends the runner outright on Windows: os.Process.Signal delivers
-// only Kill there, so there is no request a runner could honour.
-func askToStop(p *os.Process) error { return p.Kill() }

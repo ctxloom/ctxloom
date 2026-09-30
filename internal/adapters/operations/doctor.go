@@ -1058,8 +1058,7 @@ func doctorCheckIngestionLimit(reg engine.Registry, cfg *config.Config) DoctorCh
 
 // doctorCheckLocalTierState reports every paths.TierLocal entry (paths.Layout)
 // that is absent — the thing a fresh clone (RootProject rows) or a fresh
-// machine (RootHome rows) has no way to learn today (config-layer-scope
-// design doc, "The .ctxloom classification"): local-only state nothing
+// machine (RootHome rows) has no way to learn today: local-only state nothing
 // rebuilds, so its absence is silent everywhere else (a clone gets no warning
 // that it started a new task-log project-id, lost the dirty-tree-commit
 // acknowledgement, has no distilled session history, or degraded review's

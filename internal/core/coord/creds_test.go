@@ -46,7 +46,7 @@ func TestCredentialRevocation_RevokesTheChildsCredential(t *testing.T) {
 	_, ok := c.Identify(env[EnvCoordCred])
 	require.True(t, ok, "a live credential verifies")
 
-	_, err = c.AgentStop(ownerIdentity(), out.Harp, "")
+	_, err = c.AgentStop(ownerIdentity(), out.Harp, "", 0)
 	require.NoError(t, err)
 
 	_, ok = c.Identify(env[EnvCoordCred])

@@ -331,10 +331,13 @@ wins over the stored one) and unsets whatever would outrank or replace it:
   (`providerStores`: `~/.aws`, the AWS shared config and credentials;
   `~/.config/gcloud`, gcloud's application-default credentials), read-only
   except `~/.aws/sso/cache`, which the AWS SDK rewrites on an SSO refresh and
-  is therefore a read-write store nested in the read-only `~/.aws`. A file
-  named by `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` or
-  `GOOGLE_APPLICATION_CREDENTIALS` still passes through as a host path, which
-  a container cannot open unless it lies inside one of those stores.
+  is therefore a read-write store nested in the read-only `~/.aws`. A
+  variable that names a credential file (claude's `credentialFileVars`) is
+  declared in `engine.Credentials.FileVars`: the host keeps the human's path,
+  and a container binds that one file read-only where the runtime's path seam
+  routes it and points the variable there (`containerRelocator.relocateFiles`),
+  refusing a path the seam cannot route (`present.ErrUnreachableRoot`) or one
+  naming no absolute, existing regular file.
 
 Every mode but `login` unsets `CLAUDE_SECURESTORAGE_CONFIG_DIR`: `""` would be
 `$HOME/.claude`, the human's own credential.

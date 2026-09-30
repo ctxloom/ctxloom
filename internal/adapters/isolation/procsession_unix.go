@@ -3,7 +3,6 @@
 package isolation
 
 import (
-	"os"
 	"os/exec"
 	"syscall"
 )
@@ -44,7 +43,3 @@ func isolateRunner(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setsid = true
 	setRunnerPdeathsig(cmd.SysProcAttr)
 }
-
-// askToStop is how HostRunner.Kill asks a runner to end: SIGTERM, which the
-// runner's signal context turns into its orderly teardown.
-func askToStop(p *os.Process) error { return p.Signal(syscall.SIGTERM) }

@@ -94,6 +94,11 @@ type Result struct {
 	WallTime         time.Duration
 	NumTurns         uint32
 	ArtifactIDs      []string
+	// ExitCode is the engine process's exit status — its own code, or
+	// 128+signum when a signal ended it. Nil when no engine exit produced
+	// this result: a cancelled run, a launch that failed, a result the
+	// coordinator synthesized.
+	ExitCode *int32
 }
 
 // Usage is a run's token and cost accounting; PerModel breaks it down by

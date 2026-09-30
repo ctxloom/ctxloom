@@ -152,6 +152,12 @@ type Credentials struct {
 	// a login's storage, a cloud provider's credential files. Each must exist
 	// where the run starts; an environment that cannot present one refuses.
 	Stores []SharedStore
+	// FileVars names the Env variables whose value is the host path of a
+	// credential FILE the mode reads (a cloud provider's config or key
+	// file). The value is the human's, never rewritten here: an environment
+	// that runs the engine where that path means nothing presents the file
+	// read-only and points the variable at it.
+	FileVars []string
 }
 
 // SharedStore is one of the human's credential stores a run shares rather

@@ -38,7 +38,6 @@
                 "MESSAGE_KIND_RESULT",
                 "MESSAGE_KIND_ERROR",
                 "MESSAGE_KIND_QUESTION",
-                "MESSAGE_KIND_APPROVAL_REQUEST",
                 "MESSAGE_KIND_USER_INJECTED",
                 "MESSAGE_KIND_USER_CONTROL",
                 "MESSAGE_KIND_EXITED",

@@ -31,7 +31,7 @@ type Message struct {
 	// InReplyTo target, and audit handle are all this one string.
 	ID string
 	// Kind is the closed message vocabulary of the layer above (message,
-	// result, steer, approval_request, ask:spawn, ...). This package does not
+	// result, steer, user_injected, ask:spawn, ...). This package does not
 	// police the vocabulary — it would have to change with every consumer —
 	// but it does require one to be present.
 	Kind string

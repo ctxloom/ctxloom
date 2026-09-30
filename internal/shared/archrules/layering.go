@@ -215,7 +215,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/discover":                           "sanctioned: a package's own subpackage — the servers record the endpoint they bound in the file discover reads",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
-			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":                                   "sanctioned: cli/tui is the watch UI on the coordination proto",
 			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "the host relay's distill handlers bound their work to mcpschema.DistillBudget, the one number both sides of the relay share",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":                                "sanctioned: runner/mcp is the session endpoint and speaks the wire (the proto lives only in adapters)",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/mcpschema":                         "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
@@ -356,7 +355,6 @@ var LayeringRules = []LayeringRule{
 		From:   []string{"cmd", "internal", "pkg"},
 		Forbid: []string{"internal/adapters/coordgrpc/pb"},
 		Allowed: map[string]string{
-			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":             "sanctioned: cli/tui is the watch UI on the coordination proto",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":          "sanctioned: runner/mcp is the session endpoint and speaks the wire",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "sanctioned: mcpschema projects the proto into the tool schemas, beside it under coordgrpc",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",

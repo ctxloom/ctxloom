@@ -82,11 +82,11 @@ field decodes to. This table is the security-relevant audit.
 
 | Enum | Zero value | Polarity | Evidence |
 | --- | --- | --- | --- |
-| `ApprovalDecision.Decision` | `DECISION_UNSPECIFIED` | **fails closed** | `enginehost.go` is an explicit allow-list; `approval.go` rejects it by name |
+| `ApprovalRequest.ApprovalKind` | `APPROVAL_KIND_UNSPECIFIED` | **fails closed** | `coordgrpc.ApprovalRequestFromWire` refuses it at decode |
 | `Summary.Scope` | `SCOPE_UNSPECIFIED` | **fails closed** | `runner/mcp/server.go` hard-rejects |
 | `Result.RunStatus` | `RUN_STATUS_UNSPECIFIED` | **fails open** | every consumer tests `== RUN_STATUS_FAILED`, so `run_owned.go` exits 0 for UNSPECIFIED, CANCELLED and TIMED_OUT; `children.go` records no failure reason |
 | `MessageChannel` | `MESSAGE_CHANNEL_UNSPECIFIED` | **read two opposite ways** | `children.go` treats unset as *not* final (dropped from the turn accumulator); `operations/sessionfeed.go` renders it as user-facing assistant output |
-| `ArtifactKind`, `InteractionRecorded.Resolution`, `PeerSendResult.Delivery`, `ApprovalKind`, `MessageRole` | — | neutral (always explicitly set, or lookup-fallback only) | — |
+| `ArtifactKind`, `InteractionRecorded.Resolution`, `PeerSendResult.Delivery`, `MessageRole` | — | neutral (always explicitly set, or lookup-fallback only) | — |
 | `StepCompleted.Outcome`, `StatusChanged.Phase`, `SteerResult.Applied`, `SpawnAgentRequest.NotifyOn` | — | **dead enums** — no value referenced anywhere | — |
 
 ## Contracts asserted in the proto that the code does not implement

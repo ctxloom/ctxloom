@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
@@ -218,7 +219,11 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCl
 	// closes *os.File handles that track their own closed state. Once makes
 	// that this code's invariant rather than a borrowed one, and leaves a
 	// single result to inspect instead of two to discard.
-	closeOnce := sync.OnceValue(func() error { return closePTY(ptty) })
+	var masterClosed atomic.Bool
+	closeOnce := sync.OnceValue(func() error {
+		masterClosed.Store(true)
+		return closePTY(ptty)
+	})
 	defer func() { _ = closeOnce() }()
 
 	c := ptyCommand(ctx, ptty, cmd)
@@ -237,7 +242,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCl
 	}
 
 	var resizeErr firstError
-	startResizeApplier(ptty, resize, done, &resizeErr)
+	stopResize := startResizeApplier(ptty, resize, masterClosed.Load, &resizeErr)
 
 	// Deterministically unblock the stdin copier's parked Read when this
 	// function returns: a goroutine parked inside Read cannot observe
@@ -272,6 +277,7 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdinCl
 
 	// Wait for copy to finish
 	<-copyDone
+	stopResize()
 
 	return runResult(waitErr, closeErr, tw, &resizeErr)
 }
@@ -329,41 +335,49 @@ func applyInitialSize(ctx context.Context, ptty pty.Pty, resize <-chan agent.Win
 
 // startResizeApplier applies every SIGWINCH after the initial size (consumed
 // by applyInitialSize) pushed from the frontend over the wire, recording the
-// first reportable failure in sink.
-func startResizeApplier(ptty pty.Pty, resize <-chan agent.WindowSize, done <-chan struct{}, sink *firstError) {
+// first reportable failure in sink. The returned stop ends the applier and
+// waits for it, so sink is final once stop returns: without that join the
+// owner read sink while a failure could still be on its way into it, and
+// whether the run reported that failure came down to scheduling.
+//
+// A failure is reportable unless masterClosed says the owner had already
+// closed the master. That is the owner's own teardown racing a queued event,
+// and it is judged by the owner's state, not by the error: a resize on a
+// closed master fails inside os.File's raw-conn Control with the runtime's
+// internal "use of closed file", which is not fs.ErrClosed and has no exported
+// sentinel, so matching the error let it through and it replaced the child's
+// exit code. Any other failure is a genuinely broken master, which leaves the
+// child painting at a stale geometry for the rest of the session. Either way
+// the ioctl will keep failing, so stop rather than retry in silence.
+func startResizeApplier(ptty pty.Pty, resize <-chan agent.WindowSize, masterClosed func() bool, sink *firstError) (stop func()) {
 	if resize == nil {
-		return
+		return func() {}
 	}
+	quit := make(chan struct{})
+	exited := make(chan struct{})
 	go func() {
+		defer close(exited)
 		for {
 			select {
-			case <-done:
+			case <-quit:
 				return
 			case ws, ok := <-resize:
 				if !ok {
 					return
 				}
-				err := resizePTY(ptty, ws)
-				if err == nil {
-					continue
+				if err := resizePTY(ptty, ws); err != nil {
+					if !masterClosed() {
+						sink.set(err)
+					}
+					return
 				}
-				// Two distinct failures share this branch. One is the caller's
-				// own shutdown racing a queued event: RunInteractive closes the
-				// pty before the deferred close(done) that stops this goroutine,
-				// so a late resize lands on a closed master — the same expected
-				// fallout isBenignPTYError already names for c.Wait, and not a
-				// defect. The other is a genuinely broken master, which leaves
-				// the child painting at a stale geometry for the rest of the
-				// session with nothing to say why. Only the second is
-				// reportable; either way the ioctl will keep failing, so stop
-				// rather than retry in silence.
-				if !isBenignPTYError(err) {
-					sink.set(err)
-				}
-				return
 			}
 		}
 	}()
+	return func() {
+		close(quit)
+		<-exited
+	}
 }
 
 // startStdinCopier copies frontend stdin into the PTY. The reader is the wire

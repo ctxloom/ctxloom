@@ -3,10 +3,9 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
   An agent only knows what a mailbox message IS because the tool surface tells
   it. That used to be a free-text convention — put a `kind` key in the
   `structured` object, spelled however you like — and "however you like"
-  included `approval_request`, the coordinator's own kind for an escalation
-  WAITING ON A HUMAN DECISION. A child could name it, and the coordinator
-  interpolated the name into the notice the receiving model saw: a forged
-  approval prompt, assembled out of a string nobody validated.
+  included the coordinator's OWN kinds. A child could name one, and the
+  coordinator interpolated the name into the notice the receiving model saw: a
+  forged coordinator notice, assembled out of a string nobody validated.
 
   So `kind` is now a field with a closed vocabulary. The value an agent may
   send is enumerated in the tool's own schema, the coordinator's own kinds are
@@ -43,8 +42,8 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
 
   Scenario: agent_recv's result carries the kind on the message itself — the sanctioned break
     When I read the "agent_recv" tool's result contract
-    Then it advertises "MESSAGE_KIND_APPROVAL_REQUEST"
-    And it advertises "MESSAGE_KIND_EXITED"
+    Then it advertises "MESSAGE_KIND_EXITED"
+    And it advertises "MESSAGE_KIND_REPORT"
     # The break, stated as the assertion: a recipient is told to read `kind`,
     # and is no longer told that `structured` carries it.
     And it advertises "read the `kind` field"
@@ -56,32 +55,30 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
   Scenario: the advertised vocabulary is exactly the declared one, on both tools
     When I read the "agent_send" tool's input contract
     Then the kind vocabulary it advertises is exactly:
-      | MESSAGE_KIND_UNSPECIFIED      |
-      | MESSAGE_KIND_MESSAGE          |
-      | MESSAGE_KIND_RESULT           |
-      | MESSAGE_KIND_ERROR            |
-      | MESSAGE_KIND_QUESTION         |
-      | MESSAGE_KIND_APPROVAL_REQUEST |
-      | MESSAGE_KIND_USER_INJECTED    |
-      | MESSAGE_KIND_USER_CONTROL     |
-      | MESSAGE_KIND_EXITED           |
-      | MESSAGE_KIND_STEER            |
-      | MESSAGE_KIND_REPORT           |
-      | MESSAGE_KIND_SUMMARIZE        |
+      | MESSAGE_KIND_UNSPECIFIED   |
+      | MESSAGE_KIND_MESSAGE       |
+      | MESSAGE_KIND_RESULT        |
+      | MESSAGE_KIND_ERROR         |
+      | MESSAGE_KIND_QUESTION      |
+      | MESSAGE_KIND_USER_INJECTED |
+      | MESSAGE_KIND_USER_CONTROL  |
+      | MESSAGE_KIND_EXITED        |
+      | MESSAGE_KIND_STEER         |
+      | MESSAGE_KIND_REPORT        |
+      | MESSAGE_KIND_SUMMARIZE     |
     When I read the "agent_recv" tool's result contract
     Then the kind vocabulary it advertises is exactly:
-      | MESSAGE_KIND_UNSPECIFIED      |
-      | MESSAGE_KIND_MESSAGE          |
-      | MESSAGE_KIND_RESULT           |
-      | MESSAGE_KIND_ERROR            |
-      | MESSAGE_KIND_QUESTION         |
-      | MESSAGE_KIND_APPROVAL_REQUEST |
-      | MESSAGE_KIND_USER_INJECTED    |
-      | MESSAGE_KIND_USER_CONTROL     |
-      | MESSAGE_KIND_EXITED           |
-      | MESSAGE_KIND_STEER            |
-      | MESSAGE_KIND_REPORT           |
-      | MESSAGE_KIND_SUMMARIZE        |
+      | MESSAGE_KIND_UNSPECIFIED   |
+      | MESSAGE_KIND_MESSAGE       |
+      | MESSAGE_KIND_RESULT        |
+      | MESSAGE_KIND_ERROR         |
+      | MESSAGE_KIND_QUESTION      |
+      | MESSAGE_KIND_USER_INJECTED |
+      | MESSAGE_KIND_USER_CONTROL  |
+      | MESSAGE_KIND_EXITED        |
+      | MESSAGE_KIND_STEER         |
+      | MESSAGE_KIND_REPORT        |
+      | MESSAGE_KIND_SUMMARIZE     |
 
   # A sender is told, in the schema it reads before choosing an argument, that
   # the coordinator's own kinds are not its to name AND that a wrong value is
@@ -110,7 +107,7 @@ Feature: The coordination tools advertise a closed message-kind vocabulary
   # A recipient's guarantee is the mirror image of the sender's constraint: a
   # kind it reads is trustworthy as to PROVENANCE, because a sender could not
   # have set the reserved ones. That is the whole point of the split, and it is
-  # what makes an approval prompt believable.
+  # what makes a coordinator notice believable.
   Scenario: agent_recv tells a recipient which kinds a sender could not have set
     When I read the "agent_recv" tool's result contract
     Then it advertises "A SENDER could only have set one of"

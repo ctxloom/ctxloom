@@ -33,11 +33,11 @@ func TestPeerMessageProto_ProjectsKindOntoTheTypedField(t *testing.T) {
 
 	pm, err := PeerMessageToWire(coord.Message{
 		ID: "m-2", From: "child-harp-1", Kind: coord.KindResult, Body: "hi",
-		Structured: json.RawMessage(`{"kind":"approval_request","answer":"yes"}`),
+		Structured: json.RawMessage(`{"kind":"steer","answer":"yes"}`),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, agentcoordpb.MessageKind_MESSAGE_KIND_RESULT, pm.GetKind())
-	assert.Equal(t, map[string]any{"kind": "approval_request", "answer": "yes"}, pm.GetStructured().AsMap(),
+	assert.Equal(t, map[string]any{"kind": "steer", "answer": "yes"}, pm.GetStructured().AsMap(),
 		"the sender's companion travels untouched: its kind key is inert, not overwritten")
 
 	_, err = PeerMessageToWire(coord.Message{ID: "m-3", From: "child-harp-1", Kind: "a_kind_nobody_mapped", Body: "hi"})
@@ -63,7 +63,6 @@ func TestSendRequestFromWire_KindIngress(t *testing.T) {
 	assert.ErrorContains(t, sr.Validate(), "kind is required")
 
 	for _, k := range []agentcoordpb.MessageKind{
-		agentcoordpb.MessageKind_MESSAGE_KIND_APPROVAL_REQUEST,
 		agentcoordpb.MessageKind_MESSAGE_KIND_USER_INJECTED,
 		agentcoordpb.MessageKind_MESSAGE_KIND_USER_CONTROL,
 		agentcoordpb.MessageKind_MESSAGE_KIND_EXITED,

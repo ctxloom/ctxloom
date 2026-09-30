@@ -1438,6 +1438,8 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// surviving (runchannel.go); drop this harp's at terminal so they don't
 	// accumulate across the process's lifetime.
 	c.clearReqTrack(rec.Harp)
+	// Nobody is left to act on a decision: withdraw what the run parked.
+	c.approvals.cancelFrom(rec.Harp, runID)
 	// The pause gate lived in the ended run's runner; the record of it ends here.
 	c.setRunPaused(runID, false)
 

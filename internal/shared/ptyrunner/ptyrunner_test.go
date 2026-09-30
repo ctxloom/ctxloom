@@ -594,31 +594,32 @@ func TestRunInteractive_LaterResizeFailureIsReported(t *testing.T) {
 	assert.GreaterOrEqual(t, calls.Load(), int32(2), "the applier goroutine must have run")
 }
 
-// TestRunInteractive_LateResizeOnClosedPTYIsNotAnError guards the fix against
-// its own false positive. RunInteractive closes the pty before the deferred
-// close(done) stops the resize applier, so a queued event can legitimately
-// land on a closed master at end of run. That is the same expected fallout
-// isBenignPTYError already names for c.Wait, and reporting it would turn every
-// well-behaved session into a failure.
-func TestRunInteractive_LateResizeOnClosedPTYIsNotAnError(t *testing.T) {
-	var calls atomic.Int32
-	stubResize(t, func(agent.WindowSize) error {
-		if calls.Add(1) == 1 {
-			return nil
-		}
-		return fs.ErrClosed
+// TestRunInteractive_ResizeAfterOurCloseKeepsTheChildsExitCode forces the
+// teardown interleaving that failed an interactive `ctxloom run` with "terminal
+// resize failed: use of closed file" instead of the engine's exit code: a
+// frontend resize delivered after RunInteractive has closed the master.
+//
+// The resize is the REAL one, not a stub. A resize on a closed master fails
+// inside os.File's raw-conn Control with the runtime's internal "use of closed
+// file" error, which is not fs.ErrClosed, so no error-type test can recognise
+// it; a stub returning fs.ErrClosed is exactly what let that slip through. The
+// close hook hands the resize over synchronously on an unbuffered channel, so
+// the applier has taken it before RunInteractive goes on to report.
+func TestRunInteractive_ResizeAfterOurCloseKeepsTheChildsExitCode(t *testing.T) {
+	resize := make(chan agent.WindowSize)
+	go func() { resize <- agent.WindowSize{Rows: 24, Cols: 80} }() // the pre-start size
+
+	stubClose(t, func(ptty pty.Pty) error {
+		err := ptty.Close()
+		resize <- agent.WindowSize{Rows: 30, Cols: 100} // lands on the closed master
+		return err
 	})
 
-	resize := make(chan agent.WindowSize, 2)
-	resize <- agent.WindowSize{Rows: 55, Cols: 111}
-	resize <- agent.WindowSize{Rows: 24, Cols: 80}
-
-	cmd := exec.Command("sh", "-c", "sleep 0.3")
+	cmd := exec.Command("sh", "-c", "exit 3")
 	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil, resize)
 
-	require.NoError(t, err, "our own close racing a queued resize is expected fallout, not a defect")
-	assert.Equal(t, 0, exitCode)
-	assert.GreaterOrEqual(t, calls.Load(), int32(2), "the applier goroutine must have run")
+	require.NoError(t, err, "a resize racing our own close is teardown, not a failure of the run")
+	assert.Equal(t, 3, exitCode, "the child's exit code is the run's outcome")
 }
 
 // stubClose replaces the package's pty-close call. The stub must still close

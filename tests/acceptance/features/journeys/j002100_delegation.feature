@@ -142,19 +142,18 @@ Feature: Coordinator delegates isolated work
     Then the tool call fails
 
   # FAILURE PATH — a message's `kind` is a security boundary, not a label.
-  # approval_request is COORDINATOR-RESERVED and reads to a recipient as a
-  # trust decision made on a child's behalf; user_injected and exited are the
-  # coordinator's own notices. Until this
-  # scenario existed, `kind` was whatever the sender said it was: a delegated
-  # child could queue an "approval_request" into its coordinator's mailbox and
-  # phish a trust decision out of it, complete with a plausible body.
+  # user_injected is COORDINATOR-RESERVED and reads to a recipient as the
+  # human speaking; steer and exited are the coordinator's own notices. Until
+  # this scenario existed, `kind` was whatever the sender said it was: a
+  # delegated child could queue a reserved kind into its coordinator's mailbox
+  # and borrow that authority, complete with a plausible body.
   #
   # WHAT THIS HARNESS CAN AND CANNOT SEE (same limit as the note at the top):
   # it drives the COORDINATOR's own agent_send, never a child's — no tool here
   # reaches a spawned child's runner socket. The refusal is identity-
   # independent by construction (one ingress guard for both sender surfaces),
   # and the child-identity case is pinned in the unit suite
-  # (TestServePeerSend_RefusesSpoofedApprovalRequest). What this proves at the
+  # (TestAgentSend_RefusesSpoofedUserInjection). What this proves at the
   # real MCP surface is that the vocabulary is CLOSED: a RESERVED kind is
   # refused by the coordinator's ingress, which tells the sender what it may
   # use instead; a spelling outside the vocabulary altogether never reaches
@@ -167,7 +166,7 @@ Feature: Coordinator delegates isolated work
       | input.prompt | go    |
     Then the tool call succeeds
     And "fixer"'s spawned session is remembered
-    When the agent sends "fixer"'s remembered session a message of kind "approval_request"
+    When the agent sends "fixer"'s remembered session a message of kind "user_injected"
     Then the tool call fails
     And the tool failure message contains "reserved for the coordinator"
     And the tool failure message contains "message | result | error | question"

@@ -304,8 +304,8 @@ func DeliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
 // MailFromSpool recovers the mailbox Message one spool file carries.
 //
 // The message ID is spool.Entry.Identity — the coordinator mints a mailbox id
-// before it writes, so correlation registered by relayApproval against that id
-// still resolves. It is the dedupe key on both sides (the owner's Claim
+// before it writes, so correlation registered against that id still
+// resolves. It is the dedupe key on both sides (the owner's Claim
 // dedupes on it too), so getting it from anywhere else would break
 // at-least-once into at-least-twice.
 func MailFromSpool(e spool.Entry, from string) (Message, error) {
@@ -402,8 +402,7 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // queueMailPayloadID is queueMailPayload with the message id supplied by the
 // caller. It exists for correlation-carrying mail whose id must be REGISTERED
 // somewhere before the mail is observable: this function publishes, and after
-// it returns a reply quoting the id can already arrive. relayApproval is the
-// case that forced it; see its comment.
+// it returns a reply quoting the id can already arrive.
 func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
 	// Role "" is undrainable by construction — agent_recv drains the caller's
 	// own harp and no session has the empty harp. Refused here, at the one
@@ -414,9 +413,8 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	// A message with NO payload is refused at the same chokepoint. Delivered,
 	// it completes a parked recv and is answered with the ordinary success
 	// disposition — a recipient woken for a turn whose content is nothing at
-	// all, with every signal green. A structured companion IS payload (the
-	// relayed ApprovalRequest projection and its replies carry it), so only a
-	// message with neither is empty.
+	// all, with every signal green. A structured companion IS payload, so
+	// only a message with neither is empty.
 	if strings.TrimSpace(body) == "" && len(structured) == 0 {
 		return "", fmt.Errorf("coordinator mail: refusing to queue an empty message from %q to %q (kind %q): "+
 			"it carries no text and no structured payload, so the recipient would be woken with nothing to act on "+

@@ -9,6 +9,7 @@
 package isolation
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -53,9 +54,13 @@ func TestCredentialFileBind_ReadableReadOnlyAtTheRewrittenPath(t *testing.T) {
 		Command: []string{"sh", "-c", `cat "$AWS_CONFIG_FILE"; if { echo x >> "$AWS_CONFIG_FILE"; } 2>/dev/null; then echo WRITABLE; else echo READONLY; fi`},
 		Mounts:  mounts,
 	}
-	out, err := exec.CommandContext(ctx, rt.Binary(), mustRunArgs(t, rt, spec)...).CombinedOutput()
-	require.NoError(t, err, "run the container: %s", out)
-	assert.Equal(t, fixture+"READONLY", strings.TrimSpace(string(out)), "the file is read at the rewritten var and refuses a write")
+	// Stdout alone is compared: on a cold image cache the CLI writes its pull
+	// progress to stderr, and that must not reach the exact-bytes assertion.
+	var stdout, stderr bytes.Buffer
+	run := exec.CommandContext(ctx, rt.Binary(), mustRunArgs(t, rt, spec)...)
+	run.Stdout, run.Stderr = &stdout, &stderr
+	require.NoError(t, run.Run(), "run the container: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	assert.Equal(t, fixture+"READONLY", strings.TrimSpace(stdout.String()), "the file is read at the rewritten var and refuses a write")
 
 	got, err := os.ReadFile(f)
 	require.NoError(t, err)

@@ -230,7 +230,8 @@ var adminLineTypes = map[string]bool{
 	"permission-mode": true, "ai-title": true, "custom-title": true,
 	"file-history-snapshot": true, "agent-name": true, "pr-link": true,
 	"worktree-state": true, "file-history-delta": true, "agent-color": true,
-	"summary": true, "x-ctxloom-meta": true,
+	"summary": true, "x-ctxloom-meta": true, "atis-latch": true,
+	"cost-state": true,
 }
 
 // checkFloor is the answer to "can this reader produce zero entries and

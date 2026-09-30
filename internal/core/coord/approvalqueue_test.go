@@ -54,8 +54,11 @@ func newTestQueue(t *testing.T) (*ApprovalQueue, *grantPush, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "runs.jsonl")
 	push := &grantPush{}
-	return NewApprovalQueue(openQueueStore(t, path), time.Now, push.push), push, path
+	return NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone), push, path
 }
+
+// noRunGone is a bare queue's view of runs: no asker's run is known to end.
+func noRunGone(Identity) bool { return false }
 
 var askerID = Identity{Harp: "child-harp", RunID: "run-1", Depth: 1}
 
@@ -432,7 +435,7 @@ func TestApprovalQueue_SessionGrantsFoldAndRevoke(t *testing.T) {
 	assert.Empty(t, push.calls, "a grant rides the decision itself; only a revoke pushes")
 
 	// The fold survives a restart: a fresh store over the same journal.
-	reopened := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push)
+	reopened := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone)
 	assert.Equal(t, grants, reopened.Grants(askerID.Harp))
 
 	require.NoError(t, q.Revoke(askerID.Harp, grants[0].ID))
@@ -441,7 +444,7 @@ func TestApprovalQueue_SessionGrantsFoldAndRevoke(t *testing.T) {
 	assert.Equal(t, []Grant{grants[1]}, q.Grants(askerID.Harp))
 	assert.ErrorIs(t, q.Revoke(askerID.Harp, grants[0].ID), ErrNoSuchGrant)
 
-	again := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push)
+	again := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone)
 	assert.Equal(t, []Grant{grants[1]}, again.Grants(askerID.Harp), "the revoke is journaled too")
 	assert.Equal(t,
 		[]string{factApprovalParked, factApprovalDecided, factGrantAdded, factGrantAdded, factGrantRevoked},
@@ -531,7 +534,7 @@ func TestApprovalQueue_UnjournaledParkFailsClosed(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "runs.jsonl")
 		store := openQueueStore(t, path)
-		q := NewApprovalQueue(store, time.Now, (&grantPush{}).push)
+		q := NewApprovalQueue(store, time.Now, (&grantPush{}).push, noRunGone)
 		require.NoError(t, store.Close())
 		start := time.Now()
 		d := q.Park(context.Background(), askerID, toolAsk("Bash"), time.Minute)

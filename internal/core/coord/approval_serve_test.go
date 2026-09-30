@@ -152,6 +152,85 @@ func TestApprovalRequest_TurnEndDropsIt(t *testing.T) {
 	require.ErrorIs(t, c.Approvals().Answer(id, ApprovalDecision{Allow: true}), ErrApprovalResolved)
 }
 
+// TestApprovalRequest_AskFromAnEndedRunNeverParks forces the ordering a run's
+// end allows: the request arrives while its run lives, the run ends, and only
+// then does the request reach Park. It is dropped at once as cancelled —
+// never listed, journaled like any decision — and the harp's next run still
+// parks its own.
+func TestApprovalRequest_AskFromAnEndedRunNeverParks(t *testing.T) {
+	resetStrictness(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	events := c.Approvals().Subscribe(ctx)
+
+	// Both asked during the run's FIRST turn (turn 0): the run's end forgets
+	// its turn count, so only the run's own end can refuse them.
+	late := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, Ceiling: engine.PermissionDefault}}
+	later := AgentRequest{Kind: ApprovalRequest{Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Read"}, Ceiling: engine.PermissionDefault}}
+	_, err := c.Stop(ctx, ownerIdentity(), StopRequest{Harp: out.Harp, Reason: "enough"})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return c.runEnded(out.RunID) }, conformanceWait, 10*time.Millisecond)
+
+	replied := make(chan AgentReply, 1)
+	go func() { replied <- c.serveAgentRequest(childOf(out), late) }()
+	var reply AgentReply
+	select {
+	case reply = <-replied:
+	case <-ctx.Done():
+		t.Fatal("a request from an ended run parked")
+	}
+	require.NoError(t, reply.Err)
+	d, ok := reply.Result.(ApprovalDecision)
+	require.True(t, ok, "the reply is the decision, got %T", reply.Result)
+	assert.False(t, d.Allow)
+	assert.Equal(t, agent.DeciderCancelled, d.Decider)
+	assert.Empty(t, c.Approvals().Pending())
+	// Park publishes before it returns: whatever it announced is buffered.
+	for drained := false; !drained; {
+		select {
+		case ev := <-events:
+			assert.NotEqual(t, QueueAdded, ev.Kind, "the ended run's request was listed")
+		default:
+			drained = true
+		}
+	}
+
+	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
+	require.NoError(t, err)
+	var resumed string
+	require.Eventually(t, func() bool {
+		resumed = currentRunID(c, out.Harp)
+		return resumed != out.RunID && c.approvals.turnOf(resumed) == 1
+	}, conformanceWait, 10*time.Millisecond, "the harp's next run never reached its first turn boundary")
+	// Once the harp has moved on, the ended run's record is no longer its
+	// current one; a request from it is still dropped.
+	go func() { replied <- c.serveAgentRequest(childOf(out), later) }()
+	select {
+	case reply = <-replied:
+	case <-ctx.Done():
+		t.Fatal("a request from a superseded run parked")
+	}
+	d, ok = reply.Result.(ApprovalDecision)
+	require.True(t, ok, "the reply is the decision, got %T", reply.Result)
+	assert.Equal(t, agent.DeciderCancelled, d.Decider)
+	assert.Empty(t, c.Approvals().Pending())
+
+	next := &RunOutcome{Harp: out.Harp, RunID: resumed}
+	done := make(chan AgentReply, 1)
+	go func() {
+		done <- c.serveAgentRequest(childOf(next), askNow(c, next, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Edit"}))
+	}()
+	id := awaitEvent(t, events, QueueAdded).ID
+	pending := c.Approvals().Pending()
+	require.Len(t, pending, 1, "the next run's request parks")
+	assert.Equal(t, resumed, pending[0].From.RunID)
+	require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{}))
+	<-done
+}
+
 // grantFor parks one request from out's run and answers it allow-for-session.
 func grantFor(t *testing.T, c *Coordinator, out *RunOutcome, rule string) Grant {
 	t.Helper()

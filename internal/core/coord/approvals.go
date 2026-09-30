@@ -26,6 +26,20 @@ func (c *Coordinator) parkApproval(caller Identity, req ApprovalRequest) Approva
 	return c.approvals.Park(c.baseCtx, caller, p, req.Timeout)
 }
 
+// runGone reports that from's run can take no decision: its record says it
+// ended, or its harp's current run is a newer one. It needs no state of its
+// own — a harp's current run is never reaped, and neither is its record while
+// it is current. An asker the fold does not know is not judged gone.
+func (c *Coordinator) runGone(from Identity) bool {
+	gone := false
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(from.Harp); r != nil {
+			gone = r.RunID != from.RunID || r.Ended
+		}
+	})
+	return gone
+}
+
 // lineageOf is harp's delegation chain, root first. Call inside runs.View.
 func (c *Coordinator) lineageOf(harp string) []string {
 	chain := []string{harp}

@@ -168,6 +168,11 @@ type ApprovalQueue struct {
 	grants     *grantsFold
 	now        Clock
 	pushGrants func(harp string, rules []string) error
+	// runGone reports that an asker's run can take no decision: it has
+	// ended, or its harp has moved on to a newer run. Read inside Park's
+	// insert window, after the run's end is journaled and before its
+	// withdrawal, so a request never outlives its run.
+	runGone func(Identity) bool
 
 	mu       sync.Mutex
 	pending  map[ApprovalID]*parkedApproval
@@ -195,13 +200,14 @@ type parkedApproval struct {
 
 // NewApprovalQueue binds a queue to the journal holding its grants fold.
 // pushGrants hands a harp's full remaining grant set to its live run when a
-// grant is revoked.
-func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, rules []string) error) *ApprovalQueue {
+// grant is revoked; runGone says an asker's run can no longer be answered.
+func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, rules []string) error, runGone func(Identity) bool) *ApprovalQueue {
 	return &ApprovalQueue{
 		store:      store,
 		grants:     storeFold[*grantsFold](store),
 		now:        clock,
 		pushGrants: pushGrants,
+		runGone:    runGone,
 		pending:    make(map[ApprovalID]*parkedApproval),
 		resolved:   make(map[ApprovalID]struct{}),
 		subs:       make(map[chan QueueEvent]struct{}),
@@ -250,13 +256,17 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 	}
 	p := &parkedApproval{req: req, answer: make(chan ApprovalDecision, 1)}
 	q.mu.Lock()
-	if q.turns[from.RunID] != req.turn {
-		// The turn ended between the request's arrival and this park: it
-		// was dropped with that turn, only later than the ones already
+	if gone := q.runGone(from); gone || q.turns[from.RunID] != req.turn {
+		// The turn or the run ended between the request's arrival and this
+		// park: it was dropped with them, only later than the ones already
 		// parked.
 		q.resolved[req.ID] = struct{}{}
 		q.mu.Unlock()
-		_ = q.settle(p, turnEnded)
+		d := droppedWithTurn
+		if gone {
+			d = droppedWithRun
+		}
+		_ = q.settle(p, d)
 		return <-p.answer
 	}
 	q.pending[req.ID] = p
@@ -312,17 +322,21 @@ func (q *ApprovalQueue) unanswerable(id ApprovalID) error {
 }
 
 // cancelFrom withdraws every request harp has parked: its run, runID, has
-// ended, and so has any count of its turns.
+// ended, and so has any count of its turns. A request of that run still on
+// its way to Park is dropped there (runGone).
 func (q *ApprovalQueue) cancelFrom(harp, runID string) {
 	q.mu.Lock()
 	delete(q.turns, runID)
 	q.mu.Unlock()
-	q.withdraw(func(from Identity) bool { return from.Harp == harp },
-		ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking run ended"})
+	q.withdraw(func(from Identity) bool { return from.Harp == harp }, droppedWithRun)
 }
 
-// turnEnded is the decision on a request whose turn ended first.
-var turnEnded = ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking turn ended"}
+// droppedWithTurn and droppedWithRun are the decisions on a request whose
+// turn or run ended first.
+var (
+	droppedWithTurn = ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking turn ended"}
+	droppedWithRun  = ApprovalDecision{Decider: agent.DeciderCancelled, Message: "the asking run ended"}
+)
 
 // turnOf is runID's current turn, to stamp on a request as it arrives —
 // in arrival order with the run's turn-end events, which endTurn counts.
@@ -339,7 +353,7 @@ func (q *ApprovalQueue) endTurn(runID string) {
 	q.mu.Lock()
 	q.turns[runID]++
 	q.mu.Unlock()
-	q.withdraw(func(from Identity) bool { return from.RunID == runID }, turnEnded)
+	q.withdraw(func(from Identity) bool { return from.RunID == runID }, droppedWithTurn)
 }
 
 // withdraw settles every parked request whose asker matches with d.

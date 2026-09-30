@@ -651,7 +651,7 @@ func (c *Coordinator) openJournals() error {
 		return err
 	}
 	c.runs = runs
-	c.approvals = NewApprovalQueue(runs, c.now, c.pushGrants)
+	c.approvals = NewApprovalQueue(runs, c.now, c.pushGrants, c.runGone)
 	c.itemsF = newItemsFold()
 	// D4 CHECKPOINT compaction: a prior snapshot (if one exists — the
 	// common case is none, a fresh project) seeds the fold and replay

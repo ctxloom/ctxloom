@@ -59,15 +59,32 @@ func (m Model) updateApprovalsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// applyApprovalsMsg lands the queue's and the decisions' messages. The view
-// closes itself once the list is empty — the modal on its own, the a-opened
-// view back to the roster.
+// applyChromeMsg lands what termui tells the overlay about the modal: the
+// end of its arming, or a notice to show while the roster view is open.
+func (m Model) applyChromeMsg(msg tea.Msg) Model {
+	switch msg := msg.(type) {
+	case armedMsg:
+		m.arming, m.armDiscarded = false, int(msg)
+	case noticeMsg:
+		if !m.approvals {
+			m.banner = "⚑ " + sanitizeForDisplay(string(msg)) + " — a to review"
+		}
+	}
+	return m
+}
+
+// applyApprovalsMsg lands a paste, the queue's and the decisions' messages.
+// The view closes itself once the list is empty — the modal on its own, the
+// a-opened view back to the roster.
 func (m Model) applyApprovalsMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !m.approvals {
 		return m, nil
 	}
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case tea.PasteMsg:
+		m.appr = m.appr.paste(msg.Content)
+		return m, nil
 	case queueEventMsg:
 		m.appr, cmd = m.appr.applyQueueEvent(msg)
 	case approvalsTickMsg:

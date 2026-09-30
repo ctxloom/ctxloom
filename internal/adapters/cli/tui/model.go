@@ -275,20 +275,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyControlResult(msg)
 	case geometryMsg:
 		return m.applyGeometry(termui.OverlayGeometry(msg))
-	case armedMsg:
-		m.arming, m.armDiscarded = false, int(msg)
-		return m, nil
-	case noticeMsg:
-		if !m.approvals {
-			m.banner = "⚑ " + sanitizeForDisplay(string(msg)) + " — a to review"
-		}
-		return m, nil
-	case tea.PasteMsg:
-		if m.approvals {
-			m.appr = m.appr.paste(msg.Content)
-		}
-		return m, nil
-	case queueEventMsg, approvalsTickMsg, answerResultMsg, revokeResultMsg:
+	case armedMsg, noticeMsg:
+		return m.applyChromeMsg(msg), nil
+	case tea.PasteMsg, queueEventMsg, approvalsTickMsg, answerResultMsg, revokeResultMsg:
 		return m.applyApprovalsMsg(msg)
 	}
 	return m, nil

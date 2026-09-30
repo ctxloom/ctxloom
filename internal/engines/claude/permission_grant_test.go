@@ -19,7 +19,7 @@ import (
 // grant names each attached SERVER, which is the only form that can cover a
 // companion whose tool inventory ctxloom does not know.
 func TestPlanGrantsEveryAttachedMCPServer(t *testing.T) {
-	args := permissionArgs(engine.PermissionPolicy{Mode: agent.PermissionPlan}, []string{"ctxloom", "taskloom", "serena"})
+	args := permissionArgs(headlessPosture(t, modePolicy(modePlan)), []string{"ctxloom", "taskloom", "serena"})
 
 	granted := grantedTools(t, args)
 	assert.ElementsMatch(t,
@@ -32,7 +32,7 @@ func TestPlanGrantsEveryAttachedMCPServer(t *testing.T) {
 // withhold every other read-only tool on the same server — and, worse, could
 // never cover a companion whose tools ctxloom cannot enumerate.
 func TestPlanGrantIsServerLevel(t *testing.T) {
-	args := permissionArgs(engine.PermissionPolicy{Mode: agent.PermissionPlan}, []string{"ctxloom"})
+	args := permissionArgs(headlessPosture(t, modePolicy(modePlan)), []string{"ctxloom"})
 	for _, g := range grantedTools(t, args) {
 		assert.Equal(t, agent.MCPToolPrefix+"ctxloom", g)
 		assert.NotContains(t, strings.TrimPrefix(g, agent.MCPToolPrefix), "__",
@@ -49,7 +49,7 @@ func TestPlanWithNoServersEmitsNoGrantFlag(t *testing.T) {
 		"empty slice": {},
 		"blank name":  {""},
 	} {
-		args := permissionArgs(engine.PermissionPolicy{Mode: agent.PermissionPlan}, servers)
+		args := permissionArgs(headlessPosture(t, modePolicy(modePlan)), servers)
 		assert.Equal(t, -1, indexOf(args, flagAllowedTools),
 			"%s servers must emit no %s at all", name, flagAllowedTools)
 	}
@@ -59,7 +59,7 @@ func TestPlanWithNoServersEmitsNoGrantFlag(t *testing.T) {
 // posture it rides with. plan is a read-only tier: an allowlist must not
 // resurrect the write/exec tools the deny list exists to remove.
 func TestPlanStillDeniesMutatingBuiltins(t *testing.T) {
-	args := permissionArgs(engine.PermissionPolicy{Mode: agent.PermissionPlan}, []string{"ctxloom"})
+	args := permissionArgs(headlessPosture(t, modePolicy(modePlan)), []string{"ctxloom"})
 
 	i := indexOf(args, flagDisallowedTools)
 	require.GreaterOrEqual(t, i, 0, "plan must still emit %s", flagDisallowedTools)
@@ -76,12 +76,10 @@ func TestPlanStillDeniesMutatingBuiltins(t *testing.T) {
 // would be blanket permission for that server's MUTATING tools, because
 // nothing else filters them there.
 func TestNonPlanModesEmitNoGrant(t *testing.T) {
-	for _, mode := range []agent.PermissionMode{
-		agent.PermissionBypass, agent.PermissionAcceptEdits, agent.PermissionDefault, agent.PermissionDontAsk, agent.PermissionAuto,
-	} {
-		args := permissionArgs(engine.PermissionPolicy{Mode: mode}, []string{"ctxloom", "taskloom"})
+	for _, p := range []engine.PermissionPolicy{modePolicy(modeBypass), modePolicy(modeAcceptEdits), modePolicy(modeDefault), withApprover(modePolicy(modeDefault), engine.ApproverReviewer)} {
+		args := permissionArgs(headlessPosture(t, p), []string{"ctxloom", "taskloom"})
 		assert.Equal(t, -1, indexOf(args, flagAllowedTools),
-			"%s must not emit %s: it has no readOnlyHint gate to filter the server", mode, flagAllowedTools)
+			"%v must not emit %s: it has no readOnlyHint gate to filter the server", p, flagAllowedTools)
 	}
 }
 

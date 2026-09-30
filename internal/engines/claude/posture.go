@@ -59,21 +59,21 @@ func (p posture) planFirst() bool { return p.mode == modePlan && p.afterPlan != 
 // claudeMode is claude's own mode for the posture: the declared mode, or —
 // where the approver is not the human — the claude mode that names that
 // approver (none: dontAsk, deny what the rules leave open; reviewer: auto,
-// claude's classifier decides). Headless, nobody sits at the engine, so
-// what is left open is denied (--permission-prompts none) whatever the
-// approver, and none needs no mode of its own. Bypass asks nobody, so every
-// approver pairs with it. Any other pairing has no claude mode, and is
-// refused.
+// claude's classifier decides), which pair with default. Headless, nobody
+// sits at the engine, so what is left open is denied (--permission-prompts
+// none) whatever the approver, and none pairs with any mode. Bypass asks
+// nobody, so every approver pairs with it. Any other pairing has no claude
+// mode, and is refused.
 func (p posture) claudeMode(interactive bool) (string, error) {
 	switch {
 	case p.mode == modeBypass, p.approver == engine.ApproverHuman:
-		return p.mode, nil
-	case p.approver == engine.ApproverNone && !interactive:
 		return p.mode, nil
 	case p.mode == modeDefault && p.approver == engine.ApproverNone:
 		return "dontAsk", nil
 	case p.mode == modeDefault && p.approver == engine.ApproverReviewer:
 		return "auto", nil
+	case p.approver == engine.ApproverNone && !interactive:
+		return p.mode, nil
 	}
 	return "", fmt.Errorf("%w: claude has no mode for %s with approver %s — only default or bypass pair with it", ErrPosture, p.mode, p.approver)
 }
@@ -104,10 +104,10 @@ type sandboxNetworkDoc struct {
 	StrictAllowlist bool `json:"strictAllowlist"`
 }
 
-// defaultPolicy is the policy of a session projected with nothing
-// declared: claude's model resolved over no declaration, the human as
-// approver, no sandbox.
+// defaultPolicy is the policy of a session projected from a request that
+// carries none: claude's own default mode (the human answers what is
+// asked), the human as approver, no sandbox — not the launch default, which
+// only a resolved launch grants.
 func defaultPolicy() engine.PermissionPolicy {
-	doc, _ := permissionModel{}.Resolve(engine.PostureRequest{})
-	return engine.PermissionPolicy{Posture: engine.Posture{Engine: EngineName, Document: doc}, Sandbox: engine.SandboxFull}
+	return engine.PermissionPolicy{Posture: engine.Posture{Engine: EngineName, Document: map[string]any{keyMode: modeDefault}}, Sandbox: engine.SandboxFull}
 }

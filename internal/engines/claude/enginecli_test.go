@@ -57,12 +57,12 @@ func (c argvCase) argvFor(t *testing.T, b *ClaudeCode) []string {
 func buildArgsMatrix(presented []present.Presentation) []argvCase {
 	perms := []struct {
 		name string
-		p    agent.PermissionMode
+		p    engine.PermissionPolicy
 	}{
-		{"default", agent.PermissionDefault},
-		{"bypass", agent.PermissionBypass},
-		{"acceptEdits", agent.PermissionAcceptEdits},
-		{"plan", agent.PermissionPlan},
+		{"default", modePolicy(modeDefault)},
+		{"bypass", modePolicy(modeBypass)},
+		{"acceptEdits", modePolicy(modeAcceptEdits)},
+		{"plan", modePolicy(modePlan)},
 	}
 	modes := []struct {
 		name    string
@@ -86,7 +86,7 @@ func buildArgsMatrix(presented []present.Presentation) []argvCase {
 					Identity:   sessions.Identity{Harp: "perky-same-chevy"},
 					Label:      engine.LabelConfig{Label: EngineName, Model: matrixModel},
 					Mode:       engine.Mode(mode.m),
-					Permission: engine.PermissionPolicy{Mode: perm.p},
+					Permission: perm.p,
 					Prompt:     "do the thing",
 					MCPServers: []string{"probe"},
 				}
@@ -95,13 +95,12 @@ func buildArgsMatrix(presented []present.Presentation) []argvCase {
 					surface: mode.surface,
 					resume:  resume,
 					req: &agent.ExecuteRequest{
-						Mode:        mode.m,
-						Permissions: perm.p,
-						Model:       matrixModel,
-						Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
-						Prompt:      &agent.Fragment{Content: "do the thing"},
-						Presented:   presented,
-						Session:     session,
+						Mode:      mode.m,
+						Model:     matrixModel,
+						Env:       map[string]string{sessionHarpEnv: "perky-same-chevy"},
+						Prompt:    &agent.Fragment{Content: "do the thing"},
+						Presented: presented,
+						Session:   session,
 					},
 				})
 			}

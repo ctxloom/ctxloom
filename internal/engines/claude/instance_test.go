@@ -26,7 +26,7 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 		Identity:   sessions.Identity{Harp: "perky-same-chevy"},
 		Label:      engine.LabelConfig{Label: EngineName, Model: "claude-opus-5"},
 		Mode:       engine.Structured,
-		Permission: engine.PermissionPolicy{Mode: engine.PermissionPlan},
+		Permission: modePolicy(modePlan),
 		MCPServers: []string{"probe"},
 	}
 	inst, err := kind.Instance(s)
@@ -39,7 +39,7 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	require.Len(t, drivers, 1)
 	d, ok := drivers[0].(*streamJSONDriver)
 	require.True(t, ok)
-	argv, err := d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-1", Posture: engine.TurnPosture{Mode: engine.PermissionPlan}})
+	argv, err := d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-1", Posture: engine.TurnPosture{Mode: modePlan}})
 	require.NoError(t, err)
 	require.Equal(t, strings.Join(ex.Args, " ")+` --input-format stream-json --output-format stream-json --verbose --resume native-key-1 --name perky-same-chevy --settings {"permissions":{"defaultMode":"plan"}}`,
 		strings.Join(argv, " "))
@@ -59,7 +59,7 @@ func TestInstance_ExecPinsClassicScreen(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
 	for _, mode := range kind.Root().Modes {
-		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionPolicy{Mode: engine.PermissionBypass}, Prompt: "p"}
+		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: modePolicy(modeBypass), Prompt: "p"}
 		inst, err := kind.Instance(s)
 		require.NoError(t, err)
 		ex, err := inst.Exec(nil)
@@ -89,8 +89,9 @@ func TestInstance_HeadlessChildDefaults(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
 	for _, mode := range kind.Root().Modes {
-		for _, perm := range []engine.PermissionMode{engine.PermissionDefault, engine.PermissionAcceptEdits, engine.PermissionPlan, engine.PermissionBypass, engine.PermissionDontAsk, engine.PermissionAuto} {
-			s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionPolicy{Mode: perm}, Prompt: "p"}
+		for _, named := range namedPolicies {
+			perm := named.name
+			s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: named.p, Prompt: "p"}
 			inst, err := kind.Instance(s)
 			require.NoError(t, err)
 			ex, err := inst.Exec(nil)
@@ -120,7 +121,7 @@ func TestInstance_ExecParsesAgainstOwnGrammar(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
 	for _, mode := range kind.Root().Modes {
-		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionPolicy{Mode: engine.PermissionBypass}, Prompt: "p"}
+		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: modePolicy(modeBypass), Prompt: "p"}
 		inst, err := kind.Instance(s)
 		require.NoError(t, err)
 		ex, err := inst.Exec(nil)
@@ -138,7 +139,7 @@ func TestInstance_ExecParsesAgainstOwnGrammar(t *testing.T) {
 // pins the delegation so a second composition cannot reappear.
 func TestBuildArgs_IsInstanceExec(t *testing.T) {
 	b := NewClaudeCode()
-	req := &agent.ExecuteRequest{Mode: agent.ModeInteractive, Permissions: agent.PermissionBypass, Model: "m", Env: map[string]string{sessionHarpEnv: "h"}, Prompt: &agent.Fragment{Content: "p"}}
+	req := withSession(b, &agent.ExecuteRequest{Mode: agent.ModeInteractive, Model: "m", Env: map[string]string{sessionHarpEnv: "h"}, Prompt: &agent.Fragment{Content: "p"}}, modePolicy(modeBypass))
 	ex, err := b.exec(req)
 	require.NoError(t, err)
 	require.Equal(t, ex.Args, b.buildArgs(req))

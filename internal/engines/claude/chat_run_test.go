@@ -54,12 +54,15 @@ func turnArgv(t *testing.T, s engine.Session, in engine.Turn, presented ...prese
 	return argv
 }
 
-func structured(model string, perm agent.PermissionMode) engine.Session {
-	return engine.Session{Mode: engine.Structured, Label: engine.LabelConfig{Model: model}, Permission: engine.PermissionPolicy{Mode: perm}}
+func structured(model, perm string) engine.Session {
+	if perm == "" {
+		perm = modeDefault
+	}
+	return engine.Session{Mode: engine.Structured, Label: engine.LabelConfig{Model: model}, Permission: modePolicy(perm)}
 }
 
 func TestTurnArgs_StreamJSONFlags(t *testing.T) {
-	joined := strings.Join(turnArgv(t, structured("sonnet", agent.PermissionBypass), engine.Turn{}), " ")
+	joined := strings.Join(turnArgv(t, structured("sonnet", modeBypass), engine.Turn{}), " ")
 	assert.Contains(t, joined, flagPrint)
 	assert.Contains(t, joined, "--input-format stream-json")
 	assert.Contains(t, joined, "--output-format stream-json")
@@ -71,10 +74,10 @@ func TestTurnArgs_StreamJSONFlags(t *testing.T) {
 // TestTurnArgs_Resume verifies --resume is emitted with the key the turn
 // names, and omitted on a first turn.
 func TestTurnArgs_Resume(t *testing.T) {
-	args := turnArgv(t, structured("", 0), engine.Turn{Resume: "sess-123"})
+	args := turnArgv(t, structured("", ""), engine.Turn{Resume: "sess-123"})
 	assert.True(t, argPair(args, "--resume", "sess-123"))
 
-	args = turnArgv(t, structured("", 0), engine.Turn{})
+	args = turnArgv(t, structured("", ""), engine.Turn{})
 	assert.NotContains(t, args, "--resume")
 }
 
@@ -82,10 +85,10 @@ func TestTurnArgs_Resume(t *testing.T) {
 // the runner delivered, and omitted when there is none.
 func TestTurnArgs_MCPConfigPath(t *testing.T) {
 	delivered := present.Presentation{HostPath: "/tmp/scratch/.mcp.json", EnginePath: "/tmp/scratch/.mcp.json", Args: []string{flagMCPConfig, "/tmp/scratch/.mcp.json"}}
-	args := turnArgv(t, structured("", 0), engine.Turn{}, delivered)
+	args := turnArgv(t, structured("", ""), engine.Turn{}, delivered)
 	assert.True(t, argPair(args, "--mcp-config", "/tmp/scratch/.mcp.json"))
 
-	args = turnArgv(t, structured("", 0), engine.Turn{})
+	args = turnArgv(t, structured("", ""), engine.Turn{})
 	assert.NotContains(t, args, "--mcp-config")
 }
 
@@ -93,7 +96,7 @@ func TestTurnArgs_MCPConfigPath(t *testing.T) {
 // after ctxloom's harp via --name, matching the interactive path, so it is
 // findable in the /resume picker.
 func TestTurnArgs_NamesSessionFromHarp(t *testing.T) {
-	s := structured("", 0)
+	s := structured("", "")
 	s.Identity = sessions.Identity{Harp: "fair-pushy-cable"}
 	args := turnArgv(t, s, engine.Turn{})
 	assert.True(t, argPair(args, "--name", "fair-pushy-cable"))
@@ -102,7 +105,7 @@ func TestTurnArgs_NamesSessionFromHarp(t *testing.T) {
 // TestTurnArgs_NoHarpNoName verifies that without a harp no --name flag is
 // added.
 func TestTurnArgs_NoHarpNoName(t *testing.T) {
-	assert.NotContains(t, turnArgv(t, structured("", 0), engine.Turn{}), "--name")
+	assert.NotContains(t, turnArgv(t, structured("", ""), engine.Turn{}), "--name")
 }
 
 // decode reads the events a turn relayed.
@@ -130,7 +133,7 @@ func TestTurn_WritesTheMessageAndRelaysEvents(t *testing.T) {
 	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: stdout, close: func() error { return nil }}, nil
 	}
-	d, ex := driverFor(t, structured("m", 0), open, nil)
+	d, ex := driverFor(t, structured("m", ""), open, nil)
 	out := make(chan engine.Event, 16)
 	res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "hello"}, out)
 	require.NoError(t, err)
@@ -191,7 +194,7 @@ func TestTurn_StampsEntriesWithInjectedClock(t *testing.T) {
 	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: stdout, close: func() error { return nil }}, nil
 	}
-	d, ex := driverFor(t, structured("", 0), open, func() time.Time { return fixed })
+	d, ex := driverFor(t, structured("", ""), open, func() time.Time { return fixed })
 	out := make(chan engine.Event, 16)
 	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, out)
 	require.NoError(t, err)
@@ -238,7 +241,7 @@ func interruptibleTransport(t *testing.T, lastWords string) (chatTransportFunc, 
 // mid-flight.
 func TestTurn_Interrupt_DrainsTheLastWordsAndKeepsTheKey(t *testing.T) {
 	open, closed := interruptibleTransport(t, `{"type":"result","subtype":"error_during_execution","stop_reason":"interrupted","num_turns":1}`+"\n")
-	d, ex := driverFor(t, structured("", 0), open, nil)
+	d, ex := driverFor(t, structured("", ""), open, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	out := make(chan engine.Event, 16)
@@ -298,7 +301,7 @@ func TestTurn_ProcessDiedMidTurn_IsTheTurnsError(t *testing.T) {
 	open := crashingTransport(
 		`{"type":"system","subtype":"init","session_id":"sess-1"}`+"\n"+
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"half an answ"}]}}`+"\n", died)
-	d, ex := driverFor(t, structured("", 0), open, nil)
+	d, ex := driverFor(t, structured("", ""), open, nil)
 	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
 	require.ErrorIs(t, err, errTurnProcessDied)
 	require.ErrorIs(t, err, died, "the process's own account of its death rides along")
@@ -313,7 +316,7 @@ func TestTurn_ResultThenFailedExit_IsACompletedTurn(t *testing.T) {
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}`+"\n"+
 			`{"type":"result","subtype":"success","stop_reason":"end_turn","num_turns":1}`+"\n",
 		errors.New("exit status 1"))
-	d, ex := driverFor(t, structured("", 0), open, nil)
+	d, ex := driverFor(t, structured("", ""), open, nil)
 	res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "done", res.Answer)
@@ -325,7 +328,7 @@ func TestTurn_TransportOpenError_Propagates(t *testing.T) {
 	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return nil, io.ErrClosedPipe
 	}
-	d, ex := driverFor(t, structured("", 0), open, nil)
+	d, ex := driverFor(t, structured("", ""), open, nil)
 	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
 	require.ErrorIs(t, err, io.ErrClosedPipe)
 }
@@ -340,7 +343,7 @@ func TestTurn_SpawnsTheExecsBinary(t *testing.T) {
 		gotBinary, gotArgs, gotDir = binary, args, dir
 		return &chatTransport{stdin: nopWriteCloser{&bytes.Buffer{}}, stdout: strings.NewReader(""), close: func() error { return nil }}, nil
 	}
-	s := structured("", 0)
+	s := structured("", "")
 	s.Label.Binary = "/opt/claude"
 	s.WorkDir = "/work"
 	d, ex := driverFor(t, s, open, nil)
@@ -369,7 +372,7 @@ func TestTurn_AccumulatesAcrossResultFrames(t *testing.T) {
 	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{stdin: nopWriteCloser{io.Discard}, stdout: stdout, close: func() error { return nil }}, nil
 	}
-	d, ex := driverFor(t, structured("m", 0), open, nil)
+	d, ex := driverFor(t, structured("m", ""), open, nil)
 	out := make(chan engine.Event, 32)
 	res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "go"}, out)
 	require.NoError(t, err)

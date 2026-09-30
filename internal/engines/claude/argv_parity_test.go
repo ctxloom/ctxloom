@@ -54,16 +54,16 @@ func argvMatrix(t *testing.T) []argvLine {
 	var lines []argvLine
 	for _, l := range launches {
 		for _, mode := range []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot} {
-			for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits, agent.PermissionDontAsk, agent.PermissionAuto} {
+			for _, named := range namedPolicies {
+				perm := named.name
 				for _, model := range []string{"", "claude-opus-5"} {
-					req := &agent.ExecuteRequest{
-						Mode:        mode,
-						Permissions: perm,
-						Model:       model,
-						Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
-						Prompt:      &agent.Fragment{Content: "reply with PROMPTOK"},
-						Presented:   l.presented,
-					}
+					req := withSession(backend, &agent.ExecuteRequest{
+						Mode:      mode,
+						Model:     model,
+						Env:       map[string]string{sessionHarpEnv: "perky-same-chevy"},
+						Prompt:    &agent.Fragment{Content: "reply with PROMPTOK"},
+						Presented: l.presented,
+					}, named.p)
 					args := backend.buildArgs(req)
 					for i, a := range args {
 						args[i] = strings.ReplaceAll(a, home, "<HOME>")
@@ -127,7 +127,8 @@ func TestChatArgs_Parity_Golden(t *testing.T) {
 	kind, err := Build()
 	require.NoError(t, err)
 	var out strings.Builder
-	for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits, agent.PermissionDontAsk, agent.PermissionAuto} {
+	for _, named := range namedPolicies {
+		perm := named.name
 		for _, model := range []string{"", "claude-opus-5"} {
 			for _, resume := range []string{"", "native-key-1"} {
 				for _, mcp := range []string{"", "<HOME>/.mcp.json"} {
@@ -135,7 +136,7 @@ func TestChatArgs_Parity_Golden(t *testing.T) {
 						Identity:   sessions.Identity{Harp: "perky-same-chevy"},
 						Label:      engine.LabelConfig{Label: EngineName, Model: model},
 						Mode:       engine.Structured,
-						Permission: engine.PermissionPolicy{Mode: perm},
+						Permission: named.p,
 					}
 					var presented []present.Presentation
 					if mcp != "" {
@@ -150,13 +151,9 @@ func TestChatArgs_Parity_Golden(t *testing.T) {
 					}
 					ex, err := inst.Exec(presented)
 					require.NoError(t, err)
-					// The posture the runner hands a first turn: the launch's mode,
-					// bypass excepted (it stays on the argv).
-					posture := engine.TurnPosture{Mode: perm}
-					if perm == agent.PermissionBypass {
-						posture.Mode = engine.PermissionNotRequested
-					}
-					argv, err := (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{Posture: posture})
+					// A first turn asks for no mode of its own: it runs at the
+					// launch's.
+					argv, err := (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{})
 					require.NoError(t, err)
 					fmt.Fprintf(&out, "%s/model=%q/resume=%q/mcp=%q: %s\n", perm, model, resume, mcp, strings.Join(argv, " "))
 				}

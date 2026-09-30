@@ -40,7 +40,7 @@ func TestApprovalCodec_DecodesAPermissionRequest(t *testing.T) {
 		"only allow-rule suggestions become grantable rules; directories and deny rules are not grants")
 	mode, ok := ask.SuggestsSetMode.Get()
 	require.True(t, ok)
-	assert.Equal(t, engine.PermissionAcceptEdits, mode)
+	assert.Equal(t, modeAcceptEdits, mode)
 }
 
 func TestApprovalCodec_NeverSuggestsBypass(t *testing.T) {
@@ -112,7 +112,7 @@ func encode(t *testing.T, event string, ask engine.PermissionAsk, a engine.Permi
 
 func TestApprovalCodec_EncodesAnAllowForSession(t *testing.T) {
 	out := encode(t, hookEventPermissionRequest, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, engine.PermissionAnswer{
-		Allow: true, SessionRules: []string{"Bash(touch *)", "Read"}, SetMode: engine.Provide(engine.PermissionAcceptEdits),
+		Allow: true, SessionRules: []string{"Bash(touch *)", "Read"}, SetMode: engine.Provide(modeAcceptEdits),
 	})
 	assert.Equal(t, hookEventPermissionRequest, out.HookSpecificOutput.HookEventName)
 	require.NotNil(t, out.HookSpecificOutput.Decision)
@@ -170,13 +170,13 @@ func TestApprovalCodec_EncodeRefuses(t *testing.T) {
 		event string
 		a     engine.PermissionAnswer
 	}{
-		"bypass":              {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(engine.PermissionBypass)}},
-		"plan":                {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(engine.PermissionPlan)}},
-		"mode on a deny":      {hookEventPermissionRequest, engine.PermissionAnswer{SetMode: engine.Provide(engine.PermissionDefault)}},
+		"bypass":              {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(modeBypass)}},
+		"plan":                {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(modePlan)}},
+		"mode on a deny":      {hookEventPermissionRequest, engine.PermissionAnswer{SetMode: engine.Provide(modeDefault)}},
 		"rules on a deny":     {hookEventPermissionRequest, engine.PermissionAnswer{SessionRules: []string{"Bash"}}},
 		"bad rule":            {hookEventPermissionRequest, engine.PermissionAnswer{Allow: true, SessionRules: []string{"Bash("}}},
 		"rules on a pretool":  {hookEventPreToolUse, engine.PermissionAnswer{Allow: true, SessionRules: []string{"Bash"}}},
-		"mode on a pretool":   {hookEventPreToolUse, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(engine.PermissionDefault)}},
+		"mode on a pretool":   {hookEventPreToolUse, engine.PermissionAnswer{Allow: true, SetMode: engine.Provide(modeDefault)}},
 		"unknown event":       {"Stop", engine.PermissionAnswer{Allow: true}},
 		"answers not a quest": {hookEventPreToolUse, engine.PermissionAnswer{Allow: true, Answers: []engine.QuestionAnswer{{Question: "q"}}}},
 	} {
@@ -191,7 +191,7 @@ func TestApprovalCodec_EncodeRefuses(t *testing.T) {
 func TestApprovalCodec_EncodeProperty_SessionOnlyNoBypass(t *testing.T) {
 	c := codec(t)
 	rng := rand.New(rand.NewSource(1))
-	modes := []engine.PermissionMode{engine.PermissionNotRequested, engine.PermissionDefault, engine.PermissionAcceptEdits, engine.PermissionPlan, engine.PermissionBypass, engine.PermissionDontAsk, engine.PermissionAuto}
+	modes := []string{"", modeDefault, modeAcceptEdits, modePlan, modeBypass, "dontAsk", "auto"}
 	rules := []string{"Bash", "Bash(npm test)", "mcp__srv__tool", "Read(./src/**)", "WebFetch(domain:x.dev)"}
 	emitted := 0
 	for i := 0; i < 2000; i++ {
@@ -199,7 +199,7 @@ func TestApprovalCodec_EncodeProperty_SessionOnlyNoBypass(t *testing.T) {
 		for n := rng.Intn(3); n > 0; n-- {
 			a.SessionRules = append(a.SessionRules, rules[rng.Intn(len(rules))])
 		}
-		if m := modes[rng.Intn(len(modes))]; m != engine.PermissionNotRequested {
+		if m := modes[rng.Intn(len(modes))]; m != "" {
 			a.SetMode = engine.Provide(m)
 		}
 		raw, err := c.EncodeAnswer(hookEventPermissionRequest, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, a)

@@ -28,7 +28,7 @@ const shResult = `printf '%s\n' '{"type":"result","subtype":"success","result":"
 // exit status rides the turn as INFORMATION. A turn that answered and then
 // exited 3 is still an answered turn — no error — and says it exited 3.
 func TestTurn_ResultThenExit3_CarriesTheCodeAndStillAnswers(t *testing.T) {
-	d, ex := driverFor(t, structured("", 0), shTurn(shResult+"; exit 3", time.Second), nil)
+	d, ex := driverFor(t, structured("", ""), shTurn(shResult+"; exit 3", time.Second), nil)
 	res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
 	require.NoError(t, err, "a clean result stays a completed turn whatever the exit after it")
 	require.NotNil(t, res.ExitCode, "the engine exited on its own: its status is reported")
@@ -39,7 +39,7 @@ func TestTurn_ResultThenExit3_CarriesTheCodeAndStillAnswers(t *testing.T) {
 // exit is a turn that died (errTurnProcessDied), and the status it died with
 // rides along.
 func TestTurn_CrashWithoutResult_FailsAndCarriesTheCode(t *testing.T) {
-	d, ex := driverFor(t, structured("", 0), shTurn("exit 3", time.Second), nil)
+	d, ex := driverFor(t, structured("", ""), shTurn("exit 3", time.Second), nil)
 	res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
 	require.ErrorIs(t, err, errTurnProcessDied)
 	require.NotNil(t, res.ExitCode)
@@ -53,7 +53,7 @@ func TestTurn_CrashWithoutResult_FailsAndCarriesTheCode(t *testing.T) {
 // and an interrupt.
 func TestTurn_WeEndedIt_ReportsNoCode(t *testing.T) {
 	t.Run("reap past its grace", func(t *testing.T) {
-		d, ex := driverFor(t, structured("", 0), shTurn(shResult+"; exec >&- 2>&-; exec sleep 30", 100*time.Millisecond), nil)
+		d, ex := driverFor(t, structured("", ""), shTurn(shResult+"; exec >&- 2>&-; exec sleep 30", 100*time.Millisecond), nil)
 		res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
 		require.NoError(t, err)
 		assert.Nil(t, res.ExitCode, "we killed it: the status is ours, not the engine's")
@@ -61,7 +61,7 @@ func TestTurn_WeEndedIt_ReportsNoCode(t *testing.T) {
 	t.Run("interrupt", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		d, ex := driverFor(t, structured("", 0), shTurn(`printf '%s\n' '{"type":"system","subtype":"init","session_id":"s"}'; exec sleep 30`, time.Second), nil)
+		d, ex := driverFor(t, structured("", ""), shTurn(`printf '%s\n' '{"type":"system","subtype":"init","session_id":"s"}'; exec sleep 30`, time.Second), nil)
 		out := make(chan engine.Event, 16)
 		go func() { <-out; cancel() }()
 		res, err := d.Turn(ctx, ex, engine.Turn{Prompt: "x"}, out)

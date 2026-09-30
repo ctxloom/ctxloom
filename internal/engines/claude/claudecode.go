@@ -292,7 +292,8 @@ func settingsDocument(p permissionsDoc, sandbox *sandboxDoc) (string, error) {
 }
 
 // turnSettings is one headless turn's --settings: the turn's mode (never
-// bypass, which stays on the argv), the declared rules, the grants ctxloom
+// bypass, which stays on the argv; always named, so no other settings
+// source's defaultMode applies), the declared rules, the grants ctxloom
 // holds for the run and the sandbox — plus, on a plan-first session's plan
 // turn, the MCP grant plan needs (see postureArgs). A declared deny or ask
 // still wins over a grant: claude evaluates deny, then ask, then allow.

@@ -232,6 +232,7 @@ Unified hook events (translated to backend-specific format)
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `permission_ask` | hookArray | When the engine is about to ask for permission to use a tool its posture and rules left open; a command hook's stdout is the decision |
 | `post_file_edit` | hookArray | After file edit |
 | `post_tool` | hookArray | After tool execution |
 | `pre_shell` | hookArray | Before shell command execution |

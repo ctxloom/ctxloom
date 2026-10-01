@@ -279,6 +279,9 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			PostFileEdit: keep(bundles.HookEventPostFileEdit, h.Unified.PostFileEdit),
 			TurnEnd:      keep(bundles.HookEventTurnEnd, h.Unified.TurnEnd),
 			TurnStart:    keep(bundles.HookEventTurnStart, h.Unified.TurnStart),
+			// Not a bundle-authorable event (bundles.BundleHooks), so it is
+			// keyed by the wire vocabulary's own spelling.
+			PermissionAsk: keep(wire.HookEventPermissionAsk, h.Unified.PermissionAsk),
 		},
 	}
 	// Engine-native (ext) hooks gate too; keyed on

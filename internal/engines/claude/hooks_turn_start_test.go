@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
@@ -87,4 +89,28 @@ func TestHooks_DecodesUserPromptSubmitAsTurnStart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, engine.HookEvent{Event: "turn_start", NativeSession: "s1", Transcript: "/t/s1.jsonl"}, ev)
 	assert.Equal(t, "UserPromptSubmit", hookEventMap()["turn_start"], "Exports names the native event turn_start registers under")
+}
+
+// TestClaudeCodeHookWriter_ApprovalHooksReachPermissionRequestAndPreToolUse:
+// the approval hooks a human-approved run is delivered land where claude
+// spawns them — the permission ask under PermissionRequest for every tool,
+// the question/plan hook under PreToolUse for exactly those two tools —
+// each with a timeout that outlives the approval timeout.
+func TestClaudeCodeHookWriter_ApprovalHooksReachPermissionRequestAndPreToolUse(t *testing.T) {
+	approval := agent.ApprovalHooks(15 * time.Minute)
+	hooks := writtenHooks(t, &wire.HooksConfig{Unified: approval})
+
+	for event, want := range map[string]wire.Hook{"PermissionRequest": approval.PermissionAsk[0], "PreToolUse": approval.PreTool[0]} {
+		groups, ok := hooks[event].([]any)
+		require.True(t, ok, "%s must be written, got events %v", event, keysOf(hooks))
+		require.Len(t, groups, 1, event)
+		group := groups[0].(map[string]any)
+		matcher, _ := group["matcher"].(string)
+		assert.Equal(t, want.Matcher, matcher, event)
+		entries := group["hooks"].([]any)
+		require.Len(t, entries, 1, event)
+		entry := entries[0].(map[string]any)
+		assert.Equal(t, want.Command, entry["command"], event)
+		assert.EqualValues(t, want.Timeout, entry["timeout"], event)
+	}
 }

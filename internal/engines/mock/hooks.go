@@ -28,7 +28,7 @@ import (
 
 // The unified events the mock can fire, in the order a turn fires them.
 // The lossy double drops session_start and session_end (WithoutHookEvents).
-var hookEvents = []string{"session_start", "turn_start", "pre_shell", "pre_tool", "post_tool", "post_file_edit", "turn_end", "session_end"}
+var hookEvents = []string{"session_start", "turn_start", "pre_shell", "pre_tool", "permission_ask", "post_tool", "post_file_edit", "turn_end", "session_end"}
 
 // shellTools and editTools are the tools that narrow pre_tool to pre_shell
 // and post_tool to post_file_edit.
@@ -166,6 +166,8 @@ func registered(hooks wire.UnifiedHooks, event string) []wire.Hook {
 		return hooks.SessionEnd
 	case "turn_start":
 		return hooks.TurnStart
+	case "permission_ask":
+		return hooks.PermissionAsk
 	}
 	return nil
 }

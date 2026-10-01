@@ -905,7 +905,7 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 // stale-ledger checkout as if a user had written them.
 // TestRemoveSettings_WithoutALedger_ReclaimsEveryHookCtxloomConstructs walks the
 // constructors and fails when one is not recognised here.
-var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "hud"}
+var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "mail-drain", "permission", "hud"}
 
 func isCtxloomMachineCallback(command string) bool {
 	if !exectoken.IsManaged(command, "ctxloom") {
@@ -982,6 +982,7 @@ func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, uni
 		{Hooks: unified.TurnStart, Event: HookEventUserPromptSubmit},
 		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},
 		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: "Edit|Write"},
+		{Hooks: unified.PermissionAsk, Event: hookEventPermissionRequest},
 	}, func(event string, h wire.Hook) {
 		w.addHook(settings, event, h)
 	})

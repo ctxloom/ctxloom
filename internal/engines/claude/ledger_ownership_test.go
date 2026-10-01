@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
 
@@ -29,6 +30,9 @@ func ctxloomOwnHooks() []wire.Hook {
 		agent.NewToolReflectHook(agent.DefaultToolReflectBytes),
 		agent.NewNextStepHook(),
 		agent.NewSkillMatesHook(),
+		agent.NewMailDrainHook(),
+		agent.ApprovalHooks(time.Minute).PermissionAsk[0],
+		agent.ApprovalHooks(time.Minute).PreTool[0],
 	}
 }
 

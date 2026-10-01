@@ -590,6 +590,10 @@
         "turn_start": {
           "$ref": "#/$defs/hookArray",
           "description": "When a prompt is submitted, before the agent acts on it — once per turn; a command hook's stdout becomes that turn's context"
+        },
+        "permission_ask": {
+          "$ref": "#/$defs/hookArray",
+          "description": "When the engine is about to ask for permission to use a tool its posture and rules left open; a command hook's stdout is the decision"
         }
       },
       "additionalProperties": false

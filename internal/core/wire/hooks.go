@@ -62,6 +62,12 @@ type UnifiedHooks struct {
 	// delivery needs: the one moment a hook can put something in front of the
 	// agent as the turn's own context rather than as a later interruption.
 	TurnStart []Hook `yaml:"turn_start,omitempty" json:"turn_start,omitempty"`
+	// PermissionAsk fires when the engine is about to ask for permission to
+	// use a tool its posture and rules left open — including, in a run with
+	// nobody at the engine, where it would otherwise deny. A command hook's
+	// stdout is the engine's decision; no decision leaves the ask to the
+	// engine's own route.
+	PermissionAsk []Hook `yaml:"permission_ask,omitempty" json:"permission_ask,omitempty"`
 }
 
 // HooksConfig holds both unified and engine-specific hook configurations.
@@ -161,6 +167,7 @@ func (u *UnifiedHooks) Append(other UnifiedHooks) {
 	u.PreShell = appendUniqueHooks(u.PreShell, other.PreShell)
 	u.PostFileEdit = appendUniqueHooks(u.PostFileEdit, other.PostFileEdit)
 	u.TurnStart = appendUniqueHooks(u.TurnStart, other.TurnStart)
+	u.PermissionAsk = appendUniqueHooks(u.PermissionAsk, other.PermissionAsk)
 }
 
 // All is every hook across the unified events, in event order then
@@ -169,7 +176,7 @@ func (u *UnifiedHooks) Append(other UnifiedHooks) {
 // through it rather than re-listing the fields.
 func (u UnifiedHooks) All() []Hook {
 	var out []Hook
-	for _, hooks := range [][]Hook{u.PreTool, u.PostTool, u.SessionStart, u.SessionEnd, u.TurnEnd, u.PreShell, u.PostFileEdit, u.TurnStart} {
+	for _, hooks := range [][]Hook{u.PreTool, u.PostTool, u.SessionStart, u.SessionEnd, u.TurnEnd, u.PreShell, u.PostFileEdit, u.TurnStart, u.PermissionAsk} {
 		out = append(out, hooks...)
 	}
 	return out
@@ -215,14 +222,15 @@ func appendUniqueHooks(dst []Hook, src []Hook) []Hook {
 // the ONE vocabulary: bundles' hook-identity constants alias these, and
 // every per-event read or write goes through Event/SetEvent below.
 const (
-	HookEventPreTool      = "pre_tool"
-	HookEventPostTool     = "post_tool"
-	HookEventSessionStart = "session_start"
-	HookEventSessionEnd   = "session_end"
-	HookEventPreShell     = "pre_shell"
-	HookEventPostFileEdit = "post_file_edit"
-	HookEventTurnEnd      = "turn_end"
-	HookEventTurnStart    = "turn_start"
+	HookEventPreTool       = "pre_tool"
+	HookEventPostTool      = "post_tool"
+	HookEventSessionStart  = "session_start"
+	HookEventSessionEnd    = "session_end"
+	HookEventPreShell      = "pre_shell"
+	HookEventPostFileEdit  = "post_file_edit"
+	HookEventTurnEnd       = "turn_end"
+	HookEventTurnStart     = "turn_start"
+	HookEventPermissionAsk = "permission_ask"
 )
 
 // HookEvents lists the unified events in their canonical order — the
@@ -234,7 +242,7 @@ func HookEvents() []string {
 	return []string{
 		HookEventPreTool, HookEventPostTool, HookEventSessionStart,
 		HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
-		HookEventTurnEnd, HookEventTurnStart,
+		HookEventTurnEnd, HookEventTurnStart, HookEventPermissionAsk,
 	}
 }
 
@@ -270,6 +278,8 @@ func (u UnifiedHooks) Event(event string) []Hook {
 		return u.TurnEnd
 	case HookEventTurnStart:
 		return u.TurnStart
+	case HookEventPermissionAsk:
+		return u.PermissionAsk
 	}
 	return nil
 }
@@ -293,5 +303,7 @@ func (u *UnifiedHooks) SetEvent(event string, hooks []Hook) {
 		u.TurnEnd = hooks
 	case HookEventTurnStart:
 		u.TurnStart = hooks
+	case HookEventPermissionAsk:
+		u.PermissionAsk = hooks
 	}
 }

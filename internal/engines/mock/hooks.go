@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -74,6 +75,20 @@ const credentialRejectedMarker = "mock:credential-rejected"
 // CredentialRejected renders the prompt directive that makes the mock's turn
 // fail on a refused credential.
 func CredentialRejected() string { return credentialRejectedMarker }
+
+// rateLimitedPattern is the mock's usage limit: a prompt carrying
+// `mock:rate-limited` is a turn that ends on its rate limit, as claude's does
+// on a 429; `=<unix seconds>` names when the limit resets.
+var rateLimitedPattern = regexp.MustCompile(`mock:rate-limited(?:=(\d+))?`)
+
+// RateLimited renders the prompt directive that makes the mock's turn end on
+// its rate limit, naming resetsAt unless it is zero.
+func RateLimited(resetsAt time.Time) string {
+	if resetsAt.IsZero() {
+		return "mock:rate-limited"
+	}
+	return fmt.Sprintf("mock:rate-limited=%d", resetsAt.Unix())
+}
 
 // deniedToolIn reads the tool a prompt asks the turn to have denied.
 func deniedToolIn(prompt string) (string, bool) {

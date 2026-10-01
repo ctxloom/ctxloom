@@ -246,3 +246,38 @@ func TestTurn_CredentialRejectedMarkerIsATurnFailure(t *testing.T) {
 		assert.Nil(t, ev.Failed, "an unmarked turn is not turned away")
 	}
 }
+
+// TestTurn_RateLimitedMarkerIsATurnFailure: `mock:rate-limited[=<unix>]` is
+// the mock's usage limit — claude's shape when a turn ends on its 429: the
+// engine's words, a rate-limited Failed event carrying the reset time when
+// one is named, and a completion. Nothing else is attempted.
+func TestTurn_RateLimitedMarkerIsATurnFailure(t *testing.T) {
+	resets := time.Unix(1782318600, 0)
+	for name, tc := range map[string]struct {
+		marker string
+		want   agent.TurnFailure
+	}{
+		"with a reset time": {RateLimited(resets), agent.TurnFailure{Kind: agent.FailureRateLimited, ResetsAt: resets}},
+		"without one":       {RateLimited(time.Time{}), agent.TurnFailure{Kind: agent.FailureRateLimited}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, events, err := runTurn(t, engine.Exec{Binary: "mock"}, tc.marker+" "+Deny("Bash")+" do the work")
+			require.NoError(t, err)
+			var failed []agent.TurnFailure
+			var completed bool
+			for _, ev := range events {
+				switch {
+				case ev.Failed != nil:
+					failed = append(failed, *ev.Failed)
+				case ev.Complete != nil:
+					completed = true
+					assert.Empty(t, ev.Complete.Denials, "a rate-limited turn attempts no tool")
+				}
+			}
+			require.Len(t, failed, 1)
+			assert.Equal(t, tc.want.Kind, failed[0].Kind)
+			assert.True(t, tc.want.ResetsAt.Equal(failed[0].ResetsAt), "got %v", failed[0].ResetsAt)
+			assert.True(t, completed)
+		})
+	}
+}

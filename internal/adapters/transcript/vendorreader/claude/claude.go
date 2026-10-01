@@ -63,7 +63,7 @@ var _ vendorreader.VendorAdapter = Adapter{}
 var VersionedAdapters = []vendorreader.VersionedAdapter{{
 	Adapter:          Adapter{},
 	Range:            vendorreader.VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
-	ValidatedVersion: "2.1.285",
+	ValidatedVersion: "2.1.286",
 }}
 
 // Convert reads the claude transcript JSONL file at src and appends its

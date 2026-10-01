@@ -2,7 +2,9 @@ package operations
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -89,5 +91,35 @@ func TestDoctor_FullReport_RunsEveryCheckInItsFixedOrder(t *testing.T) {
 	for _, c := range rep.Checks {
 		assert.Containsf(t, []DoctorStatus{DoctorOK, DoctorWarn, DoctorInfo}, c.Status, "%s carries a status outside the vocabulary", c.Marker)
 		assert.NotEmptyf(t, c.Detail, "%s reports no detail", c.Marker)
+	}
+}
+
+// TestDoctor_ProbesEachRuntimeOnce: every runtime row reads one shared
+// reachability probe. A probe is an `info` round trip to the engine — seconds
+// for podman, up to runtimeProbeTimeout for a wedged one — so a report that
+// re-probed per row multiplied that wait by the rows. The fakes answer every
+// call and log it; a reachable runtime is then probed exactly once.
+func TestDoctor_ProbesEachRuntimeOnce(t *testing.T) {
+	app, home := doctorApp(t)
+	dir := t.TempDir()
+	for _, bin := range []string{"docker", "podman"} {
+		script := "#!/bin/sh\necho \"$*\" >> " + filepath.Join(dir, bin+".calls") + "\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755))
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := Doctor(context.Background(), app, DoctorRequest{Home: home})
+	require.NoError(t, err)
+
+	for _, bin := range []string{"docker", "podman"} {
+		raw, err := os.ReadFile(filepath.Join(dir, bin+".calls"))
+		require.NoError(t, err, "%s was never probed", bin)
+		probes := 0
+		for _, line := range strings.Split(string(raw), "\n") {
+			if line == "info" {
+				probes++
+			}
+		}
+		assert.Equal(t, 1, probes, "%s's reachability probes:\n%s", bin, raw)
 	}
 }

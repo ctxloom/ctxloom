@@ -117,7 +117,7 @@ func TestDoctorCheckDeps_RightState_GitPresentIsEnumeratedInOK(t *testing.T) {
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir)
-	check := doctorCheckDeps(engines.Registry(), &config.Config{})
+	check := doctorCheckDeps(engines.Registry(), &config.Config{}, doctorRuntimes())
 	// docker/podman availability (isolation.Docker{}.Available()) does more
 	// than a PATH lookup, so this may still warn about the container runtime
 	// on some hosts; what this test pins down is that git is bucketed with
@@ -135,7 +135,7 @@ func TestDoctorCheckDeps_WrongState_GitMissing(t *testing.T) {
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir) // deliberately no git on this PATH
-	check := doctorCheckDeps(engines.Registry(), &config.Config{})
+	check := doctorCheckDeps(engines.Registry(), &config.Config{}, doctorRuntimes())
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "git", "a missing git must be named, not silently absorbed into a generic failure")
 	assert.Contains(t, check.Detail, "required", "a missing git must be reported in the REQUIRED bucket, not lumped with recommended")
@@ -158,7 +158,7 @@ func TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired(t 
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir) // deliberately no ssh-keygen
-	check := doctorCheckDeps(engines.Registry(), &config.Config{})
+	check := doctorCheckDeps(engines.Registry(), &config.Config{}, doctorRuntimes())
 	if check.Status == DoctorOK {
 		// A host without a real docker/podman daemon can still warn on the
 		// container runtime alone; skip only if ssh-keygen genuinely wasn't
@@ -180,7 +180,7 @@ func TestDoctorCheckDeps_RightState_AllPresent_DoesNotClaimSigningNeedsThem(t *t
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir)
-	check := doctorCheckDeps(engines.Registry(), &config.Config{})
+	check := doctorCheckDeps(engines.Registry(), &config.Config{}, doctorRuntimes())
 	if check.Status != DoctorOK {
 		t.Skip("container runtime unexpectedly unavailable on this host; the all-present ok Detail wording is exercised only on the ok path")
 	}
@@ -842,7 +842,7 @@ func TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired(t *te
 
 	check := doctorCheckDeps(engines.Registry(), config.NewFixture(config.Fixture{
 		Agents: map[string]agents.Agent{"a": {LLM: "claude-code", Runtime: "host"}},
-	}))
+	}), nil)
 
 	assert.Equal(t, DoctorWarn, check.Status, "a missing recommended dep still warns")
 	assert.Contains(t, check.Detail, "container runtime")
@@ -866,7 +866,7 @@ func TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired(t *testing.T) {
 
 			check := doctorCheckDeps(engines.Registry(), config.NewFixture(config.Fixture{
 				Agents: map[string]agents.Agent{"a": {LLM: "claude-code", Runtime: mode}},
-			}))
+			}), nil)
 
 			assert.Equal(t, DoctorWarn, check.Status)
 			required, _, _ := strings.Cut(check.Detail, "; missing (recommended")

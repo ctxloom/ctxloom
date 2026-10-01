@@ -136,17 +136,21 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 	if err != nil {
 		return DoctorReport{}, err
 	}
+	// ONE probe per runtime for the whole report: each is an `info` round trip
+	// to the engine (seconds for podman, up to runtimeProbeTimeout for a wedged
+	// one), and every runtime row reads the same answer.
+	runtimes := doctorRuntimes()
 	var checks []DoctorCheck
 	if req.DepsOnly {
 		checks = []DoctorCheck{
-			doctorCheckDeps(reg, cfg),
+			doctorCheckDeps(reg, cfg, runtimes),
 			doctorCheckSignKey(ctx, cfg, discoverer),
 			doctorCheckGitIdentity(ctx, discoverer.GitConfig),
 		}
 	} else {
 		checks = []DoctorCheck{
 			doctorCheckSetupMarker(cfg, cfgErr),
-			doctorCheckDeps(reg, cfg),
+			doctorCheckDeps(reg, cfg, runtimes),
 			doctorCheckSignKey(ctx, cfg, discoverer),
 			doctorCheckGitIdentity(ctx, discoverer.GitConfig),
 			doctorCheckAgents(ctx, reg, cfg, cfgErr),
@@ -164,8 +168,8 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckLocalTierState(cfg, req.Home),
 			doctorCheckGitignorePosture(cfg, cfgErr),
 			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
-			doctorCheckOrphanContainers(ctx, doctorRuntimes(), isolation.ReapOrphanedContainers),
-			doctorCheckSupersededImages(ctx, doctorRuntimes(), func(ctx context.Context, rt isolation.Runtime) (isolation.ImagePrunePlan, error) {
+			doctorCheckOrphanContainers(ctx, runtimes, isolation.ReapOrphanedContainers),
+			doctorCheckSupersededImages(ctx, runtimes, func(ctx context.Context, rt isolation.Runtime) (isolation.ImagePrunePlan, error) {
 				return isolation.PlanImagePrune(ctx, rt, imagePruneOptions(reg, cfg, rt, DefaultImagePruneMinAge, time.Now()))
 			}),
 			doctorCheckLegacyIndex(),
@@ -241,12 +245,12 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 // (doctorContainerRuntimeRequired). The two buckets are reported separately so
 // "missing" never conflates an optional convenience with a real hard
 // dependency.
-func doctorCheckDeps(reg engine.Registry, cfg *config.Config) DoctorCheck {
+func doctorCheckDeps(reg engine.Registry, cfg *config.Config, runtimes []isolation.Runtime) DoctorCheck {
 	const marker = "DOCTOR-CHECK-DEPS-a1"
 	missingRequired := doctorMissingFromPath(doctorDepBinariesRequired)
 	missingRequired = append(missingRequired, doctorMissingEngineClients(reg, cfg)...)
 	missingRecommended := doctorMissingFromPath(doctorDepBinariesRecommended)
-	if len(doctorRuntimes()) == 0 {
+	if len(runtimes) == 0 {
 		if doctorContainerRuntimeRequired(cfg) {
 			missingRequired = append(missingRequired,
 				"docker/podman (container runtime — this project runs container agents)")

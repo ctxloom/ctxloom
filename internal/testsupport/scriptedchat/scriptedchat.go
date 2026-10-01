@@ -34,13 +34,17 @@ var (
 // tool_use/tool_result pair, and a Complete — marshalled onto engine.Event
 // exactly as a real driver relays its native stream.
 type Chat struct {
-	Mu     sync.Mutex
-	Turns  []engine.Turn
-	Execs  []engine.Exec
-	Texts  []string
-	Keys   []string      // the key each turn was asked to resume by
-	Gate   chan struct{} // non-nil: turns block until released
-	Answer func(text string) string
+	Mu    sync.Mutex
+	Turns []engine.Turn
+	Execs []engine.Exec
+	Texts []string
+	Keys  []string      // the key each turn was asked to resume by
+	Gate  chan struct{} // non-nil: turns block until released
+	// SessionGate, when non-nil, holds the first turn's session announce
+	// until released: the announce then reaches the coordinator exactly when
+	// the test chooses, not the moment the process is up.
+	SessionGate chan struct{}
+	Answer      func(text string) string
 	// FailAfterTurns, when > 0, fails the turn after that many completed —
 	// an engine process that dies mid-turn. The runner then ends the run.
 	FailAfterTurns int
@@ -121,8 +125,13 @@ func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out cha
 	// The session is announced the moment the process is up — before the
 	// gate holds the turn's content, as a real engine's init precedes its
 	// first answer.
-	if plan.first && !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: NativeKey, Resumable: true}}) {
-		return engine.TurnResult{}, ctx.Err()
+	if plan.first {
+		if err := awaitGate(ctx, plan.session); err != nil {
+			return engine.TurnResult{}, err
+		}
+		if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: NativeKey, Resumable: true}}) {
+			return engine.TurnResult{}, ctx.Err()
+		}
 	}
 	if err := awaitGate(ctx, plan.gate); err != nil {
 		return engine.TurnResult{}, err
@@ -146,6 +155,7 @@ func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out cha
 // turnPlan is what one turn does, fixed under the lock as the turn is taken.
 type turnPlan struct {
 	gate    <-chan struct{}
+	session <-chan struct{}
 	answer  func(string) string
 	first   bool
 	fail    bool
@@ -161,7 +171,7 @@ func (s *Chat) take(ex engine.Exec, in engine.Turn) turnPlan {
 	s.Execs = append(s.Execs, ex)
 	s.Texts = append(s.Texts, in.Prompt)
 	s.Keys = append(s.Keys, in.Resume)
-	plan := turnPlan{gate: s.Gate, answer: s.Answer, first: s.turns == 0, denials: s.Denials}
+	plan := turnPlan{gate: s.Gate, session: s.SessionGate, answer: s.Answer, first: s.turns == 0, denials: s.Denials}
 	s.turns++
 	plan.fail = s.FailAfterTurns > 0 && s.turns > s.FailAfterTurns
 	plan.end = s.EndAfterTurns > 0 && s.turns >= s.EndAfterTurns

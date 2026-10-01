@@ -294,12 +294,19 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	assert.NotEqual(t, runID, currentRunID(c, harp), "the delivery rides a fresh run, not the dead one")
 }
 
-// TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime forces
-// the interleaving the test above must wait out: the child dies before its
-// session announcement is bound (dropBinds — the frame was never read), so
-// there is no key to resume by. The relaunch is then a fresh, context-primed
-// run, and the mail that raced the death is the turn AFTER that prime —
-// still delivered, still consumed, never stranded behind it.
+// TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime pins
+// the relaunch's fallback when the dead run left no key to resume by: a
+// fresh, context-primed run, with the mail that raced the death as the turn
+// AFTER that prime — still delivered, still consumed, never stranded behind
+// it.
+//
+// dropBinds reaches that state by discarding a bind the coordinator DID
+// receive, which is a failure real code cannot produce here: the runner sends
+// the announce ahead of the run's run_completed on one ordered stream, and a
+// RunExited termination drains the channel (drainTerminalTail) before
+// severing it, so an announce the engine sent is bound. The fallback itself
+// is still reachable — an engine that dies before it announces leaves no key
+// — and forcing it this way is what keeps that path pinned.
 func TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/scriptedchat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,8 +104,7 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 		}
 	}
 
-	// The explicit RunExited path (CauseRunnerExit) — the ONLY cause the fix
-	// scopes to (see drainTerminalTail's doc). Bypasses the network
+	// The explicit RunExited path (CauseRunnerExit). Bypasses the network
 	// entirely: this is the coordinator-side handler the RunnerChannel recv
 	// loop calls, driven directly so the race is deterministic, not a real
 	// scheduler gamble.
@@ -187,4 +187,92 @@ func TestDrainTracked_SkipsARosterHarpWhoseCurrentRunIsNil(t *testing.T) {
 	for _, ch := range tracked {
 		assert.NotEqual(t, ghost, ch.harp, "a harp with no current run must never be tracked")
 	}
+}
+
+// announceHeldChild spawns a child whose first run is mid-turn with its
+// session announce still held in the engine (no resume key bound yet), and
+// arms the drain seam so the announce is released only from INSIDE
+// terminateRun's drain, before anything is severed. The hook then waits for
+// the bind, so the announce is provably processed on the still-live channel
+// rather than raced against the window. Every later run is an ordinary
+// engine. drained reports whether the drain ran for this child at all.
+func announceHeldChild(t *testing.T) (c *Coordinator, sp *fakeSpawner, harp, runID string, drained func() bool) {
+	t.Helper()
+	resetStrictness(t)
+	turnGate := make(chan struct{})
+	sessionGate := make(chan struct{})
+	spawned := 0
+	sp = newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *scriptedChat {
+			spawned++
+			if spawned == 1 {
+				return &scriptedChat{Gate: turnGate, SessionGate: sessionGate}
+			}
+			return &scriptedChat{}
+		})
+	c = newTestCoordinator(t, sp, nil)
+	harp = spawnGatedChild(t, sp, c)
+	require.Empty(t, sp.NativeSession(harp), "precondition: the announce is still held in the engine")
+	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
+
+	fired := false
+	c.drainHook = func(role string) {
+		if role != harp || fired {
+			return
+		}
+		fired = true
+		close(sessionGate)
+		require.Eventually(t, func() bool { return sp.NativeSession(harp) != "" }, conformanceWait, 5*time.Millisecond,
+			"the announce released inside the drain was never bound while the channel was live")
+	}
+	// The hook runs synchronously inside terminateRun on the test goroutine,
+	// so fired is read back on that same goroutine.
+	return c, sp, harp, runID, func() bool { return fired }
+}
+
+// TestTerminateRun_RunnerExitBindsAnAnnounceArrivingDuringTheDrain pins the
+// relaunch path: a child that dies (RunExited) with mail pending while its
+// session announce is still unread must have that announce bound before its
+// channel is severed, so the relaunch carrying the mail resumes the engine
+// session by key instead of starting a fresh one.
+func TestTerminateRun_RunnerExitBindsAnAnnounceArrivingDuringTheDrain(t *testing.T) {
+	c, sp, harp, runID, drained := announceHeldChild(t)
+	const leftover = "one more thing"
+	_, err := c.AgentSend(ownerIdentity(), harp, KindMessage, leftover, nil, "")
+	require.NoError(t, err)
+
+	c.terminateRun(runID, CauseRunnerExit, "engine crashed mid-turn")
+
+	require.True(t, drained(), "terminateRun did not drain the channel for CauseRunnerExit")
+	require.NotEmpty(t, sp.NativeSession(harp), "the announce that arrived during the drain was not bound before sever")
+	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 5*time.Millisecond,
+		"a child that dies with mail pending must be relaunched")
+	require.Eventually(t, func() bool { return len(sp.chat(1).RecordedTexts()) > 0 }, conformanceWait, 5*time.Millisecond,
+		"the relaunched run must receive a first turn")
+	assert.Equal(t, scriptedchat.NativeKey, sp.chat(1).RecordedKeys()[0], "the relaunch must resume the engine session by its key")
+	assert.Contains(t, sp.chat(1).RecordedTexts()[0], leftover, "the resumed run's first turn is the mail that raced the death")
+}
+
+// TestTerminateRun_StopBindsAnAnnounceArrivingDuringTheDrain is the stop's
+// half: a stopped child whose session announce was still unread when the stop
+// landed must have it bound before the channel is severed, so a later
+// agent_send resumes that session rather than starting a fresh one.
+// terminateRun is driven directly: through stopRun, the runner's interrupt
+// would end the gated engine before it could announce, and the frame could
+// never arrive at all.
+func TestTerminateRun_StopBindsAnAnnounceArrivingDuringTheDrain(t *testing.T) {
+	c, sp, harp, runID, drained := announceHeldChild(t)
+
+	c.terminateRun(runID, CauseStopped, "stopped by the owner")
+
+	require.True(t, drained(), "terminateRun did not drain the channel for CauseStopped")
+	require.NotEmpty(t, sp.NativeSession(harp), "the announce that arrived during the drain was not bound before sever")
+	_, err := c.AgentSend(ownerIdentity(), harp, KindMessage, "carry on", nil, "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 5*time.Millisecond,
+		"agent_send to a stopped child must resume it")
+	require.Eventually(t, func() bool { return len(sp.chat(1).RecordedTexts()) > 0 }, conformanceWait, 5*time.Millisecond,
+		"the resumed run must receive a first turn")
+	assert.Equal(t, scriptedchat.NativeKey, sp.chat(1).RecordedKeys()[0], "the resume must continue the stopped engine session by its key")
+	assert.Contains(t, sp.chat(1).RecordedTexts()[0], "carry on")
 }

@@ -1454,8 +1454,16 @@ func (c *Coordinator) releaseSlotIntent(rt *childRt) {
 // slot release (queue advances), credential revocation + severing, the
 // synthesized terminal notice into the parent's spool, and session-end
 // accounting. The record stays: a later send/inject resumes the harp as a
-// fresh run.
+// fresh run. Whether the run's channel is drained first is drainTerminalTail's
+// doc; a terminal decided in-band, on that channel's own recv goroutine, goes
+// through endRun instead.
 func (c *Coordinator) terminateRun(runID, cause, detail string) {
+	c.endRun(runID, cause, detail, cause == CauseRunnerExit || cause == CauseStopped)
+}
+
+// endRun is terminateRun's body; drainTail says whether the run's channel is
+// drained before anything can sever it.
+func (c *Coordinator) endRun(runID, cause, detail string, drainTail bool) {
 	rec, won := c.claimRunTerminal(runID, cause, detail)
 	if !won {
 		return
@@ -1471,15 +1479,11 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// The pause gate lived in the ended run's runner; the record of it ends here.
 	c.setRunPaused(runID, false)
 
-	// D4: drain BEFORE anything below that can tear the
-	// RunChannel's underlying connection down — closeFn (engine.Kill) closes
-	// the runner's WHOLE gRPC ClientConn, which multiplexes RunChannel too,
-	// so calling it first can win the very race this drain exists to close.
-	// An explicit RunExited (CauseRunnerExit) is the ONLY cause whose
-	// production emitter is contractually guaranteed to have just attempted
-	// a run_completed item on that channel — see drainTerminalTail's doc
-	// for why CauseStopped/CauseRunnerLoss must not pay this wait.
-	if cause == CauseRunnerExit {
+	// Drain BEFORE anything below that can tear the RunChannel's underlying
+	// connection down — closeFn (engine.Kill) closes the runner's WHOLE gRPC
+	// ClientConn, which multiplexes RunChannel too, so calling it first can
+	// win the very race the drain exists to close.
+	if drainTail {
 		c.drainTerminalTail(rec.Harp)
 	}
 

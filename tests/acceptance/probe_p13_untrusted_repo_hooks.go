@@ -156,32 +156,13 @@ func (o p13Outcome) evidence() string {
 // printed, then the arm the cell's variant names.
 func p13Assert(o p13Outcome) error {
 	v := o.verdict()
-	if err := o.ranTheEcho(v); err != nil {
-		return err
-	}
-	return o.judgeArm(v)
-}
-
-// ranTheEcho is the common half: the run completed, its stream decodes to a
-// finished turn, and the allowed echo ran and printed; the markers could be
-// read.
-func (o p13Outcome) ranTheEcho(v probeVerdict) error {
-	if !o.Started || o.TimedOut {
-		return v.fail(shapeRunFailed, fmt.Sprintf("the claude run did not complete (started=%t timedOut=%t)", o.Started, o.TimedOut), o.evidence())
-	}
-	trimmed, err := v.ran(o.Run)
+	s, err := decodeGatedRun(v, gatedRun{
+		Started: o.Started, TimedOut: o.TimedOut, Run: o.Run, Evidence: o.evidence(),
+		NoResult: "the stream carried no result frame, so the turn did not finish",
+		NoCall:   "the model made no " + p12GatedTool + " tool_use, so the PreToolUse hook had nothing to fire on and the cell measured nothing",
+	})
 	if err != nil {
 		return err
-	}
-	s, err := p12Decode(trimmed)
-	if err != nil {
-		return v.fail(shapeOutputFormat, err.Error(), o.evidence())
-	}
-	if !s.SawResult {
-		return v.fail(shapeOutputFormat, "the stream carried no result frame, so the turn did not finish", o.evidence())
-	}
-	if len(s.GatedCalls) == 0 {
-		return v.fail(shapeNotAttempted, "the model made no "+p12GatedTool+" tool_use, so the PreToolUse hook had nothing to fire on and the cell measured nothing", o.evidence())
 	}
 	if !p13EchoRan(s) {
 		return v.fail(shapeEchoNotRun, fmt.Sprintf("no %s tool_result printed a line %q without error", p12GatedTool, p13EchoOutput), o.evidence())
@@ -189,12 +170,12 @@ func (o p13Outcome) ranTheEcho(v probeVerdict) error {
 	if o.MarkerErr != nil {
 		return v.fail(shapeRunFailed, fmt.Sprintf("a hook marker could not be checked: %v", o.MarkerErr), o.evidence())
 	}
-	return nil
+	return o.judgeVariant(v)
 }
 
-// judgeArm is the arm the cell's variant names: every committed hook fired,
-// or none did.
-func (o p13Outcome) judgeArm(v probeVerdict) error {
+// judgeVariant is the arm the cell's variant names: every committed hook
+// fired, or none did.
+func (o p13Outcome) judgeVariant(v probeVerdict) error {
 	var fired, silent []string
 	for event := range p13Markers {
 		if o.Fired[event] {

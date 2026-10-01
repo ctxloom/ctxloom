@@ -430,8 +430,13 @@ func (c *Coordinator) drainForce(harp, runID string, bound time.Duration, p drai
 // boundary with an exit requested ends there, with its turn's report already
 // written by its runner, instead of parking idle for a next turn that will
 // never be handed out.
+//
+// It never drains the run's channel: the boundary is a frame of that channel,
+// handled on its recv goroutine, so every frame the runner sent before it is
+// already processed, and a drain here would wait the whole window for a
+// run_completed that only this goroutine could read.
 func (c *Coordinator) drainAtBoundary(rt *childRt, p *drainPolicy) {
-	c.terminateRun(rt.runID, p.endCause, p.endDetail("at its turn boundary"))
+	c.endRun(rt.runID, p.endCause, p.endDetail("at its turn boundary"), false)
 }
 
 // interruptThenClose sends ch's runner the per-run stop (stopAtRunner) on its

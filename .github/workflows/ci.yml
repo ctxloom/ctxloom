@@ -368,7 +368,14 @@ jobs:
 
       # Hermetic only (~@live && ~@network): real CLI subprocesses + a real MCP
       # server + the mock LLM backend. No network, no real agent, no secrets.
+      # CTXLOOM_REQUIRE_DOCKER=1: scenarios declaring a suite image (e.g.
+      # container.feature's capability-check rows) are EXCLUDED before the run
+      # when no container runtime is reachable; here that must fail instead, or a
+      # runner that lost its socket would silently drop the only tests of
+      # `container check` against a present image.
       - name: Run acceptance suite
+        env:
+          CTXLOOM_REQUIRE_DOCKER: "1"
         run: just test-acceptance-cover
 
   # Diff-only mutation on both PR and push, so a green PR runs the same check

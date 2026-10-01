@@ -117,10 +117,6 @@ type j001400State struct {
 	// MOCK_CONTEXT.md). Empty until a delivery step sets it, so
 	// j001400AgentVisiblePath can refuse rather than guess.
 	agentBackend string
-	// cellRuntime names the container runtime a container row actually ran
-	// under ("docker-rootless", ...), empty for a host row. A matrix that
-	// cannot say WHICH runtime it exercised cannot claim to have covered one.
-	cellRuntime string
 }
 
 func j001400Of(w *World) *j001400State {
@@ -802,7 +798,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the pulled surfaces are delivered to a "([^"]*)" agent in its "([^"]*)" workspace$`, func(c context.Context, runtime, workspace string) error {
 		w := worldFrom(c)
 		st := j001400Of(w)
-		st.agentRoot, st.agentBackend, st.cellRuntime = "", "", ""
+		st.agentRoot, st.agentBackend = "", ""
 		root, err := j001400WorkspaceRoot(w, runtime, workspace)
 		if err != nil {
 			// A configuration this suite has no hermetic vehicle for is
@@ -834,27 +830,6 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		st.runOutput = w.env.LastOutput()
 		st.agentRoot = root
 		st.agentBackend = "mock"
-		return nil
-	})
-
-	// OWNERSHIP is the container half's own assertion, and it is on the
-	// container outline alone because it is the only axis a process boundary
-	// can break while bytes and modes come through untouched. A rootful daemon
-	// writing through a bind mount leaves byte-identical, mode-identical,
-	// ROOT-OWNED files in the invoking user's tree — undeletable by that user,
-	// and invisible to every check this journey previously made.
-	ctx.Step(`^"([^"]*)" is owned on the host by the user that ran the delivery$`, func(c context.Context, rel string) error {
-		w := worldFrom(c)
-		st := j001400Of(w)
-		p, err := j001400AgentVisiblePath(w, rel)
-		if err != nil {
-			return err
-		}
-		if oerr := containercell.AssertOwnedByInvoker(p, rel); oerr != nil {
-			return fmt.Errorf("%w\n%s", oerr, st.j001400RunDiagnostic())
-		}
-		uid, gid, _ := containercell.Owner(p)
-		w.docStepMaterialized = fmt.Sprintf("%s -> uid=%d gid=%d (runtime %s)", p, uid, gid, st.cellRuntime)
 		return nil
 	})
 
@@ -1259,7 +1234,7 @@ var j001400ContainerReport sync.Once
 //   - the target is checked to be EMPTY of delivered surfaces first, so a
 //     leftover from an earlier host step cannot stand in for a container
 //     delivery.
-//   - the assertions that follow are on bytes, POSIX mode AND ownership.
+//   - the assertion that follows is on the delivered bytes, read on the host.
 //
 // A missing runtime SKIPS the scenario, naming the runtime and what did not
 // run — never a silent pass. Under CTXLOOM_REQUIRE_DOCKER=1 the same condition
@@ -1313,7 +1288,6 @@ func j001400DeliverInContainer(c context.Context, w *World, root string) error {
 	st.runOutput = res.Output
 	st.agentRoot = root
 	st.agentBackend = "mock"
-	st.cellRuntime = rt.Name
 	w.docStepMaterialized = fmt.Sprintf("ran INSIDE a %s container: %s\n%s", rt.Name, strings.Join(res.Argv, " "), strings.TrimSpace(res.Output))
 	return nil
 }

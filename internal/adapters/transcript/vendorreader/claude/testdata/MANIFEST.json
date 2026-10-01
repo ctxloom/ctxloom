@@ -24,7 +24,8 @@
     "real_source": "~/.claude/projects/-home-babbitt-workspace-hew/9cf7f97c-b58f-4877-8120-dc0aa44b2b14.jsonl — a real claude-code session on this box; atis-latch and cost-state lines recur across many real transcripts here.",
     "real_fields": "the atis-latch line (every field, byte-for-byte) and the cost-state line's every top-level field and value.",
     "shortened": "cost-state's modelUsage map, trimmed to its first model's entry; the adapter never reads it.",
-    "synthetic_lines_added_for_coverage": "one minimal user line ('hello'), so 'the admin lines contribute nothing' is distinguishable from 'the file converted to nothing' — real user lines in the source session carry session prose not worth copying."
+    "synthetic_lines_added_for_coverage": "one minimal user line ('hello'), so 'the admin lines contribute nothing' is distinguishable from 'the file converted to nothing' — real user lines in the source session carry session prose not worth copying.",
+    "fork-context-ref": "SHAPED from the first line of real forked-subagent files on this box (<session-id>/subagents/agent-<id>.jsonl): the exact key set and value types; the ids are synthetic. It sits first, as it does in the real files, which also exercises a first line that carries no sessionId."
   },
 
   "mapping_test.go's inline payloads": {

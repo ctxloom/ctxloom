@@ -117,3 +117,37 @@ func TestRequireSuiteImage_AnUndeclaredScenarioIsRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), imageMockAgent, "the refusal must name the tag to add")
 	assert.NoError(t, requireSuiteImage(&World{scenario: declared}, imageMockAgent, "the row"))
 }
+
+// No runtime reachable: the image's scenarios leave the hermetic lane's
+// selection BEFORE the run, each one named with the reason, so the lane's
+// skip gate never sees them decline. Only Skip does this — a Fail (the
+// CTXLOOM_REQUIRE_DOCKER=1 floor) or a Proceed must leave the selection whole.
+func TestExcludeSkippedSuiteImages_DropsOnlyASkippedImagesScenariosAndNamesThem(t *testing.T) {
+	const defaultTags = "~@live && ~@container"
+	newSuite := func() *godog.TestSuite {
+		return &godog.TestSuite{Options: &godog.Options{Paths: []string{"features/cli/container.feature"}, Tags: defaultTags}}
+	}
+	t.Cleanup(func() { delete(preparedSuiteImages, imageMockAgent) })
+
+	for _, d := range []dockergate.Decision{dockergate.Fail, dockergate.Proceed} {
+		preparedSuiteImages[imageMockAgent] = suiteImageState{decision: d, msg: "runtime verdict"}
+		suite := newSuite()
+		report, err := excludeSkippedSuiteImages(suite)
+		require.NoError(t, err)
+		assert.Empty(t, report, "decision %v must exclude nothing", d)
+		assert.Equal(t, defaultTags, suite.Options.Tags, "decision %v must leave the selection whole", d)
+	}
+
+	preparedSuiteImages[imageMockAgent] = suiteImageState{decision: dockergate.Skip, msg: "docker unavailable; skipping the mock agent image"}
+	suite := newSuite()
+	report, err := excludeSkippedSuiteImages(suite)
+	require.NoError(t, err)
+	assert.Contains(t, report, imageMockAgent)
+	assert.Contains(t, report, "docker unavailable; skipping the mock agent image", "the exclusion must carry the gate's reason")
+	assert.Contains(t, report, "The capability check is diagnostic-only", "every excluded scenario must be named")
+
+	declared, err := selectedScenarioTags(*suite)
+	require.NoError(t, err)
+	assert.False(t, declared[imageMockAgent], "godog's own selection must no longer reach a %s scenario", imageMockAgent)
+	assert.True(t, declared["@doc"], "the rest of container.feature must still be selected")
+}

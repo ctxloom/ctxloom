@@ -53,12 +53,36 @@ const unreachableRuntimeStubScript = "#!/bin/sh\nexit 1\n"
 // of the inherited PATH, and shadowing BOTH runtime names is what makes the
 // outcome independent of which real runtimes the machine has.
 func (e *TestEnvironment) StubRootlessContainerRuntime() error {
-	binDir := filepath.Join(e.Root, "stub-container-runtime-bin")
+	return e.shadowContainerRuntimes("stub-container-runtime-bin", RootlessDockerStubScript)
+}
+
+// HideHostContainerRuntimes makes "no container runtime is reachable" a fact
+// of THIS environment: both runtime names resolve to a daemon that never
+// answers, ahead of the inherited PATH (restored by Cleanup). This is the
+// hermetic lane's floor. Without it, every `ctxloom doctor` a scenario ran
+// probed the developer's real docker and podman — seconds per run, enough to
+// outlive the command bound under load, and an answer that varied by machine.
+//
+// Shadowed rather than stripped from PATH: the real binaries live in /usr/bin
+// beside sh and git, so no directory can be dropped. A runtime whose `info`
+// fails is exactly what the product treats as absent, so nothing downstream
+// can tell the difference. A fixture that needs a different runtime world
+// (StubRootlessContainerRuntime, or a PATH rebuilt from scratch) still wins,
+// because it is applied after this one.
+func (e *TestEnvironment) HideHostContainerRuntimes() error {
+	return e.shadowContainerRuntimes("hidden-container-runtime-bin", unreachableRuntimeStubScript)
+}
+
+// shadowContainerRuntimes writes a docker and a podman stub into a private dir
+// under the environment root and prepends it to PATH. Shadowing BOTH names is
+// what makes the outcome independent of which real runtimes the machine has.
+func (e *TestEnvironment) shadowContainerRuntimes(dir, dockerScript string) error {
+	binDir := filepath.Join(e.Root, dir)
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("create stub runtime bin dir: %w", err)
 	}
 	for name, script := range map[string]string{
-		"docker": RootlessDockerStubScript,
+		"docker": dockerScript,
 		"podman": unreachableRuntimeStubScript,
 	} {
 		if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0o755); err != nil { //nolint:gosec // must be executable

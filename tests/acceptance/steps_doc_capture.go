@@ -153,15 +153,6 @@ func scrubTempPaths(w *World, s string) string {
 	return s
 }
 
-func hasDocTag(sc *godog.Scenario) bool {
-	for _, t := range sc.Tags {
-		if t.Name == "@doc" {
-			return true
-		}
-	}
-	return false
-}
-
 // registerDocCaptureHooks wires the capture sidecar. A no-op unless
 // CTXLOOM_DOC_CAPTURE_DIR is set, so every other suite run (`just
 // test-acceptance`, CI) pays nothing and behaves exactly as before this file
@@ -173,7 +164,7 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 	}
 
 	ctx.Before(func(c context.Context, sc *godog.Scenario) (context.Context, error) {
-		if !hasDocTag(sc) {
+		if !scenarioHasTag(sc, "@doc") {
 			return c, nil
 		}
 		w := worldFrom(c)

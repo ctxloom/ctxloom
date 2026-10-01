@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -60,10 +61,8 @@ func registerP12PermissionHookSteps(ctx *godog.ScenarioContext) {
 			if runtime != "host" || workspace != "none" {
 				return fmt.Errorf("%s: axes %s/%s — this rung is host/none only: the claim is about the vendor binary, which the cell runs directly, so neither ctxloom isolation axis is in play", p12Family, runtime, workspace)
 			}
-			switch p12Decision(decision) {
-			case p12Allow, p12Deny:
-			default:
-				return fmt.Errorf("%s: unknown decision %q (want %q or %q)", p12Family, decision, p12Allow, p12Deny)
+			if !slices.Contains(p12Decisions, p12Decision(decision)) {
+				return fmt.Errorf("%s: unknown decision %q (want one of %v)", p12Family, decision, p12Decisions)
 			}
 			p.engine, p.runtime, p.workspace, p.decision = engine, runtime, workspace, p12Decision(decision)
 
@@ -93,11 +92,13 @@ func registerP12PermissionHookSteps(ctx *godog.ScenarioContext) {
 		}
 		runCtx, cancel := context.WithTimeout(c, p12RunTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(runCtx, p.claudePath,
+		args := append([]string{
 			"-p", p12Prompt(filepath.Join(p.dir, p12ProofName)),
 			"--settings", filepath.Join(p.dir, p12SettingsName),
 			"--output-format", "stream-json", "--verbose",
-			"--model", liveClaudeModel)
+			"--model", liveClaudeModel,
+		}, p.decision.argv()...)
+		cmd := exec.CommandContext(runCtx, p.claudePath, args...)
 		cmd.Dir = p.repo
 		cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 		var stdout, stderr bytes.Buffer

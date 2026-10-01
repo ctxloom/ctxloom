@@ -452,6 +452,10 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 20s. The hook fired on Bash with hook_event_name PermissionRequest, the file exists, permission_denials is empty, and the gated call's tool_result is stamped 64ms AFTER the hook's post-sleep marker while the tool_use preceded it by ~5s — claude waited for the answer. MUTATION-CONFIRMED live: inverting the proof-file check reds the same run as DECISION-IGNORED."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Deny), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 21s. The hook fired on Bash, the file is absent, the gated call's tool_result is \"Permission denied by hook\" with is_error, and result.permission_denials names that tool_use_id."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Silent), Status: probeWired,
+				Reason: "a hook that answers nothing must leave the call refused: ctxloom's approval route fails closed on it"},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowPromptsNone), Status: probeWired,
+				Reason: "records whether --permission-prompts none still consults the PermissionRequest hook"},
 		},
 	},
 	// P13 measures the VENDOR half of ctxloom's repo trust: claude's own trust

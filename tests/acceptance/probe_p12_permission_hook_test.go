@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
@@ -102,6 +103,36 @@ func TestP12_Deny(t *testing.T) {
 	t.Run("a proof file that exists is DECISION-IGNORED", func(t *testing.T) {
 		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Deny, p12TestStream(t, p12DeniedByHook, true, after, denied), true)), shapeDecisionIgnored)
 	})
+}
+
+func TestP12_Silent(t *testing.T) {
+	after := p12TestMarker.Add(30 * time.Millisecond)
+
+	t.Run("refused and absent is green", func(t *testing.T) {
+		require.NoError(t, p12Assert(p12TestOutcome(t, p12Silent, p12TestStream(t, "denied", true, after, nil), false)))
+	})
+	t.Run("a call that ran is DECISION-IGNORED", func(t *testing.T) {
+		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Silent, p12TestStream(t, "", false, after, nil), true)), shapeDecisionIgnored)
+	})
+	t.Run("an unrefused call is DECISION-IGNORED even with no file to show for it", func(t *testing.T) {
+		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Silent, p12TestStream(t, "", false, after, nil), false)), shapeDecisionIgnored)
+	})
+	t.Run("a refused call whose file exists anyway is DECISION-IGNORED", func(t *testing.T) {
+		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Silent, p12TestStream(t, "denied", true, after, nil), true)), shapeDecisionIgnored)
+	})
+}
+
+// TestP12_HookScripts: the silent hook prints nothing at all; the
+// prompts-none hook answers allow and the cell adds the flag.
+func TestP12_HookScripts(t *testing.T) {
+	silent, err := p12HookScript("/d", p12Silent)
+	require.NoError(t, err)
+	assert.NotContains(t, silent, "printf", "a silent hook writes no decision")
+	none, err := p12HookScript("/d", p12AllowPromptsNone)
+	require.NoError(t, err)
+	assert.Contains(t, none, `"behavior":"allow"`)
+	assert.Equal(t, []string{"--permission-prompts", "none"}, p12AllowPromptsNone.argv())
+	assert.Empty(t, p12Allow.argv())
 }
 
 func TestP12_CommonHalf(t *testing.T) {

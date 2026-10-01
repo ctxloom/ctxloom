@@ -1,10 +1,12 @@
 package claude
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
@@ -24,6 +26,9 @@ func fixture(t *testing.T, name string) []byte {
 	require.NoError(t, err)
 	return b
 }
+
+// mapStreamJSONEvent maps one frame as the first of its turn.
+func mapStreamJSONEvent(raw []byte) []agent.ChatEvent { return new(turnStream).mapLine(raw) }
 
 func TestMapStreamJSONEvent_AssistantText_OneAssistantEntry(t *testing.T) {
 	evs := mapStreamJSONEvent(fixture(t, "assistant_text.json"))
@@ -228,14 +233,121 @@ func TestMapStreamJSONEvent_SubagentAuthFailure_NotTheTurns(t *testing.T) {
 	require.Len(t, evs, 1, "the sub-agent's words are still relayed")
 }
 
-// Only a refused CREDENTIAL parks a run. claude's other error values are not
-// one: a rate limit waits (shared backoff is its own concern), an account on
-// hold is not fixed by signing in again, and a value this build does not know
-// is claude's "unknown".
-func TestMapStreamJSONEvent_OtherAPIErrors_NotACredential(t *testing.T) {
-	for _, v := range []string{"rate_limit", "overloaded", "account_on_hold", "cloud_credential_error", "billing_error", "unknown", "a_value_from_a_later_release"} {
+// Only a refused credential or a rate limit fails a turn. claude's other
+// error values do not: overloaded is the server's capacity (a 529), not the
+// credential's quota, so it is no reason to park the runs sharing it; an
+// account on hold is not fixed by signing in again or by waiting; and a value
+// this build does not know is claude's "unknown".
+func TestMapStreamJSONEvent_OtherAPIErrors_NotATurnFailure(t *testing.T) {
+	for _, v := range []string{"overloaded", "account_on_hold", "cloud_credential_error", "billing_error", "unknown", "a_value_from_a_later_release"} {
 		t.Run(v, func(t *testing.T) {
 			assert.Empty(t, failuresIn(mapStreamJSONEvent(authFrame(t, v, nil))))
 		})
 	}
+}
+
+// The rate-limit fixtures are DERIVED, not captured: claude's documented
+// SDKAssistantMessageError 'rate_limit' ("a 429 against your quota") on the
+// turn's own assistant message, and SDKRateLimitEvent's rate_limit_info with
+// status "rejected" laid over the captured rate_limit_event.json, whose
+// resetsAt shows the unit (unix seconds). The unrun @live cell RL1 replaces
+// them with a capture, including the order claude sends the two in.
+
+// rateLimitFrame is the captured rate_limit_event with its status overridden.
+func rateLimitFrame(t *testing.T, status string) []byte {
+	t.Helper()
+	var frame map[string]any
+	require.NoError(t, json.Unmarshal(fixture(t, "rate_limit_event.json"), &frame))
+	frame["rate_limit_info"].(map[string]any)["status"] = status
+	raw, err := json.Marshal(frame)
+	require.NoError(t, err)
+	return raw
+}
+
+// capturedResetsAt is rate_limit_event.json's resetsAt.
+var capturedResetsAt = time.Unix(1782318600, 0)
+
+// readTurn runs one turn's frames through the stream reader and returns
+// every failure it relayed.
+func readTurn(t *testing.T, frames ...[]byte) []agent.TurnFailure {
+	t.Helper()
+	var in bytes.Buffer
+	for _, f := range frames {
+		in.Write(f)
+		in.WriteByte('\n')
+	}
+	events := make(chan agent.ChatEvent, 64)
+	readChatEvents(&in, events, time.Now)
+	close(events)
+	var evs []agent.ChatEvent
+	for ev := range events {
+		evs = append(evs, ev)
+	}
+	return failuresIn(evs)
+}
+
+func TestMapStreamJSONEvent_RateLimit_RateLimited(t *testing.T) {
+	evs := mapStreamJSONEvent(authFrame(t, "rate_limit", nil))
+	assert.Equal(t, []agent.TurnFailure{{Kind: agent.FailureRateLimited}}, failuresIn(evs),
+		"a limit with no reset time said is still a rate limit; the coordinator's policy bounds the wait")
+}
+
+// A sub-agent's 429 is the sub-agent's to report as its tool's result; the
+// turn's own engine carries on (or fails on its own message).
+func TestMapStreamJSONEvent_SubagentRateLimit_NotTheTurns(t *testing.T) {
+	assert.Empty(t, failuresIn(mapStreamJSONEvent(authFrame(t, "rate_limit", "toolu_01VuNv2eXbKS3shVDAQ1zMBX"))))
+}
+
+// A rejected rate_limit_event alone fails nothing: claude retries temporary
+// 429s itself, and may go on through overage — only the turn's own error says
+// the turn ended on the limit.
+func TestReadChatEvents_RejectedEventAlone_NoFailure(t *testing.T) {
+	assert.Empty(t, readTurn(t, rateLimitFrame(t, "rejected")))
+}
+
+// The reset time is joined onto the turn's failure whichever comes first.
+func TestReadChatEvents_RateLimit_ResetTimeJoinsTheFailure(t *testing.T) {
+	t.Run("event first", func(t *testing.T) {
+		got := readTurn(t, rateLimitFrame(t, "rejected"), authFrame(t, "rate_limit", nil))
+		require.Len(t, got, 1)
+		assert.Equal(t, agent.FailureRateLimited, got[0].Kind)
+		assert.True(t, capturedResetsAt.Equal(got[0].ResetsAt), "got %v", got[0].ResetsAt)
+	})
+	t.Run("failure first", func(t *testing.T) {
+		got := readTurn(t, authFrame(t, "rate_limit", nil), rateLimitFrame(t, "rejected"))
+		require.NotEmpty(t, got)
+		last := got[len(got)-1]
+		assert.Equal(t, agent.FailureRateLimited, last.Kind)
+		assert.True(t, capturedResetsAt.Equal(last.ResetsAt), "the turn's LAST failure must carry the reset time: %v", got)
+	})
+}
+
+// Only a REJECTED event names the reset of the limit the turn hit: an
+// allowed or allowed_warning event describes a request that went through.
+func TestReadChatEvents_RateLimit_AllowedEventsNameNoReset(t *testing.T) {
+	for _, status := range []string{"allowed", "allowed_warning"} {
+		t.Run(status, func(t *testing.T) {
+			got := readTurn(t, rateLimitFrame(t, status), authFrame(t, "rate_limit", nil))
+			assert.Equal(t, []agent.TurnFailure{{Kind: agent.FailureRateLimited}}, got)
+		})
+	}
+}
+
+// A reset time from a rejected event never turns another kind of failure into
+// a rate limit, nor rides on it.
+func TestReadChatEvents_RejectedEvent_LeavesACredentialFailureAlone(t *testing.T) {
+	got := readTurn(t, rateLimitFrame(t, "rejected"), authFrame(t, "authentication_failed", nil))
+	assert.Equal(t, []agent.TurnFailure{{Kind: agent.FailureCredentialRejected}}, got)
+}
+
+// A rejected event that names no reset time (resetsAt is optional) leaves the
+// failure without one — not at the epoch, which would read as "resets now".
+func TestReadChatEvents_RejectedEventWithoutResetsAt_NoResetTime(t *testing.T) {
+	var frame map[string]any
+	require.NoError(t, json.Unmarshal(rateLimitFrame(t, "rejected"), &frame))
+	delete(frame["rate_limit_info"].(map[string]any), "resetsAt")
+	raw, err := json.Marshal(frame)
+	require.NoError(t, err)
+	got := readTurn(t, raw, authFrame(t, "rate_limit", nil))
+	assert.Equal(t, []agent.TurnFailure{{Kind: agent.FailureRateLimited}}, got)
 }

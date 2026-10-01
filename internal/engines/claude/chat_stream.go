@@ -2,8 +2,10 @@ package claude
 
 import (
 	"encoding/json"
+	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
@@ -43,25 +45,91 @@ type sjEvent struct {
 	// it runs under (null on the turn's own messages).
 	Error           string  `json:"error"`
 	ParentToolUseID *string `json:"parent_tool_use_id"`
+	// rate_limit_event fields (SDKRateLimitEvent)
+	RateLimitInfo *sjRateLimitInfo `json:"rate_limit_info"`
 }
 
-// credentialRejected is the ONE declaration of which of claude's documented
-// SDKAssistantMessageError values mean the turn's credential was refused: the
-// two claude's own SDK host reads as an auth failure. account_on_hold is not
-// one (signing in again does not lift it), nor is cloud_credential_error
-// (claude reports a briefly unreachable credential service the same way).
-var credentialRejected = map[string]bool{
-	"authentication_failed": true,
-	"oauth_org_not_allowed": true,
+// sjRateLimitInfo is a rate_limit_event's rate_limit_info. resetsAt is unix
+// seconds (the captured rate_limit_event.json); documented as a number, so it
+// is decoded as one — an integer field would drop the whole frame on a
+// fractional value.
+type sjRateLimitInfo struct {
+	Status   string  `json:"status"`
+	ResetsAt float64 `json:"resetsAt"`
+}
+
+// rejectedResetsAt is the reset time a rate_limit_event names for a REJECTED
+// request; ok is false for any other frame, an allowed request, or no time.
+func (e *sjEvent) rejectedResetsAt() (at time.Time, ok bool) {
+	if e.Type != "rate_limit_event" || e.RateLimitInfo == nil ||
+		e.RateLimitInfo.Status != "rejected" || e.RateLimitInfo.ResetsAt <= 0 {
+		return time.Time{}, false
+	}
+	sec, frac := math.Modf(e.RateLimitInfo.ResetsAt)
+	return time.Unix(int64(sec), int64(frac*1e9)), true
+}
+
+// turnFailures is the ONE declaration of which of claude's documented
+// SDKAssistantMessageError values fail the turn, and as what.
+//   - authentication_failed / oauth_org_not_allowed: the two claude's own SDK
+//     host reads as an auth failure. account_on_hold is not one (signing in
+//     again does not lift it), nor is cloud_credential_error (claude reports
+//     a briefly unreachable credential service the same way).
+//   - rate_limit: "a 429 against your quota", which outlasted claude's own
+//     retries. overloaded is not one: a 529 is the server's capacity, not the
+//     credential's quota, so it is no reason to park the runs sharing it.
+var turnFailures = map[string]agent.FailureKind{
+	"authentication_failed": agent.FailureCredentialRejected,
+	"oauth_org_not_allowed": agent.FailureCredentialRejected,
+	"rate_limit":            agent.FailureRateLimited,
 }
 
 // failure is the turn failure an assistant frame reports: only the turn's own
-// message (no parent tool call) speaks for the turn's credential.
+// message (no parent tool call) speaks for the turn.
 func (e *sjEvent) failure() []agent.ChatEvent {
-	if e.ParentToolUseID != nil || !credentialRejected[e.Error] {
+	kind, ok := turnFailures[e.Error]
+	if e.ParentToolUseID != nil || !ok {
 		return nil
 	}
-	return []agent.ChatEvent{{Failed: &agent.TurnFailure{Kind: agent.FailureCredentialRejected}}}
+	return []agent.ChatEvent{{Failed: &agent.TurnFailure{Kind: kind}}}
+}
+
+// turnStream maps one turn's stream-json frames. Each frame maps on its own,
+// with ONE join across frames: the reset time of a rejected rate_limit_event
+// rides the turn's rate-limit failure, in whichever order claude sends them —
+// the event names when the limit lifts, but only the turn's own error says the
+// turn ended on it (claude retries temporary 429s itself). One per turn
+// process, so nothing carries from one turn to the next.
+type turnStream struct {
+	resetsAt time.Time
+	limited  bool
+}
+
+// mapLine normalizes one stream-json line into 0..N ChatEvents. An assistant
+// message holds an array of content blocks, so one event can yield several
+// entries. Unknown/irrelevant events (hook_*, thinking_tokens, an allowed
+// rate_limit_event, malformed JSON, a future event type) return nil — the
+// stream must never crash on something we don't model.
+func (s *turnStream) mapLine(raw []byte) []agent.ChatEvent {
+	var e sjEvent
+	if err := json.Unmarshal(raw, &e); err != nil {
+		return nil
+	}
+	if at, ok := e.rejectedResetsAt(); ok {
+		s.resetsAt = at
+		if s.limited {
+			return []agent.ChatEvent{{Failed: &agent.TurnFailure{Kind: agent.FailureRateLimited, ResetsAt: at}}}
+		}
+		return nil
+	}
+	evs := e.events()
+	for _, ev := range evs {
+		if ev.Failed != nil && ev.Failed.Kind == agent.FailureRateLimited {
+			s.limited = true
+			ev.Failed.ResetsAt = s.resetsAt
+		}
+	}
+	return evs
 }
 
 // message is an assistant/user frame's message object; nil when absent or
@@ -158,16 +226,8 @@ type sjMCP struct {
 	Status string `json:"status"`
 }
 
-// mapStreamJSONEvent normalizes one stream-json line into 0..N ChatEvents. An
-// assistant message holds an array of content blocks, so one event can yield
-// several entries. Unknown/irrelevant events (hook_*, thinking_tokens,
-// rate_limit_event, malformed JSON, a future event type) return nil — the stream
-// must never crash on something we don't model.
-func mapStreamJSONEvent(raw []byte) []agent.ChatEvent {
-	var e sjEvent
-	if err := json.Unmarshal(raw, &e); err != nil {
-		return nil
-	}
+// events maps one decoded frame on its own.
+func (e *sjEvent) events() []agent.ChatEvent {
 	// e.Type compares against agent.SessionEntryType's own exported constants
 	// (converted to string, since sjEvent.Type is a bare wire string) rather
 	// than re-spelling "assistant"/"user"/"system" as literals — those three
@@ -180,11 +240,11 @@ func mapStreamJSONEvent(raw []byte) []agent.ChatEvent {
 	case string(agent.EntryTypeUser):
 		return mapToolResults(e.message())
 	case "result":
-		return []agent.ChatEvent{{Complete: resultToTurnMeta(&e)}}
+		return []agent.ChatEvent{{Complete: resultToTurnMeta(e)}}
 	case string(agent.EntryTypeSystem):
 		switch e.Subtype {
 		case "init":
-			return []agent.ChatEvent{{Session: initToSessionInfo(&e)}}
+			return []agent.ChatEvent{{Session: initToSessionInfo(e)}}
 		case "permission_denied":
 			// Engine-decided: the posture and rules refused the call, so the
 			// decider is the engine's policy until the runner joins it with

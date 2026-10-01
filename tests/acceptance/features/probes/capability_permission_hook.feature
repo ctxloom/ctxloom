@@ -59,10 +59,10 @@ Feature: P12 — with no permission host, claude -p awaits the PermissionRequest
       | engine      | runtime | workspace | decision |
       | claude-code | host    | none      | silent   |
 
-    # ALLOW-PROMPTS-NONE records what --permission-prompts none does to the
-    # hook: ctxloom passes it for every approver but the human, and claude
-    # documents it as answering prompts with a local deny. Asserts what was
-    # measured (the registry cell carries the evidence).
+    # ALLOW-PROMPTS-NONE pins what --permission-prompts none does to the hook:
+    # claude documents none as answering prompts with a local deny, and the
+    # measurement is that the hook is still consulted FIRST and its allow
+    # honoured. Asserts the allow arm: awaited, the call ran, the file exists.
     @claude-code @host @ws-none @var-allow-prompts-none
     Examples:
       | engine      | runtime | workspace | decision           |

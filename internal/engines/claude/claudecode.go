@@ -225,13 +225,13 @@ func permissionArgs(p posture, mcpServers []string) []string {
 }
 
 // promptArgs says who answers, in a run nobody sits at, what the posture and
-// rules leave open. The human at the root: NO prompt flag at all, so claude
-// awaits the PermissionRequest hook and honours its decision — the argv the
-// P12 probe rung pins — and denies what no hook decided. --permission-prompts
-// none answers every prompt with a local deny, which is not verified to
-// consult the hook first, so it is never passed then. Otherwise nobody, so
-// it is denied: approver none or reviewer (claude's own dontAsk and auto
-// decide), and bypass, which asks nobody anything.
+// rules leave open. The human at the root: NO prompt flag, so claude awaits
+// the PermissionRequest hook, honours its decision and denies what no hook
+// decided — the argv the P12 rung's allow, deny and silent cells pin.
+// Otherwise nobody, so it is denied: approver none or reviewer (claude's own
+// dontAsk and auto decide), and bypass, which asks nobody anything; those
+// runs carry no approval hook, and --permission-prompts none denies locally
+// (P12's allow-prompts-none cell shows none still consults a hook first).
 func promptArgs(p posture) []string {
 	if p.approver == engine.ApproverHuman && p.mode != modeBypass {
 		return nil

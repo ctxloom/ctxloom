@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // serveWithWake serves the loadout's endpoint with sig as its wake signal.
@@ -45,12 +46,12 @@ func wakeClient(t *testing.T, url string) (*sdk.ClientSession, <-chan *sdk.Resou
 func TestWakeSignal_FiresTheNonceToTheSubscribedSession(t *testing.T) {
 	sig := interaction.NewWakeSignal()
 	cs, updates := wakeClient(t, serveWithWake(t, sig))
-	require.NoError(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: interaction.WakeURI}))
+	require.NoError(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: engine.WakeURI}))
 
 	require.NoError(t, sig.Fire(context.Background(), "0123456789abcdef"))
 
 	got := <-updates
-	assert.Equal(t, interaction.WakeURI, got.URI)
+	assert.Equal(t, engine.WakeURI, got.URI)
 	assert.Equal(t, "0123456789abcdef", got.Meta["nonce"])
 }
 
@@ -63,8 +64,8 @@ func TestWakeSignal_FailsWithNoSubscriber(t *testing.T) {
 	cs, _ := wakeClient(t, serveWithWake(t, sig))
 	require.ErrorIs(t, sig.Fire(context.Background(), "0123456789abcdef"), interaction.ErrNoWakeSubscriber, "connected but not subscribed")
 
-	require.NoError(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: interaction.WakeURI}))
-	require.NoError(t, cs.Unsubscribe(context.Background(), &sdk.UnsubscribeParams{URI: interaction.WakeURI}))
+	require.NoError(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: engine.WakeURI}))
+	require.NoError(t, cs.Unsubscribe(context.Background(), &sdk.UnsubscribeParams{URI: engine.WakeURI}))
 	require.ErrorIs(t, sig.Fire(context.Background(), "0123456789abcdef"), interaction.ErrNoWakeSubscriber, "unsubscribed")
 }
 
@@ -74,7 +75,7 @@ func TestWakeSignal_AClosedSessionIsNoSubscriber(t *testing.T) {
 	sig := interaction.NewWakeSignal()
 	url := serveWithWake(t, sig)
 	cs, _ := wakeClient(t, url)
-	require.NoError(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: interaction.WakeURI}))
+	require.NoError(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: engine.WakeURI}))
 	require.NoError(t, cs.Close())
 	// The server learns of the close from the client's DELETE, which Close
 	// sends and waits on; a fresh session's round-trip orders this read
@@ -94,7 +95,7 @@ func TestWakeSignal_TheWakeURIIsUnlistedAndTheOnlySubscribable(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, res.Resources)
 	for _, r := range res.Resources {
-		assert.NotEqual(t, interaction.WakeURI, r.URI)
+		assert.NotEqual(t, engine.WakeURI, r.URI)
 	}
 	require.Error(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: res.Resources[0].URI}))
 }

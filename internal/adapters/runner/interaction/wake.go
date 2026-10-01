@@ -11,28 +11,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
-// WakeURI is the session's wake channel: an MCP resource subscription the
-// engine's own session relay (claude's, today) holds on this endpoint. A
-// wake is a resources/updated notification on it carrying the nonce in
-// _meta; the relay then fires its engine's bound wake as the engine's own
-// descendant. It is never added as a resource, so no resources/list shows
-// it: it is a control channel, not context for the model.
-const WakeURI = "ctxloom://session/wake"
-
 var (
 	// ErrNoWakeSubscriber refuses a wake no relay is subscribed to receive:
 	// the notification would go nowhere, and the caller must learn the
 	// owner was not woken.
-	ErrNoWakeSubscriber = errors.New("runner interaction: no session relay is subscribed to " + WakeURI)
-	// ErrNotSubscribable refuses a subscription to anything but WakeURI.
-	ErrNotSubscribable = errors.New("runner interaction: only " + WakeURI + " can be subscribed to")
+	ErrNoWakeSubscriber = errors.New("runner interaction: no session relay is subscribed to the wake")
+	// ErrNotSubscribable refuses a subscription to anything but engine.WakeURI.
+	ErrNotSubscribable = errors.New("runner interaction: only the wake can be subscribed to")
 	// ErrNoWakeSignal refuses to serve without the wake signal: a relay's
 	// subscription would have nothing to register with.
 	ErrNoWakeSignal = errors.New("runner interaction: no wake signal to serve the wake subscription with")
 )
 
 // WakeSignal is the runner's half of an engine wake: the subscriptions to
-// WakeURI on the session's endpoint, and Fire, which notifies them. It is an
+// engine.WakeURI on the session's endpoint, and Fire, which notifies them. It is an
 // engine.Wake, so the runner fires it exactly as it would fire any bound
 // wake; what makes the turn start is the relay's.
 type WakeSignal struct {
@@ -54,10 +46,10 @@ func (w *WakeSignal) serve(server *mcp.Server) {
 	w.subs = map[*mcp.ServerSession]bool{}
 }
 
-// options installs the subscription handlers, which admit WakeURI alone.
+// options installs the subscription handlers, which admit engine.WakeURI alone.
 func (w *WakeSignal) options(opts *mcp.ServerOptions) {
 	opts.SubscribeHandler = func(_ context.Context, req *mcp.SubscribeRequest) error {
-		if req.Params.URI != WakeURI {
+		if req.Params.URI != engine.WakeURI {
 			return fmt.Errorf("%w: %q", ErrNotSubscribable, req.Params.URI)
 		}
 		w.mu.Lock()
@@ -73,7 +65,7 @@ func (w *WakeSignal) options(opts *mcp.ServerOptions) {
 	}
 }
 
-// Fire notifies every live subscriber of WakeURI with the nonce. A
+// Fire notifies every live subscriber of engine.WakeURI with the nonce. A
 // subscriber whose session has since closed is not one: the SDK drops a
 // closed session silently, so liveness is read from the server, not from
 // this record. Delivery itself is unacknowledged by design (the runner's
@@ -92,7 +84,7 @@ func (w *WakeSignal) Fire(ctx context.Context, nonce string) error {
 	if live == 0 {
 		return ErrNoWakeSubscriber
 	}
-	return server.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: WakeURI, Meta: mcp.Meta{"nonce": nonce}})
+	return server.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{URI: engine.WakeURI, Meta: mcp.Meta{"nonce": nonce}})
 }
 
 var _ engine.Wake = (*WakeSignal)(nil)

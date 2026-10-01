@@ -60,7 +60,7 @@ type LocalSurface interface {
 // infer it has children and stall waiting on notifications that never
 // arrive. It is the launch identity's Leaf, decided by the coordinator that
 // minted it — the runner holds no config to compute it from. wake serves the
-// session relay's subscription to WakeURI.
+// session relay's subscription to engine.WakeURI.
 func NewServer(rep report.Reporter, home *runner.Home, harp, cwd string, leaf bool, local LocalSurface, wake *WakeSignal) (*mcp.Server, error) {
 	opts := &mcp.ServerOptions{Instructions: operations.SessionInstructions(harp)}
 	wake.options(opts)

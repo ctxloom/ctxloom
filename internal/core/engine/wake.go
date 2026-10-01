@@ -36,6 +36,12 @@ type WakeSpec interface {
 // claude exported to it.
 type WakeEnv func(key string) (string, bool)
 
+// WakeURI is the session's wake channel on its ctxloom MCP endpoint: an
+// unlisted resource an engine's own session relay subscribes to. A wake is a
+// resources/updated notification on it carrying the nonce in _meta. It is
+// never listed, so the model never sees it: a control channel, not context.
+const WakeURI = "ctxloom://session/wake"
+
 // ErrWakeUnbound refuses a bind whose environment lacks what the spec needs.
 var ErrWakeUnbound = errors.New("engine: the environment offers nothing this wake can bind to")
 

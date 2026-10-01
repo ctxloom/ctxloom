@@ -61,30 +61,32 @@ const (
 // nil Resize channel simply never fires.
 func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 	w := r.stdout()
-	var wakes <-chan readResult
-	if r.Stdin != nil {
-		posted, stop, err := listenWakes(r.getenv(mock.EnvWakeSocket))
-		if err != nil {
-			return err
-		}
-		defer stop()
-		wakes = posted
+	if r.Stdin == nil {
+		return echoResponse(w, promptLen, out)
 	}
-	if err := echoResponse(w, promptLen, out); err != nil {
+	lines := readLines(r.Stdin)
+	stop, err := listenWakes(r.getenv(mock.EnvWakeSocket), lines)
+	if err != nil {
 		return err
 	}
-	if r.Stdin == nil {
-		return nil
+	defer stop()
+	if err := echoResponse(w, promptLen, out); err != nil {
+		return err
 	}
 	hooks, err := r.deliveredHooks()
 	if err != nil {
 		return err
 	}
-	lines := readLines(r.Stdin)
+	return r.interact(w, hooks, lines)
+}
+
+// interact takes lines and resizes until the session ends.
+func (r *Runtime) interact(w io.Writer, hooks wire.UnifiedHooks, lines <-chan readResult) error {
 	resize := r.Resize
 	for {
 		select {
 		case ws, ok := <-resize:
+			var err error
 			if resize, err = onResize(w, resize, ws, ok); err != nil {
 				return err
 			}
@@ -92,46 +94,42 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 			if done, err := r.handleLine(w, hooks, res); done || err != nil {
 				return err
 			}
-		case res := <-wakes:
-			if done, err := r.handleLine(w, hooks, res); done || err != nil {
-				return err
-			}
 		}
 	}
 }
 
-// listenWakes listens on the wake socket at path and yields each line posted
-// to it; a nil channel (which never fires) when path is "". stop closes the
-// listener, which removes the socket file, and releases every reader.
-func listenWakes(path string) (<-chan readResult, func(), error) {
+// listenWakes listens on the wake socket at path and hands each line posted
+// to it to lines, beside the typed ones; nothing when path is "". stop closes
+// the listener, which removes the socket file, and releases every reader.
+func listenWakes(path string, lines chan<- readResult) (stop func(), err error) {
 	if path == "" {
-		return nil, func() {}, nil
+		return func() {}, nil
 	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("mock-engine: listening for wakes on %s: %w", path, err)
+		return nil, fmt.Errorf("mock-engine: listening for wakes on %s: %w", path, err)
 	}
-	posted, done := make(chan readResult), make(chan struct{})
+	done := make(chan struct{})
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			go readWake(conn, posted, done)
+			go readWake(conn, lines, done)
 		}
 	}()
-	return posted, func() { close(done); _ = ln.Close() }, nil
+	return func() { close(done); _ = ln.Close() }, nil
 }
 
 // readWake hands on each line of one posted connection until it ends or the
 // session does.
-func readWake(conn net.Conn, posted chan<- readResult, done <-chan struct{}) {
+func readWake(conn net.Conn, lines chan<- readResult, done <-chan struct{}) {
 	defer conn.Close()
 	sc := bufio.NewScanner(conn)
 	for sc.Scan() {
 		select {
-		case posted <- readResult{line: sc.Text() + "\n"}:
+		case lines <- readResult{line: sc.Text() + "\n"}:
 		case <-done:
 			return
 		}
@@ -159,7 +157,7 @@ type readResult struct {
 // the reader can deposit its EOF and exit once the peer hangs up after quit;
 // a peer that keeps typing after quit parks it, which is the documented tty
 // tradeoff (see the vocabulary doc).
-func readLines(in io.Reader) <-chan readResult {
+func readLines(in io.Reader) chan readResult {
 	lines := make(chan readResult, 1)
 	go func() {
 		br := bufio.NewReader(in)

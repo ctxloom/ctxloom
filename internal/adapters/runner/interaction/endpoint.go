@@ -57,21 +57,9 @@ const shutdownBudget = 2 * time.Second
 // and, when it carries an Origin, one on the policy's allowlist (403
 // otherwise); the allowlist may not be empty.
 func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy delivery.ServePolicy) (delivery.Served, error) {
-	if len(policy.AllowedOrigins) == 0 {
-		return delivery.Served{}, delivery.ErrNoAllowedOrigins
-	}
-	if e.Home == nil {
-		return delivery.Served{}, ErrNoHome
-	}
-	if e.Wake == nil {
-		return delivery.Served{}, ErrNoWakeSignal
-	}
-	if lo.MCP.URL == "" || lo.MCP.Credential == "" {
-		return delivery.Served{}, fmt.Errorf("%w: the loadout names no endpoint to bind", delivery.ErrEndpointUnavailable)
-	}
-	target, err := url.Parse(lo.MCP.URL)
-	if err != nil || target.Host == "" {
-		return delivery.Served{}, fmt.Errorf("%w: %q is not a bindable URL", delivery.ErrEndpointUnavailable, lo.MCP.URL)
+	target, err := e.bindable(lo, policy)
+	if err != nil {
+		return delivery.Served{}, err
 	}
 	rep := report.To(e.Reporter)
 	server, err := NewServer(rep, e.Home, lo.Identity.Harp, lo.WorkDir, lo.Identity.Leaf, loadoutSurface{lo: lo}, e.Wake)
@@ -114,6 +102,27 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		}
 		return err
 	}}, nil
+}
+
+// bindable refuses what Serve cannot serve — no allowlist, no reach-back
+// home, no wake signal, no endpoint in the loadout — and otherwise returns
+// the address to bind.
+func (e Endpoint) bindable(lo delivery.Loadout, policy delivery.ServePolicy) (*url.URL, error) {
+	switch {
+	case len(policy.AllowedOrigins) == 0:
+		return nil, delivery.ErrNoAllowedOrigins
+	case e.Home == nil:
+		return nil, ErrNoHome
+	case e.Wake == nil:
+		return nil, ErrNoWakeSignal
+	case lo.MCP.URL == "" || lo.MCP.Credential == "":
+		return nil, fmt.Errorf("%w: the loadout names no endpoint to bind", delivery.ErrEndpointUnavailable)
+	}
+	target, err := url.Parse(lo.MCP.URL)
+	if err != nil || target.Host == "" {
+		return nil, fmt.Errorf("%w: %q is not a bindable URL", delivery.ErrEndpointUnavailable, lo.MCP.URL)
+	}
+	return target, nil
 }
 
 // guard is delivery.ServePolicy as an http.Handler: the bearer is checked

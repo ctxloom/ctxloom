@@ -195,25 +195,25 @@ func resolveSandbox(rungs []neutralRung, name engine.Name, runtime RuntimeAxis, 
 	return 0, fmt.Errorf("%w: sandbox %s from %s cannot be enforced by %s on runtime %s (it can enforce: %s)", ErrPermissionUnhonoured, want, from, name, runtime, strings.Join(names, "|"))
 }
 
-// RoutesApprovals reports whether a launch routes what its posture and rules
+// routesApprovals reports whether a run routes what its posture and rules
 // leave open to the human at the root: a structured run (an interactive
-// run's human answers in the engine's own UI) whose approver is the human,
-// on an engine with an approval codec. The launch is delivered the approval
-// hooks exactly when this holds, and the runner serves the route on the same
-// condition.
-func RoutesApprovals(eng engine.Engine, mode engine.Mode, p engine.PermissionPolicy) bool {
-	if mode != engine.Structured || p.Approver != engine.ApproverHuman {
-		return false
-	}
-	_, ok := eng.Approvals().Get()
-	return ok
+// run's human answers in the engine's own UI) whose approver is the human.
+// resolvePolicy has already refused the human as approver on an engine with
+// no approval codec.
+func routesApprovals(mode engine.Mode, p engine.PermissionPolicy) bool {
+	return mode == engine.Structured && p.Approver == engine.ApproverHuman
 }
 
+// RoutesApprovals reports whether the launch routes approvals to the human
+// (routesApprovals): it is delivered the approval hooks exactly when this
+// holds, and the runner serves the route on the same condition.
+func (l Launch) RoutesApprovals() bool { return routesApprovals(l.Mode, l.Permission) }
+
 // withApprovalHooks is pkg with the approval hooks added when the launch
-// routes approvals (RoutesApprovals); the package's own hooks are copied,
+// routes approvals (routesApprovals); the package's own hooks are copied,
 // never appended to in place.
-func withApprovalHooks(pkg composite.Package, eng engine.Engine, mode engine.Mode, p engine.PermissionPolicy) composite.Package {
-	if !RoutesApprovals(eng, mode, p) {
+func withApprovalHooks(pkg composite.Package, mode engine.Mode, p engine.PermissionPolicy) composite.Package {
+	if !routesApprovals(mode, p) {
 		return pkg
 	}
 	var hooks wire.UnifiedHooks

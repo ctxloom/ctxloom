@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,7 +15,9 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 )
 
@@ -364,4 +367,68 @@ func (b *blockingHome) Request(ctx context.Context, _ *agentcoordpb.AgentRequest
 	<-ctx.Done()
 	b.err = ctx.Err()
 	return nil, ctx.Err()
+}
+
+// TestEngineHost_CapabilitiesGateNamesAMissingApprovalHost: on a human-
+// approved run the turn's session start must show ctxloom's server
+// connected — it serves the permission host every ask anchors on — or the
+// run is warned that this turn's asks will all be denied. An engine that
+// reports no server statuses is not judged.
+func TestEngineHost_CapabilitiesGateNamesAMissingApprovalHost(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		servers []agent.MCPStatus
+		warned  bool
+	}{
+		{"no statuses reported", nil, false},
+		{"connected", []agent.MCPStatus{{Name: "ctxloom", Status: "connected"}}, false},
+		{"failed", []agent.MCPStatus{{Name: "ctxloom", Status: "failed"}}, true},
+		{"absent", []agent.MCPStatus{{Name: "other", Status: "connected"}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var findings report.Collector
+			eh := NewEngineHost(context.Background(), &findings, "mock", "run-1")
+			eh.checkApprovalHost(&agent.ChatSessionInfo{MCPServers: tc.servers})
+			warned := false
+			for _, text := range findings.All().Texts() {
+				warned = warned || strings.Contains(text, "approval host not connected")
+			}
+			assert.Equal(t, tc.warned, warned, "%v", findings.All().Texts())
+		})
+	}
+}
+
+// TestEngineHost_DriveBindsTheApprovalRouteBeforeTheFirstTurn: a run that
+// routes approvals has its route bound on the Home — what the endpoint
+// serves — before anything is driven; one that does not binds nothing.
+func TestEngineHost_DriveBindsTheApprovalRouteBeforeTheFirstTurn(t *testing.T) {
+	codec, _ := mock.New().Approvals().Get()
+	for _, tc := range []struct {
+		name  string
+		spec  *approvalSpec
+		bound bool
+	}{
+		{"routes approvals", &approvalSpec{codec: codec, timeout: time.Minute}, true},
+		{"does not", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := &fakeEngineHome{}
+			eh := NewEngineHost(context.Background(), nil, string(mock.Name), "run-1")
+			t.Cleanup(eh.Close)
+			eh.BindHome(home)
+			inst, err := mock.New().Instance(engine.Session{Mode: engine.Structured, WorkDir: t.TempDir()})
+			require.NoError(t, err)
+			require.NoError(t, eh.Drive(context.Background(), Turn{
+				Launch:   launch.Launch{Engine: mock.Name, Mode: engine.Structured},
+				Instance: inst, approval: tc.spec,
+			}))
+			home.mu.Lock()
+			bound := home.approvalHost
+			home.mu.Unlock()
+			assert.Equal(t, tc.bound, bound != nil)
+			if tc.bound {
+				assert.Same(t, eh.approvals, bound, "the endpoint serves the route the drive feeds")
+			}
+		})
+	}
 }

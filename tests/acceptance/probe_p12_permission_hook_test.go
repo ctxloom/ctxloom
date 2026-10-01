@@ -127,6 +127,17 @@ func TestP12_CommonHalf(t *testing.T) {
 		o.MarkerAt, o.MarkerErr = time.Time{}, fs.ErrNotExist
 		p12RequireShape(t, p12Assert(o), shapeHookNotFired)
 	})
+	t.Run("a turn with no result frame is OUTPUT-FORMAT", func(t *testing.T) {
+		var frames []string
+		for _, line := range strings.Split(green, "\n") {
+			var f p12Frame
+			require.NoError(t, json.Unmarshal([]byte(line), &f))
+			if f.Type != "result" {
+				frames = append(frames, line)
+			}
+		}
+		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Allow, strings.Join(frames, "\n"), true)), shapeOutputFormat)
+	})
 	t.Run("a non-frame stdout line is OUTPUT-FORMAT", func(t *testing.T) {
 		p12RequireShape(t, p12Assert(p12TestOutcome(t, p12Allow, green+"\nnot json", true)), shapeOutputFormat)
 	})

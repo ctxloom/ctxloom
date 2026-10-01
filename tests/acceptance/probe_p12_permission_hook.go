@@ -223,23 +223,62 @@ func p12Decode(stdout string) (p12Stream, error) {
 			s.SawResult = true
 			s.Denials = f.PermissionDenials
 		case "assistant", "user":
-			var m p12Message
-			var blocks []p12Block
-			if json.Unmarshal(f.Message, &m) != nil || json.Unmarshal(m.Content, &blocks) != nil {
-				continue // a string-content message carries no tool blocks
-			}
-			for _, b := range blocks {
-				switch {
-				case b.Type == "tool_use" && b.Name == p12GatedTool:
-					s.GatedCalls = append(s.GatedCalls, b.ID)
-				case b.Type == "tool_result":
-					at, _ := time.Parse(time.RFC3339Nano, f.Timestamp)
-					s.Results[b.ToolUseID] = p12ToolResult{Text: p12BlockText(b.Content), IsError: b.IsError, At: at}
-				}
-			}
+			s.addBlocks(f)
 		}
 	}
 	return s, sc.Err()
+}
+
+// addBlocks records a message frame's gated tool_use calls and its
+// tool_results.
+func (s *p12Stream) addBlocks(f p12Frame) {
+	var m p12Message
+	var blocks []p12Block
+	if json.Unmarshal(f.Message, &m) != nil || json.Unmarshal(m.Content, &blocks) != nil {
+		return // a string-content message carries no tool blocks
+	}
+	for _, b := range blocks {
+		switch {
+		case b.Type == "tool_use" && b.Name == p12GatedTool:
+			s.GatedCalls = append(s.GatedCalls, b.ID)
+		case b.Type == "tool_result":
+			at, _ := time.Parse(time.RFC3339Nano, f.Timestamp)
+			s.Results[b.ToolUseID] = p12ToolResult{Text: p12BlockText(b.Content), IsError: b.IsError, At: at}
+		}
+	}
+}
+
+// gatedRun is what decodeGatedRun needs from a hook-probe cell's outcome; the
+// two messages say what each "nothing to judge" failure means for that rung.
+type gatedRun struct {
+	Started, TimedOut bool
+	Run               probeRun
+	Evidence          string
+	NoResult, NoCall  string
+}
+
+// decodeGatedRun is the half every hook-probe cell shares: the run completed,
+// its stdout decodes as stream-json, the turn reached a result frame, and the
+// model made the gated call.
+func decodeGatedRun(v probeVerdict, g gatedRun) (p12Stream, error) {
+	if !g.Started || g.TimedOut {
+		return p12Stream{}, v.fail(shapeRunFailed, fmt.Sprintf("the claude run did not complete (started=%t timedOut=%t)", g.Started, g.TimedOut), g.Evidence)
+	}
+	trimmed, err := v.ran(g.Run)
+	if err != nil {
+		return p12Stream{}, err
+	}
+	s, err := p12Decode(trimmed)
+	if err != nil {
+		return s, v.fail(shapeOutputFormat, err.Error(), g.Evidence)
+	}
+	if !s.SawResult {
+		return s, v.fail(shapeOutputFormat, g.NoResult, g.Evidence)
+	}
+	if len(s.GatedCalls) == 0 {
+		return s, v.fail(shapeNotAttempted, g.NoCall, g.Evidence)
+	}
+	return s, nil
 }
 
 // p12BlockText flattens a tool_result's content: a bare string, or text blocks.
@@ -316,22 +355,13 @@ func (o p12Outcome) evidence() string {
 // cell's decision names.
 func p12Assert(o p12Outcome) error {
 	v := o.verdict()
-	if !o.Started || o.TimedOut {
-		return v.fail(shapeRunFailed, fmt.Sprintf("the claude run did not complete (started=%t timedOut=%t)", o.Started, o.TimedOut), o.evidence())
-	}
-	trimmed, err := v.ran(o.Run)
+	s, err := decodeGatedRun(v, gatedRun{
+		Started: o.Started, TimedOut: o.TimedOut, Run: o.Run, Evidence: o.evidence(),
+		NoResult: "the stream carried no result frame, so permission_denials cannot be read",
+		NoCall:   "the model made no " + p12GatedTool + " tool_use, so nothing asked for permission and the cell measured nothing",
+	})
 	if err != nil {
 		return err
-	}
-	s, err := p12Decode(trimmed)
-	if err != nil {
-		return v.fail(shapeOutputFormat, err.Error(), o.evidence())
-	}
-	if !s.SawResult {
-		return v.fail(shapeOutputFormat, "the stream carried no result frame, so permission_denials cannot be read", o.evidence())
-	}
-	if len(s.GatedCalls) == 0 {
-		return v.fail(shapeNotAttempted, "the model made no "+p12GatedTool+" tool_use, so nothing asked for permission and the cell measured nothing", o.evidence())
 	}
 	call := s.GatedCalls[0]
 	res, ok := s.Results[call]

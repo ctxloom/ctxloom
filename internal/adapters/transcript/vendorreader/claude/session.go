@@ -19,17 +19,15 @@ import (
 // envelope to unwrap — Type IS the discriminator,
 // and every field this adapter cares about (aside from message content) sits
 // at this same top level. Only "user" and "assistant" carry conversational
-// content; every other observed Type (progress, queue-operation, system,
-// attachment, last-prompt, mode, permission-mode, ai-title, custom-title,
-// file-history-snapshot, agent-name, pr-link, worktree-state,
-// file-history-delta, agent-color — confirmed by sampling real transcripts
-// on this box) is administrative session/UI bookkeeping with no turn content
-// of its own, and is silently skipped by convertLines' type switch.
+// content; the Types in adminLineTypes are administrative session/UI
+// bookkeeping with no turn content of their own, and are silently skipped by
+// convertLines' type switch.
 type line struct {
 	Type string `json:"type"`
-	// SessionID is claude's own session id, repeated verbatim on every line
-	// of the file (including non-conversational ones), so the FIRST line of
-	// any type already has it.
+	// SessionID is claude's own session id, repeated verbatim on most lines
+	// of the file (including non-conversational ones) — but not all: a
+	// fork-context-ref line, which opens a forked subagent's file, has none,
+	// so scanSessionInfo latches the first NON-EMPTY one.
 	SessionID string `json:"sessionId"`
 	// IsSidechain marks a line belonging to claude's own in-harness subagent
 	// (a Task-tool child) rather than the session's main thread — maps
@@ -233,6 +231,12 @@ var adminLineTypes = map[string]bool{
 	"worktree-state": true, "file-history-delta": true, "agent-color": true,
 	"summary": true, "x-ctxloom-meta": true, "atis-latch": true,
 	"cost-state": true,
+	// fork-context-ref opens a forked subagent's subagents/agent-<id>.jsonl
+	// and carries only ids: claude rebuilds the fork's inherited context by
+	// reading parentSessionId's main chain up to parentLastUuid. That prefix
+	// lives in the parent's own <session-id>.jsonl, which is what
+	// Locator.Discover imports — materialising it here would duplicate it.
+	"fork-context-ref": true,
 }
 
 // checkFloor is the answer to "can this reader produce zero entries and

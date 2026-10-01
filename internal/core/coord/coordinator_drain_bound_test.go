@@ -263,6 +263,14 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnGatedChild(t, sp, c)
+	// The engine records its turn BEFORE it announces its session, and the
+	// announcement reaches the coordinator over the run channel after that.
+	// Only a bound key makes the relaunch a native resume whose first turn is
+	// the mail; an unbound one is the context-primed relaunch that
+	// TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime
+	// pins.
+	require.Eventually(t, func() bool { return sp.NativeSession(harp) != "" }, conformanceWait, 5*time.Millisecond,
+		"precondition: the child's session key must be bound when it dies")
 	const leftover = "one more thing"
 	_, err := c.AgentSend(ownerIdentity(), harp, KindMessage, leftover, nil, "")
 	require.NoError(t, err)
@@ -284,6 +292,51 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	awaitSpoolCount(t, harp, spool.DirInConsumed, 1, "after the relaunched run took the leftover mail")
 	assert.Zero(t, c.pendingCount(harp), "delivery consumes the mail; nothing is left queued behind the new run")
 	assert.NotEqual(t, runID, currentRunID(c, harp), "the delivery rides a fresh run, not the dead one")
+}
+
+// TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime forces
+// the interleaving the test above must wait out: the child dies before its
+// session announcement is bound (dropBinds — the frame was never read), so
+// there is no key to resume by. The relaunch is then a fresh, context-primed
+// run, and the mail that raced the death is the turn AFTER that prime —
+// still delivered, still consumed, never stranded behind it.
+func TestTerminateRun_LeftoverMailOfAnUnboundSessionFollowsTheContextPrime(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	spawned := 0
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *scriptedChat {
+			spawned++
+			if spawned == 1 {
+				return &scriptedChat{Gate: gate} // the run that dies mid-turn
+			}
+			return &scriptedChat{}
+		})
+	sp.dropBinds = true
+	c := newTestCoordinator(t, sp, nil)
+
+	harp := spawnGatedChild(t, sp, c)
+	const leftover = "one more thing"
+	_, err := c.AgentSend(ownerIdentity(), harp, KindMessage, leftover, nil, "")
+	require.NoError(t, err)
+	require.Positive(t, c.pendingCount(harp), "precondition: the child must have mail pending when it dies")
+	require.Empty(t, sp.NativeSession(harp), "precondition: no session key was bound")
+
+	var runID string
+	c.runs.View(func() { runID = c.runsF.currentRun(harp).RunID })
+	c.terminateRun(runID, CauseRunnerExit, "engine crashed mid-turn")
+
+	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 5*time.Millisecond,
+		"a child that dies with mail pending must be relaunched exactly once")
+	awaitSpoolCount(t, harp, spool.DirInConsumed, 1, "after the relaunched run took the leftover mail")
+	// The consume-rename is the turn's hand-off; the engine records the text
+	// on its own goroutine after that, so the second text is waited for.
+	require.Eventually(t, func() bool { return len(sp.chat(1).RecordedTexts()) == 2 }, conformanceWait, 5*time.Millisecond,
+		"the context prime, then the leftover mail")
+	texts := sp.chat(1).RecordedTexts()
+	assert.Equal(t, "FRAG-ONE", texts[0], "no key to resume by: the relaunch is primed with the composed context")
+	assert.Contains(t, texts[1], leftover, "the mail that raced the death follows the prime")
+	assert.Zero(t, c.pendingCount(harp), "delivery consumes the mail; nothing is left queued behind the new run")
 }
 
 // TestBeginDrain_SendToEndedChildDoesNotResumeIt: an explicit agent_send to an

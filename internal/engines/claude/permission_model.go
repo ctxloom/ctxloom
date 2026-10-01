@@ -238,12 +238,17 @@ func (m permissionModel) Decode(doc map[string]any) (string, error) {
 
 // Transitions: an approval may move any session but a bypass one to
 // default or acceptEdits (a plan's continuation, the setMode suggestion
-// claude makes on an edit).
+// claude makes on an edit) — a plan-first session's declared after_plan
+// first.
 func (m permissionModel) Transitions(doc map[string]any) []string {
 	if mode, _ := m.mode(doc); mode == modeBypass {
 		return nil
 	}
-	return afterPlanModes()
+	out := afterPlanModes()
+	if after, _ := doc[keyAfterPlan].(string); slices.Contains(out, after) {
+		out = append([]string{after}, slices.DeleteFunc(out, func(s string) bool { return s == after })...)
+	}
+	return out
 }
 
 // Sandboxes are the values claude can be made to enforce, failing closed:

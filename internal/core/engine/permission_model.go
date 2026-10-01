@@ -144,7 +144,8 @@ type PermissionModel interface {
 	// and names its posture.
 	Decode(doc map[string]any) (string, error)
 	// Transitions are the postures an approval may move a session at doc
-	// to (a plan's continuation, a mode change riding an allow).
+	// to (a plan's continuation, a mode change riding an allow), the one
+	// doc declares a plan continues at first: a presenter's default.
 	Transitions(doc map[string]any) []string
 	// Sandboxes are the sandbox values the engine can enforce on runtime
 	// (launch.RuntimeAxis spelling); DefaultSandbox is the one it takes

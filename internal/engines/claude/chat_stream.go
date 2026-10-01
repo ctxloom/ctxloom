@@ -82,6 +82,8 @@ type claudeBlock struct {
 	Text     string          `json:"text"`
 	Thinking string          `json:"thinking"` // thinking block: reasoning prose (not in Text)
 	Name     string          `json:"name"`
+	ID       string          `json:"id"`          // tool_use: the call's id
+	ToolUse  string          `json:"tool_use_id"` // tool_result: the call it answers
 	Input    json.RawMessage `json:"input"`
 	Content  json.RawMessage `json:"content"`
 	IsError  bool            `json:"is_error"`
@@ -215,9 +217,10 @@ func mapAssistantBlocks(m *sjMessage) []agent.ChatEvent {
 			out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: b.Thinking}})
 		case string(agent.EntryTypeToolUse):
 			out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{
-				Type:      agent.EntryTypeToolUse,
-				ToolName:  b.Name,
-				ToolInput: json.RawMessage(b.Input),
+				Type:       agent.EntryTypeToolUse,
+				ToolName:   b.Name,
+				ToolCallID: b.ID,
+				ToolInput:  json.RawMessage(b.Input),
 			}})
 		}
 	}
@@ -225,8 +228,8 @@ func mapAssistantBlocks(m *sjMessage) []agent.ChatEvent {
 }
 
 // mapToolResults turns a user message's tool_result blocks into tool_result
-// entries. The block carries tool_use_id but not the tool name, so ToolName is
-// left empty (a later enhancement may correlate it to the prior tool_use).
+// entries. The block carries tool_use_id (ToolCallID) but not the tool name,
+// so ToolName is left empty.
 func mapToolResults(m *sjMessage) []agent.ChatEvent {
 	if m == nil {
 		return nil
@@ -242,6 +245,7 @@ func mapToolResults(m *sjMessage) []agent.ChatEvent {
 		}
 		out = append(out, agent.ChatEvent{Entry: &agent.SessionEntry{
 			Type:       agent.EntryTypeToolResult,
+			ToolCallID: b.ToolUse,
 			ToolOutput: claudeBlockText(b.Content),
 			IsError:    b.IsError,
 		}})

@@ -39,6 +39,9 @@ func TestMapStreamJSONEvent_AssistantToolUse_OneToolUseEntry(t *testing.T) {
 	assert.Equal(t, agent.EntryTypeToolUse, evs[0].Entry.Type)
 	assert.Equal(t, "Bash", evs[0].Entry.ToolName)
 	assert.Contains(t, string(evs[0].Entry.ToolInput), "echo hello-from-tool")
+	// The call's id is the approval route's correlation key (the runner's
+	// ledger): a tool_use without it can never anchor a permission request.
+	assert.Equal(t, "toolu_01VuNv2eXbKS3shVDAQ1zMBX", evs[0].Entry.ToolCallID)
 }
 
 func TestMapStreamJSONEvent_ToolResult_OneToolResultEntry(t *testing.T) {
@@ -48,6 +51,8 @@ func TestMapStreamJSONEvent_ToolResult_OneToolResultEntry(t *testing.T) {
 	assert.Equal(t, agent.EntryTypeToolResult, evs[0].Entry.Type)
 	assert.Equal(t, "hello-from-tool", evs[0].Entry.ToolOutput)
 	assert.False(t, evs[0].Entry.IsError)
+	// The result names the call it answers: what releases a held host.
+	assert.Equal(t, "toolu_01VuNv2eXbKS3shVDAQ1zMBX", evs[0].Entry.ToolCallID)
 }
 
 func TestMapStreamJSONEvent_Result_CompleteWithMetadata(t *testing.T) {

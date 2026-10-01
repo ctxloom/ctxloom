@@ -160,7 +160,7 @@ func TestGetPromptText(t *testing.T) {
 	for _, name := range []string{
 		"tooling",
 		"distill-default",
-		"mcp-server-instructions",
+		"layer-instructions",
 		"session-distill",
 	} {
 		got, err := GetPromptText(name)

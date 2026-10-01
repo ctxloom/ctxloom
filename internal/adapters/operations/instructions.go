@@ -19,7 +19,7 @@ const FragmentsResourceURI = "ctxloom://fragments"
 // ctxloom keeps only the agent's runtime context tools here; all management is
 // CLI-driven (see cmd/hook_inject_context.go's onload preamble for the same
 // guidance injected at session start).
-var mcpServerInstructions = resources.MustGetPromptText("mcp-server-instructions")
+var mcpServerInstructions = resources.MustGetPromptText("layer-instructions")
 
 // premiseCatalogInstruction tells an MCP client that conditional guidance exists
 // and where to ask for it.

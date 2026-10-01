@@ -1499,6 +1499,13 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// leftover-mail check below sees them).
 	c.inbox.sever(rec.Harp, ErrRevoked)
 	c.severChan(rec.Harp)
+	// Both cuts above (closeFn's kill of the runner's connection, and
+	// severChan) can discard a ring the runner already SENT. A stop loses that
+	// race every time its answer wins: the runner writes the interrupted
+	// turn's report, rings on the run channel, then answers StopRun on its
+	// runner channel — and the answer is what ends the run. Sweep the run's
+	// spool here, so its last words never wait for the periodic sweep.
+	c.spoolReactor.Mark(rec.Harp)
 
 	c.notifyParentOfDeath(rec, cause, detail, runFailure)
 	c.spawner.MarkSessionEnded(rec.Harp)

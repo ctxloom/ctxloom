@@ -354,9 +354,10 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 var ErrDelegationRefused = errors.New("agent_run: refused by may_delegate")
 
 // admitDelegation refuses a role the caller's own binding does not list in
-// its may_delegate, naming the ones it does. A caller whose run the
-// coordinator did not enqueue from a binding (the root session) or whose
-// binding lists none may launch any.
+// its may_delegate, naming the ones it does. It is the one check for every
+// caller: a child's run and the root's owned run (OwnerRun.MayDelegate) both
+// journal their binding's list. A caller with no run, or whose binding lists
+// none, may launch any.
 func (c *Coordinator) admitDelegation(caller Identity, role string) error {
 	var agent string
 	var allowed []string

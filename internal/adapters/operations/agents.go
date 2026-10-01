@@ -836,7 +836,7 @@ func resolveAgentBinding(ctx context.Context, reg engine.Registry, cfg *config.C
 
 	// What an unflagged run resolves to, in the engine's own words; the
 	// launch, not this listing, refuses a declaration it cannot honour.
-	effectivePerm := EffectivePosture(reg, backend, sub.Permissions, labelEntry.Permissions)
+	effectivePerm := PostureName(reg, EffectivePosture(reg, backend, sub.Permissions, labelEntry.Permissions))
 
 	return &ResolvedAgent{
 		Name:                 name,

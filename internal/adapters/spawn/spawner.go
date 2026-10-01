@@ -246,9 +246,10 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 		Label:     label,
 		Profiles:  binding.Profiles,
 		Runtime:   runtime,
-		// The roster's name for the posture the launch will resolve to;
-		// the launch is authoritative once it exists.
-		Permission:  operations.EffectivePosture(s.app.Engines(), backend, binding.Permissions, labelPermissions(cfg, label)),
+		// The roster's name for the posture the launch will resolve to, in
+		// the engine's display words; the launch is authoritative once it
+		// exists.
+		Permission:  operations.EffectivePosture(s.app.Engines(), backend, binding.Permissions, labelPermissions(cfg, label)).Label,
 		MayDelegate: slices.Clone(binding.MayDelegate),
 		ResumeMode:  resumeMode,
 		Snapshot:    snap,

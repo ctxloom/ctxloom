@@ -187,6 +187,12 @@ Distill and load context from a session. Accepts either session_id (backend UUID
 | `model` | string | No | LLM model to use for distillation if needed |
 | `session_id` | string | No | Backend-native session ID (UUID). Either session_id or harp_name is required. |
 
+### permission_host
+
+ctxloom's permission host for this session's engine. It holds a permission request open while the approval hook carries the human's decision to the engine, and it always answers deny. It grants nothing: calling it yourself is refused.
+
+_No parameters._
+
 ### recover_session
 
 Recover context from the current session after /clear. Resolves this session's own transcript by harp identity, falling back to the most recent transcript in this working directory only when that transcript cannot be attributed to a different session, and distills it (no session id needed; pass one to target a specific session).

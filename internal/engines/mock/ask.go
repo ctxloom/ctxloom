@@ -60,16 +60,13 @@ type askDecision struct {
 
 // ask makes the call and has it decided; a denied call is returned as the
 // denial the turn reports.
-func (d driver) ask(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, send func(agent.ChatEvent) error, tool string, input json.RawMessage) (*agent.PermissionDenial, error) {
+func (d driver) ask(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, send func(agent.ChatEvent) error, tool string, input json.RawMessage, grants []string) (*agent.PermissionDenial, error) {
 	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: tool, ToolCallID: AskCallID, ToolInput: input}}); err != nil {
 		return nil, err
 	}
-	decision := askDecision{Message: "mock: nobody is asked; " + tool + " is denied"}
-	if d.approver == engine.ApproverHuman {
-		var err error
-		if decision, err = d.askTheHuman(ctx, ex, hooks, tool, input); err != nil {
-			return nil, err
-		}
+	decision, err := d.decide(ctx, ex, hooks, tool, input, grants)
+	if err != nil {
+		return nil, err
 	}
 	result := agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: AskCallID, ToolOutput: "mock: " + tool + " ran"}
 	if !decision.Allow {
@@ -83,6 +80,21 @@ func (d driver) ask(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks
 	}
 	denial := agent.PermissionDenial{ToolName: tool, ToolCallID: AskCallID, Reason: decision.Message, Decider: agent.DeciderPolicy}
 	return &denial, send(agent.ChatEvent{Denied: &denial})
+}
+
+// decide is the call's decision in claude's order: a declared deny refuses
+// it whatever is granted, a session grant naming the tool allows it with
+// nobody asked, and only then is the approver asked — the human, or nobody.
+func (d driver) decide(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, tool string, input json.RawMessage, grants []string) (askDecision, error) {
+	switch {
+	case slices.Contains(d.deny, tool):
+		return askDecision{Message: "mock: " + tool + " is denied by a declared rule"}, nil
+	case slices.Contains(grants, tool):
+		return askDecision{Allow: true}, nil
+	case d.approver != engine.ApproverHuman:
+		return askDecision{Message: "mock: nobody is asked; " + tool + " is denied"}, nil
+	}
+	return d.askTheHuman(ctx, ex, hooks, tool, input)
 }
 
 // askTheHuman holds the call on the permission host and runs the

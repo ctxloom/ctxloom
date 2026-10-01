@@ -81,7 +81,7 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 	}
 	answer := mockAnswer(ex, in.Prompt)
 	ask := func(tool string, input json.RawMessage) (*agent.PermissionDenial, error) {
-		return d.ask(ctx, ex, hooks, send, tool, input)
+		return d.ask(ctx, ex, hooks, send, tool, input, in.Posture.Grants)
 	}
 	if err := sendTurnEvents(send, ask, in.Prompt, answer, in.Posture); err != nil {
 		return engine.TurnResult{}, err

@@ -342,7 +342,8 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: i.s.Mode == engine.Interactive}, nil
 }
 func (i *instance) Drivers() []engine.StructuredDriver {
-	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver, endpoint: i.s.MCP}}
+	deny, _ := mockRules(i.s.Permission.Posture.Document["deny"]) // none declared: nothing denied
+	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver, deny: deny, endpoint: i.s.MCP}}
 }
 func (i *instance) Resume(key string) error { i.key = key; return nil }
 
@@ -353,6 +354,9 @@ func (i *instance) Resume(key string) error { i.key = key; return nil }
 type driver struct {
 	fires    map[string]bool
 	approver engine.Approver
+	// deny are the session's declared deny rules (a mock rule is a tool
+	// name): they refuse a call before any grant or approver is consulted.
+	deny     []string
 	endpoint sessions.Endpoint
 }
 

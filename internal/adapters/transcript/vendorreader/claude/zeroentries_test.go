@@ -100,10 +100,10 @@ func TestConvert_DroppedVendorContentIsReported(t *testing.T) {
 }
 
 // The drop report is only worth reading if it stays quiet about lines that
-// are KNOWN to carry no conversation. atis-latch and cost-state are claude's
+// are KNOWN to carry no conversation. The fixture's admin lines are claude's
 // own session bookkeeping (see testdata/MANIFEST.json for their real source);
-// left out of adminLineTypes they warn on nearly every real transcript, and a
-// warning that always fires is one nobody reads.
+// one left out of adminLineTypes warns on every real transcript carrying it,
+// and a warning that always fires is one nobody reads.
 func TestConvert_KnownAdminLinesAreNeitherReportedNorEmitted(t *testing.T) {
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

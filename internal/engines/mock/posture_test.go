@@ -59,9 +59,9 @@ func TestTurn_NoPostureAsksForNoMode(t *testing.T) {
 func TestMock_ProvidesAnApprovalCodec(t *testing.T) {
 	c, ok := New().Approvals().Get()
 	require.True(t, ok, "the mock stands in for an engine the human approves for")
-	ask, err := c.DecodeAsk("ask", []byte(`{"tool":"Bash","input":{"b":1,"a":2},"tool_use_id":"t1"}`))
+	ask, err := c.DecodeAsk("ask", []byte(`{"tool":"Bash","input":{"b":1,"a":2}}`))
 	require.NoError(t, err)
-	assert.Equal(t, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"a":2,"b":1}`), ToolUseID: "t1"}, ask)
+	assert.Equal(t, engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash", Input: json.RawMessage(`{"a":2,"b":1}`)}, ask)
 	_, err = c.DecodeAsk("ask", []byte(`{"input":{}}`))
 	assert.Error(t, err, "an ask names its tool")
 
@@ -74,11 +74,5 @@ func TestMock_ProvidesAnApprovalCodec(t *testing.T) {
 	assert.NoError(t, c.ValidateRule("Bash(ls)"))
 	assert.Error(t, c.ValidateRule(" "))
 	assert.Error(t, c.ValidateRule("a\nb"))
-	deny, err := c.HostDeny("no")
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"allow":false,"message":"no"}`, deny)
-	call, err := c.HostCall(json.RawMessage(`{"tool":"Bash","input":{},"tool_use_id":"t1"}`))
-	require.NoError(t, err)
-	assert.Equal(t, engine.HostCall{Tool: "Bash", ToolUseID: "t1", Input: json.RawMessage(`{}`)}, call)
 	assert.Equal(t, []string{settingsRel, hooksRel}, c.RepoSurfaces())
 }

@@ -36,8 +36,8 @@ answers with the engine's native decision; that answer is written to stdout
 untouched.
 
 Any failure — no endpoint, an unreachable runner, a refusal — writes nothing
-and exits 0: no decision, so the engine's held permission host denies the
-call. The reason is named on stderr.`,
+and exits 0: no decision, and an engine nobody sits at denies a call no hook
+decided. The reason is named on stderr.`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,

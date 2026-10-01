@@ -90,26 +90,24 @@ func TestHooks_DecodesUserPromptSubmitAsTurnStart(t *testing.T) {
 	assert.Equal(t, "UserPromptSubmit", hookEventMap()["turn_start"], "Exports names the native event turn_start registers under")
 }
 
-// TestClaudeCodeHookWriter_ApprovalHooksReachPermissionRequestAndPreToolUse:
-// the approval hooks a human-approved run is delivered land where claude
-// spawns them — the permission ask under PermissionRequest for every tool,
-// the question/plan hook under PreToolUse for exactly those two tools —
-// each with a timeout that outlives the approval timeout.
-func TestClaudeCodeHookWriter_ApprovalHooksReachPermissionRequestAndPreToolUse(t *testing.T) {
+// TestClaudeCodeHookWriter_ApprovalHookReachesPermissionRequest: the
+// approval hook a human-approved run is delivered lands where claude spawns
+// it — under PermissionRequest for every tool — with a timeout that
+// outlives the approval timeout; no pre-tool hook is the route's.
+func TestClaudeCodeHookWriter_ApprovalHookReachesPermissionRequest(t *testing.T) {
 	approval := approvalCodec{}.Hooks(15 * time.Minute)
 	hooks := writtenHooks(t, &wire.HooksConfig{Unified: approval})
 
-	for event, want := range map[string]wire.Hook{"PermissionRequest": approval.PermissionAsk[0], "PreToolUse": approval.PreTool[0]} {
-		groups, ok := hooks[event].([]any)
-		require.True(t, ok, "%s must be written, got events %v", event, keysOf(hooks))
-		require.Len(t, groups, 1, event)
-		group := groups[0].(map[string]any)
-		matcher, _ := group["matcher"].(string)
-		assert.Equal(t, want.Matcher, matcher, event)
-		entries := group["hooks"].([]any)
-		require.Len(t, entries, 1, event)
-		entry := entries[0].(map[string]any)
-		assert.Equal(t, want.Command, entry["command"], event)
-		assert.EqualValues(t, want.Timeout, entry["timeout"], event)
-	}
+	groups, ok := hooks["PermissionRequest"].([]any)
+	require.True(t, ok, "PermissionRequest must be written, got events %v", keysOf(hooks))
+	require.Len(t, groups, 1)
+	group := groups[0].(map[string]any)
+	assert.Empty(t, group["matcher"], "every tool")
+	entries := group["hooks"].([]any)
+	require.Len(t, entries, 1)
+	entry := entries[0].(map[string]any)
+	want := approval.PermissionAsk[0]
+	assert.Equal(t, want.Command, entry["command"])
+	assert.EqualValues(t, want.Timeout, entry["timeout"])
+	assert.NotContains(t, hooks, "PreToolUse")
 }

@@ -470,29 +470,14 @@ Feature: MCP tools
     Then the tool call succeeds
     And the tool result field "evaluated" equals "0"
 
-  # permission_host is the engine's permission host, served on every session's
-  # endpoint: in a run whose approver is the human the engine is pointed at it,
-  # and it HOLDS a request open while the approval hook carries the human's
-  # decision — it never decides. A session that routes no approvals (the
-  # standing owner is interactive: its human answers in the engine's own UI)
-  # holds nothing, so calling it — a model trying it directly — is refused,
-  # and the refusal says why.
-  Scenario: The permission host holds nothing in a session that routes no approvals
-    Given an initialized ctxloom project
-    And a session owner is standing
-    When the agent calls tool "permission_host" with:
-      | tool_name   | Bash    |
-      | tool_use_id | toolu_1 |
-    Then the tool call fails
-    And the tool failure message contains "routes no approvals"
-
   # The approval hook (`ctxloom hook permission`) is the engine's half of the
-  # same route: it posts the engine's ask to the runner's hook path and
-  # writes back only a decision the runner returned. Pointed at a live
-  # endpoint that routes no approvals, the runner refuses, and the hook says
-  # so on stderr while writing NOTHING to stdout — no decision, so the
-  # engine's held permission host denies the call. The refusal's text can
-  # only have come back over the wire, under the endpoint's bearer.
+  # approval route: it posts the engine's ask to the runner's hook path and
+  # writes back only a decision the runner returned. A session that routes
+  # no approvals (the standing owner is interactive: its human answers in the
+  # engine's own UI) refuses, and the hook says so on stderr while writing
+  # NOTHING to stdout — no decision, which an engine nobody sits at denies.
+  # The refusal's text can only have come back over the wire, under the
+  # endpoint's bearer.
   Scenario: The approval hook relays a runner that routes no approvals as no decision
     Given an initialized ctxloom project
     And a session owner is standing

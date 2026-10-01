@@ -39,10 +39,10 @@ type fakeEngineHome struct {
 		Name  string
 		Value map[string]any
 	}
-	sink         func(*agentcoordpb.PeerMessage) bool
+	sink          func(*agentcoordpb.PeerMessage) bool
 	approvalRoute ApprovalRoute
-	spoolSweeps  int
-	exited       []struct {
+	spoolSweeps   int
+	exited        []struct {
 		Code      int
 		SessionID string
 	}

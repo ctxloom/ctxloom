@@ -382,7 +382,7 @@ func (e fixtureEngine) Permissions() engine.Declared[engine.PermissionModel] { r
 func (fixtureCodec) EncodeAnswer(string, engine.PermissionAsk, engine.PermissionAnswer) ([]byte, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "approvals"}
 }
-func (fixtureCodec) RepoSurfaces() []string          { return nil }
+func (fixtureCodec) RepoSurfaces() []string { return nil }
 
 // Hooks is one approval hook on the fixture's own ask event.
 func (fixtureCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {

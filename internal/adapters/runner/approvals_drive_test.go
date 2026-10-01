@@ -20,7 +20,7 @@ import (
 )
 
 // askingEngine is an engine whose one turn makes a tool call and asks about
-// it the way claude does with no permission host: the call goes out on the
+// it the way claude does with no permission prompt tool: the call goes out on the
 // stream, then the engine runs the approval hook and applies whatever it
 // answers. It reaches the route through the Home it was bound on — what the
 // session's endpoint serves.

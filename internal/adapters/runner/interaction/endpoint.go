@@ -30,6 +30,9 @@ type Endpoint struct {
 	// Home is the runner's reach-back link: the coordination frames, the
 	// host relays and artifact fetch ride it.
 	Home *runner.Home
+	// Wake is the session's wake signal: the endpoint serves the relay's
+	// subscription to WakeURI on it, and the runner fires it.
+	Wake *WakeSignal
 	// Reporter receives the endpoint's diagnostics; nil discards.
 	Reporter report.Sink
 
@@ -60,6 +63,9 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 	if e.Home == nil {
 		return delivery.Served{}, ErrNoHome
 	}
+	if e.Wake == nil {
+		return delivery.Served{}, ErrNoWakeSignal
+	}
 	if lo.MCP.URL == "" || lo.MCP.Credential == "" {
 		return delivery.Served{}, fmt.Errorf("%w: the loadout names no endpoint to bind", delivery.ErrEndpointUnavailable)
 	}
@@ -68,7 +74,7 @@ func (e Endpoint) Serve(ctx context.Context, lo delivery.Loadout, policy deliver
 		return delivery.Served{}, fmt.Errorf("%w: %q is not a bindable URL", delivery.ErrEndpointUnavailable, lo.MCP.URL)
 	}
 	rep := report.To(e.Reporter)
-	server, err := NewServer(rep, e.Home, lo.Identity.Harp, lo.WorkDir, lo.Identity.Leaf, loadoutSurface{lo: lo})
+	server, err := NewServer(rep, e.Home, lo.Identity.Harp, lo.WorkDir, lo.Identity.Leaf, loadoutSurface{lo: lo}, e.Wake)
 	if err != nil {
 		return delivery.Served{}, err
 	}

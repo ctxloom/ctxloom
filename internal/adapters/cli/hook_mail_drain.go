@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -39,7 +40,7 @@ With no mail waiting it writes nothing at all: a prompt is the ordinary
 reason for a turn to start, and an empty envelope would still be an event the
 model sees.
 
-A prompt that IS a ctxloom wake (spool.WakeText) redeems the wake's nonce —
+A prompt that IS a ctxloom wake (engine.WakeText) redeems the wake's nonce —
 that is the wake's acknowledgement — and, when the wake finds no mail, blocks
 the prompt so a stale wake costs no model turn. A human's prompt is never
 blocked.`,
@@ -117,7 +118,7 @@ func drainMail(cmd *cobra.Command, harp string) error {
 // redeemWakeNonce consumes the wake nonce a prompt carries, reporting whether
 // the prompt was a wake and, when the nonce could not be redeemed, why.
 func redeemWakeNonce(mapper spool.PathMapper, harp, prompt string) (bool, []string) {
-	nonce, isWake := spool.WakeNonce(prompt)
+	nonce, isWake := engine.WakeNonce(prompt)
 	if !isWake {
 		return false, nil
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -60,7 +61,7 @@ func TestDrainMail_AWakeWithNothingPendingIsBlockedAndConsumed(t *testing.T) {
 	nonce := armOwnerWake(t)
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(promptCmd(t, &out, spool.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(promptCmd(t, &out, engine.WakeText(nonce)), mailDrainOwner))
 
 	env := decoded(t, &out)
 	assert.Equal(t, claude.DecisionBlock, env.Decision, "a stale wake must not cost a model turn")
@@ -74,7 +75,7 @@ func TestDrainMail_AWakeWithNothingPendingIsBlockedAndConsumed(t *testing.T) {
 func TestDrainMail_AnAlreadyRedeemedWakeIsStillBlocked(t *testing.T) {
 	testsupport.Isolate(t)
 	var out bytes.Buffer
-	require.NoError(t, drainMail(promptCmd(t, &out, spool.WakeText("0123456789abcdef")), mailDrainOwner))
+	require.NoError(t, drainMail(promptCmd(t, &out, engine.WakeText("0123456789abcdef")), mailDrainOwner))
 	assert.Equal(t, claude.DecisionBlock, decoded(t, &out).Decision)
 }
 
@@ -84,7 +85,7 @@ func TestDrainMail_AWakeWithMailDeliversItAndConsumesTheNonce(t *testing.T) {
 	name := seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(promptCmd(t, &out, spool.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(promptCmd(t, &out, engine.WakeText(nonce)), mailDrainOwner))
 
 	env := drainedEnvelope(t, &out)
 	assert.Empty(t, env.Decision, "a wake that found mail is a turn")
@@ -101,7 +102,7 @@ func TestDrainMail_AHumanPromptDeliversWithoutConsumingTheWake(t *testing.T) {
 	seedOwnerMail(t, "child-one", "report", "FINAL: done\n")
 
 	var out bytes.Buffer
-	require.NoError(t, drainMail(promptCmd(t, &out, "what did the child say? "+spool.WakeText(nonce)), mailDrainOwner))
+	require.NoError(t, drainMail(promptCmd(t, &out, "what did the child say? "+engine.WakeText(nonce)), mailDrainOwner))
 
 	env := drainedEnvelope(t, &out)
 	assert.Empty(t, env.Decision, "a human's prompt is never blocked")

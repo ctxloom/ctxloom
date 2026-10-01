@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,7 @@ import (
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -217,5 +219,25 @@ func registerSessionOwnerSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a session owner is standing on the profile "([^"]*)"$`, func(c context.Context, profile string) error {
 		w := worldFrom(c)
 		return w.standSessionOwnerSelecting(w.env.AppBinary, []string{"--profile", profile})
+	})
+
+	// The approval hook's reach, aimed at the standing owner's endpoint: the
+	// hook path on its listener, under its bearer — what a launch that routes
+	// approvals hands its engine, so `ctxloom hook permission` posts to a
+	// live runner rather than failing before it dials.
+	ctx.Step(`^the approval hook reaches the session owner's endpoint$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if w.owner == nil {
+			return errors.New("no session owner is standing: put `a session owner is standing` before this step")
+		}
+		u, err := url.Parse(w.owner.endpoint.URL)
+		if err != nil {
+			return fmt.Errorf("the owner's endpoint %q: %w", w.owner.endpoint.URL, err)
+		}
+		u.Path, u.RawQuery = runner.HookPath, ""
+		for k, v := range sessions.EncodeHookReach(sessions.Endpoint{URL: u.String(), Credential: w.owner.endpoint.Credential}) {
+			w.env.SetChildEnv(k, v)
+		}
+		return nil
 	})
 }

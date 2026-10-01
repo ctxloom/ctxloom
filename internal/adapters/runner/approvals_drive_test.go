@@ -72,7 +72,11 @@ func TestEngineHost_ATurnsAskReachesTheRootAndItsDecisionReturns(t *testing.T) {
 		require.NotNil(t, ask, "the ask parks as AgentRequest.approval")
 		assert.Equal(t, "Bash", ask.GetTool())
 		assert.JSONEq(t, `{"command":"ls"}`, string(ask.GetInput()))
-		assert.Equal(t, []string{"default"}, ask.GetTransitions(), "the engine's transitions ride the request")
+		require.Len(t, ask.GetTransitions(), 1, "the engine's transitions ride the request")
+		tr := ask.GetTransitions()[0]
+		assert.Equal(t, "default", tr.GetPosture(), "the posture token crosses")
+		assert.Equal(t, "Ask before edits", tr.GetLabel(), "the engine's label crosses")
+		assert.True(t, tr.GetDefault(), "the engine's default crosses")
 		return &agentcoordpb.CoordinatorResponse{
 			Status: coordgrpc.OKStatus(""),
 			Kind:   &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{Allow: true, Decider: "human"}},
@@ -88,7 +92,7 @@ func TestEngineHost_ATurnsAskReachesTheRootAndItsDecisionReturns(t *testing.T) {
 	require.NoError(t, eh.Drive(context.Background(), Turn{
 		Launch:   launch.Launch{Engine: mock.Name, Mode: engine.Structured},
 		Instance: eng, Prompt: "do it",
-		approval: &approvalSpec{codec: codec, transitions: []string{"default"}, timeout: time.Minute},
+		approval: &approvalSpec{codec: codec, transitions: []engine.PostureTransition{{Posture: "default", Label: "Ask before edits", Default: true}}, timeout: time.Minute},
 	}))
 
 	var hook mockAnswer

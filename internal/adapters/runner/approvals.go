@@ -92,7 +92,7 @@ func boundsFor(timeout time.Duration) approvalBounds {
 // the approval timeout. nil when the launch's approver is not the human.
 type approvalSpec struct {
 	codec       engine.ApprovalCodec
-	transitions []string
+	transitions []engine.PostureTransition
 	timeout     time.Duration
 }
 

@@ -469,3 +469,19 @@ Feature: MCP tools
     When the agent calls tool "evaluate_triggers"
     Then the tool call succeeds
     And the tool result field "evaluated" equals "0"
+
+  # permission_host is the engine's permission host, served on every session's
+  # endpoint: in a run whose approver is the human the engine is pointed at it,
+  # and it HOLDS a request open while the approval hook carries the human's
+  # decision — it never decides. A session that routes no approvals (the
+  # standing owner is interactive: its human answers in the engine's own UI)
+  # holds nothing, so calling it — a model trying it directly — is refused,
+  # and the refusal says why.
+  Scenario: The permission host holds nothing in a session that routes no approvals
+    Given an initialized ctxloom project
+    And a session owner is standing
+    When the agent calls tool "permission_host" with:
+      | tool_name   | Bash    |
+      | tool_use_id | toolu_1 |
+    Then the tool call fails
+    And the tool failure message contains "routes no approvals"

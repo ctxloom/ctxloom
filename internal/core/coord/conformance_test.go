@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -507,6 +508,9 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 	deadline := time.Now().Add(conformanceWait)
 	for len(byKind) < 2 && time.Now().Before(deadline) {
 		msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
+		if errors.Is(err, ErrRecvTimeout) {
+			continue // an empty window, not a verdict: the deadline is
+		}
 		require.NoError(t, err)
 		for _, m := range msgs {
 			byKind[m.Kind] = m

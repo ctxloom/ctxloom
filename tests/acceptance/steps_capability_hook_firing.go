@@ -33,12 +33,9 @@
 //     between cells is the engine rather than the fixture's cleanliness.
 //
 // THE GATES AND THE CREDENTIAL ENVIRONMENT ARE REUSED, NOT RE-DERIVED.
-// probeEngine, the liveAgents registry config and probeHostCredentialEnv are
+// probeEngine, the liveAgents registry config and probeCellCredentialEnv are
 // the same ones the engine matrix runs — extraction over copy, per the design's
-// own instruction for wave 2. In particular the credential environment is not a
-// convenience: point HOME at an isolated temp dir and every production
-// credential path (which all resolve from the real host home) finds nothing, so
-// the cell would fail for a reason that exists nowhere outside this harness.
+// own instruction for wave 2.
 package acceptance
 
 import (
@@ -217,15 +214,14 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 
 		cmd := w.env.Command(nil, "run", "--agent", hookProbeAgent,
 			"--workspace", h.workspace, "--one-shot", hookProbePrompt(h.echoHarp != ""))
-		// Reused from the shared gate, not re-derived: production's credential
-		// paths all resolve from the real host home, and starving them makes
-		// the cell measure the harness.
+		// Reused from the shared gate, not re-derived (probeCellCredentialEnv).
 		//
-		// BEFORE the carriage watcher, deliberately. The watcher scans a root
-		// built from realHomeDir, and this is the check that refuses when there
-		// is no realHomeDir to build one from — behind it, a refused cell still
-		// started a scanning goroutine over "/.ctxloom/sessions" first.
-		if err := probeCellCredentialEnv(hookProbeFamily, cmd); err != nil {
+		// BEFORE the carriage watcher, deliberately. The watcher scans the
+		// sessions tree under the HOME the run is given, which this decides —
+		// and it refuses when it has no home to give — so behind it, a refused
+		// cell still started a scanning goroutine over "/.ctxloom/sessions".
+		runHome, err := probeCellCredentialEnv(hookProbeFamily, h.engine, cmd)
+		if err != nil {
 			return err
 		}
 
@@ -233,7 +229,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 		// scrubs delivered settings at session teardown, so a scan afterwards
 		// reports "no carriage" on a cell where carriage worked perfectly.
 		// Measured — see hookProbeCarriageWatcher.
-		sessionsRoot := filepath.Join(realHomeDir, ".ctxloom", "sessions")
+		sessionsRoot := filepath.Join(runHome, ".ctxloom", "sessions")
 		watcher := hookProbeWatchCarriage(hookProbeCarriage{
 			Needle:    h.scriptPath,
 			Roots:     []string{w.env.ProjectDir, sessionsRoot},

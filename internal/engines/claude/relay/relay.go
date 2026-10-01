@@ -92,12 +92,13 @@ func pump(ctx context.Context, down, up mcp.Transport) error {
 // upward relays claude's messages to the endpoint, and returns nil when
 // claude closes its side.
 //
-// A call is written on its own goroutine, except initialize. The endpoint
-// sends a call's response headers only with its first message, so a write
-// returns only once the call starts answering: written in line, one long
-// call (a parked receive) would hold back every later message — including
-// the cancellation of that very call. initialize stays in line because the
-// session id it establishes must precede everything after it.
+// A call is written on its own goroutine. The endpoint sends a call's
+// response headers only with its first message, so a write returns only once
+// the call starts answering: written in line, one long call (a parked
+// receive) would hold back every later message — including the cancellation
+// of that very call. Nothing orders a call after initialize here: an MCP
+// client sends nothing but the initialize call until its result arrives, and
+// the result reaches claude only once the transport holds the session id.
 func upward(ctx context.Context, dc, uc mcp.Connection) error {
 	for {
 		msg, err := dc.Read(ctx)
@@ -107,7 +108,7 @@ func upward(ctx context.Context, dc, uc mcp.Connection) error {
 			}
 			return fmt.Errorf("claude relay: reading claude's stdio: %w", err)
 		}
-		if req, ok := msg.(*jsonrpc.Request); ok && req.IsCall() && req.Method != "initialize" {
+		if req, ok := msg.(*jsonrpc.Request); ok && req.IsCall() {
 			go relayUp(ctx, dc, uc, req)
 			continue
 		}

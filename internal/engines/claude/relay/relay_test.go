@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -307,6 +308,10 @@ func TestRelay_ALongCallDoesNotHoldBackTheNext(t *testing.T) {
 	})
 	upstream := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
 	t.Cleanup(upstream.Close)
+	// Cleanups run last-first: the parked handler is released before the
+	// server's Close waits on it, so a failure below fails instead of hanging.
+	unpark := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(unpark)
 	cs, _, _ := startRelay(t, baseEnv(upstream.URL))
 
 	parked := make(chan *mcp.CallToolResult, 1)
@@ -316,10 +321,17 @@ func TestRelay_ALongCallDoesNotHoldBackTheNext(t *testing.T) {
 	}()
 	testsupport.Await(t, bound, (<-chan struct{})(entered), "the parked call never reached the upstream")
 
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "ping"})
-	require.NoError(t, err)
+	// Awaited off this goroutine: held back, the call cannot even be
+	// cancelled — its cancellation queues behind the same parked write.
+	pinged := make(chan *mcp.CallToolResult, 1)
+	go func() {
+		res, _ := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "ping"})
+		pinged <- res
+	}()
+	res := testsupport.Await(t, bound, (<-chan *mcp.CallToolResult)(pinged), "the second call was held back behind the first")
+	require.NotNil(t, res)
 	assert.Equal(t, "pong", res.Content[0].(*mcp.TextContent).Text)
 
-	close(release)
+	unpark()
 	assert.Equal(t, "parked", testsupport.Await(t, bound, (<-chan *mcp.CallToolResult)(parked), "the parked call never answered").Content[0].(*mcp.TextContent).Text)
 }

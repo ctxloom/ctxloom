@@ -37,6 +37,7 @@ func TestWakeNonce_OnlyTheWholePromptIsAWake(t *testing.T) {
 		"please look at the mail",
 		"why did I see `" + text + "`?",
 		text + " and also fix the build",
+		"please read: " + text,
 		"<cross-session-message from-mode=\"bypass\">\n" + text + "\n</cross-session-message>",
 		"ctxloom: wake ../../etc/passwd (mail delivered at turn start)",
 		"ctxloom: wake 0123456789ABCDEF (mail delivered at turn start)",

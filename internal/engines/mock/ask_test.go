@@ -62,11 +62,18 @@ func (h *fakeHost) seen() []string {
 // returns what the turn relayed.
 func askTurn(t *testing.T, approver engine.Approver, ep sessions.Endpoint, hookCommands ...string) []agent.ChatEvent {
 	t.Helper()
-	dir := t.TempDir()
-	var hooks wire.UnifiedHooks
+	var hooks []wire.Hook
 	for _, c := range hookCommands {
-		hooks.PermissionAsk = append(hooks.PermissionAsk, wire.Hook{Type: "command", Command: c})
+		hooks = append(hooks, wire.Hook{Type: "command", Command: c})
 	}
+	return askTurnWith(t, approver, ep, hooks)
+}
+
+// askTurnWith is askTurn with the permission_ask hooks given whole.
+func askTurnWith(t *testing.T, approver engine.Approver, ep sessions.Endpoint, ask []wire.Hook) []agent.ChatEvent {
+	t.Helper()
+	dir := t.TempDir()
+	hooks := wire.UnifiedHooks{PermissionAsk: ask}
 	raw, err := json.Marshal(hooks)
 	require.NoError(t, err)
 	hooksFile := filepath.Join(dir, "hooks.json")
@@ -167,4 +174,17 @@ func TestMockAsk_NobodyToAskIsADenial(t *testing.T) {
 	assert.Len(t, meta.Denials, 1)
 	assert.Empty(t, host.seen(), "nobody to ask: the host is not called")
 	assert.NoFileExists(t, marker, "nobody to ask: no hook runs")
+}
+
+// TestMockAsk_AHookWhoseMatcherExcludesTheToolDecidesNothing: a hook is
+// consulted only for the tools its matcher admits; one matched to another
+// tool decides nothing, and the host's answer stands.
+func TestMockAsk_AHookWhoseMatcherExcludesTheToolDecidesNothing(t *testing.T) {
+	host := &fakeHost{answer: `{"allow":false,"message":"held and denied"}`}
+	ep := host.serve(t)
+	_, _, denied, _ := callOutcome(t, askTurnWith(t, engine.ApproverHuman, ep, []wire.Hook{
+		{Type: "command", Matcher: "Write", Command: `cat >/dev/null; printf '{"allow":true}'`},
+	}))
+	require.NotNil(t, denied, "the Write hook does not decide a Bash call")
+	assert.Equal(t, "held and denied", denied.Reason)
 }

@@ -423,6 +423,7 @@ message PermissionPolicy {
   bool network = 10;
   string engine = 11;
   google.protobuf.Struct posture = 12;
+  string label = 13;  // the engine's display name for the posture; shown, never compared
 }
 
 // Sandbox is engine.Sandbox. UNSPECIFIED never rides a resolved launch; the
@@ -1053,7 +1054,15 @@ message ApprovalRequest {
   // 9 was the ceiling an allow could set; transitions replace it.
   reserved 9;
   google.protobuf.Duration timeout = 10;  // unset = the default; capped
-  repeated string transitions = 11;   // the postures an allow may set, in the asker's engine's vocabulary
+  repeated PostureTransition transitions = 11;  // the postures an allow may set, exactly one the default
+}
+
+// PostureTransition is engine.PostureTransition: a posture an approval may
+// move the asker to. default is explicit; an offer's order means nothing.
+message PostureTransition {
+  string posture = 1;  // the asker's engine's token, opaque to the coordinator
+  string label = 2;    // the engine's display name for it
+  bool default = 3;    // the one the engine continues at when nobody chooses
 }
 
 message PlanProposal {

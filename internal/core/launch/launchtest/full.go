@@ -34,7 +34,7 @@ func FullLaunch(t *testing.T) launch.Launch {
 		Label:    engine.LabelConfig{Label: "primary", Model: "fixture-fast-2", Binary: "fixture", Args: []string{"--flag"}, Body: map[string]any{"model": "fixture-fast-2", "thinking": "low"}},
 		Mode:     engine.Structured,
 		Permission: engine.PermissionPolicy{
-			Posture:  engine.Posture{Engine: EngineName, Document: map[string]any{"mode": "plan", "deny": []any{"Bash(rm *)"}}},
+			Posture:  engine.Posture{Engine: EngineName, Document: map[string]any{"mode": "plan", "deny": []any{"Bash(rm *)"}}, Label: "the plan posture"},
 			Approver: engine.ApproverNone, ApprovalTimeout: 20 * time.Minute, Sandbox: engine.SandboxWorkspaceWrite, Network: true,
 		},
 		Axes: launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeRootless},

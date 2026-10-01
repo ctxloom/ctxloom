@@ -25,7 +25,7 @@ func ApprovalRequestToWire(r coord.ApprovalRequest) *agentcoordpb.ApprovalReques
 		ToolUseId:       ask.ToolUseID,
 		Suggestions:     ask.Suggestions,
 		SuggestsSetMode: modeName(ask.SuggestsSetMode),
-		Transitions:     r.Transitions,
+		Transitions:     transitionsToWire(r.Transitions),
 		Timeout:         durationToWire(r.Timeout),
 	}
 	if ask.Plan != nil {
@@ -62,7 +62,7 @@ func ApprovalRequestFromWire(w *agentcoordpb.ApprovalRequest) (coord.ApprovalReq
 			Suggestions:     w.GetSuggestions(),
 			SuggestsSetMode: modeFromWire(w.GetSuggestsSetMode()),
 		},
-		Transitions: w.GetTransitions(),
+		Transitions: transitionsFromWire(w.GetTransitions()),
 		Timeout:     durationFromWire(w.GetTimeout()),
 	}
 	if p := w.GetPlan(); p != nil {
@@ -136,4 +136,22 @@ func modeFromWire(name string) engine.Declared[string] {
 		return engine.Declared[string]{}
 	}
 	return engine.Provide(name)
+}
+
+// transitionsToWire encodes an engine's offer, its default flagged.
+func transitionsToWire(ts []engine.PostureTransition) []*agentcoordpb.PostureTransition {
+	var out []*agentcoordpb.PostureTransition
+	for _, t := range ts {
+		out = append(out, &agentcoordpb.PostureTransition{Posture: t.Posture, Label: t.Label, Default: t.Default})
+	}
+	return out
+}
+
+// transitionsFromWire decodes an engine's offer.
+func transitionsFromWire(ws []*agentcoordpb.PostureTransition) []engine.PostureTransition {
+	var out []engine.PostureTransition
+	for _, w := range ws {
+		out = append(out, engine.PostureTransition{Posture: w.GetPosture(), Label: w.GetLabel(), Default: w.GetDefault()})
+	}
+	return out
 }

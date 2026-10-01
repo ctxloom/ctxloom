@@ -66,10 +66,10 @@ type PendingApproval struct {
 	// WorkDir is for display only.
 	WorkDir string
 	Ask     engine.PermissionAsk
-	// Transitions are the postures an allow may move the asker to, in its
-	// engine's vocabulary (PermissionModel.Transitions); none offers no
-	// posture change.
-	Transitions     []string
+	// Transitions are the postures an allow may move the asker to, as its
+	// engine offers them (PermissionModel.Transitions), exactly one the
+	// default; none offers no posture change.
+	Transitions     []engine.PostureTransition
 	Since, Deadline time.Time
 	// turn is the asking run's turn when the coordinator received the
 	// request (turnOf); a request whose turn has since ended never parks.
@@ -128,7 +128,7 @@ var (
 // ApprovalDecision. Timeout is the asker's declared hold; the queue bounds it.
 type ApprovalRequest struct {
 	Ask         engine.PermissionAsk
-	Transitions []string
+	Transitions []engine.PostureTransition
 	Timeout     time.Duration
 	// turn is set by the coordinator as the request arrives; never on the wire.
 	turn uint64

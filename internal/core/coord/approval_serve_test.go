@@ -20,7 +20,7 @@ func childOf(out *RunOutcome) Identity { return Identity{Harp: out.Harp, RunID: 
 // askNow is an approval request from out's CURRENT turn, stamped as
 // HandleRequest stamps one arriving on the wire.
 func askNow(c *Coordinator, out *RunOutcome, ask engine.PermissionAsk) AgentRequest {
-	return AgentRequest{Kind: ApprovalRequest{Ask: ask, Transitions: []string{"default"}, turn: c.approvals.turnOf(out.RunID)}}
+	return AgentRequest{Kind: ApprovalRequest{Ask: ask, Transitions: []engine.PostureTransition{{Posture: "default", Label: "default", Default: true}}, turn: c.approvals.turnOf(out.RunID)}}
 }
 
 // TestApprovalRequest_ParksAtTheRootAndAnswersTheRun: a run's approval request
@@ -43,7 +43,7 @@ func TestApprovalRequest_ParksAtTheRootAndAnswersTheRun(t *testing.T) {
 	go func() {
 		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_Approval{Approval: &agentcoordpb.ApprovalRequest{
 			Kind: agentcoordpb.ApprovalRequest_APPROVAL_KIND_TOOL, Tool: "Bash", Input: []byte(`{"command":"make"}`),
-			ToolUseId: "toolu_7", Transitions: []string{"default", "acceptEdits"}, Timeout: durationpb.New(20 * time.Minute),
+			ToolUseId: "toolu_7", Transitions: []*agentcoordpb.PostureTransition{{Posture: "default", Label: "default"}, {Posture: "acceptEdits", Label: "accept edits", Default: true}}, Timeout: durationpb.New(20 * time.Minute),
 		}}})
 		replied <- result{resp, err}
 	}()
@@ -59,7 +59,8 @@ func TestApprovalRequest_ParksAtTheRootAndAnswersTheRun(t *testing.T) {
 	assert.Equal(t, []string{ownerIdentity().Harp, out.Harp}, p.Lineage, "root → … → the asking harp")
 	assert.Equal(t, "Bash", p.Ask.Tool)
 	assert.JSONEq(t, `{"command":"make"}`, string(p.Ask.Input))
-	assert.Equal(t, []string{"default", "acceptEdits"}, p.Transitions, "the engine's transitions reach the presenter")
+	assert.Equal(t, []engine.PostureTransition{{Posture: "default", Label: "default"}, {Posture: "acceptEdits", Label: "accept edits", Default: true}}, p.Transitions,
+		"the engine's transitions reach the presenter, its default named explicitly")
 	assert.Equal(t, 20*time.Minute, p.Deadline.Sub(p.Since))
 
 	require.NoError(t, c.Approvals().Answer(id, ApprovalDecision{Allow: true, Message: "fine"}))

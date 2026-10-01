@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -334,4 +335,74 @@ func TestRelay_ALongCallDoesNotHoldBackTheNext(t *testing.T) {
 
 	unpark()
 	assert.Equal(t, "parked", testsupport.Await(t, bound, (<-chan *mcp.CallToolResult)(parked), "the parked call never answered").Content[0].(*mcp.TextContent).Text)
+}
+
+// rawCall writes one JSON-RPC call on conn and reads the reply.
+func rawCall(t *testing.T, conn mcp.Connection, id int64, method string, params any) *jsonrpc.Response {
+	t.Helper()
+	raw, err := json.Marshal(params)
+	require.NoError(t, err)
+	rid, err := jsonrpc.MakeID(float64(id))
+	require.NoError(t, err)
+	require.NoError(t, conn.Write(context.Background(), &jsonrpc.Request{ID: rid, Method: method, Params: raw}))
+	msg := testsupport.Within(t, bound, func() jsonrpc.Message {
+		m, err := conn.Read(context.Background())
+		require.NoError(t, err)
+		return m
+	}, "no reply to %s", method)
+	resp, ok := msg.(*jsonrpc.Response)
+	require.True(t, ok, "reply to %s is a response: %T", method, msg)
+	return resp
+}
+
+// Claude opens a stdio server with calls the endpoint cannot take before the
+// session exists (server/discover, measured on claude 2.1.286). The relay
+// answers such a call itself — method not found, as a native stdio server
+// answers an unknown method — and the session that follows works: the
+// endpoint is never asked to take a call it has no session for, which it
+// refuses in a way that would end the relay.
+func TestRelay_ACallBeforeInitializeIsAnsweredMethodNotFound(t *testing.T) {
+	url, _ := endpoint(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	claudeSide, relaySide := mcp.NewInMemoryTransports()
+	go func() {
+		_ = relay.Run(ctx, relay.Config{Env: func(k string) (string, bool) { v, ok := baseEnv(url)[k]; return v, ok }, Stderr: make(lines, 16)}, relaySide)
+	}()
+	conn, err := claudeSide.Connect(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	discover := rawCall(t, conn, 1, "server/discover", map[string]any{})
+	var wire *jsonrpc.Error
+	require.ErrorAs(t, discover.Error, &wire)
+	assert.Equal(t, int64(jsonrpc.CodeMethodNotFound), wire.Code)
+
+	initialized := rawCall(t, conn, 2, "initialize", map[string]any{
+		"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "claude-stand-in", "version": "0"},
+	})
+	require.NoError(t, initialized.Error)
+	require.NoError(t, conn.Write(ctx, &jsonrpc.Request{Method: "notifications/initialized", Params: json.RawMessage(`{}`)}))
+	tools := rawCall(t, conn, 3, "tools/list", map[string]any{})
+	require.NoError(t, tools.Error)
+	assert.Contains(t, string(tools.Result), "assemble_context")
+}
+
+// When claude closes the relay, the relay's wake subscription ends WITH it:
+// the runner then learns at once that nobody can wake the session, instead
+// of firing into a subscription whose process is gone.
+func TestRelay_ClosingClaudeEndsTheWakeSubscription(t *testing.T) {
+	url, sig := endpoint(t)
+	sock, _ := messagingSocket(t)
+	env := baseEnv(url)
+	env["CLAUDE_CODE_MESSAGING_SOCKET"] = sock
+	cs, _, done := startRelay(t, env)
+	fireOnceSubscribed(t, sig)
+
+	require.NoError(t, cs.Close())
+	require.NoError(t, testsupport.Await(t, bound, done, "the relay outlived claude's stdio"))
+	// No settling: a relay process exits the moment Run returns, so whatever
+	// Run has not finished by then never happens.
+
+	require.ErrorIs(t, sig.Fire(context.Background(), nonce), interaction.ErrNoWakeSubscriber)
 }

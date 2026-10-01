@@ -55,10 +55,16 @@ func Run(ctx context.Context, cfg Config, down mcp.Transport) error {
 		return fmt.Errorf("%w: %s and %s must both be set", ErrNoEndpoint, claude.EnvRelayURL, claude.EnvRelayBearer)
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	httpc := &http.Client{Transport: bearerTransport{bearer: bearer}}
-	go watchWake(ctx, cfg, url, httpc)
-	return pump(ctx, down, &mcp.StreamableClientTransport{Endpoint: url, HTTPClient: httpc})
+	watched := make(chan struct{})
+	go func() { defer close(watched); watchWake(ctx, cfg, url, httpc) }()
+	err := pump(ctx, down, &mcp.StreamableClientTransport{Endpoint: url, HTTPClient: httpc})
+	// The relay's process exits when Run returns, so the wake subscription
+	// must be closed by then: otherwise the endpoint keeps counting a
+	// subscriber that is gone, and a wake fires into nothing.
+	cancel()
+	<-watched
+	return err
 }
 
 // bearerTransport puts the endpoint's bearer on every request. An HTTP error
@@ -97,9 +103,17 @@ func pump(ctx context.Context, down, up mcp.Transport) error {
 // the call starts answering: written in line, one long call (a parked
 // receive) would hold back every later message — including the cancellation
 // of that very call. Nothing orders a call after initialize here: an MCP
-// client sends nothing but the initialize call until its result arrives, and
-// the result reaches claude only once the transport holds the session id.
+// client sends nothing after the initialize call until its result arrives,
+// and the result reaches claude only once the transport holds the session id.
+//
+// Until claude sends initialize there is no session on the endpoint, and the
+// endpoint refuses a call without one in a way that ends the transport for
+// good. Claude opens a stdio server with such calls (server/discover,
+// measured on claude 2.1.286), so the relay answers any call before
+// initialize itself: method not found, what a stdio server answers to a
+// method it does not have, and what claude falls back from.
 func upward(ctx context.Context, dc, uc mcp.Connection) error {
+	initialized := false
 	for {
 		msg, err := dc.Read(ctx)
 		if err != nil {
@@ -108,12 +122,29 @@ func upward(ctx context.Context, dc, uc mcp.Connection) error {
 			}
 			return fmt.Errorf("claude relay: reading claude's stdio: %w", err)
 		}
-		if req, ok := msg.(*jsonrpc.Request); ok && req.IsCall() {
+		req, isReq := msg.(*jsonrpc.Request)
+		initialized = initialized || (isReq && req.Method == "initialize")
+		switch {
+		case !initialized:
+			answerUninitialized(ctx, dc, req, isReq)
+		case isReq && req.IsCall():
 			go relayUp(ctx, dc, uc, req)
-			continue
+		default:
+			relayUp(ctx, dc, uc, msg)
 		}
-		relayUp(ctx, dc, uc, msg)
 	}
+}
+
+// answerUninitialized answers a call that arrived before initialize; there is
+// nothing to answer to anything else.
+func answerUninitialized(ctx context.Context, dc mcp.Connection, req *jsonrpc.Request, isReq bool) {
+	if !isReq || !req.IsCall() {
+		return
+	}
+	_ = dc.Write(ctx, &jsonrpc.Response{ID: req.ID, Error: &jsonrpc.Error{
+		Code:    jsonrpc.CodeMethodNotFound,
+		Message: fmt.Sprintf("ctxloom relay: %q is not served before initialize", req.Method),
+	}})
 }
 
 // relayUp writes one message upward. A call that could not be written is

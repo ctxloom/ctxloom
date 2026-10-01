@@ -38,6 +38,30 @@ type sjEvent struct {
 	// system/permission_denied fields
 	ToolName  string `json:"tool_name"`
 	ToolUseID string `json:"tool_use_id"`
+	// assistant fields: the API error that ended the turn (claude's
+	// SDKAssistantMessageError) and, for a sub-agent's message, the tool call
+	// it runs under (null on the turn's own messages).
+	Error           string  `json:"error"`
+	ParentToolUseID *string `json:"parent_tool_use_id"`
+}
+
+// credentialRejected is the ONE declaration of which of claude's documented
+// SDKAssistantMessageError values mean the turn's credential was refused: the
+// two claude's own SDK host reads as an auth failure. account_on_hold is not
+// one (signing in again does not lift it), nor is cloud_credential_error
+// (claude reports a briefly unreachable credential service the same way).
+var credentialRejected = map[string]bool{
+	"authentication_failed": true,
+	"oauth_org_not_allowed": true,
+}
+
+// failure is the turn failure an assistant frame reports: only the turn's own
+// message (no parent tool call) speaks for the turn's credential.
+func (e *sjEvent) failure() []agent.ChatEvent {
+	if e.ParentToolUseID != nil || !credentialRejected[e.Error] {
+		return nil
+	}
+	return []agent.ChatEvent{{Failed: &agent.TurnFailure{Kind: agent.FailureCredentialRejected}}}
 }
 
 // message is an assistant/user frame's message object; nil when absent or
@@ -152,7 +176,7 @@ func mapStreamJSONEvent(raw []byte) []agent.ChatEvent {
 	// and stays a literal on purpose.
 	switch e.Type {
 	case string(agent.EntryTypeAssistant):
-		return mapAssistantBlocks(e.message())
+		return append(mapAssistantBlocks(e.message()), e.failure()...)
 	case string(agent.EntryTypeUser):
 		return mapToolResults(e.message())
 	case "result":

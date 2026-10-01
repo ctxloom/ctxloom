@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -169,4 +170,72 @@ func TestMapStreamJSON_ResultPermissionDenials(t *testing.T) {
 	evs = mapStreamJSONEvent([]byte(`{"type":"result","subtype":"success","permission_denials":[]}`))
 	require.Len(t, evs, 1)
 	assert.Empty(t, evs[0].Complete.Denials)
+}
+
+// THE AUTH-FAILURE SHAPE. assistant_auth_failed.json is NOT a capture: no
+// credential was available to provoke one, and a real one is never
+// invalidated to get it. It is built from claude's DOCUMENTED type —
+// SDKAssistantMessage in the Agent SDK TypeScript reference
+// (code.claude.com/docs/en/agent-sdk/typescript): `error?:
+// SDKAssistantMessageError` on a `type:"assistant"` message beside
+// `parent_tool_use_id: string | null`. claude's own SDK host reads an auth
+// failure from exactly that: a top-level (parent_tool_use_id null) assistant
+// message whose error is authentication_failed or oauth_org_not_allowed. The
+// unrun @live cell AUTH1 replaces it with a capture.
+
+// authFrame is the fixture with its error and parent overridden.
+func authFrame(t *testing.T, errValue string, parent any) []byte {
+	t.Helper()
+	var frame map[string]any
+	require.NoError(t, json.Unmarshal(fixture(t, "assistant_auth_failed.json"), &frame))
+	frame["error"] = errValue
+	frame["parent_tool_use_id"] = parent
+	raw, err := json.Marshal(frame)
+	require.NoError(t, err)
+	return raw
+}
+
+// failuresIn is every Failed event among evs.
+func failuresIn(evs []agent.ChatEvent) []agent.TurnFailure {
+	var out []agent.TurnFailure
+	for _, ev := range evs {
+		if ev.Failed != nil {
+			out = append(out, *ev.Failed)
+		}
+	}
+	return out
+}
+
+func TestMapStreamJSONEvent_AuthFailed_CredentialRejected(t *testing.T) {
+	evs := mapStreamJSONEvent(fixture(t, "assistant_auth_failed.json"))
+	require.Len(t, evs, 2, "claude's words stay an entry; the failure rides beside them")
+	require.NotNil(t, evs[0].Entry)
+	assert.Equal(t, agent.EntryTypeAssistant, evs[0].Entry.Type)
+	assert.Equal(t, []agent.TurnFailure{{Kind: agent.FailureCredentialRejected}}, failuresIn(evs))
+}
+
+func TestMapStreamJSONEvent_OAuthOrgNotAllowed_CredentialRejected(t *testing.T) {
+	evs := mapStreamJSONEvent(authFrame(t, "oauth_org_not_allowed", nil))
+	assert.Equal(t, []agent.TurnFailure{{Kind: agent.FailureCredentialRejected}}, failuresIn(evs))
+}
+
+// A sub-agent's message carries its parent's tool_use_id: its failure is the
+// sub-agent's, which the turn's own engine reports as a tool result, not the
+// turn's credential dying.
+func TestMapStreamJSONEvent_SubagentAuthFailure_NotTheTurns(t *testing.T) {
+	evs := mapStreamJSONEvent(authFrame(t, "authentication_failed", "toolu_01VuNv2eXbKS3shVDAQ1zMBX"))
+	assert.Empty(t, failuresIn(evs))
+	require.Len(t, evs, 1, "the sub-agent's words are still relayed")
+}
+
+// Only a refused CREDENTIAL parks a run. claude's other error values are not
+// one: a rate limit waits (shared backoff is its own concern), an account on
+// hold is not fixed by signing in again, and a value this build does not know
+// is claude's "unknown".
+func TestMapStreamJSONEvent_OtherAPIErrors_NotACredential(t *testing.T) {
+	for _, v := range []string{"rate_limit", "overloaded", "account_on_hold", "cloud_credential_error", "billing_error", "unknown", "a_value_from_a_later_release"} {
+		t.Run(v, func(t *testing.T) {
+			assert.Empty(t, failuresIn(mapStreamJSONEvent(authFrame(t, v, nil))))
+		})
+	}
 }

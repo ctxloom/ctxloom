@@ -160,6 +160,15 @@ func TestAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepareSuiteImages(context.Background(), declared)
+	if hermetic {
+		excluded, err := excludeSkippedSuiteImages(&suite)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if excluded != "" {
+			fmt.Print("\n" + excluded + "\n")
+		}
+	}
 	if suite.Run() != 0 {
 		t.Fatal("acceptance suite failed")
 	}

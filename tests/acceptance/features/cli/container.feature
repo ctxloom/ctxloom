@@ -97,6 +97,9 @@ Feature: container — the images isolated agents run in, and the questions you 
     # @image-mock-agent tag has the suite build one before any scenario runs,
     # rather than leaving that claim resting on whatever happens to already
     # be on the machine (dragging-neatness); the Background checks it is there.
+    # On a machine with no container runtime the hermetic lane excludes this
+    # Rule before the run and prints every row it left out, with the reason
+    # (excludeSkippedSuiteImages); CTXLOOM_REQUIRE_DOCKER=1 makes it a failure.
     # The subject is "mock", not a vendor engine, because that build costs
     # nothing beyond the base image — see the Background's own comment.
     #

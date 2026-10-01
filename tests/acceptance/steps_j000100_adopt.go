@@ -5,7 +5,6 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -24,16 +23,27 @@ import (
 // read, different altitude — so the two files cannot drift into disagreeing
 // about what WIRED means.
 
-// sessionStartHookRe matches settings.json only when a SessionStart entry
-// carries the inject-context command as its own command string.
-//
-// A substring cannot do this job: ctxloom writes two things into settings.json
-// whose text overlaps. `ctxloom hook` alone matches the statusline entry
-// (`<abs>/ctxloom hook hud`), while the context hook's command is
-// `'<abs>/ctxloom' hook inject-context ...` — quoted between the two words.
-// Requiring the SessionStart key, a command field, and the inject-context leaf
-// together is what ties the match to the hook that actually delivers context.
-var sessionStartHookRe = regexp.MustCompile(`(?s)"SessionStart".*"command": "[^"]*' hook inject-context`)
+// ctxloomHookLines is every hook in rel's hooks table, across events, as
+// its argv read as one line (j000400HookCommandsFrom), that runs a ctxloom
+// hook verb. A whole-file substring cannot answer this: ctxloom's own hooks
+// are exec form, the executable and the verb separate JSON strings, and the
+// statusline (`ctxloom hook hud`) is not a hook at all.
+func ctxloomHookLines(w *World, rel string) ([]string, error) {
+	doc, err := j000400ReadJSON(w, rel)
+	if err != nil {
+		return nil, err
+	}
+	top, _ := doc["hooks"].(map[string]any)
+	var out []string
+	for _, event := range top {
+		for _, line := range j000400HookCommandsFrom(event) {
+			if strings.HasPrefix(line, "ctxloom hook ") {
+				out = append(out, line)
+			}
+		}
+	}
+	return out, nil
+}
 
 func registerJ000100Steps(ctx *godog.ScenarioContext) {
 	// The wired project as a PRECONDITION, for the scenarios where installing
@@ -70,14 +80,7 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^her assistant is wired to receive the project's context at the start of every session$`,
 		func(c context.Context) error {
-			body, err := worldFrom(c).env.ReadFile(".claude/settings.json")
-			if err != nil {
-				return err
-			}
-			if !sessionStartHookRe.MatchString(string(body)) {
-				return fmt.Errorf("no SessionStart hook delivering context in .claude/settings.json:\n%s", body)
-			}
-			return nil
+			return assertSessionStartHookCommand(worldFrom(c), ".claude/settings.json", "hook inject-context", true)
 		})
 
 	// Uninstall is the empty plan over the ownership record: a settings.json
@@ -95,11 +98,14 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			// Both halves, named separately. `ctxloom hook` alone matches only
-			// the statusline, so on its own it would report a clean uninstall
-			// while the context hook was still in place.
-			if sessionStartHookRe.MatchString(string(body)) {
-				return fmt.Errorf("the SessionStart context hook survived uninstall:\n%s", body)
+			// Both halves, named separately: the hooks table parsed (an exec
+			// hook's verb is not in its command string), and the statusline.
+			left, err := ctxloomHookLines(w, ".claude/settings.json")
+			if err != nil {
+				return err
+			}
+			if len(left) > 0 {
+				return fmt.Errorf("ctxloom hooks survived uninstall: %v", left)
 			}
 			if strings.Contains(string(body), "ctxloom hook") {
 				return fmt.Errorf("a ctxloom hook command survived uninstall:\n%s", body)

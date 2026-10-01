@@ -88,7 +88,7 @@ func TestClaudeLifecycle_MergeManaged_AppendsContextInjection(t *testing.T) {
 	hooks := lifecycle.GetHooks()
 	var hasInject bool
 	for _, h := range hooks.Unified.SessionStart {
-		if strings.Contains(h.Command, "inject-context") {
+		if strings.Contains(h.Line(), "inject-context") {
 			hasInject = true
 		}
 	}

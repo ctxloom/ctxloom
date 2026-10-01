@@ -19,7 +19,7 @@ func turnEndCommands(t *testing.T) []string {
 
 	var cmds []string
 	for _, h := range m.For(bundles.HookEventTurnEnd) {
-		cmds = append(cmds, h.Hook.Command)
+		cmds = append(cmds, strings.Join(append([]string{h.Hook.Command}, h.Hook.Args...), " "))
 	}
 	return cmds
 }

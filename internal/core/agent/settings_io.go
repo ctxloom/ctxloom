@@ -85,7 +85,7 @@ func ComputeCommandDigest(command string) string {
 
 func ComputeHookHash(h wire.Hook) string {
 	parts := []string{
-		h.Command,
+		h.Line(),
 		h.Matcher,
 		h.Type,
 		h.Prompt,

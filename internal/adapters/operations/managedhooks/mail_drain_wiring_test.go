@@ -19,7 +19,7 @@ func eventCommands(t *testing.T, event string) []string {
 
 	var cmds []string
 	for _, h := range m.For(event) {
-		cmds = append(cmds, h.Hook.Command)
+		cmds = append(cmds, strings.Join(append([]string{h.Hook.Command}, h.Hook.Args...), " "))
 	}
 	return cmds
 }

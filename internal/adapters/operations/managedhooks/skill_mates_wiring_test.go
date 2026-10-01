@@ -1,6 +1,7 @@
 package managedhooks
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ func TestAppendManagedDynamicHooks_InstallsTheSkillMatesHook(t *testing.T) {
 	var matchers []string
 	for _, h := range m.For(bundles.HookEventPostTool) {
 		if h.Hook.Matcher == "Skill" {
-			matchers = append(matchers, h.Hook.Command)
+			matchers = append(matchers, strings.Join(append([]string{h.Hook.Command}, h.Hook.Args...), " "))
 		}
 	}
 	if assert.Len(t, matchers, 1, "exactly one Skill-matched PostToolUse hook") {

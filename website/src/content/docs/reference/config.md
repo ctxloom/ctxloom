@@ -158,8 +158,9 @@ A hook definition
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `args` | string[] | Exec form: command is the executable, spawned directly with these arguments — no shell parses either, so a space, quote or $ in an argument reaches the program verbatim. Absent: command is one shell command line. |
 | `async` | boolean | Run hook in background (command hooks only) Default: `false`. |
-| `command` | string | Shell command to execute |
+| `command` | string | Shell command to execute; with args, the executable to run |
 | `matcher` | string | Regex pattern to filter when hook fires (by tool name, event source, etc.) |
 | `pre_tool_fallback` | boolean | Declares a session_start hook safe to fire on PreToolUse instead (first tool call and every one after) on agents whose harness has no session-start event. Only meaningful for idempotent hooks — the author opts in because the hook may run many times per session rather than once. Writers for agents with a working session-start event ignore it. Default: `false`. |
 | `prompt` | string | Prompt text for prompt/agent hook types |

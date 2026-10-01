@@ -513,8 +513,15 @@
         },
         "command": {
           "type": "string",
-          "description": "Shell command to execute",
+          "description": "Shell command to execute; with args, the executable to run",
           "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "description": "Exec form: command is the executable, spawned directly with these arguments \u2014 no shell parses either, so a space, quote or $ in an argument reaches the program verbatim. Absent: command is one shell command line.",
+          "items": {
+            "type": "string"
+          }
         },
         "type": {
           "type": "string",

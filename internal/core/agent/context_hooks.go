@@ -1,8 +1,7 @@
 package agent
 
 import (
-	"fmt"
-	"strings"
+	"strconv"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
@@ -13,8 +12,10 @@ import (
 const ContextInjectionTimeout = 60
 
 // NewContextInjectionHook creates the SessionStart hook that injects
-// assembled context into the agent. The Command names the bare ctxloom
-// executable (CtxloomCommand) and carries NO project path.
+// assembled context into the agent. Like every hook ctxloom constructs for
+// itself it is EXEC form: Command is the bare ctxloom executable
+// (CtxloomCommand), Args its callback's argv, and no shell parses either. It
+// carries NO project path.
 //
 // INVARIANT: neither half of this command is a fact about the machine that
 // wrote it. The generated settings file is tracked, so an absolute path in it
@@ -25,7 +26,8 @@ const ContextInjectionTimeout = 60
 // by hand; it is simply never emitted here.
 func NewContextInjectionHook(hash string) wire.Hook {
 	return wire.Hook{
-		Command:     fmt.Sprintf("%s hook inject-context %s", shellSingleQuote(CtxloomCommand()), hash),
+		Command:     CtxloomCommand(),
+		Args:        []string{"hook", "inject-context", hash},
 		Type:        "command",
 		Timeout:     ContextInjectionTimeout,
 		ContextHash: hash,
@@ -39,8 +41,8 @@ func NewContextInjectionHook(hash string) wire.Hook {
 // sequence. See NewContextInjectionHooks for when chunking kicks in.
 func NewContextInjectionChunkHook(hash string, part, total int) wire.Hook {
 	return wire.Hook{
-		Command: fmt.Sprintf("%s hook inject-context --part %d --of %d %s",
-			shellSingleQuote(CtxloomCommand()), part, total, hash),
+		Command:     CtxloomCommand(),
+		Args:        []string{"hook", "inject-context", "--part", strconv.Itoa(part), "--of", strconv.Itoa(total), hash},
 		Type:        "command",
 		Timeout:     ContextInjectionTimeout,
 		ContextHash: hash,
@@ -88,8 +90,8 @@ const ToolReflectTimeout = 5
 // than being re-decided inside the hook.
 func NewToolReflectHook(minBytes int) wire.Hook {
 	return wire.Hook{
-		Command: fmt.Sprintf("%s hook tool-reflect --min-output-bytes %d",
-			shellSingleQuote(CtxloomCommand()), minBytes),
+		Command: CtxloomCommand(),
+		Args:    []string{"hook", "tool-reflect", "--min-output-bytes", strconv.Itoa(minBytes)},
 		Type:    "command",
 		Timeout: ToolReflectTimeout,
 	}
@@ -114,7 +116,8 @@ const SkillMatesTimeout = 15
 // environment at fire time.
 func NewSkillMatesHook() wire.Hook {
 	return wire.Hook{
-		Command: fmt.Sprintf("%s hook skill-mates", shellSingleQuote(CtxloomCommand())),
+		Command: CtxloomCommand(),
+		Args:    []string{"hook", "skill-mates"},
 		Type:    "command",
 		Matcher: "Skill",
 		Timeout: SkillMatesTimeout,
@@ -145,7 +148,8 @@ const NextStepTimeout = 15
 // outlive the session that wrote them — and must serve every later session.
 func NewNextStepHook() wire.Hook {
 	return wire.Hook{
-		Command: fmt.Sprintf("%s hook next-step", shellSingleQuote(CtxloomCommand())),
+		Command: CtxloomCommand(),
+		Args:    []string{"hook", "next-step"},
 		Type:    "command",
 		Timeout: NextStepTimeout,
 	}
@@ -172,7 +176,8 @@ const MailDrainTimeout = 5
 // the environment at fire time.
 func NewMailDrainHook() wire.Hook {
 	return wire.Hook{
-		Command: fmt.Sprintf("%s hook mail-drain", shellSingleQuote(CtxloomCommand())),
+		Command: CtxloomCommand(),
+		Args:    []string{"hook", "mail-drain"},
 		Type:    "command",
 		Timeout: MailDrainTimeout,
 	}
@@ -206,15 +211,6 @@ func NewContextInjectionHooks(rep report.Reporter, hash, workDir string) []wire.
 		hooks = append(hooks, NewContextInjectionChunkHook(hash, k, len(chunks)))
 	}
 	return hooks
-}
-
-// shellSingleQuote wraps s in single quotes for safe interpolation into a
-// /bin/sh command string, escaping embedded single quotes as the standard
-// '\” idiom. Unlike double-quoting, single quotes neutralize spaces, $,
-// backticks, and backslashes — so a project path containing any of those
-// can't break the command split or inject shell behavior.
-func shellSingleQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // MergeHooksConfig is wire.MergeHooksConfig with the drop named on this

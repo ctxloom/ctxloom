@@ -105,7 +105,7 @@ func firstHookAnswer(ctx context.Context, ex engine.Exec, hooks []wire.Hook, too
 		if !ok {
 			continue
 		}
-		out, err := runHook(ctx, h.Command, payload, ex.WorkDir, ex.Env)
+		out, err := runHook(ctx, h, payload, ex.WorkDir, ex.Env)
 		var dec askDecision
 		if err == nil && len(out) > 0 && json.Unmarshal(out, &dec) == nil {
 			return dec, true, nil

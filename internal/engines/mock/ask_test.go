@@ -147,3 +147,15 @@ func TestMockApprovalCodec_HooksAreOnePermissionAskForEveryTool(t *testing.T) {
 	assert.Equal(t, []wire.Hook{agent.ApprovalHook(wire.HookEventPermissionAsk, "", time.Minute)}, h.PermissionAsk)
 	assert.Len(t, h.All(), 1, "no other hook is the approval route's")
 }
+
+// TestMockAsk_AnExecFormHookRunsWithNoShell: an exec-form hook is spawned
+// directly with its argv — nothing in an argument is expanded — as claude
+// runs one.
+func TestMockAsk_AnExecFormHookRunsWithNoShell(t *testing.T) {
+	_, result, denied, _ := callOutcome(t, askTurnWith(t, engine.ApproverHuman, []wire.Hook{
+		{Type: "command", Command: "printf", Args: []string{`{"allow":false,"message":"$HOME stays literal"}`}},
+	}))
+	assert.True(t, result.IsError)
+	require.NotNil(t, denied)
+	assert.Equal(t, "$HOME stays literal", denied.Reason)
+}

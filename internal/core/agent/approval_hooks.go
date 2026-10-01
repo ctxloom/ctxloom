@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -14,7 +13,7 @@ import (
 const ApprovalHookSlack = 60 * time.Second
 
 // ApprovalHook is one hook of an engine's approval route: it runs `ctxloom
-// hook permission`, which hands the engine's payload to the runner hosting
+// hook permission` in exec form, which hands the engine's payload to the runner hosting
 // the run and writes the decision back. event is the engine's own name for
 // the hook event, handed back to the engine's codec to decode the payload;
 // matcher is the engine's own matcher ("" for every tool). The engine
@@ -22,7 +21,8 @@ const ApprovalHookSlack = 60 * time.Second
 // approval timeout by ApprovalHookSlack.
 func ApprovalHook(event, matcher string, timeout time.Duration) wire.Hook {
 	return wire.Hook{
-		Command: fmt.Sprintf("%s hook permission --event %s", shellSingleQuote(CtxloomCommand()), event),
+		Command: CtxloomCommand(),
+		Args:    []string{"hook", "permission", "--event", event},
 		Matcher: matcher,
 		Type:    "command",
 		Timeout: int((timeout + ApprovalHookSlack).Seconds()),

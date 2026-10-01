@@ -201,19 +201,23 @@ func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, workDi
 				continue
 			}
 		}
-		if _, err := runHook(ctx, h.Command, payload, workDir, env); err != nil {
+		if _, err := runHook(ctx, h, payload, workDir, env); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// runHook execs one command hook through the shell with the payload on
-// stdin, in the given working directory with env laid over the process's,
-// and returns what it wrote to stdout — a hook's answer, where its event
-// takes one.
-func runHook(ctx context.Context, command string, payload []byte, workDir string, env map[string]string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+// runHook execs one command hook with the payload on stdin, in the given
+// working directory with env laid over the process's, and returns what it
+// wrote to stdout — a hook's answer, where its event takes one. An
+// exec-form hook (wire.Hook.Args) is spawned directly, as claude spawns one;
+// any other runs through the shell.
+func runHook(ctx context.Context, h wire.Hook, payload []byte, workDir string, env map[string]string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "sh", "-c", h.Command)
+	if len(h.Args) > 0 {
+		cmd = exec.CommandContext(ctx, h.Command, h.Args...)
+	}
 	cmd.Stdin = bytes.NewReader(payload)
 	cmd.Dir = workDir
 	cmd.Env = os.Environ()
@@ -224,7 +228,7 @@ func runHook(ctx context.Context, command string, payload []byte, workDir string
 	var stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("mock: hook %q: %w: %s", command, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("mock: hook %q: %w: %s", h.Line(), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
 }

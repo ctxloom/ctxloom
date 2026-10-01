@@ -256,7 +256,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 		for i, hook := range hooks {
 			hookRef, err := itemRefFor(ref.Base, trust.KindHook, event+"/"+strconv.Itoa(i))
 			if err != nil {
-				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Command, err)
+				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Line(), err)
 				continue
 			}
 			if gateProfileExec(gate, ref, hookRef, hookExecPayload(hook)) {
@@ -264,7 +264,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			} else {
 				// Same fail-closed-but-diagnosable shape as gateProfileHooks's
 				// warn — the gate's decision is unchanged.
-				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Command, hookRef)
+				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Line(), hookRef)
 			}
 		}
 		return out
@@ -325,9 +325,13 @@ func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string
 // hookExecPayload builds a profile hook's executable-surface preimage via the
 // shared bundle primitive (Matcher+Type+Command+Prompt+PreToolFallback), so a
 // profile-declared hook and an identical bundle-declared one bind to exactly the
-// SAME bytes. nil on an (unreachable) encoding failure — see gateProfileExec.
+// SAME bytes. Its command is the hook's LINE (wire.Hook.Line): an exec-form
+// hook's arguments are what runs, so they are bound too — a changed argument
+// never rides an earlier grant — while a shell-form hook binds exactly the
+// bytes it always did. nil on an (unreachable) encoding failure — see
+// gateProfileExec.
 func hookExecPayload(h wire.Hook) []byte {
-	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
+	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Line(), Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
 	payload, err := bh.ContentPayload()
 	if err != nil {
 		return nil

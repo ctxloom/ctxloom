@@ -145,8 +145,8 @@ func TestRemoveSettings_ThenWriteSettings_IsIdentity(t *testing.T) {
 // constructor added without extending the list fails here.
 func TestRemoveSettings_WithoutALedger_ReclaimsEveryHookCtxloomConstructs(t *testing.T) {
 	for _, h := range ctxloomOwnHooks() {
-		assert.True(t, isCtxloomMachineCallback(h.Command),
-			"%q is a hook ctxloom constructs for itself and must be reclaimable by name", h.Command)
+		assert.True(t, isCtxloomMachineCallback(h.Line()),
+			"%q is a hook ctxloom constructs for itself and must be reclaimable by name", h.Line())
 	}
 
 	dir := t.TempDir()
@@ -211,4 +211,49 @@ func TestTrackedLedger_NamesExactlyWhatTrackedSettingsCarry(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, wantStatus, status,
 		"the tracked ledger must claim the statusline the tracked settings.json carries, and no other")
+}
+
+// TestWriteSettings_CtxloomHooksAreWrittenInExecForm: each hook ctxloom
+// constructs for itself reaches settings.json as claude's exec form — the
+// executable in "command", its argv in "args" — so no shell ever parses it.
+func TestWriteSettings_CtxloomHooksAreWrittenInExecForm(t *testing.T) {
+	dir := t.TempDir()
+	w := &ClaudeCodeHookWriter{}
+	own := ctxloomOwnHooks()
+	require.NoError(t, w.WriteSettings(&wire.HooksConfig{Unified: wire.UnifiedHooks{TurnEnd: own}}, nil, dir))
+	settings, err := w.loadSettings(w.SettingsPath(dir))
+	require.NoError(t, err)
+	var written []claudeCodeHook
+	for _, m := range settings.Hooks["Stop"] {
+		written = append(written, m.Hooks...)
+	}
+	var want, got [][]string
+	for _, h := range own {
+		want = append(want, h.Args)
+	}
+	for _, h := range written {
+		assert.Equal(t, agent.CtxloomCommand(), h.Command, "the executable alone")
+		got = append(got, h.Args)
+	}
+	assert.ElementsMatch(t, want, got)
+}
+
+// TestRemoveSettings_AUserHookRunningCtxloomSurvives: in exec form every hook
+// ctxloom writes for itself names the same executable, so ownership must be
+// keyed on the whole argv. A user's own hooks that run the ctxloom binary —
+// bare, or in exec form with a verb ctxloom never installs — are theirs, and
+// an apply-then-uninstall leaves them exactly as found.
+func TestRemoveSettings_AUserHookRunningCtxloomSurvives(t *testing.T) {
+	dir := t.TempDir()
+	w := &ClaudeCodeHookWriter{}
+	settingsPath := w.SettingsPath(dir)
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
+	require.NoError(t, os.WriteFile(settingsPath, []byte(`{"hooks": {"Stop": [{"hooks": [
+		{"type": "command", "command": "ctxloom"},
+		{"type": "command", "command": "ctxloom", "args": ["doctor"]}
+	]}]}}`), 0o644))
+
+	require.NoError(t, w.WriteSettings(fullManagedHookSet(), ctxloomBundleMCP(), dir))
+	require.NoError(t, w.RemoveSettings(dir))
+	assert.ElementsMatch(t, []string{"ctxloom", "'ctxloom' 'doctor'"}, hookCommands(t, dir))
 }

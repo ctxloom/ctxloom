@@ -13,7 +13,8 @@ import (
 // approval timeout so the human's decision can still reach it.
 func TestApprovalHook_RunsCtxloomForTheEnginesEvent(t *testing.T) {
 	h := ApprovalHook("SomeEngineEvent", "SomeTool", 15*time.Minute)
-	assert.Equal(t, shellSingleQuote(CtxloomCommand())+" hook permission --event SomeEngineEvent", h.Command)
+	assert.Equal(t, CtxloomCommand(), h.Command)
+	assert.Equal(t, []string{"hook", "permission", "--event", "SomeEngineEvent"}, h.Args)
 	assert.Equal(t, "SomeTool", h.Matcher)
 	assert.Equal(t, "command", h.Type)
 	assert.Equal(t, int((15*time.Minute + ApprovalHookSlack).Seconds()), h.Timeout,

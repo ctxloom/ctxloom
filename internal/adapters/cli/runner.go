@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -68,7 +68,7 @@ func runRunner(cmd *cobra.Command, args []string) error {
 				stdout:   os.Stdout,
 				stderr:   os.Stderr,
 			})
-			return runnerDepsFor(backend, engineName, host, runnermcp.Endpoint{Home: home, Reporter: App().Reporter})
+			return runnerDepsFor(backend, engineName, host, interaction.Endpoint{Home: home, Reporter: App().Reporter})
 		},
 	})
 }

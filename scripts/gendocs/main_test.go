@@ -85,7 +85,7 @@ func TestRun_ReportsAGeneratorFailure(t *testing.T) {
 }
 
 // TestRun_ReportsAnAssemblyFailureInsteadOfPanicking pins a fix already
-// landed: ctxloomProduct calls runnermcp.NewDocServer, which used to PANIC on two
+// landed: ctxloomProduct calls interaction.NewDocServer, which used to PANIC on two
 // internal failure paths, so a bug in the runner MCP assembly surfaced as a
 // panic from a function whose signature promised no failure. Commit 2e9df890
 // "release the docgen Home and return its failures" gave

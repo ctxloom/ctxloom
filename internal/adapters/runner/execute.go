@@ -8,7 +8,7 @@
 // the same file set by construction: both build the Launch's Loadout and
 // hand it to the ONE static writer (delivery.Static) under the session's
 // writer tag. The session's MCP endpoint is BOUND here, at the address the
-// Launch carries (runner/mcp is the Dynamic port), and the engine's MCP
+// Launch carries (runner/interaction is the Dynamic port), and the engine's MCP
 // file names it as URL + bearer through the same delivery. The drive is
 // EngineHost's, reached through the Driver port.
 package runner

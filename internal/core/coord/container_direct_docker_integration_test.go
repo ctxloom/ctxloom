@@ -294,7 +294,7 @@ func assertNoPublishedOrExposedPorts(t *testing.T, name string) {
 // (/proc/net/tcp{,6} state 0A) — the direct proof that the runner binds no
 // plugin port a peer container could reach (the mauve-state class cannot
 // recur on this path). The ONE listener a correct runner holds is the
-// session's MCP endpoint (runner/mcp.Endpoint), bound at the loopback
+// session's MCP endpoint (runner/interaction.Endpoint), bound at the loopback
 // address the Launch names: private to the container's netns, bearer-gated,
 // the engine's own door. Anything else — a wildcard or bridge-address bind —
 // is the hole.

@@ -15,7 +15,7 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 )
@@ -62,7 +62,7 @@ func run(w io.Writer, args []string, build func() (*docsgen.Product, func(), err
 // MCP server's backing runner.Home, whose construction opens a gRPC client and
 // two background loops.
 func ctxloomProduct() (*docsgen.Product, func(), error) {
-	mcpServer, closeMCP, err := runnermcp.NewDocServer()
+	mcpServer, closeMCP, err := interaction.NewDocServer()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -85,7 +85,7 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 
 		MCPServer: mcpServer,
 		MCPSource: "internal/adapters/mcp",
-		// The documented surface is the session endpoint (runnermcp.NewDocServer):
+		// The documented surface is the session endpoint (interaction.NewDocServer):
 		// what an engine dials inside `ctxloom run`, named by URL and bearer in
 		// the session's own registry. There is no command that speaks it.
 		MCPCommand: "ctxloom run",

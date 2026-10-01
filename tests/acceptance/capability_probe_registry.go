@@ -243,17 +243,18 @@ var (
 // probeP0 etc.: the registry's own names, so a caller addressing a cell and the
 // table declaring it cannot drift apart on a typo.
 const (
-	probeP0 = "p0-hello-world"
-	probeP1 = "p1-approach-sweep"
-	probeP2 = "p2-mcp-round-trip"
-	probeP3 = "p3-hook-firing"
-	probeP4 = "p4-plan-sentinel"
-	probeP5 = "p5-approval-surface"
-	probeP6 = "p6-steer-echo"
-	probeP7 = "p7-resume-recall"
-	probeP8 = "p8-transcript-payload"
-	probeP9 = "p9-version-report"
-	probePX = "px-foreign-harp"
+	probeP0  = "p0-hello-world"
+	probeP1  = "p1-approach-sweep"
+	probeP2  = "p2-mcp-round-trip"
+	probeP3  = "p3-hook-firing"
+	probeP4  = "p4-plan-sentinel"
+	probeP5  = "p5-approval-surface"
+	probeP6  = "p6-steer-echo"
+	probeP7  = "p7-resume-recall"
+	probeP8  = "p8-transcript-payload"
+	probeP9  = "p9-version-report"
+	probePX  = "px-foreign-harp"
+	probeP12 = "p12-permission-hook-no-host"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -428,6 +429,24 @@ var probeRegistry = []probeSpec{
 		Paid:         true,
 		Cells: []probeCell{
 			hostCell("claude-code", probePlanned, "adapter engine — the parked-forever class of bug lives here, so it lands first"),
+		},
+	},
+	// P12 measures the VENDOR half of the approval route P5 waits on: with no
+	// permission host, does claude -p await the PermissionRequest hook and
+	// honour its answer. It is not P5 — no ctxloom surface is involved — and it
+	// runs the vendor binary directly so a red names claude alone.
+	{
+		Name:         probeP12,
+		Title:        "no-host permission hook: claude -p with no --permission-prompt-tool awaits the PermissionRequest hook and honours its allow/deny",
+		Capabilities: []int{7, 12},
+		Channel:      channelGatedAction,
+		Feature:      "probes/capability_permission_hook.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Allow), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 20s. The hook fired on Bash with hook_event_name PermissionRequest, the file exists, permission_denials is empty, and the gated call's tool_result is stamped 64ms AFTER the hook's post-sleep marker while the tool_use preceded it by ~5s — claude waited for the answer. MUTATION-CONFIRMED live: inverting the proof-file check reds the same run as DECISION-IGNORED."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Deny), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 21s. The hook fired on Bash, the file is absent, the gated call's tool_result is \"Permission denied by hook\" with is_error, and result.permission_denials names that tool_use_id."},
 		},
 	},
 	{

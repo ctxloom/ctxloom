@@ -1,0 +1,51 @@
+@live @probe-p12-permission-hook-no-host
+Feature: P12 — with no permission host, claude -p awaits the PermissionRequest hook and honours it
+
+  ctxloom routes a headless claude child's approvals through claude's
+  PermissionRequest hook and passes NO --permission-prompt-tool. That design is
+  only sound while claude, in `-p` with no permission host, still (a) runs the
+  hook when a tool call needs permission, (b) WAITS for its answer, and (c) does
+  what the answer says. If a release stops doing any of the three, every gated
+  call a child makes is decided by something other than the human — silently.
+
+  The documented contract is https://code.claude.com/docs/en/hooks#permissionrequest.
+  It is prose nothing checks, and it has said the opposite before. These cells
+  are the checked copy, re-run on every claude pin bump:
+
+    just capability-probe p12-permission-hook-no-host probes/capability_permission_hook.feature claude-code host none
+
+  HOW A CELL WORKS. The vendor binary is run directly — not through ctxloom, so
+  a red names claude and nothing else — in a throwaway CLAUDE_CONFIG_DIR and
+  HOME, with a fresh git repo as cwd and a --settings file outside it that
+  registers one PermissionRequest hook on Bash. The hook captures its input,
+  sleeps, writes a marker, and prints its decision. The prompt asks for a
+  `touch` outside the working directory, which is what makes claude ask.
+  Every assertion reads stream-json frames, the hook's captured input, the
+  marker and the proof file — never the model's prose.
+
+  Each cell self-skips LOUDLY when claude is absent, and when no credential is
+  EXPORTED: a throwaway config dir cannot use the subscription login.
+  Two paid haiku turns for the pair.
+  Scenario Outline: The <decision> answer from a <engine> PermissionRequest hook decides the gated call
+    Given the permission-hook probe targets "<engine>" under runtime "<runtime>" and workspace "<workspace>" with the hook answering "<decision>"
+    When it asks the engine to touch a file outside its working directory in one turn
+    Then the gated call honours the hook's "<decision>" decision
+
+    # ALLOW exists because a human's "allow" reaches a headless child ONLY as
+    # this hook's answer: if claude stops waiting for it, or ignores it, every
+    # approved call is still refused. Asserts: the file exists, the hook fired
+    # on Bash, and the gated call's tool_result is stamped AFTER the hook's
+    # marker — claude waited.
+    @claude-code @host @ws-none @var-allow
+    Examples:
+      | engine      | runtime | workspace | decision |
+      | claude-code | host    | none      | allow    |
+
+    # DENY exists because a human's "deny" is the same answer with the other
+    # behavior: if claude stops honouring it, a refused call runs anyway.
+    # Asserts: the file is absent, the hook fired on Bash, the tool_result is
+    # "Permission denied by hook" (is_error), and permission_denials names the call.
+    @claude-code @host @ws-none @var-deny
+    Examples:
+      | engine      | runtime | workspace | decision |
+      | claude-code | host    | none      | deny     |

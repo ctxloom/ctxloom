@@ -44,6 +44,28 @@ import (
 // subscription-auth path, and to run each engine's own authentication probe.
 var realHomeDir string
 
+// launchCredentials holds every liveAgents apiKeyEnvs value the suite was
+// LAUNCHED with, captured in TestMain (acceptance_test.go) before the ambient
+// scrub unsets them (testsupport.EnvKeys lists them, so a developer's exported
+// credential cannot leak into a hermetic test). A cell that runs an engine
+// directly in a throwaway config dir has no other way to authenticate it. The
+// values are handed to that child's environment and never printed.
+var launchCredentials map[string]string
+
+// captureLaunchCredentials reads the apiKeyEnvs of every registered engine
+// from the current environment, keeping only the set ones.
+func captureLaunchCredentials() map[string]string {
+	got := map[string]string{}
+	for _, a := range liveAgents {
+		for _, k := range a.apiKeyEnvs {
+			if v := os.Getenv(k); v != "" {
+				got[k] = v
+			}
+		}
+	}
+	return got
+}
+
 // authProbeTimeout bounds every authCheck subprocess (`claude auth status`,
 // a local auth-status read). These are meant to be fast, local, non-interactive
 // status reads — never a hung prompt and never a paid model call — so a
@@ -104,6 +126,11 @@ type liveAgent struct {
 // report's whole point is to be predictable and diffable across runs.
 var liveAgentOrder = []string{"claude"}
 
+// liveClaudeModel is the ONE cheap model every claude @live cell pins, whether
+// the cell drives claude through ctxloom (the config below) or invokes the
+// vendor binary directly.
+const liveClaudeModel = "claude-haiku-4-5-20251001"
+
 // liveAgents maps the lowercased scenario token ("claude") to its
 // backend wiring.
 var liveAgents = map[string]liveAgent{
@@ -115,7 +142,7 @@ var liveAgents = map[string]liveAgent{
   configs:
     claude:
       type: claude-code
-      model: claude-haiku-4-5-20251001
+      model: ` + liveClaudeModel + `
   defaults:
     primary: claude
     fast: claude

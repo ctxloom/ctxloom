@@ -1041,7 +1041,9 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
 # a registered engine name, RUNTIME is host|container, WORKSPACE is
 # none|worktree. The five tags it composes are exactly the tag line every
 # probe's Examples block carries (probeCell.Tags), so this recipe and the
-# registry cannot drift about how a cell is addressed.
+# registry cannot drift about how a cell is addressed. VARIANT (optional) adds
+# the sixth, @var-<VARIANT>, for a probe whose cells on one axis pair differ by
+# variant; empty runs every variant on that pair.
 #
 # WHY FEATURE IS A PARAMETER rather than looked up from the registry: this is
 # a justfile, and reaching into a Go table from one would mean building and
@@ -1055,10 +1057,10 @@ engine-matrix ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
 # box is how a machine gets OOM-killed mid-measurement (the design's own §5.5
 # counter). The sweep runner that sequences cells, pre-flights the process
 # table and renders a report is slice S10's job, not this recipe's.
-capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE: build _ensure-gotmpdir
+capability-probe PROBE FEATURE ENGINE RUNTIME WORKSPACE VARIANT="": build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" \
     ACCEPTANCE_PATHS=features/{{FEATURE}} \
-    ACCEPTANCE_TAGS="@live && @probe-{{PROBE}} && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}" \
+    ACCEPTANCE_TAGS="@live && @probe-{{PROBE}} && @{{ENGINE}} && @{{RUNTIME}} && @ws-{{WORKSPACE}}{{ if VARIANT == '' { '' } else { ' && @var-' + VARIANT } }}" \
     CTXLOOM_ACCEPTANCE_LIVE=1 \
     go test -trimpath -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 

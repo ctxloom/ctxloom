@@ -27,6 +27,7 @@ func TestMain(m *testing.M) {
 	// Capture the real home before any scenario overrides HOME — @live uses it to
 	// locate ~/.claude for the subscription-auth path.
 	realHomeDir = os.Getenv("HOME")
+	launchCredentials = captureLaunchCredentials()
 	for _, k := range testsupport.EnvKeys {
 		_ = os.Unsetenv(k)
 	}

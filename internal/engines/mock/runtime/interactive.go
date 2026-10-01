@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -50,11 +51,25 @@ const (
 // that fails is reported on stderr and the session goes on: a TUI does not
 // die because a hook did, and the diagnostic is the evidence a test reads.
 //
+// A line posted to the session's wake socket (mock.EnvWakeSocket, when the
+// environment names one) is taken exactly as a typed line: it is the mock's
+// own native wake. The socket is listening before the reply is written, so a
+// waker that has seen the reply can post.
+//
 // A nil Stdin means there is nothing to type at: the session ends after the
 // reply, the same "no prompt arrived" shape readPrompt gives a nil reader. A
 // nil Resize channel simply never fires.
 func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 	w := r.stdout()
+	var wakes <-chan readResult
+	if r.Stdin != nil {
+		posted, stop, err := listenWakes(r.getenv(mock.EnvWakeSocket))
+		if err != nil {
+			return err
+		}
+		defer stop()
+		wakes = posted
+	}
 	if err := echoResponse(w, promptLen, out); err != nil {
 		return err
 	}
@@ -77,6 +92,48 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 			if done, err := r.handleLine(w, hooks, res); done || err != nil {
 				return err
 			}
+		case res := <-wakes:
+			if done, err := r.handleLine(w, hooks, res); done || err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// listenWakes listens on the wake socket at path and yields each line posted
+// to it; a nil channel (which never fires) when path is "". stop closes the
+// listener, which removes the socket file, and releases every reader.
+func listenWakes(path string) (<-chan readResult, func(), error) {
+	if path == "" {
+		return nil, func() {}, nil
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mock-engine: listening for wakes on %s: %w", path, err)
+	}
+	posted, done := make(chan readResult), make(chan struct{})
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go readWake(conn, posted, done)
+		}
+	}()
+	return posted, func() { close(done); _ = ln.Close() }, nil
+}
+
+// readWake hands on each line of one posted connection until it ends or the
+// session does.
+func readWake(conn net.Conn, posted chan<- readResult, done <-chan struct{}) {
+	defer conn.Close()
+	sc := bufio.NewScanner(conn)
+	for sc.Scan() {
+		select {
+		case posted <- readResult{line: sc.Text() + "\n"}:
+		case <-done:
+			return
 		}
 	}
 }
@@ -138,7 +195,7 @@ func (r *Runtime) handleLine(w io.Writer, hooks wire.UnifiedHooks, res readResul
 	}
 	if line != "" {
 		if strings.TrimSpace(line) != "" {
-			if err := mock.FireHooks(context.Background(), hooks, "turn_start", "", r.Res.Cwd, nil); err != nil {
+			if err := mock.FireHooks(context.Background(), hooks, "turn_start", "", line, r.Res.Cwd, nil); err != nil {
 				fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
 			}
 		}

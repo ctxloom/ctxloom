@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -72,6 +74,13 @@ func startInteractive(t *testing.T, vendorArgv []string) *interactiveRun {
 // startInteractiveOn is startInteractive against an explicit L1 grammar.
 func startInteractiveOn(t *testing.T, cli agent.EngineCLI, vendorArgv []string) *interactiveRun {
 	t.Helper()
+	return startInteractiveEnv(t, cli, vendorArgv, map[string]string{})
+}
+
+// startInteractiveEnv is startInteractiveOn with env as the session's
+// environment.
+func startInteractiveEnv(t *testing.T, cli agent.EngineCLI, vendorArgv []string, env map[string]string) *interactiveRun {
+	t.Helper()
 	parsed, err := cli.ParseArgv(vendorArgv)
 	if err != nil {
 		t.Fatalf("parse argv %v: %v", vendorArgv, err)
@@ -88,8 +97,8 @@ func startInteractiveOn(t *testing.T, cli agent.EngineCLI, vendorArgv []string) 
 		CLI:       cli,
 		Argv:      parsed,
 		Res:       runtime.Resolver{Cwd: t.TempDir(), Home: t.TempDir(), Getenv: func(string) string { return "" }},
-		Getenv:    func(string) string { return "" },
-		LookupEnv: func(string) (string, bool) { return "", false },
+		Getenv:    func(k string) string { return env[k] },
+		LookupEnv: func(k string) (string, bool) { v, ok := env[k]; return v, ok },
 		Stdin:     pr,
 		Stdout:    s.stdout,
 		Stderr:    s.stderr,
@@ -286,12 +295,83 @@ func TestRuntime_Interactive_FiresTurnStartPerNonBlankLine(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("turn_start fired %d time(s), want 2 (one per non-blank line):\n%s", len(lines), got)
 	}
-	for _, line := range lines {
+	for i, line := range lines {
 		var payload struct {
-			Event string `json:"hook_event_name"`
+			Event  string `json:"hook_event_name"`
+			Prompt string `json:"prompt"`
 		}
 		if err := json.Unmarshal([]byte(line), &payload); err != nil || payload.Event != "turn_start" {
 			t.Errorf("payload %q: event=%q err=%v; want turn_start", line, payload.Event, err)
 		}
+		if want := []string{"one", "two"}[i]; payload.Prompt != want {
+			t.Errorf("payload %q: prompt=%q, want the typed line %q", line, payload.Prompt, want)
+		}
+	}
+}
+
+// TestRuntime_Interactive_AWakePostedToItsSocketIsTakenAsATypedLine: the
+// mock's own wake (mock.EnvWakeSocket). A line posted to the socket starts a
+// turn exactly as a typed line does — turn_start fires with the line as its
+// prompt, and the line is echoed — so the mail-drain hook redeems a wake the
+// same way it would under a real engine.
+func TestRuntime_Interactive_AWakePostedToItsSocketIsTakenAsATypedLine(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "fired")
+	hooksFile := filepath.Join(dir, "hooks.json")
+	raw, err := json.Marshal(wire.UnifiedHooks{TurnStart: []wire.Hook{{Type: "command", Command: "cat >> " + marker + "; echo >> " + marker}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksFile, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sockDir, err := os.MkdirTemp("", "mw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	sock := filepath.Join(sockDir, "w.sock")
+
+	cli := claudeInteractive(t)
+	cli.Flags = append(cli.Flags, agent.CLIFlag{Name: mock.HooksFlag, Value: agent.ValuePath})
+	s := startInteractiveEnv(t, cli, []string{mock.HooksFlag, hooksFile, "hello"}, map[string]string{mock.EnvWakeSocket: sock})
+	s.waitFor(t, "mock-engine: ok")
+
+	wake, ok := mock.Mock{}.Wake().Get()
+	if !ok {
+		t.Fatal("the mock declares no wake")
+	}
+	bound, berr := wake.Bind(context.Background(), func(k string) (string, bool) { return sock, k == mock.EnvWakeSocket })
+	if berr != nil {
+		t.Fatal(berr)
+	}
+	// The session listens before it reads its first line, and the reply to
+	// the positional prompt is written before that; waiting for it orders
+	// this post after the listener exists.
+	if ferr := bound.Fire(context.Background(), "0123456789abcdef"); ferr != nil {
+		t.Fatalf("posting the wake: %v", ferr)
+	}
+	s.waitFor(t, runtime.InteractiveEchoPrefix+engine.WakeText("0123456789abcdef")+"\n")
+	s.typeLine(t, runtime.InteractiveQuit)
+	if code := s.exitCode(t); code != 0 {
+		t.Fatalf("exit code = %d, want 0\nstderr:\n%s", code, s.stderr.String())
+	}
+
+	got, rerr := os.ReadFile(marker)
+	if rerr != nil {
+		t.Fatalf("the turn_start hook never ran: %v\nstderr:\n%s", rerr, s.stderr.String())
+	}
+	var payload struct {
+		Event  string `json:"hook_event_name"`
+		Prompt string `json:"prompt"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(got))), &payload); err != nil {
+		t.Fatalf("payload %q: %v", got, err)
+	}
+	if payload.Event != "turn_start" || payload.Prompt != engine.WakeText("0123456789abcdef") {
+		t.Fatalf("payload = %+v, want turn_start carrying the wake text", payload)
+	}
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Errorf("the wake socket outlived the session: %v", err)
 	}
 }

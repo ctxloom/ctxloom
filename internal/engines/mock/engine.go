@@ -302,9 +302,9 @@ func (m Mock) Transcripts() []engine.TranscriptReader { return m.transcripts }
 // (hooks.go).
 func (m Mock) Hooks() engine.HookCodec { return hookCodec{m.Name} }
 
-// Wake is declared absent: the mock has no out-of-band way to start a turn.
+// Wake is the mock's own socket (EnvWakeSocket).
 func (m Mock) Wake() engine.Declared[engine.WakeSpec] {
-	return engine.Absent[engine.WakeSpec]("the mock listens on nothing a wake could post to")
+	return engine.Provide[engine.WakeSpec](socketWake{})
 }
 
 // Instance is where REQUIREDNESS is checked, loudly: the mock cannot run a

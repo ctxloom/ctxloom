@@ -325,13 +325,10 @@ func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string
 // hookExecPayload builds a profile hook's executable-surface preimage via the
 // shared bundle primitive (Matcher+Type+Command+Prompt+PreToolFallback), so a
 // profile-declared hook and an identical bundle-declared one bind to exactly the
-// SAME bytes. Its command is the hook's LINE (wire.Hook.Line): an exec-form
-// hook's arguments are what runs, so they are bound too — a changed argument
-// never rides an earlier grant — while a shell-form hook binds exactly the
-// bytes it always did. nil on an (unreachable) encoding failure — see
-// gateProfileExec.
+// SAME bytes — exec-form arguments included, bound by the primitive's own rule.
+// nil on an (unreachable) encoding failure — see gateProfileExec.
 func hookExecPayload(h wire.Hook) []byte {
-	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Line(), Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
+	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Args: h.Args, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
 	payload, err := bh.ContentPayload()
 	if err != nil {
 		return nil

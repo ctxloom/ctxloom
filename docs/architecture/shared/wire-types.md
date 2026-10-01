@@ -45,6 +45,7 @@ One lifecycle action (shell command, prompt, or agent invocation) plus the metad
 |---|---|---|---|
 | `Matcher string` | `hooks.go:15` | `matcher` | every engine writer |
 | `Command string` | `hooks.go:16` | `command` | every engine writer |
+| `Args []string` | `hooks.go` | `args` | exec form: claude's hook `args`; the mock spawns it with no shell. `Hook.Line()` renders Command+Args as one shell line, the hook's identity everywhere one string stands for it |
 | `Type string` | `hooks.go:17` | `type` | every engine writer; free-form, `"command"`/`"prompt"`/`"agent"` by convention, no constant and no validation in this package |
 | `Prompt string` | `hooks.go:18` | `prompt` | every engine writer |
 | `Timeout int` | `hooks.go:19` | `timeout` | claude (`internal/engines/claude/claude.go:613`) |

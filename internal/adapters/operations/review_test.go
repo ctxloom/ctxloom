@@ -631,6 +631,14 @@ func TestRenderHookSurface_NoCommandOrPromptShowsMarker(t *testing.T) {
 		"a hook with no command and no prompt must say so explicitly")
 }
 
+// TestRenderHookSurface_AnExecHookShowsItsWholeArgv: a reviewer approves what
+// runs, so an exec-form hook is shown with every argument, not its bare
+// executable.
+func TestRenderHookSurface_AnExecHookShowsItsWholeArgv(t *testing.T) {
+	rendered := renderHookSurface(bundles.HookEntry{Event: "session_start", Hook: bundles.BundleHook{Command: "ctxloom", Args: []string{"hook", "session-bind"}}})
+	assert.Contains(t, rendered, "command: 'ctxloom' 'hook' 'session-bind'\n")
+}
+
 // --- the three publisher states -------------------------------------------
 
 // A READ spells exactly four publisher states, and reviewPublisherOf reads them

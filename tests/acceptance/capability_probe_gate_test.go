@@ -228,12 +228,13 @@ func TestProbeHostCredentialEnv_RemovesTheIsolatedEntriesRatherThanAppendingPast
 func TestProbeCellCredentialEnv_RefusesRatherThanExportingAnEmptyHome(t *testing.T) {
 	saved := realHomeDir
 	t.Cleanup(func() { realHomeDir = saved })
+	withLaunchCredentials(t, nil) // the real-home fallback is the no-token path
 
 	t.Run("no real home: refuse, and leave the command untouched", func(t *testing.T) {
 		realHomeDir = ""
 		cmd := exec.Command("true")
 		cmd.Env = []string{"HOME=/tmp/fake-home"}
-		err := probeCellCredentialEnv("p-test", cmd)
+		_, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
 
 		require.Error(t, err, "a cell with no real home must refuse, not run with HOME=\"\" and blame the engine for what it then cannot find")
 		require.False(t, errors.Is(err, godog.ErrSkip),
@@ -247,11 +248,33 @@ func TestProbeCellCredentialEnv_RefusesRatherThanExportingAnEmptyHome(t *testing
 		realHomeDir = "/home/real"
 		cmd := exec.Command("true")
 		cmd.Env = []string{"HOME=/tmp/fake-home", "PATH=/usr/bin"}
-		require.NoError(t, probeCellCredentialEnv("p-test", cmd))
+		home, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
+		require.NoError(t, err)
 
+		assert.Equal(t, "/home/real", home, "the returned home is the one the run is given")
 		assert.Contains(t, cmd.Env, "HOME=/home/real")
 		assert.Contains(t, cmd.Env, "PATH=/usr/bin")
 		assert.NotContains(t, cmd.Env, "HOME=/tmp/fake-home",
 			"the isolated home must be REMOVED, not shadowed: glibc's getenv returns the first match")
 	})
+}
+
+// TestProbeCellCredentialEnv_CapturedTokenKeepsTheHomeIsolated is the ruled
+// posture: a token captured at launch authenticates the cell INSIDE testenv's
+// isolated HOME, and the real home is neither pointed at nor needed. The value
+// is fake and nothing is executed.
+func TestProbeCellCredentialEnv_CapturedTokenKeepsTheHomeIsolated(t *testing.T) {
+	saved := realHomeDir
+	t.Cleanup(func() { realHomeDir = saved })
+	realHomeDir = "/home/real"
+	withLaunchCredentials(t, map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "fake-token"})
+
+	cmd := exec.Command("true")
+	cmd.Env = []string{"HOME=/tmp/fake-home", "PATH=/usr/bin", "CLAUDE_CODE_OAUTH_TOKEN=stale"}
+	home, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
+	require.NoError(t, err)
+
+	assert.Equal(t, "/tmp/fake-home", home, "the run keeps the isolated home")
+	assert.Equal(t, []string{"HOME=/tmp/fake-home", "PATH=/usr/bin", "CLAUDE_CODE_OAUTH_TOKEN=fake-token"}, cmd.Env,
+		"the captured token is the ONE addition, and a namesake ahead of it is removed (glibc's getenv returns the first match)")
 }

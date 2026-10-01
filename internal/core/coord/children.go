@@ -1443,15 +1443,12 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// The pause gate lived in the ended run's runner; the record of it ends here.
 	c.setRunPaused(runID, false)
 
-	// D4: drain BEFORE anything below that can tear the
-	// RunChannel's underlying connection down — closeFn (engine.Kill) closes
-	// the runner's WHOLE gRPC ClientConn, which multiplexes RunChannel too,
-	// so calling it first can win the very race this drain exists to close.
-	// An explicit RunExited (CauseRunnerExit) is the ONLY cause whose
-	// production emitter is contractually guaranteed to have just attempted
-	// a run_completed item on that channel — see drainTerminalTail's doc
-	// for why CauseStopped/CauseRunnerLoss must not pay this wait.
-	if cause == CauseRunnerExit {
+	// Drain BEFORE anything below that can tear the RunChannel's underlying
+	// connection down — closeFn (engine.Kill) closes the runner's WHOLE gRPC
+	// ClientConn, which multiplexes RunChannel too, so calling it first can
+	// win the very race the drain exists to close. Which causes drain, and
+	// why, is drainTerminalTail's doc.
+	if cause == CauseRunnerExit || cause == CauseStopped {
 		c.drainTerminalTail(rec.Harp)
 	}
 

@@ -297,10 +297,8 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 
 		cmd := w.env.Command(nil, "run", "--agent", mcpProbeAgent,
 			"--workspace", m.workspace, "--one-shot", mcpProbePrompt())
-		// Production's own credential machinery, resolving against the REAL host
-		// home — see probeHostCredentialEnv, whose doc comment carries the full
-		// argument.
-		if err := probeCellCredentialEnv(mcpProbeFamily, cmd); err != nil {
+		// The shared credential posture — see probeCellCredentialEnv.
+		if _, err := probeCellCredentialEnv(mcpProbeFamily, m.engine, cmd); err != nil {
 			return err
 		}
 		var stdout, stderr bytes.Buffer

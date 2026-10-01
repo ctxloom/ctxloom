@@ -186,9 +186,9 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			// NOTHING is seeded here on purpose. Each axis's credentials are
-			// delivered by ctxloom's own production machinery, resolving against
-			// the real host home the run is given (probeHostCredentialEnv) —
-			// which is the behaviour this cell exists to exercise.
+			// delivered by ctxloom's own production machinery from the
+			// environment the run is given (probeCellCredentialEnv) — which is
+			// the behaviour this cell exists to exercise.
 			return nil
 		})
 
@@ -206,9 +206,8 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 
 		cmd := w.env.Command(nil, "run", "--agent", matrixAgent,
 			"--workspace", m.workspace, "--one-shot", matrixPrompt())
-		// The credential mechanism is production's, resolving against the real
-		// host home — see probeHostCredentialEnv.
-		if err := probeCellCredentialEnv(matrixFamily, cmd); err != nil {
+		// The shared credential posture — see probeCellCredentialEnv.
+		if _, err := probeCellCredentialEnv(matrixFamily, m.engine, cmd); err != nil {
 			return err
 		}
 		var stdout, stderr bytes.Buffer

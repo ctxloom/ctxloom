@@ -42,6 +42,46 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// TestHermeticChildSeesNoCredential pins the other half of the launch
+// capture: capturing the credential for @live cells must not hand it to
+// anything else. TestMain's scrub has removed every engine credential from this
+// process, and a ctxloom child a hermetic scenario spawns carries none — even
+// with a token in the capture and one re-exported ambiently, which is the
+// state a refactor that "simplified" the capture into an inherited env would
+// produce. Values are fake; nothing is executed.
+func TestHermeticChildSeesNoCredential(t *testing.T) {
+	var keys []string
+	for _, a := range liveAgents {
+		keys = append(keys, a.apiKeyEnvs...)
+	}
+	for _, k := range keys {
+		if _, set := os.LookupEnv(k); set {
+			t.Errorf("%s is set in the test process: TestMain must scrub every engine credential before any scenario runs", k)
+		}
+	}
+
+	saved := launchCredentials
+	t.Cleanup(func() { launchCredentials = saved })
+	launchCredentials = map[string]string{}
+	for _, k := range keys {
+		launchCredentials[k] = "fake-captured"
+		t.Setenv(k, "fake-ambient")
+	}
+
+	env, err := testenv.NewTestEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = env.Cleanup() })
+	for _, kv := range env.Command(nil, "version").Env {
+		for _, k := range keys {
+			if strings.HasPrefix(kv, k+"=") {
+				t.Errorf("a hermetic child's environment carries %s: only an @live cell may be handed a credential", k)
+			}
+		}
+	}
+}
+
 // TestAcceptance runs the full-stack godog suite. The hermetic suite is the
 // default; @live scenarios (real engine agents) are opt-in via ACCEPTANCE_TAGS
 // and self-skip when no credentials are present.

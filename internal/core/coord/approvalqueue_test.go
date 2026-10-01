@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -546,4 +547,87 @@ func TestApprovalQueue_UnjournaledParkFailsClosed(t *testing.T) {
 // TestApprovalQueue_IsTheSource: the queue is what a presenter consumes.
 func TestApprovalQueue_IsTheSource(t *testing.T) {
 	var _ ApprovalSource = (*ApprovalQueue)(nil)
+}
+
+// gatedPush is a run that takes a pushed set only when let go.
+type gatedPush struct {
+	grantPush
+	gate chan struct{}
+}
+
+func (g *gatedPush) push(harp string, rules []string) error {
+	if g.gate != nil {
+		<-g.gate
+	}
+	return g.grantPush.push(harp, rules)
+}
+
+// TestApprovalQueue_AGrantWaitsOutARevokesPush forces the race between a
+// revoke and a new grant for the same harp: the revoke has read the set it
+// pushes and its push is in flight when the human allows another request
+// for the session. Were the grant journaled and delivered then, the run
+// would take the new rule from the decision and then lose it to the push's
+// older set, while the journal still listed it. So the grant waits for the
+// revoke to land, and reaches the run after the push; a deny, which grants
+// nothing, does not wait.
+func TestApprovalQueue_AGrantWaitsOutARevokesPush(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "runs.jsonl")
+		push := &gatedPush{}
+		q := NewApprovalQueue(openQueueStore(t, path), time.Now, push.push, noRunGone)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		first := parkAsync(ctx, q, toolAsk("Bash"), time.Minute)
+		synctest.Wait()
+		require.NoError(t, q.Answer(q.Pending()[0].ID, ApprovalDecision{Allow: true, SessionRules: []string{"Bash(ls)"}}))
+		<-first
+		granted := q.Grants(askerID.Harp)[0]
+
+		allowed := parkAsync(ctx, q, toolAsk("Read"), time.Minute)
+		denied := parkAsync(ctx, q, toolAsk("Write"), time.Minute)
+		synctest.Wait()
+		ids := map[string]ApprovalID{}
+		for _, p := range q.Pending() {
+			ids[p.Ask.Tool] = p.ID
+		}
+
+		push.gate = make(chan struct{})
+		var release sync.Once
+		letGo := func() { release.Do(func() { close(push.gate) }) }
+		defer letGo() // a failed assertion still lets the push finish
+		revoked := make(chan error, 1)
+		go func() { revoked <- q.Revoke(askerID.Harp, granted.ID) }()
+		synctest.Wait() // the revoke's push is in flight
+
+		answered := make(chan error, 1)
+		go func() { answered <- q.Answer(ids["Read"], ApprovalDecision{Allow: true, SessionRules: []string{"Read"}}) }()
+		require.NoError(t, q.Answer(ids["Write"], ApprovalDecision{Allow: false}), "a deny is not held behind the push")
+		<-denied
+		synctest.Wait()
+		select {
+		case <-answered:
+			t.Fatal("a grant was journaled while a revoke's push was in flight")
+		case <-allowed:
+			t.Fatal("a grant reached the run while a revoke's push was in flight")
+		default:
+		}
+
+		letGo()
+		require.NoError(t, <-revoked)
+		require.NoError(t, <-answered)
+		assert.Equal(t, []string{"Read"}, (<-allowed).SessionRules)
+		assert.Equal(t, []pushedGrants{{harp: askerID.Harp, rules: nil}}, push.calls)
+		got := q.Grants(askerID.Harp)
+		require.Len(t, got, 1)
+		assert.Equal(t, "Read", got[0].Rule)
+		kinds := factKinds(readFacts(t, path))
+		lastAdded := -1
+		for i, k := range kinds {
+			if k == factGrantAdded {
+				lastAdded = i
+			}
+		}
+		assert.Less(t, slices.Index(kinds, factGrantRevoked), lastAdded, "the revoke is journaled before the grant that waited on it")
+	})
 }

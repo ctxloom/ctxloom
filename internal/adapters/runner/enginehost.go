@@ -58,6 +58,9 @@ type engineHome interface {
 	// setTurning tells the owner-loss clock a turn started or reached its
 	// boundary (Home.setTurning): progress pauses it.
 	setTurning(on bool)
+	// SetApprovalHost binds the run's approval route for the session's
+	// endpoint to serve (Home.SetApprovalHost).
+	SetApprovalHost(ah ApprovalHost)
 }
 
 // Compile-time assertion that Home satisfies the engine host's seam.
@@ -87,6 +90,9 @@ type Turn struct {
 	MCPServers []agent.ChatMCPServer
 	Prompt     string
 	Presented  []present.Presentation
+	// approval is the approval route the run serves: set when the launch's
+	// approver is the human and the engine declares an approval codec.
+	approval *approvalSpec
 }
 
 // Terminal drives an INTERACTIVE launch on the runner's own terminal — the
@@ -147,9 +153,12 @@ type EngineHost struct {
 	// the boundary of the turn in flight (closed when it ends; nil when
 	// parked). ended is set once the run reached its terminal — a failed
 	// turn — and refuses every later turn.
-	driver    engine.StructuredDriver
-	exec      engine.Exec
-	posture   engine.TurnPosture // every turn's permission posture: none of its own yet, so the launch's
+	driver  engine.StructuredDriver
+	exec    engine.Exec
+	posture engine.TurnPosture // every turn's permission posture: none of its own yet, so the launch's
+	// approvals is the run's approval route (nil when its approver is not
+	// the human): fed each turn's tool calls, ended with each turn.
+	approvals *approvals
 	nativeKey string
 	turnBusy  chan struct{}
 	// turnCancel interrupts the turn in flight: each turn runs under its own
@@ -428,6 +437,15 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	// here, before the first frame it emits.
 	home.BindIdentity(t.Launch.Identity)
 
+	// The approval route is bound before the first turn can ask anything.
+	if spec := t.approval; spec != nil {
+		a := newApprovals(*spec, askTheRoot(home, *spec, boundsFor(spec.timeout).request))
+		eh.mu.Lock()
+		eh.approvals = a
+		eh.mu.Unlock()
+		home.SetApprovalHost(a)
+	}
+
 	// RunStarted first: the log is self-contained (the first turn and the
 	// launch's facts, including whether this attempt resumed a prior native
 	// session).
@@ -581,6 +599,7 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	ex := eh.exec
 	posture := eh.posture
 	rec := eh.rec
+	appr := eh.approvals
 	eh.mu.Unlock()
 
 	eh.beginTurn()
@@ -628,8 +647,14 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 					sessionID = ev.Session.SessionID
 					eh.announceSession(home, sessionID)
 				}
+				if appr != nil {
+					eh.checkApprovalHost(ev.Session)
+				}
 			case ev.Entry != nil:
 				announceStarted()
+				if appr != nil {
+					appr.observe(ev.Entry)
+				}
 				items.entry(ev.Entry)
 			case ev.Complete != nil:
 				items.closeOpen()
@@ -643,6 +668,11 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	close(out)
 	<-adapted
 	items.closeOpen()
+	if appr != nil {
+		// The turn's engine process is gone: nothing it asked can be
+		// answered any more.
+		appr.endTurn()
+	}
 
 	tag := eh.endTurn()
 	home.setTurning(false)

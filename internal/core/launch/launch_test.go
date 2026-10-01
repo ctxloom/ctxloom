@@ -6,12 +6,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -348,7 +350,13 @@ func TestResolve_Carrier_ChosenBySize_RedeemsToTheSamePackage(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, large.Package.Claim, "above the ceiling a claim rides the frame")
 
-	enc, err := composite.Encode(env.Assembled())
+	// What Resolve carries is the assembled package plus what the launch
+	// itself adds: this run's approver is the human, so the approval hooks.
+	carried := env.Assembled()
+	carried.Hooks.Unified = wire.UnifiedHooks{}
+	carried.Hooks.Unified.Append(env.Assembled().Hooks.Unified)
+	carried.Hooks.Unified.Append(agent.ApprovalHooks(small.Permission.ApprovalTimeout))
+	enc, err := composite.Encode(carried)
 	require.NoError(t, err)
 	for _, c := range []composite.Carrier{small.Package, large.Package} {
 		back, err := launchtest.Redeem(context.Background(), inline, claim, c) // the consumer's shape conditional, mirrored from Resolve's size conditional

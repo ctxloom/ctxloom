@@ -44,7 +44,31 @@ const (
 	// EnvProjectID carries the project id the run serves, so a containerized
 	// child's taskloom keys the SAME shared host log.
 	EnvProjectID = "CTXLOOM_PROJECT_ID"
+	// EnvHookURL and EnvHookToken carry the session endpoint's approval-hook
+	// address and its bearer to the ENGINE process, whose approval hook
+	// (`ctxloom hook permission`) posts the engine's ask there.
+	EnvHookURL   = "CTXLOOM_HOOK_URL"
+	EnvHookToken = "CTXLOOM_HOOK_TOKEN"
 )
+
+// ErrNoHookReach is DecodeHookReach's refusal: the process environment
+// carries no approval-hook endpoint.
+var ErrNoHookReach = errors.New("sessions: no approval-hook endpoint in the process environment")
+
+// EncodeHookReach renders the approval-hook endpoint for the ENGINE process.
+func EncodeHookReach(hook Endpoint) map[string]string {
+	return map[string]string{EnvHookURL: hook.URL, EnvHookToken: hook.Credential}
+}
+
+// DecodeHookReach reads the approval-hook endpoint back; a missing URL or
+// bearer is ErrNoHookReach.
+func DecodeHookReach(getenv func(string) string) (Endpoint, error) {
+	ep := Endpoint{URL: getenv(EnvHookURL), Credential: getenv(EnvHookToken)}
+	if ep.URL == "" || ep.Credential == "" {
+		return Endpoint{}, ErrNoHookReach
+	}
+	return ep, nil
+}
 
 // ErrNoReachBack is DecodeReach's refusal: the process environment carries no
 // coordinator endpoint.

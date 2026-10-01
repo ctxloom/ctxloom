@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // ApprovalHost is the approval route as the session's endpoint serves it:
@@ -501,4 +502,47 @@ func askTheRoot(home engineHome, spec approvalSpec, bound time.Duration) func(co
 		}
 		return engine.PermissionAnswer{Allow: d.Allow, SessionRules: d.SessionRules, SetMode: d.SetMode, Answers: d.Answers, Message: d.Message}, nil
 	}
+}
+
+// SetApprovalHost binds the hosted run's approval route, which the session's
+// endpoint then serves. One per Home, like the turn sink: a second binding is
+// a wiring bug and is refused.
+func (h *Home) SetApprovalHost(ah ApprovalHost) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.approvalHost != nil {
+		h.rep.Warnf("runner: an approval route is already bound for this run; the second binding is refused")
+		return
+	}
+	h.approvalHost = ah
+}
+
+// ApprovalHost is the bound approval route; nil when the run's approver is
+// not the human (or nothing is hosted yet), in which case the endpoint
+// decides nothing.
+func (h *Home) ApprovalHost() ApprovalHost {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.approvalHost
+}
+
+// mcpStatusConnected is the status an engine reports for an MCP server it
+// connected at session start (agent.MCPStatus).
+const mcpStatusConnected = "connected"
+
+// checkApprovalHost is the capabilities gate on a turn's session start: the
+// route anchors every ask on the permission host, which the session's own
+// endpoint serves, so an engine that did not connect that endpoint can hold
+// nothing open — every ask is denied this turn. An engine that reports no
+// server statuses is not judged.
+func (eh *EngineHost) checkApprovalHost(s *agent.ChatSessionInfo) {
+	if len(s.MCPServers) == 0 {
+		return
+	}
+	for _, m := range s.MCPServers {
+		if m.Name == wire.CtxloomServerName && m.Status == mcpStatusConnected {
+			return
+		}
+	}
+	eh.rep.Warnf("approval host not connected: the engine did not connect ctxloom's %q server this turn, so nothing can hold a permission request open — every request the human would decide is denied, and questions and plans are unavailable (check the session's MCP endpoint: ctxloom doctor)", wire.CtxloomServerName)
 }

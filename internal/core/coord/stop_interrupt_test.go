@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,6 +44,28 @@ func TestAgentStop_InterruptsTheRunningTurnThenEndsTheRun(t *testing.T) {
 	assert.Contains(t, ownerResultsFrom(t, out.Harp)[0].Body, "interrupted before it finished")
 	assert.Equal(t, StateEnded, rosterState(c, out.Harp))
 	assert.Equal(t, CauseStopped, runCause(c, out.RunID))
+}
+
+// TestAgentStop_ReportsTheInterruptedTurnWhenItsDoorbellIsLost forces the
+// losing interleaving of a stop. The runner writes the interrupted turn's
+// report, rings, and only then answers StopRun — on a DIFFERENT channel. The
+// answer can win: the coordinator ends the run and cuts its run channel before
+// it has read the ring, and the ring dies with the channel. The handler below
+// discards every ring, which is exactly that outcome; the sweep stays at the
+// production cadence, so it cannot be what delivers. The report must still
+// reach the parent within the wait.
+func TestAgentStop_ReportsTheInterruptedTurnWhenItsDoorbellIsLost(t *testing.T) {
+	c, _, out := heldChild(t)
+	c.SetSpoolDoorbellHandler(func(string, spool.Ref) {})
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+
+	_, err := c.Stop(ctx, ownerIdentity(), StopRequest{Harp: out.Harp, Reason: "enough", Grace: 5 * time.Second})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return len(ownerResultsFrom(t, out.Harp)) == 1 }, conformanceWait, 10*time.Millisecond,
+		"the run's channel was cut with its ring unread, and nothing swept the report it announced")
+	assert.Contains(t, ownerResultsFrom(t, out.Harp)[0].Body, "interrupted before it finished")
 }
 
 // TestAgentStop_RunnerExitRacingTheStopKeepsTheStopsCause: the runner closes

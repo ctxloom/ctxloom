@@ -249,20 +249,20 @@ func grantFor(t *testing.T, c *Coordinator, out *RunOutcome, rule string) Grant 
 	return grants[0]
 }
 
-// TestApprovals_RevokeGoesToTheLiveRunFirst: a revoke is handed to the run
-// before it is journaled, so a run that does not take it keeps the grant — the
-// record never claims a rule is gone while the run still applies it.
-func TestApprovals_RevokeGoesToTheLiveRunFirst(t *testing.T) {
+// TestApprovals_RevokeReachesTheLiveRun: a revoke on a live run is handed to
+// its runner as SetGrants — the set that remains — over the real runner link,
+// and only once the run has taken it is the grant gone from the record. (A
+// run that refuses the set keeps the grant: TestApprovalQueue_
+// RevokeRefusedByTheRunKeepsTheGrant.)
+func TestApprovals_RevokeReachesTheLiveRun(t *testing.T) {
 	resetStrictness(t)
 	sp := cutoverSpawner(0)
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "task")
 	g := grantFor(t, c, out, "Bash(ls:*)")
 
-	err := c.Approvals().Revoke(out.Harp, g.ID)
-	require.Error(t, err, "this runner does not take SetGrants, and says so")
-	assert.Contains(t, err.Error(), "not offered by this runner")
-	assert.Equal(t, []Grant{g}, c.Approvals().Grants(out.Harp))
+	require.NoError(t, c.Approvals().Revoke(out.Harp, g.ID), "the live run takes its remaining set")
+	assert.Empty(t, c.Approvals().Grants(out.Harp))
 }
 
 // TestApprovals_RevokeOnAnEndedRunIsJournaledOnly: with no live run there is

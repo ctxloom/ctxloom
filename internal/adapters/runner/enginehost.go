@@ -153,8 +153,8 @@ type EngineHost struct {
 	// the boundary of the turn in flight (closed when it ends; nil when
 	// parked). ended is set once the run reached its terminal — a failed
 	// turn — and refuses every later turn.
-	driver  engine.StructuredDriver
-	exec    engine.Exec
+	driver engine.StructuredDriver
+	exec   engine.Exec
 	// posture is every turn's permission posture; each turn adds the
 	// session grants its approval route holds (approvals.heldGrants).
 	posture engine.TurnPosture
@@ -322,6 +322,9 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 	case <-time.After(homeBindTimeout):
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, "runner engine host is not bound to its coordinator link yet")}
 	}
+	if resp := eh.turnControl(req); resp != nil {
+		return resp
+	}
 	switch kind := req.GetKind().(type) {
 	case *agentcoordpb.RunnerRequest_StartRun:
 		return eh.startRun(kind.StartRun)
@@ -331,10 +334,6 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 		return eh.resumeRun(kind.ResumeRun)
 	case *agentcoordpb.RunnerRequest_Turn:
 		return eh.turnFrame(kind.Turn)
-	case *agentcoordpb.RunnerRequest_InterruptRun:
-		return eh.interruptRun(kind.InterruptRun)
-	case *agentcoordpb.RunnerRequest_SetGrants:
-		return eh.setGrants(kind.SetGrants)
 	case *agentcoordpb.RunnerRequest_StopRun:
 		return eh.stopRun(kind.StopRun)
 	case *agentcoordpb.RunnerRequest_KillRun:
@@ -345,6 +344,19 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 	default:
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unimplemented, "request kind not offered by this runner")}
 	}
+}
+
+// turnControl answers the requests that act on the run's turns without
+// starting one — cutting the turn in flight short, and replacing the grants
+// the next turn runs with; nil for any other kind.
+func (eh *EngineHost) turnControl(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
+	switch kind := req.GetKind().(type) {
+	case *agentcoordpb.RunnerRequest_InterruptRun:
+		return eh.interruptRun(kind.InterruptRun)
+	case *agentcoordpb.RunnerRequest_SetGrants:
+		return eh.setGrants(kind.SetGrants)
+	}
+	return nil
 }
 
 // startRun launches the hosted engine for the run this runner was spawned

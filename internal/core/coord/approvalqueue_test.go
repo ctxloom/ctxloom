@@ -9,8 +9,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sync"
 	"slices"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -601,7 +601,9 @@ func TestApprovalQueue_AGrantWaitsOutARevokesPush(t *testing.T) {
 		synctest.Wait() // the revoke's push is in flight
 
 		answered := make(chan error, 1)
-		go func() { answered <- q.Answer(ids["Read"], ApprovalDecision{Allow: true, SessionRules: []string{"Read"}}) }()
+		go func() {
+			answered <- q.Answer(ids["Read"], ApprovalDecision{Allow: true, SessionRules: []string{"Read"}})
+		}()
 		require.NoError(t, q.Answer(ids["Write"], ApprovalDecision{Allow: false}), "a deny is not held behind the push")
 		<-denied
 		synctest.Wait()

@@ -390,3 +390,30 @@ func TestStopChildren_MidStartRunIsAStopNotALaunchFailure(t *testing.T) {
 	}
 	assert.Equal(t, []string{KindExited}, kinds, "the parent is told the child was stopped, never that it failed to launch: %+v", msgs)
 }
+
+// TestStopChildren_BoundaryTerminalDoesNotDrainItsOwnChannel: a swept child's
+// turn boundary is a frame of its own run channel, handled on that channel's
+// recv goroutine. The stop it ends the run with must not drain the channel:
+// the drain would wait the whole window for a run_completed only that
+// goroutine could read, and a sweep under a shorter bound would then report a
+// clean stop as forced. The boundary is delivered directly, so the in-band
+// path is taken every time rather than when it wins the race with the
+// runner's own close.
+func TestStopChildren_BoundaryTerminalDoesNotDrainItsOwnChannel(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+	harp := spawnGatedChild(t, sp, c)
+	runID := currentRunID(c, harp)
+
+	drained := false
+	c.drainHook = func(string) { drained = true }
+	c.requestExit(runID, stopPolicy(ownerIdentity().Harp, "abandoning this line", 0))
+	c.onTurnIdle(harp, runID)
+
+	assert.Equal(t, StateEnded, rosterState(c, harp), "the marked child ends at its boundary")
+	assert.Equal(t, CauseStopped, runCause(c, runID))
+	assert.False(t, drained, "a terminal decided on the channel's own recv goroutine must not drain that channel")
+}

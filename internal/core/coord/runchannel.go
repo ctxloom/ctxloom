@@ -404,7 +404,9 @@ const terminalDrainWindow = 500 * time.Millisecond
 // still be sending on a live channel — an explicit runner exit and a stop. A
 // stop whose runner never sends run_completed therefore pays the whole
 // window. Runner loss does not drain: the runner and its stream died
-// together, so nothing more can arrive.
+// together, so nothing more can arrive. Nor does a terminal decided in-band
+// by a frame of the run's own channel (drainAtBoundary): it runs on the recv
+// goroutine this wait depends on.
 func (c *Coordinator) drainTerminalTail(role string) {
 	c.mu.Lock()
 	ch := c.chans[role]

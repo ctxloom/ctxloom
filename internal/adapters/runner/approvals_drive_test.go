@@ -120,3 +120,55 @@ func TestEngineHost_ATurnsAskReachesTheRootAndItsDecisionReturns(t *testing.T) {
 	}
 	assert.Equal(t, 1, approvals, "one ask, one parked request")
 }
+
+// abandoningEngine's turn makes a call, has the host hold it, and ends —
+// the engine process exits with the ask still open.
+type abandoningEngine struct {
+	askingEngine
+}
+
+func (e *abandoningEngine) Drivers() []engine.StructuredDriver { return []engine.StructuredDriver{e} }
+
+func (e *abandoningEngine) Turn(ctx context.Context, _ engine.Exec, _ engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
+	payload, _ := json.Marshal(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolCallID: "t1", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"ls"}`)}})
+	out <- engine.Event{Kind: "entry", Payload: payload}
+	e.home.mu.Lock()
+	route := e.home.approvalHost
+	e.home.mu.Unlock()
+	go func() {
+		// The host outlives the turn's process here: background, so it can
+		// only be released by the turn's end.
+		out, _ := route.Host(context.Background(), json.RawMessage(`{"tool":"Bash","input":{"command":"ls"},"tool_use_id":"t1"}`))
+		e.hostOut <- out
+	}()
+	// Wait until the host holds the call, then exit with it open.
+	held := e.home.approvalHost.(*approvals)
+	held.await(ctx, time.Minute, func() bool { return len(held.turn.slots) == 1 })
+	return engine.TurnResult{NativeKey: "k"}, nil
+}
+
+// TestEngineHost_ATurnsEndReleasesItsHeldAsks: the turn's engine process
+// ended with the host still holding its call; the drive ends the turn's
+// correlation, and the host answers at once rather than holding on.
+func TestEngineHost_ATurnsEndReleasesItsHeldAsks(t *testing.T) {
+	home := &fakeEngineHome{}
+	eng := &abandoningEngine{askingEngine{home: home, hostOut: make(chan string, 1)}}
+	codec, ok := mock.New().Approvals().Get()
+	require.True(t, ok)
+	eh := NewEngineHost(context.Background(), nil, string(mock.Name), "run-1")
+	t.Cleanup(eh.Close)
+	eh.BindHome(home)
+	require.NoError(t, eh.Drive(context.Background(), Turn{
+		Launch:   launch.Launch{Engine: mock.Name, Mode: engine.Structured},
+		Instance: eng, Prompt: "do it",
+		approval: &approvalSpec{codec: codec, timeout: time.Minute},
+	}))
+	select {
+	case raw := <-eng.hostOut:
+		var host mockAnswer
+		require.NoError(t, json.Unmarshal([]byte(raw), &host))
+		assert.Equal(t, errTurnEnded.Error(), host.Message)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the turn ended and its held host was never released")
+	}
+}

@@ -359,3 +359,7 @@ func hookEndpoint(ep sessions.Endpoint) (sessions.Endpoint, error) {
 	u.Path, u.RawQuery = HookPath, ""
 	return sessions.Endpoint{URL: u.String(), Credential: ep.Credential}, nil
 }
+
+// HookEventParam is the query parameter naming the engine event an approval
+// hook POST carries the payload of.
+const HookEventParam = "event"

@@ -78,6 +78,10 @@ func NewServer(rep report.Reporter, home *runner.Home, harp, cwd string, leaf bo
 		return nil, err
 	}
 
+	if err := claimRoutes(routes, registered, mcpschema.RouteApprovalHost, registerApprovalHost(server, home)...); err != nil {
+		return nil, err
+	}
+
 	if err := registerGeneratedTools(rep, server, home, harp, cwd, leaf, routes, registered); err != nil {
 		return nil, err
 	}
@@ -119,6 +123,8 @@ func routeName(r mcpschema.Route) string {
 		return "host-relay"
 	case mcpschema.RouteArtifactFetch:
 		return "artifact-fetch"
+	case mcpschema.RouteApprovalHost:
+		return "approval-host"
 	default:
 		return fmt.Sprintf("route(%d)", int(r))
 	}

@@ -651,6 +651,14 @@ func (st *runState) boundAgent() string {
 	return ""
 }
 
+// mayDelegate is the may_delegate of the binding this run launched under
+// (boundAgent): coord holds the root's own agent_run to it, exactly as it
+// holds a child's. None when no binding was bound.
+func (st *runState) mayDelegate() []string {
+	binding, _ := st.cfg.Agent(st.boundAgent())
+	return binding.MayDelegate
+}
+
 // resumedTranscript is the --session (full resume — no --distill) lead: the
 // resumed harp's full recorded transcript trails the assembled context as
 // its own block. --distill takes the essence path instead (resumeEnv).
@@ -1271,10 +1279,11 @@ func (st *runState) startTransport() error {
 		starter = st.processStarter()
 	}
 	sess, oerr := startOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
-		Launch:     st.launch,
-		MCPServers: st.managed.ChatMCPServers(),
-		OwnerToken: st.ownerToken,
-		Rebind:     st.rebind,
+		Launch:      st.launch,
+		MCPServers:  st.managed.ChatMCPServers(),
+		OwnerToken:  st.ownerToken,
+		MayDelegate: st.mayDelegate(),
+		Rebind:      st.rebind,
 	}, starter)
 	st.ownedRun = sess
 	// Everything recorded since the startup gate — above all a coordinator

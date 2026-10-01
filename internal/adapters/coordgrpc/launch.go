@@ -192,6 +192,7 @@ func encodePolicy(p engine.PermissionPolicy) *pb.PermissionPolicy {
 		Sandbox:         sandboxToWire[p.Sandbox],
 		Network:         p.Network,
 		Engine:          string(p.Posture.Engine),
+		Label:           p.Posture.Label,
 	}
 	if p.Posture.Document != nil {
 		if doc, err := jsonShaped(p.Posture.Document); err == nil {
@@ -229,7 +230,7 @@ func decodePolicy(w *pb.PermissionPolicy) (engine.PermissionPolicy, error) {
 		return engine.PermissionPolicy{}, errNoPolicy
 	}
 	p := engine.PermissionPolicy{
-		Posture:         engine.Posture{Engine: engine.Name(w.GetEngine())},
+		Posture:         engine.Posture{Engine: engine.Name(w.GetEngine()), Label: w.GetLabel()},
 		ApprovalTimeout: w.GetApprovalTimeout().AsDuration(),
 		Network:         w.GetNetwork(),
 	}

@@ -105,8 +105,24 @@ func TestPermissionModel_DecodeAndTransitions(t *testing.T) {
 	assert.Equal(t, "plan", name)
 	_, err = m.Decode(map[string]any{"mode": "sideways"})
 	assert.Error(t, err)
-	assert.Equal(t, []string{"default", "acceptEdits"}, m.Transitions(map[string]any{"mode": "plan"}))
+	assert.Equal(t, []engine.PostureTransition{
+		{Posture: "default", Label: "default", Default: true},
+		{Posture: "acceptEdits", Label: "accept edits"},
+	}, m.Transitions(map[string]any{"mode": "plan"}), "a plan declaring no continuation defaults to default")
+	assert.Equal(t, []engine.PostureTransition{
+		{Posture: "default", Label: "default"},
+		{Posture: "acceptEdits", Label: "accept edits", Default: true},
+	}, m.Transitions(map[string]any{"mode": "plan", "after_plan": "acceptEdits"}), "the declared after_plan is the default, said explicitly")
 	assert.Empty(t, m.Transitions(map[string]any{"mode": "bypass"}), "nothing an approval changes on a bypass session")
+}
+
+// Every claude posture has its own display name: the roster and the
+// approval picker show it, never the token.
+func TestPermissionModel_Labels(t *testing.T) {
+	m := model(t)
+	assert.Equal(t, []string{"default", "accept edits", "plan mode", "bypass permissions"},
+		[]string{m.Label("default"), m.Label("acceptEdits"), m.Label("plan"), m.Label("bypass")})
+	assert.Empty(t, m.Label("sideways"), "a token claude does not name has no display name")
 }
 
 // Fail closed: only what claude can be made to enforce (with

@@ -1,6 +1,8 @@
 package engine_test
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,4 +53,26 @@ func TestPosture_IsOpaqueToCore(t *testing.T) {
 	c := p.Clone()
 	c.Document["mode"] = "bypass"
 	assert.Equal(t, "plan", p.Document["mode"], "a clone never aliases the document")
+}
+
+// namingModel is a model that only names: Decode reads "mode", Label
+// upper-cases it.
+type namingModel struct{ engine.PermissionModel }
+
+func (namingModel) Decode(doc map[string]any) (string, error) {
+	s, _ := doc["mode"].(string)
+	if s == "" {
+		return "", errors.New("no mode")
+	}
+	return s, nil
+}
+func (namingModel) Label(posture string) string { return strings.ToUpper(posture) }
+
+// Named takes the posture's display name from its engine, the one naming
+// source; a document the engine cannot name leaves it unnamed.
+func TestPosture_NamedByItsEngine(t *testing.T) {
+	p := engine.Posture{Engine: "e", Document: map[string]any{"mode": "plan"}}
+	assert.Equal(t, "PLAN", p.Named(namingModel{}).Label)
+	assert.Empty(t, p.Label, "Named returns a copy")
+	assert.Empty(t, engine.Posture{Engine: "e"}.Named(namingModel{}).Label, "no document, no name")
 }

@@ -33,8 +33,11 @@ func fullApprovalRequest() coord.ApprovalRequest {
 				Options: []engine.QuestionOption{{Label: "a", Description: "first"}, {Label: "b"}},
 			}},
 		},
-		Transitions: []string{"default", "acceptEdits"},
-		Timeout:     20 * time.Minute,
+		Transitions: []engine.PostureTransition{
+			{Posture: "default", Label: "default"},
+			{Posture: "acceptEdits", Label: "accept edits", Default: true},
+		},
+		Timeout: 20 * time.Minute,
 	}
 }
 
@@ -44,7 +47,10 @@ func TestApprovalRequest_RoundTrips(t *testing.T) {
 	want := fullApprovalRequest()
 	wire := ApprovalRequestToWire(want)
 	assert.Equal(t, agentcoordpb.ApprovalRequest_APPROVAL_KIND_QUESTION, wire.GetKind())
-	assert.Equal(t, []string{"default", "acceptEdits"}, wire.GetTransitions())
+	require.Len(t, wire.GetTransitions(), 2)
+	assert.False(t, wire.GetTransitions()[0].GetDefault(), "the default is a flag, not the first offer")
+	assert.True(t, wire.GetTransitions()[1].GetDefault())
+	assert.Equal(t, "accept edits", wire.GetTransitions()[1].GetLabel())
 	assert.Equal(t, "acceptEdits", wire.GetSuggestsSetMode())
 	got, err := ApprovalRequestFromWire(wire)
 	require.NoError(t, err)

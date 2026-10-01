@@ -113,7 +113,7 @@ type subState struct {
 	focus  int
 
 	scopes   []scopeOption
-	postures []string
+	postures []engine.PostureTransition
 	picks    []map[int]bool // per question: the chosen option indexes
 	others   []string       // per question: the Other text
 	grants   []coord.Grant
@@ -127,6 +127,7 @@ func newSub(kind subKind, p coord.PendingApproval) *subState {
 		s.scopes = scopeOptions(p)
 	case subApprove:
 		s.postures = slices.Clone(p.Transitions)
+		s.cursor = max(0, slices.IndexFunc(s.postures, func(t engine.PostureTransition) bool { return t.Default }))
 	case subAnswer:
 		s.picks = make([]map[int]bool, len(p.Ask.Questions))
 		for i := range s.picks {
@@ -138,10 +139,11 @@ func newSub(kind subKind, p coord.PendingApproval) *subState {
 }
 
 // scopeOption is one allow-for-session choice: a session rule the engine
-// suggested, or the engine's suggested mode change.
+// suggested, or the engine's suggested mode change and its display name.
 type scopeOption struct {
-	rule string
-	mode engine.Declared[string]
+	rule  string
+	mode  engine.Declared[string]
+	label string
 }
 
 // scopeOptions are the engine's own session suggestions, and its suggested
@@ -153,8 +155,10 @@ func scopeOptions(p coord.PendingApproval) []scopeOption {
 	for _, r := range p.Ask.Suggestions {
 		out = append(out, scopeOption{rule: r})
 	}
-	if m, ok := p.Ask.SuggestsSetMode.Get(); ok && slices.Contains(p.Transitions, m) {
-		out = append(out, scopeOption{mode: engine.Provide(m)})
+	if m, ok := p.Ask.SuggestsSetMode.Get(); ok {
+		if i := slices.IndexFunc(p.Transitions, func(t engine.PostureTransition) bool { return t.Posture == m }); i >= 0 {
+			out = append(out, scopeOption{mode: engine.Provide(m), label: p.Transitions[i].Label})
+		}
 	}
 	return out
 }
@@ -237,8 +241,8 @@ func confirmAnswers(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 
 func confirmApprove(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {
 	m := s.postures[s.cursor]
-	d := coord.ApprovalDecision{Allow: true, SetMode: engine.Provide(m), Message: strings.TrimSpace(s.text)}
-	return a.decided(), answerCmd(a.src, "approved "+sanitizeForDisplay(s.harp)+"'s plan ("+sanitizeForDisplay(m)+")", []coord.ApprovalID{s.target}, d)
+	d := coord.ApprovalDecision{Allow: true, SetMode: engine.Provide(m.Posture), Message: strings.TrimSpace(s.text)}
+	return a.decided(), answerCmd(a.src, "approved "+sanitizeForDisplay(s.harp)+"'s plan ("+sanitizeForDisplay(m.Label)+")", []coord.ApprovalID{s.target}, d)
 }
 
 func confirmReject(a approvalsModel, s *subState) (approvalsModel, tea.Cmd) {

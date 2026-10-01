@@ -139,8 +139,18 @@ func toolReq(id, harp, tool, input string, left time.Duration) coord.PendingAppr
 		ID: coord.ApprovalID(id), Kind: coord.ApprovalTool,
 		From: coord.Identity{Harp: harp}, Agent: "coder", Lineage: []string{"root", harp},
 		Ask:         engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: json.RawMessage(input)},
-		Transitions: []string{"default", "acceptEdits"}, Since: apprBase, Deadline: apprBase.Add(left),
+		Transitions: offer("default", "default", "acceptEdits"), Since: apprBase, Deadline: apprBase.Add(left),
 	}
+}
+
+// offer is an engine's transitions over postures, each with a display name
+// that is not its token, def the explicit default.
+func offer(def string, postures ...string) []engine.PostureTransition {
+	var out []engine.PostureTransition
+	for _, p := range postures {
+		out = append(out, engine.PostureTransition{Posture: p, Label: "Shown " + strings.ToUpper(p), Default: p == def})
+	}
+	return out
 }
 
 func bashReq(id, harp, cmd string, left time.Duration) coord.PendingApproval {
@@ -354,14 +364,15 @@ func TestApprovals_ScopePickerOffersOnlyTheEnginesTransitions(t *testing.T) {
 	p := bashReq("a", "wiry-otter", "git status", 5*time.Minute)
 	p.Ask.Suggestions = []string{"Bash(git status:*)"}
 	p.Ask.SuggestsSetMode = engine.Provide("bypass")
-	p.Transitions = []string{"default", "acceptEdits"}
+	p.Transitions = offer("default", "default", "acceptEdits")
 	assert.Equal(t, []scopeOption{{rule: "Bash(git status:*)"}}, scopeOptions(p), "a mode the engine offers no transition to is not offered")
 
 	p.Ask.SuggestsSetMode = engine.Provide("acceptEdits")
-	p.Transitions = []string{"default"}
+	p.Transitions = offer("default", "default")
 	assert.Len(t, scopeOptions(p), 1, "a mode outside the transitions is not offered")
-	p.Transitions = []string{"default", "acceptEdits"}
-	assert.Len(t, scopeOptions(p), 2, "a transition the engine offers is")
+	p.Transitions = offer("default", "default", "acceptEdits")
+	require.Len(t, scopeOptions(p), 2, "a transition the engine offers is")
+	assert.Contains(t, scopeLabel(scopeOptions(p)[1]), "Shown ACCEPTEDITS", "the mode is shown by the engine's display name")
 
 	h := newApprHarness(t, newFakeQueue(p))
 	h.keys("right", "right", "enter")
@@ -372,7 +383,7 @@ func TestApprovals_ScopePickerOffersOnlyTheEnginesTransitions(t *testing.T) {
 	assert.Equal(t, coord.ApprovalDecision{Allow: true, SessionRules: []string{"Bash(git status:*)"}}, h.q.calls()[0].d)
 }
 
-func planReq(id, harp string, transitions ...string) coord.PendingApproval {
+func planReq(id, harp string, transitions ...engine.PostureTransition) coord.PendingApproval {
 	return coord.PendingApproval{
 		ID: coord.ApprovalID(id), Kind: coord.ApprovalPlan, From: coord.Identity{Harp: harp}, Agent: "planner",
 		Ask:         engine.PermissionAsk{Kind: engine.AskPlan, Tool: "ExitPlanMode", Plan: &engine.PlanProposal{Markdown: "# Plan\n- step one\n- step two", Path: "/tmp/plan.md"}},
@@ -382,7 +393,7 @@ func planReq(id, harp string, transitions ...string) coord.PendingApproval {
 
 // TestApprovals_PlanRejectRequiresFeedback is T13's second case.
 func TestApprovals_PlanRejectRequiresFeedback(t *testing.T) {
-	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", "default", "acceptEdits")))
+	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", offer("default", "default", "acceptEdits")...)))
 	assert.Contains(t, h.screen(), "step one", "the plan is shown")
 	h.keys("right", "right", "enter")
 	h.keys("tab", "enter")
@@ -400,19 +411,30 @@ func TestApprovals_PlanRejectRequiresFeedback(t *testing.T) {
 }
 
 // TestApprovals_PlanApproveOffersTheEnginesTransitions: the posture picker
-// lists exactly the engine's transitions, starts on the first, and a move
-// puts focus back on Back; none leaves nothing to approve into.
+// lists exactly the engine's transitions by their display names, starts on
+// the engine's explicit default wherever it sits, and a move puts focus
+// back on Back; none leaves nothing to approve into. The decision carries
+// the engine's token, never the label shown.
 func TestApprovals_PlanApproveOffersTheEnginesTransitions(t *testing.T) {
 	none := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron")))
 	none.keys("right", "enter")
 	assert.Contains(t, none.screen(), "offers no posture to continue in")
 
-	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", "default", "acceptEdits")))
-	h.keys("right", "enter", "tab", "down")
+	unmoved := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", offer("acceptEdits", "default", "acceptEdits")...)))
+	unmoved.keys("right", "enter")
+	assert.Contains(t, unmoved.screen(), "Shown DEFAULT")
+	assert.Contains(t, unmoved.screen(), "Shown ACCEPTEDITS", "each posture is shown by the engine's display name")
+	unmoved.keys("tab", "enter")
+	require.Len(t, unmoved.q.calls(), 1)
+	assert.Equal(t, coord.ApprovalDecision{Allow: true, SetMode: engine.Provide("acceptEdits")}, unmoved.q.calls()[0].d,
+		"approving without choosing continues at the engine's default, not the first offer")
+
+	h := newApprHarness(t, newFakeQueue(planReq("p", "calm-heron", offer("acceptEdits", "default", "acceptEdits")...)))
+	h.keys("right", "enter", "tab", "up")
 	assert.Contains(t, h.screen(), "[ Back ]", "choosing another posture put focus back on Back")
 	h.keys("tab", "enter")
 	require.Len(t, h.q.calls(), 1)
-	assert.Equal(t, coord.ApprovalDecision{Allow: true, SetMode: engine.Provide("acceptEdits")}, h.q.calls()[0].d)
+	assert.Equal(t, coord.ApprovalDecision{Allow: true, SetMode: engine.Provide("default")}, h.q.calls()[0].d)
 }
 
 func questionReq(id, harp string) coord.PendingApproval {

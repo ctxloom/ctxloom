@@ -43,10 +43,11 @@ type ownedRunSession struct {
 // endpoint (coord.OwnerRun.Rebind). A keyed literal makes each value say what
 // it is.
 type ownedRunLaunch struct {
-	Launch     launch.Launch
-	MCPServers []agent.ChatMCPServer
-	OwnerToken string
-	Rebind     func(ctx context.Context, l launch.Launch) (launch.Launch, error)
+	Launch      launch.Launch
+	MCPServers  []agent.ChatMCPServer
+	OwnerToken  string
+	MayDelegate []string // coord.OwnerRun.MayDelegate
+	Rebind      func(ctx context.Context, l launch.Launch) (launch.Launch, error)
 }
 
 // endpointRebinder is the OwnerRun.Rebind for a launch resolved against deps.
@@ -95,10 +96,11 @@ func startOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunc
 	// The runner leads the first turn with the package's context ahead of
 	// the prompt; the prompt alone rides the launch.
 	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRun{
-		Launch:     spec.Launch,
-		MCPServers: spec.MCPServers,
-		OneShot:    spec.Launch.Mode == engine.Structured,
-		Rebind:     spec.Rebind,
+		Launch:      spec.Launch,
+		MCPServers:  spec.MCPServers,
+		OneShot:     spec.Launch.Mode == engine.Structured,
+		MayDelegate: spec.MayDelegate,
+		Rebind:      spec.Rebind,
 	}, start, spec.Launch.Prompt)
 	if err != nil {
 		cancel()

@@ -63,7 +63,11 @@ func (approvalCodec) EncodeAnswer(_ string, _ engine.PermissionAsk, a engine.Per
 		Message      string   `json:"message,omitempty"`
 	}{Allow: a.Allow, SessionRules: a.SessionRules, Message: a.Message}
 	if m, ok := a.SetMode.Get(); ok {
-		if settable := (permissionModel{}).Transitions(nil); !slices.Contains(settable, m) {
+		var settable []string
+		for _, tr := range (permissionModel{}).Transitions(nil) {
+			settable = append(settable, tr.Posture)
+		}
+		if !slices.Contains(settable, m) {
 			return nil, fmt.Errorf("mock approval: an answer may change mode only to %s, not %s", strings.Join(settable, "|"), m)
 		}
 		out.SetMode = m

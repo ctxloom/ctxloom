@@ -3,6 +3,7 @@ package runner_test
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"os"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
@@ -131,4 +133,62 @@ func lastWord(s string) string {
 		}
 	}
 	return s
+}
+
+// TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute: a structured run
+// whose approver is the human is delivered the approval hooks, and its
+// engine is started with the address they post to — the session endpoint's
+// origin at the hook path — under the endpoint's own bearer. A run whose
+// approver is not the human gets neither.
+func TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		approver engine.Approver
+		routed   bool
+	}{
+		{"human", engine.ApproverHuman, true},
+		{"none", engine.ApproverNone, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newDeliveryEnv(t)
+			l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+				Identity: env.mint(t, 1, "run-approval-"+tc.name),
+				Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+			})
+			require.NoError(t, err)
+			l.Permission.Approver = tc.approver
+			require.Equal(t, tc.routed, l.RoutesApprovals())
+
+			drive := &recordingDriver{}
+			_, err = runner.Execute(context.Background(), runner.Deps{
+				Kind: mock.New(mock.WithDynamic()), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+				Static: staticWriter(t), Records: records(t), Driver: drive, Dynamic: &recordingDynamic{},
+			}, l)
+			require.NoError(t, err)
+			require.Len(t, drive.turns, 1)
+			turn := drive.turns[0]
+
+			hook, err := sessions.DecodeHookReach(func(k string) string { return turn.Exec.Env[k] })
+			if !tc.routed {
+				require.ErrorIs(t, err, sessions.ErrNoHookReach, "no route, no hook address")
+				return
+			}
+			require.NoError(t, err)
+			mcpURL, err := url.Parse(l.MCP.URL)
+			require.NoError(t, err)
+			assert.Equal(t, "http://"+mcpURL.Host+runner.HookPath, hook.URL, "the hook posts to the session endpoint's own listener")
+			assert.Equal(t, l.MCP.Credential, hook.Credential, "under the endpoint's own bearer")
+
+			var hooksFile string
+			for i, a := range turn.Exec.Args {
+				if a == mock.HooksFlag && i+1 < len(turn.Exec.Args) {
+					hooksFile = turn.Exec.Args[i+1]
+				}
+			}
+			require.NotEmpty(t, hooksFile, "the hooks were delivered")
+			delivered, err := mock.DeliveredHooksFile(hooksFile)
+			require.NoError(t, err)
+			assert.Equal(t, agent.ApprovalHooks(l.Permission.ApprovalTimeout).PermissionAsk, delivered.PermissionAsk)
+		})
+	}
 }

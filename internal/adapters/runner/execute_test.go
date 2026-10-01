@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -77,6 +78,21 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	hostSet := cellTree(t, host)
 	childSet := cellTree(t, child)
 	require.NotEmpty(t, hostSet, "the host arm delivered nothing — the fixture carries no surfaces")
+	// The one difference WHO asks makes: the delegated run is structured and
+	// its approver is the human, so it is also delivered the approval route's
+	// hooks (launch.Launch.RoutesApprovals) — exactly those, on top of the
+	// host's.
+	require.False(t, host.RoutesApprovals())
+	require.True(t, child.RoutesApprovals())
+	const hooksRel = "session/.mock/hooks.json"
+	hostHooks, err := mock.DeliveredHooksFile(filepath.Join(host.Cell.Paths.Paths().SessionHome.Host, ".mock", "hooks.json"))
+	require.NoError(t, err)
+	childHooks, err := mock.DeliveredHooksFile(filepath.Join(child.Cell.Paths.Paths().SessionHome.Host, ".mock", "hooks.json"))
+	require.NoError(t, err)
+	hostHooks.Append(agent.ApprovalHooks(child.Permission.ApprovalTimeout))
+	require.Equal(t, hostHooks, childHooks, "the delegated run's hooks are the host's plus the approval hooks")
+	delete(hostSet, hooksRel)
+	delete(childSet, hooksRel)
 	require.Equal(t, hostSet, childSet, "a host launch and a delegated launch over one binding deliver one file set")
 	t.Logf("delivered (both arms):\n%s", strings.Join(keys(hostSet), "\n"))
 

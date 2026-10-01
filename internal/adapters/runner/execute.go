@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -26,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
@@ -140,7 +142,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
-	delivered, err := deliverAndDrive(ctx, deps, l, inst, pkg, lo, inputs)
+	delivered, err := deliverAndDrive(ctx, deps, l, inst, pkg, inputs, approvalSpecFor(deps.Kind, l))
 	if err != nil {
 		if closeServed != nil {
 			closeServed()
@@ -238,10 +240,11 @@ func serveEndpoint(ctx context.Context, deps Deps, lo delivery.Loadout) (func(),
 }
 
 // deliverAndDrive delivers the loadout under the session's writer, composes
-// the engine's exec over what was presented, and drives the first turn. The
-// caller tears the served endpoint down on error.
-func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance, pkg composite.Package, lo delivery.Loadout, inputs delivery.Inputs) (delivery.Delivered, error) {
-	delivered, err := deps.Static.Deliver(ctx, lo, deps.Kind.Root(), l.Target(deps.Records))
+// the engine's exec over what was presented — with the approval hook's
+// address when the run serves the approval route — and drives the first
+// turn. The caller tears the served endpoint down on error.
+func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engine.Instance, pkg composite.Package, inputs delivery.Inputs, approval *approvalSpec) (delivery.Delivered, error) {
+	delivered, err := deps.Static.Deliver(ctx, l.Loadout(pkg), deps.Kind.Root(), l.Target(deps.Records))
 	if err != nil {
 		return delivery.Delivered{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}
@@ -253,6 +256,13 @@ func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engin
 	// engine env — the identity carriers, the label's env, the caller's
 	// passthrough — is laid under it here, the engine's own on top.
 	env := l.EngineEnv()
+	if approval != nil {
+		hook, err := hookEndpoint(l.MCP)
+		if err != nil {
+			return delivery.Delivered{}, err
+		}
+		maps.Copy(env, sessions.EncodeHookReach(hook))
+	}
 	maps.Copy(env, ex.Env)
 	ex.Env = env
 	turn := Turn{
@@ -262,6 +272,7 @@ func deliverAndDrive(ctx context.Context, deps Deps, l launch.Launch, inst engin
 		MCPServers: agent.ComposeChatMCPServers(inputs.MCP.Servers, nil),
 		Prompt:     firstTurn(pkg, l),
 		Presented:  delivered.Presented,
+		approval:   approval,
 	}
 	if err := deps.Driver.Drive(ctx, turn); err != nil {
 		return delivery.Delivered{}, err
@@ -312,4 +323,39 @@ func scrubEngineEnv(deps Deps, unset []string) error {
 		return fmt.Errorf("%w: %w", ErrEngineEnvUnscrubbed, errors.Join(errs...))
 	}
 	return nil
+}
+
+// HookPath is where the session's endpoint serves the approval hook's POST,
+// beside the MCP path on the same listener and behind the same bearer.
+const HookPath = "/hook"
+
+// approvalSpecFor is the approval route a launch serves: nil unless it
+// routes approvals to the human (launch.Launch.RoutesApprovals) over an
+// endpoint the engine can reach, on an engine with an approval codec. The
+// postures an approval may move the session to are the engine's own, from
+// the launch's posture.
+func approvalSpecFor(eng engine.Engine, l launch.Launch) *approvalSpec {
+	if !l.RoutesApprovals() || l.MCP.URL == "" {
+		return nil
+	}
+	codec, ok := eng.Approvals().Get()
+	if !ok {
+		return nil
+	}
+	spec := &approvalSpec{codec: codec, timeout: l.Permission.ApprovalTimeout}
+	if model, ok := eng.Permissions().Get(); ok {
+		spec.transitions = model.Transitions(l.Permission.Posture.Document)
+	}
+	return spec
+}
+
+// hookEndpoint is the approval hook's address: the session endpoint's
+// origin at HookPath, under the endpoint's own bearer.
+func hookEndpoint(ep sessions.Endpoint) (sessions.Endpoint, error) {
+	u, err := url.Parse(ep.URL)
+	if err != nil || u.Host == "" {
+		return sessions.Endpoint{}, fmt.Errorf("runner: the session endpoint %q has no address for the approval hook", ep.URL)
+	}
+	u.Path, u.RawQuery = HookPath, ""
+	return sessions.Endpoint{URL: u.String(), Credential: ep.Credential}, nil
 }

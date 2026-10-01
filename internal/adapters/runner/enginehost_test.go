@@ -40,7 +40,7 @@ type fakeEngineHome struct {
 		Value map[string]any
 	}
 	sink         func(*agentcoordpb.PeerMessage) bool
-	approvalHost ApprovalHost
+	approvalRoute ApprovalRoute
 	spoolSweeps  int
 	exited       []struct {
 		Code      int
@@ -105,11 +105,11 @@ func (f *fakeEngineHome) emitCustomEvent(name string, value map[string]any) {
 	}{name, value})
 }
 
-// SetApprovalHost records the approval route the engine host bound.
-func (f *fakeEngineHome) SetApprovalHost(ah ApprovalHost) {
+// SetApprovalRoute records the approval route the engine host bound.
+func (f *fakeEngineHome) SetApprovalRoute(ar ApprovalRoute) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.approvalHost = ah
+	f.approvalRoute = ar
 }
 
 func (f *fakeEngineHome) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {

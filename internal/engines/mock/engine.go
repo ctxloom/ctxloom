@@ -342,18 +342,17 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: i.s.Mode == engine.Interactive}, nil
 }
 func (i *instance) Drivers() []engine.StructuredDriver {
-	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver, endpoint: i.s.MCP}}
+	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver}}
 }
 func (i *instance) Resume(key string) error { i.key = key; return nil }
 
 // driver is the mock's structured driver (turn.go): it fires the delivered
 // hooks for every event the turn passes through and echoes the prompt. A
-// mock:ask turn asks its session's approver through the session's endpoint
-// (ask.go).
+// mock:ask turn asks its session's approver through the permission_ask
+// hooks (ask.go).
 type driver struct {
 	fires    map[string]bool
 	approver engine.Approver
-	endpoint sessions.Endpoint
 }
 
 // Exports exports EVERYTHING: no bundle carries a block for a mock (mock is

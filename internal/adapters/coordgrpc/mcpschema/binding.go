@@ -245,11 +245,6 @@ const (
 	// the file cell-locally — never a typed AgentRequest/
 	// CoordinatorResponse round-trip.
 	RouteArtifactFetch
-	// RouteApprovalHost is the engine's permission host: served by the
-	// runner against the run's own approval route (runner.ApprovalHost),
-	// never relayed — it holds a request open while the approval hook
-	// carries the human's decision, and it never decides.
-	RouteApprovalHost
 )
 
 // Routes returns the classification of EVERY tool on the ctxloom MCP
@@ -294,9 +289,6 @@ func Routes() map[string]Route {
 		// session's other persisted state (~/.ctxloom/sessions/<harp>/persist),
 		// which an isolated child cell does not mount.
 		"context_status": RouteHostRelay,
-
-		// The engine's permission host — the run's approval route.
-		"permission_host": RouteApprovalHost,
 	}
 }
 

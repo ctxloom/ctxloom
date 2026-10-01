@@ -78,11 +78,11 @@ type Home struct {
 	// mail_consumed fact only AFTER the engine accepted it (at-least-once
 	// preserved — a crash between notice and hand-off re-delivers).
 	turnQ chan *agentcoordpb.PeerMessage
-	// approvalHost is the hosted engine's approval route, served by the
-	// session's endpoint (/hook and the permission host); nil until a run
-	// whose approver is the human binds one.
-	approvalHost ApprovalHost
-	turnPending  map[string]bool
+	// approvalRoute is the hosted engine's approval route, served by the
+	// session's endpoint at /hook; nil until a run whose approver is the
+	// human binds one.
+	approvalRoute ApprovalRoute
+	turnPending   map[string]bool
 	// acking holds the ids the engine has ACCEPTED whose consume-rename the
 	// pump has not yet performed; ackWake is closed and replaced whenever
 	// turnPending or acking shrinks. Together they let AwaitMailAcked answer

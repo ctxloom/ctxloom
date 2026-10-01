@@ -3,8 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,8 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport/fakeclock"
 )
 
@@ -39,6 +38,7 @@ func newRouteHarness(t *testing.T, decide func(context.Context, engine.Permissio
 	h.a = newApprovals(approvalSpec{codec: codec, timeout: time.Minute}, decide)
 	h.a.after = h.clock.AfterFunc
 	h.a.armed = func() { h.armed <- struct{}{} }
+	t.Cleanup(h.a.endTurn) // abandons any decision a test left open
 	return h
 }
 
@@ -62,23 +62,40 @@ func (h *routeHarness) toolResult(id string) {
 	h.a.observe(&agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: id})
 }
 
-// holdAsync runs the permission host for a call and delivers why it answered.
-func (h *routeHarness) holdAsync(ctx context.Context, id, tool, input string) <-chan error {
-	out := make(chan error, 1)
-	args := json.RawMessage(`{"tool":"` + tool + `","input":` + input + `,"tool_use_id":"` + id + `"}`)
-	go func() { out <- h.a.hold(ctx, args) }()
+// hookAsync POSTs the mock codec's ask for tool and input — no call id, as
+// claude's PermissionRequest carries none — and delivers the answer.
+func (h *routeHarness) hookAsync(ctx context.Context, tool, input string) <-chan hookResult {
+	out := make(chan hookResult, 1)
+	payload := []byte(`{"tool":"` + tool + `","input":` + input + `}`)
+	go func() {
+		raw, err := h.a.Hook(ctx, wire.HookEventPermissionAsk, payload)
+		out <- hookResult{raw: raw, err: err}
+	}()
 	return out
 }
 
-func recvErr(t *testing.T, ch <-chan error) error {
+type hookResult struct {
+	raw []byte
+	err error
+}
+
+func recvHook(t *testing.T, ch <-chan hookResult) hookResult {
 	t.Helper()
 	select {
-	case err := <-ch:
-		return err
+	case r := <-ch:
+		return r
 	case <-time.After(10 * time.Second):
-		t.Fatal("the permission host never answered")
-		return nil
+		t.Fatal("the approval hook never answered")
+		return hookResult{}
 	}
+}
+
+// recvAnswer is the decoded answer of a hook that answered.
+func recvAnswer(t *testing.T, ch <-chan hookResult) mockAnswer {
+	t.Helper()
+	r := recvHook(t, ch)
+	require.NoError(t, r.err)
+	return decodeAnswer(t, r.raw)
 }
 
 // mockAnswer is the mock codec's hook answer.
@@ -116,207 +133,171 @@ func (b *blockingDecide) decide(ctx context.Context, ask engine.PermissionAsk) (
 	}
 }
 
-// TestApprovals_HookBindsTheOldestMatchingOpenSlot: two identical parallel
-// calls are held by two host calls; an ask carrying no call id binds the
-// OLDEST, so the first call's host is the one the hook's decision supersedes,
-// and the second — whose hook never comes — is denied at the arrival grace.
-func TestApprovals_HookBindsTheOldestMatchingOpenSlot(t *testing.T) {
+func (b *blockingDecide) nextAsk(t *testing.T) engine.PermissionAsk {
+	t.Helper()
+	select {
+	case ask := <-b.asks:
+		return ask
+	case <-time.After(10 * time.Second):
+		t.Fatal("the root was never asked")
+		return engine.PermissionAsk{}
+	}
+}
+
+// countingDecide allows at once and counts the asks that reached the root.
+type countingDecide struct{ n atomic.Int32 }
+
+func (c *countingDecide) decide(context.Context, engine.PermissionAsk) (engine.PermissionAnswer, error) {
+	c.n.Add(1)
+	return engine.PermissionAnswer{Allow: true}, nil
+}
+
+// TestApprovals_AnAskMatchingAnOpenCallReachesTheRoot: the stream announced
+// the call, its result has not arrived, and the ask names its exact tool and
+// input in another spelling — so the root is asked, about THAT call (the
+// ledger stamps its id), and its decision is the hook's answer.
+func TestApprovals_AnAskMatchingAnOpenCallReachesTheRoot(t *testing.T) {
 	root := newBlockingDecide()
 	h := newRouteHarness(t, root.decide)
-	ctx := context.Background()
+	h.toolUse("A", "Bash", `{"command":"ls","timeout":5}`)
+
+	hook := h.hookAsync(context.Background(), "Bash", `{"timeout":5, "command":"ls"}`)
+	ask := root.nextAsk(t)
+	assert.Equal(t, "A", ask.ToolUseID, "the ledger names the call the ask matched")
+	assert.Equal(t, "Bash", ask.Tool)
+	root.release <- engine.PermissionAnswer{Allow: true}
+	assert.True(t, recvAnswer(t, hook).Allow)
+}
+
+// TestApprovals_AnAskMatchingNoOpenCallIsDeniedUnasked: each way an ask can
+// fail to match a call the engine's own stream announced this turn and has
+// not closed. The root is never asked: this is what a forged POST gets — a
+// request claude never made.
+func TestApprovals_AnAskMatchingNoOpenCallIsDeniedUnasked(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(h *routeHarness)
+		tool  string
+		input string
+	}{
+		{"another tool", func(h *routeHarness) { h.toolUse("A", "Bash", lsInput) }, "Read", lsInput},
+		{"another input", func(h *routeHarness) { h.toolUse("A", "Bash", lsInput) }, "Bash", `{"command":"rm -rf /"}`},
+		{"the call already closed", func(h *routeHarness) { h.toolUse("A", "Bash", lsInput); h.toolResult("A") }, "Bash", lsInput},
+		{"a previous turn's call", func(h *routeHarness) { h.toolUse("A", "Bash", lsInput); h.a.endTurn() }, "Bash", lsInput},
+		{"no call at all", func(*routeHarness) {}, "Bash", lsInput},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var root countingDecide
+			h := newRouteHarness(t, root.decide)
+			tc.setup(h)
+			hook := h.hookAsync(context.Background(), tc.tool, tc.input)
+			h.waitArmed(t, 1) // the wait for the stream to announce a match
+			h.clock.Advance(approvalAnchorWait)
+			ans := recvAnswer(t, hook)
+			assert.False(t, ans.Allow)
+			assert.Equal(t, errUncorrelated.Error(), ans.Message)
+			assert.Zero(t, root.n.Load(), "the root is never asked about an uncorrelated request")
+		})
+	}
+}
+
+// TestApprovals_TheHookMayOutrunTheStream: the engine asks before its
+// tool_use frame reaches the runner; the ask waits (bounded) for the ledger
+// and binds once the call is announced.
+func TestApprovals_TheHookMayOutrunTheStream(t *testing.T) {
+	root := newBlockingDecide()
+	h := newRouteHarness(t, root.decide)
+	hook := h.hookAsync(context.Background(), "Bash", lsInput)
+	h.waitArmed(t, 1)
+	h.toolUse("A", "Bash", lsInput)
+	assert.Equal(t, "A", root.nextAsk(t).ToolUseID)
+	root.release <- engine.PermissionAnswer{Allow: true}
+	assert.True(t, recvAnswer(t, hook).Allow)
+}
+
+// TestApprovals_IdenticalParallelCallsAreAskedOnceEach: two open calls with
+// the same tool and input are two requests; the asks bind them oldest first,
+// so each reaches the root once — and a third ask joins a decision rather
+// than asking again.
+func TestApprovals_IdenticalParallelCallsAreAskedOnceEach(t *testing.T) {
+	root := newBlockingDecide()
+	h := newRouteHarness(t, root.decide)
 	h.toolUse("A", "Bash", lsInput)
 	h.toolUse("B", "Bash", lsInput)
 
-	hostA := h.holdAsync(ctx, "A", "Bash", lsInput)
-	h.waitArmed(t, 2) // A's anchor wait, then A's slot open and waiting for its hook
-	hostB := h.holdAsync(ctx, "B", "Bash", lsInput)
-	h.waitArmed(t, 2) // B likewise: A's slot is the older
+	first := h.hookAsync(context.Background(), "Bash", lsInput)
+	assert.Equal(t, "A", root.nextAsk(t).ToolUseID, "the oldest open call binds first")
+	second := h.hookAsync(context.Background(), "Bash", lsInput)
+	assert.Equal(t, "B", root.nextAsk(t).ToolUseID, "the next ask binds the next call")
+	third := h.hookAsync(context.Background(), "Bash", lsInput)
 
-	hook := make(chan []byte, 1)
-	go func() {
-		out, err := h.a.Hook(ctx, "PermissionRequest", []byte(`{"tool":"Bash","input":{"command":"ls"}}`))
-		assert.NoError(t, err)
-		hook <- out
-	}()
-	<-root.asks
 	root.release <- engine.PermissionAnswer{Allow: true}
-	assert.True(t, decodeAnswer(t, <-hook).Allow, "the hook carries the root's decision")
-
-	h.waitArmed(t, 2) // the hook's anchor wait, and A's host entering its hold
-	select {
-	case err := <-hostA:
-		t.Fatalf("the host answered (%v) after the hook decided but before the call's result — a host answer may race the hook's", err)
-	default:
-	}
-	h.toolResult("A")
-	require.ErrorIs(t, recvErr(t, hostA), errSuperseded, "A was bound: its host answers only after the result, and is superseded")
-
-	h.clock.Advance(approvalArrivalGrace)
-	require.ErrorIs(t, recvErr(t, hostB), errHookSilent, "B's hook never came: it is denied at the arrival grace")
-}
-
-// TestApprovals_HookWithNoOpenSlotIsDenied: an ask with no call id and no
-// host holding the same request open is denied once the anchor wait
-// expires — the case of a forged POST from inside an already-permitted
-// tool call — and the root is never asked.
-func TestApprovals_HookWithNoOpenSlotIsDenied(t *testing.T) {
-	asked := false
-	h := newRouteHarness(t, func(context.Context, engine.PermissionAsk) (engine.PermissionAnswer, error) {
-		asked = true
-		return engine.PermissionAnswer{Allow: true}, nil
-	})
-	h.toolUse("A", "Bash", lsInput) // a call exists, but no host is holding it
-
-	out := make(chan []byte, 1)
-	go func() {
-		raw, err := h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"tool":"Bash","input":{"command":"ls"}}`))
-		assert.NoError(t, err)
-		out <- raw
-	}()
-	h.waitArmed(t, 1)
-	h.clock.Advance(approvalAnchorWait)
-	ans := decodeAnswer(t, <-out)
-	assert.False(t, ans.Allow)
-	assert.Equal(t, errNoHostAnchor.Error(), ans.Message)
-	assert.False(t, asked, "an unanchored ask never reaches the human")
-}
-
-// TestApprovals_RepeatedPostJoinsTheOneDecision: a second POST for a
-// request already bound waits on the same decision; the root is asked once.
-func TestApprovals_RepeatedPostJoinsTheOneDecision(t *testing.T) {
-	root := newBlockingDecide()
-	h := newRouteHarness(t, root.decide)
-	ctx := context.Background()
-	h.toolUse("A", "Bash", lsInput)
-	hostA := h.holdAsync(ctx, "A", "Bash", lsInput)
-	h.waitArmed(t, 2)
-
-	payload := []byte(`{"tool":"Bash","input":{"command":"ls"}}`)
-	first, second := make(chan []byte, 1), make(chan []byte, 1)
-	go func() { raw, _ := h.a.Hook(ctx, "PermissionRequest", payload); first <- raw }()
-	<-root.asks
-	go func() { raw, _ := h.a.Hook(ctx, "PermissionRequest", payload); second <- raw }()
-	h.waitArmed(t, 2) // both hooks' anchor waits: the second has bound by the time its wait ends
 	root.release <- engine.PermissionAnswer{Allow: false, Message: "no"}
-
-	assert.Equal(t, mockAnswer{Allow: false, Message: "no"}, decodeAnswer(t, <-first))
-	assert.Equal(t, mockAnswer{Allow: false, Message: "no"}, decodeAnswer(t, <-second))
+	got := map[bool]int{}
+	for _, ch := range []<-chan hookResult{first, second, third} {
+		got[recvAnswer(t, ch).Allow]++
+	}
+	assert.Len(t, got, 2, "both decisions were handed out")
 	select {
-	case <-root.asks:
-		t.Fatal("the root was asked twice for one request")
+	case ask := <-root.asks:
+		t.Fatalf("a third ask reached the root: %+v", ask)
 	default:
 	}
-	h.toolResult("A")
-	require.ErrorIs(t, recvErr(t, hostA), errSuperseded)
 }
 
-// TestApprovals_HostRefusesWhatItCannotAnchor: the host holds only a call
-// of this turn whose result has not arrived, matching that call's tool and
-// input, and never the host itself.
-func TestApprovals_HostRefusesWhatItCannotAnchor(t *testing.T) {
-	ctx := context.Background()
-	t.Run("a call this turn never made", func(t *testing.T) {
-		h := newRouteHarness(t, nil)
-		host := h.holdAsync(ctx, "nope", "Bash", lsInput)
-		h.waitArmed(t, 1)
-		h.clock.Advance(approvalAnchorWait)
-		require.ErrorIs(t, recvErr(t, host), errUncorrelated)
-	})
-	t.Run("another input than the call's", func(t *testing.T) {
-		h := newRouteHarness(t, nil)
-		h.toolUse("A", "Bash", lsInput)
-		require.ErrorIs(t, recvErr(t, h.holdAsync(ctx, "A", "Bash", `{"command":"rm -rf /"}`)), errMismatch)
-	})
-	t.Run("another tool than the call's", func(t *testing.T) {
-		h := newRouteHarness(t, nil)
-		h.toolUse("A", "Bash", lsInput)
-		require.ErrorIs(t, recvErr(t, h.holdAsync(ctx, "A", "Write", lsInput)), errMismatch)
-	})
-	t.Run("a call whose result arrived", func(t *testing.T) {
-		h := newRouteHarness(t, nil)
-		h.toolUse("A", "Bash", lsInput)
-		h.toolResult("A")
-		require.ErrorIs(t, recvErr(t, h.holdAsync(ctx, "A", "Bash", lsInput)), errUncorrelated)
-	})
-	t.Run("the host asked about itself", func(t *testing.T) {
-		h := newRouteHarness(t, nil)
-		h.toolUse("H", "mcp__ctxloom__"+engine.PermissionHostTool, `{}`)
-		require.ErrorIs(t, recvErr(t, h.holdAsync(ctx, "H", "mcp__ctxloom__"+engine.PermissionHostTool, `{}`)), errHostCalled)
-	})
-	t.Run("a model calling the host about its own call", func(t *testing.T) {
-		h := newRouteHarness(t, nil)
-		h.toolUse("H", "mcp__ctxloom__"+engine.PermissionHostTool, lsInput)
-		require.ErrorIs(t, recvErr(t, h.holdAsync(ctx, "H", "Bash", lsInput)), errHostCalled)
-	})
+// TestApprovals_ARepeatedPostJoinsTheOneDecision: two POSTs for one open call
+// park one request; both get its decision.
+func TestApprovals_ARepeatedPostJoinsTheOneDecision(t *testing.T) {
+	var root countingDecide
+	h := newRouteHarness(t, root.decide)
+	h.toolUse("A", "Bash", lsInput)
+	assert.True(t, recvAnswer(t, h.hookAsync(context.Background(), "Bash", lsInput)).Allow)
+	assert.True(t, recvAnswer(t, h.hookAsync(context.Background(), "Bash", lsInput)).Allow)
+	assert.Equal(t, int32(1), root.n.Load(), "one request for one call")
 }
 
-// TestApprovals_HookLostDeniesTheHeldHost: the bound hook's request ends
-// without an answer (the hook was killed), so the held host denies at once
-// rather than holding until its bound.
-func TestApprovals_HookLostDeniesTheHeldHost(t *testing.T) {
+// TestApprovals_TheFirstPostLeavingDoesNotDecide: the decision is the turn's,
+// not the first POST's — a POST that binds and then goes away (a model's own
+// curl, killed) cannot turn the genuine hook's wait into a deny.
+func TestApprovals_TheFirstPostLeavingDoesNotDecide(t *testing.T) {
 	root := newBlockingDecide()
 	h := newRouteHarness(t, root.decide)
 	h.toolUse("A", "Bash", lsInput)
-	hostA := h.holdAsync(context.Background(), "A", "Bash", lsInput)
-	h.waitArmed(t, 2)
 
-	hookCtx, killHook := context.WithCancel(context.Background())
-	hookDone := make(chan error, 1)
-	go func() {
-		_, err := h.a.Hook(hookCtx, "PermissionRequest", []byte(`{"tool":"Bash","input":{"command":"ls"}}`))
-		hookDone <- err
-	}()
-	<-root.asks
-	killHook()
-	require.ErrorIs(t, <-hookDone, context.Canceled)
-	require.ErrorIs(t, recvErr(t, hostA), errHookSilent)
-}
+	ctx, cancel := context.WithCancel(context.Background())
+	first := h.hookAsync(ctx, "Bash", lsInput)
+	root.nextAsk(t)
+	cancel()
+	require.ErrorIs(t, recvHook(t, first).err, context.Canceled, "nobody reads the answer of a POST that left")
 
-// TestApprovals_TurnEndReleasesTheHeldHost: the turn's engine process ended
-// with the request held; the host is released with a deny.
-func TestApprovals_TurnEndReleasesTheHeldHost(t *testing.T) {
-	h := newRouteHarness(t, nil)
-	h.toolUse("A", "Bash", lsInput)
-	hostA := h.holdAsync(context.Background(), "A", "Bash", lsInput)
-	h.waitArmed(t, 2)
-	h.a.endTurn()
-	require.ErrorIs(t, recvErr(t, hostA), errTurnEnded)
-
-	// and the next turn's ledger starts empty
-	host := h.holdAsync(context.Background(), "A", "Bash", lsInput)
-	h.waitArmed(t, 1)
-	h.clock.Advance(approvalAnchorWait)
-	require.ErrorIs(t, recvErr(t, host), errUncorrelated)
-}
-
-// TestApprovals_ASelfNamedAskIsCorrelatedByItsID: an ask carrying the call's
-// id (a pre-tool hook) needs no host: the ledger correlates it, refusing a
-// mismatched input, and a host call for the same id later joins its decision.
-func TestApprovals_ASelfNamedAskIsCorrelatedByItsID(t *testing.T) {
-	root := newBlockingDecide()
-	h := newRouteHarness(t, root.decide)
-	ctx := context.Background()
-	h.toolUse("Q", "AskUserQuestion", `{"questions":[]}`)
-
-	out, err := h.a.Hook(ctx, "PreToolUse", []byte(`{"tool":"AskUserQuestion","input":{"questions":[1]},"tool_use_id":"Q"}`))
-	require.NoError(t, err)
-	assert.Equal(t, errMismatch.Error(), decodeAnswer(t, out).Message)
-
-	hook := make(chan []byte, 1)
-	go func() {
-		raw, _ := h.a.Hook(ctx, "PreToolUse", []byte(`{"tool":"AskUserQuestion","input":{"questions":[]},"tool_use_id":"Q"}`))
-		hook <- raw
-	}()
-	ask := <-root.asks
-	assert.Equal(t, "Q", ask.ToolUseID)
+	genuine := h.hookAsync(context.Background(), "Bash", lsInput)
 	root.release <- engine.PermissionAnswer{Allow: true}
-	assert.True(t, decodeAnswer(t, <-hook).Allow)
+	assert.True(t, recvAnswer(t, genuine).Allow, "the decision outlives the POST that started it")
+}
 
-	h.waitArmed(t, 2) // the two hooks' anchor waits, already behind us
-	host := h.holdAsync(ctx, "Q", "AskUserQuestion", `{"questions":[]}`)
-	h.waitArmed(t, 2) // the host's anchor wait, then its slot open (already bound)
-	h.toolResult("Q")
-	require.ErrorIs(t, recvErr(t, host), errSuperseded)
+// TestApprovals_TurnEndDeniesWhatIsStillUndecided: the turn's engine process
+// ended with the request open — the root's wait is abandoned, and the hook
+// (if anyone still reads it) is denied.
+func TestApprovals_TurnEndDeniesWhatIsStillUndecided(t *testing.T) {
+	root := newBlockingDecide()
+	h := newRouteHarness(t, root.decide)
+	h.toolUse("A", "Bash", lsInput)
+	hook := h.hookAsync(context.Background(), "Bash", lsInput)
+	root.nextAsk(t)
+	h.a.endTurn()
+	ans := recvAnswer(t, hook)
+	assert.False(t, ans.Allow)
+	assert.Equal(t, errTurnEnded.Error(), ans.Message)
+}
+
+// TestApprovals_AnUnreadablePayloadIsAnError: the codec cannot read it, so
+// the route decides nothing.
+func TestApprovals_AnUnreadablePayloadIsAnError(t *testing.T) {
+	var root countingDecide
+	h := newRouteHarness(t, root.decide)
+	_, err := h.a.Hook(context.Background(), wire.HookEventPermissionAsk, []byte(`not json`))
+	require.Error(t, err)
+	assert.Zero(t, root.n.Load())
 }
 
 // TestApprovals_TheRootsTimeoutDeniesTheAsk: the coordinator's queue denies
@@ -350,51 +331,38 @@ func TestApprovals_ADeadCoordinatorDeniesAtTheBound(t *testing.T) {
 	_, err := askTheRoot(home, approvalSpec{timeout: time.Minute}, time.Minute)(context.Background(), engine.PermissionAsk{Tool: "Bash"})
 	require.ErrorIs(t, err, errNoDecision)
 
-	stalled := &blockingHome{fakeEngineHome: &fakeEngineHome{}}
+	stalled := &blockingHome{fakeEngineHome: &fakeEngineHome{}, done: make(chan error, 1)}
 	_, err = askTheRoot(stalled, approvalSpec{timeout: time.Minute}, 20*time.Millisecond)(context.Background(), engine.PermissionAsk{Tool: "Bash"})
 	require.ErrorIs(t, err, errNoDecision)
-	require.True(t, errors.Is(stalled.err, context.DeadlineExceeded), "the bound ended the wait: %v", stalled.err)
+	require.ErrorIs(t, stalled.waitErr(t), context.DeadlineExceeded, "the bound ended the wait")
 }
 
 // blockingHome's Request waits for its context, as a coordinator that never
-// answers does.
+// answers does; entered, when set, is closed once a request is waiting.
 type blockingHome struct {
 	*fakeEngineHome
-	err error
+	entered chan struct{}
+	done    chan error
 }
 
 func (b *blockingHome) Request(ctx context.Context, _ *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+	if b.entered != nil {
+		close(b.entered)
+	}
 	<-ctx.Done()
-	b.err = ctx.Err()
+	b.done <- ctx.Err()
 	return nil, ctx.Err()
 }
 
-// TestEngineHost_CapabilitiesGateNamesAMissingApprovalHost: on a human-
-// approved run the turn's session start must show ctxloom's server
-// connected — it serves the permission host every ask anchors on — or the
-// run is warned that this turn's asks will all be denied. An engine that
-// reports no server statuses is not judged.
-func TestEngineHost_CapabilitiesGateNamesAMissingApprovalHost(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		servers []agent.MCPStatus
-		warned  bool
-	}{
-		{"no statuses reported", nil, false},
-		{"connected", []agent.MCPStatus{{Name: "ctxloom", Status: "connected"}}, false},
-		{"failed", []agent.MCPStatus{{Name: "ctxloom", Status: "failed"}}, true},
-		{"absent", []agent.MCPStatus{{Name: "other", Status: "connected"}}, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var findings report.Collector
-			eh := NewEngineHost(context.Background(), &findings, "mock", "run-1")
-			eh.checkApprovalHost(&agent.ChatSessionInfo{MCPServers: tc.servers})
-			warned := false
-			for _, text := range findings.All().Texts() {
-				warned = warned || strings.Contains(text, "approval host not connected")
-			}
-			assert.Equal(t, tc.warned, warned, "%v", findings.All().Texts())
-		})
+// waitErr is why the request's wait ended.
+func (b *blockingHome) waitErr(t *testing.T) error {
+	t.Helper()
+	select {
+	case err := <-b.done:
+		return err
+	case <-time.After(10 * time.Second):
+		t.Fatal("the root's wait never ended")
+		return nil
 	}
 }
 
@@ -423,7 +391,7 @@ func TestEngineHost_DriveBindsTheApprovalRouteBeforeTheFirstTurn(t *testing.T) {
 				Instance: inst, approval: tc.spec,
 			}))
 			home.mu.Lock()
-			bound := home.approvalHost
+			bound := home.approvalRoute
 			home.mu.Unlock()
 			assert.Equal(t, tc.bound, bound != nil)
 			if tc.bound {

@@ -30,9 +30,8 @@ import (
 //     (TurnMeta.Denials): what claude reports when its posture refuses a
 //     call nobody can approve.
 //   - "mock:ask=<tool>:<json>": a call the rules leave open, ASKED about —
-//     through the session endpoint's permission host and the delivered
-//     permission_ask hooks when the approver is the human, denied at once
-//     otherwise (ask.go).
+//     through the delivered permission_ask hooks when the approver is the
+//     human, denied at once otherwise (ask.go).
 //   - "HANG": a STALLED engine — the turn is taken (hooks fire, the record is
 //     written) and then emits nothing at all until its context ends. A
 //     liveness check's red direction needs an engine that goes silent.

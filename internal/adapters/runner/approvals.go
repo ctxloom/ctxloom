@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,75 +16,40 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
-// ApprovalHost is the approval route as the session's endpoint serves it:
-// the approval hook's POST (Hook: the engine's native payload in, its native
-// decision out) and the engine's permission host tool (Host: always a deny,
-// returned only once the hook has decided or failed).
-type ApprovalHost interface {
+// ApprovalRoute is the approval route as the session's endpoint serves it:
+// the approval hook's POST, the engine's native payload in and its native
+// decision out.
+type ApprovalRoute interface {
 	Hook(ctx context.Context, event string, payload []byte) ([]byte, error)
-	Host(ctx context.Context, args json.RawMessage) (string, error)
 }
 
 // The refusals the route answers without asking anyone. Each one reaches the
 // engine as a deny whose message is the refusal.
 var (
-	// errUncorrelated: the request names no tool call this turn made, or
-	// one whose result already arrived.
-	errUncorrelated = errors.New("ctxloom: the permission request names no open tool call of this turn")
-	// errMismatch: the request names a call of this turn, but not the tool
-	// or the input that call carried.
-	errMismatch = errors.New("ctxloom: the permission request does not match the tool call it names")
-	// errHostCalled: the permission host itself is never a tool a request
-	// may ask about — a model calling it gets nothing.
-	errHostCalled = errors.New("ctxloom: the permission host is not a tool anyone may be granted")
-	// errNoHostAnchor: an ask that carries no call id binds only to a
-	// permission host call holding the same request open; there is none.
-	errNoHostAnchor = errors.New("ctxloom: no permission host call is holding this request open")
-	// errHookSilent: the permission host held the request, and no approval
-	// hook carried a decision for it.
-	errHookSilent = errors.New("ctxloom: the approval hook did not answer")
-	// errSuperseded: the host's own answer, given after the hook decided —
-	// the engine has already applied the hook's decision.
-	errSuperseded = errors.New("ctxloom: superseded — the approval hook decided this request")
+	// errUncorrelated: the ask matches no call the engine's own stream
+	// announced this turn and has not yet closed, by exact tool name and
+	// canonical input. It is what a forged POST gets: the route never puts a
+	// request in front of the human that the engine did not make.
+	errUncorrelated = errors.New("ctxloom: the permission request matches no open tool call of this turn")
 	// errTurnEnded: the turn's engine process ended with the request open.
 	errTurnEnded = errors.New("ctxloom: the turn ended before the request was decided")
 	// errNoDecision: the coordinator gave no decision for the request.
 	errNoDecision = errors.New("ctxloom: the coordinator gave no decision")
 )
 
-// The bounds of the hold (approval route design, §2.2). anchorWait covers the
-// engine's events reaching the ledger after the engine already acted on them
-// (the hook and the host call race the stream); arrivalGrace is how long a
-// held request waits for its hook to bind.
 const (
-	approvalAnchorWait   = 5 * time.Second
-	approvalArrivalGrace = 30 * time.Second
+	// approvalAnchorWait is how long an ask waits for the engine's stream
+	// to announce the call it matches: the engine runs the hook as soon as
+	// it emits the tool_use, so the POST can reach the runner before the
+	// frame does.
+	approvalAnchorWait = 5 * time.Second
 	// approvalRequestSlack bounds the runner's wait on the coordinator past
 	// the approval timeout the coordinator enforces itself: it guards a dead
 	// coordinator, not the human.
 	approvalRequestSlack = 30 * time.Second
-	// approvalHoldSlack bounds the host's hold past the approval timeout:
-	// beyond the hook's own timeout (agent.ApprovalHookSlack), so the host
-	// never answers while a hook may still carry the decision.
-	approvalHoldSlack = 90 * time.Second
 )
-
-// approvalBounds are one route's waits, derived from the approval timeout.
-type approvalBounds struct {
-	anchorWait, arrivalGrace, hold, request time.Duration
-}
-
-func boundsFor(timeout time.Duration) approvalBounds {
-	return approvalBounds{
-		anchorWait:   approvalAnchorWait,
-		arrivalGrace: approvalArrivalGrace,
-		hold:         timeout + approvalHoldSlack,
-		request:      timeout + approvalRequestSlack,
-	}
-}
 
 // approvalSpec is what a launch hands the engine host to serve the route:
 // the engine's codec, the postures an approval may move the session to, and
@@ -101,16 +65,14 @@ type afterFunc func(d time.Duration, f func()) (stop func() bool)
 
 func realAfter(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 
-// approvals is the route's runner half for one run: a ledger of the current
-// turn's tool calls (fed from the engine's stream), the permission host's
-// slots (one per held call), and the decision each correlated request waits
-// on. The host is an ANCHOR: it opens a slot for a call the ledger knows and
-// holds it, and it never answers allow — the hook carries the decision.
+// approvals is the route's runner half for one run: a LEDGER of the current
+// turn's tool calls, fed from the engine's own stream, and the one decision
+// each call's asks share. An ask is put to the root only when it matches an
+// open call of the ledger; everything resets when the turn ends.
 type approvals struct {
 	codec  engine.ApprovalCodec
 	decide func(ctx context.Context, ask engine.PermissionAsk) (engine.PermissionAnswer, error)
 	after  afterFunc
-	bounds approvalBounds
 	// armed, when set, is told each time a bounded wait has armed its
 	// timer — the point after which advancing the clock expires it. Tests
 	// only.
@@ -121,34 +83,29 @@ type approvals struct {
 	turn    *approvalTurn
 }
 
-// approvalTurn is one engine process's state: everything correlated within
-// it ends with it.
+// approvalTurn is one engine process's ledger. Its context ends with the
+// turn, abandoning every decision still being asked for.
 type approvalTurn struct {
-	ended     chan struct{}
-	calls     map[string]*toolCall
-	slots     []*hostSlot // open, oldest first
-	decisions map[string]*decision
+	ctx   context.Context
+	end   context.CancelFunc
+	calls map[string]*toolCall
+	order []*toolCall // as announced, oldest first
 }
 
 func newApprovalTurn() *approvalTurn {
-	return &approvalTurn{ended: make(chan struct{}), calls: map[string]*toolCall{}, decisions: map[string]*decision{}}
+	ctx, end := context.WithCancel(context.Background())
+	return &approvalTurn{ctx: ctx, end: end, calls: map[string]*toolCall{}}
 }
 
 // toolCall is one tool call the engine announced this turn.
 type toolCall struct {
-	tool     string
-	input    []byte // agent.CanonicalJSON of the call's input
+	id, tool string
+	input    []byte // canonicalInput of the call's input
 	resulted bool
+	decision *decision // the one decision its asks share; nil until asked
 }
 
-// hostSlot is one permission host call holding a request open.
-type hostSlot struct {
-	id    string
-	call  *toolCall
-	bound *decision
-}
-
-// decision is the one decision every request correlated to a call waits on.
+// decision is the one decision every ask bound to a call waits on.
 type decision struct {
 	done chan struct{}
 	ans  engine.PermissionAnswer
@@ -157,7 +114,7 @@ type decision struct {
 
 func newApprovals(spec approvalSpec, decide func(context.Context, engine.PermissionAsk) (engine.PermissionAnswer, error)) *approvals {
 	return &approvals{
-		codec: spec.codec, decide: decide, after: realAfter, bounds: boundsFor(spec.timeout),
+		codec: spec.codec, decide: decide, after: realAfter,
 		changed: make(chan struct{}), turn: newApprovalTurn(),
 	}
 }
@@ -178,10 +135,10 @@ func (a *approvals) observe(e *agent.SessionEntry) {
 	case agent.EntryTypeToolUse:
 		input, err := canonicalInput(e.ToolInput)
 		if err != nil {
-			return // an input the ledger cannot canonicalise anchors nothing
+			return // an input the ledger cannot canonicalise matches no ask
 		}
 		a.mu.Lock()
-		a.turn.calls[e.ToolCallID] = &toolCall{tool: e.ToolName, input: input}
+		a.turn.announceLocked(e.ToolCallID, e.ToolName, input)
 		a.broadcastLocked()
 		a.mu.Unlock()
 	case agent.EntryTypeToolResult:
@@ -194,11 +151,24 @@ func (a *approvals) observe(e *agent.SessionEntry) {
 	}
 }
 
-// endTurn ends the turn's correlation: every held request is released (the
-// engine process that asked is gone) and the ledger starts empty.
+// announceLocked records a call; a call announced again keeps its place and
+// decision and takes the later tool and input. Call with a.mu held.
+func (t *approvalTurn) announceLocked(id, tool string, input []byte) {
+	if c := t.calls[id]; c != nil {
+		c.tool, c.input = tool, input
+		return
+	}
+	c := &toolCall{id: id, tool: tool, input: input}
+	t.calls[id] = c
+	t.order = append(t.order, c)
+}
+
+// endTurn ends the turn's ledger: every decision still being asked for is
+// abandoned (the engine process that asked is gone) and the next turn's
+// ledger starts empty.
 func (a *approvals) endTurn() {
 	a.mu.Lock()
-	close(a.turn.ended)
+	a.turn.end()
 	a.turn = newApprovalTurn()
 	a.broadcastLocked()
 	a.mu.Unlock()
@@ -231,120 +201,26 @@ func (a *approvals) await(ctx context.Context, d time.Duration, cond func() bool
 	}
 }
 
-// Host serves the permission host: it holds the request open and answers,
-// always, with a deny — superseded once the hook has decided, or the reason
-// the request could not be held or was never decided.
-func (a *approvals) Host(ctx context.Context, args json.RawMessage) (string, error) {
-	return a.codec.HostDeny(a.hold(ctx, args).Error())
-}
-
-// hold is Host's body: the reason the host answers.
-func (a *approvals) hold(ctx context.Context, args json.RawMessage) error {
-	call, err := a.codec.HostCall(args)
-	if err != nil {
-		return fmt.Errorf("%w: %v", errUncorrelated, err)
-	}
-	if isHostTool(call.Tool) {
-		return errHostCalled
-	}
-	input, err := canonicalInput(call.Input)
-	if err != nil {
-		return fmt.Errorf("%w: %v", errMismatch, err)
-	}
-	var turn *approvalTurn
-	var tc *toolCall
-	if !a.await(ctx, a.bounds.anchorWait, func() bool {
-		turn = a.turn
-		tc = turn.calls[call.ToolUseID]
-		return tc != nil
-	}) {
-		return errUncorrelated
-	}
-	slot, err := a.openSlot(turn, call.ToolUseID, tc, call.Tool, input)
-	if err != nil {
-		return err
-	}
-	defer a.closeSlot(turn, slot)
-
-	ended := func() bool { return isClosed(turn.ended) }
-	if !a.await(ctx, a.bounds.arrivalGrace, func() bool { return slot.bound != nil || ended() }) {
-		return errHookSilent
-	}
-	if ended() {
-		return errTurnEnded
-	}
-	d := slot.bound
-	a.await(ctx, a.bounds.hold, func() bool {
-		return tc.resulted || ended() || (isClosed(d.done) && d.err != nil)
-	})
-	if isClosed(d.done) && d.err != nil {
-		return errHookSilent
-	}
-	return errSuperseded
-}
-
-// openSlot opens the host's slot for a call the ledger knows, refusing one
-// whose result already arrived, one whose tool or input differs from the
-// call's, a call to the host itself, and a second host call for the same id.
-// A call a pre-tool hook already correlated by its id joins that decision.
-func (a *approvals) openSlot(turn *approvalTurn, id string, tc *toolCall, tool string, input []byte) (*hostSlot, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	switch {
-	case tc.resulted:
-		return nil, errUncorrelated
-	case isHostTool(tc.tool):
-		return nil, errHostCalled
-	case tc.tool != tool || !bytes.Equal(tc.input, input):
-		return nil, errMismatch
-	}
-	for _, s := range turn.slots {
-		if s.id == id {
-			return nil, errUncorrelated
-		}
-	}
-	s := &hostSlot{id: id, call: tc, bound: turn.decisions[id]}
-	turn.slots = append(turn.slots, s)
-	a.broadcastLocked()
-	return s, nil
-}
-
-func (a *approvals) closeSlot(turn *approvalTurn, s *hostSlot) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	for i, open := range turn.slots {
-		if open == s {
-			turn.slots = append(turn.slots[:i], turn.slots[i+1:]...)
-			break
-		}
-	}
-	a.broadcastLocked()
-}
-
-// Hook serves the approval hook: the ask is correlated to a call of this
-// turn, decided once by the root (every correlated POST waits on the same
-// decision), and written back as the engine's native answer. A payload the
-// codec cannot read is an error — no decision, so the held host denies.
+// Hook serves the approval hook: the ask is matched against the ledger,
+// decided once per call by the root (every ask bound to the call waits on
+// the same decision), and written back as the engine's native answer. A
+// payload the codec cannot read is an error — no decision at all.
 func (a *approvals) Hook(ctx context.Context, event string, payload []byte) ([]byte, error) {
 	ask, err := a.codec.DecodeAsk(event, payload)
 	if err != nil {
 		return nil, err
 	}
-	d, owner, err := a.bind(ctx, ask)
+	turn, d, err := a.bind(ctx, ask)
 	if err != nil {
 		return a.codec.EncodeAnswer(event, ask, denial(err))
 	}
-	if owner {
-		ans, derr := a.decide(ctx, ask)
-		a.settle(d, ans, derr)
-	}
 	select {
 	case <-d.done:
+	case <-turn.ctx.Done():
+		return a.codec.EncodeAnswer(event, ask, denial(errTurnEnded))
 	case <-ctx.Done():
-	}
-	if err := ctx.Err(); err != nil {
 		// The hook that asked is gone: nobody reads an answer.
-		return nil, err
+		return nil, ctx.Err()
 	}
 	if d.err != nil {
 		return a.codec.EncodeAnswer(event, ask, denial(d.err))
@@ -352,95 +228,62 @@ func (a *approvals) Hook(ctx context.Context, event string, payload []byte) ([]b
 	return a.codec.EncodeAnswer(event, ask, d.ans)
 }
 
-// bind correlates an ask to its decision, reporting whether this caller
-// owns it (and so must have it decided). An ask carrying the call's id is
-// correlated by the ledger; one without is bound to the oldest host slot
-// holding the same tool and input — the oldest UNBOUND one, so identical
-// parallel calls are taken in order, else the oldest bound one, which a
-// repeated POST for the same request joins.
-func (a *approvals) bind(ctx context.Context, ask engine.PermissionAsk) (*decision, bool, error) {
-	if isHostTool(ask.Tool) {
-		return nil, false, errHostCalled
-	}
+// bind matches an ask to an open call of the ledger, waiting (bounded) for
+// the stream to announce one, and returns the decision it waits on. The
+// first ask bound to a call has it decided — on the turn's context, so the
+// decision outlives the POST that started it.
+func (a *approvals) bind(ctx context.Context, ask engine.PermissionAsk) (*approvalTurn, *decision, error) {
 	input, err := canonicalInput(ask.Input)
 	if err != nil {
-		return nil, false, fmt.Errorf("%w: %v", errMismatch, err)
+		return nil, nil, fmt.Errorf("%w: %v", errUncorrelated, err)
 	}
-	if ask.ToolUseID != "" {
-		return a.bindByID(ctx, ask.ToolUseID, ask.Tool, input)
-	}
-	var d *decision
-	owner := false
-	if !a.await(ctx, a.bounds.anchorWait, func() bool {
-		d, owner = a.turn.bindSlotLocked(ask.Tool, input)
-		if d != nil {
-			a.broadcastLocked()
-		}
-		return d != nil
+	var (
+		turn  *approvalTurn
+		call  *toolCall
+		fresh bool
+	)
+	if !a.await(ctx, approvalAnchorWait, func() bool {
+		turn = a.turn
+		call, fresh = turn.matchLocked(ask.Tool, input)
+		return call != nil
 	}) {
-		return nil, false, errNoHostAnchor
+		return nil, nil, errUncorrelated
 	}
-	return d, owner, nil
+	if fresh {
+		ask.ToolUseID = call.id
+		go a.settle(turn, call.decision, ask)
+	}
+	return turn, call.decision, nil
 }
 
-// bindSlotLocked binds the oldest matching slot (see bind). Call with a.mu
-// held.
-func (t *approvalTurn) bindSlotLocked(tool string, input []byte) (*decision, bool) {
-	var joined *hostSlot
-	for _, s := range t.slots {
-		if s.call.tool != tool || !bytes.Equal(s.call.input, input) {
+// matchLocked binds an ask for tool and input to the OLDEST open call
+// carrying exactly them that no ask has bound yet — so identical parallel
+// calls are taken in order — else to the oldest bound one, whose decision a
+// repeated ask joins. fresh reports a new binding. Call with a.mu held.
+func (t *approvalTurn) matchLocked(tool string, input []byte) (call *toolCall, fresh bool) {
+	var joined *toolCall
+	for _, c := range t.order {
+		if c.resulted || c.tool != tool || !bytes.Equal(c.input, input) {
 			continue
 		}
-		if s.bound == nil {
-			s.bound = &decision{done: make(chan struct{})}
-			t.decisions[s.id] = s.bound
-			return s.bound, true
+		if c.decision == nil {
+			c.decision = &decision{done: make(chan struct{})}
+			return c, true
 		}
 		if joined == nil {
-			joined = s
+			joined = c
 		}
 	}
-	if joined != nil {
-		return joined.bound, false
-	}
-	return nil, false
+	return joined, false
 }
 
-// bindByID correlates an ask that names its call: the call must be this
-// turn's, still open, and carry the ask's tool and input.
-func (a *approvals) bindByID(ctx context.Context, id, tool string, input []byte) (*decision, bool, error) {
-	var tc *toolCall
-	var turn *approvalTurn
-	if !a.await(ctx, a.bounds.anchorWait, func() bool {
-		turn = a.turn
-		tc = turn.calls[id]
-		return tc != nil
-	}) {
-		return nil, false, errUncorrelated
+// settle has the root decide the ask on the turn's context and releases
+// every ask waiting on d.
+func (a *approvals) settle(turn *approvalTurn, d *decision, ask engine.PermissionAsk) {
+	ans, err := a.decide(turn.ctx, ask)
+	if turn.ctx.Err() != nil {
+		err = errTurnEnded
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	switch {
-	case tc.resulted || isClosed(turn.ended):
-		return nil, false, errUncorrelated
-	case tc.tool != tool || !bytes.Equal(tc.input, input):
-		return nil, false, errMismatch
-	}
-	if d := turn.decisions[id]; d != nil {
-		return d, false, nil
-	}
-	d := &decision{done: make(chan struct{})}
-	turn.decisions[id] = d
-	for _, s := range turn.slots {
-		if s.id == id && s.bound == nil {
-			s.bound = d
-		}
-	}
-	a.broadcastLocked()
-	return d, true, nil
-}
-
-func (a *approvals) settle(d *decision, ans engine.PermissionAnswer, err error) {
 	a.mu.Lock()
 	d.ans, d.err = ans, err
 	close(d.done)
@@ -453,23 +296,8 @@ func denial(err error) engine.PermissionAnswer {
 	return engine.PermissionAnswer{Allow: false, Message: err.Error()}
 }
 
-// isHostTool reports whether tool is the permission host itself, under its
-// own name or the name an engine qualifies it with.
-func isHostTool(tool string) bool {
-	return tool == engine.PermissionHostTool || strings.HasSuffix(tool, "__"+engine.PermissionHostTool)
-}
-
-func isClosed(ch chan struct{}) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-		return false
-	}
-}
-
-// canonicalInput is a tool input in one spelling, so the stream's input, a
-// host call's and a hook's compare equal; absent input is the empty object.
+// canonicalInput is a tool input in one spelling, so the stream's input and
+// a hook's compare equal; absent input is the empty object.
 func canonicalInput(raw json.RawMessage) ([]byte, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = json.RawMessage(`{}`)
@@ -504,45 +332,25 @@ func askTheRoot(home engineHome, spec approvalSpec, bound time.Duration) func(co
 	}
 }
 
-// SetApprovalHost binds the hosted run's approval route, which the session's
+// SetApprovalRoute binds the hosted run's approval route, which the session's
 // endpoint then serves. One per Home, like the turn sink: a second binding is
 // a wiring bug and is refused.
-func (h *Home) SetApprovalHost(ah ApprovalHost) {
+func (h *Home) SetApprovalRoute(ar ApprovalRoute) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.approvalHost != nil {
+	if h.approvalRoute != nil {
 		h.rep.Warnf("runner: an approval route is already bound for this run; the second binding is refused")
 		return
 	}
-	h.approvalHost = ah
+	h.approvalRoute = ar
 }
 
-// ApprovalHost is the bound approval route; nil when the run's approver is
+// ApprovalRoute is the bound approval route; nil when the run's approver is
 // not the human (or nothing is hosted yet), in which case the endpoint
 // decides nothing.
-func (h *Home) ApprovalHost() ApprovalHost {
+func (h *Home) ApprovalRoute() ApprovalRoute {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.approvalHost
+	return h.approvalRoute
 }
 
-// mcpStatusConnected is the status an engine reports for an MCP server it
-// connected at session start (agent.MCPStatus).
-const mcpStatusConnected = "connected"
-
-// checkApprovalHost is the capabilities gate on a turn's session start: the
-// route anchors every ask on the permission host, which the session's own
-// endpoint serves, so an engine that did not connect that endpoint can hold
-// nothing open — every ask is denied this turn. An engine that reports no
-// server statuses is not judged.
-func (eh *EngineHost) checkApprovalHost(s *agent.ChatSessionInfo) {
-	if len(s.MCPServers) == 0 {
-		return
-	}
-	for _, m := range s.MCPServers {
-		if m.Name == wire.CtxloomServerName && m.Status == mcpStatusConnected {
-			return
-		}
-	}
-	eh.rep.Warnf("approval host not connected: the engine did not connect ctxloom's %q server this turn, so nothing can hold a permission request open — every request the human would decide is denied, and questions and plans are unavailable (check the session's MCP endpoint: ctxloom doctor)", wire.CtxloomServerName)
-}

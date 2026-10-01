@@ -1,64 +1,34 @@
 package mcp
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
-// permissionHostDesc is the permission host's description. The engine is
-// pointed at the tool; the model is told plainly that it decides nothing.
-const permissionHostDesc = "ctxloom's permission host for this session's engine. It holds a permission request open while the approval hook carries the human's decision to the engine, and it always answers deny. It grants nothing: calling it yourself is refused."
-
-// errNoApprovalRoute is the permission host's answer in a run that routes no
-// approvals: nobody is asked, so nothing is held.
-var errNoApprovalRoute = errors.New("permission_host: this run routes no approvals to a human")
+// errNoApprovalRoute is the approval hook's refusal in a run that routes no
+// approvals: nobody is asked.
+var errNoApprovalRoute = errors.New("approval hook: this run routes no approvals to a human")
 
 // maxHookPayload bounds an approval hook's body: an ask carries one tool
-// call's input, at most a plan's markdown.
+// call's input.
 const maxHookPayload = 8 << 20
-
-// registerApprovalHost adds the permission host and returns its name. It is
-// served against the run's approval route (runner.Home.ApprovalHost), bound
-// when the run's approver is the human.
-func registerApprovalHost(server *mcp.Server, home *runner.Home) []string {
-	server.AddTool(&mcp.Tool{
-		Name:        engine.PermissionHostTool,
-		Description: permissionHostDesc,
-		InputSchema: json.RawMessage(`{"type":"object"}`),
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		route := home.ApprovalHost()
-		if route == nil {
-			return nil, errNoApprovalRoute
-		}
-		out, err := route.Host(ctx, req.Params.Arguments)
-		if err != nil {
-			return nil, fmt.Errorf("permission_host: %w", err)
-		}
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: out}}}, nil
-	})
-	return []string{engine.PermissionHostTool}
-}
 
 // hookHandler serves the approval hook's POST: the engine's native payload
 // for the event the query names, answered with the engine's native
 // decision. Anything else is an error status, which the hook command turns
-// into no decision at all — and the held permission host then denies.
+// into no decision at all — and an engine nobody sits at denies a call no
+// hook decided (the approval route's fail-closed rule).
 func hookHandler(home *runner.Home) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "the approval hook POSTs", http.StatusMethodNotAllowed)
 			return
 		}
-		route := home.ApprovalHost()
+		route := home.ApprovalRoute()
 		if route == nil {
 			http.Error(w, errNoApprovalRoute.Error(), http.StatusNotFound)
 			return

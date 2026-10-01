@@ -5,26 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"regexp"
-	"slices"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // A mock:ask turn makes one tool call its rules leave open and asks about it
-// the way claude does in a run whose approver is the human: the call goes
-// out on the stream, the engine calls the session endpoint's permission
-// host (which holds it), then runs the delivered permission_ask hooks with
-// the call as its codec reads it; the first hook that answers decides, and
-// with none answering the host's own answer does. Any other approver is
-// nobody to ask: the call is denied at once, as --permission-prompts none
-// denies it.
+// the way claude -p does in a run whose approver is the human: the call goes
+// out on the stream, then the engine runs the delivered permission_ask hooks
+// with the call as its codec reads it (no call id, as claude's
+// PermissionRequest carries none); the first hook that answers decides, and
+// with none answering the call is denied — nobody sits at the engine. Any
+// other approver is nobody to ask: the call is denied at once, as
+// --permission-prompts none denies it.
 
 // askPattern is the marker: `mock:ask=<tool>:<input JSON, no spaces>`.
 var askPattern = regexp.MustCompile(`mock:ask=([^:\s]+):(\S+)`)
@@ -51,8 +46,7 @@ func askIn(prompt string) (string, json.RawMessage, bool, error) {
 	return m[1], json.RawMessage(m[2]), true, nil
 }
 
-// askDecision is the mock codec's answer, whether the hook or the host
-// gave it.
+// askDecision is the mock codec's answer.
 type askDecision struct {
 	Allow   bool   `json:"allow"`
 	Message string `json:"message"`
@@ -67,7 +61,7 @@ func (d driver) ask(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks
 	decision := askDecision{Message: "mock: nobody is asked; " + tool + " is denied"}
 	if d.approver == engine.ApproverHuman {
 		var err error
-		if decision, err = d.askTheHuman(ctx, ex, hooks, tool, input); err != nil {
+		if decision, err = askTheHuman(ctx, ex, hooks, tool, input); err != nil {
 			return nil, err
 		}
 	}
@@ -85,22 +79,9 @@ func (d driver) ask(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks
 	return &denial, send(agent.ChatEvent{Denied: &denial})
 }
 
-// askTheHuman holds the call on the permission host and runs the
-// permission_ask hooks; the hook's answer wins, the host's stands in when no
-// hook answers. The host call is abandoned once a hook has decided.
-func (d driver) askTheHuman(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, tool string, input json.RawMessage) (askDecision, error) {
-	call, err := json.Marshal(mockCall{Tool: tool, Input: input, ToolUseID: AskCallID})
-	if err != nil {
-		return askDecision{}, err
-	}
-	hostCtx, abandon := context.WithCancel(ctx)
-	defer abandon()
-	host := make(chan hostAnswer, 1)
-	go func() { host <- callPermissionHost(hostCtx, d.endpoint, call) }()
-
-	// The hook's payload is the call as the codec reads it, minus the id
-	// (claude's PermissionRequest carries none, so the runner must anchor it
-	// on the held host).
+// askTheHuman runs the permission_ask hooks; the first one that answers
+// decides, and with none answering the call is denied.
+func askTheHuman(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, tool string, input json.RawMessage) (askDecision, error) {
 	payload, err := json.Marshal(mockCall{Tool: tool, Input: input})
 	if err != nil {
 		return askDecision{}, err
@@ -109,7 +90,7 @@ func (d driver) askTheHuman(ctx context.Context, ex engine.Exec, hooks wire.Unif
 	if err != nil || answered {
 		return dec, err
 	}
-	return hostDecision(<-host), nil
+	return askDecision{Message: "mock: no hook decided; " + tool + " is denied"}, nil
 }
 
 // firstHookAnswer runs the hooks that admit tool, in order, and returns the
@@ -133,19 +114,6 @@ func firstHookAnswer(ctx context.Context, ex engine.Exec, hooks []wire.Hook, too
 	return askDecision{}, false, nil
 }
 
-// hostDecision reads the permission host's answer; a host that failed, or
-// answered something unreadable, is a deny saying so.
-func hostDecision(a hostAnswer) askDecision {
-	if a.err != nil {
-		return askDecision{Message: "mock: the permission host failed: " + a.err.Error()}
-	}
-	var dec askDecision
-	if err := json.Unmarshal([]byte(a.text), &dec); err != nil {
-		return askDecision{Message: "mock: the permission host's answer is unreadable: " + a.text}
-	}
-	return dec
-}
-
 // hookMatches reports whether h's matcher admits tool (no matcher admits
 // every tool).
 func hookMatches(h wire.Hook, tool string) (bool, error) {
@@ -157,42 +125,4 @@ func hookMatches(h wire.Hook, tool string) (bool, error) {
 		return false, fmt.Errorf("mock: hook matcher %q: %w", h.Matcher, err)
 	}
 	return ok, nil
-}
-
-type hostAnswer struct {
-	text string
-	err  error
-}
-
-// callPermissionHost calls the session endpoint's permission host with the
-// call, as the engine's MCP client does.
-func callPermissionHost(ctx context.Context, ep sessions.Endpoint, call json.RawMessage) hostAnswer {
-	if ep.URL == "" {
-		return hostAnswer{err: errors.New("the session has no endpoint")}
-	}
-	client := mcp.NewClient(&mcp.Implementation{Name: string(Name), Version: "0"}, nil)
-	transport := &mcp.StreamableClientTransport{Endpoint: ep.URL, HTTPClient: &http.Client{Transport: bearer{token: ep.Credential}}}
-	cs, err := client.Connect(ctx, transport, nil)
-	if err != nil {
-		return hostAnswer{err: err}
-	}
-	defer func() { _ = cs.Close() }()
-	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: engine.PermissionHostTool, Arguments: call})
-	if err != nil {
-		return hostAnswer{err: err}
-	}
-	i := slices.IndexFunc(res.Content, func(c mcp.Content) bool { _, ok := c.(*mcp.TextContent); return ok })
-	if i < 0 {
-		return hostAnswer{err: errors.New("the permission host answered no text")}
-	}
-	return hostAnswer{text: res.Content[i].(*mcp.TextContent).Text}
-}
-
-// bearer stamps the session endpoint's bearer on every request.
-type bearer struct{ token string }
-
-func (b bearer) RoundTrip(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
-	req.Header.Set("Authorization", "Bearer "+b.token)
-	return http.DefaultTransport.RoundTrip(req)
 }

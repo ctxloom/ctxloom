@@ -2,7 +2,6 @@ package mcp_test
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -10,14 +9,12 @@ import (
 	"sync"
 	"testing"
 
-	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // recordingRoute is an approval route that answers fixed bytes and records
@@ -26,7 +23,6 @@ type recordingRoute struct {
 	mu       sync.Mutex
 	events   []string
 	payloads []string
-	hostArgs []string
 }
 
 func (r *recordingRoute) Hook(_ context.Context, event string, payload []byte) ([]byte, error) {
@@ -35,13 +31,6 @@ func (r *recordingRoute) Hook(_ context.Context, event string, payload []byte) (
 	r.events = append(r.events, event)
 	r.payloads = append(r.payloads, string(payload))
 	return []byte(`{"decided":"by the route"}`), nil
-}
-
-func (r *recordingRoute) Host(_ context.Context, args json.RawMessage) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.hostArgs = append(r.hostArgs, string(args))
-	return `{"behavior":"deny","message":"held"}`, nil
 }
 
 // serveWithHome serves lo over home, so a test can bind the run's route.
@@ -96,36 +85,10 @@ func TestServe_TheApprovalHookIsGuardedAndReachesTheRunsRoute(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code, "no route bound: no decision")
 
 	route := &recordingRoute{}
-	home.SetApprovalHost(route)
+	home.SetApprovalRoute(route)
 	code, body := postHook(t, target, bearer, `{"tool_name":"Bash"}`)
 	require.Equal(t, http.StatusOK, code, body)
 	assert.JSONEq(t, `{"decided":"by the route"}`, body)
 	assert.Equal(t, []string{"PermissionRequest"}, route.events)
 	assert.Equal(t, []string{`{"tool_name":"Bash"}`}, route.payloads)
-}
-
-// TestServe_ThePermissionHostIsTheRunsRoute: the engine's permission host is
-// served against the run's route — refused when the run routes no
-// approvals, and answering the route's own text when it does.
-func TestServe_ThePermissionHostIsTheRunsRoute(t *testing.T) {
-	lo := loadoutAt(freePort(t))
-	home := deadHome(t)
-	serveWithHome(t, lo, home)
-	cs := connect(t, lo.MCP.URL, map[string]string{"Authorization": "Bearer bearer-token"})
-	args := map[string]any{"tool_name": "Bash", "input": map[string]any{"command": "ls"}, "tool_use_id": "toolu_1"}
-
-	_, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: engine.PermissionHostTool, Arguments: args})
-	require.ErrorContains(t, err, "routes no approvals", "no route bound: the host holds nothing")
-
-	route := &recordingRoute{}
-	home.SetApprovalHost(route)
-	res, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: engine.PermissionHostTool, Arguments: args})
-	require.NoError(t, err)
-	require.False(t, res.IsError)
-	require.Len(t, res.Content, 1)
-	text, ok := res.Content[0].(*sdk.TextContent)
-	require.True(t, ok)
-	assert.JSONEq(t, `{"behavior":"deny","message":"held"}`, text.Text)
-	require.Len(t, route.hostArgs, 1)
-	assert.JSONEq(t, `{"tool_name":"Bash","input":{"command":"ls"},"tool_use_id":"toolu_1"}`, route.hostArgs[0])
 }

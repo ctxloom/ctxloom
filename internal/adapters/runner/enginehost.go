@@ -58,9 +58,9 @@ type engineHome interface {
 	// setTurning tells the owner-loss clock a turn started or reached its
 	// boundary (Home.setTurning): progress pauses it.
 	setTurning(on bool)
-	// SetApprovalHost binds the run's approval route for the session's
-	// endpoint to serve (Home.SetApprovalHost).
-	SetApprovalHost(ah ApprovalHost)
+	// SetApprovalRoute binds the run's approval route for the session's
+	// endpoint to serve (Home.SetApprovalRoute).
+	SetApprovalRoute(ar ApprovalRoute)
 }
 
 // Compile-time assertion that Home satisfies the engine host's seam.
@@ -439,11 +439,11 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 
 	// The approval route is bound before the first turn can ask anything.
 	if spec := t.approval; spec != nil {
-		a := newApprovals(*spec, askTheRoot(home, *spec, boundsFor(spec.timeout).request))
+		a := newApprovals(*spec, askTheRoot(home, *spec, spec.timeout+approvalRequestSlack))
 		eh.mu.Lock()
 		eh.approvals = a
 		eh.mu.Unlock()
-		home.SetApprovalHost(a)
+		home.SetApprovalRoute(a)
 	}
 
 	// RunStarted first: the log is self-contained (the first turn and the
@@ -646,9 +646,6 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 				if ev.Session.SessionID != "" {
 					sessionID = ev.Session.SessionID
 					eh.announceSession(home, sessionID)
-				}
-				if appr != nil {
-					eh.checkApprovalHost(ev.Session)
 				}
 			case ev.Entry != nil:
 				announceStarted()

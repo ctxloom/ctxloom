@@ -1,0 +1,47 @@
+# Manual probe for row worried-chief (D4): what cross-session messaging
+# endpoint does the pinned claude CLI create on Windows (named pipe or AF_UNIX
+# socket), and does a post need the inbox auth line there. ubuntu-latest is the
+# control. Needs no secrets; evidence is uploaded as an artifact per OS.
+name: wake-probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 5
+        with:
+          sparse-checkout: .github
+      - uses: actions/setup-node@v4
+        timeout-minutes: 5
+        with:
+          node-version: '22'
+      - name: Install the pinned claude CLI
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $v = (Get-Content .github/engine-versions.env | Where-Object { $_ -match '^CLAUDE_CODE_CLI_VERSION=' }) -replace '^CLAUDE_CODE_CLI_VERSION=', ''
+          npm install -g "@anthropic-ai/claude-code@$v"
+      - name: Probe the messaging endpoint
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./.github/scripts/wake-probe.ps1 -Evidence "$env:RUNNER_TEMP/wake-probe-evidence"
+      - name: Upload evidence
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: wake-probe-${{ matrix.os }}
+          path: ${{ runner.temp }}/wake-probe-evidence
+          if-no-files-found: warn

@@ -193,6 +193,8 @@ func TestArch_CIWorkflows_KeepInlineShellOutOfSteps(t *testing.T) {
 	// key: "<workflow basename>/<job>/<step name>"
 	allowedInlineShell := map[string]string{
 		"release-completer.yml/release/Install dependencies": "installs curl, which the `just` bootstrap on the next line needs; goreleaser-cross ships none of it",
+		"wake-probe.yml/probe/Install the pinned claude CLI": "runs on windows-latest, which has no `just`; installs claude at the pinned version for the temporary messaging-socket probe (worried-chief)",
+		"wake-probe.yml/probe/Probe the messaging endpoint":  "runs on windows-latest, which has no `just`; runs the temporary probe script (worried-chief)",
 	}
 
 	type step struct {

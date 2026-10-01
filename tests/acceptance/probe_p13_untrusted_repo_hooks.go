@@ -156,6 +156,16 @@ func (o p13Outcome) evidence() string {
 // printed, then the arm the cell's variant names.
 func p13Assert(o p13Outcome) error {
 	v := o.verdict()
+	if err := o.ranTheEcho(v); err != nil {
+		return err
+	}
+	return o.judgeArm(v)
+}
+
+// ranTheEcho is the common half: the run completed, its stream decodes to a
+// finished turn, and the allowed echo ran and printed; the markers could be
+// read.
+func (o p13Outcome) ranTheEcho(v probeVerdict) error {
 	if !o.Started || o.TimedOut {
 		return v.fail(shapeRunFailed, fmt.Sprintf("the claude run did not complete (started=%t timedOut=%t)", o.Started, o.TimedOut), o.evidence())
 	}
@@ -179,7 +189,12 @@ func p13Assert(o p13Outcome) error {
 	if o.MarkerErr != nil {
 		return v.fail(shapeRunFailed, fmt.Sprintf("a hook marker could not be checked: %v", o.MarkerErr), o.evidence())
 	}
+	return nil
+}
 
+// judgeArm is the arm the cell's variant names: every committed hook fired,
+// or none did.
+func (o p13Outcome) judgeArm(v probeVerdict) error {
 	var fired, silent []string
 	for event := range p13Markers {
 		if o.Fired[event] {

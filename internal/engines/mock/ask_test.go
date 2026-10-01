@@ -248,14 +248,16 @@ func TestMockAsk_ADeclaredDenyBeatsAGrant(t *testing.T) {
 	assert.NoFileExists(t, marker)
 }
 
-// TestMockApprovalCodec_HooksAreOnePermissionAskForEveryTool: the mock's
-// approval route is one permission_ask hook (the mock's native events are
-// the unified ones) admitting every tool, running ctxloom's hook for that
-// event and outliving the approval timeout.
-func TestMockApprovalCodec_HooksAreOnePermissionAskForEveryTool(t *testing.T) {
+// TestMockApprovalCodec_HooksAreAPermissionAskAndThePlansPreTool: the mock's
+// approval route (the mock's native events are the unified ones) is one
+// permission_ask hook admitting every tool and one pre_tool hook admitting
+// only the plan tool, each running ctxloom's hook for its event and
+// outliving the approval timeout.
+func TestMockApprovalCodec_HooksAreAPermissionAskAndThePlansPreTool(t *testing.T) {
 	codec, ok := mock.New().Approvals().Get()
 	require.True(t, ok)
 	h := codec.Hooks(time.Minute)
 	assert.Equal(t, []wire.Hook{agent.ApprovalHook(wire.HookEventPermissionAsk, "", time.Minute)}, h.PermissionAsk)
-	assert.Len(t, h.All(), 1, "no other hook is the approval route's")
+	assert.Equal(t, []wire.Hook{agent.ApprovalHook(wire.HookEventPreTool, mock.PlanTool, time.Minute)}, h.PreTool)
+	assert.Len(t, h.All(), 2, "no other hook is the approval route's")
 }

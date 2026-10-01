@@ -547,10 +547,11 @@ func (f *grantsFold) apply(fact Fact) {
 	switch fact.Kind {
 	case factGrantAdded:
 		applyDecoded(fact, func(p grantAdded, at time.Time) {
-			// Wall time only: a live fact carries the clock's monotonic
-			// reading and a replayed one cannot, and a restarted coordinator
-			// must hold the grants it held before.
-			f.byHarp[p.Harp] = append(f.byHarp[p.Harp], Grant{ID: p.ID, Harp: p.Harp, Rule: p.Rule, From: p.From, At: at.Round(0)})
+			// Wall time in UTC only: a live fact carries the clock's
+			// monotonic reading and local zone, a replayed one carries
+			// neither, and a restarted coordinator must hold the grants it
+			// held before.
+			f.byHarp[p.Harp] = append(f.byHarp[p.Harp], Grant{ID: p.ID, Harp: p.Harp, Rule: p.Rule, From: p.From, At: at.Round(0).UTC()})
 		})
 	case factGrantRevoked:
 		applyDecoded(fact, func(p grantRevoked, _ time.Time) {

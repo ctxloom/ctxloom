@@ -66,31 +66,38 @@ func headlessPosture(t *testing.T, p engine.PermissionPolicy) posture {
 // it. Only what never changes per turn is on the launch argv.
 func TestPermissionArgs_HeadlessLaunch(t *testing.T) {
 	for _, m := range []string{modeDefault, modeAcceptEdits} {
-		assert.Equalf(t, []string{flagPermissionPrompts, "none"}, permissionArgs(headlessPosture(t, modePolicy(m)), []string{"ctxloom"}), "%s", m)
+		assert.Equalf(t, hostArgs, permissionArgs(headlessPosture(t, modePolicy(m)), []string{"ctxloom"}), "%s", m)
 	}
 	assert.Equal(t, []string{flagSkipPermissions, flagPermissionPrompts, "none"},
-		permissionArgs(headlessPosture(t, modePolicy(modeBypass)), nil), "bypass stays on the argv")
-	assert.Equal(t, []string{flagDisallowedTools, "Bash,Edit,Write,NotebookEdit", flagAllowedTools, "mcp__ctxloom", flagPermissionPrompts, "none"},
+		permissionArgs(headlessPosture(t, modePolicy(modeBypass)), nil), "bypass stays on the argv, and asks nobody")
+	assert.Equal(t, append([]string{flagDisallowedTools, "Bash,Edit,Write,NotebookEdit", flagAllowedTools, "mcp__ctxloom"}, hostArgs...),
 		permissionArgs(headlessPosture(t, modePolicy(modePlan)), []string{"ctxloom"}), "plain plan keeps its read-only belt and its MCP grant")
 }
+
+// hostArgs hands what the posture and rules leave open to ctxloom's
+// permission host, which holds it for the human at the root.
+var hostArgs = []string{flagPermissionPromptTool, "mcp__ctxloom__permission_host", flagPermissionPrompts, "host"}
 
 // Plan-first drops the mutating-tool deny list (an approved plan must be
 // able to execute; claude's plan mode is read-only on its own) and the
 // argv MCP grant, which would outlive the plan turn as blanket permission.
 func TestPermissionArgs_PlanFirstCarriesNoReadOnlyBelt(t *testing.T) {
 	args := permissionArgs(headlessPosture(t, planFirst(modeAcceptEdits)), []string{"ctxloom"})
-	assert.Equal(t, []string{flagPermissionPrompts, "none"}, args)
+	assert.Equal(t, hostArgs, args)
 }
 
-// Until ctxloom serves the permission host, a headless child's approver
-// cannot be reached, whoever it is: what the rules leave open is denied.
-func TestPermissionArgs_EveryApproverDeniesWhatIsLeftOpen(t *testing.T) {
-	for _, a := range []engine.Approver{engine.ApproverHuman, engine.ApproverNone, engine.ApproverReviewer} {
+// A headless child's human approver is reached through ctxloom's permission
+// host; with any other approver nobody is asked, and what the rules leave
+// open is denied (claude's own dontAsk or auto decides first).
+func TestPermissionArgs_OnlyTheHumanIsReachedThroughTheHost(t *testing.T) {
+	for a, want := range map[engine.Approver][]string{
+		engine.ApproverHuman:    hostArgs,
+		engine.ApproverNone:     {flagPermissionPrompts, "none"},
+		engine.ApproverReviewer: {flagPermissionPrompts, "none"},
+	} {
 		p := modePolicy(modeDefault)
 		p.Approver = a
-		args := permissionArgs(headlessPosture(t, p), nil)
-		assert.Equalf(t, []string{flagPermissionPrompts, "none"}, args, "%s", a)
-		assert.NotContainsf(t, args, "--permission-prompt-tool", "%s", a)
+		assert.Equalf(t, want, permissionArgs(headlessPosture(t, p), nil), "%s", a)
 	}
 }
 

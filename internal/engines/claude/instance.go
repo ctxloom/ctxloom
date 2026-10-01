@@ -222,9 +222,10 @@ func countFlag(args []string, flag string) int {
 
 // execEnv is the engine-native env: the relocated home vars, every
 // presentation's env channel, and the classic-screen switch when
-// interactive — or, when structured, background tasks off: the turn's
+// interactive — or, when structured, background tasks off (the turn's
 // process ends at its result, and a task left running past it would answer
-// into a turn nobody reads.
+// into a turn nobody reads) and no idle abort on an MCP call (the
+// permission host holds one while the human decides).
 func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 	env := map[string]string{}
 	for _, h := range i.s.Home {
@@ -237,6 +238,7 @@ func (i *instance) execEnv(presented []present.Presentation) map[string]string {
 		env[classicScreenEnv] = "1"
 	} else {
 		env[disableBackgroundTasksEnv] = "1"
+		env[mcpToolIdleTimeoutEnv] = "0"
 	}
 	return env
 }

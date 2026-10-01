@@ -7,8 +7,11 @@ package acceptance
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,11 +26,23 @@ func fakeAuthCheck(ok bool, reason string) func(string) (bool, string) {
 	return func(string) (bool, string) { return ok, reason }
 }
 
+// withLaunchCredentials replaces the launch capture for one test. Every test
+// that depends on the token path's presence OR absence sets it explicitly: in
+// the acceptance-tagged build TestMain fills it from the developer's shell, and
+// a test that read whatever was captured would pass or fail on that shell.
+func withLaunchCredentials(t *testing.T, creds map[string]string) {
+	t.Helper()
+	saved := launchCredentials
+	t.Cleanup(func() { launchCredentials = saved })
+	launchCredentials = creds
+}
+
 func TestEngineAvailable(t *testing.T) {
 	cases := []struct {
 		name      string
 		agent     liveAgent
-		env       map[string]string
+		creds     map[string]string // the launch capture
+		env       map[string]string // the ambient environment, which must not count
 		optIn     bool
 		wantOK    bool
 		wantMatch string // substring expected in the reason
@@ -47,11 +62,20 @@ func TestEngineAvailable(t *testing.T) {
 			wantMatch: "no binary configured",
 		},
 		{
-			name:   "API key present short-circuits straight to available, no authCheck consulted",
-			agent:  liveAgent{binary: "sh", apiKeyEnvs: []string{"CTXLOOM_TEST_FAKE_KEY"}, authCheck: fakeAuthCheck(false, "should never be called")},
-			env:    map[string]string{"CTXLOOM_TEST_FAKE_KEY": "sk-fake"},
-			optIn:  false, // API-key path bypasses the opt-in gate entirely
-			wantOK: true,
+			name:      "a token captured at launch short-circuits straight to available, no authCheck consulted",
+			agent:     liveAgent{binary: "sh", apiKeyEnvs: []string{"CTXLOOM_TEST_FAKE_KEY"}, authCheck: fakeAuthCheck(false, "should never be called")},
+			creds:     map[string]string{"CTXLOOM_TEST_FAKE_KEY": "fake-token"},
+			optIn:     false, // the token path bypasses the opt-in gate entirely
+			wantOK:    true,
+			wantMatch: "CTXLOOM_TEST_FAKE_KEY captured at launch",
+		},
+		{
+			name:      "a token only in the AMBIENT environment does not count: no token captured falls back to the home login",
+			agent:     liveAgent{binary: "sh", apiKeyEnvs: []string{"CTXLOOM_TEST_FAKE_KEY"}, authCheck: fakeAuthCheck(false, "home login consulted")},
+			env:       map[string]string{"CTXLOOM_TEST_FAKE_KEY": "fake-token"},
+			optIn:     true,
+			wantOK:    false,
+			wantMatch: "home login consulted",
 		},
 		{
 			name:      "subscription path without CTXLOOM_ACCEPTANCE_LIVE opt-in is unavailable even if authCheck would pass",
@@ -84,6 +108,7 @@ func TestEngineAvailable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			withLaunchCredentials(t, tc.creds)
 			for k, v := range tc.env {
 				t.Setenv(k, v)
 			}
@@ -263,13 +288,45 @@ func TestLiveAgentAvailable_UsesSameDecision(t *testing.T) {
 	assert.False(t, liveAgentAvailable(a))
 }
 
-func TestMatchedEnvAndEnvSet(t *testing.T) {
-	t.Setenv("CTXLOOM_TEST_ENV_A", "")
-	t.Setenv("CTXLOOM_TEST_ENV_B", "present")
-	names := []string{"CTXLOOM_TEST_ENV_A", "CTXLOOM_TEST_ENV_B"}
-	assert.Equal(t, "CTXLOOM_TEST_ENV_B", matchedEnv(names))
-	assert.True(t, envSet(names))
-	assert.False(t, envSet([]string{"CTXLOOM_TEST_ENV_A"}))
+// TestLiveCredential: the first CAPTURED apiKeyEnvs entry wins, in the
+// agent's preference order; an ambient value the capture does not hold is
+// ignored; nothing captured is ok=false.
+func TestLiveCredential(t *testing.T) {
+	a := liveAgent{apiKeyEnvs: []string{"CTXLOOM_TEST_ENV_A", "CTXLOOM_TEST_ENV_B"}}
+
+	withLaunchCredentials(t, map[string]string{"CTXLOOM_TEST_ENV_A": "a-val", "CTXLOOM_TEST_ENV_B": "b-val"})
+	got, ok := liveCredential(a)
+	assert.True(t, ok)
+	assert.Equal(t, credentialMapping{EnvVar: "CTXLOOM_TEST_ENV_A", Value: "a-val"}, got, "preference order is apiKeyEnvs order")
+
+	withLaunchCredentials(t, map[string]string{"CTXLOOM_TEST_ENV_B": "b-val"})
+	got, ok = liveCredential(a)
+	assert.True(t, ok)
+	assert.Equal(t, "CTXLOOM_TEST_ENV_B", got.EnvVar)
+
+	withLaunchCredentials(t, nil)
+	t.Setenv("CTXLOOM_TEST_ENV_A", "ambient")
+	_, ok = liveCredential(a)
+	assert.False(t, ok, "an ambient value is not a captured one")
+}
+
+// TestLiveVendorEnv: the direct-vendor environment is built from nothing —
+// PATH, SHELL, the throwaway HOME and config dir, and the one credential — so
+// an ambient CLAUDE_* knob cannot reach the cell.
+func TestLiveVendorEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://ambient.invalid")
+	env := liveVendorEnv(credentialMapping{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Value: "fake-token"}, "/tmp/h", "/tmp/c")
+	keys := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		keys[k] = v
+	}
+	assert.Len(t, keys, len(env), "no key appears twice")
+	assert.Equal(t, "/tmp/h", keys["HOME"])
+	assert.Equal(t, "/tmp/c", keys["CLAUDE_CONFIG_DIR"])
+	assert.Equal(t, "fake-token", keys["CLAUDE_CODE_OAUTH_TOKEN"])
+	assert.NotContains(t, keys, "ANTHROPIC_BASE_URL", "nothing ambient crosses over")
+	assert.ElementsMatch(t, []string{"PATH", "HOME", "SHELL", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"}, slices.Collect(maps.Keys(keys)))
 }
 
 // TestBackendTypeToLiveKey guards the one mapping the hermetic j002200 matrix's
@@ -420,12 +477,11 @@ func treeSnapshot(t *testing.T, root string) map[string]string {
 }
 
 // seedFakeRealHome builds a throwaway stand-in for the developer's real HOME,
-// with a claude login in it that must never be copied, and clears the vars
-// that would take the env path.
+// with a claude login in it that must never be copied, and clears the launch
+// capture that would take the token path.
 func seedFakeRealHome(t *testing.T) string {
 	t.Helper()
-	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	withLaunchCredentials(t, nil)
 	realHome := t.TempDir()
 	p := filepath.Join(realHome, ".claude", ".credentials.json")
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -437,20 +493,23 @@ func seedFakeRealHome(t *testing.T) string {
 	return realHome
 }
 
-// An exported token or API key rides the inherited env, so no var is set and
-// no byte is written.
-func TestSeedLiveCredentials_EnvPathMapsAndCopiesNothing(t *testing.T) {
+// A token captured at launch is SET on the child — exactly that variable and
+// value, because the scrub removed it from what the child inherits — and no
+// byte is written anywhere.
+func TestSeedLiveCredentials_CapturedTokenIsSetAndNothingCopied(t *testing.T) {
 	for _, v := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
 		t.Run(v, func(t *testing.T) {
 			realHome := seedFakeRealHome(t)
-			t.Setenv(v, "fake-for-this-test")
+			withLaunchCredentials(t, map[string]string{v: "fake-for-this-test"})
 			fakeHome := t.TempDir()
+			before := treeSnapshot(t, realHome)
 			got, setEnv := recordEnv()
 			if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv); err != nil {
 				t.Fatalf("seedLiveCredentials: %v", err)
 			}
-			assert.Empty(t, got, "the env path sets nothing")
-			assert.Empty(t, treeSnapshot(t, fakeHome), "the env path copies nothing")
+			assert.Equal(t, map[string]string{v: "fake-for-this-test"}, got, "the token path sets the captured variable and nothing else")
+			assert.Empty(t, treeSnapshot(t, fakeHome), "the token path copies nothing")
+			assert.Equal(t, before, treeSnapshot(t, realHome), "the real HOME is not touched")
 		})
 	}
 }
@@ -476,6 +535,7 @@ func TestSeedLiveCredentials_NoExportedTokenIsLoud(t *testing.T) {
 // real HOME means the gate let through a subscription-path run with nothing to
 // map. That must be an error, not a silent no-op.
 func TestSeedLiveCredentials_NoRealHomeIsLoud(t *testing.T) {
+	withLaunchCredentials(t, nil) // a captured token would take the token path first
 	got, setEnv := recordEnv()
 	err := seedLiveCredentials("claude", liveAgents["claude"], "", t.TempDir(), setEnv)
 	assert.Error(t, err)

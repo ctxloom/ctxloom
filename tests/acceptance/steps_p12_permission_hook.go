@@ -18,8 +18,6 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // p12RunTimeout bounds the one claude turn. Measured turns of this exact
@@ -33,10 +31,10 @@ type p12State struct {
 	decision                   p12Decision
 
 	claudePath string
-	credEnv    string // NAME of the launch credential variable; its value stays in launchCredentials
-	dir        string // the cell's root: hook, settings, marker, proof
-	repo       string // cwd: a fresh git repo
-	cfg, home  string // throwaway CLAUDE_CONFIG_DIR and HOME
+	cred       credentialMapping // the launch credential (liveCredential); never printed
+	dir        string            // the cell's root: hook, settings, marker, proof
+	repo       string            // cwd: a fresh git repo
+	cfg, home  string            // throwaway CLAUDE_CONFIG_DIR and HOME
 
 	run      probeRun
 	started  bool
@@ -52,24 +50,6 @@ func p12Of(w *World) *p12State {
 
 func (p *p12State) cell() probeCellID {
 	return probeCellID{Probe: probeP12, Engine: p.engine, Runtime: p.runtime, Workspace: p.workspace, Variant: string(p.decision)}
-}
-
-// env is the claude process's ENTIRE environment, built from nothing rather
-// than filtered from the harness's: the cell must not inherit a CLAUDE_* knob,
-// a ZDOTDIR or a ctxloom session variable from whoever ran the suite. Only
-// PATH (to find claude, sh, git and touch) and the one credential cross over.
-func (p *p12State) env() []string {
-	shell := "/bin/sh"
-	if bash, err := exec.LookPath("bash"); err == nil {
-		shell = bash
-	}
-	return []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + p.home,
-		"SHELL=" + shell,
-		claude.ConfigDirEnv + "=" + p.cfg,
-		p.credEnv + "=" + launchCredentials[p.credEnv],
-	}
 }
 
 func registerP12PermissionHookSteps(ctx *godog.ScenarioContext) {
@@ -91,19 +71,14 @@ func registerP12PermissionHookSteps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			// The shared gate also passes an engine authenticated by its
+			// The shared gate also passes an engine authenticated only by its
 			// subscription login. This cell cannot use one: its CLAUDE_CONFIG_DIR
 			// and HOME are throwaway, which is the isolation the cell requires,
-			// so only a credential exported at launch can authenticate it.
-			for _, k := range a.apiKeyEnvs {
-				if launchCredentials[k] != "" {
-					p.credEnv = k
-					break
-				}
-			}
-			if p.credEnv == "" {
+			// so only a token captured at launch can authenticate it.
+			var ok bool
+			if p.cred, ok = liveCredential(a); !ok {
 				return probeCellSkip(p12Family, p.cell(), fmt.Sprintf(
-					"this cell runs claude in a throwaway config dir and HOME, so it needs an exported credential (one of %v); none is set", a.apiKeyEnvs))
+					"this cell runs claude in a throwaway config dir and HOME, so it needs a token captured at launch (one of %v); none was", a.apiKeyEnvs))
 			}
 			if p.claudePath, err = exec.LookPath(a.binary); err != nil {
 				return err
@@ -124,7 +99,7 @@ func registerP12PermissionHookSteps(ctx *godog.ScenarioContext) {
 			"--output-format", "stream-json", "--verbose",
 			"--model", liveClaudeModel)
 		cmd.Dir = p.repo
-		cmd.Env = p.env()
+		cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 

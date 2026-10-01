@@ -226,6 +226,10 @@ var (
 		Shape: "APPROVAL-DELIVERY failure",
 		Where: "a file the gated tool call writes, absent until the approval is answered",
 	}
+	channelRepoHookMarker = probeChannel{
+		Shape: "REPO-HOOK failure",
+		Where: "marker files outside the repo that only the repo's COMMITTED .claude/settings.json hooks write",
+	}
 	channelTurnOnePrompt = probeChannel{
 		Shape: "RECALL failure",
 		Where: "turn one's PROMPT — deliberately not a fragment, because re-delivered context on respawn would false-green resume",
@@ -255,6 +259,7 @@ const (
 	probeP9  = "p9-version-report"
 	probePX  = "px-foreign-harp"
 	probeP12 = "p12-permission-hook-no-host"
+	probeP13 = "p13-untrusted-repo-hooks"
 	// The two rungs deliberately NOT built. Present as deferred rows so rows
 	// 9 and 10 of the inventory are visibly un-probed rather than invisibly so.
 	probePCmd   = "p10-command-invocation"
@@ -447,6 +452,24 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 20s. The hook fired on Bash with hook_event_name PermissionRequest, the file exists, permission_denials is empty, and the gated call's tool_result is stamped 64ms AFTER the hook's post-sleep marker while the tool_use preceded it by ~5s — claude waited for the answer. MUTATION-CONFIRMED live: inverting the proof-file check reds the same run as DECISION-IGNORED."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Deny), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 21s. The hook fired on Bash, the file is absent, the gated call's tool_result is \"Permission denied by hook\" with is_error, and result.permission_denials names that tool_use_id."},
+		},
+	},
+	// P13 measures the VENDOR half of ctxloom's repo trust: claude's own trust
+	// does not stop an untrusted repo's committed hooks in -p, and
+	// --setting-sources user does. It runs the vendor binary directly, as P12
+	// does, so a red names claude alone.
+	{
+		Name:         probeP13,
+		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks, and --setting-sources user --strict-mcp-config suppresses them",
+		Capabilities: []int{7},
+		Channel:      channelRepoHookMarker,
+		Feature:      "probes/capability_untrusted_repo_hooks.feature",
+		Paid:         true,
+		Cells: []probeCell{
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13Fires), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. A repo with no projects entry in a throwaway CLAUDE_CONFIG_DIR ran BOTH its committed hooks (PreToolUse on Bash and SessionStart wrote their markers) under -p, and the flag-scope-allowed echo printed \"hi\"."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13Suppresses), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With --setting-sources user --strict-mcp-config NO committed hook wrote its marker, while the echo still ran and printed \"hi\" — suppressed, not untriggered. MUTATION-CONFIRMED live: inverting the leak check reds the same run as REPO-HOOK-LEAKED."},
 		},
 	},
 	{

@@ -124,32 +124,21 @@ func probeCellDecide(status engineStatus) (report, skip string) {
 
 // probeHostCredentialEnv rewrites a cell's command environment so that
 // ctxloom's OWN per-axis credential machinery resolves against the REAL host
-// home — because that is the mechanism under test, and starving it was making
-// the matrix measure the harness instead of the product.
+// home. It is the FALLBACK posture, taken only when no token was captured at
+// launch (probeCellCredentialEnv decides): a subscription login lives in the
+// real home and nowhere else, so this is the only way such a cell can
+// authenticate.
 //
-// WHAT WENT WRONG BEFORE, AND WHY THIS IS THE FIX. testenv isolates HOME to a
-// temp dir, which is right for filesystem assertions and wrong here: EVERY
-// production credential path resolves from hostHomeDir() — worktree.go's
-// seedCredentials via the engine's declared credential seed, and the container mounts
-// (claudeCredentialCopyMounts read-write, codexCredentialMounts /
-// opencodeCredentialMounts read-only) all start there. Point HOME at an empty
-// temp dir and every one of them finds nothing, so cells failed or had to be
-// gated for reasons that exist nowhere outside this harness. Worse, the
-// obvious workaround — the harness copying credentials into its fake home —
-// would have made the cell MORE cautious than the product it verifies, and a
-// cell that does not exercise production's credential mechanism proves nothing
-// about it.
-//
-// So the credential mechanism is deliberately NOT isolated: HOME and the XDG
-// roots point at the real ones, exactly as they do for a user typing this
-// command. Everything a cell actually asserts on stays isolated — the project
-// directory is still a fresh temp checkout carrying the fixture, and the
-// assertion reads the run's own output or a fixture-owned file, never HOME. The
-// cost is stated plainly: a cell writes session state under the real ~/.ctxloom
-// and lets the engine refresh its own credential in place, which is precisely
-// what a real run does and precisely what makes claude's rotating token safe
-// here (the container credential mount shares the real store
-// read-write, so a refresh lands in the live chain rather than dying in a copy).
+// WHY NOT A COPY. testenv isolates HOME to a temp dir, and EVERY production
+// credential path resolves from hostHomeDir() — worktree.go's seedCredentials
+// via the engine's declared credential seed, and the container mounts
+// (claudeCredentialCopyMounts read-write) all start there. The obvious
+// workaround — the harness copying the login into its fake home — would make
+// the cell MORE cautious than the product it verifies, and a rotating login
+// refreshed inside a copy dies with the copy. The cost of the real home is
+// stated plainly: a cell writes session state under the real ~/.ctxloom and
+// lets the engine refresh its own credential in place, exactly as a real run
+// does.
 //
 // The fake entries are REMOVED before the real ones are appended, never merely
 // appended after: a duplicate key in a child environment is resolved by the C
@@ -175,20 +164,50 @@ func probeHostCredentialEnv(env []string, realHome string) []string {
 	)
 }
 
-// probeCellCredentialEnv puts one cell's command under that posture, and
-// REFUSES rather than degrading when the real home was never captured.
+// probeCellCredentialEnv puts one ctxloom-driven cell's command under its
+// credential posture and returns the HOME the run will use — callers that
+// watch ctxloom's session tree must look under THAT home, not assume one.
 //
-// The refusal is the whole reason this is a function and not an assignment.
-// With realHomeDir empty, probeHostCredentialEnv would cheerfully export
-// HOME="" and XDG_CONFIG_HOME="/.config": the run would start, the engine would
-// find no credential where production looks for one, and the cell would report
-// an engine failure that is entirely the harness's doing. Every probe in the
-// ladder had typed this same guard inline; one copy per probe was one more
-// chance for the next one to forget it and read the resulting red as a finding.
-func probeCellCredentialEnv(family string, cmd *exec.Cmd) error {
+//   - A token captured at launch (liveCredential): the command keeps testenv's
+//     ISOLATED HOME (so claude's config dir, HOME/.claude, is isolated too) and
+//     gains the token. ctxloom's own env-first credential resolution carries it
+//     to the engine on every axis; nothing in the real home is read or written.
+//   - No token: the real-home login (probeHostCredentialEnv), and a REFUSAL
+//     rather than a degraded run when the real home was never captured. With
+//     realHomeDir empty, probeHostCredentialEnv would cheerfully export
+//     HOME="" and XDG_CONFIG_HOME="/.config": the run would start, find no
+//     credential, and report an engine failure that is the harness's doing.
+func probeCellCredentialEnv(family, engine string, cmd *exec.Cmd) (string, error) {
+	if cred, ok := liveCredential(liveAgents[backendTypeToLiveKey(engine)]); ok {
+		cmd.Env = append(envWithout(cmd.Env, cred.EnvVar), cred.EnvVar+"="+cred.Value)
+		return envValue(cmd.Env, "HOME"), nil
+	}
 	if realHomeDir == "" {
-		return fmt.Errorf("%s: no real HOME was captured, so this cell cannot exercise production's own credential resolution", family)
+		return "", fmt.Errorf("%s: no token was captured at launch and no real HOME was captured, so this cell has no credential to run under", family)
 	}
 	cmd.Env = probeHostCredentialEnv(cmd.Env, realHomeDir)
-	return nil
+	return realHomeDir, nil
+}
+
+// envWithout drops every key= entry: glibc's getenv returns the FIRST match,
+// so an appended value must not have a namesake ahead of it.
+func envWithout(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if k, _, ok := strings.Cut(kv, "="); ok && k == key {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// envValue is the value getenv would return for key: the FIRST match.
+func envValue(env []string, key string) string {
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			return v
+		}
+	}
+	return ""
 }

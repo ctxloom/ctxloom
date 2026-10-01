@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -168,6 +169,9 @@ func TestLoadConfigOrFallback_Success(t *testing.T) {
 }
 
 func TestLoadConfigOrFallback_FailureReturnsMinimalDefault(t *testing.T) {
+	// Text mode: a command run earlier in this package may have left the
+	// process-wide structured channel on (root's PersistentPreRun sets it).
+	clidiag.SetStructured(false)
 	var buf bytes.Buffer
 
 	got := loadConfigOrFallback(func() (*config.Config, error) {

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -22,9 +22,9 @@ import (
 // leaf tests here exist so nobody "unifies" that back.
 
 // The coordinator's verdict, on the session endpoint's handler
-// (runnermcp.RecvHandler, the one surface an engine dials).
+// (interaction.RecvHandler, the one surface an engine dials).
 func TestRecvHandler_CoordinatorTimeoutIsASuccessfulEmptyReceive(t *testing.T) {
-	h := runnermcp.RecvHandler(report.To(nil), testHome(t), false)
+	h := interaction.RecvHandler(report.To(nil), testHome(t), false)
 
 	res, err := runnerRecv(t, h, 1)
 	require.NoError(t, err, "a coordinator's quiet wait is not a failure")
@@ -36,10 +36,10 @@ func TestRecvHandler_CoordinatorTimeoutIsASuccessfulEmptyReceive(t *testing.T) {
 }
 
 func TestRecvHandler_LeafTimeoutStaysAnError(t *testing.T) {
-	h := runnermcp.RecvHandler(report.To(nil), testHome(t), true)
+	h := interaction.RecvHandler(report.To(nil), testHome(t), true)
 
 	res, err := runnerRecv(t, h, 1)
 	require.ErrorIs(t, err, coord.ErrRecvTimeout, "a leaf's timeout is its signal to stop, and its harness should show red")
 	assert.Nil(t, res, "a leaf timeout carries no successful result to mistake for an empty receive")
-	assert.Contains(t, err.Error(), runnermcp.RecvTimeoutLeafGuidance)
+	assert.Contains(t, err.Error(), interaction.RecvTimeoutLeafGuidance)
 }

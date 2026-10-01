@@ -67,7 +67,7 @@ func (b bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // ConnectMCPEndpoint dials a session's bound MCP endpoint — the URL and
-// bearer its runner serves (runner/mcp.Endpoint) — over Streamable HTTP and
+// bearer its runner serves (runner/interaction.Endpoint) — over Streamable HTTP and
 // completes the handshake. It is how a scenario reaches a standing session
 // owner's coordination surface: the same door the owner's engine uses, with
 // no shim process between.

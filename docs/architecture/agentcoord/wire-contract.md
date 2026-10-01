@@ -71,7 +71,7 @@ interceptors (`grpcserver.go`).
 | `PeerSendRequest` | `agent_send` | `to_agent_id`/`to_role`/`text`/`structured`/`in_reply_to` are live; `artifact_ids` is never read and `PeerMessage.artifacts` is never populated |
 | `ListRunsRequest` / `ListRunsResult.RunInfo` | `roster` | see [observation.md](observation.md) — 2 of 4 filters and 2 of 9 result fields are inert |
 | `StopRun` | used in **two directions with two contracts**: `RunnerRequest.stop_run=11` (runtime→runner, graceful) and `AgentRequest.stop_run=16` (parent→coordinator, hard kill, "grace is advisory") | its `(message_schema).doc` describes only the `agent_stop` sense and is projected into `schemas/agent_stop.json` |
-| `Summary` | durable report event **and** the `agent_report` tool input | fully consumed (`coord/reports.go`); `runner/mcp/server.go` hard-rejects empty `text` and `SCOPE_UNSPECIFIED` — the fail-loud model for the rest of the file |
+| `Summary` | durable report event **and** the `agent_report` tool input | fully consumed (`coord/reports.go`); `runner/interaction/server.go` hard-rejects empty `text` and `SCOPE_UNSPECIFIED` — the fail-loud model for the rest of the file |
 | `Result` / `Usage` | terminal outcome + accounting | 5 of 10 `Result` fields and `Usage.per_model` have zero producers and zero consumers; the micro-USD discipline is correctly implemented at `enginehost.go` |
 | `AgentIdentity` | who this agent is | only `agent_id` and `role` are ever populated (`consumer.go`, `enginehost.go`); `runner_id` is documented as "coordinator-assigned and validated against the connection credential" and is never assigned |
 
@@ -83,7 +83,7 @@ field decodes to. This table is the security-relevant audit.
 | Enum | Zero value | Polarity | Evidence |
 | --- | --- | --- | --- |
 | `ApprovalRequest.ApprovalKind` | `APPROVAL_KIND_UNSPECIFIED` | **fails closed** | `coordgrpc.ApprovalRequestFromWire` refuses it at decode |
-| `Summary.Scope` | `SCOPE_UNSPECIFIED` | **fails closed** | `runner/mcp/server.go` hard-rejects |
+| `Summary.Scope` | `SCOPE_UNSPECIFIED` | **fails closed** | `runner/interaction/server.go` hard-rejects |
 | `Result.RunStatus` | `RUN_STATUS_UNSPECIFIED` | **fails open** | every consumer tests `== RUN_STATUS_FAILED`, so `run_owned.go` exits 0 for UNSPECIFIED, CANCELLED and TIMED_OUT; `children.go` records no failure reason |
 | `MessageChannel` | `MESSAGE_CHANNEL_UNSPECIFIED` | **read two opposite ways** | `children.go` treats unset as *not* final (dropped from the turn accumulator); `operations/sessionfeed.go` renders it as user-facing assistant output |
 | `ArtifactKind`, `InteractionRecorded.Resolution`, `PeerSendResult.Delivery`, `MessageRole` | — | neutral (always explicitly set, or lookup-fallback only) | — |

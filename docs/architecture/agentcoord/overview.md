@@ -44,7 +44,7 @@ flowchart TD
   CLI["internal/adapters/cli<br/>(run.go: the session host; runner_deps.go: the runner's composition)"]
   TUI["internal/adapters/cli/tui"]
   MCP["internal/adapters/mcp<br/>(coord_host.go: HostCoordinatorForSession — the one hosting path;<br/>HostApp — the coordinator's host relay, one ctxServer per relayed call)"]
-  RMCP["internal/adapters/runner/mcp<br/>(delivery.Dynamic: Endpoint.Serve binds Launch.MCP;<br/>NewServer — coordination, relay and loadout surfaces)"]
+  RMCP["internal/adapters/runner/interaction<br/>(delivery.Dynamic: Endpoint.Serve binds Launch.MCP;<br/>NewServer — coordination, relay and loadout surfaces)"]
   SPAWN["internal/adapters/spawn<br/>(coord.Spawner: Resolve/ResolveLaunch/Start/Adopt;<br/>StartRunner and its context contract)"]
   COORD["internal/core/coord<br/>(Coordinator, Verbs, Transport port, Event + frames — no proto)"]
   CGRPC["internal/adapters/coordgrpc<br/>(Serve: the h2c listener + coordService/consumerService/artifactService;<br/>the codec; StatusFromErr)"]
@@ -126,12 +126,12 @@ included; `runner.Main`) decodes its reach-back trio once, constructs a
 `runner.Home` which dials two streams — `RunnerChannel` (lifecycle, one per
 credential, via `DialRunner` / `RunnerLink`) and `RunChannel` (one per run) —
 and hosts the engine through `runner.EngineHost`. It BINDS the session's ONE
-MCP endpoint (`runner/mcp.Endpoint`, `delivery.Dynamic`: Streamable HTTP under
+MCP endpoint (`runner/interaction.Endpoint`, `delivery.Dynamic`: Streamable HTTP under
 `ServePolicy`, a bearer on every request) and delivers the launch into the
 session's home with that endpoint named in the session's registry — ctxloom's
 own companion entry rendered through the engine's dynamic approach
 (`delivery.InputsFor`); the engine dials it directly. The surface is
-`runner/mcp.NewServer`: the coordination tools generated from `mcpschema`, the
+`runner/interaction.NewServer`: the coordination tools generated from `mcpschema`, the
 host relays (`HostRequest` frames the coordinator answers through
 `mcp.HostApp`) and the cell-local tools and `ctxloom://` resources over the
 Loadout. Its goroutines are `Home.runnerChannelLoop`, `runChannelLoop`, the

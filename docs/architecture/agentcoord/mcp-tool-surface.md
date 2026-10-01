@@ -38,8 +38,8 @@ flowchart TD
     RB["RelayBudget()<br/>binding.go"]
   end
   GOLD ==>|embedded| TOOLS
-  TOOLS & ROUTES & COO --> RUNNER["runnermcp.NewServer<br/>runner/mcp/server.go"]
-  RB --> RELAY["relayTyped<br/>runner/mcp/server.go"]
+  TOOLS & ROUTES & COO --> RUNNER["interaction.NewServer<br/>runner/interaction/server.go"]
+  RB --> RELAY["relayTyped<br/>runner/interaction/server.go"]
   RUNNER --> HANDLERS["recvHandler · reportHandler<br/>(hand-written result maps)"]
   SYN -.->|ungated mirror| HANDLERS
 ```
@@ -81,8 +81,8 @@ flowchart TD
 | M2 | The binding table and the routing table are pinned against each other, so drift between them is impossible | `binding_test.go` (via `Binding.Route`) |
 | M3 | One golden per binding, no strays — a bidirectional cardinality assertion | `binding_test.go` |
 | M4 | Generation fails rather than degrading when the descriptor set lacks source info | `gen/main.go` |
-| M5 | Leaf (non-coordinator) children are denied the coordinator-only tools | `binding.go` → `runner/mcp/server.go` |
-| M6 | Every classified tool must be served by some route, checked at runner startup | `runner/mcp/server.go` |
+| M5 | Leaf (non-coordinator) children are denied the coordinator-only tools | `binding.go` → `runner/interaction/server.go` |
+| M6 | Every classified tool must be served by some route, checked at runner startup | `runner/interaction/server.go` |
 
 The drift gate is `just gen-mcp-schemas-check` — regenerate, then
 `git diff --exit-code -- internal/adapters/coordgrpc/mcpschema/schemas` — wired at
@@ -98,7 +98,7 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   `binding.go` and diffing against a golden generated from `binding.go` proves the golden
   matches the literal; it says nothing about whether the literal matches the runtime
   handler, which is a *second* hand-written map literal in another package
-  (`runner/mcp/server.go`). They agree today and nothing enforces that they continue
+  (`runner/interaction/server.go`). They agree today and nothing enforces that they continue
   to.
 - **`agent_recv`'s wait bounds** are `mcpschema.RecvWaitDefault` and
   `coord.RecvWaitMax` (the verb's bound, which the shutdown drain shares);
@@ -112,10 +112,10 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   schema-legal and unmarshal-fatal.
 - **The `required` keyword this package emits is enforced by nobody.**
   `server.AddTool`'s contract states validation is the caller's responsibility, and the
-  caller (`runner/mcp/server.go`) uses `protojson`, which has no concept of `required`
+  caller (`runner/interaction/server.go`) uses `protojson`, which has no concept of `required`
   and returns `nil` on zero-length arguments — so `agent_run` with `{}` produces a fully
   zero-valued `SpawnAgentRequest`. `agent_report`'s handler validates its own requireds
-  explicitly (`runner/mcp/server.go`).
+  explicitly (`runner/interaction/server.go`).
 - **`Route` has no `RouteUnspecified`**, so a `Routes()` map miss is indistinguishable
   from a deliberate `RouteCoordination`. Unreachable today only because M2/M3 pin the two
   tables together.
@@ -151,4 +151,4 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   recursing field carries a doc (`project.go`). No current golden
   contains the marker.
 - **9 of the 16 routed tools have no `Tool*` constant** and appear as raw string
-  literals in `Routes()`, `relayBudgets` and two slice literals in `runner/mcp/server.go`.
+  literals in `Routes()`, `relayBudgets` and two slice literals in `runner/interaction/server.go`.

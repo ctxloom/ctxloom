@@ -1,4 +1,4 @@
-package mcp_test
+package interaction_test
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -71,7 +71,7 @@ func loadoutAt(port int) delivery.Loadout {
 
 func serve(t *testing.T, lo delivery.Loadout) delivery.Served {
 	t.Helper()
-	ep := runnermcp.Endpoint{Home: deadHome(t)}
+	ep := interaction.Endpoint{Home: deadHome(t)}
 	served, err := ep.Serve(context.Background(), lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = served.Close() })
@@ -146,7 +146,7 @@ func TestServe_BindsTheLoadoutEndpoint_BearerAndOrigin(t *testing.T) {
 // contract, not an option — no caller can serve without one.
 func TestServe_EmptyAllowedOrigins_IsRefused(t *testing.T) {
 	lo := loadoutAt(freePort(t))
-	ep := runnermcp.Endpoint{Home: deadHome(t)}
+	ep := interaction.Endpoint{Home: deadHome(t)}
 	_, err := ep.Serve(context.Background(), lo, delivery.ServePolicy{})
 	require.ErrorIs(t, err, delivery.ErrNoAllowedOrigins)
 }
@@ -159,7 +159,7 @@ func TestServe_OccupiedPort_IsErrEndpointUnavailable(t *testing.T) {
 	require.NoError(t, err)
 	defer occupant.Close()
 
-	ep := runnermcp.Endpoint{Home: deadHome(t)}
+	ep := interaction.Endpoint{Home: deadHome(t)}
 	_, err = ep.Serve(context.Background(), loadoutAt(port), delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, delivery.ErrEndpointUnavailable), "got %v", err)
@@ -174,7 +174,7 @@ func TestServe_Close_FreesThePort(t *testing.T) {
 	lo := loadoutAt(freePort(t))
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
-	ep := runnermcp.WithServeGate(runnermcp.Endpoint{Home: deadHome(t)}, func() { <-release })
+	ep := interaction.WithServeGate(interaction.Endpoint{Home: deadHome(t)}, func() { <-release })
 	served, err := ep.Serve(context.Background(), lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 	require.NoError(t, err)
 	require.NoError(t, served.Close())

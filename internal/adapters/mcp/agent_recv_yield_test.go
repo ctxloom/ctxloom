@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -24,7 +24,7 @@ import (
 // reading "failed" retries, and the retry preempts the receive that was about
 // to deliver; observed more than six times in one session, every one caused
 // by the verdict itself. These tests pin the contract that stops that loop on
-// the session endpoint's handler (runnermcp.RecvHandler): the superseded
+// the session endpoint's handler (interaction.RecvHandler): the superseded
 // call completes successfully with no messages and a disposition saying so.
 // The timeout verdicts — a coordinator's is a success, a leaf's an error —
 // are pinned beside these in agent_recv_timeout_test.go.
@@ -42,12 +42,12 @@ const instructionToFinish = "finish"
 // sentinel identity intact for every errors.Is caller; a coordinator's is a
 // successful empty receive that never sees that instruction.
 func TestRecvOutcome_TimeoutVerdictFollowsTheAudience(t *testing.T) {
-	disposition, leaf := runnermcp.RecvOutcome(coord.ErrRecvTimeout, 5*time.Second, true)
+	disposition, leaf := interaction.RecvOutcome(coord.ErrRecvTimeout, 5*time.Second, true)
 	require.ErrorIs(t, leaf, coord.ErrRecvTimeout)
 	assert.Empty(t, disposition, "a leaf's timeout is a failure, not a disposition")
-	assert.Contains(t, leaf.Error(), runnermcp.RecvTimeoutLeafGuidance)
+	assert.Contains(t, leaf.Error(), interaction.RecvTimeoutLeafGuidance)
 
-	disposition, coordinator := runnermcp.RecvOutcome(coord.ErrRecvTimeout, 5*time.Second, false)
+	disposition, coordinator := interaction.RecvOutcome(coord.ErrRecvTimeout, 5*time.Second, false)
 	require.NoError(t, coordinator, "a coordinator's timeout is not a failure")
 	assert.Equal(t, mcpschema.RecvDispositionTimedOut, disposition)
 	assert.NotContains(t, disposition, instructionToFinish)
@@ -56,13 +56,13 @@ func TestRecvOutcome_TimeoutVerdictFollowsTheAudience(t *testing.T) {
 		"the shared sentinel must stay audience-neutral; the child's instruction belongs only where a child reads it")
 
 	for _, leaf := range []bool{true, false} {
-		disposition, failure := runnermcp.RecvOutcome(coord.ErrRecvPreempted, time.Second, leaf)
+		disposition, failure := interaction.RecvOutcome(coord.ErrRecvPreempted, time.Second, leaf)
 		require.NoError(t, failure, "a yield is a success for every audience")
 		assert.Equal(t, mcpschema.RecvDispositionYielded, disposition)
 	}
 
 	other := errors.New("something else")
-	disposition, failure := runnermcp.RecvOutcome(other, time.Second, true)
+	disposition, failure := interaction.RecvOutcome(other, time.Second, true)
 	assert.Equal(t, other, failure, "only the timeout gains guidance")
 	assert.Empty(t, disposition)
 }
@@ -82,7 +82,7 @@ type runnerRecvOutcome struct {
 }
 
 func TestRecvHandler_SupersededReceiveYieldsAsSuccess(t *testing.T) {
-	h := runnermcp.RecvHandler(report.To(nil), testHome(t), false)
+	h := interaction.RecvHandler(report.To(nil), testHome(t), false)
 
 	outcomes := make(chan runnerRecvOutcome, 2)
 	for i := 0; i < 2; i++ {

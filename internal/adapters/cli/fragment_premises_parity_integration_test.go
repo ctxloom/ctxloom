@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -47,7 +47,7 @@ fragments:
 // at initialize and points at the ctxloom://fragments catalog) — and one
 // source of the wording they emit: operations.PremiseSelectionInstruction.
 // This drives the CLI from the built binary and the endpoint's surface from
-// the same registration the runner serves (runnermcp.NewDocServer), and pins
+// the same registration the runner serves (interaction.NewDocServer), and pins
 // the instruction text identical, and identical to the source. It reddens if
 // either emitter stops calling the shared function.
 //
@@ -76,7 +76,7 @@ func TestMCP_SessionInstructions_MatchFragmentPremisesCLI(t *testing.T) {
 
 	// MCP emitter: the session endpoint's advertised instructions, from the
 	// same server the runner serves.
-	server, closeHome, err := runnermcp.NewDocServer()
+	server, closeHome, err := interaction.NewDocServer()
 	require.NoError(t, err)
 	defer closeHome()
 	ctx := t.Context()

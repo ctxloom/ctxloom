@@ -11,7 +11,7 @@ The runner is ONE process, `ctxloom runner <engine>` (`runner.go`, hidden;
 `internal/adapters/runner.Main`): the coordinator starts it for every launch
 — the session owner's own run included — with the reach-back trio on its
 env, it dials home, receives its Launch over `StartRun`, binds the session's
-MCP endpoint (`internal/adapters/runner/mcp`), delivers the launch into the
+MCP endpoint (`internal/adapters/runner/interaction`), delivers the launch into the
 session's home and drives the engine. On the host it runs on a pty the
 originator holds (`internal/adapters/hostpty`); in a container it is the
 container's foreground (`internal/adapters/attach`). The runner holds no

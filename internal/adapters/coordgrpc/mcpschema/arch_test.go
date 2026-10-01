@@ -94,15 +94,15 @@ var handlerScopes = map[string]handlerScope{
 		// handler (validation + plan-manifest stamping) and the codec's
 		// decode into the coordinator's Summary.
 		funcs: []string{
-			"../../runner/mcp/server.go:reportHandler",
+			"../../runner/interaction/server.go:reportHandler",
 			"../codec.go:SummaryFromWire",
 		},
 	},
 	ToolAgentRecv: {
-		funcs: []string{"../../runner/mcp/server.go:RecvHandler"},
+		funcs: []string{"../../runner/interaction/server.go:RecvHandler"},
 	},
 	ToolAgentFetchArtifact: {
-		funcs: []string{"../../runner/mcp/server.go:fetchArtifactHandler"},
+		funcs: []string{"../../runner/interaction/server.go:fetchArtifactHandler"},
 	},
 	// The five control tools share one decoder: each arm's fields are read
 	// in its case of controlRequestFromWire.

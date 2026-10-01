@@ -5,7 +5,7 @@
 // the ctxloom:// resources serve off the Loadout's Package and Index; the
 // coordination tools, the host-relayed tools and artifact fetch ride the
 // runner's reach-back Home. It holds no config.
-package mcp
+package interaction
 
 import (
 	"context"

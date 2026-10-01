@@ -165,6 +165,12 @@ func newScenarioEnv(hostRuntimes bool) (*testenv.TestEnvironment, error) {
 		_ = env.Cleanup()
 		return nil, err
 	}
+	if !hostRuntimes {
+		if err := env.HideHostContainerRuntimes(); err != nil {
+			_ = env.Cleanup()
+			return nil, err
+		}
+	}
 	return env, nil
 }
 

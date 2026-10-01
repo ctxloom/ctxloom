@@ -325,7 +325,9 @@ func TestApprovals_AHumansOwnModeChangeBeatsThePendingTransition(t *testing.T) {
 	h.toolUse("toolu_bash", "Bash", cmd)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = h.a.hold(ctx, json.RawMessage(`{"tool_name":"Bash","input":`+cmd+`,"tool_use_id":"toolu_bash"}`)) }()
+	go func() {
+		_ = h.a.hold(ctx, json.RawMessage(`{"tool_name":"Bash","input":`+cmd+`,"tool_use_id":"toolu_bash"}`))
+	}()
 	raw, err := h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"tool_name":"Bash","tool_input":`+cmd+`}`))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":[{"type":"setMode","mode":"default","destination":"session"}]}}}`, string(raw))
@@ -352,7 +354,9 @@ func TestApprovals_ASuggestionWiderThanTheApprovedPostureIsTheHumans(t *testing.
 	h.toolUse("toolu_edit", "Edit", edit)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = h.a.hold(ctx, json.RawMessage(`{"tool_name":"Edit","input":`+edit+`,"tool_use_id":"toolu_edit"}`)) }()
+	go func() {
+		_ = h.a.hold(ctx, json.RawMessage(`{"tool_name":"Edit","input":`+edit+`,"tool_use_id":"toolu_edit"}`))
+	}()
 	raw, err := h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"tool_name":"Edit","tool_input":`+edit+`,"permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}`))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ExitPlanMode", "Edit"}, root.asked, "the edit was the human's")

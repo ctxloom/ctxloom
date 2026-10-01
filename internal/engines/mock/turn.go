@@ -145,33 +145,51 @@ func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawM
 		}
 	}
 	meta := &agent.TurnMeta{StopReason: "end_turn"}
-	if tool, ok := deniedToolIn(prompt); ok {
-		denial := agent.PermissionDenial{ToolName: tool, ToolCallID: "mock-deny-1", Reason: "mock: " + tool + " is denied by policy", Decider: agent.DeciderPolicy}
-		if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: tool, ToolCallID: denial.ToolCallID, ToolInput: json.RawMessage(`{}`)}}); err != nil {
-			return err
-		}
-		if err := send(agent.ChatEvent{Denied: &denial}); err != nil {
-			return err
-		}
-		meta.Denials = []agent.PermissionDenial{denial}
-	}
-	tool, input, asks, err := askIn(prompt)
+	denials, err := markedDenials(send, ask, prompt)
 	if err != nil {
 		return err
 	}
-	if asks {
-		denial, err := ask(tool, input)
-		if err != nil {
-			return err
-		}
-		if denial != nil {
-			meta.Denials = append(meta.Denials, *denial)
-		}
-	}
+	meta.Denials = denials
 	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: answer}}); err != nil {
 		return err
 	}
 	return send(agent.ChatEvent{Complete: meta})
+}
+
+// markedDenials makes the turn's marked calls — a mock:deny call, refused by
+// policy, and a mock:ask call, asked about (ask) — and returns the denials
+// the turn reports.
+func markedDenials(send func(agent.ChatEvent) error, ask func(string, json.RawMessage) (*agent.PermissionDenial, error), prompt string) ([]agent.PermissionDenial, error) {
+	var out []agent.PermissionDenial
+	if tool, ok := deniedToolIn(prompt); ok {
+		denial, err := policyDenial(send, tool)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, denial)
+	}
+	tool, input, asks, err := askIn(prompt)
+	if err != nil || !asks {
+		return out, err
+	}
+	denial, err := ask(tool, input)
+	if err != nil {
+		return nil, err
+	}
+	if denial != nil {
+		out = append(out, *denial)
+	}
+	return out, nil
+}
+
+// policyDenial is a mock:deny call: the tool_use, then the refusal as it
+// happens.
+func policyDenial(send func(agent.ChatEvent) error, tool string) (agent.PermissionDenial, error) {
+	denial := agent.PermissionDenial{ToolName: tool, ToolCallID: "mock-deny-1", Reason: "mock: " + tool + " is denied by policy", Decider: agent.DeciderPolicy}
+	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: tool, ToolCallID: denial.ToolCallID, ToolInput: json.RawMessage(`{}`)}}); err != nil {
+		return denial, err
+	}
+	return denial, send(agent.ChatEvent{Denied: &denial})
 }
 
 // toolsTurn is the entry vocabulary a TOOLS turn relays before its answer.

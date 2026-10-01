@@ -105,31 +105,45 @@ func (d driver) askTheHuman(ctx context.Context, ex engine.Exec, hooks wire.Unif
 	if err != nil {
 		return askDecision{}, err
 	}
-	for _, h := range hooks.PermissionAsk {
-		if ok, merr := hookMatches(h, tool); merr != nil || !ok {
-			if merr != nil {
-				return askDecision{}, merr
-			}
+	dec, answered, err := firstHookAnswer(ctx, ex, hooks.PermissionAsk, tool, payload)
+	if err != nil || answered {
+		return dec, err
+	}
+	return hostDecision(<-host), nil
+}
+
+// firstHookAnswer runs the hooks that admit tool, in order, and returns the
+// first decision one of them writes; a hook that fails or writes nothing
+// decides nothing.
+func firstHookAnswer(ctx context.Context, ex engine.Exec, hooks []wire.Hook, tool string, payload []byte) (askDecision, bool, error) {
+	for _, h := range hooks {
+		ok, err := hookMatches(h, tool)
+		if err != nil {
+			return askDecision{}, false, err
+		}
+		if !ok {
 			continue
 		}
-		out, rerr := runHook(ctx, h.Command, payload, ex.WorkDir, ex.Env)
-		if rerr != nil || len(out) == 0 {
-			continue // no decision from this hook
-		}
+		out, err := runHook(ctx, h.Command, payload, ex.WorkDir, ex.Env)
 		var dec askDecision
-		if json.Unmarshal(out, &dec) == nil {
-			return dec, nil
+		if err == nil && len(out) > 0 && json.Unmarshal(out, &dec) == nil {
+			return dec, true, nil
 		}
 	}
-	a := <-host
+	return askDecision{}, false, nil
+}
+
+// hostDecision reads the permission host's answer; a host that failed, or
+// answered something unreadable, is a deny saying so.
+func hostDecision(a hostAnswer) askDecision {
 	if a.err != nil {
-		return askDecision{Message: "mock: the permission host failed: " + a.err.Error()}, nil
+		return askDecision{Message: "mock: the permission host failed: " + a.err.Error()}
 	}
 	var dec askDecision
 	if err := json.Unmarshal([]byte(a.text), &dec); err != nil {
-		return askDecision{Message: "mock: the permission host's answer is unreadable: " + a.text}, nil
+		return askDecision{Message: "mock: the permission host's answer is unreadable: " + a.text}
 	}
-	return dec, nil
+	return dec
 }
 
 // hookMatches reports whether h's matcher admits tool (no matcher admits

@@ -1,4 +1,4 @@
-# Manual probe for row worried-chief (D4): what cross-session messaging
+# Probe for row worried-chief (D4): what cross-session messaging
 # endpoint does the pinned claude CLI create on Windows (named pipe or AF_UNIX
 # socket), and does a post need the inbox auth line there. ubuntu-latest is the
 # control. Needs no secrets; evidence is uploaded as an artifact per OS.
@@ -6,6 +6,13 @@ name: wake-probe
 
 on:
   workflow_dispatch:
+  # Runs once when it lands on the integration branch, then again only when
+  # the probe itself is edited.
+  push:
+    branches: [nt/windows-check]
+    paths:
+      - .github/workflows/wake-probe.yml
+      - .github/scripts/wake-probe.ps1
 
 permissions:
   contents: read

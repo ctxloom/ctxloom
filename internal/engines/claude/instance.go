@@ -280,10 +280,15 @@ func (i *instance) Resume(key string) error {
 // session is findable in claude's /resume picker.
 type streamJSONDriver struct{ inst *instance }
 
-// argv is the per-turn process's argv: Exec plus the protocol, and the
-// turn's posture as the process's one --settings (turnSettings). It refuses
-// an Exec that already names --settings: the turn's would replace it.
+// argv is the per-turn process's argv: Exec plus the protocol, the
+// repository's sources unless the turn's verdict trusts it, and the turn's
+// posture as the process's one --settings (turnSettings). It refuses an
+// Exec that already names --settings, whether or not the turn has a
+// posture to say.
 func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error) {
+	if slices.Contains(ex.Args, flagSettings) {
+		return nil, errTurnSettingsPresented
+	}
 	args := slices.Clone(ex.Args)
 	args = append(args, flagInputFormat, "stream-json", flagOutputFormat, "stream-json", flagVerbose)
 	if in.Resume != "" && !slices.Contains(ex.Args, flagResume) {
@@ -292,17 +297,26 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) ([]string, error
 	if harp := d.inst.s.Identity.Harp; harp != "" {
 		args = append(args, flagName, harp)
 	}
+	args = append(args, repoSourceArgs(in.Posture.Trust)...)
 	doc, err := turnSettings(d.inst.pos, d.inst.s.MCPServers, in.Posture)
 	if err != nil {
 		return nil, err
 	}
 	if doc != "" {
-		if slices.Contains(ex.Args, flagSettings) {
-			return nil, errSettingsTwice
-		}
 		args = append(args, flagSettings, doc)
 	}
 	return args, nil
+}
+
+// repoSourceArgs keeps an untrusted repository's own surfaces out of a
+// turn: settings from the user source alone (the session home, where
+// ctxloom's hooks live) and MCP servers from --mcp-config alone. Anything
+// but an explicit Trusted verdict is untrusted.
+func repoSourceArgs(trust engine.WorkspaceTrust) []string {
+	if trust == engine.TrustTrusted {
+		return nil
+	}
+	return []string{flagSettingSources, "user", flagStrictMCPConfig}
 }
 
 // Turn spawns one stream-json process, writes the one user message, relays

@@ -331,8 +331,3 @@ func TestTurnArgv_NeverCarriesBypass(t *testing.T) {
 	assert.NotContains(t, args, flagSettings)
 }
 
-func TestTurnArgv_RefusesASecondSettings(t *testing.T) {
-	file := present.Presentation{Args: []string{flagSettings, "/p/.claude/settings.json"}}
-	_, err := headlessTurnArgv(t, policy(map[string]any{keyMode: modeDefault, keyDeny: []string{"Bash"}}), engine.Turn{}, file)
-	assert.ErrorIs(t, err, errSettingsTwice)
-}

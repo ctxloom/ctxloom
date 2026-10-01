@@ -16,8 +16,9 @@ import (
 
 // TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol pins the
 // structured drive's argv: the Exec the Instance composed, then the
-// stream-json protocol flags, the resume key the turn names and the harp
-// the session is named after (testdata/chat_parity.golden holds the same
+// stream-json protocol flags, the resume key the turn names, the harp
+// the session is named after and — the turn naming no trust verdict — the
+// untrusted repository's user-only sources (testdata/chat_parity.golden holds the same
 // flags; the ORDER is now Exec's, since one place composes argv).
 func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	kind, err := Build()
@@ -41,7 +42,7 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	require.True(t, ok)
 	argv, err := d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-1", Posture: engine.TurnPosture{Mode: modePlan}})
 	require.NoError(t, err)
-	require.Equal(t, strings.Join(ex.Args, " ")+` --input-format stream-json --output-format stream-json --verbose --resume native-key-1 --name perky-same-chevy --settings {"permissions":{"defaultMode":"plan"}}`,
+	require.Equal(t, strings.Join(ex.Args, " ")+` --input-format stream-json --output-format stream-json --verbose --resume native-key-1 --name perky-same-chevy --setting-sources user --strict-mcp-config --settings {"permissions":{"defaultMode":"plan"}}`,
 		strings.Join(argv, " "))
 	require.NoError(t, inst.Resume("native-key-2"))
 	ex, err = inst.Exec([]present.Presentation{mcp})

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
@@ -248,4 +249,41 @@ func TestEngineHost_AnApprovedPlansPostureStartsEveryLaterTurn(t *testing.T) {
 		require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 		assert.Equal(t, approvedPosture, nextPosture(t, eng).Mode)
 	}
+}
+
+// TestApprovals_ClaudePlanToAcceptEdits drives claude's own codec through the
+// route, with its live payload shapes: the plan approved at acceptEdits is a
+// PreToolUse allow (which claude refuses to carry a mode change on — it is
+// held instead), and the next edit, whose PermissionRequest suggests
+// setMode acceptEdits, is allowed with that session mode change, nobody
+// asked.
+func TestApprovals_ClaudePlanToAcceptEdits(t *testing.T) {
+	codec, ok := claude.Claude{}.Approvals().Get()
+	require.True(t, ok)
+	root := &scriptedRoot{answers: []engine.PermissionAnswer{{Allow: true, SetMode: engine.Provide("acceptEdits")}}}
+	h := newRouteHarness(t, root.decide)
+	h.a.codec = codec
+
+	plan := `{"plan":"# Plan","planFilePath":"/p.md"}`
+	h.toolUse("toolu_plan", "ExitPlanMode", plan)
+	raw, err := h.a.Hook(context.Background(), "PreToolUse", []byte(`{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":`+plan+`,"tool_use_id":"toolu_plan"}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":`+plan+`}}`, string(raw))
+	h.toolResult("toolu_plan")
+
+	edit := `{"file_path":"/w/a.go","old_string":"a","new_string":"b"}`
+	h.toolUse("toolu_edit", "Edit", edit)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	held := make(chan error, 1)
+	go func() {
+		held <- h.a.hold(ctx, json.RawMessage(`{"tool_name":"Edit","input":`+edit+`,"tool_use_id":"toolu_edit"}`))
+	}()
+	raw, err = h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"hook_event_name":"PermissionRequest","tool_name":"Edit","tool_input":`+edit+`,"permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}`, string(raw))
+	assert.Equal(t, []string{"ExitPlanMode"}, root.asked, "nobody was asked about the edit")
+	assert.Equal(t, "acceptEdits", h.a.heldMode())
+	h.toolResult("toolu_edit")
+	assert.ErrorIs(t, <-held, errSuperseded)
 }

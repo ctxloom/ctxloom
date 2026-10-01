@@ -176,9 +176,12 @@ type ApprovalQueue struct {
 	// older count was asked by a turn that is already over.
 	turns map[string]uint64
 
-	// revokeMu serialises revokes so each push carries the set the journal
-	// is about to hold.
-	revokeMu sync.Mutex
+	// grantsLock is held by a revoke from reading the set it pushes until
+	// the revoke is journaled, and by a decision that grants while it is
+	// journaled and delivered: the run never takes a grant from a decision
+	// only to have an older pushed set drop it. A one-slot channel rather
+	// than a mutex, so a test can see a waiter durably blocked (synctest).
+	grantsLock chan struct{}
 
 	// expireHook, when set (tests), runs after a park's timer or context has
 	// fired and before it claims the request — where an answer can still win.
@@ -206,8 +209,12 @@ func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, ru
 		resolved:   make(map[ApprovalID]struct{}),
 		subs:       make(map[chan QueueEvent]struct{}),
 		turns:      make(map[string]uint64),
+		grantsLock: make(chan struct{}, 1),
 	}
 }
+
+func (q *ApprovalQueue) lockGrants()   { q.grantsLock <- struct{}{} }
+func (q *ApprovalQueue) unlockGrants() { <-q.grantsLock }
 
 // storeFold finds the fold of type F a store was opened with. A store opened
 // without it is a composition bug, and panics at construction rather than
@@ -387,6 +394,10 @@ func (q *ApprovalQueue) settle(p *parkedApproval, d ApprovalDecision) error {
 	if !d.Allow {
 		d.SessionRules, d.SetMode = nil, engine.Declared[string]{}
 	}
+	if len(d.SessionRules) > 0 {
+		q.lockGrants()
+		defer q.unlockGrants()
+	}
 	var granted bool
 	err := q.store.Exec(func() ([]Fact, error) {
 		facts := q.decisionFacts(p.req, d)
@@ -494,8 +505,8 @@ func (q *ApprovalQueue) Grants(harp string) []Grant {
 // that remain — and the revoke is journaled only once it has taken them, so
 // the record never says a rule is gone while the run still applies it.
 func (q *ApprovalQueue) Revoke(harp, grantID string) error {
-	q.revokeMu.Lock()
-	defer q.revokeMu.Unlock()
+	q.lockGrants()
+	defer q.unlockGrants()
 	var (
 		found     bool
 		remaining []string

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -113,6 +114,55 @@ func prepareSuiteImages(ctx context.Context, declared map[string]bool) {
 		}
 		preparedSuiteImages[img.tag] = suiteImageState{decision: decision, msg: msg}
 	}
+}
+
+// excludeSkippedSuiteImages drops, before the run, every selected scenario
+// whose image preparation decided Skip, and returns a report naming each one
+// and the reason ("" when nothing was dropped). The hermetic lane calls it.
+//
+// That lane fails on any declined step, and the rule holds only because every
+// scenario that may legitimately skip is excluded by tag before the run
+// starts. An image that could not be prepared because no container runtime is
+// reachable is exactly such a skip, and it is known before any scenario runs —
+// so it is excluded the same way rather than declined row by row, which
+// turned a machine without docker or podman red on scenarios that had nothing
+// to say there. The report is the visibility: a run that covered less must
+// say what it left out and why.
+//
+// Only Skip is excluded. Fail — CTXLOOM_REQUIRE_DOCKER=1 with no runtime, or
+// a build that failed or outlived its bound — keeps its scenarios in, where
+// requireSuiteImage fails them.
+func excludeSkippedSuiteImages(suite *godog.TestSuite) (string, error) {
+	features, err := suite.RetrieveFeatures()
+	if err != nil {
+		return "", fmt.Errorf("list the selected scenarios: %w", err)
+	}
+	var b strings.Builder
+	for _, img := range suiteImages {
+		st, ok := preparedSuiteImages[img.tag]
+		if !ok || st.decision != dockergate.Skip {
+			continue
+		}
+		var names []string
+		for _, f := range features {
+			for _, p := range f.Pickles {
+				if scenarioHasTag(p, img.tag) {
+					names = append(names, p.Uri+": "+p.Name)
+				}
+			}
+		}
+		if suite.Options.Tags == "" {
+			suite.Options.Tags = "~" + img.tag
+		} else {
+			suite.Options.Tags += " && ~" + img.tag
+		}
+		fmt.Fprintf(&b, "EXCLUDED BEFORE THE RUN: %d scenario(s) tagged %s, because %s could not be prepared:\n  %s\n",
+			len(names), img.tag, img.what, strings.ReplaceAll(st.msg, "\n", "\n  "))
+		for _, n := range names {
+			fmt.Fprintf(&b, "    - %s\n", n)
+		}
+	}
+	return b.String(), nil
 }
 
 // requireSuiteImage is the check at the point of use: the step that needs an

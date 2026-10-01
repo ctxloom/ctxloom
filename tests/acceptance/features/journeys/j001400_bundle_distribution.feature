@@ -80,11 +80,11 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #     gap — see the block above that scenario for what was actually wrong
   #     and how the fixture and its assertions were corrected.
   #
-  # (b) was THE CONTAINER HALF OF THE DELIVERY MATRIX (six rows), and is now
-  #     GREEN: a hermetic container cell exists
-  #     (internal/testsupport/containercell) and those rows run a real
-  #     `profile materialize` INSIDE a container against a bind-mounted target,
-  #     asserting bytes, mode and OWNERSHIP from the host side. What they do not
+  # (b) THE CONTAINER HALF OF THE DELIVERY MATRIX runs a real
+  #     `profile materialize` INSIDE a hermetic container cell
+  #     (internal/testsupport/containercell) against a bind-mounted target,
+  #     asserting the pulled bytes from the host side; mode and ownership
+  #     across the mount are the cell's own docker_integration test's. What they do not
   #     reach — ctxloom's OWN container launch and its containerConfigOverlay —
   #     is covered by internal/adapters/isolation's TestContainerRun_* pair instead,
   #     for the reason stated at that scenario (the delivery is only observable
@@ -384,79 +384,44 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
       | host    | worktree  | skills/reviewer/scripts/run.sh  | 0755 |
 
   # --------------------------------------------------------------------------
-  # THE CONTAINER HALF OF THE MATRIX — now green, on whichever container
-  # runtime the runner has.
+  # A PULLED BUNDLE, DELIVERED FROM INSIDE A CONTAINER.
   #
-  # WHAT UNBLOCKED IT. A hermetic container cell now exists
-  # (internal/testsupport/containercell): a `FROM scratch` image carrying one
-  # statically linked ctxloom, the environment root bind-mounted at its own
-  # absolute path, `--network=none`, and `profile materialize --backend mock`
-  # executed INSIDE the container. The rows below assert on the HOST side of
-  # that mount. Nothing about that route existed when this block said it was
-  # impossible: the suite launched no container anywhere (j002200 proves the
-  # fail-loud DEGRADE contract, which is a different claim from "a container
-  # run delivered these bytes"), the fixture image had no engine, and — the
-  # part that was actually load-bearing — the mock backend materialised NOTHING
-  # until it started delivering through the shared cells seam, so a cell would
-  # have had nothing to observe even with a daemon, an image and a mount.
+  # The host Outline above already proves the published bytes and modes reach
+  # an agent in every workspace. What it cannot show is the same pulled,
+  # signed bundle being resolved and delivered by a ctxloom process running in
+  # a container: a `FROM scratch` image (internal/testsupport/containercell)
+  # with no git, no network and no /etc/passwd, whose only route to Alice's
+  # home cache and project is a bind mount of the environment root at its own
+  # absolute path. A resolution step that leaned on anything the host has and
+  # the cell lacks goes red here and nowhere else. The target is checked empty
+  # before the container starts, so a host-side leftover cannot stand in.
   #
-  # WHY THIS IS NOT THE VACUOUS VERSION. Delivering on the host and asserting a
-  # host path would pass every row below without crossing the process boundary
-  # they name. Three things stop that: the delivering process is inside the
-  # container and its ONLY route to the target is the bind mount, so a delivery
-  # that resolved to a container-private path lands in the ephemeral layer and
-  # the row goes red on an absent file; the target is checked EMPTY before the
-  # container starts, so no host-side leftover can stand in; and each row
-  # asserts bytes, POSIX mode AND OWNERSHIP.
+  # Only the bytes are asserted. That the POSIX modes and the host-side
+  # OWNERSHIP survive a bind mount under each runtime is a property of the
+  # cell and the runtime, not of the bundle, and is asserted per runtime by
+  # internal/testsupport/containercell's docker_integration test
+  # (TestContainerCell_DeliversAcrossTheProcessBoundary). The workspace axis is
+  # the host Outline's: a container changes WHO writes, not where.
   #
-  # OWNERSHIP IS THE ROW THE HOST OUTLINE DOES NOT HAVE, and it is the only
-  # property a process boundary breaks while bytes and modes come through
-  # untouched. A ROOTFUL daemon writing through a bind mount produces
-  # byte-identical, mode-identical, ROOT-OWNED files in the invoking user's
-  # tree. That is the bug class the PUID/PGID entrypoint remap exists for, and
-  # before this line nothing in the suite would have noticed it. The cell runs
-  # as container-root under a rootless runtime (where root IS the invoker on
-  # the host filesystem) and as --user <hostuid>:<hostgid> under a rootful one;
-  # this assertion is what checks that rule rather than trusting it.
-  #
-  # WHICH RUNTIME RUNS THESE ROWS depends on the runner, and the matrix is
-  # asymmetric on purpose: no host is both rootful and rootless, and most have
-  # no podman, so each runner covers what it has. A missing runtime SKIPS the
-  # scenario naming the runtime and what did not run; CTXLOOM_REQUIRE_DOCKER=1
-  # turns "no runtime at all" into a failure; and CTXLOOM_REQUIRE_RUNTIMES
-  # (dockergate) lets a lane declare "I cover podman" so that claim is
-  # enforceable rather than aspirational. The three-runtime matrix over the
-  # cell itself lives in internal/testsupport/containercell's
-  # docker_integration test, which is where a per-runtime cell can be a
-  # subtest rather than a whole journey re-run.
-  #
-  # WHAT THESE ROWS DO NOT PROVE. They exercise a container that ctxloom's own
-  # isolation machinery did not build: the cell mounts and launches directly,
-  # so they say nothing about the product's container cell — its runner as the
-  # container's foreground process, the engine-home mount, or
+  # WHAT THESE ROWS DO NOT PROVE. The cell mounts and launches directly, so
+  # they say nothing about the product's own container cell — its runner as
+  # the container's foreground process, the engine-home mount, or
   # containerConfigOverlay. The product-built cell's engine-home delivery is
   # pinned in internal/core/coord's docker_integration lane by
   # TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath.
   # --------------------------------------------------------------------------
-  # @container: every example below drives runtime=container and needs a
-  # reachable daemon. It runs in `just test-acceptance-container`, whose
-  # ACCEPTANCE_PATHS names this file. @image-cell: the cell image it runs in is
-  # built once before the scenarios start, under its own bound, never inside
-  # a row.
+  # @container: every row needs a reachable daemon, so it runs in
+  # `just test-acceptance-container`. @image-cell: the cell image is built once
+  # before the scenarios start, under its own bound, never inside a row.
   @container @image-cell
-  Scenario Outline: The published artifacts reach a containerized agent across the process boundary
+  Scenario Outline: A pulled bundle reaches an agent delivered from inside a container
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     And Alice references the company's "atelier" bundle and pulls it
-    When the pulled surfaces are delivered to a "<runtime>" agent in its "<workspace>" workspace
+    When the pulled surfaces are delivered to a "container" agent in its "none" workspace
     Then the "<artifact>" reaches that agent's workspace carrying its published bytes
-    And the mode of "<artifact>" is "<mode>" where that agent can read it
-    And "<artifact>" is owned on the host by the user that ran the delivery
 
-    Examples: container runtime — the process boundary crossed
-      | runtime   | workspace | artifact                        | mode |
-      | container | none      | fragments/house-style.md        | 0600 |
-      | container | none      | skills/reviewer/SKILL.md        | 0644 |
-      | container | none      | skills/reviewer/scripts/run.sh  | 0755 |
-      | container | worktree  | fragments/house-style.md        | 0600 |
-      | container | worktree  | skills/reviewer/SKILL.md        | 0644 |
-      | container | worktree  | skills/reviewer/scripts/run.sh  | 0755 |
+    Examples: one row per kind of delivered surface
+      | artifact                        |
+      | fragments/house-style.md        |
+      | skills/reviewer/SKILL.md        |
+      | skills/reviewer/scripts/run.sh  |

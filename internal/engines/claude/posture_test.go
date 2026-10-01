@@ -293,6 +293,22 @@ func TestTurnArgv_CarriesThePostureAsInlineSettings(t *testing.T) {
 	}}, settingsDoc(t, args), "a turn naming no mode runs at the launch's")
 }
 
+// Deny beats grant: a session grant never displaces a declared deny or ask.
+// Both ride the SAME document as the grant, and claude evaluates deny, then
+// ask, then allow — so a grant colliding with a deny (or covering it, as a
+// whole-tool grant does) still leaves the call denied, and one colliding
+// with an ask still sends it to the human.
+func TestTurnArgv_AGrantNeverDisplacesADeclaredDenyOrAsk(t *testing.T) {
+	p := policy(map[string]any{keyMode: modeDefault, keyDeny: []string{"Bash(rm *)"}, keyAsk: []string{"WebFetch"}})
+	args, err := headlessTurnArgv(t, p, engine.Turn{Posture: engine.TurnPosture{Grants: []string{"Bash(rm *)", "Bash", "WebFetch"}}})
+	require.NoError(t, err)
+	perms, ok := settingsDoc(t, args)["permissions"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"Bash(rm *)"}, perms["deny"])
+	assert.Equal(t, []any{"WebFetch"}, perms["ask"])
+	assert.Equal(t, []any{"Bash(rm *)", "Bash", "WebFetch"}, perms["allow"])
+}
+
 // The reviewer rides the turn as claude's auto; the sandbox rides beside
 // the rules.
 func TestTurnArgv_ApproverAndSandbox(t *testing.T) {

@@ -145,13 +145,22 @@ func (w *World) expiredCommand() error {
 	return w.env.TakeExpired()
 }
 
-// needsHostContainerRuntime reports whether sc belongs to a lane that drives
-// the host's REAL docker/podman: @container launches real containers, and an
-// @live cell may run its engine in one. Every other scenario is the hermetic
-// lane, which must not depend on — or wait on — whatever daemons the machine
-// running it happens to have.
+// needsHostContainerRuntime reports whether sc drives the host's REAL
+// docker/podman: @container launches real containers, an @live cell may run
+// its engine in one, and a scenario declaring a suite image asks the runtime
+// that image was built in. Every other scenario is the hermetic lane, which
+// must not depend on — or wait on — whatever daemons the machine running it
+// happens to have.
 func needsHostContainerRuntime(sc *godog.Scenario) bool {
-	return scenarioHasTag(sc, "@container") || scenarioHasTag(sc, "@live")
+	if scenarioHasTag(sc, "@container") || scenarioHasTag(sc, "@live") {
+		return true
+	}
+	for _, img := range suiteImages {
+		if scenarioHasTag(sc, img.tag) {
+			return true
+		}
+	}
+	return false
 }
 
 // newScenarioEnv is the environment every scenario starts in. hostRuntimes

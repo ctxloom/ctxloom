@@ -170,6 +170,13 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 // the first carries.
 var errSettingsTwice = errors.New("claude: the launch would name --settings twice, and claude keeps only the last one — a presentation already names a settings file; deliver settings to the session home instead")
 
+// errTurnSettingsPresented refuses a structured turn whose exec already
+// names --settings: a flag source is one --setting-sources does not filter,
+// so a named file would load whatever it holds into the turn whatever the
+// repository's verdict. The turn's own posture document is its only
+// --settings; ctxloom's settings reach it through the session home.
+var errTurnSettingsPresented = errors.New("claude: a structured turn's only --settings is its posture, and a presentation names another settings file — deliver settings to the session home instead")
+
 // execArgs is the argv up to the prompt: the label's args, the permission
 // posture (headless: permissionArgs; interactive: the human's own session,
 // interactivePermissionArgs), the model, the session name (interactive) or

@@ -140,6 +140,13 @@ const (
 	flagInputFormat = "--input-format"
 	flagVerbose     = "--verbose"
 	flagResume      = "--resume"
+	// flagSettingSources limits the setting sources claude loads; "user"
+	// alone drops the repository's project and local settings (its hooks
+	// and permission rules) while keeping the session home's.
+	flagSettingSources = "--setting-sources"
+	// flagStrictMCPConfig makes --mcp-config the only MCP servers claude
+	// loads: the repository's .mcp.json is not layered under them.
+	flagStrictMCPConfig = "--strict-mcp-config"
 )
 
 // turnInterruptGrace is how long an interrupted turn's process gets to unwind

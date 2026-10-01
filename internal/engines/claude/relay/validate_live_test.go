@@ -94,7 +94,7 @@ func validateWake(t *testing.T, ctxloomBin, claudeBin string) {
 	capture := filepath.Join(root, "capture.sh")
 	require.NoError(t, os.WriteFile(capture, []byte("#!/bin/sh\ncat >> '"+captured+"'\necho >> '"+captured+"'\n"), 0o700))
 	writeJSON(t, filepath.Join(cfg, "settings.json"), map[string]any{
-		"env":                              map[string]string{"DISABLE_AUTOUPDATER": "1"},
+		"env":                               map[string]string{"DISABLE_AUTOUPDATER": "1"},
 		"skipDangerousModePermissionPrompt": true,
 		"hooks": map[string]any{claude.HookEventUserPromptSubmit: []any{map[string]any{"hooks": []any{
 			map[string]any{"type": "command", "command": capture},

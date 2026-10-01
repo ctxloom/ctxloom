@@ -39,7 +39,23 @@ func TestChatEvent_Kind(t *testing.T) {
 	assert.Equal(t, "complete", ChatEvent{Complete: &TurnMeta{}}.Kind())
 	assert.Equal(t, "assistant", ChatEvent{Entry: &SessionEntry{Type: EntryTypeAssistant}}.Kind())
 	assert.Equal(t, "denied", ChatEvent{Denied: &PermissionDenial{}}.Kind())
+	assert.Equal(t, "failed", ChatEvent{Failed: &TurnFailure{Kind: FailureCredentialRejected}}.Kind())
 	assert.Equal(t, "event", ChatEvent{Raw: []byte(`{}`)}.Kind())
+}
+
+// TestChatEvent_FailedCrossesTheDriverBoundary: a driver relays every event
+// as JSON (engine.Event.Payload) and the runner decodes it, so a turn the
+// engine turned away must arrive as the same typed failure — a kind lost in
+// transit is a dead credential nobody parks on.
+func TestChatEvent_FailedCrossesTheDriverBoundary(t *testing.T) {
+	raw, err := json.Marshal(ChatEvent{Failed: &TurnFailure{Kind: FailureCredentialRejected}})
+	require.NoError(t, err)
+	var got ChatEvent
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.NotNil(t, got.Failed)
+	assert.Equal(t, FailureCredentialRejected, got.Failed.Kind)
+	assert.Equal(t, "credential_rejected", string(got.Failed.Kind),
+		"the kind's spelling is the runner's turn-idle stop_reason verbatim")
 }
 
 // TestDecider_String names who decided a denial, as the parent's blocked

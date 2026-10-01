@@ -65,6 +65,8 @@ func (ev ChatEvent) Kind() string {
 		return "complete"
 	case ev.Denied != nil:
 		return "denied"
+	case ev.Failed != nil:
+		return "failed"
 	case ev.Entry != nil:
 		return string(ev.Entry.Type)
 	default:
@@ -85,11 +87,14 @@ func (ev ChatEvent) Kind() string {
 //   - Denied     — a tool call the engine refused, as it happened. The turn's
 //     completion carries every one again (TurnMeta.Denials): this variant is
 //     the live signal, that one the turn's account.
+//   - Failed     — the engine turned the whole turn away (TurnFailure): not a
+//     refused call but an engine that could not work at all.
 type ChatEvent struct {
 	Entry    *SessionEntry
 	Complete *TurnMeta
 	Session  *ChatSessionInfo
 	Denied   *PermissionDenial
+	Failed   *TurnFailure
 
 	// Raw is IR3's side channel: the ORIGINAL ACP session/update frame (or
 	// just its `_meta` object), verbatim, for the CURATED ALLOWLIST of things
@@ -114,6 +119,21 @@ type ChatEvent struct {
 	// what crosses the WIRE. Do not conflate the two in code or docs; see
 	// internal/adapters/transcript/recorder.go's RawPolicy doc comment.
 	Raw json.RawMessage
+}
+
+// FailureKind names why an engine turned a whole turn away. Each engine maps
+// its own error shapes onto it; nothing outside the engine reads those shapes.
+// The spelling is the runner's turn-idle stop_reason verbatim.
+type FailureKind string
+
+// FailureCredentialRejected: the engine's credential was refused, so no turn
+// on it can succeed until a human re-authenticates.
+const FailureCredentialRejected FailureKind = "credential_rejected"
+
+// TurnFailure is a turn the engine could not do at all — distinct from a
+// PermissionDenial, where the engine worked and refused one call.
+type TurnFailure struct {
+	Kind FailureKind
 }
 
 // Decider names who decided a denial. The zero value is the engine's own

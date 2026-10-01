@@ -73,6 +73,12 @@ func askTurn(t *testing.T, approver engine.Approver, ep sessions.Endpoint, hookC
 // askTurnWith is askTurn with the permission_ask hooks given whole.
 func askTurnWith(t *testing.T, approver engine.Approver, ep sessions.Endpoint, ask []wire.Hook) []agent.ChatEvent {
 	t.Helper()
+	return askTurnIn(t, engine.PermissionPolicy{Approver: approver}, engine.TurnPosture{}, ep, ask)
+}
+
+// askTurnIn is askTurnWith under a whole policy, at the turn's posture.
+func askTurnIn(t *testing.T, policy engine.PermissionPolicy, posture engine.TurnPosture, ep sessions.Endpoint, ask []wire.Hook) []agent.ChatEvent {
+	t.Helper()
 	dir := t.TempDir()
 	hooks := wire.UnifiedHooks{PermissionAsk: ask}
 	raw, err := json.Marshal(hooks)
@@ -81,13 +87,12 @@ func askTurnWith(t *testing.T, approver engine.Approver, ep sessions.Endpoint, a
 	require.NoError(t, os.WriteFile(hooksFile, raw, 0o600))
 
 	inst, err := mock.New().Instance(engine.Session{
-		Mode: engine.Structured, WorkDir: dir, MCP: ep,
-		Permission: engine.PermissionPolicy{Approver: approver},
+		Mode: engine.Structured, WorkDir: dir, MCP: ep, Permission: policy,
 	})
 	require.NoError(t, err)
 	out := make(chan engine.Event, 64)
 	ex := engine.Exec{Args: []string{mock.HooksFlag, hooksFile}, WorkDir: dir, Env: map[string]string{}}
-	_, err = inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.Ask("Bash", `{"command":"ls"}`)}, out)
+	_, err = inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: mock.Ask("Bash", `{"command":"ls"}`), Posture: posture}, out)
 	require.NoError(t, err)
 	close(out)
 	var evs []agent.ChatEvent
@@ -188,6 +193,59 @@ func TestMockAsk_AHookWhoseMatcherExcludesTheToolDecidesNothing(t *testing.T) {
 	}))
 	require.NotNil(t, denied, "the Write hook does not decide a Bash call")
 	assert.Equal(t, "held and denied", denied.Reason)
+}
+
+// ruledTurn is a mock:ask turn for Bash under the human, whose session
+// declares deny and whose turn holds grants; every hook it delivers would
+// allow, and leaves a marker if it runs.
+func ruledTurn(t *testing.T, host *fakeHost, deny, grants []string) ([]agent.ChatEvent, string) {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), "asked")
+	doc := map[string]any{"mode": "default"}
+	if deny != nil {
+		doc["deny"] = deny
+	}
+	policy := engine.PermissionPolicy{Posture: engine.Posture{Engine: mock.Name, Document: doc}}
+	evs := askTurnIn(t, policy, engine.TurnPosture{Grants: grants}, host.serve(t),
+		[]wire.Hook{{Type: "command", Command: `touch ` + marker + `; printf '{"allow":true}'`}})
+	return evs, marker
+}
+
+// TestMockAsk_AGrantedToolRunsWithoutAsking: a session grant naming the
+// tool (a mock rule is a tool name) covers the call — it runs, and nobody
+// is asked, as claude skips the prompt a granted rule covers.
+func TestMockAsk_AGrantedToolRunsWithoutAsking(t *testing.T) {
+	host := &fakeHost{answer: `{"allow":false,"message":"asked"}`}
+	evs, marker := ruledTurn(t, host, nil, []string{"Bash"})
+	_, result, denied, meta := callOutcome(t, evs)
+	assert.False(t, result.IsError)
+	assert.Nil(t, denied)
+	assert.Empty(t, meta.Denials)
+	assert.Empty(t, host.seen(), "a granted call holds nothing on the host")
+	assert.NoFileExists(t, marker, "a granted call runs no approval hook")
+}
+
+// TestMockAsk_AGrantForAnotherToolCoversNothing: the call is asked about.
+func TestMockAsk_AGrantForAnotherToolCoversNothing(t *testing.T) {
+	host := &fakeHost{answer: `{"allow":false,"message":"asked"}`}
+	evs, marker := ruledTurn(t, host, nil, []string{"Write"})
+	callOutcome(t, evs)
+	assert.FileExists(t, marker, "the approval hook was run: the call was asked about")
+}
+
+// TestMockAsk_ADeclaredDenyBeatsAGrant: a deny the session declares refuses
+// the call even though the turn holds a grant for it — nobody is asked,
+// and the denial is the policy's.
+func TestMockAsk_ADeclaredDenyBeatsAGrant(t *testing.T) {
+	host := &fakeHost{answer: `{"allow":true}`}
+	evs, marker := ruledTurn(t, host, []string{"Bash"}, []string{"Bash"})
+	_, result, denied, meta := callOutcome(t, evs)
+	assert.True(t, result.IsError)
+	require.NotNil(t, denied)
+	assert.Equal(t, agent.DeciderPolicy, denied.Decider)
+	assert.Len(t, meta.Denials, 1)
+	assert.Empty(t, host.seen(), "a denied call is asked about nowhere")
+	assert.NoFileExists(t, marker)
 }
 
 // TestMockApprovalCodec_HooksAreOnePermissionAskForEveryTool: the mock's

@@ -257,3 +257,32 @@ func TestRemoveSettings_AUserHookRunningCtxloomSurvives(t *testing.T) {
 	require.NoError(t, w.RemoveSettings(dir))
 	assert.ElementsMatch(t, []string{"ctxloom", "'ctxloom' 'doctor'"}, hookCommands(t, dir))
 }
+
+// companionExecHook is an exec-form hook ctxloom writes that is not one of
+// its own verbs — the case only the ledger, keyed on the whole argv, owns.
+var companionExecHook = wire.Hook{Type: "command", Command: "ltk", Args: []string{"evaluate", "--strict"}, Matcher: "Bash"}
+
+// TestRemoveSettings_ReclaimsAnOwnedExecHookByItsArgv: an exec-form hook
+// ctxloom recorded writing is reclaimed on uninstall through the ledger, whose
+// claim names its whole argv — no name rule recognises it.
+func TestRemoveSettings_ReclaimsAnOwnedExecHookByItsArgv(t *testing.T) {
+	dir := t.TempDir()
+	w := &ClaudeCodeHookWriter{}
+	require.NoError(t, w.WriteSettings(&wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{companionExecHook}}}, nil, dir))
+	require.Equal(t, []string{companionExecHook.Line()}, hookCommands(t, dir), "precondition: written")
+	require.NoError(t, w.RemoveSettings(dir))
+	assert.Empty(t, hookCommands(t, dir))
+}
+
+// TestWriteSettings_ReapplyWithoutALedgerKeepsOneExecHook: with the ownership
+// record gone, a re-apply recognises the exec hook it is about to write by
+// its whole argv and replaces it rather than adding a second.
+func TestWriteSettings_ReapplyWithoutALedgerKeepsOneExecHook(t *testing.T) {
+	dir := t.TempDir()
+	w := &ClaudeCodeHookWriter{}
+	hooks := &wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{companionExecHook}}}
+	require.NoError(t, w.WriteSettings(hooks, nil, dir))
+	require.NoError(t, os.Remove(hooksLedger(dir).Path()), "simulate a checkout with no ownership record")
+	require.NoError(t, w.WriteSettings(hooks, nil, dir))
+	assert.Equal(t, []string{companionExecHook.Line()}, hookCommands(t, dir))
+}

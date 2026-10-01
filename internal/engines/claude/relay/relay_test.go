@@ -28,7 +28,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/claude/relay"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
+
+// bound caps every wait in these tests: a defect that loses a message fails
+// the test instead of parking it until the package timeout.
+const bound = 10 * time.Second
 
 const (
 	bearer = "bearer-5ec2e7"
@@ -180,12 +185,7 @@ func TestRelay_ReturnsWhenClaudeCloses(t *testing.T) {
 	url, _ := endpoint(t)
 	cs, _, done := startRelay(t, baseEnv(url))
 	require.NoError(t, cs.Close())
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("the relay outlived claude's stdio")
-	}
+	require.NoError(t, testsupport.Await(t, bound, done, "the relay outlived claude's stdio"))
 }
 
 // A wake the runner fires reaches claude's messaging socket as claude's own
@@ -200,7 +200,7 @@ func TestRelay_AFiredWakePostsTheNonceToClaudesMessagingSocket(t *testing.T) {
 
 	fireOnceSubscribed(t, sig)
 
-	got := <-posts
+	got := testsupport.Await(t, bound, posts, "nothing was posted to claude's messaging socket")
 	require.Len(t, got, 2)
 	assert.JSONEq(t, `{"type":"auth","token":"`+token+`"}`, got[0])
 	var post struct {
@@ -224,7 +224,7 @@ func TestRelay_AnUnboundWakeIsReportedAndNeverSubscribed(t *testing.T) {
 	env["CLAUDE_CODE_MESSAGING_TOKEN"] = token
 	cs, stderr, _ := startRelay(t, env)
 
-	line := <-stderr
+	line := testsupport.Await(t, bound, (<-chan string)(stderr), "the relay reported nothing")
 	assert.Contains(t, line, "CLAUDE_CODE_MESSAGING_SOCKET")
 	assert.NotContains(t, line, token)
 	assert.NotContains(t, line, bearer)
@@ -248,19 +248,46 @@ func TestRelay_AFailedPostIsReportedWithoutTheTokenOrBearer(t *testing.T) {
 
 	fireOnceSubscribed(t, sig)
 
-	line := <-stderr
+	line := testsupport.Await(t, bound, (<-chan string)(stderr), "the relay reported nothing")
 	assert.Contains(t, line, "absent.sock")
 	assert.True(t, strings.Contains(line, "wake"), "the line names what failed: %q", line)
 	assert.NotContains(t, line, token)
 	assert.NotContains(t, line, bearer)
 }
 
-// Without the endpoint there is nothing to relay to: Run refuses at once,
-// naming the variable.
+// Without the endpoint and its bearer there is nothing to relay to: Run
+// refuses at once, naming the variables, and never echoes the bearer.
 func TestRelay_RefusesWithoutTheEndpoint(t *testing.T) {
-	err := relay.Run(context.Background(), relay.Config{Env: func(string) (string, bool) { return "", false }, Stderr: make(lines, 1)}, &mcp.InMemoryTransport{})
-	require.ErrorIs(t, err, relay.ErrNoEndpoint)
-	assert.Contains(t, err.Error(), claude.EnvRelayURL)
+	for _, env := range []map[string]string{
+		{},
+		{claude.EnvRelayURL: "http://127.0.0.1:1/mcp"},
+		{claude.EnvRelayBearer: bearer},
+	} {
+		err := relay.Run(context.Background(), relay.Config{Env: func(k string) (string, bool) { v, ok := env[k]; return v, ok }, Stderr: make(lines, 1)}, &mcp.InMemoryTransport{})
+		require.ErrorIs(t, err, relay.ErrNoEndpoint, "env %v", env)
+		assert.Contains(t, err.Error(), claude.EnvRelayURL)
+		assert.NotContains(t, err.Error(), bearer)
+	}
+}
+
+// A call the endpoint did not take is answered — with an error naming it —
+// rather than left for claude to wait on forever.
+func TestRelay_ACallTheEndpointDidNotTakeIsAnsweredWithAnError(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "upstream", Version: "0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "ping"}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "pong"}}}, nil, nil
+	})
+	upstream := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
+	cs, _, _ := startRelay(t, baseEnv(upstream.URL))
+	_, err := cs.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+	upstream.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	defer cancel()
+	_, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "ping"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not take")
 }
 
 // One call that has not started answering (a parked receive) must not hold
@@ -287,12 +314,12 @@ func TestRelay_ALongCallDoesNotHoldBackTheNext(t *testing.T) {
 		res, _ := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "park"})
 		parked <- res
 	}()
-	<-entered
+	testsupport.Await(t, bound, (<-chan struct{})(entered), "the parked call never reached the upstream")
 
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "ping"})
 	require.NoError(t, err)
 	assert.Equal(t, "pong", res.Content[0].(*mcp.TextContent).Text)
 
 	close(release)
-	assert.Equal(t, "parked", (<-parked).Content[0].(*mcp.TextContent).Text)
+	assert.Equal(t, "parked", testsupport.Await(t, bound, (<-chan *mcp.CallToolResult)(parked), "the parked call never answered").Content[0].(*mcp.TextContent).Text)
 }

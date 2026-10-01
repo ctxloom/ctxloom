@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // testToken stands in for CLAUDE_CODE_MESSAGING_TOKEN: distinctive enough
@@ -95,7 +97,7 @@ func TestMessagingWake_FirePostsAuthThenTheWakeLine(t *testing.T) {
 
 	require.NoError(t, w.Fire(context.Background(), "0123456789abcdef"))
 
-	lines := <-got
+	lines := testsupport.Await(t, 10*time.Second, got, "nothing was posted")
 	require.Len(t, lines, 2)
 	assert.Equal(t, map[string]any{"type": "auth", "token": testToken}, decodeLine(t, lines[0]))
 	assert.Equal(t, map[string]any{
@@ -111,7 +113,7 @@ func TestMessagingWake_FireWithoutATokenPostsOnlyTheWakeLine(t *testing.T) {
 
 	require.NoError(t, w.Fire(context.Background(), "0123456789abcdef"))
 
-	lines := <-got
+	lines := testsupport.Await(t, 10*time.Second, got, "nothing was posted")
 	require.Len(t, lines, 1)
 	assert.Equal(t, "user", decodeLine(t, lines[0])["type"])
 }

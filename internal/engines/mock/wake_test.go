@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func TestWake_TheMockDeclaresItsOwnSocketWake(t *testing.T) {
@@ -58,7 +60,7 @@ func TestSocketWake_FirePostsTheWakeTextAsOneLine(t *testing.T) {
 
 	require.NoError(t, w.Fire(context.Background(), "0123456789abcdef"))
 
-	assert.Equal(t, []string{engine.WakeText("0123456789abcdef")}, <-got)
+	assert.Equal(t, []string{engine.WakeText("0123456789abcdef")}, testsupport.Await(t, 10*time.Second, (<-chan []string)(got), "nothing was posted"))
 }
 
 func TestSocketWake_AnUndeliverableWakeFails(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // serveWithWake serves the loadout's endpoint with sig as its wake signal.
@@ -50,7 +52,7 @@ func TestWakeSignal_FiresTheNonceToTheSubscribedSession(t *testing.T) {
 
 	require.NoError(t, sig.Fire(context.Background(), "0123456789abcdef"))
 
-	got := <-updates
+	got := testsupport.Await(t, 10*time.Second, updates, "the subscriber was never notified")
 	assert.Equal(t, engine.WakeURI, got.URI)
 	assert.Equal(t, "0123456789abcdef", got.Meta["nonce"])
 }

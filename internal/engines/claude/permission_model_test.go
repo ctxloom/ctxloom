@@ -107,6 +107,9 @@ func TestPermissionModel_DecodeAndTransitions(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, []string{"default", "acceptEdits"}, m.Transitions(map[string]any{"mode": "plan"}))
 	assert.Empty(t, m.Transitions(map[string]any{"mode": "bypass"}), "nothing an approval changes on a bypass session")
+	assert.Equal(t, []string{"acceptEdits", "default"}, m.Transitions(map[string]any{"mode": "plan", "after_plan": "acceptEdits"}),
+		"a plan-first session's declared continuation comes first: the presenter's default selection")
+	assert.Equal(t, []string{"default", "acceptEdits"}, m.Transitions(map[string]any{"mode": "plan", "after_plan": "default"}))
 }
 
 // Fail closed: only what claude can be made to enforce (with

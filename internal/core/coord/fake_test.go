@@ -42,6 +42,10 @@ type fakeSpawner struct {
 	// native stands in for each harp's sessions.Entry native session key:
 	// what BindNativeSession writes and NativeSession reads.
 	native map[string]string
+	// dropBinds discards every BindNativeSession: the engine's session
+	// announcement never reached the coordinator (the run died, or its channel
+	// was cut, before the frame was read), so the harp holds no resume key.
+	dropBinds bool
 	// launchErr, when set, fails every legacy Launch with it — a child that
 	// is admitted (it holds an execution slot) and then dies at standup,
 	// which is the shape that separates "queued behind the cap" from
@@ -571,7 +575,7 @@ func (s *fakeSpawner) BindNativeSession(harp, key string) {
 	if s.native == nil {
 		s.native = map[string]string{}
 	}
-	if key != "" && s.native[harp] == "" {
+	if key != "" && s.native[harp] == "" && !s.dropBinds {
 		s.native[harp] = key
 	}
 }

@@ -23,11 +23,13 @@ func (m Mock) Approvals() engine.Declared[engine.ApprovalCodec] {
 
 type approvalCodec struct{}
 
-// mockCall is the mock's ask payload and host call alike.
+// mockCall is the mock's ask payload and host call alike; an ask may carry
+// the posture the engine suggests moving to.
 type mockCall struct {
-	Tool      string          `json:"tool"`
-	Input     json.RawMessage `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
+	Tool            string          `json:"tool"`
+	Input           json.RawMessage `json:"input"`
+	ToolUseID       string          `json:"tool_use_id"`
+	SuggestsSetMode string          `json:"suggests_set_mode,omitempty"`
 }
 
 var errMockNoTool = errors.New("mock approval: the payload names no tool")
@@ -40,7 +42,8 @@ func (c mockCall) decode() (string, json.RawMessage, error) {
 	return c.Tool, in, err
 }
 
-// DecodeAsk reads a mock ask: every mock ask is a tool call.
+// DecodeAsk reads a mock ask: a call to the plan tool presents the plan its
+// input carries; any other is a tool call.
 func (approvalCodec) DecodeAsk(_ string, payload []byte) (engine.PermissionAsk, error) {
 	var c mockCall
 	if err := json.Unmarshal(payload, &c); err != nil {
@@ -50,7 +53,18 @@ func (approvalCodec) DecodeAsk(_ string, payload []byte) (engine.PermissionAsk, 
 	if err != nil {
 		return engine.PermissionAsk{}, err
 	}
-	return engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: in, ToolUseID: c.ToolUseID}, nil
+	ask := engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: in, ToolUseID: c.ToolUseID}
+	if c.SuggestsSetMode != "" {
+		ask.SuggestsSetMode = engine.Provide(c.SuggestsSetMode)
+	}
+	if tool == PlanTool {
+		var p planInput
+		if err := json.Unmarshal(in, &p); err != nil {
+			return engine.PermissionAsk{}, fmt.Errorf("mock approval: plan input: %w", err)
+		}
+		ask.Kind, ask.Plan = engine.AskPlan, &engine.PlanProposal{Markdown: p.Plan}
+	}
+	return ask, nil
 }
 
 // EncodeAnswer writes {allow, session_rules, set_mode, message}; a mode
@@ -90,10 +104,14 @@ func (approvalCodec) HostDeny(message string) (string, error) {
 	return string(b), err
 }
 
-// Hooks are the mock's approval hooks: one permission_ask hook (the mock's
-// native events are the unified ones) for every tool.
+// Hooks are the mock's approval hooks (the mock's native events are the
+// unified ones): one permission_ask hook for every tool, and one pre_tool
+// hook for the plan tool, which presents the plan.
 func (approvalCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {
-	return wire.UnifiedHooks{PermissionAsk: []wire.Hook{agent.ApprovalHook(wire.HookEventPermissionAsk, "", timeout)}}
+	return wire.UnifiedHooks{
+		PermissionAsk: []wire.Hook{agent.ApprovalHook(wire.HookEventPermissionAsk, "", timeout)},
+		PreTool:       []wire.Hook{agent.ApprovalHook(wire.HookEventPreTool, PlanTool, timeout)},
+	}
 }
 
 // RepoSurfaces are the repository files the mock loads that can run code:

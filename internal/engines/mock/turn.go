@@ -80,10 +80,17 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 		}
 	}
 	answer := mockAnswer(ex, in.Prompt)
-	ask := func(tool string, input json.RawMessage) (*agent.PermissionDenial, error) {
-		return d.ask(ctx, ex, hooks, send, tool, input, in.Posture.Grants)
+	calls := turnCalls{
+		mode: d.mode,
+		ask: func(tool string, input json.RawMessage) (*agent.PermissionDenial, error) {
+			return d.ask(ctx, ex, hooks, send, tool, input, in.Posture.Grants)
+		},
+		plan: func(plan string) error { return d.presentPlan(ctx, ex, hooks, send, plan) },
 	}
-	if err := sendTurnEvents(send, ask, in.Prompt, answer, in.Posture); err != nil {
+	if in.Posture.Mode != "" {
+		calls.mode = in.Posture.Mode
+	}
+	if err := sendTurnEvents(send, calls, in.Prompt, answer); err != nil {
 		return engine.TurnResult{}, err
 	}
 	return engine.TurnResult{NativeKey: sessionKey, Answer: answer}, nil
@@ -130,11 +137,19 @@ func mockAnswer(ex engine.Exec, prompt string) string {
 	return answer
 }
 
+// turnCalls are the turn's mode and the calls it has decided outside the
+// stream: an asked call, a presented plan.
+type turnCalls struct {
+	mode string
+	ask  func(string, json.RawMessage) (*agent.PermissionDenial, error)
+	plan func(string) error
+}
+
 // sendTurnEvents relays the turn: the resumable session at the turn's
-// mode, a TOOLS turn's entries, a mock:deny or mock:ask call (ask makes the
-// latter), the answer, and the completion.
-func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawMessage) (*agent.PermissionDenial, error), prompt, answer string, posture engine.TurnPosture) error {
-	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: posture.Mode}}); err != nil {
+// mode, a TOOLS turn's entries, a plan-posture mock:plan call, a mock:deny
+// or mock:ask call (ask makes the latter), the answer, and the completion.
+func sendTurnEvents(send func(agent.ChatEvent) error, calls turnCalls, prompt, answer string) error {
+	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: calls.mode}}); err != nil {
 		return err
 	}
 	if strings.Contains(prompt, "TOOLS") {
@@ -144,8 +159,13 @@ func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawM
 			}
 		}
 	}
+	if plan, ok := planIn(prompt); ok && calls.mode == modePlan {
+		if err := calls.plan(plan); err != nil {
+			return err
+		}
+	}
 	meta := &agent.TurnMeta{StopReason: "end_turn"}
-	denials, err := markedDenials(send, ask, prompt)
+	denials, err := markedDenials(send, calls.ask, prompt)
 	if err != nil {
 		return err
 	}

@@ -41,9 +41,10 @@ type fakeSpawner struct {
 	// native stands in for each harp's sessions.Entry native session key:
 	// what BindNativeSession writes and NativeSession reads.
 	native map[string]string
-	// dropBinds discards every BindNativeSession: the engine's session
-	// announcement never reached the coordinator (the run died, or its channel
-	// was cut, before the frame was read), so the harp holds no resume key.
+	// dropBinds discards every BindNativeSession, so the harp holds no
+	// resume key even after its engine announced one: a forced state, used to
+	// reach the no-key fallback that an engine dying before it announces
+	// leaves.
 	dropBinds bool
 	// launchErr, when set, fails every legacy Launch with it — a child that
 	// is admitted (it holds an execution slot) and then dies at standup,

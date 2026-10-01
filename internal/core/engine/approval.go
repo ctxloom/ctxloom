@@ -105,3 +105,9 @@ type ApprovalCodec interface {
 	// ValidateRule refuses a rule the engine's rule syntax does not accept.
 	ValidateRule(rule string) error
 }
+
+// PermissionHostTool is the tool ctxloom's session endpoint serves as the
+// engine's permission host: an engine whose approver is the human is pointed
+// at it, and it holds each ask open — never deciding it — while the approval
+// hook carries the human's decision back to the engine.
+const PermissionHostTool = "permission_host"

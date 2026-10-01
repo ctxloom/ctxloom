@@ -135,6 +135,9 @@ func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawM
 	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: posture.Mode}}); err != nil {
 		return err
 	}
+	if strings.Contains(prompt, credentialRejectedMarker) {
+		return sendCredentialRejected(send)
+	}
 	if strings.Contains(prompt, "TOOLS") {
 		for _, ev := range toolsTurn(prompt) {
 			if err := send(ev); err != nil {
@@ -152,6 +155,21 @@ func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawM
 		return err
 	}
 	return send(agent.ChatEvent{Complete: meta})
+}
+
+// sendCredentialRejected relays a turn the engine turned away on its
+// credential: its words, the failure, and the completion — nothing attempted.
+func sendCredentialRejected(send func(agent.ChatEvent) error) error {
+	for _, ev := range []agent.ChatEvent{
+		{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "mock: the credential was rejected"}},
+		{Failed: &agent.TurnFailure{Kind: agent.FailureCredentialRejected}},
+		{Complete: &agent.TurnMeta{StopReason: "stop_sequence"}},
+	} {
+		if err := send(ev); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // markedDenials makes the turn's marked calls — a mock:deny call, refused by

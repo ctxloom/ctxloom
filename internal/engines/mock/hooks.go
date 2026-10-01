@@ -67,6 +67,14 @@ var denyPattern = regexp.MustCompile(`mock:deny=(\S+)`)
 // and have it denied by policy.
 func Deny(tool string) string { return "mock:deny=" + tool }
 
+// credentialRejectedMarker is the mock's refused credential: a prompt carrying
+// it is a turn the engine turns away, as claude does when its token dies.
+const credentialRejectedMarker = "mock:credential-rejected"
+
+// CredentialRejected renders the prompt directive that makes the mock's turn
+// fail on a refused credential.
+func CredentialRejected() string { return credentialRejectedMarker }
+
 // deniedToolIn reads the tool a prompt asks the turn to have denied.
 func deniedToolIn(prompt string) (string, bool) {
 	m := denyPattern.FindStringSubmatch(prompt)

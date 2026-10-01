@@ -155,7 +155,9 @@ type EngineHost struct {
 	// turn — and refuses every later turn.
 	driver  engine.StructuredDriver
 	exec    engine.Exec
-	posture engine.TurnPosture // every turn's permission posture: none of its own yet, so the launch's
+	// posture is every turn's permission posture; each turn adds the
+	// session grants its approval route holds (approvals.heldGrants).
+	posture engine.TurnPosture
 	// approvals is the run's approval route (nil when its approver is not
 	// the human): fed each turn's tool calls, ended with each turn.
 	approvals *approvals
@@ -331,6 +333,8 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 		return eh.turnFrame(kind.Turn)
 	case *agentcoordpb.RunnerRequest_InterruptRun:
 		return eh.interruptRun(kind.InterruptRun)
+	case *agentcoordpb.RunnerRequest_SetGrants:
+		return eh.setGrants(kind.SetGrants)
 	case *agentcoordpb.RunnerRequest_StopRun:
 		return eh.stopRun(kind.StopRun)
 	case *agentcoordpb.RunnerRequest_KillRun:
@@ -601,6 +605,11 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	rec := eh.rec
 	appr := eh.approvals
 	eh.mu.Unlock()
+	if appr != nil {
+		// Taken once, here: a SetGrants landing mid-turn reaches the next
+		// turn, never the process already running at this one.
+		posture.Grants = appr.heldGrants()
+	}
 
 	eh.beginTurn()
 	home.setTurning(true)

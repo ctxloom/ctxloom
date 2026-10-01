@@ -308,6 +308,28 @@ func (eh *EngineHost) interruptRun(req *agentcoordpb.InterruptRun) *agentcoordpb
 	return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus("")}
 }
 
+// errNoApprovalRoute refuses grants for a run whose approver is not the
+// human: nothing on this run could have granted them.
+var errNoApprovalRoute = errors.New("set grants: this run routes no approvals, so it holds no session grants")
+
+// setGrants answers SetGrants: the run's session grants become the
+// coordinator's set, from the next turn on. Answered by status alone.
+func (eh *EngineHost) setGrants(req *agentcoordpb.SetGrants) *agentcoordpb.RunnerResponse {
+	if resp := eh.checkRunID(req.GetRunId(), "SetGrants"); resp != nil {
+		return resp
+	}
+	eh.mu.Lock()
+	appr := eh.approvals
+	eh.mu.Unlock()
+	switch {
+	case appr != nil:
+		appr.setGrants(req.GetRules())
+	case len(req.GetRules()) > 0:
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, errNoApprovalRoute.Error())}
+	}
+	return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus("")}
+}
+
 // stopRun answers StopRun: INTERRUPT-THEN-CLOSE. Nothing new starts, the turn
 // in flight is interrupted and given the request's grace to reach its
 // boundary (its report and idle written), and the run is then closed — its

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -119,6 +120,10 @@ type approvals struct {
 	mu      sync.Mutex
 	changed chan struct{} // closed and replaced on every change
 	turn    *approvalTurn
+	// grants are the session rules the human allowed for this run. The
+	// engine's own session rule dies with the turn's process, so each turn
+	// is handed these afresh; the coordinator's SetGrants replaces them.
+	grants []string
 }
 
 // approvalTurn is one engine process's state: everything correlated within
@@ -336,6 +341,11 @@ func (a *approvals) Hook(ctx context.Context, event string, payload []byte) ([]b
 	}
 	if owner {
 		ans, derr := a.decide(ctx, ask)
+		if derr == nil && ans.Allow {
+			// Held before the answer is released, so a turn that starts
+			// once the engine has applied it already carries the grant.
+			a.grant(ans.SessionRules)
+		}
 		a.settle(d, ans, derr)
 	}
 	select {
@@ -446,6 +456,32 @@ func (a *approvals) settle(d *decision, ans engine.PermissionAnswer, err error) 
 	close(d.done)
 	a.broadcastLocked()
 	a.mu.Unlock()
+}
+
+// grant adds the rules an allow carried to the run's grants, each once.
+func (a *approvals) grant(rules []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, r := range rules {
+		if !slices.Contains(a.grants, r) {
+			a.grants = append(a.grants, r)
+		}
+	}
+}
+
+// setGrants replaces the run's grants with the coordinator's set: what a
+// revoke leaves.
+func (a *approvals) setGrants(rules []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.grants = slices.Clone(rules)
+}
+
+// heldGrants is a copy of the run's grants, for one turn's posture.
+func (a *approvals) heldGrants() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return slices.Clone(a.grants)
 }
 
 // denial is the answer a refusal reaches the engine as.

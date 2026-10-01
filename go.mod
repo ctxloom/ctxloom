@@ -3,8 +3,8 @@ module github.com/ctxloom/ctxloom
 go 1.26.0
 
 require (
-	github.com/Microsoft/go-winio v0.6.2
 	github.com/Masterminds/semver/v3 v3.5.0
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cbroglie/mustache v1.4.0
 	github.com/cucumber/godog v0.16.0

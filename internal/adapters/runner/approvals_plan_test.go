@@ -8,6 +8,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -215,5 +219,33 @@ func recvAsk(t *testing.T, b *blockingDecide) engine.PermissionAsk {
 	case <-time.After(10 * time.Second):
 		t.Fatal("nothing was asked")
 		return engine.PermissionAsk{}
+	}
+}
+
+// TestEngineHost_AnApprovedPlansPostureStartsEveryLaterTurn: the engine's
+// mode does not survive its process, so the posture the human approved the
+// plan at reaches each later turn as the turn's own mode — never the turn
+// that presented the plan, which was handed its posture when it started.
+func TestEngineHost_AnApprovedPlansPostureStartsEveryLaterTurn(t *testing.T) {
+	eh, eng := drivePostures(t, true)
+	eng.home.mu.Lock()
+	eng.home.requestFn = func(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+		d := &agentcoordpb.ApprovalDecision{Allow: true, Decider: "human"}
+		if req.GetApproval().GetKind() == agentcoordpb.ApprovalRequest_APPROVAL_KIND_PLAN {
+			d.SetMode = approvedPosture
+		}
+		return &agentcoordpb.CoordinatorResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.CoordinatorResponse_Approval{Approval: d}}, nil
+	}
+	eng.home.mu.Unlock()
+	nextPosture(t, eng) // the briefing: an ask, allowed with no mode change
+
+	resp := eh.Handle(turnReq("plan"))
+	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	assert.Empty(t, nextPosture(t, eng).Mode, "the plan's own turn runs at the declared posture")
+
+	for range 2 {
+		resp = eh.Handle(turnReq("plain"))
+		require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+		assert.Equal(t, approvedPosture, nextPosture(t, eng).Mode)
 	}
 }

@@ -29,7 +29,10 @@ type mockCall struct {
 	Input json.RawMessage `json:"input"`
 }
 
-var errMockNoTool = errors.New("mock approval: the payload names no tool")
+var (
+	errMockNoTool      = errors.New("mock approval: the payload names no tool")
+	errMockGrantDenied = errors.New("mock approval: a deny carries no session rules and no mode change")
+)
 
 func (c mockCall) decode() (string, json.RawMessage, error) {
 	if c.Tool == "" {
@@ -52,9 +55,13 @@ func (approvalCodec) DecodeAsk(_ string, payload []byte) (engine.PermissionAsk, 
 	return engine.PermissionAsk{Kind: engine.AskTool, Tool: tool, Input: in}, nil
 }
 
-// EncodeAnswer writes {allow, session_rules, set_mode, message}; a mode
-// change the mock's model offers no transition to is refused.
+// EncodeAnswer writes {allow, session_rules, set_mode, message}; a deny
+// that grants anything, and a mode change the mock's model offers no
+// transition to, are refused.
 func (approvalCodec) EncodeAnswer(_ string, _ engine.PermissionAsk, a engine.PermissionAnswer) ([]byte, error) {
+	if _, setMode := a.SetMode.Get(); !a.Allow && (setMode || len(a.SessionRules) > 0) {
+		return nil, errMockGrantDenied
+	}
 	out := struct {
 		Allow        bool     `json:"allow"`
 		SessionRules []string `json:"session_rules,omitempty"`

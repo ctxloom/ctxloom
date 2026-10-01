@@ -29,7 +29,8 @@ import (
 // mode's grammar (the anti-drift property); Structured ∈ Modes exactly when
 // the instance has a driver; every home var the engine declares points
 // under the session home it was handed; Home validates; Container is a real
-// spec or ErrUnsupported naming the engine; Hooks is never nil.
+// spec or ErrUnsupported naming the engine; Hooks is never nil. An engine
+// that declares an approval codec meets its contract (ApprovalCodec).
 func Run(t *testing.T, eng engine.Engine) {
 	t.Helper()
 	def := eng.Root()
@@ -51,6 +52,7 @@ func Run(t *testing.T, eng engine.Engine) {
 		require.NoError(t, err)
 		require.Empty(t, inst.Drivers(), "a driver exists but Structured is not declared")
 	}
+	ApprovalCodec(t, eng)
 }
 
 // checkDerivedViews asserts the declarative half: the derived views agree

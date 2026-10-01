@@ -144,7 +144,5 @@ classDiagram
 - **`Clear` always returns nil and always clears `contextHash`** even when the removal failed — the `error` return is decorative and the hash needed to retry is discarded. Diverges from the `ContextProvider.Clear(workDir) error` signature's implied contract.
 - **`ExecutionMode` values are pinned to the proto enum** (`= 0`, `= 1`); the pin is not documented at the constant site.
 - **Only `Fragment.Content` is ever read** anywhere in the system (`base.go:175`, `contextfile.go:92`). `Installation` is never populated — the grpc converter omits it entirely.
-- **`PermissionMode.String()`'s `default:` arm returns `"default"`**, so an out-of-range or corrupted wire value renders as an intentional posture. `PermissionDefault` has no explicit case.
-- **Three hand-maintained parallel tables** describe `PermissionMode` (`String` at `:36`, `ParsePermissionMode` at `:61`, `PermissionModeNames` at `:78`) with no compile-time link.
 - **`SettingsStatus.Wired()`** (`settings.go:69`) is reachable only from tests; production reads the four booleans directly.
 - **`SkillExport.Description`** (`skillexport.go:22`) is written by the loader and read by no engine.

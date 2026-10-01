@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // MCPTransport selects the wire-transport variant of one ChatMCPServer entry.
@@ -130,10 +131,17 @@ type FailureKind string
 // on it can succeed until a human re-authenticates.
 const FailureCredentialRejected FailureKind = "credential_rejected"
 
+// FailureRateLimited: the engine's credential hit its usage limit; turns on it
+// can succeed again once the limit resets, with no human action.
+const FailureRateLimited FailureKind = "rate_limited"
+
 // TurnFailure is a turn the engine could not do at all — distinct from a
 // PermissionDenial, where the engine worked and refused one call.
 type TurnFailure struct {
 	Kind FailureKind
+	// ResetsAt is when the engine says the limit lifts; zero when it did not
+	// say. Only a rate-limited failure carries one.
+	ResetsAt time.Time
 }
 
 // Decider names who decided a denial. The zero value is the engine's own

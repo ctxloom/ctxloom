@@ -287,3 +287,75 @@ func TestApprovals_ClaudePlanToAcceptEdits(t *testing.T) {
 	h.toolResult("toolu_edit")
 	assert.ErrorIs(t, <-held, errSuperseded)
 }
+
+// TestApprovals_ASecondPlanIsNeverTheFirstsTransition: only a call's ask can
+// take the pending transition unasked — a plan presented after an approved
+// one goes to the human whatever its engine suggests with it.
+func TestApprovals_ASecondPlanIsNeverTheFirstsTransition(t *testing.T) {
+	root := &scriptedRoot{answers: []engine.PermissionAnswer{approvePlan(), {Allow: false, Message: "no"}}}
+	h := newRouteHarness(t, root.decide)
+	presentPlan(t, h, "p1")
+	input := `{"plan":"ship-more"}`
+	h.toolUse("p2", mock.PlanTool, input)
+	raw, err := h.a.Hook(context.Background(), wire.HookEventPreTool, []byte(`{"tool":"`+mock.PlanTool+`","input":`+input+`,"tool_use_id":"p2","suggests_set_mode":"`+approvedPosture+`"}`))
+	require.NoError(t, err)
+	assert.False(t, decodePlanAnswer(t, raw).Allow)
+	assert.Equal(t, []string{mock.PlanTool, mock.PlanTool}, root.asked, "the second plan was the human's")
+}
+
+// TestApprovals_AHumansOwnModeChangeBeatsThePendingTransition: after a plan
+// approved at acceptEdits, the human allows the next call with a mode change
+// of their own — theirs is the one carried and held, and the pending one is
+// spent.
+func TestApprovals_AHumansOwnModeChangeBeatsThePendingTransition(t *testing.T) {
+	codec, ok := claude.Claude{}.Approvals().Get()
+	require.True(t, ok)
+	root := &scriptedRoot{answers: []engine.PermissionAnswer{
+		{Allow: true, SetMode: engine.Provide("acceptEdits")},
+		{Allow: true, SetMode: engine.Provide("default")},
+	}}
+	h := newRouteHarness(t, root.decide)
+	h.a.codec = codec
+	plan := `{"plan":"# Plan"}`
+	h.toolUse("toolu_plan", "ExitPlanMode", plan)
+	_, err := h.a.Hook(context.Background(), "PreToolUse", []byte(`{"tool_name":"ExitPlanMode","tool_input":`+plan+`,"tool_use_id":"toolu_plan"}`))
+	require.NoError(t, err)
+
+	cmd := `{"command":"make"}`
+	h.toolUse("toolu_bash", "Bash", cmd)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = h.a.hold(ctx, json.RawMessage(`{"tool_name":"Bash","input":`+cmd+`,"tool_use_id":"toolu_bash"}`)) }()
+	raw, err := h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"tool_name":"Bash","tool_input":`+cmd+`}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":[{"type":"setMode","mode":"default","destination":"session"}]}}}`, string(raw))
+	assert.Equal(t, "default", h.a.heldMode())
+	assert.False(t, h.a.hasPendingMode())
+}
+
+// TestApprovals_ASuggestionWiderThanTheApprovedPostureIsTheHumans: a plan
+// approved at default leaves default pending; an edit whose engine suggests
+// acceptEdits is not that transition — it goes to the human, and their
+// allow carries the approved default, never the wider suggestion.
+func TestApprovals_ASuggestionWiderThanTheApprovedPostureIsTheHumans(t *testing.T) {
+	codec, ok := claude.Claude{}.Approvals().Get()
+	require.True(t, ok)
+	root := &scriptedRoot{answers: []engine.PermissionAnswer{{Allow: true, SetMode: engine.Provide("default")}, {Allow: true}}}
+	h := newRouteHarness(t, root.decide)
+	h.a.codec = codec
+	plan := `{"plan":"# Plan"}`
+	h.toolUse("toolu_plan", "ExitPlanMode", plan)
+	_, err := h.a.Hook(context.Background(), "PreToolUse", []byte(`{"tool_name":"ExitPlanMode","tool_input":`+plan+`,"tool_use_id":"toolu_plan"}`))
+	require.NoError(t, err)
+
+	edit := `{"file_path":"/w/a.go","old_string":"a","new_string":"b"}`
+	h.toolUse("toolu_edit", "Edit", edit)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = h.a.hold(ctx, json.RawMessage(`{"tool_name":"Edit","input":`+edit+`,"tool_use_id":"toolu_edit"}`)) }()
+	raw, err := h.a.Hook(context.Background(), "PermissionRequest", []byte(`{"tool_name":"Edit","tool_input":`+edit+`,"permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ExitPlanMode", "Edit"}, root.asked, "the edit was the human's")
+	assert.JSONEq(t, `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":[{"type":"setMode","mode":"default","destination":"session"}]}}}`, string(raw))
+	assert.Equal(t, "default", h.a.heldMode())
+}

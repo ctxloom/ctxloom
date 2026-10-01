@@ -120,3 +120,12 @@ func TestMockApprovalCodec_APlanAnswerIsAllowOrDeny(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"allow":false,"message":"split it"}`, string(raw))
 }
+
+// TestMockPlan_AnUnansweredPlanIsNotApproved: a pre-tool hook that writes no
+// decision approves nothing — the plan stays unexecuted and the mode plan.
+func TestMockPlan_AnUnansweredPlanIsNotApproved(t *testing.T) {
+	result, modes := planOutcome(planTurn(t, "plan", engine.TurnPosture{}, `cat >/dev/null`))
+	require.NotNil(t, result)
+	assert.True(t, result.IsError)
+	assert.Equal(t, []string{"plan"}, modes)
+}

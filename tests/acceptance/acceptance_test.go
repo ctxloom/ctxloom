@@ -160,15 +160,7 @@ func TestAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepareSuiteImages(context.Background(), declared)
-	if hermetic {
-		excluded, err := excludeSkippedSuiteImages(&suite)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if excluded != "" {
-			fmt.Print("\n" + excluded + "\n")
-		}
-	}
+	excludeSkippedSuiteImagesInLane(t, &suite, hermetic)
 	if suite.Run() != 0 {
 		t.Fatal("acceptance suite failed")
 	}
@@ -196,6 +188,23 @@ func TestAcceptance(t *testing.T) {
 		// skip there is not by itself a defect. Naming the steps keeps that
 		// difference visible rather than silent.
 		fmt.Printf("\nSTEPS THAT DECLINED TO RUN (not fatal: this is not the hermetic lane)\n%s\n", declined)
+	}
+}
+
+// excludeSkippedSuiteImagesInLane applies excludeSkippedSuiteImages to the
+// hermetic lane only, and prints what it left out. The opt-in lanes keep the
+// image's scenarios selected: there a declined row is recorded, not fatal.
+func excludeSkippedSuiteImagesInLane(t *testing.T, suite *godog.TestSuite, hermetic bool) {
+	t.Helper()
+	if !hermetic {
+		return
+	}
+	excluded, err := excludeSkippedSuiteImages(suite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if excluded != "" {
+		fmt.Print("\n" + excluded + "\n")
 	}
 }
 

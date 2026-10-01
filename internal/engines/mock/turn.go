@@ -29,6 +29,10 @@ import (
 //     as it happens (ChatEvent.Denied) and the completion carrying it
 //     (TurnMeta.Denials): what claude reports when its posture refuses a
 //     call nobody can approve.
+//   - "mock:ask=<tool>:<json>": a call the rules leave open, ASKED about —
+//     through the session endpoint's permission host and the delivered
+//     permission_ask hooks when the approver is the human, denied at once
+//     otherwise (ask.go).
 //   - "HANG": a STALLED engine — the turn is taken (hooks fire, the record is
 //     written) and then emits nothing at all until its context ends. A
 //     liveness check's red direction needs an engine that goes silent.
@@ -76,7 +80,10 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 		}
 	}
 	answer := mockAnswer(ex, in.Prompt)
-	if err := sendTurnEvents(send, in.Prompt, answer, in.Posture); err != nil {
+	ask := func(tool string, input json.RawMessage) (*agent.PermissionDenial, error) {
+		return d.ask(ctx, ex, hooks, send, tool, input)
+	}
+	if err := sendTurnEvents(send, ask, in.Prompt, answer, in.Posture); err != nil {
 		return engine.TurnResult{}, err
 	}
 	return engine.TurnResult{NativeKey: sessionKey, Answer: answer}, nil
@@ -124,8 +131,9 @@ func mockAnswer(ex engine.Exec, prompt string) string {
 }
 
 // sendTurnEvents relays the turn: the resumable session at the turn's
-// mode, a TOOLS turn's entries, the answer, and the completion.
-func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string, posture engine.TurnPosture) error {
+// mode, a TOOLS turn's entries, a mock:deny or mock:ask call (ask makes the
+// latter), the answer, and the completion.
+func sendTurnEvents(send func(agent.ChatEvent) error, ask func(string, json.RawMessage) (*agent.PermissionDenial, error), prompt, answer string, posture engine.TurnPosture) error {
 	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: sessionKey, Resumable: true, PermissionMode: posture.Mode}}); err != nil {
 		return err
 	}
@@ -146,6 +154,19 @@ func sendTurnEvents(send func(agent.ChatEvent) error, prompt, answer string, pos
 			return err
 		}
 		meta.Denials = []agent.PermissionDenial{denial}
+	}
+	tool, input, asks, err := askIn(prompt)
+	if err != nil {
+		return err
+	}
+	if asks {
+		denial, err := ask(tool, input)
+		if err != nil {
+			return err
+		}
+		if denial != nil {
+			meta.Denials = append(meta.Denials, *denial)
+		}
 	}
 	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: answer}}); err != nil {
 		return err

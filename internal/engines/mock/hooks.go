@@ -201,7 +201,7 @@ func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, workDi
 				continue
 			}
 		}
-		if err := runHook(ctx, h.Command, payload, workDir, env); err != nil {
+		if _, err := runHook(ctx, h.Command, payload, workDir, env); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -209,8 +209,10 @@ func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, workDi
 }
 
 // runHook execs one command hook through the shell with the payload on
-// stdin, in the given working directory with env laid over the process's.
-func runHook(ctx context.Context, command string, payload []byte, workDir string, env map[string]string) error {
+// stdin, in the given working directory with env laid over the process's,
+// and returns what it wrote to stdout — a hook's answer, where its event
+// takes one.
+func runHook(ctx context.Context, command string, payload []byte, workDir string, env map[string]string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Stdin = bytes.NewReader(payload)
 	cmd.Dir = workDir
@@ -218,10 +220,11 @@ func runHook(ctx context.Context, command string, payload []byte, workDir string
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
+	var stdout bytes.Buffer
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("mock: hook %q: %w: %s", command, err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("mock: hook %q: %w: %s", command, err, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+	return stdout.Bytes(), nil
 }

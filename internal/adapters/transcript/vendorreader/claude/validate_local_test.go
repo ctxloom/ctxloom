@@ -130,11 +130,11 @@ func renderStats(t *testing.T, versions []string, byVersion map[string]*versionS
 	t.Helper()
 	var out strings.Builder
 	tw := tabwriter.NewWriter(&out, 0, 0, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintln(tw, "version\tfiles\trecords\tread_err\tconvert_err\tmalformed\tunknown_lines\tdropped_blocks\tunclassified_tool_content\ttool_use\ttool_result\tunanswered_use\torphan_result\tturns\t")
+	fmt.Fprintln(tw, "version\tfiles\trecords\tread_err\tconvert_err\tmalformed\tvendor_truncated\tunknown_lines\tdropped_blocks\tunclassified_tool_content\ttool_use\ttool_result\tunanswered_use\torphan_result\tturns\t")
 	for _, v := range versions {
 		s := byVersion[v]
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n", v, s.files, s.records,
-			s.readErrors, s.convertErrors, s.malformed, sum(s.unknownLines), sum(s.droppedBlocks),
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n", v, s.files, s.records,
+			s.readErrors, s.convertErrors, s.malformed, s.vendorTruncated, sum(s.unknownLines), sum(s.droppedBlocks),
 			s.unclassifiedToolContent, s.toolUses, s.toolResults, s.unansweredUses, s.orphanResults, s.turns)
 	}
 	require.NoError(t, tw.Flush())
@@ -149,6 +149,7 @@ func renderStats(t *testing.T, versions []string, byVersion map[string]*versionS
 
 type versionStats struct {
 	files, records, readErrors, convertErrors, malformed int
+	vendorTruncated                                      int
 	unknownLines, droppedBlocks                          map[string]int
 	unclassifiedToolContent, toolUses, toolResults       int
 	unansweredUses, orphanResults, turns                 int
@@ -156,7 +157,9 @@ type versionStats struct {
 
 // failsGate is what disqualifies a version from being pinned: a file that
 // could not be read, did not convert, had lines that are not JSON, or had a
-// line type this build does not know.
+// line type this build does not know. vendorTruncated is reported but does
+// not fail it: those fragments are claude's own torn writes, and the record
+// glued after each was recovered (see decodeLine).
 func (s *versionStats) failsGate() bool {
 	return s.readErrors+s.convertErrors+s.malformed+sum(s.unknownLines) > 0
 }
@@ -167,6 +170,7 @@ func newVersionStats() *versionStats {
 
 func (s *versionStats) add(a importAccounting, r *countingRecorder) {
 	s.malformed += a.malformed
+	s.vendorTruncated += a.vendorTruncated
 	for k, n := range a.unknownLines.counts {
 		s.unknownLines[k] += n
 	}

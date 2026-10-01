@@ -47,9 +47,10 @@ var realHomeDir string
 // launchCredentials holds every liveAgents apiKeyEnvs value the suite was
 // LAUNCHED with, captured in TestMain (acceptance_test.go) before the ambient
 // scrub unsets them (testsupport.EnvKeys lists them, so a developer's exported
-// credential cannot leak into a hermetic test). A cell that runs an engine
-// directly in a throwaway config dir has no other way to authenticate it. The
-// values are handed to that child's environment and never printed.
+// credential cannot leak into a hermetic test). It is the ONLY place an @live
+// cell's credential comes from: liveCredential reads it, and every live path
+// hands the value to one child's environment explicitly. Values are never
+// printed.
 var launchCredentials map[string]string
 
 // captureLaunchCredentials reads the apiKeyEnvs of every registered engine
@@ -64,6 +65,43 @@ func captureLaunchCredentials() map[string]string {
 		}
 	}
 	return got
+}
+
+// liveCredential is the credential an @live child of a authenticates with:
+// the first of a.apiKeyEnvs captured at launch. ok=false means none was, and
+// the caller falls back to the subscription login in the real home.
+//
+// It reads the CAPTURE, never the ambient environment: by the time any cell
+// runs, TestMain has scrubbed the ambient copy, so an os.Getenv here would
+// report "no token" for a suite launched with one and silently push every
+// cell onto the real-home login.
+func liveCredential(a liveAgent) (credentialMapping, bool) {
+	for _, k := range a.apiKeyEnvs {
+		if v := launchCredentials[k]; v != "" {
+			return credentialMapping{EnvVar: k, Value: v}, true
+		}
+	}
+	return credentialMapping{}, false
+}
+
+// liveVendorEnv is the ENTIRE environment for a cell that runs the claude
+// binary directly (no ctxloom in between), built from nothing rather than
+// filtered from the harness's: the cell must not inherit a CLAUDE_* knob, a
+// ZDOTDIR or a ctxloom session variable from whoever ran the suite. Only PATH
+// (to find claude, sh, git and the hook's tools), SHELL, the throwaway HOME and
+// CLAUDE_CONFIG_DIR, and the one captured credential cross over.
+func liveVendorEnv(cred credentialMapping, home, configDir string) []string {
+	shell := "/bin/sh"
+	if bash, err := exec.LookPath("bash"); err == nil {
+		shell = bash
+	}
+	return []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + home,
+		"SHELL=" + shell,
+		claude.ConfigDirEnv + "=" + configDir,
+		cred.EnvVar + "=" + cred.Value,
+	}
 }
 
 // authProbeTimeout bounds every authCheck subprocess (`claude auth status`,
@@ -81,10 +119,11 @@ type liveAgent struct {
 	// binary is the executable actually probed on PATH. NOT necessarily the
 	// same as the engine's own name in the Examples table.
 	binary string
-	// apiKeyEnvs are the env vars whose presence enables the unattended
-	// API-key path. They flow to the CLI through the inherited subprocess
-	// env, so nothing is copied for this path, and no authCheck subprocess
-	// runs — an API key is its own proof of intent to use it.
+	// apiKeyEnvs are the env vars whose presence AT LAUNCH enables the
+	// unattended token path, in preference order (see liveCredential). The
+	// value is handed to the child's environment explicitly, nothing is
+	// copied, and no authCheck subprocess runs — a token is its own proof of
+	// intent to use it.
 	apiKeyEnvs []string
 	// credDir is the per-agent credential directory under HOME (documentation
 	// only — copyCreds below hardcodes its own exact paths).
@@ -169,21 +208,6 @@ func backendTypeToLiveKey(backendType string) string {
 	return backendType
 }
 
-// matchedEnv returns the first non-empty env var among names, or "".
-func matchedEnv(names []string) string {
-	for _, n := range names {
-		if os.Getenv(n) != "" {
-			return n
-		}
-	}
-	return ""
-}
-
-// envSet reports whether any of the named env vars is non-empty.
-func envSet(names []string) bool {
-	return matchedEnv(names) != ""
-}
-
 // engineStatus is one row of the availability report: whether this engine
 // will actually run in this suite, and why not when it will not.
 type engineStatus struct {
@@ -205,8 +229,8 @@ func engineAvailable(a liveAgent, realHome string, optIn bool) (bool, string) {
 	if _, err := exec.LookPath(a.binary); err != nil {
 		return false, fmt.Sprintf("binary %q not found on PATH", a.binary)
 	}
-	if k := matchedEnv(a.apiKeyEnvs); k != "" {
-		return true, fmt.Sprintf("%s set", k)
+	if cred, ok := liveCredential(a); ok {
+		return true, fmt.Sprintf("%s captured at launch", cred.EnvVar)
 	}
 	if a.authCheck == nil {
 		return false, "no authentication probe configured for this engine"
@@ -362,8 +386,8 @@ type credentialMapping struct {
 }
 
 // mapClaudeCredentials is reached only when neither CLAUDE_CODE_OAUTH_TOKEN
-// nor ANTHROPIC_API_KEY is exported (seedLiveCredentials takes the env path
-// first), and there is nothing else to map: ctxloom stores no claude
+// nor ANTHROPIC_API_KEY was captured at launch (seedLiveCredentials takes the
+// token path first), and there is nothing else to map: ctxloom stores no claude
 // credential, and copying the developer's login is what the copy path's
 // policy forbids. So it FAILS LOUD, naming the fix. It reads nothing.
 func mapClaudeCredentials(string) ([]credentialMapping, error) {
@@ -373,8 +397,8 @@ func mapClaudeCredentials(string) ([]credentialMapping, error) {
 // seedLiveCredentials is THE single door every @live scenario gate goes
 // through to make a real engine authenticate from inside an isolated run, and
 // the enforcement point for erased-collar's policy: credentials reach a live
-// run exactly one of two ways — an API-key env var, or MAPPED — and never as
-// a copy.
+// run exactly one of two ways — the token captured at launch, or MAPPED — and
+// never as a copy.
 //
 // setEnv is the per-scenario door through testenv's ambient-session scrub
 // (TestEnvironment.SetChildEnv); it is a parameter rather than a direct call
@@ -382,8 +406,10 @@ func mapClaudeCredentials(string) ([]credentialMapping, error) {
 // a test can assert the env var that was ACTUALLY set and its value.
 //
 // Order, and why:
-//  1. apiKeyEnvs set → nothing is copied and nothing is mapped. The key rides
-//     the inherited env, and nothing rotates.
+//  1. a token captured at launch (liveCredential) → set on the child through
+//     setEnv, inside the scenario's isolated HOME. Nothing is copied, nothing
+//     is mapped, and nothing rotates. It must be SET: the scrub removed it
+//     from every child's inherited environment.
 //  2. no real HOME captured → a loud error, not a silent skip. Reaching here
 //     means engineAvailable already passed, and it only passes the
 //     subscription path with a real HOME in hand.
@@ -392,7 +418,8 @@ func mapClaudeCredentials(string) ([]credentialMapping, error) {
 //     mapped (see the copyCreds field doc).
 //  5. neither → a loud error rather than an unauthenticated run.
 func seedLiveCredentials(name string, a liveAgent, realHome, fakeHome string, setEnv func(key, value string)) error {
-	if envSet(a.apiKeyEnvs) {
+	if cred, ok := liveCredential(a); ok {
+		setEnv(cred.EnvVar, cred.Value)
 		return nil
 	}
 	if realHome == "" {

@@ -246,14 +246,14 @@ func probeCensusRoots(backendType string) ([]string, error) {
 }
 
 // probeDecideAuthPath reports which of the two credential paths a run for
-// backendType will take, GIVEN THE CURRENT AMBIENT ENVIRONMENT — the exact
+// backendType will take, GIVEN THE CREDENTIAL CAPTURED AT LAUNCH — the exact
 // same precedence production code applies (resolveEnvOrMountAuth /
 // seedCredentials: env key first, host file second), so this can never
 // disagree with what the run itself actually does. Returns probeAuthNone
 // when neither an env key nor a host credential file is available.
 // MEASUREMENT SAFETY, load-bearing for every census this file takes: this
 // function (and probeContainerAuthAvailable below) deliberately NEVER call a
-// liveAgent's authCheck — only os.Getenv and plain file reads (via copyCreds
+// liveAgent's authCheck — only the launch capture and plain file reads (via copyCreds
 // into a throwaway scratch dir). This is not an arbitrary style choice: an
 // authCheck shells out to the vendor CLI, and a vendor's nominally read-only
 // status command is NOT reliably side-effect-free — one has been measured
@@ -270,8 +270,8 @@ func probeDecideAuthPath(backendType string) (probeAuthPath, string) {
 	if !ok {
 		return probeAuthNone, fmt.Sprintf("unknown engine %q", backendType)
 	}
-	if envKey := matchedEnv(a.apiKeyEnvs); envKey != "" {
-		return probeAuthEnvKey, envKey + " set in the environment"
+	if cred, ok := liveCredential(a); ok {
+		return probeAuthEnvKey, cred.EnvVar + " captured at launch"
 	}
 	if realHomeDir == "" {
 		return probeAuthNone, "no real HOME captured to look for a host credential file"
@@ -755,7 +755,7 @@ type probeResult struct {
 }
 
 // runProbeWorktree drives one live worktree-axis cell end to end: decide the
-// auth path (forcedPath, if non-empty, requires the ambient environment to
+// auth path (forcedPath, if non-empty, requires the launch environment to
 // actually resolve to that path — a cell explicitly proving the env-key
 // bypass must not silently fall back to the seeded path), seed credentials
 // accordingly, census the host before/after, run `ctxloom run --agent probe
@@ -774,7 +774,7 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath) (*
 
 	authPath, reason := probeDecideAuthPath(backendType)
 	if forcedPath != "" && authPath != forcedPath {
-		return nil, fmt.Errorf("isolation probe: requested auth path %q for %s, but the ambient environment resolves to %q (%s) — set up the environment for the path you want to force", forcedPath, backendType, authPath, reason)
+		return nil, fmt.Errorf("isolation probe: requested auth path %q for %s, but the launch environment resolves to %q (%s) — set up the environment for the path you want to force", forcedPath, backendType, authPath, reason)
 	}
 	res.AuthPath, res.AuthReason = authPath, reason
 
@@ -831,9 +831,19 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath) (*
 	return res, nil
 }
 
-// probeSeedCreds seeds a's host credentials into the isolated home when the
-// cell runs on the seeded auth path; any other path seeds nothing.
+// probeSeedCreds gives the cell's run its credential: on the env-key path the
+// captured token goes onto the child's environment (the scrub removed it from
+// what the child would otherwise inherit); on the seeded path a's host
+// credentials are copied into the isolated home.
 func probeSeedCreds(w *World, a liveAgent, backendType string, authPath probeAuthPath) error {
+	if authPath == probeAuthEnvKey {
+		cred, ok := liveCredential(a)
+		if !ok {
+			return fmt.Errorf("isolation probe: %s resolved to the env-key path but no credential was captured at launch", backendType)
+		}
+		w.env.SetChildEnv(cred.EnvVar, cred.Value)
+		return nil
+	}
 	if authPath != probeAuthSeeded {
 		return nil
 	}
@@ -899,11 +909,8 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 	// stand-in host the same way for both axes. Same reason as the worktree
 	// axis above for why this one call site keeps COPYING while the @live
 	// gates map: the stand-in host IS the measurement.
-	if authPath == probeAuthSeeded {
-		key := backendTypeToLiveKey(backendType)
-		if err := liveAgents[key].copyCreds(realHomeDir, w.env.HomeDir); err != nil {
-			return nil, fmt.Errorf("isolation probe: seeding %s credentials: %w", backendType, err)
-		}
+	if err := probeSeedCreds(w, liveAgents[backendTypeToLiveKey(backendType)], backendType, authPath); err != nil {
+		return nil, err
 	}
 
 	token := probeToken()

@@ -191,12 +191,10 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 		// relying on.
 		cmd := w.env.Command(nil, "run", "--agent", p4Agent,
 			"--workspace", p.workspace, "--one-shot", p4Prompt())
-		// Credentials resolve against the REAL host home, exactly as the matrix
-		// floor does and for the same reason: every production credential path
-		// starts at hostHomeDir(), and starving it would make this cell measure
-		// the harness. What this cell asserts on stays isolated — the sentinel
-		// is inside the fresh temp project, never under HOME.
-		if err := probeCellCredentialEnv(p4Family, cmd); err != nil {
+		// The shared credential posture (probeCellCredentialEnv), exactly as the
+		// matrix floor uses. What this cell asserts on stays isolated either
+		// way — the sentinel is inside the fresh temp project, never under HOME.
+		if _, err := probeCellCredentialEnv(p4Family, p.engine, cmd); err != nil {
 			return err
 		}
 		var stdout, stderr bytes.Buffer

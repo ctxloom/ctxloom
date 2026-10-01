@@ -11,9 +11,7 @@
 //
 // THE STRUCTURE IS P0'S, ON PURPOSE. Same three steps (gate+fixture / run /
 // assert), same shared gate (probeCellGate), same credential posture
-// (probeHostCredentialEnv — production's own per-axis machinery resolving
-// against the REAL host home, because a cell more cautious than the product is
-// not a test of it), same separate stdout/stderr capture. Two differences, and
+// (probeCellCredentialEnv), same separate stdout/stderr capture. Two differences, and
 // both are the experiment:
 //
 //   - the agent binding carries `surfaces: {context: <approach>}`, so the run
@@ -118,8 +116,8 @@ func registerContextApproachSteps(ctx *godog.ScenarioContext) {
 				return err
 			}
 			// NOTHING is seeded here on purpose — each axis's credentials are
-			// delivered by ctxloom's own production machinery, resolving against
-			// the real host home the run is given (probeHostCredentialEnv).
+			// delivered by ctxloom's own production machinery from the
+			// environment the run is given (probeCellCredentialEnv).
 			return nil
 		})
 
@@ -133,7 +131,7 @@ func registerContextApproachSteps(ctx *godog.ScenarioContext) {
 
 		cmd := w.env.Command(nil, "run", "--agent", matrixAgent,
 			"--workspace", s.workspace, "--one-shot", matrixPrompt())
-		if err := probeCellCredentialEnv(approachFamily, cmd); err != nil {
+		if _, err := probeCellCredentialEnv(approachFamily, s.engine, cmd); err != nil {
 			return err
 		}
 		var stdout, stderr bytes.Buffer

@@ -123,7 +123,7 @@ Covered here: `internal/engines` (the composition root), `internal/engines/confo
 `internal/adapters/isolation`, `internal/engines/claude`, `internal/engines/mock`.
 
 Types shared with the rest of the system — `agent.Backend`, `agent.ManagedConfig`,
-`agent.PermissionMode`, `agent.SurfaceInputs` — live in
+`agent.SurfaceInputs` — live in
 `internal/core/agent` and are documented here from the launch layer's point of
 view.
 

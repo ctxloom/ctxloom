@@ -83,7 +83,15 @@ func (m FixtureModel) Decode(doc map[string]any) (string, error) {
 	s, _ := doc["mode"].(string)
 	return s, nil
 }
-func (FixtureModel) Transitions(map[string]any) []string { return []string{"default"} }
+func (m FixtureModel) Label(posture string) string {
+	if slices.Contains(m.Postures(), posture) {
+		return "the " + posture + " posture"
+	}
+	return ""
+}
+func (m FixtureModel) Transitions(map[string]any) []engine.PostureTransition {
+	return []engine.PostureTransition{{Posture: "default", Label: m.Label("default"), Default: true}}
+}
 func (FixtureModel) Sandboxes(runtime string) []engine.Sandbox {
 	if runtime == "host" {
 		return []engine.Sandbox{engine.SandboxWorkspaceWrite, engine.SandboxFull}

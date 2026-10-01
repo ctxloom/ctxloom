@@ -53,7 +53,8 @@ func (stubModel) Validate(doc map[string]any) error {
 func (stubModel) Resolve(engine.PostureRequest) (map[string]any, error) { return map[string]any{}, nil }
 func (stubModel) Floor() map[string]any                                 { return map[string]any{} }
 func (stubModel) Decode(map[string]any) (string, error)                 { return "on", nil }
-func (stubModel) Transitions(map[string]any) []string                   { return nil }
+func (stubModel) Transitions(map[string]any) []engine.PostureTransition { return nil }
+func (stubModel) Label(string) string                                    { return "" }
 func (stubModel) Sandboxes(string) []engine.Sandbox                     { return []engine.Sandbox{engine.SandboxFull} }
 func (stubModel) DefaultSandbox() engine.Sandbox                        { return engine.SandboxFull }
 func (stubModel) Reviewer() bool                                        { return false }

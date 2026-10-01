@@ -68,6 +68,9 @@ func resolvePolicy(rep report.Reporter, src Source, d permissionDecls, eng engin
 		return engine.PermissionPolicy{}, err
 	}
 	p.Posture.Document = doc
+	if hasModel {
+		p.Posture = p.Posture.Named(model)
+	}
 	rungs := d.neutral()
 	if p.Approver, err = resolveApprover(rungs, eng, model, hasModel); err != nil {
 		return engine.PermissionPolicy{}, err

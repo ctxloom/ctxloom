@@ -52,8 +52,8 @@ func TestResolvePolicy_FieldByField(t *testing.T) {
 	)
 	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev", Label: "guarded"})
 	require.NoError(t, err)
-	assert.Equal(t, engine.Posture{Engine: launchtest.EngineName, Document: map[string]any{"mode": "acceptEdits", "deny": []any{"Bash"}}}, p.Posture,
-		"the label's mode, the binding's deny: the engine takes each key from the nearest declaration")
+	assert.Equal(t, engine.Posture{Engine: launchtest.EngineName, Document: map[string]any{"mode": "acceptEdits", "deny": []any{"Bash"}}, Label: "the acceptEdits posture"}, p.Posture,
+		"the label's mode, the binding's deny: the engine takes each key from the nearest declaration, and names the posture")
 	assert.Equal(t, engine.ApproverNone, p.Approver, "the binding's approver")
 	assert.Equal(t, engine.SandboxWorkspaceWrite, p.Sandbox, "the label's sandbox beats the project's")
 	assert.Equal(t, 20*time.Minute, p.ApprovalTimeout, "the project's timeout")
@@ -67,7 +67,7 @@ func TestResolvePolicy_Defaults(t *testing.T) {
 	p, err := resolvePolicy(t, env, launch.Source{Agent: "dev"})
 	require.NoError(t, err)
 	assert.Equal(t, engine.PermissionPolicy{
-		Posture:         engine.Posture{Engine: launchtest.EngineName, Document: map[string]any{"mode": "default"}},
+		Posture:         engine.Posture{Engine: launchtest.EngineName, Document: map[string]any{"mode": "default"}, Label: "the default posture"},
 		Approver:        engine.ApproverHuman,
 		ApprovalTimeout: engine.DefaultApprovalTimeout,
 		Sandbox:         engine.SandboxFull,

@@ -123,12 +123,20 @@ func (m permissionModel) Decode(doc map[string]any) (string, error) {
 	return s, nil
 }
 
+// Label is the mock's display name for a mode: the mode itself.
+func (m permissionModel) Label(posture string) string {
+	if slices.Contains(m.Postures(), posture) {
+		return posture
+	}
+	return ""
+}
+
 // Transitions: a plan continues at default; a bypass session moves nowhere.
-func (permissionModel) Transitions(doc map[string]any) []string {
+func (m permissionModel) Transitions(doc map[string]any) []engine.PostureTransition {
 	if doc["mode"] == "bypass" {
 		return nil
 	}
-	return []string{"default"}
+	return []engine.PostureTransition{{Posture: "default", Label: m.Label("default"), Default: true}}
 }
 func (permissionModel) Sandboxes(string) []engine.Sandbox {
 	return []engine.Sandbox{engine.SandboxFull}

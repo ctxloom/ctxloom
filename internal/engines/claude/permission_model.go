@@ -48,6 +48,18 @@ func (permissionModel) Postures() []string {
 	return []string{modeDefault, modeAcceptEdits, modePlan, modeBypass}
 }
 
+// modeLabels are claude's display names for its modes, as its own
+// interface words them.
+var modeLabels = map[string]string{
+	modeDefault:     "default",
+	modeAcceptEdits: "accept edits",
+	modePlan:        "plan mode",
+	modeBypass:      "bypass permissions",
+}
+
+// Label is claude's display name for a mode.
+func (permissionModel) Label(posture string) string { return modeLabels[posture] }
+
 // afterPlanModes are the modes an approved plan may continue at.
 func afterPlanModes() []string { return []string{modeDefault, modeAcceptEdits} }
 
@@ -238,12 +250,21 @@ func (m permissionModel) Decode(doc map[string]any) (string, error) {
 
 // Transitions: an approval may move any session but a bypass one to
 // default or acceptEdits (a plan's continuation, the setMode suggestion
-// claude makes on an edit).
-func (m permissionModel) Transitions(doc map[string]any) []string {
+// claude makes on an edit). The default is the document's after_plan when
+// it declares one, else default.
+func (m permissionModel) Transitions(doc map[string]any) []engine.PostureTransition {
 	if mode, _ := m.mode(doc); mode == modeBypass {
 		return nil
 	}
-	return afterPlanModes()
+	continueAt := modeDefault
+	if s, ok := doc[keyAfterPlan].(string); ok && slices.Contains(afterPlanModes(), s) {
+		continueAt = s
+	}
+	var out []engine.PostureTransition
+	for _, mode := range afterPlanModes() {
+		out = append(out, engine.PostureTransition{Posture: mode, Label: m.Label(mode), Default: mode == continueAt})
+	}
+	return out
 }
 
 // Sandboxes are the values claude can be made to enforce, failing closed:

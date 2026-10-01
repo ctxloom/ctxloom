@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -187,4 +188,16 @@ func TestMockAsk_AHookWhoseMatcherExcludesTheToolDecidesNothing(t *testing.T) {
 	}))
 	require.NotNil(t, denied, "the Write hook does not decide a Bash call")
 	assert.Equal(t, "held and denied", denied.Reason)
+}
+
+// TestMockApprovalCodec_HooksAreOnePermissionAskForEveryTool: the mock's
+// approval route is one permission_ask hook (the mock's native events are
+// the unified ones) admitting every tool, running ctxloom's hook for that
+// event and outliving the approval timeout.
+func TestMockApprovalCodec_HooksAreOnePermissionAskForEveryTool(t *testing.T) {
+	codec, ok := mock.New().Approvals().Get()
+	require.True(t, ok)
+	h := codec.Hooks(time.Minute)
+	assert.Equal(t, []wire.Hook{agent.ApprovalHook(wire.HookEventPermissionAsk, "", time.Minute)}, h.PermissionAsk)
+	assert.Len(t, h.All(), 1, "no other hook is the approval route's")
 }

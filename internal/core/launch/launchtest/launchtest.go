@@ -11,9 +11,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
@@ -385,6 +388,11 @@ func (fixtureCodec) HostCall(json.RawMessage) (engine.HostCall, error) {
 }
 func (fixtureCodec) HostDeny(string) (string, error) { return "", nil }
 func (fixtureCodec) RepoSurfaces() []string          { return nil }
+
+// Hooks is one approval hook on the fixture's own ask event.
+func (fixtureCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {
+	return wire.UnifiedHooks{PermissionAsk: []wire.Hook{agent.ApprovalHook("fixture_ask", "", timeout)}}
+}
 func (fixtureCodec) ValidateRule(rule string) error {
 	if strings.HasPrefix(rule, "!") {
 		return ErrFixtureRule

@@ -1,6 +1,11 @@
 package engine
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/wire"
+)
 
 // AskKind classifies what an engine is asking a human to decide.
 type AskKind int
@@ -104,6 +109,10 @@ type ApprovalCodec interface {
 	RepoSurfaces() []string
 	// ValidateRule refuses a rule the engine's rule syntax does not accept.
 	ValidateRule(rule string) error
+	// Hooks are the hooks that carry the engine's asks to the approval
+	// route, in the engine's own events and matchers, for a run whose
+	// approval timeout is timeout.
+	Hooks(timeout time.Duration) wire.UnifiedHooks
 }
 
 // PermissionHostTool is the tool ctxloom's session endpoint serves as the

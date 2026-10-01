@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // This file is claude's approval codec: the one place claude's
@@ -355,6 +358,17 @@ func (approvalCodec) HostCall(args json.RawMessage) (engine.HostCall, error) {
 func (approvalCodec) HostDeny(message string) (string, error) {
 	b, err := json.Marshal(map[string]string{"behavior": "deny", "message": message})
 	return string(b), err
+}
+
+// Hooks are claude's approval hooks: the permission ask for every tool its
+// posture and rules leave open (PermissionRequest, no matcher), and the
+// pre-tool hook for a question or a plan, which only rewritten input can
+// answer (PreToolUse, matched to those two tools).
+func (approvalCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {
+	return wire.UnifiedHooks{
+		PermissionAsk: []wire.Hook{agent.ApprovalHook(hookEventPermissionRequest, "", timeout)},
+		PreTool:       []wire.Hook{agent.ApprovalHook(hookEventPreToolUse, toolAskUserQuestion+"|"+toolExitPlanMode, timeout)},
+	}
 }
 
 // RepoSurfaces are the repository files claude loads that can run code or

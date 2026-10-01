@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -89,7 +88,9 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	require.NoError(t, err)
 	childHooks, err := mock.DeliveredHooksFile(filepath.Join(child.Cell.Paths.Paths().SessionHome.Host, ".mock", "hooks.json"))
 	require.NoError(t, err)
-	hostHooks.Append(agent.ApprovalHooks(child.Permission.ApprovalTimeout))
+	codec, ok := mock.New().Approvals().Get()
+	require.True(t, ok)
+	hostHooks.Append(codec.Hooks(child.Permission.ApprovalTimeout))
 	require.Equal(t, hostHooks, childHooks, "the delegated run's hooks are the host's plus the approval hooks")
 	delete(hostSet, hooksRel)
 	delete(childSet, hooksRel)

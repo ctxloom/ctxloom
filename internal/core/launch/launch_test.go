@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -355,7 +354,11 @@ func TestResolve_Carrier_ChosenBySize_RedeemsToTheSamePackage(t *testing.T) {
 	carried := env.Assembled()
 	carried.Hooks.Unified = wire.UnifiedHooks{}
 	carried.Hooks.Unified.Append(env.Assembled().Hooks.Unified)
-	carried.Hooks.Unified.Append(agent.ApprovalHooks(small.Permission.ApprovalTimeout))
+	eng, ok := env.Deps.Engines.Lookup(small.Engine)
+	require.True(t, ok)
+	codec, ok := eng.Approvals().Get()
+	require.True(t, ok)
+	carried.Hooks.Unified.Append(codec.Hooks(small.Permission.ApprovalTimeout))
 	enc, err := composite.Encode(carried)
 	require.NoError(t, err)
 	for _, c := range []composite.Carrier{small.Package, large.Package} {

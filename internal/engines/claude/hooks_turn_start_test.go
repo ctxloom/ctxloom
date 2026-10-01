@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
@@ -97,7 +96,7 @@ func TestHooks_DecodesUserPromptSubmitAsTurnStart(t *testing.T) {
 // the question/plan hook under PreToolUse for exactly those two tools —
 // each with a timeout that outlives the approval timeout.
 func TestClaudeCodeHookWriter_ApprovalHooksReachPermissionRequestAndPreToolUse(t *testing.T) {
-	approval := agent.ApprovalHooks(15 * time.Minute)
+	approval := approvalCodec{}.Hooks(15 * time.Minute)
 	hooks := writtenHooks(t, &wire.HooksConfig{Unified: approval})
 
 	for event, want := range map[string]wire.Hook{"PermissionRequest": approval.PermissionAsk[0], "PreToolUse": approval.PreTool[0]} {

@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // Approvals is the mock's approval codec: a plain JSON vocabulary of its
@@ -85,6 +88,12 @@ func (approvalCodec) HostCall(args json.RawMessage) (engine.HostCall, error) {
 func (approvalCodec) HostDeny(message string) (string, error) {
 	b, err := json.Marshal(map[string]any{"allow": false, "message": message})
 	return string(b), err
+}
+
+// Hooks are the mock's approval hooks: one permission_ask hook (the mock's
+// native events are the unified ones) for every tool.
+func (approvalCodec) Hooks(timeout time.Duration) wire.UnifiedHooks {
+	return wire.UnifiedHooks{PermissionAsk: []wire.Hook{agent.ApprovalHook(wire.HookEventPermissionAsk, "", timeout)}}
 }
 
 // RepoSurfaces are the repository files the mock loads that can run code:

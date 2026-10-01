@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -29,6 +28,17 @@ func resolved(t *testing.T, env launchtest.Env, src launch.Source) (launch.Launc
 	return l, pkg.Hooks.Unified
 }
 
+// approvalHooksOf is the approval hooks of env's engine (the codec-declaring
+// fixture when env's own declares none) for timeout.
+func approvalHooksOf(t *testing.T, env launchtest.Env, l launch.Launch, timeout time.Duration) wire.UnifiedHooks {
+	t.Helper()
+	eng, ok := env.Deps.Engines.Lookup(l.Engine)
+	require.True(t, ok)
+	codec, ok := eng.Approvals().Get()
+	require.True(t, ok, "the engine declares an approval codec")
+	return codec.Hooks(timeout)
+}
+
 // TestResolve_AHumanApprovedRunCarriesTheApprovalHooks: a structured run
 // whose approver is the human, on an engine with an approval codec, is
 // delivered the approval hooks for its own approval timeout — the route by
@@ -38,7 +48,7 @@ func TestResolve_AHumanApprovedRunCarriesTheApprovalHooks(t *testing.T) {
 		NeutralPermissions: agents.NeutralPermissions{Approver: "human", ApprovalTimeout: "20m"},
 	})))
 	l, hooks := resolved(t, env, launch.Source{Agent: "dev", Mode: engine.Structured})
-	want := agent.ApprovalHooks(20 * time.Minute)
+	want := approvalHooksOf(t, env, l, 20*time.Minute)
 
 	assert.True(t, l.RoutesApprovals())
 	assert.Equal(t, want.PermissionAsk, hooks.PermissionAsk)
@@ -68,8 +78,8 @@ func TestResolve_NoApprovalHooksWhereNobodyIsAsked(t *testing.T) {
 			l, hooks := resolved(t, env, launch.Source{Agent: "dev", Mode: tc.mode})
 			assert.False(t, l.RoutesApprovals())
 			assert.Empty(t, hooks.PermissionAsk)
-			for _, h := range agent.ApprovalHooks(l.Permission.ApprovalTimeout).PreTool {
-				assert.NotContains(t, hooks.PreTool, h)
+			for _, h := range approvalHooksOf(t, launchtest.Deps(t), l, l.Permission.ApprovalTimeout).All() {
+				assert.NotContains(t, hooks.All(), h)
 			}
 		})
 	}

@@ -31,8 +31,8 @@ func ctxloomOwnHooks() []wire.Hook {
 		agent.NewNextStepHook(),
 		agent.NewSkillMatesHook(),
 		agent.NewMailDrainHook(),
-		agent.ApprovalHooks(time.Minute).PermissionAsk[0],
-		agent.ApprovalHooks(time.Minute).PreTool[0],
+		approvalCodec{}.Hooks(time.Minute).PermissionAsk[0],
+		approvalCodec{}.Hooks(time.Minute).PreTool[0],
 	}
 }
 

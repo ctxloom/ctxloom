@@ -2,9 +2,12 @@ package claude
 
 import (
 	"encoding/json"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"math/rand"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -256,4 +259,25 @@ func TestApprovalCodec_ValidateRule(t *testing.T) {
 			assert.True(t, strings.Contains(err.Error(), "Tool(") || strings.Contains(err.Error(), "rule"), err.Error())
 		}
 	}
+}
+
+// TestApprovalCodec_HooksAreClaudesTwoRoutesToTheHuman: claude's approval
+// hooks are the permission ask for every tool its posture and rules left
+// open (PermissionRequest, no matcher) and the pre-tool hook for exactly the
+// two tools only rewritten input can answer (PreToolUse), each running
+// `ctxloom hook permission` for its own event and outliving the approval
+// timeout.
+func TestApprovalCodec_HooksAreClaudesTwoRoutesToTheHuman(t *testing.T) {
+	const approval = 15 * time.Minute
+	h := approvalCodec{}.Hooks(approval)
+	require.Len(t, h.PermissionAsk, 1)
+	assert.Equal(t, agent.ApprovalHook("PermissionRequest", "", approval), h.PermissionAsk[0])
+	require.Len(t, h.PreTool, 1)
+	assert.Equal(t, agent.ApprovalHook("PreToolUse", "AskUserQuestion|ExitPlanMode", approval), h.PreTool[0])
+	matcher := regexp.MustCompile("^(?:" + h.PreTool[0].Matcher + ")$")
+	for _, tool := range []string{"AskUserQuestion", "ExitPlanMode"} {
+		assert.Regexp(t, matcher, tool)
+	}
+	assert.NotRegexp(t, matcher, "Bash")
+	assert.Len(t, h.All(), 2, "no other hook is the approval route's")
 }

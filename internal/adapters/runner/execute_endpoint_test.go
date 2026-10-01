@@ -188,7 +188,9 @@ func TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute(t *testing.T) {
 			require.NotEmpty(t, hooksFile, "the hooks were delivered")
 			delivered, err := mock.DeliveredHooksFile(hooksFile)
 			require.NoError(t, err)
-			assert.Equal(t, agent.ApprovalHooks(l.Permission.ApprovalTimeout).PermissionAsk, delivered.PermissionAsk)
+			codec, ok := mock.New().Approvals().Get()
+			require.True(t, ok)
+			assert.Equal(t, codec.Hooks(l.Permission.ApprovalTimeout).PermissionAsk, delivered.PermissionAsk)
 		})
 	}
 }

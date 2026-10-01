@@ -63,7 +63,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	pkg = withApprovalHooks(pkg, src.Mode, perm)
+	pkg = withApprovalHooks(pkg, eng, src.Mode, perm)
 	dirty, err := resolveDirtyTree(cfg, src)
 	if err != nil {
 		return Launch{}, err

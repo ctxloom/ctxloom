@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -209,16 +208,19 @@ func routesApprovals(mode engine.Mode, p engine.PermissionPolicy) bool {
 // holds, and the runner serves the route on the same condition.
 func (l Launch) RoutesApprovals() bool { return routesApprovals(l.Mode, l.Permission) }
 
-// withApprovalHooks is pkg with the approval hooks added when the launch
-// routes approvals (routesApprovals); the package's own hooks are copied,
-// never appended to in place.
-func withApprovalHooks(pkg composite.Package, mode engine.Mode, p engine.PermissionPolicy) composite.Package {
-	if !routesApprovals(mode, p) {
+// withApprovalHooks is pkg with the engine's approval hooks
+// (engine.ApprovalCodec.Hooks) added when the launch routes approvals
+// (routesApprovals); the package's own hooks are copied, never appended to
+// in place. resolvePolicy has refused the human as approver on an engine
+// with no codec, so a routing launch always has one.
+func withApprovalHooks(pkg composite.Package, eng engine.Engine, mode engine.Mode, p engine.PermissionPolicy) composite.Package {
+	codec, ok := eng.Approvals().Get()
+	if !ok || !routesApprovals(mode, p) {
 		return pkg
 	}
 	var hooks wire.UnifiedHooks
 	hooks.Append(pkg.Hooks.Unified)
-	hooks.Append(agent.ApprovalHooks(p.ApprovalTimeout))
+	hooks.Append(codec.Hooks(p.ApprovalTimeout))
 	pkg.Hooks.Unified = hooks
 	return pkg
 }

@@ -156,7 +156,8 @@ type EngineHost struct {
 	driver engine.StructuredDriver
 	exec   engine.Exec
 	// posture is every turn's permission posture; each turn adds the
-	// session grants its approval route holds (approvals.heldGrants).
+	// session grants and the posture its approval route holds
+	// (approvals.heldGrants, approvals.heldMode).
 	posture engine.TurnPosture
 	// approvals is the run's approval route (nil when its approver is not
 	// the human): fed each turn's tool calls, ended with each turn.
@@ -618,9 +619,12 @@ func (eh *EngineHost) runTurn(turnCtx context.Context, busy chan struct{}, text 
 	appr := eh.approvals
 	eh.mu.Unlock()
 	if appr != nil {
-		// Taken once, here: a SetGrants landing mid-turn reaches the next
-		// turn, never the process already running at this one.
+		// Taken once, here: a SetGrants or an approved posture landing
+		// mid-turn reaches the next turn, never the process already running
+		// at this one. The engine's own mode does not survive its process,
+		// so the posture an allow moved the run to is each turn's own.
 		posture.Grants = appr.heldGrants()
+		posture.Mode = appr.heldMode()
 	}
 
 	eh.beginTurn()

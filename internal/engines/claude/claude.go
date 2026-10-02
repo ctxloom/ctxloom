@@ -161,36 +161,6 @@ func (h claudeCodeHook) line() string {
 	return wire.Hook{Command: h.Command, Args: h.Args}.Line()
 }
 
-// ContextPath returns the path to Claude Code's native context file
-// (<projectDir>/CLAUDE.md). Sibling of SettingsPath/MCPConfigPath, added for
-// the read half (contextSurface.State in surfaces.go) so it shares the exact
-// path the write half (WriteContext, below) uses rather than a second
-// filepath.Join literal.
-func (w *ClaudeCodeHookWriter) ContextPath(projectDir string) string {
-	return filepath.Join(projectDir, ContextFileName)
-}
-
-// WriteContext implements agent.ContextWriter for Claude Code: it merges the
-// assembled context (req.Context) into the ctxloom-managed section of
-// <projectDir>/CLAUDE.md, preserving any hand-authored content outside the
-// markers BYTE-FOR-BYTE (taskloom lanky-plop — this used to be a bare
-// whole-file afero.WriteFile with no read-first and no merge, which silently
-// destroyed a team's hand-written CLAUDE.md). Empty content removes the managed
-// section (and the file, when it was wholly ctxloom's). This is the STATIC
-// context surface an externally-launched Claude Code session reads directly —
-// the same payload the SessionStart injection hook delivers at runtime, but
-// written to disk with ctxloom out of the loop. (The framed-cache /
-// --append-system-prompt-file runtime path is separate: it writes its own
-// out-of-cwd <hash>.sysprompt.md from the context string directly and never
-// reads CLAUDE.md, so it is unaffected by this change.)
-//
-// The marker merge itself is the shared core (agent.WriteManagedContext), so
-// every backend that owns a human-editable context file shares one merge.
-func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
-	path := w.ContextPath(req.ProjectDir)
-	return agent.WriteManagedContext(w.getFS(), path, ContextFileName, req.Context, ContextFileName)
-}
-
 // loadSettings loads existing settings.json or returns empty settings for a
 // missing file.
 //

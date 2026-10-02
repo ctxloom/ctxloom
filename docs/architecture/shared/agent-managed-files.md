@@ -15,11 +15,6 @@ flowchart TD
     HASH["ComputeHookHash / ComputeMCPServerHash / ComputeCommandDigest"]
     RC["RefuseCorrupt(fs, path, data, ...)"]
   end
-  subgraph marker["marker-section files — managedcontext.go"]
-    WMC["WriteManagedContext"]
-    SMS["StripManagedSection"]
-    DMC["DeliverManagedContext"]
-  end
   subgraph tree["manifest-tracked trees — packagefiles.go"]
     WMPF["WriteManagedPackageFiles[T]"]
     PED["pruneEmptyDirs"]
@@ -42,9 +37,7 @@ flowchart TD
   CJ["CanonicalJSON (marshal.go)"]
   SYM["symlink.go — WarnOnCtxloomPathSkew"]
 
-  WMC --> WFL
   WFL --> AWF
-  DMC --> WMC
   WMCF --> WMPF
   WMPF --> SCRP
   WMPF --> PED
@@ -80,14 +73,6 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 | `SettingsOptions` | `{FS afero.Fs}` — filesystem seam only. Per-engine policy (which surfaces are managed) rides the surfaces × cells seam elsewhere, not this struct. |
 | `RefuseCorrupt` | The one refusal shape for "part of this user-owned file will not parse": backs the original bytes up to `<path>.corrupt-<unix>` and returns an error so the caller aborts *before* touching the file. Every backend that round-trips a user-editable settings/hooks/MCP file routes partial-parse failures here. |
 | `CanonicalJSON` (`marshal.go`) | Marshal → generic decode with `UseNumber` (numeric precision preserved) → sorted, indented, newline-terminated re-encode. The double round-trip *is* the key-sorting mechanism. |
-
-## Marker-section files — `managedcontext.go`
-
-| Symbol | Purpose |
-|---|---|
-| `WriteManagedContext` | Merges content into the managed-marker section of a human-editable file (CLAUDE.md, AGENTS.md, …), preserving surrounding user content **in position** — a section that sat *below* the end marker used to be hoisted above it on every rewrite; it is now reinserted at the same offset the old section occupied. The whole read-splice-write(-or-remove) cycle runs inside its own `WithFileLock`. |
-| `StripManagedSection` | Removes the managed marker section, returning the surrounding user content. |
-| `DeliverManagedContext` | Writes the managed section and returns a strip-on-cleanup handle. Every context-file writer routes through it. |
 
 ## Manifest-tracked trees — `packagefiles.go`
 
@@ -140,8 +125,6 @@ Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`).
 - **A rename failure is returned, never papered over**, and there is no cross-device fallback: the temp file lives in the destination directory by construction, so cross-device rename cannot occur, and every internal failure branch best-effort removes the orphaned temp file before returning the error.
 - **`AtomicWriteFile` refuses a zero-byte write over an existing file** unless the caller opts in via `AllowEmptyWrite()` — for an encoder that renders an emptied managed set as literally zero bytes. No writer in the tree opts in today; the option stays for the next one that must.
 - **`CtxloomCommand` is the command policy for materialized surfaces**, and every writer — hooks, statusline, MCP registry — resolves through it. It returns the BARE name: several materialized surfaces (`.claude/settings.json`, `.mcp.json`) are tracked files shared across machines, and one is read from inside a container where a host path names nothing. The accepted cost is that a surface can fire a different build than the one that wrote it; `WarnOnCtxloomPathSkew` is the only thing that reports it.
-- **`WriteManagedContext` preserves user content in position**, not merely byte-for-byte: content that sat below the end marker used to be hoisted above the re-appended managed section on every rewrite; it is now reinserted at the same offset the old section occupied.
-- **`WriteManagedContext` with empty content deletes the file** — the intended uninstall semantics and the terminus of the empty-context chain.
 - **`WriteManagedPackageFiles` removes the previously-tracked set BEFORE rendering.** Every per-item failure warns and continues, and the function returns `nil` when nothing was written — so a total render failure wipes the prior delivery and reports success. The manifest is the only record of what ctxloom owns in that tree, and (see R6 above) this function is not itself under `WithFileLock` — a known, deferred gap, not a fixed one.
 - **`SafeCommandRelPath` must gate every bundle-supplied name** before it becomes a path. Bundle content is remote content.
 - **The sidecar ledger (`internal/shared/ledger`, marker `.ctxloom-managed`) is the record of managed names** for every surface that uses it — not a per-engine `<Path>.ledger` file. Written sorted and atomically, removed only when every co-located surface is empty.

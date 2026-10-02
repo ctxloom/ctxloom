@@ -37,7 +37,6 @@ var lockSavePattern = regexp.MustCompile(`(?i)^save`)
 // entry points are safefsWrites, matched through their import because
 // "WriteFile" alone would also name afero's and os's.
 var lockWritePrimitives = map[string]bool{
-	"WriteManagedContext":      true,
 	"WriteManagedPackageFiles": true,
 	"WriteManagedCommandFiles": true,
 	"WriteServers":             true,

@@ -12,14 +12,13 @@ import (
 
 // This file holds the GENERIC approaches: implemented once, registered by any
 // engine that can use them, imposed on none. They are here because more than
-// one engine already uses the mechanism (the native managed-section context
-// file; hook-carried context) — the test for lifting something into shared,
+// one engine already uses the mechanism (the native context file;
+// hook-carried context) — the test for lifting something into shared,
 // not "might a future engine want it".
 
-// NativeContextFile is the native managed-section context file every file
-// engine has (claude's CLAUDE.md, the mock's context file) at rel beneath the
-// project root: where it is presented, and the managed section a currency
-// check reads (State).
+// NativeContextFile is the native context file every file engine has
+// (claude's CLAUDE.md, the mock's context file) at rel beneath the project
+// root: where it is presented.
 //
 // It is a Construct factory rather than a Construct because what varies per
 // engine — where the file lives, and the label the shared-cwd warning names
@@ -38,19 +37,6 @@ type nativeContextFile struct {
 
 // UnsafeInfo names this surface for the shared-cwd fallback's warning.
 func (c *nativeContextFile) UnsafeInfo() string { return c.name }
-
-// State implements StateReader: what the native file currently carries in its
-// managed section, read through the same marker core the write side merges
-// through, so the two cannot disagree about where the section lives. An absent
-// file or an absent section reports Found/HasSection false; Currency turns
-// that into the missing verdict.
-func (c *nativeContextFile) State(dir string) (DeliveryState, error) {
-	state, err := ReadManagedContext(c.fs, filepath.Join(dir, c.rel), c.rel)
-	if err != nil {
-		return nil, err
-	}
-	return state, nil
-}
 
 // Present declares the native file beneath the advised project root. No flag:
 // an engine started in this dir finds it by name.
@@ -99,8 +85,7 @@ func (h hookCarriedContext) Present(start present.Start) present.Presentation {
 }
 
 var (
-	_ Approach    = (*nativeContextFile)(nil)
-	_ StateReader = (*nativeContextFile)(nil)
-	_ Approach    = hookCarriedContext{}
-	_ Rider       = hookCarriedContext{}
+	_ Approach = (*nativeContextFile)(nil)
+	_ Approach = hookCarriedContext{}
+	_ Rider    = hookCarriedContext{}
 )

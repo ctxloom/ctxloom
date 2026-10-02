@@ -37,13 +37,13 @@ import (
 // binary ignores would go green on fiction.
 
 // The claude path vocabulary. These constants are the SINGLE source of the
-// filenames claude reads: both the writers (ProjectSettingsPath, MCPConfigPath,
-// WriteContext, WriteCommandFiles, WriteSkillFiles, WriteAgentFiles) and the
-// probe declarations below build their paths from them, so a rename cannot
-// leave the declaration describing a file nothing writes.
+// filenames claude reads: both the writers and the probe declarations below
+// build their paths from them, so a rename cannot leave the declaration
+// describing a file nothing writes.
 const (
-	// ContextFileName is claude's native instruction file, merged (not
-	// overwritten) inside managed markers by agent.WriteManagedContext.
+	// ContextFileName is claude's native instruction file. The assembled
+	// context is appended after the user's own text, never overwriting it
+	// (appendContextFile).
 	ContextFileName = "CLAUDE.md"
 	// MCPFileName is claude's project MCP server config.
 	MCPFileName = ".mcp.json"
@@ -160,7 +160,7 @@ func probes() []agent.CLIProbe {
 		{Kind: agent.ProbeKindContext, Scope: agent.ScopeFlagValue, Flag: flagAppendSystemFile,
 			Note: "SharedCell: the framed context rides this flag instead of CLAUDE.md"},
 		{Kind: agent.ProbeKindContext, Scope: agent.ScopeCwd, Rel: ContextFileName,
-			Note: "isolated cells: MANAGED-MARKER MERGE (agent.WriteManagedContext), never a whole-file overwrite; claude does NOT read AGENTS.md"},
+			Note: "isolated cells: an APPENDED SECTION after the user's own text (appendContextFile), never a whole-file overwrite; claude does NOT read AGENTS.md"},
 		{Kind: agent.ProbeKindMCP, Scope: agent.ScopeFlagValue, Flag: flagMCPConfig,
 			Note: "layers on top of the cwd .mcp.json rather than replacing it, unless --strict-mcp-config"},
 		{Kind: agent.ProbeKindMCP, Scope: agent.ScopeCwd, Rel: MCPFileName},

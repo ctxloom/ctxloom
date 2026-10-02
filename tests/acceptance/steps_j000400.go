@@ -244,14 +244,12 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 
 	// BYTE-FOR-BYTE, measured. This used to be one strings.Contains for one
 	// marker line, which is not what the scenario's own title claims and not
-	// what the P0 it guards was about: a mutation that made
-	// agent.WriteManagedContext silently drop every hand-authored comment line
-	// from the pre-marker region — the exact data-loss class — left all six
+	// what the P0 it guards was about: a mutation that silently dropped every
+	// hand-authored comment line — the exact data-loss class — left all six
 	// j000400 scenarios green while "# Team conventions" vanished unnoticed.
 	//
-	// The comparison is over the file's NON-MANAGED regions (everything
-	// outside ctxloom's own markers), because those are precisely the bytes
-	// ctxloom promises not to touch. The managed section itself is asserted by
+	// The comparison is over the hand-authored bytes, because those are
+	// precisely the bytes ctxloom promises not to touch. The managed section itself is asserted by
 	// the step that follows this one in the Gherkin.
 	ctx.Step(`^(\S+) still carries Alice's hand-authored conventions, byte-for-byte$`, func(c context.Context, file string) error {
 		w := worldFrom(c)

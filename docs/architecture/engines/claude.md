@@ -28,10 +28,9 @@ the one place claude's surface membership is stated.
 | `buildArgs` | `claudecode.go:231` | The whole claude argv |
 | `ResolveModel` | `chat.go:254` | Nickname → concrete model id; `ok=false` fails loud. Sole production caller `internal/adapters/operations/delegate.go:317` |
 | `EngineCLIs` / `ClaudeEngineCLIs` | `enginecli.go:172` / `:178` | Oneshot + interactive surface declarations |
-| `ClaudeCodeHookWriter` | `claude.go` | `agent.SettingsReader` + `agent.ContextWriter` |
+| `ClaudeCodeHookWriter` | `claude.go` | `agent.SettingsReader` |
 | `NewWriter` | `claude.go:20` | Registry `newWriter` seam (`registry.go:276`) |
 | `Status` | `claude.go` | The `SettingsReader`: what the project writer's claims say is installed. Every write is a claim (`DeliverSettings`, `DeliverHooks`, `DeliverMCP` in `definition.go`) |
-| `WriteContext` | `claude.go:243` | Marker-merge into `CLAUDE.md` |
 | `ProjectSettingsPath` / `GlobalSettingsPath` / `GlobalCommandsDir` / `SettingsPath` / `MCPConfigPath` | `claude.go:48` / `:54` / `:67` / `:76` / `:83` | Path vocabulary consumed by `internal/adapters/operations/hooks.go:272,277` and `internal/ltk/engine/claudecode.go:151,153` |
 | `MCPRegistrar` | `mcp_registrar.go` | taskloom's `engine.Engine`; `Register` patches one `mcpServers` member through a taskloom-owned `confpatch.Store` via the same `applyMCPServers` as `writeMCPConfig` |
 | `WriteCommandFiles` / `TransformToClaudeCommand` | `commandfiles.go:18` / `:44` | `.claude/commands/*.md` manifest write + renderer |
@@ -67,7 +66,7 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 | Permission tiers | bypass → `--dangerously-skip-permissions`; acceptEdits → `--permission-mode acceptEdits`; plan → `--permission-mode plan` **plus** `--disallowedTools "Bash,Edit,Write,NotebookEdit"`; default → no flag (`claudecode.go:253-258`) |
 | `EnforcesReadOnlyPlan` | **true** (`registry.go:297`), so `plan` is **not** collapsed. LIVE VERIFIED 2026-07-15 against authenticated claude 2.1.210: plan + deny list denied a sentinel-file overwrite (`claudecode.go:237-247`) |
 | Native per-tool deny list | **yes — the only engine with one.** (a) the fixed plan-tier `--disallowedTools` token; (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` via `mergeDenyTools` (`claude.go:536`), monotonic union only |
-| Context surface | Isolated cell → marker-merge into `CLAUDE.md` (`surfaces.go:81` → `WriteContext`, `claude.go:243`). Shared cell → out-of-cwd `<hash>.sysprompt.md` (`contextdelivery.go:50`) pointed at by `--append-system-prompt-file` (`claudecode.go:294-299`). **claude does not read `AGENTS.md`** — deliberate (`enginecli.go:34-38`) |
+| Context surface | Project root → a section appended to `CLAUDE.md`, owned by the ownership record (`appendContextFile`, `definition.go`). Shared cell → out-of-cwd `<hash>.sysprompt.md` (`contextdelivery.go:50`) pointed at by `--append-system-prompt-file` (`claudecode.go:294-299`). **claude does not read `AGENTS.md`** — deliberate (`enginecli.go:34-38`) |
 | MCP | Project `.mcp.json` (`mcpApproach.DeliverMCP`'s claims, `definition.go`). In a shared cell it is an out-of-cwd file passed as `--mcp-config` **without** `--strict-mcp-config`, so ctxloom's servers **layer over** the user's project `.mcp.json` (`claudecode.go:288-292`). Global via `MCPRegistrar.ConfigPath` → `~/.claude.json` |
 | Commands | `.claude/commands/*.md`, frontmatter + mustache→`$N` body (`commandfiles.go:18`, `:44`); optional home dedup against `~/.claude/commands` (`surfacedelivery.go:99-104`) |
 | Skills | `.claude/skills/<name>/**` (`skillfiles.go:21`) |

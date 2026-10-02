@@ -21,11 +21,7 @@ import (
 // stated ONCE, by the typed fields of its engine.Definition (Build); the
 // named table this seam reads is derived from it (Declaration). Every form
 // here WRAPS an existing claude writer verbatim — appendFlagDelivery
-// (contextdelivery.go), fileTemplateDelivery (surfacedelivery.go), and the
-// ContextWriter core WriteContext (claude.go); the record-backed settings
-// form, which writes through confpatch instead, lives in
-// surfaces_hewrecord.go. buildArgs (claudecode.go) reads each
-// flag-announced form's Path() after delivery, on every cell.
+// (contextdelivery.go) and fileTemplateDelivery (surfacedelivery.go).
 //
 // A surface with TWO forms names both: which one runs is the caller's
 // selection, never a conversion applied underneath it. Where each

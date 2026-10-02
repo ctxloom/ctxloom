@@ -60,19 +60,9 @@ func TestMockSkillsPresenter_RootsUnderProjectRoot_NotEngineHome(t *testing.T) {
 		"the skills presenter must not root on EngineHome")
 }
 
-// TestMockContextPath_JoinsDirWithTheLiteralFilename pins mockContextPath's
-// contract against a LITERAL expectation built independently of the present
-// chain, not against a second call to mockContextPath itself — deriving the
-// expectation from the same function under test would agree with any wrong
-// root the presenter chose, which is exactly the vacuous shape a self-referential
-// assertion produces.
-func TestMockContextPath_JoinsDirWithTheLiteralFilename(t *testing.T) {
-	got := mockContextPath("/target")
-	assert.Equal(t, filepath.Join("/target", "MOCK_CONTEXT.md"), got)
-}
-
-// TestMockSkillsPath_JoinsDirWithTheLiteralSkillsDir is the skills half of the
-// same literal pin.
+// TestMockSkillsPath_JoinsDirWithTheLiteralSkillsDir pins mockSkillsPath
+// against a LITERAL expectation built independently of the present chain:
+// deriving it from the function under test would agree with any wrong root.
 func TestMockSkillsPath_JoinsDirWithTheLiteralSkillsDir(t *testing.T) {
 	got := mockSkillsPath("/target")
 	assert.Equal(t, filepath.Join("/target", ".mock", "skills"), got)

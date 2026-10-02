@@ -111,10 +111,10 @@ Feature: One shared profile, reaching every engine in its own native format
   # profile for an engine with a native context file must never destroy a team's hand-authored
   # CLAUDE.md / AGENTS.md — content outside ctxloom's managed markers must
   # survive byte-for-byte, and ctxloom's own content must still land alongside
-  # it. BREAK-POINT VERIFIED: reverting the marker-merge core
-  # (agent.WriteManagedContext, internal/core/agent/managedcontext.go) back
-  # to a bare whole-file write makes this scenario fail for exactly that
-  # reason — the hand-authored line is gone, not merely unasserted.
+  # it. Turning the ownership record's appended-section claim
+  # (present.AppendedSection; fsstatic's section transition) into a bare
+  # whole-file write makes this scenario fail for exactly that reason — the
+  # hand-authored line is gone, not merely unasserted.
   Scenario Outline: A hand-authored context file survives materialization byte-for-byte
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
     And Alice's team already hand-authored <file> for <engine> with their own conventions

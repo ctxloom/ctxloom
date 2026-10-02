@@ -12,16 +12,8 @@ import (
 // the project form (agent.ApproachUnsafeFile). What survives of the seam is
 // its NAMES — a binding's `surfaces:` preference is validated against them
 // (Mock.Declaration) — and the settings-writer equity suite; the forms'
-// delivery bodies reuse the shared marker-merge and managed-tree writers so
-// the mock proves the seam rather than a second implementation of it.
-
-// mockContextPath returns the mock context file's path under dir, via the
-// declared context presenter. The dir-taking form serves the READ side and
-// the shared writer cores, whose own contracts hand over a directory; a
-// Deliver resolves against the advised Start it received instead.
-func mockContextPath(dir string) string {
-	return mockSurfacePath(agent.SurfaceContext, present.ProjectOnHost(dir))
-}
+// delivery bodies reuse the shared managed-tree writers so the mock proves
+// the seam rather than a second implementation of it.
 
 // mockSurfacePath resolves ONE surface's path against the advised roots,
 // through the same rel table every approach's Present reads. Every mock path
@@ -46,9 +38,8 @@ var mockRel = map[agent.SurfaceKind]string{
 }
 
 // newMockContext is mock's context approach: the SHARED native-file
-// implementation (agent.NativeContextFile) bound to MOCK_CONTEXT.md — the same
-// read side (agent.StateReader) claude's CLAUDE.md goes through, differing
-// only in the filename.
+// implementation (agent.NativeContextFile) bound to MOCK_CONTEXT.md, differing
+// from claude's CLAUDE.md only in the filename.
 var newMockContext = agent.NativeContextFile("mock/context", ContextFileName)
 
 // mockSkillsPath returns the mock skills directory's path under dir, via the

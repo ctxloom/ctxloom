@@ -35,9 +35,8 @@ import (
 // until it is given an expected destination here.
 //
 // Why payload and not exit code: this codebase's characteristic bug is exit 0 +
-// a success line + zero bytes (see agent.ContextWriter's ErrNoContext arm and
-// the DeliverUnder "no argv sink at rest" refusal, both of which exist because
-// silent no-ops shipped). Every assertion below names a SENTINEL string, the
+// a success line + zero bytes (see the agent.ErrNoArgvSinkAtRest refusal,
+// which exists because silent no-ops shipped). Every assertion below names a SENTINEL string, the
 // FILE it must reach, and — for the hook approach — the emitted hook JSON.
 
 // matrixKinds is every surface kind the agent.SurfaceSelection builder can ask a

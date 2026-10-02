@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // Bare `ctxloom session` lists the recorded sessions: the collection is the
@@ -253,7 +253,7 @@ func renderSessionRemove(w io.Writer, out sessionRemoveResult) error {
 	if err := renderSessionPurgePlan(w, out.Files); err != nil {
 		return err
 	}
-	ew := iox.NewErrWriter(w)
+	ew := errwriter.New(w)
 	if out.IndexEntryRemoved {
 		ew.Printf("index entry %s: removed\n", out.Harp)
 	} else {
@@ -285,7 +285,7 @@ func init() {
 		"apply the plan this invocation printed (default: report only)")
 	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
 	sessionDistillCmd.Flags().StringVar(&sessionDistillPromptDir, "prompt-dir", "",
-		"Load distillation prompts from this directory instead of the built-in ones (expects <dir>/session-distill.md; a missing prompt is an error, not a fallback)")
+		"Load distillation prompts from this directory instead of the built-in ones (expects <dir>/session-distill.md and <dir>/result-finding.md; a missing prompt is an error, not a fallback)")
 	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionDistillCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
@@ -323,7 +323,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	}
 
 	// Progress notes go to stderr as best-effort status.
-	progress := iox.NewErrWriter(cmd.ErrOrStderr())
+	progress := errwriter.New(cmd.ErrOrStderr())
 	if entry.SessionID != "" {
 		progress.Printf("ctxloom: distilling %s (session_id=%s)...\n", harpName, entry.SessionID)
 	} else {
@@ -389,7 +389,7 @@ func enterSessionProjectDir(projectDir, harpName string) {
 
 // reportDistillResult prints the one-line distill summary to out.
 func reportDistillResult(out io.Writer, harpName string, result *memory.CompactionResult) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	reduced := ""
 	if result.InputReduced {
 		// Say so rather than reporting the token counts alone: the essence is

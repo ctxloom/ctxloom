@@ -10,7 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 var (
@@ -103,7 +103,7 @@ var pruneActionLabels = map[operations.PruneAction]string{
 // line per image, then the section's tally. Extracted from RunE so the
 // formatting is testable with an injected report.
 func renderContainerPrune(out io.Writer, rep operations.ContainerPruneReport) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	for _, sec := range rep.Runtimes {
 		w.Println(sec.Runtime)
 		if sec.Error != "" {

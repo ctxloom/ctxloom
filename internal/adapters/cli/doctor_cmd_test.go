@@ -262,7 +262,7 @@ func doctorMarkersWithStatus(t *testing.T, out string, want operations.DoctorSta
 
 // startFakeSSHAgent starts a REAL ssh-agent-protocol server (agent.ServeAgent
 // over a unix socket — the same wire protocol agentkey's production
-// dialEnvAgent speaks) backed by an in-memory keyring holding exactly the
+// dialAgentAt speaks) backed by an in-memory keyring holding exactly the
 // given comments, so a full-command `ctxloom doctor` test can exercise
 // DOCTOR-CHECK-SIGNKEY-k1's "ok" path without ever touching the host
 // machine's real ssh-agent. Returns the socket path to set SSH_AUTH_SOCK to;

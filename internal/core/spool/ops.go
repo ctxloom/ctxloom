@@ -46,18 +46,15 @@ func Read(m PathMapper, ref Ref) (*Message, error) {
 	return msg, nil
 }
 
-// Consume marks a message consumed by RENAMING it into its direction's
-// consumed/ directory, and returns the new ref.
+// Consume marks an out/ message routed by RENAMING it into out/consumed/,
+// and returns the new ref.
 //
-// The rename IS the acknowledgement, and it is why there is no cursor file,
-// no tombstone and no in-memory reservation ledger: rename is atomic, so
-// exactly one consumer wins and the loser gets ErrAlreadyGone; the result is
-// observable to the other side and to any human with `ls`; and restart
-// recovery is a readdir.
-//
-// Consuming is a MOVE, never a delete. The consumed/ directory is the audit
-// trail — what was delivered, in order, still readable — which a delete would
-// destroy while leaving every test that only checks "gone from in/" green.
+// The rename IS the acknowledgement: it is atomic, so exactly one consumer
+// wins and the loser gets ErrAlreadyGone; the result is observable to the
+// other side and to any human with `ls`; and restart recovery is a readdir.
+// It is a move, never a delete, because out/consumed/ is how an operator
+// tells a routed message from a refused one (out/failed/). An inbox message
+// is not consumed this way: it is delivered with Deliver.
 func Consume(m PathMapper, ref Ref) (Ref, error) {
 	target, err := ref.Dir.Consumed()
 	if err != nil {
@@ -331,55 +328,8 @@ func sweepDir(harp string, dir Dir, path string) (SweepResult, error) {
 	return res, nil
 }
 
-// SweepNames lists one spool directory in filename order without reading or
-// parsing any file's body: readdir + ParseName only, never os.ReadFile,
-// never Parse. Every returned Entry has a nil Message.
-//
-// It exists for a directory where the filename IS the whole signal —
-// in/consumed/'s acknowledgement bookkeeping only ever asks "does this name
-// exist yet", never what the message said. Sweep's read-and-parse contract is
-// right where the body is the payload (in/, out/); applying it to an archive
-// that is never pruned means every sweep re-reads and re-parses the whole
-// delivery history to learn a set of filenames readdir already had — a cost
-// that grows without bound with the run's mail.
-//
-// It shares Sweep's ordering and its treatment of everything readdir alone
-// can decide: sub-directories are skipped as structure, and a filename
-// outside the message-file grammar is still a reported Problem, never
-// silently dropped. The one place it diverges from Sweep is a file whose BODY
-// is unreadable or unparseable: Sweep reports that as a Problem, but a
-// names-only sweep never opens the file to find out, so it reports the entry
-// as it would if the body were fine. That is the intended trade for a
-// directory whose body nobody reads any more, not an oversight.
-func SweepNames(m PathMapper, harp string, dir Dir) (SweepResult, error) {
-	res := SweepResult{Dir: dir}
-	path, err := DirPath(m, harp, dir)
-	if err != nil {
-		return res, err
-	}
-	names, isDir, err := sortedDirEntries(path)
-	if err != nil {
-		return res, fmt.Errorf("spool: sweeping %s: %w", path, err)
-	}
-	for _, name := range names {
-		if isDir[name] {
-			continue
-		}
-		ref := Ref{Harp: harp, Dir: dir, Name: name}
-		parsed, err := ParseName(name)
-		if err != nil {
-			res.Problems = append(res.Problems, Problem{Path: filepath.Join(path, name), Err: err})
-			continue
-		}
-		res.Entries = append(res.Entries, Entry{Ref: ref, Name: parsed})
-	}
-	return res, nil
-}
-
 // sortedDirEntries lists path's entries in filename (sort.Strings) order,
-// alongside which of them are sub-directories — the readdir step Sweep and
-// SweepNames share, so their notion of "order" and "what counts as
-// structure, not a file" can never quietly drift apart from each other.
+// alongside which of them are sub-directories (structure, never a message).
 func sortedDirEntries(path string) (names []string, isDir map[string]bool, err error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {

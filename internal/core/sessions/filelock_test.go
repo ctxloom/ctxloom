@@ -209,3 +209,20 @@ func TestFlockUnlock_SafeCalledTwice(t *testing.T) {
 		require.NoError(t, fl.Unlock())
 	})
 }
+
+// TestWithFileLock_ATestDoubleNeverResolvesTheHomeLock: a non-OS filesystem
+// takes no lock, so it must not resolve one either. Deriving it anyway made a
+// MemMapFs transaction fail on a home it would never touch — an unresolvable
+// HOME here, the home-lock guard under a test binary that did not sandbox.
+func TestWithFileLock_ATestDoubleNeverResolvesTheHomeLock(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+
+	ran := false
+	err := sessions.WithFileLock(afero.NewMemMapFs(), "/probe/project/.mcp.json", func() error {
+		ran = true
+		return nil
+	})
+	require.NoError(t, err, "a test double's transaction must not depend on resolving the home lock directory")
+	assert.True(t, ran)
+}

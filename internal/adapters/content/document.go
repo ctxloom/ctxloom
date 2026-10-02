@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // DocumentStore is a read-only Store over bundles that have NO FILESYSTEM: their
@@ -89,7 +89,7 @@ func NewDocumentStore(bundles map[BundleID]DocumentBundle, prov Provenance) (*Do
 			// AllowEmpty: an individual companion-loadout file can legitimately
 			// be zero bytes even though the bundle as a whole (len(files)==0,
 			// checked above) may not be.
-			if err := iox.WriteFileAtomicFs(fsys, target, files[p], 0o644, iox.AllowEmpty()); err != nil {
+			if err := safefs.WriteFile(fsys, target, files[p], 0o644, safefs.AllowEmpty()); err != nil {
 				return nil, fmt.Errorf("content: staging %q: %w", p, err)
 			}
 		}

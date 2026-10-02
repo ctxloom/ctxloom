@@ -329,8 +329,9 @@ func requeue(ch chan Event, evs []Event) {
 
 // listRunsSnapshot is the roster projection shared by every caller of the
 // roster (the plane-2 roster request, serveRoster, and the consumer plane's
-// ListRuns/WatchRuns snapshot below) — single state, N transports.
-func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) RunsSnapshot {
+// ListRuns/WatchRuns snapshot below) — single state, N transports. A non-empty
+// parent keeps only that harp's direct children; "" keeps every run.
+func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role, parent string) RunsSnapshot {
 	result := RunsSnapshot{}
 	c.runs.View(func() {
 		for _, e := range c.rosterF.snapshot() {
@@ -342,6 +343,9 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) RunsSn
 				continue
 			}
 			if role != "" && rec.Agent != role {
+				continue
+			}
+			if parent != "" && rec.ParentHarp != parent {
 				continue
 			}
 			result.Runs = append(result.Runs, RunInfo{
@@ -390,7 +394,7 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot RunsSnapshot, events 
 		}
 	}
 	events, cancel, narrow = c.watch.subscribe(filter)
-	snapshot = c.listRunsSnapshot(true, "")
+	snapshot = c.listRunsSnapshot(true, "", "")
 	return snapshot, events, cancel, narrow
 }
 
@@ -405,7 +409,7 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot RunsSnapshot, events 
 // package-scoped vet, is what caught that. Kept for that cross-package test
 // caller, the same reason as LoopbackURL.
 func (c *Coordinator) ListRuns(includeTerminal bool, role string) RunsSnapshot {
-	return c.listRunsSnapshot(includeTerminal, role)
+	return c.listRunsSnapshot(includeTerminal, role, "")
 }
 
 // SpoolStats is the spool counters snapshot the consumer plane reports.

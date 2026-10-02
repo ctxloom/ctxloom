@@ -52,8 +52,8 @@ type DistillOptions struct {
 	// Progress receives human-readable distillation progress, or nil where the
 	// caller has no safe sink for it (see memory.CompactionConfig.Progress).
 	Progress io.Writer
-	// PromptDir loads the distillation prompt from disk instead of the
-	// embedded copy, for prompt evaluation. Empty uses the embedded prompt; a
+	// PromptDir loads the distillation prompts from disk instead of the
+	// embedded copies, for prompt evaluation. Empty uses the embedded prompt; a
 	// prompt missing from the directory fails the distill rather than silently
 	// falling back.
 	PromptDir string

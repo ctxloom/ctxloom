@@ -146,8 +146,8 @@ func runProbe(phase string) int {
 	}
 	m := NewHomeMapper()
 
-	// 1. The host wrote one in/ message and consumed it. In-container, in/
-	//    must be EMPTY and in/consumed/ must hold it.
+	// 1. The host wrote one in/ message and delivered it. In-container, in/
+	//    must be EMPTY and the delivered record must hold its identity.
 	live, err := Sweep(m, harp, DirIn)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "probe: sweeping in/: %v\n", err)
@@ -158,33 +158,25 @@ func runProbe(phase string) int {
 		return 1
 	}
 	if len(live.Entries) != 0 {
-		fmt.Fprintf(os.Stderr, "probe: in/ should be empty after the host consumed, found %d\n", len(live.Entries))
+		fmt.Fprintf(os.Stderr, "probe: in/ should be empty after the host delivered, found %d\n", len(live.Entries))
 		return 1
 	}
-	consumed, err := Sweep(m, harp, DirInConsumed)
+	identity := marker + "-in"
+	delivered, err := Delivered(m, harp, identity)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "probe: sweeping in/consumed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "probe: reading the delivered record: %v\n", err)
 		return 1
 	}
-	if err := consumed.ProblemErr(); err != nil {
-		fmt.Fprintf(os.Stderr, "probe: in/consumed has unreadable files: %v\n", err)
+	if !delivered {
+		fmt.Fprintf(os.Stderr, "probe: the delivered record does not hold %q\n", identity)
 		return 1
 	}
-	if len(consumed.Entries) != 1 {
-		fmt.Fprintf(os.Stderr, "probe: in/consumed should hold exactly the consumed message, found %d\n", len(consumed.Entries))
-		return 1
-	}
-	wantBody := marker + "-in\n"
-	if got := consumed.Entries[0].Message.Body; got != wantBody {
-		fmt.Fprintf(os.Stderr, "probe: consumed body %q, want %q\n", got, wantBody)
-		return 1
-	}
-	consumedPath, err := m.Resolve(consumed.Entries[0].Ref)
+	root, err := Root(m, harp)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "probe: resolving the consumed ref: %v\n", err)
+		fmt.Fprintf(os.Stderr, "probe: resolving the spool root: %v\n", err)
 		return 1
 	}
-	fmt.Printf("PROBE_CONSUMED_PATH=%s\n", consumedPath)
+	fmt.Printf("PROBE_DELIVERED_PATH=%s\n", filepath.Join(root, filepath.FromSlash(deliveredDirName), identity))
 
 	// 2. Write one out/ message for the host to read back.
 	w, err := NewWriter(m, harp, DirOut, "agentprobe")

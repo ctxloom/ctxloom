@@ -51,13 +51,13 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 	home := sp.engineHome(0)
 
 	// Down: the owner's send is ONE file in the child's in/, delivered as a
-	// turn and consumed by rename. No mailbox fact exists for it.
+	// turn, then deleted with its identity recorded. No mailbox fact exists
+	// for it.
 	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "second task", nil, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 	awaitChatText(t, sp, 0, "second task")
-	consumed := awaitSpoolEntryWithBody(t, out.Harp, spool.DirInConsumed, "second task", "after delivery")
-	assert.Equal(t, msgID, consumed.Message.OriginID, "the consumed file is the message the owner sent")
+	awaitDelivered(t, out.Harp, msgID, "the delivered file is the message the owner sent")
 	assertNoMailboxJournal(t, c)
 
 	// Up: the child's agent_send is a local file write that the coordinator

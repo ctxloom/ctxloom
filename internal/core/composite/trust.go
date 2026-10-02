@@ -120,7 +120,7 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 			Detail: "the exposure names no bundle, so no rule could be keyed on it"})
 	}
 	if err := fault(a.records); err != nil {
-		return a.record(e, bundles.Verdict{Reason: bundles.ReasonPending,
+		return a.record(e, bundles.Verdict{Reason: bundles.ReasonRecordsUnreadable,
 			Detail: "the approvals store could not be read, so nothing is approved: " + err.Error()})
 	}
 	if a.records.Rejected(e.Ref(), e.Bytes) {
@@ -146,7 +146,7 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 func (a *authorizer) retractionVerdict(e bundles.Exposure) (bundles.Verdict, bool) {
 	if retractable(e.Ref()) {
 		if err := fault(a.retraction); err != nil {
-			return bundles.Verdict{Reason: bundles.ReasonPending,
+			return bundles.Verdict{Reason: bundles.ReasonRecordsUnreadable,
 				Detail: "retraction state could not be established, so nothing that travelled is trusted: " + err.Error()}, true
 		}
 	}

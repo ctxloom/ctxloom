@@ -55,7 +55,7 @@ classDiagram
     MarkerFuncs ..> paths : ProjectMarkerPath, ValidateProjectID
     Manager ..> flock : Mint / Adopt / Repoint
     Manager ..> harp : generateUniqueID
-    Manager ..> iox : atomic writes
+    Manager ..> safefs : atomic writes
 ```
 
 Resolution order in `Resolve` (`internal/shared/tasks/projectid/resolve.go:39`): registry-by-path → in-tree marker → mint-new. When a marker is present: resolve-by-id → adopt-if-unknown → heal-if-same-path → `moveOrFork`, which probes the old tree via `oldTreeGone` and either re-points the id or mints a fork.

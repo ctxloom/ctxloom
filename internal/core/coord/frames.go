@@ -205,12 +205,9 @@ func (ControlRequest) agentRequestKind()  {}
 func (HostRequest) agentRequestKind()     {}
 func (ApprovalRequest) agentRequestKind() {}
 
-// ErrNotAChild refuses a stop naming a run that is not the caller's child.
-var ErrNotAChild = errors.New("agent_stop: the run is not a child of this session")
-
-// ErrRosterIsTheOwners refuses a roster query from a child: only the
-// coordinating session may list its children.
-var ErrRosterIsTheOwners = errors.New("roster: only the coordinating session may list its children")
+// ErrNotAChild refuses a send or stop naming a run that is not the caller's
+// own direct child.
+var ErrNotAChild = errors.New("the target is not a child of the calling session")
 
 // ErrUnsupportedRequest refuses a plane-2 request kind this coordinator does
 // not serve over the wire.

@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -116,7 +116,7 @@ func PointHomeAt(t *testing.T, dir string) {
 }
 
 // WriteFile creates path's parent directory and then writes data atomically,
-// matching the MkdirAll-then-iox sequence a production writer uses (e.g.
+// matching the MkdirAll-then-safefs sequence a production writer uses (e.g.
 // internal/adapters/operations/signer.go#appendAllowedSignersLine) — so a fixture
 // calling this never disagrees with production about what "write a file"
 // means. It fails the test immediately on error.
@@ -169,7 +169,7 @@ func WriteDirProfiles(t *testing.T, fs afero.Fs, appDir string, profiles map[str
 		// a nested file rather than a literal slash in the filename.
 		out := filepath.Join(dir, filepath.FromSlash(name)+".yaml")
 		require.NoError(t, fs.MkdirAll(filepath.Dir(out), 0o755))
-		require.NoError(t, iox.WriteFileAtomicFs(fs, out, body, 0o644))
+		require.NoError(t, safefs.WriteFile(fs, out, body, 0o644))
 	}
 }
 

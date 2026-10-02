@@ -19,7 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/compression"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/resources"
@@ -123,11 +123,11 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		// Diagnostics ride the command's ERROR writer (not the process's
 		// os.Stderr), and every line goes through an ErrWriter so a broken
 		// stdout is reported instead of producing a silent success.
-		errw := iox.NewErrWriter(cmd.ErrOrStderr())
+		errw := errwriter.New(cmd.ErrOrStderr())
 		for _, e := range result.Errors {
 			errw.Println(e)
 		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		for _, f := range result.Files {
 			w.Printf("Processing: %s\n", f.Path)
 			printDistillItems(w, f.Items)
@@ -203,7 +203,7 @@ func countFailedDistillItems(files []bundleDistillFileOutcome) int {
 // never silently discovered later at the next `ctxloom review`. It explains
 // WHY in one sentence (so a user does not go looking for a way to silence it)
 // and names the exact recovery command.
-func printDistillInvalidatedApprovals(w *iox.ErrWriter, refs []string) {
+func printDistillInvalidatedApprovals(w *errwriter.Writer, refs []string) {
 	if len(refs) == 0 {
 		return
 	}
@@ -240,7 +240,7 @@ func countDistillItems(items []operations.DistillBundleItem) (processed, skipped
 // of what used to be renderDistillItems, now separated from counting so
 // counting can happen unconditionally (for the structured result) while
 // printing happens only inside emit()'s text closure.
-func printDistillItems(w *iox.ErrWriter, items []operations.DistillBundleItem) {
+func printDistillItems(w *errwriter.Writer, items []operations.DistillBundleItem) {
 	for _, it := range items {
 		switch it.Status {
 		case operations.DistillStatusSkipped:
@@ -280,7 +280,7 @@ func expandDistillFiles(patterns []string) ([]string, error) {
 }
 
 // printDistillSummary prints the run summary, branching on dry-run.
-func printDistillSummary(w *iox.ErrWriter, totalItems, totalFiles, totalSkipped int, dryRun bool) {
+func printDistillSummary(w *errwriter.Writer, totalItems, totalFiles, totalSkipped int, dryRun bool) {
 	if dryRun {
 		w.Printf("\nDry run: would distill %d items\n", totalItems)
 		return
@@ -341,11 +341,11 @@ func loadDistillPrompt(cfg *config.Config) (string, error) {
 // emphatically not exit 0 with a default-prompt distillation in place of the
 // configured one.
 //
-// The explanation rides cmd's ERROR writer through an iox.ErrWriter, so a
+// The explanation rides cmd's ERROR writer through an errwriter.Writer, so a
 // refusal that could not be written is itself reported rather than becoming a
 // silent exit 2.
 func refuseWithheldDistillPrompt(cmd *cobra.Command, err error) error {
-	w := iox.NewErrWriter(cmd.ErrOrStderr())
+	w := errwriter.New(cmd.ErrOrStderr())
 	w.Printf("REFUSED: %v\n", err)
 	if werr := w.Err(); werr != nil {
 		return werr

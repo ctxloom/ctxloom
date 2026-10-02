@@ -322,15 +322,20 @@ func (c *Coordinator) notifyParentOfFinalReport(harp string, s Summary) {
 	if s.Scope != ScopeFinal {
 		return
 	}
-	rec := c.runsF.currentRun(harp)
-	// A top-level run has no parent to notify. Same guard launchgate.go uses
-	// for the identical queueMail(rec.Harp, rec.ParentHarp, ...) call.
-	if rec == nil || rec.ParentHarp == "" {
+	parent := ""
+	c.runs.View(func() {
+		if rec := c.runsF.currentRun(harp); rec != nil {
+			parent = rec.ParentHarp
+		}
+	})
+	// A top-level run has no parent to notify.
+	if parent == "" {
 		return
 	}
-	if _, err := c.queueMail(harp, rec.ParentHarp, KindReport, s.Text); err != nil {
+	// To the DIRECT parent, whose run may have ended (mailParent resumes it).
+	if _, err := c.mailParent(harp, parent, KindReport, s.Text, nil, ""); err != nil {
 		c.rep.Warnf("coordinator: %s's FINAL report is journaled but could not be queued to %s: %v "+
-			"(the report is intact in the reports fold; its parent will not be woken by it)", harp, rec.ParentHarp, err)
+			"(the report is intact in the reports fold; its parent will not be woken by it)", harp, parent, err)
 	}
 }
 

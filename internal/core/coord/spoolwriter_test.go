@@ -26,6 +26,29 @@ func spoolEntries(t *testing.T, harp string, dir spool.Dir) []spool.Entry {
 	return spooltest.Entries(t, harp, dir)
 }
 
+// spoolDelivered is spooltest.Delivered.
+func spoolDelivered(t *testing.T, harp string) map[string]time.Time {
+	return spooltest.Delivered(t, harp)
+}
+
+// awaitDelivered is spooltest.AwaitDelivered at this suite's wait.
+func awaitDelivered(t *testing.T, harp, identity, why string) {
+	t.Helper()
+	spooltest.AwaitDelivered(t, harp, identity, conformanceWait, why)
+}
+
+// awaitDeliveredCount waits for harp's delivered record to hold exactly n
+// identities.
+func awaitDeliveredCount(t *testing.T, harp string, n int, why string) map[string]time.Time {
+	t.Helper()
+	var got map[string]time.Time
+	require.Eventually(t, func() bool {
+		got = spoolDelivered(t, harp)
+		return len(got) == n
+	}, conformanceWait, 10*time.Millisecond, "%s: %s's delivered record should hold %d identit(ies), holds %d", why, harp, n, len(got))
+	return got
+}
+
 // awaitRunnerHome waits for the migrated path's runner half to exist. AgentRun
 // returns once the run is ENQUEUED; the runner is spawned and dials home
 // afterwards, so reaching for it immediately finds nothing.

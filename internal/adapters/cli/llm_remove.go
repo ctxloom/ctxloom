@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 var llmRemoveYes bool
@@ -54,7 +54,7 @@ func runLLMRemove(cmd *cobra.Command, args []string) error {
 		Status string `json:"status"`
 		Label  string `json:"label"`
 	}{Status: "removed", Label: label}, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("Removed llm %q\n", label)
 		return w.Err()
 	})

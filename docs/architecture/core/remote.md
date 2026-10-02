@@ -216,7 +216,7 @@ flowchart TD
 | `LockfileManager.Load() (*Lockfile, error)` | `internal/adapters/remote/lockfile.go:66` | Read + parse + initialise maps + self-heal. A missing or empty file yields an empty lockfile with no error; the self-heal path **writes during a read**. |
 | `LockfileManager.Save(*Lockfile, ...SaveOption) error` | `internal/adapters/remote/lockfile.go:152` | **Reads back what is on disk and can refuse.** Two refusals: `ErrLockfileWouldErase` (`:107`) when an empty lockfile would replace a populated one, naming how many entries it protected; and `ErrLockfileUnreadable` (`:114`) on **any** write over an unparseable lockfile, naming the recovery. Otherwise stamps `LockedAt = now().UTC()` and calls `write`. Added by `fd0d87d6` (T1); the signature is variadic so no call site churned. |
 | `remote.AllowEmpty() SaveOption` | `internal/adapters/remote/lockfile.go:126` | The opt-in for a caller that emptied the lockfile **deliberately**. Relaxes only the first refusal. The unreadable refusal has **no** override on purpose: holds and retractions that cannot be read cannot be carried forward, so every write over a corrupt file destroys unaccountable state. |
-| `LockfileManager.write(*Lockfile) error` | `internal/adapters/remote/lockfile.go:111` | Marshal, `MkdirAll`, `iox.WriteFileAtomicFs` — the only code path that touches `lock.yaml` bytes. |
+| `LockfileManager.write(*Lockfile) error` | `internal/adapters/remote/lockfile.go:111` | Marshal, `MkdirAll`, `safefs.WriteFile` — the only code path that touches `lock.yaml` bytes. |
 | `LockfileManager.Path() string` | `internal/adapters/remote/lockfile.go:60` | `<baseDir>/lock.yaml`; the filename is fixed. |
 | `Lockfile.AddEntry/GetEntry/RemoveEntry` | `internal/adapters/remote/lockfile.go:133,140,149` | In-memory entry CRUD, gated on `ItemTypeBundle` — a non-bundle type is a silent no-op. |
 | `Lockfile.AllEntries/IsEmpty` | `internal/adapters/remote/lockfile.go:156,179` | Enumerate entries (as an anonymous struct) and test emptiness. |
@@ -269,7 +269,7 @@ flowchart TD
    (`internal/adapters/remote/lockfile.go:133,140,149`) silently ignore any `ItemType` other than
    `ItemTypeBundle`. Top-level profile distribution was retired.
 3. **`LockfileManager.write` is the only code path that writes `lock.yaml` bytes**,
-   always via `iox.WriteFileAtomicFs`. It is reached from `Save` and from the load-time
+   always via `safefs.WriteFile`. It is reached from `Save` and from the load-time
    self-heal inside `Load` (`:66`) — so a `Load` can write.
    **`Save` is now a guard, not just a writer** (`fd0d87d6`). It reads the current file
    back and refuses an empty-over-populated write and any write over a corrupt one.
@@ -388,7 +388,7 @@ flowchart TD
 **Dependencies (outbound).** Only leaf/shared packages: `internal/shared/errs` (sentinels
 `ErrRemoteContentNotFound`, `ErrRemoteNotFound`, `ErrRemoteNotMaterialized`),
 `internal/core/paths` (`RepoContentPrefix`, `CacheDir`, `BundlesDir`, `LockFileName`),
-`internal/shared/clidiag`, `internal/shared/collections`, `internal/shared/iox`
+`internal/shared/clidiag`, `internal/shared/collections`, `internal/shared/safefs`
 (`WriteFileAtomicFs`). External: `go-git`, `go-github` v60, `afero`, `yaml.v3`, and the
 system `git` binary (git ≥ 2.31 for `GIT_CONFIG_*`). No inner-imports-outer violation
 exists in the package.

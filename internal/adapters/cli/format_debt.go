@@ -67,7 +67,7 @@ var formatDebtAllowlist = map[string]string{
 
 	// --- container surface (container_cmd.go) ---
 	"container build":    "container_cmd.go: containerBuildCmd's inline RunE streams to os.Stdout directly; must route its final result through emit()",
-	"container scaffold": "container_cmd.go: containerScaffoldCmd's inline RunE must route through emit() instead of iox.ErrWriter Printf calls",
+	"container scaffold": "container_cmd.go: containerScaffoldCmd's inline RunE must route through emit() instead of errwriter.Writer Printf calls",
 
 	// --- fragment/command item surfaces (fragment.go, command_cmd.go, item_helpers.go) ---
 	"fragment show": "item_helpers.go: showItem (used by fragment show) must route through emit()",

@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is the mock's NAMED FORMS on the agent.Declaration seam: per
@@ -148,7 +148,7 @@ func mockCommandsPath(dir string) string {
 //
 // It marshals-then-writes rather than calling agent.WriteChatMCPConfigFile,
 // and that is not a style choice: that helper writes through
-// iox.WriteFileAtomic to the REAL filesystem, while every mock surface takes
+// safefs.WriteFile to the REAL filesystem, while every mock surface takes
 // an injected afero.Fs so a hermetic test can assert on delivered bytes
 // without touching the developer's disk. Reusing the marshaller keeps the
 // FORMAT shared — which is the part that could drift — while honouring mock's
@@ -176,12 +176,12 @@ func (s *mockMCPSurface) Deliver(start present.Start) (agent.Delivered, error) {
 	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("mock: create mcp dir: %w", err)
 	}
-	// iox.WriteFileAtomicFs, not afero.WriteFile: 0o600 must land EXACTLY
+	// safefs.WriteFile, not afero.WriteFile: 0o600 must land EXACTLY
 	// rather than be masked by umask, because this file can carry MCP server
 	// auth headers and env — the same reason agent.WriteChatMCPConfigFile
 	// writes atomically. The Fs variant is what lets mock keep its injected
 	// filesystem while still honouring that discipline.
-	if err := iox.WriteFileAtomicFs(fs, path, data, 0o600); err != nil {
+	if err := safefs.WriteFile(fs, path, data, 0o600); err != nil {
 		return nil, fmt.Errorf("mock: write %s: %w", path, err)
 	}
 	return agent.DeliveredFunc(func() error { return fs.Remove(path) }), nil
@@ -289,7 +289,7 @@ func writeMockSettings(fs afero.Fs, path string, doc map[string]json.RawMessage)
 	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mock: create settings dir: %w", err)
 	}
-	if err := iox.WriteFileAtomicFs(fs, path, append(data, '\n'), 0o600); err != nil {
+	if err := safefs.WriteFile(fs, path, append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("mock: write %s: %w", path, err)
 	}
 	return nil

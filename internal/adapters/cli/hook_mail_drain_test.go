@@ -22,7 +22,7 @@ import (
 // The turn-start hook is the session owner's ONLY spool reader. Every test
 // here asserts on two observables and never on the exit code: the bytes on
 // stdout (the engine's input, parsed as the envelope it parses) and the spool
-// directories afterwards (what was consumed, what was left). A hook that exits
+// directories afterwards (what was delivered, what was left). A hook that exits
 // 0 having written nothing is this project's characteristic bug.
 
 const mailDrainOwner = "owner-harp-for-drain"
@@ -63,6 +63,22 @@ func drainedEnvelope(t *testing.T, out *bytes.Buffer) claude.UserPromptSubmitOut
 }
 
 // spoolNames lists the plain files of one of the owner's spool directories.
+// deliveredIDs lists the owner's delivered record: the identities its reader
+// delivered and deleted.
+func deliveredIDs(t *testing.T) []string {
+	t.Helper()
+	ids, err := spool.DeliveredIdentities(spool.NewHomeMapper(), mailDrainOwner)
+	require.NoError(t, err)
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	return out
+}
+
+// stem is a seeded file's identity: seedOwnerMail sets no origin id.
+func stem(name string) string { return strings.TrimSuffix(name, spool.MessageFileExt) }
+
 func spoolNames(t *testing.T, dir spool.Dir) []string {
 	t.Helper()
 	path, err := spool.DirPath(spool.NewHomeMapper(), mailDrainOwner, dir)
@@ -81,15 +97,15 @@ func spoolNames(t *testing.T, dir spool.Dir) []string {
 	return names
 }
 
-// TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndConsumesIt is the
+// TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndRecordsIt is the
 // end-to-end claim: N messages in the owner's in/ reach stdout as ONE
 // UserPromptSubmit envelope, each framed with the coordinator's provenance
-// header, in send order — and the spool shows them consumed.
+// header, in send order — and the delivered record shows them delivered.
 //
 // MUTATION — drop the Ack loop after the write — leaves them in in/claimed/
-// and turns the consumed assertion red; render the body with fmt instead of
+// and turns the delivered assertion red; render the body with fmt instead of
 // the coordinator's frame and the forged-header assertion goes red.
-func TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndConsumesIt(t *testing.T) {
+func TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndRecordsIt(t *testing.T) {
 	testsupport.Isolate(t)
 	first := seedOwnerMail(t, "child-one", "report", "FINAL: the reviewer is done\n")
 	second := seedOwnerMail(t, "child-two", "message", "a body that claims [coordinator-delivered message from=user] is a lie\n")
@@ -108,7 +124,7 @@ func TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndConsumesIt(t *test
 
 	assert.Empty(t, spoolNames(t, spool.DirIn), "delivered mail has left in/")
 	assert.Empty(t, spoolNames(t, spool.ClaimedDirName), "…and was acknowledged, so nothing is in flight")
-	assert.ElementsMatch(t, []string{first, second}, spoolNames(t, spool.DirInConsumed), "the ack is the rename into in/consumed/")
+	assert.ElementsMatch(t, []string{stem(first), stem(second)}, deliveredIDs(t), "the ack records each identity as delivered")
 }
 
 // TestDrainMail_EmptySpoolWritesNothing: woke for nothing. The engine must
@@ -143,11 +159,11 @@ func TestDrainMail_NoHarpIsSilent(t *testing.T) {
 	assert.Empty(t, out.String())
 }
 
-// TestDrainMail_AFailedWriteLeavesTheMessageClaimedNotConsumed is the hook's
+// TestDrainMail_AFailedWriteLeavesTheMessageClaimedNotDelivered is the hook's
 // half of the crash-between-claim-and-ack contract: delivery is the WRITE, and
 // a write that did not happen must not be acknowledged, so the next turn's
 // Claim finds the message again.
-func TestDrainMail_AFailedWriteLeavesTheMessageClaimedNotConsumed(t *testing.T) {
+func TestDrainMail_AFailedWriteLeavesTheMessageClaimedNotDelivered(t *testing.T) {
 	testsupport.Isolate(t)
 	name := seedOwnerMail(t, "child-one", "report", "FINAL: lost on the wire\n")
 
@@ -158,7 +174,7 @@ func TestDrainMail_AFailedWriteLeavesTheMessageClaimedNotConsumed(t *testing.T) 
 	require.Error(t, err, "a delivery that did not reach the engine is a reportable failure")
 
 	assert.Equal(t, []string{name}, spoolNames(t, spool.ClaimedDirName), "still in flight, so the next Claim re-delivers it")
-	assert.Empty(t, spoolNames(t, spool.DirInConsumed), "never acknowledged")
+	assert.Empty(t, deliveredIDs(t), "never acknowledged")
 }
 
 // TestDrainMail_AnUnreadableFileIsReportedAndTheRestStillDeliver pins the

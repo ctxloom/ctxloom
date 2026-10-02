@@ -194,6 +194,9 @@ func p12Prompt(proofPath string) string {
 // p12Frame is the subset of a stream-json line the verdicts read.
 type p12Frame struct {
 	Type              string          `json:"type"`
+	Subtype           string          `json:"subtype"`
+	Skills            []string        `json:"skills"` // the init frame's loaded skills
+	Agents            []string        `json:"agents"` // the init frame's loaded agents
 	Timestamp         string          `json:"timestamp"`
 	Message           json.RawMessage `json:"message"`
 	PermissionDenials []p12Denial     `json:"permission_denials"`
@@ -232,12 +235,15 @@ type p12ToolResult struct {
 }
 
 // p12Stream is a decoded run: the gated tool's calls in order, every
-// tool_result by id, and the result frame's denials.
+// tool_result by id, the result frame's denials, and the skills and agents the
+// init frame says the session loaded.
 type p12Stream struct {
 	GatedCalls []string
 	Results    map[string]p12ToolResult
 	SawResult  bool
 	Denials    []p12Denial
+	Skills     []string
+	Agents     []string
 }
 
 // p12Decode reads stream-json. A line that is not a JSON object is an error:
@@ -256,6 +262,10 @@ func p12Decode(stdout string) (p12Stream, error) {
 			return s, fmt.Errorf("stdout line %d is not a stream-json frame: %w", n, err)
 		}
 		switch f.Type {
+		case "system":
+			if f.Subtype == "init" {
+				s.Skills, s.Agents = f.Skills, f.Agents
+			}
 		case "result":
 			s.SawResult = true
 			s.Denials = f.PermissionDenials

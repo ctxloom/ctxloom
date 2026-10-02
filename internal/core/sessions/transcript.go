@@ -140,8 +140,8 @@ func reconcileExistingLink(rep report.Reporter, link, transcriptPath, engine, se
 // then renamed over link. rename(2) atomically replaces its destination on
 // every platform this project ships for, so link names either the OLD target
 // or the NEW one at every point a reader can observe it — never neither. This
-// is the "unique temp name + rename" idiom iox.WriteFileAtomic/
-// WriteFileAtomicFs use for regular files, applied to a symlink, which those
+// is the "unique temp name + rename" idiom safefs.WriteFile/
+// safefs.WriteFile use for regular files, applied to a symlink, which those
 // primitives do not cover (they write byte content; a symlink has none to
 // write — os.Symlink IS the write).
 //

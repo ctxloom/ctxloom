@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/testsupport/spooltest"
 )
 
 // TestStarterSeam_MockChildRidesTheSpool names the seam's contract: a
@@ -46,7 +47,7 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 	engine := runners.AwaitEngine(t, 0)
 
 	// Down: the owner's send is ONE file in the child's in/, delivered to the
-	// engine as a turn and consumed by rename.
+	// engine as a turn, then deleted with its identity recorded.
 	_, err = c.AgentSend(owner, out.Harp, coord.KindMessage, "second task", nil, "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
@@ -58,17 +59,9 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 		return false
 	}, 10*time.Second, 10*time.Millisecond, "the child's engine never received the owner's send as a turn")
 	require.Eventually(t, func() bool {
-		res, err := spool.Sweep(spool.NewHomeMapper(), out.Harp, spool.DirInConsumed)
-		if err != nil {
-			return false
-		}
-		for _, e := range res.Entries {
-			if e.Message.Body == "second task" {
-				return true
-			}
-		}
-		return false
-	}, 10*time.Second, 10*time.Millisecond, "the delivered file must be consumed by rename in the child's own spool")
+		ids, err := spool.DeliveredIdentities(spool.NewHomeMapper(), out.Harp)
+		return err == nil && len(ids) == 1 && len(spooltest.Entries(t, out.Harp, spool.DirIn)) == 0
+	}, 10*time.Second, 10*time.Millisecond, "the delivered file must be deleted and its identity recorded in the child's own spool")
 
 	// Up: the child's agent_send is a local file write that the coordinator
 	// routes into the owner's own spool, where its turn-start hook reads it.

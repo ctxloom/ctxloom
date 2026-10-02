@@ -14,7 +14,7 @@ import (
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -84,17 +84,8 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 		return nil, err
 	}
 	fs := getFS(req.FS)
-	// The authored-bundles home is the COMMITTED content tree; the cache is
-	// created lazily by whatever fetches into it, and init has no business
-	// scaffolding a gitignored directory.
-	// The bundles entry is the FORMAT ROOT, not the bundles directory: that
-	// directory is only the parent the format roots are siblings under, and a
-	// bundle sitting in it belongs to no format and is read by nobody. MkdirAll
-	// creates the parent too, so GetBundleDirs still sees it.
-	for _, dir := range []string{req.AppDir, filepath.Join(req.AppDir, paths.ProfilesDir), paths.LocalBundlesPathFor(req.AppDir, paths.LayoutV2)} {
-		if err := fs.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
+	if err := scaffoldProjectDirs(fs, req.AppDir); err != nil {
+		return nil, err
 	}
 
 	configData, err := BuildInitialConfig(req.Engine, req.DirtyTreeHandler, req.HeadlessPermissions)
@@ -104,7 +95,7 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 	// No AllowEmpty: BuildInitialConfig always renders a non-empty document.
 	// The overwrite of an existing config.yaml is deliberate (InitializeProject's
 	// doc: scaffold files are overwritten, the seed profile is not).
-	if err := iox.WriteFileAtomicFs(fs, paths.ConfigPath(req.AppDir), configData, 0644); err != nil {
+	if err := safefs.WriteFile(fs, paths.ConfigPath(req.AppDir), configData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to create config.yaml: %w", err)
 	}
 
@@ -132,6 +123,55 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 	}
 
 	return &InitializeProjectResult{Status: "initialized", AppDir: req.AppDir}, nil
+}
+
+// scaffoldProjectDirs creates the project's directory tree and provisions its
+// approvals store.
+func scaffoldProjectDirs(fs afero.Fs, appDir string) error {
+	// The authored-bundles home is the COMMITTED content tree; the cache is
+	// created lazily by whatever fetches into it, and init has no business
+	// scaffolding a gitignored directory.
+	// The bundles entry is the FORMAT ROOT, not the bundles directory: that
+	// directory is only the parent the format roots are siblings under, and a
+	// bundle sitting in it belongs to no format and is read by nobody. MkdirAll
+	// creates the parent too, so GetBundleDirs still sees it.
+	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), paths.LocalBundlesPathFor(appDir, paths.LayoutV2)} {
+		if err := fs.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+	return ProvisionApprovalsStore(fs, appDir)
+}
+
+// ProvisionApprovalsStore creates appDir's approvals store with its tracked
+// placeholder (paths.ApprovalsPlaceholderName). It is idempotent and adds only
+// what is missing, so it is also the migration for a project initialized
+// before the store was provisioned: `ctxloom init` over an existing .ctxloom
+// runs it, and doctor's approvals row points there.
+func ProvisionApprovalsStore(fs afero.Fs, appDir string) error {
+	fs = getFS(fs)
+	dir := paths.ApprovalsPath(appDir)
+	if err := fs.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("provision approvals store %s: %w", dir, err)
+	}
+	placeholder := filepath.Join(dir, paths.ApprovalsPlaceholderName)
+	if exists, err := afero.Exists(fs, placeholder); err != nil || exists {
+		return err
+	}
+	// No AllowEmpty: the placeholder is written only when absent, and the
+	// empty-write guard refuses only over an existing file.
+	if err := safefs.WriteFile(fs, placeholder, nil, 0o644); err != nil {
+		return fmt.Errorf("provision approvals store %s: %w", dir, err)
+	}
+	return nil
+}
+
+// ApprovalsStoreProvisioned reports whether appDir's approvals store carries
+// its tracked placeholder. A bare directory does not count: it is not
+// committed, so a fresh clone arrives without it.
+func ApprovalsStoreProvisioned(fs afero.Fs, appDir string) bool {
+	exists, err := afero.Exists(getFS(fs), filepath.Join(paths.ApprovalsPath(appDir), paths.ApprovalsPlaceholderName))
+	return err == nil && exists
 }
 
 // validateInitRequest refuses a request with no app dir or an unknown engine.
@@ -170,7 +210,7 @@ func writeDefaultRemotes(fs afero.Fs, appDir string) error {
 	}
 	// No AllowEmpty: remotesContent is the embedded default remotes resource,
 	// never empty.
-	if err := iox.WriteFileAtomicFs(fs, paths.RemotesPath(appDir), remotesContent, 0644); err != nil {
+	if err := safefs.WriteFile(fs, paths.RemotesPath(appDir), remotesContent, 0644); err != nil {
 		return fmt.Errorf("failed to create remotes.yaml: %w", err)
 	}
 	return nil
@@ -191,7 +231,7 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 	}
 	// No AllowEmpty: data is the embedded seed profile resource, never empty,
 	// and dest was just checked absent above (write-if-absent).
-	if err := iox.WriteFileAtomicFs(fs, dest, data, 0644); err != nil {
+	if err := safefs.WriteFile(fs, dest, data, 0644); err != nil {
 		return fmt.Errorf("write %s: %w", dest, err)
 	}
 	return nil

@@ -7,7 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/projectid"
@@ -212,7 +212,7 @@ func renderOrEmit(out io.Writer, list []plans.Plan, format clifmt.Format) error 
 // rebuild the path by hand from the documented layout. It is appended rather
 // than inserted so the existing four columns keep their positions.
 func renderPlanTable(out io.Writer, list []plans.Plan) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if len(list) == 0 {
 		w.Printf("(no plans)\n")
 		return w.Err()

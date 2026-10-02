@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // executeFailingUnderFormat drives the REAL command tree — newRootCmd, the one
@@ -96,7 +98,11 @@ func TestMain(m *testing.M) {
 		// so a pin expecting 1 fails loudly instead of hanging.
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	// Sandboxed: ltk's settings writes lock under the home lock directory
+	// (paths.HomePathFor), which refuses a real home from a test binary. The
+	// re-exec branch above inherits the parent's sandboxed HOME through the
+	// environment, so it needs no sandbox of its own.
+	os.Exit(testsupport.SandboxedMain(m))
 }
 
 // runMainForExitStatus re-executes this test binary as ltk and reports the

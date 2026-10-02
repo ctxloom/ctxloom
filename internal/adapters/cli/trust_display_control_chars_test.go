@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // An item name is bundle-authored: a fragment/command/mcp key straight out of
@@ -116,53 +118,102 @@ func TestPrintBundleHookTrust_ControlBytesAreEscapedNotDeleted(t *testing.T) {
 }
 
 // listItemRows is the `fragment list` / `command list` read path (item_list.go).
-// Its row() closure builds Name/Bundle/Ref straight from the operations
-// projection's Name/Source fields, which are just as bundle-authored as the
-// name printBundleItemTrust receives, and reached the listing unnormalized for
-// the same reason.
-//
-// The listing is a trust surface in its own right: `fragment list --format
-// json` carries the trust stamp each row was decided under, so a row a reader
-// cannot tell apart from another row is a row they cannot decide about. The
-// two names below differ ONLY by an ESC and must not arrive as the same
+// Its rows feed BOTH the human listing and `--format json`, so the row holds
+// the publisher's ACTUAL bytes and only the text renderer (printItemInfos)
+// escapes them. termsafe exists to protect a terminal; a JSON consumer is not
+// one, and JSON's own grammar already renders a control byte inert inside a
 // string.
 //
-// Ref is deliberately NOT asserted to differ: it is the canonical identifier
-// `show` and assemble accept, it goes through remote.NormalizeRef, and
-// deleting is still the right ingest answer there. Display and ingest are two
-// policies on purpose — what changed is that the DISPLAY field stopped
-// borrowing the ingest one.
-func TestListItemRows_ControlBytesInNameAreEscapedNotDeleted(t *testing.T) {
-	appDir := t.TempDir()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	const clean = "go-testing"
-	hostile := "go-\x1btesting"
-	// One bundle carrying both, so the listing has to keep them apart.
+// hostileItemProject seeds one bundle whose name and one of whose fragment
+// names and tags carry an ESC, beside a clean fragment whose name differs from
+// the hostile one ONLY by that ESC — so collapsing them, deleting the byte or
+// escaping it on the wrong path each shows up as a distinct failure.
+const (
+	cleanItemName   = "go-testing"
+	hostileItemName = "go-\x1btesting"
+	hostileBundle   = "de\x1bmo"
+	hostileTag      = "t\x1bag"
+)
+
+func hostileItemProject(t *testing.T) *config.Config {
+	t.Helper()
+	cfg := itemFormatProject(t)
 	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
-		Name: "demo",
+		Name: hostileBundle,
 		Fragments: map[string]operations.BundleFragmentInput{
-			clean:   {Content: "clean body", NoDistill: true},
-			hostile: {Content: "hostile body", NoDistill: true},
+			cleanItemName:   {Content: "clean body", NoDistill: true},
+			hostileItemName: {Content: "hostile body", Tags: []string{hostileTag}, NoDistill: true},
 		},
 	})
 	require.NoError(t, err)
+	return cfg
+}
+
+// TestListItemRows_HoldRawBytes pins the struct half of the ruling: the row
+// carries what is on disk, byte for byte, and two names differing only by a
+// control byte stay two rows.
+//
+// Ref is deliberately NOT asserted: it is the canonical identifier `show` and
+// assemble accept, and it goes through remote.NormalizeRef, an ingest boundary
+// with its own policy.
+func TestListItemRows_HoldRawBytes(t *testing.T) {
+	cfg := hostileItemProject(t)
 
 	rows, err := listItemRows(cfg, ItemTypeFragment)
 	require.NoError(t, err)
 
 	names := map[string]bool{}
 	for _, r := range rows {
-		if r.Bundle == "demo" {
+		if r.Bundle == hostileBundle {
 			names[r.Name] = true
 		}
 	}
+	assert.Equal(t, map[string]bool{cleanItemName: true, hostileItemName: true}, names,
+		"the rows must carry the on-disk names unmodified, under the on-disk bundle name")
+}
 
-	assert.True(t, names["go-^[testing"],
-		"the ESC must render as visible caret notation; got names %v", names)
-	assert.True(t, names[clean], "the clean name must still render byte for byte; got names %v", names)
-	assert.Len(t, names, 2,
-		"two names differing only by a control byte must not collapse onto one listing row; got %v", names)
-	for name := range names {
-		assert.NotContains(t, name, "\x1b", "no live ESC may reach the listing")
-	}
+// TestListItems_TextEscapesAndJSONCarriesRaw is the two-armed render test the
+// ruling requires. Every field the text listing prints that a publisher wrote
+// must arrive ESCAPED there, and the same fields must arrive RAW in --format
+// json — so a script can read a name out of the json and pass it straight
+// back. One-armed coverage is what would let the other arm rot.
+func TestListItems_TextEscapesAndJSONCarriesRaw(t *testing.T) {
+	t.Run("text escapes", func(t *testing.T) {
+		hostileItemProject(t)
+		cmd, buf := testCmd()
+
+		require.NoError(t, listItems(cmd, ItemTypeFragment, ""))
+
+		got := buf.String()
+		assert.NotContains(t, got, "\x1b", "no live ESC may reach the terminal")
+		assert.Contains(t, got, "  de^[mo:\n", "the bundle heading renders escaped")
+		assert.Contains(t, got, "    - go-^[testing [t^[ag]\n", "the name and its tags render escaped")
+		assert.Contains(t, got, "    - go-testing\n", "the clean name renders byte for byte")
+	})
+
+	t.Run("json carries raw and round-trips", func(t *testing.T) {
+		hostileItemProject(t)
+		cmd, out := itemFormatCmd(t, string(clifmt.FormatJSON))
+
+		require.NoError(t, listItems(cmd, ItemTypeFragment, ""))
+
+		var rows []itemRow
+		require.NoError(t, json.Unmarshal(out(), &rows), "--format json must emit the rows")
+		var hostile *itemRow
+		for i := range rows {
+			if rows[i].Name == hostileItemName {
+				hostile = &rows[i]
+			}
+		}
+		require.NotNil(t, hostile, "the hostile name must read back out of the json exactly as it is on disk; got %+v", rows)
+		assert.Equal(t, hostileBundle, hostile.Bundle, "the bundle reads back raw")
+		assert.Equal(t, []string{hostileTag}, hostile.Tags, "the tags read back raw")
+
+		// The round trip: what the json said is a filter the CLI accepts.
+		cmd, out = itemFormatCmd(t, string(clifmt.FormatJSON))
+		require.NoError(t, listItems(cmd, ItemTypeFragment, hostile.Bundle))
+		var filtered []itemRow
+		require.NoError(t, json.Unmarshal(out(), &filtered))
+		assert.Len(t, filtered, 2, "the bundle name read out of the json selects that bundle's items")
+	})
 }

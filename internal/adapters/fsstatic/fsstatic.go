@@ -29,14 +29,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ErrInPlaceWrite refuses an approach that changes a file already standing on
 // the target in place: opening it for writing, or setting its times or owner.
 // The supported write is a temp file renamed into place
-// (iox.WriteFileAtomicFs and the helpers built on it).
-var ErrInPlaceWrite = errors.New("an approach may not change an existing file in place; write it to a temp file and rename it into place (iox.WriteFileAtomicFs)")
+// (safefs.WriteFile and the helpers built on it).
+var ErrInPlaceWrite = errors.New("an approach may not change an existing file in place; write it to a temp file and rename it into place (safefs.WriteFile)")
 
 // Static is the writer over one filesystem.
 type Static struct{ fs afero.Fs }
@@ -264,7 +264,7 @@ func (o *overlay) Create(name string) (afero.File, error) {
 	if err := o.refuseInPlace("create", name); err != nil {
 		return nil, err
 	}
-	return iox.Create(o.CopyOnWriteFs, name)
+	return safefs.Create(o.CopyOnWriteFs, name)
 }
 
 func (o *overlay) Chtimes(name string, atime, mtime time.Time) error {
@@ -307,7 +307,7 @@ func (w *writeLayer) note(name string) { w.names[filepath.Clean(name)] = struct{
 
 func (w *writeLayer) Create(name string) (afero.File, error) {
 	w.note(name)
-	return iox.Create(w.Fs, name)
+	return safefs.Create(w.Fs, name)
 }
 
 func (w *writeLayer) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
@@ -319,7 +319,7 @@ func (w *writeLayer) OpenFile(name string, flag int, perm os.FileMode) (afero.Fi
 
 func (w *writeLayer) Rename(oldname, newname string) error {
 	w.note(newname)
-	return iox.Rename(w.Fs, oldname, newname)
+	return safefs.Rename(w.Fs, oldname, newname)
 }
 
 // files lists every noted name the layer still holds as a regular file,
@@ -352,7 +352,7 @@ func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) erro
 			return err
 		}
 	}
-	return iox.WriteFileAtomicFs(fs, path, bytes, mode)
+	return safefs.WriteFile(fs, path, bytes, mode)
 }
 
 // rootsOf are the target's resolved roots, in the order a written file is

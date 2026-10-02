@@ -330,7 +330,7 @@ hooks.json-shaped engine would share.
 | `checkResult` | `check.go:26` | `{decision, message, suggestion}` — discrete fields, so a GUI never re-splits `Response.Message()` |
 | `runCheck` | `check.go:73` | Fails **loud** (exit 1) by design, unlike the hook path |
 | `manageFlags` | `manage.go:25` | Shared flag bundle for install/uninstall; `resolve` (`:48`) picks engine + settings path |
-| `scaffoldConfig` / `writeFile` | `manage.go:167`, `:219` | `--force` backs up to `.bak` first; `writeFile` is `MkdirAll` + `iox.WriteFileAtomic` |
+| `scaffoldConfig` / `writeFile` | `manage.go:167`, `:219` | `--force` backs up to `.bak` first; `writeFile` is `MkdirAll` + `safefs.WriteFile` |
 | `newLoadoutCmd` | `loadout.go:39` | `companionloadout.NewCommand` over the embedded `loadout.yaml` + `.sig` — this is ctxloom's companion-discovery entry point |
 | `registerDocsCmd` | `docs_gen.go:18` / `docs_off.go:10` | Build-tag pair; `internal/shared/docsgen` is mounted only under `-tags docsgen` |
 
@@ -386,7 +386,7 @@ so `rules/eval.go:48` matches every nested command against the *enclosing* scrip
 | `Store` | `state.go:38` | `{fs, path, Pending map[string]pending}`. `Pending` is exported solely so `encoding/json` can see it; `Save` marshals the whole `Store` |
 | `Open` | `state.go:47` | Best-effort load — an unreadable or corrupt file yields an empty map with no error (documented `state.go:44-46`) |
 | `Armed`/`Ready`/`RemainingDelay` | `state.go:64`,`:71`,`:78` | Band predicates |
-| `Arm`/`Clear`/`Save` | `state.go:86`,`:94`,`:99` | `Save` prunes expired entries, then `MkdirAll` + `iox.WriteFileAtomicFs` |
+| `Arm`/`Clear`/`Save` | `state.go:86`,`:94`,`:99` | `Save` prunes expired entries, then `MkdirAll` + `safefs.WriteFile` |
 | `ConfirmByRepeat` | `confirm.go:26` | The policy: arm on first denial, allow on a ready repeat, rebuke an early one. `armReason`/`tooEarlyReason` (`confirm.go:54`,`:64`) are ~350 characters of behavioural instruction *to the model*, colocated with the persistence layer |
 
 The package is explicit that this is "an escape hatch, not a security control"

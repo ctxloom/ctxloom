@@ -23,7 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ToolingDeclaration is one companion's collected tooling declaration.
@@ -177,7 +177,7 @@ func writeBaseContainerfile(fs afero.Fs, path string) error {
 	if merr := fs.MkdirAll(filepath.Dir(path), 0o755); merr != nil {
 		return fmt.Errorf("create base Containerfile directory: %w", merr)
 	}
-	if werr := iox.WriteFileAtomicFs(fs, path, container.Base(), 0o644); werr != nil {
+	if werr := safefs.WriteFile(fs, path, container.Base(), 0o644); werr != nil {
 		return fmt.Errorf("write base Containerfile: %w", werr)
 	}
 	return nil

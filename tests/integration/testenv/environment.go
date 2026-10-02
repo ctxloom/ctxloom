@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"golang.org/x/crypto/ssh"
 )
@@ -763,17 +764,41 @@ func (e *TestEnvironment) CreateProjectConfig() error {
 			return fmt.Errorf("failed to create %s: %w", dir, err)
 		}
 	}
-	return nil
+	return e.provisionApprovals()
 }
 
 // WriteFile writes content to a file relative to the project directory.
+//
+// A write under the project's .ctxloom stands for an INITIALIZED project, so it
+// also provisions the approvals store the way `ctxloom init` does: an
+// unprovisioned project withholds everything. A scenario about an
+// unprovisioned or removed store deletes it after its last such write.
 func (e *TestEnvironment) WriteFile(relPath, content string) error {
 	fullPath := filepath.Join(e.ProjectDir, relPath)
 	dir := filepath.Dir(fullPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
+	if strings.HasPrefix(filepath.ToSlash(filepath.Clean(relPath)), paths.AppDirName+"/") {
+		if err := e.provisionApprovals(); err != nil {
+			return err
+		}
+	}
 	return os.WriteFile(fullPath, []byte(content), 0644)
+}
+
+// provisionApprovals creates the project approvals store with its tracked
+// placeholder if it is missing, as `ctxloom init` leaves it.
+func (e *TestEnvironment) provisionApprovals() error {
+	store := paths.ApprovalsPath(filepath.Join(e.ProjectDir, paths.AppDirName))
+	if err := os.MkdirAll(store, 0755); err != nil {
+		return fmt.Errorf("failed to provision %s: %w", store, err)
+	}
+	placeholder := filepath.Join(store, paths.ApprovalsPlaceholderName)
+	if _, err := os.Stat(placeholder); err == nil {
+		return nil
+	}
+	return os.WriteFile(placeholder, nil, 0644)
 }
 
 // WriteHomeFile writes content to a file relative to the home directory.

@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
@@ -68,7 +68,7 @@ func (c *Config) commitPendingUpgrade(p *PendingUpgrade) error {
 	if len(p.Data) == 0 {
 		return fmt.Errorf("pending upgrade for %s carries no content; refusing to truncate it", p.Path)
 	}
-	if err := iox.WriteFileAtomicFs(c.getFS(), p.Path, p.Data, 0o644); err != nil {
+	if err := safefs.WriteFile(c.getFS(), p.Path, p.Data, 0o644); err != nil {
 		return fmt.Errorf("write upgraded config %s: %w", p.Path, err)
 	}
 	return nil
@@ -138,7 +138,7 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
-	if err := iox.WriteFileAtomicFs(fs, configPath, data, 0o644); err != nil {
+	if err := safefs.WriteFile(fs, configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 

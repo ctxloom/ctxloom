@@ -201,6 +201,35 @@ func TestRunInit_ExistingDir_HonoursRemoteFlags(t *testing.T) {
 	assert.Equal(t, "work-ghe", gotForge, "--forge must be honoured too")
 }
 
+// TestRunInit_ExistingDir_ProvisionsTheApprovalsStore is the migration path
+// for a project initialized before the approvals store was provisioned: its
+// absent project store now withholds everything, and `ctxloom init` over the
+// existing .ctxloom — the remedy the trust finding and doctor both name — must
+// provision it without re-scaffolding anything else.
+func TestRunInit_ExistingDir_ProvisionsTheApprovalsStore(t *testing.T) {
+	testsupport.Isolate(t)
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte("version: 5\n"), 0o644))
+	chdir(t, dir)
+
+	origAdd := addPersonalRemotesFn
+	addPersonalRemotesFn = func(*cobra.Command, string, []string, string) {}
+	t.Cleanup(func() { addPersonalRemotesFn = origAdd })
+	origHome, origNonInteractive, origSkipLaunch := initHome, initNonInteractive, initSkipLaunch
+	initHome, initNonInteractive, initSkipLaunch = false, true, true
+	t.Cleanup(func() { initHome, initNonInteractive, initSkipLaunch = origHome, origNonInteractive, origSkipLaunch })
+	require.False(t, operations.ApprovalsStoreProvisioned(nil, appDir), "precondition: an unprovisioned project")
+
+	require.NoError(t, runInit(&cobra.Command{}, nil))
+
+	assert.True(t, operations.ApprovalsStoreProvisioned(nil, appDir))
+	cfg, err := os.ReadFile(filepath.Join(appDir, "config.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, "version: 5\n", string(cfg), "re-init must not re-scaffold an existing project's config")
+}
+
 // TestDiscoverySessionPrompt_MergesDiscoveryAndAgentSetup pins the collapsed
 // init interview: the ONE prompt the discovery session receives is ctxloom's
 // built-in six-phase setup body (ctxloomInitPrompt, init-as-skill slice 3),

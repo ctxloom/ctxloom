@@ -25,7 +25,7 @@ ctxloom session distill <harp-name> [flags]
 ### Options
 
 ```
-      --prompt-dir string   Load distillation prompts from this directory instead of the built-in ones (expects <dir>/session-distill.md; a missing prompt is an error, not a fallback)
+      --prompt-dir string   Load distillation prompts from this directory instead of the built-in ones (expects <dir>/session-distill.md and <dir>/result-finding.md; a missing prompt is an error, not a fallback)
 ```
 
 ### Options inherited from parent commands

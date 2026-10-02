@@ -128,7 +128,7 @@ flowchart TD
 6. **`saveEssence` warns before every degrade** (`compactor.go:1010`) — the good example in this
    file.
 7. **`StampPlanFile` errors on an empty harp and on an unreadable file** (`stamp.go:27`).
-8. **The essence is written through `iox.WriteFileAtomic`**, so a reader never sees a partial
+8. **The essence is written through `safefs.WriteFile`**, so a reader never sees a partial
    document.
 
 **Do not hold, or are narrower than documented:**
@@ -188,7 +188,7 @@ flowchart TD
   re-implementing part of `operations.BindSession`'s precondition set and omitting the
   `sessionID == ""` check. The net effect is a redundant index rewrite, not data loss; the cost is
   two places to fix a future guard.
-- **`StampPlanFile` resets a plan file's mode to 0644** — `iox.WriteFileAtomic` chmods a fresh
+- **`StampPlanFile` resets a plan file's mode to 0644** — `safefs.WriteFile` chmods a fresh
   temp file to the requested perm and renames, so the original mode is lost and any hardlink is
   broken.
 - **`runDistill` and `parseLLMFrontmatter` have acknowledged copies elsewhere** —

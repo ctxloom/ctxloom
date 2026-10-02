@@ -20,10 +20,11 @@ import (
 
 	containerfiles "github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/spf13/afero"
 )
 
 // imageBuildTimeout caps one on-the-fly agent-image build. The production
@@ -467,8 +468,9 @@ const baseContractLayer = `RUN (command -v apt-get >/dev/null 2>&1 \
     && apt-get install -y --no-install-recommends git ripgrep curl ca-certificates unzip jq strace \
     && rm -rf /var/lib/apt/lists/* || true)`
 
-// composeAgentContainerfile generates the MULTI-ENGINE agent Containerfile
-// (locked decisions 2-4): the base-contract fragment (best-
+// composeAgentContainerfile generates the SINGLE-ENGINE agent Containerfile
+// for exactly the one engine it is given — image identity is a function of
+// that engine alone (locked decisions 2-4): the base-contract fragment (best-
 // effort tool layer for an ARBITRARY base) → the common scaffold (identity/
 // entrypoint — the exact overlayUserLayer/overlayUserGate contract
 // overlayContainerfile already uses) → THE one engine-install RUN layer →
@@ -638,7 +640,7 @@ func stageCompanions(contextDir string) error {
 			if err != nil {
 				return fmt.Errorf("companions build context: stage %s%s: %w", name, suffix, err)
 			}
-			if err := iox.WriteFileAtomic(filepath.Join(dir, name+suffix), data, 0o644); err != nil { //nolint:gosec // public, signed metadata
+			if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, name+suffix), data, 0o644); err != nil { //nolint:gosec // public, signed metadata
 				return fmt.Errorf("companions build context: stage %s%s: %w", name, suffix, err)
 			}
 		}
@@ -1375,7 +1377,7 @@ func runImageBuild(ctx context.Context, rt Runtime, image, file, contextDir stri
 	return nil
 }
 
-// copyExecutable streams src to dst atomically (via iox.NewAtomicFile: a
+// copyExecutable streams src to dst atomically (via safefs.NewAtomicFile: a
 // unique temp file in dst's directory, fsynced, then chmod 0o755 EXACTLY and
 // renamed into place) rather than truncating dst in place, so a reader can
 // never observe a half-copied binary. The explicit chmod is load-bearing even
@@ -1388,7 +1390,7 @@ func copyExecutable(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := iox.NewAtomicFile(dst, 0o755)
+	out, err := safefs.NewAtomicFile(afero.NewOsFs(), dst, 0o755)
 	if err != nil {
 		return err
 	}

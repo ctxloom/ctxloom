@@ -23,10 +23,12 @@ import (
 //     child's in/ and that is the whole delivery — no mailbox fact, no queued
 //     twin, nothing else to keep in step. The child's runner writes out/ for
 //     everything it sends. One writer per direction, always.
-//   - CONSUMPTION IS A RENAME, and the rename is the ACK. A reader moves the
-//     file into consumed/ only after the delivery it made is real (the engine
-//     accepted the turn, or the owner's turn-start hook wrote it out).
-//     Renaming earlier would silently convert at-least-once into at-most-once.
+//   - DELIVERY IS RECORD-THEN-DELETE, and that is the ACK. A reader calls
+//     spool.Deliver — record the identity in in/delivered/, then delete the
+//     file — only after the delivery it made is real (the engine accepted the
+//     turn, or the owner's turn-start hook wrote it out). Acking earlier would
+//     silently convert at-least-once into at-most-once. A routed out/ file is
+//     renamed into out/consumed/ the same way: only after it was routed.
 //   - THE DOORBELL IS ONLY A WAKE. It carries a reference and no state, it is
 //     dropped freely when the channel is down, and receiving one means "sweep",
 //     never "process exactly that file". A doorbell that names a file which is
@@ -77,10 +79,10 @@ const spoolSweepInterval = 30 * time.Second
 //
 // Serialisation is not an optimisation, it is the in-process arbiter: a
 // doorbell and a timer sweep that ran concurrently could both read the same
-// file and both deliver it, and the consume-rename — which resolves that race
-// ACROSS processes — would then be adjudicating two deliveries that already
-// happened. One reader goroutine per side means the second look finds the file
-// already renamed (or already deduped) instead.
+// file and both deliver it, and the delivered record — which resolves that
+// race ACROSS processes — would then be adjudicating two deliveries that
+// already happened. One reader goroutine per side means the second look finds
+// the file already gone (or already deduped) instead.
 //
 // It is a set, never a queue: pending roles collapse, because a doorbell says
 // "look at this spool", not "process this message", so N doorbells for one
@@ -385,6 +387,22 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err 
 	return c.queueMailPayload(from, to, kind, body, nil, "")
 }
 
+// mailParent queues child-origin mail to the sender's parent and, when the
+// parent's run has ENDED, hands it to the leftover-mail tail so the parent is
+// resumed to read it. A parent's run can end while its children work on (a
+// one-shot run ends at every turn boundary), and a write alone only rings a
+// runner that no longer exists. The tail rather than driveObserved's explicit
+// resume, because mail from below is not a fresh ask from above: it must
+// honour an agent_stop of the parent and the relaunch bound, never lift them.
+func (c *Coordinator) mailParent(from, parent, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
+	id, err := c.queueMailPayload(from, parent, kind, body, structured, inReplyTo)
+	if err != nil {
+		return "", err
+	}
+	c.relaunchIfEndedSinceObserved(parent)
+	return id, nil
+}
+
 // queueMailPayload delivers one message: the write into the recipient's in/
 // spool IS the delivery, fsynced before return, and the doorbell only bounds
 // latency. Routing policy is the caller's. structured is an optional
@@ -392,8 +410,8 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err 
 // list); inReplyTo correlates this message to an earlier one's id.
 //
 // Nothing is handed to a waiting receiver synchronously: the recipient's
-// reader delivers it on the doorbell or its next sweep, and its
-// consume-rename is what reports back that it landed.
+// reader delivers it on the doorbell or its next sweep, and its delivered
+// record is what reports back that it landed.
 func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, err error) {
 	return c.queueMailPayloadID(newMessageID(), from, to, kind, body, structured, inReplyTo)
 }
@@ -489,32 +507,26 @@ func (c *Coordinator) spoolPendingCount(role string) int {
 	if err := res.ProblemErr(); err != nil {
 		c.rep.Warnf("coordinator: %s's spool holds files that cannot be read as messages and are NOT counted as pending: %v", role, err)
 	}
-	return len(res.Entries)
+	pending := 0
+	for _, e := range res.Entries {
+		// A file whose identity is already in the delivered record is a
+		// delivery whose delete was interrupted: the reader's next sweep
+		// finishes it, and it is nothing the child still has to see.
+		delivered, err := spool.Delivered(c.mapper, role, e.Identity())
+		if err != nil {
+			c.rep.Warnf("coordinator: %s: cannot tell whether %s was delivered, counting it as pending: %v", role, e.Ref, err)
+		}
+		if !delivered {
+			pending++
+		}
+	}
+	return pending
 }
 
 // sweepSpoolDir reads one spool directory, distinguishing "not there" (no
 // messages, no complaint) from a real failure (loud, counted). ok=false means
 // the caller has nothing to process.
 func (c *Coordinator) sweepSpoolDir(harp string, dir spool.Dir, why string) (spool.SweepResult, bool) {
-	return c.sweepSpoolDirWith(harp, dir, why, spool.Sweep)
-}
-
-// sweepSpoolDirNames is sweepSpoolDir with the read-and-parse contract
-// dropped: it lists the directory and validates filenames only, never opening
-// a file's body. It exists for a directory where the filename IS the whole
-// signal — see spool.SweepNames — and it shares every non-body-reading part
-// of sweepSpoolDir's behaviour (path resolution, the not-there/real-failure
-// distinction, the warn-and-count-failed path) by routing through the same
-// function with only the sweep primitive swapped, so those cannot drift
-// between the two modes.
-func (c *Coordinator) sweepSpoolDirNames(harp string, dir spool.Dir, why string) (spool.SweepResult, bool) {
-	return c.sweepSpoolDirWith(harp, dir, why, spool.SweepNames)
-}
-
-// sweepSpoolDirWith is the shared body of sweepSpoolDir and
-// sweepSpoolDirNames, parameterized on which spool primitive actually reads
-// the directory.
-func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, sweep func(spool.PathMapper, string, spool.Dir) (spool.SweepResult, error)) (spool.SweepResult, bool) {
 	mapper := c.mapper
 	path, err := spool.DirPath(mapper, harp, dir)
 	if err != nil {
@@ -525,7 +537,7 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 		return spool.SweepResult{Dir: dir}, false
 	}
-	res, err := sweep(mapper, harp, dir)
+	res, err := spool.Sweep(mapper, harp, dir)
 	if err != nil {
 		c.rep.Warnf("coordinator: sweeping %s's %s spool (%s): %v", harp, dir, why, err)
 		c.spoolDeliveryCount.Failed.Add(1)
@@ -536,7 +548,7 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 
 // startSpoolReactor brings up the coordinator's spool reader.
 func (c *Coordinator) startSpoolReactor() {
-	c.spoolSeen = map[string]map[string]bool{}
+	c.seedSpoolCredit()
 	c.spoolReactor = NewSpoolReactor(c.sweepChildSpool, c.spoolRoles, c.spoolSweepInterval)
 	// The reactor is registered AS the doorbell's consumer rather than being
 	// called beside it. One seam: a second consumer cannot be added without
@@ -568,8 +580,8 @@ func (c *Coordinator) spoolRoles() []string {
 }
 
 // sweepChildSpool is the coordinator's whole reading job for one spool: route
-// what its owner SENT (out/), and — for a child — note what it CONSUMED
-// (in/consumed). The session owner's spool gets only the first half: its
+// what its owner SENT (out/), and — for a child — credit what it DELIVERED
+// (its delivered record). The session owner's spool gets only the first half: its
 // acks forgive a relaunch budget, and this coordinator never relaunches its
 // own owner.
 func (c *Coordinator) sweepChildSpool(role string) {
@@ -577,7 +589,7 @@ func (c *Coordinator) sweepChildSpool(role string) {
 	if c.ownerSpool(role) {
 		return
 	}
-	c.sweepChildConsumed(role)
+	c.sweepChildDelivered(role)
 }
 
 // sweepChildOut routes every message sitting in role's out/, oldest first, and
@@ -626,10 +638,10 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		return
 	}
 	if _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
-		// The routing chokepoint refused it (closed kind vocabulary,
-		// hub-and-spoke, unknown recipient). The agent's local write already
-		// returned success, so the refusal is reported back the only way that
-		// still reaches it: as mail.
+		// The routing chokepoint refused it (closed kind vocabulary, a
+		// recipient off the tree's edges, unknown recipient). The agent's
+		// local write already returned success, so the refusal is reported
+		// back the only way that still reaches it: as mail.
 		c.rep.Warnf("coordinator: refusing %s's spool message %s: %v", role, e.Ref, err)
 		c.spoolDeliveryCount.Failed.Add(1)
 		c.replySpoolRefusal(role, msg, err)
@@ -707,8 +719,8 @@ func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 // stated reason: the parent always learns. Authorship stays honest — the
 // message is queued FROM the child, because the text below the header is the
 // child's own words — and it borrows no authority the child did not already
-// have, since KindError is in the sender-allowed vocabulary and the parent is
-// a child's only legal recipient anyway.
+// have, since KindError is in the sender-allowed vocabulary and a child may
+// always address its own parent.
 //
 // The original TEXT is carried, not just the fact of the drop. A notice that
 // said only "a message was lost" would tell a coordinator to go and ask an
@@ -734,7 +746,7 @@ func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
 			"(spool file %s; its sender was told, but a session that has ended cannot read that reply)\n"+
 			"\n--- the message text, as %s wrote it ---\n%s",
 		kind, role, spoolAddressee(e), cause, e.Ref, role, body)
-	if _, err := c.queueMail(role, parent, KindError, notice); err != nil {
+	if _, err := c.mailParent(role, parent, KindError, notice, nil, ""); err != nil {
 		c.rep.Warnf("coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
 	}
 }
@@ -788,35 +800,38 @@ func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
 	_ = done
 }
 
-// sweepChildConsumed reads in/consumed — the child's acknowledgements — and
-// credits the ONE thing they mean to the coordinator: real progress, which
-// forgives the relaunch budget (the file-plane replacement for the runner's
-// mail_consumed fact).
-//
-// Entries are remembered so a later sweep does not re-credit them. The set
-// grows with the run's delivered mail and is dropped with the process; there
-// is no retention prune of consumed/ yet, which is what makes the set
-// necessary.
-func (c *Coordinator) sweepChildConsumed(role string) {
-	res, ok := c.sweepSpoolDirNames(role, spool.DirInConsumed, "reading delivery acknowledgements")
-	if !ok {
-		return
-	}
-	fresh := 0
-	c.spoolSeenMu.Lock()
-	seen := c.spoolSeen[role]
-	if seen == nil {
-		seen = map[string]bool{}
-		c.spoolSeen[role] = seen
-	}
-	for _, e := range res.Entries {
-		if seen[e.Ref.Name] {
+// seedSpoolCredit records, without crediting, every known harp's delivered
+// record as it stands at start (spoolCredit). It runs before the reactor's
+// startup sweep, so that sweep credits only what is new.
+func (c *Coordinator) seedSpoolCredit() {
+	for _, role := range c.spoolRoles() {
+		if c.ownerSpool(role) {
+			continue // the owner's deliveries are never credited
+		}
+		ids, err := spool.DeliveredIdentities(c.mapper, role)
+		if err != nil {
+			c.rep.Warnf("coordinator: reading %s's delivered record at start: %v (its first sweep may credit history as progress)", role, err)
 			continue
 		}
-		seen[e.Ref.Name] = true
-		fresh++
+		c.spoolCredit.seed(role, ids)
 	}
-	c.spoolSeenMu.Unlock()
+}
+
+// sweepChildDelivered reads the child's delivered record (spool.Deliver's
+// in/delivered/) and credits the ONE thing a new entry means to the
+// coordinator: real progress, which forgives the relaunch budget.
+//
+// What is new is decided by spoolCredit: an entry already in the record when
+// this coordinator started is history and is never credited, so a restart
+// credits nothing, and an entry already credited is not credited again.
+func (c *Coordinator) sweepChildDelivered(role string) {
+	ids, err := spool.DeliveredIdentities(c.mapper, role)
+	if err != nil {
+		c.rep.Warnf("coordinator: reading %s's delivered record: %v", role, err)
+		c.spoolDeliveryCount.Failed.Add(1)
+		return
+	}
+	fresh := c.spoolCredit.credit(role, ids)
 	if fresh == 0 {
 		return
 	}
@@ -834,7 +849,8 @@ type SpoolDeliveryStats struct {
 	// Delivered counts messages this side handed to its own surface: turns or
 	// recv batches on a runner, routed sends on a coordinator.
 	Delivered uint64
-	// Consumed counts consume-renames observed or performed.
+	// Consumed counts delivery acks: performed (a runner's spool.Deliver) or
+	// credited (a coordinator reading a child's delivered record).
 	Consumed uint64
 	// Failed counts everything that did not get through — an unreadable file,
 	// an unroutable message, a rename that errored. Each one is a message

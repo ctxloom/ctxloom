@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Environment keys carrying the shim's instructions across the re-exec. They
@@ -156,10 +156,10 @@ func Supported(ctx context.Context, scratch string) error {
 // seedProbeFiles writes the probe's bind source and target, each with
 // content the probe payload can be told apart from.
 func seedProbeFiles(source, target string) error {
-	if err := iox.WriteFileInPlace(source, iox.TruncateInPlace, []byte("original"), 0o600); err != nil {
+	if err := safefs.WriteFileInPlace(source, safefs.TruncateInPlace, []byte("original"), 0o600); err != nil {
 		return fmt.Errorf("mountns: seed probe source: %w", err)
 	}
-	if err := iox.WriteFileInPlace(target, iox.TruncateInPlace, []byte("placeholder"), 0o600); err != nil {
+	if err := safefs.WriteFileInPlace(target, safefs.TruncateInPlace, []byte("placeholder"), 0o600); err != nil {
 		return fmt.Errorf("mountns: seed probe target: %w", err)
 	}
 	return nil
@@ -221,7 +221,7 @@ func shim() error {
 		// Probe only: the in-place arm a credential writer falls back to when
 		// rename(2) over a bind mount returns EBUSY. Driven through the real
 		// shim so the probe cannot pass while the shim is broken.
-		if err := iox.WriteFileInPlace(binds[0].Target, iox.TruncateInPlace, []byte(payload), 0o600); err != nil {
+		if err := safefs.WriteFileInPlace(binds[0].Target, safefs.TruncateInPlace, []byte(payload), 0o600); err != nil {
 			return fmt.Errorf("probe write through the mount: %w", err)
 		}
 		// The grandchild is told to read the mounted path back. Planted HERE,

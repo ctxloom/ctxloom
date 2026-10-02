@@ -8,10 +8,11 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -29,7 +30,7 @@ func inodeOf(t *testing.T, path string) uint64 {
 }
 
 // TestStampPID_KeepsALockedInodeVisiblyAlive is this package's half of the
-// inode invariant. iox proves the primitive keeps the inode
+// inode invariant. safefs proves the primitive keeps the inode
 // (TestWriteFileInPlace_KeepsTheSameInode); this proves what that BUYS here —
 // that a stamp cannot turn a live session into a reclaimable one.
 //
@@ -48,7 +49,7 @@ func inodeOf(t *testing.T, path string) uint64 {
 // handle and the question does not arise there.
 //
 // The control at the end is what keeps the assertion honest: the SAME stamp
-// performed with iox's atomic default must flip the verdict to Dead. Without
+// performed with safefs's atomic default must flip the verdict to Dead. Without
 // it, a stampPID that had silently gone back to rename-based writing could
 // still pass the first half on a filesystem that happened to reuse the inode
 // number.
@@ -76,7 +77,7 @@ func TestStampPID_KeepsALockedInodeVisiblyAlive(t *testing.T) {
 	assert.Equal(t, strconv.Itoa(os.Getpid())+"\n", string(raw), "the stamp must still be this process's pid")
 
 	// Control: the same bytes written the way stampPID must NOT write them.
-	require.NoError(t, iox.WriteFileAtomic(path, raw, lockFileMode))
+	require.NoError(t, safefs.WriteFile(afero.NewOsFs(), path, raw, lockFileMode))
 	require.NotEqual(t, locked, inodeOf(t, path),
 		"fixture is not discriminating: the atomic write kept the inode, so the assertion above proves nothing")
 	assert.Equal(t, Dead, Inspect(harp).Verdict,

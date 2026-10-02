@@ -31,7 +31,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // pending is a single armed override: the repeat is honored only in the band
@@ -220,9 +220,9 @@ func (s *Store) Save(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	// Atomic write via shared/iox: a unique temp file in the destination dir is
+	// Atomic write via shared/safefs: a unique temp file in the destination dir is
 	// written then renamed, so two concurrent Saves never rename each other's
 	// half-written file and a reader never sees a torn one. (Parent dir created
-	// just above, satisfying WriteFileAtomicFs's precondition.)
-	return iox.WriteFileAtomicFs(s.fs, s.path, b, 0o644)
+	// just above, satisfying safefs.WriteFile's precondition.)
+	return safefs.WriteFile(s.fs, s.path, b, 0o644)
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// A §9.7 record is an audit-trail entry, and AtomicWriteFile overwrites — so
+// A §9.7 record is an audit-trail entry, and safefs.WriteFileKeepMode overwrites — so
 // the filename is the only thing standing between two applies and the loss of
 // the first one's record. At second resolution it was not enough: two applies
 // against the same target in the same second produced the same name, and the
@@ -72,7 +72,7 @@ func TestRecordFilename_IsNanosecondAndSortable(t *testing.T) {
 
 func TestRecordFilename_FitsNameMaxWithAtomicWriteHeadroom(t *testing.T) {
 	name := RecordFilename(deepTarget("/", ".mcp.json"), time.Now())
-	// agent.AtomicWriteFile stages the write as "." + name + "." + <digits> +
+	// safefs.WriteFileKeepMode stages the write as "." + name + "." + <digits> +
 	// ".tmp" in the same directory, so the bound has to hold for that name
 	// too, not just the final one.
 	assert.Less(t, len(name)+len(".")+len(".")+len("123456789")+len(".tmp"), 255)

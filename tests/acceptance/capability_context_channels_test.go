@@ -109,6 +109,10 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 // because the question here is precisely WHICH root the bytes chose.
 func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject, outsideProject map[string]string) {
 	t.Helper()
+	// Delivery takes its write lock on the REAL filesystem under the home lock
+	// directory, even though the bytes land in the in-memory fs below; a test
+	// binary is refused that directory unless HOME is a temp root.
+	t.Setenv("HOME", t.TempDir())
 	const (
 		projectRoot = "/probe/project"
 		engineHome  = "/probe/engine-home"

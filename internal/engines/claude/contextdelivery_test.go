@@ -69,13 +69,13 @@ func TestAppendFlagDelivery_Deterministic(t *testing.T) {
 }
 
 // TestAppendFlagDelivery_DeliverContext_PreservesExistingMode pins the switch
-// from a raw afero.WriteFile(..., 0o644) to agent.AtomicWriteFile: the latter
+// from a raw afero.WriteFile(..., 0o644) to safefs.WriteFileKeepMode: the latter
 // preserves an EXISTING destination file's mode across the rewrite, while a
 // raw afero.WriteFile with a hardcoded 0o644 would silently reset it every
 // time. The deterministic hash filename means a second delivery of the SAME
 // framed content lands at the SAME path, so pre-seeding that exact path with
 // a non-default mode and re-delivering the identical context is how this
-// distinguishes the two write paths without reaching into AtomicWriteFile's
+// distinguishes the two write paths without reaching into safefs.WriteFileKeepMode's
 // own internals.
 //
 // MUTATION KILL: revert DeliverContext's write to afero.WriteFile(d.fs, path,

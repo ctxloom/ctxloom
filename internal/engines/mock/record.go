@@ -7,7 +7,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // The mock's TEST CONTROL knobs, read off the engine's env (the exec's env,
@@ -134,7 +135,7 @@ func WriteRecord(file string, in Record) error {
 	input.WriteString("\n=== Prompt ===\n")
 	input.WriteString(in.Prompt)
 	input.WriteString("\n")
-	if err := iox.WriteFileAtomic(file, []byte(input.String()), 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), file, []byte(input.String()), 0o644); err != nil {
 		return fmt.Errorf("failed to write mock record file %q: %w", file, err)
 	}
 	return nil

@@ -14,8 +14,8 @@ import (
 )
 
 // TestHome_ConsumeAfterCrashTouchesNoSpool FORCES the interleaving that made
-// a test's temp HOME "not empty" at teardown: a consume-rename (which mkdirs
-// its target) reaching the Home AFTER Crash tore it down. A crashed Home
+// a test's temp HOME "not empty" at teardown: a delivery ack (which mkdirs
+// the delivered record) reaching the Home AFTER Crash tore it down. A crashed Home
 // owns no spool any more — the file stays where it was, and no directory is
 // created under a root the test is about to remove.
 func TestHome_ConsumeAfterCrashTouchesNoSpool(t *testing.T) {
@@ -36,7 +36,9 @@ func TestHome_ConsumeAfterCrashTouchesNoSpool(t *testing.T) {
 	h.sweepSpoolIn()
 
 	assert.Len(t, spoolEntries(t, harp, spool.DirIn), 1, "a crashed Home consumes nothing")
-	assert.Empty(t, spoolEntries(t, harp, spool.DirInConsumed), "nothing is moved into consumed/ by a crashed Home")
+	ids, err := spool.DeliveredIdentities(spool.NewHomeMapper(), harp)
+	require.NoError(t, err)
+	assert.Empty(t, ids, "nothing is recorded as delivered by a crashed Home")
 }
 
 // TestHome_SendBeforeBindIsRefused: a runner cannot send before it knows who

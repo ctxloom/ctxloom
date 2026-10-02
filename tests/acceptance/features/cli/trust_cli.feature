@@ -65,12 +65,9 @@ Feature: Trusting and untrusting ITEM CONTENT, on the noun that owns it
       | --format json | demo#fragments/guide             | true               | demo#fragments/guide              | raw                        |
       | --format text | Approved demo#fragments/guide    | UNSIGNED           | Rejected demo#fragments/guide     | rejected in form(s) raw   |
 
-  # THE OTHER THREE DECISIONS MOVED, and each to the noun that owns it, now
+  # THE OTHER DECISIONS MOVED, each to the noun that owns it, now
   # that every noun has a comprehensive spec of its own:
   #
-  #   `companion trust`/`untrust`  → cli/companion.feature, which keeps both
-  #     directions (the witness file proving an unconfirmed binary never ran,
-  #     and that a trusted one does) and adds the provenance exemption.
   #   `signer trust`/`untrust`     → cli/signer.feature, including the
   #     outside-a-project fallback to the user store that used to live here.
   #   Publish destinations have no verb at all, and that is the model rather

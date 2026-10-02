@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // RemoveBeforeCreateWrapper writes a wrapper around the runtime binary bin that
@@ -57,7 +58,7 @@ esac
 exec %[4]q "$@"
 `, began, firstRm, name, bin)
 	path := filepath.Join(dir, filepath.Base(bin)+"-rmrace")
-	if err := iox.WriteFileAtomic(path, []byte(script), 0o755); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), path, []byte(script), 0o755); err != nil {
 		t.Fatalf("write the rm-race wrapper: %v", err)
 	}
 	return path

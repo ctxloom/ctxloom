@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -55,7 +55,7 @@ func newSessionFullRow(v operations.SessionView) SessionFullRow {
 // entirely (see emitSessionRows) and go straight through clifmt.Render,
 // which handles SessionFullRow's embedded-struct shape natively.
 func renderSessionFullText(w io.Writer, rows []SessionFullRow) error {
-	ew := iox.NewErrWriter(w)
+	ew := errwriter.New(w)
 	if len(rows) == 0 {
 		ew.Println("(no sessions)")
 		return ew.Err()

@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"github.com/spf13/afero"
+
 	"context"
 	"os"
 	"path/filepath"
@@ -41,6 +43,7 @@ func writeBundleFixture(t *testing.T, root string) {
 
 	profilesDir := filepath.Join(root, ".ctxloom", "profiles")
 	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	provisionApprovals(t, afero.NewOsFs(), filepath.Join(root, paths.AppDirName))
 
 	profileYAML := `description: "Test profile for bundle expansion"
 bundles:

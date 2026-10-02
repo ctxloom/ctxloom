@@ -31,6 +31,7 @@ func TestReason_Explain_PinsEverySentence(t *testing.T) {
 		{ReasonUnaddressable, "its ref could not be parsed, so nothing could decide about it", "its ref could not be parsed, so nothing could decide about it"},
 		{ReasonUnestablished, "it reached the gate without established provenance", "it reached the gate without established provenance"},
 		{ReasonUngoverned, "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content", "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content"},
+		{ReasonRecordsUnreadable, "its trust records could not be read, so nothing could be decided — repair them first", "its trust records could not be read, so nothing could be decided — repair them first (d)"},
 		{Reason(255), review, review + " (d)"},
 	}
 	for _, tc := range cases {
@@ -39,4 +40,14 @@ func TestReason_Explain_PinsEverySentence(t *testing.T) {
 			assert.Equal(t, tc.with, tc.reason.Explain("d"))
 		})
 	}
+}
+
+// TestReason_RecordsUnreadable_IsListedUnderItsOwnName: a withhold because the
+// trust records could not be read has its own wire spelling, distinct from
+// "pending", so a listing stops sending the reader to review the item — and it
+// stays LISTED, so a store fault never silently empties the review queue
+// (operations' TestWeakHurt_PendingReview_UnreadableStore_ListingPath).
+func TestReason_RecordsUnreadable_IsListedUnderItsOwnName(t *testing.T) {
+	assert.Equal(t, "records-unreadable", ReasonRecordsUnreadable.String())
+	assert.True(t, ReasonRecordsUnreadable.NeedsReview())
 }

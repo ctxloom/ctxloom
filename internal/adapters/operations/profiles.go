@@ -85,7 +85,7 @@ func ListProfiles(ctx context.Context, cfg *config.Config, req ListProfilesReque
 	if loader == nil {
 		loader = profileLoader(cfg)
 	}
-	profileList, err := loader.List()
+	profileList, _, err := loader.List()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list profiles: %w", err)
 	}

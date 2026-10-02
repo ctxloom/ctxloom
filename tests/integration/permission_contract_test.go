@@ -140,7 +140,7 @@ func (l *contractLane) parked(t *testing.T) coord.PendingApproval {
 
 // turnReport is the child's automatic turn report, as the owner receives it:
 // read from the owner's spool the way its turn-start hook does
-// (`ctxloom hook mail-drain`) — claim what waits, then acknowledge it.
+// (`ctxloom hook mail-drain`) — claim what waits, then record its delivery.
 func (l *contractLane) turnReport(t *testing.T, childHarp string) coord.Message {
 	t.Helper()
 	mapper := spool.NewHomeMapper()
@@ -151,7 +151,7 @@ func (l *contractLane) turnReport(t *testing.T, childHarp string) coord.Message 
 		for _, e := range res.Entries {
 			m, err := coord.MailFromSpool(e, e.Message.FromHarp)
 			require.NoError(t, err)
-			if err := spool.Ack(mapper, l.owner.Harp, e.Ref.Name); err != nil {
+			if err := spool.Deliver(mapper, e.Ref, e.Identity(), time.Now()); err != nil {
 				require.ErrorIs(t, err, spool.ErrAlreadyGone)
 			}
 			if m.From == childHarp && coord.IsAutoReport(m.Structured) {

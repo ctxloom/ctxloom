@@ -111,3 +111,45 @@ func TestStore_Resolve_NilStore(t *testing.T) {
 	assert.Error(t, err)
 	assert.NoError(t, s.Readable(), "Readable's nil tolerance is a separate, deliberate contract")
 }
+
+// TestRecords_AbsentProjectStore_Faults is the provisioned-store contract at
+// the pair level. The PROJECT store is created by `ctxloom init` with a
+// tracked placeholder, so its absence means it went away (or failed to mount)
+// and must withhold everything rather than read as "nothing rejected". The
+// fault names the store and carries ErrStoreAbsent, which is what lets the
+// remedy say "re-provision" instead of "repair a corrupt store".
+func TestRecords_AbsentProjectStore_Faults(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/user/approvals", 0o755))
+	records := NewRecords(NewStore("/user/approvals", fs), NewStore("/project/.ctxloom/approvals", fs), nil, nil)
+
+	err := records.readable()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStoreAbsent)
+	assert.Contains(t, err.Error(), "project approvals store")
+	assert.Contains(t, err.Error(), "/project/.ctxloom/approvals")
+}
+
+// TestRecords_AbsentUserStore_IsTolerated is the other half: the USER store is
+// never tracked, so nothing can provision it in a checkout, and a CI runner or
+// a new machine legitimately has none. Its absence is "no personal decisions
+// on this machine", not a fault; the project store still decides.
+func TestRecords_AbsentUserStore_IsTolerated(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/project/.ctxloom/approvals", 0o755))
+	records := NewRecords(NewStore("/user/approvals", fs), NewStore("/project/.ctxloom/approvals", fs), nil, nil)
+
+	assert.NoError(t, records.readable())
+}
+
+// TestRecords_HomeAppDir_ProjectStoreIsTheUserStore covers the project-less
+// invocation: with no project .ctxloom, the generation reads over the home
+// fallback ~/.ctxloom, so its "project" store is ~/.ctxloom/approvals — the
+// same directory as the user store. That is ONE store, and its absence is the
+// user store's absence (tolerated), not an unprovisioned project.
+func TestRecords_HomeAppDir_ProjectStoreIsTheUserStore(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	records := NewRecords(NewStore("/home/u/.ctxloom/approvals", fs), NewStore("/home/u/.ctxloom/approvals/", fs), nil, nil)
+
+	assert.NoError(t, records.readable())
+}

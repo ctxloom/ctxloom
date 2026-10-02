@@ -320,7 +320,7 @@ func TestPendingReview_SupersededApprovalReadsAsReReview(t *testing.T) {
 	}))
 
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root, Registry: newRegistry(t),
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t),
 		Loader: reviewLoader(t, reviewBundle()), FS: afero.NewMemMapFs(),
 	})
 	require.NoError(t, err)
@@ -351,7 +351,7 @@ func TestPendingReview_SupersededApprovalOfOtherBytesReadsAsUpdate(t *testing.T)
 	}))
 
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root, Registry: newRegistry(t),
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t),
 		Loader: reviewLoader(t, reviewBundle()), FS: afero.NewMemMapFs(),
 	})
 	require.NoError(t, err)

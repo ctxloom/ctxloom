@@ -20,7 +20,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 func TestRenderAgentList_EngineAndDefault(t *testing.T) {
@@ -256,6 +256,7 @@ func agentProject(t *testing.T, configYAML string) string {
 	t.Helper()
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".ctxloom"), 0o755))
+	provisionApprovals(t, filepath.Join(root, ".ctxloom"))
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".ctxloom", "config.yaml"), []byte(configYAML), 0o644))
 	chdir(t, root)
 	resetApp()
@@ -400,11 +401,11 @@ func TestRenderAgentWritten_BlankEngineReadsAsProjectDefault(t *testing.T) {
 
 func TestRenderDefaultAgent_BothArms(t *testing.T) {
 	var unset bytes.Buffer
-	require.NoError(t, renderDefaultAgent(iox.NewErrWriter(&unset), ""))
+	require.NoError(t, renderDefaultAgent(errwriter.New(&unset), ""))
 	assert.Contains(t, unset.String(), "No default agent set.")
 
 	var set bytes.Buffer
-	require.NoError(t, renderDefaultAgent(iox.NewErrWriter(&set), "dev"))
+	require.NoError(t, renderDefaultAgent(errwriter.New(&set), "dev"))
 	assert.Contains(t, set.String(), "Default agent: dev")
 }
 

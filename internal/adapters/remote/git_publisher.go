@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	igit "github.com/ctxloom/ctxloom/internal/adapters/git"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // GitPublisher publishes to ANY git remote — file://, ssh://, git://, a
@@ -240,7 +241,7 @@ func writeIntoClone(dir string, paths []string, files map[string][]byte) error {
 		}
 		// No AllowEmpty: publishablePaths already refused every zero-length
 		// content.
-		if err := iox.WriteFileAtomic(full, files[filePath], 0o644); err != nil {
+		if err := safefs.WriteFile(afero.NewOsFs(), full, files[filePath], 0o644); err != nil {
 			return fmt.Errorf("publish %s: write it into the working clone: %w", filePath, err)
 		}
 	}

@@ -18,7 +18,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file holds Part B, slice B1b of the skill/command split: the ARCHIVE
@@ -545,7 +545,7 @@ func (st *extractState) writeEntryFile(fsys afero.Fs, target, name string, mode 
 	// is a normal archive entry — the decompression-bomb guard above already
 	// caps what CAN be written, it says nothing about whether zero bytes is a
 	// valid outcome, so refusing it here would reject a real, harmless entry.
-	if err := iox.WriteFileAtomicFs(fsys, target, data, normalizeExtractedMode(mode), iox.AllowEmpty()); err != nil {
+	if err := safefs.WriteFile(fsys, target, data, normalizeExtractedMode(mode), safefs.AllowEmpty()); err != nil {
 		return fmt.Errorf("writing entry %q: %w", name, err)
 	}
 	st.filesWritten++

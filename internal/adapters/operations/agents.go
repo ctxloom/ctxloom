@@ -589,23 +589,14 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 		}
 		entry.HomeMode = orKeep(req.HomeMode, entry.HomeMode)
 		entry.Auth = orKeep(req.Auth, entry.Auth)
-		if req.EnvHost != nil {
-			on := *req.EnvHost
-			entry.EnvHost = &on
-		}
-		if req.Env != nil {
-			entry.Env = slices.Clone(*req.Env)
-		}
-		if err := entry.HostEnv().Validate(); err != nil {
-			return fmt.Errorf("agent %q: %w", name, err)
-		}
+		entry = withEnvHost(entry, req)
 		// Checked against the record the write RESULTS IN, inside the
 		// transaction, for the same reason the surface preference is: a
 		// create with no --llm/--profiles and an edit that clears the last of
 		// them both land here, and returning abandons the Update so the live
 		// binding (if any) survives untouched.
-		if entry.LLM == "" && len(entry.Profiles) == 0 {
-			return fmt.Errorf("agent %q: %w", name, ErrAgentWithoutEngine)
+		if err := checkWrittenAgent(name, entry); err != nil {
+			return err
 		}
 		d.Agents[name] = entry
 		return nil
@@ -615,6 +606,32 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 	}
 	written := agentEntry(name, entry)
 	return &written, nil
+}
+
+// withEnvHost applies the request's env_host and env to entry; a nil field
+// keeps what is recorded.
+func withEnvHost(entry agents.Agent, req SetAgentRequest) agents.Agent {
+	if req.EnvHost != nil {
+		on := *req.EnvHost
+		entry.EnvHost = &on
+	}
+	if req.Env != nil {
+		entry.Env = slices.Clone(*req.Env)
+	}
+	return entry
+}
+
+// checkWrittenAgent refuses a record that cannot launch as written: one with
+// no engine to bind, and one whose env_host and env would not do what they
+// say (agents.EnvHost.Validate).
+func checkWrittenAgent(name string, entry agents.Agent) error {
+	if entry.LLM == "" && len(entry.Profiles) == 0 {
+		return fmt.Errorf("agent %q: %w", name, ErrAgentWithoutEngine)
+	}
+	if err := entry.HostEnv().Validate(); err != nil {
+		return fmt.Errorf("agent %q: %w", name, err)
+	}
+	return nil
 }
 
 // RemoveAgent deletes a LOCAL agent from the `agents:` config key, inside one

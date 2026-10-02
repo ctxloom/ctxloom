@@ -22,7 +22,7 @@ func parseAgentWriteFlags(t *testing.T, args ...string) *cobra.Command {
 }
 
 // --env-host and the repeatable --env reach the request as typed; untyped
-// they are not sent, so an edit keeps what is recorded; --env '' sends an
+// they are not sent, so an edit keeps what is recorded; --env "" sends an
 // empty list, which clears the names.
 func TestBuildSetAgentRequest_EnvHostAndEnv(t *testing.T) {
 	req := buildSetAgentRequest(parseAgentWriteFlags(t, "--env-host=false", "--env", "GITHUB_TOKEN", "--env", "NPM_TOKEN"), "dev")

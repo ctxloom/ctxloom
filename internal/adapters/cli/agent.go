@@ -442,6 +442,13 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 	if cmd.Flags().Changed("auth") {
 		req.Auth = &agentSetAuth
 	}
+	envHostFlags(cmd, &req)
+	return req
+}
+
+// envHostFlags sends --env-host and --env when typed; --env "" sends an
+// empty list, which clears the names.
+func envHostFlags(cmd *cobra.Command, req *operations.SetAgentRequest) {
 	if cmd.Flags().Changed("env-host") {
 		req.EnvHost = &agentSetEnvHost
 	}
@@ -449,7 +456,6 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 		names := slices.DeleteFunc(slices.Clone(agentSetEnv), func(n string) bool { return n == "" })
 		req.Env = &names
 	}
-	return req
 }
 
 // surfacesFromFlag is the --surface pairs keyed by surface kind. They are
@@ -521,14 +527,20 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	if entry.Auth != "" {
 		w.Printf(", auth: %s", entry.Auth)
 	}
+	writeEnvHostSummary(w, entry)
+	w.Println(")")
+	return w.Err()
+}
+
+// writeEnvHostSummary appends the declared env_host and env to the
+// create/edit confirmation, each omitted when undeclared.
+func writeEnvHostSummary(w *errwriter.Writer, entry *operations.AgentEntry) {
 	if entry.EnvHost != nil {
 		w.Printf(", env_host: %t", *entry.EnvHost)
 	}
 	if len(entry.Env) > 0 {
 		w.Printf(", env: %s", strings.Join(entry.Env, ", "))
 	}
-	w.Println(")")
-	return w.Err()
 }
 
 // agentDefaultCmd shows or sets the always-bound DEFAULT AGENT — the binding a

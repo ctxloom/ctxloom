@@ -521,6 +521,8 @@ type readerConfig struct {
 	repoURL    string
 	revision   string
 	rep        report.Reporter // where this reader's user-facing diagnostics go
+	// carryEdited is WithEditedTreesCarried.
+	carryEdited bool
 }
 
 // WithTrustRoot supplies the trust root a reader resolves signer identity
@@ -529,6 +531,19 @@ type readerConfig struct {
 // exposure direction, and never a silent claim of trust.
 func WithTrustRoot(root trust.TrustRoot) ReaderOption {
 	return func(c *readerConfig) { c.root = root }
+}
+
+// WithEditedTreesCarried makes a repofs reader carry an installed signed tree
+// whose bytes no longer match its signed manifest as a read with
+// SignatureInvalid, instead of refusing it with ErrTreeBundleWithheld. It is
+// applied ONLY from a generation whose Trust waives the signature check
+// (composite.WithoutSignatureCheck): the verifier still runs and still says the
+// bytes are not what was signed; the decision moves to that generation's gate,
+// which names it (ReasonSigCheckDisabledEditedTree) — and an enforced gate that
+// somehow met such a read would refuse it as ReasonTampered. A retired-format
+// manifest is not an edit and is still withheld.
+func WithEditedTreesCarried() ReaderOption {
+	return func(c *readerConfig) { c.carryEdited = true }
 }
 
 // WithInstalledDir tells a repofs reader the on-disk directory a pinned tree

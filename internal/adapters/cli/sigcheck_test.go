@@ -19,8 +19,9 @@ import (
 )
 
 // The env switch is PER INVOCATION: read once, then removed from this
-// process's environment, so nothing ctxloom starts — an engine, its MCP
-// server, a hook, a delegated agent — inherits a waiver it never asked for.
+// process's environment, so no process ctxloom starts inherits it by the
+// ordinary route. The session's own hooks and MCP server get the waiver from
+// the launch instead (bundles.EngineSigCheckEnv), never from this variable.
 func TestConsumeSigCheckEnv_ReadsTheSwitchThenRemovesItFromEveryChild(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the child probe is a POSIX shell")
@@ -153,6 +154,19 @@ func TestDryRun_ReportsTheSignatureCheckPosture(t *testing.T) {
 
 func TestDryRun_TextSaysNothingAboutAnEnforcedCheck(t *testing.T) {
 	var buf bytes.Buffer
-	printSignatureCheck(&buf, signatureCheckEnforced)
+	printSignatureCheck(&buf, signatureCheckEnforced, []string{"acme/a"})
 	assert.Empty(t, buf.String())
+}
+
+// The owner accepted that the waiver hides tampering of an installed signed
+// tree only on condition that the dry run names every tree it hid.
+func TestDryRun_TextNamesEditedSignedTreesTheWaiverAccepted(t *testing.T) {
+	var buf bytes.Buffer
+	printSignatureCheck(&buf, signatureCheckDisabled, []string{"acme/a", "acme/b"})
+	assert.Contains(t, buf.String(), signatureCheckDisabled+": "+bundles.SigCheckDisabledNotice+"\n")
+	assert.Contains(t, buf.String(), editedSignedTreesLabel+": acme/a, acme/b\n")
+
+	buf.Reset()
+	printSignatureCheck(&buf, signatureCheckDisabled, nil)
+	assert.NotContains(t, buf.String(), editedSignedTreesLabel, "no edited tree, no line")
 }

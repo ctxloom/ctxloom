@@ -47,7 +47,7 @@ func (r EffectiveTrustResult) State() trust.State {
 	switch {
 	case r.Source == trust.SourceRejected || r.Source == trust.SourceRetracted:
 		return trust.StateRejected
-	case r.Source == trust.SourceSigCheckDisabled:
+	case r.Source == trust.SourceSigCheckDisabled, r.Source == trust.SourceSigCheckDisabledEditedTree:
 		return trust.StatePending
 	case r.Decision == trust.Allow:
 		return trust.StateAccepted
@@ -878,6 +878,8 @@ func resultOf(v bundles.Verdict) EffectiveTrustResult {
 		res.Source = trust.SourceUnreadable
 	case bundles.ReasonSigCheckDisabled:
 		res.Source = trust.SourceSigCheckDisabled
+	case bundles.ReasonSigCheckDisabledEditedTree:
+		res.Source = trust.SourceSigCheckDisabledEditedTree
 	}
 	return res
 }

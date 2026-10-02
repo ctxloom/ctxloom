@@ -162,7 +162,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
 			doctorCheckApprovalsStore(cfg, cfgErr),
 			doctorCheckContentTrust(cfg, cfgErr),
-			doctorCheckSigCheck(app.SigCheckDisabled),
+			doctorCheckSigCheck(app.SigCheckDisabled, editedSignedTreesOf(cfg, cfgErr)),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
@@ -1199,12 +1199,29 @@ const doctorSigCheckMarker = "DOCTOR-CHECK-SIG-CHECK-e2"
 // signatures. Waived is a WARN, never ok: content nobody signed or reviewed is
 // reaching the assistant, and doctor is where a user looks to find out why a
 // session behaved as it did.
-func doctorCheckSigCheck(disabled bool) DoctorCheck {
+//
+// edited names the installed signed trees the waiver accepted although their
+// bytes were edited after signing: the owner accepted that the flag hides that
+// tampering only on condition that doctor names every tree it hid.
+func doctorCheckSigCheck(disabled bool, edited []string) DoctorCheck {
 	if !disabled {
 		return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorOK, Detail: "bundle signature verification is enforced"}
 	}
-	return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorWarn, Detail: bundles.SigCheckDisabledNotice,
+	detail := bundles.SigCheckDisabledNotice
+	if len(edited) > 0 {
+		detail += " Accepted although " + bundles.EditedSignedTreeWords + ": " + strings.Join(edited, ", ") + "."
+	}
+	return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorWarn, Detail: detail,
 		Remedy: "drop --" + bundles.SigCheckFlag + " and unset " + bundles.SigCheckEnv + " to verify signatures again"}
+}
+
+// editedSignedTreesOf is the generation's edited signed trees, or none when
+// the config did not load.
+func editedSignedTreesOf(cfg *config.Config, cfgErr error) []string {
+	if cfgErr != nil || cfg == nil {
+		return nil
+	}
+	return bundles.EditedSignedTrees(cfg.Catalog().Reads())
 }
 
 // doctorCheckContentTrust names remote bundles whose content is being WITHHELD

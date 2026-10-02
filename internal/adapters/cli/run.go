@@ -94,12 +94,15 @@ type dryRunJSON struct {
 	// verifies bundle signatures: signatureCheckEnforced, or
 	// signatureCheckDisabled under --disable-sig-check. Always present, so a
 	// consumer never reads an absent key as either.
-	SignatureCheck string   `json:"signature_check"`
-	LLM            string   `json:"llm"`
-	Backend        string   `json:"backend"`
-	Profiles       []string `json:"profiles"`
-	Fragments      []string `json:"fragments"`
-	Context        string   `json:"context"`
+	SignatureCheck string `json:"signature_check"`
+	// EditedSignedTrees names the installed signed trees the waiver accepted
+	// although their bytes were edited after signing (bundles.EditedSignedTrees).
+	EditedSignedTrees []string `json:"edited_signed_trees,omitempty"`
+	LLM               string   `json:"llm"`
+	Backend           string   `json:"backend"`
+	Profiles          []string `json:"profiles"`
+	Fragments         []string `json:"fragments"`
+	Context           string   `json:"context"`
 	// ResumedEssence is what a --session --distill launch delivers through
 	// its SessionStart hook rather than through Context: the harp's
 	// distilled essence (distilledResumePreview). ResumedEssenceNote says
@@ -935,21 +938,22 @@ func (st *runState) emitDryRun() error {
 		})
 	}
 	payload := dryRunJSON{
-		Agent:          runAgent,
-		Workspace:      string(l.Declared.Workspace),
-		Runtime:        string(l.Declared.Runtime),
-		Resolved:       axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
-		Environment:    probedEnvironment(l.Cell),
-		SignatureCheck: signatureCheckOf(deps.Snapshot.Trust),
-		LLM:            l.Label.Label,
-		Backend:        string(l.Engine),
-		Profiles:       pkg.Selection.Profiles,
-		Fragments:      pkg.Loaded,
-		Context:        context,
-		Delivery:       deliveryRoutes(l.Plan),
-		EngineHome:     engineHomeRoute(l.Cell.HomeMode),
-		Tokens:         tokens.Estimate(context),
-		Prompt:         st.prompt,
+		Agent:             runAgent,
+		Workspace:         string(l.Declared.Workspace),
+		Runtime:           string(l.Declared.Runtime),
+		Resolved:          axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
+		Environment:       probedEnvironment(l.Cell),
+		SignatureCheck:    signatureCheckOf(deps.Snapshot.Trust),
+		EditedSignedTrees: bundles.EditedSignedTrees(deps.Snapshot.Catalog().Reads()),
+		LLM:               l.Label.Label,
+		Backend:           string(l.Engine),
+		Profiles:          pkg.Selection.Profiles,
+		Fragments:         pkg.Loaded,
+		Context:           context,
+		Delivery:          deliveryRoutes(l.Plan),
+		EngineHome:        engineHomeRoute(l.Cell.HomeMode),
+		Tokens:            tokens.Estimate(context),
+		Prompt:            st.prompt,
 	}
 	if runResumeSession != "" && runResumeDistill {
 		payload.ResumedEssence, payload.ResumedEssenceNote = distilledResumePreview(runResumeSession, resumeEssenceStale)
@@ -970,7 +974,7 @@ func (st *runState) printDryRun(l launch.Launch, payload dryRunJSON) error {
 			fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, l.Axes.Workspace, l.Axes.Runtime)
 		}
 		printEnvironment(os.Stdout, payload.Environment)
-		printSignatureCheck(os.Stdout, payload.SignatureCheck)
+		printSignatureCheck(os.Stdout, payload.SignatureCheck, payload.EditedSignedTrees)
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
 		fmt.Println("\n=== Profiles ===")
@@ -1024,12 +1028,19 @@ func probedEnvironment(cell launch.Cell) *environmentJSON {
 // printSignatureCheck renders the waiver as the dry run's text form. An
 // enforced check prints nothing: it is the default, and the section exists to
 // make the exception impossible to miss.
-func printSignatureCheck(w io.Writer, check string) {
+func printSignatureCheck(w io.Writer, check string, edited []string) {
 	if check != signatureCheckDisabled {
 		return
 	}
 	fmt.Fprintf(w, "=== Signature Check ===\n%s: %s\n", signatureCheckDisabled, bundles.SigCheckDisabledNotice)
+	if len(edited) > 0 {
+		fmt.Fprintf(w, "%s: %s\n", editedSignedTreesLabel, strings.Join(edited, ", "))
+	}
 }
+
+// editedSignedTreesLabel heads the dry run's list of edited signed trees the
+// waiver accepted.
+const editedSignedTreesLabel = "accepted although " + bundles.EditedSignedTreeWords
 
 // printEnvironment renders the probed environment as the dry-run's text form.
 func printEnvironment(w io.Writer, e *environmentJSON) {

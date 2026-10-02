@@ -109,6 +109,10 @@ const (
 	// signature verification (--disable-sig-check). An allow nobody reviewed:
 	// its review state stays pending.
 	SourceSigCheckDisabled Source = "sig-check-disabled"
+	// SourceSigCheckDisabledEditedTree: delivered because this invocation
+	// waived signature verification, although the item is from an installed
+	// signed tree whose bytes were edited after signing. Review state pending.
+	SourceSigCheckDisabledEditedTree Source = "sig-check-disabled-edited-tree"
 )
 
 // State is an item's review state in the three-state model. Pending is the

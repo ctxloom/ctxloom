@@ -118,3 +118,62 @@ func TestWithoutSignatureCheck_LeavesTheTrustRootAlone(t *testing.T) {
 	tr := waivedTrust(t, noRecords(), noRetraction())
 	assert.Equal(t, fakeRoot{}, tr.Root(), "companion admission and the readers verify against an unchanged root")
 }
+
+// editedTreeRead is a remote tree whose installed bytes no longer match the
+// manifest a trusted publisher signed: the read the tree reader carries only
+// under a waived generation (bundles.WithEditedTreesCarried).
+func editedTreeRead() bundles.BundleRead {
+	return bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
+		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerTrusted, Detail: "fragments/x.md changed"})
+}
+
+func TestWithoutSignatureCheck_AcceptsAnEditedSignedTreeAndSaysWhy(t *testing.T) {
+	tr := waivedTrust(t, noRecords(), noRetraction())
+	e, _ := remoteExecutable(t)
+	e.Read = editedTreeRead()
+
+	v := tr.Authorizer().Admit(e)
+
+	assert.True(t, v.Allow, "the owner ruled an edited signed tree is accepted under the flag")
+	assert.Equal(t, bundles.ReasonSigCheckDisabledEditedTree, v.Reason, "a reason distinct from the unsigned waiver")
+	explained := v.Reason.Explain(v.Detail)
+	assert.Contains(t, explained, "--"+bundles.SigCheckFlag)
+	assert.Contains(t, explained, bundles.SigCheckEnv)
+	assert.Contains(t, explained, bundles.EditedSignedTreeWords)
+	assert.False(t, v.Reason.NeedsReview(), "an allow is never queued for review")
+}
+
+func TestWithoutSignatureCheck_AnUntrustedSignersEditedTreeIsAcceptedAsEdited(t *testing.T) {
+	tr := waivedTrust(t, noRecords(), noRetraction())
+	e, _ := remoteExecutable(t)
+	e.Read = bundles.NewRead("tools", &bundles.Bundle{Name: "tools"}, bundles.ProvenanceRemote, bundles.TrustCtxRemote,
+		bundles.SignatureFacts{Signature: bundles.SignatureInvalid, Signer: bundles.SignerUntrusted})
+
+	v := tr.Authorizer().Admit(e)
+
+	assert.True(t, v.Allow)
+	assert.Equal(t, bundles.ReasonSigCheckDisabledEditedTree, v.Reason, "the edit is the fact named, whoever signed")
+}
+
+func TestEnforcedTrust_RefusesAnEditedSignedTreeAsTampered(t *testing.T) {
+	tr := mustTrust(t, noRecords(), noRetraction())
+	e, _ := remoteExecutable(t)
+	e.Read = editedTreeRead()
+
+	v := tr.Authorizer().Admit(e)
+
+	assert.False(t, v.Allow, "an enforced gate never admits bytes their signature refutes")
+	assert.Equal(t, bundles.ReasonTampered, v.Reason, "tampered, not pending: it must not enter the review queue")
+	assert.False(t, v.Reason.NeedsReview())
+}
+
+func TestWithoutSignatureCheck_ARejectionOfAnEditedTreeStillRefuses(t *testing.T) {
+	tr := waivedTrust(t, fakeRecords{rejected: func(trust.Ref, []byte) bool { return true }}, noRetraction())
+	e, _ := remoteExecutable(t)
+	e.Read = editedTreeRead()
+
+	v := tr.Authorizer().Admit(e)
+
+	assert.False(t, v.Allow)
+	assert.Equal(t, bundles.ReasonRejected, v.Reason)
+}

@@ -383,7 +383,8 @@ func TestPendingReason_NamesTheRemedyForRemoteContent(t *testing.T) {
 	}{
 		{"remote unsigned", read(bundles.TrustCtxRemote, bundles.SignatureNone, bundles.SignerNone), bundles.ReasonUnsigned},
 		{"remote signed by an untrusted key", read(bundles.TrustCtxRemote, bundles.SignatureValid, bundles.SignerUntrusted), bundles.ReasonUntrustedSigner},
-		{"remote invalidly signed by an untrusted key", read(bundles.TrustCtxRemote, bundles.SignatureInvalid, bundles.SignerUntrusted), bundles.ReasonUntrustedSigner},
+		{"remote invalidly signed by an untrusted key", read(bundles.TrustCtxRemote, bundles.SignatureInvalid, bundles.SignerUntrusted), bundles.ReasonTampered},
+		{"remote invalidly signed by a trusted key", read(bundles.TrustCtxRemote, bundles.SignatureInvalid, bundles.SignerTrusted), bundles.ReasonTampered},
 		{"remote signed by a trusted key", read(bundles.TrustCtxRemote, bundles.SignatureValid, bundles.SignerTrusted), bundles.ReasonPending},
 		{"local unsigned", read(bundles.TrustCtxLocal, bundles.SignatureNone, bundles.SignerNone), bundles.ReasonPending},
 	} {

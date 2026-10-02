@@ -177,6 +177,9 @@ func (a *authorizer) unjustified(e bundles.Exposure) bundles.Verdict {
 	if a.sigCheckWaived && signatureDerived(pending) {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonSigCheckDisabled}
 	}
+	if a.sigCheckWaived && pending == bundles.ReasonTampered {
+		return bundles.Verdict{Allow: true, Reason: bundles.ReasonSigCheckDisabledEditedTree, Detail: e.Read.SignatureDetail()}
+	}
 	return a.record(e, bundles.Verdict{Reason: pending, Detail: pendingDetail(e.Ref())})
 }
 
@@ -272,6 +275,12 @@ func pendingReason(read bundles.BundleRead) bundles.Reason {
 		return bundles.ReasonPending
 	}
 	switch {
+	case read.Signature() == bundles.SignatureInvalid:
+		// Remote bytes their own signature does not cover: an installed signed
+		// tree that was edited. Only a waived generation's reader carries one
+		// this far (bundles.WithEditedTreesCarried); refused as tampered, never
+		// queued for review, unless the gate itself was built waived.
+		return bundles.ReasonTampered
 	case read.Signature() == bundles.SignatureNone:
 		return bundles.ReasonUnsigned
 	case read.Signer() == bundles.SignerUntrusted:

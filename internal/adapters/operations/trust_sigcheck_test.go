@@ -25,6 +25,16 @@ func TestResultOf_TheWaiverIsItsOwnSourceAndReadsAsPending(t *testing.T) {
 	assert.Equal(t, trust.StatePending, res.State())
 }
 
+// An edited signed tree the waiver accepted is named as that, not folded into
+// the plain unsigned waiver: it is the one allow that hides tampering.
+func TestResultOf_AnEditedTreeTheWaiverAcceptedIsItsOwnSource(t *testing.T) {
+	res := resultOf(bundles.Verdict{Allow: true, Reason: bundles.ReasonSigCheckDisabledEditedTree})
+
+	assert.True(t, res.Trusted())
+	assert.Equal(t, trust.SourceSigCheckDisabledEditedTree, res.Source)
+	assert.Equal(t, trust.StatePending, res.State(), "nobody reviewed it")
+}
+
 // A review-path gate (one built over records an operation just wrote) decides
 // with the same posture as the generation it was built for.
 func TestTrustOverRecords_CarriesTheGenerationsSignatureCheckPosture(t *testing.T) {

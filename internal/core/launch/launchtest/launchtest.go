@@ -129,6 +129,11 @@ func Auth(s string) AgentOption {
 	return func(d *agentDecl) { d.binding.Auth = s }
 }
 
+// HostEnv sets the binding's `host_env:` declaration.
+func HostEnv(h agents.HostEnv) AgentOption {
+	return func(d *agentDecl) { d.binding.HostEnv = h }
+}
+
 // NoStructuredDrive makes the fixture engine declare Interactive only, so a
 // Structured Source is refused at Definition.Modes.
 func NoStructuredDrive() AgentOption {

@@ -19,9 +19,11 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -76,6 +78,10 @@ type Deps struct {
 	// Injected like MainDeps.Unsetenv, so the refusal is testable; nil
 	// refuses any launch that names something to unset.
 	Unsetenv func(string) error
+	// Environ is this process's environment (os.Environ in production): what
+	// a curated launch (Cell.HostEnv) narrows before the engine inherits it.
+	// nil refuses a curated launch.
+	Environ func() []string
 }
 
 // Driver is the engine-drive port: EngineHost implements it.
@@ -127,7 +133,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if err := checkVersionFloor(ctx, deps); err != nil {
 		return Outcome{}, err
 	}
-	if err := scrubEngineEnv(deps, l.Cell.Unset); err != nil {
+	if err := scrubEngineEnv(deps, l.Cell.Placement); err != nil {
 		return Outcome{}, err
 	}
 	pkg, err := composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
@@ -365,12 +371,36 @@ func firstTurn(pkg composite.Package, l launch.Launch) string {
 	return textblocks.Join(pkg.Context.Text, l.Prompt)
 }
 
+// uncuratedEnv is every variable of this process a curated engine must not
+// inherit (agents.HostEnv.Inherits). None when the launch is not curated.
+func uncuratedEnv(deps Deps, h agents.HostEnv) ([]string, error) {
+	if !h.Curated {
+		return nil, nil
+	}
+	if deps.Environ == nil {
+		return nil, fmt.Errorf("%w: no environment to curate is composed", ErrEngineEnvUnscrubbed)
+	}
+	var drop []string
+	for _, kv := range deps.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); k != "" && !h.Inherits(k) {
+			drop = append(drop, k)
+		}
+	}
+	return drop, nil
+}
+
 // scrubEngineEnv removes every variable the launch says the engine must not
-// inherit from this process's environment before anything is spawned: every
-// engine spawn starts from it (os.Environ), and this process hosts exactly
-// one run. The launch's own env is laid over it afterwards, so a variable the
-// launch SETS still reaches the engine.
-func scrubEngineEnv(deps Deps, unset []string) error {
+// inherit — pl.Unset, and under a curated pl.HostEnv everything else it does
+// not keep — from this process's environment before anything is spawned:
+// every engine spawn starts from it (os.Environ), and this process hosts
+// exactly one run. The launch's own env is laid over it afterwards, so a
+// variable the launch SETS still reaches the engine.
+func scrubEngineEnv(deps Deps, pl launch.Placement) error {
+	uninherited, err := uncuratedEnv(deps, pl.HostEnv)
+	if err != nil {
+		return err
+	}
+	unset := append(slices.Clone(pl.Unset), uninherited...)
 	if len(unset) == 0 {
 		return nil
 	}

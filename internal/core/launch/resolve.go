@@ -184,6 +184,7 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 		Degraded:    src.Degraded,
 		HomeMode:    sel.homeMode,
 		Auth:        sel.auth,
+		HostEnv:     sel.hostEnv,
 		Env:         env,
 	})
 	if err != nil {
@@ -257,6 +258,7 @@ type selection struct {
 	permissions agents.Permissions
 	homeMode    HomeMode
 	auth        string
+	hostEnv     agents.HostEnv
 	surfaces    map[string]string
 	roots       map[string]string
 }
@@ -299,6 +301,9 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 	// against the engine it binds (engine.CheckAuth), the one check config
 	// load and `agent create/edit` also run.
 	auth := binding.Auth
+	if err := binding.HostEnv.Validate(); err != nil {
+		return selection{}, fmt.Errorf("agent %q: %w", name, err)
+	}
 	return selection{
 		agent:       name,
 		profiles:    slices.Clone(binding.Profiles),
@@ -307,6 +312,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		permissions: binding.Permissions,
 		homeMode:    home,
 		auth:        auth,
+		hostEnv:     agents.HostEnv{Curated: binding.HostEnv.Curated, Passthrough: slices.Clone(binding.HostEnv.Passthrough)},
 		surfaces:    maps.Clone(binding.Surfaces),
 		roots:       maps.Clone(binding.Roots),
 	}, nil

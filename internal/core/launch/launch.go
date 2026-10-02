@@ -175,6 +175,9 @@ type CellRequest struct {
 	// check that turns it into an engine.AuthMode, against the engine it
 	// binds, and resolves it to the run's credential env.
 	Auth string
+	// HostEnv is the binding's host_env declaration: the host environment
+	// stamps it on its Placement; a container has no inherited env to narrow.
+	HostEnv agents.HostEnv
 	// Env is the run's own environment: the identity carriers the cell's
 	// session state is keyed from and the caller's passthrough.
 	Env map[string]string
@@ -196,6 +199,11 @@ type Placement struct {
 	// them before it drives the engine. An empty value in Env is not the
 	// same thing, and for some variables it means something else entirely.
 	Unset []string
+	// HostEnv is which of the runner's own variables, of those Unset leaves,
+	// the engine inherits (agents.HostEnv.Inherits): the binding's
+	// declaration plus the engine's home var names, set only by the host
+	// environment. Zero inherits every one.
+	HostEnv agents.HostEnv
 	// Home is each declared home var as resolved, at its Engine side.
 	Home []engine.HomeBinding
 	// Trust is the engine's verdict on the repository the workspace is in

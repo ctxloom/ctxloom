@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -40,9 +41,11 @@ func FullLaunch(t *testing.T) launch.Launch {
 		Axes: launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeRootless},
 		Cell: launch.Cell{
 			Placement: launch.Placement{
-				Paths: paths,
-				Env:   map[string]string{"WS_VAR": "ws"},
-				Home:  []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
+				Paths:   paths,
+				Env:     map[string]string{"WS_VAR": "ws"},
+				Home:    []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
+				Unset:   []string{"FIXTURE_STORE"},
+				HostEnv: agents.HostEnv{Curated: true, Passthrough: []string{"FIXTURE_PASS"}},
 			},
 			Workspace: "/proj/.worktrees/harp-1",
 		},

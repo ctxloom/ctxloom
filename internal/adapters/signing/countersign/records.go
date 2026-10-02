@@ -1,7 +1,9 @@
 package countersign
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
@@ -53,63 +55,67 @@ func (c Records) bothStores() []*Store {
 	return []*Store{c.user, c.project}
 }
 
-// INVARIANT, and it is about the PAIR rather than either store.
+// Fault implements composite.Faulted: the reason this pair of stores cannot
+// be read, or nil. The gate withholds EVERYTHING on a fault ("could not
+// evaluate" never means "allow"), and this raises the trust finding once —
+// fatal-class in strict mode, warn-and-continue under --degraded. The remedy
+// follows the cause: an absent store is re-provisioned, a corrupt one is
+// repaired.
+func (c Records) Fault() error {
+	err := c.readable()
+	if err == nil {
+		return nil
+	}
+	remedy := "fix or remove the corrupted approvals store, then re-review (ctxloom review)"
+	if errors.Is(err, ErrStoreAbsent) {
+		remedy = "run 'ctxloom init' to provision the project approvals store, or restore it from version control"
+	}
+	strictness.FailOnce(report.KindTrust, remedy, "approvals store unreadable, denying all items: %v", err)
+	return err
+}
+
+// readable is the INVARIANT about the PAIR rather than either store.
 //
 // The two stores are not two copies of one thing. The USER store
 // (~/.ctxloom/approvals) is personal, machine-global, never committed. The
 // PROJECT store (<repo>/.ctxloom/approvals) is committable and is how a team
-// or a CI run INHERITS a decision. A container or CI runner therefore has NO
-// user store BY DESIGN and draws its trust from the project store alone.
+// or a CI run INHERITS a decision.
 //
-// So an ABSENT user store beside a readable project store is a SUPPORTED
-// configuration and must keep deciding, not fail the run — and the same holds
-// with the two positions swapped, for a project that has never committed an
-// approval. Absence is tolerated per-store (Store.Readable), and
-// that tolerance is the ONLY reason containerized and CI runs work.
+// The project store is PROVISIONED — `ctxloom init` creates it with a tracked
+// placeholder — so its absence means it went away or failed to mount, and is a
+// fault. The user store cannot be provisioned by a checkout: a CI runner or a
+// new machine has none, legitimately, and draws its trust from the project
+// store alone. So an ABSENT user store is tolerated (ErrStoreAbsent), and only
+// that: a user store that EXISTS and cannot be read might be HIDING a
+// rejection, and no amount of health in the project store makes it safe to
+// guess. Do not "simplify" this into "either store readable is enough".
+// TestCountersignRecords_AbsentUserStore_ProjectStoreStillDecides,
+// TestRecords_AbsentProjectStore_Faults and the UnreadableProjectStore test
+// hold the three halves; TestRecords_HomeAppDir_ProjectStoreIsTheUserStore
+// holds the project-less case.
 //
-// What is NOT tolerated, in either position, is a store that EXISTS and cannot
-// be read: that one might be HIDING a rejection, and no amount of health in
-// the other store makes it safe to guess. Do not "simplify" this into "either
-// store readable is enough" — that reads as an equivalent relaxation and is
-// not one. TestCountersignRecords_AbsentUserStore_ProjectStoreStillDecides and
-// its UnreadableProjectStore twin hold both halves.
-//
-// The gap this leaves is named where it lives, in Store.Readable:
-// absence cannot be told from "the store failed to mount" without PROVISIONING
-// the directory, which is an on-disk-layout decision.
-//
-// readable probes both physical stores backing this records value,
-// distinguishing "neither has been written to yet" (nil — the normal
-// fresh-project/fresh-user shape) from "one of them exists but cannot be
-// read" (a non-nil error). See Store.Readable's doc for why
-// this distinction matters: an unreadable store might be hiding a
-// REJECTION, and step 1 of EffectiveTrust is supposed to be supreme. Used
-// only by EffectiveTrust's records-construction preamble — Rejected/Approved
-// themselves stay pure and never consult this.
-// Fault implements composite.Faulted: the reason this pair of stores cannot
-// be read, or nil. The gate withholds EVERYTHING on a fault ("could not
-// evaluate" never means "allow"), and this raises the trust finding once —
-// fatal-class in strict mode, warn-and-continue under --degraded.
-func (c Records) Fault() error {
-	err := c.readable()
-	if err != nil {
-		strictness.FailOnce(report.KindTrust, "fix or remove the corrupted approvals store, then re-review (ctxloom review)",
-			"approvals store unreadable, denying all items: %v", err)
-	}
-	return err
-}
-
+// The user store's resolution fault (c.fault) is reported first, so the error
+// a human can act on is the one they are shown. Used only through Fault —
+// Rejected/Approved themselves stay pure and never consult this.
 func (c Records) readable() error {
 	if c.fault != nil {
 		return fmt.Errorf("user approvals store: %w", c.fault)
 	}
-	if err := c.user.Readable(); err != nil {
+	if err := c.user.Readable(); err != nil && !errors.Is(err, ErrStoreAbsent) {
 		return fmt.Errorf("user approvals store: %w", err)
 	}
-	if err := c.project.Readable(); err != nil {
+	if err := c.project.Readable(); err != nil && !(c.projectIsUserStore() && errors.Is(err, ErrStoreAbsent)) {
 		return fmt.Errorf("project approvals store: %w", err)
 	}
 	return nil
+}
+
+// projectIsUserStore reports whether the two stores are one directory. That is
+// the project-less invocation: the generation reads over the home fallback
+// ~/.ctxloom, whose approvals store IS the user store, so its absence is the
+// user store's absence and not an unprovisioned project.
+func (c Records) projectIsUserStore() bool {
+	return c.user != nil && c.project != nil && filepath.Clean(c.user.dir) == filepath.Clean(c.project.dir)
 }
 
 // Rejected reports a rejection covering ref OR exactly these bytes, from

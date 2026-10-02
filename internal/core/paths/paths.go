@@ -71,6 +71,14 @@ const (
 	// committable) — see HomeApprovalsPath / ApprovalsPath.
 	ApprovalsDirName = "approvals"
 
+	// ApprovalsPlaceholderName is the empty file `ctxloom init` writes into the
+	// project approvals store. Git does not track an empty directory, so
+	// without it a project that has recorded no decision yet would arrive in a
+	// fresh clone with no store at all — and an absent project store withholds
+	// everything, because absence is indistinguishable from a store that went
+	// away (countersign.Store.Readable).
+	ApprovalsPlaceholderName = ".gitkeep"
+
 	// CompanionConsentFileName is the name (without extension) of the
 	// trust-on-first-use record for EXECUTING a companion binary — see
 	// HomeCompanionConsentPath. It is deliberately a PERSONAL-only file with no

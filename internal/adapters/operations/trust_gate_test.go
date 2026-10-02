@@ -233,6 +233,7 @@ func TestExposureGate_FullPath_LocalAllowsAndRejectionWithholds(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
+	provisionApprovals(t, fs, appDir)
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bundlesDir, 0o755))
 	bundleYAML := `version: "1.0"
@@ -298,6 +299,7 @@ func TestExposureGate_SessionStartRegen_Withholds(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 

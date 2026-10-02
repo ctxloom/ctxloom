@@ -66,8 +66,8 @@ func TestSetItemTrust_RefusesAKeyUntrustedForApprove(t *testing.T) {
 		Ref:       seedItemRef(t, seededBundleKey, "fragments/solid"),
 		Signer:    rogue,
 		Root:      fx.root, // trusts fx.signer for approve+reject, and nothing else
-		UserStore: fx.user,
-		Loader:    loader,
+		UserStore: fx.user, ProjectStore: fx.project,
+		Loader: loader,
 	})
 
 	require.Error(t, err, "accepting with a key nobody trusts for approve must FAIL, not report success")
@@ -106,8 +106,8 @@ func TestSetBlacklist_RefusesAKeyUntrustedForReject(t *testing.T) {
 		Ref:       seedItemRef(t, seededBundleKey, "fragments/solid"),
 		Signer:    rogue,
 		Root:      fx.root,
-		UserStore: fx.user,
-		Loader:    loader,
+		UserStore: fx.user, ProjectStore: fx.project,
+		Loader: loader,
 	})
 
 	require.Error(t, err)

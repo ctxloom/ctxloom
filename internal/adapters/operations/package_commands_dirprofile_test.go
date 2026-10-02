@@ -10,6 +10,8 @@
 package operations
 
 import (
+	"github.com/spf13/afero"
+
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,6 +60,7 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 	data, err := yaml.Marshal(doc)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), data, 0o644))
 
 	cfg, err := configload.Load(configload.WithAppDir(appDir))

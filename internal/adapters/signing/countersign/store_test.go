@@ -342,14 +342,19 @@ func TestStore_UnsignedRefReject_RoundTrip(t *testing.T) {
 
 // --- Readable: absent vs unreadable (fail-closed preamble seam) --------------
 
-// A store directory that has never been written to (no decisions recorded
-// yet — the normal fresh-project/fresh-user shape) must read as FINE, never
-// an error: EffectiveTrust's preamble uses this to decide whether to deny
-// everything, and denying every fresh checkout would be its own outage.
-func TestStore_Readable_AbsentDirectory_IsNotAnError(t *testing.T) {
+// An ABSENT store directory is an error, and that is a deliberate reversal:
+// this test used to pin absence as FINE. The approvals store is now
+// PROVISIONED (`ctxloom init` creates it with a tracked placeholder), so a
+// missing directory can only mean it went away or failed to mount — and
+// reading that as "nothing rejected" discards every rejection a human
+// recorded while they believe it is in force. The error names the cause by
+// sentinel so a caller can tell "absent" (re-provision) from "corrupt".
+func TestStore_Readable_AbsentDirectory_IsAnError(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewStore("/store", fs)
-	assert.NoError(t, s.Readable())
+	err := s.Readable()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStoreAbsent)
 }
 
 // A nil *Store (e.g. "no project store configured") reads as absent too.

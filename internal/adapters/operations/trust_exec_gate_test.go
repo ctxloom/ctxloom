@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"github.com/spf13/afero"
+
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,6 +153,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	profilesDir := filepath.Join(appDir, "profiles")
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
@@ -201,6 +204,7 @@ func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	ltkPayload := mcpPayloadOf(bundles.BundleMCP{Command: "ltk", Args: []string{"serve"}})
@@ -224,6 +228,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	profilesDir := filepath.Join(appDir, "profiles")
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
@@ -336,6 +341,7 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SSH_AUTH_SOCK", "")
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	bundletree.WriteOS(t, bundlesDir, "hookb", "version: 1.0.0\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n")

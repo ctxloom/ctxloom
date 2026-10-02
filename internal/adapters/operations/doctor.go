@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -159,6 +160,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckTranscriptReaders(ctx, reg, cfg, app.ProbeEngineVersion),
 			doctorCheckHooksTrust(ctx, reg, cfg, cfgErr),
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
+			doctorCheckApprovalsStore(cfg, cfgErr),
 			doctorCheckContentTrust(cfg, cfgErr),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
@@ -1152,6 +1154,41 @@ func localTierDetail(missing, present []string) string {
 		detail = fmt.Sprintf("%s; %d home-rooted store(s) in use: %s", detail, len(present), strings.Join(present, ", "))
 	}
 	return detail
+}
+
+// doctorCheckApprovalsStore reports whether the project approvals store is
+// provisioned. It is the migration signpost: an absent project store withholds
+// EVERYTHING (countersign.Records.Fault), so a project initialized before init
+// provisioned the store reads as a project whose content all vanished, and
+// this row names the cause and the remedy before the user goes looking for it
+// in the content.
+//
+// The home fallback is exempt: outside a project the generation reads over
+// ~/.ctxloom, whose store IS the user store, and "run ctxloom init" there
+// would scaffold a project in whatever directory the user is standing in.
+func doctorCheckApprovalsStore(cfg *config.Config, cfgErr error) DoctorCheck {
+	const marker = "DOCTOR-CHECK-APPROVALS-STORE-a2"
+	if cfgErr != nil {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: "config did not load: " + cfgErr.Error()}
+	}
+	appDir := doctorAppDir(cfg)
+	if appDir == "" {
+		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no .ctxloom marker directory found; nothing to check"}
+	}
+	store := paths.ApprovalsPath(appDir)
+	if userDir, err := countersign.HomeDir(); err == nil && filepath.Clean(userDir) == filepath.Clean(store) {
+		return DoctorCheck{Marker: marker, Status: DoctorInfo, Detail: "no project: " + store + " is the user approvals store, which needs no provisioning"}
+	}
+	if ApprovalsStoreProvisioned(cfg.FS(), appDir) {
+		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "the project approvals store is provisioned (" + store + ")"}
+	}
+	const remedy = "run `ctxloom init` in the project to provision it, then commit " + paths.ApprovalsDirName + "/" + paths.ApprovalsPlaceholderName
+	if exists, _ := afero.DirExists(getFS(cfg.FS()), store); exists {
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: remedy,
+			Detail: store + " has no tracked " + paths.ApprovalsPlaceholderName + ", so a clone that has recorded no decision arrives without it and every item is withheld there"}
+	}
+	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: remedy,
+		Detail: store + " does not exist, so every item is withheld: an absent store cannot be told from one that went away"}
 }
 
 // doctorCheckContentTrust names remote bundles whose content is being WITHHELD

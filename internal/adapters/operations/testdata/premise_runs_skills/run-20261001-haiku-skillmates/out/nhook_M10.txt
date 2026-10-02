@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I've read the admit skill and need to engage with you on the actual queue state and candidates. Where is the architecture alignment plan, and can you confirm today's queue tag so I can read the current state and make recommendations?

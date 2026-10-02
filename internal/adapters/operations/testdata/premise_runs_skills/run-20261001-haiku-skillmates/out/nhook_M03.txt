@@ -1,0 +1,3 @@
+invoke: prompt-human
+
+I'm not in a git repository (`Is a git repository: false`), so I cannot merge a branch. Please clarify: do you want me to initialize a git repository, or is there existing work in a different location that needs to be merged and closed out?

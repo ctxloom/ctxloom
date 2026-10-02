@@ -1,0 +1,3 @@
+`next: Establish queue and baseline before work.`
+
+I need to complete pre-flight before starting the admitted queue. Let me read the working directory and check for a taskloom setup or admitted work list.

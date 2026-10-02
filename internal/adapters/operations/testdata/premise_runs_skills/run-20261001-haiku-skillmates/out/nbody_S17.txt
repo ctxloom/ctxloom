@@ -1,0 +1,1 @@
+next: I've loaded the `prompt-human` skill and understand how to surface pending decisions with full context. However, this is a fresh session with an empty directory and no prior work. I have no pending decisions to walk through yet. What would you like to work on?

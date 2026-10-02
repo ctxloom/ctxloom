@@ -1,0 +1,1 @@
+`next: Read the taskloom queue for tonight using bash, then present findings and candidates to the human for admission decisions.`

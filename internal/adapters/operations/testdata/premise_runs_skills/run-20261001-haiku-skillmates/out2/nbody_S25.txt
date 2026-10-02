@@ -1,0 +1,3 @@
+`invoke: check-triggers`
+
+I need to read the taskloom queue first to see what's queued for tonight (2026-10-01) and what's carried forward from earlier admissions, then walk through each candidate against the gate and stop conditions.

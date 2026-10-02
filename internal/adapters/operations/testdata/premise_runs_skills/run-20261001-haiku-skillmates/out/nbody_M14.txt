@@ -1,0 +1,1 @@
+`next: Establish queue source and confirm working directory state — system shows not a git repository, which blocks the unattended workflow; need to verify queue exists and understand the environment before proceeding`

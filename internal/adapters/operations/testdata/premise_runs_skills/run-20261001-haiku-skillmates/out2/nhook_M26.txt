@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I cannot establish the queue or run pre-flight for unattended work: this is not a git repository, and I have no information about what work has been admitted. Before proceeding, I need to know: what queue should I work from, and what is the baseline state I'm starting from?

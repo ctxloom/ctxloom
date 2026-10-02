@@ -1,0 +1,3 @@
+`invoke: check-triggers`
+
+I need to read the task log to see what's pending. The `check-triggers` skill will help me do that systematically.

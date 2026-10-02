@@ -1,0 +1,3 @@
+`invoke: task_list, evaluate_triggers`
+
+(First call `task_list` with `statuses: ["Deferred"]` to gather the tasks, then `evaluate_triggers` to get verdicts on their revive triggers.)

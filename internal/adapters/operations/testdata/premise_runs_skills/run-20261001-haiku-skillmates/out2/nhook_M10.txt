@@ -1,0 +1,3 @@
+`prompt-human`
+
+I need the task log, the architecture alignment plan, and access to taskloom to report the live queue's state and propose candidates for tonight's run. What data or resource should I reference?

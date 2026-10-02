@@ -1,0 +1,3 @@
+`invoke: ctxloom`
+
+I'll recover the session using the ctxloom MCP tool to retrieve what was being worked on before the context clear.

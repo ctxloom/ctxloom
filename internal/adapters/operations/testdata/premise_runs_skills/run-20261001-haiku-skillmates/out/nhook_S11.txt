@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I've completed the closeout skill, but I don't have access to the task log, test details, or merged code to verify the checklist items. What files or task references should I review to complete the closeout report?

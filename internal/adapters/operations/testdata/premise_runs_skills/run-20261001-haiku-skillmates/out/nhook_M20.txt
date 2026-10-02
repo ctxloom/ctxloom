@@ -1,0 +1,1 @@
+next: sweep for pending decisions by checking the working directory, memory system, and any task/design artifacts that might contain unanswered questions needing your input.

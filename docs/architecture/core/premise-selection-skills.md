@@ -352,6 +352,37 @@ now-relevant — a delta listing, which is exactly the incremental `sentSkillNam
 phase 0 found the engine already has. That is a ctxloom-side completion hook, not listing
 text, and it is a design for a human to rule on rather than a sixth wording trial.
 
+### The completion hook, measured in the loop — kept
+
+Ruled: measure before keeping; keep `ctxloom hook skill-mates` only if both-found beats the
+4/15 listing-condition ceiling. Run `run-20261001-haiku-skillmates` (beside the scorer).
+
+**Method.** Step 1 is the 4/15 control's own answers, unchanged. Step 2 runs wherever a
+step-1 skill has a link-group mate step 1 did not pick: the model sees the same listing, the
+moment, and the body of each skill it just finished, and says what it does next. Within each
+pair of arms the only difference is the hook's line (`claude.SkillMatesContext`). Link groups
+are an oracle — every consequent pair the corpus expects — so this is the hook's best case.
+Bare haiku, isolated, no tools.
+
+| arm | step-2 question | both-found | precision | single-skill exact |
+|---|---|---|---|---|
+| control | none (step 1 only) | 4 / 15 | 0.957 | 48 / 57 |
+| no hook | "what is your next action?" | 5 / 15, 5 / 15 | 0.870 | 42–43 / 57 |
+| **hook** | same, plus the hook's line | **8 / 15, 7 / 15** | 0.77–0.79 | 32–34 / 57 |
+| no hook | "which further skills do you invoke?" | 11 / 15 | 0.768 | 32 / 57 |
+| hook | same, plus the hook's line | 10 / 15 | 0.735 | 29 / 57 |
+
+The first pair is the hook's real shape: after a skill completes, a session gets the hook's
+line and nothing that asks it to reconsider. There the hook takes both-found from 5 to 7–8 of
+15 across two passes, past the ceiling. **Decision: the hook stays.** The second pair says
+where the recovery comes from: an explicit second decision recovers the pairs with or without
+the line. The hook is a cheap way to cause that second decision; it is not new information.
+
+The cost is precision, and it is concentrated. The hook's extra false positives are almost
+all prompt-human, which the oracle grouped with four skills. A link group therefore earns its
+place only for a consequent pair that really is consequent; a skill that follows many others
+belongs in none.
+
 ### Ruled 2026-09-18 (Ben): `when_to_use` is the premise, and it gets a cap
 
 "when to use is our premise, which we should probably cap." A ctxloom fragment premise has

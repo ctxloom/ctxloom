@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+Pre-flight failure: the working directory is not a git repository, and I have no defined queue (no taskloom tag, file, or item list). I cannot execute the unattended skill without knowing what work is admitted or where to pin the baseline. Please provide the queue source and confirm whether this directory should be a git repo, or clarify what work I can do unattended here.

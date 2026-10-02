@@ -1,0 +1,1 @@
+`next: No git repository or task artifacts exist in this directory — cannot verify gate or update task log. What was the gate result, and what work should I close out?`

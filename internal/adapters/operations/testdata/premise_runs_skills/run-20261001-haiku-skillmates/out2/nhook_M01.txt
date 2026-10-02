@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I don't have any work product to verify or close out in this conversation. To run the closeout checklist, I need: what task was completed, what gate just passed, and what changes should be verified. What should I be wrapping up?

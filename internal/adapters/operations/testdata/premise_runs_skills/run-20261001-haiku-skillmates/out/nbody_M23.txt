@@ -1,0 +1,3 @@
+next: Check the working directory for any task logs, memory files, or context about pending items
+
+I need to sweep your project state first — looking for a task log, MEMORY.md, plans, or design docs that would contain the four items you're asking about. Let me check what's in the working directory.

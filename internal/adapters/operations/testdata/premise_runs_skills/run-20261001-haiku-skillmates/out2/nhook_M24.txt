@@ -1,0 +1,3 @@
+`next: list the working directory to see what context exists (task log, design docs, code, plans)`.
+
+I've just completed the `prompt-human` skill, which surfaces decisions to you. However, I have no prior context — this appears to be a fresh session in an empty directory. Before I can run questions by you one at a time, I need to see what work is in scope: any task logs, design docs, code, or plans that carry open decisions.

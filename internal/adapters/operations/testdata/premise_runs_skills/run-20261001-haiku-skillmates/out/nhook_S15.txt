@@ -1,0 +1,1 @@
+`next: Report that the prompt-human sweep found no outstanding decisions, since this is a fresh working directory with no prior context or work in progress.`

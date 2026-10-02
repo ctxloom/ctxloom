@@ -1,0 +1,1 @@
+`next: I need to clarify the context — this directory isn't a git repository, so I can't merge. What branch should I merge, and is there a task log or project context I should reference for the closeout?`

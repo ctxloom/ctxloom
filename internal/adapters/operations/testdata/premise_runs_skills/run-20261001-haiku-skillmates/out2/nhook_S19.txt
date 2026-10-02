@@ -1,0 +1,1 @@
+next: There's no work in progress yet—no task log, no design docs, no code—so there are no blocked decisions to escalate. I'm ready to help. What would you like to work on?

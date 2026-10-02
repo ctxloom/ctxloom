@@ -1,0 +1,1 @@
+`next: Call task_list and evaluate_triggers tools to identify and report on the 6 deferred tasks with fired triggers`

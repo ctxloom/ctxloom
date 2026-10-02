@@ -57,9 +57,9 @@ flowchart TD
 
 | Function | What it does |
 | --- | --- |
-| `CoordinationBindings` | the 7-row binding table: `agent_run`, `agent_send`, `agent_recv`, `agent_report`, `agent_stop`, `roster`, `agent_fetch_artifact` |
-| `Routes` | the exhaustive 16-tool classification the runner dispatches on |
-| `CoordinatorOnlyTools` | the 4-tool set withheld from leaf agents — the delegation trust boundary |
+| `CoordinationBindings` | the binding table: one row per generated coordination tool |
+| `Routes` | the exhaustive tool classification the runner dispatches on |
+| `CoordinatorOnlyTools` | the set withheld from leaf agents — the delegation trust boundary |
 | `RelayBudget` | per-tool relay budget; zero means "the caller's default" |
 | `NewProjector` | indexes a `FileDescriptorSet` into a `protoregistry.Files` |
 | `Projector.MessageSchema` / `MessageDoc` | public entry points used by the synthetic builders and `ProjectTool` |
@@ -92,22 +92,16 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
 
 ## Real behaviour worth knowing
 
-- **The gate is a tautology over the hand-written parts.** Three schema fragments are Go
-  map literals: `agent_recv`'s input (`binding.go`), `agent_recv`'s output
-  envelope and `agent_report`'s output. Regenerating from
+- **The gate is a tautology over the hand-written parts.** `agent_report`'s output
+  schema is a Go map literal (`binding.go`). Regenerating from
   `binding.go` and diffing against a golden generated from `binding.go` proves the golden
   matches the literal; it says nothing about whether the literal matches the runtime
   handler, which is a *second* hand-written map literal in another package
   (`runner/interaction/server.go`). They agree today and nothing enforces that they continue
   to.
-- **`agent_recv`'s wait bounds** are `mcpschema.RecvWaitDefault` and
-  `coord.RecvWaitMax` (the verb's bound, which the shutdown drain shares);
-  the schema prose quotes them from the declaration, and the runtime clamps
-  (`mcpschema.ClampRecvWait`) rather than rejecting.
 - **`additionalProperties: false` is set only at the top level** (`project.go`), so
   the stated "models must not invent argument names" invariant does not hold for nested
-  objects (`agent_run`'s `budget`, `roster`'s `runs.items`, `agent_recv`'s
-  `messages.items` and `artifacts.items`). `unmarshalArgs` uses `protojson` with default
+  objects (`agent_run`'s `budget`, `roster`'s `runs.items`). `unmarshalArgs` uses `protojson` with default
   options, which rejects unknown fields at *every* depth, so a nested unknown key is
   schema-legal and unmarshal-fatal.
 - **The `required` keyword this package emits is enforced by nobody.**

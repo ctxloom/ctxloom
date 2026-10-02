@@ -21,7 +21,7 @@ journal, not just against the spawning code in isolation.
 
 ## Spawn, message, stop — the shape of a delegated run
 
-A coordinator reaches its children through four MCP tools, all scoped to the coordinator's own
+A coordinator reaches its children through MCP tools, all scoped to the coordinator's own
 session:
 
 - **`agent_run`** launches a configured [agent](/concepts/agents/) as a child session and
@@ -29,8 +29,9 @@ session:
   else) and `child_run_id`. It's an async spawn: the child does its work off in its own session
   while the coordinator moves on, and results come back as mailbox messages, not a blocking
   return value.
-- **`agent_recv`** waits (up to a bounded timeout) for those messages. A child parked here
-  yields its execution slot rather than burning a turn polling.
+- Those messages are **delivered, not fetched**: mail to a session arrives as context at the
+  start of its next turn, and its arrival starts that turn when the session is idle. There is
+  no receive tool and nothing to wait on.
 - **`agent_send`** delivers a message — coordinator to child by harp, or child to coordinator via
   the reserved `to_role: "parent"` address. Delivery is durable: a message to a child that's
   gone quiet is still there when it resumes, even across a coordinator restart.
@@ -48,7 +49,7 @@ Every one of these is served by the session's own runner, on the MCP endpoint a 
 session gets automatically. There is no standalone ctxloom MCP server to register: the endpoint
 exists only while the session runs (see the [MCP Server guide](/guides/mcp-server/)). You don't
 wire this up; it's there because you're running through `ctxloom run` at all. A delegated child
-that sits at the bottom of the tree gets only the reporting half (`agent_send`, `agent_recv`,
+that sits at the bottom of the tree gets only the reporting half (`agent_send`,
 `agent_report`); the tools that spawn, observe or control other children are withheld from it.
 
 ## Why each child gets its own grant, never a union

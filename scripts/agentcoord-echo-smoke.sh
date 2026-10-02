@@ -4,7 +4,7 @@
 # Drives a real ctxloom session that delegates one turn to a configured agent
 # and asserts the child echoes a marker phrase back through the coordinator's
 # durable role mailbox — the whole reach-back path end to end (spawn → runner
-# unix-socket MCP → RunChannel plane-2 → durable mailbox → parent agent_recv).
+# unix-socket MCP → RunChannel plane-2 → durable mailbox → the parent's spool).
 #
 #   scripts/agentcoord-echo-smoke.sh [--agent NAME] [--runtime host|container]
 #
@@ -124,7 +124,7 @@ cleanup() {
 }
 trap cleanup EXIT
 prompt="$(build_prompt "$MARKER")"
-coordinator_brief="Call agent_run(role:\"$AGENT\", input:{prompt:\"$prompt\"}). Then call agent_recv (wait:120) and print any message text you receive. Then stop."
+coordinator_brief="Call agent_run(role:\"$AGENT\", input:{prompt:\"$prompt\"}). Then stop: the child's reply reaches your mailbox on its own, and this run judges it from the journals."
 
 # CTXLOOM_VERBOSE=1 turns on the CHILD-side launch diagnostics: the
 # coordinator's spawner forwards the child runner's stderr through its own

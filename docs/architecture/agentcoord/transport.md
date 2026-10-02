@@ -167,12 +167,12 @@ bodies, which duplicate coordinator verbs reachable from the other transport
 | `Home` | the runner's whole relationship with the coordinator: connection lifecycle, run-channel transport, event plane, request plane, mail plane, artifact transfer — six disjoint field partitions under one mutex |
 | `HomeConfig` | the spawn-injected coordinator trio (`URL`, `Token`, `RunID`) plus runner self-description and the `RunnerRequestHandler` |
 | `NewHome` | dials and starts both channel loops; **never fails hard on an unreachable coordinator**, by design and documented |
-| `Home.runChannelOnce` | Hello/ack, then reissue unacked events, pending requests and the park, then receive |
+| `Home.runChannelOnce` | Hello/ack, then reissue unacked events and pending requests, then receive |
 | `Home.send` | single-writer frame send; drops when the stream is nil, because events sit in `unacked` and requests in `pending` and both are reissued |
 | `Home.advanceAck` | moves the cumulative watermark, prunes `unacked`, wakes waiters |
 | `Home.Request` / `requestFailure` | one plane-2 request, id-correlated and reconnect-durable; the failure text distinguishes "never delivered" from "accepted and may still be running" |
-| `Home.Recv` / `deliverNotice` / `SetTurnSink` / `turnPump` | see [mailbox.md](mailbox.md) |
-| `Home.ReportRunExited` / `Close` / `crash` | best-effort exit report; final cursor-ack then teardown; the test-only hard teardown |
+| `deliverNotice` / `SetTurnSink` / `turnPump` | a hosted run's mail as turns; the session owner's is its turn-start hook's (`sweepSpoolIn` → `wakeOwner`) |
+| `Home.ReportRunExited` / `Close` / `crash` | best-effort exit report; teardown; the test-only hard teardown |
 | `Home.goTracked` / `waitTracked` | tracked goroutine dispatch refused after `closing`; bounded join that warns and proceeds |
 
 The `mu`/`wg`/`closing` + `goTracked`/`waitTracked` idiom is duplicated four times

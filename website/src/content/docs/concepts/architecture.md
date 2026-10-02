@@ -196,8 +196,8 @@ ctxloom declares the server in its own companion loadout, so it reaches the
 engine through the same bundle path as any other MCP server.
 
 The endpoint serves retrieval tools (context assembly, content search, session
-memory) and the delegation tools (`agent_run`, `agent_send`, `agent_recv` and
-the rest of the coordination set). Catalog listings are MCP resources
+memory) and the delegation tools (`agent_run`, `agent_send` and the rest of
+the coordination set). Catalog listings are MCP resources
 (`ctxloom://...`), not tools. The [MCP Tools Reference](/reference/mcp-tools/)
 is generated from the live registrations and lists every tool and resource.
 

@@ -25,7 +25,7 @@ exclude_mcp:
 ```
 
 Withholding it costs the session every ctxloom tool, including the
-`agent_send`/`agent_recv`/`agent_report` bus a delegated child reports back on.
+`agent_send`/`agent_report` bus a delegated child reports back on.
 
 ## What the Server Exposes
 

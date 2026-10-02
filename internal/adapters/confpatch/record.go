@@ -144,7 +144,7 @@ func (s *Store) Last(target string) (Record, bool, error) {
 	var newestKey string
 	found := false
 
-	names, err := s.recordNames(target)
+	names, err := RecordNames(s.fs, s.dir, target)
 	if err != nil {
 		return newest, false, err
 	}
@@ -163,20 +163,22 @@ func (s *Store) Last(target string) (Record, bool, error) {
 	return newest, found, nil
 }
 
-// recordNames lists target's record files in the store, sorted by name. No
-// record directory yet means no prior application — the first write to any
-// target reaches here, so it is not an error.
-func (s *Store) recordNames(target string) ([]string, error) {
-	exists, err := afero.DirExists(s.fs, s.dir)
+// RecordNames lists target's record files in dir, sorted by name. No record
+// directory yet means no prior application — the first write to any target
+// reaches here, so it is not an error. Exported because the claims record
+// (fsstatic) retires the records this store's ctxloom writer kept, and must
+// find them by the same naming.
+func RecordNames(fs afero.Fs, dir, target string) ([]string, error) {
+	exists, err := afero.DirExists(fs, dir)
 	if err != nil {
-		return nil, fmt.Errorf("confpatch: stat %s: %w", s.dir, err)
+		return nil, fmt.Errorf("confpatch: stat %s: %w", dir, err)
 	}
 	if !exists {
 		return nil, nil
 	}
-	entries, err := afero.ReadDir(s.fs, s.dir)
+	entries, err := afero.ReadDir(fs, dir)
 	if err != nil {
-		return nil, fmt.Errorf("confpatch: read %s: %w", s.dir, err)
+		return nil, fmt.Errorf("confpatch: read %s: %w", dir, err)
 	}
 	prefix := RecordPrefix(target)
 	names := make([]string, 0, len(entries))

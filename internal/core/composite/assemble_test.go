@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // selectAlpha is the selection most assembly tests start from: alpha's
@@ -328,4 +329,14 @@ func TestAssemble_ExportNamesShortenAndResolveCollisions(t *testing.T) {
 		names = append(names, c.Name)
 	}
 	assert.Equal(t, []string{"check-triggers", "alpha/release", "alpha/review", "beta/ship"}, names, "the engine sees the export names")
+}
+
+// TestEngineItems_HooksCountOnlyThisEnginesNativeEvents: hooks declared by
+// an engine's own event names are that engine's items, and no other's.
+func TestEngineItems_HooksCountOnlyThisEnginesNativeEvents(t *testing.T) {
+	p := composite.Package{Hooks: wire.HooksConfig{Ext: map[string]wire.BackendHooks{
+		"claude-code": {"Notification": []wire.Hook{{Command: "./notify.sh"}}},
+	}}}
+	assert.Equal(t, []wire.Hook{{Command: "./notify.sh"}}, p.EngineItems("claude-code").Hooks)
+	assert.Empty(t, p.EngineItems("mock").Hooks, "another engine's native hooks are not this engine's items")
 }

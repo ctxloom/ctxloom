@@ -1,6 +1,7 @@
 // Package claude is ctxloom's Claude Code engine: the kind (definition.go),
-// its instance (instance.go), its backend (claudecode.go) and the
-// settings/hooks writer that implements agent.SettingsWriter (this file).
+// its instance (instance.go), its backend (claudecode.go) and the settings
+// file's reader, agent.SettingsReader, with the CLAUDE.md context write (this
+// file).
 package claude
 
 import (
@@ -11,12 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
-	"github.com/ctxloom/ctxloom/internal/shared/safefs"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	_ "github.com/benjaminabbitt/hew/go/ext/json"
@@ -24,27 +20,22 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
-// NewWriter constructs the Claude Code settings writer.
-func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
-	return &ClaudeCodeHookWriter{FS: o.FS, Reporter: o.Reporter, projectClaims: o.ProjectClaims}
+// NewWriter constructs Claude Code's settings writer: the status read
+// (agent.SettingsReader) and the CLAUDE.md context write.
+func NewWriter(o agent.SettingsOptions) agent.SettingsReader {
+	return &ClaudeCodeHookWriter{FS: o.FS, projectClaims: o.ProjectClaims}
 }
 
 // ClaudeCodeHookWriter writes hooks to Claude Code's settings.json format.
 type ClaudeCodeHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
-	// Reporter is where the ledger names entries it refuses; nil discards.
-	Reporter report.Sink
-	// statusLineDisabled opts out of managing the ctxloom HUD statusline.
-	statusLineDisabled bool
 	// projectClaims is the ownership record's account of what the project
 	// writer has installed (agent.SettingsOptions.ProjectClaims).
 	projectClaims func(target string) ([]string, error)
@@ -170,114 +161,6 @@ func (h claudeCodeHook) line() string {
 	return wire.Hook{Command: h.Command, Args: h.Args}.Line()
 }
 
-// WriteSettings implements SettingsWriter for Claude Code.
-// Hooks are written to .claude/settings.json
-// MCP servers are written to .mcp.json (where variable expansion works)
-func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, projectDir string) error {
-	// Write hooks + statusline to settings.json. This legacy interface method
-	// carries no deny_tools payload (the agent.SettingsWriter interface is
-	// shared across every backend, so extending its signature is a
-	// cross-module change out of scope here) — real launches deliver
-	// deny_tools through the surfaces × cells seam (surfacedelivery.go's
-	// DeliverSettings) instead. This method's only callers are tests.
-	if err := w.writeSettingsFile(hooks, nil, projectDir); err != nil {
-		return err
-	}
-
-	// Write MCP servers to .mcp.json (separate file where variable expansion works)
-	return w.writeMCPConfig(projectDir, bundleMCP)
-}
-
-// writeSettingsFile writes the settings.json half of WriteSettings: it replaces
-// ctxloom-managed hooks, (re)configures the managed statusline, and unions
-// denyTools into permissions.deny under projectDir, preserving user-authored
-// entries. It is factored out of WriteSettings — same bytes, same effects —
-// so the delivery seam can materialize the settings surface (hooks +
-// statusline + deny_tools) independently of the .mcp.json surface
-// (writeMCPConfig); WriteSettings composes the two (with denyTools nil — see
-// its doc).
-func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTools []string, projectDir string) error {
-	if hooks == nil {
-		hooks = &wire.HooksConfig{}
-	}
-
-	fs := w.getFS()
-	settingsPath := w.SettingsPath(projectDir)
-
-	// The lock spans the whole load-modify-save-and-ledger-write cycle below:
-	// a SessionStart hook, the MCP server, the CLI, the runner, and an
-	// in-container ctxloom (same file bind-mounted) all reach this same
-	// settings.json unlocked otherwise — see agent.WithFileLock's doc.
-	return sessions.WithFileLock(fs, settingsPath, func() error {
-		// Ensure .claude directory exists
-		claudeDir := filepath.Dir(settingsPath)
-		if err := fs.MkdirAll(claudeDir, 0755); err != nil {
-			return fmt.Errorf("failed to create .claude directory: %w", err)
-		}
-
-		// Load existing settings
-		settings, err := w.loadSettings(settingsPath)
-		if err != nil {
-			return fmt.Errorf("failed to load existing settings: %w", err)
-		}
-
-		// Remove the hooks ctxloom wrote last time. Ownership comes from the shared
-		// managed-content ledger beside settings.json — Claude Code's strict schema
-		// forbids an in-file marker (claudeCodeHook.SCM is json:"-" and never
-		// reaches disk), which is exactly what a SIDECAR record is for.
-		led := ledger.Ledger{FS: fs, Dir: claudeDir, Warn: report.To(w.Reporter).Warnf}
-		owned, err := led.Read(ledger.SurfaceHooks)
-		if err != nil {
-			return err
-		}
-		w.removeCtxloomHooks(settings, owned)
-
-		// Add ctxloom hooks from unified config
-		w.addUnifiedHooks(settings, hooks.Unified)
-
-		// Add ctxloom hooks from backend-specific passthrough
-		if backendHooks, ok := hooks.Ext[EngineName]; ok {
-			w.addBackendHooks(settings, backendHooks)
-		}
-
-		// Configure statusLine if not already set by the user.
-		prevStatus, err := led.Read(ledger.SurfaceStatusLine)
-		if err != nil {
-			return err
-		}
-		statusOwned := settings.StatusLine != nil && len(prevStatus) > 0 &&
-			prevStatus[0] == agent.ComputeCommandDigest(settings.StatusLine.Command)
-		w.ensureStatusLine(settings, statusOwned)
-
-		// Reconcile ctxloom's deny entries, withdrawing any it no longer declares.
-		prevDeny, err := led.Read(ledger.SurfacePermissions)
-		if err != nil {
-			return err
-		}
-		nowDeny := w.mergeDenyTools(settings, denyTools, prevDeny)
-
-		// Write hooks to settings.json, then record exactly what was written so the
-		// next reconcile removes THOSE and nothing else.
-		if err := w.saveSettings(settingsPath, settings); err != nil {
-			return err
-		}
-		if err := led.Write(ledger.SurfaceHooks, w.managedHookDigests(settings)); err != nil {
-			return err
-		}
-		if err := led.Write(ledger.SurfacePermissions, nowDeny); err != nil {
-			return err
-		}
-		// Everything ctxloom wrote is now recorded, and only what it still writes:
-		// the record is current state, never an append-only history, so it cannot
-		// accumulate cruft — a surface ctxloom stops writing is cleared, not grown.
-		var statusNow []string
-		if settings.StatusLine != nil && exectoken.IsManaged(settings.StatusLine.Command, "ctxloom") {
-			statusNow = []string{agent.ComputeCommandDigest(settings.StatusLine.Command)}
-		}
-		return led.Write(ledger.SurfaceStatusLine, statusNow)
-	})
-}
-
 // ContextPath returns the path to Claude Code's native context file
 // (<projectDir>/CLAUDE.md). Sibling of SettingsPath/MCPConfigPath, added for
 // the read half (contextSurface.State in surfaces.go) so it shares the exact
@@ -311,14 +194,11 @@ func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agen
 // loadSettings loads existing settings.json or returns empty settings for a
 // missing file.
 //
-// On a PARSE failure it does NOT fabricate an empty settings object: the
-// caller (writeSettingsFile) persists whatever loadSettings returns, so
-// returning empty-but-valid settings here used to make ctxloom overwrite a
-// user's corrupt-but-recoverable settings.json (permissions, env, hooks) with
-// an empty one — silent data loss (taskloom lone-taste). Instead, on a parse
-// failure the raw bytes are backed up to <path>.corrupt-<unix-timestamp> and
-// a real error is returned so writeSettingsFile aborts before touching the
-// file, pointing the user at the backup to fix by hand.
+// On a PARSE failure it does NOT fabricate an empty settings object: empty
+// settings would read as "nothing installed" and "no statusline", and a
+// statusline claim would then take a slot a corrupt file still holds. The raw
+// bytes are backed up to <path>.corrupt-<unix-timestamp> and a real error is
+// returned, pointing the user at the backup to fix by hand.
 func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, error) {
 	settings := &claudeCodeSettings{
 		Hooks: make(map[string][]claudeCodeHookMatcher),
@@ -383,13 +263,8 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 		delete(raw, "permissions")
 	}
 
-	// A legacy mcpServers block stays exactly where it is, in Other. This
-	// used to be deleted under a comment claiming a migration to .mcp.json —
-	// but no migration code exists, nothing ever reads the block, and
-	// writeMCPConfig only ever reads and writes .mcp.json. So the delete was
-	// pure loss, and it ran on the UNINSTALL path too (removeSettingsFile →
-	// loadSettings → saveSettings), meaning ctxloom destroyed a user's
-	// servers while being removed.
+	// A legacy mcpServers block stays where it is, in Other: ctxloom's
+	// servers live in .mcp.json, and nothing of ctxloom's owns this one.
 
 	// Preserve other fields
 	settings.Other = raw
@@ -399,12 +274,11 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 
 // parseStatusLine decodes the statusLine block, refusing the whole read when
 // it cannot. A statusLine is a single slot, but "ctxloom does not recognize it"
-// is not the same as "the user has none": treating the two alike handed
-// ensureStatusLine an empty slot to fill, which overwrote a value only the user
-// had authored — and deleted it when the managed HUD is opted out. ctxloom is
-// the wrong party to decide the fate of a value it just failed to read, so this
-// takes the same stance as parsePermissions and the hooks block: back the
-// original up and abort before anything is written.
+// is not the same as "the user has none": treating the two alike would hand a
+// statusline claim a slot the user had filled. ctxloom is the wrong party to
+// decide the fate of a value it just failed to read, so this takes the same
+// stance as parsePermissions and the hooks block: back the original up and
+// refuse.
 func (w *ClaudeCodeHookWriter) parseStatusLine(path string, data []byte, raw json.RawMessage) (*claudeCodeStatusLine, error) {
 	var sl claudeCodeStatusLine
 	if err := json.Unmarshal(raw, &sl); err != nil {
@@ -453,160 +327,6 @@ func (w *ClaudeCodeHookWriter) corruptSettings(path string, data []byte, what st
 	return agent.RefuseCorrupt(w.getFS(), path, data, what, cause, consequence)
 }
 
-// permissionsOutput renders the permissions block for re-emission: the
-// preserved sibling keys first, then the ctxloom-managed Deny list layered on
-// top — the same shape as saveSettings' top-level output map. A sibling that
-// cannot be re-encoded refuses the whole write (preserveFailure); dropping one
-// silently would delete the user's own allow/ask/defaultMode rules.
-func permissionsOutput(path string, perm *claudeCodePermissions) (map[string]interface{}, error) {
-	out, err := preservedOutput(path, "permissions.", perm.Other)
-	if err != nil {
-		return nil, err
-	}
-	if len(perm.Deny) > 0 {
-		out["deny"] = perm.Deny
-	}
-	return out, nil
-}
-
-// statusLineOutput renders the statusLine for re-emission: its preserved
-// unmodelled keys, then the typed fields layered on top — permissionsOutput's
-// shape, for the same reason.
-func statusLineOutput(path string, sl *claudeCodeStatusLine) (map[string]interface{}, error) {
-	out, err := preservedOutput(path, "statusLine.", sl.Other)
-	if err != nil {
-		return nil, err
-	}
-	out["type"] = sl.Type
-	out["command"] = sl.Command
-	if sl.Padding != 0 {
-		out["padding"] = sl.Padding
-	}
-	return out, nil
-}
-
-// preservedOutput is the re-emission gate every preserved block shares: each
-// key goes back out as its ORIGINAL bytes, and decoding it serves only to
-// reject what cannot be carried through (preserveFailure). Handing the DECODED
-// value to the canonicaliser instead would round every number the user wrote
-// past float64's exact range — 1234567890123456789 comes back
-// 1234567890123456800 — a rewrite of the user's own file that no warning or
-// exit code reports. prefix qualifies the key named in a refusal.
-func preservedOutput(path, prefix string, other map[string]json.RawMessage) (map[string]interface{}, error) {
-	out := make(map[string]interface{}, len(other))
-	for k, v := range other {
-		var val interface{}
-		if err := json.Unmarshal(v, &val); err != nil {
-			return nil, preserveFailure(path, prefix+k, err)
-		}
-		out[k] = json.RawMessage(v)
-	}
-	return out, nil
-}
-
-// preserveFailure refuses a write that could not carry a preserved field
-// through. Every key in settings.json is user-authored unless ctxloom manages
-// it by name, so emitting the document without one is silent data loss on the
-// user's own file — and for a permissions.* sibling, silent data loss on a
-// security surface. Returning here leaves the file exactly as it was, the same
-// stance loadSettings takes on a block it cannot parse.
-//
-// The bytes always ARE valid JSON (they were lifted out of a document that
-// parsed), but valid JSON is not always decodable into `any`: a number outside
-// float64's range is the reachable case, and the value has to survive it.
-func preserveFailure(path, key string, cause error) error {
-	return fmt.Errorf("refusing to write %s: cannot re-encode the existing %q setting: %w "+
-		"(it would be dropped from the file; edit that value by hand to a form ctxloom can preserve)",
-		path, key, cause)
-}
-
-// saveSettings writes settings back to settings.json.
-// Note: MCP servers are written separately to .mcp.json
-//
-// This function implements two safety measures for Claude schema resilience:
-// 1. Backup: Creates a .bak file before modifying (preserves original on schema changes)
-// 2. Atomic write: Writes to temp file first, then renames (prevents corruption)
-func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSettings) error {
-	// Build output map starting with preserved fields
-	output, err := preservedOutput(path, "", settings.Other)
-	if err != nil {
-		return err
-	}
-
-	// Add hooks if non-empty
-	if len(settings.Hooks) > 0 {
-		output["hooks"] = settings.Hooks
-	}
-
-	// Add statusLine if configured
-	if settings.StatusLine != nil {
-		slOut, err := statusLineOutput(path, settings.StatusLine)
-		if err != nil {
-			return err
-		}
-		output["statusLine"] = slOut
-	}
-
-	// Add permissions if configured: Other's preserved sibling keys first, then
-	// the typed Deny list layered on top — same shape as the top-level output
-	// map above (preserved fields, then ctxloom-managed ones).
-	if settings.Permissions != nil {
-		permOut, err := permissionsOutput(path, settings.Permissions)
-		if err != nil {
-			return err
-		}
-		if len(permOut) > 0 {
-			output["permissions"] = permOut
-		}
-	}
-
-	// Note: ctxloom's own MCP servers are NOT written here — they go to
-	// .mcp.json. A LEGACY mcpServers block that was already in the user's
-	// settings.json rides along in Other and is emitted verbatim above:
-	// nothing migrates it, so dropping it would just delete it.
-
-	data, err := agent.CanonicalJSON(output)
-	if err != nil {
-		return fmt.Errorf("failed to marshal settings: %w", err)
-	}
-
-	return safefs.WriteFileKeepMode(w.getFS(), path, data, "settings")
-}
-
-// writeMCPConfig writes MCP servers to .mcp.json.
-// This file supports ${CLAUDE_PROJECT_DIR} variable expansion.
-func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, bundleMCP map[string]wire.MCPServer) error {
-	mcpPath := w.MCPConfigPath(projectDir)
-
-	// See writeSettingsFile: the lock spans load through save, the whole RMW
-	// cycle a concurrent writer of the SAME .mcp.json could otherwise race.
-	// .mcp.json sits directly in projectDir, so this writer used to depend on
-	// someone else having created it — and for an out-of-cwd delivery that
-	// someone was whichever surface happened to be delivered first. When the
-	// context surface delivered nothing, the per-session scratch directory was
-	// never created and this write failed with a bare ENOENT about a temp file.
-	if err := w.getFS().MkdirAll(projectDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create MCP config directory: %w", err)
-	}
-
-	// .mcp.json is the USER'S file. ctxloom's servers go in through confpatch,
-	// which reverses what ctxloom put there last time before writing what it
-	// wants there now — so an entry ctxloom no longer registers goes away
-	// without ctxloom ever asking the user's file which entries are its own.
-	//
-	// That question is what the old code asked, by marker and by command
-	// inspection, and it was the wrong question: the round trip through a
-	// typed document it required modelled one field whose values modelled
-	// five, so a hand-authored remote server ({"type","url","headers"}) came
-	// back as {"command": ""} — every unmodelled field destroyed and an
-	// invalid empty command invented, on a success path with a success message.
-	desired, err := w.desiredMCPServers(bundleMCP)
-	if err != nil {
-		return err
-	}
-	return w.applyMCP(mcpPath, desired)
-}
-
 // desiredMCPServers is the set of servers ctxloom wants present, as generic
 // values — the user's own servers are never part of it. Each entry is spelled
 // by the shared agent.ChatMCPConfigEntryOf, so a remote server lands here as
@@ -631,18 +351,6 @@ func (w *ClaudeCodeHookWriter) desiredMCPServers(bundleMCP map[string]wire.MCPSe
 		out[name] = generic
 	}
 	return out, nil
-}
-
-// applyMCP writes the desired server set into .mcp.json through the record.
-// An EMPTY desired set is the uninstall: the reversal alone runs, and the user
-// is left with exactly the file they wrote.
-func (w *ClaudeCodeHookWriter) applyMCP(mcpPath string, desired map[string]any) error {
-	store, err := w.recordStore()
-	if err != nil {
-		return err
-	}
-	_, err = applyMCPServers(w.getFS(), store, mcpPath, desired, collections.SortedKeys(desired))
-	return err
 }
 
 // applyMCPServers is the one write into a "mcpServers" table: it puts desired
@@ -714,250 +422,13 @@ func applyMCPServers(fs afero.Fs, store *confpatch.Store, mcpPath string, desire
 	return res, nil
 }
 
-// recordStore is the home-rooted §9.7 record store this writer applies through.
-func (w *ClaudeCodeHookWriter) recordStore() (*confpatch.Store, error) {
-	dir, err := paths.HomeRecordsDir()
-	if err != nil {
-		return nil, err
-	}
-	return confpatch.NewStore(w.getFS(), dir, "ctxloom")
-}
-
 // mcpServersKey is the one container ctxloom writes into in .mcp.json.
 const mcpServersKey = "mcpServers"
-
-// ensureStatusLine configures the ctxloom HUD statusline if not already set by the user.
-// If the user has configured their own statusLine (not ctxloom-managed), it is preserved.
-//
-// The statusLine is a single dedicated slot, so we recognize ours by the
-// executable alone (isCtxloomManaged) — not the verb. Keying on the exact
-// `meta hud` path orphaned installs whenever the verb moved (the legacy
-// `ctxloom hook hud` form): this saw an unrecognized command, assumed it
-// was user-authored, and preserved it. The dead `hook hud` then dumped the
-// `hook` help into the status bar on every render. Matching any
-// ctxloom-emitted command lets apply migrate it forward.
-func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings, prevOwned bool) {
-	// If a statusline is set and ctxloom did not write it, it is the user's:
-	// leave it alone. Ownership is the ledger's record of what ctxloom last
-	// installed — the user is entitled to point their OWN statusline at the
-	// ctxloom binary ("ctxloom hook hud --theme mine"), and matching on the
-	// executable token, as this used to, took those over silently.
-	//
-	// The exact-command fallback covers the one case the ledger cannot: a
-	// statusline ctxloom installed BEFORE the ledger existed has no record, and
-	// leaving it stranded would freeze a stale command in the status bar
-	// forever. Reclaiming ctxloom's own canonical command is bounded; reclaiming
-	// any command that mentions ctxloom is not.
-	if settings.StatusLine != nil && !prevOwned && settings.StatusLine.Command != ctxloomStatusLineCommand() {
-		return
-	}
-
-	// Opt-out: don't manage a statusline. Clear any previously ctxloom-managed
-	// one so the user ends up with their own choice (or none).
-	if w.statusLineDisabled {
-		settings.StatusLine = nil
-		return
-	}
-
-	// Set or update ctxloom-managed statusLine. Command names the bare
-	// executable (agent.CtxloomCommand) and resolves via PATH at fire time:
-	// settings.json is a TRACKED file, so an absolute path here is one
-	// developer's machine baked into every clone.
-	// Reclaiming ctxloom's own line keeps its unmodelled keys: ctxloom never
-	// writes one, so any there are the user's.
-	var other map[string]json.RawMessage
-	if settings.StatusLine != nil {
-		other = settings.StatusLine.Other
-	}
-	settings.StatusLine = &claudeCodeStatusLine{
-		Type:    "command",
-		Command: ctxloomStatusLineCommand(),
-		Other:   other,
-	}
-}
 
 // ctxloomStatusLineCommand is the exact statusline command ctxloom installs —
 // one definition, so the writer and the ownership check can never disagree.
 func ctxloomStatusLineCommand() string {
 	return agent.CtxloomCommand() + " hook hud"
-}
-
-// mergeDenyTools unions denyTools into settings.Permissions.Deny —
-// MONOTONIC ADD ONLY: an entry is never removed by a later apply or by
-// RemoveSettings/uninstall (removeSettingsFile does not touch Permissions at
-// all).
-//
-// This is a deliberate asymmetry from the reconcile patterns either side of
-// it. Hooks (removeCtxloomHooks) are safe to remove-then-readd because each
-// entry carries an ownership marker; .mcp.json is safe because its record
-// says what ctxloom applied. A plain string in a JSON deny array has neither
-// -- no marker — Claude Code's settings schema has no room to attach one (the
-// same strict-schema constraint documented on claudeCodeHook.SCM) — so
-// ctxloom cannot distinguish "a denial IT added" from "a denial the user
-// hand-wrote" well enough to safely retract just its own. Erring toward
-// "stays denied" is the SAFE direction for a denial (it can never silently
-// re-enable a tool a human or a prior ctxloom apply restricted); erring
-// toward "stays allowed" would not be. A user who wants a denial gone edits
-// settings.json by hand.
-// mergeDenyTools reconciles ctxloom's deny entries into permissions.deny and
-// returns the set it now claims, for the caller to record in the ledger.
-//
-// It used to only ever APPEND, which made every entry a one-way leak: config
-// stopped declaring a tool and the deny stayed in the user's settings forever,
-// because nothing recorded that ctxloom had put it there rather than the user.
-// It now RECONCILES like every other surface — the previously claimed set
-// (prev, from the ledger) is withdrawn first, so an entry ctxloom no longer
-// declares actually goes away.
-//
-// Retracting a denial is a real security change, which is why it is keyed on
-// the ledger and nothing else: only entries ctxloom RECORDED writing are
-// removed. A deny the user wrote by hand was never recorded and is never
-// touched, even when it is byte-identical to one ctxloom also declares — in
-// that case ctxloom does not claim it either (see the `existing[t]` skip), so
-// the user's entry outlives ctxloom's interest in it.
-func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, denyTools []string, prev []string) []string {
-	claimed := make(map[string]bool, len(prev))
-	for _, p := range prev {
-		claimed[p] = true
-	}
-
-	// Withdraw what ctxloom previously claimed, so an entry it no longer
-	// declares actually goes away. Only CLAIMED entries are removed: an
-	// identical deny the USER wrote was never recorded, so it is never touched
-	// — which is what makes retraction safe to do at all.
-	if settings.Permissions != nil && len(claimed) > 0 {
-		kept := settings.Permissions.Deny[:0]
-		for _, d := range settings.Permissions.Deny {
-			if !claimed[d] {
-				kept = append(kept, d)
-			}
-		}
-		settings.Permissions.Deny = kept
-	}
-
-	if len(denyTools) == 0 {
-		return nil
-	}
-	if settings.Permissions == nil {
-		settings.Permissions = &claudeCodePermissions{}
-	}
-	existing := make(map[string]bool, len(settings.Permissions.Deny))
-	for _, d := range settings.Permissions.Deny {
-		existing[d] = true
-	}
-	var now []string
-	for _, t := range denyTools {
-		if t == "" {
-			continue
-		}
-		// An entry the USER already has is theirs, not ours to claim: adding it
-		// to the ledger would hand a later run the right to delete it.
-		if existing[t] {
-			continue
-		}
-		existing[t] = true
-		settings.Permissions.Deny = append(settings.Permissions.Deny, t)
-		now = append(now, t)
-	}
-	return now
-}
-
-// removeCtxloomHooks removes all ctxloom-managed hooks from settings, pruning
-// any matcher it empties.
-//
-// Identity is the command's leading EXECUTABLE TOKEN resolving to `ctxloom`
-// (agent.IsManaged) — path-, quote- and VERB-agnostic. Two consequences follow
-// from that and neither is a substring match on the command line: every
-// `ctxloom <anything>` hook is removed, not only the inject-context callback, so
-// the callback's subcommand can move without orphaning old installs; and a
-// command that merely mentions ctxloom somewhere in its arguments is another
-// tool's hook and is left alone.
-//
-// The SCM field is checked for in-memory hooks but is not serialized to JSON
-// (Claude Code uses strict schema validation that rejects unknown fields).
-// ctxloomMachineCallbacks are ctxloom's OWN hook targets — the machine
-// callbacks it installs, never something a user would author for their own
-// purposes. They are removed regardless of the ledger, for one reason the
-// ledger cannot cover: a settings.json written before the ledger existed has
-// no record, and a stale `inject-context --part N --of M` left behind would go
-// on injecting content from an older assembly forever. Reclaiming ctxloom's own
-// callbacks by name is bounded and safe; reclaiming ANY command that merely
-// invokes the ctxloom binary — which is what this used to do — is not, because
-// the user is equally entitled to invoke it.
-//
-// This list must name EVERY hook verb ctxloom installs for itself, or the
-// fallback is partial: two verbs missing from it survived an uninstall of a
-// stale-ledger checkout as if a user had written them.
-// TestRemoveSettings_WithoutALedger_ReclaimsEveryHookCtxloomConstructs walks the
-// constructors and fails when one is not recognised here.
-var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "mail-drain", "permission", "hud"}
-
-func isCtxloomMachineCallback(command string) bool {
-	if !exectoken.IsManaged(command, "ctxloom") {
-		return false
-	}
-	for _, sub := range ctxloomMachineCallbacks {
-		if strings.Contains(command, sub) {
-			return true
-		}
-	}
-	return false
-}
-
-// managedHookDigests is every hook now present that ctxloom is claiming
-// ownership of, as command DIGESTS — the set the ledger records for the next
-// reconcile to remove. Digests, not commands: see agent.ComputeCommandDigest.
-func (w *ClaudeCodeHookWriter) managedHookDigests(settings *claudeCodeSettings) []string {
-	var out []string
-	for _, matchers := range settings.Hooks {
-		for _, matcher := range matchers {
-			for _, hook := range matcher.Hooks {
-				if hook.SCM != "" {
-					out = append(out, agent.ComputeCommandDigest(hook.line()))
-				}
-			}
-		}
-	}
-	return out
-}
-
-// removeCtxloomHooks drops the hooks ctxloom owns: those the ledger recorded
-// last round, plus its own machine callbacks (see isCtxloomMachineCallback).
-// Everything else — including a user's hand-authored hook that happens to
-// invoke the ctxloom binary — is left exactly as found.
-func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings, owned []string) {
-	ownedSet := make(map[string]bool, len(owned))
-	for _, d := range owned {
-		ownedSet[d] = true
-	}
-	for eventName, matchers := range settings.Hooks {
-		var filteredMatchers []claudeCodeHookMatcher
-		for _, matcher := range matchers {
-			var filteredHooks []claudeCodeHook
-			for _, hook := range matcher.Hooks {
-				// Keep hooks that are NOT ctxloom-managed
-				if hook.SCM == "" && !ownedSet[agent.ComputeCommandDigest(hook.line())] && !isCtxloomMachineCallback(hook.line()) {
-					filteredHooks = append(filteredHooks, hook)
-				}
-			}
-			if len(filteredHooks) > 0 {
-				matcher.Hooks = filteredHooks
-				filteredMatchers = append(filteredMatchers, matcher)
-			}
-		}
-		if len(filteredMatchers) > 0 {
-			settings.Hooks[eventName] = filteredMatchers
-		} else {
-			delete(settings.Hooks, eventName)
-		}
-	}
-}
-
-// addUnifiedHooks translates unified hooks to Claude Code format and adds them.
-func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, unified wire.UnifiedHooks) {
-	agent.RouteUnifiedHooks(report.To(strictness.Sink("ctxloom")), EngineName, unifiedHookRoutes(unified), func(event string, h wire.Hook) {
-		w.addHook(settings, event, h)
-	})
 }
 
 // unifiedHookRoutes maps each unified hook kind to claude's native event.
@@ -975,92 +446,6 @@ func unifiedHookRoutes(unified wire.UnifiedHooks) []agent.HookRoute {
 		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},
 		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: "Edit|Write"},
 		{Hooks: unified.PermissionAsk, Event: hookEventPermissionRequest},
-	}
-}
-
-// addBackendHooks adds backend-specific passthrough hooks.
-func (w *ClaudeCodeHookWriter) addBackendHooks(settings *claudeCodeSettings, backendHooks wire.BackendHooks) {
-	for eventName, hooks := range backendHooks {
-		for _, h := range hooks {
-			w.addHook(settings, eventName, h)
-		}
-	}
-}
-
-// addHook adds a single hook to the settings for the given event.
-func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName string, h wire.Hook) {
-	ccHook := claudeCodeHook{
-		Type:    h.Type,
-		Command: h.Command,
-		Args:    h.Args,
-		Prompt:  h.Prompt,
-		Timeout: h.Timeout,
-		Async:   h.Async,
-		SCM:     agent.ComputeHookHash(h),
-	}
-
-	// Default type to "command"
-	if ccHook.Type == "" {
-		ccHook.Type = "command"
-	}
-
-	// Drop any surviving entry with this exact command before appending.
-	// removeCtxloomHooks only recognizes ctxloom-token commands; hooks ctxloom
-	// writes for companion binaries (e.g. `ltk evaluate`, no marker possible
-	// under Claude Code's strict settings schema) would otherwise duplicate on
-	// every re-apply. Exact match keeps user variants (`ltk evaluate --config
-	// ...`) untouched.
-	w.removeExactCommand(settings, eventName, h.Line())
-
-	// Find or create matcher entry
-	matcher := h.Matcher
-	matchers := settings.Hooks[eventName]
-
-	// Look for existing matcher with same pattern
-	found := false
-	for i, m := range matchers {
-		if m.Matcher == matcher {
-			matchers[i].Hooks = append(matchers[i].Hooks, ccHook)
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		matchers = append(matchers, claudeCodeHookMatcher{
-			Matcher: matcher,
-			Hooks:   []claudeCodeHook{ccHook},
-		})
-	}
-
-	settings.Hooks[eventName] = matchers
-}
-
-// removeExactCommand drops every hook entry under eventName whose line is
-// exactly cmd, pruning emptied matchers. Companion-binary hooks carry no
-// durable marker (strict schema), so identity is the verbatim command line.
-func (w *ClaudeCodeHookWriter) removeExactCommand(settings *claudeCodeSettings, eventName, cmd string) {
-	matchers := settings.Hooks[eventName]
-	if len(matchers) == 0 {
-		return
-	}
-	var keptMatchers []claudeCodeHookMatcher
-	for _, m := range matchers {
-		var kept []claudeCodeHook
-		for _, hook := range m.Hooks {
-			if hook.line() != cmd {
-				kept = append(kept, hook)
-			}
-		}
-		if len(kept) > 0 {
-			m.Hooks = kept
-			keptMatchers = append(keptMatchers, m)
-		}
-	}
-	if len(keptMatchers) > 0 {
-		settings.Hooks[eventName] = keptMatchers
-	} else {
-		delete(settings.Hooks, eventName)
 	}
 }
 
@@ -1108,100 +493,7 @@ func configExists(fs afero.Fs, path string) (bool, error) {
 	return exists, nil
 }
 
-// RemoveSettings implements SettingsWriter for Claude Code: it clears
-// ctxloom-managed hooks and statusline from settings.json and ctxloom-marked
-// servers from .mcp.json, touching neither file when it does not already exist.
-func (w *ClaudeCodeHookWriter) RemoveSettings(projectDir string) error {
-	if err := w.removeSettingsFile(projectDir); err != nil {
-		return err
-	}
-	return w.removeMCPConfig(projectDir)
-}
-
-// removeSettingsFile clears ctxloom-managed hooks and the managed statusline
-// from settings.json under projectDir, preserving user-authored entries; a
-// missing file is left absent. It is the settings.json half of RemoveSettings —
-// same behavior — factored out so the delivery seam can revert the settings
-// surface (hooks + statusline) independently of the .mcp.json surface.
-func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
-	fs := w.getFS()
-	settingsPath := w.SettingsPath(projectDir)
-	// See writeSettingsFile: same file, same lock, same race to close.
-	return sessions.WithFileLock(fs, settingsPath, func() error {
-		exists, err := configExists(fs, settingsPath)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			return nil
-		}
-		settings, err := w.loadSettings(settingsPath)
-		if err != nil {
-			return fmt.Errorf("failed to load existing settings: %w", err)
-		}
-		led := ledger.Ledger{FS: fs, Dir: filepath.Dir(settingsPath), Warn: report.To(w.Reporter).Warnf}
-		owned, err := led.Read(ledger.SurfaceHooks)
-		if err != nil {
-			return err
-		}
-		w.removeCtxloomHooks(settings, owned)
-		prevStatus, err := led.Read(ledger.SurfaceStatusLine)
-		if err != nil {
-			return err
-		}
-		removeOwnedStatusLine(settings, prevStatus)
-		if err := w.saveSettings(settingsPath, settings); err != nil {
-			return err
-		}
-		// Nothing of ctxloom's remains, so the claims must go too — a ledger
-		// naming entries that are gone would make the next reconcile delete
-		// whatever a user later wrote under those commands.
-		if err := led.Write(ledger.SurfaceHooks, nil); err != nil {
-			return err
-		}
-		return led.Write(ledger.SurfaceStatusLine, nil)
-	})
-}
-
-// removeOwnedStatusLine clears the statusline when ctxloom owns it, by the
-// same rule the write side (ensureStatusLine) installs it under: ctxloom's
-// recorded claim (prevStatus, the ledger's digest), or its own canonical
-// command for a checkout with no record. Ownership is read from the record,
-// never inferred from the file: a statusline the USER pointed at the ctxloom
-// binary is theirs.
-func removeOwnedStatusLine(settings *claudeCodeSettings, prevStatus []string) {
-	if settings.StatusLine == nil {
-		return
-	}
-	cmd := settings.StatusLine.Command
-	claimed := len(prevStatus) > 0 && prevStatus[0] == agent.ComputeCommandDigest(cmd)
-	if claimed || cmd == ctxloomStatusLineCommand() {
-		settings.StatusLine = nil
-	}
-}
-
-// removeMCPConfig strips ctxloom-marked servers from .mcp.json under projectDir,
-// preserving user-defined servers; a missing file is left absent. It is the
-// .mcp.json half of RemoveSettings — same behavior — factored out so the
-// delivery seam can revert the MCP surface independently of settings.json.
-func (w *ClaudeCodeHookWriter) removeMCPConfig(projectDir string) error {
-	fs := w.getFS()
-	mcpPath := w.MCPConfigPath(projectDir)
-	exists, err := configExists(fs, mcpPath)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return nil
-	}
-	// Uninstall is the empty desired set: the record's reversal removes exactly
-	// what ctxloom applied, leaving the user with the file they wrote. It no
-	// longer strips "everything carrying a marker", which could not distinguish
-	// an entry ctxloom created from one a user copied out of ctxloom's.
-	return w.applyMCP(mcpPath, nil)
-}
-
-// Status implements SettingsWriter for Claude Code.
+// Status implements agent.SettingsReader for Claude Code.
 func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, error) {
 	fs := w.getFS()
 	var status agent.SettingsStatus
@@ -1236,31 +528,18 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 	return status, nil
 }
 
-// mcpPresent asks the RECORD what ctxloom put in mcpPath, not the file.
-// Scanning the user's file for a marker could not tell an entry ctxloom
-// created from one a user copied out of ctxloom's, and the marker is gone.
-// The claims record answers for the static writer's deliveries; the
-// confpatch record for WriteSettings, which writes outside it — an applied
-// set that is EMPTY there is an uninstall (the reversal alone ran).
+// mcpPresent asks the claims RECORD what the project writer put in mcpPath,
+// not the file: scanning the user's file could not tell an entry ctxloom
+// created from one a user copied out of ctxloom's.
 func (w *ClaudeCodeHookWriter) mcpPresent(mcpPath string) (bool, error) {
-	if w.projectClaims != nil {
-		live, err := w.projectClaims(mcpPath)
-		if err != nil {
-			return false, err
-		}
-		if slices.ContainsFunc(live, func(p string) bool { return strings.HasPrefix(p, present.PointerKey(mcpServersKey)+"/") }) {
-			return true, nil
-		}
+	if w.projectClaims == nil {
+		return false, nil
 	}
-	store, err := w.recordStore()
+	live, err := w.projectClaims(mcpPath)
 	if err != nil {
 		return false, err
 	}
-	rec, found, err := store.Last(mcpPath)
-	if err != nil {
-		return false, err
-	}
-	return found && len(rec.Targets) > 0 && len(rec.Targets[0].Transforms) > 0, nil
+	return slices.ContainsFunc(live, func(p string) bool { return strings.HasPrefix(p, present.PointerKey(mcpServersKey)+"/") }), nil
 }
 
 // claudeHasManagedHook reports whether any configured hook is ctxloom-managed.

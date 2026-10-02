@@ -1,9 +1,11 @@
 // Package conformance holds the cross-agent equity suite: table-driven tests
-// asserting that the agent.SettingsWriter implementations agentCases()
-// (conformance_test.go) lists honor the shared contract:
+// asserting that each engine agentCases() (conformance_test.go) lists honors
+// the shared contract when its settings are delivered at rest through the one
+// static writer and read back through its agent.SettingsReader:
 // fault-tolerant load (refuse rather than overwrite unparseable prior
-// settings), atomic write + backup, hook-event REACH, MCP auto-register, and
-// managed removal that preserves the user's own settings.
+// settings), atomic write with no backup, hook-event REACH, MCP registration
+// of exactly what is given, and an uninstall that preserves the user's own
+// settings.
 //
 // "Reach", not "full coverage": the hook assertions search the settings file's
 // BYTES for each unified event's command, and additionally configure one event
@@ -12,13 +14,10 @@
 // along — but NOT that a command landed under the right NATIVE event. Slot
 // attachment needs per-agent format knowledge, which is exactly what this
 // suite refuses to hold, and is asserted where that knowledge lives: the
-// per-agent tests (claude/hooks_wire_test.go, claude/surfacedelivery_test.go,
-// and each other engine's own settings tests). This sentence used
-// to say "full hook-event coverage", which reads as the stronger claim.
+// per-agent tests.
 //
-// An agent.SettingsWriter implementation may be DELIBERATELY absent for a
-// structural reason spelled out at agentCases' definition — not because nobody
-// got around to adding it. Say what agentCases lists, never "every supported
+// An engine may be DELIBERATELY absent for a structural reason spelled out at
+// agentCases' definition. Say what agentCases lists, never "every supported
 // agent", so this comment cannot silently drift back into overclaiming
 // coverage the suite does not have.
 //

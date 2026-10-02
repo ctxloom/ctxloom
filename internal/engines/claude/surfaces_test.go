@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,53 +107,6 @@ func newSurfaces(in agent.SurfaceInputs, fs afero.Fs) builtSurfaces {
 
 // ---- context surface -------------------------------------------------------
 
-// The NATIVE-FILE context approach writes CLAUDE.md (the ContextWriter core)
-// into the target dir, in the ctxloom-managed section, and the file SURVIVES
-// Cleanup: a
-// project surface outlives the run that delivered it
-// (agent.SurfacePersistsAfterExit), so the handle reverses nothing. Teardown
-// belongs to per-session scratch, which this is not.
-func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
-	dir := t.TempDir()
-	s := newSurfaces(sampleInputs(), nil)
-
-	handle, err := s.Native.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(got), sampleInputs().Context, "CLAUDE.md holds the assembled context in the managed section")
-
-	require.NoError(t, handle.Cleanup())
-	after, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	require.NoError(t, err, "a project surface survives the run that delivered it")
-	assert.Contains(t, string(after), sampleInputs().Context, "Cleanup reverses nothing for a project surface")
-}
-
-// Hand-authored content in CLAUDE.md outside the managed markers survives
-// Deliver byte-for-byte (a regression pin, at the surface layer
-// materialize/run actually drive), and Cleanup leaves the whole file — both
-// halves — in place, per agent.SurfacePersistsAfterExit.
-func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
-	s := newSurfaces(sampleInputs(), nil)
-
-	handle, err := s.Native.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	got, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(got), "always use tabs", "hand-written content survives Deliver")
-	assert.Contains(t, string(got), sampleInputs().Context)
-
-	require.NoError(t, handle.Cleanup())
-	got, err = os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(got), "always use tabs", "hand-written content survives Cleanup too")
-	assert.Contains(t, string(got), sampleInputs().Context, "the managed section survives Cleanup: a project surface persists")
-}
-
 // The system-prompt approach's ONE form writes the framed <hash>.sysprompt.md
 // beneath the private root (via appendFlagDelivery) and exposes it via Path()
 // — and does NOT touch the well-known CLAUDE.md. Every cell reaches this form;
@@ -186,106 +138,7 @@ func TestContextSurface_DeliverWritesSyspromptAndExposesPath(t *testing.T) {
 
 // ---- MCP surface -----------------------------------------------------------
 
-// MCP Delivery writes the merged .mcp.json (via fileTemplateDelivery) into the
-// target dir; Cleanup reverts the ctxloom-owned servers.
-func TestMCPSurface_DeliverWritesMCPJSON(t *testing.T) {
-	dir := t.TempDir()
-	s := newSurfaces(sampleInputs(), nil)
-
-	handle, err := s.MCPUnsafe.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	servers := mcpServersOf(t, dir)
-	assert.Contains(t, servers, "config-server")
-	assert.Contains(t, servers, "bundle-server")
-	assert.Contains(t, servers, AppMCPServerName)
-
-	require.NoError(t, handle.Cleanup())
-	servers = mcpServersOf(t, dir)
-	assert.NotContains(t, servers, AppMCPServerName, "cleanup reverts ctxloom servers")
-}
-
-// The DEFAULT mcp approach writes .mcp.json beneath the private root and
-// exposes that path for --mcp-config; the shared cwd is left untouched.
-func TestMCPSurface_DeliverWritesPrivateConfig(t *testing.T) {
-	cwd := t.TempDir()  // the "shared cwd" — must stay clean
-	home := t.TempDir() // the session home — the private root
-	s := newSurfaces(sampleInputs(), nil)
-
-	handle, err := s.MCP.Deliver(runRoots(cwd, home))
-	require.NoError(t, err)
-
-	assert.Equal(t, filepath.Join(home, ".mcp.json"), s.MCP.Path(),
-		"Path() is the private .mcp.json for --mcp-config, beneath the engine home")
-	require.FileExists(t, s.MCP.Path())
-	assert.NoFileExists(t, filepath.Join(cwd, ".mcp.json"), "the shared cwd is never written")
-
-	servers := mcpServersOf(t, home)
-	assert.Contains(t, servers, AppMCPServerName)
-
-	require.NoError(t, handle.Cleanup())
-}
-
-// TestMCPSurface_DeliverMaterializesConfigWithNoServers: a run that registers
-// NO MCP servers still gets a file on disk.
-//
-// Present announces --mcp-config unconditionally, and claude REFUSES to start
-// against a path that does not exist ("Invalid MCP configuration: MCP config
-// file not found"), exiting before it emits anything. That reaches the caller
-// as an EMPTY ANSWER, which is indistinguishable from a dead or
-// unauthenticated engine — `ctxloom init`'s auth probe reported exactly that,
-// and sent the user to re-run `claude login` on working credentials.
-//
-// The merge alone does not guarantee the file: an empty server set records no
-// edits, so the confpatch store writes nothing and reports SUCCESS. This is a
-// payload assertion on the file, not on Deliver's error, because that success
-// is precisely what made the defect invisible.
-func TestMCPSurface_DeliverMaterializesConfigWithNoServers(t *testing.T) {
-	cwd := t.TempDir()
-	home := t.TempDir()
-
-	in := sampleInputs()
-	in.BundleMCP = nil
-	s := newSurfaces(in, nil)
-
-	handle, err := s.MCP.Deliver(runRoots(cwd, home))
-	require.NoError(t, err)
-
-	assert.Equal(t, filepath.Join(home, ".mcp.json"), s.MCP.Path(),
-		"the announced --mcp-config path is the private .mcp.json beneath the engine home")
-	require.FileExists(t, s.MCP.Path(),
-		"claude refuses to start against a --mcp-config naming a file that does not exist")
-
-	data, err := os.ReadFile(s.MCP.Path())
-	require.NoError(t, err)
-	var doc agent.ChatMCPConfigDoc
-	require.NoError(t, json.Unmarshal(data, &doc),
-		"the materialized file must be a valid MCP config document, not an empty or partial one")
-
-	assert.NoFileExists(t, filepath.Join(cwd, ".mcp.json"), "the shared cwd is never written")
-
-	require.NoError(t, handle.Cleanup())
-}
-
 // ---- settings surface ------------------------------------------------------
-
-// settings Delivery writes .claude/settings.json (hooks + statusline) into the
-// target dir; Cleanup reverts the ctxloom-managed entries.
-func TestSettingsSurface_DeliverWritesSettingsJSON(t *testing.T) {
-	dir := t.TempDir()
-	s := newSurfaces(sampleInputs(), nil)
-
-	handle, err := s.Settings.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	settings := readJSON(t, filepath.Join(dir, ".claude", "settings.json"))
-	assert.Contains(t, settings, "hooks", "settings surface carries the hooks")
-	assert.NoFileExists(t, filepath.Join(dir, ".mcp.json"), "settings surface never writes MCP")
-
-	require.NoError(t, handle.Cleanup())
-	settings = readJSON(t, filepath.Join(dir, ".claude", "settings.json"))
-	assert.NotContains(t, settings, "hooks", "cleanup reverts ctxloom hooks")
-}
 
 // ---- commands surface -------------------------------------------------------
 
@@ -315,7 +168,7 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 	dir := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Skills.Deliver(present.ProjectOnHost(dir))
+	handle, err := s.Skills.(agent.Delivery).Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	skillMD := filepath.Join(dir, ".claude", "skills", "humanize", "SKILL.md")
@@ -341,10 +194,10 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 // ---- the declaration ---------------------------------------------------------
 
 // Surfaces pins claude's per-surface declaration: context offers all three
-// approaches (native file, system prompt, settings-carried hook); settings
-// offers the project file and the engine-home record write; MCP offers the
-// private config file and the project file; commands/skills offer only the
-// native file.
+// approaches (native file, system prompt, settings-carried hook); MCP offers
+// the private config file and the project file; settings, commands and skills
+// offer only the native file, and settings refuses the retired engine-home
+// record write by name.
 //
 // The DEFAULTS are the load-bearing half. MCP's is the PRIVATE form, and it is
 // the one surface whose default is not the native file: delivering ctxloom's
@@ -352,12 +205,14 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 // so it must be asked for by name. Context's default stays the native file —
 // a shared launch derives the system prompt instead, which is a preference, not
 // a declaration.
-func TestSurfaces_DeclaresContextThreeWaysMCPTwoSettingsTwoAndTheRestOnce(t *testing.T) {
+func TestSurfaces_DeclaresContextThreeWaysMCPTwoAndTheRestOnce(t *testing.T) {
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook},
 		testDeclaration().Names(agent.SurfaceContext))
-	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachHewRecord}, testDeclaration().Names(agent.SurfaceSettings))
+	replacement, retired := testDeclaration().Retired(agent.SurfaceSettings, ApproachHewRecord)
+	assert.True(t, retired, "hew-record is retired, not merely unknown")
+	assert.Equal(t, agent.ApproachUnsafeFile, replacement)
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, testDeclaration().Names(agent.SurfaceMCP))
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceCommands, agent.SurfaceSkills} {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
 		assert.Equal(t, []string{agent.ApproachUnsafeFile}, testDeclaration().Names(kind), "%s", kind)
 	}
 
@@ -380,12 +235,6 @@ func TestSurfaces_ContextHookIsANoOpRider(t *testing.T) {
 	rider, ok := s.Hook.(agent.Rider)
 	require.True(t, ok, "hook-carried context rides another surface")
 	assert.Equal(t, agent.SurfaceSettings, rider.Rides())
-
-	dir := t.TempDir()
-	handle, err := s.Hook.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-	assert.Nil(t, handle, "Hook writes nothing — nil handle, the shared no-op convention")
-	assert.NoFileExists(t, filepath.Join(dir, "CLAUDE.md"), "no native file when context rides the hook")
 }
 
 // The system prompt and the private mcp config are LaunchOnly — refused at
@@ -400,15 +249,6 @@ func TestSurfaces_LaunchOnly(t *testing.T) {
 	for _, a := range []agent.Approach{s.Native, s.Hook, s.MCPUnsafe, s.Settings, s.Commands, s.Skills} {
 		assert.False(t, launchOnly(a))
 	}
-}
-
-func readJSON(t *testing.T, path string) map[string]any {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var m map[string]any
-	require.NoError(t, json.Unmarshal(data, &m))
-	return m
 }
 
 // TestNewSurfaces_ThreadsEverySurfaceScopedInput is the pin a past review
@@ -434,7 +274,6 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 	in := sampleInputs()
 	in.Commands = []agent.CommandExport{dup}
 	in.SelfContainedCommands = true
-	in.DenyTools = []string{"Task"}
 
 	dir := t.TempDir()
 	s := newSurfaces(in, nil)
@@ -444,12 +283,6 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "recover.md"),
 		"SelfContainedCommands must reach the commands writer — otherwise a portable target silently loses "+
 			"every command that happens to exist in the delivering machine's home")
-
-	_, err = s.Settings.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-	settingsData, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
-	require.NoError(t, err)
-	assert.Contains(t, string(settingsData), "Task", "DenyTools must reach permissions.deny")
 }
 
 // Every approach's Present must name the path that approach actually writes.
@@ -469,12 +302,16 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 			require.True(t, ok, "%s is declared, so it must have a default", kind)
 			a, ok := testDeclaration().Construct(kind, def, sampleInputs(), nil)
 			require.True(t, ok)
+			d, delivers := a.(agent.Delivery)
+			if !delivers {
+				t.Skipf("%s's default form only presents; its write is the typed approach's claims", kind)
+			}
 
 			// Every root advised: a default approach may root under any of
 			// them, and one that roots privately REFUSES an unadvised root
 			// rather than falling back to the project file.
 			start := runRoots(dir, t.TempDir())
-			_, err := a.Deliver(start)
+			_, err := d.Deliver(start)
 			require.NoError(t, err)
 
 			declared := a.Present(start).HostPath
@@ -520,7 +357,6 @@ func TestPrivateRootApproaches_RefuseWithoutAnEngineHome(t *testing.T) {
 		path    func() string
 	}{
 		{"context", s.Context.Deliver, s.Context.Path},
-		{"mcp", s.MCP.Deliver, s.MCP.Path},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handle, err := tc.deliver(noHome)

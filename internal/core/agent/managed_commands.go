@@ -2,37 +2,21 @@ package agent
 
 import "github.com/ctxloom/ctxloom/internal/core/present"
 
-// This file holds the shared body of every engine's MANAGED-COMMAND
-// delivery: for an engine whose command (slash-command) exports are reconciled
-// files written by a manifest-scoped writer, Deliver writes the enabled
-// exports, then reverts exactly the managed set on cleanup by re-writing
-// with none. Only WHICH writer, at WHICH path, is engine-specific; that is the
-// injected write func. (claude's commands ride a different writer that owns its
-// own cleanup, so they are not modeled here.)
-
-// ManagedCommandsDelivery is the shared commands Delivery for engines whose
-// command exports are managed files: on Deliver it writes the enabled
-// exports, and its cleanup reverts exactly the manifest-tracked set by
-// re-writing with no exports. Managed command files are cwd-rooted with no
-// out-of-cwd form, so a SHARED-cwd delivery of it falls back to the loud
-// well-known write; it carries an engine/surface name (e.g. "mock/commands")
-// and self-describes for that fallback's warning via UnsafeInfo.
+// ManagedCommandsDelivery is the shared commands form for engines whose
+// command exports are managed files beneath the project root: where they are
+// presented. Managed command files are cwd-rooted with no out-of-cwd form; it
+// carries an engine/surface name (e.g. "mock/commands") and self-describes
+// via UnsafeInfo.
 type ManagedCommandsDelivery struct {
-	name     string
-	rel      string // the commands dir beneath the project root, for Present
-	commands []CommandExport
-	write    func(dir string, commands []CommandExport) error
+	name string
+	rel  string // the commands dir beneath the project root, for Present
 }
 
-// NewManagedCommandsDelivery builds a managed-commands Delivery from its
-// engine/surface name (e.g. "mock/commands", for the shared-cwd fallback
-// warning), the enabled exports, and the engine's manifest-scoped
-// command-file writer, bound so that write(dir, commands) materializes the
-// exports under dir and write(dir, nil) reverts exactly the managed set. rel
-// is the commands directory the writer lands in, relative to the project
-// root — what Present declares.
-func NewManagedCommandsDelivery(name, rel string, commands []CommandExport, write func(dir string, commands []CommandExport) error) *ManagedCommandsDelivery {
-	return &ManagedCommandsDelivery{name: name, rel: rel, commands: commands, write: write}
+// NewManagedCommandsDelivery builds a managed-commands form from its
+// engine/surface name (e.g. "mock/commands") and the commands directory
+// relative to the project root — what Present declares.
+func NewManagedCommandsDelivery(name, rel string) *ManagedCommandsDelivery {
+	return &ManagedCommandsDelivery{name: name, rel: rel}
 }
 
 // Present declares the commands directory beneath the advised project root.
@@ -49,19 +33,8 @@ func (s *ManagedCommandsDelivery) UnsafeInfo() string { return s.name }
 // Kind reports this as the commands surface.
 func (s *ManagedCommandsDelivery) Kind() SurfaceKind { return SurfaceCommands }
 
-// Deliver writes the enabled command exports beneath the advised project root
-// via the injected writer and returns a handle whose Cleanup reverts exactly
-// the manifest-tracked set (a re-write with no exports).
-func (s *ManagedCommandsDelivery) Deliver(start present.Start) (Delivered, error) {
-	if err := s.write(start.Paths().ProjectRoot.Host, s.commands); err != nil {
-		return nil, err
-	}
-	return SurfacePersistsAfterExit, nil
-}
-
 // Compile-time contract.
 var (
-	_ Approach       = (*ManagedCommandsDelivery)(nil)
-	_ KindedDelivery = (*ManagedCommandsDelivery)(nil)
-	_ Delivered      = DeliveredFunc(nil)
+	_ Approach  = (*ManagedCommandsDelivery)(nil)
+	_ Delivered = DeliveredFunc(nil)
 )

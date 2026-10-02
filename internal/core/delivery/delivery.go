@@ -262,7 +262,7 @@ func InputsFor(lo Loadout, dynamic engine.DynamicApproach) (Inputs, error) {
 		Context:  engine.ContextInputs{Text: []byte(pkg.Context.Text), Hash: pkg.Context.Hash},
 		MCP:      engine.MCPInputs{Servers: servers},
 		Settings: engine.SettingsInputs{DenyTools: pkg.DenyTools, Statusline: pkg.Statusline, Exports: lo.Exports},
-		Hooks:    engine.HooksInputs{Hooks: pkg.Hooks.Unified, HookEvent: lo.Exports.HookEvent},
+		Hooks:    engine.HooksInputs{Hooks: pkg.Hooks.Unified, HookEvent: lo.Exports.HookEvent, Ext: pkg.Hooks.Ext},
 		Commands: engine.CommandsInputs{Commands: lo.Exports.Commands},
 		Skills:   engine.SkillsInputs{Skills: lo.Exports.Skills},
 	}, nil

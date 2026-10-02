@@ -165,7 +165,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			}
 			// The hook is declared as a BUNDLE hook on a profile the agent
 			// binding selects — production's own authoring surface, the path
-			// config.ResolveBundleHooks and the per-engine SettingsWriter
+			// config.ResolveBundleHooks and the engine's hooks approach
 			// actually take. A fixture that wrote .claude/settings.json itself
 			// would prove an engine execs files WE hand-made, which is not the
 			// claim.

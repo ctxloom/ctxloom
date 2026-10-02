@@ -159,7 +159,7 @@ type SurfaceCurrency struct {
 func HarnessStatus(ctx context.Context, reg engine.Registry, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
-	opts := []agent.SettingsOption{agent.WithSettingsFS(fs), agent.WithSettingsReporter(cfg.Reporter())}
+	opts := []agent.SettingsOption{agent.WithSettingsFS(fs)}
 
 	settings := cfg.GetSettings()
 	result := &HarnessStatusResult{
@@ -342,8 +342,8 @@ func manageWorkDir(workDir string) string {
 // An unknown name is an ERROR, not a one-element list. Passing it through made
 // `manage hooks uninstall --backend <typo>` report Status "removed" listing the
 // typo while removing nothing: every layer below reads an unregistered backend
-// as a permitted no-op (RemoveSettings returns nil with no settings writer;
-// Declared returns an empty Declaration, so Select skips every kind), so no
+// as a permitted no-op (Declared returns an empty Declaration, so Select
+// skips every kind), so no
 // error ever surfaced and the name was appended to
 // `removed`. The user's harness was still installed and they had been told it
 // was gone. MaterializeProfile in this same package already guards with

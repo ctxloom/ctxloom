@@ -25,8 +25,8 @@
 package acceptance
 
 import (
+	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -34,10 +34,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -46,69 +49,35 @@ import (
 // consume a cell key for a test that has no cell.
 const channelProbeHarp = "probe-structural-harp"
 
-// deliverContextUnder builds engine's REAL surface set over an in-memory
-// filesystem, selects the context surface at approach, delivers it into a
-// directory, and returns every file that landed with its content.
-//
-// The whole point is that nothing is simulated: this is backends.Declared
-// and the engine's own declared constructor, the same two calls the launch
-// path makes.
-func deliverContextUnder(t *testing.T, engine string, approach string) map[string]string {
-	t.Helper()
-	fs := afero.NewMemMapFs()
-	dir := "/work"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	delivery, ok := hostedDeclaration(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{
-		Context:   "The nonce for this session is " + channelProbeHarp,
-		Fragments: []*agent.Fragment{{Name: "nonce", Content: "The nonce for this session is " + channelProbeHarp}},
-	}, fs)
-	require.True(t, ok, "%s must construct its context surface at %s — the P1 cell that pins it depends on this call succeeding", engine, approach)
-	require.NotNil(t, delivery)
-
-	_, err := delivery.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	out := map[string]string{}
-	require.NoError(t, afero.Walk(fs, dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() {
-			return err
-		}
-		b, rerr := afero.ReadFile(fs, path)
-		if rerr != nil {
-			return rerr
-		}
-		rel, _ := filepath.Rel(dir, path)
-		out[rel] = string(b)
-		return nil
-	}))
-	return out
-}
-
 // TestClaudeHookApproach_DeliversNothing pins the mechanism behind P1's one red.
 //
 // claude's context at ApproachHook is the shared agent.HookCarriedContext —
-// a Rider whose own Deliver is a documented no-op: the context rides the
-// settings-borne inject hook plus a cache file, both of which the LAUNCH
-// installs once it sees the rider resolved (LaunchBackend.deliverSet, on
-// every cell). The surface itself therefore writes nothing, and this pins
-// that: if it has started writing, the launch would double the context.
+// a Rider with no writer of its own: the context rides the settings-borne
+// inject hook plus a cache file, both of which the LAUNCH installs once it
+// sees the rider resolved. The form therefore cannot write anything, and this
+// pins that: if it ever gains a writer, the launch would double the context
+// and P1's red cell must be re-measured rather than assumed.
 func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
-	files := deliverContextUnder(t, "claude-code", agent.ApproachHook)
-	require.Empty(t, files,
-		"claude's context surface at ApproachHook is documented as a no-op. If it has started writing something, P1's red cell must be re-measured rather than assumed: got %v", keysOf(files))
+	form, ok := hostedDeclaration("claude-code").Construct(agent.SurfaceContext, agent.ApproachHook, agent.SurfaceInputs{
+		Context: "The nonce for this session is " + channelProbeHarp,
+	}, afero.NewMemMapFs())
+	require.True(t, ok, "claude must declare its hook-carried context — the P1 cell that pins it depends on it")
+	_, writes := form.(agent.Delivery)
+	require.False(t, writes, "claude's context form at ApproachHook carries no writer; one that writes would double the context")
 }
 
-// deliverContextAcrossRoots builds engine's REAL surface set over an in-memory
-// filesystem and delivers its context surface at approach, with the project
-// root and the engine home advised as DISTINCT directories so that an
-// assertion about one cannot be satisfied by a write to the other. It returns
-// every file that landed, partitioned by whether it is beneath the project
-// root, keyed by absolute path.
+// deliverContextAcrossRoots delivers engine's context the way a run does —
+// its typed approach, through the one static writer — selecting root, with
+// the project root and the engine home advised as DISTINCT directories so
+// that an assertion about one cannot be satisfied by a write to the other.
+// It returns every file that landed, partitioned by whether it is beneath the
+// project root, keyed by absolute path. The ownership record lives outside
+// both, and is not a file the engine reads.
 //
-// It advises both roots rather than the single one ProjectOnHost gives,
-// because the question here is precisely WHICH root the bytes chose.
-func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject, outsideProject map[string]string) {
+// For claude, the root IS the mechanism: the session home is the framed
+// system prompt (--append-system-prompt-file), the project root a section of
+// CLAUDE.md.
+func deliverContextAcrossRoots(t *testing.T, engineName string, root present.RootKind) (inProject, outsideProject map[string]string) {
 	t.Helper()
 	// Delivery takes the session's home lock, resolved from HOME and the
 	// working directory; this package's TestMain leaves both real.
@@ -116,29 +85,34 @@ func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject
 	const (
 		projectRoot = "/probe/project"
 		engineHome  = "/probe/engine-home"
+		recordsDir  = "/probe/records"
 	)
 	fs := afero.NewMemMapFs()
 	for _, d := range []string{projectRoot, engineHome} {
 		require.NoError(t, fs.MkdirAll(d, 0o755))
 	}
 
-	body := "The nonce for this session is " + channelProbeHarp
-	delivery, ok := hostedDeclaration(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{
-		Context:   body,
-		Fragments: []*agent.Fragment{{Name: "nonce", Content: body}},
-	}, fs)
-	require.True(t, ok, "%s must construct its context surface at %s — the P1 cell that pins it depends on this call succeeding", engine, approach)
-	require.NotNil(t, delivery)
-
-	_, err := delivery.Deliver(present.New(present.OnHost(present.Paths{
-		ProjectRoot: present.Root{Host: projectRoot},
-		SessionHome: present.Root{Host: engineHome},
-	})))
-	require.NoError(t, err, "%s context=%s must deliver when every root is advised", engine, approach)
+	kind, ok := engines.Registry().Lookup(engine.Name(engineName))
+	require.True(t, ok, "%s is composed", engineName)
+	pkg := compositetest.Fixture(t, compositetest.WithFragment("nonce", "The nonce for this session is "+channelProbeHarp))
+	items := pkg.EngineItems(kind.Root().Name)
+	exports, err := kind.Exports(items)
+	require.NoError(t, err)
+	paths := present.Paths{
+		ProjectRoot: present.Root{Host: projectRoot, Engine: projectRoot},
+		SessionHome: present.Root{Host: engineHome, Engine: engineHome},
+	}
+	plan, err := delivery.Route(items, kind.Root(), delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: root}}, paths)
+	require.NoError(t, err)
+	rec, err := fsstatic.NewRecords(fs, recordsDir)
+	require.NoError(t, err)
+	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, kind.Root(),
+		delivery.Target{Root: present.New(present.OnHost(paths)), Ownership: rec, Writer: delivery.SessionWriter(channelProbeHarp)})
+	require.NoError(t, err, "%s context at %v must deliver when every root is advised", engineName, root)
 
 	inProject, outsideProject = map[string]string{}, map[string]string{}
 	require.NoError(t, afero.Walk(fs, "/", func(path string, info os.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() {
+		if err != nil || info == nil || info.IsDir() || strings.HasPrefix(path, recordsDir+"/") {
 			return err
 		}
 		b, rerr := afero.ReadFile(fs, path)
@@ -185,7 +159,7 @@ func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject
 // a success message, zero bytes). So the positive half pins that the context
 // really did materialize, with its nonce in it, outside the workspace.
 func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testing.T) {
-	inProject, outside := deliverContextAcrossRoots(t, "claude-code", claude.ApproachSystemPrompt)
+	inProject, outside := deliverContextAcrossRoots(t, "claude-code", present.RootSessionHome)
 
 	// POSITIVE: the framed system prompt really landed, carrying the nonce,
 	// somewhere that is not the project root.
@@ -210,7 +184,7 @@ func TestSharedCwdDelivery_OnlyClaudeSystemPromptStaysOutOfTheWorkspace(t *testi
 	// THE CONTRAST: unsafe-file is the caller's explicit request for the native
 	// in-workspace write. If it stopped landing in the project root the two
 	// claude cells would be measuring the same thing.
-	unsafeInProject, _ := deliverContextAcrossRoots(t, "claude-code", agent.ApproachUnsafeFile)
+	unsafeInProject, _ := deliverContextAcrossRoots(t, "claude-code", present.RootProjectRoot)
 	require.NotEmpty(t, unsafeInProject,
 		"unsafe-file must write its context INTO the project root — that is the whole of what the caller asked for, and the contrast that makes the system-prompt cell meaningful")
 	var wroteNonce bool

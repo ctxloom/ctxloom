@@ -19,105 +19,6 @@ import (
 // message, zero bytes written. Every assertion below is on the actual
 // delivered BYTES (or their deliberate absence), never on an error being nil.
 
-// TestMockContextSurface_Deliver_WritesActualBytes is the base payload
-// assertion: Deliver must land the CONTENT itself inside MOCK_CONTEXT.md's
-// managed section, not merely create a file or return a nil error. A
-// silent-no-op Deliver (writes an empty/templated file regardless of
-// content) would pass a "file exists" check and fail this one.
-func TestMockContextSurface_Deliver_WritesActualBytes(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	s := mockContext("MOCK-PAYLOAD-9f3a", fs)
-	handle, err := s.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-	require.NotNil(t, handle)
-
-	got, err := afero.ReadFile(fs, mockContextPath(dir))
-	require.NoError(t, err)
-	assert.Contains(t, string(got), "MOCK-PAYLOAD-9f3a",
-		"the delivered file must carry the actual composed bytes")
-	assert.Contains(t, string(got), agent.ManagedContextBegin, "content must sit inside the managed markers")
-	assert.Contains(t, string(got), agent.ManagedContextEnd)
-}
-
-// TestMockContextSurface_Deliver_EmptyContext_WritesNothing is the silent-no-op
-// guard's other half: an empty compose must not fabricate a file. Asserting
-// only "err == nil" here would pass even if Deliver wrote a stray empty
-// MOCK_CONTEXT.md — the trap this project's own bug class takes.
-func TestMockContextSurface_Deliver_EmptyContext_WritesNothing(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	s := mockContext("", fs)
-	handle, err := s.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-	_ = handle
-
-	exists, err := afero.Exists(fs, mockContextPath(dir))
-	require.NoError(t, err)
-	assert.False(t, exists, "empty context must write NOTHING — no stray MOCK_CONTEXT.md")
-}
-
-// TestMockContextSurface_Cleanup_LeavesTheFileInPlace pins the INVERTED
-// contract, ruled by the human 2026-09-10: a delivered project surface outlives
-// the run.
-//
-// This test previously proved the reversal was real — that Cleanup stripped the
-// bytes rather than merely returning nil. It is kept, inverted, rather than
-// deleted, because the underlying worry is unchanged: a Cleanup nobody asserts
-// can drift either way, and exit-time removal returning by some other route
-// must redden something.
-//
-// The reason for the inversion, so it is not read as a weakened test: exit
-// cleanup never ran on SIGKILL, a crash, or a container stop, so leftover
-// surfaces had to be tolerated regardless. Removing on a clean exit only made
-// what a session left behind depend on how it ended.
-func TestMockContextSurface_Cleanup_LeavesTheFileInPlace(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	s := mockContext("DELIVERED-CONTENT", fs)
-	handle, err := s.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	before, err := afero.ReadFile(fs, mockContextPath(dir))
-	require.NoError(t, err, "precondition: Deliver wrote the surface")
-
-	require.NoError(t, handle.Cleanup())
-
-	after, err := afero.ReadFile(fs, mockContextPath(dir))
-	require.NoError(t, err, "cleanup must NOT remove a project surface: startup reconciles it, and clean/uninstall are the commands that remove it")
-	assert.Equal(t, string(before), string(after),
-		"cleanup must leave the surface byte-identical — a partial strip is the same defect as a removal")
-}
-
-// TestMockContextSurface_Deliver_PreservesUserContentOutsideMarkers is the
-// property the whole managed-marker convention exists for: a user's own
-// prose living OUTSIDE the markers must survive a Deliver byte-for-byte. A
-// Deliver that clobbered the whole file (the historical claude data-loss
-// bug this shared core was built to close) would destroy it silently.
-func TestMockContextSurface_Deliver_PreservesUserContentOutsideMarkers(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-	path := mockContextPath(dir)
-	userLine := "MY OWN NOTES — do not touch"
-	require.NoError(t, afero.WriteFile(fs, path, []byte(userLine+"\n"), 0o644))
-
-	s := mockContext("ctxloom-managed-body", fs)
-	_, err := s.Deliver(present.ProjectOnHost(dir))
-	require.NoError(t, err)
-
-	got, err := afero.ReadFile(fs, path)
-	require.NoError(t, err)
-	assert.Contains(t, string(got), userLine, "user content outside the markers must survive byte-for-byte")
-	assert.Contains(t, string(got), "ctxloom-managed-body")
-}
-
 // TestMockContextSurface_State_ReportsMissing_WhenFileAbsent proves the read
 // half's missing verdict when the route was never delivered at all.
 func TestMockContextSurface_State_ReportsMissing_WhenFileAbsent(t *testing.T) {
@@ -125,7 +26,7 @@ func TestMockContextSurface_State_ReportsMissing_WhenFileAbsent(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := mockContext("", fs)
+	s := mockContext(fs)
 	state, err := s.State(dir)
 	require.NoError(t, err)
 
@@ -144,7 +45,7 @@ func TestMockContextSurface_State_ReportsMissing_WhenFileExistsWithoutManagedSec
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 	require.NoError(t, afero.WriteFile(fs, mockContextPath(dir), []byte("just a user file, no markers\n"), 0o644))
 
-	s := mockContext("", fs)
+	s := mockContext(fs)
 	state, err := s.State(dir)
 	require.NoError(t, err)
 
@@ -153,15 +54,15 @@ func TestMockContextSurface_State_ReportsMissing_WhenFileExistsWithoutManagedSec
 }
 
 // TestMockContextSurface_State_ReportsDelivered_WhenManagedSectionMatches is
-// the round-trip proof: Deliver, then State+Currency against the SAME
-// intended content, must agree it is current.
+// the round-trip proof: a managed section, then State+Currency against the
+// SAME intended content, must agree it is current.
 func TestMockContextSurface_State_ReportsDelivered_WhenManagedSectionMatches(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := mockContext("CURRENT-COMPOSITION", fs)
-	_, err := s.Deliver(present.ProjectOnHost(dir))
+	s := mockContext(fs)
+	_, err := agent.WriteManagedContext(fs, mockContextPath(dir), ContextFileName, "CURRENT-COMPOSITION", ContextFileName)
 	require.NoError(t, err)
 
 	state, err := s.State(dir)
@@ -178,8 +79,8 @@ func TestMockContextSurface_State_ReportsStale_WhenManagedSectionDiffersFromInte
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := mockContext("OLD-COMPOSITION", fs)
-	_, err := s.Deliver(present.ProjectOnHost(dir))
+	s := mockContext(fs)
+	_, err := agent.WriteManagedContext(fs, mockContextPath(dir), ContextFileName, "OLD-COMPOSITION", ContextFileName)
 	require.NoError(t, err)
 
 	state, err := s.State(dir)
@@ -198,8 +99,8 @@ func TestMockContextSurface_State_IgnoresUserContentOutsideMarkersForCurrency(t 
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := mockContext("STABLE-COMPOSITION", fs)
-	_, err := s.Deliver(present.ProjectOnHost(dir))
+	s := mockContext(fs)
+	_, err := agent.WriteManagedContext(fs, mockContextPath(dir), ContextFileName, "STABLE-COMPOSITION", ContextFileName)
 	require.NoError(t, err)
 
 	// A user hand-edits the file, adding prose OUTSIDE the managed markers —
@@ -217,16 +118,15 @@ func TestMockContextSurface_State_IgnoresUserContentOutsideMarkersForCurrency(t 
 }
 
 // contextApproach is what the mock's context approach is to a test: it
-// delivers AND reads its own state back (agent.StateReader) — "the object that
-// applied answers for it".
+// presents AND reads its file's state back (agent.StateReader).
 type contextApproach interface {
 	agent.Approach
 	agent.StateReader
 }
 
-// mockContext constructs the mock's native-file context approach for content.
-func mockContext(content string, fs afero.Fs) contextApproach {
-	return newMockContext(agent.SurfaceInputs{Context: content}, fs).(contextApproach)
+// mockContext constructs the mock's native-file context approach.
+func mockContext(fs afero.Fs) contextApproach {
+	return newMockContext(agent.SurfaceInputs{}, fs).(contextApproach)
 }
 
 // TestMockDeclaration_DeclaresEveryKind pins mock's declared scope: EVERY
@@ -298,7 +198,7 @@ func TestMockSkillsSurface_Deliver_WritesEveryFileWithItsBytes(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NotNil(t, handle)
@@ -327,7 +227,7 @@ func TestMockSkillsSurface_Deliver_MaterializesTheDeclaredMode(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -356,7 +256,7 @@ func TestMockSkillsSurface_Deliver_DeclaredModeBeatsAnExistingFilesMode(t *testi
 	require.NoError(t, fs.MkdirAll(filepath.Dir(scriptPath), 0o755))
 	require.NoError(t, afero.WriteFile(fs, scriptPath, []byte("stale\n"), 0o600))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -377,7 +277,7 @@ func TestMockSkillsSurface_Deliver_DisabledSkillWritesNothing(t *testing.T) {
 
 	disabled := reviewerSkillExport()
 	disabled.Enabled = false
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{disabled}}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{disabled}}, fs).(agent.Delivery)
 	_, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
@@ -402,7 +302,7 @@ func TestMockSkillsSurface_Cleanup_LeavesWhatItWroteInPlace(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	before, err := afero.Exists(fs, filepath.Join(mockSkillsPath(dir), "reviewer", "SKILL.md"))
@@ -432,7 +332,7 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(filepath.Dir(userFile), 0o755))
 	require.NoError(t, afero.WriteFile(fs, userFile, []byte("USER-AUTHORED-4f10"), 0o644))
 
-	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs)
+	s := newMockSkillsSurface(agent.SurfaceInputs{Skills: []agent.SkillExport{reviewerSkillExport()}}, fs).(agent.Delivery)
 	handle, err := s.Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 	require.NoError(t, handle.Cleanup())

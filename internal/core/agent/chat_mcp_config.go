@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -65,23 +64,3 @@ func ChatMCPConfigEntryOf(s ChatMCPServer) (ChatMCPConfigEntry, error) {
 // express. Today only MCPTransportStdio, MCPTransportHTTP, and
 // MCPTransportSSE are valid.
 var ErrChatMCPConfigTransportUnsupported = errors.New("mcp config: unsupported MCP transport")
-
-// MarshalChatMCPConfig renders servers into the {"mcpServers": {...}} JSON
-// document bytes a --mcp-config-style file expects. No I/O — callers that
-// need the document without writing a file (a test, an in-memory diff) get
-// it directly.
-//
-// Each server's own Env map is preserved VERBATIM: a server's Env is the
-// composed configuration's, and a table that dropped it would hand the
-// engine a server that starts and cannot reach what it was configured for.
-func MarshalChatMCPConfig(servers []ChatMCPServer) ([]byte, error) {
-	doc := ChatMCPConfigDoc{MCPServers: make(map[string]ChatMCPConfigEntry, len(servers))}
-	for _, s := range servers {
-		entry, err := ChatMCPConfigEntryOf(s)
-		if err != nil {
-			return nil, err
-		}
-		doc.MCPServers[s.Name] = entry
-	}
-	return json.Marshal(doc)
-}

@@ -14,11 +14,12 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
+	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,19 +27,21 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// deliverManagedSettings materializes a backend's settings + MCP surfaces into
-// dir through the engine's declared project-file approaches (the at-rest
-// writers). manageStatusline true MANAGES the statusline.
-func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
+// deliverManagedSettings delivers a backend's settings, hooks and MCP servers
+// into dir at rest through the one static writer, and returns the project so
+// a test can uninstall it and read its status. manageStatusline true MANAGES
+// the statusline.
+func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) *atrest.Project {
 	t.Helper()
-	in := agent.SurfaceInputs{Hooks: hooks, BundleMCP: bundleMCP, ManageStatusline: manageStatusline}
-	decl := hostedDeclaration(backend)
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceSettings, agent.SurfaceMCP} {
-		a, ok := decl.Construct(kind, agent.ApproachUnsafeFile, in, fs)
-		require.True(t, ok, "%s declares no %s/%s", backend, kind, agent.ApproachUnsafeFile)
-		_, err := a.Deliver(present.ProjectOnHost(dir))
-		require.NoError(t, err)
+	kind, ok := Registry().Lookup(engine.Name(backend))
+	require.True(t, ok, "%s is not composed", backend)
+	pkg := composite.Package{MCP: bundleMCP, Statusline: manageStatusline}
+	if hooks != nil {
+		pkg.Hooks = *hooks
 	}
+	p := atrest.New(t, fs, kind, dir)
+	require.NoError(t, p.Install(pkg))
+	return p
 }
 
 // =============================================================================
@@ -120,21 +123,16 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 // predicate_test.go — now that isCtxloomManaged is a thin agent.IsManaged call.)
 
 // =============================================================================
-// Settings Writer Factory Tests
+// Settings Reader Factory Tests
 // =============================================================================
-// Factory enables runtime backend selection based on user config.
 
-func TestGetSettingsWriter_AllBackends(t *testing.T) {
+func TestHostedSettingsReader_AllBackends(t *testing.T) {
 	tests := []struct {
 		name     string
 		backend  string
 		expected bool
 	}{
 		{"claude-code", "claude-code", true},
-		// mock is a complete engine and carries a real settings writer. The
-		// case that catches a factory handing back a writer for anything it
-		// recognizes is the UNKNOWN name below, which is the honest test for
-		// it — mock stopped being that case when it gained the capability.
 		{"mock", "mock", true},
 		{"unknown", "unknown", false}, // Unknown backend
 		{"empty", "", false},          // Empty string
@@ -142,20 +140,15 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			writer := hostedSettingsWriter(tt.backend, agent.SettingsOptions{})
+			reader := hostedSettingsReader(tt.backend, agent.SettingsOptions{})
 			if tt.expected {
-				assert.NotNil(t, writer)
+				assert.NotNil(t, reader)
 			} else {
-				assert.Nil(t, writer)
+				assert.Nil(t, reader)
 			}
 		})
 	}
 }
-
-// =============================================================================
-// WriteSettings Function Tests
-// =============================================================================
-// Top-level WriteSettings dispatches to appropriate backend writer.
 
 func TestDeliverManagedSettings_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -182,8 +175,8 @@ func TestDeliverManagedSettings_WithFS(t *testing.T) {
 // (safefs.WriteFileKeepMode / GetFS / ComputeHookHash are covered in shared/agent —
 // settings_io_test.go — alongside the helpers themselves.)
 //
-// TestClaudeCodeHookWriter_WritesNoAbsolutePaths proves the portability fix
-// end to end: every surface this writer materializes (statusline,
+// TestClaudeCode_WritesNoAbsolutePaths proves the portability fix end to
+// end: every surface the at-rest delivery materializes (statusline,
 // inject-context hook, auto-registered MCP server) names the BARE `ctxloom`,
 // resolved on PATH at fire time. .claude/settings.json is a tracked file, so
 // an absolute path in any of them is one developer's machine committed into
@@ -192,10 +185,9 @@ func TestDeliverManagedSettings_WithFS(t *testing.T) {
 // never materialized by this binary.
 //
 // MUTATION — materialize any of the three from selfexec.Path(); RED.
-func TestClaudeCodeHookWriter_WritesNoAbsolutePaths(t *testing.T) {
+func TestClaudeCode_WritesNoAbsolutePaths(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	writer := &claude.ClaudeCodeHookWriter{}
 	// Inject-context hook is constructed exactly the way the lifecycle
 	// constructs it — through the public constructor.
 	cfg := &wire.HooksConfig{Unified: wire.UnifiedHooks{
@@ -204,7 +196,7 @@ func TestClaudeCodeHookWriter_WritesNoAbsolutePaths(t *testing.T) {
 			{Command: "ctxloom hook stamp-plan", Type: "command"},
 		},
 	}}
-	require.NoError(t, writer.WriteSettings(cfg, map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, tmpDir))
+	deliverManagedSettings(t, "claude-code", cfg, map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, tmpDir, afero.NewOsFs())
 
 	settingsData, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
 	require.NoError(t, err)

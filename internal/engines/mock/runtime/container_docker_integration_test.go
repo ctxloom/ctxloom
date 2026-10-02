@@ -36,14 +36,14 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	mockrt "github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/atrest"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,11 +99,12 @@ func buildMockEngineImage(t *testing.T) string {
 // present:false rows are the point.
 func materializeClaudeContext(t *testing.T, workspace, context string) string {
 	t.Helper()
-	a, ok := claudeDeclaration(t).Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{Context: context}, nil)
-	if !ok {
-		t.Fatal("claude declared no project-file context delivery — cannot set up the test")
+	kind, err := claude.Build()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := a.Deliver(present.ProjectOnHost(workspace)); err != nil {
+	pkg := compositetest.Fixture(t, compositetest.WithFragment("rules", context))
+	if err := atrest.New(t, afero.NewOsFs(), kind, workspace).Install(pkg); err != nil {
 		t.Fatalf("materialize context: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(workspace, "CLAUDE.md"))
@@ -245,13 +246,4 @@ func recordFor(t *testing.T, rep mockrt.Report, kind, scope string) mockrt.Probe
 	}
 	t.Fatalf("no probe record for kind=%s scope=%s", kind, scope)
 	return mockrt.ProbeRecord{}
-}
-
-// claudeDeclaration is claude's named-form table off the engine value
-// (agent.Hosted).
-func claudeDeclaration(t *testing.T) agent.Declaration {
-	t.Helper()
-	h, ok := engines.Hosted(claude.EngineName)
-	require.True(t, ok)
-	return h.Declaration()
 }

@@ -147,7 +147,7 @@ func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) e
 			return err
 		}
 		// The whole read-modify-write runs under the file lock confpatch
-		// takes, the same lock ctxloom's SettingsWriter family holds — an
+		// takes, the same lock ctxloom's static writer (fsstatic's batch) holds — an
 		// unlocked taskloom was the other companion binary racing that lock
 		// from outside it.
 		var opts []confpatch.ApplyOption

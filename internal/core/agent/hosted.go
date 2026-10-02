@@ -19,10 +19,9 @@ type Hosted interface {
 	// approach names a binding may select (`agent edit --surface`). The
 	// names are validated config; nothing constructs a form from it.
 	Declaration() Declaration
-	// SettingsWriter constructs the engine's settings writer, which reports
-	// (Status) and strips (RemoveSettings) ctxloom's wiring in the engine's
-	// own settings file.
-	SettingsWriter(SettingsOptions) SettingsWriter
+	// SettingsReader constructs the engine's settings reader, which reports
+	// ctxloom's wiring in the engine's own settings files.
+	SettingsReader(SettingsOptions) SettingsReader
 	// HookGlobalScope is the project/global settings-path collision guard
 	// `manage hooks install` applies; false for an engine whose global path
 	// never collapses onto the project path.

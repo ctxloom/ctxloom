@@ -47,6 +47,11 @@ type Presentations struct {
 	// argument, so a Presentations without a default does not exist.
 	def    string
 	byName map[string]Construct
+	// retired maps a name whose approach was deleted to the name that
+	// replaces it. A retired name is not known: Names omits it and
+	// Construct refuses it; it exists so a binding that still names it is
+	// told what to select instead.
+	retired map[string]string
 }
 
 // Presents begins an engine's declaration for one surface with its DEFAULT.
@@ -75,6 +80,25 @@ func (d Presentations) Or(name string, c Construct) Presentations {
 	next[name] = c
 	d.byName = next
 	return d
+}
+
+// Retire declares a name this surface no longer delivers, and the declared
+// name that replaces it. It copies, as Or does.
+func (d Presentations) Retire(name, replacement string) Presentations {
+	next := make(map[string]string, len(d.retired)+1)
+	for k, v := range d.retired {
+		next[k] = v
+	}
+	next[name] = replacement
+	d.retired = next
+	return d
+}
+
+// Retired reports the name that replaces a retired one; false when name was
+// never retired.
+func (d Presentations) Retired(name string) (string, bool) {
+	r, ok := d.retired[name]
+	return r, ok
 }
 
 // Names lists every delivery this engine can construct for this surface,

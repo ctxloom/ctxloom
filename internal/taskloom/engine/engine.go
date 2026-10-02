@@ -19,9 +19,9 @@ import (
 
 // Engine is the MCP-registration facet of an agent: where its MCP config lives
 // per scope and how one named server is written into / taken out of that file.
-// It is deliberately separate from agent.SettingsWriter — the writer reconciles
-// the ctxloom-managed server set against whole files, while a registrar gives
-// an external tool (taskloom manage) single-server registration.
+// It is deliberately separate from ctxloom's own delivery — that claims the
+// ctxloom-managed server set through the ownership record, while a registrar
+// gives an external tool (taskloom manage) single-server registration.
 //
 // It lives here rather than in shared/agent because a registrar writes through
 // confpatch, and confpatch depends on shared/agent.

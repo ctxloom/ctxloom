@@ -500,6 +500,10 @@ func (p Package) EngineItems(name engine.Name) engine.Items {
 		items.Skills = append(items.Skills, engine.SkillItem{Ref: s.Ref, Name: s.Value.Name, Description: s.Value.Description, Files: s.Value.Files, Exports: block(s.Value.Exports, name), Curated: s.Value.Curated})
 	}
 	items.Hooks = p.Hooks.Unified.All()
+	native := p.Hooks.Ext[string(name)] // THIS engine's hooks by its own event names
+	for _, event := range slices.Sorted(maps.Keys(native)) {
+		items.Hooks = append(items.Hooks, native[event]...)
+	}
 	for _, server := range slices.Sorted(maps.Keys(p.MCP)) {
 		items.MCP = append(items.MCP, p.MCP[server])
 	}

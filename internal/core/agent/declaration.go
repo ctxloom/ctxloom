@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 
@@ -48,10 +49,6 @@ type Approach interface {
 	// from the run's content, Present can name a content-derived leaf
 	// truthfully — which a static, content-free presenter provably could not.
 	Present(start present.Start) present.Presentation
-	// Deliver is the writer seam, unchanged: write beneath the advised roots
-	// and return the handle that reverses it. A nil handle means nothing was
-	// written (the seam's existing convention).
-	Deliver(start present.Start) (Delivered, error)
 }
 
 // Construct builds one Approach for ONE RUN from that run's content. It
@@ -115,6 +112,25 @@ func (d Declaration) Construct(kind SurfaceKind, name string, in SurfaceInputs, 
 		return nil, false
 	}
 	return p.Construct(name, in, fs)
+}
+
+// Retired reports the approach that replaces a retired name for kind; false
+// when kind is absent or the name was never retired.
+func (d Declaration) Retired(kind SurfaceKind, name string) (string, bool) {
+	return d[kind].Retired(name)
+}
+
+// RetiredApproachError refuses a binding that names an approach whose
+// writer was deleted, naming the approach to select instead.
+type RetiredApproachError struct {
+	Engine      string
+	Kind        SurfaceKind
+	Name        string
+	Replacement string
+}
+
+func (e *RetiredApproachError) Error() string {
+	return fmt.Sprintf("surfaces %s=%s: %s's %q approach is retired; select %q instead", e.Kind, e.Name, e.Engine, e.Name, e.Replacement)
 }
 
 // AllNames is the union of every approach name across every kind, sorted:

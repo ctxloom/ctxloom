@@ -1861,7 +1861,7 @@ func (c *Coordinator) parentLiveRunID(parentHarp string) string {
 // failResume warns that harp could not be resumed and tells its parent.
 func (c *Coordinator) failResume(harp string, rec RunRecord, err error) {
 	c.rep.Warnf("agent resume %s: %v", harp, err)
-	if _, qerr := c.queueMail(harp, rec.ParentHarp, KindError, fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
+	if _, qerr := c.mailParent(harp, rec.ParentHarp, KindError, fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err), nil, ""); qerr != nil {
 		c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
 	}
 }

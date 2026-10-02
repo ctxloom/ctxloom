@@ -638,10 +638,10 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		return
 	}
 	if _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
-		// The routing chokepoint refused it (closed kind vocabulary,
-		// hub-and-spoke, unknown recipient). The agent's local write already
-		// returned success, so the refusal is reported back the only way that
-		// still reaches it: as mail.
+		// The routing chokepoint refused it (closed kind vocabulary, a
+		// recipient off the tree's edges, unknown recipient). The agent's
+		// local write already returned success, so the refusal is reported
+		// back the only way that still reaches it: as mail.
 		c.rep.Warnf("coordinator: refusing %s's spool message %s: %v", role, e.Ref, err)
 		c.spoolDeliveryCount.Failed.Add(1)
 		c.replySpoolRefusal(role, msg, err)
@@ -719,8 +719,8 @@ func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 // stated reason: the parent always learns. Authorship stays honest — the
 // message is queued FROM the child, because the text below the header is the
 // child's own words — and it borrows no authority the child did not already
-// have, since KindError is in the sender-allowed vocabulary and the parent is
-// a child's only legal recipient anyway.
+// have, since KindError is in the sender-allowed vocabulary and a child may
+// always address its own parent.
 //
 // The original TEXT is carried, not just the fact of the drop. A notice that
 // said only "a message was lost" would tell a coordinator to go and ask an
@@ -746,7 +746,7 @@ func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
 			"(spool file %s; its sender was told, but a session that has ended cannot read that reply)\n"+
 			"\n--- the message text, as %s wrote it ---\n%s",
 		kind, role, spoolAddressee(e), cause, e.Ref, role, body)
-	if _, err := c.queueMail(role, parent, KindError, notice); err != nil {
+	if _, err := c.mailParent(role, parent, KindError, notice, nil, ""); err != nil {
 		c.rep.Warnf("coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
 	}
 }

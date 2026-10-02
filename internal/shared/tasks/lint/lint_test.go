@@ -1,8 +1,10 @@
 package lint
 
 import (
+	"fmt"
 	"testing"
 
+	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -416,4 +418,39 @@ func TestLint_DistinctViolationsOnOneTaskAreAllKept(t *testing.T) {
 	result, err := Lint(all, schema)
 	require.NoError(t, err)
 	assert.Len(t, result.Violations, 2)
+}
+
+// unparseableViolation builds the Violation Lint is expected to report for a
+// stored tag string tagma.ParseTag rejects, from the parser's own error.
+func unparseableViolation(t *testing.T, harpID, raw string) Violation {
+	t.Helper()
+	_, perr := tagma.ParseTag(raw)
+	require.Error(t, perr, "fixture %q must be unparseable", raw)
+	return Violation{harpID, fmt.Sprintf(unparseableTagReason, raw, perr)}
+}
+
+// TestLint_FlagsUnparseableStoredTag: read paths stay lenient on a stored tag
+// tagma cannot parse, and lint is the advisory sweep that is supposed to
+// SEE it — so it is reported, while the task's parseable tags are still
+// checked as usual.
+func TestLint_FlagsUnparseableStoredTag(t *testing.T) {
+	all := []tasks.Task{
+		{HarpID: "legacy", Tags: []string{"triage:type=security", "legacy/malformed"}},
+	}
+
+	result, err := Lint(all, tripleSchema(t))
+	require.NoError(t, err)
+	assert.Equal(t, []Violation{unparseableViolation(t, "legacy", "legacy/malformed")}, result.Violations)
+}
+
+// TestLint_FlagsUnparseableStoredTagWithoutASchema: unparseability is a
+// property of the stored string, not of anything the schema declares, so it
+// is reported even when there is no schema to check values against.
+func TestLint_FlagsUnparseableStoredTagWithoutASchema(t *testing.T) {
+	all := []tasks.Task{{HarpID: "legacy", Tags: []string{"legacy/malformed"}}}
+
+	result, err := Lint(all, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []Violation{unparseableViolation(t, "legacy", "legacy/malformed")}, result.Violations)
+	assert.Equal(t, 0, result.CheckedTargets)
 }

@@ -202,3 +202,24 @@ func TestRunLintCmd_CleanJSONViolationsIsEmptyListNotNull(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out.String()), &got), out.String())
 	assert.Equal(t, []any{}, got["violations"])
 }
+
+// TestRunLintCmd_TextShowsViolationsEvenWhenZeroTargetsChecked: some checks
+// are data-driven rather than scoped by a declared enum/range target
+// (arity=scalar cardinality, unparseable stored tags), so a run can find
+// violations while CheckedTargets is 0. The text view must still print them
+// alongside the zero-targets note, not replace them with it.
+func TestRunLintCmd_TextShowsViolationsEvenWhenZeroTargetsChecked(t *testing.T) {
+	taskstest.ProjectDir(t)
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+	tc.TagSchema = nil
+
+	harpID := addLegacyTags(t, tc, "legacy data", "legacy/malformed")
+
+	var out strings.Builder
+	err = runLintCmd(&out, tc, clifmt.FormatText)
+	require.Error(t, err)
+	assert.Contains(t, out.String(), "0 targets checked")
+	assert.Contains(t, out.String(), harpID+": ")
+	assert.Contains(t, out.String(), "legacy/malformed")
+}

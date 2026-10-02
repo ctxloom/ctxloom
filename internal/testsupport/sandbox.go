@@ -1,6 +1,7 @@
 package testsupport
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -140,16 +141,18 @@ func RequireIsolatedAppDir(t *testing.T) {
 	}
 }
 
-// AppDirIsolationError reports why ctxloom's app-directory resolution could
-// escape the OS temp root, or nil when it cannot.
+// AppDirIsolationError reports why ctxloom state outside the OS temp root is
+// still reachable, or nil when it is not: through app-directory resolution
+// (HOME, the walk up from cwd) or through an inherited environment variable
+// naming a real app dir — PATH carrying a session's pinned companion store is
+// the case that leaked (taskstest.EnvAppDirEscapeError).
 //
-// The predicate itself lives in taskstest, next to the Isolate it now guards:
+// The predicates themselves live in taskstest, next to the Isolate they guard:
 // the internal/shared tree is self-contained and cannot import testsupport,
-// so a shared-side caller forces the body shared-side. This is a re-export,
-// not a copy — two bodies is how the two EnvKeys lists drifted to cover 3 of
-// ~18 variables with nothing to catch it.
+// so a shared-side caller forces the bodies shared-side. This composes them;
+// it does not copy them — two bodies is how the two EnvKeys lists drifted.
 func AppDirIsolationError() error {
-	return taskstest.AppDirIsolationError()
+	return errors.Join(taskstest.AppDirIsolationError(), taskstest.EnvAppDirEscapeError())
 }
 
 // enterSandbox roots HOME and the working directory at fresh temp directories

@@ -54,6 +54,7 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 	// that gate reads the USER countersignature store out of the real home.
 	isolatedApprovals(t)
 	isolatedRecords(t)
+	isolatedLocks(t)
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")

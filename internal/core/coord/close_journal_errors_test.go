@@ -45,7 +45,7 @@ func TestCoordinatorClose_SurfacesJournalCloseFailures(t *testing.T) {
 
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
 
-	// Break two of the four journals' handles.
+	// Break two of the three journals' handles.
 	assert.NoError(t, c.runs.f.Close())
 	assert.NoError(t, c.items.f.Close())
 
@@ -55,5 +55,5 @@ func TestCoordinatorClose_SurfacesJournalCloseFailures(t *testing.T) {
 	assert.Contains(t, out, "runs.jsonl", "the failing journal must be named")
 	assert.Contains(t, out, "items.jsonl", "every failing journal must be named, not just the first")
 	assert.Contains(t, out, "file already closed")
-	assert.NotContains(t, out, "mailbox.jsonl", "a journal that closed cleanly must not be reported")
+	assert.NotContains(t, out, "interactions.jsonl", "a journal that closed cleanly must not be reported")
 }

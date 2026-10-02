@@ -41,9 +41,8 @@ import (
 //     trusted the file's interior claim would let a child aim the coordinator
 //     at a sibling's parent.
 //
-// SCOPE (S5a): ordinary mail only, in both directions. Steer, question,
-// summarize, pause/resume, approvals and the up-asks still ride the mailbox
-// and the request plane.
+// SCOPE: ordinary mail, in both directions. Where each control verb travels
+// is control.go's to state, not this file's.
 //
 // agent_report's REPORT still rides the events plane and is journaled into the
 // reports fold, which remains its store of record — but a FINAL report now also

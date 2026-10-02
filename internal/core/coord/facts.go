@@ -10,10 +10,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
-// Fact kinds. Two journals: the run-registry journal (runs.jsonl — run
-// lifecycle, session credentials) and the mailbox journal (mailbox.jsonl —
-// queued peer messages and consume cursors). The interaction journal
-// (interactions.jsonl) is an audit log with no projection.
+// Fact kinds. The run-registry journal (runs.jsonl — run lifecycle, session
+// credentials) carries these; plane-1 item events have their own journal
+// (items.jsonl, see items.go), and the interaction journal
+// (interactions.jsonl) is an audit log with no projection. Peer mail is not
+// journaled: the spool file is the message (spooldelivery.go).
 const (
 	// factRunEnqueued records an agent_run accepted at enqueue: the run is
 	// minted (run_id, credential hash) and joins the spawn queue.
@@ -140,7 +141,7 @@ type runEnqueued struct {
 	// (folds.go's applyEnqueued) reports it via Identity.OneShot without a
 	// second resolve. See Identity.OneShot's doc for what it gates.
 	OneShot bool   `json:"one_shot,omitempty"`
-	Prompt  string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
+	Prompt  string `json:"prompt,omitempty"` // briefing (the journal is 0600: it carries message bodies)
 	Resume  bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
 	// Permission is the posture the run was ENQUEUED with: the binding's
 	// declared posture for a delegated child (empty when it declared none),
@@ -209,7 +210,7 @@ type interaction struct {
 }
 
 // approvalParked is factApprovalParked's payload. Input is the tool call's
-// input as the engine sent it (the journal is 0600, like the mailbox).
+// input as the engine sent it (the journal is 0600: it carries tool input).
 type approvalParked struct {
 	ID        ApprovalID      `json:"id"`
 	Harp      string          `json:"harp"`

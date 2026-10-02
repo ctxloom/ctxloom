@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/attach"
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
+	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -88,7 +89,7 @@ func (s *dockerInteractiveStarter) start(ctx context.Context, spawnEnv map[strin
 		return coord.OwnedRunner{}, err
 	}
 	name := in.Name
-	sess, err := attach.Start(context.Background(), in.Cmd, name, removeOnRunExit(in.Teardown))
+	sess, err := attach.Start(context.Background(), hostpty.Start, in.Cmd, name, removeOnRunExit(in.Teardown))
 	if err != nil {
 		_ = cell.Cleanup()
 		return coord.OwnedRunner{}, err

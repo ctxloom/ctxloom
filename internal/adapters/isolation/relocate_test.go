@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"os"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -156,7 +157,7 @@ func TestContainerEnvironment_MountsTheHomeAndNoCredential(t *testing.T) {
 }
 
 // The shared credential stores reach the daemon: a login store renders as a
-// read-write bind at $HOME/.claude and a cloud provider store as a READ-ONLY
+// read-write bind of its credential file alone and a cloud provider store as a READ-ONLY
 // bind at its place under $HOME, in the very `docker run` argv the runner
 // starts — beside the session home, never replacing it.
 func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
@@ -166,10 +167,12 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	login, provider := filepath.Join(home, ".claude"), filepath.Join(home, ".aws")
 	ssoCache := filepath.Join(provider, "sso", "cache")
 	stores := []sharedStore{
-		{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude"}, hostDir: login},
+		{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude", Files: []string{".credentials.json"}}, hostDir: login},
 		{SharedStore: engine.SharedStore{HomeRel: ".aws", ReadOnly: true}, hostDir: provider},
 		{SharedStore: engine.SharedStore{HomeRel: ".aws/sso/cache"}, hostDir: ssoCache},
 	}
+	require.NoError(t, os.MkdirAll(login, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(login, ".credentials.json"), []byte("{}"), 0o600))
 	sessionHome := filepath.Join(t.TempDir(), "home", "claude")
 	pl, roots, err := c.relocator().relocate(layout{cwd: cw.dir, sessionHome: sessionHome, homeVar: claudeHomeVar, stores: stores})
 	require.NoError(t, err)
@@ -177,7 +180,9 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	require.NoError(t, err)
 
 	argv := strings.Join(mustRunArgs(t, c.runtime, c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")
-	assert.Contains(t, argv, "type=bind,source="+login+",target="+defaultContainerHome+"/.claude ", "the login store, read-write")
+	assert.Contains(t, argv, "type=bind,source="+login+"/.credentials.json,target="+defaultContainerHome+"/.claude/.credentials.json ",
+		"the login store's credential file, read-write")
+	assert.NotContains(t, argv, "source="+login+",", "the login store's directory is never mounted")
 	assert.Contains(t, argv, "type=bind,source="+provider+",target="+defaultContainerHome+"/.aws,readonly", "the provider store, read-only")
 	nested := "type=bind,source=" + ssoCache + ",target=" + defaultContainerHome + "/.aws/sso/cache "
 	assert.Contains(t, argv, nested, "a store nested in a read-only one is still read-write")
@@ -185,4 +190,48 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 		"the nested store is mounted after its parent, which would otherwise shadow it")
 	assert.Contains(t, argv, "target=/ctxloom/home/claude", "the session home keeps its own mount")
 	assert.Equal(t, "", pl.Env["STORE_VAR"], "the var points the engine at $HOME")
+}
+
+// A store declaring Files gives a container those files and nothing else
+// under the store: the human's login directory also holds every project's
+// transcripts and the settings.json whose hooks the human's own claude runs,
+// so a writable mount of the directory is host code execution. The member is
+// read-write: claude's refresh rewrites it in place.
+func TestRelocateStores_FilesBindOnlyTheirMembers(t *testing.T) {
+	login := filepath.Join(t.TempDir(), ".claude")
+	require.NoError(t, os.MkdirAll(filepath.Join(login, "projects"), 0o700))
+	for _, f := range []string{".credentials.json", "settings.json"} {
+		require.NoError(t, os.WriteFile(filepath.Join(login, f), []byte("{}"), 0o600))
+	}
+	store := sharedStore{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude", Files: []string{".credentials.json"}}, hostDir: login}
+
+	env, mounts, err := containerRelocator{rt: Docker{rootless: true}, home: defaultContainerHome}.relocateStores([]sharedStore{store})
+	require.NoError(t, err)
+	assert.Equal(t, []mount{{Host: filepath.Join(login, ".credentials.json"), Container: defaultContainerHome + "/.claude/.credentials.json"}}, mounts,
+		"the credential file alone, read-write, where the engine finds it under $HOME")
+	assert.Equal(t, map[string]string{"STORE_VAR": ""}, env, "the var still points the engine at its place under $HOME")
+}
+
+// A member a read-only store declares is bound read-only.
+func TestRelocateStores_ReadOnlyStoreBindsItsMembersReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "key"), []byte("k"), 0o600))
+	store := sharedStore{SharedStore: engine.SharedStore{HomeRel: ".s", ReadOnly: true, Files: []string{"key"}}, hostDir: dir}
+
+	_, mounts, err := containerRelocator{rt: Docker{rootless: true}, home: defaultContainerHome}.relocateStores([]sharedStore{store})
+	require.NoError(t, err)
+	require.Len(t, mounts, 1)
+	assert.True(t, mounts[0].ReadOnly)
+}
+
+// A declared member that is missing refuses, naming it: the daemon would
+// reject the bind, and a run without it starts logged out.
+func TestRelocateStores_MissingMemberRefuses(t *testing.T) {
+	login := t.TempDir()
+	store := sharedStore{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude", Files: []string{".credentials.json"}}, hostDir: login}
+
+	_, _, err := containerRelocator{rt: Docker{rootless: true}, home: defaultContainerHome}.relocateStores([]sharedStore{store})
+	require.ErrorIs(t, err, engine.ErrNoCredential)
+	assert.ErrorIs(t, err, errCredentialFileMissing)
+	assert.Contains(t, err.Error(), filepath.Join(login, ".credentials.json"))
 }

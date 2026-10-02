@@ -147,6 +147,11 @@ type SharedStore struct {
 	HomeRel string
 	// ReadOnly declares that the run only reads the store.
 	ReadOnly bool
+	// Files are the store's members a container is given, each
+	// slash-separated relative to the store; nothing else under the store
+	// enters the container. Empty gives a container the whole directory. The
+	// host shares the store in place whatever this says.
+	Files []string
 }
 
 // HostDir is the store's directory on the host whose home is hostHome:

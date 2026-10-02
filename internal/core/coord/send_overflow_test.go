@@ -347,9 +347,10 @@ func spooledOverflow(t *testing.T, harp string) string {
 // engineOverflow is the body of an overflowed message the owner sent that
 // runID's engine was handed as a turn, "" when none was. The delivery frame is
 // cut with the renderer's own header (FrameCoordinatorDelivery over an empty
-// body), so what remains is the body exactly as the spool file held it.
+// body), up to the per-message id attributes it closes with, so what remains
+// is the body exactly as the spool file held it.
 func engineOverflow(sp *fakeSpawner, runID string) string {
-	header := runnerHooks.FrameCoordinatorDelivery(ownerIdentity().Harp, KindMessage, "")
+	header := strings.TrimSuffix(runnerHooks.FrameCoordinatorDelivery(Message{From: ownerIdentity().Harp, Kind: KindMessage}), "]\n")
 	for i := range sp.chatCount() {
 		ch := sp.chat(i)
 		if ch.RunnerEnv()[EnvRunID] != runID {
@@ -359,7 +360,11 @@ func engineOverflow(sp *fakeSpawner, runID string) string {
 		texts := slices.Clone(ch.Texts)
 		ch.Mu.Unlock()
 		for _, text := range texts {
-			if body, ok := strings.CutPrefix(text, header); ok && strings.Contains(body, OverflowMarkerPhrase) {
+			rest, ok := strings.CutPrefix(text, header)
+			if !ok {
+				continue
+			}
+			if _, body, ok := strings.Cut(rest, "]\n"); ok && strings.Contains(body, OverflowMarkerPhrase) {
 				return body
 			}
 		}

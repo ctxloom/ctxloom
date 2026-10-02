@@ -23,11 +23,6 @@ import (
 // delivery bodies reuse the shared marker-merge and managed-tree writers so
 // the mock proves the seam rather than a second implementation of it.
 
-// mockContextFilename is the mock engine's well-known context file — its
-// analogue of CLAUDE.md / AGENTS.md. It lives at the target dir's ROOT (not
-// nested) so Route() names it as a human would look for it.
-const mockContextFilename = "MOCK_CONTEXT.md"
-
 // mockContextPath returns the mock context file's path under dir, via the
 // declared context presenter. The dir-taking form serves the READ side and
 // the shared writer cores, whose own contracts hand over a directory; a
@@ -51,11 +46,11 @@ func mockSurfacePath(kind agent.SurfaceKind, start present.Start) string {
 // composes UnderProjectRoot; the session form (sessionRooted) hands it a
 // Start whose project root is the run's session home.
 var mockRel = map[agent.SurfaceKind]string{
-	agent.SurfaceContext:  mockContextFilename,
-	agent.SurfaceSkills:   mockSkillsDirName,
-	agent.SurfaceMCP:      mockMCPFilename,
-	agent.SurfaceSettings: mockSettingsFilename,
-	agent.SurfaceCommands: mockCommandsDirName,
+	agent.SurfaceContext:  ContextFileName,
+	agent.SurfaceSkills:   skillsRel,
+	agent.SurfaceMCP:      mcpRel,
+	agent.SurfaceSettings: settingsRel,
+	agent.SurfaceCommands: commandsRel,
 }
 
 // mockContextWriter implements agent.ContextWriter for the mock engine: it
@@ -72,7 +67,7 @@ type mockContextWriter struct {
 func (w *mockContextWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
 	fs := agent.GetFS(w.FS)
 	path := mockContextPath(req.ProjectDir)
-	return agent.WriteManagedContext(fs, path, mockContextFilename, req.Context, mockContextFilename)
+	return agent.WriteManagedContext(fs, path, ContextFileName, req.Context, ContextFileName)
 }
 
 // newMockContext is mock's context approach: the SHARED native-file
@@ -81,22 +76,9 @@ func (w *mockContextWriter) WriteContext(req agent.ContextWriteRequest) (agent.C
 // (agent.StateReader) claude's CLAUDE.md goes through, differing only in the
 // writer and the filename. A second managed-section implementation here would
 // prove the mock, not the seam.
-var newMockContext = agent.NativeContextFile("mock/context", mockContextFilename, func(fs afero.Fs) agent.ContextWriter {
+var newMockContext = agent.NativeContextFile("mock/context", ContextFileName, func(fs afero.Fs) agent.ContextWriter {
 	return &mockContextWriter{FS: fs}
 })
-
-// MockConfigDirName is the mock engine's project-relative managed-config
-// directory — its analogue of each real engine's own ConfigDirName, and
-// what mock's descriptor declares as its container overlay dir.
-const MockConfigDirName = ".mock"
-
-// mockSkillsDirName is the directory the mock engine "reads" its Agent Skill
-// packages from, relative to the delivery dir. Unlike the context file it is
-// NESTED, because that is the shape a real engine has (.claude/skills) and
-// because a
-// bare top-level `skills/` would collide with the `skills/` directory of a
-// bundle content tree materialized into the same project.
-const mockSkillsDirName = MockConfigDirName + "/skills"
 
 // mockSkillsPath returns the mock skills directory's path under dir, via the
 // declared skills presenter.
@@ -112,19 +94,10 @@ func mockSkillsPath(dir string) string {
 // on each file, the manifest-scoped reversal — lives in that shared body, not
 // here; this function contributes a directory and a manifest name.
 func newMockSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-	return agent.NewManagedSkillPackagesDelivery("mock/skills", mockSkillsDirName, in.Skills, func(dir string, skills []agent.SkillExport) error {
+	return agent.NewManagedSkillPackagesDelivery("mock/skills", skillsRel, in.Skills, func(dir string, skills []agent.SkillExport) error {
 		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), skills, agent.WithWriteReporter(in.Reporter))
 	})
 }
-
-// mockMCPFilename, mockSettingsFilename and mockCommandsDirName are mock's
-// remaining native surfaces, all under its own .mock/ config dir — the shape
-// a real engine has (.claude/), not a top-level scatter.
-const (
-	mockMCPFilename      = MockConfigDirName + "/mcp.json"
-	mockSettingsFilename = MockConfigDirName + "/settings.json"
-	mockCommandsDirName  = MockConfigDirName + "/commands"
-)
 
 // mockMCPPath, mockSettingsPath and mockCommandsPath resolve each surface's
 // path through its declared presenter, exactly as the context and skills
@@ -302,7 +275,7 @@ func writeMockSettings(fs afero.Fs, path string, doc map[string]json.RawMessage)
 // body; everything that makes a command file land correctly lives in the
 // shared writer.
 func newMockCommandsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-	return agent.NewManagedCommandsDelivery("mock/commands", mockCommandsDirName, in.Commands, func(dir string, cmds []agent.CommandExport) error {
+	return agent.NewManagedCommandsDelivery("mock/commands", commandsRel, in.Commands, func(dir string, cmds []agent.CommandExport) error {
 		return agent.WriteManagedCommandFiles(agent.GetFS(fs), mockCommandsPath(dir), cmds,
 			func(c agent.CommandExport) (string, []byte, error) {
 				return filepath.Base(c.Name) + ".md", []byte(c.Content), nil

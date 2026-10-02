@@ -97,7 +97,8 @@ func WithTranscripts(readers ...engine.TranscriptReader) Option {
 }
 
 // ConfigDirName is the mock engine's project-relative managed-config
-// directory: the one directory its container overlays shadow.
+// directory — its analogue of each real engine's own ConfigDirName, and the
+// one directory its container overlays shadow.
 const ConfigDirName = ".mock"
 
 // installFragment asserts `cat` (the shared-fs probe runs `cat /probe/marker`

@@ -41,7 +41,7 @@ func TestMockContextPresenter_RootsUnderProjectRoot_NotEngineHome(t *testing.T) 
 
 	got := mockPresent(t, agent.SurfaceContext, start)
 
-	want := filepath.Join("/proj", mockContextFilename)
+	want := filepath.Join("/proj", ContextFileName)
 	assert.Equal(t, want, got.HostPath)
 	assert.NotContains(t, got.HostPath, "/elsewhere/home",
 		"the context presenter must not root on EngineHome")
@@ -54,7 +54,7 @@ func TestMockSkillsPresenter_RootsUnderProjectRoot_NotEngineHome(t *testing.T) {
 
 	got := mockPresent(t, agent.SurfaceSkills, start)
 
-	want := filepath.Join("/proj", filepath.FromSlash(mockSkillsDirName))
+	want := filepath.Join("/proj", filepath.FromSlash(skillsRel))
 	assert.Equal(t, want, got.HostPath)
 	assert.NotContains(t, got.HostPath, "/elsewhere/home",
 		"the skills presenter must not root on EngineHome")
@@ -91,8 +91,8 @@ func TestMockContextPresenter_ContainerizedRun_EnginePathDivergesFromHostPath(t 
 
 	got := mockPresent(t, agent.SurfaceContext, start)
 
-	assert.Equal(t, filepath.Join("/home/user/project", mockContextFilename), got.HostPath)
-	assert.Equal(t, "/mnt/proj/"+mockContextFilename, got.EnginePath)
+	assert.Equal(t, filepath.Join("/home/user/project", ContextFileName), got.HostPath)
+	assert.Equal(t, "/mnt/proj/"+ContextFileName, got.EnginePath)
 	assert.NotEqual(t, got.HostPath, got.EnginePath,
 		"a containerized run must present a different engine path than host path")
 }

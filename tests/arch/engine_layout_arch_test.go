@@ -68,7 +68,7 @@ type overlayCheck struct {
 func testSpecOverlayDirs(t *testing.T) {
 	checks := []overlayCheck{
 		{backend: "claude-code", want: claude.ConfigDirName},
-		{backend: "mock", want: mock.MockConfigDirName},
+		{backend: "mock", want: mock.ConfigDirName},
 	}
 	for _, c := range checks {
 		t.Run(c.backend, func(t *testing.T) {

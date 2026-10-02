@@ -129,7 +129,7 @@ func TestMockContextSurface_State_ReportsMissing_WhenFileAbsent(t *testing.T) {
 	state, err := s.State(dir)
 	require.NoError(t, err)
 
-	assert.Equal(t, mockContextFilename, state.Route())
+	assert.Equal(t, ContextFileName, state.Route())
 	got := state.Currency("whatever the intended context is")
 	assert.Equal(t, agent.StatusMissing, got.Status)
 }

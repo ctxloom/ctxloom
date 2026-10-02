@@ -21,10 +21,16 @@ import (
 // file, without an engine binary; the mock's own turn reads the hooks file
 // to fire hooks (hooks.go).
 
-// ContextFileName is the mock's well-known context file, at the root.
+// ContextFileName is the mock's well-known context file — its analogue of
+// CLAUDE.md / AGENTS.md. It lives at the ROOT (not nested) so it is named
+// where a human would look for it.
 const ContextFileName = "MOCK_CONTEXT.md"
 
-// The remaining surfaces, relative to the root.
+// The remaining surfaces, relative to the root, all under ConfigDirName: the
+// shape a real engine has (.claude/), not a top-level scatter. skillsRel is
+// NESTED for the same reason, and because a bare top-level `skills/` would
+// collide with the `skills/` directory of a bundle content tree materialized
+// into the same project.
 const (
 	mcpRel      = ConfigDirName + "/mcp.json"
 	settingsRel = ConfigDirName + "/settings.json"

@@ -1,5 +1,5 @@
 <!--
-J000700 narration companion (PROTOTYPE — see docs/living-docs-plan.md).
+J000700 narration companion (rendered by scripts/gendocs/livingdocs).
 
 Prose ONLY. It never restates what the Gherkin already says business-readably,
 and it carries no assertions of its own — j000700_team_authoring.feature next to it

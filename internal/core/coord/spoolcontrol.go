@@ -294,7 +294,7 @@ func (c *Coordinator) noticeUnansweredAsks(harp string) {
 		}
 		body := fmt.Sprintf("agent %q (session %s) ended (%s) without answering your %s %s",
 			rec.Agent, harp, rec.Cause, a.kind, id)
-		if _, err := c.queueMailPayload(harp, rec.ParentHarp, KindExited, body, nil, id); err != nil {
+		if _, err := c.mailParent(harp, rec.ParentHarp, KindExited, body, nil, id); err != nil {
 			c.rep.Warnf("agent %s: the unanswered-%s notice for %s could not be written to %s's spool (%v)",
 				harp, a.kind, id, rec.ParentHarp, err)
 		}

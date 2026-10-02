@@ -183,6 +183,28 @@ func TestTree_GrandchildDroppedSpoolMailResumesItsEndedParent(t *testing.T) {
 	tr.awaitParentResumedWith(t, "the parser is fixed, unroutably")
 }
 
+// TestTree_UnansweredAskNoticeResumesItsEndedAsker: an ask returns at once,
+// so the asker's run may well have ended by the time its child ends without
+// answering. The correlated notice is child-origin mail like any other, and
+// resumes the ended asker rather than waiting in its spool.
+//
+// The grandchild ends FIRST, while the parent is live, so its own death notice
+// is consumed by the live parent; only the ask notice can resume the parent.
+func TestTree_UnansweredAskNoticeResumesItsEndedAsker(t *testing.T) {
+	tr := spawnTree(t, true)
+	tr.c.terminateRun(tr.grandchild.RunID, CauseStopped, "stopped mid-ask")
+	awaitChatText(t, tr.sp, 0, "stopped mid-ask")
+	tr.endParent(t)
+
+	const askID = "m-ask-of-an-ended-asker"
+	tr.c.mu.Lock()
+	tr.c.openAsks = map[string]openAsk{askID: {target: tr.grandchild.Harp, kind: KindQuestion}}
+	tr.c.mu.Unlock()
+
+	tr.c.noticeUnansweredAsks(tr.grandchild.Harp)
+	tr.awaitParentResumedWith(t, askID)
+}
+
 // TestTree_RootAddressesOnlyItsOwnChildren: the root is a tree node (ruling
 // c). It may not message its grandchild past the grandchild's parent.
 func TestTree_RootAddressesOnlyItsOwnChildren(t *testing.T) {

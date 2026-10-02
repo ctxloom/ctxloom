@@ -158,12 +158,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -195,14 +205,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -398,12 +416,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -435,14 +463,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -633,12 +669,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -670,14 +716,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -870,12 +924,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -907,14 +971,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -1105,12 +1177,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -1142,14 +1224,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -1342,12 +1432,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -1379,14 +1479,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -1577,12 +1685,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -1614,14 +1732,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -1814,12 +1940,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -1851,14 +1987,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -2029,12 +2173,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -2066,14 +2220,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }
@@ -2223,12 +2385,22 @@
     "unified": {
       "post_tool": [
         {
-          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "args": [
+            "hook",
+            "tool-reflect",
+            "--min-output-bytes",
+            "2048"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         },
         {
-          "command": "'ctxloom' hook skill-mates",
+          "args": [
+            "hook",
+            "skill-mates"
+          ],
+          "command": "ctxloom",
           "matcher": "Skill",
           "timeout": 15,
           "type": "command"
@@ -2260,14 +2432,22 @@
       ],
       "turn_end": [
         {
-          "command": "'ctxloom' hook next-step",
+          "args": [
+            "hook",
+            "next-step"
+          ],
+          "command": "ctxloom",
           "timeout": 15,
           "type": "command"
         }
       ],
       "turn_start": [
         {
-          "command": "'ctxloom' hook mail-drain",
+          "args": [
+            "hook",
+            "mail-drain"
+          ],
+          "command": "ctxloom",
           "timeout": 5,
           "type": "command"
         }

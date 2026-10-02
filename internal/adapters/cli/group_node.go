@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -43,10 +44,11 @@ import (
 // WHAT IT DOES NOT CHANGE. A bare `ctxloom manage` still prints help and exits
 // 0 — that is a legitimate way to ask what a namespace holds, and the only
 // invocation that reaches this RunE with no arguments and nothing to refuse.
-// `--help` never reaches here at all (cobra intercepts it earlier). Exactly two
-// outcomes go from 0 to 1: a NAMED subcommand that does not exist, and a
-// machine-readable --format aimed at the namespace itself
-// (groupNodeFormatRefusal).
+// `--help` never reaches here at all (cobra intercepts it earlier), which is
+// why an unknown verb under --help is refused by dispatch instead — see
+// unknownVerb. Exactly two outcomes go from 0 to 1 here: a NAMED
+// subcommand that does not exist, and a machine-readable --format aimed at the
+// namespace itself (groupNodeFormatRefusal).
 //
 // Applied at each declaration site rather than by walking the tree, because a
 // walk would have to run after every AddCommand in every init() in the package
@@ -215,6 +217,11 @@ func isGroupNode(cmd *cobra.Command) bool {
 	return cmd.Annotations[groupNodeAnnotation] == "true"
 }
 
+// ErrUnknownSubcommand is the class of every refusal of a verb a namespace
+// does not have, so a caller can tell it from any other failure without
+// reading the message.
+var ErrUnknownSubcommand = errors.New("unknown command")
+
 // unknownSubcommandError is the message a mistyped namespace verb earns. It
 // mirrors the wording cobra already produces for the root command, so
 // `ctxloom bundel` and `ctxloom bundle lst` read the same way, and appends the
@@ -222,13 +229,78 @@ func isGroupNode(cmd *cobra.Command) bool {
 // every verb it has.
 func unknownSubcommandError(cmd *cobra.Command, name string) error {
 	var b strings.Builder
-	fmt.Fprintf(&b, "unknown command %q for %q", name, cmd.CommandPath())
+	fmt.Fprintf(&b, "%q for %q", name, cmd.CommandPath())
 	if suggestions := cmd.SuggestionsFor(name); len(suggestions) > 0 {
 		b.WriteString("\n\nDid you mean this?\n")
 		for _, s := range suggestions {
 			fmt.Fprintf(&b, "\t%v\n", s)
 		}
 	}
-	fmt.Fprintf(&b, "\n\nRun '%s --help' for the subcommands it has.", cmd.CommandPath())
-	return fmt.Errorf("%s", b.String())
+	fmt.Fprintf(&b, "\n\nAvailable subcommands of %q:\n", cmd.CommandPath())
+	for _, sub := range cmd.Commands() {
+		if sub.IsAvailableCommand() {
+			fmt.Fprintf(&b, "  %s\n", sub.Name())
+		}
+	}
+	fmt.Fprintf(&b, "\nRun '%s --help' for what each one does.", cmd.CommandPath())
+	return fmt.Errorf("%w %s", ErrUnknownSubcommand, b.String())
+}
+
+// unknownVerb reports the verb a PARENT command was handed but does not have,
+// read from cobra's own parse of the invocation, so flags and their values are
+// never mistaken for it. A parent's leftover positional argument is a verb when
+// the parent itself takes none: a group node takes none by definition, and a
+// runnable parent (init) says so through its own Args validator.
+//
+// It exists for the one path neither a group node's RunE nor ValidateArgs can
+// see. Cobra answers --help straight after parsing flags, before Runnable(),
+// ValidateArgs or any RunE, and ExecuteC reports that as success — so
+// `ctxloom bundle untrust --help` printed bundle's help and exited 0,
+// confirming a verb that does not exist to any script probing with --help.
+// Both halves of the fix ask this one question: the help guard
+// (installGroupNodeHelpGuard) so the parent's help is not printed, and
+// dispatch so the invocation fails.
+//
+// A LEAF is out of scope: what it is handed are operands, not verbs, and a
+// bad operand is the leaf's own validator's business once help is not asked.
+func unknownVerb(cmd *cobra.Command) (string, bool) {
+	args := cmd.Flags().Args()
+	if len(args) == 0 || !cmd.HasSubCommands() {
+		return "", false
+	}
+	if isGroupNode(cmd) || cmd.ValidateArgs(args) != nil {
+		return args[0], true
+	}
+	return "", false
+}
+
+// installGroupNodeHelpGuard wraps the root's help so a parent asked for help
+// about a verb it does not have prints nothing; dispatch reports the refusal. Installed on the root because every command inherits its help
+// function from there.
+func installGroupNodeHelpGuard(root *cobra.Command) {
+	help := root.HelpFunc()
+	root.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if _, stray := unknownVerb(c); stray {
+			return
+		}
+		help(c, args)
+	})
+}
+
+// dispatch executes root and returns what the invocation should exit with.
+//
+// It is ExecuteC plus the one refusal cobra cannot make: a parent that
+// "succeeded" while holding a verb it does not have can only have got there
+// through cobra's --help short-circuit (its RunE or Args validator refuses
+// every other way in), so the success is replaced by the unknown-subcommand
+// error the same verb earns without --help.
+func dispatch(root *cobra.Command) error {
+	cmd, err := root.ExecuteC()
+	if err != nil {
+		return err
+	}
+	if name, stray := unknownVerb(cmd); stray {
+		return unknownSubcommandError(cmd, name)
+	}
+	return nil
 }

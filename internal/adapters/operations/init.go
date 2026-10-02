@@ -84,17 +84,8 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 		return nil, err
 	}
 	fs := getFS(req.FS)
-	// The authored-bundles home is the COMMITTED content tree; the cache is
-	// created lazily by whatever fetches into it, and init has no business
-	// scaffolding a gitignored directory.
-	// The bundles entry is the FORMAT ROOT, not the bundles directory: that
-	// directory is only the parent the format roots are siblings under, and a
-	// bundle sitting in it belongs to no format and is read by nobody. MkdirAll
-	// creates the parent too, so GetBundleDirs still sees it.
-	for _, dir := range []string{req.AppDir, filepath.Join(req.AppDir, paths.ProfilesDir), paths.LocalBundlesPathFor(req.AppDir, paths.LayoutV2)} {
-		if err := fs.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
+	if err := scaffoldProjectDirs(fs, req.AppDir); err != nil {
+		return nil, err
 	}
 
 	configData, err := BuildInitialConfig(req.Engine, req.DirtyTreeHandler, req.HeadlessPermissions)
@@ -134,6 +125,55 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 	return &InitializeProjectResult{Status: "initialized", AppDir: req.AppDir}, nil
 }
 
+// scaffoldProjectDirs creates the project's directory tree and provisions its
+// approvals store.
+func scaffoldProjectDirs(fs afero.Fs, appDir string) error {
+	// The authored-bundles home is the COMMITTED content tree; the cache is
+	// created lazily by whatever fetches into it, and init has no business
+	// scaffolding a gitignored directory.
+	// The bundles entry is the FORMAT ROOT, not the bundles directory: that
+	// directory is only the parent the format roots are siblings under, and a
+	// bundle sitting in it belongs to no format and is read by nobody. MkdirAll
+	// creates the parent too, so GetBundleDirs still sees it.
+	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), paths.LocalBundlesPathFor(appDir, paths.LayoutV2)} {
+		if err := fs.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+	return ProvisionApprovalsStore(fs, appDir)
+}
+
+// ProvisionApprovalsStore creates appDir's approvals store with its tracked
+// placeholder (paths.ApprovalsPlaceholderName). It is idempotent and adds only
+// what is missing, so it is also the migration for a project initialized
+// before the store was provisioned: `ctxloom init` over an existing .ctxloom
+// runs it, and doctor's approvals row points there.
+func ProvisionApprovalsStore(fs afero.Fs, appDir string) error {
+	fs = getFS(fs)
+	dir := paths.ApprovalsPath(appDir)
+	if err := fs.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("provision approvals store %s: %w", dir, err)
+	}
+	placeholder := filepath.Join(dir, paths.ApprovalsPlaceholderName)
+	if exists, err := afero.Exists(fs, placeholder); err != nil || exists {
+		return err
+	}
+	// No AllowEmpty: the placeholder is written only when absent, and the
+	// empty-write guard refuses only over an existing file.
+	if err := iox.WriteFileAtomicFs(fs, placeholder, nil, 0o644); err != nil {
+		return fmt.Errorf("provision approvals store %s: %w", dir, err)
+	}
+	return nil
+}
+
+// ApprovalsStoreProvisioned reports whether appDir's approvals store carries
+// its tracked placeholder. A bare directory does not count: it is not
+// committed, so a fresh clone arrives without it.
+func ApprovalsStoreProvisioned(fs afero.Fs, appDir string) bool {
+	exists, err := afero.Exists(getFS(fs), filepath.Join(paths.ApprovalsPath(appDir), paths.ApprovalsPlaceholderName))
+	return err == nil && exists
+}
+
 // validateInitRequest refuses a request with no app dir or an unknown engine.
 func validateInitRequest(reg enginepkg.Registry, req InitializeProjectRequest) error {
 	if req.AppDir == "" {
@@ -141,6 +181,23 @@ func validateInitRequest(reg enginepkg.Registry, req InitializeProjectRequest) e
 	}
 	if !EngineExists(reg, req.Engine) {
 		return fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(EngineNames(reg), ", "))
+	}
+	return validateHeadlessPosture(reg, req.Engine, req.HeadlessPermissions)
+}
+
+// validateHeadlessPosture refuses a headless posture the chosen engine's
+// permission model does not take; none is fine.
+func validateHeadlessPosture(reg enginepkg.Registry, name, posture string) error {
+	if posture == "" {
+		return nil
+	}
+	kind, _ := reg.Lookup(enginepkg.Name(name))
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		return fmt.Errorf("headless posture %q: engine %s takes no permission mode (%s)", posture, name, kind.Permissions().AbsentReason())
+	}
+	if err := model.Validate(map[string]any{permissionMode: posture}); err != nil {
+		return fmt.Errorf("headless posture: %w", err)
 	}
 	return nil
 }
@@ -196,13 +253,6 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // part of this scaffold at all — see InitializeProject, which writes it to
 // paths.DirtyTreeCommitAckPath instead.
 func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {
-	if headlessPermissions != "" {
-		m, ok := enginepkg.ParsePermissionMode(headlessPermissions)
-		if !ok {
-			return nil, fmt.Errorf("headless posture %q is not a posture (known: %s)", headlessPermissions, strings.Join(enginepkg.PermissionModeNames(), "|"))
-		}
-		headlessPermissions = m.String()
-	}
 	scaffoldData, err := readResource(resources.GetInitConfig, "init scaffold")
 	if err != nil {
 		return nil, err
@@ -242,13 +292,17 @@ func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([
 	f.DefaultAgent = SeedProfileName
 	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
-			LLM:         primaryLabel,
-			Runtime:     "host",
-			HomeMode:    string(agents.HomeModeSession),
-			Auth:        string(enginepkg.AuthLogin),
-			Profiles:    []string{SeedProfileName},
-			Permissions: headlessPermissions,
+			LLM:      primaryLabel,
+			Runtime:  "host",
+			HomeMode: string(agents.HomeModeSession),
+			Auth:     string(enginepkg.AuthLogin),
+			Profiles: []string{SeedProfileName},
 		},
+	}
+	if headlessPermissions != "" {
+		seed := f.Agents[SeedProfileName]
+		setBlockMode(&seed.Permissions, engine, headlessPermissions)
+		f.Agents[SeedProfileName] = seed
 	}
 	return yaml.Marshal(config.NewFixture(f).Authored())
 }

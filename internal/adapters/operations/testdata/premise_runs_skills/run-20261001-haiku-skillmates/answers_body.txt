@@ -1,0 +1,89 @@
+S01: admit, unattended
+S02: admit, unattended
+S03: admit, unattended
+S04: NONE
+S05: admit, unattended
+S06: admit, unattended
+S07: closeout
+S08: closeout
+S09: closeout, prompt-human
+S10: closeout, recover
+S11: closeout
+S12: closeout
+S13: closeout
+S14: design-by-test
+S15: prompt-human
+S16: prompt-human
+S17: prompt-human
+S18: prompt-human
+S19: prompt-human
+S20: prompt-human
+S21: check-triggers, prompt-human
+S22: NONE
+S23: closeout, prompt-human
+S24: unattended
+S25: admit, unattended
+S26: unattended
+S27: unattended
+S28: admit, prompt-human, unattended
+S29: recover
+M01: closeout
+M02: closeout
+M03: closeout
+M04: closeout
+M05: admit, unattended
+M06: admit, unattended
+M07: admit, unattended
+M08: admit, unattended
+M09: admit, unattended
+M10: admit
+M11: NONE
+M12: admit, unattended
+M13: admit, unattended
+M14: unattended
+M15: admit, prompt-human
+M16: admit, prompt-human, unattended
+M17: prompt-human
+M18: prompt-human
+M19: prompt-human
+M20: prompt-human
+M21: prompt-human
+M22: prompt-human
+M23: prompt-human
+M24: prompt-human
+M25: check-triggers, prompt-human
+M26: unattended
+M27: NONE
+M28: NONE
+M29: NONE
+M30: NONE
+M31: NONE
+M32: NONE
+M33: NONE
+M34: check-triggers
+M35: check-triggers, prompt-human
+M36: check-triggers, prompt-human
+M37: check-triggers, prompt-human
+M38: check-triggers, prompt-human
+M39: admit, check-triggers
+M40: recover
+M41: recover
+M42: prompt-human, recover
+M43: closeout, recover
+N01: NONE
+N02: NONE
+N03: NONE
+N04: NONE
+N05: recover
+N06: NONE
+N07: NONE
+N08: NONE
+N09: NONE
+N10: prompt-human, recover
+N11: NONE
+C01: NONE
+C02: NONE
+C03: NONE
+C04: NONE
+C05: NONE
+C06: NONE

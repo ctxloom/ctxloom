@@ -168,8 +168,8 @@ func TestNewTrust_AFaultedPortWithholdsEverythingAndNamesTheFault(t *testing.T) 
 	v := tr.Authorizer().Admit(e)
 
 	assert.False(t, v.Allow, "a store that cannot be read approves nothing")
-	assert.Equal(t, bundles.ReasonPending, v.Reason)
-	assert.Contains(t, v.Detail, "permission denied")
+	assert.Equal(t, bundles.ReasonRecordsUnreadable, v.Reason, "an unreadable store is a fault to repair, not content awaiting review")
+	assert.Contains(t, v.Detail, "approvals store: permission denied", "the detail names the store")
 }
 
 // faultedRecords is a ReviewRecords whose backing store could not be read;
@@ -282,7 +282,8 @@ func TestNewTrust_AnUnreadableLockfileDoesNotWithholdCompanionContent(t *testing
 	remote, _ := remoteExecutable(t)
 	rv := tr.Authorizer().Admit(remote)
 	assert.False(t, rv.Allow, "control: remote content under an unreadable lockfile is still withheld")
-	assert.Equal(t, bundles.ReasonPending, rv.Reason)
+	assert.Equal(t, bundles.ReasonRecordsUnreadable, rv.Reason)
+	assert.Contains(t, rv.Detail, "lock.yaml", "the detail names the store")
 }
 
 // An Exposure whose identity was never set is withheld as unaddressable, even

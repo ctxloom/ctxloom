@@ -306,10 +306,9 @@ func TestEngineRegistry_SingleRoleMarkedEntryServesBothRoles(t *testing.T) {
 }
 
 // TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent: the interview's
-// headless-posture answer becomes the default seed agent's `permissions:`.
-// Any posture is accepted (a headless run is no longer refused for one: the
-// engine denies what nothing resolves), canonicalised; a misspelling is
-// refused; no answer writes none.
+// headless-posture answer becomes the seed agent's block for the chosen
+// engine; the engine's own model refuses a mode it does not take; no
+// answer writes none.
 func TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent(t *testing.T) {
 	seed := func(t *testing.T, posture string) agents.Agent {
 		t.Helper()
@@ -321,13 +320,15 @@ func TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent(t *testing.T) {
 		require.True(t, ok)
 		return a
 	}
-	assert.Equal(t, "plan", seed(t, "plan").Permissions)
-	assert.Equal(t, "bypass", seed(t, "bypass").Permissions)
-	assert.Equal(t, "acceptEdits", seed(t, "accept-edits").Permissions)
-	assert.Equal(t, "dontAsk", seed(t, "dontask").Permissions)
-	assert.Empty(t, seed(t, "").Permissions, "no answer declares nothing")
+	assert.Equal(t, map[string]map[string]any{"mock": {"mode": "plan"}}, seed(t, "plan").Permissions.Engines)
+	assert.Equal(t, map[string]map[string]any{"mock": {"mode": "bypass"}}, seed(t, "bypass").Permissions.Engines)
+	assert.True(t, seed(t, "").Permissions.IsZero(), "no answer declares nothing")
 
-	_, err := BuildInitialConfig("mock", "", "yolo")
-	require.Error(t, err, "a misspelling is not a posture")
+	reg, err := engines.Build()
+	require.NoError(t, err)
+	require.NoError(t, validateHeadlessPosture(reg, "mock", "plan"))
+	err = validateHeadlessPosture(reg, "mock", "yolo")
+	require.Error(t, err, "a mode the engine does not take is refused")
 	assert.ErrorContains(t, err, "yolo")
+	require.Error(t, validateHeadlessPosture(reg, "mock", "acceptEdits"), "the mock's vocabulary is its own")
 }

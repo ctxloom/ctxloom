@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	taskloomconfig "github.com/ctxloom/ctxloom/internal/taskloom/config"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -141,6 +145,19 @@ func TestRenderTaskDetail_HidesConfiguredTagKeepsOthers(t *testing.T) {
 	assert.NotContains(t, out, "triage:cwe")
 }
 
+// TestRenderTagResult_HidesConfiguredTagKeepsOthers is the `tag` display
+// site's equivalent of TestRenderTaskDetail_HidesConfiguredTagKeepsOthers.
+func TestRenderTagResult_HidesConfiguredTagKeepsOthers(t *testing.T) {
+	schema, err := tagschema.Parse([]string{`tagma.hide:"triage:cwe"=true`})
+	require.NoError(t, err)
+	cfg := hideConfigFor(operations.TaskContext{TagSchema: schema})
+
+	task := tasks.Task{HarpID: "aaa-bbb", Status: "To Do", Tags: []string{"triage:cwe=79", "urgent"}}
+	var b strings.Builder
+	require.NoError(t, renderTagResult(&b, task, cfg))
+	assert.Equal(t, "aaa-bbb\tTo Do\turgent\n", b.String())
+}
+
 // TestRunListCmd_HidesConfiguredTagButShowsOthers exercises `taskloom list`
 // end to end against a real store: a project whose tag_schema declares
 // tagma.hide:"triage:cwe"=true must still print a task's other tags while
@@ -211,4 +228,60 @@ func TestListTagCounts_VisibleTagCountsHidesConfiguredTagFromVocabulary(t *testi
 	}
 	assert.Contains(t, tagNames, "urgent")
 	assert.NotContains(t, tagNames, "triage:cwe=79")
+}
+
+// executeTag drives `taskloom tag <args...>` through the real cobra tree and
+// returns everything written to its out/err streams. The --add/--remove
+// arrays are package globals that cobra appends to across Execute calls, so
+// they are cleared before and after, along with the global format flags.
+func executeTag(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	reset := func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+		resetGlobalFormatFlags()
+		tasksTagAdd, tasksTagRemove = nil, nil
+		for _, name := range []string{"add", "remove"} {
+			tagCmd.Flags().Lookup(name).Changed = false
+		}
+	}
+	reset()
+	t.Cleanup(reset)
+	var buf strings.Builder
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	rootCmd.SetArgs(append([]string{"tag"}, args...))
+	err := rootCmd.Execute()
+	return buf.String(), err
+}
+
+// TestTagCmd_TextHidesConfiguredTagJSONKeepsIt drives `taskloom tag` end to
+// end against a project whose .taskloom/config.yaml hides triage:cwe: the
+// human line omits the hidden tag (it resolves the schema and applies it),
+// while --format json still carries every stored tag, as `show` does.
+func TestTagCmd_TextHidesConfiguredTagJSONKeepsIt(t *testing.T) {
+	dir := taskstest.ProjectDir(t)
+	cfgPath := filepath.Join(dir, taskloomconfig.DirName, taskloomconfig.FileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(cfgPath), 0o755))
+	require.NoError(t, os.WriteFile(cfgPath, []byte("tag_schema:\n  - 'tagma.hide:\"triage:cwe\"=true'\n"), 0o644))
+
+	tc, err := taskContextSingle()
+	require.NoError(t, err)
+	added, err := operations.AddTaskWithTags(tc, "vulnerable thing", "", "", []string{"urgent"})
+	require.NoError(t, err)
+	harpID := added.Task.HarpID
+
+	text, err := executeTag(t, harpID, "--add", "triage:cwe=79", "--format", "text")
+	require.NoError(t, err)
+	assert.Contains(t, text, harpID+"\t")
+	assert.Contains(t, text, "urgent")
+	assert.NotContains(t, text, "triage:cwe")
+
+	out, err := executeTag(t, harpID, "--add", "urgent", "--format", "json")
+	require.NoError(t, err)
+	var got tasks.Task
+	require.NoError(t, json.Unmarshal([]byte(out[strings.Index(out, "{"):]), &got), out)
+	assert.Contains(t, got.Tags, "triage:cwe=79")
+	assert.Contains(t, got.Tags, "urgent")
 }

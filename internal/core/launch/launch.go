@@ -231,7 +231,7 @@ type Launch struct {
 	Engine     engine.Name
 	Label      engine.LabelConfig
 	Mode       engine.Mode
-	Permission engine.PermissionMode // floored ONCE, here
+	Permission engine.PermissionPolicy // resolved ONCE, here
 	// Declared is the isolation request as it was ASKED — the invocation's
 	// workspace and the binding's runtime, each empty where nothing declared
 	// it — kept apart from Axes, the pair it settled to. A preview reports

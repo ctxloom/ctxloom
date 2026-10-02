@@ -38,6 +38,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -121,6 +122,7 @@ func formatCoverageProject(t *testing.T) *config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv(projectroot.EnvVar, dir)
+	provisionApprovals(t, filepath.Join(dir, paths.AppDirName))
 	resetApp()
 	cfg, err := configload.Load()
 	require.NoError(t, err)
@@ -249,11 +251,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// five encodings to agree on.
 	"companion list": {extraArgs: noExtraArgs},
 	"auth status":    {extraArgs: noExtraArgs},
-	// Both mutate the personal consent record and need a real binary on PATH
-	// to resolve and hash; exercised end to end in trust_cli.feature instead.
-	"companion trust":   {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
-	"companion untrust": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
-	"companion show":    {skip: "needs a real companion binary on PATH to resolve+hash; covered by companion_test.go"},
+	"companion show": {skip: "needs a real companion binary on PATH to resolve+hash; covered by companion_test.go"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// Three of these ARE format debt too (bundle_hold_cli.go's hold/unhold

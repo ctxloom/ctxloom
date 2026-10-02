@@ -91,7 +91,7 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		}
 		for _, f := range []struct{ key, value string }{
 			{"runtime", s.Runtime},
-			{"permissions", s.Permissions},
+			{"permissions", s.Permissions.String()},
 			{"driving", string(s.Driving)},
 			{"engine_home", s.HomeMode},
 			{"auth", s.Auth},
@@ -194,7 +194,7 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	if def.Runtime != "" {
 		w.Printf("Runtime: %s\n", def.Runtime)
 	}
-	if def.Permissions != "" {
+	if !def.Permissions.IsZero() {
 		w.Printf("Permissions: %s\n", def.Permissions)
 	}
 	if def.Driving != "" {
@@ -495,7 +495,7 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	if entry.Runtime != "" {
 		w.Printf(", runtime: %s", entry.Runtime)
 	}
-	if entry.Permissions != "" {
+	if !entry.Permissions.IsZero() {
 		w.Printf(", permissions: %s", entry.Permissions)
 	}
 	if entry.Driving != "" {
@@ -684,7 +684,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringArrayVar(&agentSetRoots, "root", nil,
 		"Root selection for this agent: kind=root (repeatable; roots: session-home|project-root|work-dir). Validated against the roots the agent's engine offers for that kind; project-root is the shared root, selected here and never fallen back to.")
-	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: "+strings.Join(agent.PermissionModeNames(), "|")+" (empty = engine/built-in default)")
+	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission mode, in the vocabulary of the engine this agent binds, written into that engine's block (empty clears it)")
 	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
 		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (session|host; empty = session, the default — host is the unsafe selection)")
 	cmd.Flags().StringVar(&agentSetAuth, "auth", "",

@@ -49,7 +49,7 @@ func sampleArchive(t *testing.T) []byte {
 
 func TestArchiveStore_ReadsBundlesOutOfAPackedArchive(t *testing.T) {
 	ctx := context.Background()
-	st, err := New(sampleArchive(t), content.Provenance{IsLocal: true})
+	st, err := New(t.Context(), sampleArchive(t), content.Provenance{IsLocal: true})
 	require.NoError(t, err)
 
 	ids, err := st.Bundles(ctx)
@@ -72,7 +72,7 @@ func TestArchiveStore_ReadsBundlesOutOfAPackedArchive(t *testing.T) {
 
 func TestArchiveStore_ReadsFileBytesBackVerbatim(t *testing.T) {
 	ctx := context.Background()
-	st, err := New(sampleArchive(t), content.Provenance{IsLocal: true})
+	st, err := New(t.Context(), sampleArchive(t), content.Provenance{IsLocal: true})
 	require.NoError(t, err)
 	b, err := st.Open(ctx, "core")
 	require.NoError(t, err)
@@ -92,14 +92,14 @@ func TestArchiveStore_RefusesATraversalEntryRatherThanWritingOutsideItsRoot(t *t
 		"core/fragments/ok.md":  "OK\n",
 		"core/../../escaped.md": "ESCAPED\n",
 	})
-	_, err := New(bad, content.Provenance{IsLocal: true})
+	_, err := New(t.Context(), bad, content.Provenance{IsLocal: true})
 	require.Error(t, err, "a traversal entry must be refused, not extracted")
 }
 
 // The read-only asymmetry again: an archive is a fixed set of bytes, and a
 // Writer over it would mutate a temporary extraction nobody reads back.
 func TestArchiveStore_IsNotAWriter(t *testing.T) {
-	st, err := New(sampleArchive(t), content.Provenance{IsLocal: true})
+	st, err := New(t.Context(), sampleArchive(t), content.Provenance{IsLocal: true})
 	require.NoError(t, err)
 	_, isWriter := any(st).(content.Writer)
 	assert.False(t, isWriter, "an archive store must not implement Writer")
@@ -108,7 +108,7 @@ func TestArchiveStore_IsNotAWriter(t *testing.T) {
 // skillModes reads one skill's per-file declared modes back through L0.
 func skillModes(t *testing.T, data []byte) map[string]content.ComponentMode {
 	t.Helper()
-	st, err := New(data, content.Provenance{IsLocal: true})
+	st, err := New(t.Context(), data, content.Provenance{IsLocal: true})
 	require.NoError(t, err)
 	ctx := context.Background()
 	b, err := st.Open(ctx, "core")
@@ -168,11 +168,11 @@ func TestArchiveStore_AFilesystemExecBitAloneDoesNotConferDeclaredExecutability(
 }
 
 func TestArchiveStore_EmptyArchiveIsRefusedRatherThanReadingAsAnEmptyStore(t *testing.T) {
-	_, err := New(nil, content.Provenance{IsLocal: true})
+	_, err := New(t.Context(), nil, content.Provenance{IsLocal: true})
 	require.Error(t, err, "no bytes at all is a caller error, not an empty store")
 }
 
 func TestArchiveStore_InvalidProvenanceIsRefused(t *testing.T) {
-	_, err := New(sampleArchive(t), content.Provenance{})
+	_, err := New(t.Context(), sampleArchive(t), content.Provenance{})
 	require.Error(t, err, "a store must declare where its content came from")
 }

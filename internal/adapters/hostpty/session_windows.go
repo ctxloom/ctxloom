@@ -1,16 +1,14 @@
 package hostpty
 
-import (
-	"os"
-	"syscall"
+import "github.com/aymanbagabas/go-pty"
 
-	"github.com/creack/pty"
-)
+// A ConPTY has no termios to make raw and no slave fd held by this process:
+// the console host translates the master's VT input into console input
+// records for the child itself, and the child is started on the pseudo
+// console by attribute, not by inheriting a handle. Session leadership and a
+// controlling terminal are Unix job-control concepts with no Windows
+// counterpart.
 
-// Windows has no Unix pty: creack/pty's Open refuses with pty.ErrUnsupported
-// before either of these is reached, and they return that same sentinel rather
-// than guess at a console equivalent.
+func prepareSlave(pty.Pty) (release func(), err error) { return func() {}, nil }
 
-func sessionAttrs() *syscall.SysProcAttr { return nil }
-
-func rawInput(*os.File) error { return pty.ErrUnsupported }
+func sessionAttrs(*pty.Cmd) {}

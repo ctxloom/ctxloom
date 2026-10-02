@@ -7,6 +7,7 @@ package spawn
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -240,19 +241,30 @@ func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPl
 	}
 
 	plan := &coord.SpawnPlan{
-		AgentName:  agentName,
-		Backend:    backend,
-		Label:      label,
-		Profiles:   binding.Profiles,
-		Runtime:    runtime,
-		Permission: binding.Permissions,
-		ResumeMode: resumeMode,
-		Snapshot:   snap,
+		AgentName: agentName,
+		Backend:   backend,
+		Label:     label,
+		Profiles:  binding.Profiles,
+		Runtime:   runtime,
+		// The roster's name for the posture the launch will resolve to, in
+		// the engine's display words; the launch is authoritative once it
+		// exists.
+		Permission:  operations.EffectivePosture(s.app.Engines(), backend, binding.Permissions, labelPermissions(cfg, label)).Label,
+		MayDelegate: slices.Clone(binding.MayDelegate),
+		ResumeMode:  resumeMode,
+		Snapshot:    snap,
 	}
 	// coord.Resolved once here (not per StartEngine call) so the enqueue journal
 	// and the launch see the IDENTICAL composed set.
 	plan.MCPServers = s.childMCPServers(plan)
 	return plan, nil
+}
+
+// labelPermissions is the label's permissions block; none for a label the
+// config does not declare.
+func labelPermissions(cfg *config.Config, label string) agents.LabelPermissions {
+	entry, _ := cfg.GetLLMEntry(label)
+	return entry.Permissions
 }
 
 // resolveSpawnResumeMode is the per-engine resume-capability gate. It FAILS
@@ -291,16 +303,29 @@ func (s *spawner) RecordEngineVersion(ctx context.Context, harp, backend string)
 // runner process.
 var startEngine = operations.StartEngine
 
-// ResolveLaunch resolves the child's launch against the spawn's generation.
-// A delegated child defaults to its OWN worktree when neither the call nor
-// the project chose a workspace: needing a private cwd is a property of how
-// the parent fans, and the shared checkout is never the silent default for a
-// child.
+// ResolveLaunch resolves the child's launch (childSource) against the
+// spawn's generation.
 func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	deps, err := operations.LaunchDepsFor(s.app.LaunchFacts(), plan.Snapshot)
 	if err != nil {
 		return coord.Resolved{}, err
 	}
+	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), childSource(plan, start, s.projectDir))
+	if err != nil {
+		return coord.Resolved{}, err
+	}
+	plan.Launch = l
+	return coord.Resolved{Launch: l}, nil
+}
+
+// childSource is what a delegated child's launch is asked from: the plan's
+// selection, the coordinator's identity and first turn, and the resume arm
+// on a resume or rebind — never its permissions, which are its own
+// binding's. A child
+// defaults to its OWN worktree when neither the call nor the project chose a
+// workspace: needing a private cwd is a property of how the parent fans,
+// and the shared checkout is never the silent default for a child.
+func childSource(plan *coord.SpawnPlan, start coord.SpawnStart, projectDir string) launch.Source {
 	workspace := plan.Workspace
 	if workspace == "" && plan.Snapshot.Config.GetWorkspace() == "" {
 		workspace = launch.WorkspaceWorktree
@@ -310,19 +335,14 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 		Agent:     plan.AgentName,
 		Mode:      launch.StructuredMode(),
 		Prompt:    start.Prompt,
-		WorkDir:   s.projectDir,
+		WorkDir:   projectDir,
 		Workspace: workspace,
 		DirtyTree: plan.DirtyTreeHandler,
 	}
 	if start.Resumed || start.Rebind {
 		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}, RebindEndpoint: start.Rebind}
 	}
-	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), src)
-	if err != nil {
-		return coord.Resolved{}, err
-	}
-	plan.Launch = l
-	return coord.Resolved{Launch: l}, nil
+	return src
 }
 
 // Start starts the runner for a resolved launch through StartRunner over the

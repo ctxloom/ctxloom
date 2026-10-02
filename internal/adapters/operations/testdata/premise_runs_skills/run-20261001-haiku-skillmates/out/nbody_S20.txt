@@ -1,0 +1,3 @@
+I've read the prompt-human skill instructions. To proceed with asking about the four findings, I need to access the task log, memory, or prior context where those findings are recorded. 
+
+`next: Retrieve the four adversarial review findings from memory or task log so I can validate and ask about each using structured questions.`

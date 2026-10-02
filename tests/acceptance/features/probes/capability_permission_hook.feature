@@ -49,3 +49,21 @@ Feature: P12 — with no permission host, claude -p awaits the PermissionRequest
     Examples:
       | engine      | runtime | workspace | decision |
       | claude-code | host    | none      | deny     |
+
+    # SILENT exists because ctxloom's approval hook writes NO decision when it
+    # cannot reach the runner, and the route's fail-closed guarantee is that
+    # claude -p then refuses the call. Asserts: the hook fired on Bash, the
+    # gated call's tool_result is an error, and the file is absent.
+    @claude-code @host @ws-none @var-silent
+    Examples:
+      | engine      | runtime | workspace | decision |
+      | claude-code | host    | none      | silent   |
+
+    # ALLOW-PROMPTS-NONE pins what --permission-prompts none does to the hook:
+    # claude documents none as answering prompts with a local deny, and the
+    # measurement is that the hook is still consulted FIRST and its allow
+    # honoured. Asserts the allow arm: awaited, the call ran, the file exists.
+    @claude-code @host @ws-none @var-allow-prompts-none
+    Examples:
+      | engine      | runtime | workspace | decision           |
+      | claude-code | host    | none      | allow-prompts-none |

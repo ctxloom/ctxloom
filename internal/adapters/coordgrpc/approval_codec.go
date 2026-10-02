@@ -25,7 +25,7 @@ func ApprovalRequestToWire(r coord.ApprovalRequest) *agentcoordpb.ApprovalReques
 		ToolUseId:       ask.ToolUseID,
 		Suggestions:     ask.Suggestions,
 		SuggestsSetMode: modeName(ask.SuggestsSetMode),
-		Ceiling:         r.Ceiling.String(),
+		Transitions:     transitionsToWire(r.Transitions),
 		Timeout:         durationToWire(r.Timeout),
 	}
 	if ask.Plan != nil {
@@ -42,21 +42,13 @@ func ApprovalRequestToWire(r coord.ApprovalRequest) *agentcoordpb.ApprovalReques
 }
 
 // ApprovalRequestFromWire decodes a run's request. A request the coordinator
-// could not present as asked — no kind, no ceiling, a mode or input it cannot
-// read — is refused rather than defaulted.
+// could not present as asked — no kind, or input it cannot read — is
+// refused rather than defaulted.
 func ApprovalRequestFromWire(w *agentcoordpb.ApprovalRequest) (coord.ApprovalRequest, error) {
 	var out coord.ApprovalRequest
 	kind, ok := askKindFromWire(w.GetKind())
 	if !ok {
 		return out, fmt.Errorf("approval: kind %s is not a request this coordinator presents", w.GetKind())
-	}
-	ceiling, ok := engine.ParsePermissionMode(w.GetCeiling())
-	if !ok {
-		return out, fmt.Errorf("approval: ceiling %q is not a permission mode", w.GetCeiling())
-	}
-	suggests, err := modeFromWire("suggests_set_mode", w.GetSuggestsSetMode())
-	if err != nil {
-		return out, err
 	}
 	if in := w.GetInput(); len(in) > 0 && !json.Valid(in) {
 		return out, fmt.Errorf("approval: input is not JSON")
@@ -68,10 +60,10 @@ func ApprovalRequestFromWire(w *agentcoordpb.ApprovalRequest) (coord.ApprovalReq
 			Input:           w.GetInput(),
 			ToolUseID:       w.GetToolUseId(),
 			Suggestions:     w.GetSuggestions(),
-			SuggestsSetMode: suggests,
+			SuggestsSetMode: modeFromWire(w.GetSuggestsSetMode()),
 		},
-		Ceiling: ceiling,
-		Timeout: durationFromWire(w.GetTimeout()),
+		Transitions: transitionsFromWire(w.GetTransitions()),
+		Timeout:     durationFromWire(w.GetTimeout()),
 	}
 	if p := w.GetPlan(); p != nil {
 		out.Ask.Plan = &engine.PlanProposal{Markdown: p.GetMarkdown(), Path: p.GetPath()}
@@ -121,13 +113,9 @@ func ApprovalDecisionFromWire(w *agentcoordpb.ApprovalDecision) (coord.ApprovalD
 	if err := out.Decider.UnmarshalText([]byte(w.GetDecider())); err != nil {
 		return coord.ApprovalDecision{}, fmt.Errorf("approval decision: %w", err)
 	}
-	setMode, err := modeFromWire("set_mode", w.GetSetMode())
-	if err != nil {
-		return coord.ApprovalDecision{}, err
-	}
 	out.Allow = w.GetAllow()
 	out.SessionRules = w.GetSessionRules()
-	out.SetMode = setMode
+	out.SetMode = modeFromWire(w.GetSetMode())
 	out.Message = w.GetMessage()
 	for _, a := range w.GetAnswers() {
 		out.Answers = append(out.Answers, engine.QuestionAnswer{Question: a.GetQuestion(), Labels: a.GetLabels(), Other: a.GetOther()})
@@ -135,23 +123,35 @@ func ApprovalDecisionFromWire(w *agentcoordpb.ApprovalDecision) (coord.ApprovalD
 	return out, nil
 }
 
-// modeName is a declared mode's wire spelling; "" when none is declared.
-func modeName(d engine.Declared[engine.PermissionMode]) string {
-	if m, ok := d.Get(); ok {
-		return m.String()
-	}
-	return ""
+// modeName is a declared posture's wire spelling; "" when none is declared.
+func modeName(d engine.Declared[string]) string {
+	m, _ := d.Get()
+	return m
 }
 
-// modeFromWire reads an optional mode: "" is none, anything else must name a
-// mode.
-func modeFromWire(field, name string) (engine.Declared[engine.PermissionMode], error) {
+// modeFromWire reads an optional posture: "" is none, anything else the
+// engine's own spelling, which the engine's codec validates.
+func modeFromWire(name string) engine.Declared[string] {
 	if name == "" {
-		return engine.Declared[engine.PermissionMode]{}, nil
+		return engine.Declared[string]{}
 	}
-	m, ok := engine.ParsePermissionMode(name)
-	if !ok {
-		return engine.Declared[engine.PermissionMode]{}, fmt.Errorf("approval: %s %q is not a permission mode", field, name)
+	return engine.Provide(name)
+}
+
+// transitionsToWire encodes an engine's offer, its default flagged.
+func transitionsToWire(ts []engine.PostureTransition) []*agentcoordpb.PostureTransition {
+	var out []*agentcoordpb.PostureTransition
+	for _, t := range ts {
+		out = append(out, &agentcoordpb.PostureTransition{Posture: t.Posture, Label: t.Label, Default: t.Default})
 	}
-	return engine.Provide(m), nil
+	return out
+}
+
+// transitionsFromWire decodes an engine's offer.
+func transitionsFromWire(ws []*agentcoordpb.PostureTransition) []engine.PostureTransition {
+	var out []engine.PostureTransition
+	for _, w := range ws {
+		out = append(out, engine.PostureTransition{Posture: w.GetPosture(), Label: w.GetLabel(), Default: w.GetDefault()})
+	}
+	return out
 }

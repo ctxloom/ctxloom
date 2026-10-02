@@ -564,7 +564,16 @@ func j000400HookCommandsFrom(v any) []string {
 			continue
 		}
 		if cmd, ok := m["command"].(string); ok && cmd != "" {
-			out = append(out, cmd)
+			// An exec-form hook's argv is its command and its args, read
+			// here as one space-joined line so a claim names what runs.
+			words := []string{cmd}
+			args, _ := m["args"].([]any)
+			for _, a := range args {
+				if s, ok := a.(string); ok {
+					words = append(words, s)
+				}
+			}
+			out = append(out, strings.Join(words, " "))
 		}
 		if nested, ok := m["hooks"]; ok {
 			out = append(out, j000400HookCommandsFrom(nested)...)

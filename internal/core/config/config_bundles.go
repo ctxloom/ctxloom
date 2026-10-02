@@ -716,6 +716,7 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 			out = append(out, wire.Hook{
 				Matcher:         h.Matcher,
 				Command:         h.Command,
+				Args:            h.Args,
 				Type:            h.Type,
 				Prompt:          h.Prompt,
 				Timeout:         h.Timeout,

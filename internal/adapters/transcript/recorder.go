@@ -131,9 +131,10 @@ func WithClock(now func() time.Time) RecorderOption {
 // paths.HarpCanonicalTranscriptPath(harp).
 //
 // It exists for RE-conversion. A Recorder APPENDS (openAppendFile), and a
-// VendorAdapter always re-reads its source from the beginning, so converting a
-// harp that already has a canonical transcript would duplicate every entry
-// rather than replace it. A caller that must re-convert a still-growing session
+// vendor conversion records from the beginning of its source — or, resumed,
+// from a checkpoint whose provisional tail is already in the file — so
+// converting into a harp that already has a canonical transcript would
+// duplicate entries rather than replace them. A caller that must re-convert a still-growing session
 // therefore converts into a temporary sibling and renames it over the real file,
 // which needs somewhere else to write. Live capture never passes this: the harp
 // IS the destination there, and letting a capture path choose its own file would
@@ -144,6 +145,21 @@ func WithPath(p string) RecorderOption {
 			r.path = p
 			r.defaultPath = false
 		}
+	}
+}
+
+// WithContinuation makes a Recorder extend lines another Recorder already
+// wrote: Seq resumes at seq rather than 0, and lines carry sessionID, which
+// the earlier lines' Session record established and this Recorder will never
+// see. It exists for a resumed vendor conversion (operations.
+// RefreshVendorTranscript), which copies the canonical prefix forward and
+// converts only what the vendor appended since; without it the appended lines
+// would restart Seq — a discontinuity readers treat as corruption — and lose
+// their session id.
+func WithContinuation(seq int, sessionID string) RecorderOption {
+	return func(r *fileRecorder) {
+		r.seq = seq
+		r.sessionID = sessionID
 	}
 }
 
@@ -164,7 +180,8 @@ func WithPath(p string) RecorderOption {
 // "nothing was ever recorded for this harp" without needing to also handle a
 // present-but-empty file as a separate case.
 //
-// Seq starts at 0 on the first Record call and increases by 1, with no gaps,
+// Seq starts at 0 (or where WithContinuation says) on the first Record call
+// and increases by 1, with no gaps,
 // for the lifetime of the Recorder.
 func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) {
 	if harp == "" {

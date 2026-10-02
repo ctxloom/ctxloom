@@ -9,7 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -93,10 +93,10 @@ func AvailableLLMNames(reg engine.Registry, cfg *config.Config) []string {
 // carries no credentials: an engine's are ambient, never ctxloom's
 // (config.RetiredLLMEnvKey), so there is nothing on this type to withhold.
 type LLMEntry struct {
-	Label       string `json:"label"`
-	Type        string `json:"type,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Permissions string `json:"permissions,omitempty"`
+	Label       string                  `json:"label"`
+	Type        string                  `json:"type,omitempty"`
+	Model       string                  `json:"model,omitempty"`
+	Permissions agents.LabelPermissions `json:"permissions,omitempty"`
 }
 
 // llmEntryFromConfig projects a config.LLMConfig into the CRUD-facing
@@ -127,27 +127,36 @@ type SetLLMRequest struct {
 	Type *string `json:"type,omitempty"`
 	// Model sets Body["model"]. Empty clears it.
 	Model *string `json:"model,omitempty"`
-	// Permissions sets the launch-time posture (default|acceptEdits|plan|
-	// bypass). An unknown value is stored as written (advisory warn only,
-	// like Runtime/Permissions on SetAgentRequest) since it degrades to a
-	// working default at resolve time rather than breaking outright.
+	// Permissions sets the label's mode, in the vocabulary of the engine
+	// the label's type names; a mode that engine does not take is REJECTED
+	// (the loader would refuse it). Empty clears it.
 	Permissions *string `json:"permissions,omitempty"`
 }
 
-// warnLLMPermissionsTypo is SetLLM's advisory-only axis check, split out to
-// mirror SetAgent's warnAgentAxisTypos/validateAgentAxes split: an unknown
-// permissions value is caught at run time (agent.ResolveDefault refuses it and
-// floors to read-only), so it is stored as written but flagged now rather than
-// only at first launch.
-func warnLLMPermissionsTypo(label string, permissions *string) {
-	if permissions == nil || *permissions == "" {
-		return
+// setLabelMode writes mode into a label's flat permission keys, checked by
+// the label's engine; "" clears it.
+func setLabelMode(reg engine.Registry, typ, label string, p *agents.LabelPermissions, mode string) error {
+	*p = p.Clone()
+	if mode == "" {
+		delete(p.Engine, permissionMode)
+		return nil
 	}
-	if _, ok := agent.ParsePermissionMode(*permissions); !ok {
-		clidiag.Warn("ctxloom",
-			"llm %q declares unknown permissions %q (known: %s); every run through this label is refused as a fatal config finding, and under --degraded it is floored to %q (read-only)",
-			label, *permissions, strings.Join(agent.PermissionModeNames(), "|"), agent.PermissionFloor)
+	kind, ok := reg.Lookup(engine.Name(typ))
+	if !ok {
+		return fmt.Errorf("llm %q: unknown type %q", label, typ)
 	}
+	model, ok := kind.Permissions().Get()
+	if !ok {
+		return fmt.Errorf("llm %q: engine %s takes no permission mode (%s)", label, typ, kind.Permissions().AbsentReason())
+	}
+	if err := model.Validate(map[string]any{permissionMode: mode}); err != nil {
+		return fmt.Errorf("llm %q: %w", label, err)
+	}
+	if p.Engine == nil {
+		p.Engine = map[string]any{}
+	}
+	p.Engine[permissionMode] = mode
+	return nil
 }
 
 // SetLLM adds or updates a LOCAL LLM registry entry under the `llm.configs`
@@ -172,8 +181,10 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 			return nil, fmt.Errorf("llm %q: unknown type %q; known: %s", req.Label, *req.Type, strings.Join(EngineNames(reg), ", "))
 		}
 	}
-	warnLLMPermissionsTypo(req.Label, req.Permissions)
-
+	cur, err := app.Config(ctx)
+	if err != nil {
+		return nil, err
+	}
 	next, err := app.Update(ctx, func(d *config.Draft) error {
 		if d.LM.Configs == nil {
 			d.LM.Configs = make(map[string]config.LLMConfig)
@@ -185,7 +196,11 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 		if req.Type != nil {
 			entry.Type = *req.Type
 		}
-		entry.Permissions = orKeep(req.Permissions, entry.Permissions)
+		if req.Permissions != nil {
+			if err := setLabelMode(reg, cur.EffectiveType(entry), req.Label, &entry.Permissions, *req.Permissions); err != nil {
+				return err
+			}
+		}
 		if req.Model != nil {
 			if entry.Body == nil {
 				entry.Body = map[string]any{}

@@ -27,35 +27,26 @@ cell says otherwise.
 and probe set; the mock engine reads the same declaration rather than carrying
 its own copy, which is what keeps a fake in step with the driver.
 
-## 2. Permission tiers — what each `PermissionMode` becomes
+## 2. Permissions — what an engine's posture becomes
 
-`agent.PermissionMode` (`internal/core/agent/permissions.go:15-33`) is one
-vocabulary; an engine maps it to its own mechanism.
+Each engine owns its permission model (`Engine.Permissions`): its modes, how
+it resolves and validates them, what it can enforce, and how the result maps
+to its own mechanism. Core carries the resolved posture opaquely. claude-code
+maps it so (`internal/engines/claude`, `postureOf` and its callers):
 
-| Tier | claude-code |
+| Declared | claude-code |
 |---|---|
-| `default` | no flag |
-| `acceptEdits` | `--permission-mode acceptEdits` |
-| `plan` | `--permission-mode plan` **+** `--disallowedTools "Bash,Edit,Write,NotebookEdit"` |
-| `bypass` | `--dangerously-skip-permissions` |
-| `buildArgs` | `internal/engines/claude/claudecode.go:253-258` |
+| mode `default` | no flag |
+| mode `acceptEdits` | `--permission-mode acceptEdits` |
+| mode `plan` | `--permission-mode plan` **+** `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (plan-first, with `after_plan`, drops the belt) |
+| mode `bypass` | `--dangerously-skip-permissions` |
+| `approver: none` | mode `dontAsk` (with mode `default`) |
+| `approver: reviewer` | mode `auto` (with mode `default`) |
+| `sandbox: workspace-write` | a `sandbox` settings member: enabled, `failIfUnavailable`, no unsandboxed escape, unlisted hosts denied |
 
-### `EnforcesReadOnlyPlan` — where `plan` collapses
-
-`CollapsePlanIfUnenforced` (`internal/core/agent/permissions.go:116-121`) turns
-`plan` into `default` for any backend that cannot enforce a genuine read-only tier,
-so `plan` never runs unrestrained. Applied at `internal/adapters/cli/run.go:1499`
-(interactive) and `internal/adapters/operations/oneshot.go:417` (headless fan-out).
-
-| Backend | `enforcesReadOnlyPlan` | Does `plan` survive? | Evidence |
-|---|---|---|---|
-| `claude-code` | **true** | yes | LIVE VERIFIED 2026-07-15, claude 2.1.210: plan + deny list denied a sentinel overwrite (`claudecode.go:237-247`) |
-| the doubles | **false** (field unset) | **no — collapses to `default`** | `TestEnforcesReadOnlyPlan` pins it, together with the unregistered case |
-
-The field is opt-in `true`, and an engine that merely *emits* a plan-mode flag
-does not earn it — see [backend abstraction §3](backend-abstraction.md) for
-why. the claude definition tests (`internal/engines/claude`)
-pins the predicate so it cannot degrade into "is this backend known?".
+A pairing claude has no mode for, a sandbox it cannot enforce where the run
+executes, and `network: true` under its sandbox are refused before anything
+starts. A headless run carries its mode on each turn's `--settings`.
 
 One further permission fact:
 

@@ -452,24 +452,30 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 20s. The hook fired on Bash with hook_event_name PermissionRequest, the file exists, permission_denials is empty, and the gated call's tool_result is stamped 64ms AFTER the hook's post-sleep marker while the tool_use preceded it by ~5s — claude waited for the answer. MUTATION-CONFIRMED live: inverting the proof-file check reds the same run as DECISION-IGNORED."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Deny), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 21s. The hook fired on Bash, the file is absent, the gated call's tool_result is \"Permission denied by hook\" with is_error, and result.permission_denials names that tool_use_id."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12Silent), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 12s. The hook fired on Bash and printed nothing; the gated call's tool_result is an error and the file is absent — claude -p refuses a call no hook decided, which is the approval route's fail-closed guarantee. MUTATION-CONFIRMED hermetically (TestP12_Silent): an arm that accepted an unrefused call reds."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p12AllowPromptsNone), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green in 9.5s. With --permission-prompts none on the argv the PermissionRequest hook is STILL consulted first: it fired on Bash, the gated call's tool_result is stamped after the hook's post-sleep marker, and the hook's allow ran the call (the file exists). none denies only what no hook decided."},
 		},
 	},
 	// P13 measures the VENDOR half of ctxloom's repo trust: claude's own trust
 	// does not stop an untrusted repo's committed hooks in -p, and
-	// --setting-sources user does. It runs the vendor binary directly, as P12
+	// --setting-sources user does — for its skills and agents too. It runs the vendor binary directly, as P12
 	// does, so a red names claude alone.
 	{
 		Name:         probeP13,
-		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks, and --setting-sources user --strict-mcp-config suppresses them",
+		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks and loads its skills and agents, and --setting-sources user --strict-mcp-config suppresses all of them",
 		Capabilities: []int{7},
 		Channel:      channelRepoHookMarker,
 		Feature:      "probes/capability_untrusted_repo_hooks.feature",
 		Paid:         true,
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13Fires), Status: probeLiveVerified,
-				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. A repo with no projects entry in a throwaway CLAUDE_CONFIG_DIR ran BOTH its committed hooks (PreToolUse on Bash and SessionStart wrote their markers) under -p, and the flag-scope-allowed echo printed \"hi\"."},
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. A repo with no projects entry in a throwaway CLAUDE_CONFIG_DIR ran BOTH its committed settings hooks (PreToolUse on Bash and SessionStart wrote their markers) under -p, the init frame listed its committed skill and agent, and the flag-scope-allowed echo printed \"hi\". No frontmatter marker: claude skips agent frontmatter from an untrusted folder."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13Suppresses), Status: probeLiveVerified,
-				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With --setting-sources user --strict-mcp-config NO committed hook wrote its marker, while the echo still ran and printed \"hi\" — suppressed, not untriggered. MUTATION-CONFIRMED live: inverting the leak check reds the same run as REPO-HOOK-LEAKED."},
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With --setting-sources user --strict-mcp-config NO settings or frontmatter marker was written and the init frame listed neither the repo's skill nor its agent, while the echo still ran and printed \"hi\" — suppressed, not untriggered. Every leak and listing predicate is MUTATION-CONFIRMED hermetically (TestP13_SettingSourcesSuppresses, TestP13_SettingSourcesSuppressesFrontmatter)."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13TrustedFrontmatter), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With the repo trusted in CLAUDE_CONFIG_DIR/.claude.json the init frame listed the skill and agent, and the agent's frontmatter Stop hook and inline stdio MCP server both wrote their markers — the fixture's frontmatter executes when loaded. The skill's frontmatter PreToolUse hook did not fire under -p even here, which is why skills are judged by the init frame."},
 		},
 	},
 	{
@@ -893,7 +899,7 @@ func p4Cells() []probeCell {
 	// the plan-oneshot warning (cli's warnPosture) fires only when a plan
 	// posture survives the launch resolver's headless floor into the run,
 	// and it fired on
-	// exactly the cell that bound `permissions: plan`. So the two runs differed
+	// exactly the cell that bound `permissions: {mode: plan}`. So the two runs differed
 	// in posture and not merely in outcome — which is the question a lone green
 	// plan cell could never answer.
 	//

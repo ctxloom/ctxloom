@@ -604,7 +604,9 @@ func renderHookSurface(entry bundles.HookEntry) string {
 		fmt.Fprintf(&b, "type:    %s\n", entry.Hook.Type)
 	}
 	if entry.Hook.Command != "" {
-		fmt.Fprintf(&b, "command: %s\n", entry.Hook.Command)
+		// The whole line: an exec-form hook's arguments are what runs, and a
+		// reviewer shown only its executable would approve unseen argv.
+		fmt.Fprintf(&b, "command: %s\n", entry.Hook.Line())
 	}
 	if entry.Hook.Prompt != "" {
 		fmt.Fprintf(&b, "prompt:  %s\n", strings.TrimSpace(entry.Hook.Prompt))

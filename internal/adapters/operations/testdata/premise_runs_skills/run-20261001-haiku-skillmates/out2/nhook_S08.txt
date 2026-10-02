@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I don't see any work completed in this conversation to close out — no files modified, tests written, or gates run. Either the context was cleared or I need to understand what you're wrapping up. What should I verify and report?

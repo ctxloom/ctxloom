@@ -323,6 +323,7 @@ func rootCommand() *cobra.Command {
 	rootAssembly.Do(func() {
 		installHelpFlag(rootCmd)
 		disableHelpCommand(rootCmd)
+		installGroupNodeHelpGuard(rootCmd)
 
 		// Compose the process registry HERE as well as in Run(): the cli's own
 		// engine readers and the cells adapter's facts still read it, and a
@@ -401,7 +402,7 @@ func run(comp Composition, args []string, stdout io.Writer) int {
 	if stdout != nil {
 		root.SetOut(stdout)
 	}
-	err := root.Execute()
+	err := dispatch(root)
 	if err == nil {
 		return 0
 	}

@@ -5,10 +5,12 @@
 package coordgrpc
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -89,7 +91,7 @@ func EncodeLaunch(l launch.Launch) *pb.Launch {
 		Engine:     string(l.Engine),
 		Label:      encodeLabel(l.Label),
 		Mode:       encodeMode(l.Mode),
-		Permission: pb.PermissionMode(l.Permission),
+		Permission: encodePolicy(l.Permission),
 		Declared:   &pb.Axes{Workspace: string(l.Declared.Workspace), Runtime: string(l.Declared.Runtime)},
 		Axes:       &pb.Axes{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
 		Cell:       encodeCell(l.Cell),
@@ -137,12 +139,16 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 	if err != nil {
 		return launch.Launch{}, err
 	}
+	policy, err := decodePolicy(w.GetPermission())
+	if err != nil {
+		return launch.Launch{}, err
+	}
 	l := launch.Launch{
 		Identity:   decodeIdentity(w.GetIdentity()),
 		Engine:     engine.Name(w.GetEngine()),
 		Label:      label,
 		Mode:       decodeMode(w.GetMode()),
-		Permission: engine.PermissionMode(w.GetPermission()),
+		Permission: policy,
 		Declared:   declared,
 		Axes:       launch.Axes{Workspace: workspace, Runtime: runtime},
 		Cell:       cell,
@@ -160,6 +166,99 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 		return launch.Launch{}, fmt.Errorf("coordgrpc: launch identity: %w", err)
 	}
 	return l, nil
+}
+
+var (
+	approverToWire = map[engine.Approver]pb.Approver{
+		engine.ApproverHuman:    pb.Approver_APPROVER_HUMAN,
+		engine.ApproverNone:     pb.Approver_APPROVER_NONE,
+		engine.ApproverReviewer: pb.Approver_APPROVER_REVIEWER,
+	}
+	sandboxToWire = map[engine.Sandbox]pb.Sandbox{
+		engine.SandboxReadOnly:       pb.Sandbox_SANDBOX_READ_ONLY,
+		engine.SandboxWorkspaceWrite: pb.Sandbox_SANDBOX_WORKSPACE_WRITE,
+		engine.SandboxFull:           pb.Sandbox_SANDBOX_FULL,
+	}
+)
+
+// encodePolicy projects the resolved policy. The posture document crosses
+// as a Struct, made JSON-shaped first (an engine's rule lists are []string,
+// which a Struct cannot hold as such); a document that cannot cross is
+// left off, and the engine refuses the posture it did not receive.
+func encodePolicy(p engine.PermissionPolicy) *pb.PermissionPolicy {
+	out := &pb.PermissionPolicy{
+		Approver:        approverToWire[p.Approver],
+		ApprovalTimeout: durationpb.New(p.ApprovalTimeout),
+		Sandbox:         sandboxToWire[p.Sandbox],
+		Network:         p.Network,
+		Engine:          string(p.Posture.Engine),
+		Label:           p.Posture.Label,
+	}
+	if p.Posture.Document != nil {
+		if doc, err := jsonShaped(p.Posture.Document); err == nil {
+			out.Posture, _ = structpb.NewStruct(doc)
+		}
+	}
+	return out
+}
+
+// jsonShaped is doc as JSON would read it back: lists as []any, numbers as
+// float64 — the shapes a Struct holds.
+func jsonShaped(doc map[string]any) (map[string]any, error) {
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	return out, json.Unmarshal(b, &out)
+}
+
+// errNoPolicy / errNoApprover / errNoSandbox / errNoEngine refuse a launch
+// whose policy the runner would otherwise have to guess.
+var (
+	errNoPolicy   = errors.New("coordgrpc: the launch carries no permission policy")
+	errNoApprover = errors.New("coordgrpc: the launch's permission policy names no approver")
+	errNoSandbox  = errors.New("coordgrpc: the launch's permission policy names no sandbox")
+	errNoEngine   = errors.New("coordgrpc: the launch's permission posture names no engine")
+)
+
+// decodePolicy reads the policy back. No policy, an approver or a sandbox
+// the wire does not name, or a posture naming no engine, is refused:
+// whether a human is asked, and what bounds the engine, is not guessed.
+func decodePolicy(w *pb.PermissionPolicy) (engine.PermissionPolicy, error) {
+	if w == nil {
+		return engine.PermissionPolicy{}, errNoPolicy
+	}
+	p := engine.PermissionPolicy{
+		Posture:         engine.Posture{Engine: engine.Name(w.GetEngine()), Label: w.GetLabel()},
+		ApprovalTimeout: w.GetApprovalTimeout().AsDuration(),
+		Network:         w.GetNetwork(),
+	}
+	if p.Posture.Engine == "" {
+		return engine.PermissionPolicy{}, errNoEngine
+	}
+	if doc := w.GetPosture(); doc != nil {
+		p.Posture.Document = doc.AsMap()
+	}
+	var ok bool
+	if p.Approver, ok = fromWire(approverToWire, w.GetApprover()); !ok {
+		return engine.PermissionPolicy{}, errNoApprover
+	}
+	if p.Sandbox, ok = fromWire(sandboxToWire, w.GetSandbox()); !ok {
+		return engine.PermissionPolicy{}, errNoSandbox
+	}
+	return p, nil
+}
+
+// fromWire inverts a to-wire table.
+func fromWire[K comparable, V comparable](table map[K]V, v V) (K, bool) {
+	for k, w := range table {
+		if w == v {
+			return k, true
+		}
+	}
+	var zero K
+	return zero, false
 }
 
 func encodeIdentity(id sessions.Identity) *pb.Identity {

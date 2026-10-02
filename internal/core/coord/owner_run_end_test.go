@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // A top-level run ending is not a delegated child dying. An owner-owned run
@@ -47,7 +45,7 @@ func TestTerminateRun_OwnerRunIsNotAChildOfItself(t *testing.T) {
 			require.True(t, ok)
 
 			starter, started := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-			out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "do the thing")
+			out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "do the thing")
 			require.NoError(t, err)
 			require.True(t, *started)
 
@@ -91,7 +89,7 @@ func TestRelaunchForLeftoverMail_TopLevelRunArmsNoRelaunch(t *testing.T) {
 	owner, ok := c.Identify(token)
 	require.True(t, ok)
 	starter, started := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-	out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "do the thing")
+	out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "do the thing")
 	require.NoError(t, err)
 	require.True(t, *started)
 	c.terminateRun(out.RunID, CauseRunnerExit, "")

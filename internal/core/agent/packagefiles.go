@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -44,59 +45,9 @@ type preparedItem struct {
 	files []PackageFile
 }
 
-// WriteManagedPackageFiles is the manifest-scoped TREE writer shared by every
-// per-agent package writer (a command-file writer with exactly one rendered
-// file per item, and a skill-package writer with SKILL.md plus its sibling
-// files). dir is shared territory with user-authored files, and can ALSO be
-// shared with a co-located surface's own managed set (see
-// internal/shared/ledger's package doc), so it is never wiped wholesale: ctxloom tracks every file it wrote in
-// a manifest (the shared managed-content ledger, scoped to this surface).
-//
-// items is the caller's list of exportable things (CommandExport, SkillExport,
-// …); enabled and itemName pick generic accessors off each item (kept as
-// closures, not an interface, so neither export type needs a method just for
-// this); render maps ONE enabled item to every file it materializes — a single
-// entry for a command, SKILL.md plus every sibling file for a skill package.
-// Every rendered path is validated with SafeCommandRelPath (both command/skill
-// names and manifest lines can originate in bundle content, potentially
-// remote): a path that escapes dir is rejected with a warning, never followed.
-//
-// RENDER-THEN-SWAP, not delete-then-rerender. Every enabled item is rendered
-// and path-validated ENTIRELY OFF the live tree first (nothing under dir is
-// touched); the complete new file set is then written into a temp sibling of
-// dir and, once fully materialized there, moved into place file-by-file with
-// atomic renames. Only after every new file is safely live are the
-// now-unwanted previously-tracked files (an item that got disabled) removed.
-// This ordering — validate, render, swap, THEN clean up stale entries — is
-// the fix for the historical bug: the old writer deleted this surface's
-// entire previously-tracked set FIRST and rendered second, so any failure
-// between the two left the surface gutted while still reporting success (the
-// project's signature silent no-op), and even on the happy path a concurrent
-// reader could observe a file the ledger still claims as gone. See
-// packagefiles_race_test.go and packagefiles_swap_test.go for the tests this
-// ordering exists to pass.
-//
-// An item's files are validated (path-safety) as a whole BEFORE any of them is
-// written, so a single unsafe path in a multi-file package skips the WHOLE
-// item rather than leaving a partial tree on disk — the silent-no-op /
-// partial-materialize discipline this codebase holds writers to. An item whose
-// render() call itself returns an error is treated the SAME way, a per-item
-// warn-and-skip: one bad item (e.g. a command with no content) must not take
-// the rest of a delivery down with it. What must hold instead is that this
-// surface's previously-tracked files are never deleted before this validation
-// runs. Under render-then-swap nothing is deleted until the new content has been
-// confirmed live, so a single item's tolerated failure costs it that one
-// item's slot in the ledger, never anyone else's, and never anything before
-// the swap has actually landed. The one failure shape that DOES abort the
-// whole call is every enabled item failing at once while content used to
-// exist here — the empty-render guard below.
-//
-// dir itself is only created when at least one file is written; the manifest
-// is (re)written only when at least one file was written. When cleanup leaves
-// a now-empty subdirectory behind (a package's scripts/assets dir with every
-// file removed), it is pruned bottom-up on a best-effort basis so a disabled
-// skill leaves no debris.
-func WriteManagedPackageFiles[T any](
+// writeManagedPackageFilesLocked is WriteManagedPackageFiles' body, run under
+// the dir lock its exported wrapper (below) takes.
+func writeManagedPackageFilesLocked[T any](
 	fs afero.Fs,
 	dir string,
 	surface ledger.Surface,
@@ -371,6 +322,83 @@ func WriteManagedPackageFiles[T any](
 	// under-count the way the old code's over-eager delete keyed off nothing
 	// at all).
 	return led.Write(surface, written)
+}
+
+// WriteManagedPackageFiles is the manifest-scoped TREE writer shared by every
+// per-agent package writer (a command-file writer with exactly one rendered
+// file per item, and a skill-package writer with SKILL.md plus its sibling
+// files). dir is shared territory with user-authored files, and can ALSO be
+// shared with a co-located surface's own managed set (see
+// internal/shared/ledger's package doc), so it is never wiped wholesale: ctxloom tracks every file it wrote in
+// a manifest (the shared managed-content ledger, scoped to this surface).
+//
+// items is the caller's list of exportable things (CommandExport, SkillExport,
+// …); enabled and itemName pick generic accessors off each item (kept as
+// closures, not an interface, so neither export type needs a method just for
+// this); render maps ONE enabled item to every file it materializes — a single
+// entry for a command, SKILL.md plus every sibling file for a skill package.
+// Every rendered path is validated with SafeCommandRelPath (both command/skill
+// names and manifest lines can originate in bundle content, potentially
+// remote): a path that escapes dir is rejected with a warning, never followed.
+//
+// RENDER-THEN-SWAP, not delete-then-rerender. Every enabled item is rendered
+// and path-validated ENTIRELY OFF the live tree first (nothing under dir is
+// touched); the complete new file set is then written into a temp sibling of
+// dir and, once fully materialized there, moved into place file-by-file with
+// atomic renames. Only after every new file is safely live are the
+// now-unwanted previously-tracked files (an item that got disabled) removed.
+// This ordering — validate, render, swap, THEN clean up stale entries — is
+// the fix for the historical bug: the old writer deleted this surface's
+// entire previously-tracked set FIRST and rendered second, so any failure
+// between the two left the surface gutted while still reporting success (the
+// project's signature silent no-op), and even on the happy path a concurrent
+// reader could observe a file the ledger still claims as gone. See
+// packagefiles_race_test.go and packagefiles_swap_test.go for the tests this
+// ordering exists to pass.
+//
+// An item's files are validated (path-safety) as a whole BEFORE any of them is
+// written, so a single unsafe path in a multi-file package skips the WHOLE
+// item rather than leaving a partial tree on disk — the silent-no-op /
+// partial-materialize discipline this codebase holds writers to. An item whose
+// render() call itself returns an error is treated the SAME way, a per-item
+// warn-and-skip: one bad item (e.g. a command with no content) must not take
+// the rest of a delivery down with it. What must hold instead is that this
+// surface's previously-tracked files are never deleted before this validation
+// runs. Under render-then-swap nothing is deleted until the new content has been
+// confirmed live, so a single item's tolerated failure costs it that one
+// item's slot in the ledger, never anyone else's, and never anything before
+// the swap has actually landed. The one failure shape that DOES abort the
+// whole call is every enabled item failing at once while content used to
+// exist here — the empty-render guard below.
+//
+// dir itself is only created when at least one file is written; the manifest
+// is (re)written only when at least one file was written. When cleanup leaves
+// a now-empty subdirectory behind (a package's scripts/assets dir with every
+// file removed), it is pruned bottom-up on a best-effort basis so a disabled
+// skill leaves no debris.
+//
+// THE WHOLE CYCLE RUNS UNDER A LOCK KEYED ON dir (sessions.WithFileLock), from
+// the read of this surface's previous set to the ledger write that replaces
+// it. Without it, a second writer of the same dir (another session, the MCP
+// server, a hook) can complete a delivery between this call's read and its
+// record; this call then records a set built from the stale read and the
+// other writer's files stay on disk with no surface claiming them, beyond the
+// reach of every later cleanup. The ledger's own marker lock does not cover
+// this: it spans only the marker rewrite, not the read this cycle acts on.
+// See TestWriteManagedPackageFiles_ExcludesAConcurrentWriterOfItsDir.
+func WriteManagedPackageFiles[T any](
+	fs afero.Fs,
+	dir string,
+	surface ledger.Surface,
+	items []T,
+	enabled func(T) bool,
+	itemName func(T) string,
+	render func(T) ([]PackageFile, error),
+	opts ...ManagedWriteOption,
+) error {
+	return sessions.WithFileLock(fs, dir, func() error {
+		return writeManagedPackageFilesLocked(fs, dir, surface, items, enabled, itemName, render, opts...)
+	})
 }
 
 // revertManagedSurface reverts one surface to empty: removes exactly the

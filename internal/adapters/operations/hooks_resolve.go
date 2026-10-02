@@ -70,9 +70,11 @@ type ResolvedHook struct {
 	Type    string `json:"type,omitempty"`
 	Matcher string `json:"matcher,omitempty"`
 	Command string `json:"command,omitempty"`
-	Prompt  string `json:"prompt,omitempty"`
-	Timeout int    `json:"timeout,omitempty"`
-	Async   bool   `json:"async,omitempty"`
+	// Args are an exec-form hook's arguments (wire.Hook.Args).
+	Args    []string `json:"args,omitempty"`
+	Prompt  string   `json:"prompt,omitempty"`
+	Timeout int      `json:"timeout,omitempty"`
+	Async   bool     `json:"async,omitempty"`
 }
 
 // ResolvedHookEvent is one lifecycle event's fully resolved hook list.
@@ -185,6 +187,7 @@ func describeHooks(hooks []managedhooks.Resolved) []ResolvedHook {
 			Type:       h.Hook.Type,
 			Matcher:    h.Hook.Matcher,
 			Command:    h.Hook.Command,
+			Args:       h.Hook.Args,
 			Prompt:     h.Hook.Prompt,
 			Timeout:    h.Hook.Timeout,
 			Async:      h.Hook.Async,

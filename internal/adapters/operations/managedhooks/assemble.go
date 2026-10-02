@@ -264,7 +264,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 		for i, hook := range hooks {
 			hookRef, err := itemRefFor(ref.Base, trust.KindHook, event+"/"+strconv.Itoa(i))
 			if err != nil {
-				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Command, err)
+				clidiag.Warn("ctxloom", "profile hook %q withheld: %v", hook.Line(), err)
 				continue
 			}
 			if gateProfileExec(gate, ref, hookRef, hookExecPayload(hook)) {
@@ -272,7 +272,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			} else {
 				// Same fail-closed-but-diagnosable shape as gateProfileHooks's
 				// warn — the gate's decision is unchanged.
-				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Command, hookRef)
+				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Line(), hookRef)
 			}
 		}
 		return out
@@ -287,6 +287,9 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			PostFileEdit: keep(bundles.HookEventPostFileEdit, h.Unified.PostFileEdit),
 			TurnEnd:      keep(bundles.HookEventTurnEnd, h.Unified.TurnEnd),
 			TurnStart:    keep(bundles.HookEventTurnStart, h.Unified.TurnStart),
+			// Not a bundle-authorable event (bundles.BundleHooks), so it is
+			// keyed by the wire vocabulary's own spelling.
+			PermissionAsk: keep(wire.HookEventPermissionAsk, h.Unified.PermissionAsk),
 		},
 	}
 	// Engine-native (ext) hooks gate too; keyed on
@@ -330,9 +333,10 @@ func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string
 // hookExecPayload builds a profile hook's executable-surface preimage via the
 // shared bundle primitive (Matcher+Type+Command+Prompt+PreToolFallback), so a
 // profile-declared hook and an identical bundle-declared one bind to exactly the
-// SAME bytes. nil on an (unreachable) encoding failure — see gateProfileExec.
+// SAME bytes — exec-form arguments included, bound by the primitive's own rule.
+// nil on an (unreachable) encoding failure — see gateProfileExec.
 func hookExecPayload(h wire.Hook) []byte {
-	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
+	bh := bundles.BundleHook{Matcher: h.Matcher, Command: h.Command, Args: h.Args, Type: h.Type, Prompt: h.Prompt, PreToolFallback: h.PreToolFallback}
 	payload, err := bh.ContentPayload()
 	if err != nil {
 		return nil

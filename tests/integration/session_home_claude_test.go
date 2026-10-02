@@ -28,7 +28,7 @@ import (
 // is the unsafe selection and is rendered as such. No live claude: a fake `claude`
 // on PATH captures the launch (its env and argv) and answers the stream-json
 // protocol with one reply; it reports claude's version floor, which the
-// runner checks before launch. Each agent declares `permissions: plan`.
+// runner checks before launch. Each agent declares `permissions: {mode: plan}`.
 
 // fakeClaudeScript answers `--version` with claude's declared floor (in
 // claude's own "<version> (Claude Code)" shape), records its environment and

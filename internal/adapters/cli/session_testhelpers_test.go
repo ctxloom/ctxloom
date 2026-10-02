@@ -63,7 +63,10 @@ func execRootCmdBoth(t *testing.T, args ...string) (stdout, stderr string, err e
 		rootCmd.SetArgs(nil)
 		resetRootFormat(t)
 	})
-	err = rootCmd.Execute()
+	// Through rootCommand(), as every dispatching path goes: executing the
+	// bare tree first lets cobra graft its own help command before the
+	// assembly displaces it, leaving it in the tree for every later test.
+	err = rootCommand().Execute()
 	return out.String(), errBuf.String(), err
 }
 

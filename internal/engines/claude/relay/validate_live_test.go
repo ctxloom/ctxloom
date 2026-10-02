@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creack/pty"
+	"github.com/aymanbagabas/go-pty"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -109,15 +109,18 @@ func validateWake(t *testing.T, ctxloomBin, claudeBin string) {
 		"projects": map[string]any{work: map[string]any{"hasTrustDialogAccepted": true, "hasCompletedProjectOnboarding": true}},
 	})
 
-	cmd := exec.Command(claudeBin, "--model", "haiku", "--dangerously-skip-permissions", "--debug", "--mcp-config", mcpFile, "--strict-mcp-config")
+	tty, err := pty.New()
+	require.NoError(t, err)
+	// Sized before the start, so claude's first paint is at this geometry.
+	require.NoError(t, tty.Resize(160, 50))
+	cmd := tty.Command(claudeBin, "--model", "haiku", "--dangerously-skip-permissions", "--debug", "--mcp-config", mcpFile, "--strict-mcp-config")
 	cmd.Dir = work
 	cmd.Env = liveEnv(home, cfg, filepath.Dir(ctxloomBin))
-	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 50, Cols: 160})
-	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
 	screen := drain(tty)
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		_ = cmd.Wait()
 		_ = tty.Close()
 		t.Logf("screen tail:\n%s", screen.tail(1500))
 		logMessagingDebug(t, cfg)

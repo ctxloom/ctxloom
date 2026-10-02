@@ -1,0 +1,3 @@
+`prompt-human`
+
+I'm ready to set up tonight's queue, but I need to access your task system first. What tool or format do you use to track tasks — is it taskloom, a file in this directory, or something else? Once I can see the current queue and candidates, I'll propose what's safe to admit for an unattended run.

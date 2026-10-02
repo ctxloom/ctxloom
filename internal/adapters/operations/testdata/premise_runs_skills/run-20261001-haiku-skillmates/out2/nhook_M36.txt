@@ -1,0 +1,1 @@
+`next: Call task_list and evaluate_triggers to gather the verdict data on which deferred tasks have fired triggers`

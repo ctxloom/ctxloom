@@ -135,6 +135,7 @@ func TestCountersignRecords_UntrustedKeyCountersigIsNotApproval(t *testing.T) {
 	payload := []byte("body")
 	require.NoError(t, userStore.WriteApprove(mustCountersignRef(t, ref), signing.AttestFragmentRaw, payload, signer))
 
+	require.NoError(t, fs.MkdirAll("/project-approvals", 0o755))
 	records := countersign.NewRecords(userStore, countersign.NewStore("/project-approvals", fs), root, nil)
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{

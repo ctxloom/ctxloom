@@ -100,20 +100,15 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 	remotes := remoteURLMap(cfg)
 	row := func(name string, tags []string, source string) itemRow {
 		remoteName, bundleLabel, sourceURL := classifySource(source, remotes)
-		// name/source are bundle-authored (a fragment/command key from the
-		// bundle's own YAML) and reach this listing row without having
-		// passed through remote.NormalizeRef — the same display-surface gap
-		// review.go's classify() had (see its comment). termsafe.Field (not
-		// NormalizeRef) so a malicious name cannot repaint `fragment/command
-		// list` output; this is a listing, not an ingest boundary, so it does
-		// not own the loud warning. Field ESCAPES rather than deletes: two
-		// items whose names differ only by a control byte stay
-		// distinguishable in the listing, where deletion collapsed them onto
-		// one indistinguishable row.
+		// name/source are bundle-authored and reach this row exactly as the
+		// bundle's YAML spells them. The row keeps those bytes: --format json
+		// serialises it, and a name read out of the json must be the name on
+		// disk so a script can pass it back. Escaping for a terminal is the
+		// text renderer's job (printItemInfos), not the row's.
 		return itemRow{
-			Name:        termsafe.Field(name),
+			Name:        name,
 			Tags:        tags,
-			Bundle:      termsafe.Field(source),
+			Bundle:      source,
 			Ref:         remote.NormalizeRef(source + "#" + itemRefPrefix(itemType) + name),
 			Remote:      remoteName,
 			BundleLabel: bundleLabel,
@@ -164,8 +159,11 @@ func filterByBundle(rows []itemRow, bundleFilter string) []itemRow {
 	return filtered
 }
 
-// printItemInfos prints items grouped by bundle, with tags.
-// printItemInfos writes rows grouped by bundle to w. Takes an explicit
+// printItemInfos writes rows grouped by bundle to w, and is the only place a
+// row's publisher-authored text (bundle, name, tags) meets a terminal — so it
+// is where termsafe.Field applies, and every one of those fields goes through
+// it. The row itself holds raw bytes for the structured path.
+// Takes an explicit
 // writer (not bare fmt.Printf to the real os.Stdout) so it honors
 // cmd.OutOrStdout() like every other renderer in this flow — a caller that
 // redirects a command's output (a test, the VSCode companion capturing a
@@ -179,12 +177,12 @@ func printItemInfos(w io.Writer, rows []itemRow, itemType ItemType) {
 			if currentBundle != "" {
 				fmt.Fprintln(w)
 			}
-			fmt.Fprintf(w, "  %s:\n", r.Bundle)
+			fmt.Fprintf(w, "  %s:\n", termsafe.Field(r.Bundle))
 			currentBundle = r.Bundle
 		}
-		fmt.Fprintf(w, "    - %s", r.Name)
+		fmt.Fprintf(w, "    - %s", termsafe.Field(r.Name))
 		if len(r.Tags) > 0 {
-			fmt.Fprintf(w, " [%s]", strings.Join(r.Tags, ", "))
+			fmt.Fprintf(w, " [%s]", termsafe.Field(strings.Join(r.Tags, ", ")))
 		}
 		fmt.Fprintln(w)
 	}

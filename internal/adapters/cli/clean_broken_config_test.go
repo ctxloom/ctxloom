@@ -65,7 +65,7 @@ func TestClean_ReachesTheCacheThroughAnUnreadableConfig(t *testing.T) {
 				rootCmd.SetArgs(nil)
 			})
 
-			require.NoError(t, rootCmd.Execute(),
+			require.NoError(t, rootCommand().Execute(),
 				"clean must run against an unloadable project (stderr: %s)", errOut.String())
 
 			var res operations.CleanResult
@@ -108,7 +108,7 @@ func TestClean_FindsTheProjectRootFromASubdirectory(t *testing.T) {
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
 	})
-	require.NoError(t, rootCmd.Execute(), "stderr: %s", errOut.String())
+	require.NoError(t, rootCommand().Execute(), "stderr: %s", errOut.String())
 
 	var res operations.CleanResult
 	require.NoError(t, json.Unmarshal(out.Bytes(), &res))

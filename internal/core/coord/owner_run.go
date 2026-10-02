@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -36,11 +37,17 @@ import (
 // address: the mint only reserves a port until it returns, so another process
 // can take it before the runner binds. The run answers that refusal ONCE, as
 // a delegated child's does; a nil Rebind has no answer and the run fails.
+//
+// MayDelegate is the may_delegate of the binding the owner launched under
+// (none for an assembly that selected no binding). It is journaled with the
+// run exactly as a child's is, so the root's own agent_run is admitted by the
+// one check every run's is (admitDelegation).
 type OwnerRun struct {
-	Launch     launch.Launch
-	MCPServers []agent.ChatMCPServer
-	OneShot    bool
-	Rebind     func(ctx context.Context, l launch.Launch) (launch.Launch, error)
+	Launch      launch.Launch
+	MCPServers  []agent.ChatMCPServer
+	OneShot     bool
+	MayDelegate []string
+	Rebind      func(ctx context.Context, l launch.Launch) (launch.Launch, error)
 }
 
 // OwnedRunner is the runner an OwnedRunStarter stood up.
@@ -108,13 +115,14 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// the host already resolved the launch.
 	l := spec.Launch
 	plan := &SpawnPlan{
-		AgentName:  l.Identity.Harp,
-		Backend:    string(l.Engine),
-		Label:      l.Label.Label,
-		Runtime:    runtime,
-		Permission: l.Permission.String(),
-		MCPServers: spec.MCPServers,
-		Launch:     l,
+		AgentName:   l.Identity.Harp,
+		Backend:     string(l.Engine),
+		Label:       l.Label.Label,
+		Runtime:     runtime,
+		Permission:  l.Permission.Posture.Label,
+		MayDelegate: slices.Clone(spec.MayDelegate),
+		MCPServers:  spec.MCPServers,
+		Launch:      l,
 	}
 
 	// The owned run REUSES the owner's own identity rather than spawning a

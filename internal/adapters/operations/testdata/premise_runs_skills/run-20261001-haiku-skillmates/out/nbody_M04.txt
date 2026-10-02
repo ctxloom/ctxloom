@@ -1,0 +1,3 @@
+I don't have visibility into what was worked on earlier in this session. I have no task log, plan, or record of changes to verify against the closeout checklist (verify gates, kill mutations for tests, fix docs, update task log, fix found items).
+
+`next: Ask you what work landed — I need the context (task log, plan, or what changed) to run the closeout checklist.`

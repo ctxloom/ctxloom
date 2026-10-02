@@ -42,7 +42,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	agentaxis "github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -119,14 +118,21 @@ var schemaEnumBindings = []schemaEnumBinding{
 	{path: "properties/workspace", goNames: isolation.WorkspaceNames},
 	{path: "properties/dirty_tree_handler", goNames: launch.DirtyTreeHandlerNames},
 	{path: "properties/runtime", goNames: launch.RuntimeNames},
-	{path: "properties/permissions", goNames: agentaxis.PermissionModeNames},
 
 	// Per-agent binding overrides of the same axes.
 	{path: "properties/agents/additionalProperties/properties/runtime", goNames: launch.RuntimeNames},
-	{path: "properties/agents/additionalProperties/properties/permissions", goNames: agentaxis.PermissionModeNames},
 	{path: "properties/agents/additionalProperties/properties/driving", goNames: agents.DrivingModeNames},
 	{path: "properties/agents/additionalProperties/properties/engine_home", goNames: agents.HomeModeNames},
 	{path: "properties/agents/additionalProperties/properties/auth", goNames: engine.AuthModeNames},
+
+	// The engine-neutral permission fields, at every rung (project, label,
+	// binding); an engine's own keys are its model's to validate.
+	{path: "$defs/neutralPermissions/properties/approver", goNames: engine.ApproverNames},
+	{path: "$defs/neutralPermissions/properties/sandbox", goNames: engine.SandboxNames},
+	{path: "$defs/labelPermissions/properties/approver", goNames: engine.ApproverNames},
+	{path: "$defs/labelPermissions/properties/sandbox", goNames: engine.SandboxNames},
+	{path: "$defs/bindingPermissions/properties/approver", goNames: engine.ApproverNames},
+	{path: "$defs/bindingPermissions/properties/sandbox", goNames: engine.SandboxNames},
 
 	// $defs/hook: claude-code's own hook-handler type vocabulary, passed
 	// through verbatim (ClaudeCodeHookWriter.addHook defaults it to
@@ -139,8 +145,7 @@ var schemaEnumBindings = []schemaEnumBinding{
 }
 
 func init() {
-	// $defs/llmConfig/anyOf has one branch per backend. `permissions` mirrors
-	// the same ctxloom-owned vocabulary as everywhere else; `role` is a
+	// $defs/llmConfig/anyOf has one branch per backend. `role` is a
 	// shipped-registry marker the schema's own description says is "ignored
 	// at runtime" — no Go vocabulary backs it, by design, so it is excluded
 	// rather than bound.
@@ -158,7 +163,6 @@ func init() {
 				path:          prefix + "/role",
 				excludeReason: "a shipped-registry marker the schema itself says is ignored at runtime; no Go vocabulary backs it",
 			},
-			schemaEnumBinding{path: prefix + "/permissions", goNames: agentaxis.PermissionModeNames},
 		)
 	}
 }

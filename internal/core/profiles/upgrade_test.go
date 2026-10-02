@@ -66,7 +66,7 @@ func testAliasToURL(alias string) string {
 // whose own remote URL is ownURL over data (no bundle-profile seed), and report
 // the upgraded bytes plus which upgrades fired.
 func runProfileUpgrade(ownURL string, data []byte) ([]byte, []string) {
-	return profileUpgrades(ownURL, testAliasToURL, nil).Run(data)
+	return profileUpgrades(ownURL, testAliasToURL, nil, nil).Run(data)
 }
 
 // TestBundleRefCanonicalize_ShortRefsBecomeCanonical verifies that bare and
@@ -140,7 +140,7 @@ func TestBundleRefCanonicalize_Idempotent(t *testing.T) {
 func TestBundleRefCanonicalize_NoContextNoOp(t *testing.T) {
 	in := []byte("bundles:\n  - core-practices\n  - unknown-alias/thing\n")
 
-	out, applied := profileUpgrades("", testAliasToURL, nil).Run(in)
+	out, applied := profileUpgrades("", testAliasToURL, nil, nil).Run(in)
 
 	assert.Empty(t, applied, "no own URL + unknown alias => no canonicalization")
 	assert.Equal(t, string(in), string(out))
@@ -162,7 +162,7 @@ func testBundleProfileSeed() map[string]*Profile {
 func TestRetiredParentUpgrade_RewritesToBundleProfile(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, testBundleProfileSeed()).Run(in)
+	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
 
 	require.NotEmpty(t, applied, "retired parent should fire the upgrade")
 	got := string(out)
@@ -176,7 +176,7 @@ func TestRetiredParentUpgrade_RewritesToBundleProfile(t *testing.T) {
 func TestRetiredParentUpgrade_DropsVersionPin(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer@abc1234\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, testBundleProfileSeed()).Run(in)
+	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
 
 	require.NotEmpty(t, applied)
 	assert.Contains(t, string(out), "- "+seedKey(defaultURL, "ai-developer", "developer"))
@@ -189,7 +189,7 @@ func TestRetiredParentUpgrade_DropsVersionPin(t *testing.T) {
 func TestRetiredParentUpgrade_UnmatchedLeftVerbatim(t *testing.T) {
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/go-developer\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, testBundleProfileSeed()).Run(in)
+	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
 
 	assert.Empty(t, applied, "unmatched retired parent must not fire any upgrade")
 	assert.Equal(t, string(in), string(out))
@@ -203,7 +203,7 @@ func TestRetiredParentUpgrade_AmbiguousLeftVerbatim(t *testing.T) {
 	seed[seedKey(defaultURL, "other-kit", "developer")] = &Profile{}
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, seed).Run(in)
+	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, seed).Run(in)
 
 	assert.Empty(t, applied, "ambiguous successor must not fire any upgrade")
 	assert.Equal(t, string(in), string(out))
@@ -216,7 +216,7 @@ func TestRetiredParentUpgrade_Idempotent(t *testing.T) {
 		"  - " + defaultURL + "@bundles/ai-developer#profiles/developer\n" +
 		"  - base\n")
 
-	out, applied := profileUpgrades(personalURL, testAliasToURL, testBundleProfileSeed()).Run(in)
+	out, applied := profileUpgrades(personalURL, testAliasToURL, nil, testBundleProfileSeed()).Run(in)
 
 	assert.Empty(t, applied, "successor-form and local parents must not change")
 	assert.Equal(t, string(in), string(out))
@@ -537,4 +537,29 @@ func seedKey(repoURL, bundle, profile string) string {
 		panic(err)
 	}
 	return key
+}
+
+// TestBundleRefCanonicalize_LocalBundleWinsOverSameSpelledAlias pins decision E
+// (local-file-wins) on the profile upgrade: a LOCAL bundle whose directory name
+// begins with a configured remote alias ("personal/reviews") is not rewritten to
+// that remote, and the upgrade does not fire for it — otherwise the user's
+// profile is migrated on disk to name a different bundle, or none.
+func TestBundleRefCanonicalize_LocalBundleWinsOverSameSpelledAlias(t *testing.T) {
+	local := func(base string) bool { return base == "personal/reviews" }
+
+	t.Run("only a local ref: nothing fires", func(t *testing.T) {
+		in := []byte("bundles:\n  - personal/reviews\n  - personal/reviews#fragments/x\n")
+		out, applied := profileUpgrades(personalURL, testAliasToURL, local, nil).Run(in)
+		assert.Empty(t, applied, "a local bundle must not stage an on-disk migration")
+		assert.Equal(t, string(in), string(out))
+	})
+
+	t.Run("a non-local alias ref beside it still canonicalizes", func(t *testing.T) {
+		in := []byte("bundles:\n  - personal/reviews\n  - personal/developer-mindset\n")
+		out, applied := profileUpgrades(personalURL, testAliasToURL, local, nil).Run(in)
+		require.NotEmpty(t, applied)
+		got := string(out)
+		assert.Contains(t, got, "- personal/reviews\n")
+		assert.Contains(t, got, "- "+personalURL+"@bundles/developer-mindset")
+	})
 }

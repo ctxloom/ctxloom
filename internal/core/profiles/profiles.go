@@ -268,6 +268,10 @@ type Loader struct {
 	// remoteResolver, it lets the loader rewrite a profile's bare/alias bundle refs
 	// to their canonical URL form on load. Nil means no canonicalization.
 	remoteURLResolver func(alias string) string
+	// localBundleExists reports whether a bundle name resolves to a LOCAL
+	// bundle, so an "<alias>/<bundle>" ref spelling one is not canonicalized to
+	// the remote (decision E). Nil skips the check.
+	localBundleExists func(name string) bool
 	// pending accumulates in-memory schema upgrades applied during Load that an
 	// interactive caller may persist with consent (see PendingUpgrades).
 	// pendingPaths dedupes by file path: a legacy file loaded several times in
@@ -321,6 +325,17 @@ func WithRemoteResolver(resolve func(profileName string) string) LoaderOption {
 func WithRemoteURLResolver(resolve func(alias string) string) LoaderOption {
 	return func(l *Loader) {
 		l.remoteURLResolver = resolve
+	}
+}
+
+// WithLocalBundleResolver sets the oracle reporting whether a bundle name
+// resolves to a LOCAL bundle. Load-time canonicalization leaves an
+// "<alias>/<bundle>" ref local when it does (local-file-wins), instead of
+// rewriting it to the same-spelled remote alias and staging that rewrite as an
+// on-disk migration.
+func WithLocalBundleResolver(exists func(name string) bool) LoaderOption {
+	return func(l *Loader) {
+		l.localBundleExists = exists
 	}
 }
 
@@ -690,7 +705,7 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	// caller may persist the rewrite with consent (see upgrade.go). The seeded
 	// map is the discovery surface for retired-parent rewrites — it is populated
 	// at construction (WithSeededProfiles), before any Load reaches here.
-	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver, l.seeded).Run(data); len(applied) > 0 {
+	if upgraded, applied := profileUpgrades(ownURL, l.remoteURLResolver, l.localBundleExists, l.seeded).Run(data); len(applied) > 0 {
 		data = upgraded
 		if !l.pendingPaths[path] {
 			if l.pendingPaths == nil {

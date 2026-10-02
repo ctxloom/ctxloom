@@ -113,3 +113,13 @@ func TestDefaultPolicy_DivergencesFromDesignDoc(t *testing.T) {
 		t.Errorf("Lookup(mcp.servers.*.env).Scope = %s, want %s (only .command/.args diverged to Shared)", rule.Scope, ScopeMachine)
 	}
 }
+
+// may_delegate widens what an agent may launch, so like the binding's
+// permissions it is Shared: a home config or the environment an agent can
+// write must never loosen it.
+func TestDefaultPolicy_MayDelegateIsShared(t *testing.T) {
+	rule, ok := DefaultPolicy().Lookup([]string{"agents", "worker", "may_delegate"})
+	if !ok || rule.Scope != ScopeShared {
+		t.Fatalf("agents.*.may_delegate: got %+v (found %v), want ScopeShared", rule, ok)
+	}
+}

@@ -1,0 +1,3 @@
+`next: Check what queue system is available in this directory`
+
+I need to see the task queue before I can triage it. Let me explore the working directory to find where the queue lives—it could be a taskloom instance, a local YAML/JSON file, or another system.

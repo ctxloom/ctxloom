@@ -83,5 +83,5 @@ func writeDelegationFile(t *testing.T, path, body string) {
 }
 
 func headlessAgent(profiles ...string) agents.Agent {
-	return agents.Agent{LLM: "fast", Profiles: profiles, Permissions: "bypass"}
+	return agents.Agent{LLM: "fast", Profiles: profiles, Permissions: agents.Permissions{Engines: map[string]map[string]any{"mock": {"mode": "bypass"}}}}
 }

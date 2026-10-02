@@ -281,6 +281,7 @@ type Hook struct {
 	Matcher         string
 	Type            string
 	Command         string
+	Args            []string
 	Prompt          string
 	Timeout         int
 	Async           bool
@@ -319,13 +320,14 @@ func (h Hook) refName() string { return h.Event + "/" + h.Name }
 // payload a later layer builds from those bytes — which is what lets existing hook
 // approvals and content-rejections survive with no exec-preimage contract bump.
 type hookContent struct {
-	Matcher         string `yaml:"matcher,omitempty"`
-	Type            string `yaml:"type,omitempty"`
-	Command         string `yaml:"command,omitempty"`
-	Prompt          string `yaml:"prompt,omitempty"`
-	Timeout         int    `yaml:"timeout,omitempty"`
-	Async           bool   `yaml:"async,omitempty"`
-	PreToolFallback bool   `yaml:"pre_tool_fallback,omitempty"`
+	Matcher         string   `yaml:"matcher,omitempty"`
+	Type            string   `yaml:"type,omitempty"`
+	Command         string   `yaml:"command,omitempty"`
+	Args            []string `yaml:"args,omitempty"`
+	Prompt          string   `yaml:"prompt,omitempty"`
+	Timeout         int      `yaml:"timeout,omitempty"`
+	Async           bool     `yaml:"async,omitempty"`
+	PreToolFallback bool     `yaml:"pre_tool_fallback,omitempty"`
 }
 
 // hookMeta is the sidecar's shape: our keys only, which today is exactly one.
@@ -386,6 +388,7 @@ func (t hookType) Decode(src Source) (Surface, error) {
 		Matcher:         content.Matcher,
 		Type:            content.Type,
 		Command:         content.Command,
+		Args:            content.Args,
 		Prompt:          content.Prompt,
 		Timeout:         content.Timeout,
 		Async:           content.Async,
@@ -409,6 +412,7 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 			Matcher:         h.Matcher,
 			Type:            h.Type,
 			Command:         h.Command,
+			Args:            h.Args,
 			Prompt:          h.Prompt,
 			Timeout:         h.Timeout,
 			Async:           h.Async,

@@ -252,6 +252,9 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if err := c.admitAgentRun(caller, agentName, prompt); err != nil {
 		return nil, err
 	}
+	if err := c.admitDelegation(caller, agentName); err != nil {
+		return nil, err
+	}
 
 	// EVERYTHING FROM HERE TO enqueueRun IS THE TRACELESS SPAN. The run has
 	// no id yet, so nothing can be journaled against it, nothing appears in
@@ -343,6 +346,30 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		Queued:   queued,
 		Degraded: plan.Degraded,
 	}, nil
+}
+
+// ErrDelegationRefused refuses an agent_run the caller's binding does not
+// permit: its may_delegate names the roles it may launch, and this is not
+// one of them.
+var ErrDelegationRefused = errors.New("agent_run: refused by may_delegate")
+
+// admitDelegation refuses a role the caller's own binding does not list in
+// its may_delegate, naming the ones it does. It is the one check for every
+// caller: a child's run and the root's owned run (OwnerRun.MayDelegate) both
+// journal their binding's list. A caller with no run, or whose binding lists
+// none, may launch any.
+func (c *Coordinator) admitDelegation(caller Identity, role string) error {
+	var agent string
+	var allowed []string
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(caller.Harp); r != nil {
+			agent, allowed = r.Agent, slices.Clone(r.MayDelegate)
+		}
+	})
+	if len(allowed) == 0 || slices.Contains(allowed, role) {
+		return nil
+	}
+	return fmt.Errorf("%w: agent %q may launch only %s, not %q", ErrDelegationRefused, agent, strings.Join(allowed, ", "), role)
 }
 
 // admitAgentRun refuses an agent_run before anything is resolved: a
@@ -510,10 +537,11 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			// own agent resolution, a resumed run's freshly re-resolved
 			// plan, or an owned run's synthetic plan, which never sets it —
 			// zero value ResumeModePersistent, correctly never OneShot).
-			OneShot:    plan.ResumeMode == ResumeModeOneShot,
-			Prompt:     prompt,
-			Resume:     resume,
-			Permission: plan.Permission,
+			OneShot:     plan.ResumeMode == ResumeModeOneShot,
+			Prompt:      prompt,
+			Resume:      resume,
+			Permission:  plan.Permission,
+			MayDelegate: plan.MayDelegate,
 			// Names only, sorted: an operator auditing a live delegation sees
 			// WHAT a child can reach; command, args and env — any of which can
 			// carry a credential — never enter the journal, and the journaled

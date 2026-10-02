@@ -1,0 +1,1 @@
+next: Check memory for prior work context, then ask the human what decisions they want me to surface—there's no active work, task log, or pending decisions visible in this directory.

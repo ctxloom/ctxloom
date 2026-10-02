@@ -39,7 +39,7 @@
         "type": "object"
       },
       "role": {
-        "description": "Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permission enum are honored; see `ctxloom agent list`)",
+        "description": "Configured ctxloom agent name to launch (its composed profiles, engine binding, runtime axis, and permissions are honored; see `ctxloom agent list`)",
         "examples": [
           "code-reviewer"
         ],

@@ -99,7 +99,7 @@
 ./internal/adapters/remote/registry.go|(r*Registry)save|1|11|save|109-175
 ./internal/adapters/remote/repo_cache.go|(c*RepoCache)safeRepoPath parts ... string|1|11|safeRepoPath|382-403
 ./internal/adapters/signing/countersign/forget.go|(s*Store)forget header signing . CountersignHeader , payload [ ] byte|1|12|forget|62-105
-./internal/adapters/signing/countersign/store.go|(s*Store)candidates header signing . CountersignHeader , payload [ ] byte|1|11|candidates|320-355
+./internal/adapters/signing/countersign/store.go|(s*Store)candidates header signing . CountersignHeader , payload [ ] byte|1|11|candidates|309-344
 ./internal/adapters/termui/prefixkey.go|ParsePrefixKey s string|1|18|ParsePrefixKey|15-56
 ./internal/adapters/termui/surround.go| s * surround|1|13||159-218
 ./internal/adapters/termui/tear_test.go|TestSurround_StressScriptedChildNoTearNoBleed t * testing . T|1|12|TestSurround_StressScriptedChildNoTearNoBleed|270-312
@@ -115,7 +115,6 @@
 ./internal/core/agent/enginecli.go|(c EngineCLI)Validate|1|17|Validate|294-341
 ./internal/core/agent/managedcontext.go|writeManagedContextLocked fs afero . Fs , path , rel , content , desc string|1|12|writeManagedContextLocked|59-104
 ./internal/core/agent/packagefiles.go| T|1|38||104-374
-./internal/core/bundles/authorizer.go|(r Reason)String|1|15|String|268-301
 ./internal/core/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|1508-1555
 ./internal/core/bundles/loader_content.go|(l*Loader)expandBundleRef ref string|1|11|expandBundleRef|658-730
 ./internal/core/bundles/loader_version.go|(l*Loader)bundleAtVersion bundleRef , commit string|1|12|bundleAtVersion|41-123

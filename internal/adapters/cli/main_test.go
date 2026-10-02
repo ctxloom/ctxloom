@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 
@@ -69,6 +70,32 @@ func TestCLITestBinary_FailsClosedWithoutTheSandbox(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "REFUSING TO RUN TESTS") {
 		t.Errorf("the child failed, but not with the guard's message — the failure proves nothing; output:\n%s", out)
+	}
+}
+
+// TestCLITestBinary_ScrubsAnInheritedAppDirFromTheEnvironment pins the third
+// route into a real ~/.ctxloom: a ctxloom-launched session puts its pinned
+// companion store on PATH, and companion admission's PATH lookup then read the
+// developer's real store from inside a binary whose HOME and cwd were both
+// sandboxed. The child here is a FRESH sandboxed process (SandboxRootEnv
+// stripped) handed such a PATH entry; it must come up isolated and pass the
+// isolation check rather than refuse. The entry's root does not exist, so
+// nothing real is ever read whichever way it goes.
+func TestCLITestBinary_ScrubsAnInheritedAppDirFromTheEnvironment(t *testing.T) {
+	escaping := filepath.Join(string(filepath.Separator), "nonexistent-ctxloom-test-root",
+		paths.AppDirName, paths.CacheDir, paths.CompanionPinCacheDir, "digest")
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCLITestBinary_IsSandboxed$", "-test.v")
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); k != testsupport.SandboxRootEnv && k != "PATH" {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, "PATH="+escaping+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+
+	if err != nil || !strings.Contains(string(out), "--- PASS: TestCLITestBinary_IsSandboxed") {
+		t.Fatalf("a sandboxed binary inheriting PATH=%s... must scrub it and run isolated; err=%v output:\n%s", escaping, err, out)
 	}
 }
 

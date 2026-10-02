@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
@@ -51,7 +50,7 @@ func (f *fakeTerminal) seen() []Turn {
 }
 
 func interactiveLaunch(harp, workDir string) launch.Launch {
-	l := launchtest.Structured(harp, "claude-code", "lbl", "m", workDir, agent.PermissionDefault)
+	l := launchtest.Structured(harp, "claude-code", "lbl", "m", workDir, "default")
 	l.Mode = engine.Interactive
 	return l
 }

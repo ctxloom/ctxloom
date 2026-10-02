@@ -89,7 +89,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
       Examples: engines with a session hook — context is injected at launch
         | engine      | context_surface       | context_marker      |
-        | claude-code | .claude/settings.json | hook inject-context |
+        | claude-code | .claude/settings.json | inject-context      |
 
       # The marker is a heading from ctxloom's own shipped guidance: the
       # mock's context file is the assembled context verbatim, owned whole
@@ -294,10 +294,9 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # machine, and its subject (append twice, appear once) never needed a
     # companion at all.
     #
-    # Matched WITHOUT a leading "ctxloom": its own hooks are written as
-    # `'<absolute path>' hook <name>`, so the binary name is quoted away from
-    # the verb. Only a companion-shipped hook spells a bare `ctxloom hook ...`,
-    # which is why the old literal matched one and not the other.
+    # Matched on the verb alone: ctxloom's own hooks are written in exec form
+    # (`"command": "ctxloom", "args": ["hook", "next-step"]`), so the binary
+    # name and the verb are separate JSON strings.
     Scenario: Re-applying hooks does not duplicate them
       Given an initialized ctxloom project
       When Alice installs the hooks twice:
@@ -306,7 +305,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "hook next-step" exactly 1 times
+      And the file ".claude/settings.json" contains "next-step" exactly 1 times
 
     # Hooks merge across sources by pure APPEND, and each bundle's `order:`
     # sequences only its own hooks within an event. The fixture makes
@@ -583,8 +582,8 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # settings scenario above pins that half on a file the user owns.
     #
     # The precondition names the hook and the statusLine SEPARATELY, because
-    # `ctxloom hook` reaches only the statusLine — the context hook's command
-    # is `'<abs>/ctxloom' hook inject-context`, quoted between the two words.
+    # `ctxloom hook` reaches only the statusLine — the context hook is exec
+    # form, its executable and its verb separate JSON strings.
     # The MCP claim PARSES the file rather than checking for the bare
     # substring "ctxloom".
     # (ruled 2026-09-21: sessions carry their surfaces — the harness this
@@ -597,7 +596,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "hook inject-context"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook inject-context"
       And the file ".claude/settings.json" contains "ctxloom hook hud"
       And the file ".mcp.json" registers no MCP server named "ctxloom"
       When Alice takes it back out:

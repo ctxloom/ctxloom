@@ -14,9 +14,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// The project-default permission posture (`permissions:` at the top level of
-// config.yaml) is a PER-PROJECT CONSENT: "in THIS directory, this is the
-// posture an agent launches at by default". Its whole value comes from being
+// The project's permission defaults (`permissions:` at the top level of
+// config.yaml: the engine-neutral fields) are a PER-PROJECT CONSENT: "in
+// THIS directory, this is the sandbox and approver an agent launches with by
+// default". Its whole value comes from being
 // scoped to one project dir — a home-wide permissive default reachable from
 // ~/.ctxloom/config.yaml would silently re-grant every project on the machine
 // the posture the human granted one of them. These tests are the layer pin
@@ -26,10 +27,10 @@ import (
 // project config that declares the key is read back through the accessor the
 // resolution chain consults.
 func TestProjectPermissions_HonoredFromProjectLayer(t *testing.T) {
-	cfg := writeLayers(t, "", "version: 6\npermissions: bypass\n")
+	cfg := writeLayers(t, "", "version: 6\npermissions:\n  sandbox: full\n")
 
-	assert.Equal(t, "bypass", cfg.GetPermissions(),
-		"a project config's declared permission posture must be honored")
+	assert.Equal(t, "full", cfg.GetPermissions().Sandbox,
+		"a project config's declared permission default must be honored")
 }
 
 // TestProjectPermissions_HomeLayerIsIgnored is the pin the feature exists for.
@@ -45,11 +46,11 @@ func TestProjectPermissions_HonoredFromProjectLayer(t *testing.T) {
 // the rule entirely) makes home's grant stick and turns this red.
 func TestProjectPermissions_HomeLayerIsIgnored(t *testing.T) {
 	cfg := writeLayers(t,
-		"version: 6\npermissions: bypass\n",
+		"version: 6\npermissions:\n  sandbox: full\n",
 		"version: 6\n",
 	)
 
-	assert.Equal(t, "", cfg.GetPermissions(),
+	assert.True(t, cfg.GetPermissions().IsZero(),
 		"a HOME config must never grant a project's permission posture: per-project consent is the whole point, and a home-wide permissive default re-grants every project on the machine")
 
 	// Dropped LOUDLY, never silently: the human who wrote it in the wrong file
@@ -78,7 +79,7 @@ func TestProjectPermissions_EnvCannotGrantIt(t *testing.T) {
 		WithOverrides(confload.Overrides{Env: map[string]any{"PERMISSIONS": "bypass"}}))
 	require.NoError(t, err)
 
-	assert.Equal(t, "", cfg.GetPermissions(),
+	assert.True(t, cfg.GetPermissions().IsZero(),
 		"an environment variable must never grant the project permission posture — env is the one channel every spawned child inherits")
 }
 

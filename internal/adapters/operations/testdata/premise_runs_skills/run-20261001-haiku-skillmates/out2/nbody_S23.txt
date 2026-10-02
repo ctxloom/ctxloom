@@ -1,0 +1,3 @@
+I don't have visibility into the deferred items from your closeout. To properly surface them via prompt-human, I need to see what was deferred in step 5.
+
+`next: show me the deferred items and their context so I can present them as proper decisions`

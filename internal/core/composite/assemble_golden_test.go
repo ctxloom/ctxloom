@@ -55,6 +55,8 @@ func goldenAppDir(t *testing.T) string {
 	fs := afero.NewOsFs()
 	appDir := filepath.Join(t.TempDir(), config.AppDirName)
 	bundlesRoot := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)
+	// Provisioned as `ctxloom init` leaves it: an absent store withholds all.
+	testsupport.SeedTree(t, fs, paths.ApprovalsPath(appDir), map[string]string{paths.ApprovalsPlaceholderName: ""})
 
 	copyTree(t, fs, filepath.Join(root, ".ctxloom", "content", "bundles", "v2", "ctxloom-project"), filepath.Join(bundlesRoot, "ctxloom-project"))
 	for _, name := range []string{"code-quality", "tooling"} {

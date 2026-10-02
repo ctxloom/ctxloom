@@ -29,11 +29,14 @@ type SpawnPlan struct {
 	// before the launch resolves; a binding carries no opinion on either.
 	Workspace        launch.WorkspaceAxis
 	DirtyTreeHandler launch.DirtyTreeHandler
-	// Permission is the posture the plan was enqueued with: the binding's
-	// declaration (empty when it declared none), or an owner run's floored
-	// posture. The launch resolver decides the effective one.
+	// Permission is the engine's display name for the posture the plan was
+	// enqueued with: the binding's resolved posture, or an owner run's
+	// launched one. The launch resolver decides the effective one.
 	Permission string
-	Degraded   []string
+	// MayDelegate is the binding's may_delegate: the roles this run may
+	// launch with agent_run; empty permits any.
+	MayDelegate []string
+	Degraded    []string
 	// MCPServers is the child's composed MCP server set, resolved once at
 	// the verb so a later config edit cannot retroactively change a live
 	// run's privileges and so the journal, the launch and StartEngine read

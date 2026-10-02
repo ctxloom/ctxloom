@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -52,7 +53,7 @@ type fakeSpawner struct {
 	// which is the shape that separates "queued behind the cap" from
 	// "started and failed".
 	launchErr error
-	perms     []agent.PermissionMode
+	perms     []string
 	// nextChat scripts the MIGRATED (StartRun) path's engine; StartEngine
 	// spawns a REAL runner half (Home + EngineHost over the coordinator's
 	// live gRPC listeners) around it. chats/kills record per spawn.
@@ -146,10 +147,12 @@ type fakeSpawner struct {
 }
 
 type fakeAgent struct {
-	perm     string // headless permission enum; "" refuses (D3)
-	runtime  launch.RuntimeAxis
-	profiles []string
-	unknown  bool
+	perm string // the declared mode; "" takes the default
+	// mayDelegate is the binding's may_delegate (SpawnPlan.MayDelegate).
+	mayDelegate []string
+	runtime     launch.RuntimeAxis
+	profiles    []string
+	unknown     bool
 	// backend is the SpawnPlan.Backend this agent resolves to (rides into
 	// HarnessSpec.harness on the StartRun path). Empty defaults to "mock" —
 	// most tests don't care and the coordinator's own mechanics are
@@ -190,14 +193,15 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		resumeMode = ResumeModeOneShot
 	}
 	return &SpawnPlan{
-		AgentName:  agentName,
-		Backend:    backend,
-		Label:      "fast",
-		Profiles:   a.profiles,
-		Runtime:    a.runtime,
-		Permission: a.perm,
-		MCPServers: a.mcpServers,
-		ResumeMode: resumeMode,
+		AgentName:   agentName,
+		Backend:     backend,
+		Label:       "fast",
+		Profiles:    a.profiles,
+		Runtime:     a.runtime,
+		Permission:  a.perm,
+		MayDelegate: a.mayDelegate,
+		MCPServers:  a.mcpServers,
+		ResumeMode:  resumeMode,
 	}, nil
 }
 
@@ -207,17 +211,17 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 // that does not parse is refused — or dropped to plan under --degraded. The
 // fake applies it where the real spawner's StartEngine resolves the launch,
 // so a test observes the outcome at the same point production reaches it.
-func floorChild(degraded bool, agentName, declared string) (agent.PermissionMode, error) {
+func floorChild(degraded bool, agentName, declared string) (string, error) {
 	if declared == "" {
-		return agent.PermissionDefault, nil
+		return "default", nil
 	}
-	if mode, ok := agent.ParsePermissionMode(declared); ok {
-		return mode, nil
+	if slices.Contains([]string{"default", "acceptEdits", "plan", "bypass"}, declared) {
+		return declared, nil
 	}
 	if degraded {
-		return agent.PermissionFloor, nil
+		return "plan", nil
 	}
-	return 0, fmt.Errorf("%w: agent %q declares permissions %q, which is not a posture", launch.ErrPermissionUnhonoured, agentName, declared)
+	return "", fmt.Errorf("%w: agent %q declares permissions %q, which is not a posture", launch.ErrPermissionUnhonoured, agentName, declared)
 }
 
 func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
@@ -284,7 +288,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 		Engine:     engine.Name(plan.Backend),
 		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
 		Mode:       engine.Structured,
-		Permission: perm,
+		Permission: engine.PermissionPolicy{Posture: engine.Posture{Engine: engine.Name(plan.Backend), Document: map[string]any{"mode": perm}}, Sandbox: engine.SandboxFull},
 		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
 		Cell:       launch.Cell{Placement: launch.Placement{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Env: spawnedEnv}, Workspace: workDir, Cleanup: func() error { return nil }},
 		Package:    carrier,
@@ -468,11 +472,11 @@ func (s *fakeSpawner) killEngine(i int) {
 }
 
 // lastPerm returns the permission the most recent launch carried.
-func (s *fakeSpawner) lastPerm() agent.PermissionMode {
+func (s *fakeSpawner) lastPerm() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.perms) == 0 {
-		return agent.PermissionDefault
+		return "default"
 	}
 	return s.perms[len(s.perms)-1]
 }
@@ -806,7 +810,7 @@ func spoolMail(t *testing.T, c *Coordinator, harp string, wait time.Duration) ([
 
 // ownerLaunch is the test's resolved owner launch: the fields StartOwnedRun
 // reads off it, and nothing a resolver would decide.
-func ownerLaunch(harp, backend, label, model, workDir string, perm agent.PermissionMode) launch.Launch {
+func ownerLaunch(harp, backend, label, model, workDir, perm string) launch.Launch {
 	return launchtest.Structured(harp, backend, label, model, workDir, perm)
 }
 

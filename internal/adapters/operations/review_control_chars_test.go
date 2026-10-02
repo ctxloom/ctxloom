@@ -58,7 +58,7 @@ func TestPendingReview_MaliciousItemNameCannotReachDisplay(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, reviewSeedKey,
 		bundles.WithRepoURL(seedRepoURL(t, reviewSeedKey))))
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root,
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Registry: newRegistry(t, remoteSpec{name: "acme", url: trustRepo}),
 		Loader:   loader,
 		FS:       afero.NewMemMapFs(),

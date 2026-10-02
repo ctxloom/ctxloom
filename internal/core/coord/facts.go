@@ -143,14 +143,16 @@ type runEnqueued struct {
 	OneShot bool   `json:"one_shot,omitempty"`
 	Prompt  string `json:"prompt,omitempty"` // briefing (the journal is 0600: it carries message bodies)
 	Resume  bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
-	// Permission is the posture the run was ENQUEUED with: the binding's
-	// declared posture for a delegated child (empty when it declared none),
-	// the launch's floored posture for an owner run. The effective posture a
+	// Permission is the posture the run was ENQUEUED with, by its engine's
+	// display name: the binding's resolved posture for a delegated child,
+	// the launch's posture for an owner run. The effective posture a
 	// child runs at is decided once, by the launch resolver, when the run
 	// starts; journaled here so a later config edit cannot retroactively
-	// change what a live run was asked for. Kind name, not a wire number,
-	// so runs.jsonl stays jq-legible.
+	// change what a live run was asked for. Shown, never parsed.
 	Permission string `json:"permission,omitempty"`
+	// MayDelegate is the binding's may_delegate as enqueued: the roles this
+	// run may launch; empty permits any.
+	MayDelegate []string `json:"may_delegate,omitempty"`
 	// MCPServers is the child's resolved MCP server NAMES ONLY (Wave F1) —
 	// never command, args, or env, which can carry a secret (the SAME
 	// boundary CredHash already holds for the bearer token: this journal

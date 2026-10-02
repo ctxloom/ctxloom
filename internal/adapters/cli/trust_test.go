@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
@@ -19,13 +21,33 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
-// neutralizeRefresh points the project root at an empty dir with no applied
+// neutralizeRefresh points the project root at a fresh project with no applied
 // harness, so the post-mutation refreshManagedArtifacts is a no-op. These store-
 // focused cases assert the countersignature store, not the on-disk managed
-// artifacts.
+// artifacts. The root is provisioned because it becomes the project config
+// reads (TestNeutralizeRefresh_NominatesAProvisionedProject).
 func neutralizeRefresh(t *testing.T) {
 	t.Helper()
-	t.Setenv(projectroot.EnvVar, t.TempDir())
+	root := t.TempDir()
+	provisionApprovals(t, filepath.Join(root, config.AppDirName))
+	t.Setenv(projectroot.EnvVar, root)
+}
+
+// The root neutralizeRefresh nominates is not a side directory: CTXLOOM_ROOT
+// outranks the cwd walk, so it becomes THE project every later config load in
+// the test reads, whatever project the test built before calling it. An
+// unprovisioned root there withholds everything, and a test about something
+// else then runs with its trust gate faulted.
+func TestNeutralizeRefresh_NominatesAProvisionedProject(t *testing.T) {
+	newIsolatedFlowProject(t)
+	neutralizeRefresh(t)
+	cfg, err := configload.Load()
+	require.NoError(t, err)
+	appDir := operations.ProjectAppDir(cfg)
+	root, ok := projectroot.FromEnv(afero.NewOsFs())
+	require.True(t, ok)
+	require.Equal(t, filepath.Join(root, config.AppDirName), appDir, "the override, not the cwd project, is what config reads")
+	assert.True(t, operations.ApprovalsStoreProvisioned(nil, appDir), "the nominated project must be provisioned as ctxloom init leaves one")
 }
 
 // testCmd returns a bare cobra command whose stdout is captured. With no

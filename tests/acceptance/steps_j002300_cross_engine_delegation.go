@@ -116,7 +116,7 @@ func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "version: %d\nworkspace: none\nllm:\n  configs:\n    fast:\n      type: mock\n  defaults:\n    primary: fast\n    fast: fast\nagents:\n", config.CurrentConfigVersion)
 	for _, s := range specs {
-		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n    permissions: bypass\n", s.Name, s.Profile)
+		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n%s", s.Name, s.Profile, permissionsBlock("mock", "bypass"))
 	}
 	return b.String()
 }
@@ -189,8 +189,7 @@ func j002300PerEngineConfigYAML(a liveAgent, llmKey string, s *j002300AgentSpec,
     llm: %s
 %s    profiles:
       - %s
-    permissions: bypass
-`, workspace, dirtyLine, s.Name, llmKey, runtimeLine, s.Profile)
+%s`, workspace, dirtyLine, s.Name, llmKey, runtimeLine, s.Profile, permissionsBlock(a.engine, "bypass"))
 }
 
 // j002300WriteAgent writes one agent's bundle + profile files.

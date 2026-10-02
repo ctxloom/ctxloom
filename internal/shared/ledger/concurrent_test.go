@@ -1,100 +1,79 @@
 package ledger
 
 import (
-	"fmt"
-	"sync"
+	"path/filepath"
 	"testing"
 
+	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
-// concurrentWriters is the width of these measurements; 20 matches the figure
-// task tall-nanny measured on config Save().
-const concurrentWriters = 20
-
-// writeAll runs one Write per surface, all at once, and reports which
-// surfaces did not survive. serialize, when non-nil, is the caller-side lock
-// this package's own contract says every writer must hold.
-func writeAll(t *testing.T, l Ledger, surfaces []Surface, serialize *sync.Mutex) []Surface {
+// lockIsFree reports whether nobody holds the advisory lock guarding target,
+// probing it the way a second process would: a separate open file description
+// and a non-blocking flock. It is the adversarial scheduler's question — "may
+// another writer run right now?" — answered without waiting for anything.
+func lockIsFree(t *testing.T, target string) bool {
 	t.Helper()
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for i, s := range surfaces {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			if serialize != nil {
-				serialize.Lock()
-				defer serialize.Unlock()
-			}
-			_ = l.Write(s, []string{fmt.Sprintf("entry-%02d", i)})
-		}()
+	lockPath, err := paths.HomePathFor(target)
+	require.NoError(t, err)
+	require.NoError(t, filelock.Prepare(lockPath))
+	probe := flock.New(lockPath)
+	free, err := probe.TryLock()
+	require.NoError(t, err)
+	if free {
+		require.NoError(t, probe.Unlock())
 	}
-	close(start)
-	wg.Wait()
+	return free
+}
 
-	var missing []Surface
-	for i, s := range surfaces {
-		got, err := l.Read(s)
-		require.NoError(t, err)
-		if len(got) != 1 || got[0] != fmt.Sprintf("entry-%02d", i) {
-			missing = append(missing, s)
+// TestLedger_Write_ExcludesACoLocatedWriterFromItsWindow forces the lost
+// update this package's co-location invariant exists to prevent: writer A has
+// read the marker and not yet renamed its rewrite into place, and writer B —
+// a DIFFERENT surface in the SAME directory, holding whatever lock its own
+// caller takes (a different settings file, or none) — writes in between. A
+// then renames a marker built from its stale read, and B's surface is gone.
+//
+// The interleaving is forced, never waited for. Write warns on a net
+// retraction from INSIDE its read-modify-write window, so A's Warn is the
+// point where an adversarial scheduler slips B in — and it does so whenever
+// the marker's lock lets a second writer through. Unserialized, B lands in the
+// window and is lost. Serialized, B is excluded until A's rename has landed,
+// runs after it, and nothing is lost.
+func TestLedger_Write_ExcludesACoLocatedWriterFromItsWindow(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, Name)
+
+	// A owns "old", so its next Write is a retraction and warns mid-window.
+	require.NoError(t, Ledger{FS: fs, Dir: dir}.Write(SurfaceCommands, []string{"old"}))
+
+	writeB := func() error { return Ledger{FS: fs, Dir: dir}.Write(SurfaceSkills, []string{"b"}) }
+	bInWindow := false
+	a := Ledger{FS: fs, Dir: dir, Warn: func(string, ...any) {
+		if !lockIsFree(t, marker) {
+			return
 		}
+		bInWindow = true
+		require.NoError(t, writeB())
+	}}
+
+	require.NoError(t, a.Write(SurfaceCommands, []string{"new"}))
+	if !bInWindow {
+		require.NoError(t, writeB())
 	}
-	return missing
-}
 
-func numberedSurfaces(n int) []Surface {
-	out := make([]Surface, n)
-	for i := range out {
-		out[i] = Surface(fmt.Sprintf("surface%02d", i))
-	}
-	return out
-}
-
-// TestLedger_IsNotSelfSerializing_TheCallerMustLock pins the contract this
-// package relies on and does not itself provide, because reading the code
-// cannot tell you which of the two it is.
-//
-// Ledger.Write is a read-modify-write: readAll, replace ONE surface's
-// entries, rewrite every surface. The rewrite is atomic
-// (iox.WriteFileAtomicFs) and there is no lock in this package. MEASURED here
-// on the real filesystem: 20 concurrent Writes to 20 DIFFERENT surfaces lose
-// 11 to 15 of them. Atomicity prevents a torn marker; it does nothing about
-// writer B reading the marker before writer A's rename lands.
-//
-// That is NOT a defect in this package. The serialization is real and it
-// lives at the CALLER: every production writer wraps its whole
-// load-modify-save-and-ledger-write cycle in agent.WithFileLock (see
-// claude.ClaudeCodeHookWriter and agent.MCPFileConfig), and archlint's LockDisciplineAnalyzer leaves this
-// package out of its scope for exactly that reason: the lock and record
-// primitives are not scanned, because their callers are what must hold the
-// lock.
-//
-// This test states both halves so the contract is a fact a reader can check
-// rather than a claim in a comment: unserialized loses, serialized does not.
-// A future change that made Write self-serializing would turn the first half
-// red, which is the correct signal to update this test deliberately rather
-// than to discover the contract moved.
-func TestLedger_IsNotSelfSerializing_TheCallerMustLock(t *testing.T) {
-	surfaces := numberedSurfaces(concurrentWriters)
-
-	t.Run("unserialized, as no production caller does: writes are lost", func(t *testing.T) {
-		l := Ledger{FS: afero.NewOsFs(), Dir: t.TempDir()}
-		missing := writeAll(t, l, surfaces, nil)
-		assert.NotEmpty(t, missing,
-			"if this ever stops losing writes, Write acquired a serialization of its own and the caller contract below is no longer the thing keeping ctxloom correct")
-	})
-
-	t.Run("serialized, as every production caller does: nothing is lost", func(t *testing.T) {
-		l := Ledger{FS: afero.NewOsFs(), Dir: t.TempDir()}
-		var mu sync.Mutex
-		missing := writeAll(t, l, surfaces, &mu)
-		assert.Empty(t, missing,
-			"a serialized caller must lose nothing; %d of %d were lost, which would mean the loss has a second cause the caller's lock cannot fix",
-			len(missing), len(surfaces))
-	})
+	read := Ledger{FS: fs, Dir: dir}
+	skills, err := read.Read(SurfaceSkills)
+	require.NoError(t, err)
+	commands, err := read.Read(SurfaceCommands)
+	require.NoError(t, err)
+	assert.False(t, bInWindow, "a co-located writer got inside another's read-modify-write window: the marker is not locked across it")
+	assert.Equal(t, []string{"b"}, skills, "the co-located surface's write was lost")
+	assert.Equal(t, []string{"new"}, commands)
 }

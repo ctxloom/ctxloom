@@ -245,13 +245,12 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 		Modes:        []engine.Mode{engine.Interactive, engine.Structured},
 		// ReadOnlyPlan: the mock never runs tools, so it is read-only by
 		// construction.
-		Permissions: engine.PermissionFacts{Native: []engine.PermissionMode{engine.PermissionDefault, engine.PermissionPlan, engine.PermissionBypass}, ReadOnlyPlan: true, HostDefault: engine.PermissionDefault},
-		Context:     &contextFile{surface{"context-file", file}},
-		MCP:         &mcpFile{surface{"mcp-config", file}},
-		Settings:    &settingsFile{surface{"settings", file}},
-		Hooks:       &hooksFile{surface{"hooks-file", file}},
-		Commands:    &commandsDir{surface{"commands-dir", file}},
-		Skills:      &skillsDir{surface{"skills-dir", file}},
+		Context:  &contextFile{surface{"context-file", file}},
+		MCP:      &mcpFile{surface{"mcp-config", file}},
+		Settings: &settingsFile{surface{"settings", file}},
+		Hooks:    &hooksFile{surface{"hooks-file", file}},
+		Commands: &commandsDir{surface{"commands-dir", file}},
+		Skills:   &skillsDir{surface{"skills-dir", file}},
 		CLI: []engine.CLIGrammar{
 			{Mode: engine.Interactive, Binary: "mock", Flags: flags},
 			{Mode: engine.Structured, Binary: "mock", Flags: flags},
@@ -350,13 +349,18 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: interactive}, nil
 }
 func (i *instance) Drivers() []engine.StructuredDriver {
-	return []engine.StructuredDriver{driver{fires: i.fires}}
+	return []engine.StructuredDriver{driver{fires: i.fires, approver: i.s.Permission.Approver}}
 }
 func (i *instance) Resume(key string) error { i.key = key; return nil }
 
 // driver is the mock's structured driver (turn.go): it fires the delivered
-// hooks for every event the turn passes through and echoes the prompt.
-type driver struct{ fires map[string]bool }
+// hooks for every event the turn passes through and echoes the prompt. A
+// mock:ask turn asks its session's approver through the permission_ask
+// hooks (ask.go).
+type driver struct {
+	fires    map[string]bool
+	approver engine.Approver
+}
 
 // Exports exports EVERYTHING: no bundle carries a block for a mock (mock is
 // a test engine nobody publishes a bundle FOR), so there is no opt-out to

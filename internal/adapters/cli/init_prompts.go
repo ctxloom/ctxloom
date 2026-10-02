@@ -17,7 +17,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -229,7 +228,7 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 // the seed agent's permissions value, in display order. Index 0 is what a bare
 // Enter picks; "" (none) declares nothing, so the agent's headless runs take
 // the engine's default posture.
-var headlessPermissionsOptions = []string{enginepkg.PermissionPlan.String(), enginepkg.PermissionBypass.String(), ""}
+var headlessPermissionsOptions = []string{"plan", permissionBypass, ""}
 
 // promptHeadlessPermissions asks which posture the default agent's headless
 // runs may use and returns the value for its `permissions:`. A headless run

@@ -1,6 +1,7 @@
 package countersign
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +53,12 @@ const (
 	StateReadable StoreState = "readable"
 )
 
+// ErrStoreAbsent is the StateAbsent fault: the store's directory is set and
+// does not exist. A caller tells it apart from a corrupt or unlistable store
+// with errors.Is, because the two have different remedies — an absent store is
+// re-provisioned (`ctxloom init`), a corrupt one is repaired.
+var ErrStoreAbsent = errors.New("the directory does not exist")
+
 // Resolve reports which of the four states this store is in, together with
 // the error naming the fault for the three that are faults. The error is nil
 // if and ONLY if the state is StateReadable, so a caller may branch on either
@@ -64,8 +71,8 @@ const (
 // for every session carrying one stale record.
 //
 // A nil *Store resolves StateUnconfigured — there is no store here. Note that
-// Store.Readable deliberately does NOT agree with Resolve on nil (nor on
-// StateAbsent); see its own doc for the two behaviours it keeps and why.
+// Store.Readable deliberately does NOT agree with Resolve on nil; see its own
+// doc for why.
 func (s *Store) Resolve() (StoreState, error) {
 	if s == nil {
 		return StateUnconfigured, fmt.Errorf("countersignature store: no store")
@@ -76,7 +83,7 @@ func (s *Store) Resolve() (StoreState, error) {
 	entries, err := afero.ReadDir(s.fs, s.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return StateAbsent, fmt.Errorf("countersignature store %s: the directory does not exist", s.dir)
+			return StateAbsent, fmt.Errorf("countersignature store %s: %w", s.dir, ErrStoreAbsent)
 		}
 		return StateUnreadable, fmt.Errorf("countersignature store %s: %w", s.dir, err)
 	}

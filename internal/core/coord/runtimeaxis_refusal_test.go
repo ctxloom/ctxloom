@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
@@ -58,7 +57,7 @@ func TestStartOwnedRun_RefusesAnUnknownRuntimeAxisWithoutTheServingHint(t *testi
 	owner, ok := c.Identify(token)
 	require.True(t, ok)
 
-	l := ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)
+	l := ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass")
 	l.Axes.Runtime = retiredContainerAxis
 	starter, _ := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
 	_, err = c.StartOwnedRun(ctx, owner, ownerRun(l, false), starter, "hello")

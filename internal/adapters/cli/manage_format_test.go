@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -113,8 +114,13 @@ func TestManageInstallUninstall_FormatJSON(t *testing.T) {
 // TestManageHooksInstallUninstall_FormatJSON pins `manage hooks
 // install`/`uninstall`'s own inline RunEs (distinct from `manage
 // install`/`uninstall`'s top-level orchestrators, but the same emit() shape).
+//
+// The companion gate is pinned shut: this test is about the emitted shape, and
+// a companion on the developer's PATH that this fixture's trust root cannot
+// verify would otherwise make the apply refuse (ErrUnverifiedCompanion).
 func TestManageHooksInstallUninstall_FormatJSON(t *testing.T) {
 	testsupport.ProjectDir(t)
+	t.Cleanup(companions.AdmitNoCompanionForTesting())
 
 	installed := runCLIJSON(t, "manage", "hooks", "install")
 	require.NotEmpty(t, installed["status"])

@@ -118,6 +118,22 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
     # asserting the opposite of the design. The report is where the alarm
     # lives, so the report is what is asserted: the marker, the status decoded
     # from the structured form, and the command that fixes it.
+    # An absent project approvals store withholds EVERYTHING — it cannot be
+    # told from one that went away — so a project initialized before init
+    # provisioned the store must be told why and how to repair it, and the
+    # repair must be the `ctxloom init` the warning names.
+    Scenario: A project with no approvals store is told to re-run init, and init repairs it
+      Given an initialized ctxloom project
+      And the project's approvals store is missing
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-APPROVALS-STORE-a2" and whose "status" is "warn"
+      When I run "ctxloom init --non-interactive --skip-launch --no-pull"
+      Then the command succeeds
+      When I run "ctxloom --format json doctor"
+      Then the command succeeds
+      And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-APPROVALS-STORE-a2" and whose "status" is "ok"
+
     Scenario: A blanket ignore rule is reported as a warning, with exit 0
       Given an initialized ctxloom project
       And the project already has the file ".gitignore":

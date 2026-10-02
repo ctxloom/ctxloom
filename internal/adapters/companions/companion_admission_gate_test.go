@@ -304,7 +304,7 @@ func TestProbeCompanionLoadouts_RefusedCompanionBecomesAnUnconsentedCandidate(t 
 	require.True(t, ok, "the refused companion must be REPORTED, not omitted — omission reads as 'not installed'")
 	assert.Equal(t, bundles.CandidateUnconsented, acme.Reason)
 	assert.Equal(t, filepath.Join(f.elsewhere, "ctxloom-companion-acme"), acme.Path,
-		"the candidate must name the file 'ctxloom companion trust' has to be pointed at")
+		"the candidate must name the file 'ctxloom companion show' has to be pointed at")
 
 	assert.NoFileExists(t, sentinel,
 		"classifying a companion as a candidate must not RUN it")

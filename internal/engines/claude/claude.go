@@ -149,10 +149,20 @@ type claudeCodeHookMatcher struct {
 type claudeCodeHook struct {
 	Type    string `json:"type,omitempty"`
 	Command string `json:"command,omitempty"`
-	Prompt  string `json:"prompt,omitempty"`
-	Timeout int    `json:"timeout,omitempty"`
-	Async   bool   `json:"async,omitempty"`
-	SCM     string `json:"-"` // Internal only - not serialized (Claude Code strict schema validation)
+	// Args is claude's exec form: Command is resolved as an executable and
+	// spawned with these arguments, no shell (wire.Hook.Args).
+	Args    []string `json:"args,omitempty"`
+	Prompt  string   `json:"prompt,omitempty"`
+	Timeout int      `json:"timeout,omitempty"`
+	Async   bool     `json:"async,omitempty"`
+	SCM     string   `json:"-"` // Internal only - not serialized (Claude Code strict schema validation)
+}
+
+// line is the hook's command identity — the whole argv as one shell line
+// (wire.Hook.Line). In exec form every hook ctxloom writes for itself names
+// the same executable, so Command alone would make them all one hook.
+func (h claudeCodeHook) line() string {
+	return wire.Hook{Command: h.Command, Args: h.Args}.Line()
 }
 
 // WriteSettings implements SettingsWriter for Claude Code.
@@ -905,7 +915,7 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 // stale-ledger checkout as if a user had written them.
 // TestRemoveSettings_WithoutALedger_ReclaimsEveryHookCtxloomConstructs walks the
 // constructors and fails when one is not recognised here.
-var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "hud"}
+var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "mail-drain", "permission", "hud"}
 
 func isCtxloomMachineCallback(command string) bool {
 	if !exectoken.IsManaged(command, "ctxloom") {
@@ -928,7 +938,7 @@ func (w *ClaudeCodeHookWriter) managedHookDigests(settings *claudeCodeSettings) 
 		for _, matcher := range matchers {
 			for _, hook := range matcher.Hooks {
 				if hook.SCM != "" {
-					out = append(out, agent.ComputeCommandDigest(hook.Command))
+					out = append(out, agent.ComputeCommandDigest(hook.line()))
 				}
 			}
 		}
@@ -951,7 +961,7 @@ func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings, 
 			var filteredHooks []claudeCodeHook
 			for _, hook := range matcher.Hooks {
 				// Keep hooks that are NOT ctxloom-managed
-				if hook.SCM == "" && !ownedSet[agent.ComputeCommandDigest(hook.Command)] && !isCtxloomMachineCallback(hook.Command) {
+				if hook.SCM == "" && !ownedSet[agent.ComputeCommandDigest(hook.line())] && !isCtxloomMachineCallback(hook.line()) {
 					filteredHooks = append(filteredHooks, hook)
 				}
 			}
@@ -982,6 +992,7 @@ func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, uni
 		{Hooks: unified.TurnStart, Event: HookEventUserPromptSubmit},
 		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},
 		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: "Edit|Write"},
+		{Hooks: unified.PermissionAsk, Event: hookEventPermissionRequest},
 	}, func(event string, h wire.Hook) {
 		w.addHook(settings, event, h)
 	})
@@ -1001,6 +1012,7 @@ func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName s
 	ccHook := claudeCodeHook{
 		Type:    h.Type,
 		Command: h.Command,
+		Args:    h.Args,
 		Prompt:  h.Prompt,
 		Timeout: h.Timeout,
 		Async:   h.Async,
@@ -1018,7 +1030,7 @@ func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName s
 	// under Claude Code's strict settings schema) would otherwise duplicate on
 	// every re-apply. Exact match keeps user variants (`ltk evaluate --config
 	// ...`) untouched.
-	w.removeExactCommand(settings, eventName, h.Command)
+	w.removeExactCommand(settings, eventName, h.Line())
 
 	// Find or create matcher entry
 	matcher := h.Matcher
@@ -1044,9 +1056,9 @@ func (w *ClaudeCodeHookWriter) addHook(settings *claudeCodeSettings, eventName s
 	settings.Hooks[eventName] = matchers
 }
 
-// removeExactCommand drops every hook entry under eventName whose command is
+// removeExactCommand drops every hook entry under eventName whose line is
 // exactly cmd, pruning emptied matchers. Companion-binary hooks carry no
-// durable marker (strict schema), so identity is the verbatim command string.
+// durable marker (strict schema), so identity is the verbatim command line.
 func (w *ClaudeCodeHookWriter) removeExactCommand(settings *claudeCodeSettings, eventName, cmd string) {
 	matchers := settings.Hooks[eventName]
 	if len(matchers) == 0 {
@@ -1056,7 +1068,7 @@ func (w *ClaudeCodeHookWriter) removeExactCommand(settings *claudeCodeSettings, 
 	for _, m := range matchers {
 		var kept []claudeCodeHook
 		for _, hook := range m.Hooks {
-			if hook.Command != cmd {
+			if hook.line() != cmd {
 				kept = append(kept, hook)
 			}
 		}
@@ -1260,7 +1272,7 @@ func claudeHasManagedHook(settings *claudeCodeSettings) bool {
 	for _, matchers := range settings.Hooks {
 		for _, matcher := range matchers {
 			for _, hook := range matcher.Hooks {
-				if hook.SCM != "" || exectoken.IsManaged(hook.Command, "ctxloom") {
+				if hook.SCM != "" || exectoken.IsManaged(hook.line(), "ctxloom") {
 					return true
 				}
 			}

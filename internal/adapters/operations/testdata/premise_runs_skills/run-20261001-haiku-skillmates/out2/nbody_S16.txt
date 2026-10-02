@@ -1,0 +1,1 @@
+`next: Explore the working directory and memory to identify open decisions for the human`

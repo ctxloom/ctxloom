@@ -1,0 +1,1 @@
+`next: No work has been performed in this session; this directory is not a git repository. I need a specific task or project to apply these workflows.`

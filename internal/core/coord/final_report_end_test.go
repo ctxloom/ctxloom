@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // FINAL IS THE COMPLETION CONTRACT, AND NOTHING ACTED ON IT. An agent files a
@@ -299,7 +297,7 @@ func TestFinalReport_OwnerRunIsNeverEndedByItsOwnReport(t *testing.T) {
 	require.True(t, ok)
 
 	starter, started := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-	out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "do the thing")
+	out, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", "bypass"), false), starter, "do the thing")
 	require.NoError(t, err)
 	require.True(t, *started)
 

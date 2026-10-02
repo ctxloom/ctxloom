@@ -348,10 +348,13 @@ func (b *Bundle) FSDir() (string, error) {
 type BundleHook struct {
 	Matcher string `yaml:"matcher,omitempty"`
 	Command string `yaml:"command,omitempty"`
-	Type    string `yaml:"type,omitempty"`
-	Prompt  string `yaml:"prompt,omitempty"`
-	Timeout int    `yaml:"timeout,omitempty" surface:"operational"`
-	Async   bool   `yaml:"async,omitempty" surface:"operational"`
+	// Args, when set, runs the hook in exec form: Command is the executable,
+	// spawned with these arguments and no shell (wire.Hook.Args).
+	Args    []string `yaml:"args,omitempty"`
+	Type    string   `yaml:"type,omitempty"`
+	Prompt  string   `yaml:"prompt,omitempty"`
+	Timeout int      `yaml:"timeout,omitempty" surface:"operational"`
+	Async   bool     `yaml:"async,omitempty" surface:"operational"`
 	// PreToolFallback (session_start only): the hook is idempotent and may
 	// fire on PreToolUse instead on an agent without a session-start event.
 	// See wire.Hook.PreToolFallback.
@@ -1274,8 +1277,9 @@ type hookContentPayload struct {
 }
 
 // ContentPayload returns the canonical JSON encoding of the hook's executable
-// surface — the ctxloom-exec contract version, then Matcher, Type, Command,
-// Prompt, and the PreToolFallback flag: the fields that determine what runs and
+// surface — the ctxloom-exec contract version, then Matcher, Type, the
+// command line (Line: Command, with Args in exec form), Prompt, and the
+// PreToolFallback flag: the fields that determine what runs and
 // how it fires. Timeout/Async (operational knobs) and the firing event are
 // excluded — the event is carried by the hook's id, and excluding it keeps the
 // content-hash denylist event-agnostic so the same malicious command is blocked
@@ -1292,11 +1296,19 @@ func (h *BundleHook) ContentPayload() ([]byte, error) {
 		Preimage:        signing.ExecPreimageContract,
 		Matcher:         h.Matcher,
 		Type:            h.Type,
-		Command:         h.Command,
+		Command:         h.Line(),
 		Prompt:          h.Prompt,
 		PreToolFallback: h.PreToolFallback,
 	}
 	return json.Marshal(canonical)
+}
+
+// Line is the hook's command as the one shell line it runs (wire.Hook.Line):
+// Command itself in shell form, so a shell hook's preimage is byte-identical
+// to what it always was, and in exec form the quoted argv, so its arguments
+// are bound with no change to the payload's field set or contract version.
+func (h *BundleHook) Line() string {
+	return wire.Hook{Command: h.Command, Args: h.Args}.Line()
 }
 
 // ComputeContentHash hashes a canonical encoding of the hook's executable
@@ -1309,7 +1321,7 @@ func (h *BundleHook) ComputeContentHash() string {
 		// Unreachable (only strings + a bool); fail closed to a digest
 		// DISTINCT per hook/failure rather than a shared constant, for the
 		// reason given in BundleMCP.ComputeContentHash.
-		return hashContent(fmt.Appendf(nil, "ctxloom:hook-content-hash-error:%s:%s:%v", h.Matcher, h.Command, err))
+		return hashContent(fmt.Appendf(nil, "ctxloom:hook-content-hash-error:%s:%s:%v", h.Matcher, h.Line(), err))
 	}
 	return hashContent(data)
 }

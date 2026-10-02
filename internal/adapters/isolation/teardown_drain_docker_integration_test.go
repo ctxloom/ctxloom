@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/attach"
+	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
 
@@ -72,7 +73,7 @@ func TestEnd_TheContainersLastBytesSurviveTheRelay(t *testing.T) {
 		TTY:     true,
 	}
 	pol := NewContainerFor(rt, "mock")
-	s, err := attach.Start(context.Background(), exec.Command(rt.Binary(), mustRunArgs(t, rt, spec)...), name, removeOnExit(pol, name))
+	s, err := attach.Start(context.Background(), hostpty.Start, exec.Command(rt.Binary(), mustRunArgs(t, rt, spec)...), name, removeOnExit(pol, name))
 	require.NoError(t, err)
 	t.Cleanup(func() { s.Kill(); _ = exec.Command(rt.Binary(), "rm", "-f", name).Run() })
 

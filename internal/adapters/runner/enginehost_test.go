@@ -39,8 +39,9 @@ type fakeEngineHome struct {
 		Name  string
 		Value map[string]any
 	}
-	sink        func(*agentcoordpb.PeerMessage) bool
-	spoolSweeps int
+	sink          func(*agentcoordpb.PeerMessage) bool
+	approvalRoute ApprovalRoute
+	spoolSweeps   int
 	// owner, wakes and released record the interactive drive's owner
 	// marking and wake registrations (markOwner, SetWake and its release).
 	owner    bool
@@ -107,6 +108,13 @@ func (f *fakeEngineHome) emitCustomEvent(name string, value map[string]any) {
 		Name  string
 		Value map[string]any
 	}{name, value})
+}
+
+// SetApprovalRoute records the approval route the engine host bound.
+func (f *fakeEngineHome) SetApprovalRoute(ar ApprovalRoute) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.approvalRoute = ar
 }
 
 func (f *fakeEngineHome) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {
@@ -217,7 +225,7 @@ func (f *fakeEngineHome) payloadKinds() []string {
 }
 
 func testStartRun(runID string) *agentcoordpb.StartRun {
-	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", agent.PermissionBypass)
+	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
 	l.Identity.RunID = runID
 	l.Identity.Depth = 1
 	l.Prompt = "CTX\n\ndo the thing"
@@ -482,7 +490,7 @@ func TestEngineHost_StartRun_WithoutAHarpIsRefused(t *testing.T) {
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
-	l := ownerLaunch("", "claude-code", "fast", "claude-sonnet-5", "/work", agent.PermissionBypass)
+	l := ownerLaunch("", "claude-code", "fast", "claude-sonnet-5", "/work", "bypass")
 	l.Prompt = "no harp here"
 	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{
 		StartRun: &agentcoordpb.StartRun{RunId: "run-1", Launch: coordgrpc.EncodeLaunch(l)},

@@ -1,0 +1,1 @@
+`next: Check memory for prior context, then sweep current session for escalations`

@@ -86,21 +86,12 @@ func Build(opts ...Option) (engine.Engine, error) {
 		Name:         EngineName,
 		Distribution: engine.DistributionDefault,
 		Modes:        []engine.Mode{engine.Interactive, engine.Structured},
-		Permissions: engine.PermissionFacts{
-			Native:       []engine.PermissionMode{engine.PermissionDefault, engine.PermissionPlan, engine.PermissionAcceptEdits, engine.PermissionBypass, engine.PermissionDontAsk, engine.PermissionAuto},
-			ReadOnlyPlan: true, // --permission-mode plan is read-only
-			// Undeclared, the bare host auto-approves edits and prompts for
-			// everything else; bypass is only ever declared, never
-			// defaulted.
-			HostDefault:       engine.PermissionAcceptEdits,
-			HostDefaultReason: "edits auto-approved on the host, everything else prompts (acceptEdits)",
-		},
-		Context:  &contextApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelArgv}}},
-		MCP:      &mcpApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
-		Settings: &settingsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile}}},
-		Hooks:    &hooksApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile}}},
-		Commands: &commandsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
-		Skills:   &skillsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
+		Context:      &contextApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelArgv}}},
+		MCP:          &mcpApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
+		Settings:     &settingsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile}}},
+		Hooks:        &hooksApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile}}},
+		Commands:     &commandsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
+		Skills:       &skillsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
 		// The dynamic half, PROVIDED: the session endpoint as an entry in the
 		// MCP file.
 		Dynamic:      &sessionEndpoint{traits{present.Traits{Roots: home, Channel: present.ChannelFile}}},

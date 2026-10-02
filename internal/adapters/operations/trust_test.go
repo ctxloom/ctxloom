@@ -430,11 +430,12 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 // TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected proves the
 // seam: when Records is nil, EffectiveTrust builds the default (the real
 // countersignature stores) rather than crashing or panicking, and — with no
-// stores populated (a fresh project, HOME pointed at an empty temp dir) —
-// everything remote resolves pending, exactly as an empty store always did.
+// stores populated (a freshly initialized project, HOME pointed at an empty
+// temp dir) — everything remote resolves pending.
 func TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
+	provisionApprovals(t, fs, ProjectAppDir(nil))
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
 		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
@@ -520,7 +521,7 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 	fx := newTrustFixture(t)
 	ref := seedItemRef(t, seededBundleKey, "mcp/postgres")
 
-	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader})
+	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, ProjectStore: fx.project, Loader: loader})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
 	assert.False(t, res.Unsigned)
@@ -567,7 +568,7 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 	assert.Equal(t, trust.Deny, before.Decision)
 	assert.Equal(t, trust.SourcePending, before.Source)
 
-	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader})
+	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, ProjectStore: fx.project, Loader: loader})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
 	assert.False(t, res.Unsigned)
@@ -609,7 +610,7 @@ func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
 	fx := newTrustFixture(t)
 
 	res, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref: seedItemRef(t, seededBundleKey, "fragments/dual"), Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader,
+		Ref: seedItemRef(t, seededBundleKey, "fragments/dual"), Signer: fx.signer, Root: fx.root, UserStore: fx.user, ProjectStore: fx.project, Loader: loader,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
@@ -636,7 +637,7 @@ func TestSetBlacklist_WritesBothComponents(t *testing.T) {
 	fx := newTrustFixture(t)
 	ref := seedItemRef(t, seededBundleKey, "fragments/solid")
 
-	res, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader})
+	res, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, ProjectStore: fx.project, Loader: loader})
 	require.NoError(t, err)
 	assert.Equal(t, "rejected", res.Status)
 	require.NotEmpty(t, res.ContentForms, "rejection should have recorded a content countersignature for the item's current form(s)")
@@ -670,7 +671,7 @@ func TestSetBlacklist_RejectsBothForms(t *testing.T) {
 	fx := newTrustFixture(t)
 
 	res, err := SetBlacklist(nil, SetBlacklistRequest{
-		Ref: seedItemRef(t, seededBundleKey, "fragments/dual"), Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader,
+		Ref: seedItemRef(t, seededBundleKey, "fragments/dual"), Signer: fx.signer, Root: fx.root, UserStore: fx.user, ProjectStore: fx.project, Loader: loader,
 	})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{rawForm, distilledForm}, res.ContentForms)
@@ -869,7 +870,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 		})
 		require.NoError(t, err)
 		assert.Equal(t, trust.Deny, res.Decision)
-		assert.Equal(t, trust.SourcePending, res.Source,
+		assert.Equal(t, trust.SourceUnreadable, res.Source,
 			"the store-fault gate runs above EVERY exemption, this one included")
 	})
 

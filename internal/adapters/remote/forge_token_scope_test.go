@@ -16,8 +16,8 @@ import (
 //
 // The defect: a github.com personal access token was sent to a non-github.com
 // host — a GitHub Enterprise forge whose token_env is unset received
-// GITHUB_TOKEN. operations.NewRepoCache wires ResolveForgeForURLWith in as the
-// clone cache's forge resolver, so RepoCache.cloneToken calls
+// GITHUB_TOKEN. operations.NewRepoCache wires Registry.ResolveForgeForURL in as
+// the clone cache's forge resolver, so RepoCache.cloneToken calls
 // ResolvedForge.Token for every clone and fetch, and authEnv turned the result
 // into an Authorization header scoped to the CLONE host.
 //

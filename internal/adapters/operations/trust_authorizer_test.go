@@ -434,7 +434,7 @@ func TestPendingReview_TamperedRemoteIsNotOfferedForReview(t *testing.T) {
 	loader := seedTampered(t, reviewSeedKey, "publisher@example.test", reviewBundle())
 
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root,
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Registry: newRegistry(t),
 		Loader:   loader,
 		FS:       afero.NewMemMapFs(),

@@ -2,12 +2,15 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -114,6 +117,13 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 
 	warnFallbackProjectRoot(req, workDir)
 
+	// A companion that could not be verified never ran, so what it would
+	// contribute is unknown — and every surface below would be written without
+	// it. Refuse before the first write. See unverifiedCompanionsError.
+	if err := unverifiedCompanionsError(freshCfg); err != nil {
+		return nil, err
+	}
+
 	// The executable surfaces about to be written to backend settings — bundle
 	// MCP servers, bundle hooks, and prompt command-file exports — bypass the
 	// content loader, so each decides at its own choke with the generation's
@@ -193,6 +203,36 @@ func ApplyHooks(ctx context.Context, reg engine.Registry, req ApplyHooksRequest)
 	// wants the per-backend detail still has it; every current caller checks
 	// err first and warns or aborts.
 	return result, markTotalHookFailure(result)
+}
+
+// ErrUnverifiedCompanion is ApplyHooks' refusal to write any surface while a
+// companion on PATH could not be verified.
+var ErrUnverifiedCompanion = errors.New("apply hooks: a companion on PATH could not be verified, so its hooks, MCP servers and context are unknown; every surface is left unchanged")
+
+// unverifiedCompanionsError names every companion the catalog holds as present
+// but refused (unsigned, untrusted signer, signature tampered, unreadable), or
+// returns nil when there is none.
+//
+// LEAVE UNCHANGED, NOT "WRITE WITHOUT IT". The refused companion never ran, so
+// its contribution is not empty, it is UNKNOWN — and the surfaces it feeds
+// cannot be named without running it. Writing on would rewrite each of them
+// from a set missing that contribution: the user's guard rails removed by the
+// command whose report says it installed them. So the whole apply writes
+// nothing. A companion that is absent, or that ran and produced no loadout,
+// is not this case: the first contributes nothing by fact, the second is
+// reported by its own probe.
+func unverifiedCompanionsError(cfg *config.Config) error {
+	var named []string
+	for _, cand := range cfg.BundleLoader().Catalog().Candidates() {
+		if cand.Reason == bundles.CandidateUnconsented {
+			named = append(named, fmt.Sprintf("%s (%s)", companionBinOf(cand.Ref), cand.Path))
+		}
+	}
+	if len(named) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %s — 'ctxloom companion show <path>' says why; sign it with a key you trust, trust its publisher for the %q namespace, or take it off PATH, then re-apply",
+		ErrUnverifiedCompanion, strings.Join(named, ", "), signing.NamespaceCompanion)
 }
 
 // warnFallbackProjectRoot is the general "not in a project" advisory: only

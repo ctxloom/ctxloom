@@ -108,9 +108,7 @@ func TestClaudeCode_Configure_EmptyFields(t *testing.T) {
 func TestClaudeCode_BuildArgs_AutoApprove(t *testing.T) {
 	backend := NewClaudeCode()
 
-	req := &agent.ExecuteRequest{
-		Permissions: agent.PermissionBypass,
-	}
+	req := withSession(backend, &agent.ExecuteRequest{}, modePolicy(modeBypass))
 	args := backend.buildArgs(req)
 
 	assert.Contains(t, args, "--dangerously-skip-permissions")
@@ -121,16 +119,16 @@ func TestClaudeCode_BuildArgs_AutoApprove(t *testing.T) {
 func TestClaudeCode_BuildArgs_PermissionModes(t *testing.T) {
 	backend := NewClaudeCode()
 	cases := []struct {
-		perm     agent.PermissionMode
+		perm     string
 		wantFlag string // "" = no --permission-mode flag
 	}{
-		{agent.PermissionDefault, ""},
-		{agent.PermissionAcceptEdits, "acceptEdits"},
-		{agent.PermissionPlan, "plan"},
+		{modeDefault, ""},
+		{modeAcceptEdits, "acceptEdits"},
+		{modePlan, "plan"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.perm.String(), func(t *testing.T) {
-			args := backend.buildArgs(&agent.ExecuteRequest{Permissions: tc.perm})
+		t.Run(tc.perm, func(t *testing.T) {
+			args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{}, modePolicy(tc.perm)))
 			assert.NotContains(t, args, "--dangerously-skip-permissions")
 			if tc.wantFlag == "" {
 				assert.NotContains(t, args, "--permission-mode")
@@ -147,12 +145,12 @@ func TestClaudeCode_BuildArgs_PermissionModes(t *testing.T) {
 // buildArgs comment), while every other posture is untouched by it.
 func TestClaudeCode_BuildArgs_PlanAddsConservativeDisallowedTools(t *testing.T) {
 	backend := NewClaudeCode()
-	args := backend.buildArgs(&agent.ExecuteRequest{Permissions: agent.PermissionPlan})
+	args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{}, modePolicy(modePlan)))
 	assert.Subset(t, args, []string{"--disallowedTools", "Bash,Edit,Write,NotebookEdit"})
 
-	for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionAcceptEdits, agent.PermissionBypass} {
-		t.Run(perm.String(), func(t *testing.T) {
-			args := backend.buildArgs(&agent.ExecuteRequest{Permissions: perm})
+	for _, perm := range []string{modeDefault, modeAcceptEdits, modeBypass} {
+		t.Run(perm, func(t *testing.T) {
+			args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{}, modePolicy(perm)))
 			assert.NotContains(t, args, "--disallowedTools")
 		})
 	}
@@ -306,12 +304,11 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 	backend := NewClaudeCode()
 	backend.Args = []string{"--existing-arg"}
 
-	req := &agent.ExecuteRequest{
-		Permissions: agent.PermissionBypass,
-		Model:       "opus",
-		Mode:        agent.ModeOneshot,
-		Prompt:      &agent.Fragment{Content: "Test prompt"},
-	}
+	req := withSession(backend, &agent.ExecuteRequest{
+		Model:  "opus",
+		Mode:   agent.ModeOneshot,
+		Prompt: &agent.Fragment{Content: "Test prompt"},
+	}, modePolicy(modeBypass))
 	args := backend.buildArgs(req)
 
 	assert.Contains(t, args, "--existing-arg")
@@ -344,11 +341,10 @@ func TestClaudeCode_BuildArgs_PromptIsTerminated(t *testing.T) {
 	backend := NewClaudeCode()
 	const task = "Reply with exactly: PROMPTOK"
 
-	args := backend.buildArgs(&agent.ExecuteRequest{
-		Mode:        agent.ModeInteractive,
-		Permissions: agent.PermissionPlan,
-		Prompt:      &agent.Fragment{Content: task},
-	})
+	args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{
+		Mode:   agent.ModeInteractive,
+		Prompt: &agent.Fragment{Content: task},
+	}, modePolicy(modePlan)))
 
 	require.GreaterOrEqual(t, len(args), 2)
 	assert.Equal(t, task, args[len(args)-1], "the prompt is the trailing positional")
@@ -378,17 +374,13 @@ func TestClaudeCode_BuildArgs_EveryPromptShapeIsTerminated(t *testing.T) {
 	backend := NewClaudeCode()
 	const task = "do the thing"
 
-	for _, perm := range []agent.PermissionMode{
-		agent.PermissionDefault, agent.PermissionBypass,
-		agent.PermissionAcceptEdits, agent.PermissionPlan,
-	} {
+	for _, perm := range []string{modeDefault, modeBypass, modeAcceptEdits, modePlan} {
 		for _, model := range []string{"", "sonnet"} {
-			args := backend.buildArgs(&agent.ExecuteRequest{
-				Mode:        agent.ModeInteractive,
-				Permissions: perm,
-				Model:       model,
-				Prompt:      &agent.Fragment{Content: task},
-			})
+			args := backend.buildArgs(withSession(backend, &agent.ExecuteRequest{
+				Mode:   agent.ModeInteractive,
+				Model:  model,
+				Prompt: &agent.Fragment{Content: task},
+			}, modePolicy(perm)))
 			if !assert.Equal(t, task, args[len(args)-1]) {
 				continue
 			}

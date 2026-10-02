@@ -40,7 +40,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
@@ -53,7 +52,7 @@ import (
 // container (nothing outside dials it; the runner's bind is what the launch
 // exercises).
 func containerOwnerLaunch(harp string, mode engine.Mode) launch.Launch {
-	l := coord.OwnerLaunch(harp, "mock", "fast", "mock", "/work", agent.PermissionBypass)
+	l := coord.OwnerLaunch(harp, "mock", "fast", "mock", "/work", "bypass")
 	l.Mode = mode
 	l.Axes.Runtime = containerAxes("docker").Runtime
 	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "owner-itest-bearer"}

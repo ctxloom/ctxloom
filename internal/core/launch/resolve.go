@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
@@ -58,10 +59,11 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	perm, err := floorPermission(report.To(deps.Reporter), src, sel, label, labelPerm, cfg, def.Permissions)
+	perm, err := resolvePolicy(report.To(deps.Reporter), src, declsFor(sel, label, labelPerm, cfg), eng, axes.Runtime)
 	if err != nil {
 		return Launch{}, err
 	}
+	pkg = withApprovalHooks(pkg, eng, src.Mode, perm)
 	dirty, err := resolveDirtyTree(cfg, src)
 	if err != nil {
 		return Launch{}, err
@@ -141,10 +143,10 @@ func assembleSelection(ctx context.Context, deps Deps, src Source, sel selection
 // resolveEngineMode is the engine the label names, its label config with the
 // source's model override and the engine's model aliases applied, and its
 // permission — refused when the engine does not declare the source's mode.
-func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) (engine.Engine, engine.LabelConfig, string, error) {
+func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) (engine.Engine, engine.LabelConfig, agents.LabelPermissions, error) {
 	eng, labelCfg, labelPerm, err := selectEngine(deps, cfg, label)
 	if err != nil {
-		return nil, engine.LabelConfig{}, "", err
+		return nil, engine.LabelConfig{}, agents.LabelPermissions{}, err
 	}
 	def := eng.Root()
 	if src.Model != "" {
@@ -154,7 +156,7 @@ func resolveEngineMode(deps Deps, cfg *config.Config, src Source, label string) 
 		labelCfg.Model = alias
 	}
 	if !slices.Contains(def.Modes, src.Mode) {
-		return nil, engine.LabelConfig{}, "", fmt.Errorf("%w: %s declares %v, not %v", ErrModeUnsupported, def.Name, def.Modes, src.Mode)
+		return nil, engine.LabelConfig{}, agents.LabelPermissions{}, fmt.Errorf("%w: %s declares %v, not %v", ErrModeUnsupported, def.Name, def.Modes, src.Mode)
 	}
 	return eng, labelCfg, labelPerm, nil
 }
@@ -238,7 +240,7 @@ type selection struct {
 	tags        []string
 	llm         string
 	runtime     string
-	permissions string
+	permissions agents.Permissions
 	homeMode    HomeMode
 	auth        string
 	surfaces    map[string]string
@@ -314,14 +316,14 @@ func parseHomeMode(s string) (HomeMode, error) {
 // type, or a bare registered name (the ad-hoc `--llm <engine>` form). A label
 // that names neither is refused by name, listing what would have resolved;
 // an empty label is the registry's default engine. The third result is the
-// label's declared permission posture, one rung of the floor.
-func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, engine.LabelConfig, string, error) {
+// label's declared permissions block, one rung of the policy.
+func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, engine.LabelConfig, agents.LabelPermissions, error) {
 	if label == "" {
 		eng, err := deps.Engines.Default()
 		if err != nil {
-			return nil, engine.LabelConfig{}, "", fmt.Errorf("%w: %v", ErrNoEngine, err)
+			return nil, engine.LabelConfig{}, agents.LabelPermissions{}, fmt.Errorf("%w: %v", ErrNoEngine, err)
 		}
-		return eng, engine.LabelConfig{}, "", nil
+		return eng, engine.LabelConfig{}, agents.LabelPermissions{}, nil
 	}
 	entry, configured := cfg.GetLLMEntry(label)
 	name := engine.Name(label)
@@ -333,7 +335,7 @@ func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, e
 	eng, ok := deps.Engines.Lookup(name)
 	if !ok {
 		known := slices.Sorted(maps.Keys(cfg.GetLMConfig().Configs))
-		return nil, engine.LabelConfig{}, "", fmt.Errorf("%w: %q (configured labels: %s; engines: %v)", ErrNoEngine, label, strings.Join(known, ", "), deps.Engines.Names(nil))
+		return nil, engine.LabelConfig{}, agents.LabelPermissions{}, fmt.Errorf("%w: %q (configured labels: %s; engines: %v)", ErrNoEngine, label, strings.Join(known, ", "), deps.Engines.Names(nil))
 	}
 	return eng, engine.LabelConfig{Label: label, Model: model, Body: entry.Body}, entry.Permissions, nil
 }
@@ -390,61 +392,6 @@ func resolveDirtyTree(cfg *config.Config, src Source) (DirtyTreeHandler, error) 
 		return DirtyTreeHandlerCommit, nil
 	}
 	return handler, nil
-}
-
-// floorPermission is THE floor, applied once. The first DECLARED source
-// wins — the flag, the binding, the label, the project default — else the
-// engine's declared host default; a declaration that does not parse is
-// refused (--degraded drops it to PermissionFloor and says so, never
-// widens). plan collapses to default on an engine with no read-only tier.
-// A Structured run keeps whatever resolved: it has no human at the engine,
-// and the engine denies what its posture and rules leave open rather than
-// waiting on one, so there is nothing to refuse and nothing to widen.
-func floorPermission(rep report.Reporter, src Source, sel selection, label, labelPerm string, cfg *config.Config, facts engine.PermissionFacts) (engine.PermissionMode, error) {
-	flag := ""
-	if src.Permission != engine.PermissionNotRequested {
-		flag = src.Permission.String()
-	}
-	mode := facts.HostDefault
-	if mode == engine.PermissionNotRequested {
-		mode = engine.PermissionDefault
-	}
-	rungs := []permissionRung{
-		{flag, "the --permissions flag"},
-		{sel.permissions, fmt.Sprintf("agent %q", sel.agent)},
-		{labelPerm, fmt.Sprintf("llm label %q", label)},
-		{cfg.GetPermissions(), "the project config"},
-	}
-	mode, err := firstDeclaredPermission(rep, src.Degraded, rungs, mode)
-	if err != nil {
-		return 0, err
-	}
-	return mode.CollapsePlanIfUnenforced(facts.ReadOnlyPlan), nil
-}
-
-// permissionRung is one declared permission source, and how to name it.
-type permissionRung struct{ value, from string }
-
-// firstDeclaredPermission is the posture the first non-blank rung declares,
-// else fallback. A declaration that does not parse is refused, or under
-// degraded dropped to PermissionFloor with a warning.
-func firstDeclaredPermission(rep report.Reporter, degraded bool, rungs []permissionRung, fallback engine.PermissionMode) (engine.PermissionMode, error) {
-	for _, r := range rungs {
-		if strings.TrimSpace(r.value) == "" {
-			continue
-		}
-		m, ok := engine.ParsePermissionMode(r.value)
-		if ok {
-			return m, nil
-		}
-		known := strings.Join(engine.PermissionModeNames(), "|")
-		if !degraded {
-			return 0, fmt.Errorf("%w: %q from %s is not a posture (known: %s)", ErrPermissionUnhonoured, r.value, r.from, known)
-		}
-		rep.Warnf("--degraded: permissions %q from %s is not a posture (known: %s), so this run drops to the %s floor", r.value, r.from, known, engine.PermissionFloor)
-		return engine.PermissionFloor, nil
-	}
-	return fallback, nil
 }
 
 // ImageConfigFor is the user's container-image configuration for the

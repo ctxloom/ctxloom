@@ -185,7 +185,16 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 		if len(hooks) != 1 {
 			t.Fatalf("event %s produced %d wire hooks, want 1 — the production path dropped the hook before any field could be checked", label, len(hooks))
 		}
-		raw, err := json.Marshal(hooks[0])
+		// The signed "command" is the hook's LINE (bundles.BundleHook.Line):
+		// in exec form its executable and arguments quoted into one shell
+		// line, which no single wire field holds. So the delivered hook's own
+		// rendering rides as a derived leaf, and the signed value must equal
+		// what the delivered hook actually runs (wire.Hook.Line) — a converter
+		// that dropped or reordered Args fails here.
+		raw, err := json.Marshal(struct {
+			wire.Hook
+			Line string `json:"_line"`
+		}{hooks[0], hooks[0].Line()})
 		require.NoErrorf(t, err, "marshal wire hook for event %s", label)
 		out[label] = raw
 	}

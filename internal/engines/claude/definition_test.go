@@ -38,9 +38,6 @@ func TestBuild_DeclaresEverySurface_HooksIncluded_AndBothHalves(t *testing.T) {
 	require.Equal(t, engine.Name(EngineName), def.Name)
 	require.Equal(t, []present.Kind{present.Context, present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills}, def.Static())
 	require.NotNil(t, def.Dynamic, "claude provides the dynamic half")
-	require.True(t, def.Permissions.ReadOnlyPlan)
-	require.Equal(t, engine.PermissionAcceptEdits, def.Permissions.HostDefault, "the bare-host default auto-approves edits and prompts for the rest; bypass is only ever declared")
-	require.Contains(t, def.Permissions.HostDefaultReason, "acceptEdits")
 	require.Equal(t, engine.DistributionDefault, def.Distribution)
 }
 

@@ -1,12 +1,15 @@
 package operations
 
 import (
+	"github.com/spf13/afero"
+
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
@@ -38,6 +41,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
+	provisionApprovals(t, afero.NewOsFs(), appDir)
 	bundletree.WriteOS(t, bundlesDir, "mcp-bundle", "version: 1.0.0\n"+
 		"fragments:\n  rules:\n    content: \"ONESHOT-RULE-BODY\"\n"+
 		"mcp:\n"+
@@ -58,7 +62,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 		// bypass: this test is about the withheld-executable warning, not
 		// permission resolution.
 		LM: config.LMConfig{
-			Configs:  map[string]config.LLMConfig{"claude-code": {Type: "claude-code", Permissions: "bypass"}},
+			Configs:  map[string]config.LLMConfig{"claude-code": {Type: "claude-code", Permissions: agents.LabelPermissions{Engine: map[string]any{"mode": "bypass"}}}},
 			Defaults: config.RoleDefaults{Primary: "claude-code"},
 		},
 	}))

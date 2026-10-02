@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
@@ -56,9 +57,9 @@ var sigCheckFlag bool
 var sigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(bundles.SigCheckEnv) })
 
 // sessionSigCheckEnv is what the process environment said about the SESSION
-// carrier (bundles.SessionSigCheckEnv) — the waiver a waived session's launch
+// carrier (sessions.EnvSigCheckWaived) — the waiver a waived session's launch
 // hands its engine for the engine's own ctxloom children — read ONCE.
-var sessionSigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(bundles.SessionSigCheckEnv) })
+var sessionSigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(sessions.EnvSigCheckWaived) })
 
 // consumeEnvSwitch reads one of the signature-check switches and removes it
 // from this process's environment. Every child ctxloom starts is built from

@@ -45,7 +45,7 @@ var EnvKeys = []string{
 	// same reason as the trio below. An ambient waiver would admit unsigned
 	// content in every test that asserts it is withheld.
 	"CTXLOOM_DISABLE_SIG_CHECK",
-	// bundles.SessionSigCheckEnv: the session carrier a waived launch puts on
+	// sessions.EnvSigCheckWaived: the session carrier a waived launch puts on
 	// its engine, scrubbed for the same reason.
 	"CTXLOOM_SESSION_DISABLE_SIG_CHECK",
 	// Read by cmd/validate to override the build stamp. Ambient in any shell

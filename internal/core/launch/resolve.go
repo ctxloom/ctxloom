@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
@@ -198,10 +197,10 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 // caller can hand a waiver to a child it launches.
 func sessionSigCheck(env map[string]string, tr composite.Trust) {
 	if tr.SignatureCheckDisabled() {
-		env[bundles.SessionSigCheckEnv] = bundles.SessionSigCheckOn
+		env[sessions.EnvSigCheckWaived] = sessions.SigCheckWaivedOn
 		return
 	}
-	delete(env, bundles.SessionSigCheckEnv)
+	delete(env, sessions.EnvSigCheckWaived)
 }
 
 // deliverLaunch fills l's delivery over its prepared cell: Exports, Route

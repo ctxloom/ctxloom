@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -91,9 +92,9 @@ func TestSigCheckDisabled_AHookOfAnEnforcedSessionIsEnforced(t *testing.T) {
 // The carrier is consumed like the invocation switch, by every process, so
 // nothing a hook (or anything else) starts inherits it in turn.
 func TestConsumeEnvSwitch_RemovesTheSessionCarrier(t *testing.T) {
-	t.Setenv(bundles.SessionSigCheckEnv, bundles.SessionSigCheckOn)
-	assert.True(t, consumeEnvSwitch(bundles.SessionSigCheckEnv))
-	_, still := os.LookupEnv(bundles.SessionSigCheckEnv)
+	t.Setenv(sessions.EnvSigCheckWaived, sessions.SigCheckWaivedOn)
+	assert.True(t, consumeEnvSwitch(sessions.EnvSigCheckWaived))
+	_, still := os.LookupEnv(sessions.EnvSigCheckWaived)
 	assert.False(t, still)
 }
 

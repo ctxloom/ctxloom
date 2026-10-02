@@ -55,7 +55,7 @@ func TestSpawner_ADelegatedChildOfAWaivedSessionDecidesEnforcedAndCarriesNoWaive
 		Identity: sessions.Identity{Harp: harp, Depth: 1, Project: "proj"}, Prompt: "hi",
 	})
 	require.NoError(t, err)
-	assert.NotContains(t, resolved.Launch.EngineEnv(), bundles.SessionSigCheckEnv, "the delegated child's engine carries no waiver")
+	assert.NotContains(t, resolved.Launch.EngineEnv(), sessions.EnvSigCheckWaived, "the delegated child's engine carries no waiver")
 	assert.NotContains(t, resolved.Launch.EngineEnv(), bundles.SigCheckEnv)
 }
 

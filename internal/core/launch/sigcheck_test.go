@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // Owner ruling 2026-10-02: the engine's OWN ctxloom children (its MCP server,
@@ -38,13 +39,13 @@ func TestResolve_AWaivedGenerationHandsItsEngineChildrenTheWaiver(t *testing.T) 
 
 	l := resolveUnder(t, waived, nil)
 
-	assert.Equal(t, bundles.SessionSigCheckOn, l.EngineEnv()[bundles.SessionSigCheckEnv])
+	assert.Equal(t, sessions.SigCheckWaivedOn, l.EngineEnv()[sessions.EnvSigCheckWaived])
 	assert.NotContains(t, l.EngineEnv(), bundles.SigCheckEnv, "the invocation switch itself is never re-exported")
 }
 
 func TestResolve_AnEnforcedGenerationCarriesNoWaiverEvenIfAsked(t *testing.T) {
-	l := resolveUnder(t, compositetest.Trust(), map[string]string{bundles.SessionSigCheckEnv: bundles.SessionSigCheckOn})
+	l := resolveUnder(t, compositetest.Trust(), map[string]string{sessions.EnvSigCheckWaived: sessions.SigCheckWaivedOn})
 
-	assert.NotContains(t, l.EngineEnv(), bundles.SessionSigCheckEnv,
+	assert.NotContains(t, l.EngineEnv(), sessions.EnvSigCheckWaived,
 		"the carrier is the generation's posture: a caller's passthrough cannot forge it for a child")
 }

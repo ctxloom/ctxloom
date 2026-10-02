@@ -68,7 +68,7 @@ var capabilityInventory = []capabilityRow{
 	{3, "agent.ApproachUnsafeFile — native context file (CLAUDE.md / AGENTS.md / steering / instructions[])"},
 	{4, "agent.ApproachSystemPrompt — --append-system-prompt-file (claude only)"},
 	{5, "agent.ApproachHook — SessionStart inject-context"},
-	{6, "agent.SettingsWriter / agentDescriptor.newWriter — settings+hooks CARRIAGE"},
+	{6, "engine.HooksApproach / fsstatic claims — settings+hooks CARRIAGE"},
 	{7, "bundles.HookEvent* — hooks actually FIRING in the vendor binary"},
 	{8, "wire.MCPConfig / engine.Session.MCPServers — MCP registration + tool round trip"},
 	{9, "agent.CommandExport / agentDescriptor.exports — slash-command export"},

@@ -56,7 +56,7 @@ One further permission fact:
 
 | Backend | Native per-tool deny list? | Mechanism |
 |---|---|---|
-| `claude-code` | **yes** | (a) fixed plan-tier `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (`claudecode.go:258`); (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` — `SurfaceInputs.DenyTools` → `internal/engines/claude/surfaces.go:271` → `surfacedelivery.go:47` → `mergeDenyTools` (`internal/engines/claude/claude.go:536`), monotonic union only |
+| `claude-code` | **yes** | (a) fixed plan-tier `--disallowedTools "Bash,Edit,Write,NotebookEdit"` (`claudecode.go:258`); (b) configurable `deny_tools` unioned into `permissions.deny` in `.claude/settings.json` — `SettingsInputs.DenyTools` → `settingsClaims` (`internal/engines/claude/definition.go`): each tool a claim on an element of `permissions.deny`; a deny the user already has is theirs, and the record finds it rather than taking it |
 | the doubles | **no** | there are no tools; the double executes nothing |
 
 ### The deny-list reality check
@@ -111,7 +111,7 @@ arm of every caller has a subject.
 | Backend | Hooks land in | Routed by |
 |---|---|---|
 | `claude-code` | `.claude/settings.json` | `internal/engines/claude/claude.go:680` |
-| the doubles | `.mock/settings.json` (`NewMockSettingsWriter`) | not routed — the unified `HooksConfig` is marshalled whole under `mockSettingsHooksKey` |
+| the doubles | `.mock/hooks.json` (`hooksFile.DeliverHooks`) | not routed — the unified set is marshalled whole |
 
 A descriptor declares what it *cannot* carry in one of two fields:
 `noHooksReason` (the engine has no hook mechanism at all) and

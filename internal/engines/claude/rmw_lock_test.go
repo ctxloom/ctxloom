@@ -22,7 +22,7 @@ import (
 // idiom over an engine config file, invisible to anyone reading this writer
 // in isolation and silently absent for any OTHER caller. It now takes its
 // OWN agent.WithFileLock around the whole load-modify-write cycle, at dest
-// (the .claude.json path), matching the SettingsWriter family's discipline.
+// (the .claude.json path), matching the static writer's discipline.
 //
 // Writer A takes the exact home lock WriteInstanceConfig's own agent.WithFileLock
 // would take (paths.HomePathFor(dest)) DIRECTLY, standing in for a

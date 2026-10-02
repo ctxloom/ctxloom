@@ -97,8 +97,8 @@ func TestAtomicWriteFile(t *testing.T) {
 
 	// safefs.WriteFileKeepMode had no len(data)==0 guard, so a caller that
 	// accidentally assembled zero bytes (an upstream bug, not an intentional
-	// removal — RemoveSettings/dropManaged callers go through fs.Remove, never
-	// through this path with empty data) silently truncated a live settings
+	// removal — removals go through fs.Remove, never through this path with
+	// empty data) silently truncated a live settings
 	// file to zero bytes and reported success. Refuse instead — the same
 	// "refuse to overwrite, never self-heal" posture corrupt-config handling
 	// already uses elsewhere.

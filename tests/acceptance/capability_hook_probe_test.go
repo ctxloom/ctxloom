@@ -334,7 +334,7 @@ func TestHookProbeScript_QuotesHostilePaths(t *testing.T) {
 
 // The hook must reach the engine through the BUNDLE authoring surface, which is
 // the path a real user's profile takes (bundles.BundleHooks.SessionStart →
-// config.ResolveBundleHooks → the per-engine SettingsWriter). A fixture that
+// config.ResolveBundleHooks → the engine's hooks approach, claimed through the static writer). A fixture that
 // wrote the engine's native file itself would prove the engine execs files we
 // hand-made, which is not the claim.
 func TestHookProbeBundleYAML_DeclaresASessionStartCommandHookCarryingTheHarp(t *testing.T) {

@@ -9,7 +9,7 @@
 // acceptance-tagged; the split is the point, not an accident of layout.
 //
 // WHAT THIS PROBE PROVES, AND WHY NOTHING ELSE DOES. The capability inventory's
-// row 6 (agent.SettingsWriter / agentDescriptor.newWriter) is proven: the golden
+// row 6 (engine.HooksApproach / fsstatic claims) is proven: the golden
 // and settings-io tests, and tests/integration's
 // TestDeliveryApproach_HookCarriageMatchesDeclaration, show that ctxloom writes
 // the right hook bytes into each engine's own native hook surface. Row 7 —
@@ -177,7 +177,7 @@ func shellQuoteForProbe(s string) string {
 
 // hookProbeBundleYAML declares the session_start hook as a BUNDLE hook, which
 // is the production authoring surface for one (bundles.BundleHooks.SessionStart
-// → config.ResolveBundleHooks → the per-engine SettingsWriter). Deliberately
+// → config.ResolveBundleHooks → the engine's hooks approach, claimed through the static writer). Deliberately
 // not a config.yaml `hooks:` block and emphatically not a hand-written
 // settings.json: the probe's claim is about the path a real user's profile
 // takes, and a fixture that wrote the engine's native file itself would prove

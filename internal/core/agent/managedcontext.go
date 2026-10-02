@@ -36,11 +36,9 @@ const (
 // the second write reads back its own markers, strips them, and reinserts the
 // same section.
 //
-// The whole read-splice-write(-or-remove) cycle runs under WithFileLock:
-// claude.ClaudeCodeHookWriter.WriteContext and mock's context writer call this
-// from the same packages whose OTHER settings writes are locked
-// (ClaudeCodeHookWriter.writeSettingsFile), so leaving this one unlocked would
-// take a lock in one sibling call and not the next. See WithFileLock's own doc for the fail-closed/
+// The whole read-splice-write(-or-remove) cycle runs under WithFileLock, the
+// lock every other writer of an engine's files takes (the static writer's
+// batch included). See WithFileLock's own doc for the fail-closed/
 // skip-for-non-OS-fs contract this inherits unchanged.
 func WriteManagedContext(fs afero.Fs, path, rel, content, desc string) (report ContextReport, err error) {
 	err = sessions.WithFileLock(fs, path, func() error {

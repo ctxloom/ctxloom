@@ -1,6 +1,7 @@
 // Package claude is ctxloom's Claude Code engine: the kind (definition.go),
-// its instance (instance.go), its backend (claudecode.go) and the
-// settings/hooks writer that implements agent.SettingsWriter (this file).
+// its instance (instance.go), its backend (claudecode.go) and the settings
+// file's reader, agent.SettingsReader, with the CLAUDE.md context write (this
+// file).
 package claude
 
 import (
@@ -193,14 +194,11 @@ func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agen
 // loadSettings loads existing settings.json or returns empty settings for a
 // missing file.
 //
-// On a PARSE failure it does NOT fabricate an empty settings object: the
-// caller (writeSettingsFile) persists whatever loadSettings returns, so
-// returning empty-but-valid settings here used to make ctxloom overwrite a
-// user's corrupt-but-recoverable settings.json (permissions, env, hooks) with
-// an empty one — silent data loss (taskloom lone-taste). Instead, on a parse
-// failure the raw bytes are backed up to <path>.corrupt-<unix-timestamp> and
-// a real error is returned so writeSettingsFile aborts before touching the
-// file, pointing the user at the backup to fix by hand.
+// On a PARSE failure it does NOT fabricate an empty settings object: empty
+// settings would read as "nothing installed" and "no statusline", and a
+// statusline claim would then take a slot a corrupt file still holds. The raw
+// bytes are backed up to <path>.corrupt-<unix-timestamp> and a real error is
+// returned, pointing the user at the backup to fix by hand.
 func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, error) {
 	settings := &claudeCodeSettings{
 		Hooks: make(map[string][]claudeCodeHookMatcher),
@@ -265,13 +263,8 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 		delete(raw, "permissions")
 	}
 
-	// A legacy mcpServers block stays exactly where it is, in Other. This
-	// used to be deleted under a comment claiming a migration to .mcp.json —
-	// but no migration code exists, nothing ever reads the block, and
-	// writeMCPConfig only ever reads and writes .mcp.json. So the delete was
-	// pure loss, and it ran on the UNINSTALL path too (removeSettingsFile →
-	// loadSettings → saveSettings), meaning ctxloom destroyed a user's
-	// servers while being removed.
+	// A legacy mcpServers block stays where it is, in Other: ctxloom's
+	// servers live in .mcp.json, and nothing of ctxloom's owns this one.
 
 	// Preserve other fields
 	settings.Other = raw
@@ -281,12 +274,11 @@ func (w *ClaudeCodeHookWriter) loadSettings(path string) (*claudeCodeSettings, e
 
 // parseStatusLine decodes the statusLine block, refusing the whole read when
 // it cannot. A statusLine is a single slot, but "ctxloom does not recognize it"
-// is not the same as "the user has none": treating the two alike handed
-// ensureStatusLine an empty slot to fill, which overwrote a value only the user
-// had authored — and deleted it when the managed HUD is opted out. ctxloom is
-// the wrong party to decide the fate of a value it just failed to read, so this
-// takes the same stance as parsePermissions and the hooks block: back the
-// original up and abort before anything is written.
+// is not the same as "the user has none": treating the two alike would hand a
+// statusline claim a slot the user had filled. ctxloom is the wrong party to
+// decide the fate of a value it just failed to read, so this takes the same
+// stance as parsePermissions and the hooks block: back the original up and
+// refuse.
 func (w *ClaudeCodeHookWriter) parseStatusLine(path string, data []byte, raw json.RawMessage) (*claudeCodeStatusLine, error) {
 	var sl claudeCodeStatusLine
 	if err := json.Unmarshal(raw, &sl); err != nil {
@@ -501,7 +493,7 @@ func configExists(fs afero.Fs, path string) (bool, error) {
 	return exists, nil
 }
 
-// Status implements SettingsWriter for Claude Code.
+// Status implements agent.SettingsReader for Claude Code.
 func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, error) {
 	fs := w.getFS()
 	var status agent.SettingsStatus

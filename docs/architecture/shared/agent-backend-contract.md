@@ -24,10 +24,8 @@ classDiagram
         GetSession/ListSessions/...
         TranscriptPathFromHook(...)
     }
-    class SettingsWriter {
+    class SettingsReader {
         <<interface>>
-        WriteSettings(hooks, mcp, bundleMCP, projectDir)
-        RemoveSettings(...)
         Status(...) SettingsStatus
     }
     class ContextWriter {
@@ -77,8 +75,8 @@ classDiagram
 | `BackendConfig` | `internal/core/agent/backend.go:22` | One-method discriminator interface for a decoded per-backend config block. |
 | `ContextProvider` | `internal/core/agent/backend.go:83` | Provide/Clear the assembled context; embedded by `HashedContext`. |
 | `SessionHistory` | `internal/core/agent/backend.go:95` | Transcript reads (`Get*`/`List*`) plus `TranscriptPathFromHook`, a pure path computation with no session state. |
-| `SettingsWriter` | `internal/core/agent/settings.go:14` | Write/remove/report an engine's managed hooks + MCP servers + statusline. Five implementations. |
-| `ContextWriter` | `internal/core/agent/settings.go:36` | Write assembled context to an engine's native on-disk surface. Deliberately a sibling interface, not an extension of `SettingsWriter` — engines without a native context surface simply do not implement it. |
+| `SettingsReader` | `internal/core/agent/settings.go` | Report what ctxloom has wired into an engine's settings files. Writes are claims through `delivery.Static`. |
+| `ContextWriter` | `internal/core/agent/settings.go:36` | Write assembled context to an engine's native on-disk surface. Deliberately a sibling interface, not an extension of `SettingsReader` — engines without a native context surface simply do not implement it. |
 | `Launcher` | `internal/core/agent/base.go:42` | The process-execution seam; the only thing that turns a `LaunchSpec` into a child process. |
 
 ## Request / result value types

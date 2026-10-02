@@ -48,7 +48,7 @@ the adapters on the registry's value (`engines.Hosted(name)`):
 | `Backend(Launcher) Backend` | a fresh backend over the runner's launcher | `cli.runRunner` (the interactive launch), `operations.HistoryForBackend` |
 | `NewConfig() BackendConfig` | the zero typed config a labeled LLM entry's body decodes into | `operations.DecodeEngineConfig` |
 | `Declaration() Declaration` | the named-form table a binding's `surfaces:` is validated against | `operations.ResolveAgentSurfaces`, `operations.KnownApproachNames` |
-| `SettingsWriter(SettingsOptions) SettingsWriter` | the writer whose `Status` `manage status` reports and whose `RemoveSettings` strips ctxloom's wiring | `operations.engineSettingsStatus` |
+| `SettingsReader(SettingsOptions) SettingsReader` | the reader whose `Status` `manage status` reports (writes are claims through `delivery.Static`) | `operations.engineSettingsStatus` |
 | `HookGlobalScope() (HookGlobalScope, bool)` | the project/global settings-path collision `manage hooks install` refuses | `operations.checkHookTargetScopeOf` |
 
 The L1 process-surface grammar (`agent.EngineCLI`: binary, flags, prompt

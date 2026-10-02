@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
-// lockDisciplineScopes are the packages this rule walks: the engine
-// SettingsWriter implementors plus the shared reconcilers they call into. The
+// lockDisciplineScopes are the packages this rule walks: the engine writers
+// plus the shared reconcilers they call into. The
 // lock and record primitives themselves are not scanned — their callers are
 // what must hold the lock.
 var lockDisciplineScopes = []string{

@@ -32,9 +32,8 @@ func NewBaseLifecycle(backendName string) *BaseLifecycle {
 //
 // m.Hooks is the config+default-profile+bundle set WITHOUT context-injection,
 // kept identical to the operations.ApplyHooks write (which also assembles via
-// backends.AssembleManagedHooks) so WriteSettings' remove-all-then-re-add
-// reconcile can't drop a hook one writer assembled but the other didn't — the
-// failure class that once broke forward-bind. The context-injection hook is
+// backends.AssembleManagedHooks) so one delivery can't withdraw a hook the
+// other writer assembled — the failure class that once broke forward-bind. The context-injection hook is
 // appended here from the plugin-side contextHash, the one piece only the agent
 // knows.
 func (l *BaseLifecycle) MergeManaged(rep report.Reporter, m *ManagedConfig, workDir string, contextHash string) {

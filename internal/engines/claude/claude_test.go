@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClaudeCodeHookWriter_WriteSettings(t *testing.T) {
+func TestInstall_WritesHooksAndKeepsTheUsersSettings(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := &wire.HooksConfig{
@@ -148,7 +148,7 @@ func TestClaudeCodeHookWriter_DedupsBundleShippedHooks(t *testing.T) {
 	// a duplicate of the previous run's hooks.
 	for range 3 {
 		if err := atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP())); err != nil {
-			t.Fatalf("WriteSettings: %v", err)
+			t.Fatalf("install: %v", err)
 		}
 	}
 
@@ -592,13 +592,9 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 	}
 }
 
-// TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoud is a
-// regression test for a real bug: loadSettings used to swallow a
-// top-level unmarshal failure and return an empty-but-valid settings object,
-// which WriteSettings then persisted OVER the user's real settings.json —
-// destroying their permissions/env. It must now (a) leave the original file
-// untouched, (b) back up the corrupt bytes to a sibling .corrupt-<ts> file,
-// and (c) return an error so the caller aborts instead of overwriting.
+// TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoud: an install over
+// a settings.json that does not parse must refuse with an error and leave the
+// original file untouched, never write over the user's permissions/env.
 func TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoud(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -690,13 +686,9 @@ func TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling(t *testing.T)
 	assert.Contains(t, string(after), "./test.sh", "control: the hook was actually written")
 }
 
-// This test used to assert the OPPOSITE — that a malformed .mcp.json was
-// warned about and then overwritten, described as "resilience". What it
-// actually pinned was the deletion of every MCP server the user had:
-// loadMCPConfig returned a fresh empty config, writeMCPConfig filled it with
-// ctxloom's servers and saved. Resilience is refusing to write, not writing
-// anyway; the contract is now the same one loadSettings has had since the
-// settings.json fix above.
+// A malformed .mcp.json is refused, never overwritten: writing ctxloom's
+// servers over it would delete every server the user had. Resilience is
+// refusing to write, not writing anyway.
 func TestClaudeCodeHookWriter_MalformedMCPConfig_IsNotOverwritten(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -733,13 +725,12 @@ func permissionsPayload(t *testing.T, fs afero.Fs, settingsPath string) struct {
 	return parsed.Permissions
 }
 
-// TestClaudeCodeHookWriter_WriteSettingsFile_DenyToolsLandInPermissions is the
-// unit-level payload proof for the deny-tools fix: writeSettingsFile's
-// denyTools parameter must appear verbatim in settings.json's
+// TestInstall_DenyToolsLandInPermissions is the payload proof for deny-tools:
+// the package's deny list must appear verbatim in settings.json's
 // permissions.deny — asserting the actual bytes on disk, not merely that the
 // call returned nil (ctxloom's characteristic silent-no-op failure mode is
 // exit 0 with zero bytes delivered).
-func TestClaudeCodeHookWriter_WriteSettingsFile_DenyToolsLandInPermissions(t *testing.T) {
+func TestInstall_DenyToolsLandInPermissions(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	require.NoError(t, atRest(t, fs, "/project").Install(denyPackage(&wire.HooksConfig{}, []string{"Task"})))
@@ -928,11 +919,8 @@ func TestClaudeCodeHookWriter_LegacyMCPServersInSettings_ArePreserved(t *testing
 		"a legacy mcpServers block must not be deleted: nothing migrates it, so deleting it is pure loss")
 }
 
-// An unparseable .mcp.json was warned about and replaced with an
-// EMPTY config, which writeMCPConfig then filled with ctxloom's servers and
-// saved — the user's servers gone. The warning text even conceded "existing
-// MCP servers may not be preserved". A warning is not a guard, and this is
-// asymmetric with loadSettings, which was hardened for exactly this.
+// An unparseable .mcp.json fails the install loudly, exactly as an
+// unparseable settings.json does: a warning is not a guard.
 func TestClaudeCodeHookWriter_MalformedMCPConfig_FailsLoud(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -1020,7 +1008,7 @@ func TestStatus_AbsentFilesAreNotAnError(t *testing.T) {
 	assert.False(t, status.MCPPresent)
 }
 
-// TestRemoveSettings_AbsentFilesAreNotAnError is the uninstall twin of the
+// TestUninstall_AbsentFilesAreNotAnError is the uninstall twin of the
 // above: removing what was never installed stays a clean no-op.
 func TestUninstall_AbsentFilesAreNotAnError(t *testing.T) {
 	require.NoError(t, atRest(t, afero.NewMemMapFs(), "/project").Uninstall())
@@ -1072,7 +1060,7 @@ func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
 	}
 }
 
-// TestWriteSettings_HandAuthoredCtxloomHookSurvives is the regression for the
+// TestInstall_HandAuthoredCtxloomHookSurvives is the regression for the
 // defect the hooks ledger exists to close (taskloom valiant-ascension).
 //
 // Ownership used to be inferred from the command's EXECUTABLE TOKEN, so every
@@ -1086,7 +1074,7 @@ func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
 // The control matters: an inject-context hook in the SAME file must still be
 // reconciled away, or this test would pass just as well against a writer that
 // removed nothing at all.
-func TestWriteSettings_HandAuthoredCtxloomHookSurvives(t *testing.T) {
+func TestInstall_HandAuthoredCtxloomHookSurvives(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &ClaudeCodeHookWriter{FS: fs}
 	projectDir := "/proj"
@@ -1115,7 +1103,7 @@ func TestWriteSettings_HandAuthoredCtxloomHookSurvives(t *testing.T) {
 		"control: the install itself landed, or the survival above proves nothing")
 }
 
-// TestWriteSettings_UserStatusLineInvokingCtxloomSurvives covers the statusline
+// TestInstall_UserStatusLineInvokingCtxloomSurvives covers the statusline
 // half of the ownership defect. A user is entitled to point their own
 // statusline at the ctxloom binary — `ctxloom hook hud --my-flags`, a wrapper,
 // anything — and ctxloom must not treat that as its own and overwrite it.
@@ -1124,7 +1112,7 @@ func TestWriteSettings_HandAuthoredCtxloomHookSurvives(t *testing.T) {
 // is the second half: with NO prior claim and NO user statusline, ctxloom must
 // still install its own, or "did not overwrite" would be satisfied by a writer
 // that simply never writes a statusline at all.
-func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
+func TestInstall_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 	const userStatus = "ctxloom hook hud --theme mine"
 
 	t.Run("a statusline ctxloom never claimed is left alone", func(t *testing.T) {
@@ -1155,7 +1143,7 @@ func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 	})
 }
 
-// TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared is the test
+// TestInstall_CompanionHookIsWithdrawnWhenNoLongerDeclared is the test
 // that gives the hooks ledger its reason to exist, and it was missing: a
 // mutation that wrote the ledger EMPTY passed the whole suite, because every
 // other hook test happens to use one of ctxloom's own machine callbacks, which
@@ -1165,7 +1153,7 @@ func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
 // command is not ctxloom's, so no name rule will ever match it; if the claim is
 // not recorded, config dropping the hook leaves it in the user's settings
 // forever. That is the orphan this whole mechanism is for.
-func TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared(t *testing.T) {
+func TestInstall_CompanionHookIsWithdrawnWhenNoLongerDeclared(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &ClaudeCodeHookWriter{FS: fs}
 	const companion = "ltk evaluate"

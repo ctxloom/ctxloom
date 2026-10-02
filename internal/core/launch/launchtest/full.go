@@ -46,7 +46,7 @@ func FullLaunch(t *testing.T) launch.Launch {
 				SecretFiles: map[string]string{"FIXTURE_TOKEN": "/run/ctxloom/secrets/FIXTURE_TOKEN"},
 				Home:        []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},
 				Unset:       []string{"FIXTURE_STORE"},
-				HostEnv:     agents.HostEnv{Curated: true, Passthrough: []string{"FIXTURE_PASS"}},
+				EnvHost:     agents.EnvHost{Curated: true, Env: []string{"FIXTURE_PASS"}},
 			},
 			Workspace: "/proj/.worktrees/harp-1",
 		},

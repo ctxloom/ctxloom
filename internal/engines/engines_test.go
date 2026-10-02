@@ -64,7 +64,7 @@ func TestBuild_EveryShippedEngineIsHosted(t *testing.T) {
 		require.True(t, ok, "%s is not agent.Hosted", name)
 		assert.Equal(t, string(name), h.Backend(nil).Name())
 		assert.Equal(t, string(name), h.NewConfig().BackendType(), "a decoded config names its OWN engine")
-		assert.NotNil(t, h.SettingsWriter(agent.SettingsOptions{}))
+		assert.NotNil(t, h.SettingsReader(agent.SettingsOptions{}))
 		assert.NotNil(t, h.Declaration())
 	}
 }

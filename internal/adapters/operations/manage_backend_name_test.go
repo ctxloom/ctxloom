@@ -14,8 +14,7 @@ import (
 // uninstall --backend <typo>` reported Status "removed" listing the typo'd name
 // while removing nothing. manageBackendNames passed the name straight through
 // unvalidated, and every layer below then treated the unknown backend as a
-// permitted no-op: RemoveSettings returns nil when there is no settings writer,
-// BuildSurfaces returns an EmptySurfaceSet whose SupportedApproaches is nil, so
+// permitted no-op: BuildSurfaces returns an EmptySurfaceSet whose SupportedApproaches is nil, so
 // Select skips the kind. Zero errors, so the name was appended to `removed`.
 //
 // The user's actual harness is still installed and they have been told it is

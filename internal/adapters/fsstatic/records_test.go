@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -368,6 +370,68 @@ func TestClaimsDeleteTheOldOwnershipRecord(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "the old record for this target is gone")
 	_, err = fs.Stat(unrelated)
 	assert.NoError(t, err, "another target's is not this write's to delete")
+}
+
+// claudeConfpatchRecord applies one MCP server to target through a confpatch
+// store owned by ctxloom in the claims directory — exactly the record
+// claude's retired settings/MCP writer kept — and returns the record's path.
+func claudeConfpatchRecord(t *testing.T, fs afero.Fs, target string) string {
+	t.Helper()
+	store, err := confpatch.NewStore(fs, claimsDir, "ctxloom")
+	require.NoError(t, err)
+	res, err := store.Apply(fs, target, func(doc *hew.Doc, _ hew.Document) (int, error) {
+		p, perr := hew.ParsePathIn(doc.Format(), "/mcpServers/ctxloom")
+		if perr != nil {
+			return 0, perr
+		}
+		doc.AtPath(p).Set(installEntry)
+		return 1, nil
+	})
+	require.NoError(t, err)
+	return res.RecordPath
+}
+
+// configWriteAuditRecord is `ctxloom config-write`'s audit record for target:
+// the same naming, the same directory, and no reversal.
+func configWriteAuditRecord(t *testing.T, fs afero.Fs, target string) string {
+	t.Helper()
+	path, err := confpatch.FreeRecordPath(fs, claimsDir, target, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	testsupport.WriteFileString(t, fs, path, "hew-record: 1\napplied_at: \"2026-09-01T00:00:00Z\"\n"+
+		"patch:\n  source: \"-\"\n  digest: sha256:00\n"+
+		"targets:\n  - target: "+target+"\n    format: json\n    before: sha256:00\n    after: sha256:01\n    committed: true\n"+
+		"    transforms:\n      - op: add\n        path: /mcpServers/ctxloom\n        on_conflict: replace\n"+
+		"        value:\n          command: ctxloom\n", 0o600)
+	return path
+}
+
+// F5 for claude's retired confpatch records: on the first write to a target,
+// the record claude's settings/MCP writer kept for it is recognised by its
+// CONTENT and deleted; config-write's audit record, which shares the naming,
+// survives, and so does a claude record for another target.
+func TestClaimsRetireTheConfpatchWritersRecordByContent(t *testing.T) {
+	fs := withUserFile(t)
+	const elsewhere = "/elsewhere/.mcp.json"
+	claudes := claudeConfpatchRecord(t, fs, mcpTarget)
+	audit := configWriteAuditRecord(t, fs, mcpTarget)
+	testsupport.WriteFileString(t, fs, elsewhere, `{"mcpServers": {}}`+"\n", 0o644)
+	unrelated := claudeConfpatchRecord(t, fs, elsewhere)
+	// A record filed under this target's name that describes another target
+	// is not this target's record, whatever its name says.
+	misfiled := filepath.Join(claimsDir, confpatch.RecordPrefix(mcpTarget)+"misfiled.hew-record.yaml")
+	testsupport.WriteFileString(t, fs, misfiled, read(t, fs, unrelated), 0o600)
+
+	c := newRecords(t, fs)
+	mustCommit(t, c, fs, stage(mcpTarget, project, server("ctxloom", installEntry)))
+
+	_, err := fs.Stat(claudes)
+	assert.True(t, os.IsNotExist(err), "claude's confpatch record for this target is retired")
+	_, err = fs.Stat(audit)
+	assert.NoError(t, err, "config-write's audit record is not claude's to retire")
+	_, err = fs.Stat(unrelated)
+	assert.NoError(t, err, "another target's record is not this write's to retire")
+	_, err = fs.Stat(misfiled)
+	assert.NoError(t, err, "a record of another target is not this target's, whatever its name")
 }
 
 // Record first, then target: a target write that never lands leaves a record

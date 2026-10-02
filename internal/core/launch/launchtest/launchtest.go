@@ -126,9 +126,9 @@ func EngineHome(s string) AgentOption {
 	return func(d *agentDecl) { d.binding.HomeMode = s }
 }
 
-// HostEnv sets the binding's `host_env:` declaration.
-func HostEnv(h agents.HostEnv) AgentOption {
-	return func(d *agentDecl) { d.binding.HostEnv = h }
+// EnvHost sets the binding's `env_host:` and `env:` keys.
+func EnvHost(on bool, env ...string) AgentOption {
+	return func(d *agentDecl) { d.binding.EnvHost, d.binding.Env = &on, env }
 }
 
 // NoStructuredDrive makes the fixture engine declare Interactive only, so a

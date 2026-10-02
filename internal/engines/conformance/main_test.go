@@ -9,10 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestMain sandboxes the process: the suite drives claude's real writer,
-// whose MCP write goes through the record store rooted at the REAL
-// ~/.ctxloom/records, and the store refuses to run from a test binary
-// outside a temp root.
+// TestMain sandboxes the process: the suite drives the real static writer,
+// which takes file locks under the home.
 func TestMain(m *testing.M) {
 	os.Exit(testsupport.SandboxedMain(m))
 }

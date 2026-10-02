@@ -221,7 +221,7 @@ flowchart LR
 | `maybeRegenerateContext` / `regenerateContext` | `hooks.go:358,487` | Collects, dedupes, sorts and loads fragments and writes the SessionStart context cache. |
 | `applyHooksToBackends` / `applyHooksToBackend` | `hooks.go:397,435` | Per-backend loop; each failure is recorded via `strictness.Fail` and collected, and the loop aborts on ctx cancel. |
 | `hookBackendNames` | `hooks.go:372` | `"all"` → every settings backend, else the single named backend. |
-| `RemoveHooks` / `removeBackendHarness` | `manage.go:36,70` | Strips ctxloom wiring from each backend: `RemoveSettings` plus an empty-input command delivery that clears manifest-tracked files. |
+| `RemoveHooks` / `removeBackendHarness` | `manage.go:36,70` | Strips ctxloom wiring from each backend: the empty plan through `delivery.Static` (`RemoveProject`), which removes what the project writer's claims name. |
 | `HarnessStatus` | `manage.go:116` | Per-backend wiring report plus MCP/statusline/root-fallback status. |
 | `SetStatusline` | `manage.go:165` | One `Manager.Update` transaction. |
 | `ListMCPServers` / `GetMCPServer` / `AddMCPServer` / `RemoveMCPServer` / `SetMCPAutoRegister` | `mcp_servers.go:43,159,208,305,406` | MCP registry CRUD over `config.Manager`. Add and Remove are check-and-write inside one `Manager.Update` transaction; removing nothing is a loud error. |

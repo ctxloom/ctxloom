@@ -80,7 +80,7 @@ type Deps struct {
 	// refuses any launch that names something to unset.
 	Unsetenv func(string) error
 	// Environ is this process's environment (os.Environ in production): what
-	// a curated launch (Cell.HostEnv) narrows before the engine inherits it.
+	// a curated launch (Cell.EnvHost) narrows before the engine inherits it.
 	// nil refuses a curated launch.
 	Environ func() []string
 }
@@ -388,8 +388,8 @@ func firstTurn(pkg composite.Package, l launch.Launch) string {
 }
 
 // uncuratedEnv is every variable of this process a curated engine must not
-// inherit (agents.HostEnv.Inherits). None when the launch is not curated.
-func uncuratedEnv(deps Deps, h agents.HostEnv) ([]string, error) {
+// inherit (agents.EnvHost.Inherits). None when the launch is not curated.
+func uncuratedEnv(deps Deps, h agents.EnvHost) ([]string, error) {
 	if !h.Curated {
 		return nil, nil
 	}
@@ -406,13 +406,13 @@ func uncuratedEnv(deps Deps, h agents.HostEnv) ([]string, error) {
 }
 
 // scrubEngineEnv removes every variable the launch says the engine must not
-// inherit — pl.Unset, and under a curated pl.HostEnv everything else it does
+// inherit — pl.Unset, and under a curated pl.EnvHost everything else it does
 // not keep — from this process's environment before anything is spawned:
 // every engine spawn starts from it (os.Environ), and this process hosts
 // exactly one run. The launch's own env is laid over it afterwards, so a
 // variable the launch SETS still reaches the engine.
 func scrubEngineEnv(deps Deps, pl launch.Placement) error {
-	uninherited, err := uncuratedEnv(deps, pl.HostEnv)
+	uninherited, err := uncuratedEnv(deps, pl.EnvHost)
 	if err != nil {
 		return err
 	}

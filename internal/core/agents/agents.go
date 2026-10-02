@@ -168,10 +168,20 @@ type Agent struct {
 	// rather than blocking the launch — never onto the real home, which a
 	// typo must not select.
 	HomeMode string `yaml:"engine_home,omitempty"`
-	// HostEnv is which of the launching environment's variables this
-	// agent's engine inherits on the HOST runtime (HostEnv's doc). Undeclared
-	// inherits all of them; a container forwards only what it names anyway.
-	HostEnv HostEnv `yaml:"host_env,omitempty"`
+	// EnvHost is whether this agent's engine inherits the launching
+	// environment whole on the HOST runtime (podman's --env-host). Absent is
+	// true; false curates it (EnvHost the type). A pointer, because an
+	// explicit false must survive omitempty. A container forwards only what
+	// it names anyway.
+	EnvHost *bool `yaml:"env_host,omitempty"`
+	// Env is the bare variable names whose host values pass through when
+	// EnvHost is false (podman's -e NAME).
+	Env []string `yaml:"env,omitempty"`
+}
+
+// HostEnv is the binding's env_host and env keys as the launch applies them.
+func (a Agent) HostEnv() EnvHost {
+	return EnvHost{Curated: a.EnvHost != nil && !*a.EnvHost, Env: slices.Clone(a.Env)}
 }
 
 // HomeMode is the EFFECTIVE engine-home policy a declaration parses to: one
@@ -314,10 +324,13 @@ var ErrRetiredCoordinatorKey = errors.New(
 // RetiredAuthKey is the REMOVED per-agent auth mode. A removal, not a move:
 // every run ctxloom spawns authenticates with the engine's long-lived token,
 // so an agent has no auth to choose; how the HUMAN's own session
-// authenticates is the top-level `auth:`. Refused at load because the
-// `agents:` decode is lenient: an untouched `auth: login` would be dropped in
-// silence and a binding written to share the login would quietly need a
-// token instead.
+// authenticates is the top-level `auth:`.
+//
+// REFUSED, NOT WARNED: this is a deliberate exception to the rule that an
+// unknown config key warns and is ignored. A stale `auth:` on an agent,
+// ignored, would silently change which credential that agent's runs use — a
+// binding written to share the human's login would quietly run on the token
+// — and a warning scrolls past where a refusal cannot.
 const RetiredAuthKey = "auth"
 
 // ErrRetiredAuthKey names both replacements: the token every agent runs on,

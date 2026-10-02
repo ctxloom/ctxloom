@@ -196,7 +196,7 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 		Degraded:    src.Degraded,
 		HomeMode:    sel.homeMode,
 		Auth:        RunAuth(src.Identity, deps.Snapshot.Config.SessionAuth()),
-		HostEnv:     sel.hostEnv,
+		EnvHost:     sel.envHost,
 		Env:         env,
 	})
 	if err != nil {
@@ -269,7 +269,7 @@ type selection struct {
 	runtime     string
 	permissions agents.Permissions
 	homeMode    HomeMode
-	hostEnv     agents.HostEnv
+	envHost     agents.EnvHost
 	surfaces    map[string]string
 	roots       map[string]string
 }
@@ -308,7 +308,8 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		}
 		home = HomeModeSession
 	}
-	if err := binding.HostEnv.Validate(); err != nil {
+	envHost := binding.HostEnv()
+	if err := envHost.Validate(); err != nil {
 		return selection{}, fmt.Errorf("agent %q: %w", name, err)
 	}
 	return selection{
@@ -318,7 +319,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		runtime:     binding.Runtime,
 		permissions: binding.Permissions,
 		homeMode:    home,
-		hostEnv:     agents.HostEnv{Curated: binding.HostEnv.Curated, Passthrough: slices.Clone(binding.HostEnv.Passthrough)},
+		envHost:     envHost,
 		surfaces:    maps.Clone(binding.Surfaces),
 		roots:       maps.Clone(binding.Roots),
 	}, nil

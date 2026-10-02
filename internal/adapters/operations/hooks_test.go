@@ -130,13 +130,8 @@ func TestApplyHooksRequest_FSField(t *testing.T) {
 	assert.NotNil(t, req.FS)
 }
 
-// ==========================================================================
-// WriteSettings tests
-// ==========================================================================
-//
-// deliverManagedSettings materializes a backend's settings + MCP surfaces into dir
-// via the surface selection — the test replacement for the removed WriteSettings
-// facade. manageStatusline mirrors the old WithStatusLineDisabled inverse.
+// deliverManagedSettings delivers a backend's settings, hooks and MCP servers
+// into dir at rest, through the one static writer (DeliverProject).
 func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
 	kind, ok := engines.Registry().Lookup(engine.Name(backend))

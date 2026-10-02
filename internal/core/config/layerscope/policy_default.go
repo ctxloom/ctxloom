@@ -52,7 +52,8 @@ func DefaultPolicy() Policy {
 		// agentBindingMergeFunc's atomic-replace rule means a home-only value
 		// could never stick to a project-defined binding anyway.
 		{Path: "agents.*.engine_home", Scope: ScopeShared, Note: "a pollution/isolation policy decision about this project's agents, not a per-machine fact"},
-		{Path: "agents.*.host_env", Scope: ScopeShared, Note: "which host environment a project agent's engine inherits; passthrough widens what reaches every MCP server and hook, so like permissions a home config must never fill it in for a project"},
+		{Path: "agents.*.env_host", Scope: ScopeShared, Note: "whether a project agent's engine inherits the host environment whole; it decides which exported secrets reach every MCP server and hook, so like permissions a home config must never fill it in for a project"},
+		{Path: "agents.*.env", Scope: ScopeShared, Note: "the host variables a curated project agent's engine keeps; each name widens what reaches every MCP server and hook, so like permissions a home config must never fill it in for a project"},
 
 		// Preference: how the human's own session authenticates is that
 		// person's choice, and no layer can widen anything with it -- every

@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,94 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 // fakePlacement is defined in contextdelivery_test.go (same package): a local
 // placement double whose Dir() returns a fixed temp dir.
-
-// mcpServersOf reads .mcp.json under dir and returns its mcpServers map.
-func mcpServersOf(t *testing.T, dir string) map[string]any {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
-	require.NoError(t, err)
-	var cfg map[string]any
-	require.NoError(t, json.Unmarshal(data, &cfg))
-	servers, _ := cfg["mcpServers"].(map[string]any)
-	return servers
-}
-
-// TestFileTemplateDelivery_DeliverMCP verifies the file-template strategy writes
-// the MCP surface into the injected Placement identically to writeMCPConfig, and
-// that Cleanup reverts ctxloom-owned servers while preserving user servers.
-func TestFileTemplateDelivery_DeliverMCP(t *testing.T) {
-	bundle := map[string]wire.MCPServer{
-		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
-		"config-server":     {Command: "config-cmd", Args: []string{"--flag"}},
-		"bundle-server":     {Command: "bundle-cmd", SCM: "ctxloom-bundle:test"},
-	}
-
-	// Delivery target.
-	deliverDir := t.TempDir()
-	d := newFileTemplateDelivery(fakePlacement{dir: deliverDir}, nil)
-	handle, err := d.DeliverMCP(bundle)
-	require.NoError(t, err)
-
-	// Control: the existing writer targeted at a separate dir must produce the
-	// same on-disk bytes.
-	controlDir := t.TempDir()
-	require.NoError(t, (&ClaudeCodeHookWriter{}).writeMCPConfig(controlDir, bundle))
-
-	got, err := os.ReadFile(filepath.Join(deliverDir, ".mcp.json"))
-	require.NoError(t, err)
-	want, err := os.ReadFile(filepath.Join(controlDir, ".mcp.json"))
-	require.NoError(t, err)
-	assert.Equal(t, string(want), string(got), "DeliverMCP must write the same .mcp.json as writeMCPConfig")
-
-	// The ctxloom-owned servers are present after delivery.
-	servers := mcpServersOf(t, deliverDir)
-	assert.Contains(t, servers, "config-server")
-	assert.Contains(t, servers, "bundle-server")
-	assert.Contains(t, servers, AppMCPServerName)
-
-	// Cleanup removes exactly the ctxloom-marked servers.
-	require.NoError(t, handle.Cleanup())
-	servers = mcpServersOf(t, deliverDir)
-	assert.NotContains(t, servers, "config-server")
-	assert.NotContains(t, servers, "bundle-server")
-	assert.NotContains(t, servers, AppMCPServerName)
-}
-
-// TestFileTemplateDelivery_DeliverMCP_PreservesUserServers verifies a
-// pre-existing user server (no _ctxloom marker) survives both delivery and
-// cleanup while ctxloom servers come and go around it.
-func TestFileTemplateDelivery_DeliverMCP_PreservesUserServers(t *testing.T) {
-	dir := t.TempDir()
-	existing := map[string]any{
-		"mcpServers": map[string]any{
-			"my-server": map[string]any{"command": "/usr/local/bin/my-mcp"},
-		},
-	}
-	data, err := json.Marshal(existing)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), data, 0o644))
-
-	d := newFileTemplateDelivery(fakePlacement{dir: dir}, nil)
-	handle, err := d.DeliverMCP(map[string]wire.MCPServer{
-		agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
-	})
-	require.NoError(t, err)
-
-	servers := mcpServersOf(t, dir)
-	assert.Contains(t, servers, "my-server")
-	assert.Contains(t, servers, AppMCPServerName)
-
-	require.NoError(t, handle.Cleanup())
-	servers = mcpServersOf(t, dir)
-	assert.Contains(t, servers, "my-server", "user server must survive cleanup")
-	assert.NotContains(t, servers, AppMCPServerName, "ctxloom server must be reverted")
-}
 
 // TestFileTemplateDelivery_DeliverCommands verifies the commands surface is written
 // into the injected Placement identically to WriteCommandFiles, and that Cleanup
@@ -298,93 +214,4 @@ func TestFileTemplateDelivery_DeliverCommands_SelfContainedSkipsHomeDedup(t *tes
 	require.NoError(t, err)
 	assert.FileExists(t, filepath.Join(selfContainedDir, ".claude", "commands", "recover.md"),
 		"selfContainedCommands delivery must NOT dedup against the delivering machine's home — the portable target must keep every command")
-}
-
-// TestFileTemplateDelivery_DeliverSettings verifies the settings surface (hooks +
-// statusline) is written into the injected Placement identically to
-// writeSettingsFile, and that Cleanup reverts ctxloom hooks + managed statusline
-// while preserving user-authored hooks. It also confirms DeliverSettings does
-// not write .mcp.json (that is DeliverMCP's surface).
-func TestFileTemplateDelivery_DeliverSettings(t *testing.T) {
-	hooks := &wire.HooksConfig{
-		Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}},
-		},
-	}
-
-	deliverDir := t.TempDir()
-	d := newFileTemplateDelivery(fakePlacement{dir: deliverDir}, nil)
-	handle, err := d.DeliverSettings(hooks, true)
-	require.NoError(t, err)
-
-	// Control: the existing settings writer (manageStatusline true == default
-	// statusLineDisabled false).
-	controlDir := t.TempDir()
-	require.NoError(t, (&ClaudeCodeHookWriter{}).writeSettingsFile(hooks, nil, controlDir))
-
-	got, err := os.ReadFile(filepath.Join(deliverDir, ".claude", "settings.json"))
-	require.NoError(t, err)
-	want, err := os.ReadFile(filepath.Join(controlDir, ".claude", "settings.json"))
-	require.NoError(t, err)
-	assert.Equal(t, string(want), string(got), "DeliverSettings must write the same settings.json as writeSettingsFile")
-
-	// The settings surface must not create .mcp.json.
-	assert.NoFileExists(t, filepath.Join(deliverDir, ".mcp.json"), "DeliverSettings must not write the MCP surface")
-
-	// Cleanup removes ctxloom hooks and the managed statusline.
-	require.NoError(t, handle.Cleanup())
-	data, err := os.ReadFile(filepath.Join(deliverDir, ".claude", "settings.json"))
-	require.NoError(t, err)
-	var settings map[string]any
-	require.NoError(t, json.Unmarshal(data, &settings))
-	assert.NotContains(t, settings, "hooks", "ctxloom hooks must be reverted")
-	assert.NotContains(t, settings, "statusLine", "managed statusline must be reverted")
-}
-
-// TestFileTemplateDelivery_DeliverSettings_PreservesUserHooks verifies a
-// pre-existing user hook survives delivery and cleanup while the ctxloom hook is
-// added and then reverted around it.
-func TestFileTemplateDelivery_DeliverSettings_PreservesUserHooks(t *testing.T) {
-	dir := t.TempDir()
-	claudeDir := filepath.Join(dir, ".claude")
-	require.NoError(t, os.MkdirAll(claudeDir, 0o755))
-	existing := map[string]any{
-		"hooks": map[string]any{
-			"PreToolUse": []any{
-				map[string]any{
-					"matcher": "Bash",
-					"hooks":   []any{map[string]any{"type": "command", "command": "./user-hook.sh"}},
-				},
-			},
-		},
-		"otherSetting": "preserved",
-	}
-	data, err := json.Marshal(existing)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0o644))
-
-	hooks := &wire.HooksConfig{
-		Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}}},
-	}
-	d := newFileTemplateDelivery(fakePlacement{dir: dir}, nil)
-	handle, err := d.DeliverSettings(hooks, true)
-	require.NoError(t, err)
-
-	require.NoError(t, handle.Cleanup())
-
-	out, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
-	require.NoError(t, err)
-	var settings map[string]any
-	require.NoError(t, json.Unmarshal(out, &settings))
-
-	assert.Equal(t, "preserved", settings["otherSetting"], "unrelated settings must survive")
-	hookMap, ok := settings["hooks"].(map[string]any)
-	require.True(t, ok, "user hook must survive cleanup")
-	require.Contains(t, hookMap, "PreToolUse")
-	pre := hookMap["PreToolUse"].([]any)
-	require.Len(t, pre, 1)
-	m := pre[0].(map[string]any)
-	inner := m["hooks"].([]any)
-	require.Len(t, inner, 1)
-	assert.Equal(t, "./user-hook.sh", inner[0].(map[string]any)["command"])
 }

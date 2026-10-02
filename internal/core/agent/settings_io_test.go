@@ -6,7 +6,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,16 +27,6 @@ func TestCtxloomCommand_IsBareName(t *testing.T) {
 	got := CtxloomCommand()
 	assert.Equal(t, "ctxloom", got, "a materialized surface names the bare executable, resolved on PATH at fire time")
 	assert.NotContains(t, got, string(os.PathSeparator), "no path component may reach a materialized surface")
-}
-
-func TestComputeHookHash(t *testing.T) {
-	h1 := wire.Hook{Command: "./test.sh", Matcher: "Bash"}
-	h2 := wire.Hook{Command: "./test.sh", Matcher: "Bash"}
-	h3 := wire.Hook{Command: "./other.sh", Matcher: "Bash"}
-
-	assert.Equal(t, ComputeHookHash(h1), ComputeHookHash(h2), "identical hooks → identical hash")
-	assert.NotEqual(t, ComputeHookHash(h1), ComputeHookHash(h3), "different hooks → different hash")
-	assert.Len(t, ComputeHookHash(h1), 16, "hash is 16 hex chars")
 }
 
 func TestAtomicWriteFile(t *testing.T) {
@@ -108,8 +97,8 @@ func TestAtomicWriteFile(t *testing.T) {
 
 	// safefs.WriteFileKeepMode had no len(data)==0 guard, so a caller that
 	// accidentally assembled zero bytes (an upstream bug, not an intentional
-	// removal — RemoveSettings/dropManaged callers go through fs.Remove, never
-	// through this path with empty data) silently truncated a live settings
+	// removal — removals go through fs.Remove, never through this path with
+	// empty data) silently truncated a live settings
 	// file to zero bytes and reported success. Refuse instead — the same
 	// "refuse to overwrite, never self-heal" posture corrupt-config handling
 	// already uses elsewhere.

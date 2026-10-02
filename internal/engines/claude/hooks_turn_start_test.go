@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -22,7 +23,7 @@ import (
 func writtenHooks(t *testing.T, cfg *wire.HooksConfig) map[string]any {
 	t.Helper()
 	tmpDir := t.TempDir()
-	require.NoError(t, (&ClaudeCodeHookWriter{}).WriteSettings(cfg, ctxloomBundleMCP(), tmpDir))
+	require.NoError(t, atRest(t, afero.NewOsFs(), tmpDir).Install(managedPackage(cfg, ctxloomBundleMCP())))
 	raw, err := os.ReadFile(filepath.Join(tmpDir, ".claude", "settings.json"))
 	require.NoError(t, err)
 	var settings map[string]any

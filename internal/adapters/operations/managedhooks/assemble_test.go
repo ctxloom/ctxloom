@@ -51,7 +51,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 // agent ends up with — host-assembled hooks (no context-injection) plus the
 // context-injection hook the agent appends itself — must equal the set
 // apply-hooks writes via Assemble(report.Reporter{}, cfg, wd, hash). Divergence here is
-// what lets WriteSettings' remove-then-add reconcile drop a managed hook.
+// what lets one writer's delivery withdraw a hook the other assembled.
 func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 	newCfg := func() *config.Config {
 		// Two profiles rather than a config block plus a profile: the seam this

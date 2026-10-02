@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
@@ -31,8 +32,7 @@ func TestWriteMCPConfig_PreservesForeignTopLevelKeys(t *testing.T) {
 }`
 	testsupport.WriteFileString(t, fs, path, original, 0o644)
 
-	w := &ClaudeCodeHookWriter{FS: fs}
-	require.NoError(t, w.writeMCPConfig(dir, nil))
+	require.NoError(t, atRest(t, fs, dir).Install(composite.Package{MCP: nil}))
 
 	out, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
@@ -59,8 +59,7 @@ func TestWriteMCPConfig_PreservesUnmodelledServerFields(t *testing.T) {
 }`
 	testsupport.WriteFileString(t, fs, path, original, 0o644)
 
-	w := &ClaudeCodeHookWriter{FS: fs}
-	require.NoError(t, w.writeMCPConfig(dir, nil))
+	require.NoError(t, atRest(t, fs, dir).Install(composite.Package{MCP: nil}))
 
 	out, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
@@ -88,11 +87,10 @@ func TestWriteMCPConfig_RemoteServerEntry(t *testing.T) {
 	dir := "/proj"
 	path := filepath.Join(dir, MCPFileName)
 
-	w := &ClaudeCodeHookWriter{FS: fs}
-	require.NoError(t, w.writeMCPConfig(dir, map[string]wire.MCPServer{
+	require.NoError(t, atRest(t, fs, dir).Install(composite.Package{MCP: map[string]wire.MCPServer{
 		"remote": {URL: "https://mcp.example.com/v1", Headers: map[string]string{"Authorization": "Bearer t"}},
 		"stdio":  {Command: "cmd", Args: []string{"a"}},
-	}))
+	}}))
 
 	out, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)

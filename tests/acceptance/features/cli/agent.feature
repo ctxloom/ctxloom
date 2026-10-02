@@ -310,10 +310,12 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "unknown flag: --auth"
       And the file ".ctxloom/config.yaml" does not contain "auth:"
 
-    # A binding written before the removal still carries `auth:`. The decode
-    # is lenient, so dropping it in silence would quietly move a binding that
-    # was written to share the login onto a token; it is refused instead,
-    # naming the token and where the human's own login is chosen now.
+    # A binding written before the removal still carries `auth:`. Every other
+    # unknown key warns and is ignored; this one is REFUSED, deliberately:
+    # ignored, a stale auth would silently change which credential the
+    # agent's runs use (a binding written to share the login would run on the
+    # token), and a warning scrolls past. The refusal names the token and
+    # where the human's own login is chosen now.
     Scenario: A binding still carrying auth is refused, naming the token and the top-level auth
       Given an initialized ctxloom project
       And the project already has the file ".ctxloom/config.yaml":

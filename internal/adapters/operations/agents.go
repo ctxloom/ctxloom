@@ -42,6 +42,25 @@ type AgentEntry struct {
 	// (session|host), as written; empty (undeclared) defaults to session at
 	// resolve time — see agents.Agent.HomeMode's doc.
 	HomeMode string `json:"engine_home,omitempty"`
+	// EnvHost and Env are the agent's declared env_host and env, as written
+	// (agents.Agent.EnvHost); nil EnvHost is undeclared, which inherits.
+	EnvHost *bool    `json:"env_host,omitempty"`
+	Env     []string `json:"env,omitempty"`
+}
+
+// agentEntry is the declared view of one binding.
+func agentEntry(name string, a agents.Agent) AgentEntry {
+	return AgentEntry{
+		Name:        name,
+		LLM:         a.LLM,
+		Profiles:    a.Profiles,
+		Runtime:     a.Runtime,
+		Permissions: a.Permissions,
+		Driving:     a.Driving,
+		HomeMode:    a.HomeMode,
+		EnvHost:     a.EnvHost,
+		Env:         a.Env,
+	}
 }
 
 // ListAgents returns every locally-defined agent (the `agents:` config key),
@@ -51,15 +70,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 	subs := cfg.LoadAgents()
 	out := make([]AgentEntry, 0, len(subs))
 	for _, s := range subs {
-		out = append(out, AgentEntry{
-			Name:        s.Name,
-			LLM:         s.LLM,
-			Profiles:    s.Profiles,
-			Runtime:     s.Runtime,
-			Permissions: s.Permissions,
-			Driving:     s.Driving,
-			HomeMode:    s.HomeMode,
-		})
+		out = append(out, agentEntry(s.Name, s))
 	}
 	return out
 }
@@ -74,15 +85,8 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", name)
 	}
-	return &AgentEntry{
-		Name:        sub.Name,
-		LLM:         sub.LLM,
-		Profiles:    sub.Profiles,
-		Runtime:     sub.Runtime,
-		Permissions: sub.Permissions,
-		Driving:     sub.Driving,
-		HomeMode:    sub.HomeMode,
-	}, nil
+	e := agentEntry(sub.Name, sub)
+	return &e, nil
 }
 
 // SetAgentRequest is the input for SetAgent: the binding to add or update
@@ -131,6 +135,14 @@ type SetAgentRequest struct {
 	// is persisted) — the same treatment Surfaces gets, and for the same
 	// reason: see agents.Agent.HomeMode's doc.
 	HomeMode *string `json:"engine_home,omitempty"`
+	// EnvHost sets env_host: false curates the host environment the engine
+	// inherits on the HOST runtime (agents.Agent.EnvHost).
+	EnvHost *bool `json:"env_host,omitempty"`
+	// Env sets the bare names whose host values pass through when env_host
+	// is false; an empty list clears them. The RESULTING binding is
+	// validated (agents.EnvHost.Validate), so env under env_host true and a
+	// NAME=value entry are refused and nothing is persisted.
+	Env *[]string `json:"env,omitempty"`
 }
 
 // orKeep dereferences an optional request field: nil means "the caller did not
@@ -520,13 +532,14 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
 		entry.HomeMode = orKeep(req.HomeMode, entry.HomeMode)
+		entry = withEnvHost(entry, req)
 		// Checked against the record the write RESULTS IN, inside the
 		// transaction, for the same reason the surface preference is: a
 		// create with no --llm/--profiles and an edit that clears the last of
 		// them both land here, and returning abandons the Update so the live
 		// binding (if any) survives untouched.
-		if entry.LLM == "" && len(entry.Profiles) == 0 {
-			return fmt.Errorf("agent %q: %w", name, ErrAgentWithoutEngine)
+		if err := checkWrittenAgent(name, entry); err != nil {
+			return err
 		}
 		d.Agents[name] = entry
 		return nil
@@ -534,15 +547,34 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 	if err != nil {
 		return nil, fmt.Errorf("save agent %q: %w", name, err)
 	}
-	return &AgentEntry{
-		Name:        name,
-		LLM:         entry.LLM,
-		Profiles:    entry.Profiles,
-		Runtime:     entry.Runtime,
-		Permissions: entry.Permissions,
-		Driving:     entry.Driving,
-		HomeMode:    entry.HomeMode,
-	}, nil
+	written := agentEntry(name, entry)
+	return &written, nil
+}
+
+// withEnvHost applies the request's env_host and env to entry; a nil field
+// keeps what is recorded.
+func withEnvHost(entry agents.Agent, req SetAgentRequest) agents.Agent {
+	if req.EnvHost != nil {
+		on := *req.EnvHost
+		entry.EnvHost = &on
+	}
+	if req.Env != nil {
+		entry.Env = slices.Clone(*req.Env)
+	}
+	return entry
+}
+
+// checkWrittenAgent refuses a record that cannot launch as written: one with
+// no engine to bind, and one whose env_host and env would not do what they
+// say (agents.EnvHost.Validate).
+func checkWrittenAgent(name string, entry agents.Agent) error {
+	if entry.LLM == "" && len(entry.Profiles) == 0 {
+		return fmt.Errorf("agent %q: %w", name, ErrAgentWithoutEngine)
+	}
+	if err := entry.HostEnv().Validate(); err != nil {
+		return fmt.Errorf("agent %q: %w", name, err)
+	}
+	return nil
 }
 
 // RemoveAgent deletes a LOCAL agent from the `agents:` config key, inside one

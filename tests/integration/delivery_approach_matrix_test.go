@@ -245,7 +245,6 @@ var matrixSpecs = map[string]deliverySpec{
 	// than falling back to the project file — the fallback IS the defect.
 	"claude-code/mcp/mcp-config":       {wantFile: ".mcp.json", wantSlot: slotMCPCmd, underEngineHome: true},
 	"claude-code/settings/unsafe-file": {wantFile: ".claude/settings.json", wantSlot: slotHook},
-	"claude-code/settings/hew-record":  {wantFile: "settings.json", wantSlot: slotHook, underEngineHome: true},
 	"claude-code/commands/unsafe-file": {wantFile: ".claude/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
 	"claude-code/skills/unsafe-file":   {wantFile: ".claude/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
@@ -426,8 +425,12 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 					root := "/cell"
 					require.NoError(t, fs.MkdirAll(root, 0o755))
 
-					d, ok := decl.Construct(k, a, matrixSentinelInputs(), fs)
+					form, ok := decl.Construct(k, a, matrixSentinelInputs(), fs)
 					require.True(t, ok, "%s: declared but Construct refused it", key)
+					d, delivers := form.(agent.Delivery)
+					if !delivers {
+						t.Skipf("%s only presents: its bytes are the typed approach's claims through the static writer (delivery_approach_bearer_test, fsstatic)", key)
+					}
 
 					if spec.noOp != "" {
 						if d != nil {
@@ -560,7 +563,7 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	a, ok := claudeDeclaration(t).Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 	require.True(t, ok)
 
-	handle, err := a.Deliver(present.New(present.OnHost(present.Paths{
+	handle, err := a.(agent.Delivery).Deliver(present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: root},
 		SessionHome: present.Root{Host: private},
 	})))
@@ -595,7 +598,7 @@ func TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun(t *testing.T) {
 	a, ok := claudeDeclaration(t).Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 	require.True(t, ok)
 
-	_, err := a.Deliver(present.ProjectOnHost(root))
+	_, err := a.(agent.Delivery).Deliver(present.ProjectOnHost(root))
 	require.Error(t, err, "an unrooted run must be refused, never served the project file")
 	assert.ErrorIs(t, err, agent.ErrUnrootedSessionHome)
 	assert.Empty(t, matrixTree(t, fs, root), "a refused delivery must write zero files")

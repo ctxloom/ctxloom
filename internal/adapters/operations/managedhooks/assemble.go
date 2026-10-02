@@ -88,11 +88,10 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 // Both writers route through this — the `ctxloom run` setup payload
 // (AssembleManagedConfig, which passes contextHash "" so the agent appends its
 // own injection hook) and operations.ApplyHooks (which passes the resolved
-// hash). WriteSettings reconciles by removing ALL ctxloom hooks and re-adding
-// only the writer's assembled set, so any divergence between the writers
-// silently drops whatever one assembled but the other didn't — the failure
-// class that once broke forward-bind. Keeping the full assembly here guarantees
-// both writers produce an identical, complete set.
+// hash). A hook one writer assembled and the other did not is withdrawn by the
+// next delivery of the other — the failure class that once broke
+// forward-bind. Keeping the full assembly here guarantees both writers produce
+// an identical, complete set.
 //
 // Returns a fresh Hooks each call (never aliases cfg.Hooks), so callers
 // that invoke it in a loop — e.g. apply-hooks across every backend — cannot

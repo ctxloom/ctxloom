@@ -333,8 +333,8 @@ func encodeCell(c launch.Cell) *pb.Cell {
 		UnsetEnv:    c.Unset,
 		SecretFiles: c.SecretFiles,
 	}
-	if c.HostEnv.Curated {
-		out.HostEnv = &pb.HostEnv{Curated: true, Passthrough: c.HostEnv.Passthrough}
+	if c.EnvHost.Curated {
+		out.EnvHost = &pb.EnvHost{Curated: true, Env: c.EnvHost.Env}
 	}
 	return out
 }
@@ -347,7 +347,7 @@ func decodeCell(w *pb.Cell) launch.Cell {
 			Home:        decodeHome(w.GetHome()),
 			Unset:       w.GetUnsetEnv(),
 			SecretFiles: w.GetSecretFiles(),
-			HostEnv:     agents.HostEnv{Curated: w.GetHostEnv().GetCurated(), Passthrough: w.GetHostEnv().GetPassthrough()},
+			EnvHost:     agents.EnvHost{Curated: w.GetEnvHost().GetCurated(), Env: w.GetEnvHost().GetEnv()},
 		},
 		Workspace: w.GetWorkspace(),
 	}

@@ -152,7 +152,12 @@ func TestOpen_WithEngines_ValidatesEveryGeneration(t *testing.T) {
 // authenticates with the token. A binding still carrying `auth:` -- any
 // value, the retired api-key and cloud and the human's login among them -- is
 // refused at load, typed, naming the token and where the human's own login
-// is chosen instead; never dropped in silence by the lenient decode.
+// is chosen instead.
+//
+// WHY A REFUSAL AND NOT THE WARNING every other unknown key gets: ignored,
+// a stale `auth:` would silently change which credential the agent's runs
+// use (a binding written to share the login would run on the token), and a
+// warning scrolls past. This is the deliberate exception for review.
 func TestParseConfig_RefusesAnAgentAuthKey(t *testing.T) {
 	for _, mode := range []string{"login", "api-key", "cloud", "token"} {
 		_, err := config.ParseConfig([]byte("version: 6\nagents:\n  dev:\n    profiles: [base]\n    auth: " + mode + "\n"))

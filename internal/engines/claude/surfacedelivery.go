@@ -4,23 +4,15 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // fileTemplateDelivery is claude's file-template delivery strategy for the
-// CWD-BOUND surfaces — MCP (.mcp.json), commands (.claude/commands/), and settings
-// (.claude/settings.json). Each surface must be materialized where the engine
-// already looks (a project-rooted config file), so this strategy holds a cwd
-// Placement and writes into place.Dir(). Every DeliverX delegates to claude's
-// EXISTING writer targeted at that directory and returns a Delivered whose
-// Cleanup reverts exactly what that call wrote — ctxloom-owned entries removed,
-// user-authored entries preserved on the marker-merged surfaces.
-//
-// It is the writer behind claude's MCP, commands and settings approaches;
-// per the delivery-seam design the Delivered handles it
-// returns undo the write.
+// commands surface (.claude/commands/), which must be materialized where the
+// engine already looks, so it holds a cwd placement and writes into
+// place.Dir(). DeliverCommands returns a Delivered whose Cleanup reverts
+// exactly the manifest-tracked set it wrote.
 type fileTemplateDelivery struct {
 	place placement
 	fs    afero.Fs
@@ -28,20 +20,10 @@ type fileTemplateDelivery struct {
 	// GlobalCommandsDir()/WithHomeCommandsDir dedup so every command lands in
 	// the target regardless of what happens to exist in the delivering
 	// machine's ~/.claude/commands. Only commandsSurface.Deliver ever sets this
-	// (from agent.SurfaceInputs.SelfContainedCommands, materialize's opt-out)
-	// — it is irrelevant to DeliverMCP/DeliverSettings and left false
-	// everywhere else.
+	// (from agent.SurfaceInputs.SelfContainedCommands, materialize's opt-out).
 	selfContainedCommands bool
 	// reporter is where WriteCommandFiles reports the commands it skips.
 	reporter report.Sink
-	// denyTools, when non-empty, is unioned into the settings surface's
-	// permissions.deny (see writeSettingsFile / mergeDenyTools). Only
-	// settingsSurface.Deliver sets this (from
-	// SurfaceInputs.DenyTools) — irrelevant to DeliverMCP/DeliverCommands and
-	// left nil everywhere else. Kept as a receiver field (not a
-	// DeliverSettings parameter) so DeliverSettings's signature stays
-	// untouched.
-	denyTools []string
 }
 
 // newFileTemplateDelivery constructs the file-template strategy writing into
@@ -49,21 +31,6 @@ type fileTemplateDelivery struct {
 // settings/context writers so delivery and cleanup share one fs mechanism.
 func newFileTemplateDelivery(place placement, fs afero.Fs) *fileTemplateDelivery {
 	return &fileTemplateDelivery{place: place, fs: agent.GetFS(fs)}
-}
-
-// DeliverMCP materializes the MCP surface by delegating to writeMCPConfig
-// targeted at place.Dir(): it merges ctxloom's own server, the profile+builtin
-// bundle servers, and the unified/backend servers into .mcp.json, preserving any
-// user-authored servers. Cleanup reverts via removeMCPConfig, which strips the
-// ctxloom-marked servers back out while leaving user servers in place.
-// reprise:accept-drift
-func (d *fileTemplateDelivery) DeliverMCP(bundle map[string]wire.MCPServer) (agent.Delivered, error) {
-	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs, Reporter: d.reporter}
-	if err := w.writeMCPConfig(dir, bundle); err != nil {
-		return nil, err
-	}
-	return agent.DeliveredFunc(func() error { return w.removeMCPConfig(dir) }), nil
 }
 
 // DeliverCommands materializes the commands surface by delegating to
@@ -105,25 +72,4 @@ func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (
 	return agent.DeliveredFunc(func() error {
 		return WriteCommandFiles(dir, nil, opts...)
 	}), nil
-}
-
-// DeliverSettings materializes the settings surface (hooks + statusline +
-// deny_tools) by delegating to writeSettingsFile targeted at place.Dir(): it
-// replaces ctxloom-managed hooks, (re)configures the managed statusline, and
-// unions d.denyTools into permissions.deny in .claude/settings.json,
-// preserving user-authored entries. manageStatusline maps to the writer's
-// statusLineDisabled inverse — when false the managed statusline is cleared
-// rather than set. Cleanup reverts via removeSettingsFile, which strips the
-// ctxloom hooks and managed statusline while leaving user entries in place —
-// including permissions.deny, which is deliberately NEVER retracted (see
-// mergeDenyTools's doc: a denial can only be safely added, never
-// auto-removed). This surface never touches .mcp.json (that is DeliverMCP's
-// surface).
-func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageStatusline bool) (agent.Delivered, error) {
-	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs, Reporter: d.reporter, statusLineDisabled: !manageStatusline}
-	if err := w.writeSettingsFile(hooks, d.denyTools, dir); err != nil {
-		return nil, err
-	}
-	return agent.DeliveredFunc(func() error { return w.removeSettingsFile(dir) }), nil
 }

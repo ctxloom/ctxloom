@@ -159,13 +159,13 @@ type configWriteResult struct {
 // filesystem.
 //
 // The read-modify-write span against file — readExisting through
-// verifyConfigWrite — runs under agent.WithFileLock: config-write is, by its
+// verifyConfigWrite — runs under sessions.WithFileLock: config-write is, by its
 // own doc, "the ONE tested command that performs the dangerous filesystem
 // mechanics of editing a THIRD-PARTY config file correctly", and until this
 // fix (D7 remainder, N3 in the fs-consolidation closing verification) it was
 // the one settings-family RMW that wasn't actually locked, racing any
-// concurrent write to the same target from ctxloom's own SettingsWriter
-// family. Everything upstream (validating --file, resolving the filetype,
+// concurrent write to the same target from ctxloom's own static writer
+// (fsstatic's batch). Everything upstream (validating --file, resolving the filetype,
 // reading and decoding the stdin patch) touches neither file nor its lock, so
 // it stays outside the critical section — this is one process, one
 // invocation, start to finish, so there is no cross-process-boundary gap for

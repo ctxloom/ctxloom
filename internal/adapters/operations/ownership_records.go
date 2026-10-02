@@ -11,7 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
 // OwnershipRecords is the ONE ownership record every static delivery on
@@ -32,34 +31,6 @@ func OwnershipRecordsOn(fs afero.Fs) (delivery.Ownership, error) {
 	return fsstatic.NewRecords(fs, dir)
 }
 
-// ProjectPlan routes items for an AT-REST delivery into a project root:
-// every kind the engine's approach offers there is selected there; a kind
-// the engine does not carry is an accepted loss the caller reports. A kind
-// the engine carries but offers nowhere the project target has is
-// Unrootable — refused with the remedy, never rerouted. A caller that wants
-// a kind left out (the context an engine reads through its session-start
-// hook) hands over items without it.
-func ProjectPlan(root engine.Base, items engine.Items, dir string) (delivery.Plan, error) {
-	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{}, AcceptLoss: map[present.Kind]bool{}}
-	surfaces := root.Surfaces()
-	for _, kind := range []present.Kind{present.Context, present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills} {
-		a, carried := surfaces[kind]
-		switch {
-		case !carried:
-			pref.AcceptLoss[kind] = true
-		case a.Traits().Offers(present.RootProjectRoot):
-			pref.Root[kind] = present.RootProjectRoot
-		}
-	}
-	return delivery.Route(items, root, pref, present.ProjectOnHost(dir).Paths())
-}
-
-// ProjectTarget is the at-rest target: the project root under the project
-// writer, recorded in records.
-func ProjectTarget(dir string, records delivery.Ownership) delivery.Target {
-	return delivery.Target{Root: present.ProjectOnHost(dir), Ownership: records, Writer: delivery.ProjectWriter}
-}
-
 // DeliverProject delivers pkg at rest into dir through the ONE static
 // writer: materialize, and the harness install, are this call.
 func DeliverProject(ctx context.Context, fs afero.Fs, kind engine.Engine, pkg composite.Package, dir string) (delivery.Delivered, delivery.Plan, error) {
@@ -69,7 +40,7 @@ func DeliverProject(ctx context.Context, fs afero.Fs, kind engine.Engine, pkg co
 	if err != nil {
 		return delivery.Delivered{}, delivery.Plan{}, fmt.Errorf("%s exports: %w", root.Name, err)
 	}
-	plan, err := ProjectPlan(root, items, dir)
+	plan, err := delivery.ProjectPlan(root, items, dir)
 	if err != nil {
 		return delivery.Delivered{}, delivery.Plan{}, err
 	}
@@ -78,7 +49,7 @@ func DeliverProject(ctx context.Context, fs afero.Fs, kind engine.Engine, pkg co
 		return delivery.Delivered{}, delivery.Plan{}, err
 	}
 	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: dir}
-	d, err := fsstatic.New(fs).Deliver(ctx, lo, root, ProjectTarget(dir, records))
+	d, err := fsstatic.New(fs).Deliver(ctx, lo, root, delivery.ProjectTarget(dir, records))
 	return d, plan, err
 }
 
@@ -89,6 +60,6 @@ func RemoveProject(ctx context.Context, fs afero.Fs, kind engine.Engine, dir str
 	if err != nil {
 		return err
 	}
-	_, err = fsstatic.New(fs).Deliver(ctx, delivery.Loadout{WorkDir: dir}, kind.Root(), ProjectTarget(dir, records))
+	_, err = fsstatic.New(fs).Deliver(ctx, delivery.Loadout{WorkDir: dir}, kind.Root(), delivery.ProjectTarget(dir, records))
 	return err
 }

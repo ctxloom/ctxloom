@@ -564,19 +564,19 @@ func TestCellsPrepare_APreviewResolvesCredentialsReadOnly(t *testing.T) {
 	})
 }
 
-// The binding's host_env reaches the host cell the run is launched in: the
+// The binding's env_host and env keys reach the host cell the run is launched in: the
 // cell carries it (with the engine's own home var kept) for the runner to
 // apply.
-func TestCellsPrepare_TheHostCellCarriesTheBindingsHostEnv(t *testing.T) {
+func TestCellsPrepare_TheHostCellCarriesTheBindingsEnvHost(t *testing.T) {
 	resetStrictness(t)
 	fakeHostHome(t, "")
 	t.Setenv(claude.OAuthTokenEnv, tokenFixture)
 	req := claudeKind(t)
 	req.ProjectRoot = t.TempDir()
 	req.SessionDir = harpDir(t, "test-harp")
-	req.HostEnv = agents.HostEnv{Curated: true, Passthrough: []string{"GITHUB_TOKEN"}}
+	req.EnvHost = agents.EnvHost{Curated: true, Env: []string{"GITHUB_TOKEN"}}
 	cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cell.Cleanup() })
-	assert.Equal(t, agents.HostEnv{Curated: true, Passthrough: []string{"GITHUB_TOKEN", claude.ConfigDirEnv}}, cell.HostEnv)
+	assert.Equal(t, agents.EnvHost{Curated: true, Env: []string{"GITHUB_TOKEN", claude.ConfigDirEnv}}, cell.EnvHost)
 }

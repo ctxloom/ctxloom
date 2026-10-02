@@ -49,3 +49,42 @@ func TestAssertProbeContainer_PassesWithReads(t *testing.T) {
 		t.Error("expected the ENOENT row to be detected as a failed (probed-not-found) read")
 	}
 }
+
+// A container's mount destinations show in `docker diff` only as the stub
+// directories the runtime made to mount onto (writes into a bind mount never
+// reach the writable layer), and `--init` puts the runtime's init binary in
+// the image's sbin. None of it is a write the engine made. This is the shape
+// a live claude-code container-rootless cell produced: the instance home,
+// the trace dir and the secret mount among its mounts.
+func TestProbeContainerUnexpected_MountStubsAndRuntimeInitAreNotWrites(t *testing.T) {
+	diff := []string{
+		"A /ctxloom-probe-trace",
+		"A /tmp/ctxloom-integration-1/project",
+		"A /ctxloom", "A /ctxloom/home", "A /ctxloom/home/claude",
+		"C /home", "C /home/ctxloom", "A /home/ctxloom/.claude",
+		"C /usr", "C /usr/sbin", "A /usr/sbin/docker-init",
+		"C /run", "A /run/ctxloom", "A /run/ctxloom/secrets",
+	}
+	mounts := []string{"/ctxloom/home/claude", "/ctxloom-probe-trace", "/tmp/ctxloom-integration-1/project", "/run/ctxloom/secrets"}
+
+	if got := probeContainerUnexpected(diff, "/home/ctxloom", mounts); len(got) != 0 {
+		t.Fatalf("mount stubs and the runtime's init were reported as engine writes: %v", got)
+	}
+}
+
+// A mount exempts its own stub and the directories above it, never a sibling
+// or a path that merely shares its prefix: a write there IS a leak.
+func TestProbeContainerUnexpected_WritesBesideAMountAreStillLeaks(t *testing.T) {
+	diff := []string{
+		"A /ctxloom/home/claude",
+		"A /ctxloom/leak.txt",
+		"A /ctxloom/home/claude-other",
+		"A /usr/sbin/other",
+		"A /home/someone/x",
+	}
+	got := probeContainerUnexpected(diff, "/home/ctxloom", []string{"/ctxloom/home/claude"})
+	want := []string{"A /ctxloom/leak.txt", "A /ctxloom/home/claude-other", "A /usr/sbin/other", "A /home/someone/x"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected writes = %v, want %v", got, want)
+	}
+}

@@ -406,6 +406,10 @@ func listRelFiles(root string) []string {
 type probeContainerSnapshot struct {
 	Name string
 	Diff []string // "A /path", "C /path", "D /path" — paths only, never content
+	// Mounts are the container's mount destinations, read while it runs. A
+	// write into a mount never reaches the writable layer, so `docker diff`
+	// shows a mount only as the stub directory the runtime made for it.
+	Mounts []string
 }
 
 // watchContainerDiff waits for a container named "ctxloom-iso-*"
@@ -420,6 +424,7 @@ func watchContainerDiff(ctx context.Context, runtimeBin string) <-chan probeCont
 		name := waitForContainerName(ctx, runtimeBin)
 		if name != "" {
 			snap.Name = name
+			snap.Mounts = dockerMounts(runtimeBin, name)
 			ticker := time.NewTicker(40 * time.Millisecond)
 			defer ticker.Stop()
 		loop:
@@ -505,6 +510,17 @@ func dockerDiff(runtimeBin, name string) ([]string, error) {
 	return lines, nil
 }
 
+// dockerMounts lists name's mount destinations, nil when the container cannot
+// be inspected (gone already): (d) then reports the stubs, loudly, rather
+// than exempting anything it could not see.
+func dockerMounts(runtimeBin, name string) []string {
+	out, err := exec.Command(runtimeBin, "inspect", "--format", "{{range .Mounts}}{{println .Destination}}{{end}}", name).Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
+}
+
 // containerBootstrapAllowlist names the paths Docker itself (not the engine,
 // not ctxloom) always writes into a fresh container's writable layer at
 // start — /etc/hostname, /etc/hosts, /etc/resolv.conf carry the container's
@@ -525,14 +541,25 @@ var containerBootstrapAllowlist = []string{
 	"/home/ctxloom/.cache",
 	"/home/ctxloom/.npm",
 	"/home/ctxloom/.config/configstore",
+	// The runtime's init, placed by `--init` (isolation's initArgs): /sbin is
+	// /usr/sbin on a merged-usr image.
+	"/sbin/docker-init",
+	"/usr/sbin/docker-init",
 }
 
 // probeContainerUnexpected filters a docker-diff path list down to entries
 // NOT under the container's fresh HOME (containerHome, expected: engine
-// config-home writes) and not in containerBootstrapAllowlist — the enumerated
-// "nowhere else" check assertion (d) is built on. Each returned entry is the
-// RAW docker-diff line ("A /path" etc.), paths only.
-func probeContainerUnexpected(diff []string, containerHome string) []string {
+// config-home writes), not one of the container's mount stubs (mounts), and
+// not in containerBootstrapAllowlist — the enumerated "nowhere else" check
+// assertion (d) is built on. Each returned entry is the RAW docker-diff line
+// ("A /path" etc.), paths only.
+func probeContainerUnexpected(diff []string, containerHome string, mounts []string) []string {
+	// The directories above every expected path always show as Added or
+	// Changed the instant anything is created under them — the runtime making
+	// a mount point, or a parent's metadata changing — not a write anyone made
+	// TO them. EXACT ancestors only (never a prefix match): "/home" must not
+	// allow "/home/someOtherUser/..." — a real leak would land there.
+	expected := append(append([]string{containerHome}, mounts...), containerBootstrapAllowlist...)
 	var out []string
 	for _, line := range diff {
 		parts := strings.SplitN(line, "\t", 2)
@@ -542,34 +569,13 @@ func probeContainerUnexpected(diff []string, containerHome string) []string {
 		} else if i := strings.IndexByte(line, ' '); i > 0 {
 			path = line[i+1:]
 		}
-		if strings.HasPrefix(path, containerHome) {
+		if path == containerHome || strings.HasPrefix(path, containerHome+"/") || slices.Contains(mounts, path) {
 			continue
 		}
-		// The read-observation instrument bind-mounts its trace dir here; it
-		// surfaces in `docker diff` as a fresh writable-layer path but is the
-		// PROBE's own scaffolding, not an engine write — never a leak. Excluding
-		// it keeps the instrument from corrupting the very write-census (d)
-		// asserts on (the measurement-debris failure mode).
-		if path == isolation.ProbeTraceContainerDir || strings.HasPrefix(path, isolation.ProbeTraceContainerDir+"/") {
+		if slices.ContainsFunc(expected, func(e string) bool { return isAncestorOf(path, e) }) {
 			continue
 		}
-		// containerHome's own ancestor directories (e.g. "/home", the
-		// parent of "/home/ctxloom") always show as Changed ("C") the
-		// instant anything is created under them — a parent-directory
-		// metadata change, not a write anyone made TO that ancestor. EXACT
-		// match only (never a prefix match): "/home" must not accidentally
-		// allow "/home/someOtherUser/..." — a real leak would land there.
-		if isAncestorOf(path, containerHome) {
-			continue
-		}
-		allowed := false
-		for _, a := range containerBootstrapAllowlist {
-			if path == a || strings.HasPrefix(path, a+"/") {
-				allowed = true
-				break
-			}
-		}
-		if allowed {
+		if slices.ContainsFunc(containerBootstrapAllowlist, func(a string) bool { return path == a || strings.HasPrefix(path, a+"/") }) {
 			continue
 		}
 		out = append(out, line)
@@ -872,7 +878,7 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 	res.ExitCode = probeExitCode(runErr)
 
 	res.ContainerHome = "/home/ctxloom" // defaultContainerHome, internal/adapters/isolation/container.go
-	res.Unexpected = probeContainerUnexpected(res.Container.Diff, res.ContainerHome)
+	res.Unexpected = probeContainerUnexpected(res.Container.Diff, res.ContainerHome, res.Container.Mounts)
 
 	// Parse the strace output the wrapped engine exec wrote INTO the bind-mounted
 	// host dir. Unlike the docker-diff race, this file is written from inside and

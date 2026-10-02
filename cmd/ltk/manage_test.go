@@ -15,7 +15,7 @@ import (
 
 // writeFile's target is the user's real .claude/settings.json /
 // .agents/hooks.json — files holding unrelated configuration. An engine bug
-// returning zero bytes must not be made durable: iox.WriteFileAtomic would
+// returning zero bytes must not be made durable: safefs.WriteFile would
 // faithfully commit the truncation and the caller would print "installed".
 func TestWriteFile_RefusesToTruncateSettingsToZeroBytes(t *testing.T) {
 	dir := t.TempDir()

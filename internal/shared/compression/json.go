@@ -174,6 +174,14 @@ func (c *JSONCompressor) isHighEntropy(s string) bool {
 		return false
 	}
 
+	// An identifier, hash, token or encoded blob never contains whitespace;
+	// prose always does. This test, not the entropy score, is what separates
+	// them: normalized entropy rates an evenly mixed English sentence (~0.9)
+	// as high as a real UUID, so no EntropyThreshold can tell the two apart.
+	if strings.ContainsFunc(s, unicode.IsSpace) {
+		return false
+	}
+
 	// Count unique characters
 	unique := make(map[rune]bool)
 	for _, r := range s {

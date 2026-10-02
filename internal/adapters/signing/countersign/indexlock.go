@@ -2,13 +2,9 @@ package countersign
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-
-	"github.com/gofrs/flock"
-	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 )
 
 // WHY THIS FILE EXISTS, in one sentence: every write in this package is
@@ -23,7 +19,7 @@ import (
 //
 // The sidecar index is the exception. AppendIndex and ForgetIndex both read
 // the whole file, change it, and write the whole file back. The write goes
-// through iox.WriteFileAtomicFs, which guarantees a reader never sees a TORN
+// through safefs.WriteFile, which guarantees a reader never sees a TORN
 // file — and guarantees nothing whatsoever about writer B having read the
 // index before writer A's rename landed and then rewriting it without A's
 // entry. MEASURED against this package before the lock existed: 20 concurrent
@@ -41,20 +37,12 @@ import (
 // just the write: a lock taken after the read protects nothing, because the
 // stale read has already happened.
 //
-// LOCKING IS SKIPPED FOR A NON-OS FILESYSTEM. A lock exists to exclude other
-// PROCESSES, and a test double (afero.MemMapFs and friends) has none — while
-// composing a lock path from one of its often-nonexistent, often-unwritable
-// paths and asking the REAL operating system to create and flock it would
-// touch actual disk at an address the test never intended. Same reasoning,
-// same shape, as agent.WithFileLock's own isOSBackedFs gate.
-//
-// AN ACQUISITION FAILURE FAILS THE CALL. flock.Lock blocks on ordinary
-// contention rather than erroring, so an error here is a persistent
-// environmental fault; proceeding unlocked on it would silently discard the
-// one guarantee this function exists to provide, which is precisely the
-// "advisory lock present but dead" shape that let tall-nanny's config Save()
-// lose 13 of 20 writes while looking protected in review. The index is left
-// untouched on that path — fn never runs.
+// The acquisition is filelock.WithLock, the toolbox's one advisory lock, so
+// this lock behaves as every other blocking lock in the tree does: skipped for
+// a non-OS filesystem (a test double has no other process to exclude), failed
+// closed on an acquisition error (fn never runs), and reported through
+// lockwait when the wait runs long — the one lock that serializes recorded
+// approvals and rejections must not be the one that blocks silently.
 //
 // KNOWN LIMIT: the lock is keyed in the CALLING USER's home lock directory,
 // so two UNIX accounts sharing one project's approvals store do not exclude
@@ -62,22 +50,14 @@ import (
 // indexLockPath) and is a strictly smaller exposure than the unlocked state
 // this replaces, which excluded nobody at all.
 func (s *Store) lockedIndexUpdate(fn func() error) error {
-	if _, osBacked := s.fs.(*afero.OsFs); !osBacked {
+	if !filelock.IsOSBackedFs(s.fs) {
 		return fn()
 	}
 	lockPath, err := indexLockPath(s.indexPath())
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
-		return fmt.Errorf("countersignature index lock: preparing %s: %w", filepath.Dir(lockPath), err)
-	}
-	fl := flock.New(lockPath)
-	if err := fl.Lock(); err != nil {
-		return fmt.Errorf("countersignature index lock: acquiring %s: %w", lockPath, err)
-	}
-	defer func() { _ = fl.Unlock() }()
-	return fn()
+	return filelock.WithLock(s.fs, lockPath, fn)
 }
 
 // indexLockPath names the advisory lock guarding index, in ~/.ctxloom/locks.

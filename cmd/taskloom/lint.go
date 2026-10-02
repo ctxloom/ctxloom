@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -33,6 +33,8 @@ default) so the check always matches what THIS project actually declares:
     task (shouldn't happen once a task is only ever tagged through taskloom —
     the write-seam already collapses those — but foreign or hand-edited log
     data might still carry it)
+  - a stored tag that does not parse as a tag at all (reads skip such a tag
+    rather than fail, so this is where it shows up)
 
 Lint never blocks a write; it is READ-TIME. But it is a BACKSTOP, not the only
 check: taskloom's write seam already refuses an out-of-enum or out-of-range
@@ -72,16 +74,17 @@ func runLintCmd(out io.Writer, tc operations.TaskContext, format clifmt.Format) 
 			return err
 		}
 	} else {
-		w := iox.NewErrWriter(out)
+		w := errwriter.New(out)
+		// Some checks are not scoped by a declared target, so violations can
+		// coexist with zero checked targets: the note never replaces them.
 		switch {
 		case result.CheckedTargets == 0:
 			w.Println("0 targets checked — this project's tag_schema declares no enum/range facets for lint to check")
 		case len(violations) == 0:
 			w.Println("no triage-standard violations found")
-		default:
-			for _, v := range violations {
-				w.Printf("%s: %s\n", v.HarpID, v.Reason)
-			}
+		}
+		for _, v := range violations {
+			w.Printf("%s: %s\n", v.HarpID, v.Reason)
 		}
 		if err := w.Err(); err != nil {
 			return err

@@ -256,6 +256,7 @@ func agentProject(t *testing.T, configYAML string) string {
 	t.Helper()
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".ctxloom"), 0o755))
+	provisionApprovals(t, filepath.Join(root, ".ctxloom"))
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".ctxloom", "config.yaml"), []byte(configYAML), 0o644))
 	chdir(t, root)
 	resetApp()

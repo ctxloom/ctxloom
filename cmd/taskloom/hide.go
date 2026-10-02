@@ -9,8 +9,7 @@ import (
 // hideConfigFor builds a tagma.HideConfig from tc's resolved tag-schema
 // (its tagma.hide:<target>=<bool> declarations, tagschema.Schema.HideFacts)
 // via tagma.HideConfigFromPatterns — the display-time hide config every
-// listing site (renderTaskTable, renderTaskDetail, `taskloom tags`) filters
-// a task's tags through before printing them.
+// human-readable site that prints a task's tags filters them through.
 //
 // tc.TagSchema == nil (no config resolved at all) passes an empty fact set;
 // tagma.HideConfigFromPatterns still seeds its own implicit default from

@@ -64,7 +64,7 @@ bundles:
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "profile2.yaml"), []byte(profile2), 0644))
 
 	loader := NewLoader([]string{tmpDir})
-	profiles, err := loader.List()
+	profiles, _, err := loader.List()
 	require.NoError(t, err)
 
 	assert.Len(t, profiles, 2)
@@ -89,7 +89,7 @@ func TestLoader_List_WithSubdirectories(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "remote.yaml"), []byte("description: remote"), 0644))
 
 	loader := NewLoader([]string{tmpDir})
-	profiles, err := loader.List()
+	profiles, _, err := loader.List()
 	require.NoError(t, err)
 
 	assert.Len(t, profiles, 2)
@@ -107,14 +107,14 @@ func TestLoader_List_EmptyDir(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	loader := NewLoader([]string{tmpDir})
-	profiles, err := loader.List()
+	profiles, _, err := loader.List()
 	require.NoError(t, err)
 	assert.Empty(t, profiles)
 }
 
 func TestLoader_List_NonexistentDir(t *testing.T) {
 	loader := NewLoader([]string{"/nonexistent/path"})
-	profiles, err := loader.List()
+	profiles, _, err := loader.List()
 	require.NoError(t, err)
 	assert.Empty(t, profiles)
 }

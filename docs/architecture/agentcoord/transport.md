@@ -115,6 +115,18 @@ it is not inferred from scattered call sites:
   coordinator listen on the host's primary address, which is LAN-visible, so
   a bearer crosses a LAN-visible socket in the clear whenever such a child
   reaches back over it.
+- **What is listened on, and what bounds it.** `coordServing` never binds
+  `0.0.0.0`. A plain host session binds loopback and nothing else
+  (`TestServe_BindsLoopbackOnly`); a further listener exists only when a
+  container cell's reach names one (`coordServing.Listen`), on the loopback
+  listener's port. That listener is the runtime's private bridge gateway where
+  there is one, else the host's primary outbound address
+  (`present.Listen.Public`, from `publicRoute`), which is reachable from the
+  LAN and is reported once per address (`TestListen_PublicIsReportedOnceWithItsReason`).
+  The outbound address is kept because rootless slirp/pasta containers have no
+  other route home. Every stream and request on every listener needs a
+  per-run bearer. The accepted posture is recorded in `docs/trust-model.md`
+  (known gaps).
 - **mTLS is slice 16's.** Encrypting the bridge and verifying a runner by client
   certificate — refusing a runner with no cert, and moving the boundary from
   "holds the bearer" to "presents a trusted cert" — is a later, separate change;

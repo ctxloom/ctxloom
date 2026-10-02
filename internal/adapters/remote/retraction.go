@@ -1,6 +1,8 @@
 package remote
 
 import (
+	"fmt"
+
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -63,7 +65,7 @@ func (l *LockfileRetraction) Fault() error {
 		"delete "+l.path+" and rebuild it (ctxloom remote lock) — the file is left intact, so its holds and retractions can be read by hand first",
 		"cannot establish retraction state: %s is unreadable (%v) — withholding remote content rather than treating a withdrawn bundle as trustworthy",
 		l.path, l.unreadable)
-	return l.unreadable
+	return fmt.Errorf("%s: %w", l.path, l.unreadable)
 }
 
 // lockfileKeyForRef is the lockfile key a bundle item's ref resolves to: the

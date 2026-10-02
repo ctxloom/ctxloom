@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +55,7 @@ func TestSpoolDelivery_ExitedRunnerStopsSweepingIn(t *testing.T) {
 
 // TestHome_ConsumeThatLostItsRaceIsNotAFailure pins the ENOENT contract on
 // the runner's side (the coordinator's half is pinned beside its own sweep):
-// a sweep that reaches a file the other path already consumed is the design
+// a sweep that reaches a file the other path already delivered is the design
 // working, not a fault — silent, and not counted as a failed delivery.
 func TestHome_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	resetStrictness(t)
@@ -75,8 +76,7 @@ func TestHome_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	require.NoError(t, err)
 	inRef, err := inW.Write(&spool.Message{Kind: coord.KindMessage, FromHarp: "coordinator-harp", To: harp, Body: "raced"})
 	require.NoError(t, err)
-	_, err = spool.Consume(mapper, inRef) // the other path wins
-	require.NoError(t, err)
+	require.NoError(t, spool.Deliver(mapper, inRef, "m-raced", time.Now())) // the other path wins
 
 	failedBefore := home.SpoolDeliveryStats().Failed
 	home.rememberSpoolRef("m-raced", inRef)

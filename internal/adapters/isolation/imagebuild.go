@@ -468,8 +468,9 @@ const baseContractLayer = `RUN (command -v apt-get >/dev/null 2>&1 \
     && apt-get install -y --no-install-recommends git ripgrep curl ca-certificates unzip jq strace \
     && rm -rf /var/lib/apt/lists/* || true)`
 
-// composeAgentContainerfile generates the MULTI-ENGINE agent Containerfile
-// (locked decisions 2-4): the base-contract fragment (best-
+// composeAgentContainerfile generates the SINGLE-ENGINE agent Containerfile
+// for exactly the one engine it is given — image identity is a function of
+// that engine alone (locked decisions 2-4): the base-contract fragment (best-
 // effort tool layer for an ARBITRARY base) → the common scaffold (identity/
 // entrypoint — the exact overlayUserLayer/overlayUserGate contract
 // overlayContainerfile already uses) → THE one engine-install RUN layer →

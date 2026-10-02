@@ -71,6 +71,14 @@ const (
 	// committable) — see HomeApprovalsPath / ApprovalsPath.
 	ApprovalsDirName = "approvals"
 
+	// ApprovalsPlaceholderName is the empty file `ctxloom init` writes into the
+	// project approvals store. Git does not track an empty directory, so
+	// without it a project that has recorded no decision yet would arrive in a
+	// fresh clone with no store at all — and an absent project store withholds
+	// everything, because absence is indistinguishable from a store that went
+	// away (countersign.Store.Readable).
+	ApprovalsPlaceholderName = ".gitkeep"
+
 	// CompanionConsentFileName is the name (without extension) of the
 	// trust-on-first-use record for EXECUTING a companion binary — see
 	// HomeCompanionConsentPath. It is deliberately a PERSONAL-only file with no
@@ -779,18 +787,33 @@ func CoordProjectStateDir(projectKey string) (string, error) {
 // HomeLocksDir returns ~/.ctxloom/locks — the home-rooted directory holding
 // advisory-lock sidecars for FOREIGN files a ctxloom-family binary does not
 // own (see HomePathFor, lockpath.go, and HomeLocksDirName's doc).
+//
+// Guarded under a test binary: every foreign-file lock resolves through here,
+// and a lock file outlives the run that took it, so an unsandboxed test
+// package would leave one in the developer's real home per locked write. The
+// guard is accountHomeError, not UnsandboxedHomeError, because a test may
+// derive a container's lock path by pointing HOME at a home that is not this
+// account's (see accountHomeError).
 func HomeLocksDir() (string, error) {
-	return homeUnder(whatHomeLocks, HomeLocksDirName)
+	if override := homeLocksOverride.get(); override != "" {
+		return override, nil
+	}
+	dir, err := homeUnder(whatHomeLocks, HomeLocksDirName)
+	if err != nil {
+		return "", err
+	}
+	if err := accountHomeError("home lock directory", dir,
+		"testsupport.SandboxedMain / testsupport.Isolate, so HOME points at a temp root"); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // HomeRecordsDir returns ~/.ctxloom/records — the home-rooted directory
 // holding hew §9.7 application records for FOREIGN files `util
 // config-write` merges into (see HomeRecordsDirName's doc).
 func HomeRecordsDir() (string, error) {
-	homeRecordsMu.RLock()
-	override := homeRecordsOverride
-	homeRecordsMu.RUnlock()
-	if override != "" {
+	if override := homeRecordsOverride.get(); override != "" {
 		return override, nil
 	}
 	dir, err := homeUnder(whatHomeRecords, HomeRecordsDirName)

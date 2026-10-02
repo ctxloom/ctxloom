@@ -319,7 +319,7 @@ func (d *Discoverer) dialAgent() (agent.Agent, error) {
 	if d.DialAgent != nil {
 		return d.DialAgent()
 	}
-	return nil, fmt.Errorf("SSH_AUTH_SOCK is not set — no ssh-agent to sign with")
+	return nil, errAgentSocketUnset
 }
 
 // maxPublicKeyBytes bounds what will be read from a path named by a key value.
@@ -415,25 +415,6 @@ func execGitConfig(ctx context.Context, dir, key string) (string, bool, error) {
 	}
 	value := strings.TrimSpace(out.String())
 	return value, value != "", nil
-}
-
-// dialAgentAt dials the ssh-agent at sock — the composition's value for
-// SSH_AUTH_SOCK, which this adapter does not read for itself.
-func dialAgentAt(sock string) func() (agent.Agent, error) {
-	return func() (agent.Agent, error) {
-		if sock == "" {
-			return nil, fmt.Errorf("SSH_AUTH_SOCK is not set — no ssh-agent to sign with")
-		}
-		return dialAgentSocket(sock)
-	}
-}
-
-func dialAgentSocket(sock string) (agent.Agent, error) {
-	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		return nil, fmt.Errorf("connect to ssh-agent at %s: %w", sock, err)
-	}
-	return &closingAgent{ExtendedAgent: agent.NewClient(conn), conn: conn}, nil
 }
 
 // closingAgent is an agent.Agent that also owns the connection it speaks over.

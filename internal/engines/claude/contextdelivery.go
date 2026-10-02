@@ -53,13 +53,13 @@ func (d *appendFlagDelivery) Path() string { return d.path }
 // an identical filename. Empty context frames to "" (nothing to deliver): no
 // file is written, Path stays "", and a no-op handle is returned.
 //
-// The write itself routes through agent.AtomicWriteFile (unique temp + fsync
+// The write itself routes through safefs.WriteFileKeepMode (unique temp + fsync
 // + rename via safefs), not a raw afero.WriteFile, so archlint's write-discipline
 // rule has nothing to exempt here. No agent.WithFileLock wraps this:
 // the deterministic hash name means two concurrent deliveries of identical
 // content write identical bytes (idempotent, no lost update to guard), and
 // two DIFFERENT contents land at two DIFFERENT paths, so there is no
-// read-modify-write here to serialize — AtomicWriteFile's rename alone is
+// read-modify-write here to serialize — safefs.WriteFileKeepMode's rename alone is
 // enough to make the write itself atomic.
 func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, error) {
 	framed := agent.FrameProjectContext(context)

@@ -87,7 +87,7 @@ func pendingRefs(res *PendingReviewResult) map[string]string {
 func TestPendingReview_FreshRecordsAllPending(t *testing.T) {
 	fx := newTrustFixture(t)
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root,
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Registry: newRegistry(t, remoteSpec{name: "acme", url: trustRepo}),
 		Loader:   reviewLoader(t, reviewBundle()),
 		FS:       afero.NewMemMapFs(),
@@ -119,7 +119,7 @@ func TestPendingReview_FreshRecordsAllPending(t *testing.T) {
 func TestPendingReview_ContentAndRendering(t *testing.T) {
 	fx := newTrustFixture(t)
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root,
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Registry: newRegistry(t),
 		Loader:   reviewLoader(t, reviewBundle()),
 		FS:       afero.NewMemMapFs(),
@@ -215,10 +215,10 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		fx := newTrustFixture(t)
 		loader := reviewLoader(t, reviewBundle())
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
 		require.NoError(t, err)
 
-		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: fs})
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: fs})
 		require.NoError(t, err)
 		assert.NotContains(t, pendingRefs(res), seedItemRef(t, reviewSeedKey, "fragments/solid"))
 		assert.Equal(t, 5, res.Total)
@@ -228,7 +228,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		fx := newTrustFixture(t)
 		fx.rejectRef(trust.Ref{RepoURL: trustRepo, Bundle: "toolkit", Kind: trust.KindPrompt, Name: "greet"})
 
-		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, reviewBundle()), FS: afero.NewMemMapFs()})
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, reviewBundle()), FS: afero.NewMemMapFs()})
 		require.NoError(t, err)
 		assert.NotContains(t, pendingRefs(res), seedItemRef(t, reviewSeedKey, "commands/greet"))
 	})
@@ -241,7 +241,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		// still deny "solid" wherever those exact bytes appear.
 		fx.rejectContent(trust.KindFragment, signing.FormRaw, fragmentBytes("solid raw body"))
 
-		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, b), FS: afero.NewMemMapFs()})
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, b), FS: afero.NewMemMapFs()})
 		require.NoError(t, err)
 		assert.NotContains(t, pendingRefs(res), seedItemRef(t, reviewSeedKey, "fragments/solid"))
 	})
@@ -254,7 +254,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		signed.StampSigner(trustedPublisher)
 		fx := newTrustFixture(t)
 		res, err := PendingReview(nil, PendingReviewRequest{
-			UserStore: fx.user, Root: fx.root,
+			UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 			Registry: newRegistry(t),
 			Loader:   reviewLoader(t, signed),
 			FS:       afero.NewMemMapFs(),
@@ -275,7 +275,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 		}
 		loader := seedLoader(t, map[string]*bundles.Bundle{"localb": local})
 		fx := newTrustFixture(t)
-		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: afero.NewMemMapFs()})
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: afero.NewMemMapFs()})
 		require.NoError(t, err)
 		assert.Zero(t, res.Total)
 	})
@@ -289,7 +289,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 	t.Run("distilled-form item diffs against the approved distilled text", func(t *testing.T) {
 		fx := newTrustFixture(t)
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/dual"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/dual"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
 
 		// Upstream edits the distilled form.
@@ -298,7 +298,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		dual.Distilled = "dual distilled body v2"
 		edited.Fragments["dual"] = dual
 
-		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
 		require.NoError(t, err)
 
 		refs := pendingRefs(res)
@@ -321,7 +321,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 	t.Run("raw-form item diffs against the approved raw text", func(t *testing.T) {
 		fx := newTrustFixture(t)
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
 
 		edited := reviewBundle()
@@ -329,7 +329,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		solid.Content = "solid raw body v2"
 		edited.Fragments["solid"] = solid
 
-		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
 		require.NoError(t, err)
 
 		for _, b := range res.Bundles {
@@ -350,7 +350,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		// tree listing, with every untouched file's line unchanged.
 		fx := newTrustFixture(t)
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "skills/humanize"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "skills/humanize"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
 
 		edited := reviewBundle()
@@ -358,7 +358,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		pkg["scripts/run.sh"] = bundletree.File{Body: "#!/bin/sh\necho tampered\n"}
 		withSeedSkillPackage(t, edited, "humanize", pkg)
 
-		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
 		require.NoError(t, err)
 
 		var item ReviewItem
@@ -394,7 +394,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		// entry survives.
 		fx := newTrustFixture(t)
 		fs := afero.NewMemMapFs()
-		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+		_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 		require.NoError(t, err)
 		require.NoError(t, fs.RemoveAll(paths.TrustObjectsPath(".ctxloom")))
 
@@ -403,7 +403,7 @@ func TestPendingReview_UpdateWithDiffBase(t *testing.T) {
 		solid.Content = "solid raw body v2"
 		edited.Fragments["solid"] = solid
 
-		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
+		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
 		require.NoError(t, err)
 
 		refs := pendingRefs(res)
@@ -447,7 +447,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 func TestSetItemTrust_WritesSnapshots(t *testing.T) {
 	fx := newTrustFixture(t)
 	fs := afero.NewMemMapFs()
-	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/dual"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/dual"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
 
@@ -469,7 +469,7 @@ func TestSetItemTrust_WritesSnapshots(t *testing.T) {
 func TestSetItemTrust_NoSnapshotForExecutables(t *testing.T) {
 	fx := newTrustFixture(t)
 	fs := afero.NewMemMapFs()
-	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "mcp/pg"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "mcp/pg"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 	require.NoError(t, err)
 
 	exists, err := afero.DirExists(fs, paths.TrustObjectsPath(".ctxloom"))
@@ -483,7 +483,7 @@ func TestSetItemTrust_NoSnapshotForExecutables(t *testing.T) {
 func TestReviewItem_UpdateVsNewAfterPartialDecisions(t *testing.T) {
 	fx := newTrustFixture(t)
 	fs := afero.NewMemMapFs()
-	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
+	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: reviewLoader(t, reviewBundle()), FS: fs})
 	require.NoError(t, err)
 	fx.rejectRef(trust.Ref{RepoURL: trustRepo, Bundle: "toolkit", Kind: trust.KindMCP, Name: "pg"})
 
@@ -492,7 +492,7 @@ func TestReviewItem_UpdateVsNewAfterPartialDecisions(t *testing.T) {
 	solid.Content = "solid raw body v2"
 	edited.Fragments["solid"] = solid
 
-	res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
+	res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: reviewLoader(t, edited), FS: fs})
 	require.NoError(t, err)
 
 	refs := pendingRefs(res)
@@ -511,7 +511,7 @@ func TestReviewItem_UpdateVsNewAfterPartialDecisions(t *testing.T) {
 func TestPendingReview_DualFormExposesBothForms(t *testing.T) {
 	fx := newTrustFixture(t)
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root,
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Registry: newRegistry(t),
 		Loader:   reviewLoader(t, reviewBundle()),
 		FS:       afero.NewMemMapFs(),
@@ -574,7 +574,7 @@ func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
 		bundles.WithRepoURL(seedRepoURL(t, reviewSeedKey)),
 		bundles.WithReaderReporter(strictness.Sink("ctxloom")))))
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root,
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Registry: newRegistry(t),
 		Loader:   loader,
 		FS:       afero.NewMemMapFs(),
@@ -719,7 +719,7 @@ func TestPendingReview_CarriesTheUntrustedSignerThroughToTheBundle(t *testing.T)
 	loader, fingerprint := seedUntrustedSigned(t, reviewSeedKey, reviewBundle())
 
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root,
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Registry: newRegistry(t),
 		Loader:   loader,
 		FS:       afero.NewMemMapFs(),
@@ -738,7 +738,7 @@ func TestPendingReview_CarriesTheUntrustedSignerThroughToTheBundle(t *testing.T)
 func TestPendingReview_UnsignedBundleReportsUnsignedAndNoKey(t *testing.T) {
 	fx := newTrustFixture(t)
 	res, err := PendingReview(nil, PendingReviewRequest{
-		UserStore: fx.user, Root: fx.root,
+		UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Registry: newRegistry(t),
 		Loader:   reviewLoader(t, reviewBundle()),
 		FS:       afero.NewMemMapFs(),

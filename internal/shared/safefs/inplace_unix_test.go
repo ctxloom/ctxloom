@@ -94,7 +94,7 @@ func TestWriteFileInPlace_KeepsTheSameInode(t *testing.T) {
 
 // TestWriteFileInPlace_PermAppliesOnCreateOnly pins both halves of the perm
 // contract under a hostile umask: exact (umask-free) on a file this call
-// created, matching WriteFileAtomic's documented divergence from
+// created, matching safefs.WriteFile's documented divergence from
 // os.WriteFile; and UNTOUCHED on a file that already existed, because an
 // in-place write goes into a file that already belongs to someone and
 // widening a 0600 file to the caller's 0644 default would be a side effect

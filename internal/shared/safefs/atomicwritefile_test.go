@@ -57,9 +57,9 @@ func (r *recordingFs) createdNames() []string {
 	return append([]string{}, r.created...)
 }
 
-// AtomicWriteFile must not use a FIXED temp name such as
+// safefs.WriteFileKeepMode must not use a FIXED temp name such as
 // `path + ".ctxloom.tmp"` — precisely the concurrent-clobber hazard
-// safefs.WriteFileAtomic's unique name exists to prevent. Two writers to the same
+// safefs.WriteFile's unique name exists to prevent. Two writers to the same
 // settings file sharing one temp path lets one truncate the other's in-flight
 // bytes before either rename.
 func TestAtomicWriteFile_TempNameIsUniqueNotFixed(t *testing.T) {
@@ -106,7 +106,7 @@ func TestAtomicWriteFile_RenameFailureIsAnError(t *testing.T) {
 	assert.Equal(t, `{"old":true}`, string(got))
 }
 
-// The surrounding contract AtomicWriteFile owns: mode preservation, the 0600
+// The surrounding contract safefs.WriteFileKeepMode owns: mode preservation, the 0600
 // default for new files, the ABSENCE of a backup sibling, and the zero-byte refusal
 // guard.
 func TestAtomicWriteFile_ContractPreserved(t *testing.T) {

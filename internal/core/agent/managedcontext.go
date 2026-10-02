@@ -30,7 +30,7 @@ const (
 // the file itself is removed (never left as an empty husk) — and if the file
 // didn't exist to begin with, nothing is created. rel is the caller-relative
 // path reported in the returned ContextReport (typically relative to the
-// project dir); desc labels the write for AtomicWriteFile's error messages.
+// project dir); desc labels the write for safefs.WriteFileKeepMode's error messages.
 //
 // Idempotent: applying the same content twice produces byte-identical output —
 // the second write reads back its own markers, strips them, and reinserts the

@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,44 +26,69 @@ func seedIn(t *testing.T, m PathMapper, body string) (Ref, []byte) {
 	return ref, raw
 }
 
-// TestConsume_MovesToConsumedAndKeepsTheBytes is the consumed-audit pin.
-// Consumption is a RENAME: the file must be gone from in/ AND present,
-// byte-identical, in in/consumed/. A delete would satisfy "gone from in/" and
-// destroy the audit trail, the dedupe seed, and the delivery confirmation.
+// seedOut publishes one out/ message, as a runner's agent_send does.
+func seedOut(t *testing.T, m PathMapper, body string) (Ref, []byte) {
+	t.Helper()
+	w, err := NewWriter(m, testHarp, DirOut, "runner")
+	require.NoError(t, err)
+	ref, err := w.Write(&Message{Kind: "message", FromHarp: testHarp, To: "parent", Body: body})
+	require.NoError(t, err)
+	path, err := m.Resolve(ref)
+	require.NoError(t, err)
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotEmpty(t, raw, "empty-source guard: seeded message must have bytes")
+	return ref, raw
+}
+
+// TestConsume_MovesToConsumedAndKeepsTheBytes is the routed-audit pin.
+// Consuming an out/ message is a RENAME: the file must be gone from out/ AND
+// present, byte-identical, in out/consumed/, which is how a routed message is
+// told from a refused one.
 func TestConsume_MovesToConsumedAndKeepsTheBytes(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	ref, before := seedIn(t, m, "payload for the audit trail\n")
+	ref, before := seedOut(t, m, "payload for the audit trail\n")
 
 	moved, err := Consume(m, ref)
 	require.NoError(t, err)
-	require.Equal(t, DirInConsumed, moved.Dir)
+	require.Equal(t, DirOutConsumed, moved.Dir)
 	require.Equal(t, ref.Name, moved.Name, "consumption must not rename the file's identity")
 
 	livePath, err := m.Resolve(ref)
 	require.NoError(t, err)
 	_, err = os.Stat(livePath)
-	require.True(t, os.IsNotExist(err), "the message must be gone from in/, got %v", err)
+	require.True(t, os.IsNotExist(err), "the message must be gone from out/, got %v", err)
 
 	consumedPath, err := m.Resolve(moved)
 	require.NoError(t, err)
 	after, err := os.ReadFile(consumedPath)
 	require.NoError(t, err, "consume must MOVE the file into consumed/, not delete it")
 	require.NotEmpty(t, after, "empty-source guard: the consumed copy must have bytes")
-	require.Equal(t, before, after, "the consumed copy must be byte-identical to what was delivered")
+	require.Equal(t, before, after, "the consumed copy must be byte-identical to what was routed")
 
 	msg, err := Read(m, moved)
 	require.NoError(t, err)
 	require.Equal(t, "payload for the audit trail\n", msg.Body)
 
-	// And in/ now sweeps empty, which is the whole cursor model.
-	res, err := Sweep(m, testHarp, DirIn)
+	res, err := Sweep(m, testHarp, DirOut)
 	require.NoError(t, err)
 	require.Empty(t, res.Entries)
 
-	consumedRes, err := Sweep(m, testHarp, DirInConsumed)
+	consumedRes, err := Sweep(m, testHarp, DirOutConsumed)
 	require.NoError(t, err)
-	require.Len(t, consumedRes.Entries, 1, "consumed/ is the audit trail and must list the message")
+	require.Len(t, consumedRes.Entries, 1, "out/consumed/ must list the routed message")
+}
+
+// TestConsume_AnInboxMessageIsNotConsumable: an in/ message is delivered with
+// Deliver, never moved into a consumed/ directory.
+func TestConsume_AnInboxMessageIsNotConsumable(t *testing.T) {
+	hostHome(t)
+	m := NewHomeMapper()
+	ref, _ := seedIn(t, m, "inbox\n")
+	_, err := Consume(m, ref)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrAlreadyGone)
 }
 
 // TestConsume_SecondTakeIsAlreadyGone: exactly one consumer wins; the loser
@@ -71,7 +96,7 @@ func TestConsume_MovesToConsumedAndKeepsTheBytes(t *testing.T) {
 func TestConsume_SecondTakeIsAlreadyGone(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	ref, _ := seedIn(t, m, "once\n")
+	ref, _ := seedOut(t, m, "once\n")
 
 	_, err := Consume(m, ref)
 	require.NoError(t, err)
@@ -99,16 +124,15 @@ func TestWithdraw_RacesConsumeThroughTheFilesystem(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, before, after, "a withdrawn message must be preserved, not deleted")
 
-		_, err = Consume(m, ref)
+		err = Deliver(m, ref, "m-retracted", time.Now())
 		require.ErrorIs(t, err, ErrAlreadyGone, "the reader must learn the message was retracted")
 	})
 
 	t.Run("reader wins", func(t *testing.T) {
 		ref, _ := seedIn(t, m, "too late\n")
-		_, err := Consume(m, ref)
-		require.NoError(t, err)
+		require.NoError(t, Deliver(m, ref, "m-too-late", time.Now()))
 
-		_, err = Withdraw(m, ref)
+		_, err := Withdraw(m, ref)
 		require.ErrorIs(t, err, ErrAlreadyGone, "a withdrawal that lost the race must report pulled, not fail loudly")
 	})
 }
@@ -224,99 +248,4 @@ func TestSweep_RefusesInvalidHarp(t *testing.T) {
 	hostHome(t)
 	_, err := Sweep(NewHomeMapper(), "../escape", DirIn)
 	require.Error(t, err)
-}
-
-// TestSweepNames_OrdersAndReportsBadNamesLikeSweep pins that SweepNames
-// agrees with Sweep on everything readdir alone can decide: filename order,
-// sub-directories skipped as structure, and a name outside the message-file
-// grammar reported as a Problem rather than silently dropped. If SweepNames
-// swept the wrong set, or in the wrong order, or dropped a bad name instead
-// of reporting it, this must fail even though nothing here reads a body.
-func TestSweepNames_OrdersAndReportsBadNamesLikeSweep(t *testing.T) {
-	hostHome(t)
-	m := NewHomeMapper()
-	w, err := NewWriter(m, testHarp, DirIn, "coord")
-	require.NoError(t, err)
-
-	var refs []Ref
-	for i := range 5 {
-		ref, err := w.Write(&Message{Kind: "message", Body: string(rune('a'+i)) + "\n"})
-		require.NoError(t, err)
-		refs = append(refs, ref)
-	}
-
-	inDir, err := DirPath(m, testHarp, DirIn)
-	require.NoError(t, err)
-	junk := map[string]string{
-		"not-a-message-name.md": "irrelevant\n",
-		"README.txt":            "notes\n",
-	}
-	for name, body := range junk {
-		require.NoError(t, os.WriteFile(filepath.Join(inDir, name), []byte(body), 0o600))
-	}
-
-	swept, err := Sweep(m, testHarp, DirIn)
-	require.NoError(t, err)
-	named, err := SweepNames(m, testHarp, DirIn)
-	require.NoError(t, err)
-
-	require.Len(t, named.Entries, len(refs))
-	require.Equal(t, len(swept.Entries), len(named.Entries), "SweepNames must find the same SET Sweep does")
-	for i, entry := range named.Entries {
-		require.Equal(t, refs[i].Name, entry.Ref.Name, "entry %d out of order", i)
-		require.Equal(t, swept.Entries[i].Ref.Name, entry.Ref.Name, "SweepNames and Sweep must agree on order")
-		require.Nil(t, entry.Message, "SweepNames must never read a body")
-	}
-
-	require.Len(t, named.Problems, len(junk), "a bad filename must still be reported, not skipped")
-	reported := map[string]bool{}
-	for _, p := range named.Problems {
-		require.Error(t, p.Err)
-		reported[filepath.Base(p.Path)] = true
-	}
-	for name := range junk {
-		require.True(t, reported[name], "SweepNames silently dropped %q", name)
-	}
-}
-
-// TestSweepNames_CreditsAnEntryWithAnUnreadableBody is the divergence
-// SweepNames is FOR: a validly-named file whose body Sweep could not parse
-// is still reported as an Entry, because a names-only sweep never opens the
-// file to find out. This is the proof the redundant read-and-parse is gone,
-// not merely slow: if SweepNames still called os.ReadFile/Parse under the
-// hood, this fixture would come back as a Problem, exactly as it does from
-// Sweep itself.
-func TestSweepNames_CreditsAnEntryWithAnUnreadableBody(t *testing.T) {
-	hostHome(t)
-	m := NewHomeMapper()
-	consumedDir, err := DirPath(m, testHarp, DirInConsumed)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(consumedDir, 0o700))
-	name := "00000000000000000042.00000001.coord.md"
-	require.NoError(t, os.WriteFile(filepath.Join(consumedDir, name), []byte("not frontmatter, not yaml, just garbage\n"), 0o600))
-
-	// Sweep (the read-and-parse contract) treats this as a Problem, never an
-	// Entry -- the baseline SweepNames must diverge from.
-	swept, err := Sweep(m, testHarp, DirInConsumed)
-	require.NoError(t, err)
-	require.Empty(t, swept.Entries, "an unparseable body must not be an Entry under Sweep")
-	require.Len(t, swept.Problems, 1)
-
-	named, err := SweepNames(m, testHarp, DirInConsumed)
-	require.NoError(t, err)
-	require.Empty(t, named.Problems, "a valid NAME with a bad body is not a names-only problem")
-	require.Len(t, named.Entries, 1, "the name existing is the whole signal SweepNames reports")
-	assert.Equal(t, name, named.Entries[0].Ref.Name)
-	assert.Nil(t, named.Entries[0].Message)
-}
-
-// TestSweepNames_MissingDirectoryIsAnError mirrors
-// TestSweep_MissingDirectoryIsAnError: a spool that was never created must
-// say so, not report an empty drain.
-func TestSweepNames_MissingDirectoryIsAnError(t *testing.T) {
-	hostHome(t)
-	m := NewHomeMapper()
-	_, err := SweepNames(m, testHarp, DirIn)
-	require.Error(t, err)
-	require.True(t, errors.Is(err, os.ErrNotExist))
 }

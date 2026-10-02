@@ -223,6 +223,6 @@ func (s *Store) Save(now time.Time) error {
 	// Atomic write via shared/safefs: a unique temp file in the destination dir is
 	// written then renamed, so two concurrent Saves never rename each other's
 	// half-written file and a reader never sees a torn one. (Parent dir created
-	// just above, satisfying WriteFileAtomicFs's precondition.)
+	// just above, satisfying safefs.WriteFile's precondition.)
 	return safefs.WriteFile(s.fs, s.path, b, 0o644)
 }

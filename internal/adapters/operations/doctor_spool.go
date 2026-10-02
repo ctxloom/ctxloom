@@ -20,7 +20,7 @@ import (
 // exists to make visible.
 const doctorSpoolBacklogMarker = "DOCTOR-CHECK-SPOOL-BACKLOG-t0"
 
-// doctorSpoolStuckAge is how long a message may sit UNCONSUMED in a spool's
+// doctorSpoolStuckAge is how long a message may sit UNDELIVERED in a spool's
 // live in/ or out/ directory before this check calls it stuck rather than
 // merely slow.
 //
@@ -45,11 +45,13 @@ const doctorSpoolStuckAge = 5 * 30 * time.Second
 // rather than duplicated per-list.
 const doctorSpoolStuckMaxNamed = 5
 
-// doctorCheckSpoolBacklog surfaces spool entries that have sat UNCONSUMED in
+// doctorCheckSpoolBacklog surfaces spool entries that have sat UNDELIVERED in
 // a session's live in/, in/claimed/ or out/ directory well past the sweep's own
 // reconciliation cadence (spooldelivery.go's header has the full delivery
-// model: consumption is a rename into consumed/, and that rename IS the
-// acknowledgement).
+// model: an out/ message is acknowledged by a rename into out/consumed/, an
+// inbox message by spool.Deliver, which records its identity and deletes it).
+// An inbox file whose identity is already recorded is a delivery whose delete
+// was interrupted, not a stuck one, and is not named.
 //
 // This exists because four confirmed message losses were previously
 // invisible: a report a child definitely filed never reached the
@@ -64,15 +66,13 @@ const doctorSpoolStuckMaxNamed = 5
 // risk, and this check's whole job is making the state visible, never fixing
 // it.
 //
-// It does NOT attempt to detect a message that was renamed into consumed/
-// without the delivery it names ever having happened — that state is not
-// distinguishable from a genuine delivery by reading the spool alone (the
-// rename is the only record either way), which is exactly the ordering gap a
-// sibling fix restores going forward. What this check CAN see, and does, is
-// the complementary symptom: a message still sitting in in/ or out/,
-// unconsumed, long after every sweep path should have picked it up — a
-// sweep that stopped running, or a doorbell miss with no periodic tick
-// behind it.
+// It does NOT attempt to detect a message recorded as delivered without the
+// delivery it names ever having happened — that state is not distinguishable
+// from a genuine delivery by reading the spool alone (the record is the only
+// trace either way). What this check CAN see, and does, is the complementary
+// symptom: a message still sitting in in/ or out/, undelivered, long after
+// every sweep path should have picked it up — a sweep that stopped running,
+// or a doorbell miss with no periodic tick behind it.
 //
 // It ALSO surfaces spool.Sweep's Problems: directory entries that are not
 // stuck-but-valid messages at all — a filename outside the
@@ -103,7 +103,7 @@ const doctorSpoolStuckMaxNamed = 5
 // with os.ReadDir — absence is a normal state, not a sweep failure — and never
 // renames or deletes what it finds. A
 // failed entry is worded a fourth, distinct way from the other three: it did
-// not "sit unconsumed" (it was actively rejected), it is not "malformed"
+// not sit pending delivery (it was actively rejected), it is not "malformed"
 // (the file parsed fine as a message), and it is not a sweep I/O error (the
 // directory itself may not even exist) — it is a message ctxloom was GIVEN
 // and REFUSED to deliver, permanently.
@@ -199,6 +199,9 @@ func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
 		if age < doctorSpoolStuckAge {
 			continue
 		}
+		if dir != spool.DirOut && s.alreadyDelivered(harp, entry) {
+			continue
+		}
 		if age > s.oldest {
 			s.oldest = age
 		}
@@ -208,6 +211,19 @@ func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
 		s.malformed = append(s.malformed, fmt.Sprintf("%s:%s/%s: %v",
 			harp, dir, filepath.Base(prob.Path), prob.Err))
 	}
+}
+
+// alreadyDelivered reports whether an inbox entry's identity is in the
+// spool's delivered record: a delivery whose delete was interrupted, which
+// the reader's next sweep finishes. It is not mail anybody is still owed. A
+// record that cannot be read is a sweep error, and the entry is still named.
+func (s *spoolBacklogScan) alreadyDelivered(harp string, entry spool.Entry) bool {
+	delivered, err := spool.Delivered(s.mapper, harp, entry.Identity())
+	if err != nil {
+		s.sweepErrs = append(s.sweepErrs, fmt.Sprintf("%s: reading the delivered record for %s: %v", harp, entry.Ref, err))
+		return false
+	}
+	return delivered
 }
 
 // failedDirs lists one session's failed/ directories. They are created
@@ -241,6 +257,21 @@ func (s *spoolBacklogScan) failedDirs(harp, root string) {
 	}
 }
 
+// doctorSpoolPendingPhrase words an entry still sitting in in/ or out/. A
+// handled entry leaves: a delivered in/ message is deleted (its identity kept
+// in in/delivered/), a processed out/ message moves to out/consumed/. So one
+// still present has not been delivered either way. The stuck finding and the
+// all-clear share the phrase so neither can drift from the other or from the
+// tests.
+const doctorSpoolPendingPhrase = "still pending delivery past"
+
+const (
+	doctorSpoolStuckFormat = "%d spool entr(ies) " + doctorSpoolPendingPhrase +
+		" %s (oldest %s): %s — a report or an instruction has not been delivered"
+	doctorSpoolCleanFormat = "%d session spool(s) checked, 0 entries " + doctorSpoolPendingPhrase +
+		" %s, 0 malformed entries"
+)
+
 // report renders the accumulated findings as the check's verdict.
 func (s *spoolBacklogScan) report(sessionsRoot string) DoctorCheck {
 	if s.spoolsFound == 0 {
@@ -263,8 +294,7 @@ func (s *spoolBacklogScan) report(sessionsRoot string) DoctorCheck {
 
 	var parts []string
 	if len(s.stuck) > 0 {
-		parts = append(parts, fmt.Sprintf(
-			"%d spool entr(ies) sat unconsumed past %s (oldest %s): %s — a report or an instruction may not have been delivered",
+		parts = append(parts, fmt.Sprintf(doctorSpoolStuckFormat,
 			len(s.stuck), doctorSpoolStuckAge, s.oldest.Round(time.Second), doctorNamedList(s.stuck, doctorSpoolStuckMaxNamed)))
 	}
 	if len(s.malformed) > 0 {
@@ -287,9 +317,7 @@ func (s *spoolBacklogScan) report(sessionsRoot string) DoctorCheck {
 // cleanDetail words the all-clear, keeping "no failed/ directory exists" and
 // "failed/ directories exist and are empty" as two different sentences.
 func (s *spoolBacklogScan) cleanDetail() string {
-	detail := fmt.Sprintf(
-		"%d session spool(s) checked, 0 entries stuck unconsumed past %s, 0 malformed entries",
-		s.spoolsFound, doctorSpoolStuckAge)
+	detail := fmt.Sprintf(doctorSpoolCleanFormat, s.spoolsFound, doctorSpoolStuckAge)
 	if s.failedDirsSeen == 0 {
 		return detail + "; no session has a failed/ directory (in/ or out/; created lazily on the first refusal, so its absence is normal)"
 	}

@@ -266,6 +266,104 @@ func TestArch_FindingsIndex_GateCatchesDrift(t *testing.T) {
 	}
 }
 
+// tableCells splits one markdown table row into its cells on UNESCAPED pipes:
+// "\|" is GFM's in-cell pipe, so it belongs to the cell rather than ending it.
+// The leading and trailing delimiters are dropped.
+func tableCells(line string) []string {
+	var cells []string
+	var cur strings.Builder
+	escaped := false
+	for _, r := range strings.TrimSpace(line) {
+		switch {
+		case escaped:
+			escaped = false
+		case r == '\\':
+			escaped = true
+		case r == '|':
+			cells = append(cells, cur.String())
+			cur.Reset()
+			continue
+		}
+		cur.WriteRune(r)
+	}
+	cells = append(cells, cur.String())
+	if len(cells) < 2 {
+		return nil
+	}
+	return cells[1 : len(cells)-1]
+}
+
+// findingRowShapeDefect reports what is wrong with one table row's shape
+// against its table's header cell count, or "" when the row is well formed.
+//
+// A literal pipe in claim text has damaged rows in two ways, and both are
+// checked. Written unescaped, it opens an extra cell. Split by an extraction
+// that ignored the escape, it leaves the cell ending in a dangling backslash
+// and silently drops everything after the pipe — the cell count stays right,
+// so only the dangling backslash shows the claim was cut.
+func findingRowShapeDefect(line string, header int) string {
+	cells := tableCells(line)
+	if len(cells) != header {
+		return fmt.Sprintf("%d cells, header has %d (an unescaped pipe?)", len(cells), header)
+	}
+	for _, c := range cells {
+		if strings.HasSuffix(strings.TrimSpace(c), `\`) {
+			return fmt.Sprintf("cell ends in a dangling backslash, so a pipe split it: %q", strings.TrimSpace(c))
+		}
+	}
+	return ""
+}
+
+// findingRowShapeDefects checks every table row, finding rows included,
+// against the header of the table it sits in. A table starts at the first "|"
+// line after a non-table line.
+func findingRowShapeDefects(body string) []string {
+	var defects []string
+	header := 0
+	for i, line := range strings.Split(body, "\n") {
+		if !strings.HasPrefix(line, "|") {
+			header = 0
+			continue
+		}
+		if header == 0 {
+			header = len(tableCells(line))
+			continue
+		}
+		if d := findingRowShapeDefect(line, header); d != "" {
+			defects = append(defects, fmt.Sprintf("line %d: %s", i+1, d))
+		}
+	}
+	return defects
+}
+
+// TestArch_FindingsIndex_RowsAreWellFormed: a row whose claim carries a pipe
+// must escape it, or the row either grows a column or loses its claim's tail.
+func TestArch_FindingsIndex_RowsAreWellFormed(t *testing.T) {
+	for _, d := range findingRowShapeDefects(readIndex(t)) {
+		t.Error(d)
+	}
+}
+
+// TestArch_FindingsIndex_RowShapeGateCatchesPipes proves the shape gate can
+// fail, on both ways a pipe has damaged a row, and passes an escaped pipe.
+func TestArch_FindingsIndex_RowShapeGateCatchesPipes(t *testing.T) {
+	const table = "## HIGH (1)\n\n| ID | Status | Claim |\n|---|---|---|\n"
+	cases := []struct {
+		name, row string
+		bad       bool
+	}{
+		{"escaped pipe", "| U001-F01 | open | a `col:\"a\\|b\"` tag |", false},
+		{"unescaped pipe", "| U001-F01 | open | a `col:\"a|b\"` tag |", true},
+		{"dangling backslash", "| U001-F01 | open | a `col:\"a\\ |", true},
+	}
+	for _, tc := range cases {
+		got := findingRowShapeDefects(table + tc.row + "\n")
+		if bad := len(got) > 0; bad != tc.bad {
+			t.Errorf("%s: defects %v, want defective=%v", tc.name, got, tc.bad)
+		}
+	}
+}
+
 // flowPartitionPath locates docs/architecture/flow-partition.yaml the same
 // way indexPath locates the census, so the gate does not care where it is
 // run from.

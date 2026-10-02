@@ -16,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is the operations core for `ctxloom skill`: author (create,
@@ -273,7 +273,7 @@ func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) 
 	skillMDPath := filepath.Join(dir, "SKILL.md")
 	// No AllowEmpty: skillTemplate always renders a non-empty document, and
 	// dir was just refused-if-existing above, so this is always a fresh path.
-	if err := iox.WriteFileAtomicFs(fs, skillMDPath, []byte(skillTemplate(req.Name, description)), 0o644); err != nil {
+	if err := safefs.WriteFile(fs, skillMDPath, []byte(skillTemplate(req.Name, description)), 0o644); err != nil {
 		_ = fs.RemoveAll(dir)
 		return nil, fmt.Errorf("write %s: %w", skillMDPath, err)
 	}
@@ -442,7 +442,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 		}
 	}
 	// No AllowEmpty: a zip archive's own format bytes are never zero-length.
-	if err := iox.WriteFileAtomicFs(fs, outPath, zipBytes, 0o644); err != nil {
+	if err := safefs.WriteFile(fs, outPath, zipBytes, 0o644); err != nil {
 		return nil, fmt.Errorf("write %s: %w", outPath, err)
 	}
 
@@ -464,7 +464,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 		}
 		sigPath := outPath + skillArchiveSigSuffix
 		// No AllowEmpty: armored is signing.Sign's output, never empty.
-		if err := iox.WriteFileAtomicFs(fs, sigPath, armored, 0o644); err != nil {
+		if err := safefs.WriteFile(fs, sigPath, armored, 0o644); err != nil {
 			_ = fs.Remove(outPath)
 			return nil, fmt.Errorf("write %s: %w", sigPath, err)
 		}
@@ -537,7 +537,7 @@ type ImportSkillResult struct {
 // signature (signing.ErrSignatureTampered: a trusted key's signature that
 // does not cover these bytes) is an attack signal, not an unsigned archive, and
 // is refused like a structurally invalid archive/tree: nothing lands.
-func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) (*ImportSkillResult, error) {
+func ImportSkill(ctx context.Context, cfg *config.Config, req ImportSkillRequest) (*ImportSkillResult, error) {
 	if req.ArchivePath == "" {
 		return nil, fmt.Errorf("archive path is required")
 	}
@@ -580,7 +580,7 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 	// case, not an exotic one.
 	var pkg *bundles.SkillPackage
 	sigState := "unsigned"
-	landedDir, err := bundles.ImportSkillArchive(fs, archiveBytes, skillsParent, bundles.ExtractOptions{},
+	landedDir, err := bundles.ImportSkillArchive(ctx, fs, archiveBytes, skillsParent, bundles.ExtractOptions{},
 		func(vfs afero.Fs, staged string) error {
 			p, perr := bundles.ParseSkillPackage(vfs, staged, 0)
 			if perr != nil {

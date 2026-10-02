@@ -338,7 +338,7 @@ func InverseOps(b hew.Binding, format hew.FormatID, target string, after, before
 // FreeRecordPath is the record path under dir that does not already exist,
 // disambiguating with a counter when it does.
 //
-// AtomicWriteFile OVERWRITES, so the timestamp alone was never a defence: two
+// safefs.WriteFileKeepMode OVERWRITES, so the timestamp alone was never a defence: two
 // applies against the same target in the same instant would produce the same
 // name and the second would silently destroy the first — the exact evidence the
 // record exists to preserve, gone on a success path. This loop makes that

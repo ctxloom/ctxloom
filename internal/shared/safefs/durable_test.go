@@ -68,7 +68,7 @@ func TestWriteFileAtomic_Durable_SyncsParentDirectory(t *testing.T) {
 
 // TestAtomicFile_Commit_Durable_SyncsParentDirectory pins the streaming
 // counterpart: Commit must run the same durable-upgrade step
-// WriteFileAtomicFs's rename does, not a hand-copied divergent one.
+// safefs.WriteFile's rename does, not a hand-copied divergent one.
 func TestAtomicFile_Commit_Durable_SyncsParentDirectory(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "out.yaml")

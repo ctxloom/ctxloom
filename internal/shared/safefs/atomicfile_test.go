@@ -46,7 +46,7 @@ func TestAtomicFile_VisibleOnlyAfterCommit(t *testing.T) {
 }
 
 // TestAtomicFile_TempNameIsUnique pins the same concurrent-clobber protection
-// WriteFileAtomicFs provides: the temp name is derived from the target's base
+// safefs.WriteFile provides: the temp name is derived from the target's base
 // name plus randomness, not a fixed "<path>.tmp" two writers could collide on.
 func TestAtomicFile_TempNameIsUnique(t *testing.T) {
 	dir := t.TempDir()

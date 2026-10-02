@@ -35,7 +35,7 @@ import (
 // spawned), not wall-clock.
 //
 // MUTATION KILL: remove the agent.WithFileLock wrap from WriteInstanceConfig
-// (leaving it call loadJSONObject/AtomicWriteFile directly), and this test
+// (leaving it call loadJSONObject/safefs.WriteFileKeepMode directly), and this test
 // goes red — writer B's goroutine completes unexcluded while A still holds
 // the lock, tripping the assertion below.
 func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {

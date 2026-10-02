@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -19,6 +20,9 @@ import (
 // nobody bound holds no gate and withholds everything.
 func realGated(t *testing.T, cfg *config.Config) *config.Config {
 	t.Helper()
+	if dirs := cfg.GetAppPaths(); len(dirs) > 0 {
+		provisionApprovals(t, dirs[0])
+	}
 	src, err := configload.New(nil, nil)
 	require.NoError(t, err)
 	root, records, retraction, err := src.TrustPorts(context.Background(), cfg)
@@ -37,4 +41,13 @@ func gatedFixture(f config.Fixture) *config.Config {
 	cfg := config.NewFixture(f)
 	cfg.BindTrustForTesting(compositetest.Trust())
 	return cfg
+}
+
+// provisionApprovals leaves appDir's approvals store as `ctxloom init` does —
+// the state every initialized project is in. A fixture that builds a project
+// by hand and skips it is an unprovisioned project, which withholds
+// everything.
+func provisionApprovals(t *testing.T, appDir string) {
+	t.Helper()
+	require.NoError(t, operations.ProvisionApprovalsStore(nil, appDir))
 }

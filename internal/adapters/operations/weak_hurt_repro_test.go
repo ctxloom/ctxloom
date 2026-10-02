@@ -67,7 +67,7 @@ func TestWeakHurt_TrustStamper_UnreadableStore_ListingPath(t *testing.T) {
 	res := stamper.ForRef("demo#fragments/localfrag")
 	t.Logf("ForRef result: trusted=%v source=%s state=%s", res.Trusted(), res.Source, res.State())
 	assert.False(t, res.Trusted(), "an unreadable approvals store must deny even a local item on the STAMPING (list-JSON) path")
-	assert.Equal(t, trust.SourcePending, res.Source, "must resolve fail-closed pending, never a silently-trusted local exemption")
+	assert.Equal(t, trust.SourceUnreadable, res.Source, "must resolve fail-closed as an unreadable store, never a silently-trusted local exemption")
 }
 
 // TestWeakHurt_PendingReview_UnreadableStore_ListingPath is

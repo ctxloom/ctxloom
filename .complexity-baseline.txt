@@ -52,8 +52,8 @@
 ./internal/adapters/content/tree_test.go|TestProfile_PriorityOrderingRoundTrips t * testing . T|1|16|TestProfile_PriorityOrderingRoundTrips|703-759
 ./internal/adapters/content/tree_test.go|TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability t * testing . T|1|18|TestSkill_DotPrefixedSidecarIsHashedAndAttestsExecutability|373-451
 ./internal/adapters/content/tree_test.go|TestSurfaces_DecodeAuthoredFields t * testing . T|1|40|TestSurfaces_DecodeAuthoredFields|593-698
-./internal/adapters/content/writer.go|(s*TreeStore)Delete ctx context . Context , ref trust . Ref|1|14|Delete|118-172
-./internal/adapters/content/writer.go|(s*TreeStore)Put ctx context . Context , ref trust . Ref , f signing . Form , surface Surface|1|20|Put|28-100
+./internal/adapters/content/writer.go|(s*TreeStore)Delete ctx context . Context , ref trust . Ref|1|14|Delete|116-170
+./internal/adapters/content/writer.go|(s*TreeStore)Put ctx context . Context , ref trust . Ref , f signing . Form , surface Surface|1|20|Put|28-98
 ./internal/adapters/content/writer_test.go|TestWriter_FragmentRoundTrip t * testing . T|1|18|TestWriter_FragmentRoundTrip|20-101
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go| n ast . Node|1|12||232-255
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|readsInScope specs [ ] string|1|12|readsInScope|193-229
@@ -99,7 +99,7 @@
 ./internal/adapters/remote/registry.go|(r*Registry)save|1|11|save|110-176
 ./internal/adapters/remote/repo_cache.go|(c*RepoCache)safeRepoPath parts ... string|1|11|safeRepoPath|382-403
 ./internal/adapters/signing/countersign/forget.go|(s*Store)forget header signing . CountersignHeader , payload [ ] byte|1|12|forget|62-105
-./internal/adapters/signing/countersign/store.go|(s*Store)candidates header signing . CountersignHeader , payload [ ] byte|1|11|candidates|320-355
+./internal/adapters/signing/countersign/store.go|(s*Store)candidates header signing . CountersignHeader , payload [ ] byte|1|11|candidates|309-344
 ./internal/adapters/termui/prefixkey.go|ParsePrefixKey s string|1|18|ParsePrefixKey|15-56
 ./internal/adapters/termui/surround.go| s * surround|1|13||159-218
 ./internal/adapters/termui/tear_test.go|TestSurround_StressScriptedChildNoTearNoBleed t * testing . T|1|12|TestSurround_StressScriptedChildNoTearNoBleed|270-312
@@ -114,29 +114,27 @@
 ./internal/core/agent/enginecli.go|(c EngineCLI)ParseArgv argv [ ] string|1|14|ParseArgv|477-525
 ./internal/core/agent/enginecli.go|(c EngineCLI)Validate|1|17|Validate|294-341
 ./internal/core/agent/managedcontext.go|writeManagedContextLocked fs afero . Fs , path , rel , content , desc string|1|12|writeManagedContextLocked|59-104
-./internal/core/agent/packagefiles.go| T|1|38||104-374
-./internal/core/bundles/authorizer.go|(r Reason)String|1|15|String|268-301
+./internal/core/agent/packagefiles.go| T|1|38||55-325
 ./internal/core/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|1520-1567
 ./internal/core/bundles/loader_content.go|(l*Loader)expandBundleRef ref string|1|11|expandBundleRef|658-730
 ./internal/core/bundles/loader_version.go|(l*Loader)bundleAtVersion bundleRef , commit string|1|12|bundleAtVersion|41-123
-./internal/core/bundles/skill_archive.go|DetectArchiveFormat data [ ] byte|1|13|DetectArchiveFormat|64-76
-./internal/core/bundles/skill_archive.go|ImportSkillArchive fsys afero . Fs , archive [ ] byte , destParent string , opts ExtractOptions , validate func afero . Fs , string error|1|14|ImportSkillArchive|685-764
-./internal/core/bundles/skill_archive.go|symlinkEscapesRoot fsys afero . Fs , root , target string|1|12|symlinkEscapesRoot|575-608
+./internal/core/bundles/skill_archive.go|DetectArchiveFormat data [ ] byte|1|13|DetectArchiveFormat|65-77
+./internal/core/bundles/skill_archive.go|symlinkEscapesRoot fsys afero . Fs , root , target string|1|12|symlinkEscapesRoot|596-629
 ./internal/core/config/fixture_alias_test.go|containerAliases v reflect . Value , path string , out map [ uintptr ] string|1|17|containerAliases|35-73
 ./internal/core/config/layerscope/schema_walk_test.go|walkSchemaLeavesDepth root , node map [ string ] any , path [ ] string , visit func path [ ] string , depth int|1|14|walkSchemaLeavesDepth|65-107
 ./internal/core/coord/folds.go| f * queueFold|1|11||328-348
 ./internal/core/coord/folds.go| f * rosterFold|1|12||406-451
 ./internal/core/coord/replay_test.go| t * testing . T|1|11||98-169
 ./internal/core/coord/reports.go|(f*reportsFold)apply fact Fact|1|12|apply|118-176
-./internal/core/coord/spoolcontrol.go|(c*Coordinator)controlAsk ctx context . Context , by ControlInitiator , harp , kind , text string|1|11|controlAsk|256-336
-./internal/core/profiles/profiles.go|(p*Profile)HasContent|1|13|HasContent|751-765
-./internal/core/profiles/profiles.go|(l*Loader)resolveProfileRecursive name string , visited map [ string ] bool , depth int , memo map [ string ] * ResolvedProfile|1|15|resolveProfileRecursive|925-1086
+./internal/core/coord/spoolcontrol.go|(c*Coordinator)controlAsk ctx context . Context , by ControlInitiator , harp , kind , text string|1|11|controlAsk|265-345
+./internal/core/profiles/profiles.go|(p*Profile)HasContent|1|13|HasContent|761-775
+./internal/core/profiles/profiles.go|(l*Loader)resolveProfileRecursive name string , visited map [ string ] bool , depth int , memo map [ string ] * ResolvedProfile|1|15|resolveProfileRecursive|935-1096
 ./internal/core/sessions/memstore.go|(m*MemStore)BindSession harpName , sessionID , transcriptPath string|1|12|BindSession|135-173
 ./internal/core/sessions/store_test.go| t * testing . T|1|23||39-119
 ./internal/core/sessions/store_test.go| t * testing . T|2|17||211-250
 ./internal/core/sessions/store_test.go| t * testing . T|3|13||283-328
 ./internal/core/sessions/transcript_locate_test.go|TestFind_FillsTranscriptByLocation t * testing . T|1|12|TestFind_FillsTranscriptByLocation|131-172
-./internal/core/spool/main_test.go|runProbe phase string|1|15|runProbe|136-209
+./internal/core/spool/main_test.go|runProbe phase string|1|13|runProbe|136-201
 ./internal/core/spool/message.go|(m*Message)decodeHead|1|19|decodeHead|147-203
 ./internal/core/wire/arch_test.go|TestArch_WireTagParity_AllTypesRegistered t * testing . T|1|11|TestArch_WireTagParity_AllTypesRegistered|95-141
 ./internal/engines/claude/claude.go||1|14||206-273
@@ -159,7 +157,7 @@
 ./internal/ltk/state/confirm_test.go|TestTheTwoRebukesAreChosenByTheSameBranch t * testing . T|1|14|TestTheTwoRebukesAreChosenByTheSameBranch|188-223
 ./internal/shared/archlint/ledgerdiscipline.go| n ast . Node|1|12||74-112
 ./internal/shared/archlint/ledgerdiscipline.go|runLedgerDiscipline pass * analysis . Pass|1|13|runLedgerDiscipline|53-132
-./internal/shared/archlint/lockdiscipline.go|runLockDiscipline pass * analysis . Pass|1|13|runLockDiscipline|104-168
+./internal/shared/archlint/lockdiscipline.go|runLockDiscipline pass * analysis . Pass|1|13|runLockDiscipline|101-165
 ./internal/shared/archlint/testsupport.go|runTestSupport pass * analysis . Pass|1|17|runTestSupport|65-130
 ./internal/shared/archlint/vocabulary.go|discoverVocabularies files [ ] * ast . File|1|14|discoverVocabularies|224-265
 ./internal/shared/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile t * testing . T|1|12|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile|128-183
@@ -210,7 +208,7 @@
 ./internal/shared/watch/watch_test.go|TestSkipDir_PrunesSubtree t * testing . T|1|12|TestSkipDir_PrunesSubtree|246-295
 ./internal/testsupport/containercell/containercell.go|(r Runtime)buildImage ctx context . Context , tag , binaryPath string , withProbeCat bool|1|11|buildImage|396-437
 ./internal/testsupport/parity/parity.go|fieldDiffs want , got reflect . Value , path string|1|11|fieldDiffs|280-317
-./internal/testsupport/sandbox.go|enterSandbox|1|13|enterSandbox|167-212
+./internal/testsupport/sandbox.go|enterSandbox|1|12|enterSandbox|171-214
 ./pkg/clifmt/format_test.go|TestFormatEnumerationsAgree t * testing . T|1|14|TestFormatEnumerationsAgree|107-142
 ./pkg/clifmt/markdown.go|renderMarkdown w io . Writer , v any|1|13|renderMarkdown|13-65
 ./pkg/clifmt/noderender.go| w io . Writer , label string , depth D|1|13||14-62
@@ -234,7 +232,7 @@
 ./tests/acceptance/cli_flag_gate_test.go|changedFlagSites srcDir string|1|16|changedFlagSites|243-314
 ./tests/acceptance/completeness_test.go|expandOutlineRows text string|1|11|expandOutlineRows|393-432
 ./tests/acceptance/isolation_probe.go|probeContainerUnexpected diff [ ] string , containerHome string|1|12|probeContainerUnexpected|556-599
-./tests/acceptance/probe_p6_steer_echo.go|p6ReadSpoolCensus root , harp string|1|12|p6ReadSpoolCensus|289-327
+./tests/acceptance/probe_p6_steer_echo.go|p6ReadSpoolCensus root , harp string|1|12|p6ReadSpoolCensus|298-336
 ./tests/acceptance/steps_capability_hook_firing.go| c context . Context , engine , runtime , workspace string|1|16||81-198
 ./tests/acceptance/steps_capability_mcp_round_trip.go| c context . Context , engine , runtime , workspace string|1|12||195-288
 ./tests/acceptance/steps_cli.go|shellSplit cmdline string|1|17|shellSplit|785-838
@@ -253,5 +251,5 @@
 ./tests/arch/corpus_floors_test.go|countVocabularies f * ast . File|1|11|countVocabularies|222-245
 ./tests/arch/vocabulary_adoption_test.go| n ast . Node|1|12||274-295
 ./tests/arch/vocabulary_adoption_test.go|vocabDiscover files [ ] vocabFile|1|14|vocabDiscover|184-228
-./tests/docs/arch_test.go|TestArch_FlowPartition_IsTotalAndDisjoint t * testing . T|1|15|TestArch_FlowPartition_IsTotalAndDisjoint|315-373
+./tests/docs/arch_test.go|TestArch_FlowPartition_IsTotalAndDisjoint t * testing . T|1|15|TestArch_FlowPartition_IsTotalAndDisjoint|413-471
 ./tests/mutation/survivor_baseline_test.go|TestSurvivorBaseline_RowsAreWellFormed t * testing . T|1|11|TestSurvivorBaseline_RowsAreWellFormed|126-153

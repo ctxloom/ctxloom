@@ -72,12 +72,9 @@ func TestSpoolSteer_RidesTheFileAndIsConsumedAtTheTurn(t *testing.T) {
 	assert.Contains(t, delivered, "kind="+KindSteer,
 		"the reserved kind must render into the provenance header: an instruction the agent cannot tell from ordinary chatter is not a steer")
 
-	// One file, consumed by rename, carrying the instruction verbatim.
-	awaitSpoolCount(t, out.Harp, spool.DirIn, 0, "after the steer was taken")
-	consumed := awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after the steer was taken")
-	assert.Equal(t, KindSteer, consumed[0].Message.Kind)
-	assert.Equal(t, "stop and rebase first", consumed[0].Message.Body)
-	assert.Equal(t, outcome.MessageID, consumed[0].Message.OriginID)
+	// One file, delivered: the handle the steer returned is the identity in
+	// the target's delivered record, and the file is gone from in/.
+	awaitDelivered(t, out.Harp, outcome.MessageID, "after the steer was taken")
 
 	assertNoMailboxJournal(t, c)
 }
@@ -109,8 +106,9 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	withdrawn := spoolEntries(t, out.Harp, spool.DirInWithdrawn)
 	require.Len(t, withdrawn, 1, "withdrawal is a MOVE: the retracted instruction stays readable as the audit trail")
 	assert.Equal(t, "delete the production database", withdrawn[0].Message.Body)
-	assert.Empty(t, spoolEntries(t, out.Harp, spool.DirInConsumed),
-		"a withdrawn instruction must never appear as consumed: consumed means the agent acted on it")
+	_, recorded := spoolDelivered(t, out.Harp)["m-withdraw-me"]
+	assert.False(t, recorded,
+		"a withdrawn instruction must never be recorded as delivered: delivered means the agent acted on it")
 
 	// Force every reader there is. None may find it.
 	home.SweepSpoolIn()
@@ -139,13 +137,13 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	}
 }
 
-// TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly pins the losing side of
+// TestSpoolSteer_WithdrawAfterDeliverySaysSoHonestly pins the losing side of
 // the race. Once the target has taken the instruction there is nothing to
 // retract, and BOTH other answers are harmful: reporting success would leave a
 // human believing they pulled back an instruction the agent is already acting
 // on, and reporting a generic failure would read as "the withdrawal broke" and
 // invite a retry that can never succeed.
-func TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly(t *testing.T) {
+func TestSpoolSteer_WithdrawAfterDeliverySaysSoHonestly(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
 	sp := cutoverSpawner(0)
@@ -155,7 +153,9 @@ func TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly(t *testing.T) {
 	outcome, err := c.ControlSteer(context.Background(), humanInitiator(), out.Harp, "rebase first", false)
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "rebase first")
-	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "the target must have taken it before the withdrawal")
+	// Delivered and DELETED: the only thing left to answer from is the
+	// delivered record.
+	awaitDelivered(t, out.Harp, outcome.MessageID, "the target must have taken it before the withdrawal")
 
 	err = c.WithdrawSteer(humanInitiator(), out.Harp, outcome.MessageID)
 	require.Error(t, err)
@@ -169,6 +169,10 @@ func TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoSuchSteer)
 	assert.NotErrorIs(t, err, ErrSteerAlreadyDelivered)
+
+	// An id no file or record entry can be named is the same answer, not a
+	// lookup failure.
+	assert.ErrorIs(t, c.WithdrawSteer(humanInitiator(), out.Harp, "../escape"), ErrNoSuchSteer)
 }
 
 // ---- correlated asks ----------------------------------------------------
@@ -466,7 +470,7 @@ func TestSpoolAsk_SummarizeCarriesItsOwnKind(t *testing.T) {
 	// Answer only AFTER the child has actually been given the ask, so the file
 	// this test then reads has genuinely been delivered and consumed rather
 	// than short-circuited by a reply that beat its own question.
-	awaitChatText(t, sp, 0, "just the schema decisions")
+	asked := awaitChatText(t, sp, 0, "just the schema decisions")
 	answerAsk(t, home, askID, "we chose sqlx, then wrote the migrations", nil)
 	select {
 	case ans := <-answers:
@@ -477,13 +481,14 @@ func TestSpoolAsk_SummarizeCarriesItsOwnKind(t *testing.T) {
 		t.Fatal("the summarize ask went unanswered")
 	}
 
-	consumed := spoolEntries(t, out.Harp, spool.DirInConsumed)
-	require.NotEmpty(t, consumed, "the ask must have been delivered as a file")
-	kinds := make([]string, 0, len(consumed))
-	for _, e := range consumed {
-		kinds = append(kinds, e.Message.Kind)
+	awaitDelivered(t, out.Harp, askID, "the ask must have been delivered as a file")
+	var frame string
+	for _, turn := range asked {
+		if strings.Contains(turn, "just the schema decisions") {
+			frame = turn
+		}
 	}
-	assert.Contains(t, kinds, KindSummarize, "a summarize ask must carry its own kind, not a question's (saw %v)", kinds)
+	assert.Contains(t, frame, "kind="+KindSummarize, "a summarize ask must carry its own kind, not a question's")
 }
 
 // TestSpoolAsk_EmptyTextIsRefused: empty input fails rather than asking
@@ -512,8 +517,9 @@ func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 // paused run takes no new turn, AND the mail behind that turn is NOT consumed.
 //
 // Consuming it would convert a pause into silent data loss on the very path
-// pause exists to make safe — the file would sit in consumed/ with the agent
-// never having seen it, and a relaunch would find nothing to deliver.
+// pause exists to make safe — the file would be deleted and its identity
+// recorded with the agent never having seen it, and a relaunch would find
+// nothing to deliver.
 //
 // It also pins that pause is NOT a delivery: nothing about it appears in the
 // message carrier. The only file in the child's spool is the mail the test
@@ -531,14 +537,14 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, newly, "the first pause is the one that installed the gate")
 
-	_, _, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
+	mailID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
 	require.NoError(t, err)
 
 	require.Never(t, func() bool { return countChatText(sp, 0, "work item while paused") > 0 },
 		750*time.Millisecond, 10*time.Millisecond,
 		"a paused run must take no new turn")
-	assert.Empty(t, spoolEntries(t, out.Harp, spool.DirInConsumed),
-		"mail held at the pause gate must stay UNCONSUMED: consuming it would lose it, since the agent never saw it")
+	assert.Empty(t, spoolDelivered(t, out.Harp),
+		"mail held at the pause gate must stay UNDELIVERED: recording it would lose it, since the agent never saw it")
 	require.Len(t, spoolEntries(t, out.Harp, spool.DirIn), 1,
 		"the held message must still be in the delivery directory, where a relaunched run would find it")
 
@@ -551,13 +557,13 @@ func TestSpoolControl_PauseHoldsTurnsAndLeavesMailUnconsumed(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, newly, "the resume is the one that released the gate")
 	awaitChatText(t, sp, 0, "work item while paused")
-	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after the resume released the held turn")
+	awaitDelivered(t, out.Harp, mailID, "after the resume released the held turn")
 
 	// THE CARRIER SHOWS NOTHING. Pause and resume are runner requests: they
 	// left no file in the spool and grew no other carrier.
-	for _, e := range spoolEntries(t, out.Harp, spool.DirInConsumed) {
-		assert.Equal(t, "work item while paused", e.Message.Body,
-			"the only file the whole exchange produced must be the mail; pause is not a delivery")
+	for id := range spoolDelivered(t, out.Harp) {
+		assert.Equal(t, mailID, id,
+			"the only delivery the whole exchange produced must be the mail; pause is not a delivery")
 	}
 	assertNoMailboxJournal(t, c)
 }

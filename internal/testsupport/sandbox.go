@@ -1,6 +1,7 @@
 package testsupport
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -140,22 +141,25 @@ func RequireIsolatedAppDir(t *testing.T) {
 	}
 }
 
-// AppDirIsolationError reports why ctxloom's app-directory resolution could
-// escape the OS temp root, or nil when it cannot.
+// AppDirIsolationError reports why ctxloom state outside the OS temp root is
+// still reachable, or nil when it is not: through app-directory resolution
+// (HOME, the walk up from cwd) or through an inherited environment variable
+// naming a real app dir — PATH carrying a session's pinned companion store is
+// the case that leaked (taskstest.EnvAppDirEscapeError).
 //
-// The predicate itself lives in taskstest, next to the Isolate it now guards:
+// The predicates themselves live in taskstest, next to the Isolate they guard:
 // the internal/shared tree is self-contained and cannot import testsupport,
-// so a shared-side caller forces the body shared-side. This is a re-export,
-// not a copy — two bodies is how the two EnvKeys lists drifted to cover 3 of
-// ~18 variables with nothing to catch it.
+// so a shared-side caller forces the bodies shared-side. This composes them;
+// it does not copy them — two bodies is how the two EnvKeys lists drifted.
 func AppDirIsolationError() error {
-	return taskstest.AppDirIsolationError()
+	return errors.Join(taskstest.AppDirIsolationError(), taskstest.EnvAppDirEscapeError())
 }
 
-// enterSandbox roots HOME and the working directory at fresh temp directories
-// and clears every EnvKeys variable, process-wide (os.Setenv, not t.Setenv:
-// there is no *testing.T at TestMain time). The returned func restores the
-// working directory and removes the sandbox.
+// enterSandbox roots HOME and the working directory at fresh temp directories,
+// clears every EnvKeys variable and scrubs inherited app-dir paths,
+// process-wide (os.Setenv, not t.Setenv: there is no *testing.T at TestMain
+// time). The returned func restores the working directory and removes the
+// sandbox.
 //
 // HOME and cwd each get their own subdirectory under a single per-process
 // sandbox (see acquireSandbox), rather than two independent MkdirTemp calls,
@@ -192,10 +196,8 @@ func enterSandbox() (func(), error) {
 	if err := os.Setenv("USERPROFILE", home); err != nil { // Windows home, for os.UserHomeDir parity
 		return nil, err
 	}
-	for _, k := range EnvKeys {
-		if err := os.Unsetenv(k); err != nil {
-			return nil, err
-		}
+	if err := scrubInheritedEnv(); err != nil {
+		return nil, err
 	}
 	prev, err := os.Getwd()
 	if err != nil {
@@ -209,6 +211,20 @@ func enterSandbox() (func(), error) {
 		_ = os.Unsetenv(SandboxRootEnv)
 		removeSandbox()
 	}, nil
+}
+
+// scrubInheritedEnv clears every EnvKeys variable and every inherited entry
+// naming an app dir outside the temp roots. The second half is what HOME and
+// cwd isolation do not reach: a ctxloom session's companion store on PATH.
+// It runs after pinGoToolchainDirs, whose paths derive from the real home but
+// never land in an app dir.
+func scrubInheritedEnv() error {
+	for _, k := range EnvKeys {
+		if err := os.Unsetenv(k); err != nil {
+			return err
+		}
+	}
+	return taskstest.ScrubAppDirEnv()
 }
 
 // acquireSandbox reaps whatever dead runs left behind, then stakes out this

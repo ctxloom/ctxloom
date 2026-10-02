@@ -18,15 +18,16 @@ import (
 //
 //	in/           written, unclaimed        — Pending asks only about this one
 //	in/claimed/   taken by a reader, unacknowledged
-//	in/consumed/  acknowledged: delivered   — the audit trail, never pruned here
+//	(deleted)     delivered: its identity is in in/delivered/ (delivered.go)
 //
-// Claim moves in/ → in/claimed/ and returns EVERYTHING in in/claimed/; Ack
-// moves one file in/claimed/ → in/consumed/. A reader that claims and dies
-// before it acks leaves the file in in/claimed/, and the next Claim hands it
-// out again: at-least-once is the substrate's floor, and a reservation that
-// survived its reader without delivering would be a message permanently
-// invisible. A reader therefore acks only what it has actually DELIVERED —
-// for the hook, what it wrote to the engine — never what it merely returned.
+// Claim moves in/ → in/claimed/ and returns EVERYTHING in in/claimed/;
+// Deliver records one claimed message's identity and deletes it. A reader
+// that claims and dies before it delivers leaves the file in in/claimed/, and
+// the next Claim hands it out again: at-least-once is the substrate's floor,
+// and a reservation that survived its reader without delivering would be a
+// message permanently invisible. A reader therefore calls Deliver only for
+// what it has actually DELIVERED — for the hook, what it wrote to the engine
+// — never for what it merely returned.
 //
 // in/claimed/ is, like in/failed/, deliberately NOT a member of the closed
 // Dir set: nothing rings a doorbell about a file landing there (the move is
@@ -73,7 +74,9 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 	if err != nil {
 		return res, fmt.Errorf("spool: reading %s: %w", claimedPath, err)
 	}
-	res.Entries = claimed.Entries
+	if res.Entries, err = undelivered(m, harp, claimedPath, claimed.Entries); err != nil {
+		return res, err
+	}
 	res.Problems = append(res.Problems, claimed.Problems...)
 	return res, nil
 }
@@ -88,60 +91,65 @@ func sweepExisting(harp string, dir Dir, path string) (SweepResult, error) {
 	return res, nil
 }
 
-// moveUnclaimed moves each unclaimed entry into claimed/ — or, when a copy
-// of it was already delivered or is already in flight, into consumed/,
-// acknowledged unseen: the reader is a new process every turn, so the
-// directories are its only memory of what it has handed out. An entry
-// another reader took first is ordinary.
+// moveUnclaimed moves each unclaimed entry into claimed/ — or deletes it,
+// unseen, when a copy of it is already in flight: the reader is a new process
+// every turn, so the claimed/ directory is its only memory of what it has
+// handed out. A copy of something already DELIVERED is moved like any other
+// and dropped by undelivered, the one place the delivered record is read. An
+// entry another reader took first is ordinary.
 func moveUnclaimed(m PathMapper, harp, inPath, claimedPath string, entries []Entry) error {
-	var seen map[string]bool
+	var inFlight map[string]bool
 	if len(entries) > 0 {
 		var err error
-		if seen, err = identitiesIn(m, harp, DirInConsumed, ClaimedDirName); err != nil {
+		if inFlight, err = identitiesIn(m, harp, ClaimedDirName); err != nil {
 			return err
 		}
 	}
-	consumedPath, err := DirPath(m, harp, DirInConsumed)
-	if err != nil {
-		return err
-	}
 	for _, e := range entries {
-		to := claimedPath
-		if id := e.Identity(); seen[id] {
-			to = consumedPath
-		} else {
-			seen[id] = true
+		from := filepath.Join(inPath, e.Ref.Name)
+		id := e.Identity()
+		if inFlight[id] {
+			if err := discard(from); err != nil {
+				return fmt.Errorf("spool: dropping in-flight copy %s: %w", e.Ref, err)
+			}
+			continue
 		}
-		if err := renameInto(filepath.Join(inPath, e.Ref.Name), filepath.Join(to, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
+		inFlight[id] = true
+		if err := renameInto(from, filepath.Join(claimedPath, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
 			return fmt.Errorf("spool: claiming %s: %w", e.Ref, err)
 		}
 	}
 	return nil
 }
 
-// Ack acknowledges one claimed message by renaming in/claimed/<name> into
-// in/consumed/<name>. The rename is the acknowledgement, exactly as Consume's
-// is for a live entry, and for the same reasons: atomic, observable with
-// `ls`, and a move rather than a delete so the audit trail survives.
-//
-// A name not in in/claimed/ is ErrAlreadyGone — another reader acknowledged
-// it first, or it was never claimed — and never a generic failure.
-func Ack(m PathMapper, harp, name string) error {
-	if err := ValidateName(name); err != nil {
+// undelivered drops, from what Claim is about to return, every claimed entry
+// whose identity is already recorded as delivered — a delivery whose delete
+// was interrupted — finishing that delete.
+func undelivered(m PathMapper, harp, claimedPath string, entries []Entry) ([]Entry, error) {
+	out := entries[:0]
+	for _, e := range entries {
+		delivered, err := Delivered(m, harp, e.Identity())
+		if err != nil {
+			return nil, fmt.Errorf("spool: reading %s: %w", e.Ref, err)
+		}
+		if !delivered {
+			out = append(out, e)
+			continue
+		}
+		if err := discard(filepath.Join(claimedPath, e.Ref.Name)); err != nil {
+			return nil, fmt.Errorf("spool: finishing the delivery of %s: %w", e.Ref, err)
+		}
+	}
+	return out, nil
+}
+
+// discard deletes a copy that must not be delivered. One another reader
+// already removed is the same outcome.
+func discard(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	from, err := DirPath(m, harp, ClaimedDirName)
-	if err != nil {
-		return err
-	}
-	to, err := DirPath(m, harp, DirInConsumed)
-	if err != nil {
-		return err
-	}
-	if err := renameInto(filepath.Join(from, name), filepath.Join(to, name)); err != nil {
-		return fmt.Errorf("spool: acknowledging %s: %w", name, err)
-	}
-	return nil
+	return syncDir(filepath.Dir(path))
 }
 
 // Pending reports whether harp's in/ holds at least one unclaimed file — the

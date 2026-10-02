@@ -90,7 +90,7 @@ func TestWriter_FilenameIsIdentityAndOrder(t *testing.T) {
 }
 
 // TestWriter_ReseedsSequenceAcrossRestart: a fresh process must not reissue a
-// name a still-present file already holds, including one already consumed.
+// name a still-present file already holds, including one already withdrawn.
 func TestWriter_ReseedsSequenceAcrossRestart(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
@@ -102,8 +102,8 @@ func TestWriter_ReseedsSequenceAcrossRestart(t *testing.T) {
 		last, err = first.Write(&Message{Kind: "message", Body: "x\n"})
 		require.NoError(t, err)
 	}
-	// Consume one so the seed has to look past the live directory.
-	_, err = Consume(m, last)
+	// Withdraw one so the seed has to look past the live directory.
+	_, err = Withdraw(m, last)
 	require.NoError(t, err)
 
 	restarted, err := NewWriter(m, testHarp, DirIn, "coord")
@@ -158,7 +158,7 @@ func TestWriter_NeverPublishesAPartialFile(t *testing.T) {
 func TestNewWriter_RefusesNonWritableDirections(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
-	for _, d := range []Dir{DirInConsumed, DirOutConsumed, DirInWithdrawn, Dir("nope"), Dir("")} {
+	for _, d := range []Dir{DirOutConsumed, DirInWithdrawn, Dir("nope"), Dir("")} {
 		_, err := NewWriter(m, testHarp, d, "coord")
 		require.Error(t, err, "%q must not be directly writable", d)
 	}

@@ -106,7 +106,7 @@ func TestAtomicWriteFile(t *testing.T) {
 		assert.False(t, bakExists, "no .ctxloom.bak sibling may be left beside a written file")
 	})
 
-	// AtomicWriteFile had no len(data)==0 guard, so a caller that
+	// safefs.WriteFileKeepMode had no len(data)==0 guard, so a caller that
 	// accidentally assembled zero bytes (an upstream bug, not an intentional
 	// removal — RemoveSettings/dropManaged callers go through fs.Remove, never
 	// through this path with empty data) silently truncated a live settings

@@ -217,6 +217,12 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return writeMinimalConfig(w.env)
 	})
 
+	// The shape of a project initialized before `ctxloom init` provisioned the
+	// approvals store — or one whose store went away: the store is absent.
+	ctx.Step(`^the project's approvals store is missing$`, func(c context.Context) error {
+		return os.RemoveAll(paths.ApprovalsPath(filepath.Join(worldFrom(c).env.ProjectDir, paths.AppDirName)))
+	})
+
 	// An empty project directory is a git repo with no .ctxloom yet — the
 	// starting point for `init`.
 	ctx.Step(`^an empty project directory$`, func(c context.Context) error {

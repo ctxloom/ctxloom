@@ -33,7 +33,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Store is one physical countersignature store: a directory holding THREE
@@ -69,9 +69,9 @@ type Store struct {
 }
 
 // NewStore builds a Store rooted at dir, backed by fs. dir need not exist yet
-// — it is created lazily on the first write; a Store over a nonexistent dir
-// reads as empty (no candidates), which is the correct "nothing approved or
-// rejected yet" starting state.
+// — it is created lazily on the first write, and its record lookups answer
+// "no candidates" until then. Whether a nonexistent dir may yield a VERDICT is
+// Readable's question, not the lookups'.
 //
 // An EMPTY dir is not that state and never was: it is a store nobody managed
 // to configure (the real trigger is `$HOME` being unresolvable, which leaves
@@ -96,45 +96,34 @@ func (s *Store) configured() error {
 	return fmt.Errorf("countersignature store: no directory configured (unresolvable home directory?)")
 }
 
-// Readable is the two-answer projection of Resolve that EffectiveTrust's
+// Readable is the two-answer projection of Resolve that the gate's
 // fail-closed preamble consults: nil means "you may take a verdict from this
 // store", non-nil means "deny everything and say why".
 //
-// It is deliberately NOT a bare `_, err := s.Resolve(); return err`. Two of
-// Resolve's fault states are tolerated here, and each tolerance is a decision
-// with a reason:
+// It is Resolve's error with ONE tolerance: a nil *Store. "No store
+// configured" is a supported caller shape; a nil store holds no records and
+// cannot hide one.
 //
-//   - A nil *Store. "No project store configured" is a supported caller
-//     shape; a nil store holds no records and cannot hide one.
-//   - StateAbsent. A directory that has never been written to is the normal
-//     fresh-project / fresh-user shape, and it is ALSO what an approvals
-//     volume that failed to mount looks like. Those two are indistinguishable
-//     from the filesystem alone, so denying on absence would deny every fresh
-//     checkout — an outage — while admitting on absence discards a rejection
-//     an operator believes is in force. Telling them apart requires the store
-//     directory to be PROVISIONED (created by init, tracked in the committable
-//     project store) so that absence can only mean "it went away"; that is an
-//     on-disk-layout decision, not one this function may take, and until it is
-//     taken this tolerance is the documented, deliberate hole. Resolve is the
-//     seam it closes through: the state is already named and already
-//     distinguishable, so the change is this branch and the two tests that
-//     pin it (TestStore_Readable_AbsentDirectory_IsNotAnError here, and
-//     operations' TestEffectiveTrust_AbsentApprovalsStore_NormalPending).
+// StateAbsent is a fault here, and that is a reversal with a reason. Absence
+// is indistinguishable, from the filesystem alone, from an approvals store
+// that went away or failed to mount — and reading that as "nothing rejected"
+// discards every rejection a human recorded. `ctxloom init` provisions the
+// project store (a tracked placeholder keeps it in the checkout), so for a
+// provisioned store absence can only mean it went away. Whether absence is
+// tolerated for a store that CANNOT be provisioned is the composing caller's
+// decision (Records.readable makes it for the user store), and it reads the
+// ErrStoreAbsent sentinel to make it.
 //
-// StateUnconfigured and StateUnreadable are reported. An unconfigured store
+// StateUnconfigured and StateUnreadable are faults too. An unconfigured store
 // would otherwise read the PROCESS WORKING DIRECTORY (filepath.Join("", x) ==
 // x) where an unsigned marker is honoured with no verification at all; an
 // unreadable one might be hiding a REJECTION, and rejection is supreme
-// (spec §9.3). A caller that cannot tell "empty" from "blind" and treats both
-// as "nothing rejected" has silently reopened a gate a human closed.
+// (spec §9.3).
 func (s *Store) Readable() error {
 	if s == nil {
 		return nil
 	}
-	state, err := s.Resolve()
-	if state == StateAbsent {
-		return nil
-	}
+	_, err := s.Resolve()
 	return err
 }
 
@@ -258,7 +247,7 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 	// Durable: a countersignature is rotation lineage — the human review
 	// record a verifier trusts — and unrecoverable if the rename silently
 	// reverts to naming nothing after a crash.
-	return iox.WriteFileAtomicFs(s.fs, path, armored, 0o644, iox.Durable())
+	return safefs.WriteFile(s.fs, path, armored, 0o644, safefs.Durable())
 }
 
 // WriteApprove signs and stores a ref-scoped, form-scoped approve
@@ -445,7 +434,7 @@ func (s *Store) writeUnsigned(header signing.CountersignHeader, payload []byte) 
 	// "unsigned\n" — never zero-length — and the filename is
 	// content-addressed, so a re-write at the same path is always identical
 	// bytes.
-	return iox.WriteFileAtomicFs(s.fs, path, []byte("unsigned\n"), 0o644)
+	return safefs.WriteFile(s.fs, path, []byte("unsigned\n"), 0o644)
 }
 
 // hasUnsigned reports whether the unsigned marker for header+payload is
@@ -657,7 +646,7 @@ func (s *Store) AppendIndex(e IndexEntry) error {
 }
 
 // writeIndex replaces the sidecar index with entries, atomically, through
-// iox.WriteFileAtomicFs (unique temp file + fsync + rename) — a crash
+// safefs.WriteFile (unique temp file + fsync + rename) — a crash
 // mid-write cannot leave behind the truncated file that makes readIndex (and
 // therefore every later append) refuse. yaml.Marshal of a []IndexEntry, even
 // nil or empty, always renders "[]\n": this write can never be legitimately
@@ -679,7 +668,7 @@ func (s *Store) writeIndex(entries []IndexEntry) error {
 	// a silently-reverted rename after a crash would corrupt back to a
 	// truncated view, exactly the failure AppendIndex's own refusal-on-bad-
 	// read guards against on the way in.
-	return iox.WriteFileAtomicFs(s.fs, s.indexPath(), data, 0o644, iox.Durable())
+	return safefs.WriteFile(s.fs, s.indexPath(), data, 0o644, safefs.Durable())
 }
 
 // LatestApprove returns the most recently appended approve index entry for

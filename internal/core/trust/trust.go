@@ -98,9 +98,13 @@ const (
 	// current effective form matches the recomputed content hash.
 	SourceAccepted Source = "accepted"
 	// SourcePending: nothing positively justified exposure — the item awaits
-	// review. This is also the terminal fail-closed source (unreadable store or
-	// registry, unresolvable ref/hash).
+	// review. This is also the terminal fail-closed source for a decision that
+	// could not be keyed (unresolvable ref/hash).
 	SourcePending Source = "pending"
+	// SourceUnreadable: the trust records the decision reads (an approvals
+	// store, the lockfile) could not be read, so nothing was decided. The
+	// remedy is the store, not a review.
+	SourceUnreadable Source = "unreadable"
 )
 
 // State is an item's review state in the three-state model. Pending is the

@@ -33,13 +33,10 @@ var lockReadPattern = regexp.MustCompile(`(?i)^(read|load)`)
 
 var lockSavePattern = regexp.MustCompile(`(?i)^save`)
 
-// lockWritePrimitives are write callees by bare name. The iox names stay only
-// while an iox caller remains in lockDisciplineScopes; the write library's own
+// lockWritePrimitives are write callees by bare name. The write library's own
 // entry points are safefsWrites, matched through their import because
 // "WriteFile" alone would also name afero's and os's.
 var lockWritePrimitives = map[string]bool{
-	"AtomicWriteFile":          true,
-	"WriteFileAtomicFs":        true,
 	"WriteManagedContext":      true,
 	"WriteManagedPackageFiles": true,
 	"WriteManagedCommandFiles": true,

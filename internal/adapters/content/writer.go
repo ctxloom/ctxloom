@@ -80,12 +80,10 @@ func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f signing.Form, surf
 			return fmt.Errorf("content: creating %q: %w", filepath.Dir(target), err)
 		}
 		perm := fileMode(c.Mode)
-		// safefs chmods to perm EXACTLY on every write, unlike the afero.WriteFile
-		// this replaces (create-time-only mode) — closing a latent gap where a
-		// re-Put onto an existing path (a changed executable declaration on
-		// update) left the file at its STALE mode, the same class of bug
-		// documented against remote/pull.go's writeTreeFile and
-		// content/archive's reroot. AllowEmpty: an individual component can
+		// safefs chmods to perm EXACTLY on every write (afero.WriteFile applies
+		// mode only at creation), so a re-Put onto an existing path (a changed
+		// executable declaration on update) never keeps a STALE mode.
+		// AllowEmpty: an individual component can
 		// legitimately be zero bytes (an empty sidecar); Put's own check above
 		// only refuses zero COMPONENTS, not zero-length ones.
 		if err := safefs.WriteFile(s.fsys, target, c.Bytes, perm, safefs.AllowEmpty()); err != nil {

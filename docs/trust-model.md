@@ -737,6 +737,12 @@ The scope is deliberate and narrow:
 - **The file is never committed.** Each provisioned home is gitignored or
   ephemeral, so the machine-specific absolute path baked into the entry cannot
   reach a teammate's checkout.
+- **The answer unlocks more than tools.** claude honours a repository's
+  committed `.claude/agents` frontmatter (`hooks`, inline `mcpServers`) only
+  from a folder it trusts, so the generated answer is also what lets a
+  repository's own agent definitions execute. The P13 rung's
+  `trusted-frontmatter-fires` cell measures exactly that; see known gap 14 for
+  what keeps an untrusted repository's surfaces out.
 - **Nothing else in the generated config is pre-accepted on your behalf.**
   `hardenedConfigKeys` pins the engine's own bypass and auto-update switches
   off; ctxloom does not pass any engine's bypass-trust or bypass-permissions
@@ -1025,3 +1031,61 @@ never permitted in the committable project store.
     boundary is a container. This sits outside signing and review — it is a
     property of the runtime axis, not of item trust, which is why it is
     recorded here rather than in the threat model above.
+14. **An untrusted repository's committed skills and agents.** A repository can
+    commit `.claude/skills/*/SKILL.md` and `.claude/agents/*.md` whose
+    frontmatter declares `hooks` and `mcpServers`. The capability ladder's P13
+    rung (`p13-untrusted-repo-hooks` in
+    `tests/acceptance/capability_probe_registry.go`) pins claude's behaviour:
+    without flags claude loads both into an untrusted `-p` run
+    (`untrusted-fires`: the init frame lists them); a trusted folder's agent
+    frontmatter hook and inline MCP server execute (`trusted-frontmatter-fires`);
+    and `--setting-sources user --strict-mcp-config` keeps both out entirely —
+    neither is loaded, so no frontmatter can run (`setting-sources-suppresses`).
+    The residual is ctxloom's side of that boundary: `projectTrustKeys`
+    (`internal/engines/claude/instanceconfig.go`) answers the trust prompt for
+    every provisioned home's working directory, and a launch that does not
+    also pass those two flags for an untrusted repository lets the repository's
+    committed agents run their frontmatter once the model invokes them, as it
+    lets its `.claude/settings.json` hooks run. The flags belong on every claude
+    launch into a repository its user has not trusted.
+15. **Claude's subprocesses inherit the run's hook token.** A run that serves
+    the approval route puts the session endpoint's bearer into the engine's
+    environment as `CTXLOOM_HOOK_TOKEN` (`sessions.EnvHookToken`, written by
+    `sessions.EncodeHookReach` in the runner's `deliverAndDrive`), so every
+    process claude spawns — third-party stdio MCP servers and hooks included —
+    inherits it. The token authorizes only that run's endpoint. On the host
+    runtime a malicious MCP server can therefore act as the run's hooks, for
+    example by answering the run's own approvals. Same-uid processes are not
+    isolated from each other on the host runtime (gap 13); the container
+    runtime is the boundary. Ruled and accepted: the token stays in the
+    environment.
+16. **The `unsafe-file` MCP approach leaves the run's bearer in the project's
+    `.mcp.json`.** Selecting the project root for the MCP surface
+    (`mcpUnsafeFile`, `internal/engines/claude/surfaces.go`) writes ctxloom's
+    session-endpoint entry — `CTXLOOM_CLAUDE_RELAY_BEARER` in its `env` — into
+    the project's own `.mcp.json`, a file teams commit. The entry is reversed
+    only when ctxloom next writes that same file (the confpatch record) or when
+    the session writer's delivery is undone (`delivery.Delivered.Undo`); the
+    runner does neither when a run ends, because `runner.Host.Execute` drops
+    the `Outcome` that carries the undo. So the bearer outlives the run whether
+    it ends cleanly or is killed. The default MCP approach (`mcpConfig`, the
+    private `--mcp-config` file) is unaffected. Until that changes, do not
+    select `mcp=unsafe-file` in a repository whose `.mcp.json` is committed.
+17. **Artifact uploads have a per-upload cap and nothing else.** Each upload is
+    bounded by `coord.ArtifactUploadSizeCap`, but there is no count cap, no
+    per-run total and no garbage collection, so a child can fill the
+    coordinator's disk by uploading repeatedly. Accepted under the host-runtime
+    trust model: a child that can upload is already a same-user process on
+    that host (gap 13).
+18. **The coordinator's listener can be reachable beyond this host.** It never
+    binds `0.0.0.0`, and a plain host session binds loopback only
+    (`TestServe_BindsLoopbackOnly`, `internal/adapters/coordgrpc`). When a
+    container run's runtime has no private route home — no loopback
+    translator and no bridge gateway, as with rootless slirp/pasta — the
+    coordinator also listens on the host's primary outbound address
+    (`publicRoute` in `internal/adapters/isolation/runtime.go`), which is
+    reachable from the LAN, and reports that once per address. Every stream
+    and request on any listener needs a per-run bearer (`Coordinator.Identify`),
+    carried in cleartext h2c (see `docs/architecture/agentcoord/transport.md`).
+    The outbound address is kept because without it a rootless container
+    cannot reach the coordinator at all. Ruled and accepted.

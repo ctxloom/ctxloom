@@ -42,7 +42,7 @@ func runRoot(t *testing.T, args ...string) (string, error) {
 		// next such dispatch into a help print that exits 0.
 		resetHelpFlag(rootCmd)
 	})
-	err := rootCommand().Execute()
+	err := dispatch(rootCommand())
 	return out.String(), err
 }
 

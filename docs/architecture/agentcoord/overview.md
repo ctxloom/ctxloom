@@ -23,14 +23,17 @@ Everything durable in delegation is one of:
   (the plane-1 event stream), `interactions.jsonl` (the audit journal). See
   `Coordinator.openJournals`.
 - **The spool**: one directory per session harp under `paths.HarpPersistDir`
-  (`spool.SpoolDirName`), holding `in/`, `out/` and their `consumed/`, `withdrawn/`
-  and `failed/` subdirectories (`spool.Dir`, `spool.Dirs`, `spool.FailedDirNames`).
+  (`spool.SpoolDirName`), holding `in/`, `out/`, `out/consumed/`, `in/withdrawn/`,
+  the `failed/` subdirectories (`spool.Dir`, `spool.Dirs`, `spool.FailedDirNames`)
+  and `in/delivered/`, the delivered-identity record (`spool.Deliver`).
   A message is a file; the file is the payload's only carrier. The package doc of
   `internal/core/spool` is the authority on its properties.
 - **The content-addressed artifact store** (`artifactstore.go`), keyed by sha256.
 
-There is no message journal: a message's durability is the fsynced file, and its
-consumption is the rename that moves it into `consumed/`.
+There is no message journal: a message's durability is the fsynced file. An `out/`
+message is acknowledged by the rename that moves it into `out/consumed/`; an inbox
+message by `spool.Deliver`, which records its identity in `in/delivered/` and then
+deletes it.
 
 ## Package topology
 
@@ -197,7 +200,7 @@ stateDiagram-v2
     OwnerInFile --> Woken: Home.fireWake (spool.ArmWake nonce → engine.Wake.Fire) → the owner's next turn starts
     Woken --> Claimed: turn_start → `ctxloom hook mail-drain` → spool.Claim(in/→in/claimed/)
     OwnerInFile --> Claimed: a human's own prompt runs the same hook
-    Claimed --> InConsumed: written as the turn's context → spool.Ack(in/claimed/→in/consumed/) + spool.ClearWakes
+    Claimed --> InDelivered: written as the turn's context → spool.Deliver(record in/delivered/<id>, delete in/claimed/ file) + spool.ClearWakes
     Claimed --> Claimed: hook dies before the write → the next turn's Claim hands it out again
   }
   state "parent → child" as down {
@@ -206,7 +209,7 @@ stateDiagram-v2
     Delivered --> TurnQueued: turn sink → turnQ
     Delivered --> Buffered: no sink yet → h.buffer (SetTurnSink drains it first)
     TurnQueued --> Accepted: turnPump → sink → EngineHost.enqueueTurn → in chan (engine stdin)
-    Accepted --> InConsumed: ackMailConsumed → spool.Consume + Announce('consumed') doorbell → coordinator sweepChildConsumed → noteMailConsumed (budget forgiven)
+    Accepted --> InDelivered: ackMailConsumed → spool.Deliver(record in/delivered/<id>, delete in/ file) + Announce('consumed') doorbell → coordinator sweepChildDelivered (spoolCredit) → noteMailConsumed (budget forgiven)
     Buffered --> TurnQueued: SetTurnSink
     TurnQueued --> Buffered: sink returned false (engine gone)
     InFile --> InWithdrawn: WithdrawSteer (rename wins) → ErrSteerAlreadyDelivered if lost
@@ -230,12 +233,15 @@ Reading it:
   turn (`turnPump → EngineHost.enqueueTurn`) or buffers it until the engine
   registers its turn sink.
 - **The owner's inbox** is read by its turn-start hook, `ctxloom hook mail-drain`
-  (`spool.Claim`, then `spool.Ack` once the context is written). Its runner reads
+  (`spool.Claim`, then `spool.Deliver` once the context is written). Its runner reads
   nothing from it: a sweep only fires the owner's wake (`Home.wakeOwner`), which
   starts the turn the hook runs in.
-- **The ack** is a rename into `consumed/`: the runner's after the engine accepted
-  the turn (`Home.ackMailConsumed`), the hook's after it wrote the context
-  (`spool.Ack`). There is no cursor and no consumption fact.
+- **The ack** is `spool.Deliver`: record the identity in `in/delivered/`, then
+  delete the file — the runner's after the engine accepted the turn
+  (`Home.ackMailConsumed`), the hook's after it wrote the context. A crash
+  between the two leaves the file and its record, and the next reader finishes
+  the delete instead of delivering again. There is no cursor and no consumption
+  fact.
 - **Every runner-side node above is a real process**, in the hermetic suite
   too: the delegation journey (`j002300_cross_engine_delegation.feature`)
   delegates to the mock backend through a real `ctxloom mcp` coordinator, which
@@ -268,7 +274,7 @@ false — delete it rather than leave it.
 | I3 | Facts become visible only after they are durable: one writer goroutine serialises every `decide → append → fsync → apply` window. | `Store.writer`, `Store.execLocked` (`journal.go`) |
 | I4 | Folds are single-writer by construction; `Store.View` is a read-lock window and callers must not retain references out of it. | `Store.View` (`journal.go`) |
 | I5 | The file is the message. The wire carries only a `spool.Ref` (harp, dir, name); a doorbell lost on a down stream costs latency, never a message, because every reader's sweep re-derives the whole picture (`spoolReactor`, `spoolSweepInterval`, the startup and reconnect sweeps). | `spool.Writer.Write`, `spool.Sweep`; `AgentFrame.spool_changed` doc in `coordination.proto` |
-| I6 | The ack is the consume-rename. Delivery is at-least-once; a reader that crashes before acking is re-delivered the same file, deduped on its id (`Home.deliverNotice`'s `consumed` set) or re-claimed from `in/claimed/` (the owner's hook). | `spool.Consume`; `Home.ackMailConsumed`; `spool.Claim` / `spool.Ack` |
+| I6 | The inbox ack is record-then-delete (`spool.Deliver`). Delivery is at-least-once; a reader that crashes before acking is re-delivered the same file, deduped on its id (`Home.deliverNotice`'s `consumed` set) or re-claimed from `in/claimed/` (the owner's hook); one that crashes between record and delete leaves a file every reader drops on sight of its recorded identity. | `spool.Deliver`; `Home.ackMailConsumed`; `spool.Claim` |
 | I7 | Each spool directory has one writer: the coordinator writes `in/`, the run's own runner writes `out/`. A sender is who the DIRECTORY says, and a `SpoolChanged.harp` arriving on a child's channel is resolved against THAT child's spool, never against the harp the frame names. | `spool.DirIn` / `spool.DirOut` docs; `Coordinator.handleSpoolChanged`, `spoolSenderIdentity` |
 | I8 | A `Ref` from a less-trusted peer is validated at one chokepoint — harp grammar, closed `Dir` set, bare filename — and rejected, never sanitised. Nothing is silently dropped: a malformed file is a named `spool.Problem`, a lost rename is `spool.ErrAlreadyGone`. | `spool.Ref.Validate`, `spool.HomeMapper.Resolve`, `spool.Sweep` |
 | I9 | Every run death funnels through one exactly-once terminal that claims `factRunEnded` inside the journal window; only the claimant frees the slot, revokes the credential, severs the channel and notices the parent. | `Coordinator.terminateRun` (`children.go`) |

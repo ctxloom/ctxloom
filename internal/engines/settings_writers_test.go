@@ -179,7 +179,7 @@ func TestDeliverManagedSettings_WithFS(t *testing.T) {
 // These tests verify that ctxloom gracefully handles malformed or incompatible
 // settings.json files, as Claude Code's schema is undocumented and may change.
 
-// (AtomicWriteFile / GetFS / ComputeHookHash are covered in shared/agent —
+// (safefs.WriteFileKeepMode / GetFS / ComputeHookHash are covered in shared/agent —
 // settings_io_test.go — alongside the helpers themselves.)
 //
 // TestClaudeCodeHookWriter_WritesNoAbsolutePaths proves the portability fix

@@ -383,3 +383,36 @@ func TestJSONCompressor_KeyOrderIsNotSemantic(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(dup.Content), &decoded))
 	assert.Equal(t, float64(2), decoded["a"], "a duplicate name resolves last-wins, as encoding/json does")
 }
+
+// Normalized entropy cannot tell a sentence from an ID: an evenly mixed
+// English sentence scores as high as a UUID, so mid-length prose was kept
+// verbatim as if it were an identifier — exactly the input compression exists
+// to shrink. Each pair is the same length band, so only the classifier differs.
+func TestJSONCompressor_ProseIsNotHighEntropy(t *testing.T) {
+	c := NewJSONCompressor()
+	prose := []string{
+		"The quick brown fox jumps over the lazy dog near the river.",
+		"Failed to connect to the database on startup",
+		"user not found in the directory, please retry later",
+		// Tab/newline separated, no space: whitespace is the test, not ' '.
+		"log\tline\tone\twarned\tabout\tdisk\nlog\tline\ttwo\tfailed\tagain",
+	}
+	for _, s := range prose {
+		assert.False(t, c.isHighEntropy(s), "prose classified high-entropy: %q", s)
+
+		got := c.compressString(s)
+		assert.Less(t, len(got), len(s), "mid-length prose must be truncated: %q", s)
+		assert.Contains(t, got, "...", "truncation marker missing for %q", s)
+	}
+
+	ids := []string{
+		"550e8400-e29b-41d4-a716-446655440000",
+		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+		"dGhpcyBpcyBhIHNlY3JldCB0b2tlbiB2YWx1ZQ==",
+	}
+	for _, s := range ids {
+		assert.True(t, c.isHighEntropy(s), "id/hash/token lost its high-entropy classification: %q", s)
+		assert.Equal(t, s, c.compressString(s), "id/hash/token must survive verbatim")
+	}
+}

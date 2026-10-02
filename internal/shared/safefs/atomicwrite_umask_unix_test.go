@@ -19,7 +19,7 @@ import (
 // mode it asked for regardless of the process umask. os.WriteFile and
 // afero.WriteFile pass perm to open(2)/Create, where the kernel masks it.
 //
-// So a caller migrating from os.WriteFile to WriteFileAtomic under a
+// So a caller migrating from os.WriteFile to safefs.WriteFile under a
 // restrictive umask gets a WIDER file than before (0644 stays 0644 instead of
 // becoming 0600). That divergence is real and is now documented rather than
 // silently inherited; masking it here is not available, because reading the
@@ -67,7 +67,7 @@ func TestAtomicWriters_PermIsExact_UmaskIndependent(t *testing.T) {
 }
 
 // TestAtomicFile_ExactPerm pins the exact-chmod contract (not umask-masked),
-// matching WriteFileAtomicFs.
+// matching safefs.WriteFile.
 func TestAtomicFile_ExactPerm(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "out.jsonl")

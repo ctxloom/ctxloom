@@ -292,8 +292,9 @@ func (c *Coordinator) noteLaunchAttached(harp string) {
 }
 
 // noteMailConsumed records the only thing that counts as progress for the
-// relaunch budget: harp actually DRAINED mail (a consume-rename the
-// coordinator observed in its in/consumed sweep) — the spool emptying is the
+// relaunch budget: harp actually DRAINED mail (a delivery the coordinator
+// credited from the harp's delivered record, sweepChildDelivered) — the
+// spool emptying is the
 // whole reason terminateRun's tail re-arms, so the message leaving it is the
 // whole reason to forgive the attempts spent getting there.
 //

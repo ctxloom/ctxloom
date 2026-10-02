@@ -143,7 +143,7 @@ func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
 
 // TestBuildSources_Composable pins the COMPOSABLE spec shape
 // (every engine in composableEngines() — engineInstall != nil): the SAME
-// generated multi-engine Containerfile builds onto each candidate base in
+// generated single-engine Containerfile builds onto each candidate base in
 // precedence order (explicit user base > auto-detected devcontainer >
 // embedded default), and an explicit base-image override still wins outright
 // exactly like the legacy shape.

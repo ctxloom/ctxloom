@@ -65,11 +65,11 @@ func TestForgetItemDecision_ClearsARejection(t *testing.T) {
 	// The fixture must be able to reach BOTH decided states, or the assertions
 	// below prove nothing about which one is being cleared.
 	require.Equal(t, trust.StatePending, solidState(t, fx), "an unreviewed remote item starts pending")
-	_, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
+	_, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 	require.Equal(t, trust.StateRejected, solidState(t, fx), "the rejection must be in force before it can meaningfully be cleared")
 
-	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, Root: fx.root, Loader: loader, FS: fs})
+	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 	assert.Contains(t, res.Cleared, "rejection", "the result must name the rejection it removed")
 	assert.Positive(t, res.Records)
@@ -91,7 +91,7 @@ func TestForgetItemDecision_ClearsARejectionInBothComponents(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	ref := seedItemRef(t, reviewSeedKey, "fragments/solid")
 
-	_, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
+	_, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 
 	// The content block is ref-omitted, so it denies these bytes under a
@@ -100,7 +100,7 @@ func TestForgetItemDecision_ClearsARejectionInBothComponents(t *testing.T) {
 	rejectedElsewhere := func() bool { return fx.records().Rejected(elsewhere, fragmentBytes(solidRawBody)) }
 	require.True(t, rejectedElsewhere(), "a moved copy of the rejected bytes must be rejected too, or there is no content block to clear")
 
-	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, Root: fx.root, Loader: loader, FS: fs})
+	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 	assert.Contains(t, res.ContentForms, string(signing.FormRaw))
 	assert.False(t, rejectedElsewhere(), "the ref-omitted content block must go with the ref block; a half-cleared rejection is still a rejection")
@@ -115,11 +115,11 @@ func TestForgetItemDecision_ClearsAnApproval(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	ref := seedItemRef(t, reviewSeedKey, "fragments/solid")
 
-	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
+	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 	require.Equal(t, trust.StateAccepted, solidState(t, fx), "the approval must deliver the item before it can meaningfully be cleared")
 
-	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, Root: fx.root, Loader: loader, FS: fs})
+	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 	assert.Contains(t, res.Cleared, "approval")
 
@@ -137,16 +137,16 @@ func TestForgetItemDecision_ReturnsTheItemToTheReviewQueue(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	ref := seedItemRef(t, reviewSeedKey, "fragments/solid")
 
-	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
+	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
-	pending, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: fs})
+	pending, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: fs})
 	require.NoError(t, err)
 	require.NotContains(t, pendingRefs(pending), ref, "an approved item is not pending")
 
-	_, err = ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, Root: fx.root, Loader: loader, FS: fs})
+	_, err = ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: ref, UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 
-	pending, err = PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: fs})
+	pending, err = PendingReview(nil, PendingReviewRequest{UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: fs})
 	require.NoError(t, err)
 	assert.Equal(t, ReviewStatusNew, pendingRefs(pending)[ref],
 		"a cleared item comes back as NEW: there is no earlier decision left for it to be an update of")
@@ -160,12 +160,12 @@ func TestForgetItemDecision_LeavesEveryOtherDecisionStanding(t *testing.T) {
 	loader := reviewLoader(t, reviewBundle())
 	fs := afero.NewMemMapFs()
 
-	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
+	_, err := SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
-	_, err = SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "commands/greet"), UserStore: fx.user, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
+	_, err = SetItemTrust(nil, SetItemTrustRequest{Ref: seedItemRef(t, reviewSeedKey, "commands/greet"), UserStore: fx.user, ProjectStore: fx.project, Signer: fx.signer, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 
-	_, err = ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Root: fx.root, Loader: loader, FS: fs})
+	_, err = ForgetItemDecision(nil, ForgetItemDecisionRequest{Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Loader: loader, FS: fs})
 	require.NoError(t, err)
 
 	greet := trust.Ref{RepoURL: trustRepo, Bundle: "toolkit", Kind: trust.KindPrompt, Name: "greet"}
@@ -190,7 +190,7 @@ func TestForgetItemDecision_NeedsNoSigningKey(t *testing.T) {
 	require.Equal(t, trust.StateRejected, solidState(t, fx))
 
 	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{
-		Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Root: fx.root, Loader: loader, FS: fs,
+		Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, Loader: loader, FS: fs,
 	})
 	require.NoError(t, err)
 	assert.Contains(t, res.Cleared, "rejection")
@@ -209,7 +209,7 @@ func TestForgetItemDecision_UnresolvableItem_StillClearsTheStickyBlock(t *testin
 	require.NoError(t, fx.user.WriteRefReject(mustCountersignRef(t, ghost), fx.signer))
 
 	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{
-		Ref: seedItemRef(t, reviewSeedKey, "fragments/ghost"), UserStore: fx.user, Root: fx.root,
+		Ref: seedItemRef(t, reviewSeedKey, "fragments/ghost"), UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Loader: reviewLoader(t, reviewBundle()), FS: fs,
 	})
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestForgetItemDecision_UnresolvableItem_StillClearsTheStickyBlock(t *testin
 func TestForgetItemDecision_NothingRecorded_IsReportedAsSuch(t *testing.T) {
 	fx := newTrustFixture(t)
 	res, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{
-		Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, Root: fx.root,
+		Ref: seedItemRef(t, reviewSeedKey, "fragments/solid"), UserStore: fx.user, ProjectStore: fx.project, Root: fx.root,
 		Loader: reviewLoader(t, reviewBundle()), FS: afero.NewMemMapFs(),
 	})
 	require.NoError(t, err)
@@ -283,7 +283,7 @@ func TestForgetItemDecision_ProjectStore(t *testing.T) {
 func TestForgetItemDecision_MalformedRef_Refuses(t *testing.T) {
 	fx := newTrustFixture(t)
 	_, err := ForgetItemDecision(nil, ForgetItemDecisionRequest{
-		Ref: "not-a-ref", UserStore: fx.user, Root: fx.root, FS: afero.NewMemMapFs(),
+		Ref: "not-a-ref", UserStore: fx.user, ProjectStore: fx.project, Root: fx.root, FS: afero.NewMemMapFs(),
 	})
 	require.Error(t, err)
 }

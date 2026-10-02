@@ -51,7 +51,7 @@ func TestDiscoverer_DocumentedDefaultsApplyWithoutNewDiscoverer(t *testing.T) {
 		var noKey *NoKeyError
 		require.ErrorAs(t, err, &noKey)
 		assert.Contains(t, err.Error(), "SSH_AUTH_SOCK",
-			"the default must be dialEnvAgent — the error must come from the real one: %q", err.Error())
+			"the default must be the unset-socket answer, not a dial: %q", err.Error())
 	})
 
 	t.Run("ReadFile defaults to os.ReadFile", func(t *testing.T) {

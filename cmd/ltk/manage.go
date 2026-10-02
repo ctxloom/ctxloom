@@ -337,7 +337,7 @@ func readIfExists(fs afero.Fs, path string) ([]byte, error) {
 func writeFile(fs afero.Fs, path string, data []byte) error {
 	// These files hold the user's unrelated configuration, and the payload
 	// comes from engine code. An empty one can only be an upstream bug, and
-	// WriteFileAtomic would make the truncation durable while the caller
+	// safefs.WriteFile would make the truncation durable while the caller
 	// printed "installed hook for ...".
 	if len(data) == 0 {
 		return fmt.Errorf("refusing to write an empty %s (the engine produced no settings)", path)

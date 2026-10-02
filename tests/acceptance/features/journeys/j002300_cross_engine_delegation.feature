@@ -79,41 +79,35 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     And "librarian"'s next reported turn carries "J002300-ROUNDTRIP-ECHO-TOKEN-6d2e73"
     And "librarian"'s spool was never claimed by a turn-start hook
 
-  # LOCKED — the CHILD->coordinator half of requirement 4, hermetically. A
-  # chat child never calls agent_send itself, but its runner writes every
-  # turn's output to the parent's spool as the automatic turn report
-  # (coord.EngineHost's ReportTurnResult, spoolturnresult.go), so the
-  # coordinator's own spool holds the child's words over the real, durable bus
-  # with no model reasoning involved; and the owner is HANDED them at its next
-  # turn by the turn-start hook (`ctxloom hook mail-drain`), the one reader of
-  # the owner's in/ — nothing receives, nothing parks.
+  # LOCKED — the CHILD->coordinator half of requirement 4, hermetically, and
+  # the end of the long poll (row worried-chief). A chat child never calls
+  # agent_send itself, but its runner writes every turn's output to the
+  # parent's spool as the automatic turn report (coord.EngineHost's
+  # ReportTurnResult, spoolturnresult.go). The coordinator dispatches and then
+  # does NOTHING: it never receives, and the harness types nothing more into
+  # it. The report's arrival in the owner's in/ makes the owner's runner fire
+  # its wake (Home.wakeOwner → the mock's own socket), the wake line starts a
+  # turn, and that turn's turn-start hook (`ctxloom hook mail-drain`, the one
+  # reader of the owner's in/) delivers the report and acknowledges it.
+  # Proven on the owner's TERMINAL (the wake line was taken as a turn) and on
+  # DISK (the report reached in/consumed/, carrying the child's own guidance,
+  # not its sibling's). After the readiness sentinel, only a wake can start an
+  # owner turn, so the two together are the woken turn's delivery.
   #
   # BREAK-POINT: this is the regression gate for an EMPTY COORDINATOR HARP.
   # The harp IS the coordinator's mailbox address, and a bare `ctxloom mcp`
   # coordinator has no ambient session to supply one, so with it empty the
   # child's turn report is refused (queueMailPayloadID's `to == ""` guard)
   # while agent_run keeps returning success. Revert selfIdentityFromEnv's
-  # minted-harp fallback and this goes red for exactly that reason — the
-  # owner's spool never holds the report while agent_run still reports
-  # success. The hook is invoked here exactly as an engine
-  # invokes it: a subprocess with the owner's harp in its environment and the
-  # engine's turn-start payload on stdin; what it writes to stdout is what the
-  # engine injects as that turn's context. Delivery is proven on the PAYLOAD
-  # (the child's own guidance, under the coordinator's provenance header
-  # naming the child's harp), on DISK (the file has moved to in/consumed/ and
-  # nothing is left pending), and by a second turn-start that finds nothing —
-  # once per delivery, which a receive loop never had.
-  #
-  # The owner's harp is the one the standing `ctxloom run` minted: the fixture
-  # exports it as CTXLOOM_SESSION_HARP to every process the scenario spawns
-  # after it, and that identity IS the spool the hook reads.
+  # minted-harp fallback and this goes red for exactly that reason — nothing
+  # reaches the owner's spool, so nothing wakes it.
   #
   # CONTAINER AXIS EXCLUDED, stated rather than discovered: a containerized
   # claude never receives ctxloom's hooks at all (pulmonary-eternity), so this
   # delivery is inert for a container-hosted coordinator until that lands. The
   # coordinator here is a host process, which is the axis this claim covers.
   @reach-back @R2
-  Scenario: A delegated child's report reaches the coordinator's next turn through the turn-start hook, with no receive
+  Scenario: An idle coordinator is woken by its child's report, and its turn-start hook delivers it, with no receive
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
     And a session owner is standing
     When the agent calls tool "agent_run" with:
@@ -121,20 +115,8 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
       | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
-    And the coordinator's own spool holds "librarian"'s report within 20s
-    When I run "ctxloom hook mail-drain" with input:
-      """
-      {"session_id":"vendor-session-1","hook_event_name":"UserPromptSubmit","prompt":"what did the child say?"}
-      """
-    Then the command succeeds
-    And the drained turn context carries "librarian"'s report with its own guidance, not "cartographer"'s
-    And the coordinator's own spool shows "librarian"'s report consumed, with nothing pending
-    When I run "ctxloom hook mail-drain" with input:
-      """
-      {"session_id":"vendor-session-1","hook_event_name":"UserPromptSubmit","prompt":"and now?"}
-      """
-    Then the command succeeds
-    And the hook writes nothing to stdout
+    And the session owner is woken within 60s
+    And the coordinator's own spool shows "librarian"'s report consumed within 30s, carrying its own guidance, not "cartographer"'s
 
   # THE NEGATIVE PROBE for the two hermetic bus scenarios above. Both are
   # green only because a REAL runner process stands for the child: the

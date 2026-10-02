@@ -1,0 +1,6 @@
+I need clarification before proceeding. I don't have the context of what "it" is that was just completed, or access to the current queue state in taskloom. Before I can file the row and add it to tonight's queue (`queue:20261001`), I need you to tell me:
+
+- What is the row/task that needs to be admitted?
+- What is the current live queue date and what items are still open on it?
+
+Or point me to where I can read the queue state.

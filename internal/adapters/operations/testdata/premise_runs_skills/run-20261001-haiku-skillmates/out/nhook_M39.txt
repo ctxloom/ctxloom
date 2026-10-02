@@ -1,0 +1,3 @@
+`invoke: check-triggers`
+
+I'll now execute the skill by listing the Deferred tasks and evaluating their triggers.

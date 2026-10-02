@@ -1,0 +1,5 @@
+next: Report that this is a fresh session with no prior work to close out, and ask what the user wants to accomplish.
+
+---
+
+There's nothing to close out yet — this is the start of a conversation with no prior changes, tests, or decisions. What would you like to work on?

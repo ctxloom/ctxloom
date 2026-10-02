@@ -1,0 +1,3 @@
+I'm in a clean working directory with no git repo or visible task log. Before surfacing decisions, I need to check if there's any work or context to sweep through — either in memory or in the current filesystem.
+
+`next: Read memory index and filesystem to find open work before proceeding with prompt-human`

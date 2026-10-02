@@ -1,0 +1,1 @@
+next: ask the user what they'd like to work on, since there's no prior session context, task log, deferrals, or code to sweep for pending decisions.

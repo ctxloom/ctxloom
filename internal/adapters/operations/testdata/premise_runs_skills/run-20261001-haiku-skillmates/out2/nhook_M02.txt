@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I see the closeout skill has been invoked, but this session hasn't included any work yet—no code changes, tests, or implementation. Before I can run the closeout checklist, I need to know: What task were you working on, or what should I complete before wrapping up?

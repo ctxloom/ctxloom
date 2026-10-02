@@ -1,0 +1,3 @@
+`next: sweep for deferred decisions and pending work in memory, task log, and environment`
+
+I need to check what's on the queue before I can raise decisions. Let me read the memory index and look for any task logs or pending work.

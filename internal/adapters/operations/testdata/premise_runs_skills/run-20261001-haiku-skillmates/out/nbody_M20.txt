@@ -1,0 +1,1 @@
+next: check the current directory for any task log, design docs, or work-in-progress files that carry the queue of decisions

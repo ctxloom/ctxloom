@@ -1,0 +1,7 @@
+`next: Report findings and ask what work is queued`
+
+---
+
+**Escalations: none.** This is a fresh session in an empty directory with no prior work to carry forward.
+
+What's next? What should go in tonight's queue?

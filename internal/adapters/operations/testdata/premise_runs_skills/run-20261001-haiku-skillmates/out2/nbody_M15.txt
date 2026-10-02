@@ -1,0 +1,1 @@
+`next: check memory for prior context, then the working directory for pending work, then report what is outstanding`

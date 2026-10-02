@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I've read through the closeout checklist, but there's been no work done in this session yet—no files changed, no tests written, no gate verification needed. The Stop hook appears to have fired in error or as a test, since this is my first message. I should ask what you'd like to work on.

@@ -1,0 +1,9 @@
+next: Report findings and ask what to work on.
+
+---
+
+**Closeout:** Nothing landed. This is a fresh working directory with no git history or prior context—no code to verify, no tests written, no docs to fix, no task log.
+
+**Open decisions:** None. There's no work in progress and nothing to surface.
+
+What would you like to start on?

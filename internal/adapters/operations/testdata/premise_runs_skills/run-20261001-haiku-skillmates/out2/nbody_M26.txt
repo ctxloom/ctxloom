@@ -1,0 +1,1 @@
+`next: Run pre-flight checks — verify git repository status, establish the queue source (check for taskloom or admitted work list), and confirm baseline green before starting queue items.`

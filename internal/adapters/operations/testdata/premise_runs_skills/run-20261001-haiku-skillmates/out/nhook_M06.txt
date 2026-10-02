@@ -1,0 +1,1 @@
+`next: Need the four row harps (identifiers) to apply queue:20261001 tags and record the waived stop conditions. Once you provide them, I'll verify the invariant and invoke unattended for the overnight run.`

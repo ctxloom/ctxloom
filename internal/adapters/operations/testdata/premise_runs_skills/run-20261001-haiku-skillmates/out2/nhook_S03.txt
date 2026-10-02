@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+I need to clarify what "the 2s" refers to and see the current queue state before I can triage candidates for admission. What is the task system you're using (taskloom, Linear, etc.), and what do "the 2s" identify — priority level, status tag, a specific backlog section, or something else?

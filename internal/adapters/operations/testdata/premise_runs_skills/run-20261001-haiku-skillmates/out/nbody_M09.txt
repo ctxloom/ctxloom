@@ -1,0 +1,1 @@
+`next: I need to see the current queue state and the unattended skill's stop conditions to preflight; what does the live queue show, and which items are candidates for tonight?`

@@ -1,0 +1,14 @@
+`invoke: prompt-human`
+
+I need to raise a blocker before proceeding with unattended work. The pre-flight check shows:
+
+- **Working directory is not a git repository** (`Is a git repository: false`)
+- The unattended skill requires git, worktrees, and a gate suite to function
+- I cannot establish a baseline, pin a base SHA, create branches, or verify gates without it
+
+Before you leave, I need to know:
+1. Should I initialize a git repo here first?
+2. Where is the queue of items to work on (taskloom tag, file path, or a plan)?
+3. What is the gate suite command I should run to verify the tree is green?
+
+I can proceed once you clarify these.

@@ -1,0 +1,1 @@
+`next: sweep for pending decisions, but I have no prior context — no task log, code, or agent reports from earlier work. What work is pending or in progress?`

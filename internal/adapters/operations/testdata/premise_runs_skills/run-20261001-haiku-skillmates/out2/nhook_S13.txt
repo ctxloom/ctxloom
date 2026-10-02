@@ -1,0 +1,3 @@
+`invoke: prompt-human`
+
+(No work has changed in this session — there's no gate to verify, no tests written, no task log to update. I need to know what unit of work you're closing out.)

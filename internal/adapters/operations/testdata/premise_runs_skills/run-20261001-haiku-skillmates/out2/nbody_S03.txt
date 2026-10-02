@@ -1,0 +1,1 @@
+`next: I need to locate the task queue to begin triage. What system or file stores the queue, and what are "the 2s"—items tagged or numbered that way, or a specific subset?`

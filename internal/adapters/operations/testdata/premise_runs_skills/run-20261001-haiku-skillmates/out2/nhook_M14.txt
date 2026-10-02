@@ -1,0 +1,1 @@
+`next: Execute preflight: verify repo state, establish queue from taskloom or named source, confirm green baseline, and pin base SHA before starting the loop`

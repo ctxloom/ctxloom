@@ -1,0 +1,1 @@
+`next: I have no prior context or task log to sweep for decisions. Do you want me to recover a prior session, or should you point me to the work/design docs/task list I should be reviewing?`

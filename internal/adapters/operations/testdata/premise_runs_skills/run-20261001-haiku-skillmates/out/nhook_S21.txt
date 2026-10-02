@@ -1,0 +1,3 @@
+`next: Check memory and working directory for any task logs, reports, or deferred work from an overnight run`
+
+I need to sweep for any reports, deferrals, or task logs that describe what was running unattended. Let me search the memory system and current directory for artifacts from last night's queue.

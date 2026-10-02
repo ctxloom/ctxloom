@@ -1,0 +1,3 @@
+`invoke: unattended`
+
+I need to read the stop conditions from the `unattended` skill before evaluating what can be admitted.

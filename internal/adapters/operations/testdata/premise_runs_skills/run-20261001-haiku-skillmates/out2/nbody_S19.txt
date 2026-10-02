@@ -1,0 +1,7 @@
+next: sweep the session context for blocked decisions, but there is none — no task log, agent reports, design docs, code, or prior conversation. I'll ask the human what work they want me to surface decisions from.
+
+---
+
+I've swept the session: no active work, no task log, no deferred decisions, no agent reports. 
+
+What work should I review for blocked decisions? If you have a task, branch, design doc, or code you're working on, show me that context and I'll surface what's actually blocking.

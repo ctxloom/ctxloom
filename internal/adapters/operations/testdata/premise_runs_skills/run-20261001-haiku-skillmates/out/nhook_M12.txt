@@ -1,0 +1,1 @@
+`next: Establish the queue for container work (check taskloom or specified queue source), then triage against stop conditions before human leaves`

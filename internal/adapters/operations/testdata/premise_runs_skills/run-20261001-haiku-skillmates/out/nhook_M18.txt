@@ -1,0 +1,1 @@
+next: I have no prior conversation history or deferred work to sweep—this is a fresh session in an empty directory. I need you to point me to what you'd like me to raise: are we recovering a prior session, reviewing a specific task log or design doc, checking a code area for open questions, or something else?

@@ -1,0 +1,1 @@
+`next: establish the queue source (taskloom tag, file, or plan) and confirm baseline gate passes before beginning the work loop`

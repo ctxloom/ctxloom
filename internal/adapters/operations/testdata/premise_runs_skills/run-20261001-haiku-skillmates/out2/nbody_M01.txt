@@ -1,0 +1,1 @@
+next: No work was performed in this session — there are no files modified, no gate run, no tests executed, or code changes to verify. I cannot close out a unit of work that did not happen. Please either provide a task to complete, or clarify if you intended to invoke this skill in a different context.

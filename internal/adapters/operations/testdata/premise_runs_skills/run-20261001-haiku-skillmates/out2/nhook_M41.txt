@@ -1,0 +1,1 @@
+`next: No recoverable context was displayed from the recover attempt. Could you share what session state or work was in progress before the clear, or should I check what files exist in the working directory to understand the current project state?`

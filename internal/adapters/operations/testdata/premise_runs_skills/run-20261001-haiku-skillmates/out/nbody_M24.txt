@@ -1,0 +1,1 @@
+`next: What work should I review for pending decisions? This directory is empty with no git repo or task log — I need to know which project, task, or branch to examine.`

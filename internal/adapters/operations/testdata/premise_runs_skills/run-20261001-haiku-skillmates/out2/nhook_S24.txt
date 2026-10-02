@@ -1,0 +1,1 @@
+`next: begin pre-flight by checking working directory state, locating queue source, and verifying git repository status`

@@ -1,0 +1,1 @@
+`next: Report that there are no pending human questions — this is a fresh session with no work in progress, task log, or deferrals to surface.`

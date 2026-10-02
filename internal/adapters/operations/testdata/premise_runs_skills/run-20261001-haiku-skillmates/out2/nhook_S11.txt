@@ -1,0 +1,3 @@
+invoke: recover
+
+I need to reconstruct what work was in progress before I can properly complete the closeout checklist — I don't have the context of what tests were written, what code was changed, what docs were affected, or what the task log looks like.

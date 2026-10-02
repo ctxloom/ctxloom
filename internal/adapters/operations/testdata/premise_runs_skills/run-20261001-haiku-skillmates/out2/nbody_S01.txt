@@ -1,0 +1,1 @@
+`next: Query the current queue state and begin admission triage with you — what's on the live queue right now?`

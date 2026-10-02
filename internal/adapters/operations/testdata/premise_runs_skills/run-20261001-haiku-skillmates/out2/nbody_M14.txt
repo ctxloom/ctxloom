@@ -1,0 +1,3 @@
+`next: Confirm git repository exists and establish the queue source before starting pre-flight.`
+
+(This directory is not a git repo, and I don't have a queue established. Can't run unattended without both.)

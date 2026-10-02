@@ -255,7 +255,7 @@ func p6AssertEcho(v probeVerdict, harp string, bodies []string) error {
 // is the whole diagnostic when a delivery substrate misbehaves.
 type p6SpoolCensus struct {
 	Root string
-	// Files maps a spool directory ("in", "in/consumed", "out", ...) to the
+	// Files maps a spool directory ("in", "in/withdrawn", "out", ...) to the
 	// message files found directly in it, sorted.
 	Files map[string][]string
 	// HarpIn / HarpOut name the directories whose file BYTES carried the harp.

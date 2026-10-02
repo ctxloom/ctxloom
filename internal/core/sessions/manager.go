@@ -46,6 +46,16 @@ const (
 	lockDirMode  = 0o755
 )
 
+// sidecarFileMode and sessionDirMode keep a session private to its owner: the
+// sidecar records the session's MCP endpoint INCLUDING its bearer credential
+// (Entry.MCP), which authenticates as this session to the runner. A container
+// run reaches these files as the launching uid (the isolation identity
+// contract), so owner-only access costs it nothing.
+const (
+	sidecarFileMode = 0o600
+	sessionDirMode  = 0o700
+)
+
 // Entry is one session as a reader sees it: the sidecar's persisted facts
 // plus the fields derived on read. The YAML keys are the sidecar's on-disk
 // contract; the json tags mirror them field-for-field so that any future
@@ -267,10 +277,16 @@ func (m *Manager) writeSidecar(harpName string, e *Entry) error {
 		return fmt.Errorf("marshal %s: %w", paths.SessionSidecarFileName, err)
 	}
 	dir := filepath.Join(m.root, harpName)
-	if err := os.MkdirAll(dir, lockDirMode); err != nil {
+	if err := os.MkdirAll(dir, sessionDirMode); err != nil {
 		return fmt.Errorf("mkdir session dir: %w", err)
 	}
-	return iox.WriteFileAtomic(filepath.Join(dir, paths.SessionSidecarFileName), data, 0o644, iox.Durable())
+	// MkdirAll leaves an existing directory's mode alone, and the session dir
+	// normally exists before its first sidecar write (launch lays out
+	// persist/ and ephemeral/ under it with the default mode).
+	if err := os.Chmod(dir, sessionDirMode); err != nil {
+		return fmt.Errorf("restrict session dir: %w", err)
+	}
+	return iox.WriteFileAtomic(filepath.Join(dir, paths.SessionSidecarFileName), data, sidecarFileMode, iox.Durable())
 }
 
 // lock takes harpName's exclusive sidecar lock (paths.HarpSidecarLockPath)

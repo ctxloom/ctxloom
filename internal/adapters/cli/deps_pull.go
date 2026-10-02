@@ -164,7 +164,18 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 				clifmt.FixLine("      ", termsafe.Sanitize(item.Remedy(), 0, false).Text))
 		}
 	}
+	if result.Incomplete {
+		names := make([]string, 0, len(result.Unreachable))
+		for _, ref := range result.Unreachable {
+			names = append(names, termsafe.Field(ref))
+		}
+		fmt.Fprintf(w, pullIncompleteFormat, strings.Join(names, ", "))
+	}
 }
+
+// pullIncompleteFormat is the summary line for a pull whose lock rebuild could
+// not reach part of the closure; it takes the unreachable items, joined.
+const pullIncompleteFormat = "  Lock incomplete: could not reach %s; their previous lock entries were kept.\n"
 
 func init() {
 	depsCmd.AddCommand(depsPullCmd)

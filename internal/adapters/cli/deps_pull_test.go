@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -118,4 +119,20 @@ func TestRenderRemoteList_MarksTheDefault(t *testing.T) {
 	assert.Regexp(t, `origin\s+https://example\.test/a \(default\)`, got)
 	assert.Regexp(t, `other\s+https://example\.test/b\n`, got)
 	assert.Equal(t, 1, strings.Count(got, "(default)"), "exactly one remote is the default")
+}
+
+// TestRenderPullSummary_NamesAnIncompleteLock: a pull whose lock rebuild
+// could not reach part of the closure says so, naming the unreachable items
+// and that their previous lock entries were kept; a complete one says nothing.
+func TestRenderPullSummary_NamesAnIncompleteLock(t *testing.T) {
+	var out bytes.Buffer
+	renderPullSummary(&out, &operations.SyncDependenciesResult{
+		Total: 1, Installed: 1, Incomplete: true, Unreachable: []string{"https://x/a@bundles/p", "https://x/b@bundles/q"},
+	})
+	assert.Contains(t, out.String(), fmt.Sprintf(pullIncompleteFormat, "https://x/a@bundles/p, https://x/b@bundles/q"))
+	assert.Contains(t, pullIncompleteFormat, "previous lock entries were kept", "the line says what happened to them")
+
+	out.Reset()
+	renderPullSummary(&out, &operations.SyncDependenciesResult{Total: 1, Installed: 1})
+	assert.NotContains(t, out.String(), strings.SplitN(pullIncompleteFormat, ":", 2)[0])
 }

@@ -131,9 +131,10 @@ func WithClock(now func() time.Time) RecorderOption {
 // paths.HarpCanonicalTranscriptPath(harp).
 //
 // It exists for RE-conversion. A Recorder APPENDS (openAppendFile), and a
-// VendorAdapter always re-reads its source from the beginning, so converting a
-// harp that already has a canonical transcript would duplicate every entry
-// rather than replace it. A caller that must re-convert a still-growing session
+// vendor conversion records from the beginning of its source — or, resumed,
+// from a checkpoint whose provisional tail is already in the file — so
+// converting into a harp that already has a canonical transcript would
+// duplicate entries rather than replace them. A caller that must re-convert a still-growing session
 // therefore converts into a temporary sibling and renames it over the real file,
 // which needs somewhere else to write. Live capture never passes this: the harp
 // IS the destination there, and letting a capture path choose its own file would

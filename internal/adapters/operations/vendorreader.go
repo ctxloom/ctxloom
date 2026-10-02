@@ -13,6 +13,7 @@ package operations
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -209,10 +210,10 @@ func vendorSourceClock(src string) func() time.Time {
 // validated ranges. See vendorreader/version.go for why this never falls
 // through to a "newest" adapter.
 //
-// Idempotent BY NON-REPETITION, not by content-diffing: Convert re-reads the
-// vendor source from its own beginning every call (vendorreader.VendorAdapter
-// has no incremental/resume concept — see adapter.go's doc comment on a
-// Recorder that "already has lines written to it"), so calling this twice
+// Idempotent BY NON-REPETITION, not by content-diffing: Convert reads the
+// vendor source from its beginning (resuming from a checkpoint is a separate
+// verb, vendorreader.ResumableAdapter, which only a watermarked rebuild uses),
+// so calling this twice
 // for the same harp after the first call actually wrote a canonical file
 // would DUPLICATE every entry, not merge them. The guard against that is
 // hasCanonicalTranscript below: once ANY canonical transcript exists for a
@@ -246,11 +247,13 @@ func ConvertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 // silently frozen at noon, which is worse than the failure it replaced because
 // it is indistinguishable from a complete one.
 //
-// The cost this accepts is the whole vendor transcript being re-read and
-// re-written on each call, since no adapter can resume from an offset
-// (vendorreader.VendorAdapter). That is why this is a separate verb rather than
-// the default: callers that know their session is finished should not pay it,
-// and a sweep across an index must not.
+// When the adapter can resume (vendorreader.ResumableAdapter) and the harp's
+// watermark still describes its files (transcriptWatermark), a refresh reads
+// only the vendor bytes from the watermark on and copies the canonical prefix
+// forward as raw bytes. Otherwise — and on the first conversion — the whole
+// vendor transcript is re-read and re-written. That is why this is a separate
+// verb rather than the default: callers that know their session is finished
+// should not pay even the copy, and a sweep across an index must not.
 func RefreshVendorTranscript(ctx context.Context, reg engine.Registry, e sessions.Entry) (converted bool, err error) {
 	return convertVendorTranscript(ctx, reg, e, true)
 }
@@ -311,8 +314,9 @@ func convertVendorTranscript(ctx context.Context, reg engine.Registry, e session
 	// file, which hasCanonicalTranscript's presence-only guard then treats as a
 	// complete one on every future call, permanently masking the failure. And a
 	// refresh writing in place would APPEND a second full copy of the vendor
-	// transcript onto the existing one, since a Recorder appends and no adapter
-	// resumes from an offset. Committing only on success answers both: the harp
+	// transcript onto the existing one, since a Recorder appends — and even a
+	// resumed conversion must first drop the previous refresh's provisional
+	// tail. Committing only on success answers both: the harp
 	// keeps whatever it had until a complete replacement exists.
 	//
 	// dest here is the PERSIST-DIR canonical path (paths.
@@ -382,54 +386,79 @@ func rebuildCanonicalTranscript(ctx context.Context, adapter vendorreader.Vendor
 	if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr != nil {
 		return false, fmt.Errorf("create persist dir for %s: %w", e.HarpName, mkErr)
 	}
+	if ra, wm, ok := loadWatermark(adapter, e, liveSrc); ok {
+		converted, rerr := resumeRebuild(ctx, ra, e, dest, liveSrc, wm)
+		if !errors.Is(rerr, errStaleWatermark) {
+			return converted, rerr
+		}
+	}
 	af, aerr := iox.NewAtomicFile(dest, 0o644)
 	if aerr != nil {
 		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
 	}
 
-	if werr := writeRebuildSegments(ctx, adapter, e, af, liveSrc, liveOK); werr != nil {
+	wm, werr := writeRebuildSegments(ctx, adapter, e, af, liveSrc, liveOK)
+	if werr != nil {
 		_ = af.Abort()
 		return true, werr
 	}
 
-	return commitRebuild(af, e)
+	return commitRebuild(af, e, wm)
+}
+
+// resumeRebuild rebuilds e's canonical transcript from its watermark: the
+// canonical prefix the watermark covers is copied forward as raw bytes, and
+// only the vendor bytes from its checkpoint on are converted. It writes
+// through the same temp-then-rename as a full rebuild, so a resume that fails
+// partway leaves the canonical transcript — and the watermark, written only
+// after a commit — exactly as they were. errStaleWatermark when the watermark
+// turns out not to describe the files; the caller rebuilds in full.
+func resumeRebuild(ctx context.Context, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest, liveSrc string, wm *transcriptWatermark) (converted bool, err error) {
+	af, aerr := iox.NewAtomicFile(dest, 0o644)
+	if aerr != nil {
+		return false, fmt.Errorf("open rebuild file for %s: %w", e.HarpName, aerr)
+	}
+	next, rerr := resumeInto(ctx, adapter, e, dest, af, liveSrc, wm)
+	if rerr != nil {
+		_ = af.Abort()
+		return true, rerr
+	}
+	return commitRebuild(af, e, next)
+}
+
+func resumeInto(ctx context.Context, adapter vendorreader.ResumableAdapter, e sessions.Entry, dest string, af *iox.AtomicFile, liveSrc string, wm *transcriptWatermark) (*transcriptWatermark, error) {
+	from := resumePoint{vendor: wm.Vendor, seq: wm.NextSeq, sessionID: wm.SessionID, digest: sha256.New(), length: wm.CanonicalLength}
+	if err := copyCanonicalPrefix(dest, wm, af, from.digest); err != nil {
+		return nil, err
+	}
+	next, err := convertLive(ctx, adapter, e, af, liveSrc, from)
+	if errors.Is(err, vendorreader.ErrCheckpointMismatch) {
+		return nil, fmt.Errorf("%w: %w", errStaleWatermark, err)
+	}
+	return next, err
 }
 
 // writeRebuildSegments appends every rotation's cached segment onto af, then
-// converts the live vendor transcript (when liveOK) into af's temp file. The
-// caller aborts af on error.
-func writeRebuildSegments(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *iox.AtomicFile, liveSrc string, liveOK bool) error {
+// converts the live vendor transcript (when liveOK) into af's temp file from
+// its beginning, returning the watermark the conversion offered (nil for
+// none). The caller aborts af on error.
+func writeRebuildSegments(ctx context.Context, adapter vendorreader.VendorAdapter, e sessions.Entry, af *iox.AtomicFile, liveSrc string, liveOK bool) (*transcriptWatermark, error) {
 	for _, rot := range e.Rotations {
 		if werr := appendRotationSegment(ctx, adapter, e, rot, af); werr != nil {
-			return werr
+			return nil, werr
 		}
 	}
 	if !liveOK {
-		return nil
+		return nil, nil
 	}
-	// transcript.Recorder opens its own append handle by PATH — it has no
-	// io.Writer-shaped constructor — so this hands it af's temp path
-	// rather than af itself (iox.AtomicFile.TempPath's documented escape
-	// hatch). commitRebuild stats the temp file's actual on-disk size, so
-	// bytes Recorder writes here are covered by the same empty-guard as
-	// anything written through af.Write.
-	rec, rerr := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(af.TempPath()), transcript.WithClock(vendorSourceClock(liveSrc)))
-	if rerr != nil {
-		return fmt.Errorf("open recorder for %s: %w", e.HarpName, rerr)
-	}
-	cerr := adapter.Convert(ctx, rec, liveSrc)
-	_ = rec.Close()
-	if cerr != nil {
-		// Best-effort: the caller's Abort failing to remove is not itself
-		// reported, since the conversion error is already the actionable fact.
-		return fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
-	}
-	return nil
+	return convertLive(ctx, adapter, e, af, liveSrc, newResumePoint())
 }
 
 // commitRebuild installs af over the canonical transcript when the rebuild
-// produced bytes, and otherwise aborts it.
-func commitRebuild(af *iox.AtomicFile, e sessions.Entry) (converted bool, err error) {
+// produced bytes, and otherwise aborts it. Only after a commit is wm — the
+// watermark describing what was just installed, nil for none — recorded:
+// written first, it could describe a transcript that never landed.
+func commitRebuild(af *iox.AtomicFile, e sessions.Entry, wm *transcriptWatermark) (converted bool, err error) {
 	// Convert succeeding is NOT the same fact as bytes landing on disk.
 	// transcript.Recorder only creates its canonical file on the FIRST
 	// SUCCESSFUL Record, so a live Convert that (legitimately, per
@@ -460,6 +489,7 @@ func commitRebuild(af *iox.AtomicFile, e sessions.Entry) (converted bool, err er
 	if cerr := af.Commit(); cerr != nil {
 		return true, fmt.Errorf("install canonical transcript for %s: %w", e.HarpName, cerr)
 	}
+	saveWatermark(e, wm)
 	return true, nil
 }
 

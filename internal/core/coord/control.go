@@ -220,7 +220,6 @@ func (c *Coordinator) steerAsMail(sender, harp, kind, text string) (msgID string
 }
 
 // askDisposition is what an accepted ask tells its caller beside the ask id.
-// DRAFT(text) worried-chief W6: the owner's voice, awaiting review.
 const askDisposition = "asked %s (ask %s): its answer arrives as mail quoting this id, and its arrival triggers your next turn"
 
 // controlDisposition words an accepted control request's answer, per verb:

@@ -1435,8 +1435,6 @@ message ControlSteerResult {
   string message_id = 2;
 }
 
-// DRAFT(text) worried-chief W6: agent_ask's description is the owner's voice,
-// awaiting review.
 message ControlQuestion {
   option (message_schema) = {
     doc: "Ask one of your delegated children a question. Returns an ask_id at once; it does not wait for the answer. The question becomes the child's next turn (an idle child is woken for it; a busy one sees it at its next boundary). The answer is whatever the child itself sends back quoting the ask_id in in_reply_to: it reaches you as mail, and its arrival triggers your next turn. The child's automatic turn report may quote the ask_id too; it is marked automatic and is not the answer. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be asked."
@@ -1452,8 +1450,6 @@ message ControlQuestion {
   }];
 }
 
-// DRAFT(text) worried-chief W6: agent_summarize's description is the owner's
-// voice, awaiting review.
 message ControlSummarize {
   option (message_schema) = {
     doc: "Ask one of your delegated children for an on-demand summary of where it stands. Same mechanism as agent_ask: it returns an ask_id at once, the request is the child's next turn, and the summary is what the child itself sends back quoting the ask_id, which reaches you as mail and triggers your next turn. The child sees it as a summary request, not a question. If the child ends without answering, an exited notice quoting the ask_id tells you so. Only your OWN children may be summarized."

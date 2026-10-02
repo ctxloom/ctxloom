@@ -48,7 +48,7 @@ func (l *pushLog) snapshot() (methods, handled, updated []string) {
 // stream: a future push (a list_changed, a log line, a sampling or elicitation
 // request) would vanish silently in production, so it must fail here first.
 func TestEndpoint_PushesOnlyTheWake(t *testing.T) {
-	sig := interaction.NewWakeSignal()
+	sig := interaction.NewWakeSignal(nil)
 	url := serveWithWake(t, sig)
 	log := &pushLog{}
 	wake := make(chan struct{}, 4)

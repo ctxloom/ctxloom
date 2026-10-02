@@ -3,6 +3,7 @@ package interaction_test
 import (
 	"context"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,7 +47,7 @@ func wakeClient(t *testing.T, url string) (*sdk.ClientSession, <-chan *sdk.Resou
 // A wake fires as resources/updated on the unlisted wake URI, carrying the
 // nonce in _meta, to the session that subscribed to it.
 func TestWakeSignal_FiresTheNonceToTheSubscribedSession(t *testing.T) {
-	sig := interaction.NewWakeSignal()
+	sig := interaction.NewWakeSignal(nil)
 	cs, updates := wakeClient(t, serveWithWake(t, sig))
 	require.NoError(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: engine.WakeURI}))
 
@@ -60,7 +61,7 @@ func TestWakeSignal_FiresTheNonceToTheSubscribedSession(t *testing.T) {
 // With nobody subscribed a wake would go nowhere; it fails, so the caller
 // disarms the nonce and says the owner was not woken.
 func TestWakeSignal_FailsWithNoSubscriber(t *testing.T) {
-	sig := interaction.NewWakeSignal()
+	sig := interaction.NewWakeSignal(nil)
 	require.ErrorIs(t, sig.Fire(context.Background(), "0123456789abcdef"), interaction.ErrNoWakeSubscriber, "never served")
 
 	cs, _ := wakeClient(t, serveWithWake(t, sig))
@@ -74,7 +75,7 @@ func TestWakeSignal_FailsWithNoSubscriber(t *testing.T) {
 // A subscriber whose session ended without unsubscribing (the relay died
 // with its engine) is not a subscriber.
 func TestWakeSignal_AClosedSessionIsNoSubscriber(t *testing.T) {
-	sig := interaction.NewWakeSignal()
+	sig := interaction.NewWakeSignal(nil)
 	url := serveWithWake(t, sig)
 	cs, _ := wakeClient(t, url)
 	require.NoError(t, cs.Subscribe(context.Background(), &sdk.SubscribeParams{URI: engine.WakeURI}))
@@ -92,7 +93,7 @@ func TestWakeSignal_AClosedSessionIsNoSubscriber(t *testing.T) {
 // The wake URI is a control channel, not context: it is never listed, and no
 // other URI is subscribable.
 func TestWakeSignal_TheWakeURIIsUnlistedAndTheOnlySubscribable(t *testing.T) {
-	cs, _ := wakeClient(t, serveWithWake(t, interaction.NewWakeSignal()))
+	cs, _ := wakeClient(t, serveWithWake(t, interaction.NewWakeSignal(nil)))
 	res, err := cs.ListResources(context.Background(), nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, res.Resources)
@@ -105,4 +106,59 @@ func TestWakeSignal_TheWakeURIIsUnlistedAndTheOnlySubscribable(t *testing.T) {
 func TestServe_RefusesWithoutAWakeSignal(t *testing.T) {
 	_, err := interaction.Endpoint{Home: deadHome(t)}.Serve(context.Background(), loadoutAt(freePort(t)), delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 	require.ErrorIs(t, err, interaction.ErrNoWakeSignal)
+}
+
+// registrations records what a WakeSignal registered as the owner's wake
+// (runner.Home.SetWake in production) and how often it was released.
+type registrations struct {
+	mu       sync.Mutex
+	bound    []engine.Wake
+	released int
+}
+
+func (r *registrations) register(w engine.Wake) func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.bound = append(r.bound, w)
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.released++
+	}
+}
+
+func (r *registrations) counts() (int, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.bound), r.released
+}
+
+// TestWakeSignal_ARelaysSubscriptionBindsTheOwnersWake: the relay's
+// subscription IS the binding — the first subscriber registers the signal as
+// the session owner's wake, a second subscriber (a respawned relay) does not
+// register it twice, and the last one to unsubscribe releases it.
+// MUTATION — register on serve instead of on subscribe, or release on any
+// unsubscribe — turns this red.
+func TestWakeSignal_ARelaysSubscriptionBindsTheOwnersWake(t *testing.T) {
+	reg := &registrations{}
+	sig := interaction.NewWakeSignal(reg.register)
+	url := serveWithWake(t, sig)
+	first, _ := wakeClient(t, url)
+	second, _ := wakeClient(t, url)
+	bound, released := reg.counts()
+	require.Zero(t, bound, "nothing is bound until a relay subscribes")
+
+	require.NoError(t, first.Subscribe(context.Background(), &sdk.SubscribeParams{URI: engine.WakeURI}))
+	require.NoError(t, second.Subscribe(context.Background(), &sdk.SubscribeParams{URI: engine.WakeURI}))
+	bound, released = reg.counts()
+	require.Equal(t, 1, bound, "bound once, by the first subscriber")
+	require.Same(t, sig, reg.bound[0], "the owner's wake is the signal itself")
+	require.Zero(t, released)
+
+	require.NoError(t, first.Unsubscribe(context.Background(), &sdk.UnsubscribeParams{URI: engine.WakeURI}))
+	_, released = reg.counts()
+	require.Zero(t, released, "a subscriber remains")
+	require.NoError(t, second.Unsubscribe(context.Background(), &sdk.UnsubscribeParams{URI: engine.WakeURI}))
+	_, released = reg.counts()
+	require.Equal(t, 1, released, "the last subscriber leaving releases the binding")
 }

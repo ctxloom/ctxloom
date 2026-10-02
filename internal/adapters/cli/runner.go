@@ -61,7 +61,7 @@ func runRunner(cmd *cobra.Command, args []string) error {
 				stdout:  os.Stdout,
 				stderr:  os.Stderr,
 			})
-			return runnerDepsFor(backend, engineName, host, interaction.Endpoint{Home: home, Wake: interaction.NewWakeSignal(), Reporter: App().Reporter})
+			return runnerDepsFor(backend, engineName, host, interaction.Endpoint{Home: home, Wake: interaction.NewWakeSignal(home.SetWake), Reporter: App().Reporter})
 		},
 	})
 }

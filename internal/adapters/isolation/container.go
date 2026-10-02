@@ -371,7 +371,11 @@ func (c Container) bind(ctx context.Context, ws workspace) (mountPlan, error) {
 	// Order is inert (SD4): every mount targets a distinct in-container path and
 	// renders as an independent --mount. Scoped state rides every axis; the
 	// base mounts (overlays/gitdir mirror, or the worktree .git mirror) layer on.
-	mounts := append(append([]mount(nil), cw.stateMounts...), baseMounts...)
+	lockMounts, err := c.lockMounts(cw.dir, cw.scratchRoot)
+	if err != nil {
+		return mountPlan{}, err
+	}
+	mounts := append(append(append([]mount(nil), cw.stateMounts...), baseMounts...), lockMounts...)
 	// The shared-filesystem probe runs HERE, once every real mount root is
 	// known (mountProbeRoots): cw.dir (the project dir, or the worktree
 	// checkout resolveBase created), cw.scratchRoot (the config overlays), and

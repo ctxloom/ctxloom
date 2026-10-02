@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -84,4 +85,44 @@ func TestContainerLockMounts_HostLocksUnreachableFromChild(t *testing.T) {
 	after, err := os.ReadDir(hostLocksDir)
 	require.NoError(t, err)
 	assert.Equal(t, len(before), len(after), "the child must not plant anything in the host locks dir")
+}
+
+// The one lock that DOES cross: a file the engine rewrites in place through
+// the project bind (inPlaceFiles). While the host holds that file's lock, a
+// child taking the lock at the path its OWN paths.HomePathFor resolves to
+// (HOME is defaultContainerHome in every real run) must be refused — the two
+// sides exclude each other on one inode. Released, the child gets it.
+func TestContainerLockMounts_InPlaceFileLockExcludesAcrossBoundary(t *testing.T) {
+	dockergate.RequireRuntime(t, (Docker{}).Available(), "the container lock-mount exclusion test")
+	rt := ProbeRuntime("docker")
+	registerVendorlessFixture(t, "mock", engine.DistributionTestOnly)
+	testsupport.Isolate(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	projectDir := t.TempDir()
+	c := NewContainerFor(rt, "mock").WithImage("alpine:latest").WithSessionState(SessionState{Harp: "brisk-teal-otter"})
+	c.engineSpec.inPlaceFiles = []string{".mcp.json"}
+	ws, err := c.prepareWorkspace(ctx, projectDir, "locks-itest")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ws.Cleanup() })
+	cw, ok := ws.(*containerWorkspace)
+	require.True(t, ok)
+	mounts := append([]mount{{Host: projectDir, Container: projectDir}}, cw.extraMounts...)
+
+	protected := filepath.Join(projectDir, ".mcp.json")
+	hostLock, err := paths.HomePathFor(protected)
+	require.NoError(t, err)
+	containerLock := path.Join(defaultContainerHome, paths.AppDirName, paths.HomeLocksDirName, paths.HomeLockName(protected))
+	try := func() string {
+		out, err := dockerRun(ctx, "alpine:latest", projectDir, mounts, "sh", "-c", "flock -n "+containerLock+" true; echo rc=$?")
+		require.NoError(t, err, out)
+		return out
+	}
+
+	fl := flock.New(hostLock)
+	require.NoError(t, fl.Lock())
+	assert.Contains(t, try(), "rc=1", "the child must not take the lock the host holds")
+	require.NoError(t, fl.Unlock())
+	assert.Contains(t, try(), "rc=0", "released by the host, the lock is the child's to take")
 }

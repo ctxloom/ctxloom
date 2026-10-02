@@ -700,6 +700,40 @@ func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
 	return probeDecideAuthPath(backendType)
 }
 
+// probeTargetAuth is the whole gate an isolation-probe cell passes before its
+// When step may spend a paid turn. It asks the live opt-in and availability
+// question every other @live cell asks (probeEngine, i.e. engineAvailable fed
+// resolveOptIn) FIRST, and only then the axis's own credential-path decision.
+// Without the first half, a host credential file alone was enough to run a
+// paid cell that the opt-in exists to refuse.
+//
+// engineAvailable may run the engine's authCheck on the subscription path,
+// which probeDecideAuthPath must never do. That is safe here and only here:
+// this runs in the Given step, before any census is taken, and the census
+// measures the stand-in home, not the real one authCheck reads.
+//
+// probeAuthNone means skip, with reason; an error is a malformed cell.
+func probeTargetAuth(engine string, axis probeAxis) (probeAuthPath, string, error) {
+	key := backendTypeToLiveKey(engine)
+	a, ok := liveAgents[key]
+	if !ok {
+		return probeAuthNone, fmt.Sprintf("unknown engine %q", engine), nil
+	}
+	if status := probeEngine(key, a, realHomeDir, resolveOptIn()); !status.available {
+		return probeAuthNone, status.reason, nil
+	}
+	switch {
+	case axis == probeAxisWorktree:
+		path, reason := probeWorktreeAuthAvailable(engine)
+		return path, reason, nil
+	case isProbeContainerAxis(axis):
+		path, reason := probeContainerAuthAvailable(engine)
+		return path, reason, nil
+	default:
+		return probeAuthNone, "", fmt.Errorf("isolation probe: unknown axis %q", axis)
+	}
+}
+
 // probeContainerAuthAvailable mirrors internal/adapters/isolation/auth.go's
 // resolveXContainerAuth precedence for EACH engine, deliberately re-derived
 // here rather than imported (this package cannot reach that package's

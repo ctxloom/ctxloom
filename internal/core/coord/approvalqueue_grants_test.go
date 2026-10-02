@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -188,7 +189,7 @@ func revokeQueue(t *testing.T, push func(q *ApprovalQueue) error) (*ApprovalQueu
 	t.Helper()
 	var q *ApprovalQueue
 	q = NewApprovalQueue(openQueueStore(t, filepath.Join(t.TempDir(), "runs.jsonl")), time.Now,
-		func(string, []string) error { return push(q) }, noRunGone, coversTool)
+		func(string, engine.Name, []string) error { return push(q) }, noRunGone, coversTool)
 	events := q.Subscribe(t.Context())
 	asked, done := parkFrom(t, q, events, askerID, toolAsk("Bash"))
 	require.NoError(t, q.Answer(asked, ApprovalDecision{Allow: true, SessionRules: []string{"Bash"}}))
@@ -233,4 +234,133 @@ func TestApprovalQueue_ARefusedRevokeRevivesNoEndedRun(t *testing.T) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	assert.Empty(t, q.runGrants)
+}
+
+// onEngine is req as asked by a run of engine e.
+func onEngine(req PendingApproval, e engine.Name) PendingApproval {
+	req.engine = e
+	return req
+}
+
+// seeded is what Seed delivers to run for eng.
+func seeded(t *testing.T, q *ApprovalQueue, run Identity, eng engine.Name) []string {
+	t.Helper()
+	var got []string
+	require.NoError(t, q.Seed(run, eng, func(rules []string) error {
+		got = rules
+		return nil
+	}))
+	return got
+}
+
+// grantedOn has askerID's run, on engine e, granted rules for the session,
+// and then ends that run.
+func grantedOn(t *testing.T, q *ApprovalQueue, e engine.Name, rules ...string) {
+	t.Helper()
+	events := q.Subscribe(t.Context())
+	asked, done := parkFrom(t, q, events, askerID, onEngine(toolAsk("Bash"), e))
+	require.NoError(t, q.Answer(asked, ApprovalDecision{Allow: true, SessionRules: rules}))
+	decided(t, done)
+	q.cancelFrom(askerID.Harp, askerID.RunID)
+}
+
+var resumedID = Identity{Harp: askerID.Harp, RunID: "run-2", Depth: 1}
+
+// TestApprovalQueue_AResumedRunIsSeededWithItsHarpsGrants: a grant made in
+// one run carries to the harp's next run — the journal's grants, minus what
+// was revoked — and covers that run's requests from their arrival.
+func TestApprovalQueue_AResumedRunIsSeededWithItsHarpsGrants(t *testing.T) {
+	q, _, _ := newTestQueue(t)
+	grantedOn(t, q, "mock", "Bash", "Read")
+	for _, g := range q.Grants(askerID.Harp) {
+		if g.Rule == "Read" {
+			require.NoError(t, q.Revoke(askerID.Harp, g.ID))
+		}
+	}
+
+	assert.Equal(t, []string{"Bash"}, seeded(t, q, resumedID, "mock"), "the harp's grants, less the revoked one")
+	d := q.Park(t.Context(), resumedID, onEngine(toolAsk("Bash"), "mock"), time.Hour)
+	assertGrantDecided(t, d)
+}
+
+// TestApprovalQueue_ARunOnAnotherEngineIsSeededNothing: grants are rules in
+// the granting engine's syntax, so a run of the harp on another engine holds
+// none of them — and they cover none of its requests.
+func TestApprovalQueue_ARunOnAnotherEngineIsSeededNothing(t *testing.T) {
+	q, _, _ := newTestQueue(t)
+	grantedOn(t, q, "mock", "Bash")
+	assert.Empty(t, seeded(t, q, resumedID, "claude"))
+
+	events := q.Subscribe(t.Context())
+	id, _ := parkFrom(t, q, events, resumedID, onEngine(toolAsk("Bash"), "claude"))
+	assert.Equal(t, []ApprovalID{id}, pendingIDs(q), "the request waits on the human")
+}
+
+// TestApprovalQueue_AGrantIsHeldPerEngine: the same rule granted on another
+// engine is a grant of its own, not one the harp already holds.
+func TestApprovalQueue_AGrantIsHeldPerEngine(t *testing.T) {
+	q, _, _ := newTestQueue(t)
+	grantedOn(t, q, "mock", "Bash")
+	grantedOn(t, q, "claude", "Bash")
+	assert.Equal(t, []string{"Bash"}, seeded(t, q, resumedID, "claude"))
+}
+
+// TestApprovalQueue_ASeedNotDeliveredCoversNothing: a run that never took
+// its seed holds none of it.
+func TestApprovalQueue_ASeedNotDeliveredCoversNothing(t *testing.T) {
+	q, _, _ := newTestQueue(t)
+	grantedOn(t, q, "mock", "Bash")
+	require.Error(t, q.Seed(resumedID, "mock", func([]string) error { return errors.New("StartRun refused") }))
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	assert.Empty(t, q.runGrants)
+}
+
+// TestApprovalQueue_ARevokeWaitsForTheSeedToBeDelivered forces the race:
+// the harp's grant is revoked while its resumed run is being handed the
+// seed. Were the revoke to land then, the run would start on a rule the
+// journal no longer holds, and the revoke's push — to a run not yet driving
+// — would never reach it. So the revoke waits for the delivery, and its
+// push then takes the rule off the run.
+func TestApprovalQueue_ARevokeWaitsForTheSeedToBeDelivered(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		q, push, _ := newTestQueue(t)
+		grantedOn(t, q, "mock", "Bash")
+		g := q.Grants(askerID.Harp)[0]
+
+		revoked := make(chan error, 1)
+		require.NoError(t, q.Seed(resumedID, "mock", func(rules []string) error {
+			go func() { revoked <- q.Revoke(askerID.Harp, g.ID) }()
+			synctest.Wait()
+			push.mu.Lock()
+			defer push.mu.Unlock()
+			assert.Empty(t, push.calls, "the revoke reached the run while its seed was in flight")
+			assert.Equal(t, []string{"Bash"}, rules)
+			return nil
+		}))
+		require.NoError(t, <-revoked)
+		push.mu.Lock()
+		defer push.mu.Unlock()
+		require.Len(t, push.calls, 1)
+		assert.Empty(t, push.calls[0].rules)
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		assert.Empty(t, q.runGrants[keyOf(resumedID)], "the revoked rule no longer covers the run")
+	})
+}
+
+// TestApprovalQueue_ARevokePushesOnlyItsEnginesRules: a revoke hands the
+// run the rest of the set in the revoked grant's engine, never another
+// engine's rules.
+func TestApprovalQueue_ARevokePushesOnlyItsEnginesRules(t *testing.T) {
+	q, push, _ := newTestQueue(t)
+	grantedOn(t, q, "claude", "Read")
+	grantedOn(t, q, "mock", "Bash", "Edit")
+	for _, g := range q.Grants(askerID.Harp) {
+		if g.Rule == "Edit" {
+			require.NoError(t, q.Revoke(askerID.Harp, g.ID))
+		}
+	}
+	require.Len(t, push.calls, 1)
+	assert.Equal(t, pushedGrants{harp: askerID.Harp, engine: "mock", rules: []string{"Bash"}}, push.calls[0])
 }

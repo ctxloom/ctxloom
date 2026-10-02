@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,10 +15,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // askByID has the route decide an ask that names its call, the way a
@@ -276,4 +279,69 @@ func TestApprovals_AFailedDecisionKeepsItsOwnRefusal(t *testing.T) {
 	ans := askByID(t, h, "t1")
 	assert.False(t, ans.Allow)
 	assert.Equal(t, errNoDecision.Error(), ans.Message)
+}
+
+// startWithGrants drives a StartRun carrying grants and returns the posture
+// of the run's first turn and the findings the run recorded. routes says
+// whether the run serves an approval route.
+func startWithGrants(t *testing.T, routes bool, grants ...string) (engine.TurnPosture, report.Findings) {
+	t.Helper()
+	home := &fakeEngineHome{}
+	sc := &scriptedChat{}
+	var findings report.Collector
+	eh := NewEngineHost(context.Background(), &findings, "claude-code", "run-1")
+	r := testRunner{eh: eh, inst: sc}
+	if routes {
+		codec, ok := mock.New().Approvals().Get()
+		require.True(t, ok)
+		r.approval = &approvalSpec{codec: codec, timeout: time.Minute}
+	}
+	eh.BindRunner(r)
+	t.Cleanup(eh.Close)
+	eh.BindHome(home)
+	sr := testStartRun("run-1")
+	sr.Grants = grants
+	resp := handleBounded(t, eh, &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: sr}})
+	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	require.Eventually(t, func() bool { return home.customValue(coord.CustomTurnIdle) != nil }, 5*time.Second, 10*time.Millisecond)
+	sc.Mu.Lock()
+	defer sc.Mu.Unlock()
+	require.NotEmpty(t, sc.Turns)
+	return sc.Turns[0].Posture, findings.All()
+}
+
+// TestEngineHost_StartRunGrantsRideTheFirstTurn: the grants a resumed run is
+// started with are held before its first turn, so the briefing already runs
+// under them.
+func TestEngineHost_StartRunGrantsRideTheFirstTurn(t *testing.T) {
+	posture, _ := startWithGrants(t, true, "Bash(ls)", "Read")
+	assert.Equal(t, []string{"Bash(ls)", "Read"}, posture.Grants)
+}
+
+// TestEngineHost_StartRunRefusesAnInvalidGrantAndStillStarts: each grant is
+// checked against the engine's rule syntax. One the codec refuses is
+// dropped, named in a finding, and the run starts holding the rest — the
+// journal's record is not a reason to refuse the run.
+func TestEngineHost_StartRunRefusesAnInvalidGrantAndStillStarts(t *testing.T) {
+	posture, findings := startWithGrants(t, true, "Bash(ls)", "Bash\nRead", "Read")
+	assert.Equal(t, []string{"Bash(ls)", "Read"}, posture.Grants)
+	var named bool
+	for _, f := range findings {
+		named = named || (strings.Contains(f.Text, errInvalidGrant.Error()) && strings.Contains(f.Text, `"Bash\nRead"`))
+	}
+	assert.True(t, named, "a finding names the refused grant: %v", findings)
+}
+
+// TestEngineHost_StartRunGrantsNeedAnApprovalRoute: a run whose approver is
+// not the human holds no session grants — nothing on it could have granted
+// them — so a StartRun's grants are dropped, named in a finding, and the run
+// still starts.
+func TestEngineHost_StartRunGrantsNeedAnApprovalRoute(t *testing.T) {
+	posture, findings := startWithGrants(t, false, "Read")
+	assert.Empty(t, posture.Grants)
+	var named bool
+	for _, f := range findings {
+		named = named || strings.Contains(f.Text, errNoApprovalRoute.Error())
+	}
+	assert.True(t, named, "a finding says the grants were dropped: %v", findings)
 }

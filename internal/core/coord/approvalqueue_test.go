@@ -30,14 +30,15 @@ type grantPush struct {
 }
 
 type pushedGrants struct {
-	harp  string
-	rules []string
+	harp   string
+	engine engine.Name
+	rules  []string
 }
 
-func (g *grantPush) push(harp string, rules []string) error {
+func (g *grantPush) push(harp string, eng engine.Name, rules []string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.calls = append(g.calls, pushedGrants{harp: harp, rules: append([]string(nil), rules...)})
+	g.calls = append(g.calls, pushedGrants{harp: harp, engine: eng, rules: append([]string(nil), rules...)})
 	return g.err
 }
 
@@ -559,11 +560,11 @@ type gatedPush struct {
 	gate chan struct{}
 }
 
-func (g *gatedPush) push(harp string, rules []string) error {
+func (g *gatedPush) push(harp string, eng engine.Name, rules []string) error {
 	if g.gate != nil {
 		<-g.gate
 	}
-	return g.grantPush.push(harp, rules)
+	return g.grantPush.push(harp, eng, rules)
 }
 
 // TestApprovalQueue_AGrantWaitsOutARevokesPush forces the race between a

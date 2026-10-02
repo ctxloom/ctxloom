@@ -339,3 +339,52 @@ func TestCoordinator_AnEngineItCannotFindCoversNothing(t *testing.T) {
 	bash.engine = "absent"
 	assert.False(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Bash"), "an engine the registry does not hold")
 }
+
+// TestApprovals_AGrantCarriesIntoTheHarpsResumedRun: a grant made in a
+// child's run is applied to the harp's next run once the child has ended and
+// is resumed — handed over the real runner link with its StartRun, so the
+// resumed run's first turn already holds it. A grant revoked between the two
+// runs is not.
+func TestApprovals_AGrantCarriesIntoTheHarpsResumedRun(t *testing.T) {
+	for name, tc := range map[string]struct {
+		revoke bool
+		want   []string
+	}{
+		"held":    {want: []string{"Bash"}},
+		"revoked": {revoke: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resetStrictness(t)
+			sp := cutoverSpawner(0)
+			c := newCutoverCoordinator(t, sp, 0)
+			out, _ := awaitCutoverChildIdle(t, c, sp, "task")
+			g := grantFor(t, c, out, "Bash")
+			ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+			defer cancel()
+			_, err := c.Stop(ctx, ownerIdentity(), StopRequest{Harp: out.Harp, Reason: "enough"})
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return c.runEnded(out.RunID) }, conformanceWait, 10*time.Millisecond)
+			if tc.revoke {
+				require.NoError(t, c.Approvals().Revoke(out.Harp, g.ID))
+			}
+
+			_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
+			require.NoError(t, err)
+			var first engine.Turn
+			require.Eventually(t, func() bool {
+				sc := sp.chat(1)
+				if sc == nil {
+					return false
+				}
+				sc.Mu.Lock()
+				defer sc.Mu.Unlock()
+				if len(sc.Turns) == 0 {
+					return false
+				}
+				first = sc.Turns[0]
+				return true
+			}, conformanceWait, 10*time.Millisecond, "the resumed run never took a turn")
+			assert.Equal(t, tc.want, first.Posture.Grants)
+		})
+	}
+}

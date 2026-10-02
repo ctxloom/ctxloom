@@ -160,8 +160,9 @@ func TestSpoolDrop_RefusedRoutingTellsTheParentNotOnlyTheSender(t *testing.T) {
 	ref, err := w.Write(&spool.Message{
 		Kind:     KindResult,
 		FromHarp: out.Harp,
-		// Hub-and-spoke: a child may address only its parent. peerSend
-		// refuses this, which is correct — and used to end the message.
+		// Off the tree's edges: a sibling is neither this child's parent nor
+		// one of its children. peerSend refuses this, which is correct — and
+		// used to end the message.
 		To:   "a-sibling-harp",
 		Body: finding,
 	})

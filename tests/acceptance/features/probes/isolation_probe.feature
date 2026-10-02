@@ -38,9 +38,9 @@ Feature: Isolation probe — live proof against real vendor engines
     Given Alice has a git-backed project
 
   # The primary sweep: every engine this repo drives, both axes, using whichever
-  # credential path is ambient (env API key, or a host credential file) — exactly
-  # ctxloom's own resolveEnvOrMountAuth precedence, so a cell can never claim to
-  # have proven a path it did not actually take. Self-skips LOUDLY, per cell, with
+  # credential path is ambient (env API key, or a host credential file), and
+  # records which one it took, so a cell can never claim to have proven a path
+  # it did not actually take. Self-skips LOUDLY, per cell, with
   # the specific missing opt-in, credential AND axis named — see isolation_probe.go's
   # probeTargetAuth.
   # Each Examples block below carries its own @<engine> @<axis> tag pair —

@@ -22,9 +22,8 @@
 //
 // REUSE, NOT A FORK: this file shares live_engine_registry.go's liveAgents
 // (binary/credDir/copyCreds/authCheck) rather than re-declaring per-engine
-// knowledge, and shares the SAME resolveEnvOrMountAuth precedence production
-// isolation code uses (env key first, host file second) so the probe can
-// never claim to have proven a path it did not actually take — see
+// knowledge, and records which credential path each run actually took, so
+// the probe can never claim to have proven a path it did not take — see
 // probeAuthPath below.
 //
 // THE TWO OBSERVATION PROBLEMS THIS FILE SOLVES:
@@ -103,10 +102,11 @@ func isProbeContainerAxis(a probeAxis) bool {
 
 // probeAuthPath names WHICH of the two mutually exclusive auth resolution
 // paths a probe run actually took — THE TRAP a credentialed CI lane must not
-// fall into. internal/adapters/isolation/auth.go's resolveEnvOrMountAuth (and
-// worktree.go's seedCredentials, which follows the identical envTrigger-first
-// precedence) prefers an API key riding the environment over a host
-// credential file; when the env key is present, SEEDING IS SKIPPED ENTIRELY.
+// fall into. The probe prefers a credential captured from the environment at
+// launch over a host credential file; when one is captured, SEEDING IS
+// SKIPPED ENTIRELY. That ordering is the probe's own: production has no such
+// precedence, since claudeAuth.Credentials passes only the credential of the
+// agent's declared auth mode.
 // A cell that ran the env-key path never exercised the credential-copy
 // behavior at all, and must never be allowed to report as having proven it.
 // See probeDecideAuthPath.
@@ -246,10 +246,9 @@ func probeCensusRoots(backendType string) ([]string, error) {
 }
 
 // probeDecideAuthPath reports which of the two credential paths a run for
-// backendType will take, GIVEN THE CREDENTIAL CAPTURED AT LAUNCH — the exact
-// same precedence production code applies (resolveEnvOrMountAuth /
-// seedCredentials: env key first, host file second), so this can never
-// disagree with what the run itself actually does. Returns probeAuthNone
+// backendType will take, GIVEN THE CREDENTIAL CAPTURED AT LAUNCH: env
+// credential first, host file second (see probeAuthPath for why that
+// ordering is the probe's, not production's). Returns probeAuthNone
 // when neither an env key nor a host credential file is available.
 // MEASUREMENT SAFETY, load-bearing for every census this file takes: this
 // function (and probeContainerAuthAvailable below) deliberately NEVER call a
@@ -690,8 +689,8 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 // probeWorktreeAuthAvailable reports the worktree axis's auth gate for
 // backendType, the counterpart to probeContainerAuthAvailable's container
 // gate. It exists as a named seam because the two axes are separately
-// gated in production (internal/adapters/isolation/auth.go): an engine may be
-// probeable on one and not the other, and a caller must say which axis it
+// gated in production (claudeAuth.Credentials refuses the login mode in a
+// container): an engine may be probeable on one and not the other, and a caller must say which axis it
 // is asking about. No engine currently drives the worktree axis away from
 // the plain env-key-or-host-file precedence, so this defers wholly to
 // probeDecideAuthPath — an engine whose worktree gate diverges gets its
@@ -734,21 +733,11 @@ func probeTargetAuth(engine string, axis probeAxis) (probeAuthPath, string, erro
 	}
 }
 
-// probeContainerAuthAvailable mirrors internal/adapters/isolation/auth.go's
-// resolveXContainerAuth precedence for EACH engine, deliberately re-derived
-// here rather than imported (this package cannot reach that package's
-// unexported resolvers) — a change to production container-auth resolution
-// and a change to this probe's understanding of it could, in principle,
-// drift; the isolation-probe doc page flags this as the one place to
-// re-verify by hand whenever internal/adapters/isolation/auth.go's
-// resolveXContainerAuth functions change.
-//
-//   - claude-code/codex/opencode: env key OR a mounted host credential file
-//     — the SAME file and the SAME precedence as the worktree axis
-//     (claudeCredentialCopyMounts/codexCredentialMounts/
-//     opencodeCredentialMounts all source the identical host path
-//     copyCreds does), so probeDecideAuthPath answers correctly for the
-//     container axis too.
+// probeContainerAuthAvailable reports which credential path a container cell
+// for backendType will take. For claude-code it is the worktree axis's rule
+// (probeDecideAuthPath). Production's container auth is
+// claudeAuth.Credentials: a token or API key rides the environment, and the
+// login mode's shared store is never given to a container.
 func probeContainerAuthAvailable(backendType string) (probeAuthPath, string) {
 	switch backendType {
 	case "claude-code":
@@ -931,18 +920,11 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 	if authPath == probeAuthNone {
 		return res, nil // caller renders this as a loud, specific skip
 	}
-	// The container axis's own mount-fallback auth (claudeCredentialCopyMounts
-	// / codexCredentialMounts / opencodeCredentialMounts) reads the SAME host
-	// file copyCreds does, but from `hostHomeDir()` — this process's own
-	// os.UserHomeDir(), which is w.env.HomeDir (HOME is overridden there) —
-	// NOT the real developer's actual home. So the "seeded" path needs the
-	// SAME credential copy the worktree axis performs, into the SAME
-	// isolated stand-in-for-host directory, or production's own container
-	// auth resolver finds nothing there and degrades — this is production
-	// behavior working correctly, not a probe bug; the probe must set up its
-	// stand-in host the same way for both axes. Same reason as the worktree
-	// axis above for why this one call site keeps COPYING while the @live
-	// gates map: the stand-in host IS the measurement.
+	// The "seeded" path copies the host credential into the same isolated
+	// stand-in-for-host directory the worktree axis uses, so both axes start
+	// from one stand-in host. Same reason as the worktree axis above for why
+	// this one call site keeps COPYING while the @live gates map: the
+	// stand-in host IS the measurement.
 	if err := probeSeedCreds(w, liveAgents[backendTypeToLiveKey(backendType)], backendType, authPath); err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner/interaction"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -43,7 +44,9 @@ import (
 //  2. a post from that child starts a turn in an IDLE interactive session —
 //     the turn-start hooks run;
 //  3. UserPromptSubmit's prompt is the BARE wake line, and mail-drain
-//     redeems its nonce.
+//     redeems its nonce;
+//  4. claude kept the endpoint's server instructions WHOLE — it truncates
+//     past a cap (operations.InstructionsCharCap) and logs that it did.
 //
 // No model call is made: the spool holds no mail, so mail-drain blocks the
 // woken prompt as a stale wake. Credentials come from the caller's
@@ -141,7 +144,20 @@ func validateWake(t *testing.T, ctxloomBin, claudeBin string) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Logf("fact 3: mail-drain redeemed wake %s", nonce)
+
+	// (4) Not fatal: facts 1-3 stand on their own and are already logged.
+	for _, line := range debugLines(cfg) {
+		if m := truncatedInstructions.FindStringSubmatch(line); m != nil {
+			t.Errorf("fact 4: claude truncated the server instructions from %s to %s chars (operations.InstructionsCharCap is %d): the tail never reaches the agent",
+				m[1], m[2], operations.InstructionsCharCap)
+		}
+	}
 }
+
+// truncatedInstructions is claude's --debug line for server instructions it
+// cut to its cap; on 2.1.286: `MCP server "ctxloom": Server instructions
+// truncated from 2659 to 2048 chars`.
+var truncatedInstructions = regexp.MustCompile(`Server instructions truncated from (\d+) to (\d+) chars`)
 
 // inherited names what must not reach the probe from the caller: the marks
 // of a parent claude session (a probe run from inside claude would otherwise
@@ -201,23 +217,30 @@ func awaitPrompt(t *testing.T, captured, nonce string) string {
 // post — with every long hex run (session keys, tokens) redacted.
 func logMessagingDebug(t *testing.T, cfg string) {
 	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(cfg, "debug", "*"))
 	relevant := regexp.MustCompile(`(?i)uds|messaging|cross-session|peer|inbox|mcp.*ctxloom|UserPromptSubmit`)
 	hex := regexp.MustCompile(`[0-9a-fA-F]{24,}`)
+	for _, line := range debugLines(cfg) {
+		if relevant.MatchString(line) {
+			if len(line) > 300 {
+				line = line[:300]
+			}
+			t.Logf("claude debug: %s", hex.ReplaceAllString(line, "<hex>"))
+		}
+	}
+}
+
+// debugLines is every line of claude's --debug logs under its config dir.
+func debugLines(cfg string) []string {
+	files, _ := filepath.Glob(filepath.Join(cfg, "debug", "*"))
+	var lines []string
 	for _, f := range files {
 		if info, err := os.Lstat(f); err != nil || !info.Mode().IsRegular() {
 			continue
 		}
 		raw, _ := os.ReadFile(f)
-		for _, line := range strings.Split(string(raw), "\n") {
-			if relevant.MatchString(line) {
-				if len(line) > 300 {
-					line = line[:300]
-				}
-				t.Logf("claude debug: %s", hex.ReplaceAllString(line, "<hex>"))
-			}
-		}
+		lines = append(lines, strings.Split(string(raw), "\n")...)
 	}
+	return lines
 }
 
 func writeJSON(t *testing.T, path string, v any) {

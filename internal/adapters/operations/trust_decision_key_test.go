@@ -67,7 +67,7 @@ func TestSetItemTrust_RefusesAKeyUntrustedForApprove(t *testing.T) {
 		Signer:    rogue,
 		Root:      fx.root, // trusts fx.signer for approve+reject, and nothing else
 		UserStore: fx.user, ProjectStore: fx.project,
-		Loader:    loader,
+		Loader: loader,
 	})
 
 	require.Error(t, err, "accepting with a key nobody trusts for approve must FAIL, not report success")
@@ -107,7 +107,7 @@ func TestSetBlacklist_RefusesAKeyUntrustedForReject(t *testing.T) {
 		Signer:    rogue,
 		Root:      fx.root,
 		UserStore: fx.user, ProjectStore: fx.project,
-		Loader:    loader,
+		Loader: loader,
 	})
 
 	require.Error(t, err)

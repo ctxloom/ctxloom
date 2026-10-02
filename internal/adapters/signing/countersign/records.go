@@ -104,7 +104,7 @@ func (c Records) readable() error {
 	if err := c.user.Readable(); err != nil && !errors.Is(err, ErrStoreAbsent) {
 		return fmt.Errorf("user approvals store: %w", err)
 	}
-	if err := c.project.Readable(); err != nil && !(c.projectIsUserStore() && errors.Is(err, ErrStoreAbsent)) {
+	if err := c.project.Readable(); err != nil && (!c.projectIsUserStore() || !errors.Is(err, ErrStoreAbsent)) {
 		return fmt.Errorf("project approvals store: %w", err)
 	}
 	return nil

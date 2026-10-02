@@ -144,6 +144,7 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 // before the store was provisioned: `ctxloom init` over an existing .ctxloom
 // runs it, and doctor's approvals row points there.
 func ProvisionApprovalsStore(fs afero.Fs, appDir string) error {
+	fs = getFS(fs)
 	dir := paths.ApprovalsPath(appDir)
 	if err := fs.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("provision approvals store %s: %w", dir, err)

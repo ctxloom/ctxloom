@@ -147,6 +147,21 @@ func WithPath(p string) RecorderOption {
 	}
 }
 
+// WithContinuation makes a Recorder extend lines another Recorder already
+// wrote: Seq resumes at seq rather than 0, and lines carry sessionID, which
+// the earlier lines' Session record established and this Recorder will never
+// see. It exists for a resumed vendor conversion (operations.
+// RefreshVendorTranscript), which copies the canonical prefix forward and
+// converts only what the vendor appended since; without it the appended lines
+// would restart Seq — a discontinuity readers treat as corruption — and lose
+// their session id.
+func WithContinuation(seq int, sessionID string) RecorderOption {
+	return func(r *fileRecorder) {
+		r.seq = seq
+		r.sessionID = sessionID
+	}
+}
+
 // NewRecorder returns a Recorder for harp/engine, targeting
 // paths.HarpCanonicalTranscriptPath(harp) unless WithPath overrides it.
 //
@@ -164,7 +179,8 @@ func WithPath(p string) RecorderOption {
 // "nothing was ever recorded for this harp" without needing to also handle a
 // present-but-empty file as a separate case.
 //
-// Seq starts at 0 on the first Record call and increases by 1, with no gaps,
+// Seq starts at 0 (or where WithContinuation says) on the first Record call
+// and increases by 1, with no gaps,
 // for the lifetime of the Recorder.
 func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) {
 	if harp == "" {

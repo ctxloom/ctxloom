@@ -464,23 +464,8 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	// here, before the first frame it emits.
 	home.BindIdentity(t.Launch.Identity)
 
-	// The approval route is bound before the first turn can ask anything,
-	// holding the grants the run was started with.
-	eh.mu.Lock()
-	seed := eh.seedGrants
-	eh.mu.Unlock()
-	if spec := t.approval; spec != nil {
-		a := newApprovals(*spec, askTheRoot(home, *spec, spec.timeout+approvalRequestSlack))
-		for _, err := range a.seedGrants(seed) {
-			eh.rep.Warnf("engine host: a session grant the run was started with is dropped: %v", err)
-		}
-		eh.mu.Lock()
-		eh.approvals = a
-		eh.mu.Unlock()
-		home.SetApprovalRoute(a)
-	} else if len(seed) > 0 {
-		eh.rep.Warnf("engine host: the session grants the run was started with are dropped: %v", errNoApprovalRoute)
-	}
+	// The approval route is bound before the first turn can ask anything.
+	eh.bindApprovals(home, t.approval)
 
 	// RunStarted first: the log is self-contained (the first turn and the
 	// launch's facts, including whether this attempt resumed a prior native
@@ -537,6 +522,30 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 		eh.finish(home, nil, ctx.Err())
 	})
 	return nil
+}
+
+// bindApprovals binds the run's approval route, when it has one, holding
+// the grants the run was started with. A grant the engine's rule syntax
+// refuses, or any grant on a run with no route, is dropped with a finding:
+// the record's fault costs the run that grant, never its start.
+func (eh *EngineHost) bindApprovals(home engineHome, spec *approvalSpec) {
+	eh.mu.Lock()
+	seed := eh.seedGrants
+	eh.mu.Unlock()
+	if spec == nil {
+		if len(seed) > 0 {
+			eh.rep.Warnf("engine host: the session grants the run was started with are dropped: %v", errNoApprovalRoute)
+		}
+		return
+	}
+	a := newApprovals(*spec, askTheRoot(home, *spec, spec.timeout+approvalRequestSlack))
+	for _, err := range a.seedGrants(seed) {
+		eh.rep.Warnf("engine host: a session grant the run was started with is dropped: %v", err)
+	}
+	eh.mu.Lock()
+	eh.approvals = a
+	eh.mu.Unlock()
+	home.SetApprovalRoute(a)
 }
 
 // openRunRecorder opens harp's canonical transcript recorder; nil for no harp,

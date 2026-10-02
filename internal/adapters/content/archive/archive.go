@@ -74,7 +74,7 @@ var _ content.Store = (*Store)(nil)
 // sent them to you, and only the caller knows which. An invalid Provenance is
 // refused by content.NewTreeStore rather than defaulted, so a store can never
 // silently claim an origin it was not given.
-func New(data []byte, prov content.Provenance) (*Store, error) {
+func New(ctx context.Context, data []byte, prov content.Provenance) (*Store, error) {
 	if len(data) == 0 {
 		return nil, ErrEmptyArchive
 	}
@@ -93,7 +93,7 @@ func New(data []byte, prov content.Provenance) (*Store, error) {
 	// is entirely wrong.
 	const stage = "/stage"
 	const root = "/root"
-	topDir, err := bundles.HardenedExtract(fsys, data, format, stage, bundles.ExtractOptions{})
+	topDir, err := bundles.HardenedExtract(ctx, fsys, data, format, stage, bundles.ExtractOptions{})
 	if err != nil {
 		// Surfaced verbatim: the extractor's rejections name WHICH entry and
 		// WHY, and a caller diagnosing a refused archive needs that, not a

@@ -440,6 +440,30 @@ func TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact(t *testing.T) 
 	require.True(t, ok, "the surviving skill must still be enumerated")
 }
 
+// An import is extraction of untrusted bytes; a caller that has cancelled
+// (Ctrl-C, a parent deadline) must get control back and find nothing landed.
+func TestImportSkill_CancelledContextLandsNothing(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "src")
+	writeDirFormBundle(t, appDir, "dst")
+
+	_, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer", Description: "Reviews Go diffs."})
+	require.NoError(t, err)
+	zipPath := filepath.Join(t.TempDir(), "reviewer.zip")
+	_, err = ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: zipPath})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = ImportSkill(ctx, cfg, ImportSkillRequest{Bundle: "dst", ArchivePath: zipPath})
+	require.ErrorIs(t, err, context.Canceled)
+
+	loaded, err := bundleLoader(cfg).Load("dst")
+	require.NoError(t, err)
+	_, ok := loaded.Skills["reviewer"]
+	assert.False(t, ok, "a cancelled import must not land the skill")
+}
+
 // TestSkillReadPaths_NilConfigReturnsErrorNotPanic: ListSkills,
 // GetSkill, and ExportSkill used to panic on a nil *config.Config (bundleLoader/
 // exposureLoader dereference it immediately), while every mutating sibling in

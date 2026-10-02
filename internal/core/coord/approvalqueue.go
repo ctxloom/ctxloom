@@ -181,6 +181,9 @@ type ApprovalQueue struct {
 	// turns counts each live run's ended turns: a request stamped with an
 	// older count was asked by a turn that is already over.
 	turns map[string]uint64
+	// runGrants are the rules each live run has been granted, which cover
+	// its later requests. A run's set goes with the run (cancelFrom).
+	runGrants map[runKey][]string
 
 	// grantsLock is held by a revoke from reading the set it pushes until
 	// the revoke is journaled, and by a decision that grants while it is
@@ -220,6 +223,7 @@ func NewApprovalQueue(store *Store, clock Clock, pushGrants func(harp string, ru
 		resolved:   make(map[ApprovalID]struct{}),
 		subs:       make(map[chan QueueEvent]struct{}),
 		turns:      make(map[string]uint64),
+		runGrants:  make(map[runKey][]string),
 		grantsLock: make(chan struct{}, 1),
 	}
 }
@@ -281,6 +285,15 @@ func (q *ApprovalQueue) Park(ctx context.Context, from Identity, req PendingAppr
 		_ = q.settle(p, d)
 		return <-p.answer
 	}
+	if q.coveredLocked(req, q.runGrants[keyOf(from)]) {
+		// Judged under the same lock that adds a grant to the run's set
+		// (coverWith), so a request parking as a grant lands is covered
+		// on one side or the other.
+		q.resolved[req.ID] = struct{}{}
+		q.mu.Unlock()
+		_ = q.settle(p, coveredByGrant)
+		return <-p.answer
+	}
 	q.pending[req.ID] = p
 	n := len(q.pending)
 	q.mu.Unlock()
@@ -339,6 +352,7 @@ func (q *ApprovalQueue) unanswerable(id ApprovalID) error {
 func (q *ApprovalQueue) cancelFrom(harp, runID string) {
 	q.mu.Lock()
 	delete(q.turns, runID)
+	delete(q.runGrants, runKey{harp: harp, runID: runID})
 	q.mu.Unlock()
 	q.withdraw(func(from Identity) bool { return from.Harp == harp }, droppedWithRun)
 }
@@ -426,7 +440,75 @@ func (q *ApprovalQueue) settle(p *parkedApproval, d ApprovalDecision) error {
 	if granted && err == nil {
 		q.publish(QueueEvent{Kind: QueueGrantsChanged, ID: p.req.ID, Pending: n})
 	}
+	if len(d.SessionRules) > 0 { // a decision the journal refused carries none
+		if q.grantHook != nil {
+			q.grantHook()
+		}
+		q.coverWith(p.req.From, d.SessionRules)
+	}
 	return err
+}
+
+// runKey names one run of one harp.
+type runKey struct{ harp, runID string }
+
+func keyOf(id Identity) runKey { return runKey{harp: id.Harp, runID: id.RunID} }
+
+// coveredByGrant is the decision on a request a rule its run was granted
+// covers: allowed, granting nothing further.
+var coveredByGrant = ApprovalDecision{Allow: true, Decider: agent.DeciderGrant}
+
+// coveredLocked reports whether one of rules covers req's call. Only a tool
+// call is ever covered. Call with q.mu held.
+func (q *ApprovalQueue) coveredLocked(req PendingApproval, rules []string) bool {
+	return req.Kind == ApprovalTool && q.covers != nil &&
+		slices.ContainsFunc(rules, func(r string) bool { return q.covers(req, r) })
+}
+
+// coverWith adds rules to from's run's set and resolves that run's parked
+// requests they cover.
+func (q *ApprovalQueue) coverWith(from Identity, rules []string) {
+	key := keyOf(from)
+	q.mu.Lock()
+	for _, r := range rules {
+		if !slices.Contains(q.runGrants[key], r) {
+			q.runGrants[key] = append(q.runGrants[key], r)
+		}
+	}
+	var covered []*parkedApproval
+	for id, p := range q.pending {
+		if keyOf(p.req.From) == key && q.coveredLocked(p.req, rules) {
+			delete(q.pending, id)
+			q.resolved[id] = struct{}{}
+			covered = append(covered, p)
+		}
+	}
+	q.mu.Unlock()
+	for _, p := range covered {
+		_ = q.settle(p, coveredByGrant)
+	}
+}
+
+// uncover takes rule out of harp's run sets; restore puts it back.
+func (q *ApprovalQueue) uncover(harp, rule string) (restore func()) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	var from []runKey
+	for key, rules := range q.runGrants {
+		if key.harp == harp && slices.Contains(rules, rule) {
+			q.runGrants[key] = slices.DeleteFunc(rules, func(r string) bool { return r == rule })
+			from = append(from, key)
+		}
+	}
+	return func() {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		for _, key := range from {
+			if _, live := q.runGrants[key]; live && !slices.Contains(q.runGrants[key], rule) {
+				q.runGrants[key] = append(q.runGrants[key], rule)
+			}
+		}
+	}
 }
 
 // decisionFacts is the facts one decision journals: the decision, then a
@@ -520,12 +602,13 @@ func (q *ApprovalQueue) Revoke(harp, grantID string) error {
 	defer q.unlockGrants()
 	var (
 		found     bool
+		rule      string
 		remaining []string
 	)
 	q.store.View(func() {
 		for _, g := range q.grants.byHarp[harp] {
 			if g.ID == grantID {
-				found = true
+				found, rule = true, g.Rule
 				continue
 			}
 			remaining = append(remaining, g.Rule)
@@ -534,12 +617,18 @@ func (q *ApprovalQueue) Revoke(harp, grantID string) error {
 	if !found {
 		return fmt.Errorf("%w: %s on %s", ErrNoSuchGrant, grantID, harp)
 	}
+	// The rule stops covering requests before the run is told, so nothing
+	// is allowed under it once the revoke has begun; it is put back only if
+	// the revoke fails and the grant stands.
+	restore := q.uncover(harp, rule)
 	if err := q.pushGrants(harp, remaining); err != nil {
+		restore()
 		return fmt.Errorf("revoke %s on %s: %w", grantID, harp, err)
 	}
 	if err := q.store.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factGrantRevoked, q.now(), grantRevoked{ID: grantID, Harp: harp})}, nil
 	}); err != nil {
+		restore()
 		return fmt.Errorf("revoke %s on %s: %w", grantID, harp, err)
 	}
 	q.mu.Lock()

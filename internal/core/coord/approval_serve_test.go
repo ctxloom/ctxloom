@@ -334,6 +334,7 @@ func TestApprovals_AGrantResolvesTheChildsCoveredRequest(t *testing.T) {
 func TestCoordinator_AnEngineItCannotFindCoversNothing(t *testing.T) {
 	bash := PendingApproval{Kind: ApprovalTool, Ask: engine.PermissionAsk{Kind: engine.AskTool, Tool: "Bash"}, engine: mock.Name}
 	assert.True(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Bash"))
+	assert.False(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Write"), "the engine's codec judges the rule")
 	assert.False(t, (&Coordinator{}).covers(bash, "Bash"), "no engines composed")
 	bash.engine = "absent"
 	assert.False(t, (&Coordinator{engines: mockEngines(t)}).covers(bash, "Bash"), "an engine the registry does not hold")

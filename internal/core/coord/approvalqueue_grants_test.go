@@ -1,6 +1,8 @@
 package coord
 
 import (
+	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -105,6 +107,13 @@ func TestApprovalQueue_ARequestParkingAfterAGrantIsCovered(t *testing.T) {
 	asked, _ := parkFrom(t, q, events, askerID, toolAsk("Bash"))
 	require.NoError(t, q.Answer(asked, ApprovalDecision{Allow: true, SessionRules: []string{"Bash"}}))
 
+	parkExpectingGrant(t, q, events)
+}
+
+// parkExpectingGrant parks a Bash request from askerID that a grant should
+// cover: it is decided by the grant and never put to the human.
+func parkExpectingGrant(t *testing.T, q *ApprovalQueue, events <-chan QueueEvent) {
+	t.Helper()
 	out := make(chan ApprovalDecision, 1)
 	go func() { out <- q.Park(t.Context(), askerID, toolAsk("Bash"), time.Hour) }()
 	for {
@@ -147,7 +156,12 @@ func TestApprovalQueue_WhatAGrantNoLongerCovers(t *testing.T) {
 		},
 		"the run ended": {
 			decision: ApprovalDecision{Allow: true, SessionRules: []string{"Bash"}},
-			after:    func(_ *testing.T, q *ApprovalQueue) { q.cancelFrom(askerID.Harp, askerID.RunID) },
+			after: func(t *testing.T, q *ApprovalQueue) {
+				q.cancelFrom(askerID.Harp, askerID.RunID)
+				q.mu.Lock()
+				defer q.mu.Unlock()
+				assert.Empty(t, q.runGrants, "the run's set goes with the run")
+			},
 			asker:    Identity{Harp: askerID.Harp, RunID: "run-2", Depth: 1},
 		},
 		"denied": {
@@ -166,4 +180,57 @@ func TestApprovalQueue_WhatAGrantNoLongerCovers(t *testing.T) {
 			assert.Equal(t, []ApprovalID{id}, pendingIDs(q), "the request waits on the human")
 		})
 	}
+}
+
+// revokeQueue is a queue whose run-side push is push, holding one grant of
+// "Bash" for askerID's run.
+func revokeQueue(t *testing.T, push func(q *ApprovalQueue) error) (*ApprovalQueue, <-chan QueueEvent, Grant) {
+	t.Helper()
+	var q *ApprovalQueue
+	q = NewApprovalQueue(openQueueStore(t, filepath.Join(t.TempDir(), "runs.jsonl")), time.Now,
+		func(string, []string) error { return push(q) }, noRunGone, coversTool)
+	events := q.Subscribe(t.Context())
+	asked, done := parkFrom(t, q, events, askerID, toolAsk("Bash"))
+	require.NoError(t, q.Answer(asked, ApprovalDecision{Allow: true, SessionRules: []string{"Bash"}}))
+	decided(t, done)
+	gs := q.Grants(askerID.Harp)
+	require.Len(t, gs, 1)
+	return q, events, gs[0]
+}
+
+// TestApprovalQueue_ARequestParkingDuringARevokeIsNotCovered forces the
+// race: the request parks while the revoke is being handed to the run. The
+// rule already covers nothing — the request waits on the human.
+func TestApprovalQueue_ARequestParkingDuringARevokeIsNotCovered(t *testing.T) {
+	var during ApprovalID
+	var events <-chan QueueEvent
+	q, ev, g := revokeQueue(t, func(q *ApprovalQueue) error {
+		during, _ = parkFrom(t, q, events, askerID, toolAsk("Bash"))
+		return nil
+	})
+	events = ev
+	require.NoError(t, q.Revoke(askerID.Harp, g.ID))
+	assert.Equal(t, []ApprovalID{during}, pendingIDs(q))
+}
+
+// TestApprovalQueue_ARefusedRevokeStillCovers: the run refused the revoke,
+// so the grant stands — and still covers the run's requests.
+func TestApprovalQueue_ARefusedRevokeStillCovers(t *testing.T) {
+	q, events, g := revokeQueue(t, func(*ApprovalQueue) error { return errors.New("the run refused") })
+	require.Error(t, q.Revoke(askerID.Harp, g.ID))
+	parkExpectingGrant(t, q, events)
+}
+
+// TestApprovalQueue_ARefusedRevokeRevivesNoEndedRun: the run ends while its
+// revoke is being pushed, and the push fails. Putting the rule back must
+// not resurrect the ended run's set.
+func TestApprovalQueue_ARefusedRevokeRevivesNoEndedRun(t *testing.T) {
+	q, _, g := revokeQueue(t, func(q *ApprovalQueue) error {
+		q.cancelFrom(askerID.Harp, askerID.RunID)
+		return errors.New("the run is gone")
+	})
+	require.Error(t, q.Revoke(askerID.Harp, g.ID))
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	assert.Empty(t, q.runGrants)
 }

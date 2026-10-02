@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // Approvals is the root's approval queue: the one source a presenter reads
@@ -23,12 +25,24 @@ func (c *Coordinator) parkApproval(caller Identity, req ApprovalRequest) Approva
 		}
 		p.Lineage = c.lineageOf(caller.Harp)
 	})
+	c.mu.Lock()
+	if rt := c.runtimeForLocked(caller.Harp, caller.RunID); rt != nil && rt.plan != nil {
+		p.engine = engine.Name(rt.plan.Backend)
+	}
+	c.mu.Unlock()
 	return c.approvals.Park(c.baseCtx, caller, p, req.Timeout)
 }
 
 // covers reports whether rule, granted to req's asker, allows req's call, as
 // the asker's engine judges it.
-func (c *Coordinator) covers(req PendingApproval, rule string) bool { return false }
+func (c *Coordinator) covers(req PendingApproval, rule string) bool {
+	e, ok := c.engines.Lookup(req.engine)
+	if !ok {
+		return false
+	}
+	codec, ok := e.Approvals().Get()
+	return ok && codec.Covers(rule, req.Ask)
+}
 
 // runGone reports that from's run can take no decision: its record says it
 // ended, or its harp's current run is a newer one. It needs no state of its

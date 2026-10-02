@@ -974,12 +974,21 @@ func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
 		opts = append(opts, profiles.WithRemoteResolver(resolve))
 	}
 	if resolveURL := c.ProfileRemoteURLResolver(); resolveURL != nil {
-		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL))
+		opts = append(opts, profiles.WithRemoteURLResolver(resolveURL), profiles.WithLocalBundleResolver(c.LocalBundleExists))
 	}
 	// Seed remote profiles read from the git clone cache at their locked SHA, so
 	// every consumer of the loader sees them as references without a materialized
 	// copy on disk (the profile-side mirror of SeededBundleLoader).
 	return append(opts, c.ProfileSeedOptions()...)
+}
+
+// LocalBundleExists reports whether name resolves to one of the project's own
+// authored bundles — the local-file-wins oracle (decision E) for profile bundle
+// refs, at load and at store alike, read from the same directories the
+// catalog's project reader reads.
+func (c *Config) LocalBundleExists(name string) bool {
+	_, err := bundles.NewLoader(bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs())).Find(name)
+	return err == nil
 }
 
 // ProfileSeedOptions returns the loader option that seeds the profiles shipped

@@ -246,6 +246,38 @@ Feature: deps — the installed dependency closure, and everything that moves it
       Then the command succeeds
       And the output contains "demo"
 
+    # The same rule for the commands that report currency. A check that could
+    # not fetch the remote has only the clone it fetched LAST time to read, and
+    # an answer read from that clone is about the past: it is unchecked, never
+    # "up to date".
+    Scenario: A check that could not reach the remote does not call it up to date
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom deps pull"
+      And the remote "origin" becomes unreachable
+      When Alice checks for updates while the remote is unreachable:
+        """
+        ctxloom deps check
+        """
+      Then the output does not contain "up to date"
+      And the output contains "could not be checked"
+
+    Scenario: An upgrade that could not reach the remote does not call everything up to date
+      Given an initialized ctxloom project
+      And a git remote "origin" serving a ctxloom bundle
+      And I run "ctxloom remote default origin"
+      And I run "ctxloom profile create dev --bundle origin/demo"
+      And I run "ctxloom deps pull"
+      And the remote "origin" becomes unreachable
+      When Alice upgrades while the remote is unreachable:
+        """
+        ctxloom deps upgrade
+        """
+      Then the output does not contain "Everything is up to date"
+      And the output contains "unreachable"
+
   Rule: Check reads and upgrade writes
 
     `deps check` reaches the network and reports; it changes nothing, which is

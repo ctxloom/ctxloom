@@ -229,9 +229,10 @@ type RepoUpdater interface {
 
 // refreshRepoCaches advances each unique clone to live HEAD before SHA
 // resolution, so a stale shallow clone doesn't pin/report the old SHA. Per-URL
-// failures warn and continue — stale data beats aborting. Shared by
-// UpgradeDependencies (upgrade.go) and the sync path (sync.go).
-func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) {
+// failures warn and continue rather than abort; it reports whether any fetch
+// failed, so a caller that reports currency can say its answer is incomplete.
+// Shared by UpgradeDependencies (upgrade.go) and the sync path (sync.go).
+func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) (fetchFailed bool) {
 	for _, url := range urls {
 		forgeType, _, err := remote.DetectForge(url)
 		if err != nil {
@@ -240,6 +241,8 @@ func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) {
 		}
 		if _, err := cache.UpdateRepo(ctx, url, forgeType); err != nil {
 			clidiag.Warn("ctxloom", "fetch %s: %v", url, err)
+			fetchFailed = true
 		}
 	}
+	return fetchFailed
 }

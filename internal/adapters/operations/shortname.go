@@ -58,10 +58,12 @@ func aliasToURLResolver(cfg *config.Config) func(string) string {
 // canonicalizeBundleRefs canonicalizes every per-remote short bundle ref
 // ("<alias>/<bundle>[#<sel>]") in refs to canonical URL form. Bare names
 // (decision A: no "<alias>/" prefix) and already-canonical refs pass through
-// unchanged. Returns the input slice unchanged when there is nothing to resolve.
-func canonicalizeBundleRefs(refs []string, aliasToURL func(string) string) []string {
+// unchanged, and so does a ref whose base names a local bundle (localExists:
+// local-file-wins, decision E). Returns the input slice unchanged when there is
+// nothing to resolve.
+func canonicalizeBundleRefs(refs []string, aliasToURL func(string) string, localExists func(string) bool) []string {
 	return mapRefs(refs, func(ref string) string {
-		return remote.CanonicalizeShortRef(ref, aliasToURL, nil)
+		return remote.CanonicalizeShortRef(ref, aliasToURL, localExists)
 	})
 }
 

@@ -127,7 +127,7 @@ func TestDetectUpdates_FailedChecksAreCounted(t *testing.T) {
 		"::::not-a-valid-reference": {SHA: "somesha", RequestedVersion: "main"},
 	}}
 
-	updates, unchecked, skipped := detectUpdates(context.Background(), cfg, remote.AuthConfig{}, lockfile)
+	updates, unchecked, skipped := detectUpdates(context.Background(), cfg, remote.AuthConfig{}, lockfile, nil)
 	assert.Empty(t, updates)
 	assert.Equal(t, 0, skipped)
 	require.Len(t, unchecked, 1, "a reference that fails to parse must be reported unchecked, not silently dropped")

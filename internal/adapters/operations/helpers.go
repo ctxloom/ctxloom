@@ -41,10 +41,7 @@ func NewRepoCache(cfg *config.Config) *remote.RepoCache {
 	if err != nil {
 		clidiag.Warn("ctxloom", "cannot read the remotes registry %s: %v — per-forge token_env is not applied, so private-repo clones fall back to ambient git auth", remotesPath, err)
 	} else {
-		forges := registry.Forges()
-		opts = append(opts, remote.WithForgeResolver(func(repoURL string) remote.ResolvedForge {
-			return remote.ResolveForgeForURLWith(repoURL, "", forges)
-		}))
+		opts = append(opts, remote.WithForgeResolver(registry.ResolveForgeForURL))
 	}
 	return remote.NewRepoCache(paths.ReposCachePath(baseDir), auth, opts...)
 }

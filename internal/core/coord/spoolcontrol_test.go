@@ -179,16 +179,65 @@ func TestSpoolSteer_WithdrawAfterDeliverySaysSoHonestly(t *testing.T) {
 
 // answerAsk replies to a delivered ask from the CHILD's own runner — an
 // ordinary agent_send quoting the ask's id, which under the cutover is a local
-// write into the child's out/ spool.
+// write into the child's out/ spool. It carries a sender kind like any mail:
+// an answer is ordinary mail to the asker.
 func answerAsk(t *testing.T, home TestHome, askID, text string, structured *structpb.Struct) {
 	t.Helper()
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
 			ToRole: ParentAddress, Text: text, InReplyTo: askID, Structured: structured,
+			Kind: agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
 		}},
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, resp.GetStatus().GetCode(), "the reply must be accepted: %s", resp.GetStatus().GetMessage())
+}
+
+// askOverTheWire asks harp's child a question from the owner over the
+// ControlRun wire and returns the ask id, failing if the ask holds the
+// asker's turn instead of answering at once.
+func askOverTheWire(t *testing.T, c *Coordinator, harp, text string) string {
+	t.Helper()
+	select {
+	case resp := <-controlRunAsync(t, ownerHome(t, c), &agentcoordpb.ControlQuestion{Harp: harp, Text: text}):
+		require.EqualValues(t, 0, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+		id := resp.GetControlRun().GetQuestion().GetAskId()
+		require.NotEmpty(t, id)
+		return id
+	case <-time.After(conformanceWait):
+		t.Fatal("the ask held the asker's turn")
+		return ""
+	}
+}
+
+// TestSpoolAsk_ChildThatEndsWithoutAnsweringSendsACorrelatedNotice: an asker
+// whose child ends without answering hears so, correlated to the ask — not
+// silence, and not only the child's uncorrelated exit notice, which cannot
+// say which of several outstanding asks went unanswered.
+//
+// The child's turn DID end with the runner's automatic report quoting the
+// ask. That report is not an answer (the cooperative-reply ruling: the answer
+// is what the child chose to send), so the ask is still unanswered when the
+// child dies, and the notice says so.
+func TestSpoolAsk_ChildThatEndsWithoutAnsweringSendsACorrelatedNotice(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
+
+	askID := askOverTheWire(t, c, out.Harp, "which migration path?")
+	require.NotEmpty(t, recvWhere(t, c, func(m Message) bool {
+		return m.InReplyTo == askID && IsAutoReport(m.Structured)
+	}, conformanceWait), "the turn the ask started must have ended and been reported")
+
+	c.terminateRun(out.RunID, CauseRunnerExit, "engine crashed")
+
+	notice := recvWhere(t, c, func(m Message) bool { return m.Kind == KindExited && m.InReplyTo == askID }, conformanceWait)
+	require.Len(t, notice, 1, "the asker must get one terminal notice correlated to the unanswered ask")
+	assert.Equal(t, out.Harp, notice[0].From, "the notice is about the child asked")
+	assert.Contains(t, notice[0].Body, askID)
+	assert.Contains(t, notice[0].Body, CauseRunnerExit, "the notice says why the child ended")
 }
 
 // TestSpoolAsk_QuestionIsAnsweredByCorrelation is the ask plane's happy path:

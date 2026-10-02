@@ -172,88 +172,70 @@ func TestControlRun_SteerFromTheOwnerReachesTheChild(t *testing.T) {
 	awaitChatText(t, sp, 0, "stop and rebase first")
 }
 
-// TestControlRun_QuestionIsAnsweredOverTheWire: the ask blocks on the wire
-// until the child's own correlated reply, and the answer — text and
-// structured companion — rides back in the question arm.
-func TestControlRun_QuestionIsAnsweredOverTheWire(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, childH := awaitCutoverChild(t, c, sp, "first task")
-	owner := ownerHome(t, c)
+// TestControlRun_AskReturnsItsIDAtOnceAndTheAnswerArrivesAsMail is the async
+// ask (worried-chief W6, ruling D1). The ask answers the asker with an ask id
+// BEFORE the child has said anything, so the asker's turn is never held; the
+// child sees that id in the turn it is prompted with; and its answer is
+// ordinary mail to the asker's spool quoting the id, which is what wakes the
+// asker's next turn. Both asks share the shape, so both arms are pinned.
+func TestControlRun_AskReturnsItsIDAtOnceAndTheAnswerArrivesAsMail(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, text string
+		verb             func(harp, text string) any
+		askID            func(*agentcoordpb.ControlRunResult) string
+	}{
+		{"question", KindQuestion, "why sqlx over diesel?",
+			func(h, s string) any { return &agentcoordpb.ControlQuestion{Harp: h, Text: s} },
+			func(r *agentcoordpb.ControlRunResult) string { return r.GetQuestion().GetAskId() }},
+		{"summarize", KindSummarize, "what is blocking you",
+			func(h, s string) any { return &agentcoordpb.ControlSummarize{Harp: h, Focus: s} },
+			func(r *agentcoordpb.ControlRunResult) string { return r.GetSummarize().GetAskId() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetStrictness(t)
+			teeHome(t)
+			sp := cutoverSpawner(0)
+			c := newCutoverCoordinator(t, sp, 0)
+			out, childH := awaitCutoverChildIdle(t, c, sp, "first task")
+			owner := ownerHome(t, c)
 
-	askIDs := make(chan string, 1)
-	c.onAskPublished = func(id string) { askIDs <- id }
+			// NOT BLOCKED: the response is here while the child has answered
+			// nothing. A blocking ask holds this select until its budget.
+			var askID string
+			select {
+			case resp := <-controlRunAsync(t, owner, tc.verb(out.Harp, tc.text)):
+				require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+				askID = tc.askID(resp.GetControlRun())
+			case <-time.After(conformanceWait):
+				t.Fatal("the ask held the asker's turn: no response before the child answered")
+			}
+			require.NotEmpty(t, askID, "the ask answers with the id its answer will quote")
 
-	responses := controlRunAsync(t, owner, &agentcoordpb.ControlQuestion{Harp: out.Harp, Text: "why sqlx over diesel?"})
+			// The child is prompted with the ask, can tell which kind it is, and
+			// can see the id to quote.
+			var delivered string
+			for _, turn := range awaitChatText(t, sp, 0, tc.text) {
+				if strings.Contains(turn, tc.text) {
+					delivered = turn
+				}
+			}
+			assert.Contains(t, delivered, "kind="+tc.kind)
+			assert.Contains(t, delivered, askID, "the child must see the id its answer quotes")
 
-	var askID string
-	select {
-	case askID = <-askIDs:
-	case <-time.After(conformanceWait):
-		t.Fatal("the ask was never published")
-	}
-	awaitChatText(t, sp, 0, "why sqlx over diesel?")
-	structured, err := structpb.NewStruct(map[string]any{"confidence": "high"})
-	require.NoError(t, err)
-	answerAsk(t, childH, askID, "compile-time checked queries", structured)
+			structured, err := structpb.NewStruct(map[string]any{"confidence": "high"})
+			require.NoError(t, err)
+			answerAsk(t, childH, askID, "compile-time checked queries", structured)
 
-	select {
-	case resp := <-responses:
-		require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
-		ans := resp.GetControlRun().GetQuestion()
-		require.NotNil(t, ans, "the question arm answers the question arm")
-		assert.Equal(t, askID, ans.GetAskId())
-		assert.Equal(t, out.Harp, ans.GetFrom())
-		assert.Equal(t, "compile-time checked queries", ans.GetText())
-		assert.Equal(t, "high", ans.GetStructured().GetFields()["confidence"].GetStringValue(),
-			"the structured companion must survive the file AND the wire")
-	case <-time.After(conformanceWait):
-		t.Fatal("the wire ask never resolved")
-	}
-}
-
-// TestControlRun_SummarizeCarriesItsKindAndAnswersInItsArm: same mechanism
-// as the question, and the child can tell the two apart — the summarize kind
-// renders into the turn it is prompted with — and so can the caller: the
-// answer arrives in the summarize arm, not the question arm.
-func TestControlRun_SummarizeCarriesItsKindAndAnswersInItsArm(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, childH := awaitCutoverChild(t, c, sp, "first task")
-	owner := ownerHome(t, c)
-
-	askIDs := make(chan string, 1)
-	c.onAskPublished = func(id string) { askIDs <- id }
-
-	responses := controlRunAsync(t, owner, &agentcoordpb.ControlSummarize{Harp: out.Harp, Focus: "what is blocking you"})
-
-	var askID string
-	select {
-	case askID = <-askIDs:
-	case <-time.After(conformanceWait):
-		t.Fatal("the ask was never published")
-	}
-	turns := awaitChatText(t, sp, 0, "what is blocking you")
-	var delivered string
-	for _, turn := range turns {
-		if strings.Contains(turn, "what is blocking you") {
-			delivered = turn
-		}
-	}
-	assert.Contains(t, delivered, "kind="+KindSummarize)
-	answerAsk(t, childH, askID, "nothing; two files left", nil)
-
-	select {
-	case resp := <-responses:
-		require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
-		assert.Nil(t, resp.GetControlRun().GetQuestion(), "a summary is not a question's answer")
-		assert.Equal(t, "nothing; two files left", resp.GetControlRun().GetSummarize().GetText())
-	case <-time.After(conformanceWait):
-		t.Fatal("the wire ask never resolved")
+			// THE ANSWER IS MAIL, correlated to the ask, from the child asked.
+			got := recvWhere(t, c, func(m Message) bool {
+				return m.InReplyTo == askID && !IsAutoReport(m.Structured)
+			}, conformanceWait)
+			require.Len(t, got, 1, "the deliberate answer must reach the asker's spool as mail quoting the ask")
+			assert.Equal(t, "compile-time checked queries", got[0].Body)
+			assert.Equal(t, out.Harp, got[0].From)
+			assert.Contains(t, string(got[0].Structured), `"confidence":"high"`,
+				"the structured companion must survive the file")
+		})
 	}
 }
 

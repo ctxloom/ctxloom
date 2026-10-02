@@ -40,7 +40,7 @@ func FullLaunch(t *testing.T) launch.Launch {
 		Axes: launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeRootless},
 		Cell: launch.Cell{
 			Placement: launch.Placement{
-				Paths: paths,
+				Paths:       paths,
 				Env:         map[string]string{"WS_VAR": "ws"},
 				SecretFiles: map[string]string{"FIXTURE_TOKEN": "/run/ctxloom/secrets/FIXTURE_TOKEN"},
 				Home:        []engine.HomeBinding{{Var: "FIXTURE_HOME", Path: "/home/agent/.engine"}},

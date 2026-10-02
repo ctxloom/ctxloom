@@ -27,7 +27,7 @@ type Store interface {
 	BindEngine(harpName, engine string) error
 	AppendRotations(harpName string, rotations []Rotation) error
 	RecordEngineVersion(harpName, version string) error
-	RecordOrigin(harpName string, o Origin) error
+	StampMint(harpName string, s MintStamp) error
 	MarkEnded(harpName string, at time.Time) error
 	MarkPurged(harpName string, at time.Time) error
 	Rename(oldName, newName string) error

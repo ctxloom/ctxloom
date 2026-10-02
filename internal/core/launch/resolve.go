@@ -169,6 +169,7 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 	passthrough := map[string]string{}
 	maps.Copy(passthrough, deps.Assembler.LabelEnv(deps.Snapshot, label))
 	maps.Copy(passthrough, src.Env)
+	sessionSigCheck(passthrough, deps.Snapshot.Trust)
 	env := sessions.HookEnv(src.Identity)
 	maps.Copy(env, passthrough)
 	cell, err := deps.Cells.Prepare(ctx, CellRequest{
@@ -189,6 +190,18 @@ func prepareCell(ctx context.Context, deps Deps, src Source, eng engine.Engine, 
 		return nil, Cell{}, err
 	}
 	return passthrough, cell, nil
+}
+
+// sessionSigCheck sets the engine's session signature-check carrier from the
+// generation's Trust, and only from it: on when the generation was built
+// waived, absent otherwise — whatever the caller's passthrough said, so no
+// caller can hand a waiver to a child it launches.
+func sessionSigCheck(env map[string]string, tr composite.Trust) {
+	if tr.SignatureCheckDisabled() {
+		env[sessions.EnvSigCheckWaived] = sessions.SigCheckWaivedOn
+		return
+	}
+	delete(env, sessions.EnvSigCheckWaived)
 }
 
 // deliverLaunch fills l's delivery over its prepared cell: Exports, Route

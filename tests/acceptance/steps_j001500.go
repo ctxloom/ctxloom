@@ -26,6 +26,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -698,17 +699,24 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^nothing is written to the team store$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// A negative assertion (no file was written) has no file content to
-		// show — the real, observed evidence for it is the directory listing
-		// that .ctxloom/approvals is absent from.
-		entries, _ := os.ReadDir(filepath.Join(w.env.ProjectDir, ".ctxloom"))
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			names = append(names, e.Name())
+		// An initialized project is a PROVISIONED one: its team store exists
+		// from `init` on, holding only the tracked placeholder. "Nothing was
+		// written" is therefore a store that still holds nothing else — the
+		// listing is the observed evidence.
+		store := paths.ApprovalsPath(filepath.Join(w.env.ProjectDir, paths.AppDirName))
+		entries, err := os.ReadDir(store)
+		if err != nil {
+			return fmt.Errorf("read the team store %s: %w", store, err)
 		}
-		w.docStepMaterialized = fmt.Sprintf(".ctxloom/ contents after the refused review (no \"approvals\"): %s", strings.Join(names, ", "))
-		if w.env.FileExists(".ctxloom/approvals") {
-			return fmt.Errorf("the team store .ctxloom/approvals unexpectedly exists after a refused 'ctxloom review --project'")
+		var written []string
+		for _, e := range entries {
+			if e.Name() != paths.ApprovalsPlaceholderName {
+				written = append(written, e.Name())
+			}
+		}
+		w.docStepMaterialized = fmt.Sprintf("team store contents after the refused review, beyond its placeholder: %q", written)
+		if len(written) > 0 {
+			return fmt.Errorf("the team store holds %v after a refused 'ctxloom review --project'", written)
 		}
 		return nil
 	})

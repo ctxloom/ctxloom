@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -194,6 +195,11 @@ func backendNames(table map[string]bool) []string {
 // A reload that fails (a transient read problem, a concurrent partial write)
 // must not break spawning, so it degrades — with a warning — to the
 // generation already published, which is complete and consistent.
+//
+// The child decides with the same trust posture as the session that spawns
+// it: a session that waived the signature check delegates waived (owner
+// ruling 2026-10-02), and the child's launch hands its own hooks the waiver
+// (launch.Resolve) and records it on the child's session (ResolveLaunch).
 func (s *spawner) spawnGeneration(ctx context.Context) (*config.Snapshot, error) {
 	snap, err := s.app.Reload(ctx)
 	if err == nil {
@@ -310,12 +316,23 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 	if err != nil {
 		return coord.Resolved{}, err
 	}
+	s.stampChild(deps.Sessions, start.Identity.Harp, plan.Snapshot.Trust)
 	l, err := launch.Resolve(ctx, deps.ForSession(start.Identity.Harp), childSource(plan, start, s.projectDir))
 	if err != nil {
 		return coord.Resolved{}, err
 	}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil
+}
+
+// stampChild records on a delegated child's session what its mint knew: that
+// it is an agent's, and whether it decides with the signature check waived —
+// so a child that ran waived can be told apart later. A failed stamp warns:
+// an unstamped session reads as a human's, which a sweep never purges.
+func (s *spawner) stampChild(store sessions.Store, harp string, tr composite.Trust) {
+	if err := store.StampMint(harp, sessions.MintStamp{Origin: sessions.OriginAgent, SigCheckDisabled: tr.SignatureCheckDisabled()}); err != nil {
+		s.rep.Warnf("session %s: cannot record its origin and signature-check posture: %v", harp, err)
+	}
 }
 
 // childSource is what a delegated child's launch is asked from: the plan's

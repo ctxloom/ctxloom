@@ -42,7 +42,7 @@ import (
 // ends the session (EndSession) when the run is over; a launch that does not
 // resolve ends its own session here so no harp is left half-minted.
 func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src launch.Source) (launch.Launch, error) {
-	id, err := MintIdentity(deps.Sessions, seed)
+	id, err := MintIdentity(deps.Sessions, seed, deps.Snapshot.Trust)
 	if err != nil {
 		return launch.Launch{}, err
 	}
@@ -63,15 +63,16 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 // MintIdentity is THE mint on the host: the harp assigned in the store (its
 // directory and sidecar), the liveness lock held by this process, the
 // identity returned. The engine is not known here — Resolve decides it and
-// records it (Store.BindEngine).
-func MintIdentity(store sessions.Store, seed sessions.Seed) (sessions.Identity, error) {
+// records it (Store.BindEngine). tr is the generation the launch decides with:
+// its signature-check posture is stamped beside the origin.
+func MintIdentity(store sessions.Store, seed sessions.Seed, tr composite.Trust) (sessions.Identity, error) {
 	entry, err := store.AssignHarp(seed.ProjectDir, seed.Engine)
 	if err != nil {
 		return sessions.Identity{}, fmt.Errorf("session naming failed, refusing to run: %w", err)
 	}
 	// A failed stamp warns rather than refuses: an unstamped session reads as
 	// a human's, the reading a sweep never purges undistilled.
-	if oerr := store.RecordOrigin(entry.HarpName, seed.Origin()); oerr != nil {
+	if oerr := store.StampMint(entry.HarpName, sessions.MintStamp{Origin: seed.Origin(), SigCheckDisabled: tr.SignatureCheckDisabled()}); oerr != nil {
 		clidiag.Warn("ctxloom", "session %s: cannot record its origin, so a sweep will treat it as a human's session: %v", entry.HarpName, oerr)
 	}
 	// THIS PROCESS OWNS THE SESSION FROM HERE: hold its liveness lock until

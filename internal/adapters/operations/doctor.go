@@ -162,6 +162,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
 			doctorCheckApprovalsStore(cfg, cfgErr),
 			doctorCheckContentTrust(cfg, cfgErr),
+			doctorCheckSigCheck(app.SigCheckDisabled, app.SessionSigCheckWaived, editedSignedTreesOf(cfg, cfgErr)),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
@@ -1195,6 +1196,45 @@ func doctorCheckApprovalsStore(cfg *config.Config, cfgErr error) DoctorCheck {
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: remedy,
 		Detail: store + " does not exist, so every item is withheld: an absent store cannot be told from one that went away"}
+}
+
+// doctorSigCheckMarker is the signature-check row's marker.
+const doctorSigCheckMarker = "DOCTOR-CHECK-SIG-CHECK-e2"
+
+// doctorCheckSigCheck reports whether this invocation verifies bundle
+// signatures. Waived is a WARN, never ok: content nobody signed or reviewed is
+// reaching the assistant, and doctor is where a user looks to find out why a
+// session behaved as it did.
+//
+// edited names the installed signed trees the waiver accepted although their
+// bytes were edited after signing: the owner accepted that the flag hides that
+// tampering only on condition that doctor names every tree it hid.
+//
+// session is whether the session this doctor runs inside waives the check: a
+// doctor typed in a waived session's shell verifies for itself, and names the
+// session's waiver rather than reporting a clean "enforced".
+func doctorCheckSigCheck(disabled, session bool, edited []string) DoctorCheck {
+	if !disabled && session {
+		return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorWarn, Detail: bundles.SessionSigCheckNotice}
+	}
+	if !disabled {
+		return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorOK, Detail: "bundle signature verification is enforced"}
+	}
+	detail := bundles.SigCheckDisabledNotice
+	if len(edited) > 0 {
+		detail += " Accepted although " + bundles.EditedSignedTreeWords + ": " + strings.Join(edited, ", ") + "."
+	}
+	return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorWarn, Detail: detail,
+		Remedy: "drop --" + bundles.SigCheckFlag + " and unset " + bundles.SigCheckEnv + " to verify signatures again"}
+}
+
+// editedSignedTreesOf is the generation's edited signed trees, or none when
+// the config did not load.
+func editedSignedTreesOf(cfg *config.Config, cfgErr error) []string {
+	if cfgErr != nil || cfg == nil {
+		return nil
+	}
+	return bundles.EditedSignedTrees(cfg.Catalog().Reads())
 }
 
 // doctorCheckContentTrust names remote bundles whose content is being WITHHELD

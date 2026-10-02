@@ -1618,7 +1618,7 @@ func (c *Coordinator) notifyParentOfDeath(rec RunRecord, cause, detail, runFailu
 		kind = KindError
 		body += ": " + runFailure
 	}
-	if _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
+	if _, err := c.mailParent(rec.Harp, rec.ParentHarp, kind, body, nil, ""); err != nil {
 		// The spool write is what just failed, so the invariant above
 		// ("the parent ALWAYS learns of a child death") does not hold for
 		// this death. Said loudly: there is nothing behind the file.

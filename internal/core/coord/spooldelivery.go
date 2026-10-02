@@ -387,6 +387,22 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err 
 	return c.queueMailPayload(from, to, kind, body, nil, "")
 }
 
+// mailParent queues child-origin mail to the sender's parent and, when the
+// parent's run has ENDED, hands it to the leftover-mail tail so the parent is
+// resumed to read it. A parent's run can end while its children work on (a
+// one-shot run ends at every turn boundary), and a write alone only rings a
+// runner that no longer exists. The tail rather than driveObserved's explicit
+// resume, because mail from below is not a fresh ask from above: it must
+// honour an agent_stop of the parent and the relaunch bound, never lift them.
+func (c *Coordinator) mailParent(from, parent, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
+	id, err := c.queueMailPayload(from, parent, kind, body, structured, inReplyTo)
+	if err != nil {
+		return "", err
+	}
+	c.relaunchIfEndedSinceObserved(parent)
+	return id, nil
+}
+
 // queueMailPayload delivers one message: the write into the recipient's in/
 // spool IS the delivery, fsynced before return, and the doorbell only bounds
 // latency. Routing policy is the caller's. structured is an optional

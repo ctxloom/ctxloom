@@ -1003,10 +1003,9 @@ func (c *Coordinator) inProject(id Identity) Identity {
 // (Options.OwnerHarp): the caller the owner's own process speaks as.
 func (c *Coordinator) Owner() Identity { return Identity{Harp: c.ownerHarp} }
 
-// Roster lists the coordinator's children — the single state behind every
-// transport. Only the coordinating session (the owner) sees its children: a
-// child caller is answered with nothing, the same refusal the wire gives it
-// (a child holds no lineage below itself here).
+// Roster lists every run this coordinator holds, for the root's in-process
+// surfaces. A child caller is answered with nothing here: a delegated child
+// reads its own subtree over the wire (serveRoster).
 func (c *Coordinator) Roster(caller Identity) []RosterEntry {
 	if caller.IsChild() {
 		return nil
@@ -1016,9 +1015,9 @@ func (c *Coordinator) Roster(caller Identity) []RosterEntry {
 	return out
 }
 
-// AgentSend delivers a message per §6a delivery-by-state. Children address
-// only their parent (hub-and-spoke); the session owner addresses its
-// children by harp. inReplyTo carries a correlation — see peerSend for the
+// AgentSend delivers a message per §6a delivery-by-state, along one edge of
+// the delegation tree: a session addresses its parent or its own children by
+// harp (peerSend). inReplyTo carries a correlation — see peerSend for the
 // ask-reply interception it enables.
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
 	_, disposition, err := c.peerSend(caller, to, kind, body, structured, inReplyTo)
@@ -1073,14 +1072,42 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	if err := SenderMailKind(kind); err != nil {
 		return "", "", err
 	}
+	// The topology is a TREE, so the route is decided by the EDGE, not by the
+	// caller's depth: mail to one of the caller's own children goes down, and
+	// anything else a delegated child sends goes up to its parent. A mid-tree
+	// parent is both, and routing on depth alone gave it no downward edge.
 	if caller.IsChild() {
-		return c.childSend(caller, to, kind, body, structured, inReplyTo)
+		if _, err := c.childRun("agent_send", caller.Harp, to); err != nil {
+			return c.childSend(caller, to, kind, body, structured, inReplyTo)
+		}
 	}
-	return c.ownerSend(caller, to, kind, body, structured, inReplyTo)
+	return c.parentSend(caller, to, kind, body, structured, inReplyTo)
 }
 
-// childSend is peerSend's HUB-AND-SPOKE half: a delegated child addresses only
-// its own parent, resolved from journaled lineage — by ParentAddress or by the
+// childRun resolves harp to its current run when that run is a DIRECT child of
+// parent: the one edge the tree's downward verbs (send, stop) authorise on, for
+// the root and a mid-tree parent alike. A deeper descendant is reached through
+// its own parent, never past it. A known run that is not parent's child is
+// refused with ErrNotAChild.
+func (c *Coordinator) childRun(verb, parent, harp string) (*RunRecord, error) {
+	var rec *RunRecord
+	c.runs.View(func() {
+		if r := c.runsF.currentRun(harp); r != nil {
+			cp := *r
+			rec = &cp
+		}
+	})
+	if rec == nil {
+		return nil, fmt.Errorf("%s: unknown session %q: not a child of this session (spawn it with agent_run first)", verb, harp)
+	}
+	if rec.ParentHarp != parent {
+		return nil, Refusal(ErrNotAChild, "%s: %q is not a child of %q: a session addresses and stops only its own children, and reaches a deeper agent through that agent's parent", verb, harp, parent)
+	}
+	return rec, nil
+}
+
+// childSend is peerSend's UPWARD half: a delegated child addresses its own
+// parent, resolved from journaled lineage — by ParentAddress or by the
 // parent's own harp, nothing else.
 func (c *Coordinator) childSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	parent := ""
@@ -1096,24 +1123,22 @@ func (c *Coordinator) childSend(caller Identity, to, kind, body string, structur
 		return "", "", ErrPeerRouting
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-	id, err := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
+	id, err := c.mailParent(caller.Harp, parent, kind, body, structured, inReplyTo)
 	if err != nil {
 		return "", "", err
 	}
 	return id, "sent to the coordinator", nil
 }
 
-// ownerSend is peerSend's other half: the session owner addressing one of its
-// own children by harp. The disposition names the §6a state the delivery
-// observed (deliveryDisposition).
-func (c *Coordinator) ownerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
+// parentSend is peerSend's DOWNWARD half: a session — the root or a mid-tree
+// parent — addressing one of its own children by harp. The disposition names
+// the §6a state the delivery observed (deliveryDisposition).
+func (c *Coordinator) parentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	if to == ParentAddress {
 		return "", "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
 	}
-	known := false
-	c.runs.View(func() { known = c.runsF.currentRun(to) != nil })
-	if !known {
-		return "", "", fmt.Errorf("agent_send: unknown recipient %q: not a child of this session (spawn it with agent_run first)", to)
+	if _, err := c.childRun("agent_send", caller.Harp, to); err != nil {
+		return "", "", err
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": to, "kind": kind})
 	msgID := newMessageID()
@@ -1152,24 +1177,15 @@ func deliveryDisposition(state string) (mode, prose string) {
 	}
 }
 
-// AgentStop kills a child run (KillRun semantics): the engine/container dies,
+// AgentStop kills one of the caller's own children (KillRun semantics): the engine/container dies,
 // the slot frees, the terminal is journaled, and the credential is revoked.
 // The host-side verb is keyed by harp; reason (optional) becomes the run's
 // terminal detail. The bulk form — every child of the caller — is
 // StopChildren (drain.go).
 func (c *Coordinator) AgentStop(caller Identity, harp, reason string, grace time.Duration) (string, error) {
-	if caller.IsChild() {
-		return "", errors.New("agent_stop: only the coordinating session may stop its children")
-	}
-	var rec *RunRecord
-	c.runs.View(func() {
-		if r := c.runsF.currentRun(harp); r != nil {
-			cp := *r
-			rec = &cp
-		}
-	})
-	if rec == nil {
-		return "", fmt.Errorf("agent_stop: unknown session %q: not a child of this session", harp)
+	rec, err := c.childRun("agent_stop", caller.Harp, harp)
+	if err != nil {
+		return "", err
 	}
 	return c.stopRun(caller, rec, reason, grace), nil
 }

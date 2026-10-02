@@ -127,6 +127,17 @@ func TestTree_GrandchildFinalReportLandsWithItsEndedParent(t *testing.T) {
 		"a grandchild's report is addressed to its parent, not the root")
 }
 
+// TestTree_GrandchildDeathResumesItsEndedParent: a child's death notice is
+// child-origin mail too. A grandchild that dies without a last word still
+// reaches its ended parent, which is resumed to learn of it.
+func TestTree_GrandchildDeathResumesItsEndedParent(t *testing.T) {
+	tr := spawnTree(t, true)
+	tr.endParent(t)
+
+	tr.c.terminateRun(tr.grandchild.RunID, CauseRunnerExit, "engine crashed")
+	tr.awaitParentResumedWith(t, "engine crashed")
+}
+
 // TestTree_RootAddressesOnlyItsOwnChildren: the root is a tree node (ruling
 // c). It may not message its grandchild past the grandchild's parent.
 func TestTree_RootAddressesOnlyItsOwnChildren(t *testing.T) {

@@ -460,20 +460,22 @@ var probeRegistry = []probeSpec{
 	},
 	// P13 measures the VENDOR half of ctxloom's repo trust: claude's own trust
 	// does not stop an untrusted repo's committed hooks in -p, and
-	// --setting-sources user does. It runs the vendor binary directly, as P12
+	// --setting-sources user does — for its skills and agents too. It runs the vendor binary directly, as P12
 	// does, so a red names claude alone.
 	{
 		Name:         probeP13,
-		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks, and --setting-sources user --strict-mcp-config suppresses them",
+		Title:        "untrusted repo hooks: claude -p runs a never-trusted repo's committed hooks and loads its skills and agents, and --setting-sources user --strict-mcp-config suppresses all of them",
 		Capabilities: []int{7},
 		Channel:      channelRepoHookMarker,
 		Feature:      "probes/capability_untrusted_repo_hooks.feature",
 		Paid:         true,
 		Cells: []probeCell{
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13Fires), Status: probeLiveVerified,
-				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. A repo with no projects entry in a throwaway CLAUDE_CONFIG_DIR ran BOTH its committed hooks (PreToolUse on Bash and SessionStart wrote their markers) under -p, and the flag-scope-allowed echo printed \"hi\"."},
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. A repo with no projects entry in a throwaway CLAUDE_CONFIG_DIR ran BOTH its committed settings hooks (PreToolUse on Bash and SessionStart wrote their markers) under -p, the init frame listed its committed skill and agent, and the flag-scope-allowed echo printed \"hi\". No frontmatter marker: claude skips agent frontmatter from an untrusted folder."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13Suppresses), Status: probeLiveVerified,
-				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With --setting-sources user --strict-mcp-config NO committed hook wrote its marker, while the echo still ran and printed \"hi\" — suppressed, not untriggered. MUTATION-CONFIRMED live: inverting the leak check reds the same run as REPO-HOOK-LEAKED."},
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With --setting-sources user --strict-mcp-config NO settings or frontmatter marker was written and the init frame listed neither the repo's skill nor its agent, while the echo still ran and printed \"hi\" — suppressed, not untriggered. Every leak and listing predicate is MUTATION-CONFIRMED hermetically (TestP13_SettingSourcesSuppresses, TestP13_SettingSourcesSuppressesFrontmatter)."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13TrustedFrontmatter), Status: probeLiveVerified,
+				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With the repo trusted in CLAUDE_CONFIG_DIR/.claude.json the init frame listed the skill and agent, and the agent's frontmatter Stop hook and inline stdio MCP server both wrote their markers — the fixture's frontmatter executes when loaded. The skill's frontmatter PreToolUse hook did not fire under -p even here, which is why skills are judged by the init frame."},
 		},
 	},
 	{

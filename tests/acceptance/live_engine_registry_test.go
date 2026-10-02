@@ -8,8 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -17,14 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 )
-
-// fakeAuthCheck returns a canned (ok, reason) pair, so tests never shell out
-// to a real engine binary.
-func fakeAuthCheck(ok bool, reason string) func(string) (bool, string) {
-	return func(string) (bool, string) { return ok, reason }
-}
 
 // withLaunchCredentials replaces the launch capture for one test. Every test
 // that depends on the token path's presence OR absence sets it explicitly: in
@@ -37,72 +30,63 @@ func withLaunchCredentials(t *testing.T, creds map[string]string) {
 	launchCredentials = creds
 }
 
+// claudeRow is the registered claude row with its binary swapped for one that
+// is always on PATH, so these decisions run without claude installed.
+func claudeRow() liveAgent {
+	a := liveAgents["claude"]
+	a.binary = "sh"
+	return a
+}
+
+// TestEngineAvailable: an engine is available to a cell that runs THROUGH
+// ctxloom only when the token its run authenticates with was captured at
+// launch. An API key is not that token — production unsets it from every run —
+// and no other credential (an ambient value, the real home's login) counts.
 func TestEngineAvailable(t *testing.T) {
 	cases := []struct {
 		name      string
 		agent     liveAgent
 		creds     map[string]string // the launch capture
 		env       map[string]string // the ambient environment, which must not count
-		optIn     bool
 		wantOK    bool
-		wantMatch string // substring expected in the reason
+		wantMatch []string // substrings expected in the reason
 	}{
 		{
-			name:      "binary not on PATH is unavailable regardless of everything else",
-			agent:     liveAgent{binary: "ctxloom-nonexistent-binary-xyz", authCheck: fakeAuthCheck(true, "would say yes")},
-			optIn:     true,
-			wantOK:    false,
-			wantMatch: `binary "ctxloom-nonexistent-binary-xyz" not found`,
+			name:      "binary not on PATH is unavailable regardless of the token",
+			agent:     liveAgent{binary: "ctxloom-nonexistent-binary-xyz", engine: "claude-code"},
+			creds:     map[string]string{claude.OAuthTokenEnv: "fake-token"},
+			wantMatch: []string{`binary "ctxloom-nonexistent-binary-xyz" not found`},
 		},
 		{
 			name:      "no binary configured at all is unavailable",
-			agent:     liveAgent{authCheck: fakeAuthCheck(true, "would say yes")},
-			optIn:     true,
-			wantOK:    false,
-			wantMatch: "no binary configured",
+			agent:     liveAgent{engine: "claude-code"},
+			creds:     map[string]string{claude.OAuthTokenEnv: "fake-token"},
+			wantMatch: []string{"no binary configured"},
 		},
 		{
-			name:      "a token captured at launch short-circuits straight to available, no authCheck consulted",
-			agent:     liveAgent{binary: "sh", apiKeyEnvs: []string{"CTXLOOM_TEST_FAKE_KEY"}, authCheck: fakeAuthCheck(false, "should never be called")},
-			creds:     map[string]string{"CTXLOOM_TEST_FAKE_KEY": "fake-token"},
-			optIn:     false, // the token path bypasses the opt-in gate entirely
+			name:      "the token captured at launch makes it available",
+			agent:     claudeRow(),
+			creds:     map[string]string{claude.OAuthTokenEnv: "fake-token"},
 			wantOK:    true,
-			wantMatch: "CTXLOOM_TEST_FAKE_KEY captured at launch",
+			wantMatch: []string{claude.OAuthTokenEnv + " captured at launch"},
 		},
 		{
-			name:      "a token only in the AMBIENT environment does not count: no token captured falls back to the home login",
-			agent:     liveAgent{binary: "sh", apiKeyEnvs: []string{"CTXLOOM_TEST_FAKE_KEY"}, authCheck: fakeAuthCheck(false, "home login consulted")},
-			env:       map[string]string{"CTXLOOM_TEST_FAKE_KEY": "fake-token"},
-			optIn:     true,
-			wantOK:    false,
-			wantMatch: "home login consulted",
+			name:      "an API key alone is not the token: unavailable, naming the token and how to mint it",
+			agent:     claudeRow(),
+			creds:     map[string]string{claude.APIKeyEnv: "fake-key"},
+			wantMatch: []string{claude.OAuthTokenEnv, "claude setup-token"},
 		},
 		{
-			name:      "subscription path without CTXLOOM_ACCEPTANCE_LIVE opt-in is unavailable even if authCheck would pass",
-			agent:     liveAgent{binary: "sh", authCheck: fakeAuthCheck(true, "would say yes")},
-			optIn:     false,
-			wantOK:    false,
-			wantMatch: "opt-in",
+			name:      "a token only in the AMBIENT environment does not count",
+			agent:     claudeRow(),
+			env:       map[string]string{claude.OAuthTokenEnv: "ambient-token"},
+			wantMatch: []string{claude.OAuthTokenEnv, "claude setup-token"},
 		},
 		{
-			name:      "subscription path with opt-in defers to authCheck: fails",
-			agent:     liveAgent{binary: "sh", authCheck: fakeAuthCheck(false, "not logged in")},
-			optIn:     true,
-			wantOK:    false,
-			wantMatch: "not logged in",
-		},
-		{
-			name:   "subscription path with opt-in defers to authCheck: succeeds",
-			agent:  liveAgent{binary: "sh", authCheck: fakeAuthCheck(true, "logged in as tester")},
-			optIn:  true,
-			wantOK: true,
-		},
-		{
-			name:      "no authCheck configured is unavailable",
-			agent:     liveAgent{binary: "sh"},
-			optIn:     true,
-			wantOK:    false,
-			wantMatch: "no authentication probe",
+			name:      "an engine the registry does not know is unavailable, by name",
+			agent:     liveAgent{binary: "sh", engine: "no-such-engine"},
+			creds:     map[string]string{claude.OAuthTokenEnv: "fake-token"},
+			wantMatch: []string{"no-such-engine"},
 		},
 	}
 
@@ -112,10 +96,63 @@ func TestEngineAvailable(t *testing.T) {
 			for k, v := range tc.env {
 				t.Setenv(k, v)
 			}
-			ok, reason := engineAvailable(tc.agent, "/fake/home", tc.optIn)
+			ok, reason := engineAvailable(tc.agent)
 			assert.Equal(t, tc.wantOK, ok, "reason was: %s", reason)
-			if tc.wantMatch != "" {
-				assert.Contains(t, reason, tc.wantMatch)
+			for _, m := range tc.wantMatch {
+				assert.Contains(t, reason, m)
+			}
+			for _, v := range tc.creds {
+				assert.NotContains(t, reason, v, "a reason is printed: it names variables, never a value")
+			}
+		})
+	}
+}
+
+// TestDirectEngineStatus: a cell that runs the claude binary DIRECTLY takes
+// what the binary itself accepts — the token or an API key captured at launch,
+// in the agent's preference order — and nothing else.
+func TestDirectEngineStatus(t *testing.T) {
+	cases := []struct {
+		name      string
+		agent     liveAgent
+		creds     map[string]string
+		wantOK    bool
+		wantMatch []string
+	}{
+		{
+			name:      "the token makes it available",
+			agent:     claudeRow(),
+			creds:     map[string]string{claude.OAuthTokenEnv: "fake-token"},
+			wantOK:    true,
+			wantMatch: []string{claude.OAuthTokenEnv + " captured at launch"},
+		},
+		{
+			name:      "an API key alone makes it available: the vendor CLI accepts one",
+			agent:     claudeRow(),
+			creds:     map[string]string{claude.APIKeyEnv: "fake-key"},
+			wantOK:    true,
+			wantMatch: []string{claude.APIKeyEnv + " captured at launch"},
+		},
+		{
+			name:      "nothing captured is unavailable, naming every variable it would take",
+			agent:     claudeRow(),
+			wantMatch: []string{claude.OAuthTokenEnv, claude.APIKeyEnv, "claude setup-token"},
+		},
+		{
+			name:      "binary not on PATH is unavailable",
+			agent:     liveAgent{binary: "ctxloom-nonexistent-binary-xyz", vendorCredEnvs: []string{claude.OAuthTokenEnv}},
+			creds:     map[string]string{claude.OAuthTokenEnv: "fake-token"},
+			wantMatch: []string{"not found"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withLaunchCredentials(t, tc.creds)
+			status := directEngineStatus("claude", tc.agent)
+			assert.Equal(t, "claude", status.name)
+			assert.Equal(t, tc.wantOK, status.available, "reason was: %s", status.reason)
+			for _, m := range tc.wantMatch {
+				assert.Contains(t, status.reason, m)
 			}
 		})
 	}
@@ -123,10 +160,23 @@ func TestEngineAvailable(t *testing.T) {
 
 func TestProbeEngine_CarriesName(t *testing.T) {
 	a := liveAgent{binary: "ctxloom-nonexistent-binary-xyz"}
-	status := probeEngine("widget", a, "/fake/home", true)
+	status := probeEngine("widget", a)
 	assert.Equal(t, "widget", status.name)
 	assert.False(t, status.available)
 	assert.Contains(t, status.reason, "not found")
+}
+
+// TestCaptureLaunchCredentials_HoldsWhatTheTokenGateReads binds the capture to
+// production's answer: the variables the engine's token mode reads must be
+// among those captured, or every through-ctxloom cell skips for a token the
+// suite was launched with.
+func TestCaptureLaunchCredentials_HoldsWhatTheTokenGateReads(t *testing.T) {
+	t.Setenv(claude.OAuthTokenEnv, "fake-token")
+	t.Setenv(claude.APIKeyEnv, "fake-key")
+	withLaunchCredentials(t, captureLaunchCredentials())
+	auth := probeTokenAuth(liveAgents["claude"].engine)
+	require.True(t, auth.ok(), "reason: %s", auth.Reason)
+	assert.Equal(t, map[string]string{claude.OAuthTokenEnv: "fake-token"}, auth.Env, "token mode takes the token and nothing else")
 }
 
 func TestFormatLiveEngineReport(t *testing.T) {
@@ -148,7 +198,7 @@ func TestFormatLiveEngineReport(t *testing.T) {
 // walks every registered engine, in liveAgentOrder, without needing a real
 // binary (they're all expected absent in CI, which is itself a valid status).
 func TestComputeLiveEngineReport_OrderAndCoverage(t *testing.T) {
-	report := computeLiveEngineReport("/fake/home", false)
+	report := computeLiveEngineReport()
 	if assert.Len(t, report, len(liveAgentOrder)) {
 		for i, name := range liveAgentOrder {
 			assert.Equal(t, name, report[i].name)
@@ -158,10 +208,10 @@ func TestComputeLiveEngineReport_OrderAndCoverage(t *testing.T) {
 
 func TestFormatLiveEngineReport_AllUnavailable(t *testing.T) {
 	report := []engineStatus{
-		{name: "claude", available: false, reason: "installed, but CTXLOOM_ACCEPTANCE_LIVE=1 not set (subscription credential path is opt-in)"},
+		{name: "claude", available: false, reason: "CLAUDE_CODE_OAUTH_TOKEN is not exported"},
 	}
 	got := formatLiveEngineReport(report)
-	assert.Equal(t, `live engines: claude ✗ (installed, but CTXLOOM_ACCEPTANCE_LIVE=1 not set (subscription credential path is opt-in))`, got)
+	assert.Equal(t, `live engines: claude ✗ (CLAUDE_CODE_OAUTH_TOKEN is not exported)`, got)
 }
 
 func TestParseRequiredEngines(t *testing.T) {
@@ -255,58 +305,25 @@ func TestCheckRequiredEngines_Floor(t *testing.T) {
 // specifics this feature's whole value is in.
 var errUninformativePlaceholder = errors.New("floor failed")
 
-func TestResolveOptIn(t *testing.T) {
-	cases := []struct {
-		name    string
-		liveVal string
-		require string
-		want    bool
-	}{
-		{name: "neither set: opt-in off", liveVal: "", require: "", want: false},
-		{name: "CTXLOOM_ACCEPTANCE_LIVE=1 alone: opt-in on", liveVal: "1", require: "", want: true},
-		{name: "CTXLOOM_LIVE_REQUIRE alone implies opt-in (no footgun)", liveVal: "", require: "claude", want: true},
-		{name: "both set: opt-in on", liveVal: "1", require: "claude", want: true},
-		{name: "CTXLOOM_ACCEPTANCE_LIVE set to something other than 1: opt-in off", liveVal: "true", require: "", want: false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CTXLOOM_ACCEPTANCE_LIVE", tc.liveVal)
-			t.Setenv("CTXLOOM_LIVE_REQUIRE", tc.require)
-			assert.Equal(t, tc.want, resolveOptIn())
-		})
-	}
-}
-
-// TestLiveAgentAvailable_UsesSameDecision guards the backward-compat path
-// steps_j000200_setup.go's own @live scenario calls directly: it must agree with
-// engineAvailable, never drift into a second, silently-different notion of
-// "available".
-func TestLiveAgentAvailable_UsesSameDecision(t *testing.T) {
-	t.Setenv("CTXLOOM_ACCEPTANCE_LIVE", "")
-	t.Setenv("CTXLOOM_LIVE_REQUIRE", "")
-	a := liveAgent{binary: "ctxloom-nonexistent-binary-xyz"}
-	assert.False(t, liveAgentAvailable(a))
-}
-
-// TestLiveCredential: the first CAPTURED apiKeyEnvs entry wins, in the
+// TestVendorCredential: the first CAPTURED vendorCredEnvs entry wins, in the
 // agent's preference order; an ambient value the capture does not hold is
 // ignored; nothing captured is ok=false.
-func TestLiveCredential(t *testing.T) {
-	a := liveAgent{apiKeyEnvs: []string{"CTXLOOM_TEST_ENV_A", "CTXLOOM_TEST_ENV_B"}}
+func TestVendorCredential(t *testing.T) {
+	a := liveAgent{vendorCredEnvs: []string{"CTXLOOM_TEST_ENV_A", "CTXLOOM_TEST_ENV_B"}}
 
 	withLaunchCredentials(t, map[string]string{"CTXLOOM_TEST_ENV_A": "a-val", "CTXLOOM_TEST_ENV_B": "b-val"})
-	got, ok := liveCredential(a)
+	got, ok := vendorCredential(a)
 	assert.True(t, ok)
-	assert.Equal(t, credentialMapping{EnvVar: "CTXLOOM_TEST_ENV_A", Value: "a-val"}, got, "preference order is apiKeyEnvs order")
+	assert.Equal(t, credentialMapping{EnvVar: "CTXLOOM_TEST_ENV_A", Value: "a-val"}, got, "preference order is vendorCredEnvs order")
 
 	withLaunchCredentials(t, map[string]string{"CTXLOOM_TEST_ENV_B": "b-val"})
-	got, ok = liveCredential(a)
+	got, ok = vendorCredential(a)
 	assert.True(t, ok)
 	assert.Equal(t, "CTXLOOM_TEST_ENV_B", got.EnvVar)
 
 	withLaunchCredentials(t, nil)
 	t.Setenv("CTXLOOM_TEST_ENV_A", "ambient")
-	_, ok = liveCredential(a)
+	_, ok = vendorCredential(a)
 	assert.False(t, ok, "an ambient value is not a captured one")
 }
 
@@ -386,140 +403,44 @@ func TestLiveAgents_ConfigValidatesAgainstSchema(t *testing.T) {
 	}
 }
 
-// --- credential MAPPING (task erased-collar / jovial-employee) -------------
+// --- seeding a through-ctxloom cell -----------------------------------------
 
 // recordEnv is a stand-in for TestEnvironment.SetChildEnv: it records exactly
 // what key/value pairs seedLiveCredentials put onto the child environment, so
 // these tests can assert THE VARIABLE THAT WAS ACTUALLY SET AND ITS VALUE —
-// not merely that a function was called or that no error came back. This
-// project's characteristic bug is exit 0 with a success message and nothing
-// actually written.
+// not merely that a function was called or that no error came back.
 func recordEnv() (map[string]string, func(string, string)) {
 	got := map[string]string{}
 	return got, func(k, v string) { got[k] = v }
 }
 
-// treeSnapshot lists every regular file under root with its contents, so a
-// test can prove the mapping path touched NOTHING on disk.
-func treeSnapshot(t *testing.T, root string) map[string]string {
-	t.Helper()
-	out := map[string]string{}
-	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		data, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return rerr
-		}
-		rel, rerr := filepath.Rel(root, p)
-		if rerr != nil {
-			return rerr
-		}
-		out[rel] = string(data)
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("snapshot %s: %v", root, err)
-	}
-	return out
+// The token is SET on the child — exactly that variable and value, because the
+// scrub removed it from what the child inherits — and an API key captured
+// beside it is not: production unsets it from every run, so handing it over
+// would only make the cell differ from what it verifies.
+func TestSeedLiveCredentials_SetsTheTokenAndNothingElse(t *testing.T) {
+	withLaunchCredentials(t, map[string]string{claude.OAuthTokenEnv: "fake-token", claude.APIKeyEnv: "fake-key"})
+	got, setEnv := recordEnv()
+	require.NoError(t, seedLiveCredentials(liveAgents["claude"], setEnv))
+	assert.Equal(t, map[string]string{claude.OAuthTokenEnv: "fake-token"}, got)
 }
 
-// seedFakeRealHome builds a throwaway stand-in for the developer's real HOME,
-// with a claude login in it that must never be copied, and clears the launch
-// capture that would take the token path.
-func seedFakeRealHome(t *testing.T) string {
-	t.Helper()
-	withLaunchCredentials(t, nil)
-	realHome := t.TempDir()
-	p := filepath.Join(realHome, ".claude", ".credentials.json")
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(`{"claudeAiOauth":{}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return realHome
-}
-
-// A token captured at launch is SET on the child — exactly that variable and
-// value, because the scrub removed it from what the child inherits — and the
-// real HOME is not touched.
-func TestSeedLiveCredentials_CapturedTokenIsSetAndNothingCopied(t *testing.T) {
-	for _, v := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
-		t.Run(v, func(t *testing.T) {
-			realHome := seedFakeRealHome(t)
-			withLaunchCredentials(t, map[string]string{v: "fake-for-this-test"})
-			before := treeSnapshot(t, realHome)
+// Without the token the seed is a NAMED failure naming the fix — never a run
+// on an API key production would unset, and never the real home's login.
+func TestSeedLiveCredentials_NoTokenIsLoud(t *testing.T) {
+	for name, creds := range map[string]map[string]string{
+		"nothing captured": nil,
+		"API key alone":    {claude.APIKeyEnv: "fake-key"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			withLaunchCredentials(t, creds)
 			got, setEnv := recordEnv()
-			if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, setEnv); err != nil {
-				t.Fatalf("seedLiveCredentials: %v", err)
-			}
-			assert.Equal(t, map[string]string{v: "fake-for-this-test"}, got, "the token path sets the captured variable and nothing else")
-			assert.Equal(t, before, treeSnapshot(t, realHome), "the real HOME is not touched")
+			err := seedLiveCredentials(liveAgents["claude"], setEnv)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "claude setup-token")
+			assert.Contains(t, err.Error(), claude.OAuthTokenEnv)
+			assert.NotContains(t, err.Error(), "fake-key")
+			assert.Empty(t, got)
 		})
-	}
-}
-
-// No exported token is a NAMED failure naming the fix, never a silent skip
-// that yields a mysteriously unauthenticated run: it sets no env var, and the
-// developer's login in the real HOME is neither copied nor touched.
-func TestSeedLiveCredentials_NoExportedTokenIsLoud(t *testing.T) {
-	realHome := seedFakeRealHome(t)
-	before := treeSnapshot(t, realHome)
-	got, setEnv := recordEnv()
-	err := seedLiveCredentials("claude", liveAgents["claude"], realHome, setEnv)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "claude setup-token")
-	assert.Contains(t, err.Error(), "CLAUDE_CODE_OAUTH_TOKEN")
-	assert.Empty(t, got)
-	assert.Equal(t, before, treeSnapshot(t, realHome), "nothing in the real HOME is written, moved or removed")
-}
-
-// TestSeedLiveCredentials_NoRealHomeIsLoud: reaching the seed with no captured
-// real HOME means the gate let through a subscription-path run with nothing to
-// map. That must be an error, not a silent no-op.
-func TestSeedLiveCredentials_NoRealHomeIsLoud(t *testing.T) {
-	withLaunchCredentials(t, nil) // a captured token would take the token path first
-	got, setEnv := recordEnv()
-	err := seedLiveCredentials("claude", liveAgents["claude"], "", setEnv)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no real HOME")
-	assert.Empty(t, got)
-}
-
-// TestSeedLiveCredentials_NoMechanismIsLoud: an engine with no token captured
-// and no mapper must fail loudly rather than run unauthenticated.
-func TestSeedLiveCredentials_NoMechanismIsLoud(t *testing.T) {
-	got, setEnv := recordEnv()
-	err := seedLiveCredentials("bare", liveAgent{binary: "sh"}, t.TempDir(), setEnv)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no credential mapping")
-	assert.Empty(t, got)
-}
-
-// TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot is the registry
-// floor for the policy. Every engine whose descriptor declares its home var
-// relocates credentials (agent.EngineHome.Credentials provided) must be
-// MAPPED. An engine whose credentials no config-home var relocates cannot
-// be mapped this way and runs on its captured token alone; the false arm below is
-// what stops a future edit from quietly mapping such an engine at a
-// directory the engine never reads.
-func TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot(t *testing.T) {
-	mappable := map[string]bool{"claude": true}
-	for _, name := range liveAgentOrder {
-		a := liveAgents[name]
-		want, known := mappable[name]
-		if !known {
-			t.Fatalf("engine %q is registered but this policy floor does not state whether it is mappable — decide, do not default", name)
-		}
-		if want {
-			assert.NotNil(t, a.mapCreds, "%s honours a config-home var for credentials and MUST be mapped, never copied", name)
-		} else {
-			assert.Nil(t, a.mapCreds, "%s has no config-home var that relocates credentials and must not pretend to be mappable", name)
-		}
 	}
 }

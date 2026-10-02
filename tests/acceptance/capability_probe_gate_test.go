@@ -12,9 +12,8 @@
 //   - invert it the other way and an available engine skips forever, which is
 //     the ladder's own definition of work that never ran being indistinguishable
 //     from work that passed;
-//   - drop the credential refusal and a cell runs with HOME="", so production's
-//     credential paths resolve to nothing and the engine's failure is entirely
-//     the harness's doing;
+//   - drop the credential refusal and a cell runs without the token, so the
+//     engine's authentication failure is entirely the harness's doing;
 //   - turn a malformed cell into a skip and a typo'd axis or an unregistered
 //     engine reads as coverage for the rest of time.
 //
@@ -24,12 +23,13 @@ package acceptance
 import (
 	"errors"
 	"os/exec"
-	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 func gateCell(engine, runtime, workspace string) probeCellID {
@@ -177,104 +177,43 @@ func TestProbeCellSkip_DropsTheProbeFieldSoTheLineNamesOneIdentifier(t *testing.
 
 // --- the credential posture ---------------------------------------------------
 
-// TestProbeHostCredentialEnv_RemovesTheIsolatedEntriesRatherThanAppendingPastThem
-// is the glibc footgun, pinned. getenv returns the FIRST match for a duplicated
-// key, so appending the real HOME after testenv's fake one would leave the fake
-// one winning — and every credential path in production starts at that value.
-func TestProbeHostCredentialEnv_RemovesTheIsolatedEntriesRatherThanAppendingPastThem(t *testing.T) {
-	env := []string{
-		"PATH=/usr/bin",
-		"HOME=/tmp/fake-home",
-		"XDG_CONFIG_HOME=/tmp/fake-home/.config",
-		"XDG_DATA_HOME=/tmp/fake-home/.local/share",
-		"USERPROFILE=/tmp/fake-home",
-		"CTXLOOM_THING=keep-me",
-	}
-	out := probeHostCredentialEnv(env, "/home/real")
-
-	for _, kv := range out {
-		assert.NotContains(t, kv, "/tmp/fake-home",
-			"an isolated credential entry survived: glibc's getenv returns the FIRST match, so the fake value would win and every production credential path would resolve to an empty home")
-	}
-	assert.Contains(t, out, "PATH=/usr/bin", "unrelated entries are passed through untouched")
-	assert.Contains(t, out, "CTXLOOM_THING=keep-me")
-	assert.Contains(t, out, "HOME=/home/real")
-	assert.Contains(t, out, "USERPROFILE=/home/real")
-	assert.Contains(t, out, "XDG_CONFIG_HOME=/home/real/.config")
-	assert.Contains(t, out, "XDG_DATA_HOME=/home/real/.local/share")
-
-	seen := map[string]int{}
-	for _, kv := range out {
-		if k, _, ok := strings.Cut(kv, "="); ok {
-			seen[k]++
-		}
-	}
-	for _, k := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME"} {
-		assert.Equal(t, 1, seen[k], "%s appears %d times — a duplicate is exactly the state this function exists to prevent", k, seen[k])
-	}
-}
-
-// TestProbeCellCredentialEnv_RefusesRatherThanExportingAnEmptyHome. Without the
-// refusal the run STARTS, with HOME="" and XDG_CONFIG_HOME="/.config": the
-// engine finds no credential where production looks for one, and the cell
-// reports an engine failure that is entirely the harness's doing. Every probe
-// had typed this guard inline, which was one chance per probe to forget it.
-//
-// realHomeDir is set by TestMain, which is acceptance-tagged, so it is empty in
-// an untagged build and populated in a tagged one. The test pins BOTH branches
-// explicitly rather than reading whichever the build happens to give it — a
-// test that only ever exercised the branch its build was born into would go
-// green in one build while asserting nothing in the other.
-func TestProbeCellCredentialEnv_RefusesRatherThanExportingAnEmptyHome(t *testing.T) {
-	saved := realHomeDir
-	t.Cleanup(func() { realHomeDir = saved })
-	withLaunchCredentials(t, nil) // the real-home fallback is the no-token path
-
-	t.Run("no real home: refuse, and leave the command untouched", func(t *testing.T) {
-		realHomeDir = ""
-		cmd := exec.Command("true")
-		cmd.Env = []string{"HOME=/tmp/fake-home"}
-		_, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
-
-		require.Error(t, err, "a cell with no real home must refuse, not run with HOME=\"\" and blame the engine for what it then cannot find")
-		require.False(t, errors.Is(err, godog.ErrSkip),
-			"this is the harness failing to capture something, not this box lacking a capability — it may not be filed as a skip")
-		assert.Contains(t, err.Error(), "p-test", "the refusal names which probe's cell it stopped")
-		assert.Equal(t, []string{"HOME=/tmp/fake-home"}, cmd.Env,
-			"a refused cell's command must be left untouched: a half-rewritten environment on an error path is how a later refactor ends up running it anyway")
-	})
-
-	t.Run("real home captured: the isolated entries are replaced", func(t *testing.T) {
-		realHomeDir = "/home/real"
-		cmd := exec.Command("true")
-		cmd.Env = []string{"HOME=/tmp/fake-home", "PATH=/usr/bin"}
-		home, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
-		require.NoError(t, err)
-
-		assert.Equal(t, "/home/real", home, "the returned home is the one the run is given")
-		assert.Contains(t, cmd.Env, "HOME=/home/real")
-		assert.Contains(t, cmd.Env, "PATH=/usr/bin")
-		assert.NotContains(t, cmd.Env, "HOME=/tmp/fake-home",
-			"the isolated home must be REMOVED, not shadowed: glibc's getenv returns the first match")
-	})
-}
-
-// TestProbeCellCredentialEnv_CapturedTokenKeepsTheHomeIsolated is the ruled
-// posture: a token captured at launch authenticates the cell INSIDE testenv's
-// isolated HOME, and the real home is neither pointed at nor needed. The value
-// is fake and nothing is executed.
-func TestProbeCellCredentialEnv_CapturedTokenKeepsTheHomeIsolated(t *testing.T) {
-	saved := realHomeDir
-	t.Cleanup(func() { realHomeDir = saved })
-	realHomeDir = "/home/real"
-	withLaunchCredentials(t, map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "fake-token"})
+// TestProbeCellCredentialEnv_TheTokenIsTheWholeCredential is the ruled posture:
+// the cell's run is a ctxloom run, so it authenticates with the token alone,
+// inside testenv's isolated HOME. A captured API key is not handed over (the
+// run would unset it), and the real home is neither pointed at nor needed.
+func TestProbeCellCredentialEnv_TheTokenIsTheWholeCredential(t *testing.T) {
+	withLaunchCredentials(t, map[string]string{claude.OAuthTokenEnv: "fake-token", claude.APIKeyEnv: "fake-key"})
 
 	cmd := exec.Command("true")
-	cmd.Env = []string{"HOME=/tmp/fake-home", "PATH=/usr/bin", "CLAUDE_CODE_OAUTH_TOKEN=stale"}
+	cmd.Env = []string{"HOME=/tmp/fake-home", "PATH=/usr/bin", claude.OAuthTokenEnv + "=stale"}
 	home, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
 	require.NoError(t, err)
 
 	assert.Equal(t, "/tmp/fake-home", home, "the run keeps the isolated home")
-	assert.Equal(t, []string{"HOME=/tmp/fake-home", "PATH=/usr/bin", "CLAUDE_CODE_OAUTH_TOKEN=fake-token"}, cmd.Env,
-		"the captured token is the ONE addition, and a namesake ahead of it is removed (glibc's getenv returns the first match)")
+	assert.Equal(t, []string{"HOME=/tmp/fake-home", "PATH=/usr/bin", claude.OAuthTokenEnv + "=fake-token"}, cmd.Env,
+		"the token is the ONE addition, and a namesake ahead of it is removed (glibc's getenv returns the first match)")
+}
+
+// TestProbeCellCredentialEnv_NoTokenRefuses. The gate skips a cell without the
+// token before this is reached, so reaching it without one is the harness's
+// fault: an error naming the cell's family and the fix, never a run on an API
+// key or the real home's login, and the command is left untouched.
+func TestProbeCellCredentialEnv_NoTokenRefuses(t *testing.T) {
+	for name, creds := range map[string]map[string]string{
+		"nothing captured": nil,
+		"API key alone":    {claude.APIKeyEnv: "fake-key"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			withLaunchCredentials(t, creds)
+			cmd := exec.Command("true")
+			cmd.Env = []string{"HOME=/tmp/fake-home"}
+			_, err := probeCellCredentialEnv("p-test", "claude-code", cmd)
+
+			require.Error(t, err)
+			require.False(t, errors.Is(err, godog.ErrSkip), "the gate already decided; this is the harness failing, not this box lacking a capability")
+			assert.Contains(t, err.Error(), "p-test", "the refusal names which probe's cell it stopped")
+			assert.Contains(t, err.Error(), "claude setup-token")
+			assert.Equal(t, []string{"HOME=/tmp/fake-home"}, cmd.Env, "a refused cell's command is left untouched")
+		})
+	}
 }

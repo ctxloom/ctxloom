@@ -274,8 +274,8 @@ func TestAgentSend_UnknownRecipient(t *testing.T) {
 	assert.Contains(t, err.Error(), "has no parent")
 }
 
-// TestChildSend_ParentOnly pins hub-and-spoke: a delegated child may address
-// only its parent; a sibling is rejected, the parent lands in the owner's
+// TestChildSend_ParentOnly pins the upward edge: a delegated child reaches
+// its parent; a sibling is rejected, the parent lands in the owner's
 // mailbox.
 func TestChildSend_ParentOnly(t *testing.T) {
 	resetStrictness(t)

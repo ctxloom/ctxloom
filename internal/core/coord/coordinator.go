@@ -1069,6 +1069,11 @@ func (c *Coordinator) childRun(verb, parent, harp string) (*RunRecord, error) {
 	return rec, nil
 }
 
+// childSendDisposition is what a delegated session's accepted agent_send to
+// its parent reads. "Parent", not "coordinator": for a deeper sender the
+// recipient is a mid-tree parent.
+const childSendDisposition = "sent to your parent"
+
 // childSend is peerSend's UPWARD half: a delegated child addresses its own
 // parent, resolved from journaled lineage — by ParentAddress or by the
 // parent's own harp, nothing else.
@@ -1090,7 +1095,7 @@ func (c *Coordinator) childSend(caller Identity, to, kind, body string, structur
 	if err != nil {
 		return "", "", err
 	}
-	return id, "sent to the coordinator", nil
+	return id, childSendDisposition, nil
 }
 
 // parentSend is peerSend's DOWNWARD half: a session — the root or a mid-tree

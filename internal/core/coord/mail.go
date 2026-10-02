@@ -9,7 +9,7 @@ import (
 var (
 	// ErrPeerRouting rejects a child addressing anyone off its tree edges: not
 	// its own parent and not one of its own children.
-	ErrPeerRouting = errors.New(`agent_send: executors may only address "parent"; route via coordinator`)
+	ErrPeerRouting = errors.New(`agent_send: a delegated session may address only its own parent ("parent") or its own children (by harp); reach any other agent through its parent`)
 	// ErrRevoked refuses a call whose run credential was revoked (run ended /
 	// agent_stop): a report recorded after the run ended is refused with it
 	// (runsFold.liveRun), however valid the credential was when the call

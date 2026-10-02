@@ -74,7 +74,7 @@ Launch a configured ctxloom agent as a delegated child session. Async spawn: ret
 
 ### agent_send
 
-Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: "parent"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
+Send a message to another agent session. Messaging follows the delegation tree: you reach only your own parent and your own children. Address a child of yours by harp (to_agent_id) — delivery starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Address your parent with to_role: "parent"; mail to a parent whose run has ended resumes it. The root session has no parent; reach a deeper agent through its own parent, never past it. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with "keep reading for more detail", so put nothing essential below the fold.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -83,7 +83,7 @@ Send a message to another agent session. Coordinators address their children by 
 | `structured` | object | No | Optional structured companion, carried opaque alongside the body. A `kind` key here is NOT the message kind: name the kind in the `kind` field. |
 | `text` | string | Yes | Message body (compact: findings, questions, verdicts — bulk detail stays in the session transcript) |
 | `to_agent_id` | string | No | Recipient agent id — a child session harp (from spawn's child_agent_id or the roster). Exactly one of to_agent_id / to_role is set |
-| `to_role` | string | No | Role address. Delegated children may ONLY send to_role: "parent"; peer traffic routes via the coordinator |
+| `to_role` | string | No | Role address. The only role is "parent": your own parent, for a delegated session. Address your own children by to_agent_id; there is no address for a sibling or a deeper descendant |
 
 ### agent_steer
 

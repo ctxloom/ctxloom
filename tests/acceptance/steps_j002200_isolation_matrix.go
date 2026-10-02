@@ -713,7 +713,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		cfg := map[string]any{}
 		if raw, err := w.env.ReadHomeFile(".claude.json"); err == nil {
 			if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-				return fmt.Errorf("Alice's ~/.claude.json does not parse: %w", err)
+				return fmt.Errorf("the fake human's ~/.claude.json does not parse: %w", err)
 			}
 		}
 		projects, _ := cfg["projects"].(map[string]any)

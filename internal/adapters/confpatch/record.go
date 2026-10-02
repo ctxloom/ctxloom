@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/filelock"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/benjaminabbitt/hew/go/hewfs"
@@ -254,7 +254,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 	if err != nil {
 		return "", err
 	}
-	if err := iox.AtomicWriteFile(s.fs, recordPath, out, filepath.Base(recordPath)); err != nil {
+	if err := safefs.WriteFileKeepMode(s.fs, recordPath, out, filepath.Base(recordPath)); err != nil {
 		return "", fmt.Errorf("confpatch: write %s: %w", recordPath, err)
 	}
 	// The record just written SUPERSEDES every earlier one for this target, so

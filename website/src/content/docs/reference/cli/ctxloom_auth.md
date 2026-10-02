@@ -26,8 +26,8 @@ Each agent declares how its engine authenticates with 'auth:' on its binding
            nothing.
   login    your own login, shared: the same credential and the same
            refresh as your own engine (claude: CLAUDE_SECURESTORAGE_CONFIG_DIR).
-           In place on the host; a container mounts it (claude: ~/.claude),
-           except on macOS, where it is the Keychain. Refused when missing.
+           On the host only: a container run refuses it, and declares
+           token instead. Refused when missing.
            'ctxloom init' gives the default agent this mode.
   api-key  a pay-per-use key you export (claude: ANTHROPIC_API_KEY).
   cloud    a cloud provider or gateway configured in your own shell (claude:

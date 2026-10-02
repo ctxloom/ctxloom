@@ -150,8 +150,16 @@ func (c claudeAuth) Credentials(mode engine.AuthMode, shell func(string) (string
 // claude names its macOS keychain item from it. The credential and both
 // refresh locks are then the human's own, shared. Where the OS keeps it
 // under $HOME is loginStoreHomeRel's per-OS answer.
+//
+// No container is given it. Its refresh token would be readable there, and
+// it cannot be shared there either: claude's refresh rotates the token by
+// renaming a new file over the old one, which a single-file bind pins to the
+// old inode, and serializes refreshes with lock directories created beside
+// the file, which no bind shares. A container run declares a token instead,
+// which nothing refreshes.
 func loginStore(shell func(string) (string, bool)) engine.SharedStore {
-	return engine.SharedStore{Var: SecureStorageEnv, Value: sharedStorage(shell), HomeRel: loginStoreHomeRel}
+	return engine.SharedStore{Var: SecureStorageEnv, Value: sharedStorage(shell), HomeRel: loginStoreHomeRel,
+		ContainerRemedy: modeRemedy[engine.AuthToken] + ", then declare `auth: token` on the agent; or run it with `runtime: host`"}
 }
 
 // modeRemedy is how the human supplies each env mode's credential. The

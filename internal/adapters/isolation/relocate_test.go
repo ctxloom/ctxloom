@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // The session home every case here presents: a session's claude leaf on the
@@ -155,18 +156,16 @@ func TestContainerEnvironment_MountsTheHomeAndNoCredential(t *testing.T) {
 	}
 }
 
-// The shared credential stores reach the daemon: a login store renders as a
-// read-write bind at $HOME/.claude and a cloud provider store as a READ-ONLY
-// bind at its place under $HOME, in the very `docker run` argv the runner
-// starts — beside the session home, never replacing it.
+// The shared credential stores reach the daemon: a cloud provider store
+// renders as a READ-ONLY bind at its place under $HOME, in the very `docker
+// run` argv the runner starts — beside the session home, never replacing it.
 func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	c := NewContainerFor(Docker{rootless: true}, "claude-code")
 	cw := &containerWorkspace{dir: t.TempDir()}
 	home := t.TempDir()
-	login, provider := filepath.Join(home, ".claude"), filepath.Join(home, ".aws")
+	provider := filepath.Join(home, ".aws")
 	ssoCache := filepath.Join(provider, "sso", "cache")
 	stores := []sharedStore{
-		{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude"}, hostDir: login},
 		{SharedStore: engine.SharedStore{HomeRel: ".aws", ReadOnly: true}, hostDir: provider},
 		{SharedStore: engine.SharedStore{HomeRel: ".aws/sso/cache"}, hostDir: ssoCache},
 	}
@@ -177,12 +176,26 @@ func TestContainerEnvironment_RendersTheSharedStores(t *testing.T) {
 	require.NoError(t, err)
 
 	argv := strings.Join(mustRunArgs(t, c.runtime, c.buildRunnerSpec("claude-code", "name", cw, nil)), " ")
-	assert.Contains(t, argv, "type=bind,source="+login+",target="+defaultContainerHome+"/.claude ", "the login store, read-write")
 	assert.Contains(t, argv, "type=bind,source="+provider+",target="+defaultContainerHome+"/.aws,readonly", "the provider store, read-only")
 	nested := "type=bind,source=" + ssoCache + ",target=" + defaultContainerHome + "/.aws/sso/cache "
 	assert.Contains(t, argv, nested, "a store nested in a read-only one is still read-write")
 	assert.Less(t, strings.Index(argv, "target="+defaultContainerHome+"/.aws,readonly"), strings.Index(argv, nested),
 		"the nested store is mounted after its parent, which would otherwise shadow it")
 	assert.Contains(t, argv, "target=/ctxloom/home/claude", "the session home keeps its own mount")
-	assert.Equal(t, "", pl.Env["STORE_VAR"], "the var points the engine at $HOME")
+}
+
+// A store declaring a ContainerRemedy is never given to a container, though
+// it exists and its place is mountable: the refusal is typed and carries the
+// engine's own remedy, and nothing is mounted.
+func TestRelocateStores_AHostOnlyStoreRefusesWithItsRemedy(t *testing.T) {
+	store := sharedStore{SharedStore: engine.SharedStore{Var: "STORE_VAR", HomeRel: ".claude", ContainerRemedy: "mint a token"}, hostDir: t.TempDir()}
+
+	env, mounts, err := containerRelocator{rt: Docker{rootless: true}, home: defaultContainerHome}.relocateStores([]sharedStore{store})
+	require.ErrorIs(t, err, engine.ErrHostOnlyStore)
+	require.ErrorIs(t, err, engine.ErrNoCredential)
+	fix, ok := clifmt.RemedyOf(err)
+	require.True(t, ok)
+	assert.Equal(t, "mint a token", fix)
+	assert.Empty(t, mounts)
+	assert.Empty(t, env)
 }

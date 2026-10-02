@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os/exec"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -108,12 +109,15 @@ func Prepare(ctx context.Context, s Spec) (Environment, error) {
 	// The requested environment's roots are routed first, with no effects:
 	// the chain's own container mounts map paths too, and a root failing
 	// there would read as an unstartable container rather than as the root
-	// no environment of this kind can present. Only an unreachable root is
-	// refused here; any other refusal is left to the prepared link, which may
-	// have degraded to one that can satisfy it.
+	// no environment of this kind can present. A credential store no
+	// container is given is refused here too, before the chain prepares a
+	// workspace or an image: a requested container never degrades to the
+	// host. Any other refusal is left to the prepared link.
 	head := chain[0].relocator()
 	if _, _, err := head.relocate(previewLayout(s, stores)); errors.Is(err, present.ErrUnreachableRoot) {
 		return nil, refuseUnreachable(err)
+	} else if errors.Is(err, engine.ErrHostOnlyStore) {
+		return nil, err
 	}
 	p, ws := prepareChain(ctx, chain, survey, s.axes.Runtime, s.project, s.harp)
 	l := stageLayout(s, ws.Dir(), workspaceEnv(ws), stores)

@@ -95,6 +95,10 @@ var (
 	// ErrNoCredential: the mode needs a credential the launching env does not
 	// hold. Returned (wrapped) by Auth.Credentials.
 	ErrNoCredential = errors.New("no credential for this auth mode")
+	// ErrHostOnlyStore: the mode shares a credential store no container is
+	// given (SharedStore.ContainerRemedy, or a store that is no directory),
+	// so a container run in it is refused.
+	ErrHostOnlyStore = errors.New("the auth mode shares a credential store no container is given")
 	// ErrAuthModeUnsupported: the engine does not authenticate in the mode.
 	ErrAuthModeUnsupported = errors.New("the engine does not support this auth mode")
 	// ErrUnknownAuthMode: the declared mode is not in the shared vocabulary.
@@ -147,6 +151,11 @@ type SharedStore struct {
 	HomeRel string
 	// ReadOnly declares that the run only reads the store.
 	ReadOnly bool
+	// ContainerRemedy, when set, declares a store no container is given: a
+	// container run sharing it is refused (ErrHostOnlyStore) with this
+	// remedy, which names the mode to declare instead. The host shares the
+	// store in place.
+	ContainerRemedy string
 }
 
 // HostDir is the store's directory on the host whose home is hostHome:

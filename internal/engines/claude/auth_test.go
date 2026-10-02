@@ -92,8 +92,11 @@ func TestClaudeAuth_Credentials_LoginStorageIsWhatTheLaunchingEnvResolves(t *tes
 			got, err := testAuth().Credentials(engine.AuthLogin, shellOf(tc.env))
 			require.NoError(t, err)
 			require.Len(t, got.Stores, 1, "login shares exactly the human's own storage")
-			assert.Equal(t, engine.SharedStore{Var: SecureStorageEnv, Value: tc.want, HomeRel: loginStoreHomeRel}, got.Stores[0],
-				"read-write: the human's claude and the run share the credential and its refresh locks")
+			st := got.Stores[0]
+			assert.Equal(t, engine.SharedStore{Var: SecureStorageEnv, Value: tc.want, HomeRel: loginStoreHomeRel, ContainerRemedy: st.ContainerRemedy}, st,
+				"read-write: claude's refresh rewrites it")
+			assert.Contains(t, st.ContainerRemedy, "claude setup-token", "a container is never given the login: the remedy names how to mint a token")
+			assert.Contains(t, st.ContainerRemedy, "auth: token", "and the mode to declare instead")
 			assert.NotContains(t, got.Env, SecureStorageEnv, "the store's var is the environment's to set, per where the run executes")
 		})
 	}

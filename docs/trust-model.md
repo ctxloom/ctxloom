@@ -730,8 +730,8 @@ host keys `ambientConfigKeys` copies by name — among them the account identity
 and an API-key login's `primaryApiKey`. No credential file is seeded into the
 home: the run authenticates by the agent's declared auth mode
 (`claudeAuth.Credentials`), which sets a token, key or cloud configuration in
-the engine's environment by value, or, for `login`, shares the human's own
-credential storage (`loginStore`). The engine auto-creates whatever else it
+the engine's environment by value, or, for `login` on the host, shares the
+human's own credential storage (`loginStore`); a container refuses `login`. The engine auto-creates whatever else it
 needs on first launch.
 
 ## Lifecycle
@@ -1075,3 +1075,20 @@ never permitted in the committable project store.
     (`isolation.containerPlacement`, `isolation.materializeSecrets`). A host
     cell still carries its credential in the launch's env, over the
     loopback-only listener.
+19. **A container `login` agent holds the human's refresh token, and can fall
+    out of step with it.** CLOSED: a container run in `auth: login` is
+    refused, so no part of the human's `~/.claude` enters a container. Its
+    login store declares `engine.SharedStore.ContainerRemedy` (claude's
+    `loginStore`), `containerRelocator.relocateStores` refuses it with
+    `engine.ErrHostOnlyStore`, and `Prepare` raises that before the chain
+    prepares anything (`TestCredentials_AContainerRefusesALogin`,
+    `TestPrepare_AContainerLoginIsRefusedBeforeAnythingIsPrepared`; live:
+    `TestLoginStore_ALiveContainerRunRefusesTheLogin`, build tag
+    `docker_integration`). The remedy is `auth: token`, the long-lived token
+    from `claude setup-token`: nothing refreshes it, so there is no second
+    holder to fall out of step with. Sharing the login was refused rather
+    than narrowed because no bind can share it safely: the agent could read
+    the refresh token; a single-file bind pins the file's inode, so a host
+    refresh leaves the container replaying a rotated token; and claude's
+    refresh locks are lock directories created beside the file, which no bind
+    shares.

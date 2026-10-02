@@ -295,21 +295,21 @@ func isBindableFile(host string) error {
 	return nil
 }
 
-// errStoreNotADirectory: a shared store that is no directory under $HOME (an
-// OS keychain) cannot be presented inside a container.
-var errStoreNotADirectory = errors.New("the credential store is not a directory a container can mount")
+// hostOnlyRemedy is the remedy for a host-only store that names none of its
+// own: a store that is no directory (an OS keychain).
+const hostOnlyRemedy = "declare another auth mode on a container agent, or run it with `runtime: host`"
 
 // relocateStores mounts each shared store at its place under the
 // container's $HOME — never AS $HOME, and read-only when the store is — and
-// blanks its var, which points the engine at that place. A store with no
-// place under $HOME (claude's login in the macOS Keychain) refuses.
+// blanks its var, which points the engine at that place. A host-only store
+// refuses (engine.ErrHostOnlyStore): one declaring a ContainerRemedy, and one
+// with no place under $HOME, which no container can reach.
 func (r containerRelocator) relocateStores(stores []sharedStore) (map[string]string, []mount, error) {
 	env := map[string]string{}
 	var mounts []mount
 	for _, st := range stores {
-		if st.HomeRel == "" || st.hostDir == "" {
-			return nil, nil, report.Errorf("declare `auth: token` on a container agent, or run it with `runtime: host`",
-				"%w: this auth mode shares a credential store the OS keeps outside any directory (the macOS Keychain, for claude's login), so no container can reach it: %w", errStoreNotADirectory, engine.ErrNoCredential)
+		if err := refuseHostOnly(st.SharedStore); err != nil {
+			return nil, nil, err
 		}
 		rel, err := relocateRoot(r.rt, st.hostDir, path.Join(r.home, st.HomeRel), st.ReadOnly)
 		if err != nil {
@@ -321,6 +321,19 @@ func (r containerRelocator) relocateStores(stores []sharedStore) (map[string]str
 		}
 	}
 	return env, mounts, nil
+}
+
+// refuseHostOnly is the refusal of a store no container is given, carrying
+// its remedy, or nil for a store a container can mount.
+func refuseHostOnly(st engine.SharedStore) error {
+	remedy := st.ContainerRemedy
+	if remedy == "" && st.HomeRel != "" {
+		return nil
+	}
+	if remedy == "" {
+		remedy = hostOnlyRemedy
+	}
+	return report.Errorf(remedy, "%w: a container cannot be given the human's own credential store this auth mode shares: %w", engine.ErrHostOnlyStore, engine.ErrNoCredential)
 }
 
 // unrouted is the Placement of a layout no runtime routes: every root

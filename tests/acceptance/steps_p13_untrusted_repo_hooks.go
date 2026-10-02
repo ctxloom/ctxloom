@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // p13RunTimeout bounds the one claude turn: the fixture's turn is one allowed
@@ -34,6 +36,7 @@ type p13State struct {
 	dir        string            // the cell's root: the markers live here, outside the repo
 	repo       string            // cwd: a git repo with a COMMITTED .claude/settings.json, skill and agent
 	cfg, home  string            // throwaway CLAUDE_CONFIG_DIR and HOME; cfg holds a .claude.json trusting the repo only in the trusted control
+	launch     p13Launch         // the ctxloom-launch cell's engine-composed argv and stdin; zero in the vendor cells
 
 	run      probeRun
 	started  bool
@@ -60,9 +63,9 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("%s: axes %s/%s — this rung is host/none only: the claim is about the vendor binary, which the cell runs directly, so neither ctxloom isolation axis is in play", p13Family, runtime, workspace)
 			}
 			switch p13Variant(variant) {
-			case p13Fires, p13Suppresses, p13TrustedFrontmatter:
+			case p13Fires, p13Suppresses, p13TrustedFrontmatter, p13CtxloomUntrusted:
 			default:
-				return fmt.Errorf("%s: unknown variant %q (want %q, %q or %q)", p13Family, variant, p13Fires, p13Suppresses, p13TrustedFrontmatter)
+				return fmt.Errorf("%s: unknown variant %q (want %q, %q, %q or %q)", p13Family, variant, p13Fires, p13Suppresses, p13TrustedFrontmatter, p13CtxloomUntrusted)
 			}
 			p.engine, p.runtime, p.workspace, p.variant = engine, runtime, workspace, p13Variant(variant)
 
@@ -92,7 +95,14 @@ func registerP13UntrustedRepoHooksSteps(ctx *godog.ScenarioContext) {
 		}
 		runCtx, cancel := context.WithTimeout(c, p13RunTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(runCtx, p.claudePath, p13Args(p.variant)...)
+		args := p13Args(p.variant)
+		if p.variant == p13CtxloomUntrusted {
+			args = p.launch.Args
+		}
+		cmd := exec.CommandContext(runCtx, p.claudePath, args...)
+		if p.launch.Stdin != nil {
+			cmd.Stdin = bytes.NewReader(p.launch.Stdin)
+		}
 		cmd.Dir = p.repo
 		cmd.Env = liveVendorEnv(p.cred, p.home, p.cfg)
 		var stdout, stderr bytes.Buffer
@@ -149,7 +159,9 @@ var errP13NotRun = errors.New(p13Family + ": the cell's fixture was not prepared
 // skill and agent COMMITTED — a repo that ships them, not a working-tree edit —
 // and the markers they write landing in <dir>, outside the repo. cfg is empty
 // (no .claude.json, so no projects entry, so the repo is untrusted) except in
-// the trusted control, whose .claude.json trusts the repo.
+// the trusted control, whose .claude.json trusts the repo, and in the
+// ctxloom-launch cell, where claude's own instance-config writer generates it
+// for the verdict it took.
 func p13Fixture(w *World, p *p13State) error {
 	p.dir = filepath.Join(w.env.Root, "p13-"+string(p.variant))
 	p.repo, p.cfg, p.home = filepath.Join(p.dir, "repo"), filepath.Join(p.dir, "cfg"), filepath.Join(p.dir, "home")
@@ -187,6 +199,19 @@ func p13Fixture(w *World, p *p13State) error {
 		if err := git(args...); err != nil {
 			return err
 		}
+	}
+	if p.variant != p13CtxloomUntrusted {
+		return nil
+	}
+	// After the commit: the verdict walks the repo's .git. A verdict that is
+	// not untrusted means the human home trusts the fixture, and the turn
+	// would measure the trusted control instead — refused, not spent.
+	var err error
+	if p.launch, err = p13CtxloomLaunch(p.home, p.cfg, p.repo); err != nil {
+		return err
+	}
+	if p.launch.Verdict != engine.TrustUntrusted {
+		return fmt.Errorf("%s %s: claude's verdict on the fixture repo is %d, not untrusted; the cell would not measure an untrusted repo", p13Family, p.cell(), p.launch.Verdict)
 	}
 	return nil
 }

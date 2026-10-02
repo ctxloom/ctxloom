@@ -476,6 +476,8 @@ var probeRegistry = []probeSpec{
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With --setting-sources user --strict-mcp-config NO settings or frontmatter marker was written and the init frame listed neither the repo's skill nor its agent, while the echo still ran and printed \"hi\" — suppressed, not untriggered. Every leak and listing predicate is MUTATION-CONFIRMED hermetically (TestP13_SettingSourcesSuppresses, TestP13_SettingSourcesSuppressesFrontmatter)."},
 			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13TrustedFrontmatter), Status: probeLiveVerified,
 				Reason: "measured 2026-10-01 on claude 2.1.286 (haiku): 1 scenario / 3 steps green. With the repo trusted in CLAUDE_CONFIG_DIR/.claude.json the init frame listed the skill and agent, and the agent's frontmatter Stop hook and inline stdio MCP server both wrote their markers — the fixture's frontmatter executes when loaded. The skill's frontmatter PreToolUse hook did not fire under -p even here, which is why skills are judged by the init frame."},
+			{Engine: "claude-code", Runtime: "host", Workspace: "none", Variant: string(p13CtxloomUntrusted), Status: probeWired,
+				Reason: "ctxloom's own launch of a repo the human never trusted: the verdict, the session home and the argv are claude.Claude.Trust's, the instance-config writer's and Instance.Exec's (p13CtxloomLaunch). Judged as setting-sources-suppresses; the composition is pinned hermetically (TestP13_CtxloomLaunch_Untrusted, TestP13_CtxloomLaunch_IsTheEngines)."},
 		},
 	},
 	{

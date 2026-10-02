@@ -532,7 +532,7 @@ func (c *Coordinator) sweepSpoolDir(harp string, dir spool.Dir, why string) (spo
 
 // startSpoolReactor brings up the coordinator's spool reader.
 func (c *Coordinator) startSpoolReactor() {
-	c.spoolCredit.start(time.Now())
+	c.seedSpoolCredit()
 	c.spoolReactor = NewSpoolReactor(c.sweepChildSpool, c.spoolRoles, c.spoolSweepInterval)
 	// The reactor is registered AS the doorbell's consumer rather than being
 	// called beside it. One seam: a second consumer cannot be added without
@@ -784,13 +784,30 @@ func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
 	_ = done
 }
 
+// seedSpoolCredit records, without crediting, every known harp's delivered
+// record as it stands at start (spoolCredit). It runs before the reactor's
+// startup sweep, so that sweep credits only what is new.
+func (c *Coordinator) seedSpoolCredit() {
+	for _, role := range c.spoolRoles() {
+		if c.ownerSpool(role) {
+			continue // the owner's deliveries are never credited
+		}
+		ids, err := spool.DeliveredIdentities(c.mapper, role)
+		if err != nil {
+			c.rep.Warnf("coordinator: reading %s's delivered record at start: %v (its first sweep may credit history as progress)", role, err)
+			continue
+		}
+		c.spoolCredit.seed(role, ids)
+	}
+}
+
 // sweepChildDelivered reads the child's delivered record (spool.Deliver's
 // in/delivered/) and credits the ONE thing a new entry means to the
 // coordinator: real progress, which forgives the relaunch budget.
 //
-// What is new is decided by spoolCredit: an entry recorded before this
-// coordinator started is history and is never credited, so a restart credits
-// nothing, and an entry already credited is not credited again.
+// What is new is decided by spoolCredit: an entry already in the record when
+// this coordinator started is history and is never credited, so a restart
+// credits nothing, and an entry already credited is not credited again.
 func (c *Coordinator) sweepChildDelivered(role string) {
 	ids, err := spool.DeliveredIdentities(c.mapper, role)
 	if err != nil {

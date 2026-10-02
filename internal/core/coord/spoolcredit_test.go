@@ -10,28 +10,23 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
-func TestSpoolCredit_HistoryBeforeTheFloorIsNeverCredited(t *testing.T) {
+func TestSpoolCredit_ASeededListingIsNeverCredited(t *testing.T) {
 	var s spoolCredit
-	floor := time.Now()
-	s.start(floor)
-	got := s.credit("kid", map[string]time.Time{
-		"m-before": floor.Add(-time.Second),
-		"m-after":  floor.Add(time.Second),
-		"m-at":     floor,
-	})
-	assert.Equal(t, 2, got, "recorded at or after the floor is progress; before it is history")
+	at := time.Now()
+	s.seed("kid", map[string]time.Time{"m-history": at})
+	got := s.credit("kid", map[string]time.Time{"m-history": at, "m-new": at})
+	assert.Equal(t, 1, got, "what the record held at start is history; only the new entry is progress")
 }
 
 func TestSpoolCredit_AnEntryIsCreditedOnce(t *testing.T) {
 	var s spoolCredit
-	floor := time.Now()
-	s.start(floor)
-	ids := map[string]time.Time{"m-1": floor.Add(time.Second)}
-	assert.Equal(t, 1, s.credit("kid", ids))
+	at := time.Now()
+	ids := map[string]time.Time{"m-1": at}
+	assert.Equal(t, 1, s.credit("kid", ids), "an unseeded role's record is all new")
 	assert.Equal(t, 0, s.credit("kid", ids), "a second sweep of the same record credits nothing")
-	ids["m-2"] = floor.Add(2 * time.Second)
+	ids["m-2"] = at
 	assert.Equal(t, 1, s.credit("kid", ids), "only the new entry")
-	assert.Equal(t, 1, s.credit("other", map[string]time.Time{"m-1": floor.Add(time.Second)}),
+	assert.Equal(t, 1, s.credit("other", map[string]time.Time{"m-1": at}),
 		"roles are remembered separately")
 }
 
@@ -39,10 +34,9 @@ func TestSpoolCredit_AnEntryIsCreditedOnce(t *testing.T) {
 // an entry pruned from the record is forgotten.
 func TestSpoolCredit_TheMemoryIsTheLastListing(t *testing.T) {
 	var s spoolCredit
-	floor := time.Now()
-	s.start(floor)
-	s.credit("kid", map[string]time.Time{"m-1": floor.Add(time.Second), "m-2": floor.Add(time.Second)})
-	s.credit("kid", map[string]time.Time{"m-2": floor.Add(time.Second)})
+	at := time.Now()
+	s.credit("kid", map[string]time.Time{"m-1": at, "m-2": at})
+	s.credit("kid", map[string]time.Time{"m-2": at})
 	assert.Len(t, s.seen["kid"], 1, "the pruned entry is not remembered")
 }
 

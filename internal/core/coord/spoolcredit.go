@@ -7,27 +7,33 @@ import (
 
 // spoolCredit decides which delivered-record entries are NEW progress.
 //
-// Two rules, each closing one way to over-credit:
+// Its memory, per role, is the last listing of that role's delivered record:
 //
-//   - FLOOR: an entry recorded before this coordinator's spool reader
-//     started is history. Without the floor, the first sweep after a restart
+//   - SEEDED AT START, without crediting, for every harp the coordinator has
+//     a run record for. Without the seed, the first sweep after a restart
 //     would credit every delivery still inside the record's retention window
-//     as fresh progress and forgive relaunch budgets nothing earned.
-//   - LAST LISTING: an entry seen on an earlier sweep is not credited again.
-//     The memory is that listing, REPLACED every sweep rather than grown, so
-//     it is bounded by the record's own retention (spool.DeliveredRetention).
+//     as fresh progress and forgive relaunch budgets nothing earned. The seed
+//     is the record itself rather than a start time: an entry's time is its
+//     file's mtime, stamped from the kernel's coarse clock, and a delivery
+//     made just after a start-time floor can carry an mtime before it.
+//   - REPLACED every sweep rather than grown, so it is bounded by the
+//     record's own retention (spool.DeliveredRetention).
+//
+// A role first seen after start has no seed: everything in its record was
+// delivered during this coordinator's life.
 type spoolCredit struct {
-	mu    sync.Mutex
-	floor time.Time
-	seen  map[string]map[string]bool
+	mu   sync.Mutex
+	seen map[string]map[string]bool
 }
 
-// start sets the floor. Called once, when the spool reader starts.
-func (s *spoolCredit) start(now time.Time) {
+// seed remembers role's current listing as already credited.
+func (s *spoolCredit) seed(role string, ids map[string]time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.floor = now
-	s.seen = map[string]map[string]bool{}
+	if s.seen == nil {
+		s.seen = map[string]map[string]bool{}
+	}
+	s.seen[role] = keysOf(ids)
 }
 
 // credit reports how many of role's delivered identities are new progress,
@@ -35,19 +41,24 @@ func (s *spoolCredit) start(now time.Time) {
 func (s *spoolCredit) credit(role string, ids map[string]time.Time) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	prev := s.seen[role]
-	fresh := 0
-	next := make(map[string]bool, len(ids))
-	for id, at := range ids {
-		next[id] = true
-		if prev[id] || at.Before(s.floor) {
-			continue
-		}
-		fresh++
-	}
 	if s.seen == nil {
 		s.seen = map[string]map[string]bool{}
 	}
-	s.seen[role] = next
+	prev := s.seen[role]
+	fresh := 0
+	for id := range ids {
+		if !prev[id] {
+			fresh++
+		}
+	}
+	s.seen[role] = keysOf(ids)
 	return fresh
+}
+
+func keysOf(ids map[string]time.Time) map[string]bool {
+	out := make(map[string]bool, len(ids))
+	for id := range ids {
+		out[id] = true
+	}
+	return out
 }

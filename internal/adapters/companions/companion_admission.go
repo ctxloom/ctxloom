@@ -40,15 +40,9 @@ const (
 	// or will not parse. Never degraded to "unsigned" — a broken signature is a
 	// signal, not an absence.
 	CompanionAdmissionTampered CompanionAdmissionReason = "signature-tampered"
-	// CompanionAdmissionDeclined: a recorded DENIAL covers this path. Beats
-	// the first-party exemption.
-	CompanionAdmissionDeclined CompanionAdmissionReason = "declined"
 	// CompanionAdmissionUnreadable: the binary is present but could not be
 	// resolved or hashed, so it cannot be identified. Fail-closed.
 	CompanionAdmissionUnreadable CompanionAdmissionReason = "unreadable"
-	// CompanionAdmissionStoreFault: the consent record exists but cannot be
-	// read. Denies EVERY companion, first-party included.
-	CompanionAdmissionStoreFault CompanionAdmissionReason = "consent-store-fault"
 	// CompanionAdmissionSelf: the running ctxloom binary, probed as its own
 	// companion. No signature is consulted — the process is already
 	// executing, so exec consent is not a question it can be asked.
@@ -101,11 +95,11 @@ func AdmitCompanions(bins []string, root trust.TrustRoot) []CompanionAdmission {
 }
 
 // companionAdmission is the seam the two probes consult, so a test can pin the
-// exec-consent answer without building a real binary and a real home record for
-// every loadout-parsing case. Production is AdmitCompanions itself.
+// admission answer without building and signing a real binary for every
+// loadout-parsing case. Production is AdmitCompanions itself.
 var companionAdmission = AdmitCompanions
 
-// SetCompanionAdmissionForTesting overrides the exec-consent gate the probes
+// SetCompanionAdmissionForTesting overrides the admission gate the probes
 // consult and returns a restore function. Companion of
 // SetCompanionLoadoutOutputForTesting: those seams fake the probe's OUTPUT,
 // this one fakes the decision to run it at all.
@@ -115,15 +109,15 @@ func SetCompanionAdmissionForTesting(fn func(bins []string, root trust.TrustRoot
 	return func() { companionAdmission = prev }
 }
 
-// AdmitEveryDiscoveredCompanionForTesting pins the exec-consent gate OPEN for
+// AdmitEveryDiscoveredCompanionForTesting pins the admission gate OPEN for
 // tests whose subject is what a companion contributes once it runs, and returns
 // a restore function. It admits whatever the (usually faked) lookPath resolves
 // and reports everything else as not-installed.
 //
-// It exists because the real gate hashes a real file at a real path, which a
+// It exists because the real gate verifies a real signature over a real file, which a
 // test that faked PATH resolution to "/fake/ltk" cannot satisfy. Callers must
 // ask for it EXPLICITLY — a SetLookPathForTesting that silently disabled the
-// consent gate as a side effect would let a future regression in that gate go
+// admission gate as a side effect would let a future regression in that gate go
 // unnoticed by every test in the repo.
 func AdmitEveryDiscoveredCompanionForTesting() func() {
 	return SetCompanionAdmissionForTesting(func(bins []string, _ trust.TrustRoot) []CompanionAdmission {
@@ -142,7 +136,7 @@ func AdmitEveryDiscoveredCompanionForTesting() func() {
 	})
 }
 
-// AdmitNoCompanionForTesting pins the exec-consent gate SHUT and returns a
+// AdmitNoCompanionForTesting pins the admission gate SHUT and returns a
 // restore function: every discovered name reports as not-installed, whatever
 // is on the developer's PATH and whatever the trust root says about it.
 //

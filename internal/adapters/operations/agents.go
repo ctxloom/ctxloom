@@ -267,15 +267,6 @@ func validateAgentAxes(reg engine.Registry, cfg *config.Config, name string, req
 	return validateAgentHomeMode(name, req)
 }
 
-// wrapAgentErr names the agent a refusal is about; its remedy stays
-// reachable through %w, where the renderer reads it.
-func wrapAgentErr(name string, err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("agent %q: %w", name, err)
-}
-
 // validateAgentEngine refuses a non-empty engine outside AvailableLLMNames.
 func validateAgentEngine(reg engine.Registry, cfg *config.Config, name string, req SetAgentRequest) error {
 	if req.LLM == nil || *req.LLM == "" {

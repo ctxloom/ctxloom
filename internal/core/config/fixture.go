@@ -5,8 +5,8 @@ import (
 	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // Fixture is a direct mirror of every Config field, persisted and

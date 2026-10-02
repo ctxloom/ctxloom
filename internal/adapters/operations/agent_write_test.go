@@ -819,4 +819,3 @@ func TestSetAgent_RefusesARootTheApproachDoesNotOffer(t *testing.T) {
 	_, ok := reloaded.Agent("scout")
 	assert.False(t, ok, "a refused write must not half-apply a binding")
 }
-

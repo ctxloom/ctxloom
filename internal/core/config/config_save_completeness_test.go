@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // This file is the UNTAGGED half of the config-save completeness pair. Its
@@ -51,6 +52,7 @@ func fullyPopulatedFixture() Fixture {
 		UI:                           UIConfig{PrefixKey: "ctrl-]", Surround: &surround},
 		SessionReapAge:               "45d",
 		SessionPurgeAge:              "180d",
+		Auth:                         engine.AuthLogin,
 	}
 }
 

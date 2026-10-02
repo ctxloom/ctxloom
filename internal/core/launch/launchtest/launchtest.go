@@ -126,7 +126,6 @@ func EngineHome(s string) AgentOption {
 	return func(d *agentDecl) { d.binding.HomeMode = s }
 }
 
-
 // HostEnv sets the binding's `host_env:` declaration.
 func HostEnv(h agents.HostEnv) AgentOption {
 	return func(d *agentDecl) { d.binding.HostEnv = h }

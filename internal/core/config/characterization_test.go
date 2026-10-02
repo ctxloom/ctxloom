@@ -151,6 +151,7 @@ var characterizationGolden = map[string]string{
 	"full/MarshalYAML": `agents:
     worker:
         llm: fast
+auth: login
 config:
     essence_max_chars: 4096
 default_agent: worker
@@ -198,6 +199,7 @@ workspace: worktree
 	"full/authored": `agents:
     worker:
         llm: fast
+auth: login
 config:
     essence_max_chars: 4096
 default_agent: worker
@@ -245,6 +247,7 @@ workspace: worktree
 	"full/saveLocked-project": `agents:
     worker:
         llm: fast
+auth: login
 config:
     essence_max_chars: 4096
 default_agent: worker
@@ -275,6 +278,7 @@ workspace: worktree
 	"full/saveLocked-home": `agents:
     worker:
         llm: fast
+auth: login
 config:
     essence_max_chars: 4096
 default_agent: worker

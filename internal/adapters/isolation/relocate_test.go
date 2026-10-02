@@ -168,4 +168,3 @@ func TestContainerRelocator_AnyStoreRefusesNamingTheToken(t *testing.T) {
 	assert.Contains(t, fix, "auth: token")
 	assert.Empty(t, mounts)
 }
-

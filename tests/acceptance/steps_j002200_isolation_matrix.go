@@ -360,9 +360,10 @@ type isoMatrixState struct {
 	// is what turns this fixture from a test of the config KEY into a test of
 	// the FLAG that sets it.
 	engineHomeViaCLI bool
-	// auth is the "iso" binding's declared `auth:` mode for the next
-	// runIsoMatrix call; "" leaves it undeclared (the token default).
-	auth string
+	// sessionAuth is the top-level `auth:` -- how Alice's OWN session
+	// authenticates -- for the next runIsoMatrix call; "" leaves it
+	// undeclared (the token). An agent binding has no auth of its own.
+	sessionAuth string
 }
 
 func isoMatrixOf(w *World) *isoMatrixState {
@@ -447,15 +448,16 @@ func installIsoSpy(dir, engineName string, names ...string) error {
 // is refused at load, config.RetiredLLMEnvKey), and every scenario that
 // reaches the spy runs it on the host, where the ambient environment is the
 // engine's environment.
-func isoMatrixConfigYAML(engineType, engineHome, auth string) string {
+func isoMatrixConfigYAML(engineType, engineHome, sessionAuth string) string {
 	engineHomeLine := ""
 	if engineHome != "" {
 		engineHomeLine = fmt.Sprintf("    engine_home: %s\n", engineHome)
 	}
-	if auth != "" {
-		engineHomeLine += fmt.Sprintf("    auth: %s\n", auth)
+	authLine := ""
+	if sessionAuth != "" {
+		authLine = fmt.Sprintf("auth: %s\n", sessionAuth)
 	}
-	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`llm:
+	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+authLine+`llm:
   configs:
     iso:
       type: %s
@@ -539,7 +541,7 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 	if j.engineHomeViaCLI {
 		renderedEngineHome = ""
 	}
-	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, renderedEngineHome, j.auth)); err != nil {
+	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, renderedEngineHome, j.sessionAuth)); err != nil {
 		return err
 	}
 	if j.engineHomeViaCLI {
@@ -811,10 +813,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// A scenario that never calls this step gets an undeclared binding, which
 	// is itself a fixture under test (see the "undeclared engine_home"
 	// scenario).
-	// The auth knob: the "iso" binding's declared `auth:` mode for the next
-	// runIsoMatrix call. Undeclared is the token default.
-	ctx.Step(`^Alice's agent declares auth "([^"]*)"$`, func(c context.Context, value string) error {
-		isoMatrixOf(worldFrom(c)).auth = value
+	// The auth knob: the top-level `auth:` -- how Alice's OWN session (the
+	// `ctxloom run` these scenarios drive) authenticates -- for the next
+	// runIsoMatrix call. Undeclared is the token.
+	ctx.Step(`^Alice's own session authenticates with "([^"]*)"$`, func(c context.Context, value string) error {
+		isoMatrixOf(worldFrom(c)).sessionAuth = value
 		return nil
 	})
 

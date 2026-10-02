@@ -298,50 +298,37 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "context=nowhere"
       And the file ".ctxloom/config.yaml" does not contain "roots:"
 
-    # --auth declares how this binding's engine authenticates, and the write
-    # asks the engine whether that credential is available NOW: one the human
-    # must supply (an API key) is refused until it is, with the remedy in the
-    # error, and nothing is persisted. The export is pinned empty because an
-    # empty export counts as none — without it, a machine that happens to
-    # export a real key would turn the refusal half green for the wrong reason.
-    Scenario: A pay-per-use key binding is refused until the key is available, then recorded
+    # An agent has no auth to choose: every agent ctxloom spawns authenticates
+    # with the token the human mints (`claude setup-token`), so there is no
+    # flag that could point one at anything else -- the human's login above all.
+    Scenario: There is no flag that gives an agent an auth mode
       Given an initialized ctxloom project
       And a profile "dev" exists
       And I run "ctxloom agent create developer --llm claude-code --profiles dev"
-      And the environment variable "ANTHROPIC_API_KEY" is set to ""
-      When I run "ctxloom agent edit developer --auth api-key"
+      When I run "ctxloom agent edit developer --auth login"
       Then the command fails
-      And the output contains "export ANTHROPIC_API_KEY"
+      And the output contains "unknown flag: --auth"
       And the file ".ctxloom/config.yaml" does not contain "auth:"
-      When the environment variable "ANTHROPIC_API_KEY" is set to "sk-acceptance-fixture-not-a-real-key"
-      And Alice switches this binding to the key she just exported:
-        """
-        ctxloom agent edit developer --auth api-key
-        """
-      Then the command succeeds
-      And the file ".ctxloom/config.yaml" contains "auth: api-key"
 
-    # A token is the other case: its absence is NOT refused, because it is
-    # read where a run is LAUNCHED (often injected there by a secret manager),
-    # not in the shell that edits the config. Refusing it here would make the
-    # default mode undeclarable on a fresh machine; a run without one refuses.
-    Scenario: A token binding is recorded with no token exported, since the run reads it
+    # A binding written before the removal still carries `auth:`. The decode
+    # is lenient, so dropping it in silence would quietly move a binding that
+    # was written to share the login onto a token; it is refused instead,
+    # naming the token and where the human's own login is chosen now.
+    Scenario: A binding still carrying auth is refused, naming the token and the top-level auth
       Given an initialized ctxloom project
-      And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
-      When I run "ctxloom agent edit developer --auth token"
-      Then the command succeeds
-      And the file ".ctxloom/config.yaml" contains "auth: token"
-
-    Scenario: An auth mode the engine does not support is refused, naming the ones it does
-      Given an initialized ctxloom project
-      And a profile "dev" exists
-      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
-      When I run "ctxloom agent edit developer --auth carrier-pigeon"
-      Then the command fails
-      And the output contains "carrier-pigeon"
-      And the output contains "api-key"
-      And the file ".ctxloom/config.yaml" does not contain "auth:"
+      And the project already has the file ".ctxloom/config.yaml":
+        """
+        version: 6
+        agents:
+          developer:
+            profiles: [dev]
+            auth: login
+        """
+      When I run "ctxloom agent list"
+      Then the output contains "removed key 'auth:'"
+      And the output contains "developer"
+      And the output contains "claude setup-token"
+      And the output contains "auth: login"
 
   Rule: --engine-home decides WHOSE engine config home this binding's runs get
 

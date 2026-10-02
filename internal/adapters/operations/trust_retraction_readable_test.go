@@ -322,6 +322,7 @@ func TestContentGate_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 	require.Len(t, items, 1, "the gate records the withheld ref, so the advisory can say WHY it was withheld")
 	assert.Equal(t, solidDecideRef, items[0].Ref)
 	assert.Equal(t, bundles.ReasonRecordsUnreadable, items[0].Verdict.Reason)
+	assert.Contains(t, items[0].Verdict.Detail, filepath.Join(baseDir, "lock.yaml"), "the detail names the store")
 }
 
 // TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues pins the

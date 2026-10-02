@@ -106,6 +106,7 @@ func TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal(t *testin
 	require.Len(t, found, 1)
 	assert.Equal(t, report.KindTrust, found[0].Kind)
 	assert.Contains(t, found[0].Text, "approvals store")
+	assert.NotContains(t, found[0].Remedy, "ctxloom init", "a store that exists and cannot be read is repaired, not re-provisioned")
 }
 
 // TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll is the
@@ -327,4 +328,15 @@ func TestEffectiveTrust_RemovedProjectStore_RejectionIsNotDiscarded(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "a removed approvals store must not discard the rejection it held")
 	assert.NotEqual(t, trust.SourceLocal, res.Source, "the local exemption is what a discarded rejection falls through to")
+}
+
+// TestEffectiveTrustResult_Reason_UnreadableNamesTheStore: the withheld advisory
+// for an unreadable store sends the reader to the store its detail names, not
+// to `ctxloom review`.
+func TestEffectiveTrustResult_Reason_UnreadableNamesTheStore(t *testing.T) {
+	r := EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceUnreadable, Detail: "project approvals store: /p/.ctxloom/approvals: permission denied"}
+	got := r.Reason()
+	assert.Contains(t, got, "could not be read")
+	assert.Contains(t, got, "/p/.ctxloom/approvals")
+	assert.NotContains(t, got, "ctxloom review")
 }

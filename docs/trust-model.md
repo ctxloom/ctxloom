@@ -306,15 +306,15 @@ people to approve without reading, blunting the prompts that *do* matter.
 So the decision moved to where it has purchase: **may ctxloom execute this
 binary at all**.
 
-**Discovery is trust-on-first-use.** Discovery itself is unchanged and
-deliberately permissive — it lists every first-party name plus every
-`ctxloom-companion-*` found by scanning `$PATH`, filtering nothing, because it
-is a *candidate list*. The gate is at exec. The first time a given companion
-would be run, ctxloom asks, and records the answer (the `ssh known_hosts`
-pattern). A **non-interactive session — an agent, CI, `ctxloom mcp` over stdio,
-any piped invocation — is never prompted**: the unconfirmed companion is skipped
-with a warning naming the file and the way to allow it. Fail-closed, matching
-how the probe already degrades on failure.
+**Admission is a signature, and nothing else.** Discovery is deliberately
+permissive — it lists every first-party name plus every `ctxloom-companion-*`
+found by scanning `$PATH`, filtering nothing, because it is a *candidate list*.
+The gate is at exec: a companion runs only when the release statement beside it
+(its name, version and SHA-256) carries a signature from a key the trust root
+authorizes for the `companion.v1.ctxloom.dev` namespace, the name matches the
+file resolved and the hash matches its bytes (`companions.AdmitCompanions`).
+Unsigned, untrusted-signer and tampered binaries are refused, never prompted;
+`ctxloom companion show <path>` says which and why.
 
 This closes a real hole. `./node_modules/.bin` is on `$PATH` in a large share of
 JavaScript projects, and an npm package — including a transitive dependency
@@ -324,47 +324,12 @@ start with no user action at all. That attacker does not control `$PATH`; they
 name-squatted an auto-exec convention in a directory already on it. Every *other*
 consumer of `node_modules/.bin` requires a human to type the command.
 
-**The record is keyed on the resolved absolute path AND the binary's SHA-256.**
-Path alone would let a replace-in-place swap inherit an existing approval; name
-alone would let a binary earlier in `$PATH` inherit an approval granted to a
-completely different file. An **approval** requires an exact `(path, sha256)`
-match — any byte change at an approved path re-prompts. A **refusal** matches on
-path alone, so "never run this" survives the binary being rebuilt.
-
-**First-party companions are exempt, but pinned by location.** `ltk`, `taskloom`
-and `reprise` are automatic *only* when they resolve from the directory the
-running `ctxloom` binary itself lives in — the location every install shape puts
-them in together (`just install` → `~/go/bin`, a Homebrew prefix, the
-devcontainer image, `$GOBIN`). That keeps routine rebuilds silent, which is the
-whole point of the exemption. A first-party **name** found anywhere else is a
-third-party binary that picked a familiar name, and goes through the prompt like
-any other: the name list is three guessable strings discovered unconditionally,
-so a name-only exemption would be the same hole in a smaller costume.
-
-**Acknowledged: this is the one place a missing record does not mean "not
-trusted".** Everywhere else in this document, absence of a decision denies —
-that is the rule the whole model rests on. Here a first-party binary resolving
-from ctxloom's own install directory executes with no record at all, and the
-exception is deliberate rather than an oversight.
-
-The reason it is safe is that the exemption is pinned to a location an attacker
-must already own to use: someone who can write to the directory the running
-`ctxloom` lives in can replace `ctxloom` itself, so the gate would be protecting
-you from a position they have already taken. A gate that only stops attackers
-who have not yet won is friction without security, and friction on every rebuild
-is what trains people to approve without reading.
-
-Stated here explicitly because a reader who finds `firstPartyPinned` in the code
-and knows the rule will otherwise read it as a bug and "fix" it — which would
-refuse `ltk`, `taskloom` and `reprise` out of the box for every user, on first
-run, to close nothing.
-
 **A loadout's signature is a diagnostic, not a gate.** This is the second place
 the companion class parts company with remote content, and it follows from the
 same fact. A publisher signature exists to protect bytes from an
 **intermediary** — a forge, a network, a tampered clone object. A loadout has no
 intermediary: its bytes come straight off the stdout of a binary the user
-already consented to execute. So a companion loadout is admitted whatever its
+its publisher's signature admitted. So a companion loadout is admitted whatever its
 signature says, and the signature facts are **reported** instead:
 
 - **No signature** → admitted, silently. Ordinary.
@@ -380,34 +345,23 @@ signature says, and the signature facts are **reported** instead:
   warning, unattributed. The key's trust status is a fact about the key, not a
   gate on local content.
 
-The control that actually catches a **swapped companion binary** is the
-hash-keyed exec consent above, which is the right place for it: it fires before
+The control that actually catches a **swapped companion binary** is the signed
+release statement's hash above, which is the right place for it: it fires before
 the binary runs, rather than after it has already executed.
 
 **What does not change.** Rejection still reaches companion content (step 1,
 above the exemption). An unreadable approvals store still denies it along with
-everything else. An absent, wedged, timed-out or **structurally** unusable
-companion (unparseable envelope, unrecognized contract, empty or non-base64
-bundle, unparseable bundle YAML) is still skipped with a warning — never fatal,
-never a stalled startup. Those cases produced no content to admit in the first
-place, which is what distinguishes them from a signature that merely failed to
-verify. Nothing is dropped silently: reporting replaces filtering throughout.
+everything else. Nothing is fatal and nothing stalls startup. An absent
+companion, or one that answers it has no loadout, contributes nothing. One that
+is admitted but never answers — wedged, timed out, or printing an unusable
+envelope — contributes something UNKNOWN, so its last-known loadout is carried
+forward with a warning rather than its hooks and servers being stripped
+(`~/.ctxloom/companion_loadouts/`). A loadout whose bundle YAML will not parse is
+skipped with a warning. Nothing is dropped silently: reporting replaces
+filtering throughout.
 
-**Where the record lives.** `~/.ctxloom/companion_consent.yaml`, personal only,
-mode `0600`. There is deliberately **no committable project counterpart**, unlike
-the approvals store: an approval answers "may this content be shown to the
-agent", which a team can legitimately decide once and share, whereas this answers
-"may ctxloom execute this file on **this machine**". A committable form would let
-a repo you cloned arrive carrying pre-approved binaries. Its only authority is
-filesystem permissions — the same standing the unsigned approval markers have —
-which is another reason it never leaves your home directory.
-
-Inspect and change it with `ctxloom companion list | allow <path> |
-forget <path>`. `allow` is also the scriptable escape hatch for CI, and it
-requires a human to type it rather than inferring consent from an environment.
-
-**Admitting a loadout is not the same as delivering it unconditionally.** Exec
-consent decides whether a companion's bytes are *admitted*; it says nothing about
+**Admitting a loadout is not the same as delivering it unconditionally.**
+Admission decides whether a companion's bytes are *admitted*; it says nothing about
 how much of the agent's context they then occupy. Those are separate controls and
 conflating them overstates what this section governs.
 
@@ -643,7 +597,6 @@ signature body, resolves pending — never allow.
 | `.ctxloom/approvals/` | The **project (committable) countersignature store**, same shape as the personal one. `ctxloom review --project` writes here; a team/CI inherits a lead's decisions via the project's `allowed_signers`. |
 | `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
 | `<bundle>/SHA256SUMS` + `<bundle>/.sigs/SHA256SUMS.<namespace>.<key-tag>.sig` | The bundle's ONE signature: the manifest over every file of the tree and the publisher's signature over the manifest, inside the tree, at the same pinned SHA — one entry per (signing key, namespace); a re-sign by the same key replaces its entry (`content.sigFileName`). Verified by `attest.VerifyBundle` before any item is read; travels with the tree on push, move and export. No manifest = unsigned. |
-| `~/.ctxloom/companion_consent.yaml` | The **companion exec-consent record**: one decision per companion binary, keyed on resolved absolute path + SHA-256. Mode `0600`, personal only, **no committable twin** — it answers "may ctxloom run this file on this machine", which no repo may answer for you. Plain data, not a signature; its authority is filesystem permissions. Managed with `ctxloom companion list\|allow\|forget`. |
 | `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
 | `state/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Local state, not cache: nothing rebuilds these, and deleting them degrades every later update review to a full-content display. |
@@ -680,8 +633,8 @@ context.
 | Listing stamp (`TrustStamper`) | JSON listings | stamped `trusted: false` + source |
 
 There is one choke *above* all of these, and it is not a content decision at
-all: **companion exec consent**. A companion whose execution nobody confirmed is
-never run, so its content never exists to gate. See "Companion loadouts".
+all: **companion admission**. A companion no trusted publisher signed is never
+run, so its content never exists to gate. See "Companion loadouts".
 
 Companion content — ctxloom's own included — passes through every one of
 these chokes exactly like remote/local content; it is simply allowed by

@@ -246,9 +246,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"bundle reject": {skip: "needs a resolvable ref; not exercised here"},
 	"bundle forget": {skip: "needs a resolvable ref with a decision already recorded against it; not exercised here"},
 
-	// Read-only over ~/.ctxloom/companion_consent.yaml, which is absent in
-	// this harness — the empty-store rendering is exactly what we want the
-	// five encodings to agree on.
+	// Read-only: it decides admission without executing anything, and in this
+	// harness finds no admitted companion — the rendering the five encodings
+	// must agree on.
 	"companion list": {extraArgs: noExtraArgs},
 	"auth status":    {extraArgs: noExtraArgs},
 	"companion show": {skip: "needs a real companion binary on PATH to resolve+hash; covered by companion_test.go"},

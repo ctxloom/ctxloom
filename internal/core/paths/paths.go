@@ -79,16 +79,6 @@ const (
 	// away (countersign.Store.Readable).
 	ApprovalsPlaceholderName = ".gitkeep"
 
-	// CompanionConsentFileName is the name (without extension) of the
-	// trust-on-first-use record for EXECUTING a companion binary — see
-	// HomeCompanionConsentPath. It is deliberately a PERSONAL-only file with no
-	// project/committable twin: approvals answer "may this content be shown to
-	// the agent", which a team can legitimately decide once and share, whereas
-	// this answers "may ctxloom exec this file on THIS machine", which is a
-	// property of the machine's filesystem and cannot be delegated to a repo. A
-	// committable form would let a clone arrive carrying pre-approved binaries.
-	CompanionConsentFileName = "companion_consent"
-
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
 
@@ -420,7 +410,6 @@ const (
 	whatHomeCoord         = "the coordinator state root"
 	whatHomeLocks         = "the home lock directory"
 	whatHomeApprovals     = "the user countersignature store"
-	whatCompanionConsent  = "the companion consent record"
 	whatAllowedSigners    = "the user trust root"
 	whatDistrustedSigners = "the user distrust record"
 	whatHomeRecords       = "the home records directory"
@@ -881,14 +870,6 @@ func HomeApprovalsPath() (string, error) {
 	return homeUnder(whatHomeApprovals, ApprovalsDirName)
 }
 
-// HomeCompanionConsentPath returns ~/.ctxloom/companion_consent.yaml — the
-// user-scoped record of which companion binaries the human agreed ctxloom may
-// EXECUTE (config.CompanionConsentStore). There is deliberately no project
-// counterpart: see CompanionConsentFileName.
-func HomeCompanionConsentPath() (string, error) {
-	return homeUnder(whatCompanionConsent, CompanionConsentFileName+".yaml")
-}
-
 // AllowedSignersPath returns the path to the trust-root file (at appPath root,
 // next to the approvals/ directory). Committable: a team distributes "trust
 // our lead's approve key / our org's publish key" by checking this file in,
@@ -1063,11 +1044,10 @@ func LocksPath(appPath string) string {
 
 // DirtyTreeCommitAckPath returns the record that a human authorized ctxloom to
 // commit on their behalf in THIS checkout (see DirtyTreeCommitAckFileName). It
-// is an internal/shared/admission.Store file, the same mechanism
-// HomeCompanionConsentPath uses for "may ctxloom act on this machine without
-// asking again" — except this one is PROJECT-scoped (a fact about one
-// checkout's branch, not the user), so it lives under appPath/state rather
-// than the home directory.
+// is an internal/shared/admission.Store file, recording "may ctxloom act here
+// without asking again". It is PROJECT-scoped (a fact about one checkout's
+// branch, not the user), so it lives under appPath/state rather than the home
+// directory.
 func DirtyTreeCommitAckPath(appPath string) string {
 	return filepath.Join(StatePath(appPath), DirtyTreeCommitAckFileName+".yaml")
 }
@@ -1297,10 +1277,6 @@ func Layout() []Entry {
 		{
 			Rel: filepath.Join(AppDirName, CoordDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "coordinator state for every project (owner locks, journals); a LIVE coordinator loses its lock and journal outright, and a recent-but-exited one's history becomes unrecoverable",
-		},
-		{
-			Rel: filepath.Join(AppDirName, CompanionConsentFileName+".yaml"), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
-			Lost: "the record of which companion binaries you agreed ctxloom may execute; you are asked again",
 		},
 		// Added by the home-lock-dir fix (fs-consolidation N1/undated-bronco
 		// closeout), same C13 shape as the seven RootHome rows above it.

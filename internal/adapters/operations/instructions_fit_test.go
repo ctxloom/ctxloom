@@ -40,14 +40,6 @@ func TestSessionInstructions_PartsLeadWithWhatCostsMostToLose(t *testing.T) {
 	assert.Less(t, catalog, static, "the catalog pointer precedes the static text")
 }
 
-// trimPending names why the whole worst-case text is allowed over the cap for
-// now: the static wording is the owner's, and the trim that fits it awaits
-// their ruling (row worried-chief; proposal instructions-trim.md in that
-// session's persist/proposals). Set it to "" with the trim. While it is set,
-// an overflow skips and a FIT fails — a pending marker that cannot outlive the
-// thing it waits for.
-const trimPending = "worried-chief: the static instruction text awaits the owner's trim ruling"
-
 // TestSessionInstructions_FitTheClientCap pins the WORST-CASE instructions
 // under InstructionsCharCap: past it, claude drops the tail without telling
 // the agent, and what is dropped is whatever was written last.
@@ -76,13 +68,6 @@ func TestSessionInstructions_FitTheClientCap(t *testing.T) {
 	assert.LessOrEqual(t, utf8.RuneCountInString(got[:catalogEnd]), InstructionsCharCap,
 		"the session line and the catalog pointer must survive the client cap")
 
-	fits := n <= InstructionsCharCap
-	switch {
-	case trimPending != "" && fits:
-		t.Fatalf("the worst case now fits (%d <= %d): clear trimPending so the cap is enforced", n, InstructionsCharCap)
-	case trimPending != "":
-		t.Skipf("%s (%d > %d chars)", trimPending, n, InstructionsCharCap)
-	}
 	assert.LessOrEqual(t, n, InstructionsCharCap,
 		"the worst-case instructions exceed the client cap; claude would drop the tail")
 }

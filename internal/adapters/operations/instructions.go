@@ -45,13 +45,10 @@ var mcpServerInstructions = resources.MustGetPromptText("layer-instructions")
 func premiseCatalogInstruction() string {
 	var b strings.Builder
 	b.WriteString(PremiseSelectionInstruction())
-	b.WriteString("\nThe catalog is the `")
+	b.WriteString("\nThe `")
 	b.WriteString(FragmentsResourceURI)
-	b.WriteString("` resource: every conditional fragment,\n")
-	b.WriteString("each with its premise and the qualified ref to quote back. Read it when you\n")
-	b.WriteString("are ABOUT TO ACT, not once at session start — a premise turns on what you\n")
-	b.WriteString("are about to do, so the answer only means something at the moment you have\n")
-	b.WriteString("something to match against.\n")
+	b.WriteString("` resource lists each conditional fragment's premise and the\n")
+	b.WriteString("qualified ref to quote back. Read it when you are ABOUT TO ACT.\n")
 	return b.String()
 }
 
@@ -112,7 +109,7 @@ func sessionLine(harp string) string {
 	// failure — every session is told where to put its plans right here — so
 	// it is the one place the location has to be right.
 	if planDir, perr := paths.HarpPlansDir(harp); perr == nil {
-		line += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). That directory is the one that survives a containerized run — plans written elsewhere under the session directory do not. A session may have multiple plans — use distinct names and reference plans by their path.", planDir, paths.PlanFileExt, filepath.Join(planDir, "v1-removal"+paths.PlanFileExt))
+		line += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). Plans written elsewhere do not survive a containerized run. Use a distinct name per plan.", planDir, paths.PlanFileExt, filepath.Join(planDir, "v1-removal"+paths.PlanFileExt))
 	}
 	return line
 }

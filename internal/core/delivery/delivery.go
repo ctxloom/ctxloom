@@ -326,11 +326,11 @@ func (t Target) Validate() error {
 // endpoint's rendering (InputsFor) — and nothing else about the engine.
 type Static interface {
 	Deliver(ctx context.Context, lo Loadout, root engine.Base, target Target) (Delivered, error)
-	// Reverse takes writer's contribution back out of EVERY file the
-	// record names for it, whatever root it lies under: the sweep of a
-	// writer whose session is gone, which has no target of its own to
-	// deliver against.
-	Reverse(ctx context.Context, ownership Ownership, writer Writer) error
+	// Reverse takes each writer's claims back out of EVERY file the record
+	// names for it, whatever root it lies under, in one batch: the sweep of
+	// writers whose sessions are gone, which have no target of their own to
+	// deliver against. A file several of them claimed in is written once.
+	Reverse(ctx context.Context, ownership Ownership, writers ...Writer) error
 }
 
 // Delivered is what one static delivery reports: the presentations the

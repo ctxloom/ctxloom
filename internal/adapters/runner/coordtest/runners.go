@@ -193,7 +193,9 @@ func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Base, delive
 	return delivery.Delivered{}, nil
 }
 
-func (noDelivery) Reverse(context.Context, delivery.Ownership, delivery.Writer) error { return nil }
+func (noDelivery) Reverse(context.Context, delivery.Ownership, ...delivery.Writer) error {
+	return nil
+}
 
 // Close kills every runner spawned so far.
 func (r *Runners) Close() {

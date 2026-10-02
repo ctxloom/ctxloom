@@ -684,6 +684,75 @@ func TestExecute_ADeadRunsBearerDoesNotOutliveItInTheProjectFile(t *testing.T) {
 	require.NotContains(t, writers, delivery.SessionWriter(dead.Identity.Harp), "the swept writer is gone from the record")
 }
 
+// TestExecute_TheSweepReversesEveryDeadSessionInOneWrite: N departed
+// sessions that each left an entry in the project file cost ONE change of
+// it, not one per session.
+func TestExecute_TheSweepReversesEveryDeadSessionInOneWrite(t *testing.T) {
+	s := newSharedProjectMCP(t)
+	a := s.run(t, "shared", "run-a")
+	b := s.run(t, "shared", "run-b")
+	s.locks.Dead[a.Identity.Harp], s.locks.Dead[b.Identity.Harp] = true, true
+
+	counter := &changeCounter{Fs: afero.NewOsFs(), n: map[string]int{}}
+	d := s.deps(t, &recordingDriver{})
+	d.Static = fsstatic.New(counter)
+	_, err := runner.Execute(context.Background(), d, s.resolve(t, "x", "run-next"))
+	require.NoError(t, err)
+	require.False(t, s.projectHolds(t, a.MCP.Credential))
+	require.False(t, s.projectHolds(t, b.MCP.Credential))
+	require.Equal(t, 1, counter.n[s.projectMCP], "two departed sessions, one change of the file they shared")
+	require.Subset(t, s.locks.Released, []string{a.Identity.Harp, b.Identity.Harp})
+}
+
+// TestExecute_EveryDeadSessionsLockIsHeldAcrossTheSweep: a session resuming
+// under a swept harp waits for the reversal rather than racing it, so no
+// departed session's lock is released before the one reversal returns.
+func TestExecute_EveryDeadSessionsLockIsHeldAcrossTheSweep(t *testing.T) {
+	s := newSharedProjectMCP(t)
+	a := s.run(t, "shared", "run-a")
+	b := s.run(t, "shared", "run-b")
+	s.locks.Dead[a.Identity.Harp], s.locks.Dead[b.Identity.Harp] = true, true
+	spy := &reverseSpy{Static: staticWriter(t), locks: s.locks, from: len(s.locks.Released)}
+	d := s.deps(t, &recordingDriver{})
+	d.Static = spy
+	_, err := runner.Execute(context.Background(), d, s.resolve(t, "x", "run-next"))
+	require.NoError(t, err)
+	require.Len(t, spy.calls, 1, "one reversal for every departed session")
+	require.NotContains(t, spy.releasedDuring, a.Identity.Harp)
+	require.NotContains(t, spy.releasedDuring, b.Identity.Harp)
+}
+
+// reverseSpy notes, at each Reverse, which locks had already been released.
+type reverseSpy struct {
+	*fsstatic.Static
+	locks          *launchtest.Locks
+	from           int // releases before the run under test are not its own
+	calls          [][]delivery.Writer
+	releasedDuring []string
+}
+
+func (r *reverseSpy) Reverse(ctx context.Context, o delivery.Ownership, writers ...delivery.Writer) error {
+	r.calls = append(r.calls, writers)
+	r.releasedDuring = append(r.releasedDuring, r.locks.Released[r.from:]...)
+	return r.Static.Reverse(ctx, o, writers...)
+}
+
+// changeCounter counts the renames onto and removals of each path.
+type changeCounter struct {
+	afero.Fs
+	n map[string]int
+}
+
+func (c *changeCounter) Rename(o, n string) error {
+	c.n[n]++
+	return safefs.Rename(c.Fs, o, n)
+}
+
+func (c *changeCounter) Remove(n string) error {
+	c.n[n]++
+	return c.Fs.Remove(n)
+}
+
 // TestExecute_ALiveSessionsDeliveryIsNotSwept: only a PROVEN-dead owner is
 // swept. A session whose lock is held is running, and taking its entry out
 // of the project file would cut a live engine off from its endpoint.

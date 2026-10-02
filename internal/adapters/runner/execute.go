@@ -254,11 +254,13 @@ func serveEndpoint(ctx context.Context, deps Deps, lo delivery.Loadout) (func(),
 // sweepDeparted reverses, through the ownership record, the delivery of
 // every session whose liveness lock proves it gone — the run that was
 // killed before its teardown, whose files (a project .mcp.json among them)
-// would otherwise keep its entries forever. The lock is held across the
-// reversal, so a session resuming under that harp waits rather than racing
-// it. Only a proven-dead owner is swept: a held, missing or untrustworthy
-// lock leaves the record alone. Best effort: a failure is reported and the
-// run goes on, as the worktree reaper's startup sweep does.
+// would otherwise keep its entries forever. Every departed session is
+// reversed in ONE batch, so a file N of them claimed in is written once.
+// Each one's lock is held across the reversal, so a session resuming under
+// that harp waits rather than racing it. Only a proven-dead owner is swept:
+// a held, missing or untrustworthy lock leaves the record alone. Best
+// effort: a failure is reported and the run goes on, as the worktree
+// reaper's startup sweep does.
 func sweepDeparted(ctx context.Context, deps Deps) {
 	if deps.Records == nil {
 		return // the delivery itself refuses the missing record (delivery.ErrNoRoot)
@@ -268,18 +270,26 @@ func sweepDeparted(ctx context.Context, deps Deps) {
 		reportSweep(deps, "list the ownership record's writers", err)
 		return
 	}
+	var dead []delivery.Writer
+	var releases []func()
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
 	for _, w := range writers {
 		harp, ok := w.SessionHarp()
 		if !ok {
 			continue
 		}
 		probe, release := deps.Locks.Acquire(harp)
+		releases = append(releases, release)
 		if probe.Dead {
-			if err := deps.Static.Reverse(ctx, deps.Records, w); err != nil {
-				reportSweep(deps, fmt.Sprintf("reverse departed session %s's delivery", harp), err)
-			}
+			dead = append(dead, w)
 		}
-		release()
+	}
+	if err := deps.Static.Reverse(ctx, deps.Records, dead...); err != nil {
+		reportSweep(deps, fmt.Sprintf("reverse departed sessions %v's deliveries", dead), err)
 	}
 }
 

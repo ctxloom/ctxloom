@@ -198,10 +198,10 @@ func releaseWriters(st delivery.Staging, ownership delivery.Ownership, within fu
 	return nil
 }
 
-// Reverse takes writer's claims back out of every file the record names
+// Reverse takes each writer's claims back out of every file the record names
 // for it, in one batch (delivery.Static.Reverse).
-func (s *Static) Reverse(_ context.Context, ownership delivery.Ownership, writer delivery.Writer) error {
-	return s.reverse(ownership, func(string) bool { return true }, writer)
+func (s *Static) Reverse(_ context.Context, ownership delivery.Ownership, writers ...delivery.Writer) error {
+	return s.reverse(ownership, func(string) bool { return true }, writers...)
 }
 
 // reverse releases writers from each file within admits, in one batch.

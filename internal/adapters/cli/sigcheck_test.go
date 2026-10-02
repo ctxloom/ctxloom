@@ -14,6 +14,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -249,4 +251,16 @@ func TestDryRun_NamesTheWaiverOfTheSessionItRunsIn(t *testing.T) {
 	res = runCLI(t, "run", "--dry-run", "--format", "text", "-p", "dev", "hi")
 	require.NoError(t, res.err, res.all())
 	assert.Contains(t, res.stdout, "=== Signature Check ===\nsession: "+bundles.SessionSigCheckNotice+"\n")
+}
+
+// session_signature_check exists to name a waiver the run's OWN posture does
+// not show; a run that is itself waived already says "disabled".
+func TestSessionSignatureCheckOf_OnlyWhenTheRunItselfVerifies(t *testing.T) {
+	root, records, retraction := compositetest.Ports()
+	waived, err := composite.NewTrust(root, records, retraction, composite.WithoutSignatureCheck())
+	require.NoError(t, err)
+
+	assert.Equal(t, signatureCheckDisabled, sessionSignatureCheckOf(compositetest.Trust(), true))
+	assert.Empty(t, sessionSignatureCheckOf(waived, true), "the run's own signature_check already says disabled")
+	assert.Empty(t, sessionSignatureCheckOf(compositetest.Trust(), false))
 }

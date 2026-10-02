@@ -42,3 +42,12 @@ func TestDoctorCheckSigCheck_NamesTheWaiverOfTheSessionItRunsIn(t *testing.T) {
 	assert.Equal(t, DoctorWarn, c.Status, "a waived session is never reported as fine")
 	assert.Equal(t, bundles.SessionSigCheckNotice, c.Detail)
 }
+
+// A doctor that is itself waived, inside a waived session, reports its own
+// waiver — the stronger statement, which carries the edited trees it hid.
+func TestDoctorCheckSigCheck_AWaivedInvocationReportsItsOwnWaiverInsideAWaivedSession(t *testing.T) {
+	c := doctorCheckSigCheck(true, true, []string{"acme/a"})
+	assert.Equal(t, DoctorWarn, c.Status)
+	assert.Contains(t, c.Detail, bundles.SigCheckDisabledNotice)
+	assert.Contains(t, c.Detail, "acme/a")
+}

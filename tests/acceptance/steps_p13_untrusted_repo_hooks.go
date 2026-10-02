@@ -203,9 +203,14 @@ func p13Fixture(w *World, p *p13State) error {
 	if p.variant != p13CtxloomUntrusted {
 		return nil
 	}
-	// After the commit: the verdict walks the repo's .git. A verdict that is
-	// not untrusted means the human home trusts the fixture, and the turn
-	// would measure the trusted control instead — refused, not spent.
+	return p13ComposeLaunch(p)
+}
+
+// p13ComposeLaunch composes the ctxloom-launch cell after the commit, since
+// the verdict walks the repo's .git. A verdict that is not untrusted means
+// the human home trusts the fixture, and the turn would measure the trusted
+// control instead — refused, not spent.
+func p13ComposeLaunch(p *p13State) error {
 	var err error
 	if p.launch, err = p13CtxloomLaunch(p.home, p.cfg, p.repo); err != nil {
 		return err

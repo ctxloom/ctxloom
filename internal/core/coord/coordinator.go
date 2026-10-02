@@ -247,8 +247,8 @@ type Coordinator struct {
 	// lazy (one per child, on its first message), so a run that never sends
 	// never gets a spool directory.
 	spoolIn *SpoolWriterCache
-	// spoolReactor serialises the coordinator's own spool reading (out/ and
-	// in/consumed sweeps) — see its type.
+	// spoolReactor serialises the coordinator's own spool reading (out/
+	// sweeps and delivered-record reads) — see its type.
 	spoolReactor *SpoolReactor
 	// spoolSweepInterval overrides the reconciliation cadence
 	// (Options.SpoolSweepInterval; 0 = spoolSweepInterval). Test seam: a

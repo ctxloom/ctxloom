@@ -58,8 +58,9 @@ func (h *Home) SweepSpoolIn() {
 // the engine exists waits in the buffer.
 //
 // Delivery is where the file's journey through this process starts, not where
-// it ends: the consume-rename happens later, at the moment the delivery is
-// proven (the engine accepted the turn). deliverNotice's own dedupe on message id is what
+// it ends: the delivery ack (spool.Deliver: record the identity, then delete
+// the file) happens later, at the moment the delivery is proven (the engine
+// accepted the turn). deliverNotice's own dedupe on message id is what
 // makes a doorbell and a sweep that race resolve to one delivery.
 func (h *Home) sweepSpoolIn() {
 	if h.exited.Load() {
@@ -149,15 +150,15 @@ func (h *Home) deliverSpoolEntry(e spool.Entry) {
 // Instead the file is moved OUT of in/ into the local in/failed/ terminal
 // directory (spool.Fail): present on disk, unreadable, and never swept
 // again — a state an operator can tell apart from "never arrived" (nothing
-// in any directory) and from "delivered" (in/consumed/), which is the
-// three-way distinction a bare warning-and-retry cannot make.
+// in any directory) and from "delivered" (its identity in in/delivered/),
+// which is the three-way distinction a bare warning-and-retry cannot make.
 func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
 	h.spoolDeliveryCount.Failed.Add(1)
 	coord.FailSpool(h.rep, h.cfg.Mapper, "runner", e.Ref, why, cause)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the
-// consume-rename can find it at the acknowledgement moment.
+// delivery ack can find it at the acknowledgement moment.
 func (h *Home) rememberSpoolRef(id string, ref spool.Ref) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -14,8 +14,8 @@ import (
 )
 
 // TestHome_ConsumeAfterCrashTouchesNoSpool FORCES the interleaving that made
-// a test's temp HOME "not empty" at teardown: a consume-rename (which mkdirs
-// its target) reaching the Home AFTER Crash tore it down. A crashed Home
+// a test's temp HOME "not empty" at teardown: a delivery ack (which mkdirs
+// the delivered record) reaching the Home AFTER Crash tore it down. A crashed Home
 // owns no spool any more — the file stays where it was, and no directory is
 // created under a root the test is about to remove.
 func TestHome_ConsumeAfterCrashTouchesNoSpool(t *testing.T) {

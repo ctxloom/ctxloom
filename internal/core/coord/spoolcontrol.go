@@ -166,7 +166,7 @@ func (c *Coordinator) WithdrawSteer(by ControlInitiator, harp, messageID string)
 	if err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			// The reader won between the scan and the rename. Same answer as
-			// finding it in consumed/, because it is the same fact.
+			// finding it in the delivered record, because it is the same fact.
 			c.audit("agent_steer_withdraw", by.auditName(), map[string]string{
 				"harp": harp, "message_id": messageID, "outcome": "already_delivered",
 			})

@@ -332,17 +332,36 @@ func p6ReadSpoolCensus(root, harp string) (p6SpoolCensus, error) {
 			c.Files[dir] = names
 		}
 	}
+	return c, nil
+}
+
+// p6Census is the whole census: the message planes (p6ReadSpoolCensus) and
+// the child's delivered record.
+func p6Census(root, harp string) (p6SpoolCensus, error) {
+	c, err := p6ReadSpoolCensus(root, harp)
+	if err != nil {
+		return c, err
+	}
+	c.Delivered, err = p6ReadDeliveredRecord(root)
+	return c, err
+}
+
+// p6ReadDeliveredRecord lists the identities in the delivered record under
+// root, sorted. A record never created is empty; a staging file (dot-prefixed,
+// iox.WriteFileAtomic's) is not an identity.
+func p6ReadDeliveredRecord(root string) ([]string, error) {
 	record, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(p6DeliveredRecord)))
 	if err != nil && !os.IsNotExist(err) {
-		return c, fmt.Errorf("p6: reading the delivered record %s/%s: %w", root, p6DeliveredRecord, err)
+		return nil, fmt.Errorf("p6: reading the delivered record %s/%s: %w", root, p6DeliveredRecord, err)
 	}
+	var ids []string
 	for _, e := range record {
 		if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-			c.Delivered = append(c.Delivered, e.Name())
+			ids = append(ids, e.Name())
 		}
 	}
-	sort.Strings(c.Delivered)
-	return c, nil
+	sort.Strings(ids)
+	return ids, nil
 }
 
 // String renders the census as the evidence line a human reads: every plane,

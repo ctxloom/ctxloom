@@ -98,38 +98,76 @@ func ownerDeliveredFrom(w *World, harp, kind string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "interactions.jsonl")
-	journals, err := filepath.Glob(pattern)
+	ids, err := routedToOwner(w, owner, harp, kind)
 	if err != nil {
-		return false, fmt.Errorf("glob %q: %w", pattern, err)
+		return false, err
 	}
-	for _, j := range journals {
-		raw, err := os.ReadFile(j)
-		if err != nil {
-			return false, err
-		}
-		for _, line := range strings.Split(string(raw), "\n") {
-			var f struct {
-				Kind string `json:"kind"`
-				Data struct {
-					Kind   string            `json:"kind"`
-					Actor  string            `json:"actor"`
-					Detail map[string]string `json:"detail"`
-				} `json:"data"`
-			}
-			if json.Unmarshal([]byte(line), &f) != nil || f.Kind != "interaction" || f.Data.Kind != "spool_mail_out" {
-				continue
-			}
-			d := f.Data.Detail
-			if f.Data.Actor != owner || d["from"] != harp || d["kind"] != kind || d["message_id"] == "" {
-				continue
-			}
-			if _, err := os.Stat(filepath.Join(record, d["message_id"])); err == nil {
-				return true, nil
-			}
+	for _, id := range ids {
+		if _, err := os.Stat(filepath.Join(record, id)); err == nil {
+			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// routedToOwner lists the ids of every message of kind the coordinator wrote
+// into owner's in/ from harp, read from its audit journal's spool_mail_out
+// entries (~/.ctxloom/coord/<project-key>/interactions.jsonl).
+func routedToOwner(w *World, owner, harp, kind string) ([]string, error) {
+	pattern := filepath.Join(w.env.HomeDir, ".ctxloom", "coord", "*", "interactions.jsonl")
+	journals, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("glob %q: %w", pattern, err)
+	}
+	var ids []string
+	for _, j := range journals {
+		raw, err := os.ReadFile(j)
+		if err != nil {
+			return nil, err
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if id, ok := spoolMailOutID(line, owner, harp, kind); ok {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids, nil
+}
+
+// spoolMailOutID is the message id of one audit line, when it records the
+// coordinator writing a message of kind from harp into owner's in/.
+func spoolMailOutID(line, owner, harp, kind string) (string, bool) {
+	var f struct {
+		Kind string `json:"kind"`
+		Data struct {
+			Kind   string            `json:"kind"`
+			Actor  string            `json:"actor"`
+			Detail map[string]string `json:"detail"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(line), &f) != nil || f.Kind != "interaction" || f.Data.Kind != "spool_mail_out" {
+		return "", false
+	}
+	d := f.Data.Detail
+	if f.Data.Actor != owner || d["from"] != harp || d["kind"] != kind || d["message_id"] == "" {
+		return "", false
+	}
+	return d["message_id"], true
+}
+
+// deliveredReportFrom is harp's turn result, read from the child's routed copy
+// in its out/consumed/, once the owner's reader has delivered it — nil until
+// then.
+func deliveredReportFrom(w *World, harp string) (*spool.Message, error) {
+	delivered, err := ownerDeliveredFrom(w, harp, "result")
+	if err != nil || !delivered {
+		return nil, err
+	}
+	routed, err := childSpoolMessages(w, harp, spool.DirOutConsumed)
+	if err != nil {
+		return nil, err
+	}
+	return reportFrom(routed, harp), nil
 }
 
 // reportFrom returns the child's turn RESULT among msgs, by the child's harp.
@@ -208,15 +246,11 @@ func registerMailDrainSteps(ctx *godog.ScenarioContext) {
 			}
 			deadline := time.Now().Add(time.Duration(secs) * time.Second)
 			for {
-				delivered, err := ownerDeliveredFrom(w, harp, "result")
+				r, err := deliveredReportFrom(w, harp)
 				if err != nil {
 					return err
 				}
-				routed, err := childSpoolMessages(w, harp, spool.DirOutConsumed)
-				if err != nil {
-					return err
-				}
-				if r := reportFrom(routed, harp); r != nil && delivered {
+				if r != nil {
 					if !strings.Contains(r.Body, selfSpec.Guidance) {
 						return fmt.Errorf("%s's delivered report does not carry its OWN guidance %q:\n%s", self, selfSpec.Guidance, r.Body)
 					}

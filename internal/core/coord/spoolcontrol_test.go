@@ -513,8 +513,9 @@ func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {
 // paused run takes no new turn, AND the mail behind that turn is NOT consumed.
 //
 // Consuming it would convert a pause into silent data loss on the very path
-// pause exists to make safe — the file would sit in consumed/ with the agent
-// never having seen it, and a relaunch would find nothing to deliver.
+// pause exists to make safe — the file would be deleted and its identity
+// recorded with the agent never having seen it, and a relaunch would find
+// nothing to deliver.
 //
 // It also pins that pause is NOT a delivery: nothing about it appears in the
 // message carrier. The only file in the child's spool is the mail the test

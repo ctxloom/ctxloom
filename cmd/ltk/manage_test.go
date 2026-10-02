@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
@@ -26,7 +27,7 @@ func TestWriteFile_RefusesToTruncateSettingsToZeroBytes(t *testing.T) {
 	}
 
 	for _, empty := range [][]byte{nil, {}} {
-		if err := writeFile(path, empty); err == nil {
+		if err := writeFile(afero.NewOsFs(), path, empty); err == nil {
 			t.Fatal("writeFile accepted an empty payload over an existing settings file")
 		}
 		got, err := os.ReadFile(path)
@@ -64,7 +65,7 @@ func TestScaffoldConfig_RefusesRuleLessDefaults(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".ltk", "config.yaml")
-	if err := scaffoldConfig(path, true, false); err == nil {
+	if err := scaffoldConfig(afero.NewOsFs(), path, true, false); err == nil {
 		t.Fatal("scaffoldConfig installed a rule set with zero rules and reported success")
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -73,7 +74,7 @@ func TestScaffoldConfig_RefusesRuleLessDefaults(t *testing.T) {
 
 	// --no-default-rules asks for the deliberately empty template: that is a
 	// legitimate empty state and must still work.
-	if err := scaffoldConfig(path, false, false); err != nil {
+	if err := scaffoldConfig(afero.NewOsFs(), path, false, false); err != nil {
 		t.Fatalf("--no-default-rules must still scaffold the empty template: %v", err)
 	}
 }
@@ -91,7 +92,7 @@ func TestScaffoldConfigPreservesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := scaffoldConfig(path, true, false); err != nil {
+	if err := scaffoldConfig(afero.NewOsFs(), path, true, false); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
@@ -114,7 +115,7 @@ func TestScaffoldConfigForceBacksUp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := scaffoldConfig(path, true, true); err != nil {
+	if err := scaffoldConfig(afero.NewOsFs(), path, true, true); err != nil {
 		t.Fatal(err)
 	}
 	bak, err := os.ReadFile(path + ".bak")
@@ -145,7 +146,7 @@ func TestScaffoldConfig_UnreadableExistingPathSaysWhatItWasDoing(t *testing.T) {
 	}
 	path := filepath.Join(blocker, "config.yaml")
 
-	err := scaffoldConfig(path, true, false)
+	err := scaffoldConfig(afero.NewOsFs(), path, true, false)
 	if err == nil {
 		t.Fatal("an unreadable existing-rules probe was treated as success")
 	}
@@ -183,7 +184,7 @@ func TestScaffoldConfigForceBackupPreservesMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := scaffoldConfig(path, true, true); err != nil {
+	if err := scaffoldConfig(afero.NewOsFs(), path, true, true); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(path + ".bak")
@@ -197,7 +198,7 @@ func TestScaffoldConfigForceBackupPreservesMode(t *testing.T) {
 
 func TestScaffoldConfigWritesWhenAbsent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".ltk", "config.yaml")
-	if err := scaffoldConfig(path, false, false); err != nil { // minimal template
+	if err := scaffoldConfig(afero.NewOsFs(), path, false, false); err != nil { // minimal template
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -212,13 +213,13 @@ func TestWriteFileAtomicReplace(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".claude", "settings.json")
 
-	if err := writeFile(path, []byte(`{"a":1}`)); err != nil {
+	if err := writeFile(afero.NewOsFs(), path, []byte(`{"a":1}`)); err != nil {
 		t.Fatalf("initial write (with dir creation): %v", err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFile(path, []byte(`{"a":2}`)); err != nil {
+	if err := writeFile(afero.NewOsFs(), path, []byte(`{"a":2}`)); err != nil {
 		t.Fatalf("rewrite: %v", err)
 	}
 

@@ -72,10 +72,14 @@ func Env(env map[string]string, key string) string {
 // an engine ran, or WHAT reached it, must not first have to know which arm
 // the run took.
 type Record struct {
-	Mode          int32
-	WorkDir       string
-	Env           map[string]string
-	Context       string
+	Mode    int32
+	WorkDir string
+	Env     map[string]string
+	Context string
+	// ContextFile is the path the context was read from: WHERE the
+	// runner delivered it, which a test can still read after the run's
+	// teardown has reversed the delivery.
+	ContextFile   string
 	Prompt        string
 	FragmentCount int
 	DenyTools     []string
@@ -110,6 +114,9 @@ func WriteRecord(file string, in Record) error {
 		_, _ = fmt.Fprintf(&input, "cwd=<error: %v>\n", err)
 	}
 	_, _ = fmt.Fprintf(&input, "workdir=%s\n", in.WorkDir)
+	if in.ContextFile != "" {
+		_, _ = fmt.Fprintf(&input, "context_file=%s\n", in.ContextFile)
+	}
 	if host, err := os.Hostname(); err == nil {
 		_, _ = fmt.Fprintf(&input, "hostname=%s\n", host)
 	} else {

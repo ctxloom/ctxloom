@@ -171,7 +171,7 @@ func TestTurn_HangMarkerStallsSilentlyUntilCancelled(t *testing.T) {
 // TestTurn_WritesTheRecordFromWhatWasDelivered: CTXLOOM_MOCK_RECORD_FILE
 // gets the turn's evidence — the prompt as delivered, the deny list the
 // delivered settings file carries, the skills the delivered skills dir
-// holds, the working directory — read back off the FILES the runner
+// holds, the working directory, the context file's path — read back off the FILES the runner
 // delivered (the exec's --context names the root), never a Setup of its own.
 func TestTurn_WritesTheRecordFromWhatWasDelivered(t *testing.T) {
 	root := t.TempDir()
@@ -189,6 +189,7 @@ func TestTurn_WritesTheRecordFromWhatWasDelivered(t *testing.T) {
 	got, err := os.ReadFile(record)
 	require.NoError(t, err)
 	assert.Contains(t, string(got), "workdir=/work/dir")
+	assert.Contains(t, string(got), "context_file="+filepath.Join(root, ContextFileName)+"\n", "the record says WHERE the context was delivered, which outlives the run's teardown")
 	assert.Contains(t, string(got), "=== DenyTools ===\nWebFetch\nBash\n")
 	assert.Contains(t, string(got), "=== Skills ===\nreview\n")
 	assert.Contains(t, string(got), "=== Prompt ===\nFRAGMENT-BODY: seeded\n\nthe prompt\n")

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,10 +118,12 @@ func setupSessionOnlyProject(t *testing.T) (*testenv.TestEnvironment, *testenv.M
 // TestRun_DefaultBindingWritesOnlyTheSession: after a run on the mock with
 // a default binding, the project tree and the fake real home are
 // byte-identical before and after — except the project's .ctxloom/state and
-// ctxloom's own ~/.ctxloom — while the session's directory carries the
-// mock's context.
+// ctxloom's own ~/.ctxloom — while the mock read its context from under the
+// session's directory. Where the context was is read off the mock's record,
+// written during the turn: the runner reverses its delivery at teardown, so
+// the file itself is gone by the time the run returns.
 func TestRun_DefaultBindingWritesOnlyTheSession(t *testing.T) {
-	env, _ := setupSessionOnlyProject(t)
+	env, mockLM := setupSessionOnlyProject(t)
 	_ = env.Run("agent", "create", "dev", "--profiles", "dev")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 
@@ -139,21 +142,23 @@ func TestRun_DefaultBindingWritesOnlyTheSession(t *testing.T) {
 		assert.NoFileExists(t, filepath.Join(env.ProjectDir, f), "the mock's project-side file %s landed under a default binding", f)
 	}
 
+	contextFile, context := mockRecordedContext(t, mockLM)
+	assert.Equal(t, "MOCK_CONTEXT.md", filepath.Base(contextFile))
 	dirs := sessionDirs(t, env)
 	require.NotEmpty(t, dirs)
-	var carried []string
-	for _, d := range dirs {
-		carried = append(carried, findUnder(t, d, "MOCK_CONTEXT.md")...)
-	}
-	assert.NotEmpty(t, carried, "the session carries the mock's context under %v", dirs)
+	assert.True(t, slices.ContainsFunc(dirs, func(d string) bool { return strings.HasPrefix(contextFile, d+string(filepath.Separator)) }),
+		"the mock read its context from %s, not from under the session's directory %v", contextFile, dirs)
+	assert.Contains(t, context, "Project rules for the session.", "the session's context reached the mock")
 }
 
 // TestRun_ProjectRootSelectedForOneSurface: a binding whose `roots:` selects
 // the project root for the context surface lands that surface — and only
 // that surface — in the project; the dry-run plan names the selection
-// unsafe.
+// unsafe. The mock's record shows it read the project's file during the
+// turn, and the runner's teardown takes that per-run write back out: it does
+// not outlive the run.
 func TestRun_ProjectRootSelectedForOneSurface(t *testing.T) {
-	env, _ := setupSessionOnlyProject(t)
+	env, mockLM := setupSessionOnlyProject(t)
 	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "mock", "--root", "context=project-root")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 
@@ -165,9 +170,29 @@ func TestRun_ProjectRootSelectedForOneSurface(t *testing.T) {
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 	require.Contains(t, env.LastOutput(), "MOCK-REPLY")
 
-	assert.FileExists(t, filepath.Join(env.ProjectDir, "MOCK_CONTEXT.md"), "the selected surface lands in the project")
+	contextFile, context := mockRecordedContext(t, mockLM)
+	assert.Equal(t, filepath.Join(env.ProjectDir, "MOCK_CONTEXT.md"), contextFile, "the selected surface lands in the project")
+	assert.Contains(t, context, "Project rules for the session.", "the project's file carried the session's context")
+	assert.NoFileExists(t, contextFile, "the run's teardown reverses its write into the project")
 	for _, f := range mockProjectFiles[1:] {
 		assert.NoFileExists(t, filepath.Join(env.ProjectDir, f), "an unselected surface %s landed in the project", f)
 	}
 	assert.NoDirExists(t, filepath.Join(env.HomeDir, ".mock"), "the real home is never written")
+}
+
+// mockRecordedContext is the context file the mock read during its turn
+// (the record's context_file line) and the context it read from it.
+func mockRecordedContext(t *testing.T, mockLM *testenv.MockLM) (file, context string) {
+	t.Helper()
+	rec, err := mockLM.GetRecordedInput()
+	require.NoError(t, err, "the mock wrote no record")
+	for _, line := range strings.Split(rec, "\n") {
+		if v, ok := strings.CutPrefix(line, "context_file="); ok {
+			file = v
+		}
+	}
+	require.NotEmpty(t, file, "the mock's record names no context file:\n%s", rec)
+	_, context, _ = strings.Cut(rec, "=== Context ===\n")
+	context, _, _ = strings.Cut(context, "=== Prompt ===")
+	return file, context
 }

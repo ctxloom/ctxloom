@@ -217,6 +217,7 @@ func recordTurn(ex engine.Exec, prompt string, posture engine.TurnPosture) error
 	}
 	rec := Record{Mode: 1, WorkDir: ex.WorkDir, Env: ex.Env, Prompt: prompt, Posture: &posture}
 	if contextFile := argOf(ex, contextFlag); contextFile != "" {
+		rec.ContextFile = contextFile
 		if body, err := os.ReadFile(contextFile); err == nil {
 			rec.Context = string(body)
 		}

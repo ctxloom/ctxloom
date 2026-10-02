@@ -855,31 +855,29 @@ func (ts *TrustStamper) resolve(br trust.BundleRef, read bundles.BundleRead, pay
 }
 
 // resultOf projects a gate's Verdict onto the stamped result: the Source is
-// the cascade STEP the Reason names, and Detail travels as the verdict's.
+// the cascade STEP the Reason names (reasonSources; any other reason is
+// pending), and Detail travels as the verdict's.
 func resultOf(v bundles.Verdict) EffectiveTrustResult {
 	res := EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending, Detail: v.Detail}
 	if v.Allow {
 		res.Decision = trust.Allow
 	}
-	switch v.Reason {
-	case bundles.ReasonRejected:
-		res.Source = trust.SourceRejected
-	case bundles.ReasonRetracted:
-		res.Source = trust.SourceRetracted
-	case bundles.ReasonLocal, bundles.ReasonStaleLocalSignature:
-		res.Source = trust.SourceLocal
-	case bundles.ReasonCompanion:
-		res.Source = trust.SourceCompanion
-	case bundles.ReasonTrustedSigner:
-		res.Source = trust.SourceTrustedSigner
-	case bundles.ReasonApproved:
-		res.Source = trust.SourceAccepted
-	case bundles.ReasonRecordsUnreadable:
-		res.Source = trust.SourceUnreadable
-	case bundles.ReasonSigCheckDisabled:
-		res.Source = trust.SourceSigCheckDisabled
-	case bundles.ReasonSigCheckDisabledEditedTree:
-		res.Source = trust.SourceSigCheckDisabledEditedTree
+	if src, ok := reasonSources[v.Reason]; ok {
+		res.Source = src
 	}
 	return res
+}
+
+// reasonSources is the cascade step each Reason names, for resultOf.
+var reasonSources = map[bundles.Reason]trust.Source{
+	bundles.ReasonRejected:                   trust.SourceRejected,
+	bundles.ReasonRetracted:                  trust.SourceRetracted,
+	bundles.ReasonLocal:                      trust.SourceLocal,
+	bundles.ReasonStaleLocalSignature:        trust.SourceLocal,
+	bundles.ReasonCompanion:                  trust.SourceCompanion,
+	bundles.ReasonTrustedSigner:              trust.SourceTrustedSigner,
+	bundles.ReasonApproved:                   trust.SourceAccepted,
+	bundles.ReasonRecordsUnreadable:          trust.SourceUnreadable,
+	bundles.ReasonSigCheckDisabled:           trust.SourceSigCheckDisabled,
+	bundles.ReasonSigCheckDisabledEditedTree: trust.SourceSigCheckDisabledEditedTree,
 }

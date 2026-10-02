@@ -271,40 +271,30 @@ func PublisherOf(read BundleRead) Reason {
 // appears in `--format json` output. Changing one of these changes a
 // machine-readable contract.
 func (r Reason) String() string {
-	switch r {
-	case ReasonLocal:
-		return "local"
-	case ReasonCompanion:
-		return "companion"
-	case ReasonTrustedSigner:
-		return "trusted-signer"
-	case ReasonApproved:
-		return "approved"
-	case ReasonStaleLocalSignature:
-		return "stale-local-signature"
-	case ReasonRejected:
-		return "rejected"
-	case ReasonRetracted:
-		return "retracted"
-	case ReasonTampered:
-		return "tampered"
-	case ReasonUnsigned:
-		return "unsigned"
-	case ReasonUntrustedSigner:
-		return "untrusted-signer"
-	case ReasonPending:
-		return "pending"
-	case ReasonUnaddressable:
-		return "unaddressable"
-	case ReasonUnestablished:
-		return "unestablished"
-	case ReasonUngoverned:
-		return "ungoverned"
-	case ReasonRecordsUnreadable:
-		return "records-unreadable"
-	default:
-		return "unset"
+	if name, ok := reasonNames[r]; ok {
+		return name
 	}
+	return "unset"
+}
+
+// reasonNames is the wire spelling of every reason; one absent from it
+// (ReasonUnset included) renders "unset".
+var reasonNames = map[Reason]string{
+	ReasonLocal:               "local",
+	ReasonCompanion:           "companion",
+	ReasonTrustedSigner:       "trusted-signer",
+	ReasonApproved:            "approved",
+	ReasonStaleLocalSignature: "stale-local-signature",
+	ReasonRejected:            "rejected",
+	ReasonRetracted:           "retracted",
+	ReasonTampered:            "tampered",
+	ReasonUnsigned:            "unsigned",
+	ReasonUntrustedSigner:     "untrusted-signer",
+	ReasonPending:             "pending",
+	ReasonUnaddressable:       "unaddressable",
+	ReasonUnestablished:       "unestablished",
+	ReasonUngoverned:          "ungoverned",
+	ReasonRecordsUnreadable:   "records-unreadable",
 }
 
 // MarshalJSON emits the wire spelling rather than the iota, so a JSON consumer
@@ -322,36 +312,43 @@ func (r Reason) MarshalJSON() ([]byte, error) {
 //
 // detail is the Verdict's own Detail; an empty one simply drops the parenthetical.
 func (r Reason) Explain(detail string) string {
+	if sentence, ok := fixedExplanations[r]; ok {
+		return sentence
+	}
+	if sentence, ok := detailedExplanations[r]; ok {
+		return withDetail(sentence, detail)
+	}
 	switch r {
-	case ReasonRejected:
-		return "rejected"
-	case ReasonRetracted:
-		return withDetail("retracted by the publisher", detail)
-	case ReasonTampered:
-		return withDetail("its signature does not cover these bytes — withheld as tampered", detail)
-	case ReasonUntrustedSigner:
-		return "signed by a key this machine does not trust to publish — awaiting review — run 'ctxloom review'"
-	case ReasonUnaddressable:
-		return "its ref could not be parsed, so nothing could decide about it"
-	case ReasonUnestablished:
-		return "it reached the gate without established provenance"
-	case ReasonUngoverned:
-		return "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content"
 	case ReasonStaleLocalSignature:
 		return withDefault(detail, "its signature no longer covers its bytes — re-sign it")
-	case ReasonRecordsUnreadable:
-		return withDetail("its trust records could not be read, so nothing could be decided — repair them first", detail)
 	case ReasonLocal, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
 		return "allowed: " + r.String()
 	default:
 		// ReasonUnsigned, ReasonPending, ReasonUnset, and the fail-closed
-		// default for any reason added without a case here — pending review is
+		// default for any reason added without a sentence — pending review is
 		// the safe, actionable answer and never a bare "withheld". The wording
 		// is load-bearing: tests/acceptance/steps_j000200_setup.go asserts on the
 		// "awaiting review" substring. The detail names what would admit the
 		// item (an executable: a review record), so the reader learns the fix.
 		return withDetail("awaiting review — run 'ctxloom review'", detail)
 	}
+}
+
+// fixedExplanations are the sentences a verdict's detail does not extend.
+var fixedExplanations = map[Reason]string{
+	ReasonRejected:        "rejected",
+	ReasonUntrustedSigner: "signed by a key this machine does not trust to publish — awaiting review — run 'ctxloom review'",
+	ReasonUnaddressable:   "its ref could not be parsed, so nothing could decide about it",
+	ReasonUnestablished:   "it reached the gate without established provenance",
+	ReasonUngoverned:      "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content",
+}
+
+// detailedExplanations are the sentences a verdict's detail follows as a
+// parenthetical.
+var detailedExplanations = map[Reason]string{
+	ReasonRetracted:         "retracted by the publisher",
+	ReasonTampered:          "its signature does not cover these bytes — withheld as tampered",
+	ReasonRecordsUnreadable: "its trust records could not be read, so nothing could be decided — repair them first",
 }
 
 // withDefault is detail, or fallback when there is none.

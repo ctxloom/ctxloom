@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // TestInitializeProject_ProvisionsTheApprovalsStore: init creates the project
@@ -40,7 +41,7 @@ func TestProvisionApprovalsStore_IsIdempotentAndKeepsRecords(t *testing.T) {
 	appDir := "/proj/.ctxloom"
 	record := filepath.Join(paths.ApprovalsPath(appDir), "abc.approve.k.sig")
 	require.NoError(t, fs.MkdirAll(paths.ApprovalsPath(appDir), 0o755))
-	require.NoError(t, afero.WriteFile(fs, record, []byte("kept"), 0o644))
+	testsupport.WriteFileString(t, fs, record, "kept", 0o644)
 
 	require.NoError(t, ProvisionApprovalsStore(fs, appDir))
 	require.NoError(t, ProvisionApprovalsStore(fs, appDir))

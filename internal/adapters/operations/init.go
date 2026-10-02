@@ -84,20 +84,7 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 		return nil, err
 	}
 	fs := getFS(req.FS)
-	// The authored-bundles home is the COMMITTED content tree; the cache is
-	// created lazily by whatever fetches into it, and init has no business
-	// scaffolding a gitignored directory.
-	// The bundles entry is the FORMAT ROOT, not the bundles directory: that
-	// directory is only the parent the format roots are siblings under, and a
-	// bundle sitting in it belongs to no format and is read by nobody. MkdirAll
-	// creates the parent too, so GetBundleDirs still sees it.
-	for _, dir := range []string{req.AppDir, filepath.Join(req.AppDir, paths.ProfilesDir), paths.LocalBundlesPathFor(req.AppDir, paths.LayoutV2)} {
-		if err := fs.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
-
-	if err := ProvisionApprovalsStore(fs, req.AppDir); err != nil {
+	if err := scaffoldProjectDirs(fs, req.AppDir); err != nil {
 		return nil, err
 	}
 
@@ -136,6 +123,24 @@ func InitializeProject(_ context.Context, reg enginepkg.Registry, req Initialize
 	}
 
 	return &InitializeProjectResult{Status: "initialized", AppDir: req.AppDir}, nil
+}
+
+// scaffoldProjectDirs creates the project's directory tree and provisions its
+// approvals store.
+func scaffoldProjectDirs(fs afero.Fs, appDir string) error {
+	// The authored-bundles home is the COMMITTED content tree; the cache is
+	// created lazily by whatever fetches into it, and init has no business
+	// scaffolding a gitignored directory.
+	// The bundles entry is the FORMAT ROOT, not the bundles directory: that
+	// directory is only the parent the format roots are siblings under, and a
+	// bundle sitting in it belongs to no format and is read by nobody. MkdirAll
+	// creates the parent too, so GetBundleDirs still sees it.
+	for _, dir := range []string{appDir, filepath.Join(appDir, paths.ProfilesDir), paths.LocalBundlesPathFor(appDir, paths.LayoutV2)} {
+		if err := fs.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+	return ProvisionApprovalsStore(fs, appDir)
 }
 
 // ProvisionApprovalsStore creates appDir's approvals store with its tracked

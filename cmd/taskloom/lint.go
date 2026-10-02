@@ -75,15 +75,16 @@ func runLintCmd(out io.Writer, tc operations.TaskContext, format clifmt.Format) 
 		}
 	} else {
 		w := iox.NewErrWriter(out)
+		// Some checks are not scoped by a declared target, so violations can
+		// coexist with zero checked targets: the note never replaces them.
 		switch {
 		case result.CheckedTargets == 0:
 			w.Println("0 targets checked — this project's tag_schema declares no enum/range facets for lint to check")
 		case len(violations) == 0:
 			w.Println("no triage-standard violations found")
-		default:
-			for _, v := range violations {
-				w.Printf("%s: %s\n", v.HarpID, v.Reason)
-			}
+		}
+		for _, v := range violations {
+			w.Printf("%s: %s\n", v.HarpID, v.Reason)
 		}
 		if err := w.Err(); err != nil {
 			return err

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -254,31 +253,15 @@ func TestLaunchDiscovery_TokenGate(t *testing.T) {
 
 // A FOUND BUG, pinned: a test that reached launchDiscovery on a terminal with
 // no token ran the REAL `claude setup-token`, which opened the owner's browser
-// on a login page each time. The production invoker therefore refuses, inside
-// a test binary, any binary that is not under the temp dir: a test may run a
-// fake it wrote, never an installed engine CLI. /bin/true stands for the
-// installed binary so a missing guard runs nothing that matters.
-func TestRunTokenSetupAttached_RefusesAnInstalledBinaryUnderTest(t *testing.T) {
+// on a login page each time. The production invoker therefore refuses to run
+// anything from a test binary. /bin/true stands for the installed binary so a
+// missing guard runs nothing that matters.
+func TestRunTokenSetupAttached_RefusesInATestBinary(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("/bin/true is a unix path")
 	}
 	err := runTokenSetupAttached(exec.Command("/bin/true", "setup-token"))
-	require.ErrorIs(t, err, errInstalledEngineUnderTest)
-}
-
-// The guard is not a blanket refusal: a fake under the temp dir does run.
-func TestRunTokenSetupAttached_RunsAFakeUnderTheTempDir(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("a shell-script fake")
-	}
-	dir := t.TempDir()
-	marker := filepath.Join(dir, "ran")
-	fake := filepath.Join(dir, "claude")
-	require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\necho \"$@\" > "+marker+"\n"), 0o700))
-	require.NoError(t, runTokenSetupAttached(exec.Command(fake, "setup-token")))
-	got, err := os.ReadFile(marker)
-	require.NoError(t, err)
-	assert.Equal(t, "setup-token\n", string(got))
+	require.ErrorIs(t, err, errSetupUnderTest)
 }
 
 // withAgentToken exports a fixture agent token for one test, putting it on

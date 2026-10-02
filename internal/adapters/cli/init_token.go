@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -44,43 +45,18 @@ var (
 	runTokenSetup           = runTokenSetupAttached
 )
 
-// errInstalledEngineUnderTest: a test binary reached the real setup run with
-// an engine CLI that is not a fake it wrote. The setup flow opens the human's
-// browser on a sign-in page, so a test that reaches it must be refused, not
-// allowed to run it.
-var errInstalledEngineUnderTest = errors.New("refusing to run an installed engine's token setup from a test binary")
+// errSetupUnderTest: a test binary reached the real setup run. The engine's
+// setup flow opens the human's browser on a sign-in page, so from a test
+// binary it is refused outright: a test replaces runTokenSetup instead.
+var errSetupUnderTest = errors.New("refusing to run an engine's token setup from a test binary")
 
 // runTokenSetupAttached runs the engine's setup flow attached to the human's
-// terminal. Inside a test binary it refuses any binary outside the temp dir:
-// a test may run a fake it wrote there, never an installed engine CLI.
+// terminal. It refuses inside a test binary.
 func runTokenSetupAttached(c *exec.Cmd) error {
-	if testing.Testing() && !underTempDir(c.Path) {
-		return fmt.Errorf("%w: %s", errInstalledEngineUnderTest, c.Path)
+	if testing.Testing() {
+		return fmt.Errorf("%w: %s", errSetupUnderTest, c.Path)
 	}
 	return c.Run()
-}
-
-// underTempDir reports whether path lies under a temp root a test writes to:
-// os.TempDir(), or GOTMPDIR, where the testing package puts t.TempDir() when
-// it is set. Symlinks are resolved on both sides (macOS's /var is
-// /private/var).
-func underTempDir(path string) bool {
-	real := func(p string) string {
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			return r
-		}
-		return filepath.Clean(p)
-	}
-	for _, root := range []string{os.TempDir(), os.Getenv("GOTMPDIR")} {
-		if root == "" {
-			continue
-		}
-		rel, err := filepath.Rel(real(root), real(path))
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
 }
 
 // ensureAgentToken makes sure the token every agent authenticates with is
@@ -145,10 +121,11 @@ type profile struct {
 // pointed at a file it does not read.
 func shellProfile(shellPath string) profile {
 	posix := func(n, v string) string { return "export " + n + "=" + v }
-	switch filepath.Base(shellPath) {
-	case "zsh":
+	name := filepath.Base(shellPath)
+	switch name {
+	case string(ir.ShellZsh):
 		return profile{"~/.zshrc", posix}
-	case "bash":
+	case string(ir.ShellBash):
 		return profile{"~/.bashrc", posix}
 	case "fish":
 		return profile{"~/.config/fish/config.fish", func(n, v string) string { return "set -gx " + n + " " + v }}

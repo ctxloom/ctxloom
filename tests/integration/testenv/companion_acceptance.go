@@ -86,8 +86,8 @@ esac
 }
 
 // SignCompanion signs a binary a scenario installed by some other means, so
-// ctxloom will execute it. Exported for the same reason GrantCompanionConsent
-// was: a scenario that wants to observe the REFUSAL simply does not call it.
+// ctxloom will execute it. Exported so a scenario that wants to observe the
+// REFUSAL simply does not call it.
 func (e *TestEnvironment) SignCompanion(path string) error { return e.signCompanion(path) }
 
 // companionEnvVar builds the per-bin env var name InstallFakeCompanion's fake

@@ -22,10 +22,9 @@ import (
 // against a build of this tree. commitDirtyTree's own doc said the flag must be read "ONLY from the
 // PROJECT config"; the config chain has no such thing as "only" one layer.
 //
-// THE SHAPE is internal/shared/admission's Store — the SAME mechanism
-// paths.HomeCompanionConsentPath uses for "may ctxloom act without asking
-// again", except this record is PROJECT-scoped (a fact about ONE checkout's
-// branch, not the user across every project), so it lives under
+// THE SHAPE is internal/shared/admission's Store — a record of "may ctxloom act
+// without asking again". This record is PROJECT-scoped (a fact about ONE
+// checkout's branch, not the user across every project), so it lives under
 // paths.DirtyTreeCommitAckPath (.ctxloom/state/, gitignored, unrebuildable)
 // rather than the home directory. It is a single yes/no decision with no
 // finer key than "this checkout", so key and scope collapse to the one
@@ -69,8 +68,8 @@ func dirtyTreeAckReasons() admission.Reasons[dirtyTreeAckReason] {
 //
 // WithLockPathFor(paths.ProjectPathFor): this record lives inside a
 // PROJECT .ctxloom tree (paths.DirtyTreeCommitAckPath, under
-// .ctxloom/state/), not under the user's home the way companion_consent's
-// store does — the same distinction paths.ProjectPathFor's own doc draws,
+// .ctxloom/state/), not under the user's home — the same distinction
+// paths.ProjectPathFor's own doc draws,
 // and the reason admission.Store's default (paths.PathFor, beside-file) is
 // wrong here: a beside-the-file lock would land inside .ctxloom/state/ itself
 // as an untracked sibling, one more surface for a stray file to turn up on

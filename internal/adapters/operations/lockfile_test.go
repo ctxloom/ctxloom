@@ -99,6 +99,7 @@ func TestLockDependencies_UnreachableParentIsAnIncompleteEmptyLock(t *testing.T)
 	})
 	assert.Equal(t, "empty", result.Status)
 	assert.True(t, result.Incomplete, "a parent that could not be reached leaves the closure incomplete, not empty")
+	assert.Len(t, result.Unreachable, 1, "the empty result names what could not be reached too")
 	assert.NotEqual(t, "No remote items found", result.Message, "the message must not claim a clean, empty closure")
 }
 

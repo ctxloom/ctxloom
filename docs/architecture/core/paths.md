@@ -37,7 +37,6 @@ flowchart TD
     HOME --> HLD["HomeLogsDir → HomeLogFilePath<br/>~/.ctxloom/logs/&lt;prog&gt;.log"]
     HOME --> TCD["TriggerCacheDir<br/>~/.ctxloom/cache/triggers"]
     HOME --> HAP["HomeApprovalsPath<br/>~/.ctxloom/approvals"]
-    HOME --> HCCP["HomeCompanionConsentPath"]
     HOME --> HASP["HomeAllowedSignersPath"]
     HOME --> HDSP["HomeDistrustedSignersPath"]
 
@@ -112,7 +111,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 
 | Group | Constants |
 |---|---|
-| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `TriggersDir`, `CompanionConsentFileName`, `CoordDirName`, `CoordEndpointFileName` |
+| Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `TriggersDir`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `RefusedAdvancesFileName`, `ProjectIDFileName` |
 | Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `DirtyTreeCommitAckFileName`, `SessionEngineHomesDirName` |
 | Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
@@ -139,7 +138,6 @@ this package.
 | `HarpTranscriptStoreDir` | `persist/transcripts` — container bind target | 2 |
 | `HarpCanonicalTranscriptPath` | `persist/transcript.jsonl` — the canonical write target | 6 |
 | `HomeApprovalsPath` | `~/.ctxloom/approvals` — the user countersignature store | 2 |
-| `HomeCompanionConsentPath` | `~/.ctxloom/companion_consent.yaml` — personal-only, no project twin | 1 |
 | `HomeAllowedSignersPath` | `~/.ctxloom/allowed_signers` | 4 |
 | `HomeDistrustedSignersPath` | `~/.ctxloom/distrusted_signers` | 1 |
 | `TriggerCacheDir` | `~/.ctxloom/cache/triggers` | 1 |
@@ -192,8 +190,7 @@ legitimately has none of them yet.
 which resolves each row against the root `Entry.Root` names and reports any
 absent `PresenceMustExist` `TierLocal` row using that entry's `Lost` text;
 a `PresenceIfUsed` row is reported only when PRESENT, never when absent. The
-eight `RootHome` rows (sessions, approvals, allowed/distrusted signers,
-trigger cache, coord, companion consent, locks) and their per-row reasoning
+`RootHome` rows and their per-row reasoning
 are documented in full in [layout.md](../../layout.md)'s "The home tree"
 table — this page states the mechanism, that page states the list. The
 `locks` row (`HomeLocksDirName`) has its own dedicated resolvers: `HomeLocksDir`

@@ -39,6 +39,9 @@ type LockDependenciesResult struct {
 	// rebuilding them. "generated" alone cannot tell that apart from a
 	// complete lock.
 	Incomplete bool `json:"incomplete,omitempty"`
+	// Unreachable names, sorted, every part of the closure that could not be
+	// reached — the items whose previous entries the lock kept.
+	Unreachable []string `json:"unreachable,omitempty"`
 }
 
 // LockDependencies builds lock.yaml from the flattened transitive closure of
@@ -123,27 +126,28 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	// must not erase healthy entries: merge in every previous entry the rebuilt
 	// closure no longer reaches, so a transient fetch failure never loses lock
 	// state. The next complete relock drops genuinely-removed entries.
-	incomplete := len(unexpanded) > 0
-	if incomplete {
+	if len(unexpanded) > 0 {
 		preserveUnreachedEntries(prev, lockfile, len(unexpanded))
 	}
 
-	return saveRelock(lockManager, lockfile, incomplete)
+	return saveRelock(lockManager, lockfile, unexpanded)
 }
 
-// saveRelock persists a rebuilt lockfile and reports it. incomplete carries
+// saveRelock persists a rebuilt lockfile and reports it. unreachable carries
 // through to the result so neither "generated" nor "empty" reads as a
 // complete, clean lock when part of the closure was never reached.
-func saveRelock(lockManager *remote.LockfileManager, lockfile *remote.Lockfile, incomplete bool) (*LockDependenciesResult, error) {
+func saveRelock(lockManager *remote.LockfileManager, lockfile *remote.Lockfile, unreachable []string) (*LockDependenciesResult, error) {
+	incomplete := len(unreachable) > 0
 	if lockfile.IsEmpty() {
 		msg := "No remote items found"
 		if incomplete {
 			msg = "No remote items found among what could be read; part of the dependency closure was unreachable"
 		}
 		return &LockDependenciesResult{
-			Status:     "empty",
-			Message:    msg,
-			Incomplete: incomplete,
+			Status:      "empty",
+			Message:     msg,
+			Incomplete:  incomplete,
+			Unreachable: unreachable,
 		}, nil
 	}
 
@@ -152,10 +156,11 @@ func saveRelock(lockManager *remote.LockfileManager, lockfile *remote.Lockfile, 
 	}
 
 	return &LockDependenciesResult{
-		Status:     "generated",
-		Path:       lockManager.Path(),
-		ItemCount:  len(lockfile.AllEntries()),
-		Incomplete: incomplete,
+		Status:      "generated",
+		Path:        lockManager.Path(),
+		ItemCount:   len(lockfile.AllEntries()),
+		Incomplete:  incomplete,
+		Unreachable: unreachable,
 	}, nil
 }
 

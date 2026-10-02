@@ -85,9 +85,15 @@ type builtSurfaces struct {
 // newSurfaces constructs every claude approach from in through the
 // Declaration — the same path Build takes — and type-asserts the concrete
 // ones, so a test that reaches a field is reaching what a launch would.
+// deliverer is a form that writes its own bytes, as opposed to one that only
+// presents (its write being the typed approach's claims).
+type deliverer interface {
+	Deliver(present.Start) (agent.Delivered, error)
+}
+
 func newSurfaces(in agent.SurfaceInputs, fs afero.Fs) builtSurfaces {
 	must := func(kind agent.SurfaceKind, name string) agent.Approach {
-		a, ok := testDeclaration().Construct(kind, name, in, fs)
+		a, ok := testDeclaration()[kind].Construct(name, in, fs)
 		if !ok {
 			panic("claude does not declare " + kind.String() + "=" + name)
 		}
@@ -168,7 +174,7 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 	dir := t.TempDir()
 	s := newSurfaces(sampleInputs(), nil)
 
-	handle, err := s.Skills.(agent.Delivery).Deliver(present.ProjectOnHost(dir))
+	handle, err := s.Skills.(deliverer).Deliver(present.ProjectOnHost(dir))
 	require.NoError(t, err)
 
 	skillMD := filepath.Join(dir, ".claude", "skills", "humanize", "SKILL.md")
@@ -227,30 +233,6 @@ func TestSurfaces_DeclaresContextThreeWaysMCPTwoAndTheRestOnce(t *testing.T) {
 	}
 }
 
-// The hook approach is the shared Rider: it writes nothing (nil handle, no
-// CLAUDE.md) and rides the settings surface, which carries the hook.
-func TestSurfaces_ContextHookIsANoOpRider(t *testing.T) {
-	s := newSurfaces(sampleInputs(), nil)
-
-	rider, ok := s.Hook.(agent.Rider)
-	require.True(t, ok, "hook-carried context rides another surface")
-	assert.Equal(t, agent.SurfaceSettings, rider.Rides())
-}
-
-// The system prompt and the private mcp config are LaunchOnly — refused at
-// rest, where nothing can sink their flags. Every other approach has an
-// at-rest form.
-func TestSurfaces_LaunchOnly(t *testing.T) {
-	s := newSurfaces(sampleInputs(), nil)
-	launchOnly := func(a agent.Approach) bool { _, ok := a.(agent.LaunchOnly); return ok }
-
-	assert.True(t, launchOnly(s.Context), "system-prompt has no argv sink at rest")
-	assert.True(t, launchOnly(s.MCP), "the private mcp config is announced on a flag, so it has no argv sink at rest")
-	for _, a := range []agent.Approach{s.Native, s.Hook, s.MCPUnsafe, s.Settings, s.Commands, s.Skills} {
-		assert.False(t, launchOnly(a))
-	}
-}
-
 // TestNewSurfaces_ThreadsEverySurfaceScopedInput is the pin a past review
 // asked for without asking for it. That review read fileTemplateDelivery's
 // surface-scoped fields (denyTools, selfContainedCommands) as a coupling
@@ -300,9 +282,9 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 			dir := t.TempDir()
 			def, ok := testDeclaration().Default(kind)
 			require.True(t, ok, "%s is declared, so it must have a default", kind)
-			a, ok := testDeclaration().Construct(kind, def, sampleInputs(), nil)
+			a, ok := testDeclaration()[kind].Construct(def, sampleInputs(), nil)
 			require.True(t, ok)
-			d, delivers := a.(agent.Delivery)
+			d, delivers := a.(deliverer)
 			if !delivers {
 				t.Skipf("%s's default form only presents; its write is the typed approach's claims", kind)
 			}
@@ -327,7 +309,7 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 // construction — which is what keeps a worktree-isolated agent out of the
 // coordinator's checkout. Enumerating the declaration needs neither root.
 func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
-	a, ok := testDeclaration().Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, sampleInputs(), nil)
+	a, ok := testDeclaration()[agent.SurfaceContext].Construct(agent.ApproachUnsafeFile, sampleInputs(), nil)
 	require.True(t, ok)
 	host := a.Present(present.ProjectOnHost("/home/dev/project")).HostPath
 	worktree := a.Present(present.ProjectOnHost("/home/dev/worktrees/project--feat")).HostPath

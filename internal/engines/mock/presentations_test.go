@@ -60,19 +60,9 @@ func TestMockSkillsPresenter_RootsUnderProjectRoot_NotEngineHome(t *testing.T) {
 		"the skills presenter must not root on EngineHome")
 }
 
-// TestMockContextPath_JoinsDirWithTheLiteralFilename pins mockContextPath's
-// contract against a LITERAL expectation built independently of the present
-// chain, not against a second call to mockContextPath itself — deriving the
-// expectation from the same function under test would agree with any wrong
-// root the presenter chose, which is exactly the vacuous shape a self-referential
-// assertion produces.
-func TestMockContextPath_JoinsDirWithTheLiteralFilename(t *testing.T) {
-	got := mockContextPath("/target")
-	assert.Equal(t, filepath.Join("/target", "MOCK_CONTEXT.md"), got)
-}
-
-// TestMockSkillsPath_JoinsDirWithTheLiteralSkillsDir is the skills half of the
-// same literal pin.
+// TestMockSkillsPath_JoinsDirWithTheLiteralSkillsDir pins mockSkillsPath
+// against a LITERAL expectation built independently of the present chain:
+// deriving it from the function under test would agree with any wrong root.
 func TestMockSkillsPath_JoinsDirWithTheLiteralSkillsDir(t *testing.T) {
 	got := mockSkillsPath("/target")
 	assert.Equal(t, filepath.Join("/target", ".mock", "skills"), got)
@@ -107,7 +97,7 @@ func mockPresent(t *testing.T, kind agent.SurfaceKind, start present.Start) pres
 
 func mockPresentNamed(t *testing.T, kind agent.SurfaceKind, name string, start present.Start) present.Presentation {
 	t.Helper()
-	a, ok := New().(Mock).Declaration().Construct(kind, name, agent.SurfaceInputs{}, nil)
+	a, ok := New().(Mock).Declaration()[kind].Construct(name, agent.SurfaceInputs{}, nil)
 	require.True(t, ok)
 	return a.Present(start)
 }
@@ -157,7 +147,7 @@ func TestMockSessionForm_KeepsTheSessionHomesEngineSide(t *testing.T) {
 func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
 	decl := New().(Mock).Declaration()
 
-	_, ok := decl.Construct(agent.SurfaceContext, agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, nil)
+	_, ok := decl[agent.SurfaceContext].Construct(agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, nil)
 	assert.False(t, ok, "an undeclared approach is refused")
 	assert.NotContains(t, decl.Names(agent.SurfaceContext), agent.ApproachHook)
 }
@@ -175,7 +165,7 @@ func TestMockDeclaration_UnsupportedKind_IsAbsent(t *testing.T) {
 	decl := New().(Mock).Declaration()
 
 	const notASurface = agent.SurfaceKind(9999)
-	a, ok := decl.Construct(notASurface, agent.ApproachUnsafeFile, agent.SurfaceInputs{}, nil)
+	a, ok := decl[notASurface].Construct(agent.ApproachUnsafeFile, agent.SurfaceInputs{}, nil)
 	assert.False(t, ok)
 	assert.Nil(t, a)
 	assert.Nil(t, decl.Names(notASurface))

@@ -11,9 +11,9 @@
 //
 // THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
 // `profile materialize --backend mock`, over the mock backend's own context and
-// skills surfaces (internal/engines/mock/forms.go) — the shared
-// agent.WriteManagedContext and agent.WriteManagedSkillPackages writers every
-// real engine uses, differing only in the directory they target. Materialize
+// skills surfaces (internal/engines/mock/forms.go) — the ownership record's
+// appended-section claim and the shared agent.WriteManagedSkillPackages writer
+// every real engine uses, differing only in the directory they target. Materialize
 // rather than `ctxloom run` because a run's Cleanup strips what it delivered
 // before any step could stat it (grpc.RunTurn calls Cleanup immediately after
 // Execute and the shared LIFO reversal removes the managed section); the

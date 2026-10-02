@@ -118,9 +118,8 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 
 // TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan is the
 // red-first proof for a bug: a per-agent worktree's CLAUDE.md is a
-// TRACKED context surface the claude engine's WriteContext genuinely mutates —
-// and, per its own doc, DELETES outright when the merged content is empty and
-// the file was wholly ctxloom's (internal/engines/claude/claude.go). Before
+// TRACKED context surface ctxloom genuinely mutates — its context is claimed
+// as a section appended to that file. Before
 // WorktreeArtifactPatterns covered "CLAUDE.md", skipTrackedConfig never set the
 // skip-worktree bit on it, so that deletion left `git status` showing
 // " D CLAUDE.md" — a real, correctly-detected dirty tree — and the WIP-safe
@@ -149,9 +148,7 @@ func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T
 
 	require.FileExists(t, filepath.Join(wtDir, "CLAUDE.md"), "the worktree checkout carries the tracked CLAUDE.md")
 
-	// Simulate the claude engine's WriteContext deleting CLAUDE.md (empty
-	// assembled content, and the file was wholly ctxloom's — claude.go's
-	// WriteContext/agent.WriteManagedContext contract).
+	// Simulate a tracked mutation of CLAUDE.md; deletion is its strongest form.
 	require.NoError(t, os.Remove(filepath.Join(wtDir, "CLAUDE.md")))
 
 	// Without skipTrackedConfig covering CLAUDE.md, this would show " D CLAUDE.md".

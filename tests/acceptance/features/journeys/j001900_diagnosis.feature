@@ -405,22 +405,13 @@ Feature: The day the assistant goes blind
   # it asserts the surface on disk holds last week's bytes and NOT this week's.
   # So the red here was a product answer, not a harness artifact.
   #
-  # FIXED: `manage check` now walks the engine-delivery seam's read half
-  # (docs/design/engine-delivery-seam.design.md step 3 —
-  # agent.StateReader/agent.DeliveryState) over every backend's native context
-  # surface that is actually materialized under the project root
-  # (operations.surfaceCurrencies, internal/adapters/cli/manage.go's
-  # printSurfaceCurrencies). claude-code's CLAUDE.md gained the read half
-  # (claude.contextSurface.State) alongside the mock backend's, which already
-  # had one. A surface with nothing materialized stays silent (no false
-  # "missing" alarm for the default hook-delivered case); one whose managed
-  # section no longer matches the freshly-composed context (read-only, via the
-  # existing AssembleContext — this never re-writes the surface it inspects)
-  # is named "stale" in a new "Materialized surfaces:" section of the report.
-  #
-  # UNTAGGED 2026-08-16, confirmed to pass as written AND to bite: reverting
-  # claude.contextSurface.State to always report agent.StatusDelivered (never
-  # comparing against the composed context) turns this scenario red.
+  # `manage check` judges every backend's native context surface that is
+  # materialized under the project root (operations.surfaceCurrencies, printed
+  # by the CLI's printSurfaceCurrencies) against the freshly composed context,
+  # from the ownership record (operations.contextFileCurrency) — read-only, it
+  # never re-writes the surface it inspects. A surface with nothing
+  # materialized stays silent; one that no longer carries what is composed is
+  # named "stale" in the report's "Materialized surfaces:" section.
   Scenario: The composed context moved on and the engine's file did not, and the wiring report says so
     Given the runbook is composed into Alice's profile
     And the engine's own surface on disk still holds last week's copy

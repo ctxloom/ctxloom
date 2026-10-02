@@ -70,8 +70,8 @@ import (
 // It is not a guess and not a preference: it mirrors production's own declared
 // dispatch, and is true only for an engine whose ApproachTable makes the hook its
 // DEFAULT context route for agent.SurfaceContext. claude declares ApproachHook,
-// but resolves it to the shared HookCarriedContext — a Rider whose own Deliver
-// is a documented no-op — so ctxloom does not deliver claude's context that way
+// but resolves it to the shared HookCarriedContext — a form with no writer of
+// its own — so ctxloom does not deliver claude's context that way
 // and this probe must not pretend it can observe it.
 //
 // Getting this wrong in the permissive direction is the expensive mistake: it

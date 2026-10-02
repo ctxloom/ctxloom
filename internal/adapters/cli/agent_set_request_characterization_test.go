@@ -9,8 +9,8 @@ import (
 )
 
 // TestBuildSetAgentRequest_CarriesEveryTypedFlag pins how each typed flag
-// reaches the request: valid --surface pairs by their parsed kind, an
-// unparseable set kept as written (so SetAgent's validation reports it
+// reaches the request: --surface pairs as typed, trimmed (SetAgent judges
+// them against the engine, so an unknown or retired name is reported there
 // rather than the flag vanishing), --root pairs trimmed, and the pointer
 // flags as typed.
 func TestBuildSetAgentRequest_CarriesEveryTypedFlag(t *testing.T) {
@@ -23,19 +23,41 @@ func TestBuildSetAgentRequest_CarriesEveryTypedFlag(t *testing.T) {
 	}
 
 	t.Run("valid surfaces", func(t *testing.T) {
-		req := buildSetAgentRequest(parse(t, "--surface", "context=unsafe-file", "--surface", "skills=hook"), "dev")
+		req, err := buildSetAgentRequest(parse(t, "--surface", "context=unsafe-file", "--surface", "skills=hook"), "dev")
+		require.NoError(t, err)
 		assert.Equal(t, map[string]string{"context": "unsafe-file", "skills": "hook"}, req.Surfaces)
 	})
+	t.Run("a retired approach is carried to SetAgent, which refuses it typed", func(t *testing.T) {
+		req, err := buildSetAgentRequest(parse(t, "--surface", "settings=hew-record"), "dev")
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"settings": "hew-record"}, req.Surfaces)
+	})
+	t.Run("a kind named two different ways is refused", func(t *testing.T) {
+		// A map keeps the last pair, so passing this through would make
+		// `--surface context=hook --surface context=unsafe-file` do something
+		// the command line does not say.
+		_, err := buildSetAgentRequest(parse(t, "--surface", "context=hook", "--surface", "context=unsafe-file"), "dev")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "context twice")
+	})
+	t.Run("the same pair repeated is one preference", func(t *testing.T) {
+		req, err := buildSetAgentRequest(parse(t, "--surface", "context=hook", "--surface", " context = hook "), "dev")
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"context": "hook"}, req.Surfaces)
+	})
 	t.Run("unparseable surfaces are kept as written", func(t *testing.T) {
-		req := buildSetAgentRequest(parse(t, "--surface", "bogus", "--surface", " context = nope "), "dev")
+		req, err := buildSetAgentRequest(parse(t, "--surface", "bogus", "--surface", " context = nope "), "dev")
+		require.NoError(t, err)
 		assert.Equal(t, map[string]string{"bogus": "", "context": "nope"}, req.Surfaces)
 	})
 	t.Run("roots are trimmed", func(t *testing.T) {
-		req := buildSetAgentRequest(parse(t, "--root", " skills = engine-home ", "--root", "bare"), "dev")
+		req, err := buildSetAgentRequest(parse(t, "--root", " skills = engine-home ", "--root", "bare"), "dev")
+		require.NoError(t, err)
 		assert.Equal(t, map[string]string{"skills": "engine-home", "bare": ""}, req.Roots)
 	})
 	t.Run("pointer flags", func(t *testing.T) {
-		req := buildSetAgentRequest(parse(t, "--profiles", "a,b", "--permissions", "plan", "--engine-home", "session"), "dev")
+		req, err := buildSetAgentRequest(parse(t, "--profiles", "a,b", "--permissions", "plan", "--engine-home", "session"), "dev")
+		require.NoError(t, err)
 		require.NotNil(t, req.Profiles)
 		assert.Equal(t, []string{"a", "b"}, *req.Profiles)
 		require.NotNil(t, req.Permissions)

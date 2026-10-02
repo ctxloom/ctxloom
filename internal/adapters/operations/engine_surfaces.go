@@ -9,22 +9,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
-// This file is the operations' read of an engine's DECLARED surface facts by
-// name: the approach names a binding may select (agent.Hosted.Declaration)
-// and the hook events the engine declares it cannot carry
+// This file is the operations' read of an engine's DECLARED surface facts:
+// the hook events the engine declares it cannot carry
 // (engine.Definition.HookLosses).
-
-// KnownApproachNames is the union of every approach name any composed
-// engine declares, sorted — what a CLI offers as "names that exist at all"
-// before an engine is chosen. Derived from the declarations, never listed.
-func KnownApproachNames(reg engine.Registry) []string {
-	var decls []agent.Declaration
-	for _, n := range reg.NamesWhere(func(_ engine.Name, e engine.Engine) bool { _, ok := e.(agent.Hosted); return ok }) {
-		h, _ := agent.HostedIn(reg, string(n))
-		decls = append(decls, h.Declaration())
-	}
-	return agent.ApproachNames(decls...)
-}
 
 // uncarriedSurfaces is the delivery's inverse over the SAME inputs: the parts of
 // a run's assembled loadout the named engine has NO structural place for. A

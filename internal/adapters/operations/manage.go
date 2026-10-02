@@ -144,9 +144,9 @@ type HarnessStatusResult struct {
 // currency: whether the file (CLAUDE.md, MOCK_CONTEXT.md, …) still carries what the project's
 // default profiles currently compose — or, where the engine declares that file
 // its default context route and there is context to deliver, that it is not
-// there at all. Route/Status/Detail mirror agent.DeliveryState's
-// Route()/Currency() verbatim — this is that read half rendered for a report,
-// not a second judgment about what the surface holds.
+// there at all. Status/Detail are an agent.Currency, judged from the
+// ownership record (contextFileCurrency) rather than from the file's bytes
+// alone.
 type SurfaceCurrency struct {
 	Backend string `json:"backend"`
 	Route   string `json:"route"`

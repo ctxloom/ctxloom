@@ -25,22 +25,26 @@ func parseAgentWriteFlags(t *testing.T, args ...string) *cobra.Command {
 // they are not sent, so an edit keeps what is recorded; --env "" sends an
 // empty list, which clears the names.
 func TestBuildSetAgentRequest_EnvHostAndEnv(t *testing.T) {
-	req := buildSetAgentRequest(parseAgentWriteFlags(t, "--env-host=false", "--env", "GITHUB_TOKEN", "--env", "NPM_TOKEN"), "dev")
+	req, err := buildSetAgentRequest(parseAgentWriteFlags(t, "--env-host=false", "--env", "GITHUB_TOKEN", "--env", "NPM_TOKEN"), "dev")
+	require.NoError(t, err)
 	require.NotNil(t, req.EnvHost)
 	assert.False(t, *req.EnvHost)
 	require.NotNil(t, req.Env)
 	assert.Equal(t, []string{"GITHUB_TOKEN", "NPM_TOKEN"}, *req.Env)
 
-	req = buildSetAgentRequest(parseAgentWriteFlags(t, "--env-host"), "dev")
+	req, err = buildSetAgentRequest(parseAgentWriteFlags(t, "--env-host"), "dev")
+	require.NoError(t, err)
 	require.NotNil(t, req.EnvHost)
 	assert.True(t, *req.EnvHost)
 	assert.Nil(t, req.Env)
 
-	req = buildSetAgentRequest(parseAgentWriteFlags(t, "--llm", "x"), "dev")
+	req, err = buildSetAgentRequest(parseAgentWriteFlags(t, "--llm", "x"), "dev")
+	require.NoError(t, err)
 	assert.Nil(t, req.EnvHost)
 	assert.Nil(t, req.Env)
 
-	req = buildSetAgentRequest(parseAgentWriteFlags(t, "--env", ""), "dev")
+	req, err = buildSetAgentRequest(parseAgentWriteFlags(t, "--env", ""), "dev")
+	require.NoError(t, err)
 	require.NotNil(t, req.Env)
 	assert.Empty(t, *req.Env)
 }

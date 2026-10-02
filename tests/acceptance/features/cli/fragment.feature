@@ -142,10 +142,10 @@ Feature: fragment — reusable context units, and the engine surface each one re
     # must never destroy a team's hand-authored native context file, whichever
     # engine owns it — content outside ctxloom's managed markers must
     # survive byte-for-byte, and ctxloom's own content must still land
-    # alongside it. Gutting the marker-merge core
-    # (agent.WriteManagedContext, internal/core/agent/managedcontext.go)
-    # down to a bare whole-file write makes this fail for exactly that
-    # reason: the hand-authored line is GONE, not merely unasserted.
+    # alongside it. Turning the ownership record's appended-section claim
+    # (present.AppendedSection; fsstatic's section transition) into a bare
+    # whole-file write makes this fail for exactly that reason: the
+    # hand-authored line is GONE, not merely unasserted.
     Scenario Outline: A hand-authored context file survives materialization byte-for-byte
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       And Alice's team already hand-authored <file> for <engine> with their own conventions

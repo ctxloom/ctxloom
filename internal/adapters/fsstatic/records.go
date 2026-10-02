@@ -471,6 +471,9 @@ func (t *targetOps) seal(before []byte, existed bool, after []byte, keep bool) e
 	if err := t.c.dropOldRecord(t.target); err != nil {
 		return err
 	}
+	if err := t.c.retireConfpatchRecords(t.target); err != nil {
+		return err
+	}
 	path := t.c.path(t.target)
 	if len(rec.Paths) == 0 && !changing {
 		if err := t.c.fs.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -500,6 +503,45 @@ func (c *Records) dropOldRecord(target string) error {
 		return fmt.Errorf("fsstatic: remove the superseded record %s: %w", old, err)
 	}
 	return nil
+}
+
+// retireConfpatchRecords deletes the §9.7 records claude's retired
+// settings/MCP writer kept for target in this directory: a confpatch store
+// owned by ctxloom, superseded by this record. Nothing reverses them any
+// more, and a status that still read one reported an uninstalled server as
+// installed.
+//
+// They share their naming with `config-write`'s audit records, so a file is
+// recognised by its CONTENT, never its name: a record of exactly this target
+// that carries a reversal. confpatch.Store writes the reversal to undo its
+// application; config-write's audit record has no such field. Taskloom's
+// store keeps its own subdirectory and is never listed here. A file that
+// does not parse as a record is not recognisably claude's, and stays.
+func (c *Records) retireConfpatchRecords(target string) error {
+	names, err := confpatch.RecordNames(c.fs, c.dir, target)
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		path := filepath.Join(c.dir, n)
+		data, err := afero.ReadFile(c.fs, path)
+		if err != nil {
+			return fmt.Errorf("fsstatic: read %s: %w", path, err)
+		}
+		var rec confpatch.Record
+		if yamlv3.Unmarshal(data, &rec) != nil || rec.Reversal == "" || !recordsTarget(rec, target) {
+			continue
+		}
+		if err := c.fs.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("fsstatic: retire the confpatch record %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+// recordsTarget reports whether rec describes target.
+func recordsTarget(rec confpatch.Record, target string) bool {
+	return slices.ContainsFunc(rec.Targets, func(rt confpatch.RecordTarget) bool { return rt.Target == target })
 }
 
 // digest names a target's content, or its absence, for the pending note.

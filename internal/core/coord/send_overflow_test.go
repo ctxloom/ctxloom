@@ -437,7 +437,14 @@ func TestSendOverflow_ChildToParentThroughTheSpool(t *testing.T) {
 			if len(structured) > 0 {
 				require.NoError(t, json.Unmarshal(structured, &fields))
 			}
-			c.routeSpoolOut(child.Harp, spool.Entry{Message: &spool.Message{V: 1, Kind: KindResult, To: ParentAddress, Body: full, Structured: fields}})
+			msg := &spool.Message{V: 1, Kind: KindResult, FromHarp: child.Harp, To: ParentAddress, Body: full, Structured: fields}
+			w, err := spool.NewWriter(c.mapper, child.Harp, spool.DirOut, child.Harp)
+			require.NoError(t, err)
+			ref, err := w.Write(msg)
+			require.NoError(t, err)
+			failedBefore := c.SpoolDeliveryStats().Failed
+			c.routeSpoolOut(child.Harp, spool.Entry{Ref: ref, Message: msg})
+			assert.Equal(t, failedBefore, c.SpoolDeliveryStats().Failed, "the routed file is consumed, not counted as a failed delivery")
 			ownerReceivesOverflow(t, c, full, structured)
 		})
 	}

@@ -476,8 +476,8 @@ test-acceptance: build
 
 # Generate the "living docs" journey pages inside the container: same as the
 # host justfile's gen-living-docs, but via this file's own `build` (no
-# docker-in-docker) — this is how the docs deploy workflow
-# (.github/workflows/docs.yml) runs it, mirroring how the acceptance job
+# docker-in-docker) — this is how CI's docs job
+# (.github/workflows/ci.yml) runs it, mirroring how the acceptance job
 # invokes `just -f justfile.container test-acceptance`.
 gen-living-docs: build
     #!/usr/bin/env bash

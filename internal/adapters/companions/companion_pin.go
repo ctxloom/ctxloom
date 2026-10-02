@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // PinAdmittedCompanions admits every discovered companion and writes each
@@ -131,13 +132,13 @@ func pinSetDigest(names []string, admitted map[string]verifiedCompanion) string 
 // writePinCopy writes one companion's admitted payload, release statement and
 // signature into dir under the name it was admitted as.
 func writePinCopy(dir, bin string, v verifiedCompanion) error {
-	if err := iox.WriteFileAtomic(filepath.Join(dir, v.name), v.payload, 0o755); err != nil { //nolint:gosec // a companion must be executable
+	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, v.name), v.payload, 0o755); err != nil { //nolint:gosec // a companion must be executable
 		return fmt.Errorf("pin companion %s: %w", bin, err)
 	}
-	if err := iox.WriteFileAtomic(filepath.Join(dir, v.name+companionReleaseSuffix), v.statement, 0o644); err != nil { //nolint:gosec // a public statement
+	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, v.name+companionReleaseSuffix), v.statement, 0o644); err != nil { //nolint:gosec // a public statement
 		return fmt.Errorf("pin companion %s release statement: %w", bin, err)
 	}
-	if err := iox.WriteFileAtomic(filepath.Join(dir, v.name+companionSigSuffix), v.sig, 0o644); err != nil { //nolint:gosec // a public signature
+	if err := safefs.WriteFile(afero.NewOsFs(), filepath.Join(dir, v.name+companionSigSuffix), v.sig, 0o644); err != nil { //nolint:gosec // a public signature
 		return fmt.Errorf("pin companion %s signature: %w", bin, err)
 	}
 	return nil

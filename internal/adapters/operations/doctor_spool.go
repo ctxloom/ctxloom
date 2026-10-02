@@ -20,7 +20,7 @@ import (
 // exists to make visible.
 const doctorSpoolBacklogMarker = "DOCTOR-CHECK-SPOOL-BACKLOG-t0"
 
-// doctorSpoolStuckAge is how long a message may sit UNCONSUMED in a spool's
+// doctorSpoolStuckAge is how long a message may sit UNDELIVERED in a spool's
 // live in/ or out/ directory before this check calls it stuck rather than
 // merely slow.
 //
@@ -45,11 +45,13 @@ const doctorSpoolStuckAge = 5 * 30 * time.Second
 // rather than duplicated per-list.
 const doctorSpoolStuckMaxNamed = 5
 
-// doctorCheckSpoolBacklog surfaces spool entries that have sat UNCONSUMED in
+// doctorCheckSpoolBacklog surfaces spool entries that have sat UNDELIVERED in
 // a session's live in/, in/claimed/ or out/ directory well past the sweep's own
 // reconciliation cadence (spooldelivery.go's header has the full delivery
-// model: consumption is a rename into consumed/, and that rename IS the
-// acknowledgement).
+// model: an out/ message is acknowledged by a rename into out/consumed/, an
+// inbox message by spool.Deliver, which records its identity and deletes it).
+// An inbox file whose identity is already recorded is a delivery whose delete
+// was interrupted, not a stuck one, and is not named.
 //
 // This exists because four confirmed message losses were previously
 // invisible: a report a child definitely filed never reached the
@@ -64,15 +66,13 @@ const doctorSpoolStuckMaxNamed = 5
 // risk, and this check's whole job is making the state visible, never fixing
 // it.
 //
-// It does NOT attempt to detect a message that was renamed into consumed/
-// without the delivery it names ever having happened — that state is not
-// distinguishable from a genuine delivery by reading the spool alone (the
-// rename is the only record either way), which is exactly the ordering gap a
-// sibling fix restores going forward. What this check CAN see, and does, is
-// the complementary symptom: a message still sitting in in/ or out/,
-// unconsumed, long after every sweep path should have picked it up — a
-// sweep that stopped running, or a doorbell miss with no periodic tick
-// behind it.
+// It does NOT attempt to detect a message recorded as delivered without the
+// delivery it names ever having happened — that state is not distinguishable
+// from a genuine delivery by reading the spool alone (the record is the only
+// trace either way). What this check CAN see, and does, is the complementary
+// symptom: a message still sitting in in/ or out/, undelivered, long after
+// every sweep path should have picked it up — a sweep that stopped running,
+// or a doorbell miss with no periodic tick behind it.
 //
 // It ALSO surfaces spool.Sweep's Problems: directory entries that are not
 // stuck-but-valid messages at all — a filename outside the
@@ -199,6 +199,9 @@ func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
 		if age < doctorSpoolStuckAge {
 			continue
 		}
+		if dir != spool.DirOut && s.alreadyDelivered(harp, entry) {
+			continue
+		}
 		if age > s.oldest {
 			s.oldest = age
 		}
@@ -208,6 +211,19 @@ func (s *spoolBacklogScan) sweepDir(harp string, dir spool.Dir) {
 		s.malformed = append(s.malformed, fmt.Sprintf("%s:%s/%s: %v",
 			harp, dir, filepath.Base(prob.Path), prob.Err))
 	}
+}
+
+// alreadyDelivered reports whether an inbox entry's identity is in the
+// spool's delivered record: a delivery whose delete was interrupted, which
+// the reader's next sweep finishes. It is not mail anybody is still owed. A
+// record that cannot be read is a sweep error, and the entry is still named.
+func (s *spoolBacklogScan) alreadyDelivered(harp string, entry spool.Entry) bool {
+	delivered, err := spool.Delivered(s.mapper, harp, entry.Identity())
+	if err != nil {
+		s.sweepErrs = append(s.sweepErrs, fmt.Sprintf("%s: reading the delivered record for %s: %v", harp, entry.Ref, err))
+		return false
+	}
+	return delivered
 }
 
 // failedDirs lists one session's failed/ directories. They are created

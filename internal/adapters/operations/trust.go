@@ -47,6 +47,8 @@ func (r EffectiveTrustResult) State() trust.State {
 	switch {
 	case r.Source == trust.SourceRejected || r.Source == trust.SourceRetracted:
 		return trust.StateRejected
+	case r.Source == trust.SourceSigCheckDisabled:
+		return trust.StatePending
 	case r.Decision == trust.Allow:
 		return trust.StateAccepted
 	default:
@@ -739,11 +741,16 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 // trustOverRecords is the ONE gate shape an operation builds when it must
 // decide with review records other than the generation's — the ones it just
 // wrote, or a caller's injected stores: the generation's trust root and
-// lockfile, over r.
+// lockfile, over r — and the generation's signature-check posture, so a
+// review-path gate never decides differently from the one that delivered.
 func trustOverRecords(cfg *config.Config, r composite.ReviewRecords, fs afero.Fs) composite.Trust {
 	root := reviewTrustRoot(cfg, nil)
 	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(ProjectAppDir(cfg), remote.WithLockfileFS(getFS(fs))))
-	tr, err := composite.NewTrust(root, r, retraction)
+	var opts []composite.TrustOption
+	if cfg != nil && cfg.Trust().SignatureCheckDisabled() {
+		opts = append(opts, composite.WithoutSignatureCheck())
+	}
+	tr, err := composite.NewTrust(root, r, retraction, opts...)
 	if err != nil {
 		panic(err) // every port is supplied above
 	}
@@ -869,6 +876,8 @@ func resultOf(v bundles.Verdict) EffectiveTrustResult {
 		res.Source = trust.SourceAccepted
 	case bundles.ReasonRecordsUnreadable:
 		res.Source = trust.SourceUnreadable
+	case bundles.ReasonSigCheckDisabled:
+		res.Source = trust.SourceSigCheckDisabled
 	}
 	return res
 }

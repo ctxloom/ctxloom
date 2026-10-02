@@ -105,6 +105,10 @@ const (
 	// store, the lockfile) could not be read, so nothing was decided. The
 	// remedy is the store, not a review.
 	SourceUnreadable Source = "unreadable"
+	// SourceSigCheckDisabled: delivered because this invocation waived
+	// signature verification (--disable-sig-check). An allow nobody reviewed:
+	// its review state stays pending.
+	SourceSigCheckDisabled Source = "sig-check-disabled"
 )
 
 // State is an item's review state in the three-state model. Pending is the

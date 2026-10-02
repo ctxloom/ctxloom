@@ -162,6 +162,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckMCPInvocation(reg, doctorProjectDir(cfg)),
 			doctorCheckApprovalsStore(cfg, cfgErr),
 			doctorCheckContentTrust(cfg, cfgErr),
+			doctorCheckSigCheck(app.SigCheckDisabled),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr, app.NoCompanions),
@@ -1189,6 +1190,21 @@ func doctorCheckApprovalsStore(cfg *config.Config, cfgErr error) DoctorCheck {
 	}
 	return DoctorCheck{Marker: marker, Status: DoctorWarn, Remedy: remedy,
 		Detail: store + " does not exist, so every item is withheld: an absent store cannot be told from one that went away"}
+}
+
+// doctorSigCheckMarker is the signature-check row's marker.
+const doctorSigCheckMarker = "DOCTOR-CHECK-SIG-CHECK-e2"
+
+// doctorCheckSigCheck reports whether this invocation verifies bundle
+// signatures. Waived is a WARN, never ok: content nobody signed or reviewed is
+// reaching the assistant, and doctor is where a user looks to find out why a
+// session behaved as it did.
+func doctorCheckSigCheck(disabled bool) DoctorCheck {
+	if !disabled {
+		return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorOK, Detail: "bundle signature verification is enforced"}
+	}
+	return DoctorCheck{Marker: doctorSigCheckMarker, Status: DoctorWarn, Detail: bundles.SigCheckDisabledNotice,
+		Remedy: "drop --" + bundles.SigCheckFlag + " and unset " + bundles.SigCheckEnv + " to verify signatures again"}
 }
 
 // doctorCheckContentTrust names remote bundles whose content is being WITHHELD

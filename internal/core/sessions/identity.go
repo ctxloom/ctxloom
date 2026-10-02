@@ -90,6 +90,19 @@ type Seed struct {
 	OneShot    bool
 }
 
+// MintStamp is what the mint records in a session's sidecar: the facts only
+// the minting process knows.
+type MintStamp struct {
+	Origin Origin
+	// SigCheckDisabled: the minting invocation waived signature verification.
+	SigCheckDisabled bool
+}
+
+func (s MintStamp) apply(e *Entry) {
+	e.Origin = s.Origin
+	e.SigCheckDisabled = s.SigCheckDisabled
+}
+
 // Origin is who a session was minted for, recorded at the mint so a later
 // process can tell a human's session from ctxloom's own internal work.
 type Origin string

@@ -80,7 +80,7 @@ func pulledApp(t *testing.T, appDir string) *App {
 	t.Helper()
 	src, err := ComposeSources(Compose{NoCompanions: true, Options: []configload.Option{configload.WithAppDir(appDir)}})
 	require.NoError(t, err)
-	return NewApp(src, true, nil, strictness.Mode{Prog: "ctxloom"}, Handed{Open: config.Open, Reporter: strictness.Sink("ctxloom"), Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
+	return NewApp(src, Switches{NoCompanions: true}, nil, strictness.Mode{Prog: "ctxloom"}, Handed{Open: config.Open, Reporter: strictness.Sink("ctxloom"), Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
 // retractingPuller is the PRODUCTION puller with one thing replaced: the

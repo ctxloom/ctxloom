@@ -41,7 +41,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	mockrt "github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,6 +73,10 @@ func buildMockEngineImage(t *testing.T) string {
 	bin := filepath.Join(dir, "mockengine")
 	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "github.com/ctxloom/ctxloom/cmd/mockengine")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
+	// The sandbox moves the working directory out of the module.
+	root, err := sourcedir.RepoRoot()
+	require.NoError(t, err)
+	build.Dir = root
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static mockengine: %v\n%s", err, out)
 	}
@@ -112,6 +118,9 @@ func materializeClaudeContext(t *testing.T, workspace, context string) string {
 // TestMockEngineContainer_DiscoversDeliveredSurfaces is the deliverable.
 func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	dockergateRequire(t, "the mock-engine container context-delivery test")
+	// Delivery takes the session home lock, which must never land in the
+	// developer's real home (paths' home guard refuses it).
+	testsupport.Isolate(t)
 
 	workspace := t.TempDir()
 	wantContextHash := materializeClaudeContext(t, workspace, "# Project rules\nAlways run the tests.\nDeliver evidence, not existence.\n")

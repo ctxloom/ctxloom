@@ -58,6 +58,20 @@ const hostCredentialWithRefresh = `{"claudeAiOauth":{"accessToken":"host-access"
 // setupClaudeSessionProject stands up a project with a profile, a fake
 // claude on the child's PATH, and NO env token — so authentication can only
 // come from a token the test chooses to export.
+// configureSessionLogin sets the top-level `auth: login`: the human's own
+// session (a `ctxloom run`) shares their claude login. No agent ctxloom
+// spawns ever does.
+func configureSessionLogin(t *testing.T, env *testenv.TestEnvironment) {
+	t.Helper()
+	p := filepath.Join(env.ProjectDir, ".ctxloom", "config.yaml")
+	data, err := os.ReadFile(p)
+	require.NoError(t, err)
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
+	require.NoError(t, os.WriteFile(p, append(data, "auth: login\n"...), 0o644))
+}
+
 func setupClaudeSessionProject(t *testing.T) (env *testenv.TestEnvironment, capturePath string) {
 	t.Helper()
 	env = setupTestEnv(t)
@@ -123,7 +137,7 @@ func requireSharesTheHumansLogin(t *testing.T, got map[string]string) {
 }
 
 // TestRun_ClaudeLoginAgentRunsInTheSessionHome: even with a token exported,
-// a host agent declaring auth: login shares the human's login and is handed
+// the human's own host session under `auth: login` shares their login and is handed
 // the token blank; claude is told the session home as CLAUDE_CONFIG_DIR; that
 // home holds a .claude.json with the account identity and NO credential; the
 // project tree and the real home are byte-identical before and after.
@@ -131,8 +145,9 @@ func TestRun_ClaudeLoginAgentRunsInTheSessionHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	writeHostClaudeCredential(t, env)
 	env.SetChildEnv("CLAUDE_CODE_OAUTH_TOKEN", exportedSetupToken)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--auth", "login", "--permissions", "plan")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	configureSessionLogin(t, env)
 
 	projectBefore := treeSnapshot(t, env.ProjectDir, projectExcluded...)
 	homeBefore := treeSnapshot(t, env.HomeDir, paths.AppDirName)
@@ -173,8 +188,9 @@ func TestRun_ClaudeLoginAgentRunsInTheSessionHome(t *testing.T) {
 func TestRun_ClaudeLoginAgentWithNoTokenSharesTheHumansLogin(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	writeHostClaudeCredential(t, env)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--auth", "login", "--permissions", "plan")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	configureSessionLogin(t, env)
 	projectBefore := treeSnapshot(t, env.ProjectDir, projectExcluded...)
 	homeBefore := treeSnapshot(t, env.HomeDir, paths.AppDirName)
 
@@ -295,8 +311,9 @@ func TestRun_ClaudeHostHomeOnAnUntrustedRepositoryIsRefused(t *testing.T) {
 // agent, so a host-home binding still declares how it authenticates.
 func createHostHomeAgent(t *testing.T, env *testenv.TestEnvironment) {
 	t.Helper()
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--auth", "login", "--permissions", "plan")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	configureSessionLogin(t, env)
 }
 
 // trustProjectOnHost records, in the fake human's ~/.claude.json, their
@@ -331,14 +348,15 @@ func filesHolding(t *testing.T, dir, s string) []string {
 	return hits
 }
 
-// TestRun_ClaudeLoginAgentWithNoLoginIsRefused: a login agent whose human
+// TestRun_ClaudeLoginAgentWithNoLoginIsRefused: a login session whose human
 // has no claude login on this host (no ~/.claude) is refused before the
 // engine starts, naming the missing directory and `auth: token`, rather than
 // started logged out.
 func TestRun_ClaudeLoginAgentWithNoLoginIsRefused(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--auth", "login", "--permissions", "plan")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	configureSessionLogin(t, env)
 
 	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
 	require.NotEqual(t, 0, env.LastExitCode(), env.LastOutput())

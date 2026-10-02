@@ -100,8 +100,9 @@ func startInteractiveFakeClaude(t *testing.T, body string) *testenv.PTYSession {
 	env.SetChildEnv("CLAUDE_CONFIG_DIR", "")
 	env.SetChildEnv(secureStorageEnv, "")
 
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--auth", "login", "--permissions", "plan")
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--permissions", "plan")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	configureSessionLogin(t, env)
 
 	sess, err := env.RunPTY(ptyCols, ptyRows, nil, "run", "--agent", "dev")
 	require.NoError(t, err)

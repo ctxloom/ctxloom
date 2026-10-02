@@ -16,7 +16,7 @@ it is not a security boundary (for hard isolation, run the agent in a container)
 Rules use `mode` (default `enable`, a firm denial). Workflow redirects ship as
 `mode: confirm` — you can still run the raw command by repeating it after the
 delay and within the window — while the destructive-action guards stay firm
-(`enable`), so repeating them changes nothing. See [RULES.md](RULES.md#rule-mode).
+(`enable`), so repeating them changes nothing. See [Rule mode](https://ctxloom.dev/ltk/rules/#rule-mode).
 
 ## Header
 
@@ -102,7 +102,7 @@ A plain `--force` push can overwrite a teammate's commits; `--force-with-lease`
 refuses if the remote moved. Both `--force` and its short alias `-f` are
 listed: short options are **not** automatically expanded from long ones (that's
 a different mechanism — see "Bundled short options" in
-[RULES.md](RULES.md#portability-across-shells) — which only expands a cluster
+[the rules reference](https://ctxloom.dev/ltk/rules/#portability-across-shells) — which only expands a cluster
 like `-rf` into its own letters, never maps a short flag to an unrelated long
 spelling). A command-pattern rule naming only `--force` would let `git push -f`
 straight through; this is the general lesson to apply to every rule you write

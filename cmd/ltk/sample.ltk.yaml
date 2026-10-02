@@ -1,5 +1,5 @@
 # llm-tool-killer default rules — edit freely and commit alongside your project.
-# Rule model: https://github.com/ctxloom/ctxloom/blob/main/docs/ltk/RULES.md
+# Rule model: https://ctxloom.dev/ltk/rules/
 version: 1
 
 defaults:

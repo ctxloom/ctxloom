@@ -118,7 +118,7 @@ warning, never a broken session:
   run (e.g. `go test` → "use the task runner" → the agent retries `just test`).
   ctxloom registers the hook; rules are opt-in per project via
   `.ltk/config.yaml` (without one, ltk allows everything). Standalone use:
-  `ltk manage install`. Rule model: [docs/ltk/RULES.md](docs/ltk/RULES.md).
+  `ltk manage install`. Rule model: [ltk rules](https://ctxloom.dev/ltk/rules/).
 
 What works with what:
 

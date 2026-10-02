@@ -6,7 +6,7 @@
 //
 // The hook gates two kinds of agent action: shell commands (Bash/PowerShell
 // tools, matched by command rules) and file edits (Edit/Write/MultiEdit/
-// NotebookEdit tools, matched by `match.path` rules). See docs/ltk/RULES.md.
+// NotebookEdit tools, matched by `match.path` rules). See https://ctxloom.dev/ltk/rules/.
 package main
 
 import (

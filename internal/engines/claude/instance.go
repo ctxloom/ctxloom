@@ -206,7 +206,7 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 		args = append(args, flagPrint)
 	}
 	args = append(args, repoSourceArgs(i.s.Trust)...)
-	surfaces, err := presentedArgs(presented, i.s.Trust)
+	surfaces, err := presentedArgs(presented, i.s.Trust, path.Join(i.s.Roots.ProjectRoot.Engine, MCPFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -221,17 +221,31 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 }
 
 // presentedArgs is every presentation's args in delivery order. An
-// untrusted session refuses one naming --settings: the flag is a source
-// --setting-sources does not filter.
-func presentedArgs(presented []present.Presentation, trust engine.WorkspaceTrust) ([]string, error) {
+// untrusted session refuses one naming --settings (a source
+// --setting-sources does not filter) and one that is the project's own
+// .mcp.json, projectMCP (a file --strict-mcp-config ignores).
+func presentedArgs(presented []present.Presentation, trust engine.WorkspaceTrust, projectMCP string) ([]string, error) {
 	var args []string
 	for _, p := range presented {
-		if trust != engine.TrustTrusted && slices.Contains(p.Args, flagSettings) {
-			return nil, errUntrustedSettingsPresented
+		if trust != engine.TrustTrusted {
+			if err := untrustedRefusal(p, projectMCP); err != nil {
+				return nil, err
+			}
 		}
 		args = append(args, p.Args...)
 	}
 	return args, nil
+}
+
+// untrustedRefusal is why an untrusted session cannot take p, or nil.
+func untrustedRefusal(p present.Presentation, projectMCP string) error {
+	switch {
+	case slices.Contains(p.Args, flagSettings):
+		return errUntrustedSettingsPresented
+	case p.EnginePath == projectMCP:
+		return errUntrustedProjectMCP
+	}
+	return nil
 }
 
 // countFlag counts the occurrences of flag in args.

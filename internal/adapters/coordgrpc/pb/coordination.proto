@@ -1374,10 +1374,9 @@ message ListRunsResult {
 // ControlRun is the AGENT initiator's reach onto the control verbs: a
 // coordinating session asks the coordinator to steer, question, summarize,
 // pause or resume ONE of ITS OWN children. It is a TRANSPORT onto the same
-// coordinator verbs the human drives from the viewer (coord.Coordinator's
-// ControlSteer/ControlQuestion/ControlSummarize/ControlPause/ControlResume),
-// not a second implementation of them: the coordinator derives the initiator
-// from the REQUESTER's credential, runs the verb's own guards (the target
+// coordinator verb the human drives from the viewer (coord.Coordinator's
+// Control), not a second implementation of it: the coordinator derives the
+// initiator from the REQUESTER's credential, runs the verb's own guards (the target
 // must exist, must not be the requester itself, and must be the requester's
 // child — coord.controlTarget), and answers whatever the verb answered.
 //

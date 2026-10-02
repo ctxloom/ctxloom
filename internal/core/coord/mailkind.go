@@ -100,8 +100,8 @@ var ErrSenderMailKind = errors.New("agent_send: unusable message kind")
 // correct itself without guessing.
 //
 // This is the closed vocabulary's one guard, run by SendRequest.Validate —
-// whichever transport the send arrived on — after the ask-reply correlation
-// check; membership is drawn from the one enum.
+// whichever transport the send arrived on; membership is drawn from the one
+// enum.
 func SenderMailKind(kind string) error {
 	for _, ok := range senderMailKinds {
 		if kind == ok {

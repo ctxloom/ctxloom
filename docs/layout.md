@@ -5,14 +5,29 @@ clone gets, and what you may delete.
 
 ## Why you want to read this
 
-While an agent session is running, a **copy of your engine credential** can be
-sitting in the session's own directory under your home, at
-`~/.ctxloom/sessions/<harp>/home/…` — outside every project tree, so no
-`.gitignore` stands between it and a commit, and it is deleted when the
-session ends. Earlier ctxloom kept that instance inside the project at
-`.ctxloom/state/<harp>/home/…`; the ignore rules for that tier stay, and an
-architectural gate (`TestArch_SeededCredentialsAreGitignored`) asserts by
-name that `git` will not see what such a checkout still carries.
+A run's engine credential is never written into your project tree, and no
+credential file is seeded into an engine home. The run authenticates by its
+agent's declared auth mode (`claudeAuth.Credentials`): a token, key or cloud
+configuration set in the engine's environment by value, or, for `login`, your
+own credential storage shared in place (`loginStore`). While a session runs,
+two places under your home can still hold a copy, both outside every project
+tree:
+
+- a **container** cell's credential, as an owner-only file in the run's secret
+  dir (`isolation.materializeSecrets`) — on tmpfs under `$XDG_RUNTIME_DIR` where
+  the session has one, otherwise in the session's ephemeral directory
+  (`isolation.secretParent`) — removed when the run ends, and reaped by the
+  next container launch after a crash (`newOwnedScratch`);
+- under `engine_home: session`, an API-key login's `primaryApiKey`, which the
+  per-session instance's generated `.claude.json` copies from your host file
+  by name (`claude.ambientConfigKeys`), removed with the instance (below).
+
+The whole account is
+[isolation.md](architecture/engines/isolation.md), "Where a credential may and
+may not be". A checkout an earlier ctxloom ran in can still hold a credential
+file in an in-tree instance under `.ctxloom/state/`; the ignore rules for that
+tier stay, and an architectural gate (`TestArch_SeededCredentialsAreGitignored`)
+asserts by name that `git` will not see such a file.
 
 That is the sharp end. The everyday end is simpler and comes up more often:
 
@@ -177,7 +192,9 @@ The ambient set is an **allow-list, never a deny-list**. Under a deny-list a
 file the vendor adds tomorrow would be copied by default, and the default
 direction of that mistake is a confidentiality leak: claude's `.claude.json`
 carries your own `mcpServers` registrations. So only named keys and named files
-cross — `claude.ambientConfigKeys` is the onboarding answers and nothing else.
+cross — `claude.ambientConfigKeys` is the onboarding answers plus the account
+half claude's own config seeding copies (`oauthAccount`, and an API-key login's
+`primaryApiKey`), and nothing else.
 An engine whose credentials live in a global store no home variable relocates
 declares its set **empty** rather than omitting it, so the absence is a
 decision a reader can find.
@@ -185,14 +202,14 @@ decision a reader can find.
 **There is no sync-back, ever.** Two costs follow, and they are accepted
 deliberately:
 
-- a credential the engine refreshes *inside* an instance never reaches your real
-  home;
+- an account or API key the engine rewrites in an instance's `.claude.json`
+  never reaches your real home's;
 - a trust or onboarding answer given inside an instance dies with the instance,
   and is asked again next session unless the engine's own answer already lives
   in your real home and rides the next copy-in.
 
 **Instances are removed, and that is a security requirement, not hygiene** —
-each one holds a copied credential. `EndSession` removes a session's instance at
+each one can hold a copied credential (`primaryApiKey`, above). `EndSession` removes a session's instance at
 graceful shutdown (`operations.removeSessionInstance`); an instance a crashed
 session leaves behind is an ephemeral member of its session directory
 (`paths.HarpMembers`) and goes with the session's own reaping.
@@ -258,9 +275,10 @@ Two notes on that list, because both look like mistakes and are not:
   sidecars now live under `state/locks/`, covered by `.ctxloom/state/`; the
   pattern stays for projects an earlier version left a `.ctxloom/config.yaml.lock`
   at the root of.
-- `.ctxloom/state/` is a blanket rule and covers every per-session instance,
-  credential included. The credential arch gate still asserts specific instance
-  paths by name, because a blanket rule is one careless edit from narrowed.
+- `.ctxloom/state/` is a blanket rule and covers an in-tree per-session
+  instance a checkout from an earlier ctxloom may still hold, credential file
+  included. The credential arch gate asserts such a path by name, because a
+  blanket rule is one careless edit from narrowed.
 
 ## Per-agent worktree scratch stays in your home directory
 

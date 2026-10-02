@@ -412,7 +412,10 @@ on tmpfs where the session has `$XDG_RUNTIME_DIR`, for the run's lifetime
 never journalled (a run fact records `cred_hash` and MCP server names, never
 an env) and never in a container's `run` argv or configuration; an
 interactive launch (`runner.RunLaunchSpec`) hands the environment straight to
-the engine process it runs on a pty, and writes no launcher script. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
+the engine process it runs on a pty, and writes no launcher script. Under
+`engine_home: session` the instance's generated `.claude.json` also carries an
+API-key login's `primaryApiKey`, copied from the host file by name
+(`claude.ambientConfigKeys`), until the instance is removed. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
 run's output, the ctxloom home, the project and the run's temp dir for a
 sentinel.
 

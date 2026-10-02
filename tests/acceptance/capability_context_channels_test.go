@@ -109,6 +109,11 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 // because the question here is precisely WHICH root the bytes chose.
 func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject, outsideProject map[string]string) {
 	t.Helper()
+	// A file delivery into the project takes its home lock, and the lock
+	// directory derives from HOME, which a test binary may not leave real.
+	// Not testsupport.Isolate: that also demands the package's process-wide
+	// SandboxedMain, which this package's TestMain does not adopt.
+	t.Setenv("HOME", t.TempDir())
 	const (
 		projectRoot = "/probe/project"
 		engineHome  = "/probe/engine-home"

@@ -31,6 +31,9 @@ type InstanceHomeRequest struct {
 	// Trust is the engine's verdict on WorkDir's repository (repoTrust):
 	// the engine writes its trust answer only for a trusted one.
 	Trust engine.WorkspaceTrust
+	// Auth is the run's auth mode (engine.Credentials.Mode): only the human's
+	// own login session's instance carries the login's credential half.
+	Auth engine.AuthMode
 }
 
 // InstanceHomeReport is what one PrepareInstanceHome call decided and wrote.
@@ -71,9 +74,10 @@ var ensureOwnerOnlyDir = owneronly.EnsureDir
 // real-home byte-identity gate is what proves it.
 //
 // The whole operation is serialized under the project lock keyed to
-// req.InstanceHome, so two runs sharing ONE session instance (a coordinator and
-// its in-tree delegated child, which inherits the harp) cannot interleave their
-// load-modify-write of the same config file. An instance home outside any
+// req.InstanceHome, so two launches sharing ONE session instance (two under
+// the same harp, as a resume is) cannot interleave their load-modify-write of
+// the same config file. A delegated child is not one of them: it gets a harp,
+// and so an instance, of its own. An instance home outside any
 // .ctxloom tree cannot be keyed and proceeds unlocked — that is only ever the
 // harpless worktree fallback under the OS temp dir, whose home is per-AGENT and
 // therefore has no second writer to race.
@@ -105,6 +109,7 @@ func PrepareInstanceHome(req InstanceHomeRequest) (InstanceHomeReport, error) {
 		InstanceHome: req.InstanceHome,
 		WorkDir:      req.WorkDir,
 		Trust:        req.Trust,
+		Auth:         req.Auth,
 	}, nil)
 	rep.Generated = engineRep.Wrote
 	rep.Warnings = engineRep.Warnings

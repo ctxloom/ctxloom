@@ -53,6 +53,9 @@ type ambientConfigKey struct {
 	// worth saying out loud: claude renamed or retired it, and this allow-list
 	// is now copying nothing while still reporting success.
 	expected bool
+	// login marks a CREDENTIAL that crosses only into the human's own login
+	// session, and is removed from every other run's instance.
+	login bool
 }
 
 // ambientConfigKeys is claude's ambient set: the onboarding answers, and
@@ -65,9 +68,12 @@ type ambientConfigKey struct {
 // re-prompts every interactive session. Copying the host file wholesale
 // would fix that and re-open the leak above; copying these keys by name fixes
 // it and cannot. oauthAccount and primaryApiKey are what claude's own seeding
-// of a temp config dir copies out of the host file (2.1.278): the identity
-// it shows and checks for a subscription token, and the credential of an
-// API-key login, which keeps no .credentials.json.
+// of a temp config dir copies out of the host file (2.1.278). oauthAccount
+// is the account identity it shows and checks for a subscription token --
+// no secret, so every run gets it. primaryApiKey is the credential of a
+// Console-key /login, kept nowhere else on non-macOS: it is the human's
+// login, so only their own login session carries it (login), and no agent
+// ever does.
 var ambientConfigKeys = []ambientConfigKey{
 	{name: "hasCompletedOnboarding", fallback: true, expected: true},
 	{name: "lastOnboardingVersion", expected: true},
@@ -75,7 +81,7 @@ var ambientConfigKeys = []ambientConfigKey{
 	{name: "hasClaudeMdExternalIncludesApproved"},
 	{name: "hasClaudeMdExternalIncludesWarningShown"},
 	{name: "oauthAccount"},
-	{name: "primaryApiKey"},
+	{name: "primaryApiKey", login: true},
 }
 
 // hardenedConfigKeys are written UNCONDITIONALLY, host file or not — they are
@@ -173,7 +179,7 @@ func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigReque
 			return fmt.Errorf("claude instance config: cannot read %s: %w", dest, err)
 		}
 
-		rep.Warnings = append(rep.Warnings, w.applyAmbient(fs, req.HostHome, cfg)...)
+		rep.Warnings = append(rep.Warnings, w.applyAmbient(fs, req.HostHome, req.Auth, cfg)...)
 		for name, value := range hardenedConfigKeys {
 			cfg[name] = value
 		}
@@ -210,13 +216,15 @@ func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigReque
 }
 
 // applyAmbient copies the allow-listed keys out of the user's real
-// ~/.claude.json into cfg, and returns the schema-drift warnings.
+// ~/.claude.json into cfg, and returns the schema-drift warnings. A
+// login-only key crosses only for a run in mode login, and is deleted from
+// cfg for any other: cfg may be an instance a login run wrote before.
 //
 // An unreadable or unparseable host file is a WARNING, never an error: it is
 // the user's file, ctxloom does not own it, and the instance is still perfectly
 // usable with the fallbacks — refusing to launch over it would trade a working
 // run for a fixable annoyance.
-func (w claudeInstanceConfig) applyAmbient(fs afero.Fs, hostHome string, cfg map[string]any) []string {
+func (w claudeInstanceConfig) applyAmbient(fs afero.Fs, hostHome string, mode engine.AuthMode, cfg map[string]any) []string {
 	var warnings []string
 	var host map[string]any
 
@@ -236,6 +244,10 @@ func (w claudeInstanceConfig) applyAmbient(fs afero.Fs, hostHome string, cfg map
 	}
 
 	for _, key := range ambientConfigKeys {
+		if key.login && mode != engine.AuthLogin {
+			delete(cfg, key.name)
+			continue
+		}
 		if value, ok := host[key.name]; ok {
 			cfg[key.name] = value
 			continue

@@ -403,3 +403,35 @@ func TestSessionHome_TrustNamesTheRunCwd(t *testing.T) {
 	assert.Contains(t, cfg.Projects, filepath.Clean(checkout), "the trust entry names the run's cwd")
 	assert.NotContains(t, cfg.Projects, filepath.Clean(s.project), "the trust entry does not name the project root the run never enters")
 }
+
+// The session home is prepared for the run's mode: the human's own login
+// session's instance carries the host's primaryApiKey (a Console-key login's
+// only copy on non-macOS); a token run's -- every agent's -- never does.
+func TestStageLayout_TheInstanceIsPreparedForTheRunsMode(t *testing.T) {
+	for mode, wantKey := range map[engine.AuthMode]bool{engine.AuthLogin: true, engine.AuthToken: false} {
+		t.Run(string(mode), func(t *testing.T) {
+			home := fakeHostHome(t, tokenFixture)
+			require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"),
+				[]byte(`{"hasCompletedOnboarding":true,"primaryApiKey":"sk-ant-host"}`), 0o600))
+			creds := engine.Credentials{Mode: engine.AuthToken, Env: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": tokenFixture}}
+			if mode == engine.AuthLogin {
+				creds = claudeCredentials(t, engine.AuthLogin)
+				creds.Mode = engine.AuthLogin
+			}
+			eng := claudeEngine(t)
+			placeOn(t, credSpec(t, eng, home, harpA, agents.HomeModeSession, creds), t.TempDir(), hostRelocator{})
+
+			dir, ok := launch.SessionHome(sessionDir(home, harpA), eng, agents.HomeModeSession)
+			require.True(t, ok)
+			data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
+			require.NoError(t, err)
+			var cfg map[string]any
+			require.NoError(t, json.Unmarshal(data, &cfg))
+			if wantKey {
+				assert.Equal(t, "sk-ant-host", cfg["primaryApiKey"])
+			} else {
+				assert.NotContains(t, cfg, "primaryApiKey")
+			}
+		})
+	}
+}

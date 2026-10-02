@@ -58,7 +58,7 @@ type relocator interface {
 func stageLayout(s Spec, cwd string, env map[string]string, stores []sharedStore) layout {
 	l := layout{cwd: cwd, env: env, creds: s.creds, stores: stores, trust: repoTrust(s.eng, cwd), hostEnv: s.curatedEnv()}
 	dir, ok := launch.SessionHome(s.sessionDir, s.eng, s.home)
-	if !ok || !prepareSessionHome(s.eng, dir, cwd, l.trust) {
+	if !ok || !prepareSessionHome(s.eng, dir, cwd, l.trust, s.creds.Mode) {
 		return l
 	}
 	placeHome(&l, s.eng, dir)
@@ -113,16 +113,16 @@ func repoTrust(eng engine.Engine, cwd string) engine.WorkspaceTrust {
 const sessionHomeRemedy = "fix what kept the session home from being prepared (the error names it), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
 
 // prepareSessionHome creates dir owner-only (it holds engine config) and, for an
-// engine that relocates its home, has the engine prepare it. It reports
-// whether the home is usable. How the run authenticates is settled before
-// this runs (the Spec's Credentials).
+// engine that relocates its home, has the engine prepare it for the run's
+// auth mode. It reports whether the home is usable. How the run
+// authenticates is settled before this runs (the Spec's Credentials).
 //
 // An unpreparable home is NON-DEGRADABLE: falling back to the real home
 // would hand the engine what only the binding may select.
-func prepareSessionHome(eng engine.Engine, dir, cwd string, trust engine.WorkspaceTrust) bool {
+func prepareSessionHome(eng engine.Engine, dir, cwd string, trust engine.WorkspaceTrust, mode engine.AuthMode) bool {
 	name := string(eng.Root().Name)
 	if home := eng.Home(); home.Relocates() {
-		if _, err := PrepareInstanceHome(InstanceHomeRequest{Engine: name, InstanceHome: dir, WorkDir: cwd, Trust: trust}); err != nil {
+		if _, err := PrepareInstanceHome(InstanceHomeRequest{Engine: name, InstanceHome: dir, WorkDir: cwd, Trust: trust, Auth: mode}); err != nil {
 			strictness.FailAlways(report.KindIsolation, sessionHomeRemedy,
 				"session home for %s: %v — refusing to point %s at an unprepared %s, and refusing to substitute the SHARED host config home for the per-session one this agent asked for",
 				name, err, home.Vars[0].Name, dir)

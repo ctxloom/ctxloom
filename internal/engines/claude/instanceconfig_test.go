@@ -333,19 +333,20 @@ func TestAmbientConfigKeys_IsAnAllowListOfOnboardingAnswersOnly(t *testing.T) {
 		"the ambient allow-list changed. Every entry crosses from the user's real home into every agent's instance — adding one is a confidentiality decision, not a refactor")
 }
 
-// TestWriteInstanceConfig_CarriesTheAccountIdentityAndPrimaryKey: claude's
-// own session-seeding path copies `.claude.json`'s oauthAccount and
-// primaryApiKey beside the credential (read from the 2.1.278 bundle), and
-// so does this writer — by name. The account identity is what claude shows
-// and checks for a subscription token; the primary API key is the
-// credential of an API-key login, which has no .credentials.json to seed.
-// Neither widens the allow-list past those two names: the registrations,
-// the history and the telemetry keys still never cross.
-func TestWriteInstanceConfig_CarriesTheAccountIdentityAndPrimaryKey(t *testing.T) {
-	host := writeHostConfig(t, `{"hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"user@example.com","accountUuid":"abc-123"},"primaryApiKey":"sk-ant-host","mcpServers":{"x":{"command":"secret"}},"userID":"telemetry"}`)
+// hostWithAPIKeyLogin is a host ~/.claude.json carrying the account
+// identity and a Console-key /login's primaryApiKey (on non-macOS the key's
+// ONLY home), beside what never crosses.
+const hostWithAPIKeyLogin = `{"hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"user@example.com","accountUuid":"abc-123"},"primaryApiKey":"sk-ant-host","mcpServers":{"x":{"command":"secret"}},"userID":"telemetry"}`
+
+// The human's own login session carries what claude's own session seeding
+// copies (read from the 2.1.278 bundle): the account identity, and the
+// primaryApiKey a Console-key /login keeps nowhere else. Nothing widens the
+// allow-list past those names.
+func TestWriteInstanceConfig_TheHumansLoginCarriesThePrimaryKey(t *testing.T) {
+	host := writeHostConfig(t, hostWithAPIKeyLogin)
 	instance := t.TempDir()
 	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
-		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(),
+		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(), Auth: engine.AuthLogin,
 	}, nil)
 	require.NoError(t, err)
 
@@ -354,6 +355,40 @@ func TestWriteInstanceConfig_CarriesTheAccountIdentityAndPrimaryKey(t *testing.T
 	assert.Equal(t, "sk-ant-host", got["primaryApiKey"])
 	assert.NotContains(t, got, "mcpServers")
 	assert.NotContains(t, got, "userID")
+}
+
+// A token run -- every agent, and the human's session in token mode --
+// never carries the host's primaryApiKey: a credential is never copied into
+// an agent's instance. It keeps the account identity, which is no secret and
+// which claude reads with a subscription token.
+func TestWriteInstanceConfig_ATokenRunNeverCarriesThePrimaryKey(t *testing.T) {
+	host := writeHostConfig(t, hostWithAPIKeyLogin)
+	instance := t.TempDir()
+	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
+		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(), Auth: engine.AuthToken,
+	}, nil)
+	require.NoError(t, err)
+
+	got := readInstanceConfig(t, instance)
+	assert.NotContains(t, got, "primaryApiKey")
+	assert.Equal(t, map[string]any{"emailAddress": "user@example.com", "accountUuid": "abc-123"}, got["oauthAccount"])
+}
+
+// The instance file is the base of every write (a resume reuses the harp),
+// so a token run also REMOVES a primaryApiKey an earlier login run left
+// there: the invariant is what the file holds, not what this write added.
+func TestWriteInstanceConfig_ATokenRunStripsALeftoverPrimaryKey(t *testing.T) {
+	host := writeHostConfig(t, hostWithAPIKeyLogin)
+	instance := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(instance, InstanceConfigFileName), []byte(`{"primaryApiKey":"sk-ant-left","numStartups":3}`), 0o600))
+	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
+		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(), Auth: engine.AuthToken,
+	}, nil)
+	require.NoError(t, err)
+
+	got := readInstanceConfig(t, instance)
+	assert.NotContains(t, got, "primaryApiKey")
+	assert.Equal(t, float64(3), got["numStartups"], "everything claude accumulated is kept")
 }
 
 // A host with neither (an API-key login has no oauthAccount; a subscription

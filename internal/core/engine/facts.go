@@ -112,13 +112,15 @@ type InstanceConfigWriter interface {
 // home (the ambient values it may copy), the session home it writes into —
 // the directory the engine's home var names, placed by launch.SessionHome,
 // with no leaf of the writer's own appended — the run's working directory,
-// and the engine's verdict on its repository: only a trusted one may have
-// the engine's trust answer written for it.
+// the engine's verdict on its repository: only a trusted one may have
+// the engine's trust answer written for it — and the run's auth mode: only
+// the human's own login carries the login's credential half.
 type InstanceConfigRequest struct {
 	HostHome     string
 	InstanceHome string
 	WorkDir      string
 	Trust        WorkspaceTrust
+	Auth         AuthMode
 }
 
 // RepoTrust is an engine's verdict on a repository: whether the human

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -795,7 +796,7 @@ func TestEvaluateTriggers_HallucinatedHarpIDIsNotCached(t *testing.T) {
 	require.Len(t, res.Verdicts, 1, "only the actually-requested task's verdict must be surfaced")
 	assert.Equal(t, deferred.Task.HarpID, res.Verdicts[0].HarpID)
 
-	cache := loadTriggerCache(tc.ProjectID)
+	cache := loadTriggerCache(afero.NewOsFs(), tc.ProjectID)
 	_, hallucinated := cache.Tasks["ghost-not-in-request"]
 	assert.False(t, hallucinated, "a verdict for a harp id never in the request must not be persisted to the cache")
 }

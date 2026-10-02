@@ -14,7 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -220,7 +220,7 @@ func renderGlobalListing(out io.Writer, r *scopedListResult, opts listOptions) e
 		}
 		return clifmt.Render(out, r.Rows, opts.Format)
 	}
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	w.Printf("Projects: %d (--global)\n\n", r.ProjectCount)
 	if err := w.Err(); err != nil {
 		return err
@@ -240,7 +240,7 @@ func renderProjectListing(out io.Writer, r *scopedListResult, opts listOptions) 
 	// Name the resolved store: in multi-root workspaces (several .ctxloom
 	// trees under one repo), which project a listing came from is the
 	// first thing a confused reader needs to know.
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	w.Printf("Project: %s\n\n", formatProjectLabel(r.ProjectDir, r.ProjectID))
 	if err := w.Err(); err != nil {
 		return err
@@ -393,7 +393,7 @@ const tagQueryRemedy = "queries are postfix: tags first, operator after — e.g.
 // per-row formatting matches the single-project view exactly. cfg is passed
 // straight through to each section's renderTaskTable.
 func renderGlobalTaskTable(out io.Writer, rows []taskRow, cfg tagma.HideConfig) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if len(rows) == 0 {
 		w.Println("(no tasks)")
 		return w.Err()
@@ -527,7 +527,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	task := res.Task
 	return cliemit.Emit(cmd, task, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
 		return w.Err()
 	})
@@ -560,7 +560,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	task := res.Task
 	return cliemit.Emit(cmd, task, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
 		return w.Err()
 	})
@@ -591,7 +591,7 @@ func runEdit(cmd *cobra.Command, args []string) error {
 	noteTaskProject(res.ProjectDir, res.ProjectID)
 	task := res.Task
 	return cliemit.Emit(cmd, task, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
 		return w.Err()
 	})
@@ -642,7 +642,7 @@ func runTag(cmd *cobra.Command, args []string) error {
 // and its tags, filtered through cfg via visibleTags like every other
 // listing site — see hideConfigFor.
 func renderTagResult(out io.Writer, t tasks.Task, cfg tagma.HideConfig) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	w.Printf("%s\t%s\t%s\n", t.HarpID, t.Status, strings.Join(visibleTags(t.Tags, cfg), ","))
 	return w.Err()
 }
@@ -752,7 +752,7 @@ func runTagsCmd(out, errw io.Writer, tc operations.TaskContext, opts listOptions
 	if opts.Format != clifmt.FormatText {
 		return clifmt.Render(out, visible, opts.Format)
 	}
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if r.Global {
 		w.Printf("Projects: %d (--global)\n\n", r.ProjectCount)
 	} else {
@@ -780,7 +780,7 @@ func tasksOfRows(rows []taskRow) []tasks.Task {
 // its two labeled counts, or a hint when the population carries no tags at
 // all — an empty table would otherwise read as a broken command.
 func renderTagCounts(out io.Writer, visible []operations.TagCount) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if len(visible) == 0 {
 		w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
 		return w.Err()
@@ -823,7 +823,7 @@ func runSummary(cmd *cobra.Command, args []string) error {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		for _, k := range keys {
 			w.Printf("%s\t%d\n", k, sum.Counts[k])
 		}
@@ -854,7 +854,7 @@ refused as the first character of a status name.`,
 func runStatusesCmd(cmd *cobra.Command, args []string) error {
 	statuses := tasks.Statuses()
 	return cliemit.Emit(cmd, statuses, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		for _, s := range statuses {
 			flags := ""
 			if s.Terminal {

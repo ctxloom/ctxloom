@@ -14,8 +14,8 @@ import (
 	"github.com/gofrs/flock"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
 )
 
@@ -29,7 +29,7 @@ const (
 )
 
 // logFileMode and logDirMode are the event log's own mode and its parent
-// directory's. Named rather than spelled inline because iox applies a mode
+// directory's. Named rather than spelled inline because safefs applies a mode
 // EXACTLY (umask-free) to a file it creates, so this constant is the whole
 // answer to "what are a task log's permissions", not a pre-umask wish.
 const (
@@ -371,7 +371,7 @@ func (f *folded) anomalyError(path string) error {
 // append writes one event as a single JSON line, appended to the log. The
 // caller holds the locks.
 //
-// iox.AppendInPlace, not iox.WriteFileAtomic: this log's whole value is that
+// safefs.AppendInPlace, not safefs.WriteFile: this log's whole value is that
 // prior entries survive every write, and a whole-file replace would have to
 // read back and rewrite bytes it did not author to express that.
 //
@@ -379,7 +379,7 @@ func (f *folded) anomalyError(path string) error {
 // unparseable line as fatal for the WHOLE log, so a torn line from one failed
 // write (ENOSPC partway through, EIO on the fsync) would brick every future
 // read and write of the store, with "move the file aside and re-add every
-// task" as the only stated recovery. iox writes and fsyncs but does not roll
+// task" as the only stated recovery. safefs writes and fsyncs but does not roll
 // back, so this function does: it records the log's length before the write
 // and truncates back to it on any failure. That is safe precisely because the
 // caller holds the exclusive lock (eventLog.lock) — no other appender can
@@ -415,23 +415,23 @@ func (l *eventLog) append(ev Event) error {
 	// is reported as written until this call returns, so a crash in between
 	// can still only lose the whole file or nothing, never leave a CONFIRMED
 	// event in a file with no name.
-	var opts []iox.Option
+	var opts []safefs.Option
 	if created {
-		opts = append(opts, iox.Durable())
+		opts = append(opts, safefs.Durable())
 	}
-	if err := writeInPlace(l.path, iox.AppendInPlace, append(b, '\n'), logFileMode, opts...); err != nil {
+	if err := writeInPlace(l.path, safefs.AppendInPlace, append(b, '\n'), logFileMode, opts...); err != nil {
 		_ = os.Truncate(l.path, prior)
 		return err
 	}
 	return nil
 }
 
-// writeInPlace is iox.WriteFileInPlace, indirected so a test can drive the
+// writeInPlace is safefs.WriteFileInPlace, indirected so a test can drive the
 // partial-write path — a write that delivers SOME bytes and then fails —
 // which a real filesystem will not produce on demand and which is the exact
-// failure the rollback above exists for. iox deliberately offers no
+// failure the rollback above exists for. safefs deliberately offers no
 // afero twin for in-place writing, so this is the only seam available.
-var writeInPlace = iox.WriteFileInPlace
+var writeInPlace = safefs.WriteFileInPlace
 
 // logExtent reports the log's current length and whether it is absent, which
 // together are everything append needs to know before it writes: the length

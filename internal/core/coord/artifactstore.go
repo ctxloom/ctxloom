@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/spf13/afero"
 	"io"
 	"os"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // artifactStoreDirName is the content-addressed blob store's subdirectory,
@@ -73,13 +74,10 @@ var errArtifactSizeMismatch = errors.New("coord: artifact content does not match
 // consequence of skipping it — a durable manifest naming a blob whose rename
 // never landed — is precisely what must not happen.
 //
-// Points at iox.SyncDir, the shared "open dir, fsync, close" primitive
-// (formerly this package's own fsyncDir/artifactstore_dirsync*.go, byte-for-
-// byte the same operation with no tolerance quirks of its own — collapsed
-// per taskloom unbounded-bacon's Durable() ruling). Still swappable here for
-// artifactstore_dirsync_test.go, which needs to observe the seam and inject
-// failures the way iox's own tests do internally.
-var syncArtifactDir = iox.SyncDir
+// Points at safefs.SyncDir, the shared "open dir, fsync, close" primitive.
+// Swappable here for artifactstore_dirsync_test.go, which needs to observe
+// the seam and inject failures at this site.
+var syncArtifactDir = func(dir string) error { return safefs.SyncDir(afero.NewOsFs(), dir) }
 
 // errArtifactBadName is returned when a name handed to the store is not a
 // content hash. The store's whole contract is "the file name IS

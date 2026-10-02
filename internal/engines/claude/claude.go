@@ -12,7 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -595,7 +595,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	return iox.AtomicWriteFile(w.getFS(), path, data, "settings")
+	return safefs.WriteFileKeepMode(w.getFS(), path, data, "settings")
 }
 
 // writeMCPConfig writes MCP servers to .mcp.json.

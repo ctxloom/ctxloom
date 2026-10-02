@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -224,7 +224,7 @@ func verifyHarpDirExists(harp string) error {
 // itself) human render: a table when there is anything to show, one summary
 // line naming what happened (or would happen) after it.
 func renderSessionWorktrees(w io.Writer, rep sessionWorktreeReport) error {
-	ew := iox.NewErrWriter(w)
+	ew := errwriter.New(w)
 	if len(rep.Worktrees) == 0 {
 		ew.Println("no ctxloom-owned scratch worktrees")
 		return ew.Err()

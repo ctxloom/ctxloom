@@ -2,19 +2,20 @@ package remote
 
 import (
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Registry manages configured remote sources.
@@ -167,7 +168,7 @@ func (r *Registry) save() error {
 	// and agent children run concurrently) can observe or leave a half-written
 	// remotes.yaml. LockfileManager.write already uses this same atomic
 	// temp-file-then-rename primitive for the same reason, same directory.
-	if err := iox.WriteFileAtomicFs(r.fs, r.configPath, out, 0644); err != nil {
+	if err := safefs.WriteFile(r.fs, r.configPath, out, 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 

@@ -57,7 +57,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // syncMockPuller is a test puller that records calls for sync tests.
@@ -1478,13 +1478,13 @@ func revealProfileOnDisk(fs afero.Fs, name, bundleRef string) error {
 	body := fmt.Sprintf("bundles:\n    - %s\n", bundleRef)
 	// No *testing.T reaches this call: it runs inside revealingPuller.Pull,
 	// invoked deep inside the sync code under test as a remote.Puller, so it
-	// cannot use testsupport.WriteFile and must route through iox directly —
+	// cannot use testsupport.WriteFile and must route through safefs directly —
 	// the same MkdirAll-then-atomic-write sequence that helper wraps.
 	path := paths.ProfilesPath(testBaseDir) + "/" + name + ".yaml"
 	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return iox.WriteFileAtomicFs(fs, path, []byte(body), 0o644)
+	return safefs.WriteFile(fs, path, []byte(body), 0o644)
 }
 
 func (p *revealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOptions) (*remote.PullResult, error) {

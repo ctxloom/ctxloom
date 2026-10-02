@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -144,7 +144,7 @@ func sessionEntriesForHarpArg(args []string, all bool) ([]sessions.Entry, error)
 // empty line a table cannot carry.
 func renderSessionTranscripts(w io.Writer, rep sessionTranscriptReport) error {
 	if len(rep.Transcripts) == 0 {
-		ew := iox.NewErrWriter(w)
+		ew := errwriter.New(w)
 		ew.Println("(no sessions)")
 		return ew.Err()
 	}

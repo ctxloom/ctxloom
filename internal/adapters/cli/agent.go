@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -71,7 +71,7 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 // renderAgentList writes the human-readable summary of the agent list.
 // Extracted from RunE so the formatting is testable without cobra/config.
 func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	if len(list) == 0 {
 		w.Println("No agents defined.")
 		w.Println("Define one under 'agents:' in .ctxloom/config.yaml.")
@@ -175,7 +175,7 @@ type agentShowJSON struct {
 // and "what will actually run?" — and each is a run of independent
 // omit-when-empty arms.
 func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operations.ResolvedAgent, rerr error, losses []agent.SurfaceLoss) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	renderAgentDeclaration(w, def)
 	renderAgentResolution(w, resolved, rerr, losses)
 	return w.Err()
@@ -184,7 +184,7 @@ func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operat
 // renderAgentDeclaration writes the agent AS DECLARED: identity, the declared
 // engine (with the project-default hint when unset), and the optional axes,
 // each omitted when empty.
-func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
+func renderAgentDeclaration(w *errwriter.Writer, def *operations.AgentEntry) {
 	w.Printf("Agent: %s\n", def.Name)
 	if def.LLM != "" {
 		w.Printf("Engine (declared): %s\n", def.LLM)
@@ -219,7 +219,7 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 // carried lines with wrote lines: a reader who scans only the top of `agent
 // show` must not come away with "the swap succeeded" as the whole story when
 // the new engine silently drops something the old one carried (j002000).
-func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent, rerr error, losses []agent.SurfaceLoss) {
+func renderAgentResolution(w *errwriter.Writer, resolved *operations.ResolvedAgent, rerr error, losses []agent.SurfaceLoss) {
 	if rerr != nil {
 		w.Printf("Resolved llm: unavailable (%v)\n", rerr)
 		return
@@ -268,7 +268,7 @@ func runSetupPromptCmd(cmd *cobra.Command, args []string) error {
 	// discovery session receives; it degrades to the built-in alone for the
 	// nil config GetConfig returns on a load failure.
 	cfg, _ := GetConfig()
-	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w := errwriter.New(cmd.OutOrStdout())
 	w.Println(discoverySessionPrompt(cfg))
 	return w.Err()
 }
@@ -479,7 +479,7 @@ func rootsFromFlag(pairs []string) map[string]string {
 // renderAgentWritten writes the one-line confirmation for a created/edited
 // agent, naming which of the two happened.
 func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	verb := "Created"
 	if edited {
 		verb = "Updated"
@@ -539,7 +539,7 @@ func runAgentDefault(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w := errwriter.New(cmd.OutOrStdout())
 
 	// No argument: report the current default agent.
 	if len(args) == 0 {
@@ -567,7 +567,7 @@ func runAgentDefault(cmd *cobra.Command, args []string) error {
 
 // renderDefaultAgent writes the no-argument report: which agent a bare
 // `ctxloom run` binds, or that none is set.
-func renderDefaultAgent(w *iox.ErrWriter, current string) error {
+func renderDefaultAgent(w *errwriter.Writer, current string) error {
 	if current == "" {
 		w.Println("No default agent set.")
 		return w.Err()
@@ -645,7 +645,7 @@ func runAgentRemove(cmd *cobra.Command, args []string) error {
 		Status string `json:"status"`
 		Name   string `json:"name"`
 	}{Status: "removed", Name: name}, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("Removed agent %q\n", name)
 		return w.Err()
 	})

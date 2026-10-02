@@ -14,8 +14,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/parentwatch"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
@@ -76,7 +76,7 @@ func divertRunnerDiagnostics(getenv func(string) string) func() {
 	if path == "" {
 		return func() {}
 	}
-	if err := iox.WriteFileInPlace(path, iox.AppendInPlace, nil, 0o644); err != nil {
+	if err := safefs.WriteFileInPlace(path, safefs.AppendInPlace, nil, 0o644); err != nil {
 		return func() {}
 	}
 	return clidiag.SetSink(appendLog(path))
@@ -87,7 +87,7 @@ func divertRunnerDiagnostics(getenv func(string) string) func() {
 type appendLog string
 
 func (p appendLog) Write(b []byte) (int, error) {
-	if err := iox.WriteFileInPlace(string(p), iox.AppendInPlace, b, 0o644); err != nil {
+	if err := safefs.WriteFileInPlace(string(p), safefs.AppendInPlace, b, 0o644); err != nil {
 		return 0, err
 	}
 	return len(b), nil

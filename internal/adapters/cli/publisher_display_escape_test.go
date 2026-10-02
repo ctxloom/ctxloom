@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // hostileDisplay is one publisher-authored value carrying every family of
@@ -205,7 +205,7 @@ func TestPublisherDisplayPaths_ControlBytesAreEscaped(t *testing.T) {
 		}},
 		{"bundle distill", func(t *testing.T) string {
 			var buf bytes.Buffer
-			w := iox.NewErrWriter(&buf)
+			w := errwriter.New(&buf)
 			printDistillItems(w, []operations.DistillBundleItem{
 				{Kind: "fragment", Name: h, Status: operations.DistillStatusSkipped, Reason: h},
 				{Kind: "fragment", Name: h, Status: operations.DistillStatusPlanned},

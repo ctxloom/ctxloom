@@ -71,7 +71,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 | Symbol | Purpose |
 |---|---|
-| `AtomicWriteFile` | Routes through `iox.WriteFileAtomicFs`: a **unique** temp name in the destination directory (`afero.TempFile`, so two concurrent writers never clobber each other's in-flight bytes), fsync, chmod to an exact mode, then rename. **No backup is taken** — see "What changed" below for why. Refuses a zero-byte write over an existing file unless the caller opts in with `AllowEmptyWrite()`. |
+| `AtomicWriteFile` | Routes through `safefs.WriteFile`: a **unique** temp name in the destination directory (`afero.TempFile`, so two concurrent writers never clobber each other's in-flight bytes), fsync, chmod to an exact mode, then rename. **No backup is taken** — see "What changed" below for why. Refuses a zero-byte write over an existing file unless the caller opts in with `AllowEmptyWrite()`. |
 | `WithFileLock` | The `SettingsWriter`/R6 family's one lock idiom: `fn` runs as the WHOLE read-modify-write cycle under a lock at `paths.HomePathFor(target)` (a real OS home-rooted lock directory, not a sidecar beside `target`). Skipped when `fs` is not OS-backed (a test double has no other process to exclude). Fail-closed on acquisition failure. |
 | `GetFS` | nil → `afero.NewOsFs()`; the single defaulting point every writer in this package and its engine callers uses. |
 | `Warn` | `clidiag.Warn("ctxloom", …)`; binds the program name once. |
@@ -122,7 +122,7 @@ Some files live inside a *foreign* engine's config directory (`~/.claude`-shaped
 
 **Marker filename:** `.ctxloom-managed` (constant `ledger.Name`) — **one filename for every engine and every surface**, not the per-engine `<Path>.ledger` variants that predated it. Lines are `<name>\t<surface>`; `Surface` is a deliberately open string type (`ledger.SurfaceMCP`, `SurfaceCommands`, `SurfaceSkills`, `SurfaceHooks`, `SurfaceContext`, `SurfacePermissions`, `SurfaceStatusLine`, and any caller-defined value), so two co-located surfaces sharing one directory never delete each other's entries, and a plugin can claim its own surface with no registration step.
 
-`ledger.Ledger.Read` returns `(nil, nil)` for a missing marker (the legitimate "nothing managed yet" case) but propagates any other read error — never flattens it to empty. `ledger.Ledger.Write` rewrites the marker atomically (`iox.WriteFileAtomicFs`), in a stable sorted order (so an unchanged managed set produces byte-identical output), and removes the marker file only when **every** surface is empty.
+`ledger.Ledger.Read` returns `(nil, nil)` for a missing marker (the legitimate "nothing managed yet" case) but propagates any other read error — never flattens it to empty. `ledger.Ledger.Write` rewrites the marker atomically (`safefs.WriteFile`), in a stable sorted order (so an unchanged managed set produces byte-identical output), and removes the marker file only when **every** surface is empty.
 
 Consumers: `WriteManagedPackageFiles` (`SurfaceCommands`/`SurfaceSkills`), and `claude.ClaudeCodeHookWriter.writeSettingsFile` / `removeSettingsFile` (`SurfaceHooks`/`SurfacePermissions`/`SurfaceStatusLine`).
 

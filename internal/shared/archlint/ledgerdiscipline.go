@@ -83,7 +83,7 @@ func runLedgerDiscipline(pass *analysis.Pass) (any, error) {
 					// primitive, a managed-subset signal, AND its own
 					// ownership record. An exclusive switch would credit only
 					// the first match and silently miss the other two.
-					if lockSavePattern.MatchString(name) || lockWritePrimitives[name] {
+					if isWriteCall(pass.TypesInfo, node, name) {
 						hasWrite = true
 						if at == token.NoPos {
 							at = node.Pos()

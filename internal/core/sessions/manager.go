@@ -28,13 +28,14 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // lockFileMode and lockDirMode are the modes a sidecar's advisory-lock file
@@ -276,17 +277,18 @@ func (m *Manager) writeSidecar(harpName string, e *Entry) error {
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", paths.SessionSidecarFileName, err)
 	}
+	fs := afero.NewOsFs()
 	dir := filepath.Join(m.root, harpName)
-	if err := os.MkdirAll(dir, sessionDirMode); err != nil {
+	if err := fs.MkdirAll(dir, sessionDirMode); err != nil {
 		return fmt.Errorf("mkdir session dir: %w", err)
 	}
 	// MkdirAll leaves an existing directory's mode alone, and the session dir
 	// normally exists before its first sidecar write (launch lays out
 	// persist/ and ephemeral/ under it with the default mode).
-	if err := os.Chmod(dir, sessionDirMode); err != nil {
+	if err := fs.Chmod(dir, sessionDirMode); err != nil {
 		return fmt.Errorf("restrict session dir: %w", err)
 	}
-	return iox.WriteFileAtomic(filepath.Join(dir, paths.SessionSidecarFileName), data, sidecarFileMode, iox.Durable())
+	return safefs.WriteFile(fs, filepath.Join(dir, paths.SessionSidecarFileName), data, sidecarFileMode, safefs.Durable())
 }
 
 // lock takes harpName's exclusive sidecar lock (paths.HarpSidecarLockPath)

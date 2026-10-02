@@ -208,7 +208,7 @@ func TestRefreshVendorTranscript_LeavesNoRebuildArtifact(t *testing.T) {
 	_, err = os.Stat(canonPath + ".rebuild")
 	assert.True(t, os.IsNotExist(err), "the .rebuild temp must be renamed into place, never left behind")
 
-	// iox.NewAtomicFile's temp name is a random "."+base+".*.tmp", not the old
+	// safefs.NewAtomicFile's temp name is a random "."+base+".*.tmp", not the old
 	// fixed ".rebuild" suffix, so the check above alone would pass even if a
 	// temp were leaking under the new name — list the persist dir directly and
 	// require it hold nothing but the canonical file and its ownership-probe

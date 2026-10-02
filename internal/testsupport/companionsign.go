@@ -12,7 +12,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // SignCompanionForTesting makes the binary at path executable by ctxloom: it
@@ -56,14 +57,14 @@ func writeSignedRelease(t testing.TB, path string, signer ssh.Signer) {
 		t.Fatalf("read %s to sign it: %v", path, err)
 	}
 	statement := CompanionReleaseStatement(filepath.Base(path), "1.0.0", binary)
-	if err := iox.WriteFileAtomic(path+".release", statement, 0o600); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), path+".release", statement, 0o600); err != nil {
 		t.Fatalf("write the release statement for %s: %v", path, err)
 	}
 	sig, err := signing.Sign(statement, signer, signing.NamespaceCompanion)
 	if err != nil {
 		t.Fatalf("sign %s: %v", path, err)
 	}
-	if err := iox.WriteFileAtomic(path+".sig", sig, 0o600); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), path+".sig", sig, 0o600); err != nil {
 		t.Fatalf("write the signature for %s: %v", path, err)
 	}
 }
@@ -79,14 +80,14 @@ func trustCompanionKey(t testing.TB, allowedSigners string, signer ssh.Signer) {
 	if err := os.MkdirAll(filepath.Dir(allowedSigners), 0o755); err != nil {
 		t.Fatalf("create the trust root dir: %v", err)
 	}
-	// Read-modify-write rather than O_APPEND: the write goes through iox so a
-	// fixture and production agree on what "write a file" means, and iox
+	// Read-modify-write rather than O_APPEND: the write goes through safefs so a
+	// fixture and production agree on what "write a file" means, and safefs
 	// replaces rather than appends.
 	prev, err := os.ReadFile(allowedSigners) //nolint:gosec // a path this test chose
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatalf("read %s: %v", allowedSigners, err)
 	}
-	if err := iox.WriteFileAtomic(allowedSigners, append(prev, line...), 0o600); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), allowedSigners, append(prev, line...), 0o600); err != nil {
 		t.Fatalf("trust the companion key: %v", err)
 	}
 }
@@ -123,7 +124,7 @@ func SignLoadoutForTesting(t testing.TB, doc []byte, principal, allowedSigners s
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatalf("read %s: %v", allowedSigners, err)
 	}
-	if err := iox.WriteFileAtomic(allowedSigners, append(prev, line...), 0o600); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), allowedSigners, append(prev, line...), 0o600); err != nil {
 		t.Fatalf("trust the loadout key: %v", err)
 	}
 	return sig

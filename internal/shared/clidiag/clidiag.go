@@ -58,7 +58,7 @@ func SetStructured(on bool) {
 // clifmt.EncodeWarning's doc for why the channel is always JSON Lines
 // regardless of the primary --format's json/yaml/toml choice). Best-effort:
 // the write error is dropped (warnings never block), but a wrapping writer
-// that records its own errors (e.g. iox.ErrWriter) still observes the
+// that records its own errors (e.g. errwriter.Writer) still observes the
 // failure.
 func Fwarn(w io.Writer, prog, format string, args ...any) {
 	fwarn(w, prog, fmt.Sprintf(format, args...), "")

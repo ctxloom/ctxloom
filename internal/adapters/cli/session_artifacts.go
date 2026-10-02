@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -104,7 +104,7 @@ func newSessionArtifactRow(harp string) sessionArtifactRow {
 // line a table cannot carry.
 func renderSessionArtifacts(w io.Writer, rep sessionArtifactReport) error {
 	if len(rep.Artifacts) == 0 {
-		ew := iox.NewErrWriter(w)
+		ew := errwriter.New(w)
 		ew.Println("(no sessions)")
 		return ew.Err()
 	}

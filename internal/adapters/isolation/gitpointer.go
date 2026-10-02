@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // gitDirMounts is every mount a checkout with a `gitdir:` POINTER FILE (a
@@ -171,10 +172,10 @@ func gitPointerMounts(rt Runtime, dir, scratchRoot string) ([]mount, error) {
 	}
 	pointerFile := filepath.Join(scratchRoot, "git-pointer")
 	backFile := filepath.Join(scratchRoot, "git-backpointer")
-	if err := iox.WriteFileAtomic(pointerFile, []byte(gitdirPrefix+mappedAdmin+"\n"), 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), pointerFile, []byte(gitdirPrefix+mappedAdmin+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("git pointer: %w", err)
 	}
-	if err := iox.WriteFileAtomic(backFile, []byte(targets[0]+"\n"), 0o644); err != nil {
+	if err := safefs.WriteFile(afero.NewOsFs(), backFile, []byte(targets[0]+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("git back-pointer: %w", err)
 	}
 	return []mount{seam.bind(pointerFile, targets[0], true), seam.bind(backFile, targets[1], true)}, nil

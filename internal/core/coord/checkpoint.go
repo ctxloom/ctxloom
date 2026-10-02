@@ -3,12 +3,13 @@ package coord
 import (
 	"encoding/json"
 	"errors"
+	"github.com/spf13/afero"
 	"io/fs"
 	"os"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // D4 — CHECKPOINT compaction (pre-made semantics, Wave D playbook): a
@@ -56,11 +57,11 @@ func (c *Coordinator) writeItemsSnapshot() {
 		c.rep.Warnf("coordinator: checkpoint snapshot: marshal: %v", err)
 		return
 	}
-	// Route through iox: a fixed temp name (path + ".tmp") gives two
+	// Route through safefs: a fixed temp name (path + ".tmp") gives two
 	// coordinators checkpointing the same stateDir one shared temp path, and
 	// without an fsync a power loss can persist the rename ahead of the data.
-	// iox.WriteFileAtomic owns that invariant.
-	if err := iox.WriteFileAtomic(itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
+	// safefs.WriteFile owns that invariant.
+	if err := safefs.WriteFile(afero.NewOsFs(), itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
 		c.rep.Warnf("coordinator: checkpoint snapshot: write: %v", err)
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // session edit — the session noun's one mutation verb. Renaming a session is
@@ -84,7 +84,7 @@ func runSessionEdit(cmd *cobra.Command, args []string) error {
 
 	res := sessionEditResult{Harp: sessionEditName, PreviousHarp: harp, Fields: []string{"name"}}
 	return emit(cmd, res, func() error {
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w := errwriter.New(cmd.OutOrStdout())
 		w.Printf("renamed %s → %s\n", harp, sessionEditName)
 		return w.Err()
 	})

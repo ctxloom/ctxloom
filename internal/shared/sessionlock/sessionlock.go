@@ -43,8 +43,8 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Verdict is what a probe learned about the session that owns a harp.
@@ -134,7 +134,7 @@ type harpLock interface {
 // THE ORDER IS STAMP, THEN LOCK, and both halves are load-bearing:
 //
 //   - The pid is written IN PLACE on the existing inode
-//     (iox.TruncateInPlace, never write-temp-then-rename). A rename would
+//     (safefs.TruncateInPlace, never write-temp-then-rename). A rename would
 //     swap the inode under any lock already held on the path, and a sweeper
 //     opening the new inode would find it unlocked and read a LIVE session
 //     as dead.
@@ -187,21 +187,21 @@ func Hold(harp string) error {
 
 // stampPID writes this process's pid as path's whole content, in place.
 //
-// iox.TruncateInPlace, NOT iox.WriteFileAtomic, and the choice is the whole
+// safefs.TruncateInPlace, NOT safefs.WriteFile, and the choice is the whole
 // correctness of the probe: an atomic write renames a fresh temp file over
 // the destination, which swaps the INODE. A sweeper mid-Acquire holds its
 // flock on the inode it opened; after a rename that inode is unreferenced by
 // the path, and the next sweeper to open the path gets a NEW, unlocked inode
 // and reads a live session as dead. Truncating in place leaves the inode
 // every existing lock is bound to exactly where it was
-// (iox.TestWriteFileInPlace_KeepsTheSameInode is the differential proof, and
+// (safefs.TestWriteFileInPlace_KeepsTheSameInode is the differential proof, and
 // TestStampPID_KeepsALockedInodeVisiblyAlive pins it for this call site).
 //
 // The pid text is never empty, so TruncateInPlace's refusal to write zero
 // bytes over an existing file cannot fire here.
 func stampPID(path string) error {
 	pid := []byte(strconv.Itoa(os.Getpid()) + "\n")
-	if err := iox.WriteFileInPlace(path, iox.TruncateInPlace, pid, lockFileMode); err != nil {
+	if err := safefs.WriteFileInPlace(path, safefs.TruncateInPlace, pid, lockFileMode); err != nil {
 		return fmt.Errorf("sessionlock: stamp %s: %w", path, err)
 	}
 	return nil

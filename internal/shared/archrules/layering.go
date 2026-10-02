@@ -108,7 +108,8 @@ var LayeringRules = []LayeringRule{
 			// member rather than as the internal/shared prefix: a package
 			// that merely sits under that directory is not thereby a
 			// toolbox member core may reach.
-			"internal/shared/iox",
+			"internal/shared/safefs",
+			"internal/shared/errwriter",
 			"internal/shared/lockwait",
 			"internal/shared/collections",
 			"internal/shared/keymatch",
@@ -147,7 +148,7 @@ var LayeringRules = []LayeringRule{
 			"internal/core/config -> internal/shared/admission": "slice 5: admission is decided by composite.Trust",
 
 			// shared/agent → its contract half becomes core/engine. Its
-			// lockwait and iox edges reach the toolbox, which is excepted, so they
+			// lockwait and safefs edges reach the toolbox, which is excepted, so they
 			// are not violations.
 			"internal/core/agent -> internal/shared/ledger": "slice 12: shared/ledger is deleted",
 		},

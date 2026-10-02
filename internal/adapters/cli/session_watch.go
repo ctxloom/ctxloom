@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 )
 
 // watchBoundaryRule is the text-mode separator drawn at each response boundary.
@@ -211,7 +211,7 @@ func watchEventJSON(ev *transcript.WatchEvent) watchEventLine {
 // writeWatchText pretty-prints turns, rules off response boundaries, and
 // makes a live gap explicit (a viewer must know it missed events).
 func writeWatchText(out io.Writer, events <-chan operations.SessionFeedEvent) error {
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	for fe := range events {
 		if fe.Event == nil {
 			if fe.Gap > 0 {
@@ -240,7 +240,7 @@ func writeWatchText(out io.Writer, events <-chan operations.SessionFeedEvent) er
 // renderWatchEntryText writes one normalized entry in a human-readable shape.
 // Subagent-interior (sidechain) entries carry a "↳ " prefix so a human can
 // tell them from the main thread.
-func renderWatchEntryText(w *iox.ErrWriter, e *agent.SessionEntry) {
+func renderWatchEntryText(w *errwriter.Writer, e *agent.SessionEntry) {
 	prefix := ""
 	if e.Sidechain {
 		prefix = "↳ "

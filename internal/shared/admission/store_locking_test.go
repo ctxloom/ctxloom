@@ -25,7 +25,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // TestStore_ConcurrentSetsUnderRaceSurviveDistinctKeys proves N goroutines
@@ -158,7 +158,7 @@ func TestStore_LockAcquisitionFailureFailsClosedFileUntouched(t *testing.T) {
 }
 
 // TestStore_Write_UsesDurableWrite pins the ruled site (taskloom
-// unbounded-bacon): Store.write must pass iox.Durable() so a crash cannot
+// unbounded-bacon): Store.write must pass safefs.Durable() so a crash cannot
 // silently revert an admission decision — the store's whole purpose, per
 // its package doc's ssh known_hosts comparison, is a record that once made
 // is never silently un-made. This test belongs in this file, not
@@ -171,7 +171,7 @@ func TestStore_Write_UsesDurableWrite(t *testing.T) {
 	s := admission.NewStore(fs, path, keyOf, testReasons(), admission.WithScope(scopeOf))
 
 	var synced []string
-	restore := iox.SetSyncDirForTesting(func(d string) error {
+	restore := safefs.SetSyncDirForTesting(func(d string) error {
 		synced = append(synced, d)
 		return nil
 	})
@@ -179,5 +179,5 @@ func TestStore_Write_UsesDurableWrite(t *testing.T) {
 
 	_, err := s.Set(testKey{Scope: "bin", Fine: "sha"}, true)
 	require.NoError(t, err)
-	assert.NotEmpty(t, synced, "Store.write must pass iox.Durable(): a reverted admission decision after a crash re-opens a door a human closed")
+	assert.NotEmpty(t, synced, "Store.write must pass safefs.Durable(): a reverted admission decision after a crash re-opens a door a human closed")
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // Ownership is the in-memory record: per target file, per writer, the
@@ -87,7 +87,7 @@ func (o *Ownership) Apply(_ context.Context, fsys afero.Fs, target string, write
 	if err := fsys.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return delivery.Result{}, err
 	}
-	return delivery.Result{Changed: true}, iox.WriteFileAtomicFs(fsys, target, desired, 0o644)
+	return delivery.Result{Changed: true}, safefs.WriteFile(fsys, target, desired, 0o644)
 }
 
 // reconcileLocked takes writer's entries out of target; the last writer of a

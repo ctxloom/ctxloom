@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // The trust-on-first-use store: the first time a given thing would be
@@ -332,7 +332,7 @@ type doc[K comparable] struct {
 //
 // DELIBERATELY UNLOCKED, including when called from List/Lookup: the file
 // this reads is always produced by write's atomic rename (see
-// iox.WriteFileAtomicFs), so a concurrent writer can only ever leave a
+// safefs.WriteFile), so a concurrent writer can only ever leave a
 // reader seeing the whole previous file or the whole new one, never a torn
 // mix — the property a SHARED lock exists to buy is already true here for
 // free. What a read can still see is a STALE-but-whole file (a writer that
@@ -516,7 +516,7 @@ func (s *Store[K, R]) lockedRMW(fn func() error) error {
 }
 
 // write serializes recs, 0600 in a 0700 directory, atomically (unique temp
-// file, fsynced, renamed into place — see iox.WriteFileAtomicFs) so a reader
+// file, fsynced, renamed into place — see safefs.WriteFile) so a reader
 // never observes a half-written file. These records decide whether code runs
 // and where signed content is pushed: world-readable would leak the
 // machine's layout, and world-WRITABLE would hand the decision away.
@@ -537,7 +537,7 @@ func (s *Store[K, R]) write(recs []Record[K]) error {
 	// ssh known_hosts comparison) — and a rename that silently reverts
 	// after a crash would re-open a door a human closed with no signal
 	// that it happened.
-	if werr := iox.WriteFileAtomicFs(s.fs, s.path, data, 0o600, iox.Durable()); werr != nil {
+	if werr := safefs.WriteFile(s.fs, s.path, data, 0o600, safefs.Durable()); werr != nil {
 		return fmt.Errorf("write %s: %w", s.path, werr)
 	}
 	return nil

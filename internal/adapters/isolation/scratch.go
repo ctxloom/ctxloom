@@ -10,8 +10,8 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/owneronly"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // ownedScratchLockName is the lock file inside every owned scratch dir. The
@@ -80,7 +80,7 @@ func newOwnedScratch(parent, prefix string) (*ownedScratch, error) {
 		}
 		scratchCreated(dir)
 		lockPath := filepath.Join(dir, ownedScratchLockName)
-		f, err := iox.OpenLockFile(lockPath, owneronly.FileMode)
+		f, err := safefs.OpenLockFile(lockPath, owneronly.FileMode)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue

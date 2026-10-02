@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 )
 
 // This file is claude's DEFINITION on the engine port: the one typed
@@ -223,7 +223,7 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 // user's CLAUDE.md is theirs, and the record owns what was appended.
 func appendContextFile(p present.Presentation, text []byte, fs afero.Fs) (present.Delivered, error) {
 	// A CLAUDE.md ctxloom creates is owner-only; a user's keeps its mode.
-	if err := iox.AppendSection(fs, p.HostPath, text, 0o600); err != nil {
+	if err := safefs.AppendSection(fs, p.HostPath, text, 0o600); err != nil {
 		return present.Delivered{}, err
 	}
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil

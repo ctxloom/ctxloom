@@ -102,9 +102,9 @@ func TestTrustSnapshots_LegacyStoreMigratesEveryByte(t *testing.T) {
 // A same-directory rename always SUCCEEDS here, deliberately: it is what a
 // real EXDEV never touches (the two names share a parent, hence a device, by
 // construction), and it is exactly the shape copyTrustObjects's per-file
-// writes now use — each goes through iox.WriteFileAtomicFs, whose commit step
+// writes now use — each goes through safefs.WriteFile, whose commit step
 // is a rename of a unique temp file into place WITHIN THE SAME destination
-// directory (see iox's own doc: "a UNIQUE temp file in the destination
+// directory (see safefs's own doc: "a UNIQUE temp file in the destination
 // directory... renamed over path"). Failing every rename unconditionally, as
 // this fixture used to, stopped simulating "the top-level move crosses
 // devices" and started also breaking the fallback COPY's own writes, which

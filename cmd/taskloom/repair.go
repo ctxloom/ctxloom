@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/errwriter"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
@@ -42,7 +42,7 @@ func runRepairCmd(out io.Writer, tc operations.TaskContext) error {
 	if err := operations.RepairStore(tc); err != nil {
 		return err
 	}
-	w := iox.NewErrWriter(out)
+	w := errwriter.New(out)
 	w.Println("repair complete — any displaced task has been re-introduced under a fresh harp id")
 	return w.Err()
 }

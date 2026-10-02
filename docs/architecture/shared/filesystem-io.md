@@ -1,6 +1,6 @@
 # Filesystem and I/O primitives
 
-Two leaf packages own how ctxloom touches the filesystem: `internal/shared/iox` replaces a file's contents without any reader ever seeing a torn state and latches write errors on a formatted output stream; `internal/shared/watch` turns fsnotify into a filtered, optionally-recursive change-signal channel. Neither has any internal import.
+Three leaf packages own how ctxloom touches the filesystem: `internal/shared/safefs` is the write library over `afero` — the empty-write guard and durability as `afero.Fs` decorators, and the atomic writer that composes them; `internal/shared/errwriter` latches write errors on a formatted output stream; `internal/shared/watch` turns fsnotify into a filtered, optionally-recursive change-signal channel.
 
 Advisory file locking is no longer a package of its own. `internal/shared/filelock` (a hand-rolled `flock(2)`/`LockFileEx` wrapper) was DELETED: the tree had carried two lock implementations — this one, at ~150 call sites, and `github.com/gofrs/flock`, already a direct dependency and already used in production by `internal/core/agent/rendezvous.go` — and the fix was to end the split by standardizing on the library, not to keep growing the hand-rolled one. Every former `filelock.Lock`/`TryLock`/`LockShared` call site now constructs a `*flock.Flock` directly (`flock.New(path, flock.SetPermissions(0o644))`, then `.Lock()`/`.TryLock()`/`.RLock()`/`.Unlock()`), following `rendezvous.go`'s idiom — see that file for the reference shape. What `filelock` also owned — `PathFor`, `ProjectPathFor` and `HomePathFor`, the protected-path→lock-name derivation — was PATH POLICY, not locking, and moved to `internal/core/paths` (`internal/core/paths/lockpath.go`), which already owned the home/project tiering those functions depend on.
 
@@ -8,10 +8,13 @@ The contract they jointly own: **a mutable store is written atomically under an 
 
 ```mermaid
 flowchart TD
-  subgraph iox["internal/shared/iox"]
-    WFA["WriteFileAtomic(path, data, perm)"]
-    WFAF["WriteFileAtomicFs(fs, path, data, perm)"]
-    EW["ErrWriter — sticky-error io.Writer"]
+  subgraph sf["internal/shared/safefs"]
+    WFA["WriteFile(fs, path, data, perm, opts...)"]
+    WFAF["NewGuardFs / NewDurableFs — afero.Fs decorators"]
+    WFAF --> WFA
+  end
+  subgraph ew["internal/shared/errwriter"]
+    EW["Writer — sticky-error io.Writer"]
   end
 
   subgraph fl["github.com/gofrs/flock (third-party, not an internal package)"]
@@ -46,29 +49,21 @@ flowchart TD
   stores["mutable stores:<br/>sessions/index.go · config · tasks log ·<br/>projectid registry · remote lockfile · memory essence"]
   fl --> stores
   WFA --> stores
-  WFAF --> stores
   stores -.->|"change signal, no payload"| W
-  EW --> cli["internal/adapters/cli + cmd/taskloom renderers<br/>(55 construction sites, 155 Printf calls)"]
+  EW --> cli["internal/adapters/cli + cmd/taskloom renderers"]
 ```
 
-## `internal/shared/iox`
+## `internal/shared/safefs` and `internal/shared/errwriter`
 
-Two unrelated primitives in one package: crash-safe atomic replace, and a sticky-error output writer. 183 LOC, 11 internal importers.
+Every production write goes through an `afero.Fs`; safefs is what sits on it. The package doc and each symbol's doc are the reference — this section only says how the pieces fit.
 
-| Symbol | file:line | Purpose |
-|---|---|---|
-| `WriteFileAtomic(path string, data []byte, perm os.FileMode) error` | `internal/shared/iox/atomicwrite.go:16` | Unique dot-prefixed temp in `filepath.Dir(path)` → write → `Sync` → `Close` (checked) → `Chmod(perm)` → `Rename` over `path`; removes the temp on every failure path |
-| `WriteFileAtomicFs(fs afero.Fs, path string, data []byte, perm os.FileMode) error` | `internal/shared/iox/atomicwrite_fs.go:15` | Same algorithm over an `afero.Fs`; the seam `internal/core/config` needs to inject `MemMapFs` in tests. Independently written — no shared code with the `os` variant |
-| `ErrWriter` | `internal/shared/iox/errwriter.go:22` | Wraps an `io.Writer`; latches the first write error, short-circuits every later write. Fields `w io.Writer`, `err error`, both unexported |
-| `NewErrWriter(w io.Writer) *ErrWriter` | `internal/shared/iox/errwriter.go:28` | Required constructor (both fields unexported). Does not reject a nil `w` — `NewErrWriter(nil)` panics on first write, not at construction |
-| `(*ErrWriter).Printf(format string, args ...any)` | `internal/shared/iox/errwriter.go:34` | Guarded `fmt.Fprintf`, latching. 155 call sites |
-| `(*ErrWriter).Println(args ...any)` | `internal/shared/iox/errwriter.go:43` | Guarded `fmt.Fprintln`, latching. 64 call sites |
-| `(*ErrWriter).Print(args ...any)` | `internal/shared/iox/errwriter.go:52` | Guarded `fmt.Fprint`, latching |
-| `(*ErrWriter).WriteRaw(p []byte)` | `internal/shared/iox/errwriter.go:62` | Guarded raw write returning nothing — the errcheck-silencing spelling. Duplicates `Write`'s body rather than delegating |
-| `(*ErrWriter).Write(p []byte) (int, error)` | `internal/shared/iox/errwriter.go:73` | `io.Writer` implementation; returns `(0, e.err)` once latched. Reached through interface dispatch (`clidiag.Fwarn`, `compactEntry`) — gopls under-reports its references |
-| `(*ErrWriter).Err() error` | `internal/shared/iox/errwriter.go:83` | The terminal step of the pattern. 68 call sites |
+- `NewGuardFs` refuses zero bytes over an existing file (`ErrEmptyOverwrite`), on a rename and on a truncating open that is closed unwritten.
+- `NewDurableFs` syncs the parent directory after a rename or a create, through the fs.
+- `WriteFile` / `NewAtomicFile` write a unique temp file and rename it over the target through those decorators; `AllowEmpty()` and `Durable()` choose which apply.
+- `WriteFileInPlace`, `OpenLockFile` and `OpenFIFOWriter` are the OS-only primitives, for a destination a rename cannot replace.
+- `errwriter.Writer` is the errors-are-values writer the CLI renderers use.
 
-Principal `WriteFileAtomic` consumers: `internal/core/sessions/index.go:214,763`, `internal/adapters/memory/stamp.go:50,99`, `internal/adapters/memory/compactor.go:1001,1021,1032`, `internal/shared/tasks/projectid/registry.go:99`, `internal/shared/tasks/projectid/marker.go:51`, `cmd/taskloom/manage.go:200`, `cmd/ltk/manage.go:228`. `WriteFileAtomicFs` consumers: `internal/core/config/config_save.go:60,131`, `internal/ltk/state/state.go:116`, `internal/adapters/remote/lockfile.go:124`, `internal/core/agent/mcpfile.go:270`.
+The write-discipline gate (`archlint.WriteDisciplineAnalyzer`) refuses a raw `os` or `afero` write anywhere else.
 
 ## Advisory locking (`github.com/gofrs/flock` + `internal/core/paths`)
 
@@ -121,21 +116,19 @@ Both debounce at 100ms and emit a content-free `{"event":"changed","kind":…}` 
 
 ## Invariants and contracts
 
-**Atomic write (`iox`)**
+**Atomic write (`safefs.WriteFile`)**
 
-- Ordering is the contract: temp file → `Sync` → `Close` (error checked, catching deferred write errors) → `Chmod` → `Rename`. A reader never observes a torn file.
-- The temp name is *unique* (`os.CreateTemp` / `afero.TempFile` with a `*` pattern) and dot-prefixed, in the target's own directory. Uniqueness is what prevents concurrent writers clobbering each other's temp; a fixed temp name reintroduces that hazard.
-- Both functions **succeed writing zero bytes** when `data` is nil or empty, atomically replacing an existing file with a 0-byte one. That is the deliberate contract (mirroring `os.WriteFile`); the fail-loud duty sits entirely with the caller.
-- `perm` is applied by `Chmod`, which **ignores umask** — unlike `os.WriteFile`/`afero.WriteFile`, which mask it. A caller migrating from `os.WriteFile` under a restrictive umask gets a wider mode than before.
-- Real vs documented: `atomicwrite_fs.go:13` claims "the new content survives a crash"; neither function fsyncs the parent directory after `Rename`, so only the temp's *contents* are durable — the rename is not. `atomicwrite.go:12-14` states the narrower, accurate claim.
-- All errors are returned bare, unwrapped, and without the target path — a `CreateTemp` failure names the *temp* file, not the file the caller asked to write.
+- Ordering is the contract: temp file → `Sync` → `Close` → `Chmod` → `Rename`. A reader never observes a torn file.
+- The temp name is unique and dot-prefixed, in the target's own directory, so concurrent writers never clobber each other's temp.
+- Zero bytes over an existing file are refused with `ErrEmptyOverwrite` unless `AllowEmpty()` is passed; zero bytes to a new path proceed.
+- `perm` is applied by `Chmod`, which ignores umask — unlike `os.WriteFile`/`afero.WriteFile`.
+- Without `Durable()` the rename is atomically visible but its directory entry is not synced.
 
-**Sticky-error writer (`ErrWriter`)**
+**Sticky-error writer (`errwriter.Writer`)**
 
 - First error wins and sticks; every later write is a no-op. `Err()` is checked once, at the end.
 - `Err() == nil` means either "all writes succeeded" or "nothing was ever written" — the two are indistinguishable.
-- Not goroutine-safe (`err` is unsynchronised). One instance per goroutine.
-- `Write` honours the `io.Writer` contract: non-nil error whenever `n < len(p)`. `WriteRaw` is the same operation with the return values dropped.
+- Not goroutine-safe. One instance per goroutine.
 
 **Locking (`gofrs/flock` + `internal/core/paths`)**
 

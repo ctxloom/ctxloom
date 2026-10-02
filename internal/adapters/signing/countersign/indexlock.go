@@ -19,7 +19,7 @@ import (
 //
 // The sidecar index is the exception. AppendIndex and ForgetIndex both read
 // the whole file, change it, and write the whole file back. The write goes
-// through iox.WriteFileAtomicFs, which guarantees a reader never sees a TORN
+// through safefs.WriteFile, which guarantees a reader never sees a TORN
 // file — and guarantees nothing whatsoever about writer B having read the
 // index before writer A's rename landed and then rewriting it without A's
 // entry. MEASURED against this package before the lock existed: 20 concurrent

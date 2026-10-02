@@ -273,85 +273,67 @@ the mapper refuses it first.
 
 ## Credential delivery
 
-How a run authenticates is its AGENT's choice, declared as `auth:` on the
-binding (`agents.Agent.Auth`) in engine-neutral words (`engine.AuthMode`):
-`login`, `token`, `api-key` or `cloud`. Undeclared is `token`, so the human's
-own login is reached only by name; `ctxloom init` gives the default agent
-`login`. It is purely per agent: top-level, delegated or one-shot, on the
-session home or the real one (`engine_home: host` changes the home, never the
-credential).
+How a run authenticates is decided by WHO runs it, never by its binding
+(`launch.RunAuth`, over `sessions.Identity.Origin`). Every run ctxloom
+spawns -- a delegated child (`OriginAgent`), a one-shot (`OriginOneShot`:
+distill, triage, `init`'s auth probe) -- authenticates with `token`. Only the
+human's own session (`OriginSession`: depth 0, not a one-shot, whether
+interactive or `run --one-shot`) takes the top-level `auth:`
+(`config.Config.SessionAuth`): `token` (undeclared) or `login`; `ctxloom init`
+writes `login`. An agent binding has no `auth:`: a binding still carrying one
+is refused at load (`agents.ErrRetiredAuthKey`). The rule is one function so
+the coordinator's spawns, one-shots, resumes and the human's launch cannot
+disagree: `launch.Resolve` settles the mode onto `launch.CellRequest.Auth`
+for every launch.
 
-**One check.** `engine.CheckAuth` is the only validation of an auth
-selection, and config load (`config.Validate`), `agent create/edit`
-(`operations.validateAgentAuth`) and every launch (`operations.resolveRunAuth`,
-through `checkAgentAuth`) all run it, so they cannot disagree. Each refusal is
-typed — `ErrUnknownAuthMode`, `ErrAuthModeUnsupported`, `ErrEngineHasNoAuth` —
-and carries a remedy (`report.Errorf`) naming the modes that engine's
-`Auth.Modes` returns. Whether the credential is available is the engine's own
-answer (`Auth.Credentials` returning `ErrNoCredential` with its remedy); write
-time asks it too, and tolerates only a missing token, which is read where a
-run is launched (often from a secret manager), not where the config is
-edited — the run refuses it instead.
+**Refusals.** An unknown top-level mode is refused at load
+(`engine.ErrUnknownAuthMode`). An engine that declares auth must offer the
+token (`engine.HomeSpec.Validate`), so only the human's `login` can meet an
+engine without it (`engine.ErrAuthModeUnsupported`, remedy `auth: token`).
+Whether the credential is available is the engine's own answer
+(`Auth.Credentials` returning `ErrNoCredential` with its remedy): for a
+spawned run with no token exported, that is the refusal, naming `claude
+setup-token` -- the human's login is never a fallback.
 
 **The engine owns the meaning.** Which variables carry a mode and the
 precedence between them live behind `engine.Auth` on the engine's
 `HomeSpec`. `Credentials` returns an `engine.Credentials`, which names nothing
 about where the run executes: `Env` is laid over the engine's environment,
 every name in `Unset` is REMOVED from it, and `Stores` are the human's own
-credential stores the mode shares (`engine.SharedStore`: the var that points
-the engine at one, the launching env's exact value for it, its place under
-`$HOME`, and whether the run only reads it). Removal is not an empty value:
-some variables read `""` as a real default, and some switches count as set
+credential stores the mode shares in place (`engine.SharedStore`).
+`operations.resolveRunAuth` stamps the mode on it (`Credentials.Mode`), which
+is what the session home is prepared for. Removal is not an empty value: some
+variables read `""` as a real default, and some switches count as set
 whatever their value.
 
-For claude (`claudeAuth`) the declared mode decides, against claude's
-documented precedence (https://code.claude.com/docs/en/authentication,
-"Authentication precedence": a cloud-provider switch, then
-`ANTHROPIC_AUTH_TOKEN`, then `ANTHROPIC_API_KEY`, then `apiKeyHelper`, then
-`CLAUDE_CODE_OAUTH_TOKEN`, then a named `ANTHROPIC_PROFILE`, then `/login`).
-Each mode sets its own credential, read from the launching env, and unsets
-whatever would outrank or replace it:
+For claude (`claudeAuth`) the mode decides, against claude's documented
+precedence (https://code.claude.com/docs/en/authentication, "Authentication
+precedence": a cloud-provider switch, then `ANTHROPIC_AUTH_TOKEN`, then
+`ANTHROPIC_API_KEY`, then `apiKeyHelper`, then `CLAUDE_CODE_OAUTH_TOKEN`, then
+a named `ANTHROPIC_PROFILE`, then `/login`). Each mode sets its own
+credential and unsets whatever would outrank or replace it -- the API key,
+the gateway bearer and every provider switch, in both modes:
 
+- `token` sets `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token the human
+  mints with `claude setup-token` and exports; claude never refreshes it or
+  writes it to disk. It also unsets `CLAUDE_SECURESTORAGE_CONFIG_DIR`: `""`
+  would be `$HOME/.claude`, the human's own credential.
 - `login` shares one read-write store: `CLAUDE_SECURESTORAGE_CONFIG_DIR` with
-  exactly the string the launching env's claude resolves its storage from —
+  exactly the string the launching env's claude resolves its storage from --
   the inherited var when set, else the human's `CLAUDE_CONFIG_DIR` byte for
   byte, else `""` (`$HOME/.claude`). That var moves only claude's credential
   storage (the file, its write lock, both refresh locks) apart from
   `CLAUDE_CONFIG_DIR`, so a session-home run holds the SAME credential and
   lock pair as the human's claude; `TestClaudeSecureStorage_FollowsTheVar`
   (`just test-conformance`) pins that the installed claude honours it on
-  Linux. It is a host-only mode: a container run in `login` is refused
-  (`engine.ErrHostOnlyStore`, raised by `relocateStores` from the store's
-  `engine.SharedStore.ContainerRemedy`), before `Prepare` builds anything,
-  with the remedy to run `claude setup-token` and declare `auth: token`. A
-  container never holds the human's refresh token: it could read it, and a
-  bind could not keep its refresh in step with the host's (see the trust
-  model's known gap on the login credential in a container).
-- `token` sets `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token the human
-  mints with `claude setup-token` and exports; claude never refreshes it or
-  writes it to disk.
-- `api-key` sets `ANTHROPIC_API_KEY`.
-- `cloud` passes the provider's own variables through from the shell (the set
-  is claude's `cloudVars`, taken from claude's Bedrock, Claude Platform on AWS,
-  Google Vertex, Microsoft Foundry and gateway pages), and is refused when no
-  provider switch and no gateway bearer is set. The provider's credential
-  FILES are shared stores, declared only when present in the human's home
-  (`providerStores`: `~/.aws`, the AWS shared config and credentials;
-  `~/.config/gcloud`, gcloud's application-default credentials), read-only
-  except `~/.aws/sso/cache`, which the AWS SDK rewrites on an SSO refresh and
-  is therefore a read-write store nested in the read-only `~/.aws`. A
-  variable that names a credential file (claude's `credentialFileVars`) is
-  declared in `engine.Credentials.FileVars`: the host keeps the human's path,
-  and a container binds that one file read-only where the runtime's path seam
-  routes it and points the variable there (`containerRelocator.relocateFiles`),
-  refusing a path the seam cannot route (`present.ErrUnreachableRoot`) or one
-  naming no absolute, existing regular file.
+  Linux. It is host-only: no container is given any store
+  (`containerRelocator` refuses one with `engine.ErrHostOnlyStore`, remedy
+  `auth: token` or `runtime: host`), and `Prepare` refuses before it builds
+  anything. A container never holds the human's refresh token: it could read
+  it, and a bind could not keep its refresh in step with the host's.
 
-Every mode but `login` unsets `CLAUDE_SECURESTORAGE_CONFIG_DIR`: `""` would be
-`$HOME/.claude`, the human's own credential.
-
-Why the env modes carry only long-lived credentials: an OAuth refresh token
-is single-use and rotating. Native claude sessions stay in step only because
+Why agents carry only the long-lived token: an OAuth refresh token is
+single-use and rotating. Native claude sessions stay in step only because
 they share one credentials file AND one lock beside the config dir. A copy
 has its own lock, went stale, and a refresh from one revoked the rest. A
 credential nobody refreshes has no second holder to fall out of step with.
@@ -360,55 +342,40 @@ credential nobody refreshes has no second holder to fall out of step with.
 credential: Anthropic does not allow a third party to "collect, store, or
 intermediate Claude.ai credentials or session tokens"
 (https://code.claude.com/docs/en/legal-and-compliance). The human mints a
-token with the engine's own flow and exports it, or a key, where ctxloom is
-launched; `engine.Auth.Credentials` takes only the mode and the launching
-env. `ctxloom auth status` reports, per engine and env-carried mode, whether
-the credential is exported (variable names, never values) and the engine's
-remedy when it is not.
+token with the engine's own flow and exports it where ctxloom is launched;
+`engine.Auth.Credentials` takes only the mode and the launching env. `ctxloom
+auth status` reports, per engine, whether the token is exported (variable
+names, never values) and the engine's remedy when it is not.
 
 **Resolution and delivery.** `operations.Cells.Prepare` resolves the run's
 `engine.Credentials` (`resolveRunAuth`) BEFORE the environment exists, with
 no input about where it will run, and hands them to the environment
 (`isolation.SpecBuilder.Credentials`). A preview resolves the same
-credentials with every value redacted (`previewRunAuth`). The
-environment makes each piece true where the engine runs:
-
-- the HOST sets each store's var to its value in place, so the run and the
-  human read the same store;
-- the CONTAINER mounts each store's host directory at its place under the
-  container's `$HOME` (never `$HOME` itself, never the session home;
-  read-only when declared so) through `relocateRoot`, the same helper that
-  produces every presented path with its mount, and sets the var to `""`,
-  which points the engine there. A store declaring `Files` is given those
-  members alone, each a single-file bind at its place in the store, and a
-  missing member refuses (`relocateStores`, wrapping `ErrNoCredential`); the
-  rest of that place is the container's own;
-- BOTH refuse a declared store whose directory is missing (`stageStores`,
-  wrapping `ErrNoCredential`, remedy naming the directory and `auth: token`):
-  a run that would start logged out fails loudly instead.
+credentials with every value redacted (`previewRunAuth`). The HOST sets each
+store's var to its value in place, so the human's login session and the human
+read the same store; a declared store whose directory is missing refuses
+(`stageStores`, wrapping `ErrNoCredential`, remedy naming the directory and
+`auth: token`), so a run that would start logged out fails loudly instead.
 
 On the host, `Env` rides the placement's env. In a container it does not:
 the container's runner may dial home over a LAN-visible cleartext listener
 (`present.Listen.Public`), so `containerPlacement` moves every credential
-variable except the `FileVars` (`secretVars`) out of the env into
-`launch.Placement.SecretFiles` (the wire's `Cell.secret_files`): the
-variable's name and the engine-side file holding it, never the value.
-`Container.bind` makes an owner-only secret dir (`newOwnedScratch`, prefix
-`secretScratchPrefix`) under `$XDG_RUNTIME_DIR`, a tmpfs, or under the
-session's ephemeral dir where there is none (`secretParent`), and binds it read-only at
-`secretsTarget` inside the shared-filesystem probe; `Container.environment`
-writes one 0600 file per variable (`materializeSecrets`); the runner reads
-each into the engine's env alone (`runner.redeemSecrets`, refusing with
-`ErrSecretUnreadable`). `containerWorkspace.Cleanup` removes the dir, and a
-crashed run's dir is reaped by the next owned secret scratch under the same
-parent, its owner's lock having died with it. `Unset` rides
-(`launch.Placement.Unset`, the wire's `Cell.unset_env`) to the runner, which
-removes those names from its own
-environment before it drives the engine (`runner.Deps.Unsetenv`, refusing with
-`ErrEngineEnvUnscrubbed` when it cannot). Nothing enters the ctxloom process's
-env. A credential the launching env does not export is the engine's own
-refusal, with its remedy (claude's token: run `claude setup-token` and export
-`CLAUDE_CODE_OAUTH_TOKEN`): nothing prompts, and no run starts logged out.
+variable (`secretVars`) out of the env into `launch.Placement.SecretFiles`
+(the wire's `Cell.secret_files`): the variable's name and the engine-side
+file holding it, never the value. `Container.bind` makes an owner-only secret
+dir (`newOwnedScratch`, prefix `secretScratchPrefix`) under
+`$XDG_RUNTIME_DIR`, a tmpfs, or under the session's ephemeral dir where there
+is none (`secretParent`), and binds it read-only at `secretsTarget` inside the
+shared-filesystem probe; `Container.environment` writes one 0600 file per
+variable (`materializeSecrets`); the runner reads each into the engine's env
+alone (`runner.redeemSecrets`, refusing with `ErrSecretUnreadable`).
+`containerWorkspace.Cleanup` removes the dir, and a crashed run's dir is
+reaped by the next owned secret scratch under the same parent, its owner's
+lock having died with it. `Unset` rides (`launch.Placement.Unset`, the wire's
+`Cell.unset_env`) to the runner, which removes those names from its own
+environment before it drives the engine (`runner.Deps.Unsetenv`, refusing
+with `ErrEngineEnvUnscrubbed` when it cannot). Nothing enters the ctxloom
+process's env.
 
 **Where a credential may and may not be.** It lives in the environment
 ctxloom was launched in, in the preparing process's and runner's memory, and
@@ -422,9 +389,11 @@ never journalled (a run fact records `cred_hash` and MCP server names, never
 an env) and never in a container's `run` argv or configuration; an
 interactive launch (`runner.RunLaunchSpec`) hands the environment straight to
 the engine process it runs on a pty, and writes no launcher script. Under
-`engine_home: session` the instance's generated `.claude.json` also carries an
-API-key login's `primaryApiKey`, copied from the host file by name
-(`claude.ambientConfigKeys`), until the instance is removed. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
+`engine_home: session` the instance's generated `.claude.json` carries a
+Console-key login's `primaryApiKey` ONLY for the human's own `login` session
+(`claude.ambientConfigKeys`, marked login-only), until the instance is
+removed; every other run's instance has it deleted, so no agent's instance
+ever holds it. `TestRun_TheCredentialIsNeverLoggedPersistedOrEchoed` scans a
 run's output, the ctxloom home, the project and the run's temp dir for a
 sentinel.
 
@@ -436,32 +405,28 @@ unmapped or empty backend reaches the default spec, which **fails closed** at
 the container gate (`noContainerHint`).
 
 **`engine_home: host`.** On the host it runs claude against the real
-`~/.claude` in place, with claude's own lock, and copies nothing; the agent's
-declared auth still applies. In a container it means the container's own
-fresh `$HOME`; no part of the real `~/.claude` is mounted, since a
-container refuses `login`.
+`~/.claude` in place, with claude's own lock, and copies nothing; the run's
+mode still applies. In a container it means the container's own fresh
+`$HOME`; no part of the real `~/.claude` is mounted.
 
 ### On a macOS host
 
 Nothing in this design has run on macOS: `just build-cross` compiles it for
 darwin/arm64 and no more. Each claim below is sourced or marked.
 
-- **`login`.** claude keeps its login in the macOS Keychain, falling back to
-  `~/.claude/.credentials.json` (mode `0600`) when the Keychain refuses the
-  write, and a set `CLAUDE_CONFIG_DIR` keys the Keychain entry to that
-  directory (https://code.claude.com/docs/en/authentication, "Credential
-  management"). That `CLAUDE_SECURESTORAGE_CONFIG_DIR` also moves the Keychain
-  item name is INFERRED from the claude binary's strings, measured on Linux
-  (claude's `SecureStorageEnv` doc); it is UNVERIFIED on macOS, and so is
-  whether a session-home run sharing the login this way reaches the human's
-  Keychain item.
-- **`token`, `api-key`.** Read from the launching environment; ctxloom
-  stores nothing and never uses the Keychain.
-- **`cloud`.** The provider's variables from the human's shell; nothing
-  stored.
-- **Refused: a container agent declaring `login`**, as on every OS. The host
-  shares it in place; `loginStoreHomeRel` is the per-OS answer to where it
-  lives, `""` on macOS, which keeps the host from requiring a directory.
+- **`login`** (the human's own session only). claude keeps its login in the
+  macOS Keychain, falling back to `~/.claude/.credentials.json` (mode
+  `0600`) when the Keychain refuses the write, and a set `CLAUDE_CONFIG_DIR`
+  keys the Keychain entry to that directory
+  (https://code.claude.com/docs/en/authentication, "Credential management").
+  That `CLAUDE_SECURESTORAGE_CONFIG_DIR` also moves the Keychain item name is
+  INFERRED from the claude binary's strings, measured on Linux (claude's
+  `SecureStorageEnv` doc); it is UNVERIFIED on macOS, and so is whether a
+  session-home run sharing the login this way reaches the human's Keychain
+  item. `loginStoreHomeRel` is the per-OS answer to where it lives, `""` on
+  macOS, which keeps the host from requiring a directory.
+- **`token`.** Read from the launching environment; ctxloom stores nothing
+  and never uses the Keychain.
 
 ## Engine config homes
 
@@ -588,14 +553,12 @@ it can take. It is absent when:
 A user's own `--env` still wins at the launch path's merge: the resolution
 fills gaps; it never overrides.
 
-No credential follows the home. When nothing in the env authenticates claude
-(no stored or exported `CLAUDE_CODE_OAUTH_TOKEN`, no API-key var),
-`isolation.PrepareInstanceHome` reports it and ctxloom records a
-`KindIsolation` finding and contributes **nothing** — the run aborts at the
-choke gate in both modes. Handing the engine a controlled home it cannot
-authenticate in would trade a working run for a mysterious 401; falling back
-to the host's own home would hand the agent the user's real login, so neither
-is offered.
+No credential follows the home. When the run's mode has no credential (no
+exported `CLAUDE_CODE_OAUTH_TOKEN` for a token run), the engine refuses it
+(`ErrNoCredential`) before the home is prepared, naming `claude setup-token`.
+Handing the engine a controlled home it cannot authenticate in would trade a
+working run for a mysterious 401; falling back to the host's own home would
+hand the agent the user's real login, so neither is offered.
 
 ## Per-engine container specs
 

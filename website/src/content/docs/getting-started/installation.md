@@ -282,19 +282,18 @@ substitutes a different engine. `ctxloom doctor --deps` reports a missing client
 Install (and authenticate) the CLI for the backend you configured, or point `llm.defaults.primary`
 at one you already have. See [Configuration → LLMs](/guides/configuration/#llms) for the config shape.
 
-ctxloom runs claude in a per-session home that holds no login. The agent `ctxloom init` sets up
-for `ctxloom run` uses your own login in place. Every other agent authenticates with a
-long-lived token by default, which you mint yourself and export; ctxloom reads it from the
-environment it is launched in and never stores it:
+ctxloom runs claude in a per-session home that holds no login. Your own `ctxloom run` session
+uses your login in place (`ctxloom init` writes the top-level `auth: login`). Every agent
+ctxloom spawns authenticates with a long-lived token, which you mint yourself and export;
+ctxloom reads it from the environment it is launched in and never stores it:
 
 ```bash
 claude setup-token                          # claude's own flow; prints a one-year token
 export CLAUDE_CODE_OAUTH_TOKEN=<the token>  # or export it from your secret manager
-ctxloom auth status                         # is each mode's credential exported?
+ctxloom auth status                         # is the token exported?
 ```
 
-An agent that declares `auth: api-key` reads `ANTHROPIC_API_KEY` the same way. A run whose
-credential is not exported is refused and tells you what to export. Agents on your subscription
+A run whose credential is not exported is refused and tells you what to export. Agents on your subscription
 share its usage limits with your own interactive use. See
 [Environment Variables](/reference/environment/#engine-authentication).
 

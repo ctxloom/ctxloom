@@ -727,11 +727,13 @@ would hand each agent read access to those integrations and whatever secrets
 they carry. So a provisioned home gets a **generated** `.claude.json` carrying
 the hardened keys (and, for a trusted repository, its trust answer), plus the
 host keys `ambientConfigKeys` copies by name — among them the account identity
-and an API-key login's `primaryApiKey`. No credential file is seeded into the
-home: the run authenticates by the agent's declared auth mode
-(`claudeAuth.Credentials`), which sets a token, key or cloud configuration in
-the engine's environment by value, or, for `login` on the host, shares the
-human's own credential storage (`loginStore`); a container refuses `login`. The engine auto-creates whatever else it
+and, for the human's own `login` session ONLY, a Console-key login's
+`primaryApiKey`; every other run's instance has it deleted, so no agent ever
+holds it. No credential file is seeded into the home: every agent
+authenticates with the token (`launch.RunAuth`), set in the engine's
+environment by value, and only the human's own session under the top-level
+`auth: login` shares their credential storage (`loginStore`), on the host; a
+container refuses it. The engine auto-creates whatever else it
 needs on first launch.
 
 ## Lifecycle
@@ -1076,11 +1078,12 @@ never permitted in the committable project store.
     cell still carries its credential in the launch's env, over the
     loopback-only listener.
 19. **A container `login` agent holds the human's refresh token, and can fall
-    out of step with it.** CLOSED: a container run in `auth: login` is
-    refused, so no part of the human's `~/.claude` enters a container. Its
-    login store declares `engine.SharedStore.ContainerRemedy` (claude's
-    `loginStore`), `containerRelocator.relocateStores` refuses it with
-    `engine.ErrHostOnlyStore`, and `Prepare` raises that before the chain
+    out of step with it.** CLOSED: no agent runs in `login` at all
+    (`launch.RunAuth`: every spawned run authenticates with the token), and
+    the human's own session in `auth: login` is refused in a container, so no
+    part of the human's `~/.claude` enters a container. No container is given
+    any credential store: `containerRelocator`'s `refuseStores` refuses one
+    with `engine.ErrHostOnlyStore`, and `Prepare` raises that before the chain
     prepares anything (`TestCredentials_AContainerRefusesALogin`,
     `TestPrepare_AContainerLoginIsRefusedBeforeAnythingIsPrepared`; live:
     `TestLoginStore_ALiveContainerRunRefusesTheLogin`, build tag

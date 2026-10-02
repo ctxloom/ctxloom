@@ -44,32 +44,23 @@ ctxloom command edit my-bundle#commands/review
 
 ## Engine Authentication
 
-Every claude that ctxloom launches, on the host or in a container, top-level or delegated, authenticates in the mode its agent declares (`auth:` — `login`, `token`, `api-key` or `cloud`; undeclared is `token`). ctxloom never collects, stores or mints a credential: it reads the declared mode's from the environment ctxloom is launched in. Only that mode's credential reaches claude, and the other credential variables below are removed from the run's environment, along with any cloud-provider switch (`CLAUDE_CODE_USE_BEDROCK` and its siblings) for every mode but `cloud`. Nothing is copied into a session home. What a container run additionally mounts and rewrites is under [Containerized Agents](#containerized-agents).
+Every claude that ctxloom spawns — a delegated child, a one-shot, a container cell — authenticates with the long-lived token you mint with `claude setup-token`. An agent has no auth to choose, and no agent ever reaches your login. Only your own `ctxloom run` session authenticates as the top-level `auth:` in your config says: `token` (the default) or `login`. ctxloom never collects, stores or mints a credential: it reads the mode's from the environment ctxloom is launched in. Only that mode's credential reaches claude; the other credential variables below, and any cloud-provider switch (`CLAUDE_CODE_USE_BEDROCK` and its siblings), are removed from the run's environment. Nothing is copied into a session home.
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Set for an `auth: login` agent, so the run shares your login and its refresh: on the host, to exactly where your own claude keeps its credential; in a container, to empty, pointing claude at the store mounted under its `$HOME` (see [Containerized Agents](#containerized-agents)). Removed for every other mode |
-| `CLAUDE_CODE_OAUTH_TOKEN` | An `auth: token` agent's credential: the long-lived token `claude setup-token` prints, which you export (or your secret manager exports) where ctxloom is launched. A run with none exported is refused, naming `claude setup-token` |
-| `ANTHROPIC_API_KEY` | An `auth: api-key` agent's credential, exported where ctxloom is launched. A run with none exported is refused |
-| `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` | A gateway's bearer and endpoint. Passed through for an `auth: cloud` agent; the bearer is removed for every other mode |
-| `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY` and the provider's own variables | An `auth: cloud` agent's configuration, passed through from your shell as claude's provider pages document them. For a container run, see [Containerized Agents](#containerized-agents) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | The token every agent authenticates with, and your own session under `auth: token`: what `claude setup-token` prints, which you export (or your secret manager exports) where ctxloom is launched. A run with none exported is refused, naming `claude setup-token` |
+| `CLAUDE_SECURESTORAGE_CONFIG_DIR` | Set only for your own host session under `auth: login`, to exactly where your own claude keeps its credential, so the run shares your login and its refresh. Removed for every other run |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | Removed from every run: each would outrank the token |
 
-`ctxloom auth status` shows, per engine and mode, whether the credential is exported and in which variable, never its value. A binding selecting `engine_home: host` runs a host claude against your real `~/.claude` in place, still in the mode it declares; in a container it gets the container's own `$HOME`.
+`ctxloom auth status` shows, per engine, whether the token is exported and in which variable, never its value. A binding selecting `engine_home: host` runs a host claude against your real `~/.claude` in place, still authenticating as above; in a container it gets the container's own `$HOME`.
 
 ## Containerized Agents
 
 Agents with `runtime: container-rootless` or `runtime: container-rootful` start the engine with a fresh `$HOME` and a scoped environment; your shell's environment does not cross wholesale.
 
-The credential is whatever the agent's `auth:` mode resolves to on the host, exactly as under [Engine Authentication](#engine-authentication), and rides the engine's environment into the container, never the command line. The variables that section removes are absent. On top of that, each mode adds, for claude:
+The credential is the token, read on the host exactly as under [Engine Authentication](#engine-authentication), and carried into the container as a read-only secret file (under `/run/ctxloom/secrets`), never on the command line. Nothing else of yours is mounted for it. A container is never given your login: your own session under `auth: login` is refused in a container, naming `auth: token` and `runtime: host`.
 
-| `auth:` | In the container |
-|---------|------------------|
-| `login` | The directory your claude keeps its credential in (the `CLAUDE_SECURESTORAGE_CONFIG_DIR` or `CLAUDE_CONFIG_DIR` your shell sets, else `~/.claude`) is mounted **read-write** at the container's `$HOME/.claude`, and `CLAUDE_SECURESTORAGE_CONFIG_DIR` is set empty so claude reads it there. The whole directory crosses: the agent can use and refresh your login, and a `/logout` inside it signs you out. Refused when that directory does not exist, and refused on macOS, where the login lives in the Keychain and no container can reach it; the error suggests `auth: token` or `runtime: host` |
-| `token` | `CLAUDE_CODE_OAUTH_TOKEN` only, forwarded from the environment ctxloom was launched in. Nothing is mounted |
-| `api-key` | `ANTHROPIC_API_KEY` only, forwarded from the environment ctxloom was launched in. Nothing is mounted |
-| `cloud` | The provider or gateway variables your shell exports. Each of `~/.aws` and `~/.config/gcloud` that exists is mounted **read-only** at the same place under `$HOME`, with `~/.aws/sso/cache` mounted read-write inside it so an SSO login can refresh. A file named by `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` or `GOOGLE_APPLICATION_CREDENTIALS` is mounted read-only on its own and the variable is rewritten to its path inside the container; the run is refused when the variable does not name an existing regular file by its absolute path (a host run does not check) |
-
-`ANTHROPIC_MODEL` and `ANTHROPIC_SMALL_FAST_MODEL` are not forwarded from your shell, and `ANTHROPIC_BASE_URL` only as part of `auth: cloud`.
+`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL` and `ANTHROPIC_BASE_URL` are not forwarded from your shell.
 
 | Variable | Description |
 |----------|-------------|

@@ -6,10 +6,10 @@ clone gets, and what you may delete.
 ## Why you want to read this
 
 A run's engine credential is never written into your project tree, and no
-credential file is seeded into an engine home. The run authenticates by its
-agent's declared auth mode (`claudeAuth.Credentials`): a token, key or cloud
-configuration set in the engine's environment by value, or, for `login`, your
-own credential storage shared in place (`loginStore`). While a session runs,
+credential file is seeded into an engine home. Every agent authenticates with
+the token you mint with `claude setup-token`, set in the engine's environment
+by value; only your own session under the top-level `auth: login` shares your
+credential storage in place (`loginStore`). While a session runs,
 two places under your home can still hold a copy, both outside every project
 tree:
 
@@ -18,9 +18,10 @@ tree:
   the session has one, otherwise in the session's ephemeral directory
   (`isolation.secretParent`) — removed when the run ends, and reaped by the
   next container launch after a crash (`newOwnedScratch`);
-- under `engine_home: session`, an API-key login's `primaryApiKey`, which the
-  per-session instance's generated `.claude.json` copies from your host file
-  by name (`claude.ambientConfigKeys`), removed with the instance (below).
+- under `engine_home: session`, for YOUR OWN `auth: login` session only, a
+  Console-key login's `primaryApiKey`, which that instance's generated
+  `.claude.json` copies from your host file by name (`claude.ambientConfigKeys`),
+  removed with the instance (below). No agent's instance ever holds it.
 
 The whole account is
 [isolation.md](architecture/engines/isolation.md), "Where a credential may and
@@ -193,8 +194,9 @@ file the vendor adds tomorrow would be copied by default, and the default
 direction of that mistake is a confidentiality leak: claude's `.claude.json`
 carries your own `mcpServers` registrations. So only named keys and named files
 cross — `claude.ambientConfigKeys` is the onboarding answers plus the account
-half claude's own config seeding copies (`oauthAccount`, and an API-key login's
-`primaryApiKey`), and nothing else.
+half claude's own config seeding copies (`oauthAccount` for every run, and a
+Console-key login's `primaryApiKey` for your own `login` session only), and
+nothing else.
 An engine whose credentials live in a global store no home variable relocates
 declares its set **empty** rather than omitting it, so the absence is a
 decision a reader can find.
@@ -209,7 +211,7 @@ deliberately:
   in your real home and rides the next copy-in.
 
 **Instances are removed, and that is a security requirement, not hygiene** —
-each one can hold a copied credential (`primaryApiKey`, above). `EndSession` removes a session's instance at
+your own login session's can hold a copied credential (`primaryApiKey`, above). `EndSession` removes a session's instance at
 graceful shutdown (`operations.removeSessionInstance`); an instance a crashed
 session leaves behind is an ephemeral member of its session directory
 (`paths.HarpMembers`) and goes with the session's own reaping.

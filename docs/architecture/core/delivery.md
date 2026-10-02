@@ -64,9 +64,11 @@ unsafe selection, named beside the project routes in the plan and the
 banner (`cli.unsafeLabels`) — leaves `SurfaceSelection.keepOrReroot` to
 select the project file there.
 
-No credential is delivered into a home. A launch authenticates from what
-its agent's `auth:` mode resolves to (`engine.Auth.Credentials`), which the
-environment makes true where the engine runs; the session home holds none. A mode whose credential the
+No credential is delivered into a home. A launch authenticates in the mode
+its run settles (`launch.RunAuth`: the token for every agent, the top-level
+`auth:` for the human's own session), resolved by `engine.Auth.Credentials`,
+which the environment makes true where the engine runs; the session home
+holds none. A mode whose credential the
 launching environment does not export is refused with the engine's remedy;
 ctxloom never mints or stores one. See
 [isolation](../engines/isolation.md#credential-delivery).

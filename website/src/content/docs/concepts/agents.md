@@ -94,38 +94,29 @@ A binding also declares which **engine home** its engine runs against (the
 directory holding the engine's login, memory, plugins and personal MCP
 registrations): `engine_home: session`, a per-session home ctxloom controls, or
 `engine_home: host`, the engine's real home. Leaving it unset means `session`.
-A session home holds no credential. How the engine authenticates is the
-agent's `auth:` setting:
+A session home holds no credential. An agent has no auth to choose: every
+agent ctxloom spawns — a delegated child, a one-shot, a container cell —
+authenticates with a long-lived token you mint yourself with the engine's own
+flow and export. For claude: run `claude setup-token`, then export the token
+it prints as `CLAUDE_CODE_OAUTH_TOKEN` (or keep it in your secret manager and
+export it from there). A run with none exported is refused and tells you so.
+No agent ever reaches your own login.
 
-- `login` shares your own login and its refresh: in place on the host, and in
-  a container by mounting the directory that holds it (not on macOS, where it
-  lives in the Keychain).
-  `ctxloom init` gives the default agent this one.
-- `token` (the default) uses a long-lived token you mint yourself with the
-  engine's own flow and export. For claude: run `claude setup-token`, then
-  export the token it prints as `CLAUDE_CODE_OAUTH_TOKEN` (or keep it in your
-  secret manager and export it from there). A run with none exported is
-  refused and tells you so.
-- `api-key` uses a key you export (for claude, `ANTHROPIC_API_KEY`).
-- `cloud` uses a cloud provider or gateway you have set up in your own shell
-  (for claude: Amazon Bedrock, Google Vertex, Microsoft Foundry, Claude
-  Platform on AWS, or a gateway's `ANTHROPIC_AUTH_TOKEN` and
-  `ANTHROPIC_BASE_URL`).
+Your OWN `ctxloom run` session authenticates as the top-level `auth:` in your
+config says: `token` (the default) or `login`, which shares your own login
+and its refresh in place, on the host only. `ctxloom init` writes `login`. A
+binding that still carries its own `auth:` is refused when the config loads.
 
-ctxloom never collects, stores or mints a credential: it reads the declared
-mode's credential from the environment it is launched in and hands it to the
-agent. Anthropic does not allow a third party to "collect, store, or
-intermediate Claude.ai credentials or session tokens"
+ctxloom never collects, stores or mints a credential: it reads the token from
+the environment it is launched in and hands it to the agent. Anthropic does
+not allow a third party to "collect, store, or intermediate Claude.ai
+credentials or session tokens"
 ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)).
-`ctxloom auth status` shows whether each mode's credential is exported.
+`ctxloom auth status` shows whether the token is exported. Only the run's
+credential reaches the engine; the engine's other credential variables are
+removed from the run's environment, on `engine_home: host` too.
 
-Only the declared mode's credential reaches the engine; the engine's other
-credential variables are removed from the run's environment. An invalid choice (an
-unknown mode, or one the agent's engine doesn't support) is refused when you
-write it and when the agent launches, and the error lists the modes that
-engine supports. `auth:` applies on `engine_home: host` too.
-
-Agents on your subscription (`token` or `login`) draw from the same usage
+Agents on your subscription draw from the same usage
 limits as your own interactive use: Pro and Max limits are shared across
 Claude and Claude Code
 ([Help Center](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-or-max-plan)),
@@ -138,8 +129,7 @@ Selecting `engine_home: host` is the unsafe choice, because it hands the
 engine your own login and registrations and lets it write them back, and the
 launch says so. On the host it runs against your real `~/.claude` in place,
 with claude's own lock, and copies nothing. In a container it means the
-container's own fresh `$HOME`; your `~/.claude` is mounted into it only as an
-`auth: login` agent's credential store.
+container's own fresh `$HOME`; your `~/.claude` is never mounted into it.
 
 The runtime axis is a property of the agent — a containerized developer stays containerized wherever it's used. The workspace axis is a property of the *session*: the same agent might work in the shared checkout for a quick question but in an isolated git worktree for a parallel fan-out where members would otherwise trample each other's edits.
 
@@ -156,7 +146,7 @@ Agents with `runtime: container-rootless` or `runtime: container-rootful` run th
 It is **not a security sandbox**, and you should not run untrusted content in it on that assumption. Specifically:
 
 - **The network is not restricted.** ctxloom passes no network isolation flag; a containerized agent has the same egress your host does and can reach anything on it.
-- **Your engine credential crosses the boundary.** The container gets the credential its agent's `auth:` mode resolves to, and for `login` and `cloud` the directories and files that hold it are mounted in: `login`'s read-write, so the agent can refresh or sign out your real login. The [environment reference](/reference/environment/#containerized-agents) lists what each mode forwards and mounts. The boundary does not stop the agent reading that credential or spending it.
+- **Your engine credential crosses the boundary.** The container gets the token every agent authenticates with, as a read-only secret file; nothing holding your login is mounted. The [environment reference](/reference/environment/#containerized-agents) has the detail. The boundary does not stop the agent reading that token or spending it.
 - **Not every engine can run containerized.** An engine runs in a container only when it declares a container story of its own (how it installs into the agent image and what it needs there). For an engine that declares none, `ctxloom agent create`/`agent edit` **refuses** to write `runtime: container-rootless` or `runtime: container-rootful` for it and names the engines that do work, rather than accepting a binding whose every launch would then abort.
 - **Some host state outside the project is mounted read-write.** The session's transcript store and persist dir under `~/.ctxloom/sessions/<harp>/`, and this project's task log `~/.ctxloom/tasks/<project-id>.jsonl` with its `.lock` sidecar — writable so in-container hooks, transcripts, and `taskloom` reach the one host store the session shares. The mount is those two **files**, not the `~/.ctxloom/tasks` directory: a run keyed to one project never sees another project's task log.
 

@@ -40,8 +40,8 @@ var providerSwitches = []string{
 	"CLAUDE_CODE_USE_FOUNDRY",
 }
 
-// credentialVars are claude's own credential vars; the container
-// passthrough declares them too.
+// credentialVars are claude's own credential vars: a mode sets one and
+// unsets the rest.
 var credentialVars = []string{OAuthTokenEnv, APIKeyEnv, AuthTokenEnv}
 
 // tokenRemedy is how the human supplies the token. It is minted by the human

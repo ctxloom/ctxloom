@@ -83,14 +83,12 @@ expensive in time and complexity" means in practice.
   seconds or thirty minutes.
 - **A credential story you have to solve on purpose.** An isolated engine still has to
   authenticate somehow, and "isolated from the host" and "has the host's credentials" pull in
-  opposite directions. ctxloom hands the container the credential its agent's `auth:` mode
-  resolves to and, where that mode keeps it in files, mounts them: your claude login's
-  directory read-write, cloud provider credentials read-only (the
-  [environment reference](/reference/environment/#containerized-agents) has each mode). A
-  login the OS keeps outside any directory, such as the macOS Keychain, cannot be mounted, so
-  that agent is refused in a container. When the credential cannot be resolved (no token
-  stored and no one at a terminal to mint it, a login directory that does not exist, a cloud
-  file variable naming no file) it refuses to launch rather than start an engine that cannot
+  opposite directions. ctxloom resolves that by giving every agent ONE credential: the
+  long-lived token you mint with `claude setup-token`, handed to the container as a read-only
+  secret file. Nothing that holds your login is ever mounted, and only your own session may
+  use your login at all, on the host
+  (the [environment reference](/reference/environment/#containerized-agents) has the detail).
+  When the token is not exported it refuses to launch rather than start an engine that cannot
   log in. Plan for that before the run, not during it.
 - **Debugging across a boundary.** When something goes wrong inside a container, "what does
   the filesystem actually look like right now" is no longer a question your host shell answers

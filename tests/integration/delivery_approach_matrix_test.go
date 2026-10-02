@@ -52,7 +52,13 @@ var matrixKinds = []agent.SurfaceKind{
 // derived, so an engine's new name joins the cross product on its own. Used
 // for the NEGATIVE direction: the cross product minus the declared pairs must
 // be refused loudly.
-func matrixApproaches() []string { return operations.KnownApproachNames(engines.Registry()) }
+func matrixApproaches() []string {
+	var decls []agent.Declaration
+	for _, name := range operations.EngineNames(engines.Registry()) {
+		decls = append(decls, hostedDeclaration(name))
+	}
+	return agent.ApproachNames(decls...)
+}
 
 // sentinel slots. Each names one SurfaceInputs field, so an assertion can say
 // WHICH input reached WHICH file rather than "the tree is non-empty".

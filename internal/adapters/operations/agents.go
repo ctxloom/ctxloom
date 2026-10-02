@@ -368,7 +368,7 @@ func validateAgentApproaches(reg engine.Registry, cfg *config.Config, name strin
 	if len(req.Surfaces) > 0 {
 		engine := resultingAgentEngine(cfg, name, req)
 		if engine == "" {
-			return fmt.Errorf("agent %q: a surface preference needs a known engine — set --engine in the same command, "+
+			return fmt.Errorf("agent %q: a surface preference needs a known engine — set --llm in the same command, "+
 				"since which approaches exist is the engine's answer, not ctxloom's", name)
 		}
 		if _, err := ResolveAgentSurfaces(reg, engine, req.Surfaces); err != nil {

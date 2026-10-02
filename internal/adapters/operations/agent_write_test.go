@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -623,6 +624,43 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 	require.NoError(t, rerr)
 	_, ok := reloaded.Agent("scout")
 	assert.False(t, ok, "a refused write must not half-apply a binding")
+}
+
+// TestSetAgent_RetiredSurfaceApproachIsRefusedTyped: a binding naming an
+// approach whose writer was deleted is refused with the typed error that
+// names the replacement, and the refusal writes nothing.
+func TestSetAgent_RetiredSurfaceApproachIsRefusedTyped(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name:     "writer",
+		LLM:      ptr("claude-code"),
+		Surfaces: map[string]string{"settings": "hew-record"},
+	})
+	var retired *agent.RetiredApproachError
+	require.ErrorAs(t, err, &retired)
+	assert.Equal(t, agent.ApproachUnsafeFile, retired.Replacement)
+
+	reloaded, rerr := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, rerr)
+	_, ok := reloaded.Agent("writer")
+	assert.False(t, ok, "a refused write must not half-apply a binding")
+}
+
+// TestSetAgent_SurfaceWithoutEngineNamesTheFlagThatSetsIt: the refusal's
+// remedy is the whole interface for the failure, so it must name a flag the
+// command actually has. The engine is chosen with --llm; there is no
+// --engine flag.
+func TestSetAgent_SurfaceWithoutEngineNamesTheFlagThatSetsIt(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name:     "writer",
+		Surfaces: map[string]string{"context": "system-prompt"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--llm")
+	assert.NotContains(t, err.Error(), "--engine")
 }
 
 // TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerStory pins the

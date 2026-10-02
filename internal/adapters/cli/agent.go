@@ -391,7 +391,11 @@ func writeAgentBinding(cmd *cobra.Command, name string, mustExist bool) error {
 	if err := checkAgentExistence(cfg, name, mustExist); err != nil {
 		return err
 	}
-	entry, err := operations.SetAgent(cmd.Context(), App(), cfg, buildSetAgentRequest(cmd, name))
+	req, err := buildSetAgentRequest(cmd, name)
+	if err != nil {
+		return err
+	}
+	entry, err := operations.SetAgent(cmd.Context(), App(), cfg, req)
 	if err != nil {
 		return err
 	}
@@ -416,7 +420,7 @@ func checkAgentExistence(cfg *config.Config, name string, mustExist bool) error 
 // buildSetAgentRequest sends only the flags the user actually TYPED. A nil
 // field means "not named", which SetAgent keeps at its existing value; an
 // explicitly-supplied empty value (--llm "") still clears.
-func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRequest {
+func buildSetAgentRequest(cmd *cobra.Command, name string) (operations.SetAgentRequest, error) {
 	req := operations.SetAgentRequest{Name: name}
 	if cmd.Flags().Changed("llm") {
 		req.LLM = &agentSetLLM
@@ -428,7 +432,11 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 		req.Runtime = &agentSetRuntime
 	}
 	if cmd.Flags().Changed("surface") {
-		req.Surfaces = surfacesFromFlag(agentSetSurfaces)
+		surfaces, err := surfacesFromFlag(agentSetSurfaces)
+		if err != nil {
+			return operations.SetAgentRequest{}, err
+		}
+		req.Surfaces = surfaces
 	}
 	if cmd.Flags().Changed("root") {
 		req.Roots = rootsFromFlag(agentSetRoots)
@@ -443,7 +451,7 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 		req.Auth = &agentSetAuth
 	}
 	envHostFlags(cmd, &req)
-	return req
+	return req, nil
 }
 
 // envHostFlags sends --env-host and --env when typed; --env "" sends an
@@ -458,30 +466,25 @@ func envHostFlags(cmd *cobra.Command, req *operations.SetAgentRequest) {
 	}
 }
 
-// surfacesFromFlag is the --surface pairs keyed by surface kind. They are
-// parsed with the SAME function `profile materialize --surface` uses, so the
-// two spellings cannot drift; engine support is checked in SetAgent, the
-// only place that knows which engine this write results in. A set that does
-// not parse is kept as written, for SetAgent's own validation to report —
-// leaving the map nil would silently drop the flag instead.
-func surfacesFromFlag(pairs []string) map[string]string {
-	parsed, err := parseSurfaceOverrides(pairs)
-	if err != nil {
-		out := map[string]string{}
-		for _, p := range pairs {
-			if k, v, ok := strings.Cut(p, "="); ok {
-				out[strings.TrimSpace(k)] = strings.TrimSpace(v)
-			} else {
-				out[p] = ""
-			}
+// surfacesFromFlag is the --surface pairs as typed, trimmed, keyed by kind.
+// Whether a kind or an approach exists is SetAgent's question, answered
+// against the engine this write results in (operations.ResolveAgentSurfaces)
+// — which is how a retired name gets its typed refusal naming the
+// replacement. The one fault only the command line can see is a kind named
+// two different ways: a map keeps the last, so passing it on would deliver
+// something the command line does not say.
+func surfacesFromFlag(pairs []string) (map[string]string, error) {
+	out := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		kind, approach, _ := strings.Cut(p, "=")
+		kind, approach = strings.TrimSpace(kind), strings.TrimSpace(approach)
+		if prev, dup := out[kind]; dup && prev != approach {
+			return nil, fmt.Errorf("--surface names %s twice, as %s and %s; a surface is delivered one way",
+				kind, prev, approach)
 		}
-		return out
+		out[kind] = approach
 	}
-	out := make(map[string]string, len(parsed))
-	for k, a := range parsed {
-		out[k.String()] = a
-	}
-	return out
+	return out, nil
 }
 
 // rootsFromFlag is the --root pairs as written; which roots the engine's
@@ -713,7 +716,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
 	cmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container-rootless|container-rootful; empty = project default). `ctxloom llm list` reports which of these each engine can be given")
 	cmd.Flags().StringArrayVar(&agentSetSurfaces, "surface", nil,
-		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
+		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine (its --llm); an approach that engine does not support is refused, naming the ones it does.")
 	cmd.Flags().StringArrayVar(&agentSetRoots, "root", nil,
 		"Root selection for this agent: kind=root (repeatable; roots: session-home|project-root|work-dir). Validated against the roots the agent's engine offers for that kind; project-root is the shared root, selected here and never fallen back to.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission mode, in the vocabulary of the engine this agent binds, written into that engine's block (empty clears it)")

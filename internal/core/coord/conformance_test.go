@@ -538,7 +538,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 		texts := sp.chat(0).RecordedTexts()
 		// Provenance-framed (FrameCoordinatorDelivery): the injected body is the
 		// turn's content, the header names the user as its sender.
-		return len(texts) == 2 && texts[1] == runnerHooks.FrameCoordinatorDelivery(UserSender, KindSteer, "mid-turn note")
+		return len(texts) == 2 && texts[1] == frameAsDelivered(texts[1], Message{From: UserSender, Kind: KindSteer, Body: "mid-turn note"})
 	}, conformanceWait, 10*time.Millisecond)
 
 	_, err = injectAsHuman(c, "foreign-session-harp", "hello?")
@@ -606,7 +606,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		texts := sp.chat(0).RecordedTexts()
-		return len(texts) == 2 && texts[1] == runnerHooks.FrameCoordinatorDelivery(UserSender, KindSteer, "wake up")
+		return len(texts) == 2 && texts[1] == frameAsDelivered(texts[1], Message{From: UserSender, Kind: KindSteer, Body: "wake up"})
 	}, conformanceWait, 10*time.Millisecond)
 
 	// The O3 mirror fires for every delivery mode, this one included.

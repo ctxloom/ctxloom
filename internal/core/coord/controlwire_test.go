@@ -130,7 +130,7 @@ func TestControlRun_ChildSteersItsOwnGrandchild(t *testing.T) {
 	// reach the child legitimately: the grandchild's echoed turn result, which
 	// quotes the steer, is relayed to its parent — with the header rewritten
 	// inert, so the steer's own frame is the thing to look for, not its words.
-	steerFrame := runnerHooks.FrameCoordinatorDelivery(child.Harp, KindSteer, "rebase before you continue")
+	steerFrame := runnerHooks.FrameCoordinatorDelivery(Message{From: child.Harp, Kind: KindSteer, ID: steered.GetMessageId(), Body: "rebase before you continue"})
 	assert.Zero(t, countChatText(sp, 0, steerFrame), "the instruction must reach the target alone")
 
 	// And the instruction is the durable file the handle names: delivered,

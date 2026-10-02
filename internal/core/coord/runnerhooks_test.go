@@ -101,7 +101,7 @@ type TestRunnerHooks struct {
 	// FrameCoordinatorDelivery renders one coordinator-delivered message the
 	// way the engine host frames it for the engine; CoordinatorFrameOpen is
 	// that frame's opening literal.
-	FrameCoordinatorDelivery func(from, kind, body string) string
+	FrameCoordinatorDelivery func(m Message) string
 	FrameCoordinatorMessage  func(pm *agentcoordpb.PeerMessage) string
 	CoordinatorFrameOpen     string
 	// ErrCoordinatorUnreachable is the Home's refusal of a request that

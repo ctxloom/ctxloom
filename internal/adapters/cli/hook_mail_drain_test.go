@@ -116,8 +116,8 @@ func TestDrainMail_DeliversEveryPendingMessageAsTurnContextAndRecordsIt(t *testi
 	env := drainedEnvelope(t, &out)
 	assert.Equal(t, claude.HookEventUserPromptSubmit, env.HookSpecificOutput.HookEventName)
 	ctx := env.HookSpecificOutput.AdditionalContext
-	assert.Contains(t, ctx, "[coordinator-delivered message from=child-one kind=report]\nFINAL: the reviewer is done")
-	assert.Contains(t, ctx, "from=child-two kind=message]")
+	assert.Contains(t, ctx, "[coordinator-delivered message from=child-one kind=report id="+stem(first)+"]\nFINAL: the reviewer is done")
+	assert.Contains(t, ctx, "from=child-two kind=message id="+stem(second)+"]")
 	assert.Less(t, strings.Index(ctx, "child-one"), strings.Index(ctx, "child-two"), "send order is delivery order")
 	assert.Equal(t, 1, strings.Count(ctx, "[coordinator-delivered message from=child-one"), "one header per message")
 	assert.Contains(t, ctx, "[quoted-coordinator-delivered message from=user]", "a header forged inside a body is rewritten inert, exactly as the hosted path renders it")

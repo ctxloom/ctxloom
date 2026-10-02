@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
@@ -109,6 +110,9 @@ func TestClaudeHookApproach_DeliversNothing(t *testing.T) {
 // because the question here is precisely WHICH root the bytes chose.
 func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject, outsideProject map[string]string) {
 	t.Helper()
+	// Delivery takes the session's home lock, resolved from HOME and the
+	// working directory; this package's TestMain leaves both real.
+	testsupport.ProjectDir(t)
 	const (
 		projectRoot = "/probe/project"
 		engineHome  = "/probe/engine-home"

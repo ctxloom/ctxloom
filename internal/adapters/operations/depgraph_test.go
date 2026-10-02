@@ -43,9 +43,20 @@ func TestDepWalker_RecordsAndConflicts(t *testing.T) {
 	t.Run("local refs are not tracked as remote pins", func(t *testing.T) {
 		w := newTestWalker(remote.NewMockFetcher())
 		w.record("ctxloom:local@bundles/x", remote.ItemTypeBundle)
-		pins, conflicts, _ := w.result()
+		pins, conflicts, unexpanded := w.result()
 		assert.Empty(t, pins)
 		assert.Empty(t, conflicts)
+		assert.Empty(t, unexpanded, "a local ref is not a pin, so skipping it leaves nothing missing")
+	})
+
+	t.Run("an unresolvable remote ref leaves the closure incomplete", func(t *testing.T) {
+		w := newTestWalker(remote.NewMockFetcher())
+		w.resolveHash = func(*remote.Reference) (string, string, remote.SelectorKind, bool) { return "", "", "", false }
+		ref := "https://github.com/o/r@bundles/demo@^1.0.0"
+		w.record(ref, remote.ItemTypeBundle)
+		pins, _, unexpanded := w.result()
+		assert.Empty(t, pins, "never pinned at an empty hash")
+		assert.Equal(t, []string{ref}, unexpanded)
 	})
 
 	t.Run("same identity at two hashes is a conflict", func(t *testing.T) {

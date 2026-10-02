@@ -34,6 +34,11 @@ type LockDependenciesResult struct {
 	Path      string `json:"path,omitempty"`
 	ItemCount int    `json:"item_count,omitempty"`
 	Message   string `json:"message,omitempty"`
+	// Incomplete is true when part of the dependency closure could not be
+	// reached, so the written lock preserved unreached entries rather than
+	// rebuilding them. "generated" alone cannot tell that apart from a
+	// complete lock.
+	Incomplete bool `json:"incomplete,omitempty"`
 }
 
 // LockDependencies builds lock.yaml from the flattened transitive closure of
@@ -118,14 +123,20 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	// must not erase healthy entries: merge in every previous entry the rebuilt
 	// closure no longer reaches, so a transient fetch failure never loses lock
 	// state. The next complete relock drops genuinely-removed entries.
-	if len(unexpanded) > 0 {
+	incomplete := len(unexpanded) > 0
+	if incomplete {
 		preserveUnreachedEntries(prev, lockfile, len(unexpanded))
 	}
 
 	if lockfile.IsEmpty() {
+		msg := "No remote items found"
+		if incomplete {
+			msg = "No remote items found among what could be read; part of the dependency closure was unreachable"
+		}
 		return &LockDependenciesResult{
-			Status:  "empty",
-			Message: "No remote items found",
+			Status:     "empty",
+			Message:    msg,
+			Incomplete: incomplete,
 		}, nil
 	}
 
@@ -134,9 +145,10 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	}
 
 	return &LockDependenciesResult{
-		Status:    "generated",
-		Path:      lockManager.Path(),
-		ItemCount: len(lockfile.AllEntries()),
+		Status:     "generated",
+		Path:       lockManager.Path(),
+		ItemCount:  len(lockfile.AllEntries()),
+		Incomplete: incomplete,
 	}, nil
 }
 

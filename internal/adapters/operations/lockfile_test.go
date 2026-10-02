@@ -78,6 +78,28 @@ func TestLockDependencies_NoProfiles(t *testing.T) {
 
 	assert.Equal(t, "empty", result.Status)
 	assert.Contains(t, result.Message, "No remote items")
+	assert.False(t, result.Incomplete, "a project with no profiles is genuinely empty")
+}
+
+// An empty lock built from a closure that could not be read is not "no
+// remote items": the items were never looked at. Incomplete is what tells a
+// caller the two apart.
+func TestLockDependencies_UnreachableParentIsAnIncompleteEmptyLock(t *testing.T) {
+	tmp := t.TempDir()
+	baseDir := filepath.Join(tmp, ".ctxloom")
+	missing := filepath.Join(tmp, "no-such-repo")
+	writeLocalProfile(t, baseDir, "default", "parents:\n  - file://"+missing+"@bundles/kit#profiles/parent\n")
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
+
+	var result *LockDependenciesResult
+	captureStderr(t, func() {
+		var err error
+		result, err = LockDependencies(context.Background(), cfg, LockDependenciesRequest{})
+		require.NoError(t, err)
+	})
+	assert.Equal(t, "empty", result.Status)
+	assert.True(t, result.Incomplete, "a parent that could not be reached leaves the closure incomplete, not empty")
+	assert.NotEqual(t, "No remote items found", result.Message, "the message must not claim a clean, empty closure")
 }
 
 func TestLockDependencies_BuildsFromClosure(t *testing.T) {

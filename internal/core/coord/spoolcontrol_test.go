@@ -341,6 +341,22 @@ func TestSpoolAsk_UnreadAskOfAnEndedChildIsNotNoticed(t *testing.T) {
 	assert.Contains(t, notice[0].Body, CauseStopped)
 }
 
+// TestSpoolAsk_AnAskThatFailsToPublishIsNotLeftOpen: an ask whose file was
+// never written was never asked, so nothing may later report it unanswered.
+func TestSpoolAsk_AnAskThatFailsToPublishIsNotLeftOpen(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
+
+	_, err := c.controlAsk(humanInitiator(), out.Harp, KindQuestion, strings.Repeat("x", ArtifactUploadSizeCap+1))
+	require.ErrorIs(t, err, ErrBodyTooLarge)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	assert.Empty(t, c.openAsks, "a failed publish must not leave an open ask behind")
+}
+
 // TestSpoolAsk_EmptyTextIsRefused: empty input fails rather than asking
 // nothing.
 func TestSpoolAsk_EmptyTextIsRefused(t *testing.T) {

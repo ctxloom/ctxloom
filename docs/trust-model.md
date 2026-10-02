@@ -684,7 +684,7 @@ alone is not a gate. Repo trust is therefore part of the engine contract
   refuses a presentation those flags cannot govern: a settings file named on
   `--settings`, a source `--setting-sources` does not filter
   (`errUntrustedSettingsPresented`), and the project's own `.mcp.json`, which
-  strict mode ignores (`errUntrustedProjectMCP`). ctxloom's own hooks and
+  strict mode ignores (`ErrUntrustedProjectMCP`). ctxloom's own hooks and
   settings live in the session home (the user source) and its MCP servers
   arrive on `--mcp-config`, so they survive.
 - **A trusted repository's answer is carried, never made.** For a trusted

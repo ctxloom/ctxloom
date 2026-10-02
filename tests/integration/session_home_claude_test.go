@@ -5,6 +5,7 @@ package integration
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -223,18 +224,23 @@ func TestRun_ClaudeTokenAgentWithNoTokenExportedIsRefused(t *testing.T) {
 	assert.NoFileExists(t, capture+".env", "the engine never started")
 }
 
-// TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome: the binding's
-// explicit `engine_home: host` is rendered unsafe in the dry-run plan and
-// the launch banner, and the run keeps the real home: no CLAUDE_CONFIG_DIR,
-// no session-home credential — exactly the pre-ruling behaviour, now by
-// selection.
+// TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome: the
+// binding's explicit `engine_home: host` is rendered unsafe in the dry-run
+// plan and the launch banner, and the run keeps the real home: no
+// CLAUDE_CONFIG_DIR, no session-home credential — exactly the pre-ruling
+// behaviour, now by selection.
+//
+// With no engine home to deliver beneath, the MCP servers go to the
+// project's own .mcp.json (the unsafe-file approach), which claude loads
+// only for a repository the human trusted — so the project is trusted in
+// the fake human's ~/.claude.json. That file is one teams commit: the
+// relay bearer claude received is on disk nowhere ctxloom writes, the
+// project's file and its §9.7 record naming it only by reference.
 func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	writeHostClaudeCredential(t, env)
-	// auth login: the real home with the human's own login in place. Auth is
-	// per agent, so a host-home binding still declares how it authenticates.
-	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--auth", "login", "--permissions", "plan")
-	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	trustProjectOnHost(t, env)
+	createHostHomeAgent(t, env)
 
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "unicorn-prompt")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
@@ -258,6 +264,71 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	for _, d := range sessionDirs(t, env) {
 		assert.Empty(t, findUnder(t, d, ".credentials.json"), "no credential is seeded into a session home the run does not use")
 	}
+
+	bearer := got[claude.EnvRelayBearer]
+	require.NotEmpty(t, bearer, "claude's environment carries the relay bearer the project .mcp.json names")
+	records := filepath.Join(env.HomeDir, paths.AppDirName, paths.HomeRecordsDirName)
+	for _, dir := range []string{records, env.ProjectDir} {
+		assert.Empty(t, filesHolding(t, dir, bearer), "the relay bearer is on disk under %s", dir)
+	}
+	assert.NotEmpty(t, filesHolding(t, records, "${"+claude.EnvRelayBearer+"}"), "the project .mcp.json's record states the entry by reference")
+}
+
+// TestRun_ClaudeHostHomeOnAnUntrustedRepositoryIsRefused: the same host-home
+// binding on a repository the human never trusted is refused before claude
+// starts, by the typed refusal: strict MCP mode ignores the project's
+// .mcp.json, so the run would launch without ctxloom's servers.
+func TestRun_ClaudeHostHomeOnAnUntrustedRepositoryIsRefused(t *testing.T) {
+	env, capture := setupClaudeSessionProject(t)
+	writeHostClaudeCredential(t, env)
+	createHostHomeAgent(t, env)
+
+	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
+	require.NotEqual(t, 0, env.LastExitCode(), env.LastOutput())
+	assert.Contains(t, env.LastOutput(), claude.ErrUntrustedProjectMCP.Error())
+	assert.NoFileExists(t, capture+".env", "the engine never started")
+	assert.NoFileExists(t, filepath.Join(env.ProjectDir, claude.MCPFileName), "the refused run's delivery is reversed")
+}
+
+// createHostHomeAgent creates the agent the host-home cases run: auth
+// login, the real home with the human's own login in place. Auth is per
+// agent, so a host-home binding still declares how it authenticates.
+func createHostHomeAgent(t *testing.T, env *testenv.TestEnvironment) {
+	t.Helper()
+	_ = env.Run("agent", "create", "dev", "--profiles", "dev", "--llm", "claude-code", "--engine-home", "host", "--auth", "login", "--permissions", "plan")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+}
+
+// trustProjectOnHost records, in the fake human's ~/.claude.json, their
+// acceptance of claude's trust prompt for the project — the record claude's
+// repository verdict reads.
+func trustProjectOnHost(t *testing.T, env *testenv.TestEnvironment) {
+	t.Helper()
+	path := filepath.Join(env.HomeDir, ".claude.json")
+	cfg := map[string]any{}
+	if raw, err := os.ReadFile(path); err == nil {
+		require.NoError(t, json.Unmarshal(raw, &cfg))
+	}
+	cfg["projects"] = map[string]any{env.ProjectDir: map[string]any{"hasTrustDialogAccepted": true}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
+}
+
+// filesHolding reports every regular file under dir whose bytes contain s.
+func filesHolding(t *testing.T, dir, s string) []string {
+	t.Helper()
+	var hits []string
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if b, rerr := os.ReadFile(p); rerr == nil && strings.Contains(string(b), s) {
+			hits = append(hits, p)
+		}
+		return nil
+	})
+	return hits
 }
 
 // TestRun_ClaudeLoginAgentWithNoLoginIsRefused: a login agent whose human

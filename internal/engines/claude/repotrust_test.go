@@ -109,7 +109,7 @@ func TestLaunch_UntrustedRefusesTheProjectMCPFile(t *testing.T) {
 	file := present.Presentation{HostPath: "/host/p/.mcp.json", EnginePath: "/p/.mcp.json"}
 	for _, path := range launchPaths {
 		_, err := launchArgv(t, path, engine.TrustUntrusted, file)
-		assert.ErrorIs(t, err, errUntrustedProjectMCP, path.name)
+		assert.ErrorIs(t, err, ErrUntrustedProjectMCP, path.name)
 		_, err = launchArgv(t, path, engine.TrustTrusted, file)
 		assert.NoError(t, err, path.name)
 	}

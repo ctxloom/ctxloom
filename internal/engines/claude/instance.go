@@ -243,7 +243,7 @@ func untrustedRefusal(p present.Presentation, projectMCP string) error {
 	case slices.Contains(p.Args, flagSettings):
 		return errUntrustedSettingsPresented
 	case p.EnginePath == projectMCP:
-		return errUntrustedProjectMCP
+		return ErrUntrustedProjectMCP
 	}
 	return nil
 }

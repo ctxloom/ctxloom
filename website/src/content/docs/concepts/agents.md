@@ -100,7 +100,10 @@ authenticates with a long-lived token you mint yourself with the engine's own
 flow and export. For claude: run `claude setup-token`, then export the token
 it prints as `CLAUDE_CODE_OAUTH_TOKEN` (or keep it in your secret manager and
 export it from there). A run with none exported is refused and tells you so.
-No agent ever reaches your own login.
+No agent ever reaches your own login. `ctxloom init` on a terminal runs
+`claude setup-token` for you when no token is exported, attached to your
+terminal and read by nothing, then prints the export line and asks you to
+re-run it.
 
 Your OWN `ctxloom run` session authenticates as the top-level `auth:` in your
 config says: `token` (the default) or `login`, which shares your own login

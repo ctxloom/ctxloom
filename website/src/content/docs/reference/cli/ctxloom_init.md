@@ -43,6 +43,15 @@ When run interactively (TTY detected), init will guide you through:
      profiles, then bind agents to them (an orchestrator you drive, a
      containerized developer, a cheap finder — plus any other roles)
 
+Before the interview, init checks for the token every agent authenticates with
+(claude: CLAUDE_CODE_OAUTH_TOKEN). If it is exported, init probes it. If not,
+on a terminal init runs the engine's own 'claude setup-token' attached to your
+terminal, reading nothing it prints, then shows the line to add to your shell
+profile and stops: export the token and re-run 'ctxloom init'. Off a terminal
+(or with --non-interactive) it stops naming those steps. Either way the
+project is already set up. ctxloom never captures or stores the token.
+--skip-launch runs no engine, and so neither of these.
+
 The working outcome of init is a functioning ctxloom CLI/TUI.
 
 Skipped or interrupted the interview? 'ctxloom init prompt' (or ask your

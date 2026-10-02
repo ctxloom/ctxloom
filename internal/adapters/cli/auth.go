@@ -24,6 +24,13 @@ engine's own flow and export (claude: run 'claude setup-token', then export
 CLAUDE_CODE_OAUTH_TOKEN, or keep it in your secret manager and export it from
 there). An agent has no auth to choose, and none ever reaches your login.
 
+'ctxloom init' checks for that token. With none exported, on a terminal, it
+runs the engine's own flow (claude: 'claude setup-token') attached to your
+terminal, reading nothing it prints, then shows the line to add to your shell
+profile and stops: a child process cannot set your shell's environment.
+Export the token and re-run 'ctxloom init'. Off a terminal it only names these
+steps.
+
 Your OWN 'ctxloom run' session authenticates as the top-level 'auth:' in your
 config says:
 

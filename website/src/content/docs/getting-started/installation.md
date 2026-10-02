@@ -293,6 +293,11 @@ export CLAUDE_CODE_OAUTH_TOKEN=<the token>  # or export it from your secret mana
 ctxloom auth status                         # is the token exported?
 ```
 
+On a terminal, `ctxloom init` does the first step for you when no token is exported: it runs
+`claude setup-token` attached to your terminal (ctxloom reads nothing it prints), shows the
+`export` line to add to your shell profile, and stops, because it cannot set your shell's
+environment. Export the token and re-run `ctxloom init`. Off a terminal, init only names the steps.
+
 A run whose credential is not exported is refused and tells you what to export. Agents on your subscription
 share its usage limits with your own interactive use. See
 [Environment Variables](/reference/environment/#engine-authentication).

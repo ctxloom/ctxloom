@@ -96,12 +96,12 @@ func registerSessionHookSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// The launch resolver mints the session's MCP endpoint once per harp and
-	// binds it on the session record, so a resume of the same harp reuses
-	// it. Every session the run minted must carry one: the scan refuses a
-	// home with no session record at all (a run that minted nothing would
-	// otherwise pass vacuously).
-	ctx.Step(`^the run's session record carries its MCP endpoint$`, func(c context.Context) error {
+	// The launch resolver mints the session's MCP endpoint for every launch
+	// and persists none of it: a bearer at rest would outlive the launch it
+	// authenticates. Every session the run minted must carry NO endpoint; the
+	// scan refuses a home with no session record at all (a run that minted
+	// nothing would otherwise pass vacuously).
+	ctx.Step(`^the run's session record carries no MCP endpoint$`, func(c context.Context) error {
 		w := worldFrom(c)
 		root := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel))
 		entries, err := os.ReadDir(root)
@@ -117,17 +117,12 @@ func registerSessionHookSteps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				continue
 			}
-			var sidecar struct {
-				MCP struct {
-					URL        string `yaml:"url"`
-					Credential string `yaml:"credential"`
-				} `yaml:"mcp"`
-			}
+			var sidecar map[string]any
 			if err := yaml.Unmarshal(body, &sidecar); err != nil {
 				return fmt.Errorf("parse the session record for %q: %w; record:\n%s", e.Name(), err, body)
 			}
-			if sidecar.MCP.URL == "" || sidecar.MCP.Credential == "" {
-				return fmt.Errorf("session %q records no MCP endpoint — the launch resolver mints one per harp and binds it on the record; record:\n%s", e.Name(), body)
+			if _, ok := sidecar["mcp"]; ok {
+				return fmt.Errorf("session %q records an MCP endpoint — the endpoint is minted per launch and never persisted; record:\n%s", e.Name(), body)
 			}
 			checked++
 		}

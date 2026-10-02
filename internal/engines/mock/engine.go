@@ -7,6 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"path/filepath"
+	"slices"
 )
 
 // This file is the mock ENGINE KIND: the conformance double and the first
@@ -156,7 +157,8 @@ func WithDistribution(d engine.Distribution) Option {
 	return func(m *Mock) { m.Distribution = d }
 }
 
-// WithDynamic provides a dynamic approach (the delegation tests use it).
+// WithDynamic provides a dynamic approach: the session endpoint rendered
+// into the mock's MCP config (Doubles carries it).
 func WithDynamic() Option {
 	return func(m *Mock) { m.Dynamic = &endpointEntry{name: "session-endpoint"} }
 }
@@ -203,11 +205,16 @@ func NewNamed(name engine.Name, opts ...Option) engine.Engine {
 // runs on, and the readers the root hands every one of them.
 func Doubles(opts ...Option) []engine.Engine {
 	shipped := append([]Option{WithContainer()}, opts...)
+	// Every double that carries an MCP surface renders the session endpoint
+	// into it, as claude does: the endpoint is minted per launch and
+	// persisted nowhere, so the delivered config is the only place a test
+	// can read the current launch's endpoint from.
+	rendered := append(slices.Clone(shipped), WithDynamic())
 	return []engine.Engine{
-		New(shipped...),
-		NewNamed(NameLossy, append(shipped, WithoutHookEvents("session_start", "session_end"))...),
+		New(rendered...),
+		NewNamed(NameLossy, append(slices.Clone(rendered), WithoutHookEvents("session_start", "session_end"))...),
 		NewNamed(NameLaunch, append(shipped, Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills))...),
-		NewNoSkills(shipped...),
+		NewNoSkills(rendered...),
 	}
 }
 

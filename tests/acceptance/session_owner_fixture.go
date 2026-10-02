@@ -4,14 +4,14 @@
 //
 // A coordinator is hosted only by a RUNNER: `ctxloom run` stands it up and
 // its runner serves the session's ONE MCP endpoint — the URL and bearer the
-// launch minted into the session record (sessions.Endpoint, session.yaml)
-// — over Streamable HTTP (runner/interaction.Endpoint). A scenario that drives the
+// launch minted for this launch alone (sessions.Endpoint; nothing persists
+// it) — over Streamable HTTP (runner/interaction.Endpoint). A scenario that drives the
 // agent_* tools needs a real owner standing first, and this fixture is that
 // owner: a mock-engine `ctxloom run` held open on a pty for the scenario's
 // whole life, torn down with the scenario.
 //
 // HOW THE HARNESS REACHES IT. The same way the owner's engine does: World.agent
-// dials the endpoint the session record names, with its bearer
+// dials the endpoint the engine's delivered MCP config names, with its bearer
 // (testenv.ConnectMCPEndpoint). No shim process, no discovery path.
 //
 // WHY THE OWNER'S HARP IS EXPORTED TO EVERY LATER PROCESS. A later `ctxloom
@@ -21,8 +21,10 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -30,10 +32,11 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -61,9 +64,9 @@ const (
 	// CI: the runner spawn is a real self-exec + dial-home + StartRun.
 	sessionOwnerReadyTimeout = 30 * time.Second
 
-	// sessionFileName is the session record beside a harp's directory in
-	// the session store — where the launch bound the session's endpoint.
-	sessionFileName = "session.yaml"
+	// mockMCPFileName is the mock engine's MCP config inside its config dir
+	// (mock.ConfigDirName): where the launch delivers the session's endpoint.
+	mockMCPFileName = "mcp.json"
 )
 
 // sessionOwner is the standing owner: its pty session, the harp it minted,
@@ -154,25 +157,47 @@ func mintedHarp(home string, before map[string]bool, sess *testenv.PTYSession) (
 	return minted[0], nil
 }
 
-// readSessionEndpoint reads the endpoint the launch bound on the session
-// record (sessions.Store.BindMCP) — what the owner's runner serves and the
-// owner's engine dials.
+// readSessionEndpoint reads the endpoint the owner's CURRENT launch delivered
+// to its engine: the ctxloom server entry (wire.LayerServerName) of the mock's
+// MCP config, the ONE such file under the harp's directory. Every launch mints
+// its own endpoint and nothing persists it, so the delivered config is the
+// only place it can be read from. The file is located rather than rebuilt from
+// the engine-home layout, which isolation owns.
 func readSessionEndpoint(home, harp string) (sessions.Endpoint, error) {
-	path := filepath.Join(home, filepath.FromSlash(harpSessionsRel), harp, sessionFileName)
-	data, err := os.ReadFile(path)
+	dir := filepath.Join(home, filepath.FromSlash(harpSessionsRel), harp)
+	want := filepath.Join(mock.ConfigDirName, mockMCPFileName)
+	var found []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(p, string(filepath.Separator)+want) {
+			found = append(found, p)
+		}
+		return nil
+	})
 	if err != nil {
-		return sessions.Endpoint{}, fmt.Errorf("read the session record %s: %w", path, err)
+		return sessions.Endpoint{}, fmt.Errorf("search %s for the engine's MCP config: %w", dir, err)
 	}
-	var rec struct {
-		MCP sessions.Endpoint `yaml:"mcp"`
+	if len(found) != 1 {
+		return sessions.Endpoint{}, fmt.Errorf("expected exactly one delivered %s under %s, found %v", want, dir, found)
 	}
-	if err := yaml.Unmarshal(data, &rec); err != nil {
-		return sessions.Endpoint{}, fmt.Errorf("decode the session record %s: %w", path, err)
+	data, err := os.ReadFile(found[0])
+	if err != nil {
+		return sessions.Endpoint{}, fmt.Errorf("read the engine's MCP config: %w", err)
 	}
-	if rec.MCP.URL == "" || rec.MCP.Credential == "" {
-		return sessions.Endpoint{}, fmt.Errorf("the session record %s binds no MCP endpoint", path)
+	var cfg struct {
+		MCPServers map[string]wire.MCPServer `json:"mcpServers"`
 	}
-	return rec.MCP, nil
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return sessions.Endpoint{}, fmt.Errorf("decode the engine's MCP config %s: %w", found[0], err)
+	}
+	srv := cfg.MCPServers[wire.LayerServerName]
+	bearer, ok := strings.CutPrefix(srv.Headers["Authorization"], "Bearer ")
+	if srv.URL == "" || !ok || bearer == "" {
+		return sessions.Endpoint{}, fmt.Errorf("the engine's MCP config %s names no %q endpoint with a bearer", found[0], wire.LayerServerName)
+	}
+	return sessions.Endpoint{URL: srv.URL, Credential: bearer}, nil
 }
 
 // harpDirs lists the session directories under the isolated HOME's harp

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -360,7 +361,7 @@ func stageable(target string, cl present.Claim) (stagedClaim, error) {
 		return stagedClaim{}, fmt.Errorf("fsstatic: %s: claims %s, but no format hew reads names this file", target, cl.Pointer)
 	}
 	container, elem := strings.CutSuffix(cl.Pointer, "/-")
-	if _, err := pointerPath(container); err != nil {
+	if err := validPointer(container); err != nil {
 		return stagedClaim{}, fmt.Errorf("fsstatic: %s: %w", target, err)
 	}
 	v, err := canon(cl.Value)
@@ -697,25 +698,26 @@ type editor struct {
 
 func (e *editor) err() error { return e.failed }
 
-func (e *editor) node(pointer string) (hew.Node, bool, error) {
+// at locates pointer in the current document: the node, and the hew path that
+// addresses it (a selected element by its index, never by its selector).
+func (e *editor) at(pointer string) (hew.Node, hew.Path, bool, error) {
 	d, err := e.binding.Document(e.target, e.doc)
 	if err != nil {
-		return nil, false, fmt.Errorf("fsstatic: %s does not parse: %w", e.target, err)
+		return nil, hew.Path{}, false, fmt.Errorf("fsstatic: %s does not parse: %w", e.target, err)
 	}
-	n, ok := confpatch.NodeAt(d.Root(), pointer)
-	return n, ok, nil
+	n, args, ok, err := locate(d.Root(), parsePointer(pointer))
+	if errors.Is(err, errNotAnArray) {
+		return nil, hew.Path{}, false, &NotOursError{Target: e.target, Pointer: pointer}
+	}
+	return n, hew.NewPath(args...), ok, err
 }
 
-func (e *editor) apply(pointer string, op func(*hew.Sel)) error {
-	p, err := pointerPath(pointer)
-	if err != nil {
-		return err
-	}
-	return e.applyAt(p, op)
+func (e *editor) node(pointer string) (hew.Node, bool, error) {
+	n, _, ok, err := e.at(pointer)
+	return n, ok, err
 }
 
 func (e *editor) applyAt(p hew.Path, op func(*hew.Sel)) error {
-	pointer := p.String()
 	d, err := hew.OpenBytes(e.target, e.doc, hew.As(e.format))
 	if err != nil {
 		return fmt.Errorf("fsstatic: %s does not parse: %w", e.target, err)
@@ -723,7 +725,7 @@ func (e *editor) applyAt(p hew.Path, op func(*hew.Sel)) error {
 	op(d.AtPath(p))
 	out, err := d.Bytes()
 	if err != nil {
-		return fmt.Errorf("fsstatic: %s: %s: %w", e.target, pointer, err)
+		return fmt.Errorf("fsstatic: %s: %s: %w", e.target, p.String(), err)
 	}
 	e.doc = out
 	return nil
@@ -732,14 +734,14 @@ func (e *editor) applyAt(p hew.Path, op func(*hew.Sel)) error {
 // remove takes ctxloom's value at pointer out; a value there that is neither
 // what ctxloom put nor an entry that runs ctxloom is the user's edit.
 func (e *editor) remove(pointer string, was any) error {
-	n, ok, err := e.node(pointer)
+	n, p, ok, err := e.at(pointer)
 	if err != nil || !ok {
 		return err
 	}
 	if !same(n, was) && !confpatch.OwnedBy(n, ctxloomOwner) {
 		return &NotOursError{Target: e.target, Pointer: pointer}
 	}
-	return e.apply(pointer, func(s *hew.Sel) { s.Remove() })
+	return e.applyAt(p, func(s *hew.Sel) { s.Remove() })
 }
 
 // set puts want at pointer. The place may hold the value ctxloom put there
@@ -750,7 +752,7 @@ func (e *editor) remove(pointer string, was any) error {
 // too, and the last release must leave it. It returns the containers it
 // created to hold the value.
 func (e *editor) set(pointer string, was any, hadClaim bool, want any) (created []string, found bool, err error) {
-	n, ok, err := e.node(pointer)
+	n, p, ok, err := e.at(pointer)
 	if err != nil {
 		return nil, false, err
 	}
@@ -765,85 +767,136 @@ func (e *editor) set(pointer string, was any, hadClaim bool, want any) (created 
 		if ours := owned || (hadClaim && same(n, was)); !ours {
 			return nil, false, &NotOursError{Target: e.target, Pointer: pointer}
 		}
-		return nil, false, e.apply(pointer, func(s *hew.Sel) { s.Set(want) })
+		return nil, false, e.applyAt(p, func(s *hew.Sel) { s.Set(want) })
 	}
-	segs := splitPointer(pointer)
-	depth := len(segs) - 1
-	for ; depth > 0; depth-- {
-		if _, ok, err := e.node(joinPointer(segs[:depth])); err != nil {
+	return e.create(parsePointer(pointer), want)
+}
+
+// create builds what is missing of segs and puts want at its end: from the
+// deepest place that stands, a member is set or a selected element appended,
+// holding every missing container down to want. It returns those containers.
+func (e *editor) create(segs []pseg, want any) ([]string, bool, error) {
+	k := len(segs) - 1
+	var base hew.Path
+	for ; k >= 0; k-- {
+		_, p, ok, err := e.at(joinSegs(segs[:k]))
+		if k == 0 {
+			p, ok, err = hew.NewPath(), true, nil
+		}
+		if err != nil {
 			return nil, false, err
-		} else if ok {
+		}
+		if ok {
+			base = p
 			break
 		}
 	}
-	// segs[:depth] exists; build the missing containers and the value whole.
-	value := want
-	for i := len(segs) - 1; i > depth; i-- {
-		value = map[string]any{segs[i]: value}
-		created = append(created, joinPointer(segs[:i]))
+	var created []string
+	for j := k + 1; j < len(segs); j++ {
+		created = append(created, joinSegs(segs[:j]))
 	}
-	return created, false, e.apply(joinPointer(segs[:depth+1]), func(s *hew.Sel) { s.Set(value) })
+	value, err := build(segs[k:], want)
+	if err != nil {
+		return nil, false, err
+	}
+	if s := segs[k]; s.sel {
+		el, err := withSelector(s, value)
+		if err != nil {
+			return nil, false, err
+		}
+		return created, false, e.applyAt(base, func(sel *hew.Sel) { sel.Add(el) })
+	}
+	return created, false, e.applyAt(base.Append(hew.Key(segs[k].key).(hew.Segment)), func(sel *hew.Sel) { sel.Set(value) })
+}
+
+// build is the value the place rest[0] names holds so that want sits at the
+// end of rest: a map for a member below, an array holding the selected
+// element for a selector below.
+func build(rest []pseg, want any) (any, error) {
+	if len(rest) == 1 {
+		return want, nil
+	}
+	child, err := build(rest[1:], want)
+	if err != nil {
+		return nil, err
+	}
+	if next := rest[1]; next.sel {
+		el, err := withSelector(next, child)
+		if err != nil {
+			return nil, err
+		}
+		return []any{el}, nil
+	}
+	return map[string]any{rest[1].key: child}, nil
+}
+
+// withSelector is v made selectable by s: the selector's field set to its
+// value, or left out when the value is empty (what an empty value selects).
+func withSelector(s pseg, v any) (any, error) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("fsstatic: %s selects an object, and what is claimed there is not one", s)
+	}
+	out := maps.Clone(m)
+	if s.value != "" {
+		out[s.field] = s.value
+	}
+	return out, nil
 }
 
 // elementIndex finds the element of the array at container that holds v.
-func (e *editor) elementIndex(container string, v any) (int, hew.Node, error) {
-	n, ok, err := e.node(container)
+func (e *editor) elementIndex(container string, v any) (int, hew.Node, hew.Path, error) {
+	n, p, ok, err := e.at(container)
 	if err != nil || !ok {
-		return -1, nil, err
+		return -1, nil, p, err
 	}
 	if n.Kind() != hew.KindSeq {
-		return -1, nil, &NotOursError{Target: e.target, Pointer: container}
+		return -1, nil, p, &NotOursError{Target: e.target, Pointer: container}
 	}
 	for i := 0; i < n.Len(); i++ {
 		if el, ok := n.Elem(i); ok && same(el, v) {
-			return i, el, nil
+			return i, el, p, nil
 		}
 	}
-	return -1, nil, nil
+	return -1, nil, p, nil
 }
 
 // removeElement takes the element holding v out of the array; one that is no
 // longer there was taken out by someone else.
 func (e *editor) removeElement(container string, v any) error {
-	i, _, err := e.elementIndex(container, v)
+	i, _, p, err := e.elementIndex(container, v)
 	if err != nil || i < 0 {
 		return err
 	}
-	p, err := pointerPath(container, hew.Index(i))
-	if err != nil {
-		return err
-	}
-	return e.applyAt(p, func(s *hew.Sel) { s.Remove() })
+	return e.applyAt(p.Append(hew.Index(i).(hew.Segment)), func(s *hew.Sel) { s.Remove() })
 }
 
 // setElement appends v to the array at container unless an element already
-// holds it: one that runs ctxloom is ctxloom's, any other is FOUND on a first
-// claim. A missing array is created holding v.
+// holds it: one that is ctxloom's own is taken over, any other is FOUND on a
+// first claim. A missing array is created holding v.
 func (e *editor) setElement(container string, hadClaim bool, v any) ([]string, bool, error) {
 	if _, ok, err := e.node(container); err != nil {
 		return nil, false, err
 	} else if !ok {
-		created, _, err := e.set(container, nil, false, []any{v})
+		created, _, err := e.create(parsePointer(container), []any{v})
 		return append(created, container), false, err
 	}
-	i, el, err := e.elementIndex(container, v)
+	i, el, p, err := e.elementIndex(container, v)
 	if err != nil {
 		return nil, false, err
 	}
 	if i >= 0 {
 		return nil, !hadClaim && !ownedElement(el), nil
 	}
-	p, err := pointerPath(container)
-	if err != nil {
-		return nil, false, err
-	}
 	return nil, false, e.applyAt(p, func(s *hew.Sel) { s.Add(v) })
 }
 
-// ownedElement reports whether an array element is ctxloom's own: a hook
-// group every hook of which runs ctxloom. Hook groups are the one element
-// shape ctxloom writes that names what it runs.
+// ownedElement reports whether an array element is ctxloom's own: an entry
+// that runs ctxloom (a hook), or a hook group every hook of which does.
 func ownedElement(n hew.Node) bool {
+	if confpatch.OwnedBy(n, ctxloomOwner) {
+		return true
+	}
 	if n.Kind() != hew.KindMap {
 		return false
 	}
@@ -860,28 +913,41 @@ func ownedElement(n hew.Node) bool {
 }
 
 // prune removes each container ctxloom created that is now empty, deepest
-// first, and returns the containers it created that still stand. A container
-// a claim sits under is not empty: every claim has been set by now.
+// first, and returns the containers it created that still stand. A selected
+// element holding nothing but its selector is empty. A container a claim sits
+// under is not empty: every claim has been set by now.
 func (e *editor) prune(containers []string) []string {
 	sorted := slices.Clone(containers)
-	sort.Slice(sorted, func(i, j int) bool { return len(splitPointer(sorted[i])) > len(splitPointer(sorted[j])) })
+	sort.Slice(sorted, func(i, j int) bool { return len(parsePointer(sorted[i])) > len(parsePointer(sorted[j])) })
 	var keep []string
 	for _, c := range sorted {
-		n, ok, err := e.node(c)
+		n, p, ok, err := e.at(c)
 		if err != nil || !ok {
 			continue
 		}
-		if n.Len() > 0 {
+		if !emptied(n, parsePointer(c)) {
 			keep = append(keep, c)
 			continue
 		}
-		if err := e.apply(c, func(s *hew.Sel) { s.Remove() }); err != nil {
+		if err := e.applyAt(p, func(s *hew.Sel) { s.Remove() }); err != nil {
 			e.failed = err
 			return containers
 		}
 	}
 	sort.Strings(keep)
 	return keep
+}
+
+// emptied reports whether a created container holds nothing anyone put
+// there: no member, or only the selector that made it selectable.
+func emptied(n hew.Node, segs []pseg) bool {
+	size := n.Len()
+	if last := segs[len(segs)-1]; last.sel {
+		if _, ok := n.Member(last.field); ok {
+			size--
+		}
+	}
+	return size == 0
 }
 
 // same reports whether node holds v, compared as decoded values.
@@ -911,35 +977,107 @@ func canon(v any) (any, error) {
 	return out, nil
 }
 
-func splitPointer(pointer string) []string {
-	parts := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
-	for i, p := range parts {
-		parts[i] = strings.ReplaceAll(strings.ReplaceAll(p, "~1", "/"), "~0", "~")
-	}
-	return parts
+// pseg is one segment of a claim pointer: an RFC 6901 key, or a SELECTOR
+// field=value naming the first element of an array whose field holds value —
+// an element without the field is selected by the empty value. "~2" escapes a
+// "=" in a key, as hew's own paths do.
+type pseg struct {
+	key          string
+	sel          bool
+	field, value string
 }
 
-func joinPointer(segs []string) string {
+func (s pseg) String() string {
+	if s.sel {
+		return present.PointerSelect(s.field, s.value)
+	}
+	return present.PointerKey(s.key)
+}
+
+func parsePointer(pointer string) []pseg {
+	if pointer == "" {
+		return nil
+	}
+	raw := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
+	out := make([]pseg, len(raw))
+	for i, r := range raw {
+		if field, value, ok := strings.Cut(r, "="); ok {
+			out[i] = pseg{sel: true, field: present.UnescapeSegment(field), value: present.UnescapeSegment(value)}
+			continue
+		}
+		out[i] = pseg{key: present.UnescapeSegment(r)}
+	}
+	return out
+}
+
+func joinSegs(segs []pseg) string {
 	var b strings.Builder
 	for _, s := range segs {
-		b.WriteString("/")
-		b.WriteString(strings.ReplaceAll(strings.ReplaceAll(s, "~", "~0"), "/", "~1"))
+		b.WriteString(s.String())
 	}
 	return b.String()
 }
 
-// pointerPath is pointer as a hew path built from typed key segments, so no
-// key is ever parsed as path syntax.
-func pointerPath(pointer string, then ...hew.SegmentArg) (hew.Path, error) {
-	if !strings.HasPrefix(pointer, "/") || pointer == "/" {
-		return hew.Path{}, fmt.Errorf("%q is not a pointer to a member", pointer)
-	}
-	segs := splitPointer(pointer)
-	args := make([]hew.SegmentArg, 0, len(segs)+len(then))
+// errNotAnArray is a selector meeting something that is not an array.
+var errNotAnArray = errors.New("a selector names an element of something that is not an array")
+
+// locate walks segs down from root: a key through map members, a selector to
+// the first element it selects. It returns the node and the hew segments that
+// address it; ok is false when a place on the way is missing.
+func locate(root hew.Node, segs []pseg) (hew.Node, []hew.SegmentArg, bool, error) {
+	n := root
+	var args []hew.SegmentArg
 	for _, s := range segs {
-		args = append(args, hew.Key(s))
+		if !s.sel {
+			next, ok := n.Member(s.key) // a key into anything but a map is absent
+
+			if !ok {
+				return nil, args, false, nil
+			}
+			n, args = next, append(args, hew.Key(s.key))
+			continue
+		}
+		if n.Kind() != hew.KindSeq {
+			return nil, args, false, errNotAnArray
+		}
+		i := selected(n, s)
+		if i < 0 {
+			return nil, args, false, nil
+		}
+		n, _ = n.Elem(i)
+		args = append(args, hew.Index(i))
 	}
-	return hew.NewPath(append(args, then...)...), nil
+	return n, args, true, nil
+}
+
+// selected is the index of the first element of seq s selects, or -1.
+func selected(seq hew.Node, s pseg) int {
+	for i := 0; i < seq.Len(); i++ {
+		el, ok := seq.Elem(i)
+		if !ok || el.Kind() != hew.KindMap {
+			continue
+		}
+		f, ok := el.Member(s.field)
+		if !ok {
+			if s.value == "" {
+				return i
+			}
+			continue
+		}
+		var v string
+		if f.Kind() == hew.KindScalar && f.Value().Decode(&v) == nil && v == s.value {
+			return i
+		}
+	}
+	return -1
+}
+
+// validPointer refuses a pointer that names no member.
+func validPointer(pointer string) error {
+	if !strings.HasPrefix(pointer, "/") || pointer == "/" {
+		return fmt.Errorf("%q is not a pointer to a member", pointer)
+	}
+	return nil
 }
 
 func unionKeys(a, b map[string]claimEntry) []string {
@@ -955,7 +1093,7 @@ func unionKeys(a, b map[string]claimEntry) []string {
 		out = append(out, k)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if di, dj := len(splitPointer(out[i])), len(splitPointer(out[j])); di != dj {
+		if di, dj := len(parsePointer(out[i])), len(parsePointer(out[j])); di != dj {
 			return di < dj
 		}
 		return out[i] < out[j]
@@ -1006,7 +1144,7 @@ func (c *Claims) Paths(fs afero.Fs, target string) ([]PathState, error) {
 		case doc != nil && elem:
 			st.Live = elementLive(doc, container, top.Value)
 		case doc != nil:
-			if n, ok := confpatch.NodeAt(doc.Root(), p); ok {
+			if n, _, ok, _ := locate(doc.Root(), parsePointer(p)); ok {
 				st.Live = same(n, top.Value)
 			}
 		}
@@ -1016,7 +1154,7 @@ func (c *Claims) Paths(fs afero.Fs, target string) ([]PathState, error) {
 }
 
 func elementLive(doc hew.Document, container string, v any) bool {
-	n, ok := confpatch.NodeAt(doc.Root(), container)
+	n, _, ok, _ := locate(doc.Root(), parsePointer(container))
 	if !ok || n.Kind() != hew.KindSeq {
 		return false
 	}

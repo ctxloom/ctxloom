@@ -1,6 +1,10 @@
 package present
 
-import "github.com/spf13/afero"
+import (
+	"strings"
+
+	"github.com/spf13/afero"
+)
 
 // Kind is a surface category: the CROSS-ENGINE union of every engine's
 // surfaces. The set is closed. It is deliberately NOT a dispatch key — no
@@ -178,3 +182,27 @@ type Claim struct {
 // AppendedSection is the Claim pointer for text appended after a file's own,
 // separated from it by a blank line: a context file a user also writes.
 const AppendedSection = "@section"
+
+// A Claim pointer's segments are RFC 6901 keys, plus one form of hew's: a
+// SELECTOR field=value names the first element of an array whose field holds
+// value, an element without the field being selected by the empty value. A
+// missing selected element is created holding the field. "~2" escapes a "="
+// that is part of a key or value, as hew's own paths do.
+
+// PointerKey is s as one key segment of a Claim pointer, "/" included.
+func PointerKey(s string) string { return "/" + EscapeSegment(s) }
+
+// PointerSelect is a selector segment of a Claim pointer, "/" included.
+func PointerSelect(field, value string) string {
+	return "/" + EscapeSegment(field) + "=" + EscapeSegment(value)
+}
+
+// EscapeSegment escapes s for one segment of a Claim pointer.
+func EscapeSegment(s string) string {
+	return strings.NewReplacer("~", "~0", "/", "~1", "=", "~2").Replace(s)
+}
+
+// UnescapeSegment reverses EscapeSegment.
+func UnescapeSegment(s string) string {
+	return strings.NewReplacer("~1", "/", "~2", "=", "~0", "~").Replace(s)
+}

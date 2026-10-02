@@ -158,8 +158,8 @@ func AppDirIsolationError() error {
 // enterSandbox roots HOME and the working directory at fresh temp directories,
 // clears every EnvKeys variable and scrubs inherited app-dir paths,
 // process-wide (os.Setenv, not t.Setenv: there is no *testing.T at TestMain
-// time). The returned func restores the
-// working directory and removes the sandbox.
+// time). The returned func restores the working directory and removes the
+// sandbox.
 //
 // HOME and cwd each get their own subdirectory under a single per-process
 // sandbox (see acquireSandbox), rather than two independent MkdirTemp calls,
@@ -196,15 +196,7 @@ func enterSandbox() (func(), error) {
 	if err := os.Setenv("USERPROFILE", home); err != nil { // Windows home, for os.UserHomeDir parity
 		return nil, err
 	}
-	for _, k := range EnvKeys {
-		if err := os.Unsetenv(k); err != nil {
-			return nil, err
-		}
-	}
-	// After pinGoToolchainDirs, which derives from the real home but never
-	// lands in an app dir. What this drops is a session's companion store on
-	// PATH, which HOME and cwd isolation do not reach.
-	if err := taskstest.ScrubAppDirEnv(); err != nil {
+	if err := scrubInheritedEnv(); err != nil {
 		return nil, err
 	}
 	prev, err := os.Getwd()
@@ -219,6 +211,20 @@ func enterSandbox() (func(), error) {
 		_ = os.Unsetenv(SandboxRootEnv)
 		removeSandbox()
 	}, nil
+}
+
+// scrubInheritedEnv clears every EnvKeys variable and every inherited entry
+// naming an app dir outside the temp roots. The second half is what HOME and
+// cwd isolation do not reach: a ctxloom session's companion store on PATH.
+// It runs after pinGoToolchainDirs, whose paths derive from the real home but
+// never land in an app dir.
+func scrubInheritedEnv() error {
+	for _, k := range EnvKeys {
+		if err := os.Unsetenv(k); err != nil {
+			return err
+		}
+	}
+	return taskstest.ScrubAppDirEnv()
 }
 
 // acquireSandbox reaps whatever dead runs left behind, then stakes out this

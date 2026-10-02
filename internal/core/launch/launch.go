@@ -197,6 +197,10 @@ type Placement struct {
 	Unset []string
 	// Home is each declared home var as resolved, at its Engine side.
 	Home []engine.HomeBinding
+	// Trust is the engine's verdict on the repository the workspace is in
+	// (engine.Engine.Trust), taken where the session home's trust answer is
+	// decided, so the answer and the launch flags cannot disagree.
+	Trust engine.WorkspaceTrust
 }
 
 // Cell is a prepared place to run. A Cell exists only inside a Launch.
@@ -241,6 +245,7 @@ type Launch struct {
 	Axes     Axes
 	Cell     Cell
 	Home     []engine.HomeBinding
+	Trust    engine.WorkspaceTrust // the cell's verdict on the repository; the engine enforces it on every launch
 	Package  composite.Carrier // encoded then carried (inline or claim); both consumers redeem then Decode
 	Exports  engine.Exports
 	Plan     delivery.Plan

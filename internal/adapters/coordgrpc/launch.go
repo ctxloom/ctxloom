@@ -57,6 +57,7 @@ var wireFields = map[string]protoreflect.Name{
 	"Prompt":     "prompt",
 	"Resume":     "resume",
 	"Env":        "env",
+	"Trust":      "trust",
 }
 
 // WireFieldNames is the set of launch.Launch field names the proto Launch
@@ -104,7 +105,24 @@ func EncodeLaunch(l launch.Launch) *pb.Launch {
 		Prompt:     l.Prompt,
 		Resume:     &pb.ResumeRef{Harp: l.Resume.Harp, NativeKey: l.Resume.NativeKey},
 		Env:        l.Env,
+		Trust:      encodeTrust(l.Trust),
 	}
+}
+
+// encodeTrust / decodeTrust carry the verdict. Only TRUSTED decodes as
+// trusted: a launch from an originator that set none fails closed.
+func encodeTrust(t engine.WorkspaceTrust) pb.WorkspaceTrust {
+	if t == engine.TrustTrusted {
+		return pb.WorkspaceTrust_WORKSPACE_TRUST_TRUSTED
+	}
+	return pb.WorkspaceTrust_WORKSPACE_TRUST_UNTRUSTED
+}
+
+func decodeTrust(w pb.WorkspaceTrust) engine.WorkspaceTrust {
+	if w == pb.WorkspaceTrust_WORKSPACE_TRUST_TRUSTED {
+		return engine.TrustTrusted
+	}
+	return engine.TrustUntrusted
 }
 
 // DecodeLaunch reads the wire message back into the typed launch. It is the

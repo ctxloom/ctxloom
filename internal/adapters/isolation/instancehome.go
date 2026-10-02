@@ -28,6 +28,9 @@ type InstanceHomeRequest struct {
 	// be keyed to the directory the run actually uses. Empty is tolerated (the
 	// engine skips its per-project half and says so).
 	WorkDir string
+	// Trust is the engine's verdict on WorkDir's repository (repoTrust):
+	// the engine writes its trust answer only for a trusted one.
+	Trust engine.WorkspaceTrust
 }
 
 // InstanceHomeReport is what one PrepareInstanceHome call decided and wrote.

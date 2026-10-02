@@ -370,6 +370,16 @@ message Launch {
   map<string, string> env = 17;      // engine passthrough only
   Axes declared = 18;                // the axes as ASKED (empty where nothing declared them); axes is what they settled to
   PermissionPolicy permission = 19;  // resolved ONCE by the resolver; the runner honours exactly what it is told
+  WorkspaceTrust trust = 20;         // the engine's verdict on the repository, taken where the cell was prepared
+}
+
+// WorkspaceTrust is engine.WorkspaceTrust. Only TRUSTED lets the
+// repository's own surfaces load: UNSPECIFIED, and any value this runner
+// does not know, decode as untrusted.
+enum WorkspaceTrust {
+  WORKSPACE_TRUST_UNSPECIFIED = 0;
+  WORKSPACE_TRUST_UNTRUSTED = 1;
+  WORKSPACE_TRUST_TRUSTED = 2;
 }
 
 // Identity is sessions.Identity: minted once, carried typed, never re-read

@@ -45,6 +45,7 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 		ClaimCheck: composite.ClaimCheck{Store: fsstore.PackageStore{Root: filepath.Join(ctxHome, paths.SessionsDir)}},
 		Static:     fsstatic.New(afero.NewOsFs()),
 		Records:    records,
+		Locks:      operations.SessionLocks(),
 		Dynamic:    dynamic,
 		Driver:     host,
 		Unsetenv:   os.Unsetenv,

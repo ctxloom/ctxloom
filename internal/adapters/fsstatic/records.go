@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -349,28 +350,49 @@ func (r *Records) Owned(target string, writer delivery.Writer) ([]string, error)
 
 // Targets lists the files a writer owns entries in, sorted.
 func (r *Records) Targets(writer delivery.Writer) ([]string, error) {
+	var out []string
+	err := r.each(func(rec ownershipRecord) {
+		if _, ok := rec.Writers[string(writer)]; ok {
+			out = append(out, rec.Target)
+		}
+	})
+	sort.Strings(out)
+	return out, err
+}
+
+// Writers lists every writer named in any record, sorted.
+func (r *Records) Writers() ([]delivery.Writer, error) {
+	seen := map[delivery.Writer]struct{}{}
+	err := r.each(func(rec ownershipRecord) {
+		for w := range rec.Writers {
+			seen[delivery.Writer(w)] = struct{}{}
+		}
+	})
+	out := slices.Collect(maps.Keys(seen))
+	slices.Sort(out)
+	return out, err
+}
+
+// each reads every record in the store; a missing store holds none.
+func (r *Records) each(visit func(ownershipRecord)) error {
 	entries, err := afero.ReadDir(r.fs, r.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil
 		}
-		return nil, err
+		return err
 	}
-	var out []string
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ownershipSuffix) {
 			continue
 		}
 		rec, err := r.read(filepath.Join(r.dir, e.Name()))
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if _, ok := rec.Writers[string(writer)]; ok {
-			out = append(out, rec.Target)
-		}
+		visit(rec)
 	}
-	sort.Strings(out)
-	return out, nil
+	return nil
 }
 
 func (r *Records) load(target string) (ownershipRecord, error) {

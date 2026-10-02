@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -150,5 +151,68 @@ func TestMain_DialsHomeThenBlocksUntilTheContextEnds(t *testing.T) {
 		require.NoError(t, err)
 	case <-time.After(conformanceWait):
 		t.Fatal("Main did not return once its context ended")
+	}
+}
+
+// TestMain_TearsTheRunsDeliveryDownWhenItEnds: Execute returns once the
+// first turn is driven, so the run's delivery is the Host's to reverse when
+// the runner ends — on the coordinator's Kill too, which arrives as a
+// cancelled context the reversal must not inherit.
+func TestMain_TearsTheRunsDeliveryDownWhenItEnds(t *testing.T) {
+	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
+	require.NoError(t, err)
+
+	env := &mainEnv{vars: reachEnv(c.LoopbackURL(), token, "run-1")}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	composed := make(chan *EngineHost, 1)
+	ports := func(host *EngineHost, _ *Home) (Deps, error) {
+		composed <- host
+		return Deps{}, nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- Main(ctx, mainDeps(env, ports)) }()
+
+	var host *EngineHost
+	select {
+	case host = <-composed:
+	case <-time.After(conformanceWait):
+		t.Fatal("Main never composed its ports")
+	}
+	var tail *Host
+	require.Eventually(t, func() bool {
+		host.mu.Lock()
+		defer host.mu.Unlock()
+		tail, _ = host.runner.(*Host)
+		return tail != nil
+	}, conformanceWait, 10*time.Millisecond, "Main binds a Host as the engine host's runner")
+
+	undone := make(chan error, 1)
+	closed := make(chan struct{})
+	tail.mu.Lock()
+	tail.out = &Outcome{
+		Delivered: delivery.Delivered{Undo: func(ctx context.Context) error { undone <- ctx.Err(); return nil }},
+		Close:     func() { close(closed) },
+	}
+	tail.mu.Unlock()
+
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(conformanceWait):
+		t.Fatal("Main did not return once its context ended")
+	}
+	select {
+	case err := <-undone:
+		require.NoError(t, err, "the reversal ran on the cancelled context and could not do its work")
+	default:
+		t.Fatal("the runner ended without reversing its run's delivery")
+	}
+	select {
+	case <-closed:
+	default:
+		t.Fatal("the runner ended without closing its served endpoint")
 	}
 }

@@ -1071,18 +1071,29 @@ never permitted in the committable project store.
     isolated from each other on the host runtime (gap 13); the container
     runtime is the boundary. Ruled and accepted: the token stays in the
     environment.
-16. **The `unsafe-file` MCP approach leaves the run's bearer in the project's
-    `.mcp.json`.** Selecting the project root for the MCP surface
+16. **The `unsafe-file` MCP approach writes ctxloom's session entry into the
+    project's `.mcp.json`.** Selecting the project root for the MCP surface
     (`mcpUnsafeFile`, `internal/engines/claude/surfaces.go`) writes ctxloom's
-    session-endpoint entry — `CTXLOOM_CLAUDE_RELAY_BEARER` in its `env` — into
-    the project's own `.mcp.json`, a file teams commit. The entry is reversed
-    only when ctxloom next writes that same file (the confpatch record) or when
-    the session writer's delivery is undone (`delivery.Delivered.Undo`); the
-    runner does neither when a run ends, because `runner.Host.Execute` drops
-    the `Outcome` that carries the undo. So the bearer outlives the run whether
-    it ends cleanly or is killed. The default MCP approach (`mcpConfig`, the
-    private `--mcp-config` file) is unaffected. Until that changes, do not
-    select `mcp=unsafe-file` in a repository whose `.mcp.json` is committed.
+    session-endpoint entry into the project's own `.mcp.json`, a file teams
+    commit. The bearer is never in it: `bearerByReference` writes
+    `${CTXLOOM_CLAUDE_RELAY_BEARER}` (`relayBearerRef`) and the value rides
+    claude's process environment on the presentation's env channel, which
+    claude expands into the relay it spawns. That puts the bearer in claude's
+    environment, where every process claude spawns inherits it — the same
+    exposure as gap 15, accepted on the same terms. The entry itself (the
+    relay command, the loopback URL, the reference) is reversed through the
+    ownership record (`fsstatic.Records`, writer `delivery.SessionWriter`):
+    at the runner's end (`runner.Host.Teardown`, called from `runner.Main`),
+    or by the run itself when driving fails (`deliverAndDrive`). A runner
+    killed before its teardown leaves the entry until a later run's
+    `sweepDeparted` reverses it, which happens only once the originating
+    session's liveness lock proves it gone (`sessions.Locks`); a held,
+    missing or untrusted lock leaves it in place. Until then a plain `claude`
+    started in that project spawns the relay with the reference unexpanded,
+    which cannot authenticate, and runs on without that server. A commit
+    made while a run is live, or before the sweep, still captures the entry —
+    without a secret. The default MCP approach (`mcpConfig`, the private
+    `--mcp-config` file) writes nothing into the project.
 17. **Artifact uploads have a per-upload cap and nothing else.** Each upload is
     bounded by `coord.ArtifactUploadSizeCap`, but there is no count cap, no
     per-run total and no garbage collection, so a child can fill the

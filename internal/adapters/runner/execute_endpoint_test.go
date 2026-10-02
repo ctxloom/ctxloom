@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -54,7 +55,8 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	dyn := &recordingDynamic{}
 	drive := &recordingDriver{}
 	out, err := runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(mock.WithDynamic()), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(mock.WithDynamic()), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive, Dynamic: dyn,
 	}, l)
 	require.NoError(t, err)
@@ -113,7 +115,8 @@ func TestExecute_EndpointUnavailable_IsReturnedTyped(t *testing.T) {
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive, Dynamic: busyDynamic{},
 	}, l)
 	require.ErrorIs(t, err, delivery.ErrEndpointUnavailable)
@@ -161,7 +164,8 @@ func TestExecute_AHumanApprovedRunIsWiredForTheApprovalRoute(t *testing.T) {
 
 			drive := &recordingDriver{}
 			_, err = runner.Execute(context.Background(), runner.Deps{
-				Kind: mock.New(mock.WithDynamic()), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+				Locks: &launchtest.Locks{},
+				Kind:  mock.New(mock.WithDynamic()), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 				Static: staticWriter(t), Records: records(t), Driver: drive, Dynamic: &recordingDynamic{},
 			}, l)
 			require.NoError(t, err)

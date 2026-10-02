@@ -3,6 +3,7 @@ package runner_test
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -68,6 +69,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
 	require.NoError(t, err)
 	childOut, err := runner.Execute(context.Background(), runner.Deps{
+		Locks:  &launchtest.Locks{},
 		Kind:   mock.New(),
 		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: static, Records: rec, Driver: drive,
@@ -130,7 +132,8 @@ func TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext(t *testing.T) {
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	require.NoError(t, err)
@@ -150,7 +153,8 @@ func TestExecute_RefusesALaunchForAnotherEngine(t *testing.T) {
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.NewNamed("other"), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.NewNamed("other"), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, runner.ErrWrongEngine)
@@ -172,7 +176,8 @@ func TestExecute_BindsTheInstanceBeforeDelivery(t *testing.T) {
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(mock.Without(present.Context)), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(mock.Without(present.Context)), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	var unsupported engine.ErrUnsupported
@@ -195,7 +200,8 @@ func TestExecute_RefusesAStructuredLaunchTheInstanceCannotDrive(t *testing.T) {
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Kind: driverless{mock.New()}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  driverless{mock.New()}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	var unsupported engine.ErrUnsupported
@@ -222,7 +228,8 @@ func TestExecute_RefusesAnEngineBelowItsVersionFloor(t *testing.T) {
 		drive := &recordingDriver{}
 		var findings report.Collector
 		_, err = runner.Execute(context.Background(), runner.Deps{
-			Kind: floored{mock.New()}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+			Locks: &launchtest.Locks{},
+			Kind:  floored{mock.New()}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 			Static: staticWriter(t), Records: records(t), Driver: drive, Reporter: &findings,
 			EngineVersion: func(context.Context) (string, error) { return tc.installed, nil },
 		}, l)
@@ -278,7 +285,8 @@ func TestExecute_ATamperedClaimIsRefusedBeforeDelivery(t *testing.T) {
 	env.store[l.Package.Claim.Location] = []byte("tampered")
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, composite.ErrDigestMismatch)
@@ -498,7 +506,8 @@ func TestExecute_ABindingsRootSelection_LandsTheKindAtTheSharedRoot(t *testing.T
 
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	require.NoError(t, err)
@@ -522,6 +531,7 @@ func TestExecute_TheLaunchsEngineEnvRidesTheExec(t *testing.T) {
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
+		Locks:  &launchtest.Locks{},
 		Kind:   mock.New(),
 		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
@@ -564,6 +574,7 @@ func TestExecute_ARelocatedCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	out, err := runner.Execute(context.Background(), runner.Deps{
+		Locks:  &launchtest.Locks{},
 		Kind:   mock.New(),
 		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
@@ -581,4 +592,169 @@ func TestExecute_ARelocatedCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.
 			require.Equal(t, p.EnginePath, p.HostPath, "beside the engine, the written path IS the engine's path")
 		}
 	}
+}
+
+// sharedProjectMCP is a delivery env whose agent "shared" selects the
+// project root for its MCP surface — the session endpoint's entry, bearer
+// included, lands in the project's MCP file, a file teams commit — and whose
+// default agent "x" keeps it under the session home. run executes one launch
+// of agent under a fresh harp, against one record store and locks.
+type sharedProjectMCP struct {
+	env        *deliveryEnv
+	rec        delivery.Ownership
+	locks      *launchtest.Locks
+	projectMCP string
+}
+
+func newSharedProjectMCP(t *testing.T) *sharedProjectMCP {
+	t.Helper()
+	env := newDeliveryEnv(t)
+	bypass := agents.Permissions{Engines: map[string]map[string]any{string(mock.Name): {"mode": "bypass"}}}
+	env.deps.Snapshot.Config = config.NewFixture(config.Fixture{
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"primary": {Type: string(mock.Name)}},
+			Defaults: config.RoleDefaults{Primary: "primary"},
+		},
+		Agents: map[string]agents.Agent{
+			"shared": {Name: "shared", Profiles: []string{"base"}, Permissions: bypass, Roots: map[string]string{"mcp": "project-root"}},
+			"x":      {Name: "x", Profiles: []string{"base"}, Permissions: bypass},
+		},
+		DefaultAgent: "x",
+	})
+	return &sharedProjectMCP{env: env, rec: records(t), locks: &launchtest.Locks{Dead: map[string]bool{}},
+		projectMCP: filepath.Join(env.project, ".mock", "mcp.json")}
+}
+
+func (s *sharedProjectMCP) resolve(t *testing.T, agent, runID string) launch.Launch {
+	t.Helper()
+	l, err := launch.Resolve(context.Background(), s.env.deps, launch.Source{
+		Identity: s.env.mint(t, 1, runID),
+		Agent:    agent, Mode: engine.Structured, Prompt: "go", WorkDir: s.env.project, Workspace: launch.WorkspaceNone,
+	})
+	require.NoError(t, err)
+	return l
+}
+
+func (s *sharedProjectMCP) deps(t *testing.T, driver runner.Driver) runner.Deps {
+	t.Helper()
+	return runner.Deps{
+		Kind: mock.New(mock.WithDynamic()), Inline: s.env.deps.Inline, ClaimCheck: s.env.deps.ClaimCheck,
+		Static: staticWriter(t), Records: s.rec, Locks: s.locks, Driver: driver,
+	}
+}
+
+func (s *sharedProjectMCP) run(t *testing.T, agent, runID string) launch.Launch {
+	t.Helper()
+	l := s.resolve(t, agent, runID)
+	_, err := runner.Execute(context.Background(), s.deps(t, &recordingDriver{}), l)
+	require.NoError(t, err)
+	return l
+}
+
+// projectHolds reads the project MCP file; a missing file holds nothing.
+func (s *sharedProjectMCP) projectHolds(t *testing.T, needle string) bool {
+	t.Helper()
+	b, err := os.ReadFile(s.projectMCP)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	require.NoError(t, err)
+	return strings.Contains(string(b), needle)
+}
+
+// TestExecute_ADeadRunsBearerDoesNotOutliveItInTheProjectFile: a run dies
+// the way a killed runner does — its Outcome is dropped, so nothing it would
+// do on the way out runs — and its session's liveness lock is then free. The
+// next run started in the same project, on the default binding, sweeps it:
+// the dead run's bearer is no longer in the project file.
+func TestExecute_ADeadRunsBearerDoesNotOutliveItInTheProjectFile(t *testing.T) {
+	s := newSharedProjectMCP(t)
+	dead := s.run(t, "shared", "run-dead") // its Outcome is dropped: no teardown runs
+	bearer := dead.MCP.Credential
+	require.NotEmpty(t, bearer)
+	require.True(t, s.projectHolds(t, bearer), "precondition: the dead run wrote its bearer into the project file")
+
+	s.locks.Dead[dead.Identity.Harp] = true // the kernel dropped its lock
+	s.run(t, "x", "run-next")
+	require.False(t, s.projectHolds(t, bearer), "a dead run's bearer outlived it in a project file teams commit")
+	require.Contains(t, s.locks.Released, dead.Identity.Harp, "the dead session's lock is released after the sweep")
+	writers, err := s.rec.Writers()
+	require.NoError(t, err)
+	require.NotContains(t, writers, delivery.SessionWriter(dead.Identity.Harp), "the swept writer is gone from the record")
+}
+
+// TestExecute_ALiveSessionsDeliveryIsNotSwept: only a PROVEN-dead owner is
+// swept. A session whose lock is held is running, and taking its entry out
+// of the project file would cut a live engine off from its endpoint.
+func TestExecute_ALiveSessionsDeliveryIsNotSwept(t *testing.T) {
+	s := newSharedProjectMCP(t)
+	live := s.run(t, "shared", "run-live")
+	s.run(t, "x", "run-next")
+	require.True(t, s.projectHolds(t, live.MCP.Credential), "a live session's delivery was swept")
+	require.Contains(t, s.locks.Released, live.Identity.Harp, "every probe is released, whatever its verdict")
+}
+
+// TestExecute_TheProjectWriterIsNeverSwept: a human's materialize is no
+// session, and nothing about any session's liveness reverses it.
+func TestExecute_TheProjectWriterIsNeverSwept(t *testing.T) {
+	s := newSharedProjectMCP(t)
+	target := filepath.Join(s.env.project, "materialized.json")
+	_, err := s.rec.Apply(context.Background(), afero.NewOsFs(), target, delivery.ProjectWriter, func([]byte) ([]byte, []string, error) {
+		return []byte(`{"kept": true}` + "\n"), []string{"materialized.json"}, nil
+	})
+	require.NoError(t, err)
+	s.locks.Dead[string(delivery.ProjectWriter)] = true // were it asked, the project writer would read as gone
+	s.run(t, "x", "run-next")
+	b, err := os.ReadFile(target)
+	require.NoError(t, err, "the project writer's file was swept")
+	require.Contains(t, string(b), "kept")
+	require.NotContains(t, s.locks.Released, string(delivery.ProjectWriter), "the project writer's liveness is never asked")
+}
+
+// TestHost_TeardownReversesTheRunsDelivery: Execute returns once the first
+// turn is driven while the run goes on, so the Host keeps the Outcome and
+// the runner's end tears it down: the bearer leaves the project file.
+func TestHost_TeardownReversesTheRunsDelivery(t *testing.T) {
+	s := newSharedProjectMCP(t)
+	l := s.resolve(t, "shared", "run-host")
+	h := &runner.Host{Deps: s.deps(t, &recordingDriver{})}
+	require.NoError(t, h.Teardown(context.Background()), "a teardown before any launch is a no-op")
+	require.NoError(t, h.Execute(context.Background(), coordgrpc.EncodeLaunch(l)))
+	require.True(t, s.projectHolds(t, l.MCP.Credential), "precondition: the run delivered into the project file")
+
+	require.NoError(t, h.Teardown(context.Background()))
+	require.False(t, s.projectHolds(t, l.MCP.Credential), "the run's teardown left its bearer in the project file")
+	writers, err := s.rec.Writers()
+	require.NoError(t, err)
+	require.Empty(t, writers, "nothing of the run is left in the record")
+	require.NoError(t, h.Teardown(context.Background()), "a second teardown is a no-op")
+}
+
+// failingDriver refuses to drive.
+type failingDriver struct{}
+
+var errDriveRefused = errors.New("drive refused")
+
+func (failingDriver) Drive(context.Context, runner.Turn) error { return errDriveRefused }
+
+// TestExecute_ADriveFailureReversesTheDelivery: once delivered, a failure
+// returns no Outcome — so nothing else could ever tear the delivery down,
+// and Execute reverses it itself.
+func TestExecute_ADriveFailureReversesTheDelivery(t *testing.T) {
+	s := newSharedProjectMCP(t)
+	l := s.resolve(t, "shared", "run-fails")
+	_, err := runner.Execute(context.Background(), s.deps(t, failingDriver{}), l)
+	require.ErrorIs(t, err, errDriveRefused)
+	require.False(t, s.projectHolds(t, l.MCP.Credential), "a failed run's bearer was left in the project file")
+}
+
+// TestExecute_RefusesWithoutALivenessPort: without one, a killed run's
+// delivery would never be swept.
+func TestExecute_RefusesWithoutALivenessPort(t *testing.T) {
+	s := newSharedProjectMCP(t)
+	l := s.resolve(t, "x", "run-nolocks")
+	d := s.deps(t, &recordingDriver{})
+	d.Locks = nil
+	_, err := runner.Execute(context.Background(), d, l)
+	require.ErrorIs(t, err, runner.ErrNoLocks)
 }

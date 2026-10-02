@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
@@ -61,7 +62,8 @@ func TestExecute_TheChildEnvHasNoVariableTheLaunchUnsets(t *testing.T) {
 	l, env := tokenChildLaunch(t)
 	drive := &childEnvDriver{}
 	_, err := runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive, Unsetenv: os.Unsetenv,
 	}, l)
 	require.NoError(t, err)
@@ -79,7 +81,8 @@ func TestExecute_RefusesWhenAnUnsetCannotBeApplied(t *testing.T) {
 	l, env := tokenChildLaunch(t)
 	drive := &childEnvDriver{}
 	_, err := runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Locks: &launchtest.Locks{},
+		Kind:  mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, runner.ErrEngineEnvUnscrubbed)

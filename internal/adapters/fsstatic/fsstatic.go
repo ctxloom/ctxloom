@@ -157,19 +157,31 @@ func (s *Static) landFile(ctx context.Context, layer afero.Fs, path string, targ
 // writer (the project's) delivers into many projects, so a target's empty
 // plan reaches its own files and no other project's.
 func (s *Static) reconcileToEmpty(ctx context.Context, target delivery.Target) error {
-	targets, err := target.Ownership.Targets(target.Writer)
+	paths := target.Root.Paths()
+	return s.reverse(ctx, target.Ownership, target.Writer, func(path string) bool { return underARoot(paths, path) })
+}
+
+// Reverse takes writer's contribution back out of every file its record
+// names (delivery.Static.Reverse).
+func (s *Static) Reverse(ctx context.Context, ownership delivery.Ownership, writer delivery.Writer) error {
+	return s.reverse(ctx, ownership, writer, func(string) bool { return true })
+}
+
+// reverse reconciles writer to empty in each file its record names that
+// within admits.
+func (s *Static) reverse(ctx context.Context, ownership delivery.Ownership, writer delivery.Writer, within func(string) bool) error {
+	targets, err := ownership.Targets(writer)
 	if err != nil {
 		return err
 	}
-	paths := target.Root.Paths()
 	for _, path := range targets {
-		if !underARoot(paths, path) {
+		if !within(path) {
 			continue
 		}
-		if _, err := target.Ownership.Apply(ctx, s.fs, path, target.Writer, func([]byte) ([]byte, []string, error) {
+		if _, err := ownership.Apply(ctx, s.fs, path, writer, func([]byte) ([]byte, []string, error) {
 			return nil, nil, nil
 		}); err != nil {
-			return fmt.Errorf("fsstatic: reconcile %s for %s: %w", path, target.Writer, err)
+			return fmt.Errorf("fsstatic: reconcile %s for %s: %w", path, writer, err)
 		}
 	}
 	return nil

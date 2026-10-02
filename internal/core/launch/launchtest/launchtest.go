@@ -546,3 +546,22 @@ func Structured(harp, backend, label, model, workDir, perm string) launch.Launch
 		Package:    carrier,
 	}
 }
+
+// Locks is a sessions.Locks whose verdict is set per harp: the harps in Dead
+// read as gone, every other harp as held by a live owner. Released records
+// each harp whose release was called, in order.
+type Locks struct {
+	Dead     map[string]bool
+	Released []string
+}
+
+var _ sessions.Locks = (*Locks)(nil)
+
+// Acquire reports harp's verdict; release records the harp.
+func (l *Locks) Acquire(harp string) (sessions.LockProbe, func()) {
+	release := func() { l.Released = append(l.Released, harp) }
+	if l.Dead[harp] {
+		return sessions.LockProbe{Dead: true}, release
+	}
+	return sessions.LockProbe{Reason: "held by a live owner"}, release
+}

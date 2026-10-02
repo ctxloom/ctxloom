@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -242,36 +241,39 @@ func TestSessionHome_HostLoginInheritsTheLaunchingRunsStorage(t *testing.T) {
 	assert.Equal(t, "", pl.Env[claude.SecureStorageEnv])
 }
 
-// CONTAINER + LOGIN: the human's credential FILE alone is mounted
-// read-write at its place under the container's $HOME — never the storage
-// directory, the session home, or $HOME itself — and the storage var is
-// blanked, which points claude there. Nothing else under the human's
-// ~/.claude enters the container: it holds every project's transcripts and
-// the settings.json whose hooks the human's own claude runs. The session
-// home keeps its own mount beside it.
-func TestCredentials_ContainerLoginMountsOnlyTheCredentialFile(t *testing.T) {
+// CONTAINER + LOGIN is refused: no part of the human's login enters a
+// container, since its refresh token there could be read, rotated out of step
+// with the host's copy, or used as the human's account. The refusal is typed
+// and names claude's remedy, a long-lived token; nothing is mounted. The same
+// login on the host is shared in place (the HostLogin tests above).
+func TestCredentials_AContainerRefusesALogin(t *testing.T) {
 	home := fakeHostHome(t, tokenFixture)
-	creds := claudeCredentials(t, engine.AuthLogin)
-	s := credSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession, creds)
+	s := credSpec(t, claudeEngine(t), home, harpA, agents.HomeModeSession, claudeCredentials(t, engine.AuthLogin))
 
-	pl, mounts := placeOn(t, s, t.TempDir(), containerOf)
-	store := filepath.Join(home, ".claude")
-	cred := mount{Host: filepath.Join(store, claude.CredentialsFileName), Container: defaultContainerHome + "/.claude/" + claude.CredentialsFileName}
-	assert.Contains(t, mounts, cred, "the human's credential file at $HOME/.claude, read-write: claude's refresh rewrites it")
-	for _, m := range mounts {
-		if m.Host == store || strings.HasPrefix(m.Host, store+string(filepath.Separator)) {
-			assert.Equal(t, cred, m, "no other path under the human's ~/.claude is mounted")
-		}
-	}
-	assert.Equal(t, "", pl.Env[claude.SecureStorageEnv], "blank: claude reads $HOME/.claude")
-	assert.Contains(t, pl.Env, claude.SecureStorageEnv, "set to empty, not left to inherit")
-	assert.Equal(t, defaultContainerInstanceHome+"/"+claude.HomeLeaf, pl.Env[claude.ConfigDirEnv], "config stays in the session home")
-	assert.Equal(t, creds.Unset, pl.Unset)
-	for _, m := range mounts {
-		assert.NotEqual(t, defaultContainerHome, m.Container, "nothing is mounted AS $HOME for a relocating engine")
-	}
-	assert.NoFileExists(t, filepath.Join(claudeHome(home, harpA), ".credentials.json"), "shared by mount, never copied")
-	assert.Empty(t, strictness.All())
+	_, mounts, err := relocateOn(t, s, t.TempDir(), containerOf)
+	require.ErrorIs(t, err, engine.ErrHostOnlyStore)
+	require.ErrorIs(t, err, engine.ErrNoCredential)
+	fix, ok := clifmt.RemedyOf(err)
+	require.True(t, ok)
+	assert.Contains(t, fix, "claude setup-token")
+	assert.Contains(t, fix, "auth: token")
+	assert.Empty(t, mounts)
+}
+
+// The refusal comes first: Prepare refuses a container login run before the
+// chain prepares anything — no workspace, no image, no session home — since a
+// requested container never degrades to the host where the login is allowed.
+func TestPrepare_AContainerLoginIsRefusedBeforeAnythingIsPrepared(t *testing.T) {
+	resetStrictness(t)
+	stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
+	home := fakeHostHome(t, tokenFixture)
+	s, err := NewSpec(launch.Axes{Workspace: WorkspaceShared, Runtime: RuntimeContainerRootless}, claudeEngine(t)).Project(t.TempDir()).
+		Session(harpA, sessionDir(home, harpA), SessionState{Harp: harpA}).Credentials(claudeCredentials(t, engine.AuthLogin)).Build()
+	require.NoError(t, err)
+
+	_, err = Prepare(context.Background(), s)
+	require.ErrorIs(t, err, engine.ErrHostOnlyStore)
+	assert.NoDirExists(t, sessionDir(home, harpA), "refused before anything was created")
 }
 
 // CONTAINER + CLOUD: each provider credential directory the human has is
@@ -337,9 +339,9 @@ func TestPreview_AMissingLoginStoreIsRecordedNotReturned(t *testing.T) {
 	assert.NoDirExists(t, sessionDir(home, harpA), "a preview creates nothing")
 }
 
-// A store that is no directory (claude's login in the macOS Keychain) is
-// shared in place on the host and refused by a container, which cannot
-// reach it, naming the Keychain and `auth: token`.
+// A store that is no directory (an OS keychain) is shared in place on the
+// host and refused by a container, which cannot reach it, even when it
+// declares no remedy of its own.
 func TestCredentials_AKeychainStoreIsHostOnly(t *testing.T) {
 	home := fakeHostHome(t, "")
 	keychain := engine.Credentials{Stores: []engine.SharedStore{{Var: claude.SecureStorageEnv}}}
@@ -349,12 +351,11 @@ func TestCredentials_AKeychainStoreIsHostOnly(t *testing.T) {
 	assert.Equal(t, "", pl.Env[claude.SecureStorageEnv], "in place on the host")
 
 	_, _, err := relocateOn(t, s, t.TempDir(), containerOf)
-	require.ErrorIs(t, err, errStoreNotADirectory)
+	require.ErrorIs(t, err, engine.ErrHostOnlyStore)
 	require.ErrorIs(t, err, engine.ErrNoCredential)
 	fix, ok := clifmt.RemedyOf(err)
 	require.True(t, ok)
-	assert.Contains(t, fix, "auth: token")
-	assert.Contains(t, err.Error(), "Keychain")
+	assert.Contains(t, fix, "runtime: host")
 }
 
 // A token run's credential reaches a container's engine through a secret

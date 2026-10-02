@@ -4,8 +4,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -15,7 +18,7 @@ import (
 func eventCommands(t *testing.T, event string) []string {
 	t.Helper()
 	m := newHooks()
-	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
+	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil, engine.Interactive)
 
 	var cmds []string
 	for _, h := range m.For(event) {
@@ -50,7 +53,7 @@ func TestAppendManagedDynamicHooks_InstallsTheMailDrainHookOnTurnStart(t *testin
 // one that capability-loss reporting reads (see the next-step twin).
 func TestAppendManagedDynamicHooks_MailDrainIsDeliveredNotOnlyDeclared(t *testing.T) {
 	m := newHooks()
-	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
+	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil, engine.Interactive)
 
 	delivered := wireCommandsOf(m.Wire().Unified.TurnStart)
 	if !strings.Contains(strings.Join(delivered, " "), "hook mail-drain") {
@@ -59,4 +62,28 @@ func TestAppendManagedDynamicHooks_MailDrainIsDeliveredNotOnlyDeclared(t *testin
 	if declared := wireCommandsOf(m.WireDeclared().Unified.TurnStart); strings.Contains(strings.Join(declared, " "), "hook mail-drain") {
 		t.Fatalf("ctxloom's own hook leaked into the declared set, inviting a capability-loss report for a hook nobody asked for: %v", declared)
 	}
+}
+
+// TestAppendManagedDynamicHooks_MailDrainIsTheOwnersOnly is F4 of row
+// worried-chief. A structured session — a delegated child, or any run ctxloom
+// drives turn by turn — is handed its mail by its runner AS its turn, and the
+// runner consumes the file only once the turn has started. A turn-start
+// mail-drain declared for it would claim the same file from its in/ during
+// that turn (or, for mail swept before its first turn, during the briefing)
+// and hand it a second time, leaving the runner's own consume to find it
+// gone. Only the session OWNER — the interactive session, which no turn sink
+// feeds — reads its mail through the hook.
+// MUTATION — declare mail-drain regardless of mode — turns this red.
+func TestAppendManagedDynamicHooks_MailDrainIsTheOwnersOnly(t *testing.T) {
+	commandsFor := func(mode engine.Mode) string {
+		m := newHooks()
+		appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil, mode)
+		var cmds []string
+		for _, h := range m.For(bundles.HookEventTurnStart) {
+			cmds = append(cmds, h.Hook.Command)
+		}
+		return strings.Join(cmds, " ")
+	}
+	assert.Contains(t, commandsFor(engine.Interactive), "hook mail-drain", "the owner reads its mail at turn start")
+	assert.NotContains(t, commandsFor(engine.Structured), "hook mail-drain", "a structured run's mail IS its turn; a second reader delivers it twice")
 }

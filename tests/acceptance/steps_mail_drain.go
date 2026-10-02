@@ -82,6 +82,24 @@ func reportFrom(msgs []*spool.Message, harp string) *spool.Message {
 }
 
 func registerMailDrainSteps(ctx *godog.ScenarioContext) {
+	// F4: only the turn-start hook's spool.Claim creates in/claimed/, so a
+	// child whose spool has one had its turn's mail claimed a second time.
+	ctx.Step(`^"([^"]*)"'s spool was never claimed by a turn-start hook$`,
+		func(c context.Context, name string) error {
+			w := worldFrom(c)
+			harp, ok := j002300Of(w).harps[name]
+			if !ok {
+				return fmt.Errorf("no session harp remembered for %q", name)
+			}
+			claimed := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel), harp, "persist", "spool", filepath.FromSlash(string(spool.ClaimedDirName)))
+			if _, err := os.Stat(claimed); err == nil {
+				return fmt.Errorf("%s's in/claimed/ exists: a turn-start hook claimed from the child's spool, so the mail its runner handed it as a turn was delivered twice", name)
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			return nil
+		})
+
 	// The report is written by the child's runner AFTER agent_run returns, so
 	// the wait is on the disk state the hook will read — never on a receive.
 	ctx.Step(`^the coordinator's own spool holds "([^"]*)"'s report within (\d+)s$`,

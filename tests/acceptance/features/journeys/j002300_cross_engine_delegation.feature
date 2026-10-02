@@ -50,6 +50,11 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     And "cartographer"'s session harp is remembered
     And "cartographer"'s reported turn carries its own guidance, not "librarian"'s
 
+  # The last step is F4 of row worried-chief: a delegated child is handed its
+  # mail ONCE, as its turn, by its runner. The turn-start mail-drain hook is
+  # the session OWNER's reader; declared for a child it would claim the same
+  # file from the child's in/ during that turn and hand it a second time.
+  # Only that hook's claim creates in/claimed/, so its absence is the proof.
   # LOCKED — the coordinator->child half of requirement 4, on real
   # infrastructure: a genuine `agent_send` MCP tool call, addressed by the
   # child's own runtime-minted harp, delivered as its next turn
@@ -72,6 +77,7 @@ Feature: Delegation — each child sees only its own context, over a real two-wa
     Then the tool call succeeds
     And the tool result field "delivery" is set
     And "librarian"'s next reported turn carries "J002300-ROUNDTRIP-ECHO-TOKEN-6d2e73"
+    And "librarian"'s spool was never claimed by a turn-start hook
 
   # LOCKED — the CHILD->coordinator half of requirement 4, hermetically. A
   # chat child never calls agent_send itself, but its runner writes every

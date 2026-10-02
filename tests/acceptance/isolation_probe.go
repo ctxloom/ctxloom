@@ -21,10 +21,10 @@
 // single engine/axis and how to read a failure.
 //
 // REUSE, NOT A FORK: this file shares live_engine_registry.go's liveAgents
-// (binary/credDir/copyCreds/authCheck) rather than re-declaring per-engine
-// knowledge, and records which credential path each run actually took, so
-// the probe can never claim to have proven a path it did not take — see
-// probeAuthPath below.
+// rather than re-declaring per-engine knowledge, and asks the engine's own
+// Auth capability for the credential an agent run uses, so the probe can
+// never hand its run a credential production would refuse — see probeAuth
+// below.
 //
 // THE TWO OBSERVATION PROBLEMS THIS FILE SOLVES:
 //
@@ -61,16 +61,22 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // probeAxis names the isolation axis under test: the WORKSPACE axis
@@ -100,33 +106,25 @@ func isProbeContainerAxis(a probeAxis) bool {
 	return isolation.IsContainerRuntimeAxis(isolation.RuntimeAxis(a))
 }
 
-// probeAuthPath names WHICH of the two mutually exclusive auth resolution
-// paths a probe run actually took — THE TRAP a credentialed CI lane must not
-// fall into. The probe prefers a credential captured from the environment at
-// launch over a host credential file; when one is captured, SEEDING IS
-// SKIPPED ENTIRELY. That ordering is the probe's own: production has no such
-// precedence, since claudeAuth.Credentials passes only the credential of the
-// agent's declared auth mode.
-// A cell that ran the env-key path never exercised the credential-copy
-// behavior at all, and must never be allowed to report as having proven it.
-// See probeDecideAuthPath.
-type probeAuthPath string
+// probeAuth is the credential a probe cell's run authenticates with. The run
+// is an agent run (`ctxloom run --agent probe`), and launch.RunAuth gives
+// every run ctxloom spawns engine.AuthToken whatever the owner's own `auth:`
+// says, so the token is the ONLY credential a cell can use, on every axis.
+// The probe hands it over the one way production takes it, on the launching
+// environment: a host run receives it by value, and a container run has it
+// moved out of the environment into the read-only secret mount
+// (launch.Placement.SecretFiles) by isolation's containerPlacement.
+type probeAuth struct {
+	// Env is what the engine's Auth sets for a token-mode run: the token's
+	// variable and its value. Nil when the cell cannot authenticate. Never
+	// printed.
+	Env map[string]string
+	// Reason says why, and is printed: it names variables, never a value.
+	Reason string
+}
 
-const (
-	// probeAuthSeeded: no API key env var was set, so a host credential file
-	// was copied into the isolated config-home (or container-mounted). This
-	// is the path that proves credential-copy isolation: byte-identical
-	// content, host original untouched.
-	probeAuthSeeded probeAuthPath = "seeded-from-host-file"
-	// probeAuthEnvKey: an API key rode the environment, so credential
-	// seeding was skipped by design (the key is its own proof of intent).
-	// This path proves NOTHING about credential-copy isolation — only that
-	// the engine authenticated and ran.
-	probeAuthEnvKey probeAuthPath = "env-api-key-bypass"
-	// probeAuthNone: neither path is available; the cell must skip loudly
-	// rather than silently.
-	probeAuthNone probeAuthPath = "no-credentials"
-)
+// ok reports whether the cell has a credential to run with.
+func (a probeAuth) ok() bool { return len(a.Env) > 0 }
 
 // probeCensusEntry is one file's identity in a census: never its content.
 // ModTime is included deliberately, not just Size+SHA256: a nominally
@@ -227,11 +225,9 @@ func probeCensusDiff(before, after map[string]probeCensusEntry) []string {
 }
 
 // probeCensusRoots returns the host-census roots (relative to HOME) for the
-// named REGISTERED backend type (claude-code/codex/opencode)
-// — reusing liveAgents[...].credDir, the SAME root copyCreds
-// already knows to copy from, rather than re-declaring the path a second
-// time. claude-code carries one extra sibling file (.claude.json, the
-// onboarding-state file copyClaudeCredentials also copies).
+// named REGISTERED backend type — reusing liveAgents[...].credDir rather than
+// re-declaring the path a second time. claude-code carries one extra sibling
+// file (.claude.json, its onboarding state).
 func probeCensusRoots(backendType string) ([]string, error) {
 	key := backendTypeToLiveKey(backendType)
 	a, ok := liveAgents[key]
@@ -245,57 +241,41 @@ func probeCensusRoots(backendType string) ([]string, error) {
 	return roots, nil
 }
 
-// probeDecideAuthPath reports which of the two credential paths a run for
-// backendType will take, GIVEN THE CREDENTIAL CAPTURED AT LAUNCH: env
-// credential first, host file second (see probeAuthPath for why that
-// ordering is the probe's, not production's). Returns probeAuthNone
-// when neither an env key nor a host credential file is available.
-// MEASUREMENT SAFETY, load-bearing for every census this file takes: this
-// function (and probeContainerAuthAvailable below) deliberately NEVER call a
-// liveAgent's authCheck — only the launch capture and plain file reads (via copyCreds
-// into a throwaway scratch dir). This is not an arbitrary style choice: an
-// authCheck shells out to the vendor CLI, and a vendor's nominally read-only
-// status command is NOT reliably side-effect-free — one has been measured
-// advancing its own credential store's mtime with the size unchanged, a
-// genuine WRITE from a nominally read-only probe. Calling one from inside
-// this file's before/after census window would make the probe itself the
-// source of the very host-state change a cell measures — indistinguishable,
-// from the outside, from the real vendor leak this file exists to catch. See
-// the isolation-probe doc page's "measurement safety" section for the full
-// writeup; this comment is the enforcement point.
-func probeDecideAuthPath(backendType string) (probeAuthPath, string) {
-	key := backendTypeToLiveKey(backendType)
-	a, ok := liveAgents[key]
+// probeTokenAuth asks backendType's own Auth capability what a run in
+// engine.AuthToken mode needs, reading only the credential captured at launch
+// (launchCredentials: the ambient copy is scrubbed before any cell runs).
+// Asking production rather than re-typing its variable is what stops the
+// probe handing a run a credential production would unset — an API key, say.
+// When the shell that launches the suite lacks the token, the invocation
+// takes it from `zsh -ic`; nothing here reads a file for it.
+//
+// MEASUREMENT SAFETY, load-bearing for every census this file takes: no
+// vendor CLI runs here. A vendor's nominally read-only status command has
+// been measured advancing its own credential store's mtime with the size
+// unchanged; calling one inside a before/after census window would make the
+// probe the source of the very host-state change a cell measures.
+func probeTokenAuth(backendType string) probeAuth {
+	kind, ok := engines.Registry().Lookup(engine.Name(backendType))
 	if !ok {
-		return probeAuthNone, fmt.Sprintf("unknown engine %q", backendType)
+		return probeAuth{Reason: fmt.Sprintf("unknown engine %q", backendType)}
 	}
-	if cred, ok := liveCredential(a); ok {
-		return probeAuthEnvKey, cred.EnvVar + " captured at launch"
+	auth, ok := kind.Home().Auth.Get()
+	if !ok {
+		return probeAuth{Reason: fmt.Sprintf("%s declares no auth: %s", backendType, kind.Home().Auth.AbsentReason())}
 	}
-	if realHomeDir == "" {
-		return probeAuthNone, "no real HOME captured to look for a host credential file"
-	}
-	// A host credential file is present iff the SAME copyCreds this file
-	// would run finds at least one source file to copy — cheapest correct
-	// check is a dry probe against a throwaway scratch dir.
-	probe, err := os.MkdirTemp("", "ctxloom-probe-authcheck-*")
+	creds, err := auth.Credentials(engine.AuthToken, func(name string) (string, bool) {
+		v := launchCredentials[name]
+		return v, v != ""
+	})
 	if err != nil {
-		return probeAuthNone, fmt.Sprintf("could not probe host credential file: %v", err)
+		reason := err.Error()
+		var r report.Remediable
+		if errors.As(err, &r) {
+			reason += " — " + r.Remedy()
+		}
+		return probeAuth{Reason: reason}
 	}
-	defer os.RemoveAll(probe)
-	// The dry copy's own error is deliberately not checked here: this
-	// function's whole job is to DECIDE whether a host credential file
-	// exists, and the census emptiness check right below is that decision —
-	// a copy error (zero files copied) and "no census entries" are the same
-	// outcome for this purpose (this call site already gates on the copy's
-	// real effect, unlike the @live gate steps).
-	_ = a.copyCreds(realHomeDir, probe)
-	roots, _ := probeCensusRoots(backendType)
-	census, _ := probeCensus(probe, roots)
-	if len(census) == 0 {
-		return probeAuthNone, fmt.Sprintf("no %s env key and no host credential file under ~/%s", strings.Join(a.apiKeyEnvs, "/"), a.credDir)
-	}
-	return probeAuthSeeded, fmt.Sprintf("host credential file present under ~/%s", a.credDir)
+	return probeAuth{Env: creds.Env, Reason: strings.Join(slices.Sorted(maps.Keys(creds.Env)), ",") + " captured at launch"}
 }
 
 // --- worktree-axis live observation -----------------------------------
@@ -426,6 +406,10 @@ func listRelFiles(root string) []string {
 type probeContainerSnapshot struct {
 	Name string
 	Diff []string // "A /path", "C /path", "D /path" — paths only, never content
+	// Mounts are the container's mount destinations, read while it runs. A
+	// write into a mount never reaches the writable layer, so `docker diff`
+	// shows a mount only as the stub directory the runtime made for it.
+	Mounts []string
 }
 
 // watchContainerDiff waits for a container named "ctxloom-iso-*"
@@ -440,6 +424,7 @@ func watchContainerDiff(ctx context.Context, runtimeBin string) <-chan probeCont
 		name := waitForContainerName(ctx, runtimeBin)
 		if name != "" {
 			snap.Name = name
+			snap.Mounts = dockerMounts(runtimeBin, name)
 			ticker := time.NewTicker(40 * time.Millisecond)
 			defer ticker.Stop()
 		loop:
@@ -525,6 +510,17 @@ func dockerDiff(runtimeBin, name string) ([]string, error) {
 	return lines, nil
 }
 
+// dockerMounts lists name's mount destinations, nil when the container cannot
+// be inspected (gone already): (d) then reports the stubs, loudly, rather
+// than exempting anything it could not see.
+func dockerMounts(runtimeBin, name string) []string {
+	out, err := exec.Command(runtimeBin, "inspect", "--format", "{{range .Mounts}}{{println .Destination}}{{end}}", name).Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
+}
+
 // containerBootstrapAllowlist names the paths Docker itself (not the engine,
 // not ctxloom) always writes into a fresh container's writable layer at
 // start — /etc/hostname, /etc/hosts, /etc/resolv.conf carry the container's
@@ -545,14 +541,25 @@ var containerBootstrapAllowlist = []string{
 	"/home/ctxloom/.cache",
 	"/home/ctxloom/.npm",
 	"/home/ctxloom/.config/configstore",
+	// The runtime's init, placed by `--init` (isolation's initArgs): /sbin is
+	// /usr/sbin on a merged-usr image.
+	"/sbin/docker-init",
+	"/usr/sbin/docker-init",
 }
 
 // probeContainerUnexpected filters a docker-diff path list down to entries
 // NOT under the container's fresh HOME (containerHome, expected: engine
-// config-home writes) and not in containerBootstrapAllowlist — the enumerated
-// "nowhere else" check assertion (d) is built on. Each returned entry is the
-// RAW docker-diff line ("A /path" etc.), paths only.
-func probeContainerUnexpected(diff []string, containerHome string) []string {
+// config-home writes), not one of the container's mount stubs (mounts), and
+// not in containerBootstrapAllowlist — the enumerated "nowhere else" check
+// assertion (d) is built on. Each returned entry is the RAW docker-diff line
+// ("A /path" etc.), paths only.
+func probeContainerUnexpected(diff []string, containerHome string, mounts []string) []string {
+	// The directories above every expected path always show as Added or
+	// Changed the instant anything is created under them — the runtime making
+	// a mount point, or a parent's metadata changing — not a write anyone made
+	// TO them. EXACT ancestors only (never a prefix match): "/home" must not
+	// allow "/home/someOtherUser/..." — a real leak would land there.
+	expected := append(append([]string{containerHome}, mounts...), containerBootstrapAllowlist...)
 	var out []string
 	for _, line := range diff {
 		parts := strings.SplitN(line, "\t", 2)
@@ -562,34 +569,13 @@ func probeContainerUnexpected(diff []string, containerHome string) []string {
 		} else if i := strings.IndexByte(line, ' '); i > 0 {
 			path = line[i+1:]
 		}
-		if strings.HasPrefix(path, containerHome) {
+		if path == containerHome || strings.HasPrefix(path, containerHome+"/") || slices.Contains(mounts, path) {
 			continue
 		}
-		// The read-observation instrument bind-mounts its trace dir here; it
-		// surfaces in `docker diff` as a fresh writable-layer path but is the
-		// PROBE's own scaffolding, not an engine write — never a leak. Excluding
-		// it keeps the instrument from corrupting the very write-census (d)
-		// asserts on (the measurement-debris failure mode).
-		if path == isolation.ProbeTraceContainerDir || strings.HasPrefix(path, isolation.ProbeTraceContainerDir+"/") {
+		if slices.ContainsFunc(expected, func(e string) bool { return isAncestorOf(path, e) }) {
 			continue
 		}
-		// containerHome's own ancestor directories (e.g. "/home", the
-		// parent of "/home/ctxloom") always show as Changed ("C") the
-		// instant anything is created under them — a parent-directory
-		// metadata change, not a write anyone made TO that ancestor. EXACT
-		// match only (never a prefix match): "/home" must not accidentally
-		// allow "/home/someOtherUser/..." — a real leak would land there.
-		if isAncestorOf(path, containerHome) {
-			continue
-		}
-		allowed := false
-		for _, a := range containerBootstrapAllowlist {
-			if path == a || strings.HasPrefix(path, a+"/") {
-				allowed = true
-				break
-			}
-		}
-		if allowed {
+		if slices.ContainsFunc(containerBootstrapAllowlist, func(a string) bool { return path == a || strings.HasPrefix(path, a+"/") }) {
 			continue
 		}
 		out = append(out, line)
@@ -686,65 +672,33 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 	return b.String()
 }
 
-// probeWorktreeAuthAvailable reports the worktree axis's auth gate for
-// backendType, the counterpart to probeContainerAuthAvailable's container
-// gate. It exists as a named seam because the two axes are separately
-// gated in production (claudeAuth.Credentials refuses the login mode in a
-// container): an engine may be probeable on one and not the other, and a caller must say which axis it
-// is asking about. No engine currently drives the worktree axis away from
-// the plain env-key-or-host-file precedence, so this defers wholly to
-// probeDecideAuthPath — an engine whose worktree gate diverges gets its
-// override here, not at the call sites.
-func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
-	return probeDecideAuthPath(backendType)
-}
-
 // probeTargetAuth is the whole gate an isolation-probe cell passes before its
-// When step may spend a paid turn. It asks the live opt-in and availability
-// question every other @live cell asks (probeEngine, i.e. engineAvailable fed
-// resolveOptIn) FIRST, and only then the axis's own credential-path decision.
-// Without the first half, a host credential file alone was enough to run a
-// paid cell that the opt-in exists to refuse.
+// When step may spend a paid turn. The token decides first, because it is
+// pure: a cell without one skips naming it, before any engine binary is run.
+// Only then does it ask the availability question every other @live cell asks
+// (probeEngine), which with a token captured never runs the engine's
+// authCheck — a token is its own proof of intent. Both axes take the same
+// credential (see probeAuth), so the axis is checked only for being one.
 //
-// engineAvailable may run the engine's authCheck on the subscription path,
-// which probeDecideAuthPath must never do. That is safe here and only here:
-// this runs in the Given step, before any census is taken, and the census
-// measures the stand-in home, not the real one authCheck reads.
-//
-// probeAuthNone means skip, with reason; an error is a malformed cell.
-func probeTargetAuth(engine string, axis probeAxis) (probeAuthPath, string, error) {
-	key := backendTypeToLiveKey(engine)
+// A probeAuth that is not ok means skip, with its reason; an error is a
+// malformed cell.
+func probeTargetAuth(engineName string, axis probeAxis) (probeAuth, error) {
+	if axis != probeAxisWorktree && !isProbeContainerAxis(axis) {
+		return probeAuth{}, fmt.Errorf("isolation probe: unknown axis %q", axis)
+	}
+	auth := probeTokenAuth(engineName)
+	if !auth.ok() {
+		return auth, nil
+	}
+	key := backendTypeToLiveKey(engineName)
 	a, ok := liveAgents[key]
 	if !ok {
-		return probeAuthNone, fmt.Sprintf("unknown engine %q", engine), nil
+		return probeAuth{Reason: fmt.Sprintf("%q is not a registered live engine", engineName)}, nil
 	}
 	if status := probeEngine(key, a, realHomeDir, resolveOptIn()); !status.available {
-		return probeAuthNone, status.reason, nil
+		return probeAuth{Reason: status.reason}, nil
 	}
-	switch {
-	case axis == probeAxisWorktree:
-		path, reason := probeWorktreeAuthAvailable(engine)
-		return path, reason, nil
-	case isProbeContainerAxis(axis):
-		path, reason := probeContainerAuthAvailable(engine)
-		return path, reason, nil
-	default:
-		return probeAuthNone, "", fmt.Errorf("isolation probe: unknown axis %q", axis)
-	}
-}
-
-// probeContainerAuthAvailable reports which credential path a container cell
-// for backendType will take. For claude-code it is the worktree axis's rule
-// (probeDecideAuthPath). Production's container auth is
-// claudeAuth.Credentials: a token or API key rides the environment, and the
-// login mode's shared store is never given to a container.
-func probeContainerAuthAvailable(backendType string) (probeAuthPath, string) {
-	switch backendType {
-	case "claude-code":
-		return probeDecideAuthPath(backendType)
-	default:
-		return probeAuthNone, fmt.Sprintf("unknown engine %q", backendType)
-	}
+	return auth, nil
 }
 
 // probeResult is one cell's full evidence, gathered whether the run PASSED
@@ -753,7 +707,6 @@ func probeContainerAuthAvailable(backendType string) (probeAuthPath, string) {
 type probeResult struct {
 	Engine     string
 	Axis       probeAxis
-	AuthPath   probeAuthPath
 	AuthReason string
 	Token      string
 	ExitCode   int
@@ -777,35 +730,22 @@ type probeResult struct {
 	ReadsErr string // why the trace could not be read/parsed, if it couldn't
 }
 
-// runProbeWorktree drives one live worktree-axis cell end to end: decide the
-// auth path (forcedPath, if non-empty, requires the launch environment to
-// actually resolve to that path — a cell explicitly proving the env-key
-// bypass must not silently fall back to the seeded path), seed credentials
-// accordingly, census the host before/after, run `ctxloom run --agent probe
-// --workspace worktree --one-shot` in the background while watchScratch races
-// to observe the ephemeral scratch tree, and assemble the evidence. Returns
-// an error only for a HARNESS failure (bad config, can't start the process);
-// a live run that fails/times out/misbehaves is still a *result* the caller
-// asserts against, not a Go error.
-func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath) (*probeResult, error) {
-	key := backendTypeToLiveKey(backendType)
-	a, ok := liveAgents[key]
-	if !ok {
-		return nil, fmt.Errorf("isolation probe: unknown engine %q", backendType)
-	}
-	res := &probeResult{Engine: backendType, Axis: probeAxisWorktree}
-
-	authPath, reason := probeDecideAuthPath(backendType)
-	if forcedPath != "" && authPath != forcedPath {
-		return nil, fmt.Errorf("isolation probe: requested auth path %q for %s, but the launch environment resolves to %q (%s) — set up the environment for the path you want to force", forcedPath, backendType, authPath, reason)
-	}
-	res.AuthPath, res.AuthReason = authPath, reason
+// runProbeWorktree drives one live worktree-axis cell end to end: hand the
+// run its credential (probeSetCredential), census the host before/after, run
+// `ctxloom run --agent probe --workspace worktree --one-shot` in the
+// background while watchScratch races to observe the ephemeral scratch tree,
+// and assemble the evidence. Returns an error only for a HARNESS failure (bad
+// config, can't start the process); a live run that fails/times
+// out/misbehaves is still a *result* the caller asserts against, not a Go
+// error.
+func runProbeWorktree(w *World, backendType string, auth probeAuth) (*probeResult, error) {
+	res := &probeResult{Engine: backendType, Axis: probeAxisWorktree, AuthReason: auth.Reason}
 
 	roots, err := probeCensusRoots(backendType)
 	if err != nil {
 		return nil, err
 	}
-	if err := probeSeedCreds(w, a, backendType, authPath); err != nil {
+	if err := probeSetCredential(w, auth); err != nil {
 		return nil, err
 	}
 
@@ -854,39 +794,17 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath) (*
 	return res, nil
 }
 
-// probeSeedCreds gives the cell's run its credential: on the env-key path the
-// captured token goes onto the child's environment (the scrub removed it from
-// what the child would otherwise inherit); on the seeded path a's host
-// credentials are copied into the isolated home.
-func probeSeedCreds(w *World, a liveAgent, backendType string, authPath probeAuthPath) error {
-	if authPath == probeAuthEnvKey {
-		cred, ok := liveCredential(a)
-		if !ok {
-			return fmt.Errorf("isolation probe: %s resolved to the env-key path but no credential was captured at launch", backendType)
-		}
-		w.env.SetChildEnv(cred.EnvVar, cred.Value)
-		return nil
+// probeSetCredential puts the cell's credential on the child's launching
+// environment — the ambient scrub removed it from what the child would
+// otherwise inherit. That is the whole hand-over on either axis: production
+// reads the token from there, and for a container moves it into the secret
+// mount itself, so the probe stages no file.
+func probeSetCredential(w *World, auth probeAuth) error {
+	if !auth.ok() {
+		return fmt.Errorf("isolation probe: no credential to hand the run: %s", auth.Reason)
 	}
-	if authPath != probeAuthSeeded {
-		return nil
-	}
-	// DELIBERATELY still a COPY, not the mapping the @live gates now use
-	// (seedLiveCredentials, erased-collar): this probe's whole
-	// measurement is a before/after census of a STAND-IN host home,
-	// watching what production's own seeding and the engine leak into
-	// it. Mapping would point that census at the developer's REAL
-	// ~/.claude / ~/.codex and destroy the thing being measured. The
-	// consequence is that a codex isolation-probe row still carries
-	// jovial-employee's refresh-token-consumption hazard — flagged for
-	// the human, not silently resolved here.
-	//
-	// probeDecideAuthPath already confirmed (via its own dry copy) that
-	// a host credential file exists; a zero-files-copied error here
-	// means the real copy disagreed with that dry probe (a race, a
-	// permission change) — an anomaly worth failing loud on rather than
-	// silently proceeding with an empty isolated credential dir.
-	if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
-		return fmt.Errorf("isolation probe: seeding %s credentials: %w", backendType, err)
+	for k, v := range auth.Env {
+		w.env.SetChildEnv(k, v)
 	}
 	return nil
 }
@@ -900,9 +818,8 @@ func probeExitCode(runErr error) int {
 	return exitCodeOf(runErr)
 }
 
-// runProbeContainer drives one live container-axis cell end to end: decide
-// container auth availability (probeContainerAuthAvailable), write config
-// with runtime: <axis> (container-rootless or container-rootful) and
+// runProbeContainer drives one live container-axis cell end to end: hand the
+// run its credential (probeSetCredential), write config with runtime: <axis> (container-rootless or container-rootful) and
 // workspace "none" — deliberately NOT worktree: a synthetic container HOME
 // with no worktree mount keeps every writable-layer path attributable to
 // either the container's fresh HOME or the plain project-dir bind mount, with
@@ -912,20 +829,9 @@ func probeExitCode(runErr error) int {
 // bind-mounted project dir (a plain bind mount, unlike the worktree axis's
 // ephemeral checkout — the project dir is never torn down, so this needs no
 // race at all).
-func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin string) (*probeResult, error) {
-	res := &probeResult{Engine: backendType, Axis: axis}
-
-	authPath, reason := probeContainerAuthAvailable(backendType)
-	res.AuthPath, res.AuthReason = authPath, reason
-	if authPath == probeAuthNone {
-		return res, nil // caller renders this as a loud, specific skip
-	}
-	// The "seeded" path copies the host credential into the same isolated
-	// stand-in-for-host directory the worktree axis uses, so both axes start
-	// from one stand-in host. Same reason as the worktree axis above for why
-	// this one call site keeps COPYING while the @live gates map: the
-	// stand-in host IS the measurement.
-	if err := probeSeedCreds(w, liveAgents[backendTypeToLiveKey(backendType)], backendType, authPath); err != nil {
+func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin string, auth probeAuth) (*probeResult, error) {
+	res := &probeResult{Engine: backendType, Axis: axis, AuthReason: auth.Reason}
+	if err := probeSetCredential(w, auth); err != nil {
 		return nil, err
 	}
 
@@ -972,7 +878,7 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 	res.ExitCode = probeExitCode(runErr)
 
 	res.ContainerHome = "/home/ctxloom" // defaultContainerHome, internal/adapters/isolation/container.go
-	res.Unexpected = probeContainerUnexpected(res.Container.Diff, res.ContainerHome)
+	res.Unexpected = probeContainerUnexpected(res.Container.Diff, res.ContainerHome, res.Container.Mounts)
 
 	// Parse the strace output the wrapped engine exec wrote INTO the bind-mounted
 	// host dir. Unlike the docker-diff race, this file is written from inside and
@@ -994,7 +900,7 @@ func runProbeContainer(w *World, backendType string, axis probeAxis, runtimeBin 
 
 // assertProbeWorktree checks the worktree axis's four guarantees. Every
 // engine that reaches this function (i.e. was not already turned away by
-// probeDecideAuthPath) is expected to hold ALL FOUR cleanly.
+// probeTargetAuth) is expected to hold ALL FOUR cleanly.
 func assertProbeWorktree(res *probeResult) error {
 	if res.ExitCode != 0 {
 		return fmt.Errorf("(a) response: run exited %d, want 0 — the credential or the engine itself is the suspect here, not isolation; output:\n%s", res.ExitCode, res.Output)
@@ -1060,9 +966,9 @@ func probeReadsHasFailedResult(reads []isolation.TraceRead) bool {
 // in this feature ends on, whether it ran, skipped, or failed — a run where
 // every cell skipped must be visibly distinguishable from a run where every
 // cell passed (see the isolation-probe doc page). It NEVER prints credential
-// content — only the engine, axis, which of the two auth paths fired and
-// why, and the verdict.
-func printProbeReport(engine string, axis probeAxis, authPath probeAuthPath, authReason, verdict, detail string) {
-	fmt.Printf("ISOLATION PROBE: engine=%-12s axis=%-9s authPath=%-22s (%s) result=%s%s\n",
-		engine, axis, authPath, authReason, verdict, detail)
+// content — only the engine, axis, the auth reason (variable names, never a
+// value), and the verdict.
+func printProbeReport(engine string, axis probeAxis, authReason, verdict, detail string) {
+	fmt.Printf("ISOLATION PROBE: engine=%-12s axis=%-18s auth=(%s) result=%s%s\n",
+		engine, axis, authReason, verdict, detail)
 }

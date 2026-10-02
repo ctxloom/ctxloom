@@ -23,9 +23,9 @@
 // to stop agreeing about what production can do.
 //
 // WHY THE AXIS RESOLVERS ARE REUSED RATHER THAN RE-DERIVED.
-// probeWorktreeAuthAvailable and probeContainerAuthAvailable (isolation_probe.go)
-// already encode, per axis, which credential path a cell can take, including
-// any engine whose axis simply cannot be authenticated today. A probe that asked the
+// probeTokenAuth (isolation_probe.go) asks the engine's own Auth capability
+// what an agent run authenticates with, so an engine whose token is absent is
+// refused here exactly as production would refuse its run. A probe that asked the
 // question its own way would eventually disagree with what a run actually does,
 // and the disagreement would surface as a mysterious red rather than as a gate.
 //

@@ -46,10 +46,11 @@ func probeCellGate(c context.Context, w *World, family string, cell probeCellID)
 		return liveAgent{}, "", probeCellSkip(family, cell, skip)
 	}
 
-	if cell.Workspace == "worktree" {
-		if path, reason := probeWorktreeAuthAvailable(cell.Engine); path == probeAuthNone {
+	isContainer := launch.IsContainerRuntimeAxis(launch.RuntimeAxis(cell.Runtime))
+	if cell.Workspace == "worktree" || isContainer {
+		if auth := probeTokenAuth(cell.Engine); !auth.ok() {
 			return liveAgent{}, "", probeCellSkip(family, cell,
-				"worktree axis cannot authenticate this engine: "+reason)
+				"an isolated agent run authenticates only with the token: "+auth.Reason)
 		}
 	}
 	// probeCellResolve (called above, at the top of this function) already
@@ -61,14 +62,7 @@ func probeCellGate(c context.Context, w *World, family string, cell probeCellID)
 	// string. This asks the canonical predicate for "is it a container in
 	// EITHER ownership mode", never a second vocabulary switch: a host cell
 	// needs no further gating and falls through unchanged.
-	if launch.IsContainerRuntimeAxis(launch.RuntimeAxis(cell.Runtime)) {
-		// The credential mechanism is the SAME mount either way (see the
-		// feature file's own header), so the auth check does not branch on
-		// ownership; only runtime SELECTION does.
-		if path, reason := probeContainerAuthAvailable(cell.Engine); path == probeAuthNone {
-			return liveAgent{}, "", probeCellSkip(family, cell,
-				"container axis cannot authenticate this engine: "+reason)
-		}
+	if isContainer {
 		rt, decision, msg := probeContainerRuntimeForAxis(c, cell.Runtime, "the "+family+" container cell")
 		switch decision {
 		case dockergate.Fail:

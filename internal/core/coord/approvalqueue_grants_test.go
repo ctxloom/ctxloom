@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -279,8 +280,10 @@ func TestApprovalQueue_AResumedRunIsSeededWithItsHarpsGrants(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"Bash"}, seeded(t, q, resumedID, "mock"), "the harp's grants, less the revoked one")
-	d := q.Park(t.Context(), resumedID, onEngine(toolAsk("Bash"), "mock"), time.Hour)
-	assertGrantDecided(t, d)
+	// Bounded: an uncovered request would wait on the human for the hour.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	assertGrantDecided(t, q.Park(ctx, resumedID, onEngine(toolAsk("Bash"), "mock"), time.Hour))
 }
 
 // TestApprovalQueue_ARunOnAnotherEngineIsSeededNothing: grants are rules in

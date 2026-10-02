@@ -327,8 +327,8 @@ func TestSpoolTurnResult_EmptyTurnIsReportedAsAnError(t *testing.T) {
 	assert.Equal(t, out.Harp, got[0].From)
 }
 
-// TestSpoolTurnResult_RestartWindowDeliversByOneCarrier covers the seam S5a
-// documented: between a coordinator's adopt() and the child's respawn a
+// TestSpoolTurnResult_RestartWindowDeliversByOneCarrier covers the restart
+// window: between a coordinator's adopt() and the child's respawn a
 // cut-over harp is not yet tracked, so the cutover predicate reads false.
 //
 // A report written into out/ during that window must still arrive, and must

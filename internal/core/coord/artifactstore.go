@@ -26,7 +26,7 @@ import (
 // RECEIVER: homeartifacts.go's Home.DownloadArtifact hashes as it streams and
 // refuses to place a file whose content disagrees with that header. It also
 // makes re-uploads free dedupe (E1a's idempotency
-// rule) and needs no journal of its own: unlike runs.jsonl/mailbox.jsonl,
+// rule) and needs no journal of its own: unlike the coordinator journals,
 // writes here are content-identical regardless of which process or run
 // produced them, so no single-writer serialization is required — atomic
 // temp-then-rename is sufficient even under concurrent uploads of the same

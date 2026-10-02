@@ -14,6 +14,11 @@
 // capture run never executed it), this command writes NOTHING and exits
 // nonzero — see RefusalError and EvidenceGapError in render.go.
 //
+// Pages are generated at build and never committed (the output directory is
+// gitignored): a committed page would outlive the run that proved it, and the
+// only page this command vouches for is one rendered from the run that just
+// passed.
+//
 // Run via `just gen-living-docs` (go run ./scripts/gendocs/livingdocs).
 package main
 

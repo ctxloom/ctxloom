@@ -32,7 +32,7 @@ const (
 	// user's project on `ltk manage install`, so it must be user-facing and free
 	// of this project's own tooling (no just/lefthook/versionator references).
 	header = "# llm-tool-killer default rules — edit freely and commit alongside your project.\n" +
-		"# Rule model: https://github.com/ctxloom/ctxloom/blob/main/docs/ltk/RULES.md\n"
+		"# Rule model: https://ctxloom.dev/ltk/rules/\n"
 )
 
 // yamlBlocks returns the body of every fenced block in md, and refuses any

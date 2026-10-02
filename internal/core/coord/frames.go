@@ -156,7 +156,12 @@ type RunHello struct {
 	Agent           *AgentIdentity
 	ResumeFromSeq   uint64
 	ProtocolVersion uint32
-	Capabilities    []string
+	// Capabilities is DISCOVERY, not permission: what this run's endpoint can
+	// execute, per Hello, so a resumed harp may advertise differently from the
+	// run before it. "peer_messaging" and "terminal_delivery" are RETIRED
+	// names and must not be reissued; a receiver that reads one from an older
+	// peer must ignore it.
+	Capabilities []string
 }
 
 // ErrRunNotIssued refuses a handshake naming a run the presenting credential

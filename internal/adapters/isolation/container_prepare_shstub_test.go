@@ -32,7 +32,7 @@ func hermeticHostContainer(t *testing.T, overlayDirs []string) Container {
 	t.Helper()
 	fake := t.TempDir()
 	script := filepath.Join(fake, "fake-docker")
-	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, hostProvenanceDigest(""))
 	writeFakeRuntimeScript(t, script, filepath.Join(fake, "builds.log"), fake, labels)
 	require.NoError(t, os.WriteFile(filepath.Join(fake, "ctxloom-agent-hermetic-test_latest"), nil, 0o644))
 
@@ -207,7 +207,7 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-docker")
-	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, hostProvenanceDigest(""))
 	writeFakeRuntimeScript(t, script, filepath.Join(dir, "builds.log"), dir, labels)
 	// Pre-mark the image present (the script's marker convention: image name
 	// with '/' and ':' mapped to '_').
@@ -262,7 +262,7 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-docker")
-	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, HostProvenanceDigest(""))
+	labels := fmt.Sprintf(`{"ctxloom.provenance":%q}`, hostProvenanceDigest(""))
 	writeFakeRuntimeScript(t, script, filepath.Join(dir, "builds.log"), dir, labels)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ctxloom-agent-state-test_latest"), nil, 0o644))
 

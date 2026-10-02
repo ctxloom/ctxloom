@@ -24,6 +24,6 @@ func registerDocsCmd(root *cobra.Command) {
 		ManTitle:  "LTK",
 		ManManual: "User Commands",
 		// ltk has no MCP surface and no config schema: it is a hook binary
-		// configured by .ltk/config.yaml rule files (see docs/ltk/RULES.md).
+		// configured by .ltk/config.yaml rule files (see https://ctxloom.dev/ltk/rules/).
 	}))
 }

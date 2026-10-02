@@ -242,9 +242,8 @@ func keepNewest(best *string, bestTime *time.Time, path string, modTime time.Tim
 }
 
 // fillTranscriptByLocation resolves a missing (or dangling) transcript binding
-// by location for a returned entry COPY. Computed on read and never persisted
-// — the same posture as the Distilled/EssencePath computed fields — so the
-// on-disk index keeps only what a bind actually recorded. A live host-bound
+// by location for a returned entry COPY. Computed on read and never persisted,
+// so the on-disk index keeps only what a bind actually recorded. A live host-bound
 // entry short-circuits on the stat and is untouched.
 func fillTranscriptByLocation(e *Entry) {
 	if e == nil || e.HarpName == "" {
@@ -262,9 +261,8 @@ func fillTranscriptByLocation(e *Entry) {
 
 // fillCanonicalTranscript stats a harp's canonical transcript
 // (paths.HarpCanonicalTranscriptPath, the one name it is ever written under)
-// and records its path on the entry COPY when present — the same
-// computed-on-read posture as
-// fillTranscriptByLocation/Distilled/EssencePath, never persisted. This is
+// and records its path on the entry COPY when present — computed on read like
+// fillTranscriptByLocation, never persisted. This is
 // how a session becomes discoverable by ctxloom's own captured transcript
 // independent of whatever the legacy engine-file
 // TranscriptPath does or doesn't resolve to.

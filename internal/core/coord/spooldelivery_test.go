@@ -51,12 +51,11 @@ func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coord
 	return c
 }
 
-// cutoverSpawner is startRunSpawner plus the runner capabilities a migrated
-// child advertises. Only a runner-backed child is cut over, so every test
-// here rides the StartRun path.
+// cutoverSpawner is startRunSpawner with the given spool sweep interval. Only
+// a runner-backed child is cut over, so every test here rides the StartRun
+// path.
 func cutoverSpawner(sweep time.Duration) *fakeSpawner {
 	sp := startRunSpawner(nil)
-	sp.engineCaps = RunnerCapabilities(true)
 	sp.spoolSweepInterval = sweep
 	return sp
 }

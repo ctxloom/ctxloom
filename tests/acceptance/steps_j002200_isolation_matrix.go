@@ -7,17 +7,14 @@
 // no-live-credential, no-network guarantee.
 //
 // SAFETY (the single load-bearing property of every step in this file):
-// config.yaml names a REAL registered backend type (claude-code/codex/
-// opencode), which drives isolation.Prepare exactly as a live
-// run would — but PATH is rebuilt FROM SCRATCH to "<spy dir>:/usr/bin:/bin"
-// for the duration of the run (isoMatrixSanitizedPATH), never merely
-// prepended to the inherited PATH. That distinction is load-bearing: an
-// early version of this fixture prepended a spy dir onto the inherited PATH
-// and, for the one engine (opencode) whose spy never got invoked (see
-// below), silently fell through to the REAL, already-authenticated opencode
-// binary elsewhere on the developer's PATH and made a real (if cheap)
-// completion call — discovered by hand while building this file, not by a
-// gate. Rebuilding PATH from scratch instead means the literal binary name
+// config.yaml names a REAL registered backend type, which drives
+// isolation.Prepare exactly as a live run would — but PATH is rebuilt FROM
+// SCRATCH to "<spy dir>:/usr/bin:/bin" for the duration of the run
+// (isoMatrixSanitizedPATH), never merely prepended to the inherited PATH.
+// That distinction is load-bearing: with the inherited PATH behind the spy
+// dir, any engine whose spy is not invoked falls through to the REAL,
+// already-authenticated binary on the developer's PATH and makes a real
+// completion call. Rebuilding PATH from scratch instead means the literal binary name
 // a backend execs ("claude") resolves
 // ONLY to the recording script this file writes, or to nothing at all
 // (ENOENT) — never to a real installed engine. No scenario in this file
@@ -36,36 +33,6 @@
 // removes it unconditionally once the run exits (confirmed by hand — a
 // naive design that tried to inspect the scratch dir from outside, after
 // the `ctxloom run` subprocess returned, always found it already gone).
-//
-// OPENCODE IS SCOPED DIFFERENTLY. Every other engine here is launched via a
-// plain oneshot exec (agent.LaunchBackend.ExecuteCLI); opencode's real
-// launch path is ACP, a stateful JSON-RPC handshake over stdio
-// (internal/opencode) — a spy that just dumps its env and exits never
-// completes that handshake, so the run errors before any output reaches the
-// spy's output file at all (confirmed by hand: the file is never created).
-// opencode's fail-loud/warn CONTRACT is still proven for it below (Scenario
-// Outlines "refuses to start" / "proceed without any isolation finding" —
-// both fire BEFORE any engine spawn is attempted, so they need no spy
-// cooperation), but the exact spawned-env PAYLOAD (the
-// XDG_DATA_HOME-vs-XDG_DATA_HOME/opencode nesting subtlety) is not
-// independently re-proven here. It is already pinned at the Go level by
-// internal/adapters/isolation/auth_test.go's
-// TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode. See
-// j002200_isolation.doc.md for the full accounting of what is and is not proven
-// where.
-//
-// RE-VERIFIED: an earlier review claimed "the Examples table still
-// lists opencode alongside four engines whose payload is checked" — re-checked
-// against features/journeys/j002200_isolation.feature as it stands today and that is no
-// longer true. The ONE Examples table that asserts on spy payload ("A
-// worktree run copies the host credential ...") lists only claude-code and
-// codex; opencode appears only in the two pre-spawn-only outlines named
-// above, which read the run's OUTPUT, never the spy. So the specific
-// misleading-coverage-claim harm the earlier review named does not hold
-// against the current file — nothing to fix here. The underlying limitation
-// (opencode's spy is never invoked, because its real launch is a stateful
-// ACP handshake) is real and stays documented above; only the "the Examples
-// table hides that" half was refuted.
 package acceptance
 
 import (
@@ -105,7 +72,6 @@ import (
 // ASSERTION READS, AND ONLY ONE WHOSE VALUE IS A PATH.
 var isoSpyEnvAllowlist = []string{
 	"CLAUDE_CONFIG_DIR",
-	"CODEX_HOME",
 	"XDG_CONFIG_HOME",
 	"XDG_DATA_HOME",
 	"XDG_CACHE_HOME",
@@ -163,13 +129,11 @@ out="$CTXLOOM_ISOSPY_OUT"
   else echo "set:$CLAUDE_SECURESTORAGE_CONFIG_DIR"; fi
   echo "===CLAUDE_CONFIG_DIR_CREDS==="
   [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.credentials.json" 2>/dev/null
-  echo "===CODEX_HOME_CREDS==="
-  [ -n "$CODEX_HOME" ] && cat "$CODEX_HOME/auth.json" 2>/dev/null
   echo "===CONFIG_HOME_LISTING==="
-  for d in "$CLAUDE_CONFIG_DIR" "$CODEX_HOME"; do
+  for d in "$CLAUDE_CONFIG_DIR"; do
     [ -n "$d" ] && [ -d "$d" ] && echo "DIR $d"
   done
-  for f in "$CLAUDE_CONFIG_DIR/.credentials.json" "$CODEX_HOME/auth.json"; do
+  for f in "$CLAUDE_CONFIG_DIR/.credentials.json"; do
     [ -f "$f" ] && echo "MODE $(ls -l "$f" | cut -d' ' -f1) $f"
   done
   echo "===CLAUDE_INSTANCE_CONFIG==="
@@ -222,8 +186,7 @@ const (
 )
 
 // isoBinaryNames maps a scenario's engine token to the literal binary
-// name(s) that engine's backend execs (internal/{claude,codex,
-// opencode}/backend.go's BinaryPath defaults) — the name(s) the
+// name(s) that engine's backend execs (its BinaryPath default) — the name(s) the
 // spy script must answer to on the sanitized PATH.
 func isoBinaryNames(engine string) ([]string, error) {
 	switch engine {
@@ -281,7 +244,7 @@ func isoHostHomeDirRel(engine string) (string, error) {
 
 // isoInstanceLeaf maps an engine to its leaf inside ONE SESSION's config-home
 // instance — `.ctxloom/state/<harp>/home/<leaf>`. The leaves duplicate
-// internal/{claude,codex}'s own constants rather than importing them: this
+// the engine packages' own constants rather than importing them: this
 // file's whole point is to observe the value a REAL run hands a REAL engine
 // process from the outside, so deriving the expectation from the same helper
 // the production code uses would make the assertion tautological.
@@ -652,8 +615,7 @@ func runIsoMatrixOwnerSession(c context.Context, engine string) error {
 // isoReadSpyOut reads the spy's recorded output, erroring with a clear
 // message (not a bare os.ReadFile error) when the spy was never invoked —
 // itself diagnostic evidence for a scenario asserting an isolated success
-// path (a run that aborted before spawning, or a backend like opencode whose
-// launch never reaches a plain exec, leaves no file).
+// path (a run that aborted before spawning leaves no file).
 func isoReadSpyOut(j *isoMatrixState) (string, error) {
 	if j.spyOut == "" {
 		return "", fmt.Errorf("iso matrix: no run recorded yet")
@@ -788,11 +750,10 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		// helper writing into HOME earlier could silently invalidate. The
 		// isoCredHostPath helper this file already has for the opposite
 		// fixture step (:339-344, "Alice HAS a credential fixture") makes the
-		// positive check cheap for the engines it knows (claude-code, codex).
-		// Some engines (opencode) have no file-based host-credential concept
-		// at all -- isoCredHostPath errors for those, which is not this
-		// step's failure to report; there is genuinely nothing to check, so
-		// it stays the documented no-op for exactly those engines.
+		// positive check cheap for the engines it knows. An engine with no
+		// file-based host-credential concept makes isoCredHostPath error,
+		// which is not this step's failure to report; there is genuinely
+		// nothing to check, so it stays the documented no-op for those.
 		rel, err := isoCredHostPath(engine)
 		if err != nil {
 			return nil
@@ -1076,12 +1037,11 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// codex's workspace-"none" exception. Two things have to be true at once
-	// and the pairing is the whole point: ctxloom's OWN isolation gates stayed
-	// out of the way (no finding, and NOT the ClassIsolation exit 3 those
-	// gates use), yet the run still failed — because codex relocates
-	// CODEX_HOME by itself on every axis and there was nothing to seed the
-	// relocated home with. Asserting the engine never launched (no spy
+	// A run refused for an ENGINE reason, not an isolation one. Two things
+	// have to be true at once and the pairing is the whole point: ctxloom's
+	// OWN isolation gates stayed out of the way (no finding, and NOT the
+	// ClassIsolation exit 3 those gates use), yet the run still failed,
+	// naming why the engine could not be authenticated. Asserting the engine never launched (no spy
 	// recording) is what keeps this from degenerating into "some error
 	// happened".
 	ctx.Step(`^the run fails without any isolation finding, naming "([^"]*)"$`, func(c context.Context, needle string) error {
@@ -1149,38 +1109,6 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// opencode's own row of the SAME claim, split out because its launch path
-	// cannot leave the payload the step above demands. opencode is driven over
-	// ACP — a stateful JSON-RPC handshake over stdio (internal/opencode) — and
-	// this file's spy is a dumb recorder that dumps and exits, so the handshake
-	// never completes and the run errors AFTER the isolation gates have all
-	// passed. That is a fixture limitation, not product behavior, and it means
-	// no exit code and no spy file are available to assert on. What IS
-	// assertable, and is the whole point of the row, is that the run got PAST
-	// every isolation gate and all the way to spawning opencode from the
-	// PATH-sandboxed spy dir — the failure names that very path. See the
-	// file-level note on opencode for why its spawned-env payload is pinned at
-	// the Go level instead (auth_test.go's
-	// TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode).
-	ctx.Step(`^the run proceeds past every isolation gate to spawn the engine itself$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j := isoMatrixOf(w)
-		out := w.env.LastOutput()
-		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
-		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
-			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
-		}
-		binNames, err := isoBinaryNames(j.engine)
-		if err != nil {
-			return err
-		}
-		spawned := filepath.Join(w.env.Root, "iso-spy-bin", binNames[0])
-		if !strings.Contains(out, spawned) {
-			return fmt.Errorf("nothing in the run's output names the sandboxed spy binary %q, so there is no evidence the run reached an engine spawn at all; output:\n%s", spawned, out)
-		}
-		return nil
-	})
-
 	ctx.Step(`^the run reports a non-fatal isolation warning naming "([^"]*)"$`, func(c context.Context, needle string) error {
 		w := worldFrom(c)
 		out := w.env.LastOutput()
@@ -1227,33 +1155,6 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("spy %s process's stdin does not contain %q; stdin:\n%s", engine, want, stdin)
 		}
 		w.docStepMaterialized = fmt.Sprintf("spy %s process stdin:\n%s", engine, stdin)
-		return nil
-	})
-
-	// The VERBATIM-copy assertion, for an engine whose whole credential file is
-	// safe to copy (codex's auth.json — no rotation, no projector). claude-code
-	// is NOT verbatim: it uses the access-token-only step below.
-	ctx.Step(`^the isolated "([^"]*)" credential matches the host fixture byte-for-byte$`, func(c context.Context, engine string) error {
-		w := worldFrom(c)
-		j := isoMatrixOf(w)
-		body, err := isoReadSpyOut(j)
-		if err != nil {
-			return fmt.Errorf("engine %q: %w", engine, err)
-		}
-		marker, err := isoCredsSectionMarker(engine)
-		if err != nil {
-			return err
-		}
-		got := isoParseSpySection(body, marker)
-		wantBody, err := isoCredFixtureContent(engine)
-		if err != nil {
-			return err
-		}
-		want := strings.TrimSpace(wantBody)
-		if got != want {
-			return fmt.Errorf("isolated %s credential content = %q, want the host fixture %q; full spy dump:\n%s", engine, got, want, body)
-		}
-		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s):\n%s", engine, marker, got)
 		return nil
 	})
 

@@ -6,8 +6,7 @@
 // Only the process boundary is faked: no container, no `ctxloom runner`.
 //
 // It lives beside coord rather than inside it because it is built from
-// coord's EXPORTED surface (NewEngineHost, NewHome, BindHome,
-// RunnerCapabilities) and must be importable by every package that hosts a
+// coord's EXPORTED surface (NewEngineHost, NewHome, BindHome) and must be importable by every package that hosts a
 // coordinator in its tests (internal/adapters/mcp foremost). coord's own in-package
 // tests cannot import it — that would be a cycle — and do not need to: they
 // reach unexported state and keep their own fake.
@@ -92,14 +91,13 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		Unsetenv: func(string) error { return nil },
 	}})
 	home, err := runner.NewHome(rctx, runner.HomeConfig{
-		URL:          runnerEnv[coord.EnvCoordURL],
-		Token:        runnerEnv[coord.EnvCoordCred],
-		RunID:        runnerEnv[coord.EnvRunID],
-		Harness:      backend,
-		Version:      "coordtest",
-		Engine:       host.Handle,
-		Capabilities: coord.RunnerCapabilities(true),
-		Reporter:     r.Reporter,
+		URL:      runnerEnv[coord.EnvCoordURL],
+		Token:    runnerEnv[coord.EnvCoordCred],
+		RunID:    runnerEnv[coord.EnvRunID],
+		Harness:  backend,
+		Version:  "coordtest",
+		Engine:   host.Handle,
+		Reporter: r.Reporter,
 	})
 	if err != nil {
 		cancel()

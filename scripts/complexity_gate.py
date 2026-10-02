@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Ratchet gate for `just complexity-check`: fail only on NEW cyclomatic-complexity
-violations, not the pre-existing 282 (see .complexity-baseline.txt).
+violations, not the pre-existing ones (see .complexity-baseline.txt).
 
 Why this exists: `lizard -C 10 .` alone reports every function over CCN 10 and exits
 non-zero if there is at least one. Baselined against "just don't have MORE than N",
@@ -35,7 +35,7 @@ notes this script was written against):
   * lizard's Go parser does not see a func-literal assigned inside a composite literal
     (e.g. every `&cobra.Command{RunE: func(...) {...}}` in internal/adapters/cli) as a function.
     It only walks the closures nested *inside* that literal. Every cobra command body in
-    this repo is invisible to this gate for that reason — the 282-function baseline is
+    this repo is invisible to this gate for that reason — the baseline is
     a floor on known debt, not the true count. If someone later extracts a RunE body
     into a named function (a good refactor), lizard sees it for the first time and this
     script has no way to distinguish "newly visible, pre-existing complexity" from
@@ -46,8 +46,8 @@ notes this script was written against):
   * If a violation's occurrence index shifts (a same-signature sibling gets inserted
     earlier in the file), this script can report a spurious new+fixed pair instead of
     "unchanged". This is the cost of using an index instead of no distinguisher at all;
-    it fails safe (loud, not silent) and is rare in practice (3 of 282 current entries
-    share a (file, long_name) key at all).
+    it fails safe (loud, not silent) and is rare in practice (few entries share a
+    (file, long_name) key at all).
 """
 from __future__ import annotations
 
@@ -65,8 +65,8 @@ BASELINE_HEADER = """\
 # .complexity-baseline.txt — ratchet baseline for `just complexity-check`.
 #
 # This is DEBT, not an approved state. It exists so the complexity gate can fail on
-# NEW violations without also failing CI on the ~282 that already exist. Nobody signed
-# off on these 282 functions being fine; they are just not today's job.
+# NEW violations without also failing CI on the ones that already exist. Nobody signed
+# off on these functions being fine; they are just not today's job.
 #
 # The true complexity debt is HIGHER than what's listed here: lizard's Go parser
 # cannot see a func-literal assigned inside a composite literal (every cobra

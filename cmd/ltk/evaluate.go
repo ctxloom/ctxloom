@@ -249,7 +249,7 @@ func detectEngineFromPayload(input []byte) engine.Engine {
 // misses.
 //
 // This is a deliberate, NARROW exception to ltk's fail-open posture (see
-// docs/ltk/RULES.md and README.md's "Scope" section): everywhere else,
+// https://ctxloom.dev/ltk/rules/ and README.md's "Scope" section): everywhere else,
 // uncertainty about a command or config chooses to let the agent through
 // rather than block on it. Here it can't, because the alternative is not "the
 // agent proceeds under a slightly weaker guard" — it is "a tool the operator

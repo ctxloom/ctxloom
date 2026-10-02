@@ -83,8 +83,7 @@ type formatCoverageEntry struct {
 
 // formatCoverageWalk collects every Runnable, non-Hidden command under
 // rootCmd as a space-joined path ("bundle list"), matching the keys used in
-// the registry below. Hidden commands (completion, the hook/util internals,
-// llm serve, container provenance) are excluded here rather than requiring
+// the registry below. Hidden commands are excluded here rather than requiring
 // a per-command skip entry — "hidden-internal" is structural, not a
 // judgment call per command.
 //

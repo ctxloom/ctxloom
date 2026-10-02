@@ -76,8 +76,8 @@ flowchart TD
     SIGN["ALLOWED BY SIGNER · Allow<br/>SourceTrustedSigner"]
     RETR["RETRACTED · Deny · SourceRetracted<br/>flag carried in lock.yaml"]
 
-    PEND -->|"ctxloom trust / review accept<br/>SetItemTrust operations/trust.go:554"| APPR
-    PEND -->|"ctxloom blacklist / review reject<br/>SetBlacklist operations/trust.go:667"| REJ
+    PEND -->|"ctxloom bundle trust / review accept<br/>operations.SetItemTrust"| APPR
+    PEND -->|"ctxloom bundle reject / review reject<br/>operations.SetBlacklist"| REJ
     APPR -->|"SetBlacklist"| REJ
 
     APPR -->|"payload bytes change:<br/>edit, re-distill, new pinned SHA<br/>-> countersig no longer verifies"| PEND

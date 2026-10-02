@@ -23,7 +23,7 @@ import (
 //	    owner.pid          exclusive-owner lock (single writer per journal
 //	                       is per PROCESS too — see claimOwner)
 //	    runs.jsonl         run registry / spawn queue / roster journal
-//	    mailbox.jsonl      role mailboxes + consume cursors
+//	    items.jsonl        plane-1 item events (counted, not materialized)
 //	    interactions.jsonl audit journal (no projection)
 //	    endpoint.json      last-bound ports, re-bound on relaunch so
 //	                       adopted children re-Hello a stable endpoint

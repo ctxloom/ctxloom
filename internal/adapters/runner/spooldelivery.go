@@ -194,29 +194,15 @@ func (h *Home) ackMailConsumed(ids []string) {
 // run's out/ plus a doorbell, with no coordinator round trip at all.
 // handled=false leaves a non-PeerSend request to the ordinary plane-2 path.
 //
-// The guards duplicated from servePeerSend (a recipient, some text, a kind
-// from the closed sender vocabulary — read the SAME way, off the typed
-// req.GetKind() field, never structured["kind"]) are duplicated ON PURPOSE:
-// they are the refusals an agent can still be told about synchronously, and
-// losing them to "the coordinator will complain later, by mail" would make a
-// mistyped or absent kind a silently-dropped message instead of an immediate
-// error.
-//
-// The kind check is skipped entirely when InReplyTo is set. This path has no
-// coordinator round trip, so — unlike servePeerSend, which can defer an unset
-// kind to peerSend's post-correlation SenderMailKind check — it cannot ask
-// "does this actually correlate to a pending approval/ask" before deciding
-// whether to write the file: that state lives coordinator-side and this is a
-// local write. A reply to a relayed approval_request never needs a kind
-// (peerSend: "kind rides alongside the decision and is ignored"), so refusing
-// one here would break every cutover approval answer
-// (TestSpoolApproval_RelayRidesFilesAndAuditsIdentically). The cost is
-// narrower than it sounds: an unset-kind send whose in_reply_to turns out NOT
-// to correlate to anything still gets refused — just one hop later, when the
-// coordinator's sweep reads the file (routeSpoolOut's peerSend call) and
-// mails the refusal back (replySpoolRefusal), which is the EXISTING, already
-// tested fallback this file's own doc comment names for exactly this
-// asymmetry ("the coordinator will complain later, by mail").
+// Validation is coord.SendRequest.Validate, the same check the coordinator's
+// Send verb runs, so the refusals an agent can be told about synchronously
+// (no recipient, no body, a kind outside the sender vocabulary) are given
+// here, before anything is written. A reply (InReplyTo set) is exempt from
+// the kind check because this path has no coordinator round trip and cannot
+// ask whether the reply correlates to a pending approval or ask — that state
+// lives coordinator-side. A reply that turns out to correlate to nothing is
+// still refused, one hop later: the coordinator's sweep (routeSpoolOut's
+// peerSend call) refuses it and mails the refusal back (replySpoolRefusal).
 func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, bool) {
 	send := req.GetPeerSend()
 	if send == nil {

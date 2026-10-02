@@ -218,7 +218,7 @@ func (c Container) containerBuildSources(baseOverride string) (sources []buildSo
 
 // identityFor resolves this container's build identity for the given
 // resolved devcontainer base: composedIdentity's engine-aware provenance and
-// slot for a COMPOSABLE spec, else the legacy HostProvenanceDigest with no
+// slot for a COMPOSABLE spec, else the legacy hostProvenanceDigest with no
 // slot. The tag is always c.image, the one containerFor resolved and every
 // presence check reads.
 func (c Container) identityFor(devBase *baseStage) agentImageID {
@@ -226,7 +226,7 @@ func (c Container) identityFor(devBase *baseStage) agentImageID {
 		id.ref = c.image
 		return id
 	}
-	return agentImageID{ref: c.image, provenance: HostProvenanceDigest(c.baseContainerfile)}
+	return agentImageID{ref: c.image, provenance: hostProvenanceDigest(c.baseContainerfile)}
 }
 
 // Name identifies the policy: the injected base names it — "container" for the

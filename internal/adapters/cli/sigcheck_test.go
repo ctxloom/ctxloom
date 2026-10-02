@@ -28,7 +28,7 @@ func TestConsumeSigCheckEnv_ReadsTheSwitchThenRemovesItFromEveryChild(t *testing
 	}
 	t.Setenv(bundles.SigCheckEnv, "1")
 
-	assert.True(t, consumeSigCheckEnv(), "the switch was on")
+	assert.True(t, consumeEnvSwitch(bundles.SigCheckEnv), "the switch was on")
 
 	_, still := os.LookupEnv(bundles.SigCheckEnv)
 	assert.False(t, still, "this process no longer carries it")
@@ -38,7 +38,7 @@ func TestConsumeSigCheckEnv_ReadsTheSwitchThenRemovesItFromEveryChild(t *testing
 
 func TestConsumeSigCheckEnv_OffWhenUnset(t *testing.T) {
 	t.Setenv(bundles.SigCheckEnv, "")
-	assert.False(t, consumeSigCheckEnv())
+	assert.False(t, consumeEnvSwitch(bundles.SigCheckEnv))
 }
 
 // withSigCheckEnv fixes what the process environment said for one test.
@@ -47,6 +47,54 @@ func withSigCheckEnv(t *testing.T, on bool) {
 	prev := sigCheckEnv
 	sigCheckEnv = func() bool { return on }
 	t.Cleanup(func() { sigCheckEnv = prev })
+}
+
+// withSessionSigCheckEnv fixes what the session carrier said for one test.
+func withSessionSigCheckEnv(t *testing.T, on bool) {
+	t.Helper()
+	prev := sessionSigCheckEnv
+	sessionSigCheckEnv = func() bool { return on }
+	t.Cleanup(func() { sessionSigCheckEnv = prev })
+}
+
+// Owner ruling 2026-10-02: a waived session's hooks share its waiver. The
+// launch puts the session carrier on the engine's environment; only the
+// commands that serve a session honour it.
+func TestSigCheckDisabled_AHookHonoursTheSessionCarrier(t *testing.T) {
+	withSigCheckEnv(t, false)
+	withSessionSigCheckEnv(t, true)
+	hook, _, err := rootCmd.Find([]string{"hook", "inject-context"})
+	require.NoError(t, err)
+
+	assert.True(t, sigCheckDisabled(hook), "a hook of a waived session decides waived")
+	assert.True(t, sigCheckDisabled(hookCmd))
+}
+
+// The carrier reaches whatever the engine starts — its shell too. A `ctxloom
+// run` typed there is a NEW invocation (an agent launched by hand), and it
+// never inherits the session's waiver.
+func TestSigCheckDisabled_OnlyTheCommandsServingASessionHonourTheCarrier(t *testing.T) {
+	withSigCheckEnv(t, false)
+	withSessionSigCheckEnv(t, true)
+
+	assert.False(t, sigCheckDisabled(runCmd), "a run started from the session's shell is enforced")
+	assert.False(t, sigCheckDisabled(rootCmd))
+	assert.False(t, sigCheckDisabled(nil))
+}
+
+func TestSigCheckDisabled_AHookOfAnEnforcedSessionIsEnforced(t *testing.T) {
+	withSigCheckEnv(t, false)
+	withSessionSigCheckEnv(t, false)
+	assert.False(t, sigCheckDisabled(hookCmd))
+}
+
+// The carrier is consumed like the invocation switch, by every process, so
+// nothing a hook (or anything else) starts inherits it in turn.
+func TestConsumeEnvSwitch_RemovesTheSessionCarrier(t *testing.T) {
+	t.Setenv(bundles.SessionSigCheckEnv, bundles.SessionSigCheckOn)
+	assert.True(t, consumeEnvSwitch(bundles.SessionSigCheckEnv))
+	_, still := os.LookupEnv(bundles.SessionSigCheckEnv)
+	assert.False(t, still)
 }
 
 // setSigCheckFlag sets --disable-sig-check as a parsed command line would,

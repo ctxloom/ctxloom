@@ -52,27 +52,50 @@ var noCompanionsFlag bool
 var sigCheckFlag bool
 
 // sigCheckEnv is what the process environment said about the signature-check
-// switch, read ONCE (consumeSigCheckEnv).
-var sigCheckEnv = sync.OnceValue(consumeSigCheckEnv)
+// switch, read ONCE (consumeEnvSwitch).
+var sigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(bundles.SigCheckEnv) })
 
-// consumeSigCheckEnv reads CTXLOOM_DISABLE_SIG_CHECK and removes it from this
-// process's environment. Every child ctxloom starts — the engine, its MCP
-// server and hooks, a delegated agent — is built from os.Environ(), so after
-// this nothing inherits a waiver it never asked for: the switch is per
-// invocation, not per process tree.
-func consumeSigCheckEnv() bool {
-	on := envSwitchOn(bundles.SigCheckEnv)
-	if err := os.Unsetenv(bundles.SigCheckEnv); err != nil {
-		clidiag.Warn("ctxloom", "cannot remove %s from the environment, so processes ctxloom starts may inherit it: %v", bundles.SigCheckEnv, err)
+// sessionSigCheckEnv is what the process environment said about the SESSION
+// carrier (bundles.SessionSigCheckEnv) — the waiver a waived session's launch
+// hands its engine for the engine's own ctxloom children — read ONCE.
+var sessionSigCheckEnv = sync.OnceValue(func() bool { return consumeEnvSwitch(bundles.SessionSigCheckEnv) })
+
+// consumeEnvSwitch reads one of the signature-check switches and removes it
+// from this process's environment. Every child ctxloom starts is built from
+// os.Environ(), so after this nothing inherits a waiver by the ordinary
+// route: the switch is per invocation, and a session's posture reaches the
+// engine's own children only through its launch.
+func consumeEnvSwitch(name string) bool {
+	on := envSwitchOn(name)
+	if err := os.Unsetenv(name); err != nil {
+		clidiag.Warn("ctxloom", "cannot remove %s from the environment, so processes ctxloom starts may inherit it: %v", name, err)
 	}
 	return on
 }
 
+// servesSessionAnnotation marks a command tree whose processes serve a
+// running session — the engine's own ctxloom children — and so share that
+// session's signature-check posture through the session carrier.
+const servesSessionAnnotation = "ctxloom/serves-session"
+
+// servesSession reports whether cmd sits under a command marked
+// servesSessionAnnotation.
+func servesSession(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Annotations[servesSessionAnnotation] == "true" {
+			return true
+		}
+	}
+	return false
+}
+
 // sigCheckDisabled resolves the signature-check switch: the environment's
-// answer, with an explicitly set --disable-sig-check winning in either
-// direction.
+// answer — the session carrier counting only for a command that serves a
+// session — with an explicitly set --disable-sig-check winning in either
+// direction. Both environment switches are consumed whichever command runs.
 func sigCheckDisabled(cmd *cobra.Command) bool {
-	off := sigCheckEnv()
+	session := sessionSigCheckEnv()
+	off := sigCheckEnv() || (session && servesSession(cmd))
 	if cmd != nil && cmd.Root().PersistentFlags().Changed(bundles.SigCheckFlag) {
 		off = sigCheckFlag
 	}

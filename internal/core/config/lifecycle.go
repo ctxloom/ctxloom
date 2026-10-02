@@ -135,12 +135,32 @@ func (o *Owner) Reload(ctx context.Context) (*Snapshot, error) {
 	return o.reloadLocked(ctx)
 }
 
+// ReloadForDelegation is the generation a DELEGATED agent's launch decides
+// with: a fresh read, as every spawn takes. When the owner was opened
+// WithoutSignatureCheck it is built WITHOUT the waiver and is not published —
+// the waiver belongs to the invocation that asked for it, and the coordinator
+// resolving a child runs inside that invocation's session (its MCP server), so
+// handing the child the published generation would hand it the waiver. An
+// enforced owner's delegation generation is simply its next Reload.
+func (o *Owner) ReloadForDelegation(ctx context.Context) (*Snapshot, error) {
+	if len(o.trustOpts) == 0 {
+		return o.Reload(ctx)
+	}
+	o.writeMu.Lock()
+	defer o.writeMu.Unlock()
+	cfg, warnings, err := o.src.Read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return o.build(ctx, cfg, warnings, nil)
+}
+
 func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 	cfg, warnings, err := o.src.Read(ctx)
 	if err != nil {
 		return nil, err
 	}
-	snap, err := o.build(ctx, cfg, warnings)
+	snap, err := o.build(ctx, cfg, warnings, o.trustOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +177,7 @@ func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 // on a published value, and that must hold whatever the source returns (a
 // source that hands back one shared value on every read would otherwise
 // have a reload rebind a generation under a reader mid-assembly).
-func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*Snapshot, error) {
+func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning, trustOpts []composite.TrustOption) (*Snapshot, error) {
 	generation := *read
 	cfg := &generation
 	cfg.rep = o.rep
@@ -173,7 +193,7 @@ func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*S
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)
 	}
-	trust, err := composite.NewTrust(root, records, retraction, o.trustOpts...)
+	trust, err := composite.NewTrust(root, records, retraction, trustOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)
 	}

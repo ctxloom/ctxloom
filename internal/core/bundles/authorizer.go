@@ -247,6 +247,18 @@ const (
 	SigCheckDisabledNotice = "signature verification is DISABLED for this invocation (--" + SigCheckFlag + " / " + SigCheckEnv + "): " +
 		"remote bundle content that is unsigned or signed by a key you do not trust is admitted without review. " +
 		"Rejections and retractions still hold, this session's own hooks and MCP server share the waiver but agents it delegates to do not, and signing itself is unaffected."
+	// SessionSigCheckEnv carries a waived session's posture to the ENGINE's
+	// own ctxloom children — its MCP server and its hooks — so the whole
+	// session decides alike (owner ruling 2026-10-02). It is set on the
+	// engine's environment by the launch, from the generation's Trust and
+	// nothing else, and honoured ONLY by the commands that serve a session
+	// (`ctxloom hook`, `ctxloom mcp`). Every ctxloom process removes it at
+	// start, so an agent the session delegates to — resolved by the MCP
+	// server's coordinator, from an enforced generation — never carries it,
+	// and neither does a `ctxloom run` typed in the engine's shell.
+	SessionSigCheckEnv = "CTXLOOM_SESSION_DISABLE_SIG_CHECK"
+	// SessionSigCheckOn is SessionSigCheckEnv's value when set.
+	SessionSigCheckOn = "1"
 	// EditedSignedTreeWords is what every surface says about an installed
 	// signed tree the waiver accepted although its bytes were edited.
 	EditedSignedTreeWords = "an installed signed tree was edited after it was signed"

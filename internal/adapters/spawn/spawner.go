@@ -194,14 +194,31 @@ func backendNames(table map[string]bool) []string {
 // A reload that fails (a transient read problem, a concurrent partial write)
 // must not break spawning, so it degrades — with a warning — to the
 // generation already published, which is complete and consistent.
+//
+// The generation is the DELEGATION one (App.DelegationSnapshot): this
+// coordinator runs inside a session whose generation may waive the signature
+// check, and a delegated agent never inherits that. For the same reason the
+// fallback to the published generation is taken only when that generation is
+// enforced.
 func (s *spawner) spawnGeneration(ctx context.Context) (*config.Snapshot, error) {
-	snap, err := s.app.Reload(ctx)
+	snap, err := s.app.DelegationSnapshot(ctx)
 	if err == nil {
 		return snap, nil
 	}
+	published, perr := s.app.Snapshot(ctx)
+	if perr != nil {
+		return nil, perr
+	}
+	if published.Trust.SignatureCheckDisabled() {
+		return nil, fmt.Errorf("agent_run: reload configuration for agent resolution: %w (%s)", err, errDelegationWaived)
+	}
 	s.rep.Warnf("agent_run: reload configuration for agent resolution: %v (using the published generation)", err)
-	return s.app.Snapshot(ctx)
+	return published, nil
 }
+
+// errDelegationWaived is why a failed spawn reload cannot fall back to the
+// session's own generation when that generation waives the signature check.
+const errDelegationWaived = "the session's own generation waives the signature check, which a delegated agent never inherits"
 
 func (s *spawner) Resolve(ctx context.Context, agentName string) (*coord.SpawnPlan, error) {
 	snap, err := s.spawnGeneration(ctx)

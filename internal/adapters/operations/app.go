@@ -192,6 +192,18 @@ func (a *App) Reload(ctx context.Context) (*config.Snapshot, error) {
 	return owner.Reload(ctx)
 }
 
+// DelegationSnapshot is the generation a delegated agent's launch decides
+// with (config.Owner.ReloadForDelegation): enforced even when this App was
+// composed with the signature check waived, because a waiver belongs to the
+// invocation that asked for it and never to an agent it delegates to.
+func (a *App) DelegationSnapshot(ctx context.Context) (*config.Snapshot, error) {
+	owner, err := a.Owner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return owner.ReloadForDelegation(ctx)
+}
+
 // Update writes fn's changes through to the config file and publishes the
 // next generation.
 func (a *App) Update(ctx context.Context, fn func(*config.Draft) error) (*config.Snapshot, error) {

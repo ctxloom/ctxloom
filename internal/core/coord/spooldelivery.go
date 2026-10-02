@@ -451,7 +451,7 @@ func (c *Coordinator) mailCourier() *SpoolCourier {
 		KeyFor:  func(to string) string { return to },
 		Ring:    c.ringSpool,
 		OnSent: func(to string, msg Message, ref spool.Ref) {
-			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "kind": msg.Kind, "ref": ref.String()})
+			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "from": msg.From, "kind": msg.Kind, "ref": ref.String()})
 			c.mu.Lock()
 			seam := c.afterMailWritten
 			c.mu.Unlock()

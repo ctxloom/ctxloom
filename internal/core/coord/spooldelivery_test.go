@@ -286,6 +286,21 @@ func TestSpoolDelivery_ChildSendRidesOutAndReachesTheParent(t *testing.T) {
 	require.NoError(t, json.Unmarshal(got[0].Structured, &payload))
 	assert.Equal(t, "high", payload["confidence"])
 
+	// The audit journal's spool_mail_out entry is the durable record of this
+	// routing that outlives the spool file itself, and the echo smoke
+	// (scripts/agentcoord-echo-smoke.sh) proves its round trip from it: it must
+	// name the coordinator-resolved sender, not only the recipient.
+	var routed []auditEntry
+	for _, e := range readAuditKind(t, c, "spool_mail_out") {
+		if e.Detail["message_id"] == got[0].ID {
+			routed = append(routed, e)
+		}
+	}
+	require.Len(t, routed, 1, "exactly one spool_mail_out records the write into the parent's in/")
+	assert.Equal(t, got[0].To, routed[0].Actor, "the audit actor is the recipient")
+	assert.Equal(t, out.Harp, routed[0].Detail["from"], "the audit names the sender the coordinator resolved from the spool directory")
+	assert.Equal(t, KindResult, routed[0].Detail["kind"])
+
 	// Consumed by rename, not deleted. The message is SELECTED rather than
 	// counted: this run's turn boundary also writes its automatic report into
 	// out/ (spoolturnresult.go), so the directory legitimately holds more than

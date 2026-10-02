@@ -119,7 +119,8 @@ func (c *Coordinator) steerViaSpool(sender, harp, text string) (SteerOutcome, er
 // ErrSteerAlreadyDelivered means it did, and no amount of retrying changes
 // that. There is no TTL and no expiry sweep — an unread steer is a file
 // sitting in in/ where anyone can see it, and this is the operation that
-// removes it.
+// removes it. `ctxloom doctor` (doctorCheckSpoolBacklog) names it once it has
+// sat unread past its bound, so it never passes for a delivered one.
 //
 // by runs the same ownership guards a steer does: the ability to retract an
 // instruction is the ability to control the run, not a lesser privilege.

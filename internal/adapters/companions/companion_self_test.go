@@ -64,7 +64,7 @@ func TestProbeCompanionLoadouts_ProbesItselfThroughSelfexec(t *testing.T) {
 func TestProbeCompanionLoadouts_SelfProbeFailureIsACandidate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Cleanup(SetLookPathForTesting(func(string) (string, error) { return "", exec.ErrNotFound }))
-	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return nil, &exec.ExitError{} }))
+	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return nil, context.DeadlineExceeded }))
 
 	probe, err := Prober{Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)

@@ -948,6 +948,9 @@ type companionDecisions struct {
 	// absent is on nobody's PATH; notRun is present but never consented to
 	// (with its path); failed is present, consented, and its probe broke.
 	absent, notRun, failed []string
+	// noLoadout ran and answered that it offers no loadout: found, and
+	// withholding nothing.
+	noLoadout []string
 }
 
 func readCompanionDecisions(cfg *config.Config) companionDecisions {
@@ -965,6 +968,8 @@ func readCompanionDecisions(cfg *config.Config) companionDecisions {
 			d.absent = append(d.absent, bin)
 		case bundles.CandidateUnconsented:
 			d.notRun = append(d.notRun, fmt.Sprintf("%s (%s)", bin, cand.Path))
+		case bundles.CandidateNoLoadout:
+			d.noLoadout = append(d.noLoadout, bin)
 		default:
 			d.failed = append(d.failed, fmt.Sprintf("%s (%s)", bin, cand.Path))
 		}
@@ -974,7 +979,7 @@ func readCompanionDecisions(cfg *config.Config) companionDecisions {
 
 // discovered reports whether the catalog knew of any companion at all.
 func (d companionDecisions) discovered() bool {
-	return len(d.contributing) > 0 || d.withheld()
+	return len(d.contributing)+len(d.noLoadout) > 0 || d.withheld()
 }
 
 // withheld reports whether any companion the session might have expected is
@@ -1003,6 +1008,7 @@ func (d companionDecisions) detail() string {
 		{"NOT RUN", d.notRun, " — why, and how to allow it: 'ctxloom companion show <path>'"},
 		{"probe failed", d.failed, ""},
 		{"not installed", d.absent, ""},
+		{"no loadout", d.noLoadout, ""},
 	} {
 		if len(section.items) == 0 {
 			continue

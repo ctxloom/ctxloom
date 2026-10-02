@@ -491,6 +491,7 @@ func TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled(t *testing.
 				{Bin: "taskloom", Path: "/opt/bin/taskloom", Reason: bundles.CandidateUnconsented},
 				{Bin: "reprise", Reason: bundles.CandidateAbsent},
 				{Bin: "wedged", Path: "/opt/bin/wedged", Reason: bundles.CandidateProbeFailed},
+				{Bin: "plain", Path: "/opt/bin/plain", Reason: bundles.CandidateNoLoadout},
 			},
 		}, nil
 	})
@@ -506,6 +507,22 @@ func TestDoctorCheckSetupCompanions_TellsNotRunApartFromNotInstalled(t *testing.
 	assert.Contains(t, check.Detail, "probe failed: wedged (/opt/bin/wedged)")
 	assert.NotContains(t, check.Detail, "not installed: taskloom",
 		"a companion that is present and refused must never be reported as missing")
+	assert.Contains(t, check.Detail, "no loadout: plain",
+		"a companion that answered it has no loadout is a fact, not a failure")
+	assert.NotContains(t, check.Detail, "plain (/opt/bin/plain)")
+}
+
+// TestReadCompanionDecisions_NoLoadoutIsNotWithheld: a companion that
+// answered "no loadout" withholds nothing, so on its own it must not raise
+// the companion check into the warnings a doctor run surfaces.
+func TestReadCompanionDecisions_NoLoadoutIsNotWithheld(t *testing.T) {
+	_, cfg := setupProject(t, "claude-code")
+	cfg = withCompanionProbe(t, cfg, probeWithCandidates(
+		bundles.CompanionCandidate{Bin: "plain", Path: "/opt/bin/plain", Reason: bundles.CandidateNoLoadout},
+	))
+	d := readCompanionDecisions(cfg)
+	assert.False(t, d.withheld())
+	assert.True(t, d.discovered(), "it was still found")
 }
 
 func TestDoctorCheckSetupAuthPing_AlwaysInfoAndNamesTheGap(t *testing.T) {

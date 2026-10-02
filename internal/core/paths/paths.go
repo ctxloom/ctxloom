@@ -144,6 +144,12 @@ const (
 	// first on the engine's PATH.
 	CompanionPinCacheDir = "companions"
 
+	// CompanionLoadoutsDirName is the home directory holding each companion's
+	// last-known loadout (HomeCompanionLoadoutsDir). It is NOT under CacheDir:
+	// when a companion's probe fails, this record is the only account of what
+	// it contributes, and nothing can recompute it.
+	CompanionLoadoutsDirName = "companion_loadouts"
+
 	// LocksDir is the StateDir subdirectory holding the advisory lock sidecars
 	// that guard project-scoped files (ProjectPathFor, lockpath.go). It is state,
 	// not cache: a lock file is a fact about THIS machine's concurrent
@@ -419,6 +425,7 @@ const (
 	whatDistrustedSigners = "the user distrust record"
 	whatHomeRecords       = "the home records directory"
 	whatCompanionPin      = "the admitted-companion pin"
+	whatCompanionLoadouts = "the last-known companion loadouts"
 )
 
 // homeUnder resolves ~/<AppDirName>/<segments...>, naming what failed in the
@@ -440,6 +447,14 @@ func homeUnder(what string, segments ...string) (string, error) {
 // companions.PinAdmittedCompanions writes admitted companions into.
 func HomeCompanionPinDir() (string, error) {
 	return homeUnder(whatCompanionPin, CacheDir, CompanionPinCacheDir)
+}
+
+// HomeCompanionLoadoutsDir returns ~/.ctxloom/companion_loadouts — each
+// companion's last successfully probed loadout, which a later probe that errors
+// or times out carries forward rather than dropping the companion's hooks, MCP
+// servers and context.
+func HomeCompanionLoadoutsDir() (string, error) {
+	return homeUnder(whatCompanionLoadouts, CompanionLoadoutsDirName)
 }
 
 func HomeSessionsDir() (string, error) {
@@ -1297,6 +1312,10 @@ func Layout() []Entry {
 		// same RootHome/PresenceIfUsed shape as the locks row above it, for
 		// the parallel reason — this is state ABOUT a foreign file, so it
 		// cannot live beside that file.
+		{
+			Rel: filepath.Join(AppDirName, CompanionLoadoutsDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
+			Lost: "each companion's last-known loadout; nothing changes while companions answer, but one whose probe then fails contributes nothing until it answers again",
+		},
 		{
 			Rel: filepath.Join(AppDirName, HomeRecordsDirName), Root: RootHome, Tier: TierLocal, Presence: PresenceIfUsed,
 			Lost: "the audit trail of what `util config-write` changed in foreign JSON config files (hew §9.7 application records) — the files themselves are unaffected; only the record of having changed them is gone",

@@ -8,7 +8,7 @@ package companions
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
@@ -239,13 +238,18 @@ func companionsOnPathByConvention() []string {
 // companionLoadoutOutput runs a companion's loadout probe; seam for tests,
 // mirrors companionVersionOutput exactly (same timeout/WaitDelay discipline
 // — a wedged companion degrades to a warning, never a stalled startup).
+// A probe the timeout killed returns a SIGNALLED exit error, which
+// classifyLoadoutProbe reads as a failure, never as an answer.
 var companionLoadoutOutput = func(path string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), companionProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, loadout.Subcommand, "--"+loadout.FormatFlag, loadout.FormatJSON)
+	cmd := exec.CommandContext(ctx, path, loadoutArgs...)
 	cmd.WaitDelay = companionProbeWaitDelay
 	return cmd.Output()
 }
+
+// loadoutArgs is the loadout probe's argv after the binary.
+var loadoutArgs = []string{loadout.Subcommand, "--" + loadout.FormatFlag, loadout.FormatJSON}
 
 // SetCompanionLoadoutOutputForTesting overrides the loadout-probe exec seam
 // and returns a restore function. Companion of SetCompanionVersionOutputForTesting.
@@ -306,13 +310,12 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // every other source — so that this function cannot quietly become a second
 // notion of what a verified companion is.
 //
-// A companion that is absent from PATH, not admitted for execution, whose probe
-// fails or times out (including a first-party name that does not implement
-// `loadout` yet, e.g. reprise today), or whose loadout ENVELOPE is structurally
-// unusable — unparseable envelope, unrecognized contract, non-base64 or empty
-// document — is SKIPPED with a warning: NEVER fatal, NEVER a crash, NEVER a
-// stalled startup. Those cases produced no content in the first place, so there
-// is nothing to report.
+// A companion that is absent from PATH, not admitted for execution, or that
+// answers it offers no loadout (a first-party name that does not implement
+// `loadout` yet, e.g. reprise today) contributes nothing. One whose probe fails
+// or times out, or whose loadout ENVELOPE is structurally unusable, never
+// answered: its last-known loadout is carried forward with a warning (see
+// failedLoadout). NEVER fatal, NEVER a crash, NEVER a stalled startup.
 //
 // A SIGNATURE that does not verify is NOT one of those cases, and is not even
 // looked at here: companion content is admitted at EXEC, not by signature (see
@@ -383,29 +386,18 @@ func splitAdmissions(decided []CompanionAdmission) ([]CompanionAdmission, []bund
 }
 
 // probeLoadout execs one admitted companion's loadout probe: its loadout, or
-// (warned unless it is the ordinary silent case) a probe-failed candidate.
+// what failedLoadout makes of a probe that produced none.
 func probeLoadout(bin, path string) (*bundles.CompanionLoadout, *bundles.CompanionCandidate) {
 	raw, err := companionLoadoutOutput(path)
 	if err != nil {
-		// An unknown `loadout` subcommand (a companion that hasn't
-		// adopted the protocol yet) is the ordinary, silent case —
-		// *exec.ExitError with no further wrapping. Anything else
-		// (context.DeadlineExceeded from a wedged companion, or any
-		// other exec failure) is warned: the run would otherwise report
-		// success having delivered nothing from that companion.
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			clidiag.Warn("ctxloom", "companion %q: loadout probe failed, withholding: %v", bin, err)
-		}
-		return nil, &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
+		return failedLoadout(bin, path, classifyLoadoutProbe(err))
 	}
 	doc, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
 	if derr != nil {
-		// STRUCTURAL failure — no content was produced at all. Nothing
-		// to hand on, so this half still withholds.
-		clidiag.Warn("ctxloom", "companion %q: unparseable loadout envelope, withholding: %v", bin, derr)
-		return nil, &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
+		// It printed bytes that are not an envelope: it never answered.
+		return failedLoadout(bin, path, fmt.Errorf("%w: unparseable loadout envelope: %w", ErrLoadoutProbeFailed, derr))
 	}
+	recordLoadout(bin, raw)
 	return &bundles.CompanionLoadout{Bin: bin, Path: path, Document: doc, Signature: sig, Self: bin == SelfCompanion}, nil
 }
 

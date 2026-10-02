@@ -110,6 +110,9 @@ func lookPathOnly(bins map[string]string) func(string) (string, error) {
 // executable at the fake path lookPath hands back.
 func admitEveryDiscoveredCompanion(t *testing.T) {
 	t.Helper()
+	// A probe reads and writes the home-scoped last-known loadout record, so
+	// each test that probes starts with none rather than an earlier test's.
+	t.Setenv("HOME", t.TempDir())
 	restore := SetCompanionAdmissionForTesting(func(bins []string, _ trust.TrustRoot) []CompanionAdmission {
 		out := make([]CompanionAdmission, 0, len(bins))
 		for _, bin := range bins {

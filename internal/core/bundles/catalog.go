@@ -84,8 +84,8 @@ type Catalog struct {
 
 // CandidateReason names why a candidate has an identity but no content.
 //
-// The three are different facts about the machine and imply different user
-// actions — install it, allow it, fix it — so collapsing them would be the
+// They are different facts about the machine and imply different user
+// actions — install it, allow it, fix it, nothing — so collapsing them would be the
 // silent no-op this codebase's characteristic bug is made of.
 type CandidateReason string
 
@@ -96,8 +96,12 @@ const (
 	CandidateUnconsented CandidateReason = "unconsented"
 	// CandidateProbeFailed: obtaining the content was allowed and produced
 	// nothing usable — the probe failed, timed out, or its output would not
-	// parse.
+	// parse — and nothing earlier was on record to stand in for it.
 	CandidateProbeFailed CandidateReason = "probe-failed"
+	// CandidateNoLoadout: the companion ran and ANSWERED that it offers no
+	// loadout. Unlike a failed probe this is a fact, not an unknown: it
+	// contributes nothing, and nothing needs fixing.
+	CandidateNoLoadout CandidateReason = "no-loadout"
 	// CandidateAbsent: the identity is known but nothing on this machine
 	// answers to it.
 	CandidateAbsent CandidateReason = "absent"

@@ -206,17 +206,30 @@ func (i *instance) execArgs(presented []present.Presentation) ([]string, error) 
 		args = append(args, flagPrint)
 	}
 	args = append(args, repoSourceArgs(i.s.Trust)...)
-	for _, p := range presented {
-		if i.s.Trust != engine.TrustTrusted && slices.Contains(p.Args, flagSettings) {
-			return nil, errUntrustedSettingsPresented
-		}
-		args = append(args, p.Args...)
+	surfaces, err := presentedArgs(presented, i.s.Trust)
+	if err != nil {
+		return nil, err
 	}
+	args = append(args, surfaces...)
 	if i.key != "" {
 		args = append(args, flagResume, i.key)
 	}
 	if countFlag(args, flagSettings) > 1 {
 		return nil, errSettingsTwice
+	}
+	return args, nil
+}
+
+// presentedArgs is every presentation's args in delivery order. An
+// untrusted session refuses one naming --settings: the flag is a source
+// --setting-sources does not filter.
+func presentedArgs(presented []present.Presentation, trust engine.WorkspaceTrust) ([]string, error) {
+	var args []string
+	for _, p := range presented {
+		if trust != engine.TrustTrusted && slices.Contains(p.Args, flagSettings) {
+			return nil, errUntrustedSettingsPresented
+		}
+		args = append(args, p.Args...)
 	}
 	return args, nil
 }

@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
+	"github.com/spf13/afero"
 )
 
 // ReadMarker reads the in-tree project-id marker at
@@ -64,5 +65,5 @@ func WriteMarker(projectDir, id string) error {
 	// Atomic write, matching how the registry persists (registry.saveLocked):
 	// a crash or concurrent write mid-update must not leave a truncated marker
 	// that a later ReadMarker could trim+validate into a different identity.
-	return iox.WriteFileAtomic(path, []byte(id+"\n"), 0o644)
+	return safefs.WriteFile(afero.NewOsFs(), path, []byte(id+"\n"), 0o644)
 }

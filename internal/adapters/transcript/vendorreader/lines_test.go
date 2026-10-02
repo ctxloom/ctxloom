@@ -42,7 +42,7 @@ func TestReadJSONLLines_Empty(t *testing.T) {
 // whole, never truncated or dropped.
 func TestReadJSONLLines_LongLine(t *testing.T) {
 	long := strings.Repeat("x", 5*1024*1024)
-	lines, err := ReadJSONLLines(strings.NewReader(long + "\n"), 0)
+	lines, err := ReadJSONLLines(strings.NewReader(long+"\n"), 0)
 	require.NoError(t, err)
 	require.Len(t, lines, 1)
 	assert.Len(t, lines[0].Bytes, len(long))

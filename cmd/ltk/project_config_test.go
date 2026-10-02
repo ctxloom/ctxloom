@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,14 +10,24 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
-// projectConfigPath is this repository's own .ltk/config.yaml, loaded by
-// relative path from cmd/ltk. This project has a documented history of a
+// projectConfigPath is this repository's own .ltk/config.yaml. This project has a documented history of a
 // redirect rule being written but never actually verified to fire — the only
 // way to catch that regression is to run the live config against the exact
 // bare commands it claims to redirect, not to eyeball the YAML.
-const projectConfigPath = "../../.ltk/config.yaml"
+//
+// It is located from this package's source directory, not the working
+// directory: TestMain sandboxes the cwd to a throwaway root.
+func projectConfigPath(t *testing.T) string {
+	t.Helper()
+	dir, err := sourcedir.Dir()
+	if err != nil {
+		t.Fatalf("locate cmd/ltk's source directory: %v", err)
+	}
+	return filepath.Join(dir, "..", "..", ".ltk", "config.yaml")
+}
 
 // TestProjectRulesRedirectBareToolInvocations loads the real repository
 // .ltk/config.yaml (not a synthetic test fixture) and asserts that each bare
@@ -25,9 +36,10 @@ const projectConfigPath = "../../.ltk/config.yaml"
 // match pattern, wrong program name) without this failing any other test,
 // since nothing else evaluates the shipped config against real commands.
 func TestProjectRulesRedirectBareToolInvocations(t *testing.T) {
-	cfg, err := rules.Load(projectConfigPath)
+	cfgPath := projectConfigPath(t)
+	cfg, err := rules.Load(cfgPath)
 	if err != nil {
-		t.Fatalf("load %s: %v", projectConfigPath, err)
+		t.Fatalf("load %s: %v", cfgPath, err)
 	}
 	a := app.New(cfg, app.Shells{})
 
@@ -110,9 +122,10 @@ func TestProjectRulesRedirectBareToolInvocations(t *testing.T) {
 // the rules above redirect to must themselves be allowed through, or the
 // redirect is a dead end.
 func TestProjectRulesAllowTheirOwnJustTargets(t *testing.T) {
-	cfg, err := rules.Load(projectConfigPath)
+	cfgPath := projectConfigPath(t)
+	cfg, err := rules.Load(cfgPath)
 	if err != nil {
-		t.Fatalf("load %s: %v", projectConfigPath, err)
+		t.Fatalf("load %s: %v", cfgPath, err)
 	}
 	a := app.New(cfg, app.Shells{})
 

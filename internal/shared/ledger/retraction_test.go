@@ -33,10 +33,10 @@ func newWarnRecordingLedger(t *testing.T) (Ledger, *[]string) {
 // loses hooks off their disk with nothing to tell them why.
 func TestWrite_EmptyingASurface_WarnsNamingEveryRetractedEntry(t *testing.T) {
 	l, warnings := newWarnRecordingLedger(t)
-	require.NoError(t, l.Write(SurfaceHooks, []string{"digest-a", "digest-b"}))
+	require.NoError(t, l.Write(hooksSurface, []string{"digest-a", "digest-b"}))
 	*warnings = nil
 
-	require.NoError(t, l.Write(SurfaceHooks, nil))
+	require.NoError(t, l.Write(hooksSurface, nil))
 
 	require.Len(t, *warnings, 1)
 	assert.Contains(t, (*warnings)[0], "digest-a")
@@ -64,20 +64,20 @@ func TestWrite_DroppingSomeEntries_WarnsAboutOnlyThoseDropped(t *testing.T) {
 // launch and mean nothing. Without this, the feature is noise.
 func TestWrite_RewritingTheSameSet_DoesNotWarn(t *testing.T) {
 	l, warnings := newWarnRecordingLedger(t)
-	require.NoError(t, l.Write(SurfaceHooks, []string{"digest-a", "digest-b"}))
+	require.NoError(t, l.Write(hooksSurface, []string{"digest-a", "digest-b"}))
 	*warnings = nil
 
-	require.NoError(t, l.Write(SurfaceHooks, []string{"digest-b", "digest-a"}))
+	require.NoError(t, l.Write(hooksSurface, []string{"digest-b", "digest-a"}))
 
 	assert.Empty(t, *warnings, "remove-then-readd of an unchanged set is not a retraction")
 }
 
 func TestWrite_GrowingASurface_DoesNotWarn(t *testing.T) {
 	l, warnings := newWarnRecordingLedger(t)
-	require.NoError(t, l.Write(SurfaceMCP, []string{"ctxloom"}))
+	require.NoError(t, l.Write(mcpSurface, []string{"ctxloom"}))
 	*warnings = nil
 
-	require.NoError(t, l.Write(SurfaceMCP, []string{"ctxloom", "taskloom"}))
+	require.NoError(t, l.Write(mcpSurface, []string{"ctxloom", "taskloom"}))
 
 	assert.Empty(t, *warnings)
 }
@@ -87,7 +87,7 @@ func TestWrite_GrowingASurface_DoesNotWarn(t *testing.T) {
 func TestWrite_FirstEverWrite_DoesNotWarn(t *testing.T) {
 	l, warnings := newWarnRecordingLedger(t)
 
-	require.NoError(t, l.Write(SurfaceHooks, []string{"digest-a"}))
+	require.NoError(t, l.Write(hooksSurface, []string{"digest-a"}))
 
 	assert.Empty(t, *warnings)
 }
@@ -96,10 +96,10 @@ func TestWrite_FirstEverWrite_DoesNotWarn(t *testing.T) {
 // of the message, so its grammar is part of the deliverable.
 func TestWrite_RetractingExactlyOne_ReadsAsSingular(t *testing.T) {
 	l, warnings := newWarnRecordingLedger(t)
-	require.NoError(t, l.Write(SurfaceHooks, []string{"only"}))
+	require.NoError(t, l.Write(hooksSurface, []string{"only"}))
 	*warnings = nil
 
-	require.NoError(t, l.Write(SurfaceHooks, nil))
+	require.NoError(t, l.Write(hooksSurface, nil))
 
 	require.Len(t, *warnings, 1)
 	assert.Contains(t, (*warnings)[0], "retracted 1 hooks entry")
@@ -110,11 +110,11 @@ func TestWrite_RetractingExactlyOne_ReadsAsSingular(t *testing.T) {
 // surface's entries as lost, since they are still on disk.
 func TestWrite_EmptyingOneSurface_DoesNotReportACoLocatedSurfacesEntries(t *testing.T) {
 	l, warnings := newWarnRecordingLedger(t)
-	require.NoError(t, l.Write(SurfaceHooks, []string{"hook-digest"}))
-	require.NoError(t, l.Write(SurfaceMCP, []string{"mcp-name"}))
+	require.NoError(t, l.Write(hooksSurface, []string{"hook-digest"}))
+	require.NoError(t, l.Write(mcpSurface, []string{"mcp-name"}))
 	*warnings = nil
 
-	require.NoError(t, l.Write(SurfaceHooks, nil))
+	require.NoError(t, l.Write(hooksSurface, nil))
 
 	require.Len(t, *warnings, 1)
 	assert.Contains(t, (*warnings)[0], "hook-digest")

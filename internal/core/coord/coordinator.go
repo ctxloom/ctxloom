@@ -256,11 +256,9 @@ type Coordinator struct {
 	// only honest way to do that is to let the sweep actually run.
 	spoolSweepInterval time.Duration
 	spoolDeliveryCount SpoolDeliveryCounters
-	// spoolSeen remembers which in/consumed entries have already been credited
-	// as progress, per role. consumed/ is an audit trail nothing prunes yet, so
-	// without this every sweep would re-credit the whole history.
-	spoolSeenMu sync.Mutex
-	spoolSeen   map[string]map[string]bool
+	// spoolCredit is what sweepChildDelivered has already credited as
+	// progress (spoolcredit.go).
+	spoolCredit spoolCredit
 
 	mu      sync.Mutex
 	attach  map[string]*childRt       // runID → runtime attachment

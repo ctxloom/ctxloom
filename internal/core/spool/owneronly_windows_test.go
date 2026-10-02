@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -30,10 +31,15 @@ func TestSpool_TheRootAndWhatIsBeneathItAreOwnerOnly_ADACL(t *testing.T) {
 	nonce, err := ArmWake(m, testHarp)
 	require.NoError(t, err)
 
+	delivered, err := w.Write(&Message{Kind: "message", FromHarp: "coord", To: testHarp, Body: "y\n"})
+	require.NoError(t, err)
+	require.NoError(t, Deliver(m, delivered, "m-perm", time.Now()))
+
 	msg, err := m.Resolve(ref)
 	require.NoError(t, err)
 	fileperm.OwnerOnly(t, root)
-	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(string(DirInConsumed))))
+	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(string(DirOutConsumed))))
+	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(deliveredDirName), "m-perm"))
 	fileperm.OwnerOnly(t, msg)
 	fileperm.OwnerOnly(t, filepath.Join(root, filepath.FromSlash(wakeDirName), nonce))
 }

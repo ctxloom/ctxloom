@@ -116,7 +116,7 @@ func TestHomeMapper_RefOfRoundTrip(t *testing.T) {
 	hostHome(t)
 	m := NewHomeMapper()
 
-	for _, dir := range []Dir{DirIn, DirOut, DirInConsumed, DirOutConsumed, DirInWithdrawn} {
+	for _, dir := range []Dir{DirIn, DirOut, DirOutConsumed, DirInWithdrawn} {
 		ref := Ref{Harp: testHarp, Dir: dir, Name: "00000000000000000042.00000007.coord.md"}
 		path, err := m.Resolve(ref)
 		require.NoError(t, err)
@@ -152,22 +152,21 @@ func TestHomeMapper_RefOfRejectsForeignPaths(t *testing.T) {
 }
 
 func TestDir_ClosedEnum(t *testing.T) {
-	for _, d := range []Dir{DirIn, DirOut, DirInConsumed, DirOutConsumed, DirInWithdrawn} {
+	for _, d := range []Dir{DirIn, DirOut, DirOutConsumed, DirInWithdrawn} {
 		require.True(t, d.Valid(), "%s must be in the closed set", d)
 		require.NoError(t, d.Validate())
 	}
-	for _, d := range []Dir{"", "IN", "in/", "quarantine", "in/consumed/deeper", "tmp"} {
+	for _, d := range []Dir{"", "IN", "in/", "quarantine", "in/consumed", "in/consumed/deeper", "in/delivered", "tmp"} {
 		require.False(t, Dir(d).Valid(), "%q must not be in the closed set", d)
 		require.Error(t, Dir(d).Validate())
 	}
 }
 
 func TestDir_TerminalDirs(t *testing.T) {
-	consumed, err := DirIn.Consumed()
-	require.NoError(t, err)
-	require.Equal(t, DirInConsumed, consumed)
+	_, err := DirIn.Consumed()
+	require.Error(t, err, "an inbox message is delivered (Deliver), never consumed into a directory")
 
-	consumed, err = DirOut.Consumed()
+	consumed, err := DirOut.Consumed()
 	require.NoError(t, err)
 	require.Equal(t, DirOutConsumed, consumed)
 
@@ -179,7 +178,7 @@ func TestDir_TerminalDirs(t *testing.T) {
 	// consumable: those are caller bugs, and must say so.
 	_, err = DirOut.Withdrawn()
 	require.Error(t, err)
-	for _, d := range []Dir{DirInConsumed, DirOutConsumed, DirInWithdrawn} {
+	for _, d := range []Dir{DirOutConsumed, DirInWithdrawn} {
 		_, err := d.Consumed()
 		require.Error(t, err, "%s must not be consumable", d)
 	}
@@ -192,7 +191,7 @@ func TestEnsureDirs_CreatesTheWholeLayout(t *testing.T) {
 
 	root, err := Root(m, testHarp)
 	require.NoError(t, err)
-	for _, rel := range []string{"in", "out", "in/consumed", "out/consumed", "in/withdrawn", "tmp"} {
+	for _, rel := range []string{"in", "out", "out/consumed", "in/withdrawn", "tmp"} {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		st, err := statDir(path)
 		require.NoError(t, err, "EnsureDirs must create %s", rel)

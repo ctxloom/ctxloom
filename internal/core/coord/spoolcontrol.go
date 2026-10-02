@@ -142,10 +142,19 @@ func (c *Coordinator) WithdrawSteer(by ControlInitiator, harp, messageID string)
 	mapper := c.mapper
 	ref, found := c.findSpoolMessage(harp, spool.DirIn, messageID)
 	if !found {
-		// Not in in/. Either it was consumed (the child took it) or it never
-		// existed — two different answers, and the consumed/ directory is the
-		// audit trail that tells them apart.
-		if _, taken := c.findSpoolMessage(harp, spool.DirInConsumed, messageID); taken {
+		// Not in in/. Either it was delivered (the child took it) or it never
+		// existed — two different answers, and the spool's delivered record
+		// tells them apart for as long as it keeps the identity
+		// (spool.DeliveredRetention); past that, it reads as never existed.
+		if spool.ValidateName(messageID) != nil {
+			// Not a name any spool file or record entry can have.
+			return fmt.Errorf("%w: %s", ErrNoSuchSteer, messageID)
+		}
+		taken, err := spool.Delivered(mapper, harp, messageID)
+		if err != nil {
+			return fmt.Errorf("steer withdraw: %w", err)
+		}
+		if taken {
 			c.audit("agent_steer_withdraw", by.auditName(), map[string]string{
 				"harp": harp, "message_id": messageID, "outcome": "already_delivered",
 			})

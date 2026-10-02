@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -102,6 +103,19 @@ func (h *Home) sweepSpoolIn() {
 // deliverSpoolEntry projects one swept in/ entry onto the delivery seam and
 // delivers it, or moves it to in/failed/ naming why it could not be.
 func (h *Home) deliverSpoolEntry(e spool.Entry) {
+	delivered, err := spool.Delivered(h.cfg.Mapper, h.Harp(), e.Identity())
+	if err != nil {
+		h.rep.Warnf("runner: cannot tell whether %s was already delivered, delivering it: %v", e.Ref, err)
+	}
+	if delivered {
+		// Recorded but not deleted: a delivery interrupted between its
+		// record and its delete. Finish it; never deliver it twice.
+		if err := spool.Deliver(h.cfg.Mapper, e.Ref, e.Identity(), time.Now()); err != nil && !errors.Is(err, spool.ErrAlreadyGone) {
+			h.rep.Warnf("runner: could not finish the delivery of %s: %v", e.Ref, err)
+			h.spoolDeliveryCount.Failed.Add(1)
+		}
+		return
+	}
 	msg, err := coord.MailFromSpool(e, e.Message.FromHarp)
 	if err != nil {
 		h.failSpoolEntry(e, "refusing an undeliverable spool message", err)
@@ -165,7 +179,8 @@ func (h *Home) takeSpoolRef(id string) (spool.Ref, bool) {
 }
 
 // ackMailConsumed is the ONE acknowledgement point for delivered mail: the
-// consume-rename plus the doorbell that announces it. The ack timing (after
+// delivered record and delete (spool.Deliver) plus the doorbell that
+// announces it. The ack timing (after
 // the engine accepted the turn) is a property of the CALLER, and it is the
 // property that keeps at-least-once true.
 func (h *Home) ackMailConsumed(ids []string) {
@@ -186,19 +201,19 @@ func (h *Home) ackMailConsumed(ids []string) {
 			h.spoolDeliveryCount.Failed.Add(1)
 			continue
 		}
-		done, err := spool.Consume(h.cfg.Mapper, ref)
-		if err != nil {
+		if err := spool.Deliver(h.cfg.Mapper, ref, id, time.Now()); err != nil {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue
 			}
-			h.rep.Warnf("runner: delivered %s but could not mark it consumed: %v (the coordinator will see it as still pending)", ref, err)
+			h.rep.Warnf("runner: delivered %s but could not record it as delivered: %v (it will be delivered again)", ref, err)
 			h.spoolDeliveryCount.Failed.Add(1)
 			continue
 		}
 		h.spoolDeliveryCount.Consumed.Add(1)
-		// The consume-rename IS the delivery ack, and this ring is how the
-		// coordinator learns of it without polling.
-		h.outboundCourier().Announce("", done, "consumed")
+		// The record-and-delete IS the delivery ack, and this ring is how the
+		// coordinator learns of it without polling. It names the file that
+		// was delivered and is now gone: a doorbell is only a wake.
+		h.outboundCourier().Announce("", ref, "consumed")
 	}
 }
 

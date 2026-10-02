@@ -1736,9 +1736,11 @@ enum SpoolDir {
   // out/ — messages FROM that agent. Single writer: its runner.
   SPOOL_DIR_OUT = 2;
 
-  // in/consumed/ — an in/ message the runner accepted. This doorbell is the
-  // DELIVERY CONFIRMATION.
-  SPOOL_DIR_IN_CONSUMED = 3;
+  // 3 was in/consumed/. A delivered in/ message is deleted, not moved, so no
+  // directory remains for a doorbell to name; the runner's delivery
+  // confirmation names the in/ file it delivered.
+  reserved 3;
+  reserved "SPOOL_DIR_IN_CONSUMED";
 
   // out/consumed/ — an out/ message the coordinator processed.
   SPOOL_DIR_OUT_CONSUMED = 4;

@@ -489,32 +489,26 @@ func (c *Coordinator) spoolPendingCount(role string) int {
 	if err := res.ProblemErr(); err != nil {
 		c.rep.Warnf("coordinator: %s's spool holds files that cannot be read as messages and are NOT counted as pending: %v", role, err)
 	}
-	return len(res.Entries)
+	pending := 0
+	for _, e := range res.Entries {
+		// A file whose identity is already in the delivered record is a
+		// delivery whose delete was interrupted: the reader's next sweep
+		// finishes it, and it is nothing the child still has to see.
+		delivered, err := spool.Delivered(c.mapper, role, e.Identity())
+		if err != nil {
+			c.rep.Warnf("coordinator: %s: cannot tell whether %s was delivered, counting it as pending: %v", role, e.Ref, err)
+		}
+		if !delivered {
+			pending++
+		}
+	}
+	return pending
 }
 
 // sweepSpoolDir reads one spool directory, distinguishing "not there" (no
 // messages, no complaint) from a real failure (loud, counted). ok=false means
 // the caller has nothing to process.
 func (c *Coordinator) sweepSpoolDir(harp string, dir spool.Dir, why string) (spool.SweepResult, bool) {
-	return c.sweepSpoolDirWith(harp, dir, why, spool.Sweep)
-}
-
-// sweepSpoolDirNames is sweepSpoolDir with the read-and-parse contract
-// dropped: it lists the directory and validates filenames only, never opening
-// a file's body. It exists for a directory where the filename IS the whole
-// signal — see spool.SweepNames — and it shares every non-body-reading part
-// of sweepSpoolDir's behaviour (path resolution, the not-there/real-failure
-// distinction, the warn-and-count-failed path) by routing through the same
-// function with only the sweep primitive swapped, so those cannot drift
-// between the two modes.
-func (c *Coordinator) sweepSpoolDirNames(harp string, dir spool.Dir, why string) (spool.SweepResult, bool) {
-	return c.sweepSpoolDirWith(harp, dir, why, spool.SweepNames)
-}
-
-// sweepSpoolDirWith is the shared body of sweepSpoolDir and
-// sweepSpoolDirNames, parameterized on which spool primitive actually reads
-// the directory.
-func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, sweep func(spool.PathMapper, string, spool.Dir) (spool.SweepResult, error)) (spool.SweepResult, bool) {
 	mapper := c.mapper
 	path, err := spool.DirPath(mapper, harp, dir)
 	if err != nil {
@@ -525,7 +519,7 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 		return spool.SweepResult{Dir: dir}, false
 	}
-	res, err := sweep(mapper, harp, dir)
+	res, err := spool.Sweep(mapper, harp, dir)
 	if err != nil {
 		c.rep.Warnf("coordinator: sweeping %s's %s spool (%s): %v", harp, dir, why, err)
 		c.spoolDeliveryCount.Failed.Add(1)
@@ -536,7 +530,7 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 
 // startSpoolReactor brings up the coordinator's spool reader.
 func (c *Coordinator) startSpoolReactor() {
-	c.spoolSeen = map[string]map[string]bool{}
+	c.spoolCredit.start(time.Now())
 	c.spoolReactor = NewSpoolReactor(c.sweepChildSpool, c.spoolRoles, c.spoolSweepInterval)
 	// The reactor is registered AS the doorbell's consumer rather than being
 	// called beside it. One seam: a second consumer cannot be added without
@@ -577,7 +571,7 @@ func (c *Coordinator) sweepChildSpool(role string) {
 	if c.ownerSpool(role) {
 		return
 	}
-	c.sweepChildConsumed(role)
+	c.sweepChildDelivered(role)
 }
 
 // sweepChildOut routes every message sitting in role's out/, oldest first, and
@@ -788,35 +782,21 @@ func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
 	_ = done
 }
 
-// sweepChildConsumed reads in/consumed — the child's acknowledgements — and
-// credits the ONE thing they mean to the coordinator: real progress, which
-// forgives the relaunch budget (the file-plane replacement for the runner's
-// mail_consumed fact).
+// sweepChildDelivered reads the child's delivered record (spool.Deliver's
+// in/delivered/) and credits the ONE thing a new entry means to the
+// coordinator: real progress, which forgives the relaunch budget.
 //
-// Entries are remembered so a later sweep does not re-credit them. The set
-// grows with the run's delivered mail and is dropped with the process; there
-// is no retention prune of consumed/ yet, which is what makes the set
-// necessary.
-func (c *Coordinator) sweepChildConsumed(role string) {
-	res, ok := c.sweepSpoolDirNames(role, spool.DirInConsumed, "reading delivery acknowledgements")
-	if !ok {
+// What is new is decided by spoolCredit: an entry recorded before this
+// coordinator started is history and is never credited, so a restart credits
+// nothing, and an entry already credited is not credited again.
+func (c *Coordinator) sweepChildDelivered(role string) {
+	ids, err := spool.DeliveredIdentities(c.mapper, role)
+	if err != nil {
+		c.rep.Warnf("coordinator: reading %s's delivered record: %v", role, err)
+		c.spoolDeliveryCount.Failed.Add(1)
 		return
 	}
-	fresh := 0
-	c.spoolSeenMu.Lock()
-	seen := c.spoolSeen[role]
-	if seen == nil {
-		seen = map[string]bool{}
-		c.spoolSeen[role] = seen
-	}
-	for _, e := range res.Entries {
-		if seen[e.Ref.Name] {
-			continue
-		}
-		seen[e.Ref.Name] = true
-		fresh++
-	}
-	c.spoolSeenMu.Unlock()
+	fresh := c.spoolCredit.credit(role, ids)
 	if fresh == 0 {
 		return
 	}

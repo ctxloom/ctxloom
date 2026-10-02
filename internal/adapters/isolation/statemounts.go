@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	taskpaths "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
 
@@ -115,35 +116,9 @@ func (s SessionState) ephemeralDir() (string, error) {
 //	    business reading — let alone appending to — another project's task
 //	    log. Which project it is comes from the CTXLOOM_PROJECT_ID the run env
 //	    pins.
-//	~/.ctxloom/locks → the same leaf under the container home
-//	    (c.home/.ctxloom/locks). RULED (human): an engine-settings
-//	    file this run's config-overlay write mounts expose (.claude/
-//	    settings.json, .mcp.json, and each engine's counterparts)
-//	    is bind-mounted host↔container at an IDENTICAL absolute path, but
-//	    paths.HomePathFor resolves its lock sidecar against EACH SIDE'S OWN
-//	    $HOME — the host's real home on one side, the container's fresh
-//	    defaultContainerHome on the other. Same protected path, same flattened
-//	    lock name, two DIFFERENT files: host and container flocks land on
-//	    disjoint inodes and exclude nobody. Mounting the whole locks
-//	    directory (not a per-file mount, which nothing here can enumerate —
-//	    the set of foreign files a run's engine may lock is not known until
-//	    it runs) puts every lock sidecar either side ever creates for THIS
-//	    run's identical-path files under the same directory, so the shared
-//	    flattened name resolves to the same file on both sides. The
-//	    blanket-~/.ctxloom-mount rationale this doc's own opening paragraph
-//	    warns against (cache/bundles/config/every-other-session exposure)
-//	    does not apply to this one directory: a lock file carries no data
-//	    (docs/layout.md) — there is nothing in ~/.ctxloom/locks for a
-//	    container to read that tells it anything about any other session,
-//	    project, or bundle.
 //
-//	    Every registered engineContainerSpec ships a non-empty overlayDirs
-//	    today (defaultOverlayDirs/
-//	    mockOverlayDirs — enginespec.go), so every
-//	    container this method runs for already carries the write mounts this
-//	    lock protects; there is no narrower engine spec to condition on, so
-//	    the mount rides unconditionally like the facets above rather than
-//	    behind a per-spec check.
+// The container's ~/.ctxloom/locks is NOT among these: see
+// Container.lockMounts.
 //
 // VM-FS append hazard on the log: host and container both APPEND to it. On
 // native Linux a bind mount is the same inode, so O_APPEND keeps concurrent
@@ -169,12 +144,7 @@ func (c Container) sessionStateMounts() ([]mount, error) {
 	if err != nil {
 		return nil, err
 	}
-	mounts = append(mounts, taskMounts...)
-	locks, err := c.locksDirMount()
-	if err != nil {
-		return nil, err
-	}
-	return append(mounts, locks), nil
+	return append(mounts, taskMounts...), nil
 }
 
 // harpStateMounts binds the session's native transcript store (when the
@@ -261,25 +231,52 @@ func (c Container) taskStoreMounts() ([]mount, error) {
 	return mounts, nil
 }
 
-// locksDirMount binds the home locks dir.
-func (c Container) locksDirMount() (m mount, err error) {
-	// The locks-dir mount is unconditional (see sessionStateMounts' doc):
-	// every registered engine spec's overlayDirs is non-empty, so every
-	// container this runs for already has an engine-settings write mount
-	// whose lock needs to cross the boundary. Host-side directory, created
-	// before `run` the same way the other bind sources are.
-	locksDir, err := paths.HomeLocksDir()
-	if err != nil {
-		return m, fmt.Errorf("container lock-dir mount: %w", err)
+// lockMounts gives the container its OWN ~/.ctxloom/locks — a per-run dir
+// under scratchRoot, removed with it — never the host's. The host's locks dir
+// guards host-only state (the countersign trust index, every session's files),
+// and a child holding it RW could stall those writers by holding a lock,
+// break their exclusion by deleting or replacing a lock file, or plant a
+// symlink for the host to open.
+//
+// The one exception is a file both sides really do write: each of the
+// engine's inPlaceFiles under dir, reached through the project bind. Its host
+// lock file alone is bound, as a single file, at the name the container's own
+// paths.HomePathFor gives it — computed from the IN-CONTAINER path, so a
+// runtime that maps the project elsewhere still lands both sides on one
+// inode. A single-file bind cannot be unlinked or replaced from inside; the
+// child can still hold it, which stalls only writers of a file it may already
+// rewrite. Overlaid files need no such lock: the overlay puts the container's
+// copy on a different inode from the host's.
+func (c Container) lockMounts(dir, scratchRoot string) ([]mount, error) {
+	seam := c.runtime.paths()
+	runLocks := filepath.Join(scratchRoot, paths.HomeLocksDirName)
+	if err := os.MkdirAll(runLocks, 0o755); err != nil {
+		return nil, fmt.Errorf("container lock mounts: %w", err)
 	}
-	if err := os.MkdirAll(locksDir, 0o755); err != nil {
-		return m, fmt.Errorf("container lock-dir mount: %w", err)
+	containerLocks := path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName)
+	mounts := []mount{seam.bind(runLocks, containerLocks, false)}
+	for _, rel := range c.engineSpec.inPlaceFiles {
+		protected := filepath.Join(dir, rel)
+		hostLock, err := paths.HomePathFor(protected)
+		if err != nil {
+			return nil, fmt.Errorf("container lock mounts: %w", err)
+		}
+		inContainer, err := seam.targetFor(protected)
+		if err != nil {
+			return nil, fmt.Errorf("container lock mounts: %s has no route into the container: %w", protected, err)
+		}
+		name := paths.HomeLockName(inContainer)
+		// Both must exist as FILES before `run`: the bind source, or the
+		// runtime creates a directory in its place; and the target inside the
+		// per-run dir, or a rootful runtime creates it there as root.
+		for _, f := range []string{hostLock, filepath.Join(runLocks, name)} {
+			if err := filelock.Prepare(f); err != nil {
+				return nil, fmt.Errorf("container lock mounts: %w", err)
+			}
+		}
+		mounts = append(mounts, seam.bind(hostLock, path.Join(containerLocks, name), false))
 	}
-	return c.runtime.paths().bind(
-		locksDir,
-		path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName),
-		false,
-	), nil
+	return mounts, nil
 }
 
 // ensureFile creates path as an empty regular file if it does not exist, and

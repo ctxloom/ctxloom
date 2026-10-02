@@ -35,8 +35,7 @@ func TestSessionStateFromEnv(t *testing.T) {
 // each engine's native STORE ROOT resolved against the CONTAINER home, the
 // persist dir maps to the container-home ~/.ctxloom session path, this
 // project's task log and its lock map to the same two paths under the
-// container home, and the home-rooted locks dir maps to the container home's
-// .ctxloom/locks (the engine-settings lock-path fix). Host sources are
+// container home. Host sources are
 // created (a bind source must exist, and a missing FILE source would be
 // created as a directory by the runtime) and every mount is RW.
 func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
@@ -54,13 +53,11 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 			c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
 			mounts, err := c.sessionStateMounts()
 			require.NoError(t, err)
-			require.Len(t, mounts, 5)
+			require.Len(t, mounts, 4)
 
 			wantStore, err := paths.HarpTranscriptStoreDir("brisk-teal-otter")
 			require.NoError(t, err)
 			wantPersist, err := paths.HarpPersistDir("brisk-teal-otter")
-			require.NoError(t, err)
-			wantLocks, err := paths.HomeLocksDir()
 			require.NoError(t, err)
 
 			assert.Equal(t, mount{
@@ -79,10 +76,6 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 				Container: path.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
 			}, mounts[3], "the log's lock rides along: a lock the container cannot see excludes nothing")
-			assert.Equal(t, mount{
-				Host:      wantLocks,
-				Container: path.Join(defaultContainerHome, ".ctxloom", "locks"),
-			}, mounts[4], "the home-rooted locks dir binds to the container home's .ctxloom/locks — the same directory paths.HomePathFor resolves to when $HOME is the container home, so host and container flock the same inode for an identical-path engine-settings file")
 
 			for _, m := range mounts {
 				assert.False(t, m.ReadOnly, "state mounts are RW: the engine/taskloom writes them")
@@ -108,7 +101,7 @@ func TestSessionStateMounts_UnmappedBackendMountsNoStore(t *testing.T) {
 	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
-	require.Len(t, mounts, 4, "persist, task log, its lock, and the locks dir — no transcript store")
+	require.Len(t, mounts, 3, "persist, task log and its lock — no transcript store")
 	for _, m := range mounts {
 		assert.NotContains(t, m.Container, "projects", "no engine store root is guessed for an undeclared engine")
 	}
@@ -141,10 +134,7 @@ func TestSessionStateMounts_NoProjectID_SkipsTaskMount(t *testing.T) {
 	c.state = SessionState{Harp: "brisk-teal-otter"}
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
-	require.Len(t, mounts, 3, "transcript store + persist, plus the project-independent locks-dir mount")
-	wantLocks, err := paths.HomeLocksDir()
-	require.NoError(t, err)
-	assert.Equal(t, wantLocks, mounts[2].Host, "the locks-dir mount needs no project id")
+	require.Len(t, mounts, 2, "transcript store + persist")
 
 	_, statErr := os.Stat(filepath.Join(home, ".ctxloom", "tasks"))
 	assert.True(t, os.IsNotExist(statErr), "no shared task dir is minted without a project id")
@@ -226,41 +216,6 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 		"the dir holding every project's task log is never handed to a run")
 	assert.NotContains(t, argv, store+",readonly", "the engine writes its transcript store")
 
-	wantLocks, err := paths.HomeLocksDir()
-	require.NoError(t, err)
-	assert.Contains(t, argv,
-		fmt.Sprintf("--mount type=bind,source=%s,target=%s", wantLocks, path.Join(defaultContainerHome, ".ctxloom", "locks")),
-		"the locks-dir mount rides the same --mount argv every other state mount does")
-}
-
-// TestSessionStateMounts_LocksDirMount_Unconditional is THE mutation-kill
-// target for the lock-path fix: the locks-dir mount must be present even
-// when no project id is set — every registered engine spec's
-// overlayDirs is non-empty (enginespec.go), so every container run gets an
-// engine-settings write mount and needs this facet regardless of session
-// identity. Deleting the mount's append call, or gating it behind the harp
-// or project-id branches above, makes this go red while leaving every
-// harp/project-scoped assertion elsewhere green.
-func TestSessionStateMounts_LocksDirMount_Unconditional(t *testing.T) {
-	home := testsupport.Isolate(t)
-
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	c.state = SessionState{Harp: "brisk-teal-otter"}
-	mounts, err := c.sessionStateMounts()
-	require.NoError(t, err)
-
-	wantLocks, err := paths.HomeLocksDir()
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(home, ".ctxloom", "locks"), wantLocks)
-	assert.Contains(t, mounts, mount{
-		Host:      wantLocks,
-		Container: path.Join(defaultContainerHome, ".ctxloom", "locks"),
-		ReadOnly:  false,
-	}, "the locks-dir mount needs no project id")
-
-	info, statErr := os.Stat(wantLocks)
-	require.NoError(t, statErr, "the host locks dir must exist before `run`")
-	assert.True(t, info.IsDir())
 }
 
 // TestWithSessionState_StampsChainPolicies: Prepare's stamping helper carries
@@ -410,73 +365,4 @@ func TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember(t *testing.T)
 	out := buf.String()
 	assert.LessOrEqual(t, strings.Count(out, "no project id"), 1,
 		"the project-id degrade collapses per process — one line per member would be startup spam in a fan-out")
-}
-
-// TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir pins the
-// path-resolution equivalence the lock-path fix depends on, WITHOUT a live
-// container: paths.HomePathFor, invoked as if $HOME were the container's
-// fresh home (the -e HOME=<container home> every container run sets — see
-// renderRunSpec), must resolve an identical-path engine-settings file's lock
-// sidecar to a path directly under this Container's locks-dir mount target.
-// That is precisely what makes the mount fix work: the flattened lock
-// filename depends only on the PROTECTED file's absolute path (identical on
-// both sides of the boundary for a same-path engine-settings mount), never
-// on which $HOME computed it, so the same host directory holds the file both
-// the host process and the in-container process open.
-//
-// A real container run of this proof is deferred to the docker-gated lane
-// (statemounts_docker_integration_test.go's
-// TestContainerLockMount_HostAndContainerReadSameLockFile) — this test
-// covers the pure path arithmetic without requiring a docker daemon.
-func TestHomePathFor_ContainerHomeResolvesUnderMountedLocksDir(t *testing.T) {
-	realHome := testsupport.Isolate(t)
-	projectDir := t.TempDir()
-	protected := filepath.Join(projectDir, ".claude", "settings.json")
-
-	// The host side: paths.HomePathFor under the REAL (isolated) host home.
-	hostLockPath, err := paths.HomePathFor(protected)
-	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(hostLockPath, filepath.Join(realHome, ".ctxloom", "locks")+string(filepath.Separator)))
-
-	// The container side: the SAME resolver, called with $HOME temporarily
-	// repointed at the container's fresh home -- exactly what runs inside the
-	// container, since renderRunSpec sets HOME=defaultContainerHome for every
-	// container run. The resolver joins with the HOST separator, so its
-	// answer is read back as the slash path the Linux container sees.
-	testsupport.PointHomeAt(t, defaultContainerHome)
-	containerLockPath, err := paths.HomePathFor(protected)
-	require.NoError(t, err)
-	containerLockPath = filepath.ToSlash(containerLockPath)
-	// Restore before touching sessionStateMounts below: that call runs on
-	// THIS host process (sessionStateMounts always resolves against the
-	// REAL host's $HOME, never the container's — only the mount TARGET
-	// names the container path), and would otherwise try to MkdirAll a
-	// locks dir under the fake container home on this host's filesystem.
-	testsupport.PointHomeAt(t, realHome)
-
-	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	c.state = SessionState{Harp: "brisk-teal-otter"}
-	require.Equal(t, defaultContainerHome, c.home)
-	wantContainerLocksDir := path.Join(c.home, paths.AppDirName, paths.HomeLocksDirName)
-	require.True(t, strings.HasPrefix(containerLockPath, wantContainerLocksDir+"/"))
-
-	// The load-bearing equivalence: same basename either side of the
-	// boundary, because flattening is a pure function of the protected path.
-	assert.Equal(t, filepath.Base(hostLockPath), path.Base(containerLockPath),
-		"host and container HomePathFor must derive the IDENTICAL lock filename for the same protected path")
-
-	// And the mount this package builds carries exactly that container
-	// target as its Container side, and the host locks dir (not the
-	// container's) as its Host side.
-	mounts, err := c.sessionStateMounts()
-	require.NoError(t, err)
-	var found bool
-	for _, m := range mounts {
-		if m.Container == wantContainerLocksDir {
-			found = true
-			assert.Equal(t, filepath.Join(realHome, ".ctxloom", "locks"), m.Host,
-				"the mount's host side must be the REAL host locks dir, not the container's")
-		}
-	}
-	assert.True(t, found, "sessionStateMounts must carry a mount whose container target is the container-home locks dir")
 }

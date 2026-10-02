@@ -53,6 +53,7 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 		Install:            installFragment,
 		ValidateCommand:    "claude --version",
 		OverlayDirs:        []string{ConfigDirName},
+		InPlaceFiles:       []string{MCPFileName},
 		TranscriptStoreRel: path.Join(ConfigDirName, TranscriptsDirName),
 	}, nil
 }

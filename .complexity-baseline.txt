@@ -225,15 +225,15 @@
 ./scripts/audit_sha_credits.py|find_negation_window( rid , commit_body )|1|11|find_negation_window|178-206
 ./scripts/gendocs/main_test.go|TestCtxloomProduct t * testing . T|1|12|TestCtxloomProduct|20-60
 ./scripts/gendocs/main_test.go|TestEveryHiddenTopLevelCommandIsDecided t * testing . T|1|14|TestEveryHiddenTopLevelCommandIsDecided|154-191
-./tests/acceptance/capability_hook_probe.go| path string , d os . DirEntry , err error|1|15||546-582
+./tests/acceptance/capability_hook_probe.go| path string , d os . DirEntry , err error|1|15||542-578
 ./tests/acceptance/capability_probe_gate_live.go|probeContainerRuntimeForAxis ctx context . Context , axis , what string|1|11|probeContainerRuntimeForAxis|119-175
 ./tests/acceptance/capability_probe_registry_test.go| t * testing . T|1|11||276-324
 ./tests/acceptance/capability_probe_registry_test.go|TestProbeRegistry_CellsAreWellFormedAndEvidenced t * testing . T|1|24|TestProbeRegistry_CellsAreWellFormedAndEvidenced|143-226
 ./tests/acceptance/capability_probe_registry_test.go|TestProbeRegistry_EveryCapabilityIsProbedOrExcused t * testing . T|1|11|TestProbeRegistry_EveryCapabilityIsProbedOrExcused|43-79
 ./tests/acceptance/capability_probe_registry_test.go|TestProbeRegistry_ProbeRowsAreWellFormed t * testing . T|1|15|TestProbeRegistry_ProbeRowsAreWellFormed|103-139
 ./tests/acceptance/capability_probe_registry_test.go|featureCellKeys t * testing . T , path string , doc * messages . GherkinDocument|1|19|featureCellKeys|362-414
-./tests/acceptance/cli_coverage_gate_test.go|TestCLICoverage_EveryLeafActuallyRan t * testing . T|1|12|TestCLICoverage_EveryLeafActuallyRan|87-134
-./tests/acceptance/cli_coverage_gate_test.go|readCoverProfile path string|1|13|readCoverProfile|222-281
+./tests/acceptance/cli_coverage_gate_test.go|TestCLICoverage_EveryLeafActuallyRan t * testing . T|1|12|TestCLICoverage_EveryLeafActuallyRan|81-128
+./tests/acceptance/cli_coverage_gate_test.go|readCoverProfile path string|1|13|readCoverProfile|216-275
 ./tests/acceptance/cli_flag_gate_test.go|TestCLICoverage_EveryChangedFlagWasPassed t * testing . T|1|21|TestCLICoverage_EveryChangedFlagWasPassed|96-217
 ./tests/acceptance/cli_flag_gate_test.go|changedFlagSites srcDir string|1|16|changedFlagSites|243-314
 ./tests/acceptance/completeness_test.go|expandOutlineRows text string|1|11|expandOutlineRows|394-433
@@ -242,12 +242,11 @@
 ./tests/acceptance/steps_capability_hook_firing.go| c context . Context , engine , runtime , workspace string|1|16||81-198
 ./tests/acceptance/steps_capability_mcp_round_trip.go| c context . Context , engine , runtime , workspace string|1|12||195-288
 ./tests/acceptance/steps_cli.go|shellSplit cmdline string|1|17|shellSplit|785-838
-./tests/acceptance/steps_doc_capture.go| c context . Context , st * godog . Step , status godog . StepResultStatus , err error|1|21||193-314
+./tests/acceptance/steps_doc_capture.go| c context . Context , st * godog . Step , status godog . StepResultStatus , err error|1|21||189-310
 ./tests/acceptance/steps_isolation_probe.go| c context . Context , engine , axisStr string|1|13||119-182
 ./tests/acceptance/steps_j001600_signing.go| c context . Context|1|13||1348-1394
 ./tests/acceptance/steps_j001700.go| c context . Context , bundleName string|1|18||108-196
 ./tests/acceptance/steps_j001800_guardrails.go| c context . Context|1|14||282-331
-./tests/acceptance/steps_j002100_delegation.go|j002100AttachedCapabilities w * World|1|12|j002100AttachedCapabilities|648-688
 ./tests/acceptance/steps_j002200_isolation.go| c context . Context|1|11||341-366
 ./tests/acceptance/steps_j002500_taskloom.go| c context . Context , untagged , tagged string|1|11||225-248
 ./tests/acceptance/steps_p6_steer_echo.go| c context . Context , engine , runtime , workspace , marker string|1|12||86-174

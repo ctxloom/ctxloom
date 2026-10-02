@@ -734,13 +734,25 @@ func j002300ScanMail(mail []*spool.Message, harp, want string) (hit string, seen
 }
 
 // j002300OwnerMail is every message that has reached the session owner's
-// spool: waiting in in/, claimed by its turn-start hook, or consumed. All
-// three are "delivered to the owner" — a live owner's own hook may take a
-// message before the scenario looks — and none of them is read by a tool.
+// spool: waiting in in/, claimed by its turn-start hook, or delivered (read
+// from the sending child's routed copy, since a delivered inbox file is
+// deleted). All three are "delivered to the owner" — a live owner's own hook
+// may take a message before the scenario looks — and none of them is read by
+// a tool.
 func j002300OwnerMail(w *World) ([]*spool.Message, error) {
 	var out []*spool.Message
-	for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName, spool.DirInConsumed} {
+	for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName} {
 		msgs, err := ownerSpoolMessages(w, dir)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, msgs...)
+	}
+	// A message the owner's reader DELIVERED is deleted from its inbox
+	// (spool.Deliver). What each child sent it survives as the child's own
+	// routed copy in out/consumed/, authored by that child by directory.
+	for _, harp := range j002300Of(w).harps {
+		msgs, err := childSpoolMessages(w, harp, spool.DirOutConsumed)
 		if err != nil {
 			return nil, err
 		}

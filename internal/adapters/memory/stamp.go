@@ -7,7 +7,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/safefs"
+	"github.com/spf13/afero"
 )
 
 // StampPlanFile ensures the file's YAML frontmatter contains `sessions:`
@@ -63,7 +64,7 @@ func prependFrontmatter(path, content, harpName string, mode os.FileMode) error 
 	if !strings.HasPrefix(content, "\n") && content != "" {
 		prefix += "\n"
 	}
-	return iox.WriteFileAtomic(path, []byte(prefix+content), mode)
+	return safefs.WriteFile(afero.NewOsFs(), path, []byte(prefix+content), mode)
 }
 
 // updateFrontmatter parses content's leading frontmatter, adds harpName to its
@@ -124,7 +125,7 @@ func updateFrontmatter(path, content, harpName string, mode os.FileMode) error {
 	if body != "" {
 		newContent += "\n" + body
 	}
-	return iox.WriteFileAtomic(path, []byte(newContent), mode)
+	return safefs.WriteFile(afero.NewOsFs(), path, []byte(newContent), mode)
 }
 
 // encodeFrontmatter renders a parsed frontmatter document back to YAML. Both

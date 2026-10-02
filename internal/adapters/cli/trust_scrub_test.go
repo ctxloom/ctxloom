@@ -40,6 +40,7 @@ func scrubProjectRoot(t *testing.T) string {
 
 	appDir := filepath.Join(root, paths.AppDirName)
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	provisionApprovals(t, appDir)
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir),
 		[]byte(fmt.Sprintf("version: %d\ndefault_agent: default\nagents:\n  default:\n    profiles:\n      - dev\n",
 			config.CurrentConfigVersion)), 0o644))

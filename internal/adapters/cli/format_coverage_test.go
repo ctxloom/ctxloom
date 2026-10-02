@@ -38,6 +38,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -121,6 +122,7 @@ func formatCoverageProject(t *testing.T) *config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv(projectroot.EnvVar, dir)
+	provisionApprovals(t, filepath.Join(dir, paths.AppDirName))
 	resetApp()
 	cfg, err := configload.Load()
 	require.NoError(t, err)

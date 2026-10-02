@@ -312,3 +312,35 @@ func TestStampPlanFile_WritesTheSessionsListPlansReadsBack(t *testing.T) {
 		"the reader must see every stamped harp, in stamp order")
 	assert.Contains(t, string(data), "body text", "the body must survive verbatim")
 }
+
+// A literal block scalar as the LAST frontmatter key owns the newline that ends
+// its last line — that newline sits just before the closing fence, and the
+// reader (plans.frontmatterBlock) keeps it. A writer that cuts the block at the
+// fence instead reads the value one newline short and re-emits it strip-chomped
+// (`|-`), silently rewriting the user's file. Everything but the stamped key
+// must survive byte for byte.
+func TestStampPlanFile_TrailingLiteralBlockScalar_SurvivesByteForByte(t *testing.T) {
+	cases := []struct {
+		name, initial, want string
+	}{
+		{
+			name:    "clip chomping",
+			initial: "---\nsessions: [earlier]\nnotes: |\n  line one\n  line two\n---\n\n# body\n",
+			want:    "---\nsessions: [earlier, wave81]\nnotes: |\n  line one\n  line two\n---\n\n# body\n",
+		},
+		{
+			// Keep chomping makes the trailing blank line part of the value, so
+			// trimming the encoder's output at the fence clips it just the same.
+			name:    "keep chomping with a trailing blank line",
+			initial: "---\nsessions: [earlier]\nnotes: |+\n  line one\n\n---\n\n# body\n",
+			want:    "---\nsessions: [earlier, wave81]\nnotes: |+\n  line one\n\n---\n\n# body\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writePlanFile(t, "plan.md", tc.initial)
+			require.NoError(t, StampPlanFile(path, "wave81"))
+			assert.Equal(t, tc.want, readFile(t, path))
+		})
+	}
+}
